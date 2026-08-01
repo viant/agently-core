@@ -13,7 +13,16 @@ func TestDefaultsWithFallbackMergesAdvancedDefaults(t *testing.T) {
 		Embedder: "fallback-embedder",
 		Agent:    "fallback-agent",
 		Reporting: execconfig.ReportingDefaults{
-			Enabled: false,
+			Enabled:         false,
+			QueueIntervalMs: 100,
+			QueueBatchLimit: 10,
+			TransitionalWithUI: execconfig.ReportingTransitionalWithUIDefaults{
+				Admission:            "closed",
+				Persistence:          "disabled",
+				ExportFromRun:        "enabled",
+				Orchestration:        "enabled",
+				ConversationAdoption: "disabled",
+			},
 		},
 		PreviewSettings: execconfig.PreviewSettings{
 			Limit:           1000,
@@ -32,9 +41,17 @@ default:
   model: openai_gpt-5_4
   reporting:
     enabled: true
+    queueIntervalMs: 250
+    queueBatchLimit: 25
     store:
       backend: sql
       connectorRef: agently
+    transitionalWithUI:
+      admission: open
+      persistence: enabled
+      exportFromRun: disabled
+      orchestration: disabled
+      conversationAdoption: enabled
   skills:
     model: openai_gpt-5.4-mini
   previewSettings:
@@ -61,11 +78,29 @@ default:
 	if !got.Reporting.Enabled {
 		t.Fatalf("expected reporting enabled to merge from workspace defaults")
 	}
+	if got.Reporting.QueueIntervalMs != 250 {
+		t.Fatalf("expected reporting queueIntervalMs 250, got %d", got.Reporting.QueueIntervalMs)
+	}
+	if got.Reporting.QueueBatchLimit != 25 {
+		t.Fatalf("expected reporting queueBatchLimit 25, got %d", got.Reporting.QueueBatchLimit)
+	}
 	if got.Reporting.Store.Backend != "sql" {
 		t.Fatalf("expected reporting store backend sql, got %q", got.Reporting.Store.Backend)
 	}
 	if got.Reporting.Store.ConnectorRef != "agently" {
 		t.Fatalf("expected reporting store connectorRef agently, got %q", got.Reporting.Store.ConnectorRef)
+	}
+	if !got.Reporting.BrowserRunPersistenceEnabled() {
+		t.Fatalf("expected browser report-run persistence to be enabled through workspace defaults")
+	}
+	if !got.Reporting.ConversationAdoptionEnabled() {
+		t.Fatalf("expected conversation adoption to be enabled through workspace defaults")
+	}
+	if got.Reporting.TransitionalWithUI.ExportFromRun != "disabled" {
+		t.Fatalf("expected exportFromRun disabled, got %q", got.Reporting.TransitionalWithUI.ExportFromRun)
+	}
+	if got.Reporting.TransitionalWithUI.Orchestration != "disabled" {
+		t.Fatalf("expected orchestration disabled, got %q", got.Reporting.TransitionalWithUI.Orchestration)
 	}
 	if got.Skills.Model != "openai_gpt-5.4-mini" {
 		t.Fatalf("expected merged skills model, got %q", got.Skills.Model)

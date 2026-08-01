@@ -2,17 +2,23 @@ package sql
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/viant/agently-core/app/store/data"
+	reportstore "github.com/viant/agently-core/app/store/reporting"
 	reportfs "github.com/viant/agently-core/app/store/reporting/fs"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
 	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
+	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
 	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
+	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
 	reportshareartifact "github.com/viant/agently-core/pkg/agently/reportshareartifact"
 	authsvc "github.com/viant/agently-core/service/auth"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
@@ -135,6 +141,594 @@ func TestStore_SharedArtifactRoundTripIsScopedByOwner(t *testing.T) {
 	got.OwnerRef = "user://owner-2"
 	if err := client.UpdateSharedArtifact(otherCtx, got); err == nil {
 		t.Fatalf("UpdateSharedArtifact(other) expected not found")
+	}
+}
+
+func TestStore_ReportRunAndContextCASParity(t *testing.T) {
+	ctx := context.Background()
+	dao, err := data.NewDatlyInMemory(ctx)
+	if err != nil {
+		t.Fatalf("NewDatlyInMemory() error = %v", err)
+	}
+	client, err := New(ctx, dao, "agently", nil, reportmemory.New())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	runStore, ok := client.(reportstore.RunClient)
+	if !ok {
+		t.Fatalf("SQL reporting store does not implement RunClient")
+	}
+	store := client.(*Store)
+	db, err := store.dbHandle()
+	if err != nil {
+		t.Fatalf("dbHandle() error = %v", err)
+	}
+	assertExactT2JobColumns(t, db)
+	if _, err = db.ExecContext(ctx, `
+INSERT INTO conversation (id, created_by_user_id, visibility, shareable)
+VALUES (?, ?, 'private', 0)`, "conv-run-1", "owner-run-1"); err != nil {
+		t.Fatalf("insert conversation error = %v", err)
+	}
+
+	ownerCtx := authsvc.InjectUser(ctx, "owner-run-1")
+	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
+	run := &reportrun.Record{
+		ReportRunID:     "run-sql-1",
+		OwnerID:         "owner-run-1",
+		ConversationID:  "conv-run-1",
+		Materializer:    reportrun.MaterializerLegacyBrowser,
+		Status:          reportrun.StatusRunning,
+		Revision:        1,
+		UIRunRequestID:  "ui-request-sql-1",
+		RequestedParams: []byte(`{"orderId":2676946}`),
+		StartedAt:       now,
+		CreatedAt:       now,
+		UpdatedAt:       now,
+	}
+	if err := runStore.CreateReportRun(ownerCtx, run); err != nil {
+		t.Fatalf("CreateReportRun() error = %v", err)
+	}
+	byRequest, err := runStore.GetReportRunByRequestID(ownerCtx, "ui-request-sql-1")
+	if err != nil || byRequest.ReportRunID != "run-sql-1" {
+		t.Fatalf("GetReportRunByRequestID() = %+v, %v", byRequest, err)
+	}
+	run.Status = reportrun.StatusCompleted
+	run.Revision = 2
+	run.ReportSpec = []byte(`{"kind":"reportSpec"}`)
+	run.ReportFill = []byte(`{"kind":"reportFill"}`)
+	run.ReportPrint = []byte(`{"kind":"reportPrint"}`)
+	completedAt := now.Add(time.Second)
+	run.CompletedAt = &completedAt
+	run.UpdatedAt = completedAt
+	if err := runStore.UpdateReportRunCAS(ownerCtx, run, 1); err != nil {
+		t.Fatalf("UpdateReportRunCAS() error = %v", err)
+	}
+	if err := runStore.UpdateReportRunCAS(ownerCtx, run, 1); !errors.Is(err, reportstore.ErrCASMismatch) {
+		t.Fatalf("UpdateReportRunCAS(stale) error = %v, want CAS", err)
+	}
+	pointer := &reportcontext.Record{
+		OwnerID:           "owner-run-1",
+		ConversationID:    "conv-run-1",
+		ActiveReportRunID: "run-sql-1",
+		Revision:          1,
+		ActivationSource:  "prompt",
+		ActorID:           "owner-run-1",
+		UpdatedAt:         completedAt,
+	}
+	if err := runStore.PutConversationReportContextCAS(ownerCtx, pointer, 0); err != nil {
+		t.Fatalf("PutConversationReportContextCAS() error = %v", err)
+	}
+	if err := runStore.PutConversationReportContextCAS(ownerCtx, pointer, 0); !errors.Is(err, reportstore.ErrCASMismatch) {
+		t.Fatalf("PutConversationReportContextCAS(stale) error = %v, want CAS", err)
+	}
+	otherCtx := authsvc.InjectUser(ctx, "owner-run-2")
+	if _, err := runStore.GetReportRun(otherCtx, "run-sql-1"); !errors.Is(err, reportstore.ErrNotFound) {
+		t.Fatalf("GetReportRun(other owner) error = %v, want not found", err)
+	}
+}
+
+func TestStore_RunExportCopiesCompletedSnapshotAndGuardsLifecycle(t *testing.T) {
+	ctx := context.Background()
+	dao, err := data.NewDatlyInMemory(ctx)
+	if err != nil {
+		t.Fatalf("NewDatlyInMemory() error = %v", err)
+	}
+	client, err := New(ctx, dao, "agently", nil, reportmemory.New())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	runStore := client.(reportstore.RunClient)
+	exportStore := client.(reportstore.RunExportClient)
+	store := client.(*Store)
+	db, err := store.dbHandle()
+	if err != nil {
+		t.Fatalf("dbHandle() error = %v", err)
+	}
+	if _, err = db.ExecContext(ctx, `
+INSERT INTO conversation (id, created_by_user_id, visibility, shareable)
+VALUES (?, ?, 'private', 0)`, "conv-export-sql", "owner-export-sql"); err != nil {
+		t.Fatalf("insert conversation error = %v", err)
+	}
+	ownerCtx := authsvc.InjectUser(ctx, "owner-export-sql")
+	now := time.Date(2026, 7, 29, 18, 0, 0, 0, time.UTC)
+	run := completedSQLRun("run-export-sql", "owner-export-sql", "conv-export-sql", now)
+	run.Revision = 13
+	run.ReportSpec = []byte(`{"kind":"authoritativeSpec"}`)
+	run.ReportFill = []byte(`{"kind":"authoritativeFill"}`)
+	run.ReportPrint = []byte(`{"kind":"authoritativePrint"}`)
+	if err := runStore.CreateReportRun(ownerCtx, run); err != nil {
+		t.Fatalf("CreateReportRun() error = %v", err)
+	}
+	candidate := &reportjob.Record{
+		JobID:           "job-export-sql",
+		ArtifactRef:     "report-run://run-export-sql",
+		OwnerID:         "owner-export-sql",
+		ConversationID:  "conv-export-sql",
+		Format:          "pdf",
+		Scope:           "draft",
+		Status:          "queued",
+		ReportRunID:     run.ReportRunID,
+		ExportRequestID: "request-export-sql",
+		ReportSpec:      []byte(`{"kind":"untrustedBrowserSpec"}`),
+		SubmittedAt:     now,
+	}
+	job, replay, err := exportStore.SubmitJobFromRun(ownerCtx, candidate)
+	if err != nil {
+		t.Fatalf("SubmitJobFromRun() error = %v", err)
+	}
+	if replay {
+		t.Fatalf("SubmitJobFromRun() replay = true, want false")
+	}
+	if job.ReportRunRevision != run.Revision ||
+		string(job.ReportSpec) != string(run.ReportSpec) ||
+		string(job.ReportFill) != string(run.ReportFill) ||
+		string(job.ReportPrint) != string(run.ReportPrint) {
+		t.Fatalf("SubmitJobFromRun() did not copy authoritative run: %+v", job)
+	}
+	unguarded := *job
+	unguarded.Status = "succeeded"
+	if err := client.UpdateJob(ownerCtx, &unguarded); !errors.Is(err, reportstore.ErrInvalidTransition) {
+		t.Fatalf("UpdateJob(run-reference) error = %v, want guarded transition rejection", err)
+	}
+	replayed, replay, err := exportStore.SubmitJobFromRun(ownerCtx, candidate)
+	if err != nil || !replay || replayed.JobID != job.JobID {
+		t.Fatalf("SubmitJobFromRun(replay) = %+v, %t, %v", replayed, replay, err)
+	}
+	conflict := *candidate
+	conflict.ReportRunID = "different-run"
+	conflict.ArtifactRef = "report-run://different-run"
+	if _, _, err := exportStore.SubmitJobFromRun(ownerCtx, &conflict); !errors.Is(err, reportstore.ErrConflict) {
+		t.Fatalf("SubmitJobFromRun(conflict) error = %v, want conflict", err)
+	}
+	formatConflict := *candidate
+	formatConflict.Format = "xlsx"
+	if _, _, err := exportStore.SubmitJobFromRun(ownerCtx, &formatConflict); !errors.Is(err, reportstore.ErrConflict) {
+		t.Fatalf("SubmitJobFromRun(format conflict) error = %v, want conflict", err)
+	}
+	optionsConflict := *candidate
+	optionsConflict.Scope = "saved_payload"
+	if _, _, err := exportStore.SubmitJobFromRun(ownerCtx, &optionsConflict); !errors.Is(err, reportstore.ErrConflict) {
+		t.Fatalf("SubmitJobFromRun(options conflict) error = %v, want conflict", err)
+	}
+	running, err := exportStore.ClaimJob(ownerCtx, job.JobID, now.Add(time.Second))
+	if err != nil || running.Status != "running" {
+		t.Fatalf("ClaimJob() = %+v, %v", running, err)
+	}
+	if _, err := exportStore.ClaimJob(ownerCtx, job.JobID, now.Add(2*time.Second)); !errors.Is(err, reportstore.ErrInvalidTransition) {
+		t.Fatalf("ClaimJob(duplicate) error = %v, want invalid transition", err)
+	}
+	completed, err := exportStore.CompleteJobWithArtifact(ownerCtx, job.JobID, &reportartifact.Record{
+		ArtifactID:  "artifact-export-sql",
+		ContentType: "application/pdf",
+		Data:        []byte("%PDF-sql"),
+		CreatedAt:   now.Add(2 * time.Second),
+	}, nil, now.Add(2*time.Second), time.Hour)
+	if err != nil || completed.Status != "succeeded" || completed.ArtifactID != "artifact-export-sql" {
+		t.Fatalf("CompleteJobWithArtifact() = %+v, %v", completed, err)
+	}
+	duplicate, err := exportStore.CompleteJobWithArtifact(ownerCtx, job.JobID, &reportartifact.Record{
+		ArtifactID: "ignored-retry-artifact",
+	}, nil, now.Add(3*time.Second), time.Hour)
+	if err != nil || duplicate.ArtifactID != completed.ArtifactID {
+		t.Fatalf("CompleteJobWithArtifact(replay) = %+v, %v", duplicate, err)
+	}
+	artifacts, err := client.ListArtifacts(ownerCtx)
+	if err != nil || len(artifacts) != 1 {
+		t.Fatalf("ListArtifacts() = %+v, %v, want exactly one", artifacts, err)
+	}
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO report_export_artifact (
+  artifact_id, job_id, artifact_ref, owner_id, format, content_type, inline_data, created_at, retention_ttl_sec
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"artifact-export-sql-duplicate", job.JobID, job.ArtifactRef, job.OwnerID,
+		job.Format, "application/pdf", []byte("%PDF-duplicate"), now.Add(4*time.Second), 0,
+	); err == nil {
+		t.Fatal("second artifact for one job unexpectedly bypassed UNIQUE(job_id)")
+	}
+}
+
+func TestStore_RunExportKeepsLegacySchemaReadable(t *testing.T) {
+	ctx := context.Background()
+	dao, err := data.NewDatlyInMemory(ctx)
+	if err != nil {
+		t.Fatalf("NewDatlyInMemory() error = %v", err)
+	}
+	client, err := New(ctx, dao, "agently", nil, reportmemory.New())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	store := client.(*Store)
+	db, err := store.dbHandle()
+	if err != nil {
+		t.Fatalf("dbHandle() error = %v", err)
+	}
+	for _, statement := range []string{
+		`DROP TABLE report_export_artifact`,
+		`DROP TABLE report_export_job`,
+		`CREATE TABLE report_export_job (
+			job_id TEXT PRIMARY KEY,
+			artifact_ref TEXT NOT NULL,
+			owner_id TEXT NOT NULL,
+			conversation_id TEXT,
+			workspace_id TEXT,
+			auth_context_ref TEXT,
+			format TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			status TEXT NOT NULL,
+			report_spec_json BLOB,
+			report_fill_json BLOB,
+			report_print_json BLOB,
+			metadata_json BLOB,
+			artifact_id TEXT,
+			error_text TEXT,
+			diagnostics_json BLOB,
+			submitted_at DATETIME NOT NULL,
+			started_at DATETIME,
+			completed_at DATETIME,
+			retention_ttl_sec INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE report_export_artifact (
+			artifact_id TEXT PRIMARY KEY,
+			job_id TEXT NOT NULL,
+			artifact_ref TEXT NOT NULL,
+			owner_id TEXT NOT NULL,
+			format TEXT NOT NULL,
+			content_type TEXT NOT NULL,
+			inline_data BLOB,
+			created_at DATETIME NOT NULL,
+			retention_ttl_sec INTEGER NOT NULL DEFAULT 0
+		)`,
+	} {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("legacy schema statement error = %v: %s", err, statement)
+		}
+	}
+	ownerCtx := authsvc.InjectUser(ctx, "legacy-owner")
+	now := time.Date(2026, 7, 29, 19, 0, 0, 0, time.UTC)
+	legacy := &reportjob.Record{
+		JobID:       "legacy-job",
+		ArtifactRef: "legacy://report",
+		OwnerID:     "legacy-owner",
+		Format:      "pdf",
+		Scope:       "draft",
+		Status:      "queued",
+		SubmittedAt: now,
+	}
+	if err := client.CreateJob(ownerCtx, legacy); err != nil {
+		t.Fatalf("CreateJob(legacy) error = %v", err)
+	}
+	got, err := client.GetJob(ownerCtx, legacy.JobID)
+	if err != nil || got.ReportRunID != "" || got.ExportRequestID != "" {
+		t.Fatalf("GetJob(legacy) = %+v, %v", got, err)
+	}
+	exportStore := client.(reportstore.RunExportClient)
+	if _, _, err := exportStore.SubmitJobFromRun(ownerCtx, &reportjob.Record{
+		JobID:           "run-job",
+		OwnerID:         "legacy-owner",
+		ConversationID:  "legacy-conversation",
+		ReportRunID:     "run-1",
+		ExportRequestID: "request-1",
+	}); !errors.Is(err, reportstore.ErrSchemaRequired) {
+		t.Fatalf("SubmitJobFromRun(legacy schema) error = %v, want schema required", err)
+	}
+	running, err := exportStore.ClaimJob(ownerCtx, legacy.JobID, now.Add(time.Second))
+	if err != nil || running.Status != "running" {
+		t.Fatalf("ClaimJob(legacy) = %+v, %v", running, err)
+	}
+	completed, err := exportStore.CompleteJobWithArtifact(ownerCtx, legacy.JobID, &reportartifact.Record{
+		ArtifactID:  "legacy-artifact",
+		ContentType: "application/pdf",
+		Data:        []byte("%PDF-legacy"),
+		CreatedAt:   now.Add(2 * time.Second),
+	}, nil, now.Add(2*time.Second), 0)
+	if err != nil || completed.Status != "succeeded" {
+		t.Fatalf("CompleteJobWithArtifact(legacy) = %+v, %v", completed, err)
+	}
+}
+
+func TestNormalizeCheckClause_CharsetIntroducedLiterals(t *testing.T) {
+	tests := []struct {
+		name   string
+		clause string
+		want   string
+	}{
+		{
+			name:   "escaped apostrophes",
+			clause: "((`format` = _utf8mb4\\'pdf\\') and (`status` = _utf8mb4\\'queued\\'))",
+			want:   "((format='pdf')and(status='queued'))",
+		},
+		{
+			name:   "unescaped apostrophes",
+			clause: "((`format` = _utf8mb4'pdf') and (`status` = _utf8mb4'queued'))",
+			want:   "((format='pdf')and(status='queued'))",
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := normalizeCheckClause(test.clause); got != test.want {
+				t.Fatalf("normalizeCheckClause(%q) = %q, want %q", test.clause, got, test.want)
+			}
+		})
+	}
+}
+
+func TestStore_RunExportRequiresConstraintsWhenT2ColumnsExist(t *testing.T) {
+	ctx := context.Background()
+	dao, err := data.NewDatlyInMemory(ctx)
+	if err != nil {
+		t.Fatalf("NewDatlyInMemory() error = %v", err)
+	}
+	client, err := New(ctx, dao, "agently", nil, reportmemory.New())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	store := client.(*Store)
+	db, err := store.dbHandle()
+	if err != nil {
+		t.Fatalf("dbHandle() error = %v", err)
+	}
+	for _, statement := range []string{
+		`DROP TABLE report_export_artifact`,
+		`DROP TABLE report_export_job`,
+		`CREATE TABLE report_export_job (
+			job_id TEXT PRIMARY KEY,
+			artifact_ref TEXT NOT NULL,
+			owner_id TEXT NOT NULL,
+			conversation_id TEXT,
+			workspace_id TEXT,
+			auth_context_ref TEXT,
+			format TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			status TEXT NOT NULL,
+			report_run_id TEXT,
+			report_run_revision INTEGER,
+			export_request_id TEXT,
+			report_spec_json BLOB,
+			report_fill_json BLOB,
+			report_print_json BLOB,
+			metadata_json BLOB,
+			artifact_id TEXT,
+			error_text TEXT,
+			diagnostics_json BLOB,
+			submitted_at DATETIME NOT NULL,
+			started_at DATETIME,
+			completed_at DATETIME,
+			retention_ttl_sec INTEGER NOT NULL DEFAULT 0
+		)`,
+		`CREATE TABLE report_export_artifact (
+			artifact_id TEXT PRIMARY KEY,
+			job_id TEXT NOT NULL,
+			artifact_ref TEXT NOT NULL,
+			owner_id TEXT NOT NULL,
+			format TEXT NOT NULL,
+			content_type TEXT NOT NULL,
+			inline_data BLOB,
+			created_at DATETIME NOT NULL,
+			retention_ttl_sec INTEGER NOT NULL DEFAULT 0
+		)`,
+	} {
+		if _, err := db.ExecContext(ctx, statement); err != nil {
+			t.Fatalf("partial T2 schema statement error = %v: %s", err, statement)
+		}
+	}
+	columnsPresent, err := hasColumns(
+		ctx, db, "report_export_job", "report_run_id", "report_run_revision", "export_request_id",
+	)
+	if err != nil || !columnsPresent {
+		t.Fatalf("partial T2 schema columns present = %t, error = %v, want all three columns", columnsPresent, err)
+	}
+
+	ownerCtx := authsvc.InjectUser(ctx, "partial-t2-owner")
+	now := time.Date(2026, 7, 29, 19, 30, 0, 0, time.UTC)
+	legacy := &reportjob.Record{
+		JobID:       "partial-t2-legacy-job",
+		ArtifactRef: "legacy://partial-t2",
+		OwnerID:     "partial-t2-owner",
+		Format:      "pdf",
+		Scope:       "draft",
+		Status:      "queued",
+		SubmittedAt: now,
+	}
+	if err := client.CreateJob(ownerCtx, legacy); err != nil {
+		t.Fatalf("CreateJob(partial T2 schema) error = %v", err)
+	}
+	if _, err := client.GetJob(ownerCtx, legacy.JobID); err != nil {
+		t.Fatalf("GetJob(partial T2 schema) error = %v", err)
+	}
+	exportStore := client.(reportstore.RunExportClient)
+	running, err := exportStore.ClaimJob(ownerCtx, legacy.JobID, now.Add(time.Second))
+	if err != nil || running.Status != "running" {
+		t.Fatalf("ClaimJob(partial T2 schema) = %+v, %v", running, err)
+	}
+	if _, err := exportStore.FailJob(ownerCtx, legacy.JobID, "expected", nil, now.Add(2*time.Second)); err != nil {
+		t.Fatalf("FailJob(partial T2 schema) error = %v", err)
+	}
+
+	if _, _, err := exportStore.SubmitJobFromRun(ownerCtx, &reportjob.Record{
+		JobID:           "partial-t2-run-job",
+		OwnerID:         "partial-t2-owner",
+		ConversationID:  "partial-t2-conversation",
+		Format:          "pdf",
+		Scope:           "draft",
+		Status:          "queued",
+		ReportRunID:     "partial-t2-run",
+		ExportRequestID: "partial-t2-request",
+		SubmittedAt:     now,
+	}); !errors.Is(err, reportstore.ErrSchemaRequired) {
+		t.Fatalf("SubmitJobFromRun(partial T2 schema) error = %v, want schema required", err)
+	}
+}
+
+func TestStore_AdoptionUsesOneTransactionAndRejectsCompletedSnapshotMutation(t *testing.T) {
+	ctx := context.Background()
+	dao, err := data.NewDatlyInMemory(ctx)
+	if err != nil {
+		t.Fatalf("NewDatlyInMemory() error = %v", err)
+	}
+	client, err := New(ctx, dao, "agently", nil, reportmemory.New())
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	runStore := client.(reportstore.RunClient)
+	store := client.(*Store)
+	db, err := store.dbHandle()
+	if err != nil {
+		t.Fatalf("dbHandle() error = %v", err)
+	}
+	for _, conversationID := range []string{"conv-stale", "conv-concurrent"} {
+		if _, err := db.ExecContext(ctx, `
+INSERT INTO conversation (id, created_by_user_id, visibility, shareable)
+VALUES (?, ?, 'private', 0)`, conversationID, "owner-adopt"); err != nil {
+			t.Fatalf("insert conversation %s error = %v", conversationID, err)
+		}
+	}
+	ownerCtx := authsvc.InjectUser(ctx, "owner-adopt")
+	now := time.Date(2026, 7, 29, 15, 30, 0, 0, time.UTC)
+
+	prior := completedSQLRun("prior-run", "owner-adopt", "conv-stale", now)
+	if err := runStore.CreateReportRun(ownerCtx, prior); err != nil {
+		t.Fatalf("CreateReportRun(prior) error = %v", err)
+	}
+	if err := runStore.PutConversationReportContextCAS(ownerCtx, &reportcontext.Record{
+		OwnerID:           "owner-adopt",
+		ConversationID:    "conv-stale",
+		ActiveReportRunID: prior.ReportRunID,
+		Revision:          1,
+		ActivationSource:  "manual",
+		ActorID:           "owner-adopt",
+		UpdatedAt:         now,
+	}, 0); err != nil {
+		t.Fatalf("PutConversationReportContextCAS(prior) error = %v", err)
+	}
+	manual := completedSQLRun("manual-run", "owner-adopt", "", now)
+	manual.Origin = "manual"
+	if err := runStore.CreateReportRun(ownerCtx, manual); err != nil {
+		t.Fatalf("CreateReportRun(manual) error = %v", err)
+	}
+	staleRun := adoptedSQLRun(manual, "conv-stale", now.Add(time.Second))
+	stalePointer := adoptedSQLContext(staleRun, 1, now.Add(time.Second))
+	if err := runStore.AdoptReportRunAndContextCAS(ownerCtx, staleRun, 2, stalePointer, 0); !errors.Is(err, reportstore.ErrCASMismatch) {
+		t.Fatalf("AdoptReportRunAndContextCAS(stale) error = %v, want CAS", err)
+	}
+	unchangedRun, err := runStore.GetReportRun(ownerCtx, manual.ReportRunID)
+	if err != nil || unchangedRun.ConversationID != "" {
+		t.Fatalf("stale adoption changed run: %+v, %v", unchangedRun, err)
+	}
+	unchangedPointer, err := runStore.GetConversationReportContext(ownerCtx, "conv-stale")
+	if err != nil || unchangedPointer.ActiveReportRunID != prior.ReportRunID {
+		t.Fatalf("stale adoption changed pointer: %+v, %v", unchangedPointer, err)
+	}
+
+	mutated := *manual
+	mutated.ReportFill = []byte(`{"kind":"changed"}`)
+	mutated.Revision++
+	if err := runStore.UpdateReportRunCAS(ownerCtx, &mutated, manual.Revision); !errors.Is(err, reportstore.ErrImmutable) {
+		t.Fatalf("UpdateReportRunCAS(completed mutation) error = %v, want immutable", err)
+	}
+
+	concurrent := completedSQLRun("manual-concurrent", "owner-adopt", "", now)
+	concurrent.Origin = "manual"
+	if err := runStore.CreateReportRun(ownerCtx, concurrent); err != nil {
+		t.Fatalf("CreateReportRun(concurrent) error = %v", err)
+	}
+	next := adoptedSQLRun(concurrent, "conv-concurrent", now.Add(2*time.Second))
+	nextPointer := adoptedSQLContext(next, 0, now.Add(2*time.Second))
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			results <- runStore.AdoptReportRunAndContextCAS(ownerCtx, next, 2, nextPointer, 0)
+		}()
+	}
+	wg.Wait()
+	close(results)
+	successes := 0
+	casFailures := 0
+	for result := range results {
+		switch {
+		case result == nil:
+			successes++
+		case errors.Is(result, reportstore.ErrCASMismatch):
+			casFailures++
+		default:
+			t.Fatalf("concurrent SQL adoption error = %v", result)
+		}
+	}
+	if successes != 1 || casFailures != 1 {
+		t.Fatalf("concurrent SQL adoption successes=%d casFailures=%d", successes, casFailures)
+	}
+	gotRun, err := runStore.GetReportRun(ownerCtx, concurrent.ReportRunID)
+	if err != nil || gotRun.ConversationID != "conv-concurrent" || gotRun.Revision != 3 {
+		t.Fatalf("GetReportRun(after adoption) = %+v, %v", gotRun, err)
+	}
+	gotPointer, err := runStore.GetConversationReportContext(ownerCtx, "conv-concurrent")
+	if err != nil || gotPointer.ActiveReportRunID != concurrent.ReportRunID || gotPointer.Revision != 1 {
+		t.Fatalf("GetConversationReportContext(after adoption) = %+v, %v", gotPointer, err)
+	}
+}
+
+func completedSQLRun(id, ownerID, conversationID string, now time.Time) *reportrun.Record {
+	completedAt := now
+	return &reportrun.Record{
+		ReportRunID:    id,
+		OwnerID:        ownerID,
+		ConversationID: conversationID,
+		Materializer:   reportrun.MaterializerLegacyBrowser,
+		Origin:         "prompt",
+		Status:         reportrun.StatusCompleted,
+		Revision:       2,
+		UIRunRequestID: "request-" + id,
+		ReportSpec:     []byte(`{"kind":"reportSpec"}`),
+		ReportFill:     []byte(`{"kind":"reportFill"}`),
+		ReportPrint:    []byte(`{"kind":"reportPrint"}`),
+		StartedAt:      now,
+		CompletedAt:    &completedAt,
+		CreatedAt:      now,
+		UpdatedAt:      now,
+	}
+}
+
+func adoptedSQLRun(current *reportrun.Record, conversationID string, now time.Time) *reportrun.Record {
+	next := *current
+	next.ConversationID = conversationID
+	next.AdoptionSource = "adopt"
+	next.ActorID = current.OwnerID
+	next.Revision++
+	next.UpdatedAt = now
+	return &next
+}
+
+func adoptedSQLContext(run *reportrun.Record, expectedRevision int64, now time.Time) *reportcontext.Record {
+	return &reportcontext.Record{
+		OwnerID:           run.OwnerID,
+		ConversationID:    run.ConversationID,
+		ActiveReportRunID: run.ReportRunID,
+		Revision:          expectedRevision + 1,
+		ActivationSource:  "adopt",
+		ActorID:           run.OwnerID,
+		UpdatedAt:         now,
 	}
 }
 
@@ -376,6 +970,41 @@ func mustNoErr(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func assertExactT2JobColumns(t *testing.T, db *sql.DB) {
+	t.Helper()
+	rows, err := db.Query(`PRAGMA table_info(report_export_job)`)
+	if err != nil {
+		t.Fatalf("inspect report_export_job columns: %v", err)
+	}
+	defer rows.Close()
+	t2Columns := map[string]bool{}
+	for rows.Next() {
+		var (
+			position     int
+			name         string
+			columnType   string
+			notNull      int
+			defaultValue interface{}
+			primaryKey   int
+		)
+		if err := rows.Scan(&position, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			t.Fatalf("scan report_export_job column: %v", err)
+		}
+		switch name {
+		case "report_run_id", "report_run_revision", "export_request_id":
+			t2Columns[name] = true
+		case "revision":
+			t.Fatal("report_export_job unexpectedly contains a fourth revision column")
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("inspect report_export_job columns: %v", err)
+	}
+	if len(t2Columns) != 3 {
+		t.Fatalf("T2 report_export_job columns = %#v, want exactly three", t2Columns)
 	}
 }
 

@@ -5,6 +5,7 @@ package reporting
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"time"
 )
 
@@ -114,18 +115,20 @@ type CompileResult struct {
 // RenderRequest is the worker-facing canonical export payload handed to the
 // backend exporter boundary.
 type RenderRequest struct {
-	JobID          string          `json:"jobId,omitempty"`
-	ArtifactRef    string          `json:"artifactRef,omitempty"`
-	OwnerID        string          `json:"ownerId,omitempty"`
-	ConversationID string          `json:"conversationId,omitempty"`
-	WorkspaceID    string          `json:"workspaceId,omitempty"`
-	AuthContextRef string          `json:"authContextRef,omitempty"`
-	Format         ExportFormat    `json:"format,omitempty"`
-	Scope          ExportScope     `json:"scope,omitempty"`
-	ReportSpec     json.RawMessage `json:"reportSpec,omitempty"`
-	ReportFill     json.RawMessage `json:"reportFill,omitempty"`
-	ReportPrint    json.RawMessage `json:"reportPrint,omitempty"`
-	Metadata       json.RawMessage `json:"metadata,omitempty"`
+	JobID             string          `json:"jobId,omitempty"`
+	ArtifactRef       string          `json:"artifactRef,omitempty"`
+	OwnerID           string          `json:"ownerId,omitempty"`
+	ConversationID    string          `json:"conversationId,omitempty"`
+	WorkspaceID       string          `json:"workspaceId,omitempty"`
+	AuthContextRef    string          `json:"authContextRef,omitempty"`
+	Format            ExportFormat    `json:"format,omitempty"`
+	Scope             ExportScope     `json:"scope,omitempty"`
+	ReportRunID       string          `json:"reportRunId,omitempty"`
+	ReportRunRevision int64           `json:"reportRunRevision,omitempty"`
+	ReportSpec        json.RawMessage `json:"reportSpec,omitempty"`
+	ReportFill        json.RawMessage `json:"reportFill,omitempty"`
+	ReportPrint       json.RawMessage `json:"reportPrint,omitempty"`
+	Metadata          json.RawMessage `json:"metadata,omitempty"`
 }
 
 // RenderResult is the exporter output consumed by agently-core artifact
@@ -150,6 +153,40 @@ type SubmitExportRequest struct {
 	ReportPrint         json.RawMessage      `json:"reportPrint,omitempty"`
 	Metadata            json.RawMessage      `json:"metadata,omitempty"`
 	ReportExportRequest *ReportExportRequest `json:"reportExportRequest,omitempty"`
+	// ReportRunID selects the T2 run-reference mode.
+	// ExportRequestID is deliberately absent: trusted runtime/host context
+	// supplies it outside the model-visible arguments. The backend loads and
+	// records the authoritative completed run revision.
+	ReportRunID string `json:"reportRunId,omitempty"`
+
+	runModeHasAlternateFields bool
+}
+
+// UnmarshalJSON remembers whether a run-reference payload contained anything
+// beyond its exact model-visible surface. The marker is unexported so it does
+// not add schema fields, while still preventing encoding/json from silently
+// discarding browser/legacy aliases such as artifact, spec, or request.
+func (r *SubmitExportRequest) UnmarshalJSON(data []byte) error {
+	type plain SubmitExportRequest
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*r = SubmitExportRequest(decoded)
+	if strings.TrimSpace(r.ReportRunID) == "" {
+		return nil
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	for name := range fields {
+		if name != "reportRunId" && name != "format" {
+			r.runModeHasAlternateFields = true
+			break
+		}
+	}
+	return nil
 }
 
 // RecordAuditEventInput carries a UI-originated reporting audit event through
@@ -229,26 +266,49 @@ type FailExportRequest struct {
 
 // ExportJob is the persisted async export job state.
 type ExportJob struct {
-	JobID          string          `json:"jobId,omitempty"`
-	ArtifactRef    string          `json:"artifactRef,omitempty"`
-	OwnerID        string          `json:"ownerId,omitempty"`
-	ConversationID string          `json:"conversationId,omitempty"`
-	WorkspaceID    string          `json:"workspaceId,omitempty"`
-	AuthContextRef string          `json:"authContextRef,omitempty"`
-	Format         ExportFormat    `json:"format,omitempty"`
-	Scope          ExportScope     `json:"scope,omitempty"`
-	Status         JobStatus       `json:"status,omitempty"`
-	ReportSpec     json.RawMessage `json:"reportSpec,omitempty"`
-	ReportFill     json.RawMessage `json:"reportFill,omitempty"`
-	ReportPrint    json.RawMessage `json:"reportPrint,omitempty"`
-	Metadata       json.RawMessage `json:"metadata,omitempty"`
-	ArtifactID     string          `json:"artifactId,omitempty"`
-	Error          string          `json:"error,omitempty"`
-	Diagnostics    []Diagnostic    `json:"diagnostics,omitempty"`
-	SubmittedAt    time.Time       `json:"submittedAt,omitempty"`
-	StartedAt      *time.Time      `json:"startedAt,omitempty"`
-	CompletedAt    *time.Time      `json:"completedAt,omitempty"`
-	RetentionTTL   time.Duration   `json:"retentionTtl,omitempty"`
+	JobID             string          `json:"jobId,omitempty"`
+	ArtifactRef       string          `json:"artifactRef,omitempty"`
+	OwnerID           string          `json:"ownerId,omitempty"`
+	ConversationID    string          `json:"conversationId,omitempty"`
+	WorkspaceID       string          `json:"workspaceId,omitempty"`
+	AuthContextRef    string          `json:"authContextRef,omitempty"`
+	Format            ExportFormat    `json:"format,omitempty"`
+	Scope             ExportScope     `json:"scope,omitempty"`
+	Status            JobStatus       `json:"status,omitempty"`
+	ReportRunID       string          `json:"reportRunId,omitempty"`
+	ReportRunRevision int64           `json:"-"`
+	ExportRequestID   string          `json:"-"`
+	ReportSpec        json.RawMessage `json:"reportSpec,omitempty"`
+	ReportFill        json.RawMessage `json:"reportFill,omitempty"`
+	ReportPrint       json.RawMessage `json:"reportPrint,omitempty"`
+	Metadata          json.RawMessage `json:"metadata,omitempty"`
+	ArtifactID        string          `json:"artifactId,omitempty"`
+	Error             string          `json:"error,omitempty"`
+	Diagnostics       []Diagnostic    `json:"diagnostics,omitempty"`
+	SubmittedAt       time.Time       `json:"submittedAt,omitempty"`
+	StartedAt         *time.Time      `json:"startedAt,omitempty"`
+	CompletedAt       *time.Time      `json:"completedAt,omitempty"`
+	RetentionTTL      time.Duration   `json:"retentionTtl,omitempty"`
+}
+
+// ExportJobStatus is the compact public lifecycle view of an export job.
+type ExportJobStatus struct {
+	JobID          string        `json:"jobId,omitempty"`
+	ArtifactRef    string        `json:"artifactRef,omitempty"`
+	OwnerID        string        `json:"ownerId,omitempty"`
+	ConversationID string        `json:"conversationId,omitempty"`
+	WorkspaceID    string        `json:"workspaceId,omitempty"`
+	ReportRunID    string        `json:"reportRunId,omitempty"`
+	Format         ExportFormat  `json:"format,omitempty"`
+	Scope          ExportScope   `json:"scope,omitempty"`
+	Status         JobStatus     `json:"status,omitempty"`
+	ArtifactID     string        `json:"artifactId,omitempty"`
+	Error          string        `json:"error,omitempty"`
+	Diagnostics    []Diagnostic  `json:"diagnostics,omitempty"`
+	SubmittedAt    time.Time     `json:"submittedAt,omitempty"`
+	StartedAt      *time.Time    `json:"startedAt,omitempty"`
+	CompletedAt    *time.Time    `json:"completedAt,omitempty"`
+	RetentionTTL   time.Duration `json:"retentionTtl,omitempty"`
 }
 
 // Artifact is the downloadable export payload persisted by agently-core.
@@ -425,6 +485,17 @@ type Store interface {
 	ListSharedArtifacts(ctx context.Context) ([]*SharedArtifact, error)
 	UpdateSharedArtifact(ctx context.Context, artifact *SharedArtifact) error
 	DeleteSharedArtifact(ctx context.Context, artifactID string) error
+}
+
+// RunExportStore is the T2 extension implemented by durable reporting store
+// adapters. It keeps run snapshot copy, idempotency, job transitions, and
+// artifact completion inside the store's atomic/recoverable boundary.
+type RunExportStore interface {
+	SubmitJobFromRun(ctx context.Context, candidate *ExportJob) (job *ExportJob, replay bool, err error)
+	ClaimJob(ctx context.Context, jobID string, startedAt time.Time) (*ExportJob, error)
+	CompleteJobWithArtifact(ctx context.Context, jobID string, artifact *Artifact, diagnostics []Diagnostic, completedAt time.Time, retentionTTL time.Duration) (*ExportJob, error)
+	FailJob(ctx context.Context, jobID, errorText string, diagnostics []Diagnostic, completedAt time.Time) (*ExportJob, error)
+	ReconcileRunningJobs(ctx context.Context, staleBefore, reconciledAt time.Time, errorText string) ([]*ExportJob, error)
 }
 
 // AuditEvent is the generic reporting audit payload emitted by the service.

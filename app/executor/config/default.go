@@ -1,6 +1,9 @@
 package config
 
 import (
+	"fmt"
+	"strings"
+
 	"github.com/viant/agently-core/protocol/async/wsconfig"
 	"github.com/viant/agently-core/protocol/binding"
 	"gopkg.in/yaml.v3"
@@ -201,11 +204,71 @@ type ReportingStoreDefaults struct {
 	ConnectorRef string `yaml:"connectorRef,omitempty" json:"connectorRef,omitempty"`
 }
 
+type ReportingTransitionalWithUIDefaults struct {
+	Admission            string `yaml:"admission,omitempty" json:"admission,omitempty"`
+	Persistence          string `yaml:"persistence,omitempty" json:"persistence,omitempty"`
+	ExportFromRun        string `yaml:"exportFromRun,omitempty" json:"exportFromRun,omitempty"`
+	Orchestration        string `yaml:"orchestration,omitempty" json:"orchestration,omitempty"`
+	ConversationAdoption string `yaml:"conversationAdoption,omitempty" json:"conversationAdoption,omitempty"`
+}
+
 type ReportingDefaults struct {
-	Enabled         bool                   `yaml:"enabled,omitempty" json:"enabled,omitempty"`
-	QueueIntervalMs int                    `yaml:"queueIntervalMs,omitempty" json:"queueIntervalMs,omitempty"`
-	QueueBatchLimit int                    `yaml:"queueBatchLimit,omitempty" json:"queueBatchLimit,omitempty"`
-	Store           ReportingStoreDefaults `yaml:"store,omitempty" json:"store,omitempty"`
+	Enabled            bool                                `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	QueueIntervalMs    int                                 `yaml:"queueIntervalMs,omitempty" json:"queueIntervalMs,omitempty"`
+	QueueBatchLimit    int                                 `yaml:"queueBatchLimit,omitempty" json:"queueBatchLimit,omitempty"`
+	Store              ReportingStoreDefaults              `yaml:"store,omitempty" json:"store,omitempty"`
+	TransitionalWithUI ReportingTransitionalWithUIDefaults `yaml:"transitionalWithUI,omitempty" json:"transitionalWithUI,omitempty"`
+}
+
+func (r ReportingDefaults) BrowserRunPersistenceEnabled() bool {
+	return r.Enabled &&
+		strings.EqualFold(strings.TrimSpace(r.TransitionalWithUI.Admission), "open") &&
+		strings.EqualFold(strings.TrimSpace(r.TransitionalWithUI.Persistence), "enabled")
+}
+
+func (r ReportingDefaults) ConversationAdoptionEnabled() bool {
+	return r.BrowserRunPersistenceEnabled() &&
+		strings.EqualFold(strings.TrimSpace(r.TransitionalWithUI.ConversationAdoption), "enabled")
+}
+
+func (r ReportingDefaults) ExportFromRunEnabled() bool {
+	return r.BrowserRunPersistenceEnabled() &&
+		strings.EqualFold(strings.TrimSpace(r.TransitionalWithUI.ExportFromRun), "enabled")
+}
+
+// OrchestrationEnabled reports whether the transitional hosted run/export
+// continuation is explicitly enabled with its durable prerequisites.
+func (r ReportingDefaults) OrchestrationEnabled() bool {
+	return r.orchestrationRequested() && r.ValidateOrchestrationPrerequisites() == nil
+}
+
+// ValidateOrchestrationPrerequisites validates only an explicitly requested
+// orchestration mode. Disabled and unknown values preserve existing behavior.
+func (r ReportingDefaults) ValidateOrchestrationPrerequisites() error {
+	if !r.orchestrationRequested() {
+		return nil
+	}
+	missing := make([]string, 0, 4)
+	if !r.Enabled {
+		missing = append(missing, "reporting.enabled")
+	}
+	if !strings.EqualFold(strings.TrimSpace(r.TransitionalWithUI.Admission), "open") {
+		missing = append(missing, "transitionalWithUI.admission=open")
+	}
+	if !strings.EqualFold(strings.TrimSpace(r.TransitionalWithUI.Persistence), "enabled") {
+		missing = append(missing, "transitionalWithUI.persistence=enabled")
+	}
+	if !strings.EqualFold(strings.TrimSpace(r.TransitionalWithUI.ExportFromRun), "enabled") {
+		missing = append(missing, "transitionalWithUI.exportFromRun=enabled")
+	}
+	if len(missing) > 0 {
+		return fmt.Errorf("reporting orchestration requires %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func (r ReportingDefaults) orchestrationRequested() bool {
+	return strings.EqualFold(strings.TrimSpace(r.TransitionalWithUI.Orchestration), "enabled")
 }
 
 // ToolApprovalDefaults defines global tool approval behavior.

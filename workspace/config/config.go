@@ -381,11 +381,32 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	if src.Reporting.Enabled {
 		dst.Reporting.Enabled = true
 	}
+	if src.Reporting.QueueIntervalMs > 0 {
+		dst.Reporting.QueueIntervalMs = src.Reporting.QueueIntervalMs
+	}
+	if src.Reporting.QueueBatchLimit > 0 {
+		dst.Reporting.QueueBatchLimit = src.Reporting.QueueBatchLimit
+	}
 	if strings.TrimSpace(src.Reporting.Store.Backend) != "" {
 		dst.Reporting.Store.Backend = strings.TrimSpace(src.Reporting.Store.Backend)
 	}
 	if strings.TrimSpace(src.Reporting.Store.ConnectorRef) != "" {
 		dst.Reporting.Store.ConnectorRef = strings.TrimSpace(src.Reporting.Store.ConnectorRef)
+	}
+	if strings.TrimSpace(src.Reporting.TransitionalWithUI.Admission) != "" {
+		dst.Reporting.TransitionalWithUI.Admission = strings.TrimSpace(src.Reporting.TransitionalWithUI.Admission)
+	}
+	if strings.TrimSpace(src.Reporting.TransitionalWithUI.Persistence) != "" {
+		dst.Reporting.TransitionalWithUI.Persistence = strings.TrimSpace(src.Reporting.TransitionalWithUI.Persistence)
+	}
+	if strings.TrimSpace(src.Reporting.TransitionalWithUI.ExportFromRun) != "" {
+		dst.Reporting.TransitionalWithUI.ExportFromRun = strings.TrimSpace(src.Reporting.TransitionalWithUI.ExportFromRun)
+	}
+	if strings.TrimSpace(src.Reporting.TransitionalWithUI.Orchestration) != "" {
+		dst.Reporting.TransitionalWithUI.Orchestration = strings.TrimSpace(src.Reporting.TransitionalWithUI.Orchestration)
+	}
+	if strings.TrimSpace(src.Reporting.TransitionalWithUI.ConversationAdoption) != "" {
+		dst.Reporting.TransitionalWithUI.ConversationAdoption = strings.TrimSpace(src.Reporting.TransitionalWithUI.ConversationAdoption)
 	}
 	if strings.TrimSpace(src.ToolAutoSelection.Model) != "" {
 		dst.ToolAutoSelection.Model = strings.TrimSpace(src.ToolAutoSelection.Model)

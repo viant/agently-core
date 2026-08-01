@@ -4,6 +4,12 @@ SET NAMES utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS conversation_report_context;
+DROP TABLE IF EXISTS report_export_artifact;
+DROP TABLE IF EXISTS report_audit_event;
+DROP TABLE IF EXISTS report_export_job;
+DROP TABLE IF EXISTS report_run;
+DROP TABLE IF EXISTS report_shared_artifact;
 DROP TABLE IF EXISTS model_call;
 DROP TABLE IF EXISTS tool_call;
 DROP TABLE IF EXISTS generated_file;
@@ -555,3 +561,182 @@ CREATE INDEX IF NOT EXISTS idx_taq_user_status_created ON tool_approval_queue(us
 CREATE INDEX IF NOT EXISTS idx_taq_conversation_status ON tool_approval_queue(conversation_id, status, created_at);
 CREATE INDEX IF NOT EXISTS idx_taq_turn ON tool_approval_queue(turn_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_taq_status_expires_at ON tool_approval_queue(status, expires_at);
+
+CREATE TABLE IF NOT EXISTS report_shared_artifact (
+    artifact_id VARCHAR(255) PRIMARY KEY,
+    artifact_ref TEXT NOT NULL,
+    owner_id VARCHAR(255) NOT NULL,
+    owner_ref TEXT NULL,
+    kind VARCHAR(255) NOT NULL,
+    lifecycle VARCHAR(255) NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,
+    report_id VARCHAR(255) NULL,
+    title TEXT NULL,
+    source_artifact_id VARCHAR(255) NULL,
+    base_artifact_ref TEXT NULL,
+    policy_ref VARCHAR(255) NULL,
+    document_version BIGINT NOT NULL DEFAULT 0,
+    report_document_json MEDIUMBLOB NULL,
+    report_spec_json MEDIUMBLOB NULL,
+    compile_state_json MEDIUMBLOB NULL,
+    report_fill_json MEDIUMBLOB NULL,
+    report_print_json MEDIUMBLOB NULL,
+    saved_view_overlay_json MEDIUMBLOB NULL,
+    metadata_json MEDIUMBLOB NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE INDEX IF NOT EXISTS idx_report_shared_artifact_owner_artifact_ref
+    ON report_shared_artifact(owner_id(191), artifact_ref(191));
+CREATE INDEX IF NOT EXISTS idx_report_shared_artifact_owner_report_id
+    ON report_shared_artifact(owner_id, report_id);
+CREATE INDEX IF NOT EXISTS idx_report_shared_artifact_owner_kind_lifecycle_updated
+    ON report_shared_artifact(owner_id, kind, lifecycle, updated_at, created_at);
+
+CREATE TABLE IF NOT EXISTS report_run (
+    report_run_id VARCHAR(255) PRIMARY KEY,
+    owner_id VARCHAR(255) NOT NULL,
+    conversation_id VARCHAR(255) NULL,
+    materializer VARCHAR(64) NOT NULL,
+    origin VARCHAR(64) NULL,
+    builder_ref VARCHAR(255) NULL,
+    preset_id VARCHAR(255) NULL,
+    source_kind VARCHAR(64) NULL,
+    source_id VARCHAR(255) NULL,
+    requested_params_json MEDIUMBLOB NULL,
+    effective_params_json MEDIUMBLOB NULL,
+    status VARCHAR(32) NOT NULL,
+    failure_code VARCHAR(255) NULL,
+    failure_text TEXT NULL,
+    started_at DATETIME NOT NULL,
+    completed_at DATETIME NULL,
+    revision BIGINT NOT NULL,
+    ui_run_request_id VARCHAR(255) NOT NULL,
+    report_spec_json MEDIUMBLOB NULL,
+    report_fill_json MEDIUMBLOB NULL,
+    report_print_json MEDIUMBLOB NULL,
+    activation_source VARCHAR(64) NULL,
+    adoption_source VARCHAR(64) NULL,
+    actor_id VARCHAR(255) NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT chk_report_run_status CHECK (status IN ('running', 'completed', 'failed')),
+    CONSTRAINT ux_report_run_owner_request UNIQUE (owner_id, ui_run_request_id),
+    CONSTRAINT ux_report_run_owner_id UNIQUE (owner_id, report_run_id),
+    KEY idx_report_run_owner_conversation_updated (owner_id, conversation_id, updated_at),
+    KEY idx_report_run_owner_status_updated (owner_id, status, updated_at),
+    CONSTRAINT fk_report_run_conversation
+        FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE TABLE IF NOT EXISTS report_export_job (
+    job_id VARCHAR(255) PRIMARY KEY,
+    artifact_ref TEXT NOT NULL,
+    owner_id VARCHAR(255) NOT NULL,
+    conversation_id VARCHAR(255) NULL,
+    workspace_id VARCHAR(255) NULL,
+    auth_context_ref TEXT NULL,
+    format VARCHAR(64) NOT NULL,
+    scope VARCHAR(64) NOT NULL,
+    status VARCHAR(64) NOT NULL,
+    report_run_id VARCHAR(255) NULL,
+    report_run_revision BIGINT NULL,
+    export_request_id VARCHAR(128) NULL,
+    report_spec_json MEDIUMBLOB NULL,
+    report_fill_json MEDIUMBLOB NULL,
+    report_print_json MEDIUMBLOB NULL,
+    metadata_json MEDIUMBLOB NULL,
+    artifact_id VARCHAR(255) NULL,
+    error_text TEXT NULL,
+    diagnostics_json MEDIUMBLOB NULL,
+    submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    started_at DATETIME NULL,
+    completed_at DATETIME NULL,
+    retention_ttl_sec BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ux_report_export_job_owner_conversation_request
+        UNIQUE (owner_id, conversation_id, export_request_id),
+    CONSTRAINT chk_report_export_job_status
+        CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+    CONSTRAINT chk_report_export_job_run_reference
+        CHECK (
+            (report_run_id IS NULL AND report_run_revision IS NULL AND export_request_id IS NULL)
+            OR
+            (
+                report_run_id IS NOT NULL
+                AND report_run_revision IS NOT NULL
+                AND report_run_revision > 0
+                AND export_request_id IS NOT NULL
+                AND conversation_id IS NOT NULL
+            )
+        ),
+    CONSTRAINT chk_report_export_job_run_pdf
+        CHECK (report_run_id IS NULL OR (format = 'pdf' AND scope = 'draft')),
+    KEY idx_report_export_job_run (report_run_id),
+    CONSTRAINT fk_report_export_job_run
+        FOREIGN KEY (report_run_id) REFERENCES report_run(report_run_id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE INDEX IF NOT EXISTS idx_report_export_job_owner_submitted_at
+    ON report_export_job(owner_id, submitted_at);
+CREATE INDEX IF NOT EXISTS idx_report_export_job_owner_artifact_ref
+    ON report_export_job(owner_id, artifact_ref(191));
+CREATE INDEX IF NOT EXISTS idx_report_export_job_owner_status
+    ON report_export_job(owner_id, status);
+
+CREATE TABLE IF NOT EXISTS report_export_artifact (
+    artifact_id VARCHAR(255) PRIMARY KEY,
+    job_id VARCHAR(255) NOT NULL,
+    artifact_ref TEXT NOT NULL,
+    owner_id VARCHAR(255) NOT NULL,
+    format VARCHAR(64) NOT NULL,
+    content_type VARCHAR(255) NOT NULL,
+    inline_data LONGBLOB NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    retention_ttl_sec BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ux_report_export_artifact_job UNIQUE (job_id),
+    CONSTRAINT fk_report_export_artifact_job
+        FOREIGN KEY (job_id) REFERENCES report_export_job(job_id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_created_at
+    ON report_export_artifact(owner_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_artifact_ref
+    ON report_export_artifact(owner_id, artifact_ref(191));
+CREATE INDEX IF NOT EXISTS idx_report_export_artifact_job_id
+    ON report_export_artifact(job_id);
+
+CREATE TABLE IF NOT EXISTS report_audit_event (
+    event_id VARCHAR(255) PRIMARY KEY,
+    event_type VARCHAR(255) NOT NULL,
+    artifact_ref TEXT NOT NULL,
+    version BIGINT NOT NULL DEFAULT 0,
+    job_id VARCHAR(255) NULL,
+    artifact_id VARCHAR(255) NULL,
+    actor_id VARCHAR(255) NOT NULL,
+    actor_ref TEXT NULL,
+    occurred_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    metadata_json MEDIUMBLOB NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+CREATE INDEX IF NOT EXISTS idx_report_audit_event_actor_occurred_at
+    ON report_audit_event(actor_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_report_audit_event_artifact_ref
+    ON report_audit_event(artifact_ref(191));
+
+CREATE TABLE IF NOT EXISTS conversation_report_context (
+    owner_id VARCHAR(255) NOT NULL,
+    conversation_id VARCHAR(255) NOT NULL,
+    active_report_run_id VARCHAR(255) NOT NULL,
+    revision BIGINT NOT NULL,
+    activation_source VARCHAR(64) NOT NULL DEFAULT '',
+    actor_id VARCHAR(255) NOT NULL DEFAULT '',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (owner_id, conversation_id),
+    KEY idx_conversation_report_context_active_run (owner_id, active_report_run_id),
+    CONSTRAINT fk_conversation_report_context_conversation
+        FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE CASCADE,
+    CONSTRAINT fk_conversation_report_context_run
+        FOREIGN KEY (owner_id, active_report_run_id)
+        REFERENCES report_run(owner_id, report_run_id) ON DELETE RESTRICT
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

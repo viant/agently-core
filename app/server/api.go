@@ -9,6 +9,7 @@ import (
 	"time"
 
 	callbackhttp "github.com/viant/agently-core/adapter/http/callback"
+	reportingrunhttp "github.com/viant/agently-core/adapter/http/reportingrun"
 	"github.com/viant/agently-core/app/executor"
 	"github.com/viant/agently-core/genai/llm"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
@@ -63,6 +64,14 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	if opts.UIBridgeHandler != nil {
 		handlerOpts = append(handlerOpts, sdk.WithUIBridgeHandler(opts.UIBridgeHandler))
+	}
+	if opts.Runtime != nil && opts.Runtime.Defaults != nil &&
+		opts.Runtime.Defaults.Reporting.BrowserRunPersistenceEnabled() && opts.Runtime.ReportRuns != nil {
+		handlerOpts = append(handlerOpts, sdk.WithReportRunHandler(reportingrunhttp.New(
+			opts.Runtime.ReportRuns,
+			opts.Runtime.Conversation,
+			opts.Runtime.Defaults.Reporting.ConversationAdoptionEnabled(),
+		)))
 	}
 	if opts.SchedulerService != nil && opts.SchedulerOptions != nil && (opts.SchedulerOptions.EnableAPI || opts.SchedulerOptions.EnableWatchdog) {
 		handlerOpts = append(handlerOpts, sdk.WithScheduler(opts.SchedulerService, svcscheduler.NewHandler(opts.SchedulerService), opts.SchedulerOptions))

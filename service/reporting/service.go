@@ -15,9 +15,12 @@ import (
 	"github.com/google/uuid"
 	"github.com/viant/afs"
 	afsscratchpad "github.com/viant/afs/scratchpad"
+	reportstore "github.com/viant/agently-core/app/store/reporting"
 	iauth "github.com/viant/agently-core/internal/auth"
 	tokenctx "github.com/viant/agently-core/internal/auth/token"
+	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	authctx "github.com/viant/agently-core/service/auth"
 )
 
@@ -29,6 +32,9 @@ var (
 	ErrJobNotQueued = errors.New("reporting: job not queued")
 	// ErrAlreadyExists indicates a storage collision on a generated reporting ID.
 	ErrAlreadyExists = errors.New("reporting: already exists")
+	// ErrConflict indicates an idempotency replay with different immutable
+	// run-reference input.
+	ErrConflict = errors.New("reporting: conflict")
 )
 
 const Name = "reporting"
@@ -44,20 +50,24 @@ type Options struct {
 	TokenProvider tokenctx.Provider
 	Now           func() time.Time
 	NewID         func() string
+	// ExportFromRunEnabled gates only the T2 run-reference submission mode.
+	// Legacy payload submission remains available when this is false.
+	ExportFromRunEnabled bool
 }
 
 // Service is the agently-core runtime boundary for reporting compile and
 // export job orchestration.
 type Service struct {
-	compiler      Compiler
-	exporter      Exporter
-	store         Store
-	audit         AuditSink
-	scratchpad    *afsscratchpad.Service
-	scratchpadFS  afs.Service
-	tokenProvider tokenctx.Provider
-	now           func() time.Time
-	newID         func() string
+	compiler             Compiler
+	exporter             Exporter
+	store                Store
+	audit                AuditSink
+	scratchpad           *afsscratchpad.Service
+	scratchpadFS         afs.Service
+	tokenProvider        tokenctx.Provider
+	now                  func() time.Time
+	newID                func() string
+	exportFromRunEnabled bool
 }
 
 // New constructs a reporting Service.
@@ -86,8 +96,9 @@ func New(opts Options) *Service {
 			}
 			return afs.New()
 		}(),
-		now:   nowFn,
-		newID: newIDFn,
+		now:                  nowFn,
+		newID:                newIDFn,
+		exportFromRunEnabled: opts.ExportFromRunEnabled,
 	}
 }
 
@@ -139,15 +150,15 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "submit_export",
-			Description: "Submit an async reporting export job. Use exactly one input form: unified source (report, preset, or inline), or a fully materialized reportExportRequest whose kind is literally reportExportRequest; never send both.",
+			Description: "Submit an async reporting export job. Use exactly one input form: an exact completed reportRunId plus PDF format, a unified source (report, preset, or inline), or a fully materialized reportExportRequest; never mix forms. Only for one logical serial hosted report-to-email delivery attempt: call this tool at most once; with wait execution, preserve the exact jobId and consume either a direct terminal ExportJob or an AwaitTerminal result containing exactly one item; and do not request status after any delivered terminal observation, requesting it at most once only when none was delivered. A new explicit user export request may start a new export operation and logical attempt.",
 			Input:       reflect.TypeOf(&SubmitExportRequest{}),
 			Output:      reflect.TypeOf(&ExportJob{}),
 		},
 		{
 			Name:        "get_export_status",
-			Description: "Return the current export job state visible to the current principal.",
+			Description: "Return the compact current export job lifecycle status visible to the current principal.",
 			Input:       reflect.TypeOf(&GetExportStatusInput{}),
-			Output:      reflect.TypeOf(&ExportJob{}),
+			Output:      reflect.TypeOf(&ExportJobStatus{}),
 		},
 		{
 			Name:        "list_export_jobs",
@@ -163,7 +174,7 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "get_artifact",
-			Description: "Return a completed reporting artifact visible to the current principal.",
+			Description: "Return a completed reporting artifact visible to the current principal. Data bytes are omitted by default; set includeData=true only for a trusted download path.",
 			Input:       reflect.TypeOf(&GetArtifactInput{}),
 			Output:      reflect.TypeOf(&Artifact{}),
 		},
@@ -348,7 +359,8 @@ type ListExportArtifactsResult struct {
 }
 
 type GetArtifactInput struct {
-	ArtifactID string `json:"artifactId,omitempty"`
+	ArtifactID  string `json:"artifactId,omitempty"`
+	IncludeData bool   `json:"includeData,omitempty"`
 }
 
 type GetSharedArtifactInput struct {
@@ -652,6 +664,9 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 	if request == nil {
 		return nil, fmt.Errorf("reporting export: request is required")
 	}
+	if strings.TrimSpace(request.ReportRunID) != "" {
+		return s.submitExportFromRun(ctx, request)
+	}
 	normalizedRequest, err := s.resolveSubmitExportRequest(ctx, request)
 	if err != nil {
 		return nil, err
@@ -700,6 +715,95 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 	return cloneJob(job), nil
 }
 
+func (s *Service) submitExportFromRun(ctx context.Context, request *SubmitExportRequest) (*ExportJob, error) {
+	if !s.exportFromRunEnabled {
+		return nil, fmt.Errorf("reporting export: run-reference mode is disabled")
+	}
+	if request == nil {
+		return nil, fmt.Errorf("reporting export: request is required")
+	}
+	reportRunID := strings.TrimSpace(request.ReportRunID)
+	if reportRunID == "" {
+		return nil, fmt.Errorf("reporting export: reportRunId is required for run-reference mode")
+	}
+	if request.Format != ExportFormatPDF {
+		return nil, fmt.Errorf("reporting export: run-reference mode currently supports pdf only")
+	}
+	if request.runModeHasAlternateFields ||
+		request.Source != nil || request.ReportExportRequest != nil ||
+		strings.TrimSpace(request.ArtifactRef) != "" || request.Scope != "" ||
+		strings.TrimSpace(request.ConversationID) != "" ||
+		strings.TrimSpace(request.WorkspaceID) != "" ||
+		len(bytes.TrimSpace(request.ReportSpec)) != 0 ||
+		len(bytes.TrimSpace(request.ReportFill)) != 0 ||
+		len(bytes.TrimSpace(request.ReportPrint)) != 0 ||
+		len(bytes.TrimSpace(request.Metadata)) != 0 {
+		return nil, fmt.Errorf("reporting export: run-reference mode does not accept browser/model payload snapshots or legacy source fields")
+	}
+	ownerID := effectiveActorID(ctx)
+	if ownerID == "" {
+		return nil, fmt.Errorf("reporting export: effective user id is required")
+	}
+	exportRequestID := exportrequest.ID(ctx)
+	if exportRequestID == "" {
+		return nil, fmt.Errorf("reporting export: trusted export request identity is required")
+	}
+	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+	if conversationID == "" {
+		return nil, fmt.Errorf("reporting export: trusted current conversation is required")
+	}
+	runStore, ok := s.store.(RunExportStore)
+	if !ok {
+		return nil, fmt.Errorf("reporting export: run-reference store is not configured")
+	}
+	candidate := &ExportJob{
+		JobID:           strings.TrimSpace(s.newID()),
+		ArtifactRef:     "report-run://" + reportRunID,
+		OwnerID:         ownerID,
+		ConversationID:  conversationID,
+		AuthContextRef:  strings.TrimSpace(buildAuthContextRef(ctx)),
+		Format:          ExportFormatPDF,
+		Scope:           ExportScopeDraft,
+		Status:          JobStatusQueued,
+		ReportRunID:     reportRunID,
+		ExportRequestID: exportRequestID,
+		SubmittedAt:     s.now().UTC(),
+	}
+	job, replay, err := runStore.SubmitJobFromRun(ctx, candidate)
+	if err != nil {
+		return nil, err
+	}
+	if job == nil {
+		return nil, fmt.Errorf("reporting export: run-reference store returned an empty job")
+	}
+	if err := validateSubmitExportRequest(&SubmitExportRequest{
+		ArtifactRef: job.ArtifactRef,
+		Format:      job.Format,
+		Scope:       job.Scope,
+		ReportSpec:  cloneJSON(job.ReportSpec),
+		ReportFill:  cloneJSON(job.ReportFill),
+		ReportPrint: cloneJSON(job.ReportPrint),
+	}); err != nil {
+		return nil, fmt.Errorf("reporting export: persisted run snapshot is not exportable: %w", err)
+	}
+	s.recordAudit(ctx, &AuditEvent{
+		EventType:   "report.export.submit",
+		ArtifactRef: job.ArtifactRef,
+		JobID:       job.JobID,
+		ActorID:     ownerID,
+		OccurredAt:  s.now().UTC(),
+		Metadata: map[string]interface{}{
+			"format":            string(job.Format),
+			"scope":             string(job.Scope),
+			"reportRunId":       job.ReportRunID,
+			"reportRunRevision": job.ReportRunRevision,
+			"exportRequestId":   job.ExportRequestID,
+			"replay":            replay,
+		},
+	})
+	return cloneJob(job), nil
+}
+
 func (s *Service) submitExportTool(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*SubmitExportRequest)
 	if !ok {
@@ -743,18 +847,20 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, erro
 	}
 
 	result, err := s.exporter.Export(runCtx, &RenderRequest{
-		JobID:          job.JobID,
-		ArtifactRef:    job.ArtifactRef,
-		OwnerID:        job.OwnerID,
-		ConversationID: job.ConversationID,
-		WorkspaceID:    job.WorkspaceID,
-		AuthContextRef: job.AuthContextRef,
-		Format:         job.Format,
-		Scope:          job.Scope,
-		ReportSpec:     cloneJSON(job.ReportSpec),
-		ReportFill:     cloneJSON(job.ReportFill),
-		ReportPrint:    cloneJSON(job.ReportPrint),
-		Metadata:       cloneJSON(job.Metadata),
+		JobID:             job.JobID,
+		ArtifactRef:       job.ArtifactRef,
+		OwnerID:           job.OwnerID,
+		ConversationID:    job.ConversationID,
+		WorkspaceID:       job.WorkspaceID,
+		AuthContextRef:    job.AuthContextRef,
+		Format:            job.Format,
+		Scope:             job.Scope,
+		ReportRunID:       job.ReportRunID,
+		ReportRunRevision: job.ReportRunRevision,
+		ReportSpec:        cloneJSON(job.ReportSpec),
+		ReportFill:        cloneJSON(job.ReportFill),
+		ReportPrint:       cloneJSON(job.ReportPrint),
+		Metadata:          cloneJSON(job.Metadata),
 	})
 	if err != nil {
 		return s.failRunExport(runCtx, job.JobID, err)
@@ -847,6 +953,26 @@ func (s *Service) RunQueuedExports(ctx context.Context, limit int) (*RunQueuedEx
 	return result, nil
 }
 
+// ReconcileStaleRunningExports marks interrupted running jobs failed after a
+// bounded timeout. Filesystem stores may instead finish a job when they find
+// the artifact durably written before a prior process stopped.
+func (s *Service) ReconcileStaleRunningExports(ctx context.Context, staleAfter time.Duration) ([]*ExportJob, error) {
+	if staleAfter <= 0 {
+		return nil, fmt.Errorf("reporting export reconciliation: staleAfter must be > 0")
+	}
+	runStore, ok := s.store.(RunExportStore)
+	if !ok {
+		return []*ExportJob{}, nil
+	}
+	now := s.now().UTC()
+	return runStore.ReconcileRunningJobs(
+		ctx,
+		now.Add(-staleAfter),
+		now,
+		"reporting export interrupted while running; submit an explicit retry with a new request",
+	)
+}
+
 func (s *Service) runQueuedExportsTool(ctx context.Context, in, out interface{}) error {
 	input, ok := in.(*RunQueuedExportsInput)
 	if !ok {
@@ -869,6 +995,13 @@ func (s *Service) runQueuedExportsTool(ctx context.Context, in, out interface{})
 
 // StartExport marks a queued job running. Intended for async workers.
 func (s *Service) StartExport(ctx context.Context, jobID string) (*ExportJob, error) {
+	if runStore, ok := s.store.(RunExportStore); ok {
+		job, err := runStore.ClaimJob(ctx, strings.TrimSpace(jobID), s.now().UTC())
+		if errors.Is(err, reportstore.ErrInvalidTransition) {
+			return nil, fmt.Errorf("reporting export: job %s is not queued: %w", strings.TrimSpace(jobID), ErrJobNotQueued)
+		}
+		return job, err
+	}
 	job, err := s.store.GetJob(ctx, strings.TrimSpace(jobID))
 	if err != nil {
 		return nil, err
@@ -919,6 +1052,15 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 		return nil, ErrNotFound
 	}
 	if job.Status != JobStatusRunning {
+		if job.Status == JobStatusSucceeded && strings.TrimSpace(job.ArtifactID) != "" {
+			artifact, artifactErr := s.store.GetArtifact(ctx, job.ArtifactID)
+			if artifactErr == nil && artifact != nil &&
+				strings.TrimSpace(artifact.JobID) == strings.TrimSpace(job.JobID) &&
+				strings.TrimSpace(artifact.OwnerID) == strings.TrimSpace(job.OwnerID) &&
+				artifact.Format == job.Format {
+				return cloneJob(job), nil
+			}
+		}
 		return nil, fmt.Errorf("reporting export completion: job %s is not running", strings.TrimSpace(request.JobID))
 	}
 	if len(request.Data) == 0 {
@@ -941,6 +1083,36 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 	}
 	if err := s.publishArtifactToScratchpad(ctx, artifact); err != nil {
 		return nil, err
+	}
+	if runStore, ok := s.store.(RunExportStore); ok {
+		completedAt := s.now().UTC()
+		completed, err := runStore.CompleteJobWithArtifact(
+			ctx,
+			job.JobID,
+			artifact,
+			cloneDiagnostics(request.Diagnostics),
+			completedAt,
+			request.RetentionTTL,
+		)
+		if err != nil {
+			return nil, err
+		}
+		s.recordAudit(ctx, &AuditEvent{
+			EventType:   "report.export.complete",
+			ArtifactRef: completed.ArtifactRef,
+			JobID:       completed.JobID,
+			ArtifactID:  completed.ArtifactID,
+			ActorID:     effectiveActorID(ctx),
+			OccurredAt:  s.now().UTC(),
+			Metadata: map[string]interface{}{
+				"format":            string(completed.Format),
+				"contentType":       artifact.ContentType,
+				"retentionTtl":      artifact.RetentionTTL.String(),
+				"reportRunId":       completed.ReportRunID,
+				"reportRunRevision": completed.ReportRunRevision,
+			},
+		})
+		return cloneJob(completed), nil
 	}
 	if err := s.store.PutArtifact(ctx, artifact); err != nil {
 		if errors.Is(err, ErrAlreadyExists) {
@@ -1016,6 +1188,32 @@ func (s *Service) FailExport(ctx context.Context, request *FailExportRequest) (*
 		return nil, fmt.Errorf("reporting export failure: job %s is not running", strings.TrimSpace(request.JobID))
 	}
 	completedAt := s.now().UTC()
+	if runStore, ok := s.store.(RunExportStore); ok {
+		failed, err := runStore.FailJob(
+			ctx,
+			job.JobID,
+			strings.TrimSpace(request.Error),
+			cloneDiagnostics(request.Diagnostics),
+			completedAt,
+		)
+		if err != nil {
+			return nil, err
+		}
+		s.recordAudit(ctx, &AuditEvent{
+			EventType:   "report.export.fail",
+			ArtifactRef: failed.ArtifactRef,
+			JobID:       failed.JobID,
+			ActorID:     effectiveActorID(ctx),
+			OccurredAt:  s.now().UTC(),
+			Metadata: map[string]interface{}{
+				"format":            string(failed.Format),
+				"error":             failed.Error,
+				"reportRunId":       failed.ReportRunID,
+				"reportRunRevision": failed.ReportRunRevision,
+			},
+		})
+		return cloneJob(failed), nil
+	}
 	job.Status = JobStatusFailed
 	job.Error = strings.TrimSpace(request.Error)
 	job.Diagnostics = cloneDiagnostics(request.Diagnostics)
@@ -1063,7 +1261,7 @@ func (s *Service) GetExportStatus(ctx context.Context, jobID string) (*ExportJob
 	if job == nil {
 		return nil, ErrNotFound
 	}
-	if !isVisibleToActor(ctx, job.GetOwnerID()) {
+	if !isExportJobVisible(ctx, job) {
 		return nil, ErrNotFound
 	}
 	return cloneJob(job), nil
@@ -1074,7 +1272,7 @@ func (s *Service) getExportStatusTool(ctx context.Context, in, out interface{}) 
 	if !ok {
 		return svc.NewInvalidInputError(in)
 	}
-	output, ok := out.(*ExportJob)
+	output, ok := out.(*ExportJobStatus)
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
@@ -1082,7 +1280,7 @@ func (s *Service) getExportStatusTool(ctx context.Context, in, out interface{}) 
 	if err != nil {
 		return err
 	}
-	*output = *cloneJob(job)
+	*output = *exportJobStatus(job)
 	return nil
 }
 
@@ -1108,7 +1306,7 @@ func (s *Service) ListExportJobs(ctx context.Context, input *ListExportJobsInput
 	}
 	filtered := make([]*ExportJob, 0, len(jobs))
 	for _, job := range jobs {
-		if job == nil || !isVisibleToActor(ctx, job.GetOwnerID()) {
+		if job == nil || !isExportJobVisible(ctx, job) {
 			continue
 		}
 		if normalized.ArtifactRef != "" && strings.TrimSpace(job.ArtifactRef) != normalized.ArtifactRef {
@@ -1285,6 +1483,9 @@ func (s *Service) getArtifactTool(ctx context.Context, in, out interface{}) erro
 		return err
 	}
 	*output = *cloneArtifact(artifact)
+	if !input.IncludeData {
+		output.Data = nil
+	}
 	return nil
 }
 
@@ -2166,6 +2367,9 @@ func (s *Service) ensureRunExportAuthContext(ctx context.Context, job *ExportJob
 		return ctx, nil
 	}
 	ctx = authctx.InjectUser(ctx, actorID)
+	if conversationID := strings.TrimSpace(job.ConversationID); conversationID != "" {
+		ctx = runtimerequestctx.WithConversationID(ctx, conversationID)
+	}
 	provider := strings.TrimSpace(meta["provider"])
 	if provider == "" {
 		provider = "oauth"
@@ -2193,11 +2397,25 @@ func isVisibleToActor(ctx context.Context, ownerID string) bool {
 	return actorID != "" && actorID == normalizedOwner
 }
 
+func isExportJobVisible(ctx context.Context, job *ExportJob) bool {
+	if job == nil || !isVisibleToActor(ctx, job.GetOwnerID()) {
+		return false
+	}
+	if strings.TrimSpace(job.ReportRunID) == "" {
+		return true
+	}
+	conversationID := strings.TrimSpace(job.ConversationID)
+	currentConversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+	return conversationID != "" &&
+		currentConversationID != "" &&
+		conversationID == currentConversationID
+}
+
 func isCompletedArtifactVisibleToActor(ctx context.Context, artifact *Artifact, job *ExportJob, now time.Time) bool {
 	if artifact == nil || job == nil {
 		return false
 	}
-	if !isVisibleToActor(ctx, artifact.GetOwnerID()) || !isVisibleToActor(ctx, job.GetOwnerID()) {
+	if !isVisibleToActor(ctx, artifact.GetOwnerID()) || !isExportJobVisible(ctx, job) {
 		return false
 	}
 	if strings.TrimSpace(artifact.JobID) == "" || strings.TrimSpace(job.JobID) == "" {
@@ -2314,6 +2532,7 @@ func cloneSubmitExportRequest(input *SubmitExportRequest) *SubmitExportRequest {
 		ReportPrint:         cloneJSON(input.ReportPrint),
 		Metadata:            cloneJSON(input.Metadata),
 		ReportExportRequest: reportExportRequest,
+		ReportRunID:         strings.TrimSpace(input.ReportRunID),
 	}
 }
 
@@ -2379,21 +2598,55 @@ func cloneJob(input *ExportJob) *ExportJob {
 		return nil
 	}
 	out := &ExportJob{
-		JobID:          strings.TrimSpace(input.JobID),
-		ArtifactRef:    strings.TrimSpace(input.ArtifactRef),
-		OwnerID:        strings.TrimSpace(input.OwnerID),
-		ConversationID: strings.TrimSpace(input.ConversationID),
-		WorkspaceID:    strings.TrimSpace(input.WorkspaceID),
-		AuthContextRef: strings.TrimSpace(input.AuthContextRef),
+		JobID:             strings.TrimSpace(input.JobID),
+		ArtifactRef:       strings.TrimSpace(input.ArtifactRef),
+		OwnerID:           strings.TrimSpace(input.OwnerID),
+		ConversationID:    strings.TrimSpace(input.ConversationID),
+		WorkspaceID:       strings.TrimSpace(input.WorkspaceID),
+		AuthContextRef:    strings.TrimSpace(input.AuthContextRef),
+		Format:            input.Format,
+		Scope:             input.Scope,
+		Status:            input.Status,
+		ReportRunID:       strings.TrimSpace(input.ReportRunID),
+		ReportRunRevision: input.ReportRunRevision,
+		ExportRequestID:   strings.TrimSpace(input.ExportRequestID),
+		ReportSpec:        cloneJSON(input.ReportSpec),
+		ReportFill:        cloneJSON(input.ReportFill),
+		ReportPrint:       cloneJSON(input.ReportPrint),
+		Metadata:          cloneJSON(input.Metadata),
+		ArtifactID:        strings.TrimSpace(input.ArtifactID),
+		Error:             strings.TrimSpace(input.Error),
+		Diagnostics:       cloneDiagnostics(input.Diagnostics),
+		SubmittedAt:       input.SubmittedAt,
+		RetentionTTL:      input.RetentionTTL,
+	}
+	if input.StartedAt != nil {
+		startedAt := *input.StartedAt
+		out.StartedAt = &startedAt
+	}
+	if input.CompletedAt != nil {
+		completedAt := *input.CompletedAt
+		out.CompletedAt = &completedAt
+	}
+	return out
+}
+
+func exportJobStatus(input *ExportJob) *ExportJobStatus {
+	if input == nil {
+		return nil
+	}
+	out := &ExportJobStatus{
+		JobID:          input.JobID,
+		ArtifactRef:    input.ArtifactRef,
+		OwnerID:        input.OwnerID,
+		ConversationID: input.ConversationID,
+		WorkspaceID:    input.WorkspaceID,
+		ReportRunID:    input.ReportRunID,
 		Format:         input.Format,
 		Scope:          input.Scope,
 		Status:         input.Status,
-		ReportSpec:     cloneJSON(input.ReportSpec),
-		ReportFill:     cloneJSON(input.ReportFill),
-		ReportPrint:    cloneJSON(input.ReportPrint),
-		Metadata:       cloneJSON(input.Metadata),
-		ArtifactID:     strings.TrimSpace(input.ArtifactID),
-		Error:          strings.TrimSpace(input.Error),
+		ArtifactID:     input.ArtifactID,
+		Error:          input.Error,
 		Diagnostics:    cloneDiagnostics(input.Diagnostics),
 		SubmittedAt:    input.SubmittedAt,
 		RetentionTTL:   input.RetentionTTL,

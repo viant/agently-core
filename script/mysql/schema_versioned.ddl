@@ -2286,6 +2286,9 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     format VARCHAR(64) NOT NULL,
     scope VARCHAR(64) NOT NULL,
     status VARCHAR(64) NOT NULL,
+    report_run_id VARCHAR(255) NULL,
+    report_run_revision BIGINT NULL,
+    export_request_id VARCHAR(128) NULL,
     report_spec_json MEDIUMBLOB NULL,
     report_fill_json MEDIUMBLOB NULL,
     report_print_json MEDIUMBLOB NULL,
@@ -2296,7 +2299,25 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     started_at DATETIME NULL,
     completed_at DATETIME NULL,
-    retention_ttl_sec BIGINT NOT NULL DEFAULT 0
+    retention_ttl_sec BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ux_report_export_job_owner_conversation_request
+        UNIQUE (owner_id, conversation_id, export_request_id),
+    CONSTRAINT chk_report_export_job_status
+        CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
+    CONSTRAINT chk_report_export_job_run_reference
+        CHECK (
+            (report_run_id IS NULL AND report_run_revision IS NULL AND export_request_id IS NULL)
+            OR
+            (
+                report_run_id IS NOT NULL
+                AND report_run_revision IS NOT NULL
+                AND report_run_revision > 0
+                AND export_request_id IS NOT NULL
+                AND conversation_id IS NOT NULL
+            )
+        ),
+    CONSTRAINT chk_report_export_job_run_pdf
+        CHECK (report_run_id IS NULL OR (format = 'pdf' AND scope = 'draft'))
     );
 
 CREATE INDEX idx_report_export_job_owner_submitted_at
@@ -2315,7 +2336,10 @@ CREATE TABLE IF NOT EXISTS report_export_artifact (
     content_type VARCHAR(255) NOT NULL,
     inline_data LONGBLOB NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    retention_ttl_sec BIGINT NOT NULL DEFAULT 0
+    retention_ttl_sec BIGINT NOT NULL DEFAULT 0,
+    CONSTRAINT ux_report_export_artifact_job UNIQUE (job_id),
+    CONSTRAINT fk_report_export_artifact_job
+        FOREIGN KEY (job_id) REFERENCES report_export_job(job_id) ON DELETE RESTRICT
     );
 
 CREATE INDEX idx_report_export_artifact_owner_created_at
@@ -2380,5 +2404,208 @@ END $$
 
 CALL schema_upgrade_30() $$
 DROP PROCEDURE schema_upgrade_30 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_31 $$
+CREATE PROCEDURE schema_upgrade_31()
+BEGIN
+    IF get_schema_version() = 31 THEN
+        CREATE TABLE IF NOT EXISTS report_run (
+            report_run_id VARCHAR(255) PRIMARY KEY,
+            owner_id VARCHAR(255) NOT NULL,
+            conversation_id VARCHAR(255) NULL,
+            materializer VARCHAR(64) NOT NULL,
+            origin VARCHAR(64) NULL,
+            builder_ref VARCHAR(255) NULL,
+            preset_id VARCHAR(255) NULL,
+            source_kind VARCHAR(64) NULL,
+            source_id VARCHAR(255) NULL,
+            requested_params_json MEDIUMBLOB NULL,
+            effective_params_json MEDIUMBLOB NULL,
+            status VARCHAR(32) NOT NULL,
+            failure_code VARCHAR(255) NULL,
+            failure_text TEXT NULL,
+            started_at DATETIME NOT NULL,
+            completed_at DATETIME NULL,
+            revision BIGINT NOT NULL,
+            ui_run_request_id VARCHAR(255) NOT NULL,
+            report_spec_json MEDIUMBLOB NULL,
+            report_fill_json MEDIUMBLOB NULL,
+            report_print_json MEDIUMBLOB NULL,
+            activation_source VARCHAR(64) NULL,
+            adoption_source VARCHAR(64) NULL,
+            actor_id VARCHAR(255) NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            CONSTRAINT chk_report_run_status CHECK (status IN ('running', 'completed', 'failed')),
+            CONSTRAINT ux_report_run_owner_request UNIQUE (owner_id, ui_run_request_id),
+            CONSTRAINT ux_report_run_owner_id UNIQUE (owner_id, report_run_id),
+            KEY idx_report_run_owner_conversation_updated (owner_id, conversation_id, updated_at),
+            KEY idx_report_run_owner_status_updated (owner_id, status, updated_at),
+            CONSTRAINT fk_report_run_conversation
+                FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE SET NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS conversation_report_context (
+            owner_id VARCHAR(255) NOT NULL,
+            conversation_id VARCHAR(255) NOT NULL,
+            active_report_run_id VARCHAR(255) NOT NULL,
+            revision BIGINT NOT NULL,
+            activation_source VARCHAR(64) NOT NULL DEFAULT '',
+            actor_id VARCHAR(255) NOT NULL DEFAULT '',
+            updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (owner_id, conversation_id),
+            KEY idx_conversation_report_context_active_run (owner_id, active_report_run_id),
+            CONSTRAINT fk_conversation_report_context_conversation
+                FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE CASCADE,
+            CONSTRAINT fk_conversation_report_context_run
+                FOREIGN KEY (owner_id, active_report_run_id)
+                REFERENCES report_run(owner_id, report_run_id) ON DELETE RESTRICT
+        );
+
+        CALL set_schema_version(32);
+    END IF;
+END $$
+
+CALL schema_upgrade_31() $$
+DROP PROCEDURE schema_upgrade_31 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_32 $$
+CREATE PROCEDURE schema_upgrade_32()
+BEGIN
+    IF get_schema_version() = 32 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_job'
+              AND COLUMN_NAME = 'report_run_id'
+        ) THEN
+            ALTER TABLE report_export_job
+                ADD COLUMN report_run_id VARCHAR(255) NULL AFTER status;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_job'
+              AND COLUMN_NAME = 'report_run_revision'
+        ) THEN
+            ALTER TABLE report_export_job
+                ADD COLUMN report_run_revision BIGINT NULL AFTER report_run_id;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_job'
+              AND COLUMN_NAME = 'export_request_id'
+        ) THEN
+            ALTER TABLE report_export_job
+                ADD COLUMN export_request_id VARCHAR(128) NULL AFTER report_run_revision;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_job'
+              AND INDEX_NAME = 'ux_report_export_job_owner_conversation_request'
+        ) THEN
+            ALTER TABLE report_export_job
+                ADD UNIQUE KEY ux_report_export_job_owner_conversation_request
+                    (owner_id, conversation_id, export_request_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_job'
+              AND INDEX_NAME = 'idx_report_export_job_run'
+        ) THEN
+            ALTER TABLE report_export_job
+                ADD KEY idx_report_export_job_run (report_run_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_job'
+              AND CONSTRAINT_NAME = 'fk_report_export_job_run'
+        ) THEN
+            ALTER TABLE report_export_job
+                ADD CONSTRAINT fk_report_export_job_run
+                    FOREIGN KEY (report_run_id)
+                    REFERENCES report_run(report_run_id) ON DELETE RESTRICT;
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_job'
+              AND CONSTRAINT_NAME = 'chk_report_export_job_run_reference'
+        ) THEN
+            ALTER TABLE report_export_job
+                ADD CONSTRAINT chk_report_export_job_run_reference
+                    CHECK (
+                        (report_run_id IS NULL AND report_run_revision IS NULL AND export_request_id IS NULL)
+                        OR
+                        (
+                            report_run_id IS NOT NULL
+                            AND report_run_revision IS NOT NULL
+                            AND export_request_id IS NOT NULL
+                            AND conversation_id IS NOT NULL
+                            AND report_run_revision > 0
+                        )
+                    );
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_job'
+              AND CONSTRAINT_NAME = 'chk_report_export_job_status'
+        ) THEN
+            ALTER TABLE report_export_job
+                ADD CONSTRAINT chk_report_export_job_status
+                    CHECK (status IN ('queued', 'running', 'succeeded', 'failed'));
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_job'
+              AND CONSTRAINT_NAME = 'chk_report_export_job_run_pdf'
+        ) THEN
+            ALTER TABLE report_export_job
+                ADD CONSTRAINT chk_report_export_job_run_pdf
+                    CHECK (report_run_id IS NULL OR (format = 'pdf' AND scope = 'draft'));
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_artifact'
+              AND INDEX_NAME = 'ux_report_export_artifact_job'
+        ) THEN
+            ALTER TABLE report_export_artifact
+                ADD UNIQUE KEY ux_report_export_artifact_job (job_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
+            WHERE CONSTRAINT_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_artifact'
+              AND CONSTRAINT_NAME = 'fk_report_export_artifact_job'
+        ) THEN
+            ALTER TABLE report_export_artifact
+                ADD CONSTRAINT fk_report_export_artifact_job
+                    FOREIGN KEY (job_id)
+                    REFERENCES report_export_job(job_id) ON DELETE RESTRICT;
+        END IF;
+
+        CALL set_schema_version(33);
+    END IF;
+END $$
+
+CALL schema_upgrade_32() $$
+DROP PROCEDURE schema_upgrade_32 $$
 
 DELIMITER ;
