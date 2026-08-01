@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	token "github.com/viant/agently-core/internal/auth/token"
 	convsvc "github.com/viant/agently-core/internal/service/conversation"
+	executionprotection "github.com/viant/agently-core/internal/tool/executionprotection"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	mcpclienthandler "github.com/viant/agently-core/protocol/mcp/clienthandler"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
@@ -281,6 +283,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if out.Defaults == nil {
 		out.Defaults = &config.Defaults{}
 	}
+	if err := out.Defaults.ToolExecutionProtection.Validate(); err != nil {
+		return nil, err
+	}
 
 	needsDAO := b.conversation == nil || b.data == nil || reportingSQLStoreEnabled(out.Defaults)
 	if out.DAO == nil && needsDAO {
@@ -349,6 +354,18 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			return nil, err
 		}
 		out.Registry = reg
+	}
+	if out.Defaults.ToolExecutionProtection.Enabled {
+		guard, err := executionprotection.New(
+			out.Defaults.ToolExecutionProtection,
+			executionprotection.NewDAORepository(out.DAO),
+		)
+		if err != nil {
+			return nil, err
+		}
+		if !tool.SetExecutionProtection(out.Registry, guard) {
+			log.Printf("[warn] tool execution protection is enabled but the configured custom registry does not support the standard concrete registry guard")
+		}
 	}
 	if !shouldSkipRegistryInitialize() {
 		out.Registry.Initialize(ctx)

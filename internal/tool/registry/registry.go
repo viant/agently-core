@@ -40,6 +40,7 @@ import (
 
 	localmcp "github.com/viant/agently-core/protocol/mcp/localclient"
 	mcpproxy "github.com/viant/agently-core/protocol/mcp/proxy"
+	toolprotection "github.com/viant/agently-core/protocol/tool/protection"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	orchplan "github.com/viant/agently-core/protocol/tool/service/orchestration/plan"
 	toolScratchpad "github.com/viant/agently-core/protocol/tool/service/scratchpad"
@@ -97,6 +98,8 @@ type Registry struct {
 	recentMu      sync.Mutex
 	recentResults map[string]map[string]recentItem // convID -> key -> item
 	recentTTL     time.Duration
+
+	executionProtection toolprotection.Guard
 
 	// background refresh configuration
 	refreshEvery time.Duration // successful refresh cadence
@@ -180,6 +183,16 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 	}
 	// Internal MCP services are app-owned plugins; registries start empty.
 	return r, nil
+}
+
+// SetExecutionProtection installs the default registry's pre-dispatch guard.
+func (r *Registry) SetExecutionProtection(guard toolprotection.Guard) {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	r.executionProtection = guard
+	r.mu.Unlock()
 }
 
 // debugf emits a formatted debug line to the configured debugWriter when present.
@@ -728,11 +741,11 @@ func (r *Registry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 	return ret, nil
 }
 
-func (r *Registry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+func (r *Registry) Execute(ctx context.Context, name string, args map[string]interface{}) (result string, retErr error) {
 	execStart := time.Now()
 	// Handle selector suffix and base tool name
 	var selector string
-	baseName := name
+	baseName := strings.TrimSpace(name)
 	if i := strings.Index(name, "|"); i != -1 {
 		baseName = strings.TrimSpace(name[:i])
 		selector = strings.TrimSpace(name[i+1:])
@@ -744,6 +757,43 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		ctx, cancel, callArgs = r.applyTimeoutMs(ctx, baseName, callArgs)
 		if cancel != nil {
 			defer cancel()
+		}
+	}
+	protected := false
+	protectionAmbiguous := false
+	r.mu.RLock()
+	guard := r.executionProtection
+	r.mu.RUnlock()
+	if guard != nil {
+		claim, err := guard.Claim(ctx, baseName, callArgs)
+		if err != nil {
+			return "", err
+		}
+		protected = claim.Protected
+		if claim.Protected && !claim.Acquired {
+			duplicate, _ := json.Marshal(struct {
+				Status         string `json:"status"`
+				ProviderCalled bool   `json:"providerCalled"`
+				RuleID         string `json:"ruleId"`
+			}{Status: "duplicate_suppressed", ProviderCalled: false, RuleID: claim.RuleID})
+			return string(duplicate), nil
+		}
+		if claim.Protected {
+			defer func() {
+				state := toolprotection.StateCompleted
+				if retErr != nil {
+					state = toolprotection.StateFailed
+				}
+				if protectionAmbiguous || errors.Is(retErr, context.Canceled) || errors.Is(retErr, context.DeadlineExceeded) || errors.Is(ctx.Err(), context.Canceled) || errors.Is(ctx.Err(), context.DeadlineExceeded) {
+					state = toolprotection.StateUnknown
+				}
+				finishBase := context.WithoutCancel(ctx)
+				go func() {
+					finishCtx, finishCancel := context.WithTimeout(finishBase, 5*time.Second)
+					defer finishCancel()
+					guard.Finish(finishCtx, claim, state)
+				}()
+			}()
 		}
 	}
 	convID := runtimerequestctx.ConversationIDFromContext(ctx)
@@ -840,7 +890,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	// Key uses fully qualified tool name and a stable JSON for args.
 	keyArgs, _ := json.Marshal(callArgs)
 	recentKey := userID + "|" + baseName + "|" + string(keyArgs)
-	if r.recentTTL > 0 {
+	if !protected && r.recentTTL > 0 {
 		r.recentMu.Lock()
 		if m := r.recentResults[convID]; m != nil {
 			if it, ok := m[recentKey]; ok && time.Since(it.when) <= r.recentTTL {
@@ -858,7 +908,10 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		debugMCPExecf("registry proxy error server=%s base=%s elapsed=%s err=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), err)
 		return "", err
 	}
-	const maxAttempts = 3 // initial + 2 retries
+	maxAttempts := 3 // initial + 2 retries
+	if protected {
+		maxAttempts = 1
+	}
 	var res *mcpschema.CallToolResult
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		attemptStart := time.Now()
@@ -894,6 +947,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			break
 		}
 		// Transport/client-level error
+		if err != nil && protected {
+			protectionAmbiguous = true
+		}
 		if r.mgr != nil && isReconnectableError(err) && attempt < maxAttempts-1 {
 			log.Printf("[warn][mcp-client-pool] reconnect requested server=%q scope_type=conversation conv_id=%q reason=transport_error attempt=%d err=%v",
 				server, convID, attempt+1, err)
@@ -915,6 +971,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return "", err
 	}
 	if res == nil {
+		if protected {
+			protectionAmbiguous = true
+		}
 		err := fmt.Errorf("mcp tool %s returned nil result", baseName)
 		debugMCPExecf("registry nil result server=%s base=%s elapsed=%s", server, baseName, time.Since(execStart).Round(time.Millisecond))
 		return "", err
@@ -927,7 +986,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(text, selector)
 			}
-			if r.recentTTL > 0 {
+			if !protected && r.recentTTL > 0 {
 				r.recentMu.Lock()
 				if r.recentResults[convID] == nil {
 					r.recentResults[convID] = map[string]recentItem{}
@@ -944,7 +1003,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(out, selector)
 			}
-			if r.recentTTL > 0 {
+			if !protected && r.recentTTL > 0 {
 				r.recentMu.Lock()
 				if r.recentResults[convID] == nil {
 					r.recentResults[convID] = map[string]recentItem{}
@@ -960,7 +1019,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(out, selector)
 			}
-			if r.recentTTL > 0 {
+			if !protected && r.recentTTL > 0 {
 				r.recentMu.Lock()
 				if r.recentResults[convID] == nil {
 					r.recentResults[convID] = map[string]recentItem{}
@@ -977,7 +1036,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(text, selector)
 			}
-			if r.recentTTL > 0 {
+			if !protected && r.recentTTL > 0 {
 				r.recentMu.Lock()
 				if r.recentResults[convID] == nil {
 					r.recentResults[convID] = map[string]recentItem{}
@@ -1404,6 +1463,12 @@ func (r *Registry) ToolTimeout(name string) (time.Duration, bool) {
 // ToolRetryable returns an explicitly configured retry policy for an internal
 // tool method. Tools without a policy retain the executor's default behavior.
 func (r *Registry) ToolRetryable(name string) (bool, bool) {
+	r.mu.RLock()
+	guard := r.executionProtection
+	r.mu.RUnlock()
+	if guard != nil && guard.IsProtected(name) {
+		return false, true
+	}
 	server, method := splitToolName(name)
 	if server == "" || method == "" {
 		return false, false

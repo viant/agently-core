@@ -56,7 +56,10 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 	if cfg, err := wsconfig.Load(workspace.Root()); err != nil {
 		return nil, nil, nil, err
 	} else {
-		defaults = cfg.DefaultsWithFallback(defaults)
+		defaults, err = cfg.ResolveDefaultsWithFallback(defaults)
+		if err != nil {
+			return nil, nil, nil, err
+		}
 	}
 	wsconfig.ApplyPathDefaults(defaults)
 	wsMeta := meta.New(fs, workspaceRoot)

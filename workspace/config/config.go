@@ -151,8 +151,29 @@ func (r *Root) DecodeAuth(out interface{}) error {
 	return r.AuthNode.Decode(out)
 }
 
-// DefaultsWithFallback merges the workspace default section over the supplied fallback.
-func (r *Root) DefaultsWithFallback(fallback *execconfig.Defaults) *execconfig.Defaults {
+// ResolveDefaultsWithFallback merges the workspace default section over the
+// supplied fallback and returns decoding or protection validation errors.
+func (r *Root) ResolveDefaultsWithFallback(fallback *execconfig.Defaults) (*execconfig.Defaults, error) {
+	base := defaultsFallbackBase(fallback)
+	if r == nil || isZeroNode(&r.DefaultNode) {
+		if err := base.ToolExecutionProtection.Validate(); err != nil {
+			return nil, err
+		}
+		return base, nil
+	}
+	var cfg execconfig.Defaults
+	if err := r.DefaultNode.Decode(&cfg); err != nil {
+		return nil, fmt.Errorf("decode workspace default: %w", err)
+	}
+	mergeDefaults(base, &cfg)
+	ensureAsyncDefaults(base)
+	if err := base.ToolExecutionProtection.Validate(); err != nil {
+		return nil, err
+	}
+	return base, nil
+}
+
+func defaultsFallbackBase(fallback *execconfig.Defaults) *execconfig.Defaults {
 	base := &execconfig.Defaults{
 		AppName:    "Agently",
 		AppIconRef: "builtin:viant",
@@ -172,20 +193,19 @@ func (r *Root) DefaultsWithFallback(fallback *execconfig.Defaults) *execconfig.D
 	}
 	if fallback != nil {
 		*base = *fallback
-		ensureAsyncDefaults(base)
 	}
-	if r == nil || isZeroNode(&r.DefaultNode) {
-		ensureAsyncDefaults(base)
-		return base
-	}
-	var cfg execconfig.Defaults
-	if err := r.DefaultNode.Decode(&cfg); err != nil {
-		ensureAsyncDefaults(base)
-		return base
-	}
-	mergeDefaults(base, &cfg)
 	ensureAsyncDefaults(base)
 	return base
+}
+
+// DefaultsWithFallback preserves the legacy non-error-returning behavior for
+// compatibility. Production runtime paths use ResolveDefaultsWithFallback.
+func (r *Root) DefaultsWithFallback(fallback *execconfig.Defaults) *execconfig.Defaults {
+	resolved, err := r.ResolveDefaultsWithFallback(fallback)
+	if err == nil {
+		return resolved
+	}
+	return defaultsFallbackBase(fallback)
 }
 
 func ensureAsyncDefaults(defaults *execconfig.Defaults) {
@@ -470,6 +490,9 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	}
 	if src.ElicitationTimeoutSec > 0 {
 		dst.ElicitationTimeoutSec = src.ElicitationTimeoutSec
+	}
+	if src.HasToolExecutionProtection() {
+		dst.ToolExecutionProtection = src.ToolExecutionProtection
 	}
 	if src.ToolApproval.Mode != "" {
 		dst.ToolApproval = src.ToolApproval
