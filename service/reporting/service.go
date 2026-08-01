@@ -19,6 +19,7 @@ import (
 	iauth "github.com/viant/agently-core/internal/auth"
 	tokenctx "github.com/viant/agently-core/internal/auth/token"
 	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
+	asynccfg "github.com/viant/agently-core/protocol/async"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	authctx "github.com/viant/agently-core/service/auth"
@@ -103,6 +104,54 @@ func New(opts Options) *Service {
 }
 
 func (s *Service) Name() string { return Name }
+
+func (s *Service) AsyncConfig(toolName string) *asynccfg.Config {
+	for _, config := range s.AsyncConfigs() {
+		if config == nil {
+			continue
+		}
+		if strings.TrimSpace(config.Run.Tool) == strings.TrimSpace(toolName) ||
+			strings.TrimSpace(config.Status.Tool) == strings.TrimSpace(toolName) {
+			return config
+		}
+	}
+	return nil
+}
+
+// AsyncConfigs links exact export submission jobs to exact status reads. The
+// generic async runtime owns the bounded wait; no reporting-specific wait tool
+// or model-driven polling loop is exposed.
+func (s *Service) AsyncConfigs() []*asynccfg.Config {
+	return []*asynccfg.Config{
+		{
+			DefaultExecutionMode:       string(asynccfg.ExecutionModeWait),
+			TerminalCarrierBeforeModel: true,
+			TimeoutMs:                  int((300 * time.Second) / time.Millisecond),
+			PollIntervalMs:             int((500 * time.Millisecond) / time.Millisecond),
+			Narration:                  "none",
+			Run: asynccfg.RunConfig{
+				Tool:            "reporting:submit_export",
+				OperationIDPath: "jobId",
+				Selector: &asynccfg.Selector{
+					StatusPath: "status",
+					DataPath:   ".",
+				},
+			},
+			Status: asynccfg.StatusConfig{
+				Tool:           "reporting:get_export_status",
+				OperationIDArg: "jobId",
+				Selector: asynccfg.Selector{
+					StatusPath: "status",
+					DataPath:   ".",
+					TerminalStatuses: []string{
+						string(JobStatusSucceeded),
+						string(JobStatusFailed),
+					},
+				},
+			},
+		},
+	}
+}
 
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{

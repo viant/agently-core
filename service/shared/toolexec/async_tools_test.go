@@ -265,7 +265,8 @@ func TestExecuteToolStep_AsyncOverrideUsesExecutionMode(t *testing.T) {
 
 func TestExecuteToolStep_StoresOperationIntentFromRunIntentPath(t *testing.T) {
 	cfg := &asynccfg.Config{
-		DefaultExecutionMode: string(asynccfg.ExecutionModeDetach),
+		DefaultExecutionMode:       string(asynccfg.ExecutionModeDetach),
+		TerminalCarrierBeforeModel: true,
 		Run: asynccfg.RunConfig{
 			Tool:            "llm/agents:start",
 			OperationIDPath: "conversationId",
@@ -309,6 +310,77 @@ func TestExecuteToolStep_StoresOperationIntentFromRunIntentPath(t *testing.T) {
 	require.NotNil(t, rec)
 	require.Equal(t, "Inspect repository structure", rec.OperationIntent)
 	require.Equal(t, "workdir=/tmp/ws | orderId=2639076", rec.OperationSummary)
+	require.True(t, rec.TerminalCarrierBeforeModel)
+}
+
+func TestAsyncPersistenceContentFromRecord_TerminalStates(t *testing.T) {
+	tests := []struct {
+		name string
+		rec  *asynccfg.OperationRecord
+		want string
+	}{
+		{
+			name: "succeeded artifact",
+			rec: &asynccfg.OperationRecord{
+				State:   asynccfg.StateCompleted,
+				Status:  "succeeded",
+				KeyData: json.RawMessage(`{"status":"succeeded","artifactId":"artifact-1"}`),
+			},
+			want: `{"status":"succeeded","artifactId":"artifact-1"}`,
+		},
+		{
+			name: "failed payload",
+			rec: &asynccfg.OperationRecord{
+				State:   asynccfg.StateFailed,
+				Status:  "failed",
+				Error:   "render failed",
+				KeyData: json.RawMessage(`{"status":"failed","error":"render failed"}`),
+			},
+			want: `{"status":"failed","error":"render failed"}`,
+		},
+		{
+			name: "canceled payload",
+			rec: &asynccfg.OperationRecord{
+				State:   asynccfg.StateCanceled,
+				Status:  "canceled",
+				KeyData: json.RawMessage(`{"status":"canceled"}`),
+			},
+			want: `{"status":"canceled"}`,
+		},
+		{
+			name: "timeout status",
+			rec: &asynccfg.OperationRecord{
+				State:  asynccfg.StateFailed,
+				Status: "failed",
+				Error:  "operation timed out",
+			},
+			want: "failed",
+		},
+	}
+	for _, testCase := range tests {
+		t.Run(testCase.name, func(t *testing.T) {
+			got := AsyncPersistenceContentFromRecord(testCase.rec)
+			if strings.HasPrefix(testCase.want, "{") {
+				require.JSONEq(t, testCase.want, got)
+				return
+			}
+			require.Equal(t, testCase.want, got)
+		})
+	}
+
+	require.Empty(t, AsyncPersistenceContentFromRecord(&asynccfg.OperationRecord{State: asynccfg.StateRunning, Status: "running"}))
+
+	manager := asynccfg.NewManager()
+	manager.Register(context.Background(), asynccfg.RegisterInput{
+		ID:      "timed-out",
+		Status:  "queued",
+		KeyData: json.RawMessage(`{"status":"queued"}`),
+	})
+	timedOut, changed := manager.Update(context.Background(), asynccfg.UpdateInput{
+		ID: "timed-out", Status: "failed", Error: "operation timed out", State: asynccfg.StateFailed,
+	})
+	require.True(t, changed)
+	require.Equal(t, "failed", AsyncPersistenceContentFromRecord(timedOut))
 }
 
 func TestExecuteToolStep_StatusWaitExecutionMode_ParksUntilTerminal(t *testing.T) {

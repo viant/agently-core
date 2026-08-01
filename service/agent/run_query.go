@@ -134,6 +134,99 @@ func cloneToolArgs(args map[string]interface{}) map[string]interface{} {
 	return out
 }
 
+type terminalCarrierPatch struct {
+	message *bindpkg.Message
+	content string
+}
+
+// prepareTerminalCarriersBeforeModel takes the one authoritative async
+// snapshot used at the final pre-model boundary. Steering bypasses this path so
+// an in-flight user directive keeps its existing ability to reach the model.
+func (s *Service) prepareTerminalCarriersBeforeModel(ctx context.Context, binding *bindpkg.Binding, turn runtimerequestctx.TurnMeta, steering bool) (bool, error) {
+	if s == nil || s.asyncManager == nil || steering {
+		return false, nil
+	}
+	records := s.asyncManager.OperationsForTurn(ctx, turn.ConversationID, turn.TurnID)
+	return reconcileTerminalCarriersBeforeModel(binding, records, turn.ConversationID, turn.TurnID)
+}
+
+// reconcileTerminalCarriersBeforeModel refreshes opted-in terminal wait
+// carriers and reports whether an opted-in wait operation is still active.
+// Every carrier is validated before any content is changed so a missing or
+// ambiguous declaration fails closed without partially mutating the binding.
+func reconcileTerminalCarriersBeforeModel(binding *bindpkg.Binding, records []*asynccfg.OperationRecord, conversationID, turnID string) (bool, error) {
+	conversationID = strings.TrimSpace(conversationID)
+	turnID = strings.TrimSpace(turnID)
+	terminal := make([]*asynccfg.OperationRecord, 0, len(records))
+	for _, rec := range records {
+		if rec == nil || !rec.TerminalCarrierBeforeModel || !asynccfg.ExecutionModeWaits(rec.ExecutionMode) {
+			continue
+		}
+		if strings.TrimSpace(rec.ParentConvID) != conversationID || strings.TrimSpace(rec.ParentTurnID) != turnID {
+			continue
+		}
+		if !rec.Terminal() {
+			return true, nil
+		}
+		terminal = append(terminal, rec)
+	}
+	if len(terminal) == 0 {
+		return false, nil
+	}
+	if binding == nil {
+		return false, fmt.Errorf("terminal async carrier: binding is missing")
+	}
+	if turnID == "" || binding.History.Current == nil ||
+		strings.TrimSpace(binding.History.CurrentTurnID) != turnID ||
+		strings.TrimSpace(binding.History.Current.ID) != turnID {
+		return false, fmt.Errorf("terminal async carrier: exact current turn %q is missing from binding", turnID)
+	}
+
+	sort.Slice(terminal, func(i, j int) bool {
+		if terminal[i].ID != terminal[j].ID {
+			return terminal[i].ID < terminal[j].ID
+		}
+		if terminal[i].ToolMessageID != terminal[j].ToolMessageID {
+			return terminal[i].ToolMessageID < terminal[j].ToolMessageID
+		}
+		return terminal[i].ToolCallID < terminal[j].ToolCallID
+	})
+	patches := make([]terminalCarrierPatch, 0, len(terminal))
+	claimed := map[*bindpkg.Message]string{}
+	for _, rec := range terminal {
+		toolMessageID := strings.TrimSpace(rec.ToolMessageID)
+		toolCallID := strings.TrimSpace(rec.ToolCallID)
+		if toolMessageID == "" || toolCallID == "" {
+			return false, fmt.Errorf("terminal async carrier: operation %q has an incomplete carrier declaration", strings.TrimSpace(rec.ID))
+		}
+		var matches []*bindpkg.Message
+		for _, msg := range binding.History.Current.Messages {
+			if msg == nil || msg.Kind != bindpkg.MessageKindToolResult {
+				continue
+			}
+			if strings.TrimSpace(msg.ID) == toolMessageID && strings.TrimSpace(msg.ToolOpID) == toolCallID {
+				matches = append(matches, msg)
+			}
+		}
+		if len(matches) != 1 {
+			return false, fmt.Errorf("terminal async carrier: operation %q declared carrier message %q call %q with %d exact current-turn matches", strings.TrimSpace(rec.ID), toolMessageID, toolCallID, len(matches))
+		}
+		if priorOpID, ok := claimed[matches[0]]; ok {
+			return false, fmt.Errorf("terminal async carrier: operations %q and %q declare the same current-turn carrier", priorOpID, strings.TrimSpace(rec.ID))
+		}
+		content := toolexec.AsyncPersistenceContentFromRecord(rec)
+		if strings.TrimSpace(content) == "" {
+			return false, fmt.Errorf("terminal async carrier: operation %q has no canonical terminal content", strings.TrimSpace(rec.ID))
+		}
+		claimed[matches[0]] = strings.TrimSpace(rec.ID)
+		patches = append(patches, terminalCarrierPatch{message: matches[0], content: content})
+	}
+	for _, patch := range patches {
+		patch.message.Content = patch.content
+	}
+	return false, nil
+}
+
 func (s *Service) asyncStatusReplayMessages(ctx context.Context, turn runtimerequestctx.TurnMeta, checkpoint turnTaskCheckpoint) []*bindpkg.Message {
 	if s == nil || s.asyncManager == nil {
 		return nil
@@ -1146,6 +1239,15 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 		})
 		genOutput := &core.GenerateOutput{}
 		planStart := time.Now()
+		blocked, carrierErr := s.prepareTerminalCarriersBeforeModel(ctx, genInput.Binding, turn, bypassAsyncWait)
+		if carrierErr != nil {
+			return carrierErr
+		}
+		if blocked {
+			logx.Infof("conversation", "agent.runPlan opted-async-wait-pre-model convo=%q turn_id=%q iter=%d", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter)
+			queryOutput.Content = ""
+			continue
+		}
 
 		if logx.Enabled() && genInput.Binding != nil {
 			msgs := genInput.Binding.History.LLMMessages()

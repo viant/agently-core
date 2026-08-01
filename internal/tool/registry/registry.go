@@ -74,11 +74,13 @@ type Registry struct {
 	mgr mcpManager
 
 	// in-memory MCP clients for internal services (server name -> client)
-	internal          map[string]mcpclient.Interface
-	internalTimeout   map[string]time.Duration
-	asyncByTool       map[string]*asynccfg.Config
-	internalCacheable map[string]map[string]bool // server name -> method name -> cacheable
-	internalMethods   map[string]map[string]svc.Signature
+	internal              map[string]mcpclient.Interface
+	internalTimeout       map[string]time.Duration
+	internalMethodTimeout map[string]map[string]time.Duration
+	internalMethodRetry   map[string]map[string]bool
+	asyncByTool           map[string]*asynccfg.Config
+	internalCacheable     map[string]map[string]bool // server name -> method name -> cacheable
+	internalMethods       map[string]map[string]svc.Signature
 
 	// cache: tool name → entry
 	cache map[string]*toolCacheEntry
@@ -151,22 +153,24 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		return nil, fmt.Errorf("adapter/tool: nil mcp manager passed to NewWithManager")
 	}
 	r := &Registry{
-		virtualDefs:        map[string]llm.ToolDefinition{},
-		virtualExec:        map[string]Handler{},
-		mgr:                mgr,
-		cache:              map[string]*toolCacheEntry{},
-		internal:           map[string]mcpclient.Interface{},
-		internalTimeout:    map[string]time.Duration{},
-		asyncByTool:        map[string]*asynccfg.Config{},
-		internalMethods:    map[string]map[string]svc.Signature{},
-		recentResults:      map[string]map[string]recentItem{},
-		recentTTL:          5 * time.Second,
-		refreshEvery:       30 * time.Second,
-		virtualTimeout:     map[string]timeoutSupport{},
-		discoveryShared:    map[string]discoveryIdentity{},
-		discoveryWarnAt:    map[string]time.Time{},
-		discoveryFailUntil: map[string]time.Time{},
-		discoveryFailErr:   map[string]string{},
+		virtualDefs:           map[string]llm.ToolDefinition{},
+		virtualExec:           map[string]Handler{},
+		mgr:                   mgr,
+		cache:                 map[string]*toolCacheEntry{},
+		internal:              map[string]mcpclient.Interface{},
+		internalTimeout:       map[string]time.Duration{},
+		internalMethodTimeout: map[string]map[string]time.Duration{},
+		internalMethodRetry:   map[string]map[string]bool{},
+		asyncByTool:           map[string]*asynccfg.Config{},
+		internalMethods:       map[string]map[string]svc.Signature{},
+		recentResults:         map[string]map[string]recentItem{},
+		recentTTL:             5 * time.Second,
+		refreshEvery:          30 * time.Second,
+		virtualTimeout:        map[string]timeoutSupport{},
+		discoveryShared:       map[string]discoveryIdentity{},
+		discoveryWarnAt:       map[string]time.Time{},
+		discoveryFailUntil:    map[string]time.Time{},
+		discoveryFailErr:      map[string]string{},
 		// Cap duplicate warning noise while preserving first signal quickly.
 		discoveryWarnEvery: 30 * time.Second,
 		discoveryWaitEvery: 30 * time.Second,
@@ -1205,6 +1209,12 @@ func (r *Registry) AddInternalService(s svc.Service) error {
 	if r.internalTimeout == nil {
 		r.internalTimeout = map[string]time.Duration{}
 	}
+	if r.internalMethodTimeout == nil {
+		r.internalMethodTimeout = map[string]map[string]time.Duration{}
+	}
+	if r.internalMethodRetry == nil {
+		r.internalMethodRetry = map[string]map[string]bool{}
+	}
 	if r.asyncByTool == nil {
 		r.asyncByTool = map[string]*asynccfg.Config{}
 	}
@@ -1217,12 +1227,8 @@ func (r *Registry) AddInternalService(s svc.Service) error {
 		methods[strings.TrimSpace(sig.Name)] = sig
 	}
 	r.internalMethods[s.Name()] = methods
-	// Capture service-provided timeout when available
-	if tt, ok := any(s).(interface{ ToolTimeout() time.Duration }); ok {
-		if d := tt.ToolTimeout(); d > 0 {
-			r.internalTimeout[s.Name()] = d
-		}
-	}
+	r.captureInternalTimeoutsLocked(s)
+	r.captureInternalRetryPolicyLocked(s)
 	if ac, ok := any(s).(svc.AsyncConfigurer); ok {
 		for _, cfg := range ac.AsyncConfigs() {
 			cacheAsyncConfigAliases(r.asyncByTool, cfg)
@@ -1238,6 +1244,75 @@ func (r *Registry) AddInternalService(s svc.Service) error {
 	}
 	r.mu.Unlock()
 	return nil
+}
+
+// captureInternalTimeoutsLocked replaces all cached timeout metadata for s.
+// The caller must hold r.mu for writing.
+func (r *Registry) captureInternalTimeoutsLocked(s svc.Service) {
+	if s == nil {
+		return
+	}
+	if r.internalTimeout == nil {
+		r.internalTimeout = map[string]time.Duration{}
+	}
+	if r.internalMethodTimeout == nil {
+		r.internalMethodTimeout = map[string]map[string]time.Duration{}
+	}
+	name := strings.TrimSpace(s.Name())
+	delete(r.internalTimeout, name)
+	delete(r.internalMethodTimeout, name)
+	if tt, ok := any(s).(svc.HasToolTimeout); ok {
+		if d := tt.ToolTimeout(); d > 0 {
+			r.internalTimeout[name] = d
+		}
+	}
+	tt, ok := any(s).(svc.HasMethodToolTimeout)
+	if !ok {
+		return
+	}
+	timeouts := make(map[string]time.Duration)
+	for _, sig := range s.Methods() {
+		method := strings.ToLower(strings.TrimSpace(sig.Name))
+		if method == "" {
+			continue
+		}
+		if d := tt.MethodToolTimeout(sig.Name); d > 0 {
+			timeouts[method] = d
+		}
+	}
+	if len(timeouts) > 0 {
+		r.internalMethodTimeout[name] = timeouts
+	}
+}
+
+// captureInternalRetryPolicyLocked replaces all cached retry metadata for s.
+// The caller must hold r.mu for writing.
+func (r *Registry) captureInternalRetryPolicyLocked(s svc.Service) {
+	if s == nil {
+		return
+	}
+	if r.internalMethodRetry == nil {
+		r.internalMethodRetry = map[string]map[string]bool{}
+	}
+	name := strings.TrimSpace(s.Name())
+	delete(r.internalMethodRetry, name)
+	provider, ok := any(s).(svc.HasMethodRetryPolicy)
+	if !ok {
+		return
+	}
+	policies := make(map[string]bool)
+	for _, sig := range s.Methods() {
+		method := strings.ToLower(strings.TrimSpace(sig.Name))
+		if method == "" {
+			continue
+		}
+		if retryable, configured := provider.MethodRetryable(sig.Name); configured {
+			policies[method] = retryable
+		}
+	}
+	if len(policies) > 0 {
+		r.internalMethodRetry[name] = policies
+	}
 }
 
 func (r *Registry) isBlockedInternalMethodExecution(ctx context.Context, server, baseName string) bool {
@@ -1301,13 +1376,16 @@ func (r *Registry) AsyncConfig(name string) (*asynccfg.Config, bool) {
 
 // ToolTimeout returns a suggested timeout for a given tool name.
 func (r *Registry) ToolTimeout(name string) (time.Duration, bool) {
-	server := serverFromName(name)
+	server, method := splitToolName(name)
 	if server == "" {
 		return 0, false
 	}
 	// Internal service timeout
 	r.mu.RLock()
-	d, ok := r.internalTimeout[server]
+	d, ok := r.internalMethodTimeout[server][strings.ToLower(strings.TrimSpace(method))]
+	if !ok {
+		d, ok = r.internalTimeout[server]
+	}
 	r.mu.RUnlock()
 	if ok && d > 0 {
 		return d, true
@@ -1321,6 +1399,19 @@ func (r *Registry) ToolTimeout(name string) (time.Duration, bool) {
 		}
 	}
 	return 0, false
+}
+
+// ToolRetryable returns an explicitly configured retry policy for an internal
+// tool method. Tools without a policy retain the executor's default behavior.
+func (r *Registry) ToolRetryable(name string) (bool, bool) {
+	server, method := splitToolName(name)
+	if server == "" || method == "" {
+		return false, false
+	}
+	r.mu.RLock()
+	retryable, ok := r.internalMethodRetry[server][strings.ToLower(strings.TrimSpace(method))]
+	r.mu.RUnlock()
+	return retryable, ok
 }
 
 // Initialize attempts to eagerly discover MCP servers and list their tools to
@@ -2476,6 +2567,12 @@ func (r *Registry) addInternalMcp() {
 	if r.internalTimeout == nil {
 		r.internalTimeout = map[string]time.Duration{}
 	}
+	if r.internalMethodTimeout == nil {
+		r.internalMethodTimeout = map[string]map[string]time.Duration{}
+	}
+	if r.internalMethodRetry == nil {
+		r.internalMethodRetry = map[string]map[string]bool{}
+	}
 	if r.asyncByTool == nil {
 		r.asyncByTool = map[string]*asynccfg.Config{}
 	}
@@ -2484,11 +2581,8 @@ func (r *Registry) addInternalMcp() {
 		service := toolExec.New()
 		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
 			r.internal[service.Name()] = cli
-			if tt, ok := any(service).(interface{ ToolTimeout() time.Duration }); ok {
-				if d := tt.ToolTimeout(); d > 0 {
-					r.internalTimeout[service.Name()] = d
-				}
-			}
+			r.captureInternalTimeoutsLocked(service)
+			r.captureInternalRetryPolicyLocked(service)
 			if ac, ok := any(service).(svc.AsyncConfigurer); ok {
 				for _, cfg := range ac.AsyncConfigs() {
 					cacheAsyncConfigAliases(r.asyncByTool, cfg)
@@ -2503,6 +2597,8 @@ func (r *Registry) addInternalMcp() {
 		service := toolAsync.New()
 		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
 			r.internal[service.Name()] = cli
+			r.captureInternalTimeoutsLocked(service)
+			r.captureInternalRetryPolicyLocked(service)
 		} else if err != nil {
 			r.warnf("internal mcp for %s failed: %v", service.Name(), err)
 		}
@@ -2512,11 +2608,8 @@ func (r *Registry) addInternalMcp() {
 		service := toolPatch.New()
 		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
 			r.internal[service.Name()] = cli
-			if tt, ok := any(service).(interface{ ToolTimeout() time.Duration }); ok {
-				if d := tt.ToolTimeout(); d > 0 {
-					r.internalTimeout[service.Name()] = d
-				}
-			}
+			r.captureInternalTimeoutsLocked(service)
+			r.captureInternalRetryPolicyLocked(service)
 			if ac, ok := any(service).(svc.AsyncConfigurer); ok {
 				for _, cfg := range ac.AsyncConfigs() {
 					cacheAsyncConfigAliases(r.asyncByTool, cfg)
@@ -2531,11 +2624,8 @@ func (r *Registry) addInternalMcp() {
 		service := toolOS.New()
 		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
 			r.internal[service.Name()] = cli
-			if tt, ok := any(service).(interface{ ToolTimeout() time.Duration }); ok {
-				if d := tt.ToolTimeout(); d > 0 {
-					r.internalTimeout[service.Name()] = d
-				}
-			}
+			r.captureInternalTimeoutsLocked(service)
+			r.captureInternalRetryPolicyLocked(service)
 			if ac, ok := any(service).(svc.AsyncConfigurer); ok {
 				for _, cfg := range ac.AsyncConfigs() {
 					cacheAsyncConfigAliases(r.asyncByTool, cfg)
@@ -2550,11 +2640,8 @@ func (r *Registry) addInternalMcp() {
 		service := toolImage.New()
 		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
 			r.internal[service.Name()] = cli
-			if tt, ok := any(service).(interface{ ToolTimeout() time.Duration }); ok {
-				if d := tt.ToolTimeout(); d > 0 {
-					r.internalTimeout[service.Name()] = d
-				}
-			}
+			r.captureInternalTimeoutsLocked(service)
+			r.captureInternalRetryPolicyLocked(service)
 			if ac, ok := any(service).(svc.AsyncConfigurer); ok {
 				for _, cfg := range ac.AsyncConfigs() {
 					cacheAsyncConfigAliases(r.asyncByTool, cfg)
@@ -2569,6 +2656,8 @@ func (r *Registry) addInternalMcp() {
 		s := orchplan.New()
 		if cli, err := localmcp.NewServiceClient(context.Background(), s); err == nil && cli != nil {
 			r.internal[s.Name()] = cli
+			r.captureInternalTimeoutsLocked(s)
+			r.captureInternalRetryPolicyLocked(s)
 		} else if err != nil {
 			r.warnf("internal mcp for %s failed: %v", s.Name(), err)
 		}
@@ -2578,6 +2667,8 @@ func (r *Registry) addInternalMcp() {
 		service := toolScratchpad.New()
 		if cli, err := localmcp.NewServiceClient(context.Background(), service); err == nil && cli != nil {
 			r.internal[service.Name()] = cli
+			r.captureInternalTimeoutsLocked(service)
+			r.captureInternalRetryPolicyLocked(service)
 		} else if err != nil {
 			r.warnf("internal mcp for %s failed: %v", service.Name(), err)
 		}

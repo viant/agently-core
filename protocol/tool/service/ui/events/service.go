@@ -43,12 +43,31 @@ type RecordOutput struct {
 	Event    uireg.UIEvent `json:"event"`
 }
 
-type Service struct {
-	reg *uireg.Registry
+type DurableReportRunValidator interface {
+	ValidateDurableUIEvent(ctx context.Context, conversationID, kind string, detail map[string]interface{}) error
 }
 
-func New(bridge *forgeuisvc.Service) *Service {
-	return &Service{reg: uireg.New(bridge)}
+type Option func(*Service)
+
+func WithDurableReportRuns(validator DurableReportRunValidator) Option {
+	return func(service *Service) {
+		service.durableReportRuns = validator
+	}
+}
+
+type Service struct {
+	reg               *uireg.Registry
+	durableReportRuns DurableReportRunValidator
+}
+
+func New(bridge *forgeuisvc.Service, options ...Option) *Service {
+	service := &Service{reg: uireg.New(bridge)}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) Name() string { return Name }
@@ -92,6 +111,17 @@ func (s *Service) record(ctx context.Context, in, out interface{}) error {
 	clientID := normalizeOptionalClientID(input.ClientID)
 	windowID := strings.TrimSpace(input.WindowID)
 	windowKey := strings.TrimSpace(input.WindowKey)
+	if s.durableReportRuns != nil && isDurableReportRunEvent(kind) {
+		if windowID == "" {
+			return svc.NewInvalidInputError(in)
+		}
+		if err := s.durableReportRuns.ValidateDurableUIEvent(ctx, conversationID, kind, input.Detail); err != nil {
+			return err
+		}
+		// Durable run lifecycle events are routed only by their exact windowId.
+		// A stale or reused windowKey must never select a different window.
+		windowKey = ""
+	}
 	record := func(clientID, resolvedWindowID, resolvedWindowKey string) {
 		event := uireg.UIEvent{
 			ConversationID: conversationID,
@@ -188,4 +218,13 @@ func normalizeOptionalClientID(raw string) string {
 		return ""
 	}
 	return value
+}
+
+func isDurableReportRunEvent(kind string) bool {
+	switch strings.TrimSpace(kind) {
+	case "report.run_start", "report.run":
+		return true
+	default:
+		return false
+	}
 }

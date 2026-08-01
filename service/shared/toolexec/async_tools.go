@@ -252,31 +252,32 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 		normalizeAsyncExtracted(toolResult, extracted)
 		sameToolRecall := sameToolName(cfg.Run.Tool, cfg.Status.Tool) && cfg.Status.ReuseRunArgs
 		rec, _ := manager.Register(ctx, asynccfg.RegisterInput{
-			ID:                   opID,
-			ParentConvID:         turn.ConversationID,
-			ParentTurnID:         turn.TurnID,
-			ToolCallID:           step.ID,
-			ToolMessageID:        strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
-			ToolName:             step.Name,
-			StatusToolName:       strings.TrimSpace(cfg.Status.Tool),
-			StatusOperationIDArg: strings.TrimSpace(cfg.Status.OperationIDArg),
-			SameToolRecall:       sameToolRecall,
-			StatusArgs:           asyncStatusArgs(cfg, opID, step.Args),
-			CancelToolName:       asyncCancelToolName(cfg),
-			RequestArgsDigest:    requestDigest,
-			RequestArgs:          normalizedAsyncArgs(cfg, step.Args),
-			OperationIntent:      asynccfg.ExtractIntent(normalizedAsyncArgs(cfg, step.Args), cfg.Run.IntentPath, step.Name),
-			OperationSummary:     asynccfg.ExtractSummary(normalizedAsyncArgs(cfg, step.Args), cfg.Run.SummaryPaths),
-			ExecutionMode:        effectiveExecutionMode(cfg, step.Args),
-			Status:               extracted.Status,
-			Message:              extracted.Message,
-			MessageKind:          extracted.MessageKind,
-			Percent:              extracted.Percent,
-			KeyData:              cloneRaw(extracted.KeyData),
-			Error:                extracted.Error,
-			TimeoutMs:            cfg.TimeoutMs,
-			IdleTimeoutMs:        cfg.IdleTimeoutMs,
-			PollIntervalMs:       cfg.PollIntervalMs,
+			ID:                         opID,
+			ParentConvID:               turn.ConversationID,
+			ParentTurnID:               turn.TurnID,
+			ToolCallID:                 step.ID,
+			ToolMessageID:              strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx)),
+			ToolName:                   step.Name,
+			StatusToolName:             strings.TrimSpace(cfg.Status.Tool),
+			StatusOperationIDArg:       strings.TrimSpace(cfg.Status.OperationIDArg),
+			SameToolRecall:             sameToolRecall,
+			StatusArgs:                 asyncStatusArgs(cfg, opID, step.Args),
+			CancelToolName:             asyncCancelToolName(cfg),
+			RequestArgsDigest:          requestDigest,
+			RequestArgs:                normalizedAsyncArgs(cfg, step.Args),
+			OperationIntent:            asynccfg.ExtractIntent(normalizedAsyncArgs(cfg, step.Args), cfg.Run.IntentPath, step.Name),
+			OperationSummary:           asynccfg.ExtractSummary(normalizedAsyncArgs(cfg, step.Args), cfg.Run.SummaryPaths),
+			ExecutionMode:              effectiveExecutionMode(cfg, step.Args),
+			TerminalCarrierBeforeModel: cfg.TerminalCarrierBeforeModel,
+			Status:                     extracted.Status,
+			Message:                    extracted.Message,
+			MessageKind:                extracted.MessageKind,
+			Percent:                    extracted.Percent,
+			KeyData:                    cloneRaw(extracted.KeyData),
+			Error:                      extracted.Error,
+			TimeoutMs:                  cfg.TimeoutMs,
+			IdleTimeoutMs:              cfg.IdleTimeoutMs,
+			PollIntervalMs:             cfg.PollIntervalMs,
 		})
 		logx.InfoCtxf(ctx, "conversation", "tool async registered convo=%q turn=%q op_id=%q tool=%q async_id=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(opID), strings.TrimSpace(extracted.Status))
 		if rec != nil {
@@ -1090,7 +1091,7 @@ func PatchAsyncToolPersistence(ctx context.Context, conv apiconv.Client, rec *as
 	if !asynccfg.ExecutionModeWaits(rec.ExecutionMode) {
 		return
 	}
-	content := asyncPersistenceContent(rec, payload)
+	content := AsyncPersistenceContent(rec, payload)
 	respPayloadID := ""
 	if payload != nil {
 		switch {
@@ -1150,7 +1151,9 @@ func asyncPersistenceToolCallOutcome(rec *asynccfg.OperationRecord, payload *asy
 	return status, errMsg
 }
 
-func asyncPersistenceContent(rec *asynccfg.OperationRecord, payload *asynccfg.Extracted) string {
+// AsyncPersistenceContent is the canonical content serializer used when an
+// async operation refreshes its persisted tool-result carrier.
+func AsyncPersistenceContent(rec *asynccfg.OperationRecord, payload *asynccfg.Extracted) string {
 	if rec == nil || payload == nil {
 		return ""
 	}
@@ -1189,6 +1192,27 @@ func asyncPersistenceContent(rec *asynccfg.OperationRecord, payload *asynccfg.Ex
 	default:
 		return ""
 	}
+}
+
+// AsyncPersistenceContentFromRecord serializes the authoritative payload held
+// by a terminal operation record. It is used at the final pre-model boundary
+// when persistence completed after the request binding was built.
+func AsyncPersistenceContentFromRecord(rec *asynccfg.OperationRecord) string {
+	if rec == nil || !rec.Terminal() {
+		return ""
+	}
+	payload := rec.TerminalPayload()
+	if payload == nil {
+		payload = &asynccfg.Extracted{
+			Status:      strings.TrimSpace(rec.Status),
+			Message:     strings.TrimSpace(rec.Message),
+			MessageKind: strings.TrimSpace(rec.MessageKind),
+			Percent:     rec.Percent,
+			KeyData:     append(json.RawMessage(nil), rec.KeyData...),
+			Error:       strings.TrimSpace(rec.Error),
+		}
+	}
+	return AsyncPersistenceContent(rec, payload)
 }
 
 type asyncConvKey struct{}

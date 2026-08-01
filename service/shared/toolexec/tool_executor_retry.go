@@ -24,6 +24,11 @@ var maxRetryDuration = 5 * time.Second
 // executeToolWithRetry runs a tool and retries once on transient context cancellations.
 func executeToolWithRetry(ctx context.Context, reg tool.Registry, step StepInfo, conv apiconv.Client) (plan.ToolCall, string, error) {
 	attempts := defaultToolCallAttempts
+	if resolver, ok := reg.(tool.RetryResolver); ok {
+		if retryable, configured := resolver.ToolRetryable(step.Name); configured && !retryable {
+			attempts = 1
+		}
+	}
 	if attempts < 1 {
 		attempts = 1
 	}

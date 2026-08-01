@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"time"
 
+	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
@@ -14,6 +16,8 @@ import (
 )
 
 const Name = "ui/report"
+
+const toolTimeout = 330 * time.Second
 
 type WindowInput struct {
 	ClientID  string `json:"clientId,omitempty"`
@@ -28,16 +32,53 @@ type ActionOutput struct {
 	Result   map[string]interface{} `json:"result,omitempty"`
 }
 
-type Service struct {
-	bridge *forgeuisvc.Service
-	reg    *uireg.Registry
+type TerminalRunWaiter interface {
+	WaitTerminal(ctx context.Context, reportRunID, conversationID string) (*reportrun.Record, error)
 }
 
-func New(bridge *forgeuisvc.Service) *Service {
-	return &Service{bridge: bridge, reg: uireg.New(bridge)}
+type Option func(*Service)
+
+// WithOrchestration enables the T3 run-only durable continuation. A nil
+// waiter remains fail-closed and causes run to return a configuration error.
+func WithOrchestration(waiter TerminalRunWaiter) Option {
+	return func(service *Service) {
+		service.orchestration = true
+		service.reportRuns = waiter
+	}
+}
+
+type Service struct {
+	bridge        *forgeuisvc.Service
+	reg           *uireg.Registry
+	orchestration bool
+	reportRuns    TerminalRunWaiter
+}
+
+func New(bridge *forgeuisvc.Service, options ...Option) *Service {
+	service := &Service{bridge: bridge, reg: uireg.New(bridge)}
+	for _, option := range options {
+		if option != nil {
+			option(service)
+		}
+	}
+	return service
 }
 
 func (s *Service) Name() string { return Name }
+
+func (s *Service) MethodToolTimeout(method string) time.Duration {
+	if strings.EqualFold(strings.TrimSpace(method), "run") {
+		return toolTimeout
+	}
+	return 0
+}
+
+func (s *Service) MethodRetryable(method string) (bool, bool) {
+	if strings.EqualFold(strings.TrimSpace(method), "run") {
+		return false, true
+	}
+	return false, false
+}
 
 func (s *Service) Methods() svc.Signatures {
 	input := reflect.TypeOf(&WindowInput{})
@@ -67,7 +108,17 @@ func (s *Service) getCurrent(ctx context.Context, in, out interface{}) error {
 }
 
 func (s *Service) run(ctx context.Context, in, out interface{}) error {
-	return s.execute(ctx, "run", "report.run_requested", in, out)
+	if err := s.execute(ctx, "run", "report.run_requested", in, out); err != nil {
+		return err
+	}
+	if !s.orchestration {
+		return nil
+	}
+	output, ok := out.(*ActionOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	return s.waitForDurableRun(ctx, output)
 }
 
 func (s *Service) save(ctx context.Context, in, out interface{}) error {
@@ -125,6 +176,61 @@ func (s *Service) execute(ctx context.Context, action, eventKind string, in, out
 		Detail:         output.Result,
 	})
 	return nil
+}
+
+func (s *Service) waitForDurableRun(ctx context.Context, output *ActionOutput) error {
+	if s.reportRuns == nil {
+		return fmt.Errorf("ui report orchestration is enabled but durable report-run service is not configured")
+	}
+	if output == nil || !output.OK {
+		message := "browser report run failed"
+		if output != nil && strings.TrimSpace(output.Error) != "" {
+			message += ": " + strings.TrimSpace(output.Error)
+		}
+		return fmt.Errorf("%s", message)
+	}
+	if output.Result == nil || output.Result["durable"] != true {
+		return fmt.Errorf("browser report run did not return durable=true")
+	}
+	reportRunID, _ := output.Result["reportRunId"].(string)
+	reportRunID = strings.TrimSpace(reportRunID)
+	if reportRunID == "" {
+		return fmt.Errorf("browser report run did not return an exact reportRunId")
+	}
+	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
+	if conversationID == "" {
+		return fmt.Errorf("trusted current conversation is required for durable report run")
+	}
+
+	run, err := s.reportRuns.WaitTerminal(ctx, reportRunID, conversationID)
+	if err != nil {
+		return fmt.Errorf("wait for durable report run %q: %w", reportRunID, err)
+	}
+	if run == nil ||
+		strings.TrimSpace(run.ReportRunID) != reportRunID ||
+		strings.TrimSpace(run.ConversationID) != conversationID {
+		return fmt.Errorf("durable report-run service returned a mismatched run")
+	}
+	status := strings.ToLower(strings.TrimSpace(run.Status))
+	output.Result["reportRunId"] = reportRunID
+	output.Result["durable"] = true
+	output.Result["status"] = status
+	output.Result["revision"] = run.Revision
+	switch status {
+	case reportrun.StatusCompleted:
+		output.OK = true
+		output.Error = ""
+		return nil
+	case reportrun.StatusFailed:
+		output.OK = false
+		output.Error = strings.TrimSpace(run.FailureText)
+		if output.Error == "" {
+			output.Error = "report run failed"
+		}
+		return fmt.Errorf("durable report run %q failed: %s", reportRunID, output.Error)
+	default:
+		return fmt.Errorf("durable report run %q returned non-terminal status %q", reportRunID, status)
+	}
 }
 
 func (s *Service) resolveWindow(ctx context.Context, input *WindowInput) (string, string, *uireg.WindowSnapshot, error) {

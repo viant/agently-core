@@ -8,8 +8,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	reportstore "github.com/viant/agently-core/app/store/reporting"
+	reportfs "github.com/viant/agently-core/app/store/reporting/fs"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	authsvc "github.com/viant/agently-core/service/auth"
+	reportingrunsvc "github.com/viant/agently-core/service/reportingrun"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
+	fsstate "github.com/viant/agently-core/workspace/store/fs"
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
 
@@ -202,5 +207,100 @@ func TestRecordRejectsUnknownWindowAcrossBridgeReconnect(t *testing.T) {
 	}, &RecordOutput{})
 	if err == nil {
 		t.Fatal("expected an unknown reconnect window to be rejected")
+	}
+}
+
+func TestDurableRunEventsUsePersistedLifecycleAfterRestartAndExactWindowID(t *testing.T) {
+	stateStore := fsstate.NewStateStore(t.TempDir())
+	firstStore := reportfs.New(stateStore).(reportstore.RunClient)
+	firstRuns := reportingrunsvc.New(reportingrunsvc.Options{
+		Store: firstStore,
+		NewID: func() string {
+			return "durable-run-1"
+		},
+	})
+	ownerBase := authsvc.InjectUser(context.Background(), "owner-1")
+	begun, err := firstRuns.Begin(ownerBase, &reportingrunsvc.BeginInput{
+		ConversationID: "conv-1",
+		Origin:         "prompt",
+		UIRunRequestID: "durable-request-1",
+	})
+	if err != nil {
+		t.Fatalf("Begin() error = %v", err)
+	}
+	completed, err := firstRuns.Complete(ownerBase, &reportingrunsvc.CompleteInput{
+		ReportRunID:      begun.Run.ReportRunID,
+		ConversationID:   "conv-1",
+		ExpectedRevision: 1,
+		ReportSpec:       []byte(`{"kind":"reportSpec"}`),
+		ReportFill:       []byte(`{"kind":"reportFill"}`),
+		ReportPrint:      []byte(`{"kind":"reportPrint"}`),
+	})
+	if err != nil {
+		t.Fatalf("Complete() error = %v", err)
+	}
+
+	restartedStore := reportfs.New(stateStore).(reportstore.RunClient)
+	restartedRuns := reportingrunsvc.New(reportingrunsvc.Options{Store: restartedStore})
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	seedEventWindow(t, bridge)
+	svc := New(bridge, WithDurableReportRuns(restartedRuns))
+	ownerCtx := authsvc.InjectUser(
+		runtimerequestctx.WithConversationID(context.Background(), "conv-1"),
+		"owner-1",
+	)
+	detail := map[string]interface{}{
+		"reportRunId": completed.ReportRunID,
+		"revision":    completed.Revision,
+		"status":      "completed",
+	}
+
+	if err := svc.record(ownerCtx, &RecordInput{
+		WindowKey: "genericBuilder",
+		Kind:      "report.run",
+		Detail:    detail,
+	}, &RecordOutput{}); err == nil {
+		t.Fatal("durable report.run routed by windowKey without windowId")
+	}
+	out := &RecordOutput{}
+	if err := svc.record(ownerCtx, &RecordInput{
+		WindowID:  "genericBuilder__conv-1",
+		WindowKey: "stale-window-key",
+		Kind:      "report.run",
+		Detail:    detail,
+	}, out); err != nil {
+		t.Fatalf("restart-backed report.run error = %v", err)
+	}
+	if !out.Recorded || out.Event.WindowID != "genericBuilder__conv-1" || out.Event.WindowKey != "genericBuilder" {
+		t.Fatalf("restart-backed report.run output = %#v", out)
+	}
+	if err := svc.record(ownerCtx, &RecordInput{
+		WindowKey: "genericBuilder",
+		Kind:      "report.export_complete",
+		Detail:    map[string]interface{}{"artifactId": "artifact-1", "status": "succeeded"},
+	}, &RecordOutput{}); err != nil {
+		t.Fatalf("export event semantics changed under durable T1 validation: %v", err)
+	}
+	if err := svc.record(ownerCtx, &RecordInput{
+		WindowID: "genericBuilder__conv-1",
+		Kind:     "report.run_start",
+		Detail: map[string]interface{}{
+			"reportRunId": completed.ReportRunID,
+			"revision":    1,
+			"status":      "running",
+		},
+	}, &RecordOutput{}); err == nil {
+		t.Fatal("stale/out-of-order report.run_start was accepted after completion")
+	}
+	otherOwnerCtx := authsvc.InjectUser(
+		runtimerequestctx.WithConversationID(context.Background(), "conv-1"),
+		"owner-2",
+	)
+	if err := svc.record(otherOwnerCtx, &RecordInput{
+		WindowID: "genericBuilder__conv-1",
+		Kind:     "report.run",
+		Detail:   detail,
+	}, &RecordOutput{}); err == nil {
+		t.Fatal("cross-owner durable report.run was accepted")
 	}
 }

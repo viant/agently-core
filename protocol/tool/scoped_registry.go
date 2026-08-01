@@ -121,6 +121,14 @@ func (s *scopedRegistry) ToolTimeout(name string) (time.Duration, bool) {
 	return 0, false
 }
 
+// ToolRetryable delegates explicit retry policy to the underlying registry.
+func (s *scopedRegistry) ToolRetryable(name string) (bool, bool) {
+	if resolver, ok := s.inner.(RetryResolver); ok {
+		return resolver.ToolRetryable(name)
+	}
+	return false, false
+}
+
 func (s *scopedRegistry) AsyncConfig(name string) (*asynccfg.Config, bool) {
 	if ar, ok := s.inner.(AsyncResolver); ok {
 		return ar.AsyncConfig(name)

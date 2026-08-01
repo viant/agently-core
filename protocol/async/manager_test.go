@@ -88,6 +88,57 @@ func TestManager_RegisterStoresTimeout(t *testing.T) {
 	require.True(t, rec.TimeoutAt.After(rec.CreatedAt))
 }
 
+func TestManager_RegisterStoresTerminalCarrierBeforeModel(t *testing.T) {
+	manager := NewManager()
+	rec, _ := manager.Register(context.Background(), RegisterInput{
+		ID:                         "op-carrier",
+		ParentConvID:               "conv-1",
+		ParentTurnID:               "turn-1",
+		TerminalCarrierBeforeModel: true,
+	})
+	require.NotNil(t, rec)
+	require.True(t, rec.TerminalCarrierBeforeModel)
+
+	stored, ok := manager.Get(context.Background(), "op-carrier")
+	require.True(t, ok)
+	require.True(t, stored.TerminalCarrierBeforeModel)
+}
+
+func TestManager_TerminalPayloadDoesNotReusePreTerminalDataOnTimeout(t *testing.T) {
+	manager := NewManager()
+	manager.Register(context.Background(), RegisterInput{
+		ID:           "op-timeout-payload",
+		ParentConvID: "conv-1",
+		ParentTurnID: "turn-1",
+		Status:       "queued",
+		KeyData:      []byte(`{"status":"queued"}`),
+	})
+	rec, changed := manager.Update(context.Background(), UpdateInput{
+		ID:     "op-timeout-payload",
+		Status: "failed",
+		Error:  "operation timed out",
+		State:  StateFailed,
+	})
+	require.True(t, changed)
+	require.JSONEq(t, `{"status":"queued"}`, string(rec.KeyData), "general progress data remains available on the record")
+	payload := rec.TerminalPayload()
+	require.NotNil(t, payload)
+	require.Equal(t, "failed", payload.Status)
+	require.Equal(t, "operation timed out", payload.Error)
+	require.Empty(t, payload.KeyData, "terminal payload must not reuse queued data")
+}
+
+func TestManager_OperationsForTurnUsesExactConversationAndTurn(t *testing.T) {
+	manager := NewManager()
+	manager.Register(context.Background(), RegisterInput{ID: "target", ParentConvID: "conv|one", ParentTurnID: "turn"})
+	manager.Register(context.Background(), RegisterInput{ID: "delimiter-collision", ParentConvID: "conv", ParentTurnID: "one|turn"})
+	manager.Register(context.Background(), RegisterInput{ID: "other-turn", ParentConvID: "conv|one", ParentTurnID: "other"})
+
+	records := manager.OperationsForTurn(context.Background(), " conv|one ", " turn ")
+	require.Len(t, records, 1)
+	require.Equal(t, "target", records[0].ID)
+}
+
 func TestManager_TerminalFailure(t *testing.T) {
 	manager := NewManager()
 	manager.Register(context.Background(), RegisterInput{
