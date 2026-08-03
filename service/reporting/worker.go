@@ -13,18 +13,20 @@ const (
 )
 
 type WorkerOptions struct {
-	Interval          time.Duration
-	BatchLimit        int
-	Logger            func(format string, args ...interface{})
-	StaleRunningAfter time.Duration
+	Interval                     time.Duration
+	BatchLimit                   int
+	Logger                       func(format string, args ...interface{})
+	ReconcileStaleRunningExports bool
+	StaleRunningAfter            time.Duration
 }
 
 type Worker struct {
-	service           *Service
-	interval          time.Duration
-	batchLimit        int
-	logger            func(format string, args ...interface{})
-	staleRunningAfter time.Duration
+	service                      *Service
+	interval                     time.Duration
+	batchLimit                   int
+	logger                       func(format string, args ...interface{})
+	reconcileStaleRunningExports bool
+	staleRunningAfter            time.Duration
 }
 
 func NewWorker(service *Service, options WorkerOptions) *Worker {
@@ -41,11 +43,12 @@ func NewWorker(service *Service, options WorkerOptions) *Worker {
 		staleRunningAfter = DefaultStaleRunningAfter
 	}
 	return &Worker{
-		service:           service,
-		interval:          options.Interval,
-		batchLimit:        batchLimit,
-		logger:            loggerFn,
-		staleRunningAfter: staleRunningAfter,
+		service:                      service,
+		interval:                     options.Interval,
+		batchLimit:                   batchLimit,
+		logger:                       loggerFn,
+		reconcileStaleRunningExports: options.ReconcileStaleRunningExports,
+		staleRunningAfter:            staleRunningAfter,
 	}
 }
 
@@ -56,8 +59,10 @@ func (w *Worker) RunOnce(ctx context.Context) (*RunQueuedExportsResult, error) {
 	if w.batchLimit < 1 {
 		return nil, fmt.Errorf("reporting worker: batch limit must be >= 1")
 	}
-	if _, err := w.service.ReconcileStaleRunningExports(ctx, w.staleRunningAfter); err != nil {
-		return nil, err
+	if w.reconcileStaleRunningExports {
+		if _, err := w.service.ReconcileStaleRunningExports(ctx, w.staleRunningAfter); err != nil {
+			return nil, err
+		}
 	}
 	return w.service.RunQueuedExports(ctx, w.batchLimit)
 }
