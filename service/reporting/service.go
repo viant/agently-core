@@ -42,15 +42,18 @@ const Name = "reporting"
 
 // Options configures a reporting Service.
 type Options struct {
-	Compiler      Compiler
-	Exporter      Exporter
-	Store         Store
-	Audit         AuditSink
-	Scratchpad    *afsscratchpad.Service
-	ScratchpadFS  afs.Service
-	TokenProvider tokenctx.Provider
-	Now           func() time.Time
-	NewID         func() string
+	Compiler Compiler
+	Exporter Exporter
+	Store    Store
+	// ActiveRunResolver is wired only when durable browser-run persistence and
+	// reporting orchestration are both enabled.
+	ActiveRunResolver ActiveReportRunResolver
+	Audit             AuditSink
+	Scratchpad        *afsscratchpad.Service
+	ScratchpadFS      afs.Service
+	TokenProvider     tokenctx.Provider
+	Now               func() time.Time
+	NewID             func() string
 	// ExportFromRunEnabled gates only the T2 run-reference submission mode.
 	// Legacy payload submission remains available when this is false.
 	ExportFromRunEnabled bool
@@ -69,6 +72,7 @@ type Service struct {
 	now                  func() time.Time
 	newID                func() string
 	exportFromRunEnabled bool
+	activeRunResolver    ActiveReportRunResolver
 }
 
 // New constructs a reporting Service.
@@ -100,6 +104,7 @@ func New(opts Options) *Service {
 		now:                  nowFn,
 		newID:                newIDFn,
 		exportFromRunEnabled: opts.ExportFromRunEnabled,
+		activeRunResolver:    normalizeActiveReportRunResolver(opts.ActiveRunResolver),
 	}
 }
 
@@ -154,7 +159,7 @@ func (s *Service) AsyncConfigs() []*asynccfg.Config {
 }
 
 func (s *Service) Methods() svc.Signatures {
-	return []svc.Signature{
+	methods := []svc.Signature{
 		{
 			Name:        "compile",
 			Description: "Compile an authored reporting artifact into a canonical ReportSpec.",
@@ -317,6 +322,15 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&ExportJob{}),
 		},
 	}
+	if s.activeRunResolver != nil {
+		methods = append(methods, svc.Signature{
+			Name:        "get_active_report_run",
+			Description: "Return the exact completed prompt-origin report run that is active for the authenticated actor and trusted current conversation. The input must be an empty object.",
+			Input:       reflect.TypeOf(&GetActiveReportRunInput{}),
+			Output:      reflect.TypeOf(&ActiveReportRun{}),
+		})
+	}
+	return methods
 }
 
 func (s *Service) Method(name string) (svc.Executable, error) {
@@ -363,6 +377,11 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.deleteReportTool, nil
 	case "record_report_run":
 		return s.recordReportRunTool, nil
+	case "get_active_report_run":
+		if s.activeRunResolver == nil {
+			return nil, svc.NewMethodNotFoundError(name)
+		}
+		return s.getActiveReportRunTool, nil
 	case "run_export":
 		return s.runExportTool, nil
 	case "run_queued_exports":

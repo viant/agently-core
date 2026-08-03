@@ -496,23 +496,28 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 				reportAudit = reportsql.NewAuditSink(sqlStore)
 			}
 		}
-		out.Reporting = reportingsvc.New(reportingsvc.Options{
-			Compiler:             reportingsvc.NewReportSpecCompiler(nil),
-			Exporter:             reportingsvc.NewForgeExporter(nil),
-			Store:                reportStore,
-			Audit:                reportAudit,
-			Scratchpad:           reportScratchpad,
-			ScratchpadFS:         scratchpadFS,
-			TokenProvider:        b.tokenProvider,
-			ExportFromRunEnabled: out.Defaults.Reporting.ExportFromRunEnabled(),
-		})
+		var activeRunResolver reportingsvc.ActiveReportRunResolver
 		if out.Defaults.Reporting.BrowserRunPersistenceEnabled() {
 			runClient, ok := reportClient.(reportstore.RunClient)
 			if !ok {
 				return nil, fmt.Errorf("reporting store does not implement browser report run persistence")
 			}
 			out.ReportRuns = reportingrunsvc.New(reportingrunsvc.Options{Store: runClient})
+			if out.Defaults.Reporting.OrchestrationEnabled() {
+				activeRunResolver = out.ReportRuns
+			}
 		}
+		out.Reporting = reportingsvc.New(reportingsvc.Options{
+			Compiler:             reportingsvc.NewReportSpecCompiler(nil),
+			Exporter:             reportingsvc.NewForgeExporter(nil),
+			Store:                reportStore,
+			ActiveRunResolver:    activeRunResolver,
+			Audit:                reportAudit,
+			Scratchpad:           reportScratchpad,
+			ScratchpadFS:         scratchpadFS,
+			TokenProvider:        b.tokenProvider,
+			ExportFromRunEnabled: out.Defaults.Reporting.ExportFromRunEnabled(),
+		})
 	}
 	if out.Registry != nil && out.Reporting != nil {
 		if err := tool.AddInternalService(out.Registry, out.Reporting); err != nil {
