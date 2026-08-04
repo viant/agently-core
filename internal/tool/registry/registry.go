@@ -922,9 +922,12 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if res == nil {
 				break
 			}
+			if res.ResultType == mcpschema.ResultTypeInputRequired {
+				return "", &InputRequiredError{InputRequests: res.InputRequests, RequestState: res.RequestState}
+			}
 			if res.IsError != nil && *res.IsError {
 				terr := toolError(res)
-				debugMCPExecf("registry calltool tool-error server=%s base=%s attempt=%d err=%v content=%d structured=%d", server, baseName, attempt+1, terr, len(res.Content), len(res.StructuredContent))
+				debugMCPExecf("registry calltool tool-error server=%s base=%s attempt=%d err=%v content=%d structured=%d", server, baseName, attempt+1, terr, len(res.Content), structuredContentSize(res.StructuredContent))
 				if r.mgr != nil && isReconnectableError(terr) && attempt < maxAttempts-1 {
 					// reconnect and retry
 					log.Printf("[warn][mcp-client-pool] reconnect requested server=%q scope_type=conversation conv_id=%q reason=tool_error attempt=%d err=%v",
@@ -978,7 +981,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		debugMCPExecf("registry nil result server=%s base=%s elapsed=%s", server, baseName, time.Since(execStart).Round(time.Millisecond))
 		return "", err
 	}
-	debugMCPExecf("registry compose start server=%s base=%s elapsed=%s content=%d structured=%d isError=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), len(res.Content), len(res.StructuredContent), res.IsError != nil && *res.IsError)
+	debugMCPExecf("registry compose start server=%s base=%s elapsed=%s content=%d structured=%d isError=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), len(res.Content), structuredContentSize(res.StructuredContent), res.IsError != nil && *res.IsError)
 	// Compose textual result prioritising text content, then structured content.
 	for _, c := range res.Content {
 		if text := strings.TrimSpace(callToolContentText(c)); text != "" {
@@ -1061,7 +1064,14 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	return "", nil
 }
 
-func structuredContentString(values map[string]interface{}) (string, bool) {
+func structuredContentString(structured interface{}) (string, bool) {
+	if text, ok := structured.(string); ok {
+		return text, true
+	}
+	values, ok := structured.(map[string]interface{})
+	if !ok {
+		return "", false
+	}
 	if len(values) != 1 {
 		return "", false
 	}
@@ -1072,6 +1082,31 @@ func structuredContentString(values map[string]interface{}) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// InputRequiredError preserves the July multi-round-trip payload for the host
+// orchestration layer. Error intentionally omits the opaque request state so it
+// cannot leak through ordinary logs.
+type InputRequiredError struct {
+	InputRequests map[string]interface{}
+	RequestState  *string
+}
+
+func (e *InputRequiredError) Error() string {
+	return "MCP operation requires additional input"
+}
+
+func structuredContentSize(structured interface{}) int {
+	switch value := structured.(type) {
+	case nil:
+		return 0
+	case map[string]interface{}:
+		return len(value)
+	case []interface{}:
+		return len(value)
+	default:
+		return 1
+	}
 }
 
 func debugPrintMCPAuthToken(server string, useID bool, token string, ctx context.Context) {

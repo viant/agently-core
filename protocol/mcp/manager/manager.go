@@ -283,7 +283,6 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	if opts.ClientOptions == nil {
 		return nil, errors.New("mcp manager: missing client options")
 	}
-	opts.Init()
 	// Select per-request jar (provider beats static) and merge provider cookies.json into it
 	// (if both present) before override,
 	// so the very first POST can carry previously minted session cookies.

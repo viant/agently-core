@@ -203,7 +203,9 @@ func TestServiceHandler_CallTool_AllowsInternalMethodsInPlanMode(t *testing.T) {
 	require.Nil(t, jerr)
 	require.NotNil(t, result)
 	require.NotNil(t, result.StructuredContent)
-	require.Equal(t, "topology", result.StructuredContent["method"])
+	structured, ok := result.StructuredContent.(map[string]interface{})
+	require.True(t, ok)
+	require.Equal(t, "topology", structured["method"])
 }
 
 func TestServiceHandler_CallTool_EmbedsFallbackOnlyWithoutUICapability(t *testing.T) {

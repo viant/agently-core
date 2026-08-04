@@ -1,7 +1,7 @@
 # Mobile SDK Resume
 
-Resume from `mobile_sdk.md` and `mobile_sdk-progress.md`, not from the older
-Android/iOS plan snapshots.
+Resume from `mobile_sdk-progress/README.md`, not from the older top-level
+handoff files or Android/iOS plan snapshots.
 
 Current task: complete real-device Steward parity for the generic Forge
 transcript path without changing Steward data or conversation semantics. The
@@ -71,6 +71,18 @@ multiline-CSV, or runtime-update issue. Android's Forge pipeline likewise
 handles compact JSON containing triple backticks safely and passes production
 Kotlin compilation. The remaining work is native device/emulator parity, not
 generic transcript ownership.
+
+Current device evidence override (2026-08-04): use
+`mobile_sdk-progress/README.md` as the authoritative status. Local Steward is
+currently verified on `:9292`. Android Pixel Tablet reaches it via
+`http://10.0.2.2:9292`, debug OOB completes, the app reaches authenticated
+`Ready`, and message submission works. iPad Pro simulator reaches it via
+`http://127.0.0.1:9292`, OOB launch succeeds, and forecast report transcript
+content renders. The active blocker is no longer OOB/IdP TCP 443 for this
+local verification path; forecast-builder completion is blocked by host-side
+timeout to `http://steward.viantinc.com:5000/mcp`. Restore or retarget that
+MCP transport before rerunning `Open forecast builder for line 7288336` across
+Android/iOS devices.
 
 Current device evidence (2026-07-19): the iOS `AgentlyApp` project builds for
 the iPhone simulator, and the current Android app production compile and debug
