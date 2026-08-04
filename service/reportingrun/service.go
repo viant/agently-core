@@ -364,25 +364,31 @@ func (s *Service) Adopt(ctx context.Context, input *AdoptInput) (*AdoptionResult
 	if err != nil {
 		return nil, translateStoreError(err)
 	}
-	if current.Status != reportrun.StatusCompleted {
+	if current == nil || strings.TrimSpace(current.OwnerID) != ownerID {
+		return nil, ErrNotFound
+	}
+	targetConversation := strings.TrimSpace(input.ConversationID)
+	if strings.TrimSpace(current.ConversationID) != "" && strings.TrimSpace(current.ConversationID) != targetConversation {
+		return nil, ErrNotFound
+	}
+	if strings.TrimSpace(current.ConversationID) == targetConversation {
+		reportCtx, contextErr := s.store.GetConversationReportContext(ctx, targetConversation)
+		if contextErr != nil {
+			return nil, translateStoreError(contextErr)
+		}
+		if !validAdoptionSuccess(current, reportCtx, ownerID, targetConversation) {
+			return nil, ErrNotFound
+		}
+		return &AdoptionResult{Run: cloneRun(current), Context: cloneContext(reportCtx)}, nil
+	}
+	if !isCompletedAdoptionRun(current) {
 		return nil, conflict("only a completed manual report run can be adopted")
 	}
 	if current.Origin != "manual" {
 		return nil, conflict("only a completed manual report run can be adopted")
 	}
-	targetConversation := strings.TrimSpace(input.ConversationID)
-	if current.ConversationID != "" && current.ConversationID != targetConversation {
-		return nil, ErrNotFound
-	}
-	if current.ConversationID == targetConversation {
-		reportCtx, contextErr := s.store.GetConversationReportContext(ctx, targetConversation)
-		if contextErr == nil && strings.TrimSpace(reportCtx.ActiveReportRunID) == strings.TrimSpace(current.ReportRunID) {
-			return &AdoptionResult{Run: cloneRun(current), Context: cloneContext(reportCtx)}, nil
-		}
-		if contextErr != nil && !errors.Is(contextErr, reportstore.ErrNotFound) {
-			return nil, translateStoreError(contextErr)
-		}
-		return nil, conflict("adopted report run is missing its active conversation pointer")
+	if !hasValidSnapshot(current) {
+		return nil, conflict("completed manual report run is missing a valid durable snapshot")
 	}
 	if current.Revision != input.ExpectedRunRevision {
 		return nil, ErrCAS
@@ -393,6 +399,10 @@ func (s *Service) Adopt(ctx context.Context, input *AdoptInput) (*AdoptionResult
 	}
 	actualContextRevision := int64(0)
 	if currentContext != nil {
+		if strings.TrimSpace(currentContext.OwnerID) != ownerID ||
+			strings.TrimSpace(currentContext.ConversationID) != targetConversation {
+			return nil, ErrNotFound
+		}
 		actualContextRevision = currentContext.Revision
 	}
 	if actualContextRevision != input.ExpectedContextRevision {
@@ -417,16 +427,56 @@ func (s *Service) Adopt(ctx context.Context, input *AdoptInput) (*AdoptionResult
 	if err := s.store.AdoptReportRunAndContextCAS(ctx, next, current.Revision, reportCtx, actualContextRevision); err != nil {
 		if errors.Is(err, reportstore.ErrCASMismatch) {
 			reloadedRun, runErr := s.store.GetReportRun(ctx, next.ReportRunID)
-			reloadedContext, contextErr := s.store.GetConversationReportContext(ctx, targetConversation)
-			if runErr == nil && contextErr == nil &&
-				strings.TrimSpace(reloadedRun.ConversationID) == targetConversation &&
-				strings.TrimSpace(reloadedContext.ActiveReportRunID) == strings.TrimSpace(reloadedRun.ReportRunID) {
-				return &AdoptionResult{Run: cloneRun(reloadedRun), Context: cloneContext(reloadedContext)}, nil
+			if runErr != nil {
+				return nil, translateStoreError(runErr)
 			}
+			reloadedContext, contextErr := s.store.GetConversationReportContext(ctx, targetConversation)
+			if contextErr != nil {
+				return nil, translateStoreError(contextErr)
+			}
+			if !validAdoptionSuccess(reloadedRun, reloadedContext, ownerID, targetConversation) {
+				return nil, ErrNotFound
+			}
+			return &AdoptionResult{Run: cloneRun(reloadedRun), Context: cloneContext(reloadedContext)}, nil
 		}
 		return nil, translateStoreError(err)
 	}
 	return &AdoptionResult{Run: cloneRun(next), Context: cloneContext(reportCtx)}, nil
+}
+
+func validAdoptionSuccess(run *reportrun.Record, reportCtx *reportcontext.Record, ownerID, conversationID string) bool {
+	if run == nil || reportCtx == nil ||
+		strings.TrimSpace(run.OwnerID) != ownerID ||
+		!isCompletedAdoptionRun(run) ||
+		strings.ToLower(strings.TrimSpace(run.Origin)) != "manual" ||
+		strings.TrimSpace(run.ConversationID) != conversationID ||
+		!hasValidSnapshot(run) {
+		return false
+	}
+	return strings.TrimSpace(reportCtx.OwnerID) == ownerID &&
+		strings.TrimSpace(reportCtx.ConversationID) == conversationID &&
+		strings.TrimSpace(reportCtx.ActiveReportRunID) == strings.TrimSpace(run.ReportRunID)
+}
+
+func isCompletedAdoptionRun(run *reportrun.Record) bool {
+	return run != nil &&
+		strings.ToLower(strings.TrimSpace(run.Status)) == reportrun.StatusCompleted &&
+		run.CompletedAt != nil &&
+		!run.CompletedAt.IsZero()
+}
+
+func hasValidSnapshot(run *reportrun.Record) bool {
+	if run == nil {
+		return false
+	}
+	return validRequiredJSON(run.ReportSpec) &&
+		validRequiredJSON(run.ReportFill) &&
+		validRequiredJSON(run.ReportPrint)
+}
+
+func validRequiredJSON(value []byte) bool {
+	trimmed := bytes.TrimSpace(value)
+	return len(trimmed) > 0 && json.Valid(trimmed) && !bytes.Equal(trimmed, []byte("null"))
 }
 
 func (s *Service) GetRun(ctx context.Context, reportRunID, conversationID string) (*reportrun.Record, error) {

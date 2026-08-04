@@ -85,9 +85,20 @@ func (s *Service) GetActiveReportRun(ctx context.Context) (*ActiveReportRun, err
 		strings.TrimSpace(run.ReportRunID) != reportRunID ||
 		strings.TrimSpace(run.ConversationID) != conversationID ||
 		strings.ToLower(strings.TrimSpace(run.Status)) != reportrun.StatusCompleted ||
-		strings.ToLower(strings.TrimSpace(run.Origin)) != "prompt" ||
-		strings.TrimSpace(run.AdoptionSource) != "" ||
 		run.CompletedAt == nil || run.CompletedAt.IsZero() {
+		return nil, ErrNotFound
+	}
+	origin := strings.ToLower(strings.TrimSpace(run.Origin))
+	switch origin {
+	case "prompt":
+		if strings.TrimSpace(run.AdoptionSource) != "" {
+			return nil, ErrNotFound
+		}
+	case "manual":
+		if !s.conversationAdoptionEnabled || !hasValidActiveRunSnapshot(run) {
+			return nil, ErrNotFound
+		}
+	default:
 		return nil, ErrNotFound
 	}
 	requestedParams, ok := sanitizedParams(run.RequestedParams)
@@ -103,7 +114,7 @@ func (s *Service) GetActiveReportRun(ctx context.Context) (*ActiveReportRun, err
 		Revision:        run.Revision,
 		Status:          reportrun.StatusCompleted,
 		ArtifactRef:     "report-run://" + reportRunID,
-		Origin:          "prompt",
+		Origin:          origin,
 		BuilderRef:      strings.TrimSpace(run.BuilderRef),
 		PresetID:        strings.TrimSpace(run.PresetID),
 		SourceKind:      strings.TrimSpace(run.SourceKind),
@@ -112,6 +123,20 @@ func (s *Service) GetActiveReportRun(ctx context.Context) (*ActiveReportRun, err
 		EffectiveParams: effectiveParams,
 		CompletedAt:     run.CompletedAt.UTC().Format(time.RFC3339Nano),
 	}, nil
+}
+
+func hasValidActiveRunSnapshot(run *reportrun.Record) bool {
+	if run == nil {
+		return false
+	}
+	return validActiveRunSnapshotPart(run.ReportSpec) &&
+		validActiveRunSnapshotPart(run.ReportFill) &&
+		validActiveRunSnapshotPart(run.ReportPrint)
+}
+
+func validActiveRunSnapshotPart(raw json.RawMessage) bool {
+	trimmed := strings.TrimSpace(string(raw))
+	return trimmed != "" && trimmed != "null" && json.Valid(raw)
 }
 
 func normalizeActiveReportRunResolver(resolver ActiveReportRunResolver) ActiveReportRunResolver {

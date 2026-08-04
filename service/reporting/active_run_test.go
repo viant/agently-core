@@ -152,6 +152,110 @@ func TestServiceGetActiveReportRunFailsClosedForUntrustedRunState(t *testing.T) 
 	}
 }
 
+func TestServiceGetActiveReportRunConversationAdoptionFlag(t *testing.T) {
+	completedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	validContext := &reportcontext.Record{
+		OwnerID:           "owner-1",
+		ConversationID:    "conv-1",
+		ActiveReportRunID: "run-1",
+	}
+	validManualRun := &reportrun.Record{
+		ReportRunID:     "run-1",
+		OwnerID:         "owner-1",
+		ConversationID:  "conv-1",
+		Origin:          "manual",
+		Status:          reportrun.StatusCompleted,
+		CompletedAt:     &completedAt,
+		Revision:        3,
+		RequestedParams: json.RawMessage(`{}`),
+		EffectiveParams: json.RawMessage(`{}`),
+		ReportSpec:      json.RawMessage(`{"kind":"reportSpec"}`),
+		ReportFill:      json.RawMessage(`{"kind":"reportFill"}`),
+		ReportPrint:     json.RawMessage(`{"kind":"reportPrint"}`),
+	}
+	trustedCtx := runtimerequestctx.WithConversationID(authsvc.InjectUser(context.Background(), "owner-1"), "conv-1")
+
+	t.Run("disabled remains prompt only", func(t *testing.T) {
+		service := New(Options{
+			Store: NewStoreAdapter(reportmemory.New()),
+			ActiveRunResolver: &activeRunResolverStub{
+				context: validContext,
+				run:     validManualRun,
+			},
+		})
+		_, err := service.GetActiveReportRun(trustedCtx)
+		require.ErrorIs(t, err, ErrNotFound)
+	})
+
+	t.Run("enabled returns adopted manual origin", func(t *testing.T) {
+		service := New(Options{
+			Store:                       NewStoreAdapter(reportmemory.New()),
+			ActiveRunResolver:           &activeRunResolverStub{context: validContext, run: validManualRun},
+			ConversationAdoptionEnabled: true,
+		})
+		active, err := service.GetActiveReportRun(trustedCtx)
+		require.NoError(t, err)
+		require.Equal(t, "manual", active.Origin)
+	})
+
+	t.Run("enabled does not add snapshot gate to prompt", func(t *testing.T) {
+		promptRun := *validManualRun
+		promptRun.Origin = "prompt"
+		promptRun.ReportSpec = nil
+		promptRun.ReportFill = nil
+		promptRun.ReportPrint = nil
+		service := New(Options{
+			Store:                       NewStoreAdapter(reportmemory.New()),
+			ActiveRunResolver:           &activeRunResolverStub{context: validContext, run: &promptRun},
+			ConversationAdoptionEnabled: true,
+		})
+		active, err := service.GetActiveReportRun(trustedCtx)
+		require.NoError(t, err)
+		require.Equal(t, "prompt", active.Origin)
+	})
+	t.Run("disabled does not add snapshot gate to prompt", func(t *testing.T) {
+		promptRun := *validManualRun
+		promptRun.Origin = "prompt"
+		promptRun.ReportSpec = nil
+		promptRun.ReportFill = nil
+		promptRun.ReportPrint = nil
+		service := New(Options{
+			Store:             NewStoreAdapter(reportmemory.New()),
+			ActiveRunResolver: &activeRunResolverStub{context: validContext, run: &promptRun},
+		})
+		active, err := service.GetActiveReportRun(trustedCtx)
+		require.NoError(t, err)
+		require.Equal(t, "prompt", active.Origin)
+	})
+
+	for _, test := range []struct {
+		name   string
+		mutate func(*reportcontext.Record, *reportrun.Record)
+	}{
+		{name: "missing spec", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.ReportSpec = nil }},
+		{name: "null fill", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.ReportFill = json.RawMessage(`null`) }},
+		{name: "invalid print", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.ReportPrint = json.RawMessage(`{`) }},
+		{name: "run owner mismatch", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.OwnerID = "owner-2" }},
+		{name: "run conversation mismatch", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.ConversationID = "conv-2" }},
+		{name: "context owner mismatch", mutate: func(reportCtx *reportcontext.Record, _ *reportrun.Record) { reportCtx.OwnerID = "owner-2" }},
+		{name: "context conversation mismatch", mutate: func(reportCtx *reportcontext.Record, _ *reportrun.Record) { reportCtx.ConversationID = "conv-2" }},
+		{name: "active pointer mismatch", mutate: func(reportCtx *reportcontext.Record, _ *reportrun.Record) { reportCtx.ActiveReportRunID = "run-2" }},
+	} {
+		t.Run("enabled rejects manual "+test.name, func(t *testing.T) {
+			reportCtx := *validContext
+			run := *validManualRun
+			test.mutate(&reportCtx, &run)
+			service := New(Options{
+				Store:                       NewStoreAdapter(reportmemory.New()),
+				ActiveRunResolver:           &activeRunResolverStub{context: &reportCtx, run: &run},
+				ConversationAdoptionEnabled: true,
+			})
+			_, err := service.GetActiveReportRun(trustedCtx)
+			require.ErrorIs(t, err, ErrNotFound)
+		})
+	}
+}
+
 func TestServiceGetActiveReportRunReadsContextBeforeExactRun(t *testing.T) {
 	completedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	resolver := &activeRunResolverStub{
