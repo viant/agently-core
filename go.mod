@@ -23,7 +23,8 @@ require (
 	github.com/viant/afsc v1.16.0
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.3
-	github.com/viant/forge v0.3.14-0.20260803130154-4d505a237f35
+	github.com/viant/forge v0.3.14-0.20260804131050-36e47dc640a6
+	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
 	github.com/viant/jsonrpc v0.23.1-0.20260710212050-f1bb78063207
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
@@ -32,6 +33,7 @@ require (
 	github.com/viant/mcp-ui v0.1.0
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.30.0
+	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8
 	github.com/viant/velty v0.4.1-0.20260408224432-5a1c31e1bd87
 	github.com/viant/xdatly v0.5.4-0.20260306062123-17850ac34977
 	github.com/viant/xdatly/handler v0.0.0-20251208172928-dd34b7f09fd5
@@ -157,7 +159,6 @@ require (
 	github.com/viant/structology v0.9.0 // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect
-	github.com/viant/toolbox v0.37.1-0.20241210210120-32350b063cf8 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
 	github.com/viant/x v0.4.1-0.20260306005005-975ded1e1bef // indirect
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
