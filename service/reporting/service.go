@@ -57,22 +57,26 @@ type Options struct {
 	// ExportFromRunEnabled gates only the T2 run-reference submission mode.
 	// Legacy payload submission remains available when this is false.
 	ExportFromRunEnabled bool
+	// ConversationAdoptionEnabled allows the active-run resolver to expose an
+	// adopted completed manual run when its full durable snapshot is valid.
+	ConversationAdoptionEnabled bool
 }
 
 // Service is the agently-core runtime boundary for reporting compile and
 // export job orchestration.
 type Service struct {
-	compiler             Compiler
-	exporter             Exporter
-	store                Store
-	audit                AuditSink
-	scratchpad           *afsscratchpad.Service
-	scratchpadFS         afs.Service
-	tokenProvider        tokenctx.Provider
-	now                  func() time.Time
-	newID                func() string
-	exportFromRunEnabled bool
-	activeRunResolver    ActiveReportRunResolver
+	compiler                    Compiler
+	exporter                    Exporter
+	store                       Store
+	audit                       AuditSink
+	scratchpad                  *afsscratchpad.Service
+	scratchpadFS                afs.Service
+	tokenProvider               tokenctx.Provider
+	now                         func() time.Time
+	newID                       func() string
+	exportFromRunEnabled        bool
+	conversationAdoptionEnabled bool
+	activeRunResolver           ActiveReportRunResolver
 }
 
 // New constructs a reporting Service.
@@ -101,10 +105,11 @@ func New(opts Options) *Service {
 			}
 			return afs.New()
 		}(),
-		now:                  nowFn,
-		newID:                newIDFn,
-		exportFromRunEnabled: opts.ExportFromRunEnabled,
-		activeRunResolver:    normalizeActiveReportRunResolver(opts.ActiveRunResolver),
+		now:                         nowFn,
+		newID:                       newIDFn,
+		exportFromRunEnabled:        opts.ExportFromRunEnabled,
+		conversationAdoptionEnabled: opts.ConversationAdoptionEnabled,
+		activeRunResolver:           normalizeActiveReportRunResolver(opts.ActiveRunResolver),
 	}
 }
 
@@ -323,9 +328,13 @@ func (s *Service) Methods() svc.Signatures {
 		},
 	}
 	if s.activeRunResolver != nil {
+		description := "Return the exact completed prompt-origin report run that is active for the authenticated actor and trusted current conversation. The input must be an empty object."
+		if s.conversationAdoptionEnabled {
+			description = "Return the exact eligible completed prompt- or manual-origin report run that is active for the authenticated actor and trusted current conversation. The input must be an empty object."
+		}
 		methods = append(methods, svc.Signature{
 			Name:        "get_active_report_run",
-			Description: "Return the exact completed prompt-origin report run that is active for the authenticated actor and trusted current conversation. The input must be an empty object.",
+			Description: description,
 			Input:       reflect.TypeOf(&GetActiveReportRunInput{}),
 			Output:      reflect.TypeOf(&ActiveReportRun{}),
 		})
