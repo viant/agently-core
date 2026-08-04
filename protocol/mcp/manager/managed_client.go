@@ -2,6 +2,7 @@ package manager
 
 import (
 	"context"
+	"fmt"
 
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
@@ -15,6 +16,8 @@ type managedClient struct {
 }
 
 var _ mcpclient.Interface = (*managedClient)(nil)
+var _ mcpclient.DiscoveryInterface = (*managedClient)(nil)
+var _ mcpclient.SubscriptionInterface = (*managedClient)(nil)
 
 func (c *managedClient) use() (mcpclient.Interface, func(), error) {
 	client, err := c.mgr.beginUse(c.entry)
@@ -31,6 +34,32 @@ func (c *managedClient) Initialize(ctx context.Context, options ...mcpclient.Req
 	}
 	defer release()
 	return client.Initialize(ctx, options...)
+}
+
+func (c *managedClient) Discover(ctx context.Context, options ...mcpclient.RequestOption) (*mcpschema.DiscoverResult, error) {
+	client, release, err := c.use()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	discovery, ok := client.(mcpclient.DiscoveryInterface)
+	if !ok {
+		return nil, fmt.Errorf("managed MCP client does not support %s", mcpschema.MethodServerDiscover)
+	}
+	return discovery.Discover(ctx, options...)
+}
+
+func (c *managedClient) Listen(ctx context.Context, filter mcpschema.SubscriptionFilter, options ...mcpclient.RequestOption) (*mcpschema.SubscriptionsListenResult, error) {
+	client, release, err := c.use()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	listener, ok := client.(mcpclient.SubscriptionInterface)
+	if !ok {
+		return nil, fmt.Errorf("managed MCP client does not support %s", mcpschema.MethodSubscriptionsListen)
+	}
+	return listener.Listen(ctx, filter, options...)
 }
 
 func (c *managedClient) ListResourceTemplates(ctx context.Context, cursor *string, options ...mcpclient.RequestOption) (*mcpschema.ListResourceTemplatesResult, error) {

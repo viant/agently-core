@@ -149,6 +149,7 @@ func TestStructuredContentString_UnwrapsSingleStringResult(t *testing.T) {
 type reconnectingCallClient struct {
 	errOnCall error
 	options   *mcpclient.RequestOptions
+	result    *mcpschema.CallToolResult
 }
 
 func (c *reconnectingCallClient) Initialize(ctx context.Context, options ...mcpclient.RequestOption) (*mcpschema.InitializeResult, error) {
@@ -177,9 +178,35 @@ func (c *reconnectingCallClient) CallTool(ctx context.Context, params *mcpschema
 	if c.errOnCall != nil {
 		return nil, c.errOnCall
 	}
+	if c.result != nil {
+		return c.result, nil
+	}
 	return &mcpschema.CallToolResult{
 		Content: []mcpschema.CallToolResultContentElem{&mcpschema.TextContent{Type: "text", Text: "ok"}},
 	}, nil
+}
+
+func TestExecute_PreservesInputRequiredResult(t *testing.T) {
+	state := "opaque-state"
+	client := &reconnectingCallClient{result: &mcpschema.CallToolResult{
+		ResultType:    mcpschema.ResultTypeInputRequired,
+		InputRequests: map[string]interface{}{"approval": map[string]interface{}{"type": "boolean"}},
+		RequestState:  &state,
+	}}
+	reg := &Registry{
+		mgr:           &reconnectManagerStub{client: client},
+		cache:         map[string]*toolCacheEntry{},
+		internal:      map[string]mcpclient.Interface{},
+		recentResults: map[string]map[string]recentItem{},
+	}
+	_, err := reg.Execute(context.Background(), "helper/ping", map[string]interface{}{})
+	var inputErr *InputRequiredError
+	if !errors.As(err, &inputErr) {
+		t.Fatalf("expected InputRequiredError, got %v", err)
+	}
+	if inputErr.RequestState == nil || *inputErr.RequestState != state {
+		t.Fatalf("request state was not preserved")
+	}
 }
 func (c *reconnectingCallClient) Complete(ctx context.Context, params *mcpschema.CompleteRequestParams, options ...mcpclient.RequestOption) (*mcpschema.CompleteResult, error) {
 	return nil, errors.New("not implemented")

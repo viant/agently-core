@@ -29,6 +29,18 @@ func (p *Proxy) CallTool(ctx context.Context, name string, args map[string]inter
 	return res, err
 }
 
+// ResumeTool resubmits a July input-required tool call with the opaque request
+// state and collected responses returned by the server.
+func (p *Proxy) ResumeTool(ctx context.Context, name string, args, inputResponses map[string]interface{}, requestState string, opts ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
+	call := normalizeToolName(p.server, strings.TrimSpace(name))
+	return p.cli.CallTool(ctx, &mcpschema.CallToolRequestParams{
+		Name:           call,
+		Arguments:      args,
+		InputResponses: inputResponses,
+		RequestState:   &requestState,
+	}, opts...)
+}
+
 // ListAllTools returns all tools for the server by paging through cursors.
 func (p *Proxy) ListAllTools(ctx context.Context, opts ...mcpclient.RequestOption) ([]mcpschema.Tool, error) {
 	var (
