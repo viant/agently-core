@@ -422,15 +422,6 @@ func TestStore_RunExportKeepsLegacySchemaReadable(t *testing.T) {
 		t.Fatalf("GetJob(legacy) = %+v, %v", got, err)
 	}
 	exportStore := client.(reportstore.RunExportClient)
-	if _, _, err := exportStore.SubmitJobFromRun(ownerCtx, &reportjob.Record{
-		JobID:           "run-job",
-		OwnerID:         "legacy-owner",
-		ConversationID:  "legacy-conversation",
-		ReportRunID:     "run-1",
-		ExportRequestID: "request-1",
-	}); !errors.Is(err, reportstore.ErrSchemaRequired) {
-		t.Fatalf("SubmitJobFromRun(legacy schema) error = %v, want schema required", err)
-	}
 	running, err := exportStore.ClaimJob(ownerCtx, legacy.JobID, now.Add(time.Second))
 	if err != nil || running.Status != "running" {
 		t.Fatalf("ClaimJob(legacy) = %+v, %v", running, err)
@@ -446,33 +437,7 @@ func TestStore_RunExportKeepsLegacySchemaReadable(t *testing.T) {
 	}
 }
 
-func TestNormalizeCheckClause_CharsetIntroducedLiterals(t *testing.T) {
-	tests := []struct {
-		name   string
-		clause string
-		want   string
-	}{
-		{
-			name:   "escaped apostrophes",
-			clause: "((`format` = _utf8mb4\\'pdf\\') and (`status` = _utf8mb4\\'queued\\'))",
-			want:   "((format='pdf')and(status='queued'))",
-		},
-		{
-			name:   "unescaped apostrophes",
-			clause: "((`format` = _utf8mb4'pdf') and (`status` = _utf8mb4'queued'))",
-			want:   "((format='pdf')and(status='queued'))",
-		},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := normalizeCheckClause(test.clause); got != test.want {
-				t.Fatalf("normalizeCheckClause(%q) = %q, want %q", test.clause, got, test.want)
-			}
-		})
-	}
-}
-
-func TestStore_RunExportRequiresConstraintsWhenT2ColumnsExist(t *testing.T) {
+func TestStore_RunExportUsesT2ColumnsWithoutRuntimeConstraintInspection(t *testing.T) {
 	ctx := context.Background()
 	dao, err := data.NewDatlyInMemory(ctx)
 	if err != nil {
@@ -540,6 +505,16 @@ func TestStore_RunExportRequiresConstraintsWhenT2ColumnsExist(t *testing.T) {
 
 	ownerCtx := authsvc.InjectUser(ctx, "partial-t2-owner")
 	now := time.Date(2026, 7, 29, 19, 30, 0, 0, time.UTC)
+	if _, err := db.ExecContext(ctx, `
+INSERT INTO conversation (id, created_by_user_id, visibility, shareable)
+VALUES (?, ?, 'private', 0)`, "partial-t2-conversation", "partial-t2-owner"); err != nil {
+		t.Fatalf("insert conversation error = %v", err)
+	}
+	runStore := client.(reportstore.RunClient)
+	run := completedSQLRun("partial-t2-run", "partial-t2-owner", "partial-t2-conversation", now)
+	if err := runStore.CreateReportRun(ownerCtx, run); err != nil {
+		t.Fatalf("CreateReportRun(partial T2 schema) error = %v", err)
+	}
 	legacy := &reportjob.Record{
 		JobID:       "partial-t2-legacy-job",
 		ArtifactRef: "legacy://partial-t2",
@@ -564,8 +539,9 @@ func TestStore_RunExportRequiresConstraintsWhenT2ColumnsExist(t *testing.T) {
 		t.Fatalf("FailJob(partial T2 schema) error = %v", err)
 	}
 
-	if _, _, err := exportStore.SubmitJobFromRun(ownerCtx, &reportjob.Record{
+	job, replay, err := exportStore.SubmitJobFromRun(ownerCtx, &reportjob.Record{
 		JobID:           "partial-t2-run-job",
+		ArtifactRef:     "report-run://partial-t2-run",
 		OwnerID:         "partial-t2-owner",
 		ConversationID:  "partial-t2-conversation",
 		Format:          "pdf",
@@ -574,8 +550,9 @@ func TestStore_RunExportRequiresConstraintsWhenT2ColumnsExist(t *testing.T) {
 		ReportRunID:     "partial-t2-run",
 		ExportRequestID: "partial-t2-request",
 		SubmittedAt:     now,
-	}); !errors.Is(err, reportstore.ErrSchemaRequired) {
-		t.Fatalf("SubmitJobFromRun(partial T2 schema) error = %v, want schema required", err)
+	})
+	if err != nil || replay || job == nil || job.ReportRunID != run.ReportRunID || job.ReportRunRevision != run.Revision {
+		t.Fatalf("SubmitJobFromRun(partial T2 schema) = %+v, %t, %v", job, replay, err)
 	}
 }
 

@@ -130,6 +130,9 @@ func applyCompatibilityMigrations(ctx context.Context, db *sql.DB) error {
 	if err := ensureLegacyTurnColumns(ctx, db); err != nil {
 		return err
 	}
+	if err := ensureLegacyReportExportJobColumns(ctx, db); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -240,6 +243,38 @@ func ensureLegacyTurnColumns(ctx context.Context, db *sql.DB) error {
 		"origin":        "TEXT",
 		"goal_id":       "TEXT",
 		"status_reason": "TEXT",
+	}
+	for column, dataType := range columns {
+		present, err := sqliteColumnExists(ctx, db, tableName, column)
+		if err != nil {
+			return fmt.Errorf("failed to inspect %s.%s: %w", tableName, column, err)
+		}
+		if present {
+			continue
+		}
+		stmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", tableName, column, dataType)
+		if _, execErr := db.ExecContext(ctx, stmt); execErr != nil && !isDuplicateSQLiteColumnError(stmt, execErr) {
+			return fmt.Errorf("compatibility migration failed: %w (sql: %s)", execErr, stmt)
+		}
+	}
+	return nil
+}
+
+func ensureLegacyReportExportJobColumns(ctx context.Context, db *sql.DB) error {
+	const tableName = "report_export_job"
+
+	exists, err := sqliteTableExists(ctx, db, tableName)
+	if err != nil {
+		return fmt.Errorf("failed to inspect %s table: %w", tableName, err)
+	}
+	if !exists {
+		return nil
+	}
+
+	columns := map[string]string{
+		"report_run_id":       "TEXT",
+		"report_run_revision": "INTEGER",
+		"export_request_id":   "TEXT",
 	}
 	for column, dataType := range columns {
 		present, err := sqliteColumnExists(ctx, db, tableName, column)

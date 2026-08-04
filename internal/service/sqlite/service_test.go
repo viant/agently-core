@@ -443,3 +443,121 @@ func TestService_Ensure_UpgradesLegacyScheduleSchema(t *testing.T) {
 		}
 	}
 }
+
+func TestService_Ensure_UpgradesLegacyReportExportJobSchema(t *testing.T) {
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "legacy-report-export-job")
+	defer cleanup()
+
+	_, err := db.Exec(`
+		CREATE TABLE report_export_job (
+			job_id TEXT PRIMARY KEY,
+			artifact_ref TEXT NOT NULL,
+			owner_id TEXT NOT NULL,
+			conversation_id TEXT,
+			workspace_id TEXT,
+			auth_context_ref TEXT,
+			format TEXT NOT NULL,
+			scope TEXT NOT NULL,
+			status TEXT NOT NULL,
+			report_spec_json BLOB,
+			report_fill_json BLOB,
+			report_print_json BLOB,
+			metadata_json BLOB,
+			artifact_id TEXT,
+			error_text TEXT,
+			diagnostics_json BLOB,
+			submitted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+			started_at DATETIME,
+			completed_at DATETIME,
+			retention_ttl_sec INTEGER NOT NULL DEFAULT 0
+		)
+	`)
+	if err != nil {
+		t.Fatalf("create legacy report_export_job: %v", err)
+	}
+	_, err = db.Exec(`
+		INSERT INTO report_export_job (
+			job_id, artifact_ref, owner_id, conversation_id, format, scope, status, retention_ttl_sec
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+	`, "job-legacy", "reports/monthly", "owner-1", "conversation-1", "pdf", "draft", "queued", 3600)
+	if err != nil {
+		t.Fatalf("insert legacy report_export_job: %v", err)
+	}
+	if err := db.Close(); err != nil {
+		t.Fatalf("close legacy db: %v", err)
+	}
+
+	svc := New(filepath.Dir(filepath.Dir(dbPath))).WithPath(dbPath)
+	if _, err := svc.Ensure(context.Background()); err != nil {
+		t.Fatalf("Ensure() should upgrade legacy report_export_job schema: %v", err)
+	}
+
+	upgraded, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer upgraded.Close()
+
+	wantTypes := map[string]string{
+		"report_run_id":       "TEXT",
+		"report_run_revision": "INTEGER",
+		"export_request_id":   "TEXT",
+	}
+	gotTypes := map[string]string{}
+	rows, err := upgraded.Query(`PRAGMA table_info(report_export_job)`)
+	if err != nil {
+		t.Fatalf("pragma table_info(report_export_job): %v", err)
+	}
+	for rows.Next() {
+		var (
+			cid        int
+			name       string
+			dataType   string
+			notNull    int
+			defaultVal sql.NullString
+			primaryKey int
+		)
+		if err := rows.Scan(&cid, &name, &dataType, &notNull, &defaultVal, &primaryKey); err != nil {
+			rows.Close()
+			t.Fatalf("scan table_info row: %v", err)
+		}
+		if _, ok := wantTypes[name]; ok {
+			gotTypes[name] = dataType
+		}
+	}
+	if err := rows.Close(); err != nil {
+		t.Fatalf("close table_info rows: %v", err)
+	}
+	for column, wantType := range wantTypes {
+		if gotType, ok := gotTypes[column]; !ok {
+			t.Errorf("expected report_export_job.%s column to exist after Ensure()", column)
+		} else if gotType != wantType {
+			t.Errorf("report_export_job.%s type = %q, want %q", column, gotType, wantType)
+		}
+	}
+
+	var (
+		artifactRef    string
+		ownerID        string
+		conversationID string
+		format         string
+		scope          string
+		status         string
+		retentionTTL   int
+	)
+	if err := upgraded.QueryRow(`
+		SELECT artifact_ref, owner_id, conversation_id, format, scope, status, retention_ttl_sec
+		FROM report_export_job
+		WHERE job_id = ?
+	`, "job-legacy").Scan(&artifactRef, &ownerID, &conversationID, &format, &scope, &status, &retentionTTL); err != nil {
+		t.Fatalf("query preserved legacy report_export_job: %v", err)
+	}
+	if artifactRef != "reports/monthly" || ownerID != "owner-1" || conversationID != "conversation-1" ||
+		format != "pdf" || scope != "draft" || status != "queued" || retentionTTL != 3600 {
+		t.Fatalf("legacy report_export_job data was not preserved")
+	}
+
+	if _, err := svc.Ensure(context.Background()); err != nil {
+		t.Fatalf("second Ensure() should be repeat-safe: %v", err)
+	}
+}
