@@ -620,6 +620,8 @@ func (s *Service) applyPlannerOutput(input *QueryInput, contract planner.Contrac
 	if input == nil || len(out) == 0 || contract == nil {
 		return
 	}
+	previousBundles := len(input.ToolBundles)
+	previousAutoSelected := input.toolBundlesAutoSelected
 	app := &planner.Application{
 		ToolBundles:       append([]string(nil), input.ToolBundles...),
 		TemplateID:        strings.TrimSpace(input.TemplateId),
@@ -628,6 +630,9 @@ func (s *Service) applyPlannerOutput(input *QueryInput, contract planner.Contrac
 	}
 	contract.Apply(app, out, pctx)
 	input.ToolBundles = agenttool.NormalizeBundleNames(app.ToolBundles)
+	if len(input.ToolBundles) > 0 && (previousAutoSelected || previousBundles == 0) {
+		input.toolBundlesAutoSelected = true
+	}
 	input.TemplateId = strings.TrimSpace(app.TemplateID)
 	input.ParallelToolCalls = app.ParallelToolCalls
 	input.Context = app.Context

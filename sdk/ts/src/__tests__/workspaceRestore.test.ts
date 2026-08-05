@@ -146,6 +146,95 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
         });
     });
 
+    it('restores hosted workspace state from ui/window/open and later form data', () => {
+        expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
+            {
+                turnId: 'turn-1',
+                execution: {
+                    pages: [
+                        {
+                            toolSteps: [
+                                {
+                                    toolName: 'ui/window/open',
+                                    status: 'completed',
+                                    requestPayload: {
+                                        windowKey: 'reportBuilder',
+                                        parameters: {
+                                            reportBuilderRef: 'capacityBuilder',
+                                        },
+                                    },
+                                    responsePayload: {
+                                        windowId: 'reportBuilder__conv-1',
+                                        conversationId: 'conv-1',
+                                        windowKey: 'reportBuilder',
+                                        windowTitle: 'Capacity Builder',
+                                        presentation: 'hosted',
+                                        region: 'chat.top',
+                                        parentKey: 'chat/new',
+                                        workspaceMinHeight: 500,
+                                        workspaceSharePct: 72,
+                                    },
+                                },
+                                {
+                                    toolName: 'ui/window:setFormData',
+                                    status: 'completed',
+                                    requestPayload: {
+                                        windowId: 'reportBuilder__conv-1',
+                                        values: {
+                                            prefill: {
+                                                scope: {
+                                                    targetKey: 'record:12345',
+                                                },
+                                            },
+                                        },
+                                    },
+                                    responsePayload: {
+                                        windowId: 'reportBuilder__conv-1',
+                                        windowForm: {
+                                            reportBuilderRef: 'capacityBuilder',
+                                            prefill: {
+                                                scope: {
+                                                    targetKey: 'record:12345',
+                                                },
+                                            },
+                                        },
+                                    },
+                                },
+                            ],
+                        },
+                    ],
+                },
+            } as any,
+        ])).toEqual({
+            windows: [
+                {
+                    windowId: 'reportBuilder__conv-1',
+                    conversationId: 'conv-1',
+                    windowKey: 'reportBuilder',
+                    windowTitle: 'Capacity Builder',
+                    presentation: 'hosted',
+                    region: 'chat.top',
+                    parentKey: 'chat/new',
+                    workspaceSharePct: 72,
+                    workspaceMinHeight: 500,
+                    inTab: true,
+                    parameters: {
+                        reportBuilderRef: 'capacityBuilder',
+                    },
+                    windowForm: {
+                        reportBuilderRef: 'capacityBuilder',
+                        prefill: {
+                            scope: {
+                                targetKey: 'record:12345',
+                            },
+                        },
+                    },
+                },
+            ],
+            selectedWindowId: 'reportBuilder__conv-1',
+        });
+    });
+
     it('restores hosted workspace state from the last turn only', () => {
         expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
             {

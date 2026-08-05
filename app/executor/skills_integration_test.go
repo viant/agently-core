@@ -1264,8 +1264,8 @@ func TestRuntimeQuery_SkillToolsFollowExplicitBundles(t *testing.T) {
 	for _, item := range payload2.Options.Tools {
 		names2 = append(names2, item.Definition.Name)
 	}
-	if contains(names2, "llm_skills-list") || contains(names2, "llm_skills-activate") {
-		t.Fatalf("did not expect skill tools in request, got %v", names2)
+	if !contains(names2, "llm_skills-list") || !contains(names2, "llm_skills-activate") {
+		t.Fatalf("expected visible skill control tools even without the llm/skills bundle, got %v", names2)
 	}
 }
 

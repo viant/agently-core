@@ -1569,7 +1569,11 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.In
 
 	// Class B: append tool bundles suggested by the sidecar.
 	if cfg.HasScope(agentmdl.IntakeScopeTools) && len(tc.Prompting.AppendToolBundles) > 0 {
+		previousBundles := len(input.ToolBundles)
 		input.ToolBundles = append(input.ToolBundles, tc.Prompting.AppendToolBundles...)
+		if previousBundles == 0 || input.toolBundlesAutoSelected {
+			input.toolBundlesAutoSelected = true
+		}
 	}
 
 	// Class B: apply template suggestion. The context entry remains for

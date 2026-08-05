@@ -72,6 +72,48 @@ func updateToolMessageContent(ctx context.Context, conv apiconv.Client, toolMsgI
 	return conv.PatchMessage(ctx, upd)
 }
 
+func persistCoalescedToolResult(ctx context.Context, conv apiconv.Client, turn runtimerequestctx.TurnMeta, startedAt time.Time, step StepInfo, args map[string]interface{}, result string, resultErr error) error {
+	if conv == nil {
+		return nil
+	}
+	toolMsgID, err := createToolMessage(ctx, conv, turn, startedAt, step.Name)
+	if err != nil {
+		return err
+	}
+	if err := initToolCall(ctx, conv, toolMsgID, step.ID, turn, step.Name, startedAt, step.ResponseID); err != nil {
+		_ = updateToolMessageStatus(ctx, conv, toolMsgID, "failed")
+		_ = updateToolMessageContent(ctx, conv, toolMsgID, err.Error())
+		return err
+	}
+	if len(args) > 0 {
+		if _, err := persistRequestPayload(ctx, conv, toolMsgID, args); err != nil {
+			_ = completeToolCall(ctx, conv, toolMsgID, step.ID, step.Name, "failed", time.Now(), "", err.Error())
+			_ = updateToolMessageContent(ctx, conv, toolMsgID, err.Error())
+			return err
+		}
+	}
+	body := result
+	status := "coalesced"
+	errMsg := ""
+	if resultErr != nil {
+		body = resultErr.Error()
+		status = "failed"
+		errMsg = resultErr.Error()
+	}
+	respPayloadID := ""
+	if payloadID, err := persistResponsePayload(ctx, conv, body); err == nil {
+		respPayloadID = payloadID
+	} else if resultErr == nil {
+		_ = completeToolCall(ctx, conv, toolMsgID, step.ID, step.Name, "failed", time.Now(), "", err.Error())
+		_ = updateToolMessageContent(ctx, conv, toolMsgID, err.Error())
+		return err
+	}
+	if err := updateToolMessageContent(ctx, conv, toolMsgID, body); err != nil {
+		return err
+	}
+	return completeToolCall(ctx, conv, toolMsgID, step.ID, step.Name, status, time.Now(), respPayloadID, errMsg)
+}
+
 // initToolCall initializes and persists a new tool call in a 'running' state for the given tool message.
 func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID string, turn runtimerequestctx.TurnMeta, toolName string, startedAt time.Time, traceID string) error {
 	displayName := mcpname.Display(toolName)

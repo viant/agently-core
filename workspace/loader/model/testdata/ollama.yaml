@@ -1,0 +1,9 @@
+id: qwen-local
+description: Local Qwen model
+options:
+  provider: ollama
+  model: qwen2.5:14b
+  url: http://127.0.0.1:11434
+  maxTokens: 128
+  keepAlive: 30m
+  contextWindow: 4096

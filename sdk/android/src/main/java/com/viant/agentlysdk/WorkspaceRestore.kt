@@ -73,7 +73,7 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
                     )
                 }
             }
-            "ui/view/open" -> {
+            "ui/view/open", "ui/window/open" -> {
                 val windows = hostedWorkspaceWindowsFromViewOpenStep(step)
                 if (windows.isNotEmpty()) {
                     val restoredWindows = applyWindowFormDataPatches(
@@ -216,7 +216,14 @@ private fun hostedWorkspaceWindowsFromViewOpenStep(
             buildMap {
                 put("windowId", JsonPrimitive(jsonString(response["windowId"])))
                 put("conversationId", JsonPrimitive(jsonString(response["conversationId"])))
-                put("windowKey", JsonPrimitive(jsonString(response["windowKey"]).ifBlank { jsonString(request?.get("id")) }))
+                put(
+                    "windowKey",
+                    JsonPrimitive(
+                        jsonString(response["windowKey"])
+                            .ifBlank { jsonString(request?.get("id")) }
+                            .ifBlank { jsonString(request?.get("windowKey")) }
+                    )
+                )
                 put("windowTitle", JsonPrimitive(jsonString(response["windowTitle"])))
                 put("presentation", JsonPrimitive(jsonString(response["presentation"])))
                 put("region", JsonPrimitive(jsonString(response["region"])))
@@ -258,17 +265,20 @@ private fun applyWindowFormDataPatches(
         val response = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
         val windowId = jsonString(response?.get("windowId"))
             .ifBlank { jsonString(request?.get("windowId")) }
-        if (windowId.isBlank()) {
-            return@forEach
-        }
+        val windowKey = jsonString(response?.get("windowKey"))
+            .ifBlank { jsonString(request?.get("windowKey")) }
         val authoritative = response?.get("windowForm") as? JsonObject
         val patch = authoritative
             ?: (request?.get("values") as? JsonObject)
             ?: (request?.get("parameters") as? JsonObject)
             ?: return@forEach
         val replace = authoritative != null || request?.get("replace")?.let(::jsonBoolean) == true
+        val targetWindowIds = hostedWorkspaceFormPatchTargets(restored, windowId, windowKey)
+        if (targetWindowIds.isEmpty()) {
+            return@forEach
+        }
         restored = restored.map { window ->
-            if (window.windowId != windowId) {
+            if (window.windowId !in targetWindowIds) {
                 window
             } else {
                 val nextForm = if (replace) {
@@ -281,6 +291,30 @@ private fun applyWindowFormDataPatches(
         }
     }
     return restored
+}
+
+private fun hostedWorkspaceFormPatchTargets(
+    windows: List<WorkspaceWindowSnapshot>,
+    windowId: String,
+    windowKey: String
+): Set<String> {
+    val normalizedWindowId = windowId.trim()
+    if (normalizedWindowId.isNotBlank()) {
+        return windows
+            .filter { it.windowId == normalizedWindowId }
+            .map { it.windowId }
+            .toSet()
+    }
+    val normalizedWindowKey = windowKey.trim()
+    if (normalizedWindowKey.isBlank()) {
+        return emptySet()
+    }
+    val matches = windows.filter { it.windowKey == normalizedWindowKey }
+    return if (matches.size == 1) {
+        setOf(matches.first().windowId)
+    } else {
+        emptySet()
+    }
 }
 
 private fun normalizeHostedWorkspaceWindow(raw: JsonObject?): WorkspaceWindowSnapshot? {

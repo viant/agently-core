@@ -1130,7 +1130,7 @@ func scheduleLastRunSet(t *testing.T, db *sql.DB, scheduleID string) bool {
 	t.Helper()
 	var lastRunAt sql.NullTime
 	if err := db.QueryRowContext(context.Background(), `SELECT last_run_at FROM schedule WHERE id = ?`, scheduleID).Scan(&lastRunAt); err != nil {
-		t.Fatalf("schedule last_run_at query error: %v", err)
+		return false
 	}
 	return lastRunAt.Valid
 }
@@ -1342,11 +1342,16 @@ func TestService_RunNowAllowsSecondManualRunAfterRateLimitWindow(t *testing.T) {
 		return scheduleRunCount(t, db, "sched-run-now-repeat") == 1 &&
 			scheduledForRunCount(t, db, "sched-run-now-repeat") == 1
 	}, 3*time.Second, 20*time.Millisecond)
+	close(release)
+	require.Eventually(t, func() bool {
+		return scheduleLastRunSet(t, db, "sched-run-now-repeat")
+	}, 3*time.Second, 20*time.Millisecond)
 
 	oldCreatedAt := time.Now().UTC().Add(-2 * time.Minute)
 	if _, err := db.ExecContext(context.Background(), `UPDATE run SET created_at = ?, scheduled_for = ? WHERE schedule_id = ?`, oldCreatedAt, oldCreatedAt, "sched-run-now-repeat"); err != nil {
 		t.Fatalf("age first run error: %v", err)
 	}
+	svc.reserveRunNow("sched-run-now-repeat", oldCreatedAt)
 
 	if err := svc.RunNow(context.Background(), "sched-run-now-repeat"); err != nil {
 		t.Fatalf("second RunNow() after window error: %v", err)
@@ -1355,7 +1360,6 @@ func TestService_RunNowAllowsSecondManualRunAfterRateLimitWindow(t *testing.T) {
 		return scheduleRunCount(t, db, "sched-run-now-repeat") == 2 &&
 			scheduledForRunCount(t, db, "sched-run-now-repeat") == 2
 	}, 3*time.Second, 20*time.Millisecond)
-	close(release)
 	require.Eventually(t, func() bool {
 		return scheduleLastRunSet(t, db, "sched-run-now-repeat")
 	}, 3*time.Second, 20*time.Millisecond)

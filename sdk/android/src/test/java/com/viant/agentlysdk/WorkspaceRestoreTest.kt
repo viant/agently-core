@@ -61,6 +61,114 @@ class WorkspaceRestoreTest {
     }
 
     @Test
+    fun `deriveHostedWorkspaceRestoreState restores hosted window from ui window open tool step`() {
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(
+                    TurnState(
+                        turnId = "turn-1",
+                        execution = ExecutionState(
+                            pages = listOf(
+                                ExecutionPageState(
+                                    pageId = "page-1",
+                                    toolSteps = listOf(
+                                        ToolStepState(
+                                            toolCallId = "tool-open",
+                                            toolName = "ui/window/open",
+                                            status = "completed",
+                                            requestPayload = buildJsonObject {
+                                                put("windowKey", "reportBuilder")
+                                                put(
+	                                                    "parameters",
+	                                                    buildJsonObject {
+	                                                        put("reportBuilderRef", "capacityBuilder")
+	                                                    }
+	                                                )
+                                            },
+                                            responsePayload = buildJsonObject {
+                                                put("windowId", "reportBuilder__conv-1")
+                                                put("conversationId", "conv-1")
+                                                put("windowKey", "reportBuilder")
+                                                put("windowTitle", "Capacity Builder")
+                                                put("presentation", "hosted")
+                                                put("region", "chat.top")
+                                                put("parentKey", "chat/new")
+                                                put("workspaceMinHeight", 500)
+                                                put("workspaceSharePct", 72)
+                                            }
+                                        ),
+                                        ToolStepState(
+                                            toolCallId = "tool-prefill",
+                                            toolName = "ui/window/setFormData",
+                                            status = "completed",
+                                            requestPayload = buildJsonObject {
+                                                put("windowId", "reportBuilder__conv-1")
+                                                put(
+                                                    "values",
+                                                    buildJsonObject {
+                                                        put(
+                                                            "prefill",
+                                                            buildJsonObject {
+                                                                put(
+                                                                    "scope",
+                                                                    buildJsonObject {
+                                                                        put("targetKey", "record:12345")
+                                                                    }
+                                                                )
+                                                            }
+                                                        )
+                                                    }
+                                                )
+                                            },
+                                            responsePayload = buildJsonObject {
+                                                put("windowId", "reportBuilder__conv-1")
+                                                put(
+                                                    "windowForm",
+                                                    buildJsonObject {
+                                                        put("reportBuilderRef", "capacityBuilder")
+                                                        put(
+                                                            "prefill",
+                                                            buildJsonObject {
+                                                                put(
+                                                                    "scope",
+                                                                    buildJsonObject {
+                                                                        put("targetKey", "record:12345")
+                                                                    }
+                                                                )
+                                                            }
+                                                        )
+                                                    }
+                                                )
+                                            }
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val restore = deriveHostedWorkspaceRestoreState(state)
+        val window = restore?.windows?.singleOrNull()
+        val scope = window?.windowForm
+            ?.get("prefill")
+            ?.jsonObject
+            ?.get("scope")
+            ?.jsonObject
+
+        assertEquals("reportBuilder__conv-1", restore?.selectedWindowId)
+        assertEquals("reportBuilder", window?.windowKey)
+        assertEquals("Capacity Builder", window?.windowTitle)
+        assertEquals(500, window?.workspaceMinHeight)
+        assertEquals(72, window?.workspaceSharePct)
+        assertEquals(JsonPrimitive("capacityBuilder"), window?.windowForm?.get("reportBuilderRef"))
+        assertEquals(JsonPrimitive("record:12345"), scope?.get("targetKey"))
+    }
+
+    @Test
     fun `deriveHostedWorkspaceRestoreState does not require app placement fields`() {
         val state = ConversationStateResponse(
             conversation = ConversationState(
@@ -138,7 +246,7 @@ class WorkspaceRestoreTest {
                                             toolName = "ui/window:setFormData",
                                             status = "completed",
                                             requestPayload = buildJsonObject {
-                                                put("windowId", "reportBuilder__conv-1")
+                                                put("windowKey", "reportBuilder")
                                                 put(
                                                     "values",
                                                     buildJsonObject {

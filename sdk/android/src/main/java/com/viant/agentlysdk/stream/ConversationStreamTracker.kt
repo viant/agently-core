@@ -216,6 +216,7 @@ class ConversationStreamTracker(conversationId: String = "") {
     private val messages = MessageBuffer()
     private var executionGroupsById: MutableMap<String, LiveExecutionGroup> = linkedMapOf()
     private var maxHydratedEventSeqByTurnId: MutableMap<String, Int> = linkedMapOf()
+    private var hydratedEventSeqsByTurnId: MutableMap<String, Set<Int>> = linkedMapOf()
     private var maxAppliedEventSeqByTurnId: MutableMap<String, Int> = linkedMapOf()
     private val feeds = FeedTracker()
     private val elicitation = ElicitationTracker()
@@ -242,6 +243,7 @@ class ConversationStreamTracker(conversationId: String = "") {
         messages.activeTurnId = null
         executionGroupsById = linkedMapOf()
         maxHydratedEventSeqByTurnId = linkedMapOf()
+        hydratedEventSeqsByTurnId = linkedMapOf()
         maxAppliedEventSeqByTurnId = linkedMapOf()
         feeds.clear()
         elicitation.clear()
@@ -283,6 +285,7 @@ class ConversationStreamTracker(conversationId: String = "") {
         reconcileTranscript(turns)
         reconcileExecutionGroups(turns)
         maxHydratedEventSeqByTurnId = maxEventSequencesByTurnId(turns).toMutableMap()
+        hydratedEventSeqsByTurnId = eventSequencesByTurnId(turns).toMutableMap()
         hydrateFeeds(response.feeds)
     }
 
@@ -297,7 +300,8 @@ class ConversationStreamTracker(conversationId: String = "") {
             }
             return turnId.isNotEmpty() &&
                 eventSeq > 0 &&
-                eventSeq <= (maxAppliedEventSeqByTurnId[turnId] ?: 0)
+                (hydratedEventSeqsByTurnId[turnId]?.contains(eventSeq) == true ||
+                    eventSeq <= (maxAppliedEventSeqByTurnId[turnId] ?: 0))
         }
         if (turnId.isEmpty() || eventSeq <= 0) {
             return false
@@ -374,6 +378,27 @@ private fun maxEventSequencesByTurnId(turns: List<TurnState>): Map<String, Int> 
         val maxSeq = maxOf(messageMax, pageMax)
         if (maxSeq > 0) {
             result[turnId] = maxSeq
+        }
+    }
+    return result
+}
+
+private fun eventSequencesByTurnId(turns: List<TurnState>): Map<String, Set<Int>> {
+    val result = linkedMapOf<String, Set<Int>>()
+    turns.forEach { turn ->
+        val turnId = firstString(turn.turnId)
+        if (turnId.isBlank()) {
+            return@forEach
+        }
+        val sequences = linkedSetOf<Int>()
+        turn.messages.orEmpty().forEach { message ->
+            message.sequence?.takeIf { it > 0 }?.let(sequences::add)
+        }
+        turn.execution?.pages.orEmpty().forEach { page ->
+            page.sequence?.takeIf { it > 0 }?.let(sequences::add)
+        }
+        if (sequences.isNotEmpty()) {
+            result[turnId] = sequences
         }
     }
     return result

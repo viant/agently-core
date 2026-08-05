@@ -95,9 +95,10 @@ type Registry struct {
 	warnings []string
 
 	// recentResults memoizes identical tool calls per conversation for a short TTL
-	recentMu      sync.Mutex
-	recentResults map[string]map[string]recentItem // convID -> key -> item
-	recentTTL     time.Duration
+	recentMu       sync.Mutex
+	recentResults  map[string]map[string]recentItem  // convID -> key -> item
+	recentInFlight map[string]map[string]*recentCall // convID -> key -> call
+	recentTTL      time.Duration
 
 	executionProtection toolprotection.Guard
 
@@ -105,16 +106,17 @@ type Registry struct {
 	refreshEvery time.Duration // successful refresh cadence
 
 	// scoped discovery client diagnostics for manager-backed list_tools path.
-	discoveryShared    map[string]discoveryIdentity
-	discoveryWarnAt    map[string]time.Time
-	discoveryFailUntil map[string]time.Time
-	discoveryFailErr   map[string]string
-	discoveryWarnEvery time.Duration
-	discoveryWaitEvery time.Duration
-	discoveryTimeout   time.Duration
-	discoveryStrictTTL time.Duration
-	discoveryFailTTL   time.Duration
-	discoveryScopeSeq  uint64
+	discoveryShared         map[string]discoveryIdentity
+	discoveryWarnAt         map[string]time.Time
+	discoveryFailUntil      map[string]time.Time
+	discoveryFailErr        map[string]string
+	discoveryWarnEvery      time.Duration
+	discoveryWaitEvery      time.Duration
+	discoveryTimeout        time.Duration
+	discoverySurfaceTimeout time.Duration
+	discoveryStrictTTL      time.Duration
+	discoveryFailTTL        time.Duration
+	discoveryScopeSeq       uint64
 }
 
 type toolCacheEntry struct {
@@ -133,6 +135,12 @@ type timeoutSupport struct {
 type recentItem struct {
 	when time.Time
 	out  string
+}
+
+type recentCall struct {
+	done chan struct{}
+	out  string
+	err  error
 }
 
 type discoveryIdentity struct {
@@ -167,6 +175,7 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		asyncByTool:           map[string]*asynccfg.Config{},
 		internalMethods:       map[string]map[string]svc.Signature{},
 		recentResults:         map[string]map[string]recentItem{},
+		recentInFlight:        map[string]map[string]*recentCall{},
 		recentTTL:             5 * time.Second,
 		refreshEvery:          30 * time.Second,
 		virtualTimeout:        map[string]timeoutSupport{},
@@ -175,11 +184,12 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		discoveryFailUntil:    map[string]time.Time{},
 		discoveryFailErr:      map[string]string{},
 		// Cap duplicate warning noise while preserving first signal quickly.
-		discoveryWarnEvery: 30 * time.Second,
-		discoveryWaitEvery: 30 * time.Second,
-		discoveryTimeout:   15 * time.Second,
-		discoveryStrictTTL: 30 * time.Second,
-		discoveryFailTTL:   30 * time.Second,
+		discoveryWarnEvery:      30 * time.Second,
+		discoveryWaitEvery:      30 * time.Second,
+		discoveryTimeout:        15 * time.Second,
+		discoverySurfaceTimeout: 3 * time.Second,
+		discoveryStrictTTL:      30 * time.Second,
+		discoveryFailTTL:        30 * time.Second,
 	}
 	// Internal MCP services are app-owned plugins; registries start empty.
 	return r, nil
@@ -889,16 +899,19 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	// Deduplicate rapid identical calls per conversation (memoization)
 	// Key uses fully qualified tool name and a stable JSON for args.
 	keyArgs, _ := json.Marshal(callArgs)
-	recentKey := userID + "|" + baseName + "|" + string(keyArgs)
+	recentKey := userID + "|" + baseName + "|" + selector + "|" + string(keyArgs)
+	var activeRecent *recentCall
 	if !protected && r.recentTTL > 0 {
-		r.recentMu.Lock()
-		if m := r.recentResults[convID]; m != nil {
-			if it, ok := m[recentKey]; ok && time.Since(it.when) <= r.recentTTL {
-				r.recentMu.Unlock()
-				return it.out, nil
-			}
+		call, owner, out, err, handled := r.beginRecentCall(ctx, convID, recentKey)
+		if handled {
+			return out, err
 		}
-		r.recentMu.Unlock()
+		if owner {
+			activeRecent = call
+			defer func() {
+				r.finishRecentCall(convID, recentKey, activeRecent, result, retErr)
+			}()
+		}
 	}
 
 	// Use proxy to normalize tool name and execute with reconnect-aware retry.
@@ -1062,6 +1075,63 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	}
 	debugMCPExecf("registry compose empty server=%s base=%s elapsed=%s", server, baseName, time.Since(execStart).Round(time.Millisecond))
 	return "", nil
+}
+
+func (r *Registry) beginRecentCall(ctx context.Context, convID, recentKey string) (*recentCall, bool, string, error, bool) {
+	r.recentMu.Lock()
+	if m := r.recentResults[convID]; m != nil {
+		if it, ok := m[recentKey]; ok && time.Since(it.when) <= r.recentTTL {
+			r.recentMu.Unlock()
+			return nil, false, it.out, nil, true
+		}
+	}
+	if r.recentInFlight == nil {
+		r.recentInFlight = map[string]map[string]*recentCall{}
+	}
+	if m := r.recentInFlight[convID]; m != nil {
+		if call := m[recentKey]; call != nil {
+			r.recentMu.Unlock()
+			select {
+			case <-call.done:
+				return nil, false, call.out, call.err, true
+			case <-ctx.Done():
+				return nil, false, "", ctx.Err(), true
+			}
+		}
+	}
+	if r.recentInFlight[convID] == nil {
+		r.recentInFlight[convID] = map[string]*recentCall{}
+	}
+	call := &recentCall{done: make(chan struct{})}
+	r.recentInFlight[convID][recentKey] = call
+	r.recentMu.Unlock()
+	return call, true, "", nil, false
+}
+
+func (r *Registry) finishRecentCall(convID, recentKey string, call *recentCall, out string, err error) {
+	if call == nil {
+		return
+	}
+	r.recentMu.Lock()
+	call.out = out
+	call.err = err
+	if err == nil {
+		if r.recentResults == nil {
+			r.recentResults = map[string]map[string]recentItem{}
+		}
+		if r.recentResults[convID] == nil {
+			r.recentResults[convID] = map[string]recentItem{}
+		}
+		r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: out}
+	}
+	close(call.done)
+	if m := r.recentInFlight[convID]; m != nil && m[recentKey] == call {
+		delete(m, recentKey)
+		if len(m) == 0 {
+			delete(r.recentInFlight, convID)
+		}
+	}
+	r.recentMu.Unlock()
 }
 
 func structuredContentString(structured interface{}) (string, bool) {
@@ -1867,6 +1937,8 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	if err := r.discoveryFailureFor(server, scope); err != nil {
 		if r.shouldBypassDiscoveryCooldown(server, scope) {
 			r.clearDiscoveryFailure(server, scope)
+		} else if bestEffortToolSurfaceDiscovery(ctx) {
+			return nil, nil
 		} else {
 			log.Printf("[warn][mcp-discovery] cooldown active server=%q scope=%q scope_type=%s err=%v",
 				server, scope, discoveryScopeType(scope, server), err)
@@ -2034,12 +2106,21 @@ func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, c
 	if timeout <= 0 {
 		timeout = 10 * time.Second
 	}
-	if mode, ok := runtimediscovery.ModeFromContext(ctx); ok && mode.Strict {
-		if r.discoveryStrictTTL > 0 {
-			timeout = r.discoveryStrictTTL
+	if mode, ok := runtimediscovery.ModeFromContext(ctx); ok {
+		if mode.Strict {
+			if r.discoveryStrictTTL > 0 {
+				timeout = r.discoveryStrictTTL
+			}
+		} else if mode.ToolSurface && r.discoverySurfaceTimeout > 0 {
+			timeout = r.discoverySurfaceTimeout
 		}
 	}
 	return context.WithTimeout(ctx, timeout)
+}
+
+func bestEffortToolSurfaceDiscovery(ctx context.Context) bool {
+	mode, ok := runtimediscovery.ModeFromContext(ctx)
+	return ok && mode.ToolSurface && !mode.Strict
 }
 
 func (r *Registry) discoveryClientScope(ctx context.Context, server string) string {

@@ -255,6 +255,7 @@ public actor ConversationStreamTracker {
     private var executionGroupsByID: [String: LiveExecutionGroup] = [:]
     private var plannerByTurnID: [String: PlannerState] = [:]
     private var maxHydratedEventSeqByTurnID: [String: Int] = [:]
+    private var hydratedEventSeqsByTurnID: [String: Set<Int>] = [:]
     private var maxAppliedEventSeqByTurnID: [String: Int] = [:]
 
     public init() {}
@@ -306,6 +307,7 @@ public actor ConversationStreamTracker {
         executionGroupsByID = reconcileExecutionGroups(from: turns, activeTurnID: activeTurnID)
         plannerByTurnID = reconcilePlannerState(from: turns, activeTurnID: activeTurnID)
         maxHydratedEventSeqByTurnID = maxEventSequences(from: turns)
+        hydratedEventSeqsByTurnID = eventSequences(from: turns)
         feedsByID.removeAll()
         for feed in response.feeds {
             if let feedID = feed.feedID?.trimmedNonEmpty {
@@ -325,6 +327,7 @@ public actor ConversationStreamTracker {
         executionGroupsByID.removeAll()
         plannerByTurnID.removeAll()
         maxHydratedEventSeqByTurnID.removeAll()
+        hydratedEventSeqsByTurnID.removeAll()
         maxAppliedEventSeqByTurnID.removeAll()
     }
 }
@@ -778,7 +781,8 @@ private extension ConversationStreamTracker {
                 return true
             }
             if let turnID, eventSeq > 0 {
-                return eventSeq <= (maxAppliedEventSeqByTurnID[turnID] ?? 0)
+                return hydratedEventSeqsByTurnID[turnID]?.contains(eventSeq) == true ||
+                    eventSeq <= (maxAppliedEventSeqByTurnID[turnID] ?? 0)
             }
             return false
         }
@@ -821,6 +825,28 @@ private extension ConversationStreamTracker {
             }
             if maxSeq > 0 {
                 result[turnID] = maxSeq
+            }
+        }
+        return result
+    }
+
+    func eventSequences(from turns: [ConversationTurn]) -> [String: Set<Int>] {
+        var result: [String: Set<Int>] = [:]
+        for turn in turns {
+            guard let turnID = turn.id.trimmedNonEmpty else { continue }
+            var sequences: Set<Int> = []
+            for message in turn.messages {
+                if let sequence = message.sequence, sequence > 0 {
+                    sequences.insert(sequence)
+                }
+            }
+            for page in turn.execution?.pages ?? [] {
+                if let sequence = page.sequence, sequence > 0 {
+                    sequences.insert(sequence)
+                }
+            }
+            if !sequences.isEmpty {
+                result[turnID] = sequences
             }
         }
         return result

@@ -90,7 +90,7 @@ private func deriveHostedWorkspaceRestoreState(
                 )
             }
         }
-        if toolName == "ui/view/open" {
+        if toolName == "ui/view/open" || toolName == "ui/window/open" {
             let windows = applyWindowFormDataPatches(
                 hostedWorkspaceWindowsFromViewOpenStep(step),
                 laterCompletedToolSteps
@@ -126,24 +126,52 @@ private func applyWindowFormDataPatches(
         let windowID = responsePayload["windowId"]?.stringValue
             ?? requestPayload["windowId"]?.stringValue
             ?? ""
-        guard !windowID.isEmpty,
-              let windowIndex = patchedWindows.firstIndex(where: { $0.windowId == windowID }) else {
-            continue
-        }
+        let windowKey = responsePayload["windowKey"]?.stringValue
+            ?? requestPayload["windowKey"]?.stringValue
+            ?? ""
         let authoritativeWindowForm = responsePayload["windowForm"]?.objectValue
         guard let nextValues = authoritativeWindowForm
             ?? requestPayload["values"]?.objectValue
             ?? requestPayload["parameters"]?.objectValue else {
             continue
         }
+        let targetWindowIDs = hostedWorkspaceFormPatchTargets(
+            windows: patchedWindows,
+            windowID: windowID,
+            windowKey: windowKey
+        )
+        guard !targetWindowIDs.isEmpty else {
+            continue
+        }
         let replace = requestPayload["replace"]?.boolValue == true
-        let currentWindow = patchedWindows[windowIndex]
-        let nextWindowForm = authoritativeWindowForm != nil || replace
-            ? nextValues
-            : mergeJSONObjects(base: currentWindow.windowForm ?? [:], override: nextValues)
-        patchedWindows[windowIndex] = replacingWindowForm(currentWindow, windowForm: nextWindowForm)
+        patchedWindows = patchedWindows.map { window in
+            guard targetWindowIDs.contains(window.windowId) else {
+                return window
+            }
+            let nextWindowForm = authoritativeWindowForm != nil || replace
+                ? nextValues
+                : mergeJSONObjects(base: window.windowForm ?? [:], override: nextValues)
+            return replacingWindowForm(window, windowForm: nextWindowForm)
+        }
     }
     return patchedWindows
+}
+
+private func hostedWorkspaceFormPatchTargets(
+    windows: [WorkspaceWindowSnapshot],
+    windowID: String,
+    windowKey: String
+) -> Set<String> {
+    let normalizedWindowID = windowID.trimmingCharacters(in: .whitespacesAndNewlines)
+    if !normalizedWindowID.isEmpty {
+        return Set(windows.filter { $0.windowId == normalizedWindowID }.map(\.windowId))
+    }
+    let normalizedWindowKey = windowKey.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedWindowKey.isEmpty else {
+        return []
+    }
+    let matches = windows.filter { $0.windowKey == normalizedWindowKey }
+    return matches.count == 1 ? Set(matches.map(\.windowId)) : []
 }
 
 private func replacingWindowForm(
@@ -218,7 +246,10 @@ private func hostedWorkspaceWindowsFromViewOpenStep(_ step: HostedWorkspaceToolS
     var merged: [String: JSONValue] = [
         "windowId": responsePayload?.objectValue?["windowId"] ?? .string(""),
         "conversationId": responsePayload?.objectValue?["conversationId"] ?? .string(""),
-        "windowKey": responsePayload?.objectValue?["windowKey"] ?? requestPayload?.objectValue?["id"] ?? .string(""),
+        "windowKey": responsePayload?.objectValue?["windowKey"]
+            ?? requestPayload?.objectValue?["id"]
+            ?? requestPayload?.objectValue?["windowKey"]
+            ?? .string(""),
         "windowTitle": responsePayload?.objectValue?["windowTitle"] ?? .string(""),
         "presentation": responsePayload?.objectValue?["presentation"] ?? .string(""),
         "region": responsePayload?.objectValue?["region"] ?? .string(""),

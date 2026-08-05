@@ -659,6 +659,11 @@ func parentKeyForPresentation(item *ListItem) string {
 
 func computeWindowID(windowKey string, parameters map[string]interface{}, conversationID string, item *ListItem) string {
 	base := strings.TrimSpace(windowKey)
+	if item != nil {
+		if id := strings.TrimSpace(item.ID); id != "" {
+			base = id
+		}
+	}
 	if base == "" {
 		return ""
 	}

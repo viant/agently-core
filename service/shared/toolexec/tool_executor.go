@@ -9,6 +9,7 @@ import (
 	"github.com/viant/agently-core/internal/textutil"
 	"github.com/viant/agently-core/internal/toolvalidate"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -50,6 +51,77 @@ var (
 	errToolPromptDeclined = errors.New("tool execution declined by user")
 	errToolPromptCanceled = errors.New("tool execution canceled by user")
 )
+
+var activeToolStepCoalescer = newToolStepCoalescer(5 * time.Second)
+
+type toolStepCoalescer struct {
+	mu       sync.Mutex
+	inFlight map[string]*toolStepCall
+	ttl      time.Duration
+}
+
+type toolStepCall struct {
+	done       chan struct{}
+	toolResult string
+	err        error
+}
+
+func newToolStepCoalescer(ttl time.Duration) *toolStepCoalescer {
+	return &toolStepCoalescer{
+		inFlight: map[string]*toolStepCall{},
+		ttl:      ttl,
+	}
+}
+
+func (c *toolStepCoalescer) begin(ctx context.Context, key string) (*toolStepCall, bool, string, error, bool) {
+	if c == nil || strings.TrimSpace(key) == "" || c.ttl <= 0 {
+		return nil, false, "", nil, false
+	}
+	c.mu.Lock()
+	if call := c.inFlight[key]; call != nil {
+		c.mu.Unlock()
+		select {
+		case <-call.done:
+			return nil, false, call.toolResult, call.err, true
+		case <-ctx.Done():
+			return nil, false, "", ctx.Err(), true
+		}
+	}
+	call := &toolStepCall{done: make(chan struct{})}
+	c.inFlight[key] = call
+	c.mu.Unlock()
+	return call, true, "", nil, false
+}
+
+func (c *toolStepCoalescer) finish(key string, call *toolStepCall, toolResult string, err error) {
+	if c == nil || call == nil || strings.TrimSpace(key) == "" {
+		return
+	}
+	c.mu.Lock()
+	call.toolResult = toolResult
+	call.err = err
+	close(call.done)
+	if c.inFlight[key] == call {
+		delete(c.inFlight, key)
+	}
+	c.mu.Unlock()
+}
+
+func toolStepCoalesceKey(ctx context.Context, turn runtimerequestctx.TurnMeta, step StepInfo, args map[string]interface{}) string {
+	turnID := strings.TrimSpace(turn.TurnID)
+	toolName := strings.TrimSpace(mcpname.Canonical(step.Name))
+	if turnID == "" || toolName == "" {
+		return ""
+	}
+	if cfg, ok := toolapprovalqueue.ConfigFor(ctx, step.Name); ok && cfg != nil {
+		return ""
+	}
+	data, err := json.Marshal(args)
+	if err != nil {
+		return ""
+	}
+	return turnID + "|" + toolName + "|" + string(data)
+}
 
 // IsQueued reports whether err signals that a tool execution was routed to the
 // approval queue. It hides whether the queued sentinel is wrapped one or more
@@ -154,6 +226,25 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 			"args":           step.Args,
 		})
 	}
+	var toolResult string
+	coalesceArgs := stripAgentlyControlArgs(step.Args)
+	coalesceKey := toolStepCoalesceKey(ctx, turn, step, coalesceArgs)
+	if call, owner, sharedResult, sharedErr, handled := activeToolStepCoalescer.begin(ctx, coalesceKey); handled {
+		span.SetEnd(time.Now())
+		if pErr := persistCoalescedToolResult(ctx, conv, turn, span.StartedAt, step, coalesceArgs, sharedResult, sharedErr); pErr != nil {
+			retErr = pErr
+			return out, span, retErr
+		}
+		out = plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: sharedResult}
+		if sharedErr != nil {
+			out.Error = sharedErr.Error()
+		}
+		return out, span, sharedErr
+	} else if owner {
+		defer func() {
+			activeToolStepCoalescer.finish(coalesceKey, call, toolResult, retErr)
+		}()
+	}
 	toolMsgID := ""
 	toolCallStarted := false
 	toolCallClosed := false
@@ -217,10 +308,9 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 			errs = append(errs, fmt.Errorf("persist request payload: %w", pErr))
 		}
 	}
-	var toolResult string
 	var execErr error
 	callStep := step
-	callStep.Args = stripAgentlyControlArgs(step.Args)
+	callStep.Args = coalesceArgs
 	activatedStatusPolling := false
 	if asyncCfg, ok := asyncConfigForStep(ctx, reg, step.Name); ok && asyncCfg != nil && sameToolName(step.Name, asyncCfg.Status.Tool) {
 		if activatedOut, activatedResult, activatedErr, handled := maybeExecuteActivatedStatusTool(ctx, reg, step, conv, asyncCfg); handled {
