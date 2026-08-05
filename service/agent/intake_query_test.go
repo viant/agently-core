@@ -1802,15 +1802,14 @@ func TestMaybeRunIntakeSidecar_ForecastSetLineRoutesToForecastTemplate(t *testin
 			Scope:               []string{"profile", "template", "context"},
 			ActivationRules: []agentmdl.ActivationRule{
 				{
-					ID: "run_forecast_for_audience",
+					ID: "run_forecast_for_line",
 					Match: agentmdl.ActivationMatch{
 						Patterns: []string{`(?i)^set\s+forecast\s+for\s+line\s+(\d+)$`},
 					},
 					Classification: agentmdl.ActivationClassification{Intent: "forecast"},
 					Prompting:      agentmdl.ActivationPrompting{TemplateID: "audience_forecast_dashboard"},
 					Scope: agentmdl.ActivationScope{Values: map[string]string{
-						"audienceId":  "$1",
-						"audienceIds": "$1",
+						"AdLineId": "$1",
 					}},
 				},
 			},
@@ -1826,8 +1825,9 @@ func TestMaybeRunIntakeSidecar_ForecastSetLineRoutesToForecastTemplate(t *testin
 	require.Equal(t, "forecast", stored.Classification.Intent)
 	require.Empty(t, stored.Prompting.SuggestedProfileID)
 	require.Equal(t, "audience_forecast_dashboard", stored.Prompting.TemplateID)
-	require.Equal(t, "7272328", stored.Scope.Values["audienceId"])
-	require.Equal(t, "7272328", stored.Scope.Values["audienceIds"])
+	require.Equal(t, "7272328", stored.Scope.Values["AdLineId"])
+	require.NotContains(t, stored.Scope.Values, "audienceId")
+	require.NotContains(t, stored.Scope.Values, "audienceIds")
 	require.Empty(t, stored.DirectAction.ToolName)
 	require.Nil(t, stored.DirectAction.Input)
 }
@@ -1843,15 +1843,58 @@ func TestMaybeRunIntakeSidecar_ActivationRuleForecastLineWithoutForRoutesToForec
 			Scope:               []string{"profile", "template", "context"},
 			ActivationRules: []agentmdl.ActivationRule{
 				{
-					ID: "run_forecast_for_audience",
+					ID: "run_forecast_for_line",
 					Match: agentmdl.ActivationMatch{
 						Patterns: []string{
 							`(?i)^forecast\s+line\s+(\d+)$`,
 							`(?i)^forecast\s+for\s+line\s+(\d+)$`,
-							`(?i)^forecast\s+for\s+audience\s+(\d+)$`,
 							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+line\s+(\d+)\.?\s*$`,
-							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+audience\s+(\d+)\.?\s*$`,
 							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+(\d+)\s+line\.?\s*$`,
+						},
+					},
+					Classification: agentmdl.ActivationClassification{Intent: "forecast"},
+					Prompting:      agentmdl.ActivationPrompting{TemplateID: "audience_forecast_dashboard"},
+					Scope: agentmdl.ActivationScope{Values: map[string]string{
+						"AdLineId": "$1",
+					}},
+				},
+			},
+		}},
+	}
+
+	svc.maybeRunIntakeSidecar(context.Background(), input)
+
+	require.Empty(t, input.PromptProfileId)
+	require.Equal(t, "audience_forecast_dashboard", input.TemplateId)
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "forecast", stored.Classification.Intent)
+	require.Empty(t, stored.Prompting.SuggestedProfileID)
+	require.Equal(t, "audience_forecast_dashboard", stored.Prompting.TemplateID)
+	require.Equal(t, "7288305", stored.Scope.Values["AdLineId"])
+	require.NotContains(t, stored.Scope.Values, "audienceId")
+	require.NotContains(t, stored.Scope.Values, "audienceIds")
+	require.Empty(t, stored.DirectAction.ToolName)
+	require.Nil(t, stored.DirectAction.Input)
+}
+
+func TestMaybeRunIntakeSidecar_ActivationRuleForecastAudienceRoutesToForecastTemplate(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{
+		ConversationID: "conv-1",
+		Query:          "forecast for audience 7288305",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Enabled:             true,
+			ConfidenceThreshold: 0.5,
+			Scope:               []string{"profile", "template", "context"},
+			ActivationRules: []agentmdl.ActivationRule{
+				{
+					ID: "run_forecast_for_audience",
+					Match: agentmdl.ActivationMatch{
+						Patterns: []string{
+							`(?i)^forecast\s+audience\s+(\d+)$`,
+							`(?i)^forecast\s+for\s+audience\s+(\d+)$`,
+							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+audience\s+(\d+)\.?\s*$`,
 							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+(\d+)\s+audience\.?\s*$`,
 						},
 					},
@@ -1877,6 +1920,7 @@ func TestMaybeRunIntakeSidecar_ActivationRuleForecastLineWithoutForRoutesToForec
 	require.Equal(t, "audience_forecast_dashboard", stored.Prompting.TemplateID)
 	require.Equal(t, "7288305", stored.Scope.Values["audienceId"])
 	require.Equal(t, "7288305", stored.Scope.Values["audienceIds"])
+	require.NotContains(t, stored.Scope.Values, "AdLineId")
 	require.Empty(t, stored.DirectAction.ToolName)
 	require.Nil(t, stored.DirectAction.Input)
 }
@@ -1905,8 +1949,6 @@ func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineRoutesToBuilderAssist(t
 						"uiTarget":    "forecastingCubeBuilder",
 						"workspaceUI": "builder_assist",
 						"AdLineId":    "$1",
-						"AudienceId":  "$1",
-						"audienceIds": "$1",
 					}},
 				},
 			},
@@ -1924,8 +1966,8 @@ func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineRoutesToBuilderAssist(t
 	require.Equal(t, "forecastingCubeBuilder", stored.Scope.Values["uiTarget"])
 	require.Equal(t, "builder_assist", stored.Scope.Values["workspaceUI"])
 	require.Equal(t, "7288336", stored.Scope.Values["AdLineId"])
-	require.Equal(t, "7288336", stored.Scope.Values["AudienceId"])
-	require.Equal(t, "7288336", stored.Scope.Values["audienceIds"])
+	require.NotContains(t, stored.Scope.Values, "AudienceId")
+	require.NotContains(t, stored.Scope.Values, "audienceIds")
 	require.Empty(t, stored.DirectAction.ToolName)
 	require.Nil(t, stored.DirectAction.Input)
 }
@@ -1955,8 +1997,6 @@ func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineNoRunPreservesNoRunScop
 						"workspaceUI": "builder_assist",
 						"forecastRun": "false",
 						"AdLineId":    "$1",
-						"AudienceId":  "$1",
-						"audienceIds": "$1",
 					}},
 				},
 			},
@@ -1971,6 +2011,8 @@ func TestMaybeRunIntakeSidecar_OpenForecastBuilderForLineNoRunPreservesNoRunScop
 	require.Equal(t, "forecasting_builder_prefill", stored.Classification.Intent)
 	require.Equal(t, "false", stored.Scope.Values["forecastRun"])
 	require.Equal(t, "7288336", stored.Scope.Values["AdLineId"])
+	require.NotContains(t, stored.Scope.Values, "AudienceId")
+	require.NotContains(t, stored.Scope.Values, "audienceIds")
 	require.Empty(t, stored.DirectAction.ToolName)
 }
 
@@ -2247,23 +2289,19 @@ func TestMaybeRunIntakeSidecar_ForecastReachAvailabilityNaturalPhraseRoutesToFor
 			Scope:               []string{"profile", "template", "context"},
 			ActivationRules: []agentmdl.ActivationRule{
 				{
-					ID: "run_forecast_for_audience",
+					ID: "run_forecast_for_line",
 					Match: agentmdl.ActivationMatch{
 						Patterns: []string{
 							`(?i)^forecast\s+line\s+(\d+)$`,
 							`(?i)^forecast\s+for\s+line\s+(\d+)$`,
-							`(?i)^forecast\s+for\s+audience\s+(\d+)$`,
 							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+line\s+(\d+)\.?\s*$`,
-							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+audience\s+(\d+)\.?\s*$`,
 							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+(\d+)\s+line\.?\s*$`,
-							`(?i)^forecast\s+reach\s+and\s+availability\s+for\s+(\d+)\s+audience\.?\s*$`,
 						},
 					},
 					Classification: agentmdl.ActivationClassification{Intent: "forecast"},
 					Prompting:      agentmdl.ActivationPrompting{TemplateID: "audience_forecast_dashboard"},
 					Scope: agentmdl.ActivationScope{Values: map[string]string{
-						"audienceId":  "$1",
-						"audienceIds": "$1",
+						"AdLineId": "$1",
 					}},
 				},
 			},
@@ -2279,8 +2317,9 @@ func TestMaybeRunIntakeSidecar_ForecastReachAvailabilityNaturalPhraseRoutesToFor
 	require.Equal(t, "forecast", stored.Classification.Intent)
 	require.Empty(t, stored.Prompting.SuggestedProfileID)
 	require.Equal(t, "audience_forecast_dashboard", stored.Prompting.TemplateID)
-	require.Equal(t, "7279771", stored.Scope.Values["audienceId"])
-	require.Equal(t, "7279771", stored.Scope.Values["audienceIds"])
+	require.Equal(t, "7279771", stored.Scope.Values["AdLineId"])
+	require.NotContains(t, stored.Scope.Values, "audienceId")
+	require.NotContains(t, stored.Scope.Values, "audienceIds")
 	require.Empty(t, stored.DirectAction.ToolName)
 	require.Nil(t, stored.DirectAction.Input)
 }

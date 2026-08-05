@@ -8,7 +8,9 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
+	skillproto "github.com/viant/agently-core/protocol/skill"
 	toolctx "github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
@@ -97,12 +99,21 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 	if qi == nil {
 		return agenttool.Selection{}, nil
 	}
+	hasVisibleSkills := s.hasVisibleSkills(qi.Agent)
+	agentSelection := agenttool.FromAgentTool(agentmdlTool(qi.Agent))
+	if hasVisibleSkills {
+		agentSelection.Tools = append(agentSelection.Tools, skillproto.ListToolName, skillproto.ActivateToolName)
+		agentSelection = agenttool.Normalize(agentSelection)
+	}
 	selections := agenttool.Selections{
-		Agent: agenttool.FromAgent(qi.Agent),
+		Agent: agentSelection,
 		Runtime: agenttool.Selection{
 			Bundles: append([]string(nil), qi.ToolBundles...),
 			Tools:   append([]string(nil), qi.ToolsAllowed...),
 		},
+	}
+	if qi.toolBundlesAutoSelected {
+		selections.Agent.Bundles = nil
 	}
 	profileDef, err := s.selectedPromptProfile(ctx, qi)
 	if err != nil {
@@ -110,7 +121,50 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 	}
 	selections.Profile = agenttool.FromPromptProfile(profileDef)
 	effective := agenttool.BuildEffective(selections)
+	if !hasVisibleSkills {
+		effective.Final = withoutSkillControlSelection(effective.Final)
+	}
 	return effective.Final, nil
+}
+
+func (s *Service) hasVisibleSkills(agent *agentmdl.Agent) bool {
+	if s == nil || s.skillSvc == nil {
+		return false
+	}
+	return len(s.skillSvc.VisibleSkillsByName(agent, configuredAgentSkills(agent))) > 0
+}
+
+func withoutSkillControlSelection(in agenttool.Selection) agenttool.Selection {
+	var bundles []string
+	for _, bundle := range in.Bundles {
+		if strings.EqualFold(strings.TrimSpace(bundle), "llm/skills") {
+			continue
+		}
+		bundles = append(bundles, bundle)
+	}
+	var tools []string
+	for _, tool := range in.Tools {
+		name := strings.TrimSpace(tool)
+		if strings.EqualFold(name, skillproto.ListToolName) || strings.EqualFold(name, skillproto.ActivateToolName) {
+			continue
+		}
+		tools = append(tools, tool)
+	}
+	return agenttool.Normalize(agenttool.Selection{Bundles: bundles, Tools: tools})
+}
+
+func agentmdlTool(agent *agentmdl.Agent) agentmdl.Tool {
+	if agent == nil {
+		return agentmdl.Tool{}
+	}
+	return agent.Tool
+}
+
+func configuredAgentSkills(agent *agentmdl.Agent) []string {
+	if agent == nil {
+		return nil
+	}
+	return append([]string(nil), agent.Skills...)
 }
 
 func (s *Service) appendToolSelections(ctx context.Context, defs []llm.ToolDefinition, names []string) ([]llm.ToolDefinition, error) {
@@ -545,6 +599,7 @@ func (s *Service) appendRegistryWarnings(ctx context.Context, tools []llm.Tool) 
 }
 
 func (s *Service) matchDefinitions(ctx context.Context, pattern string) []*llm.ToolDefinition {
+	ctx = toolSurfaceDiscoveryContext(ctx)
 	if cm, ok := s.registry.(toolctx.ContextMatcher); ok {
 		return cm.MatchDefinitionWithContext(ctx, pattern)
 	}
@@ -552,6 +607,7 @@ func (s *Service) matchDefinitions(ctx context.Context, pattern string) []*llm.T
 }
 
 func (s *Service) definitions(ctx context.Context) []llm.ToolDefinition {
+	ctx = toolSurfaceDiscoveryContext(ctx)
 	if lister, ok := s.registry.(toolctx.ContextDefinitionLister); ok {
 		return lister.DefinitionsWithContext(ctx)
 	}
@@ -559,10 +615,15 @@ func (s *Service) definitions(ctx context.Context) []llm.ToolDefinition {
 }
 
 func (s *Service) getDefinition(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
+	ctx = toolSurfaceDiscoveryContext(ctx)
 	if getter, ok := s.registry.(toolctx.ContextDefinitionGetter); ok {
 		return getter.GetDefinitionWithContext(ctx, name)
 	}
 	return s.registry.GetDefinition(name)
+}
+
+func toolSurfaceDiscoveryContext(ctx context.Context) context.Context {
+	return runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true})
 }
 
 func strictDiscoveryMode(ctx context.Context) bool {

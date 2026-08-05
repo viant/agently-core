@@ -368,11 +368,8 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *execution.Plan,
 		}
 		step := st
 		if isActivationBarrierTool(step.Name) {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				runStep(step)
-			}()
+			wg.Wait()
+			runStep(step)
 			continue
 		}
 		wg.Add(1)

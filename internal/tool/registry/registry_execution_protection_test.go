@@ -226,7 +226,7 @@ func (m *protectionTestManager) WithAuthTokenContext(ctx context.Context, _ stri
 	return ctx
 }
 
-func newRemoteProtectionRegistry(client *protectionTestClient, guard toolprotection.Guard) (*Registry, *protectionTestManager) {
+func newRemoteProtectionRegistry(client mcpclient.Interface, guard toolprotection.Guard) (*Registry, *protectionTestManager) {
 	manager := &protectionTestManager{client: client}
 	return &Registry{
 		mgr:                 manager,
@@ -350,40 +350,18 @@ func TestRegistryExecutionProtectionAppliesSameScopeAcrossTurnKinds(t *testing.T
 		t.Fatalf("new turn downstream calls = %d, want 3", client.calls.Load())
 	}
 
-	unprotectedStarted := make(chan struct{}, 2)
-	unprotectedRelease := make(chan struct{})
 	client.onCall = func(params *mcpschema.CallToolRequestParams) {
 		if params.Name != "validate" {
 			t.Errorf("fake MCP tool name = %q, want validate", params.Name)
-			return
 		}
-		unprotectedStarted <- struct{}{}
-		<-unprotectedRelease
 	}
-	barrierErr := make(chan error, 1)
-	go func() {
-		for i := 0; i < 2; i++ {
-			select {
-			case <-unprotectedStarted:
-			case <-time.After(time.Second):
-				close(unprotectedRelease)
-				barrierErr <- errors.New("unprotected fake MCP calls did not retain concurrent legacy dispatch")
-				return
-			}
-		}
-		close(unprotectedRelease)
-		barrierErr <- nil
-	}()
 	for _, result := range runPair("msg_interactive_t3d_unprotected", unprotectedTool) {
 		if result != "sent" {
 			t.Fatalf("unprotected result = %q, want sent", result)
 		}
 	}
-	if barrierFailure := <-barrierErr; barrierFailure != nil {
-		t.Fatal(barrierFailure)
-	}
-	if client.calls.Load() != 5 {
-		t.Fatalf("unprotected downstream calls = %d, want total 5", client.calls.Load())
+	if client.calls.Load() != 4 {
+		t.Fatalf("unprotected downstream calls = %d, want total 4", client.calls.Load())
 	}
 	repository.mu.Lock()
 	claimCount := len(repository.claims)
@@ -423,7 +401,7 @@ func TestRegistryExecutionProtectionBypassesRecentResults(t *testing.T) {
 		newProtectionGuard(t, newRegistryClaimRepository()),
 	)
 	protectedRegistry.recentResults["conv-1"] = map[string]recentItem{
-		"|service/tool|{\"body\":\"same\"}": {when: time.Now(), out: "cached-result"},
+		"|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "cached-result"},
 	}
 	result, err := protectedRegistry.Execute(protectedTurnContext("turn-protected"), "service/tool", map[string]interface{}{"body": "same"})
 	if err != nil || result != "provider-result" || protectedClient.calls.Load() != 1 {
@@ -433,11 +411,99 @@ func TestRegistryExecutionProtectionBypassesRecentResults(t *testing.T) {
 	unprotectedClient := &protectionTestClient{result: "provider-result"}
 	unprotectedRegistry, _ := newRemoteProtectionRegistry(unprotectedClient, nil)
 	unprotectedRegistry.recentResults["conv-1"] = map[string]recentItem{
-		"|service/tool|{\"body\":\"same\"}": {when: time.Now(), out: "cached-result"},
+		"|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "cached-result"},
 	}
 	result, err = unprotectedRegistry.Execute(protectedTurnContext("turn-unprotected"), "service/tool", map[string]interface{}{"body": "same"})
 	if err != nil || result != "cached-result" || unprotectedClient.calls.Load() != 0 {
 		t.Fatalf("unprotected Execute() = %q, %v calls=%d", result, err, unprotectedClient.calls.Load())
+	}
+}
+
+func TestRegistryRecentResultsCoalescesConcurrentUnprotectedCalls(t *testing.T) {
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	client := &protectionTestClient{
+		result: "provider-result",
+		onCall: func(params *mcpschema.CallToolRequestParams) {
+			if params.Name != "tool" {
+				t.Errorf("fake MCP tool name = %q, want tool", params.Name)
+			}
+			started <- struct{}{}
+			<-release
+		},
+	}
+	registry, _ := newRemoteProtectionRegistry(client, nil)
+	start := make(chan struct{})
+	results := make(chan string, 2)
+	errs := make(chan error, 2)
+	var wait sync.WaitGroup
+	for i := 0; i < 2; i++ {
+		wait.Add(1)
+		go func() {
+			defer wait.Done()
+			<-start
+			result, err := registry.Execute(protectedTurnContext("turn-unprotected"), "service/tool", map[string]interface{}{"body": "same"})
+			results <- result
+			errs <- err
+		}()
+	}
+	close(start)
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("provider call did not start")
+	}
+	close(release)
+	wait.Wait()
+	close(results)
+	close(errs)
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("Execute() error = %v", err)
+		}
+	}
+	for result := range results {
+		if result != "provider-result" {
+			t.Fatalf("Execute() result = %q, want provider-result", result)
+		}
+	}
+	if client.calls.Load() != 1 {
+		t.Fatalf("downstream calls = %d, want 1", client.calls.Load())
+	}
+}
+
+type rawResultProtectionClient struct {
+	mcpclient.Interface
+	calls atomic.Int64
+}
+
+func (c *rawResultProtectionClient) CallTool(_ context.Context, params *mcpschema.CallToolRequestParams, _ ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
+	c.calls.Add(1)
+	if params.Name != "tool" {
+		return nil, errors.New("unexpected tool name")
+	}
+	return &mcpschema.CallToolResult{Content: []mcpschema.CallToolResultContentElem{
+		map[string]interface{}{"ok": true},
+	}}, nil
+}
+
+func TestRegistryRecentResultsCachesSequentialRawUnprotectedCalls(t *testing.T) {
+	client := &rawResultProtectionClient{}
+	registry, _ := newRemoteProtectionRegistry(client, nil)
+	args := map[string]interface{}{"body": "same"}
+	first, err := registry.Execute(protectedTurnContext("turn-unprotected"), "service/tool", args)
+	if err != nil {
+		t.Fatalf("first Execute() error = %v", err)
+	}
+	second, err := registry.Execute(protectedTurnContext("turn-unprotected"), "service/tool", args)
+	if err != nil {
+		t.Fatalf("second Execute() error = %v", err)
+	}
+	if first != second {
+		t.Fatalf("sequential raw results differ: first=%q second=%q", first, second)
+	}
+	if client.calls.Load() != 1 {
+		t.Fatalf("downstream calls = %d, want 1", client.calls.Load())
 	}
 }
 

@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -152,173 +153,21 @@ func TestNormalizeInterfaceMap(t *testing.T) {
 	}, got)
 }
 
-func TestDirectActionAssistantText_FormatsDiagnosticResult(t *testing.T) {
-	action := &intakesvc.DirectActionContext{
-		ToolName:      "steward/Diagnostic",
-		AssistantText: directActionToolResultAssistantText,
-	}
-	result := `{
-		"scope":{"adOrderIds":[2665777]},
-		"coverage":{
-			"level":"partial",
-			"skippedSurfaces":["GlobalSupplyPerformance"],
-			"deeperProofRequired":true
-		},
-		"explanation":{
-			"primaryBlockerClass":"DEEPER_PROOF_REQUIRED",
-			"confidence":"low",
-			"diagnosis":"The available evidence does not establish one material blocker.",
-			"supportingFacts":[
-				{"path":"facts.delivery.missingBidCoveragePct","value":"1.14","source":"MetricsAdCube"}
-			],
-			"nextValidation":"Validate pricing and supply-path evidence."
-		}
-	}`
-
-	text := directActionAssistantText(action, result)
-	require.Contains(t, text, "```forge-report")
-	require.Contains(t, text, `"grammar":"report-document-v1"`)
-	require.Contains(t, text, `"title":"Primary read"`)
-	require.Contains(t, text, "No single delivery constraint is proven")
-	require.Contains(t, text, "The available evidence does not establish one material constraint.")
-	require.Contains(t, text, `"title":"Primary supporting facts"`)
-	require.Contains(t, text, "Share of the delivery gap explained by this factor")
-	require.Contains(t, text, `"coverageLevel":"Partial evidence"`)
-	require.Contains(t, text, "Validate pricing and inventory-path evidence.")
-	require.NotContains(t, text, "DEEPER_PROOF_REQUIRED")
-	require.NotContains(t, text, "facts.delivery")
-	require.NotContains(t, text, "GlobalSupplyPerformance")
-	require.NotContains(t, text, `"explanation"`)
-}
-
-func TestFormatDiagnosticReport_LabelsAggregateAndSnapshotSpend(t *testing.T) {
-	result := `{
-		"scope":{"from":"2026-07-19","to":"2026-07-25","adOrderIds":[2665777]},
-		"coverage":{"level":"partial","loadedSurfaces":["MetricsAdCube"],"skippedSurfaces":["GlobalSupplyPerformance"]},
-		"explanation":{
-			"primaryBlockerClass":"DEEPER_PROOF_REQUIRED",
-			"confidence":"low",
-			"diagnosis":"No one causal blocker is proven.",
-			"nextValidation":"Validate price and supply evidence."
-		},
-		"factDatasets":{
-			"delivery_summary":{
-				"columns":["bids","impressions","totalSpend","dailySpendShortfall","flightSpendShortfall"],
-				"csv":"bids,impressions,totalSpend,dailySpendShortfall,flightSpendShortfall\n3231865,699114,6898.68,12333.93,133650.47\n"
-			},
-			"delivery_pacing":{
-				"columns":["entityKind","entityId","dailyPacingStatus","flightPacingStatus","dailySpendShortfall","flightSpendShortfall","bids","impressions","totalSpend"],
-				"csv":"entityKind,entityId,dailyPacingStatus,flightPacingStatus,dailySpendShortfall,flightSpendShortfall,bids,impressions,totalSpend\nad_order,2665777,behind,behind,12333.93,133650.47,371700,110900,1084\n"
-			},
-			"restriction_soft_ineligibilities":{
-				"columns":["feature","optimizationRejections","estimatedOptimizationRejections","optimizationRejectionShare","source","classification","pacingSpendShortfall","observedSpendPerBid","approximateMissingBids","estimatedGapCoverage","countAssessment"],
-				"csv":"feature,optimizationRejections,estimatedOptimizationRejections,optimizationRejectionShare,source,classification,pacingSpendShortfall,observedSpendPerBid,approximateMissingBids,estimatedGapCoverage,countAssessment\noffer.bid.floor,992276,943414,0.9507,AdTargetingProfile,primary,133650.47,0.002134,62629052,0.01506,below_materiality_threshold\n"
-			}
-		}
-	}`
-
-	text := formatDiagnosticToolResult(result)
-	require.Contains(t, text, `"title":"Report-window spend"`)
-	require.Contains(t, text, `"description":"2026-07-19 through 2026-07-25"`)
-	require.Contains(t, text, `"title":"Report-window delivery aggregate — 2026-07-19 through 2026-07-25"`)
-	require.Contains(t, text, `"label":"Window spend"`)
-	require.Contains(t, text, `"title":"Latest entity pacing snapshot — not window totals"`)
-	require.Contains(t, text, `"label":"Snapshot spend"`)
-	require.Contains(t, text, "The headline spend is the **aggregate for 2026-07-19 through 2026-07-25**.")
-	require.Contains(t, text, `"totalSpend":6898.68`)
-	require.Contains(t, text, `"totalSpend":1084`)
-	require.Contains(t, text, "Bid competitiveness against inventory price floors")
-	require.Contains(t, text, "Targeting and optimization settings")
-	require.Contains(t, text, "Delivery-gap materiality by factor")
-	require.Contains(t, text, `"label":"Observed filter events"`)
-	require.Contains(t, text, `"label":"Pacing shortfall"`)
-	require.Contains(t, text, `"label":"Approx. opportunities needed"`)
-	require.Contains(t, text, "Too small to explain enough of the delivery gap")
-	require.NotContains(t, text, "offer.bid.floor")
-	require.NotContains(t, text, "AdTargetingProfile")
-	require.NotContains(t, text, `"classification"`)
-	require.NotContains(t, text, `"optimizationRejectionShare"`)
-	require.NotContains(t, text, `"estimatedGapCoverage"`)
-	require.Contains(t, text, `"mode":"commit"`)
-}
-
-func TestFormatDiagnosticReport_ExposesSellerIDAsSupplyPathEvidence(t *testing.T) {
-	result := `{
-		"scope":{"from":"2026-07-19","to":"2026-07-25","adOrderIds":[2665777]},
-		"coverage":{"level":"full","loadedSurfaces":["SupplyOptimizationPerformance"]},
-		"explanation":{
-			"primaryBlockerClass":"DEEPER_PROOF_REQUIRED",
-			"confidence":"low",
-			"diagnosis":"Supply-path evidence needs validation."
-		},
-		"factDatasets":{
-			"supply_path_evidence":{
-				"columns":["sellerId","sellerDomain","sellerDomainPath","publisherId","dealId","siteId","hopCount","pathComplete","bids","impressions","spend","winRate","ecpm"],
-				"csv":"sellerId,sellerDomain,sellerDomainPath,publisherId,dealId,siteId,hopCount,pathComplete,bids,impressions,spend,winRate,ecpm\nseller-42,exchange.example,\"publisher.example,exchange.example\",12,34,56,2,true,1200,240,31.5,0.2,131.25\n"
-			}
-		}
-	}`
-
-	text := formatDiagnosticToolResult(result)
-	require.Contains(t, text, `"title":"Supply-path evidence"`)
-	require.Contains(t, text, `"label":"Seller ID"`)
-	require.Contains(t, text, `"sellerId":"seller-42"`)
-	require.Contains(t, text, "Seller ID identifies the observed supply-path participant; it is not causal proof by itself.")
-	require.NotContains(t, text, `"title":"Primary diagnosis","datasetRef":"supply_path_evidence"`)
-}
-
-func TestDiagnosticClassLabel_UsesCustomerLanguage(t *testing.T) {
-	require.Equal(t, "Deal eligibility is limiting available inventory", diagnosticClassLabel("DEAL_RESTRICTION_PRESSURE"))
-	require.Equal(t, "Eligible site inventory is too narrow", diagnosticClassLabel("SITE_SUPPLY_RESTRICTION_PRESSURE"))
-	require.Equal(t, "Recent-contact safeguards are limiting repeat opportunities", diagnosticClassLabel("RECENT_BID_SUPPRESSION_SIGNAL"))
-	require.Equal(t, "Bid competitiveness may be limiting wins", diagnosticClassLabel("EFFECTIVE_BID_COMPETITIVENESS_SIGNAL"))
-	require.Equal(t, "A bid-price gap is visible, but its cause needs validation", diagnosticClassLabel("BID_FLOOR_PRESSURE"))
-	require.Equal(t, "Future constraint type", diagnosticClassLabel("FUTURE_PRESSURE_TYPE"))
-}
-
-func TestDiagnosticUserFacingRestrictionRows_KeepsStrongestCountPerFactor(t *testing.T) {
-	rows := []map[string]interface{}{
-		{"feature": "offer.bid.floor", "estimatedOptimizationRejections": 10},
-		{"feature": "offer.bid.floor", "estimatedOptimizationRejections": 25},
-		{"feature": "ml.fraud.filter", "estimatedOptimizationRejections": 5},
-	}
-
-	got := diagnosticUserFacingRestrictionRows(rows)
-
-	require.Len(t, got, 2)
-	require.Equal(t, "Bid competitiveness against inventory price floors", got[0]["factor"])
-	require.Equal(t, 25, got[0]["estimatedAffectedOpportunities"])
-	require.Equal(t, "Inventory quality and fraud safeguards", got[1]["factor"])
-}
-
-func TestDiagnosticSupportingFactRows_PrefersCountsOverRedundantRatios(t *testing.T) {
-	rows := diagnosticSupportingFactRows(map[string]interface{}{
-		"supportingFacts": []interface{}{
-			map[string]interface{}{"path": "facts.setup.optimizationRejections[0].estimatedOptimizationRejections", "value": "2012294", "source": "AdTargetingProfile"},
-			map[string]interface{}{"path": "facts.delivery.approxMissingBids", "value": "88426", "source": "MetricsAdCube"},
-			map[string]interface{}{"path": "facts.delivery.missingBidCoveragePct", "value": "2275.68", "source": "MetricsAdCube"},
-			map[string]interface{}{"path": "facts.delivery.deliveredBidSharePct", "value": "989.17", "source": "MetricsAdCube"},
-		},
-	})
-
-	require.Len(t, rows, 2)
-	require.Equal(t, "Estimated opportunities affected by the leading factor", rows[0]["path"])
-	require.Equal(t, "Estimated additional opportunities needed to close the delivery gap", rows[1]["path"])
-}
-
-func TestDiagnosticCSVScalar_PreservesNumericZeroAndOne(t *testing.T) {
-	require.EqualValues(t, int64(0), diagnosticCSVScalar("0"))
-	require.EqualValues(t, int64(1), diagnosticCSVScalar("1"))
-	require.Equal(t, false, diagnosticCSVScalar("false"))
-	require.Equal(t, true, diagnosticCSVScalar("true"))
-}
-
 func TestDirectActionAssistantText_FallsBackToRawToolResult(t *testing.T) {
 	action := &intakesvc.DirectActionContext{
 		ToolName:      "resources/read",
 		AssistantText: directActionToolResultAssistantText,
 	}
 	require.Equal(t, "plain tool result", directActionAssistantText(action, " plain tool result "))
+}
+
+func TestDirectActionAssistantText_DoesNotSpecialCaseStewardDiagnostic(t *testing.T) {
+	action := &intakesvc.DirectActionContext{
+		ToolName:      "steward/Diagnostic",
+		AssistantText: directActionToolResultAssistantText,
+	}
+	result := ` {"explanation":{"primaryBlockerClass":"DEEPER_PROOF_REQUIRED"}} `
+	require.Equal(t, strings.TrimSpace(result), directActionAssistantText(action, result))
 }
 
 func TestAnnotateDirectActionExecution(t *testing.T) {
@@ -395,12 +244,4 @@ func TestMaybeRunDirectAction_InvalidActionFallsThrough(t *testing.T) {
 	require.NotNil(t, tc)
 	require.Empty(t, tc.DirectAction.ToolName)
 	require.Equal(t, "workspace_console", tc.Prompting.SuggestedProfileID)
-}
-
-func TestDiagnosticEvidenceLabel_CampaignIncidentFacts(t *testing.T) {
-	require.Equal(t, "Previous-day order spend", diagnosticEvidenceLabel("facts.baseline.previousOrder.spend"))
-	require.Equal(t, "Current-day order spend", diagnosticEvidenceLabel("facts.baseline.currentOrder.spend"))
-	require.Equal(t, "Sibling-order spend gained", diagnosticEvidenceLabel("facts.baseline.campaignContext.siblingSpendGain"))
-	require.Equal(t, "Sibling-order spend lost", diagnosticEvidenceLabel("facts.baseline.campaignContext.siblingSpendLoss"))
-	require.Equal(t, "Campaign pacing reallocation detected", diagnosticEvidenceLabel("facts.baseline.campaignContext.pacing.hasReallocationSignal"))
 }

@@ -19,6 +19,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
+	planner "github.com/viant/agently-core/service/planner"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
@@ -455,9 +456,11 @@ func TestResolveToolControl_MergesAgentProfileAndRuntimeSelections(t *testing.T)
 	require.NoError(t, os.MkdirAll(promptDir, 0o755))
 	profileBody := []byte("id: repo_analysis\nname: Repository Analysis\ndescription: repo analysis profile\ntoolBundles:\n  - profile-tools\nmessages:\n  - role: system\n    text: Delegate repository analysis first.\n")
 	require.NoError(t, os.WriteFile(filepath.Join(promptDir, "repo_analysis.yaml"), profileBody, 0o644))
+	skillSvc := newLoadedTestSkillService(t, tmpDir, "forecast")
 
 	svc := &Service{
 		promptRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
+		skillSvc:   skillSvc,
 	}
 	actual, err := svc.resolveToolControl(context.Background(), &QueryInput{
 		PromptProfileId: "repo_analysis",
@@ -484,23 +487,81 @@ func TestResolveToolControl_MergesAgentProfileAndRuntimeSelections(t *testing.T)
 	)
 }
 
-func TestResolveTools_SkillControlToolsAreNotBundleDriven(t *testing.T) {
+func TestResolveToolControl_AutoSelectedRuntimeBundlesNarrowAgentDefaults(t *testing.T) {
 	tmpDir := t.TempDir()
-	skillRoot := filepath.Join(tmpDir, "skills", "forecast")
+	skillSvc := newLoadedTestSkillService(t, tmpDir, "forecast")
+	svc := &Service{skillSvc: skillSvc}
+	actual, err := svc.resolveToolControl(context.Background(), &QueryInput{
+		ToolBundles:             []string{"workspace-ui"},
+		toolBundlesAutoSelected: true,
+		Agent: &agentmdl.Agent{
+			Skills: []string{"forecast"},
+			Tool: agentmdl.Tool{
+				Bundles: []string{"orchestrator", "creative-test-tools"},
+				Items: []*llm.Tool{
+					{Name: "system/os:getEnv"},
+				},
+			},
+		},
+	})
+
+	require.NoError(t, err)
+	assert.EqualValues(t, []string{"workspace-ui"}, actual.Bundles)
+	assert.EqualValues(t,
+		[]string{mcpname.Canonical("system/os:getEnv"), mcpname.Canonical("llm/skills:list"), mcpname.Canonical("llm/skills:activate")},
+		actual.Tools,
+	)
+}
+
+func TestApplyPlannerOutput_MarksNewRuntimeBundlesAutoSelected(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{}
+	contract := planner.NewStaticContract(map[string]interface{}{"type": "object"})
+
+	svc.applyPlannerOutput(input, contract, planner.Output{
+		"toolBundles": []string{"workspace-ui"},
+	}, nil)
+
+	assert.EqualValues(t, []string{"workspace-ui"}, input.ToolBundles)
+	assert.True(t, input.toolBundlesAutoSelected)
+}
+
+func TestApplyPlannerOutput_PreservesExplicitBundleMergeSemantics(t *testing.T) {
+	svc := &Service{}
+	input := &QueryInput{ToolBundles: []string{"explicit-tools"}}
+	contract := planner.NewStaticContract(map[string]interface{}{"type": "object"})
+
+	svc.applyPlannerOutput(input, contract, planner.Output{
+		"toolBundles": []string{"workspace-ui"},
+	}, nil)
+
+	assert.EqualValues(t, []string{"explicit-tools", "workspace-ui"}, input.ToolBundles)
+	assert.False(t, input.toolBundlesAutoSelected)
+}
+
+func newLoadedTestSkillService(t *testing.T, tmpDir, name string) *skillsvc.Service {
+	t.Helper()
+	skillRoot := filepath.Join(tmpDir, "skills", name)
 	require.NoError(t, os.MkdirAll(skillRoot, 0o755))
-	require.NoError(t, os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(`---
-name: forecast
-description: Forecast skill.
-allowed-tools: analyst:MetricsCube
+	require.NoError(t, os.WriteFile(filepath.Join(skillRoot, "SKILL.md"), []byte(fmt.Sprintf(`---
+name: %s
+description: Test skill.
+allowed-tools: system/os:getEnv
 ---
 
 body
-`), 0o644))
+`, name)), 0o644))
 
 	skillSvc := skillsvc.New(&execconfig.Defaults{
 		Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(tmpDir, "skills")}},
 	}, nil, nil)
 	require.NoError(t, skillSvc.Load(context.Background()))
+	return skillSvc
+}
+
+func TestResolveTools_SkillControlToolsAreNotBundleDriven(t *testing.T) {
+	tmpDir := t.TempDir()
+	skillSvc := newLoadedTestSkillService(t, tmpDir, "forecast")
 
 	reg := &fakeRegistry{defs: []llm.ToolDefinition{
 		{Name: "llm/skills:list"},

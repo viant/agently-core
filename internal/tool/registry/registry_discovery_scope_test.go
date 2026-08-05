@@ -342,6 +342,91 @@ func TestListServerTools_CachesTransportFailureForCooldown(t *testing.T) {
 	}
 }
 
+func TestListServerTools_ToolSurfaceSkipsCooldownWithoutManagerCall(t *testing.T) {
+	stub := &discoveryManagerStub{}
+	reg := &Registry{
+		mgr:                stub,
+		discoveryFailUntil: map[string]time.Time{},
+		discoveryFailErr:   map[string]string{},
+	}
+	const scope = "conv-shared"
+	reg.discoveryFailUntil[reg.discoveryFailureKey("helper", scope)] = time.Now().Add(5 * time.Minute)
+	reg.discoveryFailErr[reg.discoveryFailureKey("helper", scope)] = "dial tcp 10.55.132.138:5000: i/o timeout"
+
+	ctx := memory.WithConversationID(context.Background(), scope)
+	ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true})
+	tools, err := reg.listServerTools(ctx, "helper")
+	if err != nil {
+		t.Fatalf("expected best-effort tool-surface cooldown to be skipped, got error: %v", err)
+	}
+	if len(tools) != 0 {
+		t.Fatalf("expected no tools from skipped cooldown server, got %+v", tools)
+	}
+	if calls := stub.getCallsSnapshot(); len(calls) != 0 {
+		t.Fatalf("expected cooldown skip to avoid manager Get, got %+v", calls)
+	}
+	if warnings := reg.LastWarnings(); len(warnings) != 0 {
+		t.Fatalf("expected skipped tool-surface cooldown not to warn, got %+v", warnings)
+	}
+}
+
+func TestListServerTools_StrictToolSurfaceReturnsCooldown(t *testing.T) {
+	stub := &discoveryManagerStub{}
+	reg := &Registry{
+		mgr:                stub,
+		discoveryFailUntil: map[string]time.Time{},
+		discoveryFailErr:   map[string]string{},
+	}
+	const scope = "conv-strict"
+	reg.discoveryFailUntil[reg.discoveryFailureKey("helper", scope)] = time.Now().Add(5 * time.Minute)
+	reg.discoveryFailErr[reg.discoveryFailureKey("helper", scope)] = "dial tcp 10.55.132.138:5000: i/o timeout"
+
+	ctx := memory.WithConversationID(context.Background(), scope)
+	ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Strict: true})
+	_, err := reg.listServerTools(ctx, "helper")
+	if err == nil {
+		t.Fatal("expected strict tool-surface discovery to return cooldown error")
+	}
+	if !strings.Contains(strings.ToLower(err.Error()), "cooldown") {
+		t.Fatalf("expected cooldown error, got %v", err)
+	}
+	if calls := stub.getCallsSnapshot(); len(calls) != 0 {
+		t.Fatalf("expected cooldown to avoid manager Get, got %+v", calls)
+	}
+}
+
+func TestWithDiscoveryTimeout_ToolSurfaceUsesShortBoundUnlessStrict(t *testing.T) {
+	reg := &Registry{
+		discoveryTimeout:        10 * time.Second,
+		discoverySurfaceTimeout: 250 * time.Millisecond,
+		discoveryStrictTTL:      30 * time.Second,
+	}
+
+	surfaceCtx := runtimediscovery.MergeMode(context.Background(), runtimediscovery.Mode{ToolSurface: true})
+	surfaceCtx, surfaceCancel := reg.withDiscoveryTimeout(surfaceCtx)
+	defer surfaceCancel()
+	surfaceDeadline, ok := surfaceCtx.Deadline()
+	if !ok {
+		t.Fatal("expected tool-surface discovery deadline")
+	}
+	surfaceRemaining := time.Until(surfaceDeadline)
+	if surfaceRemaining <= 0 || surfaceRemaining > time.Second {
+		t.Fatalf("expected short tool-surface timeout, got remaining=%s", surfaceRemaining)
+	}
+
+	strictCtx := runtimediscovery.MergeMode(context.Background(), runtimediscovery.Mode{ToolSurface: true, Strict: true})
+	strictCtx, strictCancel := reg.withDiscoveryTimeout(strictCtx)
+	defer strictCancel()
+	strictDeadline, ok := strictCtx.Deadline()
+	if !ok {
+		t.Fatal("expected strict discovery deadline")
+	}
+	strictRemaining := time.Until(strictDeadline)
+	if strictRemaining < 20*time.Second {
+		t.Fatalf("expected strict discovery timeout to override tool-surface timeout, got remaining=%s", strictRemaining)
+	}
+}
+
 func assertDiscoveryCallScope(t *testing.T, calls []discoveryManagerCall, server, scope string) {
 	t.Helper()
 	var found bool

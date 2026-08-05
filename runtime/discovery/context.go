@@ -12,6 +12,7 @@ type Mode struct {
 	Scheduler     bool
 	Strict        bool
 	Background    bool
+	ToolSurface   bool
 	ScheduleID    string
 	ScheduleRunID string
 }
@@ -49,6 +50,7 @@ func MergeMode(ctx context.Context, update Mode) context.Context {
 	base, _ := ModeFromContext(ctx)
 	base.Scheduler = base.Scheduler || update.Scheduler
 	base.Background = base.Background || update.Background
+	base.ToolSurface = base.ToolSurface || update.ToolSurface
 	if update.Strict {
 		base.Strict = true
 	}

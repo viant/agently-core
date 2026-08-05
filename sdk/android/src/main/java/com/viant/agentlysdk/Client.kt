@@ -118,7 +118,7 @@ class AgentlyClient(
     }
 
     suspend fun query(input: QueryInput): QueryOutput = withContext(Dispatchers.IO) {
-        post("/v1/agent/query", input, QueryOutput.serializer())
+        postLongRunning("/v1/agent/query", input, QueryOutput.serializer())
     }
 
     suspend fun createConversation(input: CreateConversationInput): Conversation = withContext(Dispatchers.IO) {
@@ -564,6 +564,7 @@ class AgentlyClient(
                 send(tracker.snapshot())
                 for (event in events) {
                     if (event.type.trim().equals("stream_overflow", ignoreCase = true)) {
+                        tracker.clear()
                         reconnect = true
                         break
                     }
@@ -712,6 +713,12 @@ class AgentlyClient(
     internal fun <I, T> post(path: String, payload: I, serializer: KSerializer<T>): T {
         val request = json.encodeToString(serializerFor(payload), payload)
         val root = parseJson(restClient.post(endpointName, path, request) { it })
+        return decode(root, serializer)
+    }
+
+    internal fun <I, T> postLongRunning(path: String, payload: I, serializer: KSerializer<T>): T {
+        val request = json.encodeToString(serializerFor(payload), payload)
+        val root = parseJson(restClient.postLongRunning(endpointName, path, request) { it })
         return decode(root, serializer)
     }
 

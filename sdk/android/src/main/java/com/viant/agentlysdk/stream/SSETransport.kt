@@ -13,7 +13,14 @@ import java.io.BufferedReader
 import java.io.InterruptedIOException
 import java.io.InputStreamReader
 import java.net.SocketException
+import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
+
+private val defaultStreamClient = OkHttpClient.Builder()
+    .connectTimeout(10, TimeUnit.SECONDS)
+    .readTimeout(0, TimeUnit.SECONDS)
+    .callTimeout(0, TimeUnit.SECONDS)
+    .build()
 
 fun openEventStream(
     endpoint: EndpointConfig,
@@ -22,7 +29,10 @@ fun openEventStream(
     json: Json = Json { ignoreUnknownKeys = true },
     onOpen: (() -> Unit)? = null
 ): Flow<SSEEvent> = callbackFlow {
-    val client = endpoint.httpClient ?: OkHttpClient()
+    val client = endpoint.streamHttpClient
+        ?: endpoint.longRunningHttpClient
+        ?: endpoint.httpClient
+        ?: defaultStreamClient
     val url = endpoint.baseUrl.trimEnd('/') + "/" + path.trimStart('/')
     val request = Request.Builder()
         .url(url)

@@ -113,11 +113,12 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 		Id:         "c1",
 		AgentId:    ptrS("agentA"),
 		Title:      ptrS("A title"),
+		Status:     ptrS("ok"),
 		Visibility: "private",
 		CreatedAt:  t0,
 		Stage:      "done",
 		Transcript: []*agconv.TranscriptView{
-			{Id: "t1", ConversationId: "c1", CreatedAt: t1, Status: "ok", Stage: "thinking", Message: []*agconv.MessageView{{Id: "m1", ConversationId: "c1", TurnId: ptrS("t1"), Role: "user", Type: "text", Content: ptrS("hello"), RawContent: ptrS("hello raw"), CreatedAt: t1}}},
+			{Id: "t1", ConversationId: "c1", CreatedAt: t1, Status: "ok", Stage: "done", Message: []*agconv.MessageView{{Id: "m1", ConversationId: "c1", TurnId: ptrS("t1"), Role: "user", Type: "text", Content: ptrS("hello"), RawContent: ptrS("hello raw"), CreatedAt: t1}}},
 			{Id: "t2", ConversationId: "c1", CreatedAt: t2, Status: "ok", Stage: "done", Message: []*agconv.MessageView{
 				{Id: "m2", ConversationId: "c1", TurnId: ptrS("t2"), Role: "assistant", Type: "text", Content: ptrS("world"), CreatedAt: t2},
 				{Id: "m3", ConversationId: "c1", TurnId: ptrS("t2"), Role: "assistant", Type: "tool", Content: ptrS("call:toolX"), CreatedAt: t2},

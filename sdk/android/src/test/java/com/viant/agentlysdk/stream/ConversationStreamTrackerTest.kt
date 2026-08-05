@@ -568,6 +568,20 @@ class ConversationStreamTrackerTest {
                 turnId = "turn-1",
                 messageId = "assistant-1",
                 assistantMessageId = "assistant-1",
+                eventSeq = 100,
+                content = " duplicate",
+                createdAt = "2026-06-05T10:00:01Z"
+            ),
+            hydrationCursor = cursor
+        )
+        assertEquals("Hello", tracker.snapshot().bufferedMessages.single { it.id == "assistant-1" }.content)
+        tracker.applyEvent(
+            SSEEvent(
+                type = "text_delta",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                messageId = "assistant-1",
+                assistantMessageId = "assistant-1",
                 eventSeq = 1,
                 content = " live",
                 createdAt = "2026-06-05T10:00:01Z"

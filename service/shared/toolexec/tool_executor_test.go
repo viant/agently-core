@@ -227,6 +227,73 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 	}
 }
 
+func TestExecuteToolStep_CoalescesConcurrentDuplicateActiveTurnSteps(t *testing.T) {
+	previousCoalescer := activeToolStepCoalescer
+	activeToolStepCoalescer = newToolStepCoalescer(5 * time.Second)
+	t.Cleanup(func() { activeToolStepCoalescer = previousCoalescer })
+
+	turn := memory.TurnMeta{ConversationID: "c-coalesce", TurnID: "t-coalesce", ParentMessageID: "p-coalesce"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	reg := &scriptedRegistry{script: []scriptedResult{{result: `{"clientId":"ios-ui-test","ok":true}`, delay: 25 * time.Millisecond}}}
+	conv := &stubConv{}
+	args := map[string]interface{}{
+		"clientId": "ios-ui-test",
+		"windowId": "forecastingCubeBuilder__c-coalesce",
+		"replace":  false,
+		"values": map[string]interface{}{
+			"prefill": map[string]interface{}{
+				"includeCountry":        []interface{}{"US"},
+				"includePostalCodeList": []interface{}{70731},
+			},
+		},
+	}
+	start := make(chan struct{})
+	results := make(chan llm.ToolCall, 2)
+	errs := make(chan error, 2)
+	var wait sync.WaitGroup
+	for _, id := range []string{"call-a", "call-b"} {
+		wait.Add(1)
+		go func(id string) {
+			defer wait.Done()
+			<-start
+			call, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+				ID:         id,
+				Name:       "ui/window/setFormData",
+				Args:       args,
+				ResponseID: "resp-coalesce",
+			}, conv)
+			results <- call
+			errs <- err
+		}(id)
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	seenIDs := map[string]bool{}
+	for call := range results {
+		assert.Equal(t, `{"clientId":"ios-ui-test","ok":true}`, call.Result)
+		seenIDs[call.ID] = true
+	}
+	assert.True(t, seenIDs["call-a"])
+	assert.True(t, seenIDs["call-b"])
+	assert.Equal(t, 1, reg.calls, "duplicate steps should share one registry execution")
+	statusCounts := map[string]int{}
+	for _, call := range conv.patchedToolCalls {
+		if strings.TrimSpace(call.OpID) != "" {
+			statusCounts[strings.TrimSpace(call.Status)]++
+		}
+	}
+	assert.Equal(t, 2, statusCounts["running"])
+	assert.Equal(t, 1, statusCounts["completed"], "one call should represent the real tool execution")
+	assert.Equal(t, 1, statusCounts["coalesced"], "duplicate call should remain protocol-visible without a second execution")
+	assert.Len(t, conv.patchedPayloads, 4, "each model call id needs request/response payloads for history replay")
+}
+
 func TestExecuteToolStep_ForceTerminalCloseWhenCompleteWriteFails(t *testing.T) {
 	cases := []struct {
 		name                string

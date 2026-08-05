@@ -159,10 +159,8 @@ function selectedWindowIdFromToolSteps(toolSteps: any[], windows: WorkspaceWindo
 }
 
 function hostedWorkspaceWindowsFromViewOpenStep(step: any): WorkspaceWindowSnapshot[] {
-    const toolName = normalizeToolName(step?.toolName);
     const responsePayload = firstParsedPayload(step?.responsePayload, step?.content);
     const requestPayload = firstParsedPayload(step?.requestPayload);
-    if (toolName !== 'ui/view/open') return [];
     const items = Array.isArray(responsePayload?.items) ? responsePayload.items : [];
     if (items.length > 0) {
         return items
@@ -172,7 +170,7 @@ function hostedWorkspaceWindowsFromViewOpenStep(step: any): WorkspaceWindowSnaps
     const normalized = normalizeHostedWorkspaceWindow({
         windowId: String(responsePayload?.windowId || '').trim(),
         conversationId: String(responsePayload?.conversationId || '').trim() || null,
-        windowKey: String(responsePayload?.windowKey || requestPayload?.id || '').trim(),
+        windowKey: String(responsePayload?.windowKey || requestPayload?.id || requestPayload?.windowKey || '').trim(),
         windowTitle: String(responsePayload?.windowTitle || '').trim(),
         presentation: String(responsePayload?.presentation || '').trim(),
         region: String(responsePayload?.region || '').trim(),
@@ -218,10 +216,17 @@ function applySetFormDataSteps(toolSteps: any[], windows: WorkspaceWindowSnapsho
         const toolName = normalizeToolName(step?.toolName);
         if (toolName !== 'ui/window/setformdata') continue;
         const requestPayload = firstParsedPayload(step?.requestPayload);
-        const values = requestPayload?.values;
+        const responsePayload = firstParsedPayload(step?.responsePayload, step?.content);
+        const authoritativeWindowForm = responsePayload?.windowForm;
+        const values = isPlainObject(authoritativeWindowForm)
+            ? authoritativeWindowForm
+            : requestPayload?.values;
         if (!isPlainObject(values)) continue;
-        const replace = requestPayload?.replace === true;
-        const targets = targetHostedWorkspaceWindows(resolved, requestPayload);
+        const replace = isPlainObject(authoritativeWindowForm) || requestPayload?.replace === true;
+        const targetPayload = responsePayload?.windowId || responsePayload?.windowKey
+            ? responsePayload
+            : requestPayload;
+        const targets = targetHostedWorkspaceWindows(resolved, targetPayload);
         if (targets.length === 0) continue;
         targets.forEach((window) => {
             window.windowForm = replace
@@ -252,7 +257,7 @@ export function deriveHostedWorkspaceRestoreStateFromTranscriptTurns(turns: Turn
                 selectedWindowId: selectedWindowIdFromToolSteps(toolSteps, windows) || null,
             };
         }
-        if (toolName === 'ui/view/open') {
+        if (toolName === 'ui/view/open' || toolName === 'ui/window/open') {
             const windows = applySetFormDataSteps(toolSteps, hostedWorkspaceWindowsFromViewOpenStep(step), i);
             if (windows.length === 0) continue;
             const responsePayload = firstParsedPayload(step?.responsePayload, step?.content);

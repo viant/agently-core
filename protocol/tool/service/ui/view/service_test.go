@@ -551,6 +551,21 @@ func TestComputeWindowIDConversationIdentityIgnoresReportSourceParameters(t *tes
 	}
 }
 
+func TestComputeWindowIDUsesViewIDForAliasedHostedViewIdentity(t *testing.T) {
+	item := &ListItem{
+		ID:            "forecastingCubeBuilder",
+		WindowKey:     "reportBuilder",
+		Presentation:  "hosted",
+		IdentityScope: "conversation",
+	}
+	got := computeWindowID(item.WindowKey, map[string]interface{}{
+		"reportBuilderRef": "forecastingCubeBuilder",
+	}, "conv-forecast", item)
+	if got != "forecastingCubeBuilder__conv-forecast" {
+		t.Fatalf("unexpected aliased hosted window id: %s", got)
+	}
+}
+
 func TestServiceLoadAll_EnrichesReportPresetsFromBuilderReference(t *testing.T) {
 	withWorkspaceRoot(t, func(root string) {
 		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "report.yaml"), `

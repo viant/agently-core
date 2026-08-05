@@ -101,6 +101,9 @@ type QueryInput struct {
 	AutoSelected bool `json:"-"`
 	// RoutingReason captures the auto-routing reason when AutoSelected is true.
 	RoutingReason string `json:"-"`
+	// toolBundlesAutoSelected marks ToolBundles as runtime-selected by the
+	// generic tool router rather than explicitly supplied by the caller.
+	toolBundlesAutoSelected bool
 }
 
 // QueryOutput represents the result of an agent knowledge query

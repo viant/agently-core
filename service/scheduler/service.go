@@ -50,6 +50,9 @@ type Service struct {
 	// preserves historical behaviour; a non-nil buffered channel acts as a
 	// counting semaphore. Installed by WithMaxConcurrentRuns.
 	execSem chan struct{}
+
+	runNowMu       sync.Mutex
+	runNowReserved map[string]time.Time
 }
 
 const (
@@ -72,10 +75,11 @@ type Option func(*Service)
 // New creates a scheduler service.
 func New(store Store, agent *agentsvc.Service, opts ...Option) *Service {
 	s := &Service{
-		store:    store,
-		agent:    agent,
-		interval: 30 * time.Second,
-		leaseTTL: 60 * time.Second,
+		store:          store,
+		agent:          agent,
+		interval:       30 * time.Second,
+		leaseTTL:       60 * time.Second,
+		runNowReserved: map[string]time.Time{},
 	}
 	for _, o := range opts {
 		if o != nil {

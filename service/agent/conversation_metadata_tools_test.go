@@ -11,7 +11,8 @@ import (
 )
 
 type convoStub struct {
-	conv *apiconv.Conversation
+	conv    *apiconv.Conversation
+	patched *apiconv.MutableConversation
 }
 
 func (c *convoStub) GetConversation(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {
@@ -21,6 +22,7 @@ func (c *convoStub) GetConversations(ctx context.Context, input *apiconv.Input) 
 	return nil, nil
 }
 func (c *convoStub) PatchConversations(ctx context.Context, conversations *apiconv.MutableConversation) error {
+	c.patched = conversations
 	return nil
 }
 func (c *convoStub) GetPayload(ctx context.Context, id string) (*apiconv.Payload, error) {
@@ -145,6 +147,30 @@ func TestEnsureConversation_AppliesMetaToolBundlesWhenAgentMatches(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, []string{"system/exec", "system/os"}, in.ToolBundles)
 	require.Nil(t, in.ToolsAllowed)
+}
+
+func TestEnsureConversation_DoesNotPersistAutoSelectedToolBundles(t *testing.T) {
+	now := time.Now()
+	agentID := "agent-a"
+	conv := &apiconv.Conversation{
+		Id:           "c1",
+		AgentId:      &agentID,
+		CreatedAt:    now,
+		UpdatedAt:    &now,
+		LastActivity: &now,
+	}
+	store := &convoStub{conv: conv}
+	svc := &Service{conversation: store}
+
+	in := &QueryInput{
+		ConversationID:          "c1",
+		AgentID:                 "agent-a",
+		ToolBundles:             []string{"workspace-ui"},
+		toolBundlesAutoSelected: true,
+	}
+	err := svc.ensureConversation(context.Background(), in)
+	require.NoError(t, err)
+	require.Nil(t, store.patched, "auto-selected bundles are per-turn and should not become conversation metadata")
 }
 
 func TestEnsureConversation_NilLastActivityDoesNotPanic(t *testing.T) {

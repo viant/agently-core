@@ -232,7 +232,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		needsPatch = true
 	}
 	// Intentionally do not patch agent name; conversation stores agent_id separately.
-	if len(input.ToolBundles) > 0 {
+	if len(input.ToolBundles) > 0 && !input.toolBundlesAutoSelected {
 		meta.ToolBundles = append([]string(nil), input.ToolBundles...)
 		meta.Tools = nil
 		if b, err := json.Marshal(meta); err == nil {

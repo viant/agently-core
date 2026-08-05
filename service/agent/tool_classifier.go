@@ -174,6 +174,7 @@ func (s *Service) maybeAutoSelectToolBundles(ctx context.Context, input *QueryIn
 		return
 	}
 	input.ToolBundles = out
+	input.toolBundlesAutoSelected = true
 	logx.Infof("conversation", "agent.toolRouter done convo=%q message_id=%q model=%q selected=%d bundles=%q elapsed=%s", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(modelName), len(out), strings.Join(out, ","), time.Since(started))
 }
 

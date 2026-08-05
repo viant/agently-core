@@ -126,6 +126,38 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `query uses long running endpoint client`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"conversationId":"conv-1","content":"done"}"""))
+        server.start()
+        val shortClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder().header("X-Test-Transport", "short").build())
+            }
+            .build()
+        val longRunningClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder().header("X-Test-Transport", "long").build())
+            }
+            .build()
+        val client = AgentlyClient(
+            endpoints = mapOf(
+                "appAPI" to EndpointConfig(
+                    baseUrl = server.url("/").toString().trimEnd('/'),
+                    httpClient = shortClient,
+                    longRunningHttpClient = longRunningClient
+                )
+            )
+        )
+
+        val output = client.query(QueryInput(conversationId = "conv-1", query = "hello"))
+
+        assertEquals("done", output.content)
+        val request = server.takeRequest()
+        assertEquals("/v1/agent/query", request.path)
+        assertEquals("long", request.getHeader("X-Test-Transport"))
+    }
+
+    @Test
     fun `fetchForgeWindowMetadata unwraps data envelope and encodes window key`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(
@@ -410,6 +442,58 @@ class AgentlyClientTest {
         assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true", liveStateRequest.path)
         assertEquals("Hello", snapshots[0].bufferedMessages.single { it.id == "assistant-1" }.content)
         assertEquals("Hello live", snapshots[1].bufferedMessages.single { it.id == "assistant-1" }.content)
+    }
+
+    @Test
+    fun `trackConversation uses stream endpoint client`() = runBlocking {
+        server.enqueue(
+            MockResponse()
+                .setHeader("Content-Type", "text/event-stream")
+                .setBody("")
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """
+                {
+                  "eventCursor": "cursor-1",
+                  "conversation": {
+                    "conversationId": "conv-1",
+                    "turns": []
+                  }
+                }
+                """.trimIndent()
+            )
+        )
+        server.start()
+        val shortClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder().header("X-Test-Transport", "short").build())
+            }
+            .build()
+        val streamClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder().header("X-Test-Transport", "stream").build())
+            }
+            .build()
+        val client = AgentlyClient(
+            endpoints = mapOf(
+                "appAPI" to EndpointConfig(
+                    baseUrl = server.url("/").toString().trimEnd('/'),
+                    httpClient = shortClient,
+                    streamHttpClient = streamClient
+                )
+            )
+        )
+
+        val snapshots = client.trackConversation("conv-1").take(1).toList()
+
+        assertEquals("conv-1", snapshots.single().conversationId)
+        val streamRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        val liveStateRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        assertTrue(streamRequest.path.orEmpty().startsWith("/v1/stream?"))
+        assertEquals("stream", streamRequest.getHeader("X-Test-Transport"))
+        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true", liveStateRequest.path)
+        assertEquals("short", liveStateRequest.getHeader("X-Test-Transport"))
     }
 
     @Test

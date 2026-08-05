@@ -86,7 +86,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let client = AgentlyClient(
-            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:9191")))],
+            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:9292")))],
             session: session
         )
         URLProtocolStub.requestHandler = { request in
@@ -118,7 +118,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let client = AgentlyClient(
-            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:9191")))],
+            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:9292")))],
             session: session
         )
         URLProtocolStub.requestHandler = { request in
@@ -150,7 +150,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let client = AgentlyClient(
-            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:9191")))],
+            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:9292")))],
             session: session
         )
         URLProtocolStub.requestHandler = { request in
@@ -279,6 +279,98 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(restore?.windows.first?.windowTitle, "Report Review")
     }
 
+    func testHostedWorkspaceRestoreUsesWindowOpenPayloads() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [
+              {
+                "turnId": "turn-1",
+                "execution": {
+                  "pages": [
+                    {
+                      "pageId": "page-1",
+                      "toolSteps": [
+                        {
+                          "toolCallId": "tool-open",
+                          "toolName": "ui/window/open",
+                          "status": "completed",
+                          "requestPayload": {
+                            "windowKey": "reportBuilder",
+                            "parameters": {
+                              "reportBuilderRef": "capacityBuilder"
+                            }
+                          },
+                          "responsePayload": {
+                            "windowId": "reportBuilder__conv-1",
+                            "conversationId": "conv-1",
+                            "windowKey": "reportBuilder",
+                            "windowTitle": "Capacity Builder",
+                            "presentation": "hosted",
+                            "region": "chat.top",
+                            "parentKey": "chat/new",
+                            "workspaceMinHeight": 500,
+                            "workspaceSharePct": 72
+                          }
+                        },
+                        {
+                          "toolCallId": "tool-prefill",
+                          "toolName": "ui/window:setFormData",
+                          "status": "completed",
+                          "requestPayload": {
+                            "windowId": "reportBuilder__conv-1",
+                            "values": {
+                              "prefill": {
+                                "scope": {
+                                  "targetKey": "record:12345"
+                                }
+                              }
+                            }
+                          },
+                          "responsePayload": {
+                            "windowId": "reportBuilder__conv-1",
+                            "windowForm": {
+                              "reportBuilderRef": "capacityBuilder",
+                              "prefill": {
+                                "scope": {
+                                  "targetKey": "record:12345"
+                                }
+                              }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        let restore = deriveHostedWorkspaceRestoreState(from: response)
+        let window = restore?.windows.first
+
+        XCTAssertEqual(restore?.selectedWindowId, "reportBuilder__conv-1")
+        XCTAssertEqual(window?.windowKey, "reportBuilder")
+        XCTAssertEqual(window?.windowTitle, "Capacity Builder")
+        XCTAssertEqual(window?.workspaceMinHeight, 500)
+        XCTAssertEqual(window?.workspaceSharePct, 72)
+        XCTAssertEqual(window?.windowForm?["reportBuilderRef"], .string("capacityBuilder"))
+        guard case .object(let prefill)? = window?.windowForm?["prefill"],
+              case .object(let scope)? = prefill["scope"] else {
+            XCTFail("Expected restored report builder prefill scope")
+            return
+        }
+        XCTAssertEqual(scope["targetKey"], .string("record:12345"))
+    }
+
     func testHostedWorkspaceRestoreFoldsLaterWindowFormDataIntoOpenedWindow() throws {
         let json = """
         {
@@ -319,7 +411,7 @@ final class AgentlySDKTests: XCTestCase {
                           "toolName": "ui/window:setFormData",
                           "status": "completed",
                           "requestPayload": {
-                            "windowId": "reportWindow__conv-1",
+                            "windowKey": "reportWindow",
                             "values": {
                               "prefill": {
                                 "recordId": 123
@@ -563,7 +655,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let client = AgentlyClient(
-            endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "http://localhost:9191")!)],
+            endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "http://localhost:9292")!)],
             session: session
         )
         let bridge = UIBridgeRPCClient(client: client)
@@ -2635,6 +2727,10 @@ final class AgentlySDKTests: XCTestCase {
         )
         _ = await tracker.apply(
             SSEEvent(data: #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","content":" stale","createdAt":"2026-06-05T10:00:00Z"}"#),
+            hydrationCursor: cursor
+        )
+        _ = await tracker.apply(
+            SSEEvent(data: #"{"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":100,"content":" duplicate","createdAt":"2026-06-05T10:00:01Z"}"#),
             hydrationCursor: cursor
         )
         _ = await tracker.apply(

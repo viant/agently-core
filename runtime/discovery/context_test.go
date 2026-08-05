@@ -23,8 +23,18 @@ func TestMergeMode(t *testing.T) {
 	require.True(t, got.Scheduler)
 	require.True(t, got.Strict)
 	require.True(t, got.Background)
+	require.False(t, got.ToolSurface)
 	require.Equal(t, "sched-1", got.ScheduleID)
 	require.Equal(t, "run-1", got.ScheduleRunID)
+}
+
+func TestMergeModeToolSurface(t *testing.T) {
+	ctx := WithMode(context.Background(), Mode{Scheduler: true})
+	ctx = MergeMode(ctx, Mode{ToolSurface: true})
+	got, ok := ModeFromContext(ctx)
+	require.True(t, ok)
+	require.True(t, got.Scheduler)
+	require.True(t, got.ToolSurface)
 }
 
 func TestBackgroundContext(t *testing.T) {

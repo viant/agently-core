@@ -5,7 +5,6 @@ import (
 	"errors"
 	"math"
 	"net/http"
-	"reflect"
 	"strings"
 	"sync"
 	"time"
@@ -67,7 +66,7 @@ func NewDatlyStore(ctx context.Context, dao *datly.Service, dataSvc data.Service
 }
 
 func (s *datlyStore) init(ctx context.Context) error {
-	key := reflect.ValueOf(s.dao).Pointer()
+	key := s.dao
 	if _, loaded := schedulerComponentsByDAO.LoadOrStore(key, struct{}{}); loaded {
 		return nil
 	}
