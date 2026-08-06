@@ -265,6 +265,11 @@ emulator evidence.
   curve semantics used by Forge web and ReportPrint/PDF chart SVG generation:
   fewer than three points remain straight lines, while longer line/area series
   use monotone cubic tangents with rounded stroke caps and joins.
+- Added Android PDF artifact opening from generated report artifacts. PDF
+  downloads are written to the app cache through a scoped `FileProvider` and
+  opened with Android's standard PDF viewer intent; text artifacts still use
+  inline preview and unsupported binaries keep the existing binary-preview
+  fallback.
 - Real-device deploy is pending because `adb devices -l` currently returns no
   attached devices. Re-run the existing Android deploy workflow once the phone
   is visible again.
