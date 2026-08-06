@@ -275,6 +275,9 @@ func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, outpu
 				output.Content = strings.TrimSpace(recovered)
 				return "succeeded", nil
 			}
+			if modelErr := s.findLastFailedModelCallError(ctx, turn.ConversationID, turn.TurnID); strings.TrimSpace(modelErr) != "" {
+				return "failed", fmt.Errorf("model call failed: %s", modelErr)
+			}
 		}
 		return "failed", fmt.Errorf("no final content produced")
 	}
@@ -766,6 +769,41 @@ func (s *Service) findLastAssistantMessageContent(ctx context.Context, conversat
 			}
 			if msg.Content != nil && strings.TrimSpace(*msg.Content) != "" {
 				return strings.TrimSpace(*msg.Content)
+			}
+		}
+		return ""
+	}
+	return ""
+}
+
+func (s *Service) findLastFailedModelCallError(ctx context.Context, conversationID, turnID string) string {
+	if s.conversation == nil || conversationID == "" || turnID == "" {
+		return ""
+	}
+	conv, err := s.conversation.GetConversation(ctx, conversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeModelCall(true))
+	if err != nil || conv == nil {
+		return ""
+	}
+	transcript := conv.GetTranscript()
+	for i := len(transcript) - 1; i >= 0; i-- {
+		t := transcript[i]
+		if t == nil || strings.TrimSpace(t.Id) != turnID {
+			continue
+		}
+		for j := len(t.Message) - 1; j >= 0; j-- {
+			msg := t.Message[j]
+			if msg == nil || msg.ModelCall == nil {
+				continue
+			}
+			modelCall := msg.ModelCall
+			if !strings.EqualFold(strings.TrimSpace(modelCall.Status), "failed") {
+				continue
+			}
+			if modelCall.ErrorMessage != nil && strings.TrimSpace(*modelCall.ErrorMessage) != "" {
+				return strings.TrimSpace(*modelCall.ErrorMessage)
+			}
+			if modelCall.ErrorCode != nil && strings.TrimSpace(*modelCall.ErrorCode) != "" {
+				return strings.TrimSpace(*modelCall.ErrorCode)
 			}
 		}
 		return ""

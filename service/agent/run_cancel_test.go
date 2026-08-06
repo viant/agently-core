@@ -224,3 +224,76 @@ func TestServiceRunPlanAndStatus_RecoversDurableFinalAssistantContent(t *testing
 	require.Equal(t, "succeeded", status)
 	require.Equal(t, finalContent, output.Content)
 }
+
+func TestServiceRunPlanAndStatus_EmptyResultUsesLastFailedModelCallError(t *testing.T) {
+	t.Parallel()
+
+	providerErr := `Post "https://api.openai.com/v1/responses": dial tcp: lookup api.openai.com: i/o timeout`
+	convClient := &dedupeConvClient{
+		conversation: &apiconv.Conversation{
+			Id: "conv-model-error",
+			Transcript: []*agconv.TranscriptView{
+				{
+					Id:             "turn-model-error",
+					ConversationId: "conv-model-error",
+					Message: []*agconv.MessageView{
+						{
+							Id:             "user-model-error",
+							ConversationId: "conv-model-error",
+							Role:           "user",
+							Type:           "task",
+							Content:        cancelPtr("hello"),
+							TurnId:         cancelPtr("turn-model-error"),
+						},
+						{
+							Id:             "assistant-model-error",
+							ConversationId: "conv-model-error",
+							Role:           "assistant",
+							Type:           "text",
+							TurnId:         cancelPtr("turn-model-error"),
+							ModelCall: &agconv.ModelCallView{
+								MessageId:    "assistant-model-error",
+								Status:       "failed",
+								ErrorMessage: cancelPtr(providerErr),
+								Provider:     "openai",
+								Model:        "gpt-5.6-sol",
+								ModelKind:    "chat",
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	llmSvc := core.New(&emptyFinder{}, nil, convClient)
+	svc := &Service{
+		llm:          llmSvc,
+		conversation: convClient,
+		orchestrator: reactor.New(llmSvc, nil, convClient, nil, nil),
+		defaults:     &config.Defaults{},
+	}
+	input := &QueryInput{
+		ConversationID: "conv-model-error",
+		UserId:         "user-1",
+		Query:          "hello",
+		Agent: &agentmdl.Agent{
+			Identity: agentmdl.Identity{ID: "simple"},
+			ModelSelection: llm.ModelSelection{
+				Model: "mock-model",
+			},
+			Prompt: &binding.Prompt{Text: "You are helpful."},
+		},
+	}
+	output := &QueryOutput{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{
+		ConversationID: "conv-model-error",
+		TurnID:         "turn-model-error",
+	})
+
+	status, err := svc.runPlanAndStatus(ctx, input, output)
+	require.Error(t, err)
+	require.Equal(t, "failed", status)
+	require.Contains(t, err.Error(), "model call failed")
+	require.Contains(t, err.Error(), "lookup api.openai.com")
+	require.NotContains(t, strings.ToLower(err.Error()), "no final content produced")
+}

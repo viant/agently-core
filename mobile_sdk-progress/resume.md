@@ -3,7 +3,7 @@
 Resume from `mobile_sdk-progress/README.md`, not from the older top-level
 handoff files or Android/iOS plan snapshots.
 
-Current verified state (2026-08-05): active Forecasting prefill and
+Current verified state (2026-08-06): active Forecasting prefill and
 post-coalescing duplicate-suppression are closed on iPhone, iPad, Android
 tablet, and Android phone against the isolated local Steward lane on `:9292`.
 Canonical inline-report rendering is closed on web, iPhone, iPad, Android
@@ -32,12 +32,16 @@ on `:9292`: Android Pixel Tablet (`emulator-5554`), Android Pixel 10 Pro
 `59317EFB-ADFE-4A22-817F-4B4F6658AB2E` all sent
 `open forecast builder for line 7288336` from the native composer and verified
 the Forecasting surface plus completed `ui/window/setFormData` payloads with
-`prefill.scope.targetKey="line:7288336"`. Latest proof conversations:
+`prefill.scope.targetKey="line:7288336"`. Latest Android tablet proof is
+conversation `24d86d0b-cfa9-4551-b7b3-33294f288dfd` from 2026-08-06, verified
+through `adb reverse tcp:9292 tcp:9292` plus `http://127.0.0.1:9292`, with
+Forecasting visible and `Filters` / `5 active`; screenshot evidence:
+`/tmp/agently-tablet-forecasting.png`. Prior four-target proof conversations:
 Android tablet `6e30c6b1-53b7-4565-8235-fad78b2f24b5`, Android phone
 `a3683a86-cd93-4481-b4b9-278e8a6be278`, iPhone
 `9783bc74-fc5e-42d6-bf4d-d1e3d38ac239`, and iPad
-`b22b9809-cc86-46d7-bd0d-5928c09e1fe5`. Screenshot evidence lives under
-`/tmp/agently-rescan/*forecasting*20260805.png`. Ignore the earlier iPhone
+`b22b9809-cc86-46d7-bd0d-5928c09e1fe5`. Earlier screenshot evidence lives
+under `/tmp/agently-rescan/*forecasting*20260805.png`. Ignore the earlier iPhone
 conversation `c3556698-a1f8-4f20-a179-901bd664db76` as form-data proof: it
 opened Forecasting but timed out after the old 15s live-test teardown window.
 The live iOS test now holds the app for 45s after the Forecasting pane appears
@@ -1386,3 +1390,749 @@ Latest broader Forge and Steward rescan after variant fix (2026-08-05):
   Forge, and Steward; focused production leakage scans in Forge, Agently
   mobile, and Agently-core SDK; and stale mobile `9191` scans in Agently
   mobile plus Agently-core SDK paths.
+
+Latest fresh four-target native Forecasting replay (2026-08-05):
+- Re-ran `open forecast builder for line 7288336` against local Steward-backed
+  Agently on `:9292` after VPN returned.
+- Android tablet `emulator-5554` rebuilt/installed and ultimately succeeded
+  after one transient `steward/AdTargetingProfile` failure/retry while VPN was
+  recovering. Conversation `5b3902ac-a2c1-4743-a276-5cb10ecda048`, setFormData
+  payload `3265971e-15f9-4557-a7a9-1b9bac2824c0`.
+- Android phone `emulator-5556` semantic replay passed with
+  `verified: Forecasting`. Conversation
+  `ac5268b1-4d7f-46b5-817e-d1667d8211d5`, setFormData payload
+  `d011227a-5c12-4d30-9c17-2be1a735d2c0`.
+- iPad Pro 11-inch (M5) simulator
+  `B2AA0D68-7312-4CC9-85B8-0544341A942D` had one pre-tool rejected starter
+  turn on the first attempt, then passed the warm rerun. Result bundle:
+  `/Users/awitas/go/src/github.com/viant/agently/ios/.build/xcode-live-ipad-fresh/Logs/Test/Test-AgentlyAppLiveUITests-2026.08.05_16-39-18-+0200.xcresult`.
+  Conversation `0743ea0a-be1f-457d-b878-3525969f4007`, setFormData payload
+  `2ce33af6-a7e0-464a-9082-53951f9a2f27`.
+- iPhone 17 simulator `59317EFB-ADFE-4A22-817F-4B4F6658AB2E` passed fresh live
+  UI verification. Result bundle:
+  `/Users/awitas/go/src/github.com/viant/agently/ios/.build/xcode-live-iphone-fresh/Logs/Test/Test-AgentlyAppLiveUITests-2026.08.05_16-42-33-+0200.xcresult`.
+  Conversation `4490ab54-f834-40ae-9c04-4c1fd765c16d`, setFormData payload
+  `ed47605c-8d47-4d10-91e9-aad13e4409a8`.
+- All four successful turns completed
+  `steward/AdTargetingProfile`, `llm/skills/activate`,
+  `steward/ForecastingTargetingConvert`, `ui/window/list`, `ui/view/open`,
+  and `ui/window/setFormData`. All four payloads contain
+  `targetKey="line:7288336"`, `audienceIds=[7288336]`,
+  `adOrderIds=[2664518]`, `includeCountry=["US"]`,
+  `includePostalCodeList=[70731]`, and all 18 PMP deal IDs. Three of four also
+  carried the optional shared include filter mirror; the fresh iPhone payload
+  carried the canonical typed include fields only.
+- Final post-replay hygiene passed: `git diff --check` in Agently,
+  Agently-core, Forge, and Steward; focused production leakage scans in Forge,
+  Agently mobile, and Agently-core SDK; and stale mobile `9191` scans in
+  Agently mobile plus Agently-core SDK paths.
+
+Latest turn error durability fix from iPad replay (2026-08-05):
+- Root-caused the failed first iPad live UI attempt: turn
+  `b9a0596f-af21-47aa-b855-aae37d3dd0d1` in conversation
+  `8bcf749f-5533-40b4-9c70-d198b78be671` made three OpenAI model attempts and
+  all failed with `dial tcp: lookup api.openai.com: i/o timeout`; no Steward or
+  Forge tool executed. The terminal turn had collapsed that into
+  `no final content produced`.
+- Fixed Agently-core's generic empty-output failure path to recover the latest
+  failed durable model-call error and use it as the terminal turn error. This
+  improves mobile/web diagnostics without Steward, Forge, Forecasting, or
+  mobile-specific logic.
+- Verification passed: `go test ./service/agent -run
+  'TestServiceRunPlanAndStatus' -count=1` and
+  `go test ./service/agent -count=1`.
+
+Latest Steward merge and local `:9292` refresh (2026-08-05):
+- Fetched Steward and fast-forwarded local `ENG-54517` to `origin/ENG-54517`
+  after the push rejection; the branch is no longer behind remote.
+- Stashed and reapplied the local Steward mobile/forecasting/report-builder
+  edits. The only overlap,
+  `agents/steward/prompt/instruction.tmpl`, auto-merged cleanly.
+- Rebuilt `/Users/awitas/go/src/github.com/viant/agently/agently/agently`
+  with a temporary Go workspace pointing `github.com/viant/agently-core` and
+  `github.com/viant/forge` at local checkouts, avoiding a committed local-only
+  `replace` in Agently `go.mod`.
+- Restarted local Steward-backed Agently on `:9292`; it is listening as PID
+  `49751`.
+- Verification passed: focused Agently-core
+  `go test ./service/agent -run 'TestServiceRunPlanAndStatus' -count=1`,
+  `curl -I http://127.0.0.1:9292/` returned HTTP 200, and
+  `git diff --check` passed in Steward and Agently-core.
+
+Latest post-merge Steward smoke verification (2026-08-05):
+- Re-ran the focused Steward smoke/contract suite with
+  `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge` after the
+  `ENG-54517` fast-forward and local edit reapply.
+- Passed 10/10: Forecasting builder, Forecasting predicates, Metric Report
+  Builder, Metric predicates, Metric window params, shared endpoint datasets,
+  report preset primitive coverage, forecast-targeting contract, reporting
+  delivery contract, and audience forecast dashboard export contract.
+- Local Steward-backed Agently stayed healthy after verification: PID `49751`
+  is listening on `:9292`, and `curl -I http://127.0.0.1:9292/` returned HTTP
+  200.
+
+Latest post-merge native mobile SDK verification (2026-08-05):
+- Agently Android app compile/unit gate passed:
+  `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest --no-daemon --console=plain`
+  finished `BUILD SUCCESSFUL` in 1m39s.
+- Agently iOS focused package gate passed:
+  `swift test --package-path ios --filter
+  'AuthRuntimeTests|HostedWorkspacePresentationTests|ForgeAgentlyDataSourceLoaderTests|ComposerRuntimeTests'`
+  executed 27 tests with 0 failures.
+- The iOS slice covered OAuth mobile redirect behavior, developer session
+  cookie login, workspace endpoint persistence including local `:9292`,
+  composer lookup parsing/selection/focus behavior, hosted workspace labels,
+  and Forge datasource input preservation.
+- Production boundary scans remained clean: no stale mobile `9191` in Agently
+  Android/iOS production source; no Steward/Forecasting/line-id/ad-lookup
+  leakage in Agently mobile production source, Forge production source outside
+  demos/tests, or Agently-core production source outside tests/docs/progress.
+- `git diff --check` passed in Agently, Agently-core, Forge, and Steward.
+- Local Steward-backed Agently stayed healthy after the mobile checks: PID
+  `49751` is listening on `:9292`, and `curl -I http://127.0.0.1:9292/`
+  returned HTTP 200.
+
+Latest post-merge web/Forge target override verification (2026-08-05):
+- Agently web host bridge tests passed against `http://127.0.0.1:9292`:
+  `reportStoreService.test.js` and `forgeHostServices.test.js`, 9 tests total.
+- Forge JS target override regressions passed when run directly:
+  `src/runtime/metadataResolver.test.js` and
+  `src/components/dashboard/reportBuilderVariantModel.test.js`.
+- Forge Android target/report-builder slice passed:
+  `./gradlew :sdk:testDebugUnitTest --tests '*TargetingTest' --tests
+  '*ReportBuilderStateStorageTest' --no-daemon --console=plain`, `BUILD
+  SUCCESSFUL` in 2m44s with only existing Kotlin warnings.
+- Forge iOS metadata/report-builder slice passed:
+  `swift test --package-path ios --filter 'MetadataResolver|ReportBuilder'`,
+  26 tests with 0 failures, including nested report-builder variant target
+  overrides and filter auto-collapse.
+- A package-level Forge `npm test -- --run ...` attempt was interrupted after
+  many reporting/preview checks had passed because the package script expands
+  to the full suite and its hosted Steward render smoke tail ran too long for
+  this focused pass. No stray Node/Vite child test processes remained.
+- Boundary and lane checks stayed clean: no stale `9191` in Agently
+  Android/iOS production source; no Steward/Forecasting/line-id/ad-lookup
+  leakage in Agently mobile production or Forge production outside demos/tests;
+  `git diff --check` passed in Agently, Agently-core, Forge, and Steward; and
+  local Steward-backed Agently stayed healthy on `:9292` as PID `49751`.
+
+Latest Android OOB auth replay stabilization (2026-08-05):
+- Root cause found on the phone emulator: OOB login to
+  `http://10.0.2.2:9292` succeeded, saved an `agently_session`, and loaded
+  Steward metadata/conversations, but a stale concurrent auth refresh against
+  the alternate emulator alias `10.0.3.2:9292` later timed out and demoted the
+  active session to `Required`.
+- Agently local commit `be857252` (`fix(android): stabilize workspace auth
+  bootstrap`) now resets the OOB bootstrap latch on endpoint changes, avoids
+  workspace bootstrap repeats when metadata is loaded but recents are empty,
+  ignores stale auth-refresh failures after the session ID changes, and
+  preserves established sessions on transient connectivity failures while still
+  treating 401/403 as sign-in required.
+- Verification passed:
+  - Host-side OOB cookie authorized `/v1/api/auth/me`,
+    `/v1/workspace/metadata?platform=android&formFactor=phone&surface=native`,
+    and `/v1/conversations?limit=25` against `http://127.0.0.1:9292`.
+  - Android compile/unit gate:
+    `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest --no-daemon --console=plain`
+    finished `BUILD SUCCESSFUL` in 2m49s.
+  - Phone emulator `emulator-5556` first-run replay with local `:9292` and
+    auto-OOB stayed on the Steward conversation screen past the old timeout
+    window. UI dump showed `Ready for a new conversation`, starter tasks,
+    recent conversations, and composer controls; logcat showed `Ignoring stale
+    auth refresh failure after session changed` instead of a sign-in demotion.
+- Push remains blocked by local GitHub credentials, not branch state: Agently is
+  one commit ahead, but HTTPS push returns 403 for `awitas_viant` and SSH lacks
+  an accepted public key.
+
+Latest Android report-builder predicate lowering (2026-08-05):
+- Android Forecasting prefill was functionally correct but visually incomplete:
+  current metadata exposes canonical `predicates`, `predicateBuckets`, and
+  `predicateGroups`, while native Android Forge only rendered legacy
+  `dynamicFilterGroups` and `dynamicFilterFamilies`.
+- Forge Android now decodes and lowers canonical report-builder predicates into
+  static filters, dynamic filter groups, and dynamic filter families at the
+  generic report-builder config boundary. The implementation contains no
+  Steward, Forecasting, line-id, prompt-text, workspace, or window-id routing.
+- Verified Android Forge regression slice:
+  `./gradlew :sdk:testDebugUnitTest --tests '*ReportBuilderPredicatesTest'
+  --tests '*ReportBuilderStateStorageTest' --tests '*TargetingTest'
+  --no-daemon --console=plain`, plus a focused
+  `*ReportBuilderPredicatesTest` rerun.
+- The patched Agently Android APK was built against `http://10.0.2.2:9292`,
+  installed with direct `adb install -r` after Gradle install hung, and
+  relaunched authenticated on the Steward home screen.
+- Command-path proof remains good: completed conversation
+  `2dcbde9f-eafb-4bb0-8664-236ac9b30a73` opened Forecasting and completed
+  `ui.window.setFormData` with `prefill.scope.targetKey="line:7288336"`.
+  Latest fresh replay `3e0be0d6-00af-4125-8ab4-6845db7fc999` also reached
+  `ui.window.setFormData ok=true`, but the turn stayed running behind Steward
+  MCP discovery timeouts and was canceled.
+- A shared Android SDK restore bug was fixed on the way to visual proof:
+  completed conversations can keep buffered live execution groups after a
+  stream ends, and that must not suppress durable hosted-workspace restore.
+  The helper now suppresses historical restore only while an active turn id is
+  present, preserving the active-SSE-vs-history separation.
+- Verification passed:
+  `./gradlew clean testDebugUnitTest --tests '*WorkspaceRestoreTest'
+  --no-daemon --console=plain` in Agently-core Android SDK, and
+  `./gradlew :app:testDebugUnitTest --tests '*HostedWorkspaceRestoreTest'
+  --no-daemon --console=plain` in Agently Android.
+- The patched APK was rebuilt, installed, and used to reopen completed
+  conversation `2dcbde9f-eafb-4bb0-8664-236ac9b30a73`. Android phone now
+  restores the hosted Forecasting workspace from history and renders canonical
+  predicate-derived filter controls. Evidence:
+  `/tmp/agently-mobile-verify/android-phone-completed-forecasting-restored-after-sdk-fix.png`
+  and
+  `/tmp/agently-mobile-verify/android-phone-completed-forecasting-restored-filters-scrolled.png`.
+- Filter opening also works on Android phone: Inventory Add line adds a
+  Publisher row, and tapping Publisher opens the selector with Publisher,
+  Site Type, Site List, Deal / PMP, and External Deal. Evidence:
+  `/tmp/agently-mobile-verify/android-phone-forecasting-inventory-add-line.png`
+  and
+  `/tmp/agently-mobile-verify/android-phone-forecasting-publisher-filter-open.png`.
+- Forge iOS now has the same generic predicate-lowering parity: Swift decodes
+  `predicates`, `predicateBuckets`, and `predicateGroups` and lowers them at
+  the report-builder config boundary. Focused Forge iOS report-builder tests
+  passed 22 tests, including
+  `testReportBuilderPredicateLoweringDerivesFiltersGroupsAndFamilies`.
+- Android tablet visual proof is now captured too. The `Pixel_Tablet` AVD
+  could not reach local Steward through `10.0.2.2` or `10.0.3.2`, so it uses
+  `adb reverse tcp:9292 tcp:9292` plus `http://localhost:9292`. After clearing
+  app data, selecting `Localhost 9292`, and completing auto-OOB, the tablet
+  reopened completed conversation `2dcbde9f-eafb-4bb0-8664-236ac9b30a73` and
+  restored the hosted Forecasting workspace with canonical predicate-derived
+  filter controls. Evidence:
+  `/tmp/agently-mobile-verify/android-tablet-after-clear-auto-oob-poll.png`,
+  `/tmp/agently-mobile-verify/android-tablet-localhost-selected-oob-home.png`,
+  `/tmp/agently-mobile-verify/android-tablet-completed-forecasting-restored.png`,
+  and
+  `/tmp/agently-mobile-verify/android-tablet-completed-forecasting-restored-loaded.png`.
+- iPhone/iPad predicate-filter proof is complete as well. The live
+  `ForecastingPrefillUITests/testOpenForecastBuilderPromptCanBeSentFromComposer`
+  now waits up to 300 seconds for Forecasting and verifies real
+  predicate-derived controls from the native accessibility tree: Date Range,
+  Channels, Inventory, Location, and Add line. iPhone 17 simulator
+  `59317EFB-ADFE-4A22-817F-4B4F6658AB2E` passed against `127.0.0.1:9292`
+  with result bundle
+  `/Users/awitas/go/src/github.com/viant/agently/ios/.build/xcode-live-iphone/Logs/Test/Test-AgentlyAppLiveUITests-2026.08.05_20-29-22-+0200.xcresult`.
+  iPad Pro 11-inch simulator `B2AA0D68-7312-4CC9-85B8-0544341A942D` passed
+  the same test with result bundle
+  `/Users/awitas/go/src/github.com/viant/agently/ios/.build/xcode-live-ipad/Logs/Test/Test-AgentlyAppLiveUITests-2026.08.05_20-34-56-+0200.xcresult`.
+- Current predicate-filter status: Android phone, Android tablet, iPhone, and
+  iPad all prove native Forecasting predicate filter rendering. Android phone
+  additionally proves filter opening by adding Inventory Publisher and opening
+  the selector. Fresh full line-targeting-expression prefill still depends on
+  a healthy Steward MCP lane, but the completed proof confirms target-key
+  prefill plus native predicate-filter rendering across all four mobile
+  targets.
+
+Latest iOS predicate verification hardening (2026-08-05):
+- Independent review found the new iOS live UI assertion could false-pass
+  because it scanned all accessibility labels and accumulated label matches
+  across scroll states.
+- Forge iOS now exposes generic report-builder accessibility identifiers for
+  filter summary, static filters, dynamic filters, dynamic families, groups,
+  and Add line buttons. The Agently iOS live test now checks exact Forge
+  identifiers instead of user-facing labels:
+  `forge-report-builder-filter-summary`,
+  `forge-report-builder-static-filter-dateRange`,
+  `forge-report-builder-dynamic-filters`,
+  `forge-report-builder-dynamic-family-inventory`, and
+  `forge-report-builder-add-line-inventory`.
+- A first live iPhone rerun showed the parent-level `forge-report-builder`
+  identifier flattened child identifiers in SwiftUI accessibility output. A
+  second live rerun showed section-level identifiers could smear onto
+  descendants as well. The identifiers are now attached to concrete leaf
+  text/buttons instead of layout containers. The interrupted reruns are not
+  counted as passing proof for the hardened assertion.
+- Verified after leaf-identifier cleanup:
+  `swift test --package-path ios --filter 'ReportBuilder'` in Forge passed 22
+  tests, and `git diff --check` passed in Forge, Agently, and Agently-core.
+- The focused exact-identifier live UI tests now pass on iPhone and iPad
+  against local Steward on `127.0.0.1:9292` with OOB bootstrap. iPhone 17
+  simulator `59317EFB-ADFE-4A22-817F-4B4F6658AB2E` result bundle:
+  `/Users/awitas/go/src/github.com/viant/agently/ios/.build/xcode-live-iphone-identifiers-leaf/Logs/Test/Test-AgentlyAppLiveUITests-2026.08.05_21-59-17-+0200.xcresult`.
+  iPad Pro 11-inch (M5) simulator `B2AA0D68-7312-4CC9-85B8-0544341A942D`
+  result bundle:
+  `/Users/awitas/go/src/github.com/viant/agently/ios/.build/xcode-live-ipad-identifiers-leaf/Logs/Test/Test-AgentlyAppLiveUITests-2026.08.05_22-05-21-+0200.xcresult`.
+  Both bundles report one test, no failures, no errors, and action status
+  `succeeded`.
+- Current push blocker: `git push origin main` from
+  `/Users/awitas/go/src/github.com/viant/agently` fails with GitHub 403,
+  `Permission to viant/agently.git denied to awitas_viant`. Agently is still
+  only one local commit ahead of `origin/main`, so the push rejection is local
+  credentials/access, not branch divergence. SSH is also unavailable from this
+  machine: `git@github.com: Permission denied (publickey)`.
+
+Latest Android/shared/server refresh (2026-08-05):
+- Forge Android predicate/report-builder slice passed:
+  `./gradlew :sdk:testDebugUnitTest --tests '*ReportBuilderPredicatesTest'
+  --tests '*ReportBuilderStateStorageTest' --tests '*TargetingTest'
+  --no-daemon --console=plain` from
+  `/Users/awitas/go/src/github.com/viant/forge/android`; `BUILD SUCCESSFUL` in
+  2m11s.
+- Agently-core Android SDK restore slice passed:
+  `./gradlew clean testDebugUnitTest --tests '*WorkspaceRestoreTest'
+  --no-daemon --console=plain` from
+  `/Users/awitas/go/src/github.com/viant/agently-core/sdk/android`;
+  `BUILD SUCCESSFUL` in 1m41s.
+- Agently Android app hosted-restore integration passed:
+  `./gradlew :app:testDebugUnitTest --tests '*HostedWorkspaceRestoreTest'
+  --no-daemon --console=plain` from
+  `/Users/awitas/go/src/github.com/viant/agently/android`; `BUILD SUCCESSFUL`
+  in 4m15s, compiling the local Forge and Agently-core SDK modules inside the
+  app build.
+- Cleaned the modified Forge Android `ReportBuilderRenderer.kt` ambiguous
+  nested-lambda warning with an explicit measure-loop label. The focused Forge
+  Android slice passed after the cleanup (`BUILD SUCCESSFUL` in 2m55s), and
+  the Agently Android hosted-restore integration was rerun afterward with the
+  local Forge SDK recompiling inside the app build (`BUILD SUCCESSFUL` in
+  3m48s). Remaining Kotlin warnings are pre-existing in unrelated Forge UI
+  files.
+- Agently-core service-agent status/error recovery passed:
+  `go test ./service/agent -run 'TestServiceRunPlanAndStatus_'` from
+  `/Users/awitas/go/src/github.com/viant/agently-core`; `ok` in 3.506s.
+- Boundary scans remain clean in production source: Forge has no
+  Steward/Forecasting/line-id/stale-9191/UI-command assumptions; Agently-core
+  SDK/service has no Steward/Forecasting/line-id/stale-9191/ad-targeting
+  fixture strings; Agently Android/iOS production has no
+  Forecasting/line-id/AdTargetingProfile/stale-9191 logic. Mobile workspace
+  endpoint presets for Steward production and local `9292` are intentional.
+- Agently-side mobile overlay docs were cleaned:
+  `/Users/awitas/go/src/github.com/viant/agently/ios-app.md` and
+  `/Users/awitas/go/src/github.com/viant/agently/android-app.md` now point at
+  `agently-core/mobile_sdk-progress/README.md` and
+  `agently-core/mobile_sdk-progress/resume.md` as the canonical shared mobile
+  handoff. They no longer advertise the deleted `mobile_sdk/README.md`
+  absolute path as a runnable instruction.
+- Shared mobile SDK public-surface parity was rechecked. The only active
+  exceptions in `sdk/mobile_parity_exceptions.json` remain the Go-only `mode`
+  transport discriminator for Android and iOS, both expiring 2026-12-31.
+  `go test ./sdk -run 'TestMobileSDKPublicSurfacesCoverClientContract'`
+  passed, and the broader focused SDK slice
+  `go test ./sdk -run
+  'TestMobile|TestMetadataTarget|TestWorkspace|TestForge|TestLookups'` also
+  passed.
+
+Latest dashboard/backward-compatibility refresh (2026-08-05):
+- Forge iOS dashboard and inline-report compatibility passed:
+  `swift test --package-path /Users/awitas/go/src/github.com/viant/forge/ios
+  --filter 'Dashboard|InlineReport|ReportDocument'`, 50 selected tests with 0
+  failures. Coverage included compact dashboard compatibility blocks, legacy
+  forecast categories, report-builder variants, dashboard runtime actions,
+  filters, selections, summaries, and inline report runtime compilation.
+- Forge Android dashboard and inline-report compatibility passed:
+  `./gradlew :sdk:testDebugUnitTest --tests '*DashboardModelsTest' --tests
+  '*DashboardRuntimeTest' --tests '*DashboardRendererSupportTest' --tests
+  '*InlineReportRuntimeCompilerTest' --no-daemon --console=plain` from
+  `/Users/awitas/go/src/github.com/viant/forge/android`; `BUILD SUCCESSFUL` in
+  4m11s. The remaining Kotlin warnings are pre-existing in unrelated Forge UI
+  files.
+- Agently-core SDK dashboard/inline-report normalization and transcript
+  hydration passed:
+  `go test ./sdk -run
+  'Test(NormalizeRenderedContent|Handler_GetTranscript_HydratesPersistedInlineReports|ApplyInlineReportWorkspaceCatalogToState|BackendClient_|HTTPClient_GetForgeWindowMetadata)'`
+  from `/Users/awitas/go/src/github.com/viant/agently-core`; `ok` in 8.851s.
+- No product-code changes were needed by this refresh; the current evidence
+  supports dashboard/report-document backward compatibility across Forge iOS,
+  Forge Android, and Agently-core SDK rendered transcript handling.
+
+Latest backend window import and target refresh (2026-08-05):
+- Agently-core Forge window loader coverage was rechecked for `$import(...)`,
+  keyed report-builder imports, and broad target override keys including
+  `mobile`, `tablet`, `phone`, `android`, `android:phone`, and `iosTablet`.
+  `go test ./service/ui/window/...` passed from
+  `/Users/awitas/go/src/github.com/viant/agently-core`.
+- Workspace metadata target/platform coverage passed:
+  `go test ./service/workspace -run
+  'Test.*Metadata|Test.*Target|Test.*Platform|Test.*Forge|Test.*Legacy'`; `ok`
+  in 3.488s.
+- No backend code changes were needed by this pass. The verified split remains:
+  Agently-core loads generic imported Forge windows and target context,
+  Steward owns workspace-specific window content, and Forge owns native
+  rendering behavior.
+
+Latest current-diff boundary audit (2026-08-05):
+- Reviewed the changed production diffs in Agently-core, Forge Android, Forge
+  iOS, and Agently iOS for Steward leakage, Forecasting/line-id hardcoding,
+  stale `9191`, UI-command routing assumptions, and fallback/heuristic drift.
+  No product-code patch was needed from this audit.
+- Forge predicate lowering remains generic and config-driven: authored
+  `predicates`, `predicateBuckets`, and `predicateGroups` are lowered into the
+  existing native report-builder structures without Steward, Forecasting,
+  line-id, prompt-text, workspace, or window-id routing logic.
+- Agently-core Android restore remains scoped to active-turn separation: an
+  active live turn suppresses durable hosted-workspace restore, but completed
+  turns with leftover buffered execution groups can restore historical hosted
+  content.
+- Focused predicate symmetry checks passed after the audit:
+  `./gradlew :sdk:testDebugUnitTest --tests '*ReportBuilderPredicatesTest'
+  --no-daemon --console=plain` from Forge Android finished `BUILD SUCCESSFUL`
+  in 45s, and
+  `swift test --package-path /Users/awitas/go/src/github.com/viant/forge/ios
+  --filter 'testReportBuilderPredicateLoweringDerivesFiltersGroupsAndFamilies'`
+  passed 1 selected test with 0 failures.
+
+Latest Steward contract refresh (2026-08-05):
+- Rechecked current Steward workspace state on `ENG-54517`; local edits remain
+  in Steward prompts, skills, intake rules, and Forge window/reporting assets.
+  No Agently or Forge runtime code change was needed by this pass.
+- Ran the focused Steward contract set with
+  `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge`: Forecasting builder,
+  Forecasting predicates, Metric Report Builder, Metric predicates, shared
+  endpoint datasets, Metric window params, report preset primitive coverage,
+  forecast-targeting contract, audience forecast dashboard export contract, and
+  reporting delivery contract.
+- The set passed. It covers line builder-prefill preserving
+  `line:<requested line id>`, unified predicates lowering to legacy runtime
+  structures, request parity across canonical and lowered config forms,
+  shared-endpoint dataset save/reopen durability, canonical window parameters,
+  report primitive coverage, audience forecast dashboard export, and 69
+  reporting delivery checks.
+- Node emitted existing module-type warnings while importing Forge ES modules
+  from files without package-level `"type": "module"`; no contract failed.
+
+Latest mobile endpoint boundary fix (2026-08-05):
+- Removed Steward production endpoint presets from generic Agently Android and
+  iOS app source. Both apps keep generic local `:9292` development presets in
+  source and accept workspace-specific presets from configuration instead:
+  Android via `agently.android.workspaceEndpointsJson` or
+  `AGENTLY_WORKSPACE_ENDPOINTS_JSON`, and iOS via
+  `AGENTLY_WORKSPACE_ENDPOINTS_JSON` or `--workspaceEndpointsJSON=...`.
+- Steward can still be selected in local/dev builds by passing configured
+  endpoint JSON, but generic Agently mobile source no longer embeds
+  `https://steward.agently.viantinc.com`.
+- Verification passed:
+  `./gradlew :app:testDebugUnitTest --tests '*AppSettingsRuntimeTest'
+  --tests '*AppEndpointConfigTest' --no-daemon --console=plain` from Agently
+  Android (`BUILD SUCCESSFUL` in 1m42s), and
+  `swift test --package-path /Users/awitas/go/src/github.com/viant/agently/ios
+  --filter 'AuthRuntimeTests'` from Agently iOS (13 tests, 0 failures).
+- The Android configured-endpoint compile path also passed with
+  `AGENTLY_WORKSPACE_ENDPOINTS_JSON='[{"title":"Steward","subtitle":"Viant Steward workspace","value":"https://steward.agently.viantinc.com"}]'
+  ./gradlew :app:compileDebugKotlin --no-daemon --console=plain`; `BUILD
+  SUCCESSFUL` in 2m22s.
+- A production-source scan of Agently Android and iOS found no remaining
+  Steward production URL, `AdTargetingProfile`, hardcoded `line:7288336`, or
+  stale `9191` matches.
+
+Latest broader mobile app verification (2026-08-05):
+- Agently Android app compile/unit lane passed after the endpoint-boundary fix:
+  `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest --no-daemon
+  --console=plain` from `/Users/awitas/go/src/github.com/viant/agently/android`;
+  `BUILD SUCCESSFUL` in 2m23s.
+- Focused Agently iOS foundation lane passed:
+  `swift test --package-path /Users/awitas/go/src/github.com/viant/agently/ios
+  --filter
+  'AuthRuntimeTests|HostedWorkspacePresentationTests|ForgeAgentlyDataSourceLoaderTests|ComposerRuntimeTests|HostedWorkspacePolicyTests'`;
+  34 selected tests, 0 failures.
+- The iOS pass covered configured endpoint injection, mobile OAuth/OOB auth,
+  developer session credential paste handling, hosted workspace reuse policy,
+  hosted workspace presentation, Forge datasource input preservation, lookup
+  datasource shape, and composer lookup/focus behavior.
+- Re-ran the mobile production-source leakage scan; Agently Android/iOS
+  production source still has no Steward production URL, `AdTargetingProfile`,
+  hardcoded `line:7288336`, or stale `9191` matches.
+
+Latest full Agently iOS foundation verification (2026-08-05):
+- Full Agently iOS foundation package passed after the endpoint-boundary fix:
+  `swift test --package-path /Users/awitas/go/src/github.com/viant/agently/ios`;
+  93 tests, 0 failures.
+- Coverage included endpoint injection/auth, active-turn transcript separation,
+  hosted workspace restore/layout policy, Forge transcript block adaptation,
+  Forge datasource loading, composer lookup behavior, approval callback/editing
+  helpers, elicitation validation, branding, and platform target context.
+- Re-ran mobile production-source leakage scan and diff hygiene afterward:
+  Agently Android/iOS production source still has no Steward production URL,
+  `AdTargetingProfile`, hardcoded `line:7288336`, or stale `9191`; `git diff
+  --check` passed in Agently, Agently-core, Forge, and Steward.
+
+Latest Agently merge and Forge full-lane verification (2026-08-05):
+- Fetched Agently origin and merged the incoming `origin/main` version update
+  (`v0.3.96`) into local `main`. The merge completed cleanly, with local
+  mobile endpoint-boundary edits preserved.
+- Agently local `main` is now ahead of `origin/main` by two commits. Push is
+  still blocked by GitHub credentials, not by branch divergence:
+  `Permission to viant/agently.git denied to awitas_viant`.
+- Full Forge iOS package passed:
+  `swift test --package-path /Users/awitas/go/src/github.com/viant/forge/ios`;
+  223 tests, 0 failures.
+- Full Forge Android SDK passed:
+  `./gradlew :sdk:testDebugUnitTest --no-daemon --console=plain` from
+  `/Users/awitas/go/src/github.com/viant/forge/android`; `BUILD SUCCESSFUL`
+  in 1m45s.
+- The full Android suite initially exposed a test-only timing issue in
+  `ActionHookRuntimeTest.openWindowUsesRegisteredMetadataLoader`: the test used
+  a fixed `50ms` delay for asynchronous metadata loading. The test now waits for
+  the metadata signal with a bounded timeout; production Forge runtime code was
+  not changed for this fix.
+- The focused metadata-loader test then passed:
+  `./gradlew :sdk:testDebugUnitTest --tests
+  'com.viant.forgeandroid.runtime.ActionHookRuntimeTest.openWindowUsesRegisteredMetadataLoader'
+  --no-daemon --console=plain`; `BUILD SUCCESSFUL` in 1m52s.
+- `git diff --check` passed in Agently, Agently-core, and Forge after the
+  merge/test cleanup.
+
+Latest Android native post-merge verification (2026-08-06):
+- Default Agently Android compile/unit lane passed after merging Agently
+  `origin/main`: `./gradlew :app:compileDebugKotlin :app:testDebugUnitTest
+  --no-daemon --console=plain` from
+  `/Users/awitas/go/src/github.com/viant/agently/android`; `BUILD SUCCESSFUL`
+  in 2m45s.
+- Configured local Steward endpoint install lane passed on the attached phone
+  emulator with
+  `AGENTLY_WORKSPACE_ENDPOINTS_JSON='[{"title":"Local Steward","subtitle":"Local Agently Steward workspace","value":"http://10.0.2.2:9292"}]'
+  ./gradlew :app:installDebug --no-daemon --console=plain`.
+- Started the installed phone app with `adb -s emulator-5556 shell am start -n
+  com.viant.agently.android/.MainActivity`; Android reported
+  `com.viant.agently.android/.MainActivity` focused and the app process alive.
+- Native screenshot evidence at `/tmp/agently-android-5556.png` shows the
+  cleaned auth screen: `This workspace requires authorization.`, `Sign in`,
+  and workspace settings only. UI hierarchy search confirmed no visible `OOB`
+  or `session` sign-in noise.
+- Tablet emulator `emulator-5554` could not be counted: Gradle skipped it after
+  adb property fetch timeouts (`Unknown API Level`), and direct `adb install`
+  hung. Restart/recover the tablet emulator before using it as verification
+  evidence.
+
+Latest iOS simulator native forecast verification (2026-08-06):
+- Built the iOS simulator app with `xcodebuild -project AgentlyApp.xcodeproj
+  -scheme AgentlyApp -sdk iphonesimulator -destination 'generic/platform=iOS
+  Simulator' -derivedDataPath .build/xcode-native-20260806
+  CODE_SIGNING_ALLOWED=NO build`; `BUILD SUCCEEDED`, producing
+  `.build/xcode-native-20260806/Build/Products/Debug-iphonesimulator/Agently.app`.
+- Installed it on the booted iPhone 17 and iPad Pro 11-inch simulators. Seeded
+  normal persisted workspace selection with `UserDefaults` key
+  `agently.ios.settings.apiBaseURL=http://127.0.0.1:9292` and launched with
+  `SIMCTL_CHILD_AGENTLY_WORKSPACE_ENDPOINTS_JSON`, keeping endpoint selection
+  config-driven rather than baked into app source.
+- iPhone screenshot `/tmp/agently-ios-iphone.png` showed the Viant Steward
+  mobile shell loading a selected conversation. iPad screenshot
+  `/tmp/agently-ios-ipad-2.png` showed the tablet shell connected with
+  transcript/composer visible.
+- Ran the live iPad UI test for `open forecast builder for line 7288336`:
+  `AGENTLY_IOS_LIVE_UI_TESTS=1
+  AGENTLY_IOS_UI_TEST_BASE_URL=http://127.0.0.1:9292 xcodebuild -project
+  AgentlyApp.xcodeproj -scheme AgentlyAppLiveUITests -destination 'platform=iOS
+  Simulator,id=B2AA0D68-7312-4CC9-85B8-0544341A942D' -derivedDataPath
+  .build/xcode-live-ipad-forecast-20260806
+  -only-testing:AgentlyAppUITests/ForecastingPrefillUITests/testOpenForecastBuilderPromptCanBeSentFromComposer
+  CODE_SIGNING_ALLOWED=NO test`.
+- The live UI test passed: 1 test, 0 failures, `** TEST SUCCEEDED **`. It
+  tapped New Chat, typed and sent the forecast prompt, observed `Forecasting`,
+  and found `forge-report-builder-filter-summary`,
+  `forge-report-builder-static-filter-dateRange`,
+  `forge-report-builder-dynamic-filters`,
+  `forge-report-builder-dynamic-family-inventory`, and
+  `forge-report-builder-add-line-inventory`.
+- Test result bundle:
+  `/Users/awitas/go/src/github.com/viant/agently/ios/.build/xcode-live-ipad-forecast-20260806/Logs/Test/Test-AgentlyAppLiveUITests-2026.08.06_00-22-13-+0200.xcresult`.
+
+Latest Steward forecast-builder prefill hardening (2026-08-06):
+- Android phone replay on `emulator-5556` opened Forecasting for
+  `open forecast builder for line 7288336`, but the builder showed
+  `Filters 0 active`. Conversation `726c323f-16fe-4d10-a1a8-55a1dd3cdeed`
+  proved mobile received an ID-only `ui/window/setFormData` payload:
+  `AdLineId=[7288336]` plus `prefill.scope.targetKey="line:7288336"`, without
+  targeting predicates. Treat that as a Steward orchestration miss, not a
+  Forge/mobile rendering miss.
+- Steward-only fix: `intake/activation_rules.yaml` now sets
+  `requireTargetingProfile=true` and `requireBuilderPredicatePrefill=true` for
+  direct line builder-prefill asks, and `prompts/workspace_ui.yaml` now
+  preserves line target keys as `line:<requested line id>` while requiring
+  `steward-AdTargetingProfile` before any successful predicate prefill.
+- Contract checks passed:
+  `node skills/forecast-targeting.contract.test.mjs` and
+  `node extension/forge/windows/forecastingCubeBuilder.test.js`.
+- Host OOB replay against Agently `:9292` with
+  `STEWARD_MCP_URL=http://127.0.0.1:5002/mcp` produced conversation
+  `2a0dfb33-b284-486b-afa0-4655821b52c6` and the corrected tool order:
+  `steward/AdTargetingProfile`, `llm/skills/activate(forecast-targeting)`,
+  `steward/ForecastingTargetingConvert`, then UI open. The converter resolved
+  `includeCountry=["US"]`, `includePostalCodeList=[70731]`, and the expected
+  PMP deal list `[64512,66016,76060,76084,76105,76162,76711,89531,90473,90476,90482,98075,143925,143934,144156,146708,148790,149114]`.
+- Android phone native proof gap is now closed. Rebuilt/installed the debug APK
+  on `emulator-5556`, cleared only phone app data, selected the default
+  `Android Host 9292` workspace, authenticated through the debug-only
+  developer session helper, and ran:
+  `ADB="$HOME/Library/Android/sdk/platform-tools/adb"
+  ./scripts/android-semantic-compose-replay.sh --device emulator-5556 --prompt
+  "open forecast builder for line 7288336" --expect "Forecasting" --wait 120`.
+  The wrapper completed with `verified: Forecasting` and `done`.
+- The successful Android conversation was
+  `a9acab62-b195-4bff-a7f4-046c7fe7e130`. Tool order completed as
+  `steward/AdTargetingProfile`, `llm/skills/activate`,
+  `steward/ForecastingTargetingConvert`, `ui/window/list`, `ui/view/open`,
+  and `ui/window/setFormData`.
+- Android visible UI showed Forecasting open with `Filters` and `5 active`.
+  The persisted `ui/window/setFormData` request carried the converted
+  predicates: `includeCountry=["US"]`, `includePostalCodeList=[70731]`,
+  the expected PMP deal list
+  `[64512,66016,76060,76084,76105,76162,76711,89531,90473,90476,90482,98075,143925,143934,144156,146708,148790,149114]`,
+  `sharedIncludeFilters` for PMP/location/postal code, and
+  `scope.targetKey="line:7288336"`.
+- Android tablet native proof is now closed on `emulator-5554`. The Pixel
+  Tablet emulator could not reach `10.0.2.2:9292`, so the verified local path
+  is `adb reverse tcp:9292 tcp:9292` plus the app's `Localhost 9292`
+  workspace endpoint (`http://127.0.0.1:9292`). After reinstalling the debug
+  APK and authenticating through the debug-only developer session helper, the
+  tablet layout showed `Backend http://127.0.0.1:9292`.
+- The tablet replay command
+  `ADB="$HOME/Library/Android/sdk/platform-tools/adb"
+  ./scripts/android-semantic-compose-replay.sh --device emulator-5554 --prompt
+  "open forecast builder for line 7288336" --expect "Forecasting" --wait 120`
+  completed with `verified: Forecasting` and `done`.
+- Tablet conversation `24d86d0b-cfa9-4551-b7b3-33294f288dfd` completed
+  `steward/AdTargetingProfile`, `llm/skills/activate`,
+  `steward/ForecastingTargetingConvert`, `ui/window/list`, `ui/view/open`,
+  and `ui/window/setFormData`. The visible UI showed Forecasting with
+  `Filters` and `5 active`, and the persisted `setFormData` payload carried
+  `includeCountry=["US"]`, `includePostalCodeList=[70731]`, the expected PMP
+  deal list, and `scope.targetKey="line:7288336"`.
+
+Latest native auth/session and boundary refresh (2026-08-06):
+- Agently iOS focused foundation slice passed 34 selected tests with 0
+  failures:
+  `swift test --package-path ios --filter
+  'AuthRuntimeTests|HostedWorkspacePresentationTests|ForgeAgentlyDataSourceLoaderTests|ComposerRuntimeTests|HostedWorkspacePolicyTests'`.
+  This covers configured workspace endpoints, mobile OAuth callback behavior,
+  OOB/developer-session auth, hosted workspace policy, Forge datasource input
+  preservation, and composer lookup behavior.
+- Agently-core shared checks passed:
+  `./gradlew testDebugUnitTest --tests '*WorkspaceRestoreTest' --no-daemon
+  --console=plain` from `sdk/android`, and
+  `go test ./service/agent -run 'TestServiceRunPlanAndStatus_' -count=1`.
+- Production-only boundary scans passed: Agently Android/iOS production,
+  Agently-core production, and Forge production had no Steward production URL,
+  `AdTargetingProfile`, hardcoded `line:7288336` / `7288336`, stale mobile
+  `9191`, or Forge-to-Agently import leakage.
+
+Latest Forge and Steward contract refresh (2026-08-06):
+- Forge iOS focused report-builder/metadata slice passed:
+  `swift test --package-path ios --filter 'ReportBuilder|MetadataResolver'`
+  with 27 selected tests and 0 failures.
+- Forge Android focused report-builder/targeting slice passed:
+  `./gradlew :sdk:testDebugUnitTest --tests '*ReportBuilderPredicatesTest'
+  --tests '*ReportBuilderStateStorageTest' --tests '*TargetingTest'
+  --no-daemon --console=plain`.
+- Steward forecasting contracts passed with
+  `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge`:
+  `node extension/forge/windows/forecastingCubeBuilder.test.js`,
+  `node extension/forge/windows/forecastingCubeBuilder.predicates.test.mjs`,
+  and `node skills/forecast-targeting.contract.test.mjs`.
+- Steward report-builder/window contracts passed:
+  `node extension/forge/windows/metricReportBuilder.test.js`,
+  `node extension/forge/windows/metricReportBuilder.predicates.test.mjs`,
+  `node extension/forge/windows/metricReportBuilder.windowParams.test.mjs`,
+  and
+  `node extension/forge/windows/metricReportBuilder.sharedEndpointDatasets.test.mjs`.
+- Steward report preset/dashboard/prompt contracts passed after exporting
+  `FORGE_ROOT` for every command:
+  `node extension/forge/windows/reportPresetPrimitiveCoverage.test.mjs`,
+  `node templates/audienceForecastDashboard.contract.test.mjs`, and
+  `node agents/steward/prompt/reportingDelivery.contract.test.mjs`.
+  Node emitted only existing module-type warnings while importing Forge ES
+  modules.
+- Agently push remains blocked by GitHub credentials, not by branch
+  divergence: after `git fetch origin main`, Agently is `0` behind and `2`
+  ahead, but `git push origin main` fails with
+  `Permission to viant/agently.git denied to awitas_viant`.
+- Cleaned the untracked Agently mobile helper scripts so they stay generic
+  before being packaged: Android OOB install defaults to
+  `http://10.0.2.2:9292`, iOS OOB simulator launch defaults to
+  `http://127.0.0.1:9292`, and both require the OOB secret reference via
+  environment variables instead of embedding a personal secret path or Steward
+  production endpoint. `bash -n` passed for all three scripts,
+  `./scripts/android-semantic-compose-replay.sh --self-test` passed, and the
+  Agently app/script leakage scan found no Steward prod URL, personal OOB
+  secret reference, hardcoded line id, stale `9191`, or Steward targeting tool.
+- Focused Agently Android settings/auth slice passed after the cleanup:
+  `./gradlew :app:testDebugUnitTest --tests '*AppSettingsRuntimeTest'
+  --tests '*AuthRuntimeTest' --tests '*HostedWorkspaceRestoreTest'
+  --no-daemon --console=plain`. Only existing Forge Kotlin warnings were
+  emitted.
+- Scrubbed exact local secret references from the Agently iOS live Forecasting
+  UI test and the tracked `ui/tmp-report-builder-probe.mjs` helper. The UI
+  test now requires `AGENTLY_IOS_UI_TEST_OOB_SECRET`; the probe requires
+  `AGENTLY_PROBE_OOB_SECRET_REF` and `AGENTLY_PROBE_AUTH_CONFIG_REF`. A scan
+  for the exact local secret file names across Agently, this progress folder,
+  and Forge native production sources returned no matches.
+- iOS verification passed after the scrub:
+  `swift test --package-path ios --filter
+  'AuthRuntimeTests|HostedWorkspacePresentationTests|ForgeAgentlyDataSourceLoaderTests|ComposerRuntimeTests|HostedWorkspacePolicyTests'`
+  passed 34 selected tests with 0 failures, and
+  `xcodebuild -quiet -project ios/AgentlyApp.xcodeproj -scheme AgentlyApp
+  -configuration Debug -destination 'generic/platform=iOS Simulator'
+  -derivedDataPath ios/.build/xcode-scrub build-for-testing
+  CODE_SIGNING_ALLOWED=NO` exited with code 0. `node --check
+  ui/tmp-report-builder-probe.mjs` also passed.
+- Classified the untracked Agently app-plan notes (`android-app.md`,
+  `ios-app.md`, `froge-fence.md`) as historical context only; this progress
+  folder remains authoritative. Verified the untracked Agently Go contract
+  tests before packaging decisions: `go test . -run 'TestWorkspaceReporting'
+  -count=1` and `go test ./tools/system/platform -run 'TestService_' -count=1`
+  both passed.
+- Rechecked the untracked Forge report-builder preview/runtime assets. Running
+  every `src/demos/reportBuilder/*.test.js` directly passed. The project
+  runner `npm run test:authored-runtime -- --no-color` also passed end to end,
+  including hosted Steward builder render smoke, fixed-position loading-icon
+  rotation coverage, authored runtime semantic sections, export/import fixture
+  families, and runtime preview helpers.
+- Forge packaging note: the untracked preview/runtime files are required
+  assets, not scratch. Tracked Forge files already reference them from
+  `package.json`, `scripts/run-authored-runtime-unit-tests.mjs`,
+  `scripts/verify-semantic-preview-phase1.mjs`,
+  `ReportBuilderPreview.jsx`, dashboard runtime tests, and reporting fixtures.
+  Include the 36 untracked candidates under `src/demos/reportBuilder` plus the
+  native `ReportBuilderPredicates` source/tests when packaging Forge. Hygiene
+  scans found no personal secret refs, stale mobile `9191`, or Agently imports
+  in those untracked assets; Steward refs are demo fixture model/target ids.
+  `node --check` passed for every untracked JS asset.
+
+Latest Agently and Agently-core packaging refresh (2026-08-06):
+- Agently-core focused regressions passed:
+  `go test ./service/agent -run
+  'TestServiceRunPlanAndStatus_(RecoversDurableFinalAssistantContent|EmptyResultUsesLastFailedModelCallError)'
+  -count=1`, and `./gradlew testDebugUnitTest --tests
+  '*WorkspaceRestoreTest' --no-daemon --console=plain` from
+  `agently-core/sdk/android`.
+- Agently untracked packaging classification: tracked `ios/README.md`
+  references `../ios-app.md`, so `ios-app.md` must be included or that
+  tracked reference must change. `android-app.md` and `froge-fence.md` are
+  historical context only. The untracked `scripts/` helpers are verified local
+  mobile launch/replay helpers referenced by this handoff, and the untracked
+  Go tests are verified contract coverage.
+- Hygiene for Agently untracked items passed: no exact local secret refs, stale
+  mobile `9191`, hardcoded forecast line id, or Steward targeting tool names.
+  `bash -n` passed for each untracked shell script, and `node --check
+  ui/tmp-report-builder-probe.mjs` passed.
+- Agently-core untracked docs are classified: include
+  `mobile_sdk-progress/README.md` with this mobile/Forge handoff because this
+  resume file delegates to it. Keep `doc/mcp-2026-extension-upgrade.md` and
+  `doc/mcp-2006/` separate unless intentionally packaging the MCP 2026
+  protocol-extension workstream; they are not part of the current mobile SDK /
+  Forge parity package.
+- Agently-core TypeScript SDK test fixtures were scrubbed of the remaining
+  personal OOB path; the exact secret rescan over progress docs, MCP docs,
+  `sdk`, and `service` is clean, and `npm test` from `sdk/ts` passed all 366
+  Vitest tests.
+
+Latest Steward packaging refresh (2026-08-06):
+- Steward's untracked `skills/forecast-targeting.contract.test.mjs` is required
+  contract coverage for the prompt/intake changes. It protects line requests
+  staying `AdLineId`, no audience masquerading, mandatory
+  `steward-AdTargetingProfile`, and mandatory resolved predicate fields before
+  Forecasting builder prefill success.
+- Compact Steward verification passed with
+  `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge`:
+  `node skills/forecast-targeting.contract.test.mjs`,
+  `node extension/forge/windows/forecastingCubeBuilder.test.js`,
+  `node extension/forge/windows/forecastingCubeBuilder.predicates.test.mjs`,
+  `node extension/forge/windows/metricReportBuilder.predicates.test.mjs`,
+  `node extension/forge/windows/reportPresetPrimitiveCoverage.test.mjs`, and
+  `node agents/steward/prompt/reportingDelivery.contract.test.mjs`. Only
+  existing Forge ES-module type warnings were emitted.
+- Steward boundary scan over changed and untracked files found no exact local
+  secret refs, stale mobile `9191`, or Agently app/source references. The
+  existing `targetOverrides` stanza is generic/data-driven; the current
+  report-builder diff only adds the Forecasting builder through `$import`.
