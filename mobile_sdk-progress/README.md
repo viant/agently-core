@@ -3667,3 +3667,24 @@ forecast-builder UI command path.
   executed 2 selected tests with 0 failures.
 - Remaining verification gap: rerun the live iOS phone/tablet flow after the
   local Agently-core patch is packaged into Agently's dependency path.
+
+## 2026-08-06 Android Auth Recovery UX Refresh
+
+- Tightened the Android required-auth screen so developer session entry is not
+  visible on the first normal auth-required state. The normal screen remains
+  workspace authorization plus sign-in/settings only; the session/token helper
+  appears only when the build is debug and an interactive auth attempt returns
+  a real normalized error.
+- The change stays in Agently Android app UI state. It does not add Forge,
+  Steward, forecasting, line, or OOB logic to the generic SDK/UI layers.
+- Added focused coverage for the decision rule:
+  `shouldShowDeveloperSessionEntry(debugBuild, interactiveAuthFailure)`.
+- Verification passed from
+  `/Users/awitas/go/src/github.com/viant/agently/android`:
+  `./gradlew :app:testDebugUnitTest --console=plain`,
+  `AGENTLY_ANDROID_BASE_URL="http://10.0.2.2:9292" ./gradlew
+  :app:assembleRelease --console=plain`, and `git diff --check`.
+- Generated release `BuildConfig` confirms `DEBUG=false`,
+  `BOOTSTRAP_AUTO_OOB_SIGN_IN=false`, and an empty
+  `BOOTSTRAP_OOB_SECRET_REF`; debug keeps the recovery affordance available
+  only after an explicit auth failure.
