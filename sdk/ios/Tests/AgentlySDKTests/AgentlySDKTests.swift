@@ -26,6 +26,18 @@ final class AgentlySDKTests: XCTestCase {
         override func stopLoading() {}
     }
 
+    final class MemoryCookieStorage: AgentlySessionCookieStorage, @unchecked Sendable {
+        private var values: [StoredSessionCookie] = []
+
+        func load() -> [StoredSessionCookie] {
+            values
+        }
+
+        func save(_ cookies: [StoredSessionCookie]) {
+            values = cookies
+        }
+    }
+
     private func requestBodyString(_ request: URLRequest) -> String? {
         if let body = request.httpBody {
             return String(data: body, encoding: .utf8)
@@ -143,6 +155,78 @@ final class AgentlySDKTests: XCTestCase {
 
         XCTAssertEqual(output.redirectURI, "agently-ios://oauth/callback")
         URLProtocolStub.requestHandler = nil
+    }
+
+    func testPersistentSessionCookieStoreReplaysCookieForFreshClient() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        configuration.httpCookieStorage = HTTPCookieStorage()
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "https://steward.agently.viantinc.com")))
+        let storage = MemoryCookieStorage()
+        let firstClient = AgentlyClient(
+            endpoints: ["appAPI": endpoint],
+            session: URLSession(configuration: configuration),
+            sessionCookieStore: AgentlyPersistentSessionCookieStore(storage: storage)
+        )
+        var seenCookieHeader: String?
+        var responseIndex = 0
+        URLProtocolStub.requestHandler = { request in
+            responseIndex += 1
+            if responseIndex == 2 {
+                seenCookieHeader = request.value(forHTTPHeaderField: "Cookie")
+            }
+            let headers = responseIndex == 1
+                ? ["Content-Type": "application/json", "Set-Cookie": "agently_session=session-123; Path=/; HttpOnly; Secure"]
+                : ["Content-Type": "application/json"]
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: headers
+            )!
+            return (response, Data(#"{"id":"user-1"}"#.utf8))
+        }
+        defer { URLProtocolStub.requestHandler = nil }
+
+        _ = try await firstClient.authMe()
+        let secondClient = AgentlyClient(
+            endpoints: ["appAPI": endpoint],
+            session: URLSession(configuration: configuration),
+            sessionCookieStore: AgentlyPersistentSessionCookieStore(storage: storage)
+        )
+        _ = try await secondClient.authMe()
+
+        XCTAssertEqual(seenCookieHeader, "agently_session=session-123")
+    }
+
+    func testClearSessionCookiesRemovesPersistedCookie() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        configuration.httpCookieStorage = HTTPCookieStorage()
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "https://steward.agently.viantinc.com")))
+        let storage = MemoryCookieStorage()
+        let client = AgentlyClient(
+            endpoints: ["appAPI": endpoint],
+            session: URLSession(configuration: configuration),
+            sessionCookieStore: AgentlyPersistentSessionCookieStore(storage: storage)
+        )
+        URLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json", "Set-Cookie": "agently_session=session-123; Path=/; HttpOnly; Secure"]
+            )!
+            return (response, Data(#"{"id":"user-1"}"#.utf8))
+        }
+        defer { URLProtocolStub.requestHandler = nil }
+
+        _ = try await client.authMe()
+        XCTAssertEqual(storage.load().count, 1)
+
+        client.clearSessionCookies()
+
+        XCTAssertTrue(storage.load().isEmpty)
     }
 
     func testOAuthMobileCallbackPostsMobileEndpoint() async throws {

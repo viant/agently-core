@@ -16,9 +16,9 @@ authenticated HTTPS user `awitas_viant` receives HTTP 403 on those remotes.
 
 | Repository | Branch state | Push state |
 |---|---:|---|
-| `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 9 | Blocked by GitHub 403 |
-| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 25 | Blocked by GitHub 403 |
-| `/Users/awitas/go/src/github.com/viant/forge` | `origin/main` behind by 0, local ahead by 2 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 12 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 5 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/forge` | `origin/main` behind by 0, local ahead by 3 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward` | `origin/ENG-54517` aligned | Up to date |
 
 The authoritative unresolved item is repository write access or credentials for
@@ -166,6 +166,34 @@ emulator evidence.
 - Boundary check: the normal iOS sign-in screen stays an Agently auth/shell
   concern. OOB and session-token recovery remain developer-only settings and do
   not leak into the ordinary mobile user path.
+
+## 2026-08-06 iOS Session Persistence Refresh
+
+- Added an Agently-core iOS SDK session-cookie store. The public default uses
+  Keychain-backed storage on Apple platforms and falls back to UserDefaults only
+  where Security is unavailable. The store records server `Set-Cookie` values,
+  filters expired cookies, applies domain/path/secure matching, and replays the
+  cookie header on future SDK requests.
+- Wired the iOS app bootstrap to provide a namespaced persistent cookie store
+  per workspace endpoint. This keeps the selected Steward session available
+  after app restart without mixing cookies between `localhost`, production
+  Steward, or any future workspace endpoint.
+- Added explicit logout cleanup through `AgentlyClient.clearSessionCookies()`;
+  successful sign-out now clears the persisted mobile cookie before refreshing
+  auth state.
+- Verified the Agently-core iOS SDK persistence tests:
+  `swift test --filter
+  'AgentlySDKTests/testPersistentSessionCookieStoreReplaysCookieForFreshClient|AgentlySDKTests/testClearSessionCookiesRemovesPersistedCookie'
+  --package-path sdk/ios`; 2 tests passed, 0 failed.
+- Verified the Agently iOS app auth/report slice after a clean SwiftPM rebuild:
+  `swift package clean --package-path ios && swift test --filter
+  'AppStateTargetingTests|AuthRuntimeTests|ReportRuntimeExportHandlerTests'
+  --package-path ios`; 24 tests passed, 0 failed. This also confirms the app
+  package sees the newly added SDK source file and the report-runtime PDF export
+  handler still submits, polls, downloads, and opens the PDF artifact.
+- Android real-device verification was not rerun for this iOS-only change
+  because `adb devices -l` returned no attached devices from this shell after
+  exporting the Android SDK platform-tools path.
 
 ## 2026-08-06 Post-Fetch Merge Readiness
 

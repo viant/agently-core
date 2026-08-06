@@ -6,12 +6,14 @@ public final class AgentlyClient: Sendable {
     let session: URLSession
     let decoder: JSONDecoder
     let encoder: JSONEncoder
+    let sessionCookieStore: AgentlySessionCookieStoring?
 
     public init(
         endpoints: [String: EndpointConfig],
         endpointName: String = "appAPI",
         sessionDebug: SessionDebugOptions? = nil,
         session: URLSession = .shared,
+        sessionCookieStore: AgentlySessionCookieStoring? = nil,
         decoder: JSONDecoder = .agently(),
         encoder: JSONEncoder = .agently()
     ) {
@@ -28,6 +30,7 @@ public final class AgentlyClient: Sendable {
         }
         self.endpointName = endpointName
         self.session = session
+        self.sessionCookieStore = sessionCookieStore
         self.decoder = decoder
         self.encoder = encoder
     }
@@ -46,6 +49,10 @@ public final class AgentlyClient: Sendable {
 
     public func logout() async throws {
         let _: EmptyResponse = try await post("/v1/api/auth/logout", body: EmptyResponse(), as: EmptyResponse.self)
+    }
+
+    public func clearSessionCookies() {
+        sessionCookieStore?.clear()
     }
 
     public func oauthInitiate(_ input: OAuthInitiateInput = OAuthInitiateInput()) async throws -> OAuthInitiateOutput {
@@ -633,13 +640,15 @@ public final class AgentlyClient: Sendable {
 
     private func downloadBinary(path: String, query: [URLQueryItem] = []) async throws -> DownloadFileOutput {
         let builder = RequestBuilder(endpoint: try endpoint(), encoder: encoder)
-        let request = try builder.makeRequest(
+        var request = try builder.makeRequest(
             path: path,
             method: "GET",
             queryItems: query,
             contentType: "application/octet-stream"
         )
+        applyStoredSessionCookies(to: &request)
         let (data, response) = try await session.data(for: request)
+        storeSessionCookies(from: response, requestURL: request.url)
         guard let http = response as? HTTPURLResponse else {
             throw AgentlySDKError.invalidResponse
         }
@@ -666,14 +675,16 @@ public final class AgentlyClient: Sendable {
         as type: T.Type
     ) async throws -> T {
         let builder = RequestBuilder(endpoint: try endpoint(), encoder: encoder)
-        let request = try builder.makeRequest(
+        var request = try builder.makeRequest(
             path: path,
             method: method,
             queryItems: query,
             body: body,
             contentType: contentType
         )
+        applyStoredSessionCookies(to: &request)
         let (data, response) = try await session.data(for: request)
+        storeSessionCookies(from: response, requestURL: request.url)
         try validate(response: response, data: data)
         return try decoder.decode(T.self, from: data)
     }
@@ -686,16 +697,35 @@ public final class AgentlyClient: Sendable {
         contentType: String = "application/json"
     ) async throws -> Data {
         let builder = RequestBuilder(endpoint: try endpoint(), encoder: encoder)
-        let request = try builder.makeRequest(
+        var request = try builder.makeRequest(
             path: path,
             method: method,
             queryItems: query,
             body: body,
             contentType: contentType
         )
+        applyStoredSessionCookies(to: &request)
         let (data, response) = try await session.data(for: request)
+        storeSessionCookies(from: response, requestURL: request.url)
         try validate(response: response, data: data)
         return data
+    }
+
+    private func applyStoredSessionCookies(to request: inout URLRequest) {
+        guard let url = request.url,
+              let cookieHeader = sessionCookieStore?.cookieHeader(for: url),
+              !cookieHeader.isEmpty else {
+            return
+        }
+        request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
+    }
+
+    private func storeSessionCookies(from response: URLResponse, requestURL: URL?) {
+        guard let http = response as? HTTPURLResponse,
+              let requestURL else {
+            return
+        }
+        sessionCookieStore?.storeCookies(from: http, requestURL: requestURL)
     }
 
     private func validate(response: URLResponse, data: Data) throws {
