@@ -4213,3 +4213,24 @@ forecast-builder UI command path.
   `ForecastingPrefillUITests/testPhoneShellCanReturnToConversationsAndHideKeyboard`
   against local Steward on `http://127.0.0.1:9292` using the generated
   xctestrun OOB test environment.
+
+## 2026-08-06 Mobile Workspace Default and Auth Persistence Check
+
+- Reconciled the iOS first-run workspace picker with Android: the built-in
+  default is now only public Steward
+  `https://steward.agently.viantinc.com`. Local 9292 endpoints remain available
+  only when explicitly configured for development, so normal phone users do not
+  see multiple local choices.
+- Confirmed the mobile auth persistence design is already in place on both
+  platforms. Android persists session cookies through its encrypted app cookie
+  jar, and iOS persists session cookies through the SDK session cookie store
+  wired by the app client factory. Logout/reset still clears persisted cookies.
+- Verification passed:
+  `swift test --filter 'AuthRuntimeTests|AppStateTargetingTests|AppShellBrandingTests'`
+  from Agently iOS, and
+  `./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain`
+  from Agently Android.
+- Physical Android install remains blocked by host device visibility in this
+  shell: `adb devices -l` returned an empty attached-device list after the phone
+  was reported connected. Xcode sees two physical iPhones, but both are listed
+  as offline.
