@@ -17,7 +17,7 @@ authenticated HTTPS user `awitas_viant` receives HTTP 403 on those remotes.
 | Repository | Branch state | Push state |
 |---|---:|---|
 | `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 9 | Blocked by GitHub 403 |
-| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 21 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 22 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant/forge` | `origin/main` behind by 0, local ahead by 2 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward` | `origin/ENG-54517` aligned | Up to date |
 
@@ -3949,3 +3949,30 @@ forecast-builder UI command path.
   successfully after compiling the current Forge SDK; emitted Kotlin warnings
   were limited to existing unused-parameter / unnecessary-safe-call warnings.
 - No Steward server was left running on `:9292` after the verification pass.
+
+## 2026-08-06 Current-Source Steward Runtime Smoke Refresh
+
+- Rebuilt the Agently CLI from the temporary Go workspace that points at local
+  Agently, Agently-core, and Forge heads:
+  `GOWORK=/tmp/agently-mobile-verify/go.work go build -o
+  /tmp/agently-mobile-verify/agently-local-20260806-smoke ./agently`.
+- Started the freshly built binary against the Steward workspace on `:9292`:
+  `STEWARD_MCP_URL=http://127.0.0.1:5002/mcp
+  GOWORK=/tmp/agently-mobile-verify/go.work
+  /tmp/agently-mobile-verify/agently-local-20260806-smoke serve -a ':9292'
+  -w=/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward`.
+- Startup loaded the Steward reporting registry with 2 builders and 7 presets,
+  then loaded Forge windows `campaign`, `line`, `reports`, `reportBuilder`,
+  `recommendationReview`, `recommendationList`, `metricReportBuilder`, `order`,
+  `forecastingCubeBuilder`, and `recommendation`.
+- Runtime probes matched the expected unauthenticated shell contract:
+  `/v1/api/auth/providers` returned HTTP 200 with Viant OAuth, `/v1/api/auth/me`
+  returned HTTP 401, `/` returned HTTP 200 and included Forge reporting assets,
+  and `/v1/manifest` returned HTTP 401 as a protected endpoint.
+- Probe artifacts were written under `/tmp/agently-mobile-verify/`:
+  `auth-providers-20260806-runtime-refresh.json`,
+  `auth-me-20260806-runtime-refresh.json`,
+  `root-20260806-runtime-refresh.html`, and
+  `manifest-20260806-runtime-refresh.json`.
+- The server was stopped after the smoke run and `:9292` had no remaining
+  listener.
