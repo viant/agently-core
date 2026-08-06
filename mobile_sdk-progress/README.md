@@ -3491,3 +3491,25 @@ forecast-builder UI command path.
   report-builder `targetOverrides` stanza is pre-existing, generic, and
   data-driven; the current diff only adds the Forecasting builder via
   `$import(../../forecastingCubeBuilder/shared/content.yaml)`.
+
+## 2026-08-06 Local Packaging and Push Status
+
+- Agently mobile auth/bootstrap and verification-helper changes were packaged
+  in local commit `719460dc` on `viant/agently`. The branch remains ahead of
+  `origin/main` because GitHub rejects the current HTTPS credentials with
+  `Permission to viant/agently.git denied to awitas_viant`.
+- Agently-core restore/run durability and mobile progress changes were
+  packaged in local commit `320207d` on `viant/agently-core`; this commit also
+  carries the TypeScript SDK OOB fixture scrub. Its push is likewise blocked by
+  `Permission to viant/agently-core.git denied to awitas_viant`.
+- Forge native predicate lowering and report-builder preview/runtime assets
+  were packaged in local commit `1cec1ca` on `viant/forge`. Its push is blocked
+  by `Permission to viant/forge.git denied to awitas_viant`.
+- Steward forecasting/report-builder contract changes were packaged in local
+  commit `b262af1`, merged with remote SendGrid commits, verified with the
+  compact Steward contract suite, and pushed to `origin/ENG-54517` as merge
+  commit `17e2457`.
+- Remaining untracked files are intentionally not part of the mobile/Forge
+  package: Agently's historical `android-app.md`, `ios-app.md`, and
+  `froge-fence.md`; Agently-core's MCP 2026 planning docs under
+  `doc/mcp-2026-extension-upgrade.md` and `doc/mcp-2006/`.

@@ -2136,3 +2136,16 @@ Latest Steward packaging refresh (2026-08-06):
   secret refs, stale mobile `9191`, or Agently app/source references. The
   existing `targetOverrides` stanza is generic/data-driven; the current
   report-builder diff only adds the Forecasting builder through `$import`.
+
+Latest local packaging/push status (2026-08-06):
+- Agently local commit `719460dc` packages mobile auth/bootstrap helpers and
+  verification scripts, but push to `viant/agently` is blocked by the current
+  GitHub HTTPS credential.
+- Agently-core local commit `320207d` packages restore/run durability plus this
+  progress handoff, but push to `viant/agently-core` is blocked by the same
+  credential issue.
+- Forge local commit `1cec1ca` packages native predicate lowering and
+  report-builder preview/runtime assets, but push to `viant/forge` is blocked
+  by the same credential issue.
+- Steward merged the remote SendGrid commits, re-ran the compact forecasting
+  and reporting contracts, and pushed `ENG-54517` successfully as `17e2457`.
