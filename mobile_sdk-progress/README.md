@@ -268,6 +268,31 @@ emulator evidence.
   from importing local Forge ES modules without package-level `"type":
   "module"`; no contract failed and the Steward worktree remained clean.
 
+## 2026-08-06 Current-Source Steward Runtime Smoke
+
+- Rebuilt the server-capable Agently binary from current local sources with
+  the temp Go workspace that points at local Agently, Agently-core, and Forge:
+  `GOWORK=/tmp/agently-mobile-verify/go.work go build -o
+  /tmp/agently-mobile-verify/agently-local ./agently`.
+- Started the Steward workspace on the isolated local lane:
+  `STEWARD_MCP_URL=http://127.0.0.1:5002/mcp
+  GOWORK=/tmp/agently-mobile-verify/go.work
+  /tmp/agently-mobile-verify/agently-local serve -a ':9292'
+  -w=/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward`.
+  Startup loaded the workspace reporting registry with 2 builders and 7
+  presets, registered internal MCP services, warmed the registry, and loaded
+  the expected Forge windows: `campaign`, `line`, `reports`, `reportBuilder`,
+  `recommendationReview`, `recommendationList`, `metricReportBuilder`,
+  `order`, `forecastingCubeBuilder`, and `recommendation`.
+- Probed unauthenticated runtime endpoints:
+  `GET /v1/api/auth/providers` returned HTTP 200 with
+  `[{"label":"Viant","name":"oauth","type":"bff"}]`;
+  `GET /v1/api/auth/me` returned the expected HTTP 401
+  `{"message":"not authenticated","status":"error"}`;
+  `GET /` returned HTTP 200 and served the Agently web app shell with the
+  Forge reporting assets.
+- Stopped the server after the smoke; `:9292` was free afterward.
+
 ## 2026-08-06 Android Local Auth And Build Rescan
 
 - Re-verified the Android app against current local Agently/Forge sources from
