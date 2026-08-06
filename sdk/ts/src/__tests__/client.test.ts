@@ -421,8 +421,9 @@ describe('Auth', () => {
     it('oobLogin sends POST with backend-compatible secretsURL and scopes payload', async () => {
         const f = mockFetch(200, { sessionId: 'sess-oob-1', username: 'awitas' });
         const c = client(f);
+        const secretsURL = '/Users/example/.secret/app_oob.enc|blowfish://default';
         const res = await c.oobLogin({
-            secretsURL: '/Users/awitas/.secret/awitas_dsp_ui.enc|blowfish://default',
+            secretsURL,
             scopes: ['openid', 'profile', 'email'],
         });
 
@@ -431,7 +432,7 @@ describe('Auth', () => {
         expect(call.method).toBe('POST');
         expect(call.url).toBe('http://localhost:8585/v1/api/auth/oob');
         expect(call.body).toEqual({
-            secretsURL: '/Users/awitas/.secret/awitas_dsp_ui.enc|blowfish://default',
+            secretsURL,
             scopes: ['openid', 'profile', 'email'],
         });
     });

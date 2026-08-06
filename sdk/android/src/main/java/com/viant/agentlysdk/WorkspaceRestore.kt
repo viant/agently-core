@@ -27,9 +27,6 @@ fun deriveHostedWorkspaceRestoreState(
     if (streamSnapshot != null && !streamSnapshot.activeTurnId.isNullOrBlank()) {
         return deriveHostedWorkspaceRestoreState(streamSnapshot)
     }
-    if (streamSnapshot != null && streamSnapshot.liveExecutionGroupsById.isNotEmpty()) {
-        return null
-    }
     return state?.let(::deriveHostedWorkspaceRestoreState)
 }
 

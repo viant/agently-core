@@ -421,6 +421,74 @@ class WorkspaceRestoreTest {
     }
 
     @Test
+    fun `deriveHostedWorkspaceRestoreState falls back to durable state after live turn completes`() {
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(
+                    TurnState(
+                        turnId = "turn-1",
+                        execution = ExecutionState(
+                            pages = listOf(
+                                ExecutionPageState(
+                                    pageId = "page-1",
+                                    toolSteps = listOf(
+                                        ToolStepState(
+                                            toolCallId = "tool-1",
+                                            toolName = "ui/view/open",
+                                            status = "completed",
+                                            responsePayload = buildJsonObject {
+                                                put("windowId", "reportWindow__conv-1")
+                                                put("conversationId", "conv-1")
+                                                put("windowKey", "reportWindow")
+                                                put("windowTitle", "Report Review")
+                                                put("presentation", "hosted")
+                                                put("region", "chat.top")
+                                                put("parentKey", "chat/new")
+                                            }
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+        val completedSnapshotWithBufferedGroups = ConversationStreamSnapshot(
+            conversationId = "conv-1",
+            activeTurnId = null,
+            feeds = emptyList(),
+            pendingElicitation = null,
+            bufferedMessages = emptyList(),
+            liveExecutionGroupsById = mapOf(
+                "assistant-1" to LiveExecutionGroup(
+                    pageId = "page-1",
+                    assistantMessageId = "assistant-1",
+                    turnId = "turn-1",
+                    toolSteps = listOf(
+                        LiveToolStepState(
+                            toolCallId = "tool-1",
+                            toolName = "ui/view/open",
+                            status = "completed",
+                            responsePayload = buildJsonObject {
+                                put("windowId", "reportWindow__conv-1")
+                                put("conversationId", "conv-1")
+                                put("windowKey", "reportWindow")
+                            }
+                        )
+                    )
+                )
+            )
+        )
+
+        val restore = deriveHostedWorkspaceRestoreState(state, completedSnapshotWithBufferedGroups)
+
+        assertEquals("reportWindow__conv-1", restore?.selectedWindowId)
+        assertEquals("reportWindow", restore?.windows?.firstOrNull()?.windowKey)
+    }
+
+    @Test
     fun `deriveHostedWorkspaceRestoreState restores hosted line window from live transcript payload envelope`() {
         val content = """
             {"clientId":"ios-ui-123","conversationId":"conv-1","items":[{"conversationId":"conv-1","parameters":{"AudienceId":[7289845]},"parentKey":"chat/new","presentation":"hosted","region":"chat.top","windowId":"line_3866014773__conv-1","windowKey":"line","windowTitle":"Line Summary","workspaceMinHeight":500,"workspaceSharePct":72}],"ok":true,"parameters":{"AudienceId":[7289845]},"parentKey":"chat/new","presentation":"hosted","region":"chat.top","selectedWindowId":"line_3866014773__conv-1","windowId":"line_3866014773__conv-1","windowKey":"line","windowTitle":"Line Summary","workspaceMinHeight":500,"workspaceSharePct":72}
