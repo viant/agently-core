@@ -148,6 +148,31 @@ emulator evidence.
   concern. OOB and session-token recovery remain developer-only settings and do
   not leak into the ordinary mobile user path.
 
+## 2026-08-06 Post-Fetch Merge Readiness
+
+- Refreshed Agently, Agently-core, and Forge from `origin/main`; no incoming
+  commits were present. Local queues remain linear and ahead only:
+  Agently ahead 8, Agently-core ahead 10, and Forge ahead 2.
+- Reconfirmed push is blocked by repository permission, not by divergence:
+  `git push --dry-run` returns GitHub 403 for `awitas_viant` on
+  `viant/agently`, `viant/agently-core`, and `viant/forge`.
+- Re-ran production boundary scans. Forge Android/iOS production sources have
+  no Agently, Steward, Forecasting, line-id, `AdTargetingProfile`, or stale
+  mobile `9191` hits. Agently Android/iOS production hits for OOB/session text
+  are confined to auth/settings code paths and remain behind explicit developer
+  flags or settings.
+- Re-ran focused Agently iOS auth/settings coverage:
+  `swift test --package-path ios --filter 'AuthRuntimeTests|AppStateTargetingTests'`;
+  23 tests passed, 0 failed.
+- Re-ran Agently Android app unit coverage:
+  `./gradlew :app:testDebugUnitTest --console=plain`; build succeeded.
+- Re-ran Forge iOS report-builder/dashboard/target coverage:
+  `swift test --package-path ios --filter 'ReportBuilder|Dashboard|Target'`;
+  74 tests passed, 0 failed.
+- Re-ran Forge Android report-builder/dashboard/target coverage:
+  `./gradlew :sdk:testDebugUnitTest --tests '*ReportBuilder*'
+  --tests '*Dashboard*' --tests '*Target*' --console=plain`; build succeeded.
+
 ## 2026-08-06 Android Local Auth And Build Rescan
 
 - Re-verified the Android app against current local Agently/Forge sources from
