@@ -75,6 +75,88 @@ emulator evidence.
 | Android device verification | Phone and tablet Forecasting prefill verified post-coalescing; latest tablet smoke refreshed 2026-08-06 | Pixel Tablet reaches local Steward through `adb reverse tcp:9292 tcp:9292` and `http://localhost:9292` after the emulator gateway route reported unreachable for `10.0.2.2`; Pixel 10 Pro also verifies the phone path. Debug OOB completes, semantic replay sends `open forecast builder for line 7288336`, and the latest 2026-08-06 tablet smoke verified the native Forecasting surface with `Filters` and `5 active`. | Keep reverse/gateway behavior documented for local runs. |
 | iOS device verification | iPhone and iPad Forecasting prefill verified post-coalescing; latest smoke refreshed 2026-08-05 | iPhone 17 simulator and iPad Pro simulator were sent from native composers through `AgentlyAppLiveUITests` against `127.0.0.1:9292`. The latest 2026-08-05 live UI tests passed on both devices and verified the native Forecasting surface after `open forecast builder for line 7288336`. | Keep live UI tests current with app navigation changes. |
 
+## 2026-08-06 iOS Forecasting Prefill Refresh
+
+- Reproduced the iPhone live UI test as a real execution rather than a skipped
+  XCTest. Direct `xcodebuild test` did not pass the OOB secret reference into
+  the XCTest process, so verification used the generated `.xctestrun` file for
+  local-only environment injection and kept the secret value out of source.
+- Fixed iOS workspace URL normalization in Agently so a single-slash scheme
+  form such as `http:/127.0.0.1:9292` is repaired to
+  `http://127.0.0.1:9292` before client creation. The focused SwiftPM test
+  `AppStateTargetingTests/testNormalizeAPIBaseURLRepairsSingleSlashScheme`
+  passed.
+- Fixed Forge iOS report-builder initialize hook application to match Android's
+  generic semantics: hook props now receive a runtime-shaped state with
+  `dynamicGroups`, legacy dynamic-filter keys, and runtime static-filter
+  values; hook results are merged over fallback state instead of requiring a
+  complete persisted-state payload. iOS also refreshes window metadata before
+  invoking initialize hooks so action-code lookup is not stale, accepts
+  runtime-shaped hook result filters, stringifies numeric dynamic-filter
+  drafts, and defaults omitted dynamic-selection `group` values to match
+  Android's hook payload shape.
+- Verified the focused Forge iOS hook-result contract with:
+  `swift test --package-path ios --filter
+  ForgeIOSTests/testReportBuilderHookResultAcceptsRuntimeShapedFilters`.
+- Verified the full Forge iOS package after the hook parity patch:
+  `swift test --package-path ios`; 224 tests passed, 0 failed.
+- Verified iPhone 17 live Forecasting replay against the patched local
+  `:9292` Steward workspace:
+  result bundle
+  `ios/.build/xcode-live-iphone-forecast-20260806-prefillfix/Logs/Test/Test-AgentlyAppLiveUITests-2026.08.06_04-58-01-+0200.xcresult`;
+  summary reports `passedTests=1`, `failedTests=0`, `skippedTests=0`.
+- Verified iPad Pro 11-inch (M5) live Forecasting replay against the same
+  patched local server:
+  result bundle
+  `ios/.build/xcode-live-ipad-forecast-20260806-prefillfix/Logs/Test/Test-AgentlyAppLiveUITests-2026.08.06_05-05-51-+0200.xcresult`;
+  summary reports `passedTests=1`, `failedTests=0`, `skippedTests=0`.
+- Server evidence for both runs showed the full generic bridge sequence:
+  `ui.window.open`, `ui.data.fetch`, and `ui.window.setFormData` for the
+  Forecasting report-builder window. This preserves the ownership boundary:
+  Agently owns URL/auth/bootstrap, Forge owns generic report-builder hook/state
+  application, and Steward remains only the workspace provider of the
+  Forecasting builder metadata and hook code.
+
+## 2026-08-06 Android Local Auth And Build Rescan
+
+- Re-verified the Android app against current local Agently/Forge sources from
+  `/Users/awitas/go/src/github.com/viant/agently/android` with
+  `AGENTLY_ANDROID_BASE_URL=http://10.0.2.2:9292`.
+- Ran the Android build/unit gate:
+  `./gradlew :forge-sdk:compileDebugKotlin :app:testDebugUnitTest
+  --console=plain`; build succeeded, including the Forge SDK Kotlin compile
+  path that previously failed.
+- Installed and launched the debug APK on the attached Android emulator
+  `emulator-5556` / `Pixel_10_Pro(AVD) - 17` with:
+  `./gradlew :app:installDebug --console=plain`, `adb shell pm clear
+  com.viant.agently.android`, and `adb shell am start -n
+  com.viant.agently.android/.MainActivity`; install succeeded and the app
+  stayed alive with PID `30405`.
+- Built the server-capable Agently binary from current local sources using a
+  temporary Go workspace at `/tmp/agently-mobile-verify/go.work` that points to
+  local `agently`, `agently-core`, and `forge`, then ran:
+  `GOWORK=/tmp/agently-mobile-verify/go.work go build -o
+  /tmp/agently-mobile-verify/agently-local ./agently`. The first attempted
+  build from `agently-core/cmd/agently` was intentionally not used because that
+  entrypoint is a skill/query CLI and does not expose `serve`.
+- Started the current-source local Steward-backed Agently server on `:9292`
+  with `STEWARD_MCP_URL=http://127.0.0.1:5002/mcp
+  /tmp/agently-mobile-verify/agently-local serve -a ':9292'
+  -w=/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward`.
+  Startup loaded Steward reporting and the expected Forge windows including
+  `forecastingCubeBuilder`; host `/v1/api/auth/me` returned the expected 401
+  unauthenticated response, and the Android emulator reached
+  `10.0.2.2:9292` with `nc` exit 0.
+- UI automation confirmed the first-run Android workspace selector defaults to
+  `Android Host 9292` / `http://10.0.2.2:9292`, then advances to the
+  auth-required screen after Continue. App logcat showed `/v1/api/auth/me`
+  reaching `http://10.0.2.2:9292` and returning the expected 401
+  unauthenticated response instead of crashing.
+- Tapping `Sign in` opened the in-app OAuth dialog and WebView with status
+  `Loading idp.viantinc.com...`; logcat showed no `FATAL EXCEPTION` or app
+  crash. The debug-only `Use developer session` affordance was visible because
+  this verification used a debug APK and remains gated by `BuildConfig.DEBUG`.
+
 ## 2026-08-04 Latest Boundary and Port Rescan
 
 - Re-scanned Agently Android/iOS, Forge Android/iOS, and the mobile handoff
