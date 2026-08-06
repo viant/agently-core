@@ -4072,3 +4072,31 @@ forecast-builder UI command path.
   the Agently-core recovery bundle from the current local head before handoff;
   the branch state remains ahead-only and the push blocker remains GitHub
   authorization rather than source divergence.
+
+## 2026-08-06 Android Report PDF Export Bridge
+
+- Added a generic Forge Android report-runtime export action. Printable
+  `dashboard.reportRuntime` blocks with `reportPrint` now surface a native
+  `Download PDF` action and forward the canonical `reportSpec`, `reportFill`,
+  and `reportPrint` payload as `reportRuntime.exportPdf`.
+- Added an Agently Android host handler for `reportRuntime.exportPdf`. The
+  handler submits the canonical PDF export through existing reporting tools,
+  polls for the export artifact, fetches artifact bytes, and opens the PDF with
+  Android's normal document viewer through the existing scoped `FileProvider`
+  path.
+- Kept ownership boundaries intact: Forge only emits a generic printable-report
+  action contract, while Agently owns authenticated reporting-tool execution and
+  Android file opening. No Steward-specific report ids, prompts, or workspace
+  logic were added to either layer.
+- Verification passed:
+  `./gradlew :sdk:testDebugUnitTest --console=plain` from Forge Android,
+  focused Agently Android unit tests, and
+  `AGENTLY_ANDROID_BASE_URL=https://steward.agently.viantinc.com/ ./gradlew :app:assembleDebug --console=plain`.
+- Follow-up host coverage added
+  `ReportRuntimeExportHandlerTest`, which exercises the Android bridge against
+  MockWebServer responses for `reporting:submit_export`,
+  `reporting:get_export_status`, and `reporting:get_artifact`; this caught and
+  removed an Android-framework-only base64 dependency from the pure export
+  helper.
+- Real-phone install is still blocked by device visibility: latest
+  `adb devices -l` returned no attached devices.
