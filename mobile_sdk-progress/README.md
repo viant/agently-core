@@ -17,7 +17,7 @@ authenticated HTTPS user `awitas_viant` receives HTTP 403 on those remotes.
 | Repository | Branch state | Push state |
 |---|---:|---|
 | `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 9 | Blocked by GitHub 403 |
-| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 18 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 20 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant/forge` | `origin/main` behind by 0, local ahead by 2 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward` | `origin/ENG-54517` aligned | Up to date |
 
@@ -3918,3 +3918,17 @@ forecast-builder UI command path.
   `swift test --package-path ios --filter 'AuthRuntimeTests|AppStateTargetingTests'`
   from `/Users/awitas/go/src/github.com/viant/agently`; 23 selected tests ran
   with 0 failures.
+
+## 2026-08-06 TS SDK OOB Fixture Hygiene
+
+- Rescanned the local queues after fetching all four remotes. Branch state is
+  still ahead-only for Agently, Agently-core, and Forge, and Steward
+  `ENG-54517` remains aligned.
+- Scrubbed the Agently-core TypeScript SDK OOB auth unit-test fixture so it uses
+  `app-oob-reference|blowfish://default` instead of a home-directory-shaped
+  `.secret` path. This preserves the backend-compatible `secretsURL` contract
+  without placing secret-looking paths in source fixtures.
+- Verification passed from
+  `/Users/awitas/go/src/github.com/viant/agently-core/sdk/ts`:
+  `npm test -- --run src/__tests__/client.test.ts`; 99 tests ran with 0
+  failures.
