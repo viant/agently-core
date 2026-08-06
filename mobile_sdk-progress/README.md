@@ -73,7 +73,7 @@ emulator evidence.
 | Inline surface presentation | Complete, web/iOS/Android visual proof captured | Forge owns an explicit form-factor policy: compact 340 dp/pt, regular 420 dp/pt. It is metadata-aware and contains no title, prompt, workspace, or content heuristic. The same committed inline report conversation renders as native report content on web, iPhone, iPad, Android tablet, and Android phone. | Keep regression coverage current as new inline block types are added. |
 | Canonical inline report compilation | Complete, full target visual proof captured | Forge iOS and Android now compile `report-document-v1` into the existing native `dashboard.reportRuntime`. Focused suites preserve all 17 native primitive kinds, JSON/CSV datasets, layout order, and KPI values; Swift and Kotlin each pass 3 tests with 0 failures. Conversation `a5fc8e9f-8d48-431c-9cb9-820a819eb7aa` renders the same committed report on web, iPhone, iPad, Android tablet, and Android phone. | Business-data diagnosis remains separate from renderer parity. |
 | Android device verification | Phone and tablet Forecasting prefill verified post-coalescing; latest tablet smoke refreshed 2026-08-06 | Pixel Tablet reaches local Steward through `adb reverse tcp:9292 tcp:9292` and `http://localhost:9292` after the emulator gateway route reported unreachable for `10.0.2.2`; Pixel 10 Pro also verifies the phone path. Debug OOB completes, semantic replay sends `open forecast builder for line 7288336`, and the latest 2026-08-06 tablet smoke verified the native Forecasting surface with `Filters` and `5 active`. | Keep reverse/gateway behavior documented for local runs. |
-| iOS device verification | iPhone and iPad Forecasting prefill verified post-coalescing; latest smoke refreshed 2026-08-05 | iPhone 17 simulator and iPad Pro simulator were sent from native composers through `AgentlyAppLiveUITests` against `127.0.0.1:9292`. The latest 2026-08-05 live UI tests passed on both devices and verified the native Forecasting surface after `open forecast builder for line 7288336`. | Keep live UI tests current with app navigation changes. |
+| iOS device verification | iPhone and iPad Forecasting prefill plus quiet auth verified; latest smoke refreshed 2026-08-06 | iPhone 17 simulator and iPad Pro simulator were sent from native composers through `AgentlyAppLiveUITests` against `127.0.0.1:9292`. The latest 2026-08-06 Forecasting live UI tests passed on both devices, and the quiet auth live UI tests verified the normal required-auth screen has only sign-in/settings controls with no developer/OOB/session recovery noise. | Keep live UI tests current with app navigation changes. |
 
 ## 2026-08-06 iOS Forecasting Prefill Refresh
 
@@ -116,6 +116,37 @@ emulator evidence.
   Agently owns URL/auth/bootstrap, Forge owns generic report-builder hook/state
   application, and Steward remains only the workspace provider of the
   Forecasting builder metadata and hook code.
+
+## 2026-08-06 iOS Quiet Auth Screen Proof
+
+- Added a live iOS UI regression in Agently:
+  `AgentlyAppUITests/ForecastingPrefillUITests/testNormalAuthRequiredScreenIsQuietWithoutDevAuth`.
+  It verifies the normal auth-required screen exposes only
+  `This workspace requires authorization.`, `Sign in`, and
+  `Workspace settings`, and rejects developer/OOB/session recovery labels such
+  as `Use developer session`, `Session ID or token`, `Open workspace sign-in`,
+  `Developer Connection`, and `OOB Secret Reference`.
+- Verified the focused Agently iOS auth/settings foundation slice:
+  `swift test --package-path ios --filter 'AuthRuntimeTests|AppStateTargetingTests'`;
+  23 tests passed, 0 failed. This covers the code paths that keep developer
+  auth helpers behind explicit dev flags.
+- Rebuilt and ran the current-source Steward-backed Agently server on isolated
+  port `:9292` from a temporary Go workspace pointing at local Agently,
+  Agently-core, and Forge sources:
+  `GOWORK=/tmp/agently-mobile-verify/go.work
+  /tmp/agently-mobile-verify/agently-local serve -a ':9292'
+  -w=/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward`.
+- Verified the quiet auth screen on iPhone 17 simulator:
+  result bundle
+  `ios/.build/xcode-live-auth-iphone-20260806-rerun.xcresult`;
+  summary reports `Executed 1 test, with 0 failures (0 unexpected)`.
+- Verified the quiet auth screen on iPad Pro 11-inch (M5) simulator:
+  result bundle
+  `ios/.build/xcode-live-auth-ipad-20260806.xcresult`;
+  summary reports `Executed 1 test, with 0 failures (0 unexpected)`.
+- Boundary check: the normal iOS sign-in screen stays an Agently auth/shell
+  concern. OOB and session-token recovery remain developer-only settings and do
+  not leak into the ordinary mobile user path.
 
 ## 2026-08-06 Android Local Auth And Build Rescan
 
