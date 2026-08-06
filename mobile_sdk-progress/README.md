@@ -7,6 +7,25 @@ former top-level `mobile_sdk.md` and `mobile_sdk-progress.md` handoff files and
 supersedes historical status claims in Android/iOS app plans when current code
 or tests disagree.
 
+## Current Local Queue Status
+
+As of 2026-08-06, the mobile/Forge parity work is verified locally but cannot
+be pushed from this machine to the public Viant GitHub repositories because the
+authenticated HTTPS user `awitas_viant` receives HTTP 403 on those remotes.
+`git fetch origin --prune` shows no incoming branch divergence:
+
+| Repository | Branch state | Push state |
+|---|---:|---|
+| `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 9 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 18 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/forge` | `origin/main` behind by 0, local ahead by 2 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward` | `origin/ENG-54517` aligned | Up to date |
+
+The authoritative unresolved item is repository write access or credentials for
+the three public Viant remotes. Do not treat older chronological "remaining gap"
+entries below as current unless a newer status row or dated section says the
+gap still exists.
+
 ## Product Contract
 
 The Android and iOS apps must render the same canonical conversation state as
