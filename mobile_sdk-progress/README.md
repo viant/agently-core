@@ -238,6 +238,36 @@ emulator evidence.
   `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
   --console=plain`; build succeeded. This covers the app unit tests plus debug
   and release packaging around local Agently-core SDK and Forge SDK modules.
+
+## 2026-08-06 Android Phone Pairing Refresh
+
+- Added encrypted persistence for the Agently Android session cookie jar. The
+  app now reloads valid session cookies on startup, so a successful mobile
+  login can survive app/process restart. Changing workspace endpoints or
+  clearing saved auth deliberately clears the persisted session cookies.
+- Kept normal mobile auth UX quiet: persistence is runtime auth state, not a
+  new visible OOB/session helper on the sign-in page.
+- Added focused Android coverage for session-cookie serialization and expiry
+  behavior:
+  `./gradlew :app:testDebugUnitTest --tests
+  com.viant.agently.android.AppSessionCookieJarTest --tests
+  com.viant.agently.android.AuthScreensTest --tests
+  com.viant.agently.android.AuthUiActionsTest --tests
+  com.viant.agently.android.AppSettingsRuntimeTest --tests
+  com.viant.agently.android.ChatRuntimeTest --console=plain`; build succeeded.
+- Improved phone conversation history UX. Tapping a conversation now marks that
+  exact row as opening, disables repeat taps during the load, and the loaded
+  conversation has an explicit route back to the conversation list.
+- Fixed starter task selection plumbing so phone starter cards can place their
+  full prompt into the composer and return to chat instead of only mutating
+  text invisibly.
+- Updated Forge Android line/area chart drawing to reuse the same monotone
+  curve semantics used by Forge web and ReportPrint/PDF chart SVG generation:
+  fewer than three points remain straight lines, while longer line/area series
+  use monotone cubic tangents with rounded stroke caps and joins.
+- Real-device deploy is pending because `adb devices -l` currently returns no
+  attached devices. Re-run the existing Android deploy workflow once the phone
+  is visible again.
 - Re-ran the Agently iOS simulator app build from
   `/Users/awitas/go/src/github.com/viant/agently`:
   `xcodebuild -project ios/AgentlyApp.xcodeproj -scheme AgentlyApp
