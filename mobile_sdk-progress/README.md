@@ -17,7 +17,7 @@ authenticated HTTPS user `awitas_viant` receives HTTP 403 on those remotes.
 | Repository | Branch state | Push state |
 |---|---:|---|
 | `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 9 | Blocked by GitHub 403 |
-| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 22 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 23 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant/forge` | `origin/main` behind by 0, local ahead by 2 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward` | `origin/ENG-54517` aligned | Up to date |
 
@@ -3976,3 +3976,28 @@ forecast-builder UI command path.
   `manifest-20260806-runtime-refresh.json`.
 - The server was stopped after the smoke run and `:9292` had no remaining
   listener.
+
+## 2026-08-06 Steward Workspace Contract Refresh
+
+- Rechecked Steward `ENG-54517` before running workspace contracts; it remained
+  aligned with `origin/ENG-54517`. Forge remained ahead-only by 2 local commits,
+  so the contract suite used `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge`
+  to exercise the local Forge queue.
+- Forecasting builder contracts passed:
+  `node extension/forge/windows/forecastingCubeBuilder.predicates.test.mjs` and
+  `node extension/forge/windows/forecastingCubeBuilder.test.js`.
+- Metric report builder contracts passed:
+  `node extension/forge/windows/metricReportBuilder.predicates.test.mjs`,
+  `node extension/forge/windows/metricReportBuilder.sharedEndpointDatasets.test.mjs`,
+  and `node extension/forge/windows/metricReportBuilder.windowParams.test.mjs`.
+- Reporting/dashboard contracts passed:
+  `node extension/forge/windows/reportPresetPrimitiveCoverage.test.mjs`,
+  `node templates/audienceForecastDashboard.contract.test.mjs`,
+  `node skills/forecast-targeting.contract.test.mjs`, and
+  `node agents/steward/prompt/reportingDelivery.contract.test.mjs`.
+- The suite confirmed the current Steward workspace definitions still exercise
+  Forge-owned predicate lowering, report-builder variants, shared endpoint
+  datasets, and forecast/report delivery contracts without requiring
+  Steward-specific logic in Agently or generic Forge runtime code. Node emitted
+  existing module-type warnings for Forge ES modules, but all contract checks
+  completed successfully.
