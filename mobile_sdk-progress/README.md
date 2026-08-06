@@ -4100,3 +4100,21 @@ forecast-builder UI command path.
   helper.
 - Real-phone install is still blocked by device visibility: latest
   `adb devices -l` returned no attached devices.
+
+## 2026-08-06 iOS Report PDF Export Bridge
+
+- Added the matching generic Forge iOS report-runtime export action. Printable
+  `dashboard.reportRuntime` blocks with `reportPrint` now surface `Download PDF`
+  and dispatch `reportRuntime.exportPdf` with the canonical `reportSpec`,
+  `reportFill`, and `reportPrint` payload.
+- Added an Agently iOS host handler for `reportRuntime.exportPdf`. The handler
+  submits the export through existing reporting tools, polls status, fetches the
+  PDF artifact bytes, persists the PDF into the app artifact cache, and selects
+  it so the existing artifact sheet can Quick Look or share the PDF.
+- Kept the same boundary as Android: Forge owns only the generic printable
+  report action contract; Agently owns authenticated tool execution and local
+  file presentation. No Steward-specific logic was added to Forge or Agently.
+- Verification passed:
+  `swift test --filter ForgeIOSTests/testReportRuntime --package-path /Users/awitas/go/src/github.com/viant/forge/ios`
+  and
+  `swift test --filter 'ReportRuntimeExportHandlerTests|AppStateTargetingTests|ChatRuntimeTests|AppleUIBridgeControllerTests' --package-path /Users/awitas/go/src/github.com/viant/agently/ios`.
