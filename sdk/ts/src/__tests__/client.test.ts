@@ -421,7 +421,7 @@ describe('Auth', () => {
     it('oobLogin sends POST with backend-compatible secretsURL and scopes payload', async () => {
         const f = mockFetch(200, { sessionId: 'sess-oob-1', username: 'awitas' });
         const c = client(f);
-        const secretsURL = '/Users/example/.secret/app_oob.enc|blowfish://default';
+        const secretsURL = 'app-oob-reference|blowfish://default';
         const res = await c.oobLogin({
             secretsURL,
             scopes: ['openid', 'profile', 'email'],
