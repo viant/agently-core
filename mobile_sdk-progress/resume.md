@@ -2149,3 +2149,16 @@ Latest local packaging/push status (2026-08-06):
   by the same credential issue.
 - Steward merged the remote SendGrid commits, re-ran the compact forecasting
   and reporting contracts, and pushed `ENG-54517` successfully as `17e2457`.
+
+Latest post-commit verification refresh (2026-08-06):
+- Agently Android auth/settings/restore unit slice, Agently Go reporting and
+  platform contracts, and Agently iOS focused foundation slice passed after
+  packaging. The iOS slice covered 34 selected tests with 0 failures.
+- Agently-core service-agent durability, Android SDK restore, and full
+  TypeScript SDK tests passed after packaging. The TS suite covered 22 files
+  and 366 tests.
+- Forge Android report-builder predicate/state/targeting tests and Forge iOS
+  report-builder/metadata tests passed after packaging. The iOS slice covered
+  27 selected tests with 0 failures.
+- Steward compact forecasting/reporting contracts passed after merging remote
+  SendGrid work and before the successful `ENG-54517` push.

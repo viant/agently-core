@@ -3513,3 +3513,38 @@ forecast-builder UI command path.
   package: Agently's historical `android-app.md`, `ios-app.md`, and
   `froge-fence.md`; Agently-core's MCP 2026 planning docs under
   `doc/mcp-2026-extension-upgrade.md` and `doc/mcp-2006/`.
+
+## 2026-08-06 Post-Commit Verification Refresh
+
+- Agently post-commit focused verification passed on local commit `719460dc`:
+  Android auth/settings/restore unit slice
+  `./gradlew :app:testDebugUnitTest --tests '*AppSettingsRuntimeTest'
+  --tests '*AuthRuntimeTest' --tests '*HostedWorkspaceRestoreTest'
+  --no-daemon --console=plain`, Go reporting registry contract
+  `go test . -run 'TestWorkspaceReporting' -count=1`, platform service
+  contract `go test ./tools/system/platform -run 'TestService_' -count=1`,
+  and the iOS foundation slice `swift test --package-path ios --filter
+  'AuthRuntimeTests|HostedWorkspacePresentationTests|ForgeAgentlyDataSourceLoaderTests|ComposerRuntimeTests|HostedWorkspacePolicyTests'`
+  all passed. The iOS slice executed 34 selected tests with 0 failures.
+- Agently-core post-commit verification passed on local commit `320207d` plus
+  progress docs commits: `go test ./service/agent -run
+  'TestServiceRunPlanAndStatus_(RecoversDurableFinalAssistantContent|EmptyResultUsesLastFailedModelCallError)'
+  -count=1`, Android SDK restore coverage `./gradlew testDebugUnitTest
+  --tests '*WorkspaceRestoreTest' --no-daemon --console=plain` from
+  `sdk/android`, and the full TypeScript SDK `npm test` from `sdk/ts`. The TS
+  suite passed 22 files and 366 tests.
+- Forge post-commit focused verification passed on local commit `1cec1ca`:
+  Android `./gradlew :sdk:testDebugUnitTest --tests
+  '*ReportBuilderPredicatesTest' --tests '*ReportBuilderStateStorageTest'
+  --tests '*TargetingTest' --no-daemon --console=plain`, followed by iOS
+  `swift test --package-path ios --filter 'ReportBuilder|MetadataResolver'`.
+  The iOS slice executed 27 selected tests with 0 failures. Android emitted
+  only existing Kotlin warnings.
+- Steward post-merge compact verification passed before push to
+  `origin/ENG-54517`: `node skills/forecast-targeting.contract.test.mjs`,
+  `node extension/forge/windows/forecastingCubeBuilder.test.js`,
+  `node extension/forge/windows/forecastingCubeBuilder.predicates.test.mjs`,
+  `node extension/forge/windows/metricReportBuilder.predicates.test.mjs`,
+  `node extension/forge/windows/reportPresetPrimitiveCoverage.test.mjs`, and
+  `node agents/steward/prompt/reportingDelivery.contract.test.mjs` with
+  `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge`.
