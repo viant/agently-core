@@ -16,8 +16,8 @@ authenticated HTTPS user `awitas_viant` receives HTTP 403 on those remotes.
 
 | Repository | Branch state | Push state |
 |---|---:|---|
-| `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 12 | Blocked by GitHub 403 |
-| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 5 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 13 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 6 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant/forge` | `origin/main` behind by 0, local ahead by 3 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward` | `origin/ENG-54517` aligned | Up to date |
 
@@ -194,6 +194,26 @@ emulator evidence.
 - Android real-device verification was not rerun for this iOS-only change
   because `adb devices -l` returned no attached devices from this shell after
   exporting the Android SDK platform-tools path.
+
+## 2026-08-06 iOS Phone Conversation UX Refresh
+
+- Updated the compact iOS conversation shell so tapping a past conversation
+  pushes the phone detail route immediately and shows an explicit
+  "Opening conversation" state until the runtime's active conversation catches
+  up. This removes the stale/quiet-tap feel when a historical conversation is
+  still loading.
+- Added a transient iOS composer `Hide Keyboard` action while the text editor
+  is focused. It calls the existing Agently keyboard-dismissal notification and
+  does not add permanent toolbar noise once focus is gone.
+- Verified the focused iOS package slice:
+  `swift test --filter
+  'AppShellBrandingTests|AppStateTargetingTests|AuthRuntimeTests|ReportRuntimeExportHandlerTests'
+  --package-path ios`; 27 tests passed, 0 failed. This recompiles the changed
+  app shell and composer code and rechecks auth/settings plus report-runtime PDF
+  export.
+- Android phone already exposes a History action and a compact keyboard-hide
+  button in the current code path, but real-device verification was not rerun
+  because `adb devices -l` still returned no attached devices from this shell.
 
 ## 2026-08-06 Post-Fetch Merge Readiness
 
