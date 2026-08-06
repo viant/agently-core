@@ -17,7 +17,7 @@ authenticated HTTPS user `awitas_viant` receives HTTP 403 on those remotes.
 | Repository | Branch state | Push state |
 |---|---:|---|
 | `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 9 | Blocked by GitHub 403 |
-| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 20 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 21 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant/forge` | `origin/main` behind by 0, local ahead by 2 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward` | `origin/ENG-54517` aligned | Up to date |
 
@@ -3932,3 +3932,20 @@ forecast-builder UI command path.
   `/Users/awitas/go/src/github.com/viant/agently-core/sdk/ts`:
   `npm test -- --run src/__tests__/client.test.ts`; 99 tests ran with 0
   failures.
+
+## 2026-08-06 Android Local Queue Verification Refresh
+
+- Rechecked repository state before running Android verification. Agently,
+  Agently-core, and Forge remain ahead-only from their public `origin/main`
+  remotes; Steward `ENG-54517` remains aligned.
+- Agently Android app verification passed from
+  `/Users/awitas/go/src/github.com/viant/agently/android`:
+  `./gradlew :app:testDebugUnitTest --tests '*QueryRuntimeTest' --tests '*Auth*'
+  --tests '*Workspace*' --console=plain`. This keeps coverage on the Android
+  auth bootstrap, workspace selection, and Forecasting bridge prefill paths.
+- Forge Android SDK verification passed from
+  `/Users/awitas/go/src/github.com/viant/forge/android`:
+  `./gradlew :sdk:testDebugUnitTest --console=plain`. The run completed
+  successfully after compiling the current Forge SDK; emitted Kotlin warnings
+  were limited to existing unused-parameter / unnecessary-safe-call warnings.
+- No Steward server was left running on `:9292` after the verification pass.
