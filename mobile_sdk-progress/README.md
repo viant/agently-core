@@ -3875,3 +3875,27 @@ forecast-builder UI command path.
   `Developer OOB`; logcat showed no fatal Android runtime crash. Evidence files
   are `/tmp/agently-mobile-verify/agently-auth-required-clean-20260806.png`
   and `/tmp/agently-mobile-verify/agently-auth-required-clean-20260806.xml`.
+
+## 2026-08-06 Local Queue Push Audit
+
+- Fetched `origin --prune` for Agently, Agently-core, Forge, and Steward.
+  Agently remains ahead of `origin/main` by 8 local commits, Agently-core by 16,
+  Forge by 2, and Steward `ENG-54517` is aligned with `origin/ENG-54517`.
+- `git diff --check origin/main...HEAD` passed for Agently, Agently-core, and
+  Forge.
+- Dry-run pushes confirm the upstream blocker is GitHub authorization, not
+  branch divergence:
+  `viant/agently`, `viant/agently-core`, and `viant/forge` reject authenticated
+  user `awitas_viant` with HTTP 403. Steward dry-run push reports
+  `Everything up-to-date`.
+- Boundary scans over production Agently, Agently-core, and Forge sources found
+  no Steward line/order/report hardcoding in generic runtime paths. Forge's
+  production hits are the generic report catalog defaulting to
+  `metricReportBuilder`; Agently-core production hits are the generic auth
+  cipher/token support.
+- Cleaned the Agently iOS developer-only OOB settings example so the UI and
+  unit tests use a placeholder OOB reference instead of a home-directory-shaped
+  secret path. Verification passed with
+  `swift test --package-path ios --filter 'AuthRuntimeTests|AppStateTargetingTests'`
+  from `/Users/awitas/go/src/github.com/viant/agently`; 23 selected tests ran
+  with 0 failures.
