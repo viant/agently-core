@@ -4192,3 +4192,24 @@ forecast-builder UI command path.
   `swift test --filter ForgeIOSTests/testReportRuntime --package-path /Users/awitas/go/src/github.com/viant/forge/ios`
   and
   `swift test --filter 'ReportRuntimeExportHandlerTests|AppStateTargetingTests|ChatRuntimeTests|AppleUIBridgeControllerTests' --package-path /Users/awitas/go/src/github.com/viant/agently/ios`.
+
+## 2026-08-06 iOS Phone Hosted Workspace Navigation
+
+- Fixed the phone-only loaded-conversation escape hatch. When an old
+  conversation restores directly into a hosted Forge workspace such as
+  Forecasting, the hosted workspace now exposes an app-owned `Conversations`
+  action (`agently-conversations-back`) that returns to the conversation list
+  instead of only popping the hosted workspace layer.
+- Kept the action in Agently's phone shell. Forge remains a generic data-driven
+  UI renderer and does not know about Steward conversation navigation.
+- Added shell state coverage for compact navigation so a user-initiated return
+  to the list is not immediately undone by the persisted active conversation.
+- Updated the live phone smoke to verify the real flow: start from restored
+  hosted workspace, return to `Conversations`, start `New Chat`, focus the
+  composer, hide the keyboard, and confirm the list action remains reachable.
+- Verification passed:
+  `swift test --filter 'AppShellBrandingTests|AppStateTargetingTests|AuthRuntimeTests|ReportRuntimeExportHandlerTests'`
+  from Agently iOS, and the live iPhone simulator smoke
+  `ForecastingPrefillUITests/testPhoneShellCanReturnToConversationsAndHideKeyboard`
+  against local Steward on `http://127.0.0.1:9292` using the generated
+  xctestrun OOB test environment.
