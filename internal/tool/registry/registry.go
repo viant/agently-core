@@ -1954,6 +1954,9 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	})
 	if err != nil {
 		r.noteDiscoveryFailure(server, scope, err)
+		if shouldSkipBestEffortToolSurfaceDiscoveryError(ctx, err) {
+			return nil, nil
+		}
 		r.warnDiscoveryListIssue(server, scope, "manager_get", err, userID, useID, tokenFingerprint(token))
 		return nil, err
 	}
@@ -1979,6 +1982,9 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 			}
 		}
 		r.noteDiscoveryFailure(server, scope, err)
+		if shouldSkipBestEffortToolSurfaceDiscoveryError(ctx, err) {
+			return nil, nil
+		}
 		r.warnDiscoveryListIssue(server, scope, "list_tools", err, userID, useID, tokenFingerprint(token))
 		return nil, err
 	}
@@ -2121,6 +2127,10 @@ func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, c
 func bestEffortToolSurfaceDiscovery(ctx context.Context) bool {
 	mode, ok := runtimediscovery.ModeFromContext(ctx)
 	return ok && mode.ToolSurface && !mode.Strict
+}
+
+func shouldSkipBestEffortToolSurfaceDiscoveryError(ctx context.Context, err error) bool {
+	return bestEffortToolSurfaceDiscovery(ctx) && classifyDiscoveryError(err) == "transport"
 }
 
 func (r *Registry) discoveryClientScope(ctx context.Context, server string) string {

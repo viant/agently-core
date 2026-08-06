@@ -3548,3 +3548,32 @@ forecast-builder UI command path.
   `node extension/forge/windows/reportPresetPrimitiveCoverage.test.mjs`, and
   `node agents/steward/prompt/reportingDelivery.contract.test.mjs` with
   `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge`.
+
+## 2026-08-06 Android Forecasting Verification Refresh
+
+- Fixed Agently-core MCP discovery so non-strict tool-surface discovery treats
+  transport failures from optional/unrelated MCP servers as an empty optional
+  surface and records cooldown, instead of returning a warning/error into the
+  turn. Strict discovery and direct tool execution remain unchanged.
+- Added regression coverage in
+  `internal/tool/registry/registry_discovery_scope_test.go` for the first
+  transport failure path and the follow-up cooldown path.
+- Verification passed:
+  `go test ./internal/tool/registry -run 'TestListServerTools_|TestWithDiscoveryTimeout' -count=1`,
+  `go test ./internal/tool/registry -count=1`, and
+  `go test ./service/agent -run 'TestServiceRunPlanAndStatus_(RecoversDurableFinalAssistantContent|EmptyResultUsesLastFailedModelCallError)' -count=1`.
+- Rebuilt `/tmp/agently-mobile-verify/agently` with a temporary Go workspace
+  pointing at the local Agently and Agently-core checkouts, then restarted
+  Steward on `:9292` with
+  `STEWARD_MCP_URL=http://127.0.0.1:5002/mcp`.
+- Android emulator `emulator-5556` verified the prompt
+  `open forecast builder for line 7288336` using
+  `scripts/android-semantic-compose-replay.sh --expect Forecasting`. Server
+  logs showed `ui.window.open` for
+  `forecastingCubeBuilder__bd2cb435-4ebd-47d7-b537-c20e08259eb4`,
+  `ui.data.fetch`, and successful `ui.window.setFormData`; the Android UI tree
+  showed `Forecasting`, `Forecast Inventory`, and `Filters`.
+- Remaining verification gap: add or run a deeper native assertion for the
+  exact visible prefilled filter values and rerun the equivalent iOS phone/tablet
+  flow after the local Agently-core patch is packaged into Agently's dependency
+  path.

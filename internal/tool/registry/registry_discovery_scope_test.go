@@ -370,6 +370,49 @@ func TestListServerTools_ToolSurfaceSkipsCooldownWithoutManagerCall(t *testing.T
 	}
 }
 
+func TestListServerTools_ToolSurfaceTransportFailureReturnsEmptyAndCachesCooldown(t *testing.T) {
+	stub := &discoveryManagerStub{
+		getFunc: func(convID, server string) (mcpclient.Interface, error) {
+			return nil, errors.New(`Post "http://creative-operation.viantinc.com:5000/mcp": context deadline exceeded`)
+		},
+	}
+	reg := &Registry{
+		mgr:                stub,
+		discoveryFailTTL:   5 * time.Minute,
+		discoveryFailUntil: map[string]time.Time{},
+		discoveryFailErr:   map[string]string{},
+	}
+	ctx := memory.WithConversationID(context.Background(), "conv-shared")
+	ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true})
+
+	tools, err := reg.listServerTools(ctx, "creative")
+	if err != nil {
+		t.Fatalf("expected best-effort transport failure to be skipped, got error: %v", err)
+	}
+	if len(tools) != 0 {
+		t.Fatalf("expected no tools from skipped transport failure, got %+v", tools)
+	}
+	firstCalls := stub.getCallsSnapshot()
+	if len(firstCalls) != 1 {
+		t.Fatalf("expected first call to attempt manager Get once, got calls=%d", len(firstCalls))
+	}
+	if warnings := reg.LastWarnings(); len(warnings) != 0 {
+		t.Fatalf("expected skipped best-effort transport failure not to warn, got %+v", warnings)
+	}
+
+	tools, err = reg.listServerTools(ctx, "creative")
+	if err != nil {
+		t.Fatalf("expected best-effort cooldown to be skipped, got error: %v", err)
+	}
+	if len(tools) != 0 {
+		t.Fatalf("expected no tools from skipped cooldown, got %+v", tools)
+	}
+	secondCalls := stub.getCallsSnapshot()
+	if len(secondCalls) != 1 {
+		t.Fatalf("expected cached cooldown to avoid another manager Get, got calls=%d", len(secondCalls))
+	}
+}
+
 func TestListServerTools_StrictToolSurfaceReturnsCooldown(t *testing.T) {
 	stub := &discoveryManagerStub{}
 	reg := &Registry{
