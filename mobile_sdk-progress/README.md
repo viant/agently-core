@@ -212,6 +212,25 @@ emulator evidence.
   report, table/chart/form, and report-builder behavior aligned with the same
   generic data-driven UI boundary.
 
+## 2026-08-06 Agently App Shell Refresh
+
+- Re-ran the Agently Android app shell gate from
+  `/Users/awitas/go/src/github.com/viant/agently/android`:
+  `./gradlew :app:testDebugUnitTest :app:assembleDebug :app:assembleRelease
+  --console=plain`; build succeeded. This covers the app unit tests plus debug
+  and release packaging around local Agently-core SDK and Forge SDK modules.
+- Re-ran the Agently iOS simulator app build from
+  `/Users/awitas/go/src/github.com/viant/agently`:
+  `xcodebuild -project ios/AgentlyApp.xcodeproj -scheme AgentlyApp
+  -configuration Debug -destination 'generic/platform=iOS Simulator' build`;
+  build succeeded.
+- Re-ran the full Agently iOS foundation package:
+  `swift test --package-path ios`; 95 tests passed, 0 failed. The suite covers
+  mobile OAuth/OOB developer gating, workspace endpoint persistence, active
+  turn transcript separation, hosted workspace restore, composer lookup,
+  datasource loading, approval metadata/callback handling, and app-shell
+  branding without moving Forge rendering semantics into Agently.
+
 ## 2026-08-06 Android Local Auth And Build Rescan
 
 - Re-verified the Android app against current local Agently/Forge sources from
