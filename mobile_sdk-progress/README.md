@@ -17,7 +17,7 @@ authenticated HTTPS user `awitas_viant` receives HTTP 403 on those remotes.
 | Repository | Branch state | Push state |
 |---|---:|---|
 | `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 9 | Blocked by GitHub 403 |
-| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 23 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 24 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant/forge` | `origin/main` behind by 0, local ahead by 2 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward` | `origin/ENG-54517` aligned | Up to date |
 
@@ -4001,3 +4001,27 @@ forecast-builder UI command path.
   Steward-specific logic in Agently or generic Forge runtime code. Node emitted
   existing module-type warnings for Forge ES modules, but all contract checks
   completed successfully.
+
+## 2026-08-06 Bundle Recovery Verification
+
+- Verified the exported recovery bundles against clean base checkouts under
+  `/tmp/agently-mobile-verify/bundle-apply-check-20260806`. The public Agently
+  clone path disconnected during transfer, so Agently was verified from a fresh
+  local clone seeded only from the local repository's `refs/remotes/origin/main`
+  ref; Agently-core and Forge used fresh public read-only clones.
+- Fetched each bundle into a temporary `bundle-head` branch and confirmed the
+  original base was an ancestor:
+  - Agently bundle:
+    `/tmp/agently-mobile-verify/unpushed-queues-20260806-refresh/agently-main-ahead.bundle`
+    applied as `0 behind / 9 ahead`, head
+    `7399476826c00705c5cea975be0364dbe93ad307`.
+  - Agently-core bundle:
+    `/tmp/agently-mobile-verify/unpushed-queues-20260806-steward-contract/agently-core-main-ahead.bundle`
+    applied as `0 behind / 23 ahead`, head
+    `c769f8ac7b289f4b6aef48faf42971a12ca10e17`.
+  - Forge bundle:
+    `/tmp/agently-mobile-verify/unpushed-queues-20260806-refresh/forge-main-ahead.bundle`
+    applied as `0 behind / 2 ahead`, head
+    `c1eb82e45d8f20d615c5a5b71f74f90bdd0ed462`.
+- This proves the current handoff bundles are recoverable from upstream base
+  refs while GitHub push remains blocked by `awitas_viant` authorization.
