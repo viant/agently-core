@@ -17,7 +17,7 @@ authenticated HTTPS user `awitas_viant` receives HTTP 403 on those remotes.
 | Repository | Branch state | Push state |
 |---|---:|---|
 | `/Users/awitas/go/src/github.com/viant/agently` | `origin/main` behind by 0, local ahead by 9 | Blocked by GitHub 403 |
-| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 24 | Blocked by GitHub 403 |
+| `/Users/awitas/go/src/github.com/viant/agently-core` | `origin/main` behind by 0, local ahead by 25 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant/forge` | `origin/main` behind by 0, local ahead by 2 | Blocked by GitHub 403 |
 | `/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward` | `origin/ENG-54517` aligned | Up to date |
 
@@ -4025,3 +4025,15 @@ forecast-builder UI command path.
     `c1eb82e45d8f20d615c5a5b71f74f90bdd0ed462`.
 - This proves the current handoff bundles are recoverable from upstream base
   refs while GitHub push remains blocked by `awitas_viant` authorization.
+
+## 2026-08-06 Bundle Recovery Follow-Up
+
+- Verified the later Agently-core bundle
+  `/tmp/agently-mobile-verify/unpushed-queues-20260806-bundle-verified/agently-core-main-ahead.bundle`
+  from the clean Agently-core base checkout. It applied as `0 behind / 24 ahead`
+  and reached head `b4f605f809cb3c02ae1faf39b5a37f1fa601d0dd`.
+- Documentation-only evidence commits necessarily create a newer local
+  Agently-core head after each note is recorded. After any such note, regenerate
+  the Agently-core recovery bundle from the current local head before handoff;
+  the branch state remains ahead-only and the push blocker remains GitHub
+  authorization rather than source divergence.
