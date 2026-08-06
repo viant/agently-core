@@ -4234,3 +4234,20 @@ forecast-builder UI command path.
   shell: `adb devices -l` returned an empty attached-device list after the phone
   was reported connected. Xcode sees two physical iPhones, but both are listed
   as offline.
+
+## 2026-08-07 Android Composer Lookup and Launcher Icon
+
+- Wired Android's existing composer lookup runtime into the phone composer.
+  Starter prompts that contain registered slash lookups such as `/order` now
+  show lookup chips, label the send action as `Select <Lookup>` while required
+  selections are unresolved, open the data-driven lookup dialog, and flatten the
+  selected lookup token before submitting the prompt.
+- Kept lookup behavior generic and registry-driven. Android loads the same
+  `chat-composer:<agent>` lookup registry context used by iOS; no Steward-only
+  `/order` special case was added.
+- Added Android adaptive launcher icons using the shared Viant logo asset.
+- Verification passed:
+  `./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain` from
+  Agently Android.
+- Physical Android install remains blocked in this shell because
+  `adb devices -l` still returns no attached devices.
