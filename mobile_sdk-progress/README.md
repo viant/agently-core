@@ -3688,3 +3688,14 @@ forecast-builder UI command path.
   `BOOTSTRAP_AUTO_OOB_SIGN_IN=false`, and an empty
   `BOOTSTRAP_OOB_SECRET_REF`; debug keeps the recovery affordance available
   only after an explicit auth failure.
+- Live Android phone evidence was captured on `emulator-5556`
+  (`sdk_gphone16k_arm64`) against the current-source Steward server on
+  `:9292`. After a fresh app-data clear and first-run selection of
+  `Android Host 9292` / `http://10.0.2.2:9292`, the required-auth hierarchy
+  contained only `This workspace requires authorization.`, `Workspace
+  settings`, and `Sign in`. A banned-text scan of the dumped hierarchy returned
+  `unexpected_auth_noise=false` for `Use developer session`,
+  `Session ID or token`, `OOB`, `Use saved`, `Open workspace sign-in`, and
+  `Developer OOB`; logcat showed no fatal Android runtime crash. Evidence files
+  are `/tmp/agently-mobile-verify/agently-auth-required-clean-20260806.png`
+  and `/tmp/agently-mobile-verify/agently-auth-required-clean-20260806.xml`.
