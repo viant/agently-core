@@ -215,6 +215,32 @@ emulator evidence.
   button in the current code path, but real-device verification was not rerun
   because `adb devices -l` still returned no attached devices from this shell.
 
+## 2026-08-06 Mobile Inline Report Export And Chart Refresh
+
+- Added a native `Open PDF` action for committed inline reports on Android and
+  iOS. The action reuses the existing report-runtime PDF export contract by
+  sending the compiled inline report `reportSpec` and `reportFill`; it does not
+  create a separate mobile-only reporting path.
+- Android opens the downloaded PDF through the existing external artifact
+  opener. iOS saves the exported PDF to a temporary app file and presents it
+  with QuickLook.
+- Aligned Forge iOS chart rendering with the web/PDF smoothing behavior by
+  using monotone interpolation for native line and area marks in both dashboard
+  charts and report-builder charts. Android already renders cartesian lines
+  through Forge's monotone path helper.
+- Verified Forge iOS after the chart smoothing change:
+  `swift test --package-path ios --filter ForgeIOSTests`; 226 tests passed,
+  0 failed.
+- Verified Agently iOS after the inline PDF action:
+  `swift test --filter
+  'AppStateTargetingTests|AuthRuntimeTests|ReportRuntimeExportHandlerTests'
+  --package-path ios`; 24 tests passed, 0 failed.
+- Verified Android still compiles with the inline PDF action:
+  `./gradlew :app:compileDebugKotlin --console=plain`; build passed.
+- Android real-device verification was not rerun in this pass because
+  `adb devices -l` returned no attached devices after exporting the Android SDK
+  platform-tools path.
+
 ## 2026-08-06 Post-Fetch Merge Readiness
 
 - Refreshed Agently, Agently-core, and Forge from `origin/main`; no incoming
