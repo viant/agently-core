@@ -3579,6 +3579,9 @@ forecast-builder UI command path.
   audience ids survive into Forge `peekWindowForm()`. Verification passed with
   `./gradlew :app:testDebugUnitTest --tests '*QueryRuntimeTest' --no-daemon
   --console=plain` from `/Users/awitas/go/src/github.com/viant/agently/android`.
-- Remaining verification gap: rerun the equivalent iOS phone/tablet flow after
-  the local Agently-core patch is packaged into Agently's dependency path and,
-  if needed, add a matching iOS-native state assertion.
+- Added matching Agently iOS bridge coverage for the same Forecasting-shaped
+  `ui.window.open` + `ui.window.setFormData` contract. Verification passed with
+  `swift test --package-path ios --filter AppleUIBridgeControllerTests`, which
+  executed 2 selected tests with 0 failures.
+- Remaining verification gap: rerun the live iOS phone/tablet flow after the
+  local Agently-core patch is packaged into Agently's dependency path.
