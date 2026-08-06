@@ -4251,3 +4251,19 @@ forecast-builder UI command path.
   Agently Android.
 - Physical Android install remains blocked in this shell because
   `adb devices -l` still returns no attached devices.
+
+## 2026-08-07 Mobile Composer Lookup Completion Pass
+
+- Extended Android lookup controls to the tablet composer as well as the phone
+  composer. Both compact reply and new-conversation tablet composer modes now
+  show the same registry-driven lookup chips and `Select <Lookup>` send label
+  when a required slash lookup such as `/order` is unresolved.
+- Extracted Android lookup submission resolution into a pure helper so tests
+  prove both branches: unresolved required lookup returns the occurrence to
+  present, and selected lookup returns the flattened model prompt.
+- Verification passed:
+  `./gradlew :app:testDebugUnitTest :app:assembleDebug --console=plain` from
+  Agently Android, and `swift test --filter ComposerRuntimeTests` from Agently
+  iOS.
+- Physical Android deployment is still blocked by host device visibility:
+  after restarting `adb`, `adb devices -l` still returns no attached devices.
