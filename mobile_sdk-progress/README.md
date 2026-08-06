@@ -173,6 +173,31 @@ emulator evidence.
   `./gradlew :sdk:testDebugUnitTest --tests '*ReportBuilder*'
   --tests '*Dashboard*' --tests '*Target*' --console=plain`; build succeeded.
 
+## 2026-08-06 Shared Core Contract Refresh
+
+- Re-ran the Agently-core SDK parity/canonical surface lane:
+  `go test ./sdk -run
+  'TestMobileSDKPublicSurfacesCoverClientContract|TestCanonical|Test.*Reporting|Test.*Transcript|Test.*HTTP'
+  -count=1`; package passed. This refreshes the public mobile SDK contract,
+  canonical transcript/rendered-content handling, and reporting client
+  wrappers used by native apps.
+- Re-ran mobile OAuth/token auth coverage:
+  `go test ./service/auth -run 'Test.*OAuth|Test.*Mobile|Test.*Token'
+  -count=1`; package passed. This covers OAuth mobile redirect handling,
+  OAuth config metadata, token-store canonicalization, and accepted mobile
+  auth scopes.
+- Re-ran Forge window loader/registry coverage in Agently-core:
+  `go test ./service/ui/window/... -run
+  'Test.*(Target|Override|Import|Mobile|Registry|Window|Loader)' -count=1`;
+  packages passed. This refreshes `$import`/subfolder loading,
+  platform/target override preservation, mobile client registry lookup, and
+  queued window/event behavior without Steward-specific code.
+- Re-ran reporting/reporting-run durability coverage:
+  `go test ./service/reporting ./service/reportingrun -run
+  'Test.*(Export|Run|Report|Active|Compile|Worker|Memory)' -count=1`;
+  packages passed. This keeps dashboard/report export compatibility and active
+  report-run state aligned beneath web and mobile clients.
+
 ## 2026-08-06 Android Local Auth And Build Rescan
 
 - Re-verified the Android app against current local Agently/Forge sources from
