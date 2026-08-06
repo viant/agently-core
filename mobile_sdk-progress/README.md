@@ -198,6 +198,20 @@ emulator evidence.
   packages passed. This keeps dashboard/report export compatibility and active
   report-run state aligned beneath web and mobile clients.
 
+## 2026-08-06 Full Forge Native Package Refresh
+
+- Re-ran the full Forge iOS package:
+  `swift test --package-path ios`; 224 tests passed, 0 failed. This covers the
+  broader native surface beyond focused report-builder filters, including
+  fence parsing, transcript envelopes, inline report compilation, dashboard
+  compatibility, tables, charts, forms, dialogs, datasource runtime, target
+  metadata, and report-builder metadata/runtime behavior.
+- Re-ran the full Forge Android SDK unit suite:
+  `./gradlew :sdk:testDebugUnitTest --console=plain`; build succeeded. This
+  keeps Android's native Forge parser, runtime, targeting, dashboard, inline
+  report, table/chart/form, and report-builder behavior aligned with the same
+  generic data-driven UI boundary.
+
 ## 2026-08-06 Android Local Auth And Build Rescan
 
 - Re-verified the Android app against current local Agently/Forge sources from
