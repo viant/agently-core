@@ -3573,7 +3573,12 @@ forecast-builder UI command path.
   `forecastingCubeBuilder__bd2cb435-4ebd-47d7-b537-c20e08259eb4`,
   `ui.data.fetch`, and successful `ui.window.setFormData`; the Android UI tree
   showed `Forecasting`, `Forecast Inventory`, and `Filters`.
-- Remaining verification gap: add or run a deeper native assertion for the
-  exact visible prefilled filter values and rerun the equivalent iOS phone/tablet
-  flow after the local Agently-core patch is packaged into Agently's dependency
-  path.
+- Added Agently Android bridge coverage for the exact Forecasting-shaped
+  `ui.window.setFormData` payload: `reportBuilderRef=forecastingCubeBuilder`,
+  `prefill.includeCountry`, PMP deals, postal codes, and scoped ad-order /
+  audience ids survive into Forge `peekWindowForm()`. Verification passed with
+  `./gradlew :app:testDebugUnitTest --tests '*QueryRuntimeTest' --no-daemon
+  --console=plain` from `/Users/awitas/go/src/github.com/viant/agently/android`.
+- Remaining verification gap: rerun the equivalent iOS phone/tablet flow after
+  the local Agently-core patch is packaged into Agently's dependency path and,
+  if needed, add a matching iOS-native state assertion.
