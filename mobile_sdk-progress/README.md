@@ -231,6 +231,43 @@ emulator evidence.
   datasource loading, approval metadata/callback handling, and app-shell
   branding without moving Forge rendering semantics into Agently.
 
+## 2026-08-06 Steward Workspace Contract Refresh
+
+- Re-scanned the Steward workspace Forge extension at
+  `/Users/awitas/go/src/github.com/viant-internal/steward_ai/deployment/steward`.
+  The workspace owns business-specific report-builder metadata, hooks,
+  prompts, and tool instructions. Generic `$import`, target override loading,
+  predicate lowering, and mobile rendering behavior remain in Forge or
+  Agently-core.
+- Re-ran Forecasting report-builder predicate/prefill parity with local Forge:
+  `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge node
+  extension/forge/windows/forecastingCubeBuilder.predicates.test.mjs`;
+  passed. This covers canonical/lowered predicates, hook and seam-only prefill
+  paths, `scopeParams`, lookup fallback, stale-scope replacement, and request
+  parity for channel/date/scope/include/exclude fields.
+- Re-ran Metric report-builder predicate/prefill parity with local Forge:
+  `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge node
+  extension/forge/windows/metricReportBuilder.predicates.test.mjs`; passed.
+  This covers targeting predicates, hook mapping, seam-only fallback prefill,
+  and request parity across channel/date/scope/inventory/targeting filters.
+- Re-ran shared endpoint dataset preservation:
+  `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge node
+  extension/forge/windows/metricReportBuilder.sharedEndpointDatasets.test.mjs`;
+  passed.
+- Re-ran audience forecast dashboard export compatibility:
+  `FORGE_ROOT=/Users/awitas/go/src/github.com/viant/forge node
+  templates/audienceForecastDashboard.contract.test.mjs`; passed with
+  `GREEN audience forecast dashboard export contract`.
+- Re-ran prompt/window/preset contracts:
+  `node skills/forecast-targeting.contract.test.mjs`,
+  `node agents/steward/prompt/reportingDelivery.contract.test.mjs`,
+  `node extension/forge/windows/metricReportBuilder.windowParams.test.mjs`,
+  and `node extension/forge/windows/reportPresetPrimitiveCoverage.test.mjs`;
+  all exited successfully. `reportingDelivery` reported 69 checks.
+- The Node runs emitted only existing `MODULE_TYPELESS_PACKAGE_JSON` warnings
+  from importing local Forge ES modules without package-level `"type":
+  "module"`; no contract failed and the Steward worktree remained clean.
+
 ## 2026-08-06 Android Local Auth And Build Rescan
 
 - Re-verified the Android app against current local Agently/Forge sources from
