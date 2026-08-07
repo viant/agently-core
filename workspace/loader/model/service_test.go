@@ -42,6 +42,11 @@ func TestService_Load(t *testing.T) {
 			expectedJSON: `{"id":"qwen-local","description":"Local Qwen model","options":{"model":"qwen2.5:14b","provider":"ollama","url":"http://127.0.0.1:11434","maxTokens":128,"keepAlive":"30m","contextWindow":4096}}`,
 		},
 		{
+			name:         "Valid generic Bedrock model",
+			url:          "bedrock.yaml",
+			expectedJSON: `{"id":"qwen","description":"Bedrock Qwen","options":{"model":"qwen.qwen3-coder-next","provider":"bedrock","credentialsURL":"aws-bedrock-qwen|blowfish://default","region":"us-east-1"}}`,
+		},
+		{
 			name:        "Invalid URL",
 			url:         "nonexistent.yaml",
 			expectedErr: true,

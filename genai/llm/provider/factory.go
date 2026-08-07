@@ -11,6 +11,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/anthropic"
 	bedrockclaude "github.com/viant/agently-core/genai/llm/provider/bedrock/claude"
+	bedrockconverse "github.com/viant/agently-core/genai/llm/provider/bedrock/converse"
 	"github.com/viant/agently-core/genai/llm/provider/grok"
 	"github.com/viant/agently-core/genai/llm/provider/inceptionlabs"
 	"github.com/viant/agently-core/genai/llm/provider/ollama"
@@ -245,6 +246,19 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 			return nil, err
 		}
 		return client, nil
+	case ProviderBedrock:
+		bedrockOpts := []bedrockconverse.ClientOption{
+			bedrockconverse.WithRegion(options.Region),
+			bedrockconverse.WithCredentialsURL(options.CredentialsURL),
+			bedrockconverse.WithUsageListener(options.UsageListener),
+		}
+		if options.MaxTokens > 0 {
+			bedrockOpts = append(bedrockOpts, bedrockconverse.WithMaxTokens(options.MaxTokens))
+		}
+		if options.Temperature != nil {
+			bedrockOpts = append(bedrockOpts, bedrockconverse.WithTemperature(*options.Temperature))
+		}
+		return bedrockconverse.NewClient(ctx, options.Model, bedrockOpts...)
 	case ProviderInceptionLabs:
 		apiKey, err := f.apiKey(ctx, options.APIKeyURL)
 		if err != nil {

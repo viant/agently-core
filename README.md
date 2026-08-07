@@ -11,7 +11,7 @@ own Go services or exposed as a standalone HTTP API.
 ## Features
 
 - **Agent query execution** — multi-turn conversation, tool calling, streaming, and elicitation
-- **Multi-LLM support** — OpenAI, Vertex AI (Gemini + Claude), Bedrock Claude, Grok, InceptionLabs, Ollama
+- **Multi-LLM support** — OpenAI, Vertex AI (Gemini + Claude), Bedrock Converse and Claude, Grok, InceptionLabs, Ollama
 - **MCP integration** — connect MCP servers as tool providers with secure BFF/bearer auth injection
 - **A2A protocol** — agent-to-agent communication endpoints (`/.well-known/agent.json`, `/v1/api/a2a/*`)
 - **MCP tool exposure** — expose workspace tools as an MCP HTTP server (`protocol/mcp/expose`)
@@ -313,7 +313,8 @@ agently-core/
 | OpenAI | GPT-4, GPT-4o, o1, o3, o4-mini, GPT-5.x series |
 | Vertex AI (Gemini) | Gemini 2.0+, Gemini Flash |
 | Vertex AI (Claude) | Claude 3.x, 4.x |
-| Bedrock (Claude) | Claude via AWS Bedrock |
+| Bedrock | Provider-neutral Converse API (including Qwen and other open-weight models) |
+| Bedrock (Claude) | Claude via AWS Bedrock's Anthropic-native API |
 | InceptionLabs | Mercury series |
 | Grok (xAI) | Grok 4+ |
 | Ollama | Local open-source models |
