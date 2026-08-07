@@ -27,6 +27,54 @@ func TestFilterTranscriptSinceMessage_Inclusive(t *testing.T) {
 	require.Equal(t, "m4", got[1].Message[0].Id)
 }
 
+func TestEmbeddedClient_GetTranscript_HonorsExecutionInclusionFlags(t *testing.T) {
+	tests := []struct {
+		name         string
+		includeModel bool
+		includeTool  bool
+	}{
+		{name: "neither"},
+		{name: "model only", includeModel: true},
+		{name: "tool only", includeTool: true},
+		{name: "both", includeModel: true, includeTool: true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &transcriptOptionConversationClient{
+				payloadOnlyConversationClient: newPayloadOnlyConversationClient(nil),
+			}
+			client := &backendClient{conv: store}
+
+			_, err := client.GetTranscript(context.Background(), &GetTranscriptInput{
+				ConversationID:    "conversation-1",
+				IncludeModelCalls: test.includeModel,
+				IncludeToolCalls:  test.includeTool,
+			})
+			require.NoError(t, err)
+			require.NotNil(t, store.input)
+			require.Equal(t, test.includeModel, store.input.IncludeModelCal)
+			require.Equal(t, test.includeTool, store.input.IncludeToolCall)
+			require.NotNil(t, store.input.Has)
+			require.True(t, store.input.Has.IncludeModelCal)
+			require.True(t, store.input.Has.IncludeToolCall)
+		})
+	}
+}
+
+type transcriptOptionConversationClient struct {
+	*payloadOnlyConversationClient
+	input *convstore.Input
+}
+
+func (c *transcriptOptionConversationClient) GetConversation(_ context.Context, _ string, options ...convstore.Option) (*convstore.Conversation, error) {
+	c.input = &convstore.Input{}
+	for _, option := range options {
+		option(c.input)
+	}
+	return &convstore.Conversation{}, nil
+}
+
 func TestResolveElicitationPayload_ContentFallback(t *testing.T) {
 	client := &backendClient{}
 	got := client.resolveElicitationPayload(context.Background(), "elic-1", "", `{"message":"Pick one","requestedSchema":{"type":"object","properties":{"color":{"type":"string"}}}}`)

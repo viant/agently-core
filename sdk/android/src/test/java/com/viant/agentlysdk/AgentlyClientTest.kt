@@ -37,6 +37,39 @@ import kotlinx.serialization.json.put
 class AgentlyClientTest {
     private val server = MockWebServer()
 
+    @Test
+    fun `bounded get accepts an exact limit response`() {
+        server.enqueue(MockResponse().setBody("12345678"))
+        server.start()
+        val rest = RestClient(EndpointRegistry(mapOf("appAPI" to EndpointConfig(server.url("/").toString()))))
+
+        val body = rest.get("appAPI", "/bounded", maxResponseBytes = 8) { it }
+
+        assertEquals("12345678", body)
+    }
+
+    @Test
+    fun `bounded get rejects a declared oversized response`() {
+        server.enqueue(MockResponse().setBody("123456789"))
+        server.start()
+        val rest = RestClient(EndpointRegistry(mapOf("appAPI" to EndpointConfig(server.url("/").toString()))))
+
+        assertFailsWith<ResponseTooLargeException> {
+            rest.get<String>("appAPI", "/bounded", maxResponseBytes = 8) { it }
+        }
+    }
+
+    @Test
+    fun `bounded get rejects a chunked response crossing the limit`() {
+        server.enqueue(MockResponse().setChunkedBody("123456789", 2))
+        server.start()
+        val rest = RestClient(EndpointRegistry(mapOf("appAPI" to EndpointConfig(server.url("/").toString()))))
+
+        assertFailsWith<ResponseTooLargeException> {
+            rest.get<String>("appAPI", "/bounded", maxResponseBytes = 8) { it }
+        }
+    }
+
     @AfterTest
     fun tearDown() {
         server.shutdown()

@@ -3,7 +3,10 @@ package com.viant.agentlysdk
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.ResponseBody
 import okhttp3.RequestBody.Companion.toRequestBody
+import okio.Buffer
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 
 class EndpointRegistry(private val endpoints: Map<String, EndpointConfig>) {
@@ -29,7 +32,12 @@ class RestClient(
         .callTimeout(0, TimeUnit.SECONDS)
         .build()
 
-    fun <T> get(endpoint: String?, uri: String, parser: (String) -> T): T {
+    fun <T> get(
+        endpoint: String?,
+        uri: String,
+        maxResponseBytes: Long? = null,
+        parser: (String) -> T
+    ): T {
         val config = endpoints.resolve(endpoint)
             ?: error("Endpoint not found: $endpoint")
         val url = config.baseUrl.trimEnd('/') + "/" + uri.trimStart('/')
@@ -38,7 +46,7 @@ class RestClient(
             .get()
             .build()
         clientFor(config).newCall(request).execute().use { resp ->
-            val body = resp.body?.string() ?: ""
+            val body = readResponseBody(resp.body, maxResponseBytes)
             if (!resp.isSuccessful) error(httpFailureMessage("GET", url, resp.code, body))
             return parser(body)
         }
@@ -123,6 +131,44 @@ class RestClient(
 
     private fun longRunningClientFor(config: EndpointConfig): OkHttpClient =
         config.longRunningHttpClient ?: config.httpClient ?: fallbackLongRunningClient
+}
+
+class ResponseTooLargeException(
+    val maxBytes: Long
+) : IOException("HTTP response exceeds the $maxBytes byte in-memory limit")
+
+internal fun readResponseBytes(body: ResponseBody?, maxBytes: Long): ByteArray {
+    require(maxBytes >= 0) { "maxBytes must not be negative" }
+    if (body == null) {
+        return byteArrayOf()
+    }
+    val declaredLength = body.contentLength()
+    if (declaredLength > maxBytes) {
+        throw ResponseTooLargeException(maxBytes)
+    }
+    val source = body.source()
+    val buffer = Buffer()
+    var totalBytes = 0L
+    while (totalBytes <= maxBytes) {
+        val remaining = maxBytes - totalBytes
+        val readLimit = minOf(8_192L, if (remaining == Long.MAX_VALUE) Long.MAX_VALUE else remaining + 1)
+        val read = source.read(buffer, readLimit)
+        if (read == -1L) {
+            break
+        }
+        totalBytes += read
+    }
+    if (totalBytes > maxBytes) {
+        throw ResponseTooLargeException(maxBytes)
+    }
+    return buffer.readByteArray()
+}
+
+private fun readResponseBody(body: ResponseBody?, maxBytes: Long?): String {
+    if (maxBytes == null) {
+        return body?.string().orEmpty()
+    }
+    return readResponseBytes(body, maxBytes).toString(Charsets.UTF_8)
 }
 
 internal fun Request.Builder.applyEndpointConfig(config: EndpointConfig): Request.Builder {
