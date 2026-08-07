@@ -508,15 +508,16 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			}
 		}
 		out.Reporting = reportingsvc.New(reportingsvc.Options{
-			Compiler:             reportingsvc.NewReportSpecCompiler(nil),
-			Exporter:             reportingsvc.NewForgeExporter(nil),
-			Store:                reportStore,
-			ActiveRunResolver:    activeRunResolver,
-			Audit:                reportAudit,
-			Scratchpad:           reportScratchpad,
-			ScratchpadFS:         scratchpadFS,
-			TokenProvider:        b.tokenProvider,
-			ExportFromRunEnabled: out.Defaults.Reporting.ExportFromRunEnabled(),
+			Compiler:                    reportingsvc.NewReportSpecCompiler(nil),
+			Exporter:                    reportingsvc.NewForgeExporter(nil),
+			Store:                       reportStore,
+			ActiveRunResolver:           activeRunResolver,
+			Audit:                       reportAudit,
+			Scratchpad:                  reportScratchpad,
+			ScratchpadFS:                scratchpadFS,
+			TokenProvider:               b.tokenProvider,
+			ExportFromRunEnabled:        out.Defaults.Reporting.ExportFromRunEnabled(),
+			ConversationAdoptionEnabled: out.Defaults.Reporting.ConversationAdoptionEnabled(),
 		})
 	}
 	if out.Registry != nil && out.Reporting != nil {
