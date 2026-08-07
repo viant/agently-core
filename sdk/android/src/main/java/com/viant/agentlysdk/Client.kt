@@ -219,18 +219,26 @@ class AgentlyClient(
         get(buildMessagesPath(input), MessagePage.serializer())
     }
 
-    suspend fun getTranscript(input: GetTranscriptInput): ConversationStateResponse = withContext(Dispatchers.IO) {
-        get(buildTranscriptPath(input), ConversationStateResponse.serializer())
+    suspend fun getTranscript(
+        input: GetTranscriptInput,
+        maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
+    ): ConversationStateResponse = withContext(Dispatchers.IO) {
+        get(buildTranscriptPath(input), ConversationStateResponse.serializer(), maxResponseBytes)
     }
 
-    suspend fun getLiveState(conversationId: String, includeFeeds: Boolean = false): ConversationStateResponse = withContext(Dispatchers.IO) {
+    suspend fun getLiveState(
+        conversationId: String,
+        includeFeeds: Boolean = false,
+        maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
+    ): ConversationStateResponse = withContext(Dispatchers.IO) {
         val query = linkedMapOf<String, String>()
         if (includeFeeds) {
             query["includeFeeds"] = "true"
         }
         get(
             appendQuery("/v1/conversations/${encodePath(conversationId)}/live-state", query),
-            ConversationStateResponse.serializer()
+            ConversationStateResponse.serializer(),
+            maxResponseBytes
         )
     }
 
@@ -397,8 +405,14 @@ class AgentlyClient(
         )
     }
 
-    suspend fun downloadPayload(id: String): DownloadFileOutput = withContext(Dispatchers.IO) {
-        downloadBinary(appendQuery("/v1/api/payload/${encodePath(id)}", linkedMapOf("raw" to "1")))
+    suspend fun downloadPayload(
+        id: String,
+        maxBytes: Long? = null
+    ): DownloadFileOutput = withContext(Dispatchers.IO) {
+        downloadBinary(
+            appendQuery("/v1/api/payload/${encodePath(id)}", linkedMapOf("raw" to "1")),
+            maxBytes
+        )
     }
 
     suspend fun listGeneratedFiles(conversationId: String): List<GeneratedFileEntry> = withContext(Dispatchers.IO) {
@@ -527,7 +541,10 @@ class AgentlyClient(
         )
     }
 
-    fun trackConversation(conversationId: String): Flow<ConversationStreamSnapshot> = channelFlow {
+    fun trackConversation(
+        conversationId: String,
+        maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
+    ): Flow<ConversationStreamSnapshot> = channelFlow {
         val tracker = ConversationStreamTracker(conversationId)
         while (true) {
             val streamReady = CompletableDeferred<Unit>()
@@ -559,7 +576,11 @@ class AgentlyClient(
             var reconnect = false
             try {
                 streamReady.await()
-                val initialState = getLiveState(conversationId, includeFeeds = true)
+                val initialState = getLiveState(
+                    conversationId,
+                    includeFeeds = true,
+                    maxResponseBytes = maxResponseBytes
+                )
                 tracker.hydrate(initialState)
                 send(tracker.snapshot())
                 for (event in events) {
@@ -650,7 +671,7 @@ class AgentlyClient(
         body.takeIf { it.isNotBlank() } ?: "{}"
     )
 
-    private fun downloadBinary(path: String): DownloadFileOutput {
+    private fun downloadBinary(path: String, maxBytes: Long? = null): DownloadFileOutput {
         val endpoint = requireNotNull(endpointRegistry.resolve(endpointName)) {
             "Endpoint not found: $endpointName"
         }
@@ -664,7 +685,11 @@ class AgentlyClient(
             if (!response.isSuccessful) {
                 error("GET ${request.url} failed: ${response.code}")
             }
-            val body = response.body?.bytes() ?: byteArrayOf()
+            val body = if (maxBytes == null) {
+                response.body?.bytes() ?: byteArrayOf()
+            } else {
+                readResponseBytes(response.body, maxBytes)
+            }
             val disposition = response.header("Content-Disposition").orEmpty()
             val contentType = response.header("Content-Type")
             val inferredName = disposition.substringAfter("filename=", "").trim().trim('"').ifBlank {
@@ -700,8 +725,12 @@ class AgentlyClient(
     // `internal` so same-module extension files (e.g. Lookups.kt) can
     // reuse the transport without duplicating it. They are NOT part of the
     // public API — the `internal` modifier keeps them package-scoped.
-    internal fun <T> get(path: String, serializer: KSerializer<T>): T {
-        val root = parseJson(restClient.get(endpointName, path) { it })
+    internal fun <T> get(
+        path: String,
+        serializer: KSerializer<T>,
+        maxResponseBytes: Long? = null
+    ): T {
+        val root = parseJson(restClient.get(endpointName, path, maxResponseBytes) { it })
         return decode(root, serializer)
     }
 
@@ -774,6 +803,9 @@ class AgentlyClient(
         else -> error("Unsupported payload type: ${payload?.let { it::class.qualifiedName } ?: "null"}")
     }
 }
+
+const val DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES: Long = 16L * 1024 * 1024
+const val DEFAULT_MAX_PAYLOAD_RESPONSE_BYTES: Long = 1L * 1024 * 1024
 
 private fun applySessionDebug(
     endpoints: Map<String, EndpointConfig>,
