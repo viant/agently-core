@@ -1,0 +1,7 @@
+id: qwen
+description: Bedrock Qwen
+options:
+  provider: bedrock
+  model: qwen.qwen3-coder-next
+  region: us-east-1
+  credentialsURL: aws-bedrock-qwen|blowfish://default

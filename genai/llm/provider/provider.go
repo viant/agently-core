@@ -16,6 +16,9 @@ const (
 	// ProviderBedrockClaude identifies AWS Bedrock API
 	ProviderBedrockClaude = "bedrock/claude"
 
+	// ProviderBedrock identifies the provider-neutral AWS Bedrock Converse API.
+	ProviderBedrock = "bedrock"
+
 	// ProviderVertexAIClaude identifies AWS Bedrock API
 	ProviderVertexAIClaude = "vertex/claude"
 

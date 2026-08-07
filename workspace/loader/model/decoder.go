@@ -86,6 +86,10 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 			if valueNode.Kind == yaml.ScalarNode {
 				config.Options.ProjectID = strings.TrimSpace(valueNode.Value)
 			}
+		case "region":
+			if valueNode.Kind == yaml.ScalarNode {
+				config.Options.Region = strings.TrimSpace(valueNode.Value)
+			}
 		case "temperature":
 			if valueNode.Kind == yaml.ScalarNode {
 				value := valueNode.Interface()
