@@ -25,10 +25,11 @@ func TestBuilderBuild_ActiveReportRunRegistryPersistsAcrossRuntimeRebuild(t *tes
 			Enabled:         true,
 			QueueIntervalMs: int(time.Hour / time.Millisecond),
 			TransitionalWithUI: execconfig.ReportingTransitionalWithUIDefaults{
-				Admission:     "open",
-				Persistence:   "enabled",
-				ExportFromRun: "enabled",
-				Orchestration: "enabled",
+				Admission:            "open",
+				Persistence:          "enabled",
+				ExportFromRun:        "enabled",
+				Orchestration:        "enabled",
+				ConversationAdoption: "enabled",
 			},
 		},
 	}
@@ -73,6 +74,27 @@ func TestBuilderBuild_ActiveReportRunRegistryPersistsAcrossRuntimeRebuild(t *tes
 		Source:                  "prompt",
 	})
 	require.NoError(t, err)
+	manual, err := first.ReportRuns.Begin(ownerCtx, &reportingrunsvc.BeginInput{
+		Origin:         "manual",
+		UIRunRequestID: "restart-manual-request",
+	})
+	require.NoError(t, err)
+	manualCompleted, err := first.ReportRuns.Complete(ownerCtx, &reportingrunsvc.CompleteInput{
+		ReportRunID:      manual.Run.ReportRunID,
+		ExpectedRevision: manual.Run.Revision,
+		ReportSpec:       json.RawMessage(`{"kind":"reportSpec","version":1}`),
+		ReportFill:       json.RawMessage(`{"kind":"reportFill","version":1}`),
+		ReportPrint:      json.RawMessage(`{"kind":"reportPrint","version":1}`),
+	})
+	require.NoError(t, err)
+	adopted, err := first.ReportRuns.Adopt(ownerCtx, &reportingrunsvc.AdoptInput{
+		ReportRunID:             manualCompleted.ReportRunID,
+		ConversationID:          "restart-conversation",
+		ExpectedRunRevision:     manualCompleted.Revision,
+		ExpectedContextRevision: 1,
+		Source:                  "adopt",
+	})
+	require.NoError(t, err)
 	cancelFirst()
 
 	secondCtx, cancelSecond := context.WithCancel(context.Background())
@@ -91,9 +113,10 @@ func TestBuilderBuild_ActiveReportRunRegistryPersistsAcrossRuntimeRebuild(t *tes
 	require.NoError(t, err)
 	var active reportingsvc.ActiveReportRun
 	require.NoError(t, json.Unmarshal([]byte(raw), &active))
-	require.Equal(t, completed.ReportRunID, active.ReportRunID)
-	require.Equal(t, completed.Revision, active.Revision)
-	require.Equal(t, "report-run://"+completed.ReportRunID, active.ArtifactRef)
+	require.Equal(t, adopted.Run.ReportRunID, active.ReportRunID)
+	require.Equal(t, adopted.Run.Revision, active.Revision)
+	require.Equal(t, "report-run://"+adopted.Run.ReportRunID, active.ArtifactRef)
+	require.Equal(t, "manual", active.Origin)
 	require.NotContains(t, raw, "restart-owner")
 	require.NotContains(t, raw, "reportSpec")
 }
