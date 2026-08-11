@@ -1158,8 +1158,19 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 		CreatedAt:    s.now().UTC(),
 		RetentionTTL: request.RetentionTTL,
 	}
+	completionDiagnostics := cloneDiagnostics(request.Diagnostics)
 	if err := s.publishArtifactToScratchpad(ctx, artifact); err != nil {
-		return nil, err
+		// Scratchpad is a convenience handoff channel, not the authoritative
+		// artifact store. Native clients download the trusted persisted bytes
+		// directly, so a temporary external-store/auth failure must not discard
+		// an otherwise valid export.
+		artifact.SourceURL = ""
+		completionDiagnostics = append(completionDiagnostics, Diagnostic{
+			Code:         "scratchpad_publish_unavailable",
+			Severity:     "warning",
+			Message:      "The export completed, but its scratchpad handoff is temporarily unavailable.",
+			SuggestedFix: "Download the artifact directly or retry the scratchpad handoff later.",
+		})
 	}
 	if runStore, ok := s.store.(RunExportStore); ok {
 		completedAt := s.now().UTC()
@@ -1167,7 +1178,7 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 			ctx,
 			job.JobID,
 			artifact,
-			cloneDiagnostics(request.Diagnostics),
+			completionDiagnostics,
 			completedAt,
 			request.RetentionTTL,
 		)
@@ -1207,7 +1218,7 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 	completedAt := s.now().UTC()
 	job.Status = JobStatusSucceeded
 	job.ArtifactID = artifact.ArtifactID
-	job.Diagnostics = cloneDiagnostics(request.Diagnostics)
+	job.Diagnostics = completionDiagnostics
 	job.CompletedAt = &completedAt
 	job.RetentionTTL = request.RetentionTTL
 	if err := s.store.UpdateJob(ctx, job); err != nil {
@@ -1543,7 +1554,21 @@ func (s *Service) GetArtifact(ctx context.Context, artifactID string) (*Artifact
 	if !isCompletedArtifactVisibleToActor(ctx, artifact, job, s.now().UTC()) {
 		return nil, ErrNotFound
 	}
-	return s.enrichArtifactWithScratchpad(ctx, artifact)
+	expanded, err := s.enrichArtifactWithScratchpad(ctx, artifact)
+	if err == nil {
+		return expanded, nil
+	}
+	// Scratchpad publication is an optional handoff optimization. A completed
+	// export already persisted with bytes must remain directly downloadable
+	// when the external scratchpad store is temporarily unavailable or
+	// misconfigured. This is especially important for native clients, which
+	// request the trusted includeData path and do not need a scratchpad URL.
+	if len(artifact.Data) > 0 {
+		fallback := cloneArtifact(artifact)
+		fallback.SourceURL = ""
+		return fallback, nil
+	}
+	return nil, err
 }
 
 func (s *Service) getArtifactTool(ctx context.Context, in, out interface{}) error {

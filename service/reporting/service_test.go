@@ -584,6 +584,58 @@ func TestServiceCompleteExportPublishesScratchpadArtifact(t *testing.T) {
 	require.Equal(t, []byte("%PDF-1.7 scratchpad"), data)
 }
 
+func TestServiceCompleteExportKeepsDirectArtifactWhenScratchpadPublishFails(t *testing.T) {
+	now := time.Date(2026, 8, 11, 12, 30, 0, 0, time.UTC)
+	fs := afs.New()
+	// /dev/null is a file, so creating a child artifacts directory fails
+	// deterministically without depending on network credentials.
+	root := "file:///dev/null/${userID}"
+	afsscratchpad.Register(
+		afsscratchpad.WithAFS(fs),
+		afsscratchpad.WithRootURI(root),
+		afsscratchpad.WithAllowedTargetSchemes("file"),
+	)
+	scratch := afsscratchpad.New(
+		afsscratchpad.WithAFS(fs),
+		afsscratchpad.WithRootURI(root),
+		afsscratchpad.WithAllowedTargetSchemes("file"),
+	)
+	id := 0
+	svc := New(Options{
+		Store: NewStoreAdapter(reportmemory.New()), Scratchpad: scratch, ScratchpadFS: fs,
+		Now: func() time.Time { return now },
+		NewID: func() string {
+			id++
+			if id == 1 {
+				return "job-direct"
+			}
+			return "artifact-direct"
+		},
+	})
+	ownerCtx := authsvc.InjectUser(context.Background(), "owner-direct")
+	job, err := svc.SubmitExport(ownerCtx, &SubmitExportRequest{
+		ArtifactRef: "report://draft/direct", Format: ExportFormatPDF,
+		Scope: ExportScopeDraft, ReportPrint: json.RawMessage(validTestReportPrintJSON()),
+	})
+	require.NoError(t, err)
+	_, err = svc.StartExport(ownerCtx, job.JobID)
+	require.NoError(t, err)
+
+	completed, err := svc.CompleteExport(ownerCtx, &CompleteExportRequest{
+		JobID: job.JobID, Data: []byte("%PDF-1.7 direct"),
+	})
+	require.NoError(t, err)
+	require.Equal(t, JobStatusSucceeded, completed.Status)
+	require.Empty(t, completed.Error)
+	require.Len(t, completed.Diagnostics, 1)
+	require.Equal(t, "scratchpad_publish_unavailable", completed.Diagnostics[0].Code)
+
+	artifact, err := svc.GetArtifact(ownerCtx, completed.ArtifactID)
+	require.NoError(t, err)
+	require.Empty(t, artifact.SourceURL)
+	require.Equal(t, []byte("%PDF-1.7 direct"), artifact.Data)
+}
+
 func TestServiceSubmitExportResolvesReportSource(t *testing.T) {
 	now := time.Date(2026, 6, 24, 14, 0, 0, 0, time.UTC)
 	idCount := 0

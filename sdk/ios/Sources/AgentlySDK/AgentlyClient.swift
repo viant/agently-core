@@ -171,11 +171,15 @@ public final class AgentlyClient: Sendable {
         return try await get("/v1/conversations/\(encodePath(conversationID))/live-state", query: query, as: ConversationStateResponse.self)
     }
 
-    public func getTranscript(_ input: GetTranscriptInput) async throws -> ConversationStateResponse {
+    public func getTranscript(
+        _ input: GetTranscriptInput,
+        maxResponseBytes: Int64? = nil
+    ) async throws -> ConversationStateResponse {
         let encodedConversationID = encodePath(input.conversationID)
         return try await get(
             "/v1/conversations/\(encodedConversationID)/transcript",
             query: queryItems(from: input).filter { $0.name != "conversationId" },
+            maxResponseBytes: maxResponseBytes,
             as: ConversationStateResponse.self
         )
     }
@@ -629,8 +633,19 @@ public final class AgentlyClient: Sendable {
     // access is the narrowest level that still works across files in
     // Swift — extensions cannot reach `private` declarations even
     // within the same module.
-    func get<T: Decodable>(_ path: String, query: [URLQueryItem] = [], as type: T.Type) async throws -> T {
-        try await rawRequest(path: path, method: "GET", query: query, as: type)
+    func get<T: Decodable>(
+        _ path: String,
+        query: [URLQueryItem] = [],
+        maxResponseBytes: Int64? = nil,
+        as type: T.Type
+    ) async throws -> T {
+        try await rawRequest(
+            path: path,
+            method: "GET",
+            query: query,
+            maxResponseBytes: maxResponseBytes,
+            as: type
+        )
     }
 
     func post<Body: Encodable, T: Decodable>(_ path: String, body: Body, as type: T.Type) async throws -> T {
@@ -672,6 +687,7 @@ public final class AgentlyClient: Sendable {
         query: [URLQueryItem] = [],
         body: Data? = nil,
         contentType: String = "application/json",
+        maxResponseBytes: Int64? = nil,
         as type: T.Type
     ) async throws -> T {
         let builder = RequestBuilder(endpoint: try endpoint(), encoder: encoder)
@@ -683,7 +699,23 @@ public final class AgentlyClient: Sendable {
             contentType: contentType
         )
         applyStoredSessionCookies(to: &request)
-        let (data, response) = try await session.data(for: request)
+        let data: Data
+        let response: URLResponse
+        if let maxResponseBytes, maxResponseBytes > 0 {
+            let (downloadURL, downloadResponse) = try await session.download(for: request)
+            response = downloadResponse
+            if downloadResponse.expectedContentLength > maxResponseBytes {
+                throw AgentlySDKError.responseTooLarge(maxResponseBytes)
+            }
+            let fileSize = (try? downloadURL.resourceValues(forKeys: [.fileSizeKey]).fileSize)
+                .map(Int64.init) ?? 0
+            if fileSize > maxResponseBytes {
+                throw AgentlySDKError.responseTooLarge(maxResponseBytes)
+            }
+            data = try Data(contentsOf: downloadURL, options: .mappedIfSafe)
+        } else {
+            (data, response) = try await session.data(for: request)
+        }
         storeSessionCookies(from: response, requestURL: request.url)
         try validate(response: response, data: data)
         return try decoder.decode(T.self, from: data)
