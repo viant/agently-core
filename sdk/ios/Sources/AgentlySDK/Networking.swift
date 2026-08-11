@@ -4,6 +4,7 @@ public enum AgentlySDKError: Error, LocalizedError, Sendable {
     case missingEndpoint(String)
     case invalidArgument(String)
     case invalidResponse
+    case responseTooLarge(Int64)
     case httpStatus(Int, String?)
     case rpcError(Int, String)
 
@@ -15,6 +16,8 @@ public enum AgentlySDKError: Error, LocalizedError, Sendable {
             return message
         case .invalidResponse:
             return "The server returned an unexpected response."
+        case .responseTooLarge(let maxBytes):
+            return "The response exceeded the mobile safety limit of \(maxBytes) bytes."
         case .httpStatus(let statusCode, let message):
             if let message, !message.isEmpty {
                 return "Request failed with status \(statusCode): \(message)"

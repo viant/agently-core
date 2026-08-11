@@ -348,6 +348,71 @@ class WorkspaceRestoreTest {
     }
 
     @Test
+    fun `deriveHostedWorkspaceRestoreState restores hosted order from latest ui context`() {
+        val context = buildJsonObject {
+            put("focusedWindowId", "chat/new")
+            put("selected", buildJsonObject { put("windowId", "chat/new") })
+            put("windows", kotlinx.serialization.json.buildJsonArray {
+                add(buildJsonObject {
+                    put("window", buildJsonObject {
+                        put("windowId", "chat/new")
+                        put("windowKey", "chat/new")
+                    })
+                })
+                add(buildJsonObject {
+                    put("window", buildJsonObject {
+                        put("windowId", "order__conv-1")
+                        put("conversationId", "conv-1")
+                        put("windowKey", "order")
+                        put("windowTitle", "Frisco - Display (2688386)")
+                        put("presentation", "hosted")
+                        put("region", "chat.top")
+                        put("parentKey", "chat/new")
+                        put("parameters", buildJsonObject {
+                            put("AdOrderId", kotlinx.serialization.json.buildJsonArray { add(JsonPrimitive(2688386)) })
+                        })
+                        put("windowForm", buildJsonObject {
+                            put("periodView", "today")
+                            put("granularity", "hour")
+                        })
+                    })
+                })
+            })
+        }
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(
+                    TurnState(
+                        turnId = "turn-2",
+                        execution = ExecutionState(
+                            pages = listOf(
+                                ExecutionPageState(
+                                    pageId = "page-2",
+                                    toolSteps = listOf(
+                                        ToolStepState(
+                                            toolCallId = "context-1",
+                                            toolName = "ui/context/get",
+                                            status = "completed",
+                                            content = context.toString()
+                                        )
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val restore = deriveHostedWorkspaceRestoreState(state)
+
+        assertEquals("chat/new", restore?.selectedWindowId)
+        assertEquals("order", restore?.windows?.lastOrNull()?.windowKey)
+        assertEquals("today", restore?.windows?.lastOrNull()?.windowForm?.get("periodView")?.jsonPrimitive?.content)
+    }
+
+    @Test
     fun `deriveHostedWorkspaceRestoreState restores hosted window from live stream snapshot`() {
         val snapshot = ConversationStreamSnapshot(
             conversationId = "conv-1",

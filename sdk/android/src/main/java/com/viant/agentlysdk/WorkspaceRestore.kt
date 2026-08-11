@@ -54,6 +54,17 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
     for (index in completedToolSteps.indices.reversed()) {
         val step = completedToolSteps[index]
         when (normalizeToolName(step.toolName)) {
+            "ui/context/get" -> {
+                val payload = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
+                val windows = hostedWorkspaceWindowsFromContextPayload(payload)
+                if (windows.isNotEmpty()) {
+                    val selected = jsonString((payload?.get("selected") as? JsonObject)?.get("windowId"))
+                        .ifBlank { jsonString(payload?.get("focusedWindowId")) }
+                        .takeIf { candidate -> windows.any { it.windowId == candidate } }
+                        ?: windows.last().windowId
+                    return HostedWorkspaceRestoreState(windows = windows, selectedWindowId = selected)
+                }
+            }
             "ui/window/list" -> {
                 val windows = hostedWorkspaceWindowsFromListPayload(
                     firstParsedPayload(step.responsePayload, step.content)
@@ -191,6 +202,14 @@ private fun isPayloadEnvelope(value: JsonElement): Boolean {
     val hasCompression = jsonString(obj["compression"]).isNotBlank() || jsonString(obj["Compression"]).isNotBlank()
     val hasDirectWorkspaceShape = obj["items"] != null || obj["windowId"] != null || obj["focusedWindowId"] != null
     return (hasInlineBody || hasCompression) && !hasDirectWorkspaceShape
+}
+
+private fun hostedWorkspaceWindowsFromContextPayload(payload: JsonObject?): List<WorkspaceWindowSnapshot> {
+    val entries = payload?.get("windows") as? JsonArray ?: return emptyList()
+    return entries.mapNotNull { entry ->
+        val wrapper = entry as? JsonObject ?: return@mapNotNull null
+        normalizeHostedWorkspaceWindow((wrapper["window"] as? JsonObject) ?: wrapper)
+    }
 }
 
 private fun hostedWorkspaceWindowsFromListPayload(raw: JsonElement?): List<WorkspaceWindowSnapshot> {

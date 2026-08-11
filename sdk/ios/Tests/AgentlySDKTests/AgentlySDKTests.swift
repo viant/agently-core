@@ -1604,6 +1604,38 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
+    func testGetTranscriptRejectsResponseAboveMobileSafetyLimit() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        URLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: [
+                    "Content-Type": "application/json",
+                    "Content-Length": "512"
+                ]
+            )!
+            return (response, Data(repeating: 0x20, count: 512))
+        }
+
+        do {
+            _ = try await client.getTranscript(
+                GetTranscriptInput(conversationID: "large-conversation"),
+                maxResponseBytes: 64
+            )
+            XCTFail("Expected the bounded transcript request to reject the response")
+        } catch AgentlySDKError.responseTooLarge(let limit) {
+            XCTAssertEqual(limit, 64)
+        }
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testPhase1AuthBackfillUsesAndroidEquivalentRoutes() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
