@@ -51,6 +51,12 @@ func handleFetchDatasource(client Backend) http.HandlerFunc {
 			httpError(w, statusForDatasourceErr(err), err)
 			return
 		}
+		if out == nil {
+			out = &api.FetchDatasourceOutput{}
+		}
+		if out.Rows == nil {
+			out.Rows = make([]map[string]interface{}, 0)
+		}
 		httpJSON(w, http.StatusOK, out)
 	}
 }

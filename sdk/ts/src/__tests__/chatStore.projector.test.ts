@@ -362,6 +362,26 @@ describe('chatStore/projector — projectConversation', () => {
         expect(it.header).toEqual({ label: 'Failed', tone: 'danger', count: 0 });
     });
 
+    it('preserves a transcript turn error when failure happens before the first execution page', () => {
+        const state = applyTranscript(fresh(), {
+            conversationId: CONV,
+            turns: [{
+                turnId: 'tn_auth_failed',
+                status: 'failed',
+                errorMessage: 'failed to start Stream: API key is required',
+                user: {
+                    messageId: 'msg_auth_failed',
+                    content: 'review local changes',
+                },
+                execution: { pages: [] },
+            }],
+        });
+
+        const row = projectConversation(state).find((entry) => entry.kind === 'iteration') as IterationRenderRow;
+        expect(row.errorMessage).toBe('failed to start Stream: API key is required');
+        expect(row.header).toEqual({ label: 'Failed', tone: 'danger', count: 0 });
+    });
+
     it('lifecycle entries render as inline entries without counting toward (N)', () => {
         let state = applyEvent(fresh(), sse({
             type: 'turn_started',

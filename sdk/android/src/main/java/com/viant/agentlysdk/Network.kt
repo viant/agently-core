@@ -45,10 +45,21 @@ class RestClient(
             .applyEndpointConfig(config)
             .get()
             .build()
-        clientFor(config).newCall(request).execute().use { resp ->
-            val body = readResponseBody(resp.body, maxResponseBytes)
-            if (!resp.isSuccessful) error(httpFailureMessage("GET", url, resp.code, body))
-            return parser(body)
+        var attempt = 0
+        while (true) {
+            try {
+                clientFor(config).newCall(request).execute().use { resp ->
+                    val body = readResponseBody(resp.body, maxResponseBytes)
+                    if (!resp.isSuccessful) error(httpFailureMessage("GET", url, resp.code, body))
+                    return parser(body)
+                }
+            } catch (err: IOException) {
+                // A pooled mobile connection can disappear after response headers but
+                // before the complete body arrives. GET is idempotent, so retry once
+                // with a fresh call; mutating requests must never use this path.
+                if (attempt > 0 || err is ResponseTooLargeException) throw err
+                attempt += 1
+            }
         }
     }
 

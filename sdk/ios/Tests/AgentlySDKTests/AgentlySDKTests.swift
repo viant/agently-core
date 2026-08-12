@@ -455,6 +455,44 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(scope["targetKey"], .string("record:12345"))
     }
 
+    func testHostedWorkspaceRestoreDecodesPersistedPayloadEnvelopes() throws {
+        let openResponse = #"{"windowId":"forecastingCubeBuilder__conv-1","selectedWindowId":"forecastingCubeBuilder__conv-1","windowKey":"reportBuilder","windowTitle":"Forecasting","conversationId":"conv-1","presentation":"hosted","region":"chat.top","parentKey":"chat/new","workspaceSharePct":72,"workspaceMinHeight":500,"parameters":{"reportBuilderRef":"forecastingCubeBuilder"},"items":[{"windowId":"forecastingCubeBuilder__conv-1","windowKey":"reportBuilder","windowTitle":"Forecasting","conversationId":"conv-1","presentation":"hosted","region":"chat.top","parentKey":"chat/new","workspaceSharePct":72,"workspaceMinHeight":500,"parameters":{"reportBuilderRef":"forecastingCubeBuilder"}}],"ok":true}"#
+        let content = try XCTUnwrap(String(data: try JSONEncoder().encode(openResponse), encoding: .utf8))
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [{
+              "turnId": "turn-1",
+              "execution": {"pages": [{
+                "pageId": "page-1",
+                "toolSteps": [{
+                  "toolCallId": "tool-open",
+                  "toolName": "ui/view/open",
+                  "status": "completed",
+                  "content": \(content),
+                  "responsePayload": {
+                    "Id": "payload-1",
+                    "InlineBody": \(content),
+                    "Compression": "none"
+                  }
+                }]
+              }]}
+            }]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        let restore = deriveHostedWorkspaceRestoreState(from: response)
+
+        XCTAssertEqual(restore?.selectedWindowId, "forecastingCubeBuilder__conv-1")
+        XCTAssertEqual(restore?.windows.first?.parameters?["reportBuilderRef"], .string("forecastingCubeBuilder"))
+    }
+
     func testHostedWorkspaceRestoreFoldsLaterWindowFormDataIntoOpenedWindow() throws {
         let json = """
         {
@@ -1568,9 +1606,11 @@ final class AgentlySDKTests: XCTestCase {
                 items.first(where: { $0.name == name })?.value
             }
 
-            XCTAssertEqual(value(for: "includeModelCalls"), "1")
-            XCTAssertEqual(value(for: "includeToolCalls"), "1")
-            XCTAssertEqual(value(for: "includeFeeds"), "1")
+            XCTAssertEqual(value(for: "includeModelCall"), "true")
+            XCTAssertEqual(value(for: "includeToolCall"), "true")
+            XCTAssertEqual(value(for: "includeFeeds"), "true")
+            XCTAssertNil(value(for: "includeModelCalls"))
+            XCTAssertNil(value(for: "includeToolCalls"))
             XCTAssertNil(value(for: "conversationId"))
             expectation.fulfill()
 

@@ -78,6 +78,12 @@ func (upstreamDeniedBackend) FetchDatasource(_ context.Context, _ *api.FetchData
 	return nil, errors.New(`{"status":"error","message":"user access denied","errors":[{"view":"tree","parameter":"SysConfig","statusCode":403,"message":"user access denied","object":[{"view":"systemconfig","parameter":"Auth","statusCode":403,"message":"user access denied"}]},{"view":"tree","parameter":"Auth","statusCode":403,"message":"user access denied"}]}`)
 }
 
+type emptyDatasourceBackend struct{ Backend }
+
+func (emptyDatasourceBackend) FetchDatasource(_ context.Context, _ *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
+	return &api.FetchDatasourceOutput{}, nil
+}
+
 func TestHandleFetchDatasource_Returns501WhenStackNotConfigured(t *testing.T) {
 	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/account/fetch", strings.NewReader("{}"))
 	req.SetPathValue("id", "account")
@@ -154,6 +160,26 @@ func TestHandleFetchDatasource_DispatchesToBackend(t *testing.T) {
 	}
 	if summary, ok := out.Metrics["summary"].(map[string]interface{}); !ok || summary["count"] != float64(1) {
 		t.Fatalf("metrics mismatch: %+v", out.Metrics)
+	}
+}
+
+func TestHandleFetchDatasource_EncodesEmptyRowsAsArray(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/empty/fetch", strings.NewReader("{}"))
+	req.SetPathValue("id", "empty")
+	w := httptest.NewRecorder()
+
+	handleFetchDatasource(emptyDatasourceBackend{})(w, req)
+
+	if w.Code != http.StatusOK {
+		t.Fatalf("want 200, got %d body=%s", w.Code, w.Body.String())
+	}
+	var body map[string]interface{}
+	if err := json.Unmarshal(w.Body.Bytes(), &body); err != nil {
+		t.Fatalf("unmarshal response: %v", err)
+	}
+	rows, ok := body["rows"].([]interface{})
+	if !ok || len(rows) != 0 {
+		t.Fatalf("want rows to be an empty JSON array, got %#v", body["rows"])
 	}
 }
 
