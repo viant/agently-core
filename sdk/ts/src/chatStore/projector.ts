@@ -163,6 +163,7 @@ export interface IterationRenderRow {
     renderKey: string;
     turnId: string;
     lifecycle: ClientLifecycle;
+    errorMessage?: string;
     turnStartedAt?: string;
     rounds: RoundRenderView[];
     elicitation?: ElicitationRenderView | null;
@@ -445,6 +446,7 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
         renderKey: turn.renderKey,
         turnId: turn.turnId,
         lifecycle: turn.lifecycle,
+        errorMessage: turn.errorMessage,
         turnStartedAt: turn.createdAt,
         rounds,
         elicitation: projectElicitation(turn.elicitation),

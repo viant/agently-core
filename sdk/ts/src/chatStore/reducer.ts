@@ -1463,6 +1463,7 @@ function mergeTranscriptTurn(
     dropMatchedPendingBootstrapTurn(state, turn, snapshotTurn);
     if (snapshotTurn.queueSeq) writeField(turn, 'queueSeq', snapshotTurn.queueSeq, 'transcript');
     if (snapshotTurn.startedByMessageId) writeField(turn, 'startedByMessageId', snapshotTurn.startedByMessageId, 'transcript');
+    if (snapshotTurn.errorMessage) writeField(turn, 'errorMessage', snapshotTurn.errorMessage, 'transcript');
 
     // Users — transcript may add missing entities; can't shrink.
     const users = snapshotTurn.users ?? (snapshotTurn.user ? [snapshotTurn.user] : []);

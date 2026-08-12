@@ -271,6 +271,8 @@ export interface ClientTurnState extends EntityIdentity {
     turnId: string;
     /** Derived/stored lifecycle (§4.3). Never set by assistant_* / model_* / tool_*. */
     lifecycle: ClientLifecycle;
+    /** Durable turn-level failure diagnostic. */
+    errorMessage?: string;
     /** User messages in this turn. Plural to support steering (§6.8). */
     users: ClientUserMessage[];
     /** Standalone non-iteration messages persisted in this turn. */
@@ -360,6 +362,7 @@ export type CanonicalTurnStatus =
 export interface CanonicalTurnState {
     turnId: string;
     status: CanonicalTurnStatus;
+    errorMessage?: string;
     user?: CanonicalUserMessageState | null;
     users?: CanonicalUserMessageState[];
     messages?: CanonicalTurnMessageState[];

@@ -15,6 +15,7 @@ import okhttp3.ResponseBody.Companion.toResponseBody
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
+import okhttp3.mockwebserver.SocketPolicy
 import okio.Buffer
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -68,6 +69,23 @@ class AgentlyClientTest {
         assertFailsWith<ResponseTooLargeException> {
             rest.get<String>("appAPI", "/bounded", maxResponseBytes = 8) { it }
         }
+    }
+
+    @Test
+    fun `get retries once when response body ends early`() {
+        server.enqueue(
+            MockResponse()
+                .setBody("incomplete response")
+                .setSocketPolicy(SocketPolicy.DISCONNECT_DURING_RESPONSE_BODY)
+        )
+        server.enqueue(MockResponse().setBody("complete response"))
+        server.start()
+        val rest = RestClient(EndpointRegistry(mapOf("appAPI" to EndpointConfig(server.url("/").toString()))))
+
+        val body = rest.get("appAPI", "/retry") { it }
+
+        assertEquals("complete response", body)
+        assertEquals(2, server.requestCount)
     }
 
     @AfterTest
@@ -187,6 +205,37 @@ class AgentlyClientTest {
         assertEquals("done", output.content)
         val request = server.takeRequest()
         assertEquals("/v1/agent/query", request.path)
+        assertEquals("long", request.getHeader("X-Test-Transport"))
+    }
+
+    @Test
+    fun `datasource fetch uses long running endpoint client`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"rows":[]}"""))
+        server.start()
+        val shortClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder().header("X-Test-Transport", "short").build())
+            }
+            .build()
+        val longRunningClient = OkHttpClient.Builder()
+            .addInterceptor { chain ->
+                chain.proceed(chain.request().newBuilder().header("X-Test-Transport", "long").build())
+            }
+            .build()
+        val client = AgentlyClient(
+            endpoints = mapOf(
+                "appAPI" to EndpointConfig(
+                    baseUrl = server.url("/").toString().trimEnd('/'),
+                    httpClient = shortClient,
+                    longRunningHttpClient = longRunningClient
+                )
+            )
+        )
+
+        client.fetchDatasource(FetchDatasourceInput(id = "report"))
+
+        val request = server.takeRequest()
+        assertEquals("/v1/api/datasources/report/fetch", request.path)
         assertEquals("long", request.getHeader("X-Test-Transport"))
     }
 
@@ -1783,6 +1832,17 @@ class AgentlyClientTest {
         val registry = server.takeRequest()
         assertEquals("/v1/api/lookups/registry?context=dialog%3Amain%2Fform", registry.path)
         assertEquals("GET", registry.method)
+    }
+
+    @Test
+    fun `fetch datasource normalizes null rows to an empty collection`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"rows":null}"""))
+        server.start()
+
+        val result = client().fetchDatasource(FetchDatasourceInput(id = "empty"))
+
+        assertEquals(emptyList(), result.rows)
+        assertEquals("/v1/api/datasources/empty/fetch", server.takeRequest().path)
     }
 
     @Test

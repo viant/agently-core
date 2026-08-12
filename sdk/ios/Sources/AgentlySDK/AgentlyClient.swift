@@ -176,9 +176,22 @@ public final class AgentlyClient: Sendable {
         maxResponseBytes: Int64? = nil
     ) async throws -> ConversationStateResponse {
         let encodedConversationID = encodePath(input.conversationID)
+        var query: [URLQueryItem] = []
+        if let since = input.since?.trimmingCharacters(in: .whitespacesAndNewlines), !since.isEmpty {
+            query.append(URLQueryItem(name: "since", value: since))
+        }
+        if input.includeModelCalls == true {
+            query.append(URLQueryItem(name: "includeModelCall", value: "true"))
+        }
+        if input.includeToolCalls == true {
+            query.append(URLQueryItem(name: "includeToolCall", value: "true"))
+        }
+        if input.includeFeeds == true {
+            query.append(URLQueryItem(name: "includeFeeds", value: "true"))
+        }
         return try await get(
             "/v1/conversations/\(encodedConversationID)/transcript",
-            query: queryItems(from: input).filter { $0.name != "conversationId" },
+            query: query,
             maxResponseBytes: maxResponseBytes,
             as: ConversationStateResponse.self
         )

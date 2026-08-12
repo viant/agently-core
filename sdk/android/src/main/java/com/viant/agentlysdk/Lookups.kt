@@ -51,6 +51,17 @@ data class FetchDatasourceOutput(
     val cache: DatasourceCacheMeta? = null
 )
 
+// Some datasource implementations naturally produce a nil Go slice for an
+// empty result, which is encoded as `rows: null`. Keep the public Android
+// contract non-null while accepting that wire representation.
+@Serializable
+private data class FetchDatasourceWireOutput(
+    val rows: List<Map<String, JsonElement>>? = null,
+    val dataInfo: Map<String, JsonElement>? = null,
+    val metrics: Map<String, JsonElement>? = null,
+    val cache: DatasourceCacheMeta? = null
+)
+
 @Serializable
 data class DatasourceCacheMeta(
     val hit: Boolean,
@@ -123,14 +134,26 @@ suspend fun AgentlyClient.fetchDatasource(
     val id = normalizedRequired(input.id, "datasource id")
     val conversationId = input.conversationId?.trim()?.takeIf { it.isNotEmpty() }
     val path = "/v1/api/datasources/${encodeSegment(id)}/fetch"
-    post(
+    // Datasource queries back report-builder charts, tables, and exports. Those
+    // requests routinely outlive the short interactive HTTP timeout for a large
+    // reporting window, so use the cancellable long-running transport just as
+    // agent queries do. Window teardown/input replacement still cancels the
+    // coroutine and underlying call; this only removes the arbitrary 30s read
+    // cutoff that left an otherwise healthy report permanently empty.
+    val response = postLongRunning(
         path,
         FetchDatasourceBody(
             inputs = input.inputs,
             cache = input.cache,
             conversationId = conversationId
         ),
-        FetchDatasourceOutput.serializer()
+        FetchDatasourceWireOutput.serializer()
+    )
+    FetchDatasourceOutput(
+        rows = response.rows.orEmpty(),
+        dataInfo = response.dataInfo,
+        metrics = response.metrics,
+        cache = response.cache
     )
 }
 
