@@ -23,6 +23,7 @@ type ConversationState struct {
 type TurnState struct {
 	TurnID              string                     `json:"turnId"`
 	Status              TurnStatus                 `json:"status"`
+	ErrorMessage        string                     `json:"errorMessage,omitempty"`
 	User                *UserMessageState          `json:"user,omitempty"`
 	Users               []*UserMessageState        `json:"users,omitempty"`
 	Messages            []*TurnMessageState        `json:"messages,omitempty"`

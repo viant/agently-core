@@ -9,7 +9,26 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/genai/llm/provider/base"
 )
+
+func TestClientImplementsMultimodalForVisionModels(t *testing.T) {
+	tests := []struct {
+		model string
+		want  bool
+	}{
+		{model: "grok-4-latest", want: true},
+		{model: "grok-4.5", want: true},
+		{model: "grok-2-vision-1212", want: true},
+		{model: "grok-code-fast-1", want: false},
+	}
+	for _, test := range tests {
+		t.Run(test.model, func(t *testing.T) {
+			client := NewClient("key", test.model)
+			assert.Equal(t, test.want, client.Implements(base.IsMultimodal))
+		})
+	}
+}
 
 // roundTripFunc allows using a function as an HTTP RoundTripper.
 type roundTripFunc func(req *http.Request) (*http.Response, error)
