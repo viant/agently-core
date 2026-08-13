@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -21,8 +22,18 @@ func (c *Client) Implements(feature string) bool {
 		return true
 	case base.CanStream:
 		return true
+	case base.IsMultimodal:
+		return c.canMultimodal()
 	}
 	return false
+}
+
+func (c *Client) canMultimodal() bool {
+	if c == nil {
+		return false
+	}
+	model := strings.ToLower(strings.TrimSpace(c.Model))
+	return strings.HasPrefix(model, "grok-4") || strings.Contains(model, "vision")
 }
 
 // publishUsageOnce notifies the usage listener exactly once per stream.
