@@ -118,6 +118,20 @@ private func applyWindowFormDataPatches(
     }
     var patchedWindows = windows
     for step in toolSteps {
+        if normalizeHostedWorkspaceToolName(step.toolName) == "ui/window/get",
+           let snapshot = hostedWorkspaceWindowFromGetStep(step) {
+            let targets = hostedWorkspaceFormPatchTargets(
+                windows: patchedWindows,
+                windowID: snapshot.windowId,
+                windowKey: snapshot.windowKey
+            )
+            if !targets.isEmpty {
+                patchedWindows = patchedWindows.map { window in
+                    targets.contains(window.windowId) ? snapshot : window
+                }
+            }
+            continue
+        }
         guard normalizeHostedWorkspaceToolName(step.toolName) == "ui/window/setformdata" else {
             continue
         }
@@ -155,6 +169,15 @@ private func applyWindowFormDataPatches(
         }
     }
     return patchedWindows
+}
+
+private func hostedWorkspaceWindowFromGetStep(
+    _ step: HostedWorkspaceToolStep
+) -> WorkspaceWindowSnapshot? {
+    guard let payload = firstParsedPayload(step.responsePayload, step.content)?.objectValue else {
+        return nil
+    }
+    return normalizeHostedWorkspaceWindow(payload["window"]?.objectValue ?? payload)
 }
 
 private func hostedWorkspaceFormPatchTargets(
@@ -277,6 +300,10 @@ private func normalizeHostedWorkspaceWindow(_ raw: [String: JSONValue]?) -> Work
     let windowID = raw["windowId"]?.stringValue ?? ""
     let windowKey = raw["windowKey"]?.stringValue ?? ""
     guard !windowID.isEmpty, !windowKey.isEmpty else { return nil }
+    var windowForm = raw["windowForm"]?.objectValue ?? [:]
+    if let metadata = raw["metadata"] {
+        windowForm["__agentlyWindowMetadata"] = metadata
+    }
     return WorkspaceWindowSnapshot(
         windowId: windowID,
         conversationId: raw["conversationId"]?.stringValue?.nonEmpty,
@@ -289,7 +316,7 @@ private func normalizeHostedWorkspaceWindow(_ raw: [String: JSONValue]?) -> Work
         workspaceMinHeight: raw["workspaceMinHeight"]?.intValue,
         inTab: raw["inTab"]?.boolValue ?? true,
         parameters: raw["parameters"]?.objectValue,
-        windowForm: raw["windowForm"]?.objectValue
+        windowForm: windowForm.isEmpty ? nil : windowForm
     )
 }
 

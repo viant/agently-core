@@ -625,6 +625,168 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(prefill["recordIds"], .array([.number(123)]))
     }
 
+    func testHostedWorkspaceRestoreUsesLaterWindowGetAsAuthoritativeLegacyFormSnapshot() throws {
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [{
+              "turnId": "turn-1",
+              "execution": {"pages": [{
+                "pageId": "page-1",
+                "toolSteps": [
+                  {
+                    "toolCallId": "tool-open",
+                    "toolName": "ui/view/open",
+                    "status": "completed",
+                    "responsePayload": {
+                      "windowId": "reportBuilder__conv-1",
+                      "conversationId": "conv-1",
+                      "windowKey": "reportBuilder",
+                      "windowTitle": "Performance Metrics",
+                      "presentation": "hosted",
+                      "region": "chat.top",
+                      "parentKey": "chat/new"
+                    }
+                  },
+                  {
+                    "toolCallId": "tool-form",
+                    "toolName": "ui/window/setFormData",
+                    "status": "completed",
+                    "requestPayload": {
+                      "Id": "compressed-request",
+                      "InlineBody": "not-json-gzip-content",
+                      "Compression": "gzip"
+                    },
+                    "responsePayload": {"ok": true}
+                  },
+                  {
+                    "toolCallId": "tool-get",
+                    "toolName": "ui/window/get",
+                    "status": "completed",
+                    "responsePayload": {
+                      "window": {
+                        "windowId": "reportBuilder__conv-1",
+                        "conversationId": "conv-1",
+                        "windowKey": "reportBuilder",
+                        "windowTitle": "Performance Metrics",
+                        "presentation": "hosted",
+                        "region": "chat.top",
+                        "parentKey": "chat/new",
+                        "parameters": {"reportBuilderRef": "metricsCubeBuilder"},
+                        "metadata": {
+                          "reportBuilder": {
+                            "builderRef": "metricsCubeBuilder",
+                            "dataSources": [
+                              {"id": "delivery_summary", "dataSourceRef": "metrics_ad_cube_report"}
+                            ]
+                          }
+                        },
+                        "windowForm": {
+                          "reportBuilder:metricsCubeBuilder": {
+                            "reportDocumentBlocks": [
+                              {"id": "overview", "kind": "sectionBlock", "title": "Overview"}
+                            ],
+                            "reportDocument": {
+                              "title": "Order Performance Report",
+                              "blocks": [
+                                {"id": "overview", "kind": "sectionBlock", "title": "Overview"}
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }]}
+            }]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        let restore = deriveHostedWorkspaceRestoreState(from: response)
+        let form = try XCTUnwrap(restore?.windows.first?.windowForm)
+        guard case .object(let builder)? = form["reportBuilder:metricsCubeBuilder"],
+              case .object(let document)? = builder["reportDocument"],
+              case .array(let blocks)? = builder["reportDocumentBlocks"] else {
+            XCTFail("Expected the authoritative report builder snapshot")
+            return
+        }
+
+        XCTAssertEqual(document["title"], .string("Order Performance Report"))
+        XCTAssertEqual(blocks.count, 1)
+        guard case .object(let metadata)? = form["__agentlyWindowMetadata"],
+              case .object(let reportBuilder)? = metadata["reportBuilder"],
+              case .array(let dataSources)? = reportBuilder["dataSources"] else {
+            XCTFail("Expected the published window metadata to survive restoration")
+            return
+        }
+        XCTAssertEqual(dataSources.count, 1)
+    }
+
+    func testHostedWorkspaceRestoreFallsBackToPlainWindowGetContentWhenPayloadIsCompressed() throws {
+        let windowGetContent = #"{"window":{"windowId":"reportBuilder__conv-1","conversationId":"conv-1","windowKey":"reportBuilder","windowTitle":"Performance Metrics","presentation":"hosted","region":"chat.top","parentKey":"chat/new","parameters":{"reportBuilderRef":"metricsCubeBuilder"},"windowForm":{"reportBuilder:metricsCubeBuilder":{"reportDocumentBlocks":[{"id":"overview","kind":"sectionBlock","title":"Overview"}],"reportDocument":{"title":"Order Performance Report","blocks":[{"id":"overview","kind":"sectionBlock","title":"Overview"}]}}}}}"#
+        let encodedContent = try XCTUnwrap(String(data: JSONEncoder().encode(windowGetContent), encoding: .utf8))
+        let json = """
+        {
+          "conversation": {
+            "conversationId": "conv-1",
+            "turns": [{
+              "turnId": "turn-1",
+              "execution": {"pages": [{
+                "pageId": "page-1",
+                "toolSteps": [
+                  {
+                    "toolCallId": "tool-open",
+                    "toolName": "ui/view/open",
+                    "status": "completed",
+                    "responsePayload": {
+                      "windowId": "reportBuilder__conv-1",
+                      "conversationId": "conv-1",
+                      "windowKey": "reportBuilder",
+                      "windowTitle": "Performance Metrics",
+                      "presentation": "hosted",
+                      "region": "chat.top",
+                      "parentKey": "chat/new"
+                    }
+                  },
+                  {
+                    "toolCallId": "tool-get",
+                    "toolName": "ui/window/get",
+                    "status": "completed",
+                    "responsePayload": {
+                      "Id": "compressed-response",
+                      "InlineBody": "not-json-gzip-content",
+                      "Compression": "gzip"
+                    },
+                    "content": \(encodedContent)
+                  }
+                ]
+              }]}
+            }]
+          }
+        }
+        """
+        let response = try JSONDecoder.agently().decode(
+            ConversationStateResponse.self,
+            from: XCTUnwrap(json.data(using: .utf8))
+        )
+
+        let restore = deriveHostedWorkspaceRestoreState(from: response)
+        let form = try XCTUnwrap(restore?.windows.first?.windowForm)
+        guard case .object(let builder)? = form["reportBuilder:metricsCubeBuilder"],
+              case .object(let document)? = builder["reportDocument"] else {
+            XCTFail("Expected the plain transcript content to restore the authored report")
+            return
+        }
+        XCTAssertEqual(document["title"], .string("Order Performance Report"))
+    }
+
     func testHostedWorkspaceRestoreDoesNotRequireAppPlacementFields() throws {
         let json = """
         {
@@ -1676,6 +1838,35 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
+    func testGetTranscriptRejectsStreamedResponseWithoutContentLengthAboveMobileSafetyLimit() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+
+        URLProtocolStub.requestHandler = { request in
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "application/json"]
+            )!
+            return (response, Data(repeating: 0x20, count: 512))
+        }
+
+        do {
+            _ = try await client.getTranscript(
+                GetTranscriptInput(conversationID: "streamed-large-conversation"),
+                maxResponseBytes: 64
+            )
+            XCTFail("Expected the streamed transcript request to enforce its byte limit")
+        } catch AgentlySDKError.responseTooLarge(let limit) {
+            XCTAssertEqual(limit, 64)
+        }
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testPhase1AuthBackfillUsesAndroidEquivalentRoutes() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
@@ -2052,6 +2243,47 @@ final class AgentlySDKTests: XCTestCase {
 
         await fulfillment(of: [expectation], timeout: 2.0)
         URLProtocolStub.requestHandler = nil
+    }
+
+    func testStreamEventsReplaysPersistentSessionCookie() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        configuration.httpCookieStorage = HTTPCookieStorage()
+        let baseURL = try XCTUnwrap(URL(string: "https://steward.agently.viantinc.com"))
+        let endpoint = EndpointConfig(baseURL: baseURL)
+        let store = AgentlyPersistentSessionCookieStore(storage: MemoryCookieStorage())
+        let cookieResponse = try XCTUnwrap(HTTPURLResponse(
+            url: baseURL,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Set-Cookie": "agently_session=session-123; Path=/; HttpOnly; Secure"]
+        ))
+        store.storeCookies(from: cookieResponse, requestURL: baseURL)
+        let client = AgentlyClient(
+            endpoints: ["appAPI": endpoint],
+            session: URLSession(configuration: configuration),
+            sessionCookieStore: store
+        )
+
+        let expectation = expectation(description: "authenticated stream request captured")
+        URLProtocolStub.requestHandler = { request in
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Cookie"), "agently_session=session-123")
+            expectation.fulfill()
+            let url = try XCTUnwrap(request.url)
+            let response = try XCTUnwrap(HTTPURLResponse(
+                url: url,
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: ["Content-Type": "text/event-stream"]
+            ))
+            return (response, Data("data: {}\n\n".utf8))
+        }
+        defer { URLProtocolStub.requestHandler = nil }
+
+        var iterator = client.streamEvents(conversationID: "conversation-1").makeAsyncIterator()
+        _ = try await iterator.next()
+
+        await fulfillment(of: [expectation], timeout: 2.0)
     }
 
     func testPhase1ToolsAndA2ABackfillRoutes() async throws {

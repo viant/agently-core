@@ -578,10 +578,14 @@ public final class AgentlyClient: Sendable {
     }
 
     public func streamEvents(conversationID: String) -> AsyncThrowingStream<SSEEvent, Error> {
-        guard let endpoint = endpoints[endpointName] else {
+        guard var endpoint = endpoints[endpointName] else {
             return AsyncThrowingStream { continuation in
                 continuation.finish(throwing: AgentlySDKError.missingEndpoint(endpointName))
             }
+        }
+        if let cookieHeader = sessionCookieStore?.cookieHeader(for: endpoint.baseURL),
+           !cookieHeader.isEmpty {
+            endpoint.headers["Cookie"] = cookieHeader
         }
         let query = agentlyPercentEncodedQuery([
             URLQueryItem(name: "conversationId", value: conversationID)
@@ -715,17 +719,25 @@ public final class AgentlyClient: Sendable {
         let data: Data
         let response: URLResponse
         if let maxResponseBytes, maxResponseBytes > 0 {
-            let (downloadURL, downloadResponse) = try await session.download(for: request)
-            response = downloadResponse
-            if downloadResponse.expectedContentLength > maxResponseBytes {
+            let (bytes, streamedResponse) = try await session.bytes(for: request)
+            response = streamedResponse
+            if streamedResponse.expectedContentLength > maxResponseBytes {
                 throw AgentlySDKError.responseTooLarge(maxResponseBytes)
             }
-            let fileSize = (try? downloadURL.resourceValues(forKeys: [.fileSizeKey]).fileSize)
-                .map(Int64.init) ?? 0
-            if fileSize > maxResponseBytes {
-                throw AgentlySDKError.responseTooLarge(maxResponseBytes)
+
+            var streamedData = Data()
+            if streamedResponse.expectedContentLength > 0 {
+                streamedData.reserveCapacity(
+                    Int(min(streamedResponse.expectedContentLength, maxResponseBytes))
+                )
             }
-            data = try Data(contentsOf: downloadURL, options: .mappedIfSafe)
+            for try await byte in bytes {
+                guard Int64(streamedData.count) < maxResponseBytes else {
+                    throw AgentlySDKError.responseTooLarge(maxResponseBytes)
+                }
+                streamedData.append(byte)
+            }
+            data = streamedData
         } else {
             (data, response) = try await session.data(for: request)
         }
