@@ -1170,6 +1170,7 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 			Severity:     "warning",
 			Message:      "The export completed, but its scratchpad handoff is temporarily unavailable.",
 			SuggestedFix: "Download the artifact directly or retry the scratchpad handoff later.",
+			Cause:        err.Error(),
 		})
 	}
 	if runStore, ok := s.store.(RunExportStore); ok {
