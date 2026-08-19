@@ -46,6 +46,11 @@ type Diagnostic struct {
 	Path         string `json:"path,omitempty"`
 	Message      string `json:"message,omitempty"`
 	SuggestedFix string `json:"suggestedFix,omitempty"`
+	// Cause contains the underlying operational error when a diagnostic is
+	// produced from a failed integration step. It is intentionally optional so
+	// existing diagnostics remain compact and do not expose implementation
+	// details unless the producer explicitly opts in.
+	Cause string `json:"cause,omitempty"`
 }
 
 const (
