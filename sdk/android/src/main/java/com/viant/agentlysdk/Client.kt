@@ -6,8 +6,10 @@ import com.viant.agentlysdk.stream.ConversationStreamTracker
 import com.viant.agentlysdk.stream.openEventStream
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.channelFlow
@@ -546,6 +548,7 @@ class AgentlyClient(
         maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
     ): Flow<ConversationStreamSnapshot> = channelFlow {
         val tracker = ConversationStreamTracker(conversationId)
+        var reconnectDelayMs = 500L
         while (true) {
             val streamReady = CompletableDeferred<Unit>()
             val events = Channel<SSEEvent>(Channel.BUFFERED)
@@ -573,8 +576,7 @@ class AgentlyClient(
                     events.close()
                 }
             }
-            var reconnect = false
-            try {
+            val retryAfterMs = try {
                 streamReady.await()
                 val initialState = getLiveState(
                     conversationId,
@@ -586,18 +588,25 @@ class AgentlyClient(
                 for (event in events) {
                     if (event.type.trim().equals("stream_overflow", ignoreCase = true)) {
                         tracker.clear()
-                        reconnect = true
                         break
                     }
                     tracker.applyEvent(event, hydrationCursor = initialState.eventCursor)
                     send(tracker.snapshot())
                 }
+                reconnectDelayMs = 500L
+                reconnectDelayMs
+            } catch (error: CancellationException) {
+                throw error
+            } catch (_: Throwable) {
+                // A mobile radio handoff or intermediary timeout must not end
+                // observation of a server-side turn that is still running.
+                val currentDelay = reconnectDelayMs
+                reconnectDelayMs = (reconnectDelayMs * 2).coerceAtMost(5_000L)
+                currentDelay
             } finally {
                 streamJob.cancelAndJoin()
             }
-            if (!reconnect) {
-                break
-            }
+            delay(retryAfterMs)
         }
     }
 
