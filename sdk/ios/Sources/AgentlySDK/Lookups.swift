@@ -220,7 +220,13 @@ public enum LookupTokens {
     /// Unknown names fall back to `${id}`.
     public static func flattenStored(_ stored: String, registry: [LookupRegistryEntry]) -> String {
         guard !stored.isEmpty else { return "" }
-        let byName: [String: LookupRegistryEntry] = Dictionary(uniqueKeysWithValues: registry.map { ($0.name, $0) })
+        // Workspace composition can surface the same lookup name more than
+        // once. Dictionary(uniqueKeysWithValues:) traps on duplicates and used
+        // to terminate iOS immediately after selecting a starter-prompt lookup.
+        // Match web/Android by deterministically letting the last entry win.
+        let byName = registry.reduce(into: [String: LookupRegistryEntry]()) { result, entry in
+            result[entry.name] = entry
+        }
         var result = stored
         for parsed in parseTokens(stored).reversed() {
             let entry = byName[parsed.name]

@@ -25,6 +25,20 @@ public struct PlannedToolCall: Codable, Sendable, Equatable {
     }
 }
 
+public struct StreamUsageState: Codable, Sendable, Equatable {
+    public let inputTokens: Int
+    public let outputTokens: Int
+    public let embeddingTokens: Int
+    public let totalTokens: Int
+
+    public init(inputTokens: Int = 0, outputTokens: Int = 0, embeddingTokens: Int = 0, totalTokens: Int = 0) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.embeddingTokens = embeddingTokens
+        self.totalTokens = totalTokens
+    }
+}
+
 public struct LiveModelStepState: Codable, Sendable, Equatable, Identifiable {
     public var id: String { modelCallID }
     public let modelCallID: String
@@ -228,6 +242,7 @@ public struct ConversationStreamSnapshot: Sendable {
     public var bufferedMessages: [BufferedStreamMessage]
     public var liveExecutionGroupsByID: [String: LiveExecutionGroup]
     public var plannerByTurnID: [String: PlannerState]
+    public var usage: StreamUsageState?
 
     public init(
         conversationID: String? = nil,
@@ -236,7 +251,8 @@ public struct ConversationStreamSnapshot: Sendable {
         pendingElicitation: PendingElicitation? = nil,
         bufferedMessages: [BufferedStreamMessage] = [],
         liveExecutionGroupsByID: [String: LiveExecutionGroup] = [:],
-        plannerByTurnID: [String: PlannerState] = [:]
+        plannerByTurnID: [String: PlannerState] = [:],
+        usage: StreamUsageState? = nil
     ) {
         self.conversationID = conversationID
         self.activeTurnID = activeTurnID
@@ -245,6 +261,7 @@ public struct ConversationStreamSnapshot: Sendable {
         self.bufferedMessages = bufferedMessages
         self.liveExecutionGroupsByID = liveExecutionGroupsByID
         self.plannerByTurnID = plannerByTurnID
+        self.usage = usage
     }
 }
 
@@ -282,6 +299,7 @@ public actor ConversationStreamTracker {
         applyFeedEvent(payload)
         applyElicitationEvent(payload)
         applyPlannerEvent(payload)
+        applyUsageEvent(payload)
         applyMessageEvent(payload)
         recordAppliedSequence(payload)
 
@@ -318,6 +336,15 @@ public actor ConversationStreamTracker {
         snapshot.bufferedMessages = sortedBufferedMessages()
         snapshot.liveExecutionGroupsByID = executionGroupsByID
         snapshot.plannerByTurnID = plannerByTurnID
+        if let persistedUsage = response.usage {
+            let input = persistedUsage.totalInputTokens ?? 0
+            let output = persistedUsage.totalOutputTokens ?? 0
+            snapshot.usage = StreamUsageState(
+                inputTokens: input,
+                outputTokens: output,
+                totalTokens: input + output
+            )
+        }
     }
 
     public func reset(conversationID: String? = nil) {
@@ -401,6 +428,10 @@ private extension ConversationStreamTracker {
         let plannerSecondPolicy: String?
         let plannerOutputPayloadID: String?
         let plannerValidated: Bool?
+        let usageInputTokens: Int?
+        let usageOutputTokens: Int?
+        let usageEmbeddingTokens: Int?
+        let usageTotalTokens: Int?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -464,6 +495,10 @@ private extension ConversationStreamTracker {
             case plannerSecondPolicy
             case plannerOutputPayloadID = "plannerOutputPayloadId"
             case plannerValidated
+            case usageInputTokens
+            case usageOutputTokens
+            case usageEmbeddingTokens
+            case usageTotalTokens
         }
 
         var resolvedMessageID: String? {
@@ -634,6 +669,25 @@ private extension ConversationStreamTracker {
         default:
             return nil
         }
+    }
+
+    func applyUsageEvent(_ payload: StreamPayload) {
+        guard payload.type.lowercased() == "usage" ||
+                payload.usageInputTokens != nil ||
+                payload.usageOutputTokens != nil ||
+                payload.usageEmbeddingTokens != nil ||
+                payload.usageTotalTokens != nil else {
+            return
+        }
+        let input = payload.usageInputTokens ?? snapshot.usage?.inputTokens ?? 0
+        let output = payload.usageOutputTokens ?? snapshot.usage?.outputTokens ?? 0
+        let embedding = payload.usageEmbeddingTokens ?? snapshot.usage?.embeddingTokens ?? 0
+        snapshot.usage = StreamUsageState(
+            inputTokens: input,
+            outputTokens: output,
+            embeddingTokens: embedding,
+            totalTokens: payload.usageTotalTokens ?? (input + output + embedding)
+        )
     }
 
     func applyMessageEvent(_ payload: StreamPayload) {

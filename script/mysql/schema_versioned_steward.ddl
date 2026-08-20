@@ -1,4 +1,6 @@
-CREATE DATABASE IF NOT EXISTS `agently_steward`;
+CREATE DATABASE IF NOT EXISTS `agently_steward`
+    CHARACTER SET utf8mb4
+    COLLATE utf8mb4_0900_ai_ci;
 USE `agently_steward`;
 
 
@@ -2410,7 +2412,7 @@ BEGIN
         CREATE TABLE IF NOT EXISTS report_run (
             report_run_id VARCHAR(255) PRIMARY KEY,
             owner_id VARCHAR(255) NOT NULL,
-            conversation_id VARCHAR(255) NULL,
+            conversation_id VARCHAR(255) COLLATE utf8mb4_0900_ai_ci NULL,
             materializer VARCHAR(64) NOT NULL,
             origin VARCHAR(64) NULL,
             builder_ref VARCHAR(255) NULL,
@@ -2445,7 +2447,7 @@ BEGIN
 
         CREATE TABLE IF NOT EXISTS conversation_report_context (
             owner_id VARCHAR(255) NOT NULL,
-            conversation_id VARCHAR(255) NOT NULL,
+            conversation_id VARCHAR(255) COLLATE utf8mb4_0900_ai_ci NOT NULL,
             active_report_run_id VARCHAR(255) NOT NULL,
             revision BIGINT NOT NULL,
             activation_source VARCHAR(64) NOT NULL DEFAULT '',

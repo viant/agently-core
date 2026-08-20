@@ -221,6 +221,7 @@ class ConversationStreamTracker(conversationId: String = "") {
     private val feeds = FeedTracker()
     private val elicitation = ElicitationTracker()
     private val planner = PlannerTracker()
+    private var usage: StreamUsageState? = null
     private var currentConversationId: String = conversationId.trim()
 
     val state: ConversationStreamSnapshot
@@ -234,7 +235,8 @@ class ConversationStreamTracker(conversationId: String = "") {
             pendingElicitation = elicitation.pending,
             bufferedMessages = messages.byId.values.toList(),
             liveExecutionGroupsById = executionGroupsById.toMap(),
-            plannerByTurnId = planner.planners
+            plannerByTurnId = planner.planners,
+            usage = usage
         )
     }
 
@@ -248,6 +250,7 @@ class ConversationStreamTracker(conversationId: String = "") {
         feeds.clear()
         elicitation.clear()
         planner.clear()
+        usage = null
         currentConversationId = ""
     }
 
@@ -263,6 +266,7 @@ class ConversationStreamTracker(conversationId: String = "") {
         feeds.applyEvent(event)
         elicitation.applyEvent(event)
         planner.applyEvent(event)
+        applyUsageEvent(event)
         val update = applyMessageEvent(messages, event)
         recordAppliedSequence(event)
         return update
@@ -287,6 +291,27 @@ class ConversationStreamTracker(conversationId: String = "") {
         maxHydratedEventSeqByTurnId = maxEventSequencesByTurnId(turns).toMutableMap()
         hydratedEventSeqsByTurnId = eventSequencesByTurnId(turns).toMutableMap()
         hydrateFeeds(response.feeds)
+        response.usage?.let { persisted ->
+            val input = persisted.totalInputTokens ?: 0
+            val output = persisted.totalOutputTokens ?: 0
+            usage = StreamUsageState(inputTokens = input, outputTokens = output, totalTokens = input + output)
+        }
+    }
+
+    private fun applyUsageEvent(event: SSEEvent) {
+        if (event.type.lowercase() != "usage" &&
+            event.usageInputTokens == null && event.usageOutputTokens == null &&
+            event.usageEmbeddingTokens == null && event.usageTotalTokens == null
+        ) return
+        val input = event.usageInputTokens ?: usage?.inputTokens ?: 0
+        val output = event.usageOutputTokens ?: usage?.outputTokens ?: 0
+        val embedding = event.usageEmbeddingTokens ?: usage?.embeddingTokens ?: 0
+        usage = StreamUsageState(
+            inputTokens = input,
+            outputTokens = output,
+            embeddingTokens = embedding,
+            totalTokens = event.usageTotalTokens ?: (input + output + embedding)
+        )
     }
 
     private fun shouldSkipHydratedPayload(event: SSEEvent, hydrationCursor: String?): Boolean {

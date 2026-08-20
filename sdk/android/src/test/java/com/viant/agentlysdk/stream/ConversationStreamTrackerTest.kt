@@ -812,4 +812,25 @@ class ConversationStreamTrackerTest {
         assertEquals(2, planner.attempt)
         assertEquals("block", planner.secondPolicy)
     }
+
+    @Test
+    fun `usage event updates cumulative stream usage`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "usage",
+                conversationId = "conv-1",
+                usageInputTokens = 120,
+                usageOutputTokens = 30,
+                usageEmbeddingTokens = 5,
+                usageTotalTokens = 155
+            )
+        )
+
+        assertEquals(120, tracker.snapshot().usage?.inputTokens)
+        assertEquals(30, tracker.snapshot().usage?.outputTokens)
+        assertEquals(5, tracker.snapshot().usage?.embeddingTokens)
+        assertEquals(155, tracker.snapshot().usage?.totalTokens)
+    }
 }

@@ -19,6 +19,13 @@ data class PlannedToolCall(
     val toolName: String? = null
 )
 
+data class StreamUsageState(
+    val inputTokens: Int = 0,
+    val outputTokens: Int = 0,
+    val embeddingTokens: Int = 0,
+    val totalTokens: Int = 0
+)
+
 @Serializable
 data class SSEEvent(
     val id: String? = null,
@@ -82,7 +89,11 @@ data class SSEEvent(
     val plannerAttempt: Int? = null,
     val plannerSecondPolicy: String? = null,
     val plannerOutputPayloadId: String? = null,
-    val plannerValidated: Boolean? = null
+    val plannerValidated: Boolean? = null,
+    val usageInputTokens: Int? = null,
+    val usageOutputTokens: Int? = null,
+    val usageEmbeddingTokens: Int? = null,
+    val usageTotalTokens: Int? = null
 )
 
 data class ActiveFeed(
@@ -187,7 +198,8 @@ data class ConversationStreamSnapshot(
     val pendingElicitation: PendingElicitation?,
     val bufferedMessages: List<BufferedMessage>,
     val liveExecutionGroupsById: LiveExecutionGroupsById,
-    val plannerByTurnId: Map<String, PlannerState> = emptyMap()
+    val plannerByTurnId: Map<String, PlannerState> = emptyMap(),
+    val usage: StreamUsageState? = null
 )
 
 data class MessageUpdate(
