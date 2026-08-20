@@ -629,6 +629,7 @@ func TestServiceCompleteExportKeepsDirectArtifactWhenScratchpadPublishFails(t *t
 	require.Empty(t, completed.Error)
 	require.Len(t, completed.Diagnostics, 1)
 	require.Equal(t, "scratchpad_publish_unavailable", completed.Diagnostics[0].Code)
+	require.Contains(t, completed.Diagnostics[0].Cause, "create artifacts root failed")
 
 	artifact, err := svc.GetArtifact(ownerCtx, completed.ArtifactID)
 	require.NoError(t, err)
