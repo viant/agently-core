@@ -347,13 +347,22 @@ describe('ConversationStreamTracker', () => {
                 status: 'running',
                 createdAt: '2026-01-01T00:00:01Z',
                 execution: {
-                    pages: [{
-                        pageId: 'stale-page',
-                        assistantMessageId: 'assistant-live',
-                        turnId: 'turn-live',
-                        status: 'completed',
-                        content: 'stale transcript execution',
-                    }],
+                    pages: [
+                        {
+                            pageId: 'assistant-sidecar',
+                            assistantMessageId: 'assistant-sidecar',
+                            turnId: 'turn-live',
+                            status: 'completed',
+                            modelSteps: [{ modelCallId: 'sidecar-model', status: 'completed' }],
+                        },
+                        {
+                            pageId: 'stale-page',
+                            assistantMessageId: 'assistant-live',
+                            turnId: 'turn-live',
+                            status: 'completed',
+                            content: 'stale transcript execution',
+                        },
+                    ],
                 },
                 assistant: {
                     final: {
@@ -404,6 +413,11 @@ describe('ConversationStreamTracker', () => {
         });
         expect(tracker.snapshot().liveExecutionGroupsById['assistant-live']).not.toMatchObject({
             content: 'stale transcript execution',
+        });
+        expect(tracker.snapshot().liveExecutionGroupsById['assistant-sidecar']).toMatchObject({
+            assistantMessageId: 'assistant-sidecar',
+            turnId: 'turn-live',
+            modelSteps: [expect.objectContaining({ modelCallId: 'sidecar-model' })],
         });
     });
 

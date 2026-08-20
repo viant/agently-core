@@ -334,12 +334,10 @@ export function reconcileFromTranscript(
             turnId === String(buf.activeTurnId || '').trim() &&
             isNonTerminalTurnStatus(turn?.status) &&
             hasBufferedTurn(buf, turnId);
-        if (preserveLiveActiveTurn) {
-            continue;
-        }
         const canonicalUser = turn?.user;
         if (canonicalUser?.messageId) {
-            buf.byId.set(String(canonicalUser.messageId).trim(), {
+            const messageId = String(canonicalUser.messageId).trim();
+            if (!preserveLiveActiveTurn || !buf.byId.has(messageId)) buf.byId.set(messageId, {
                 id: String(canonicalUser.messageId).trim(),
                 conversationId,
                 turnId,
@@ -353,7 +351,8 @@ export function reconcileFromTranscript(
         }
         const canonicalAssistant = turn?.assistant?.final;
         if (canonicalAssistant?.messageId) {
-            buf.byId.set(String(canonicalAssistant.messageId).trim(), {
+            const messageId = String(canonicalAssistant.messageId).trim();
+            const canonicalMessage = {
                 id: String(canonicalAssistant.messageId).trim(),
                 conversationId,
                 turnId,
@@ -363,13 +362,17 @@ export function reconcileFromTranscript(
                 interim: 0,
                 createdAt: String(turn?.createdAt || '').trim(),
                 status: String(turn?.status || '').trim(),
-            } as Partial<Message>);
+            } as Partial<Message>;
+            const existing = buf.byId.get(messageId);
+            buf.byId.set(messageId, preserveLiveActiveTurn && existing
+                ? mergeLiveMessageOverTranscript(canonicalMessage, existing)
+                : canonicalMessage);
         }
         const pages = Array.isArray(turn?.execution?.pages) ? turn.execution.pages : [];
         for (const page of pages) {
             const pageMessageId = String(page?.assistantMessageId || page?.pageId || '').trim();
             if (!pageMessageId) continue;
-            buf.byId.set(pageMessageId, {
+            const canonicalMessage = {
                 id: pageMessageId,
                 conversationId,
                 turnId,
@@ -380,14 +383,41 @@ export function reconcileFromTranscript(
                 interim: Boolean(page?.finalResponse) ? 0 : 1,
                 createdAt: String(page?.createdAt || turn?.createdAt || '').trim(),
                 status: String(page?.status || turn?.status || '').trim(),
-            } as Partial<Message>);
+            } as Partial<Message>;
+            const existing = buf.byId.get(pageMessageId);
+            buf.byId.set(pageMessageId, preserveLiveActiveTurn && existing
+                ? mergeLiveMessageOverTranscript(canonicalMessage, existing)
+                : canonicalMessage);
         }
         for (const m of turn.message || []) {
             if (!m?.id) continue;
             const role = (m.role || '').toLowerCase();
             if ((role === 'assistant' && m.content) || role === 'user') {
-                buf.byId.set(m.id, m);
+                const existing = buf.byId.get(m.id);
+                buf.byId.set(m.id, preserveLiveActiveTurn && existing
+                    ? mergeLiveMessageOverTranscript(m, existing)
+                    : m);
             }
         }
     }
+}
+
+function mergeLiveMessageOverTranscript(
+    transcript: Partial<Message>,
+    live: Partial<Message>,
+): Partial<Message> {
+    return {
+        ...transcript,
+        ...live,
+        content: mergeProgressiveText(transcript?.content, live?.content),
+        narration: mergeProgressiveText(transcript?.narration, live?.narration),
+        conversationId: String(live?.conversationId || transcript?.conversationId || '').trim(),
+        turnId: String(live?.turnId || transcript?.turnId || '').trim(),
+    };
+}
+
+function mergeProgressiveText(earlier: unknown, later: unknown): string {
+    const prefix = String(earlier || '');
+    const suffix = String(later || '');
+    return suffix || prefix;
 }

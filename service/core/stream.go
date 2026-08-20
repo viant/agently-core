@@ -27,6 +27,34 @@ type StreamOutput struct {
 	MessageID string            `json:"messageId,omitempty"`
 }
 
+// legacyTextDelta converts cumulative content from the legacy Response path
+// into the suffix expected by the canonical text_delta contract. Typed stream
+// events already carry deltas and do not pass through this helper.
+func legacyTextDelta(content string, output *StreamOutput, messageID string) string {
+	if content == "" || output == nil {
+		return content
+	}
+
+	var emitted strings.Builder
+	for _, event := range output.Events {
+		if event.Type != streaming.EventTypeTextDelta || event.MessageID != messageID {
+			continue
+		}
+		emitted.WriteString(event.Content)
+	}
+	previous := emitted.String()
+	if previous == "" {
+		return content
+	}
+	if strings.HasPrefix(content, previous) {
+		return content[len(previous):]
+	}
+	if strings.HasPrefix(previous, content) {
+		return ""
+	}
+	return content
+}
+
 func nop() {}
 
 // Stream handles streaming LLM responses, structuring JSON output for text chunks,
@@ -416,17 +444,18 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 	}
 	// Text → text_delta
 	if content := choice.Message.Content; content != "" {
+		messageID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 		output.Events = append(output.Events, streaming.Event{
 			Type:            streaming.EventTypeTextDelta,
 			StreamID:        streamID,
 			ConversationID:  streamID,
 			TurnID:          strings.TrimSpace(turnMeta.TurnID),
-			MessageID:       strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx)),
+			MessageID:       messageID,
 			AgentIDUsed:     strings.TrimSpace(turnMeta.Assistant),
 			UserMessageID:   strings.TrimSpace(turnMeta.ParentMessageID),
 			ParentMessageID: strings.TrimSpace(turnMeta.ParentMessageID),
 			Mode:            mode,
-			Content:         content,
+			Content:         legacyTextDelta(content, output, messageID),
 			CreatedAt:       now,
 		})
 	}

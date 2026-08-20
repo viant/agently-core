@@ -1,5 +1,5 @@
 import { ElicitationTracker, type PendingElicitation as TrackedElicitation } from './elicitation';
-import { applyExecutionStreamEventToGroups } from './executionGroups';
+import { applyExecutionStreamEventToGroups, mergeExecutionGroup } from './executionGroups';
 import { FeedTracker } from './feedTracker';
 import { compareExecutionGroups, compareTemporalEntries, firstString, temporalSequenceValue, temporalTimeValue } from './ordering';
 import {
@@ -674,13 +674,26 @@ export class ConversationStreamTracker {
                 const key = String(page?.assistantMessageId || page?.pageId || '').trim();
                 if (!key) continue;
                 const pageTurnId = String(page?.turnId || nextGroups[key]?.turnId || '').trim();
-                if (preserveLiveActiveTurn && pageTurnId === activeTurnId) continue;
-                nextGroups[key] = {
+                const transcriptGroup = {
                     ...(nextGroups[key] || {}),
                     ...page,
                     assistantMessageId: String(page?.assistantMessageId || page?.pageId || '').trim(),
                     turnId: pageTurnId,
                 };
+                if (preserveLiveActiveTurn && pageTurnId === activeTurnId) {
+                    const liveGroup = nextGroups[key];
+                    const merged = mergeExecutionGroup(transcriptGroup as LiveExecutionGroup, liveGroup);
+                    nextGroups[key] = {
+                        ...merged,
+                        narration: liveGroup?.narration,
+                        content: liveGroup?.content,
+                        status: liveGroup?.status,
+                        errorMessage: liveGroup?.errorMessage,
+                        finalResponse: liveGroup?.finalResponse,
+                    };
+                } else {
+                    nextGroups[key] = transcriptGroup as LiveExecutionGroup;
+                }
             }
             this._executionGroupsById = nextGroups;
         }

@@ -206,6 +206,26 @@ func TestService_AppendStreamEvent_PreservesWhitespaceContent(t *testing.T) {
 	assert.Equal(t, " ", out.Events[0].Content)
 }
 
+func TestLegacyTextDelta_DeduplicatesCumulativeSnapshots(t *testing.T) {
+	output := &StreamOutput{Events: []streaming.Event{
+		{Type: streaming.EventTypeTextDelta, MessageID: "assistant-1", Content: "```forge-report\n{\"version\":1"},
+	}}
+
+	assert.Equal(t, ",\"id\":\"brief\"}\n```", legacyTextDelta(
+		"```forge-report\n{\"version\":1,\"id\":\"brief\"}\n```", output, "assistant-1"))
+	assert.Equal(t, "", legacyTextDelta(
+		"```forge-report\n{\"version\":1", output, "assistant-1"))
+	assert.Equal(t, "new delta", legacyTextDelta("new delta", output, "assistant-1"))
+}
+
+func TestLegacyTextDelta_DoesNotMixMessageStreams(t *testing.T) {
+	output := &StreamOutput{Events: []streaming.Event{
+		{Type: streaming.EventTypeTextDelta, MessageID: "assistant-1", Content: "old"},
+	}}
+
+	assert.Equal(t, "new", legacyTextDelta("new", output, "assistant-2"))
+}
+
 func TestIsTransientNetworkError_Status500And503(t *testing.T) {
 	err500 := fmt.Errorf("failed to handle Stream event: OpenAI API error (status 500): server error (type=server_error)")
 	err503 := fmt.Errorf("failed to start Stream: provider unavailable (status 503)")

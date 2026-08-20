@@ -130,7 +130,7 @@ export function findExecutionStepByPayloadId(groups: Partial<ExecutionPage>[] = 
     )) || null;
 }
 
-function mergeExecutionGroup(existing: LiveExecutionGroup = {}, incoming: LiveExecutionGroup = {}): LiveExecutionGroup {
+export function mergeExecutionGroup(existing: LiveExecutionGroup = {}, incoming: LiveExecutionGroup = {}): LiveExecutionGroup {
     const toolStepsByKey = new Map<string, ToolStepState>();
     const mergedToolSteps: ToolStepState[] = [];
     const existToolSteps = existing?.toolSteps || [];
@@ -443,10 +443,24 @@ export function mergeLatestTranscriptAndLiveExecutionGroups(transcriptGroups: Li
         if (!isPresentableExecutionGroup(liveGroup)) return;
         const key = firstString(liveGroup?.assistantMessageId);
         if (!key) return;
-        // Keep the active/live execution group authoritative for its page.
-        // Transcript groups remain for older pages, but we avoid blending the
-        // active page object between transcript and SSE sources.
-        mergedById.set(key, liveGroup);
+        // A browser may attach after another client started the turn. Seed
+        // execution history from the transcript, then overlay the live page so
+        // its lifecycle/content remains authoritative without losing earlier
+        // model/tool steps.
+        const transcriptGroup = mergedById.get(key);
+        if (!transcriptGroup) {
+            mergedById.set(key, liveGroup);
+            return;
+        }
+        const merged = mergeExecutionGroup(transcriptGroup, liveGroup);
+        mergedById.set(key, {
+            ...merged,
+            narration: liveGroup?.narration,
+            content: liveGroup?.content,
+            status: liveGroup?.status,
+            errorMessage: liveGroup?.errorMessage,
+            finalResponse: liveGroup?.finalResponse,
+        });
     });
     const merged = Array.from(mergedById.values()).sort((left, right) => compareExecutionGroups(left, right));
     if (normalizedPageSize === 'all') return merged;
