@@ -2,6 +2,20 @@ import XCTest
 @testable import AgentlySDK
 
 final class AgentlySDKTests: XCTestCase {
+    func testLookupFlatteningToleratesDuplicateRegistryNames() throws {
+        let registry = try JSONDecoder().decode([LookupRegistryEntry].self, from: Data(#"""
+        [
+          {"name":"order","title":"Order","dataSource":"orders","required":true,"token":{"modelForm":"first ${id}"}},
+          {"name":"order","title":"Ad Order","dataSource":"orders-v2","required":true,"token":{"modelForm":"order ${id}"}}
+        ]
+        """#.utf8))
+
+        XCTAssertEqual(
+            LookupTokens.flattenStored(#"Troubleshoot @{order:2667501 "Order 2667501"}"#, registry: registry),
+            "Troubleshoot order 2667501"
+        )
+    }
+
     final class URLProtocolStub: URLProtocol {
         static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
 
@@ -3237,5 +3251,19 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(decoded["reasoningEffort"], .string("medium"))
         XCTAssertEqual(decoded["elicitationMode"], .string("async"))
         XCTAssertEqual(decoded["toolCallExposure"], .string("conversation"))
+    }
+
+    func testConversationStreamTrackerPreservesUsageEvents() async {
+        let tracker = ConversationStreamTracker()
+        let payload = """
+        {"type":"usage","conversationId":"conv-1","usageInputTokens":120,"usageOutputTokens":30,"usageEmbeddingTokens":5,"usageTotalTokens":155}
+        """
+
+        let snapshot = await tracker.apply(SSEEvent(data: payload))
+
+        XCTAssertEqual(snapshot.usage?.inputTokens, 120)
+        XCTAssertEqual(snapshot.usage?.outputTokens, 30)
+        XCTAssertEqual(snapshot.usage?.embeddingTokens, 5)
+        XCTAssertEqual(snapshot.usage?.totalTokens, 155)
     }
 }
