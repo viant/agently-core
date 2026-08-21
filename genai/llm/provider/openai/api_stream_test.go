@@ -40,34 +40,6 @@ func (r *recordingObserver) OnStreamDelta(_ context.Context, data []byte) error 
 	return nil
 }
 
-func TestStreamProcessor_NormalizeAlternativeAssistantDelta_UsesGlobalHistory(t *testing.T) {
-	p := &streamProcessor{state: &streamState{}}
-	p.markAssistantTextEmittedForItem("content-item-1", "Hello")
-
-	got := p.normalizeAlternativeAssistantDelta("message-item-9", "Hello world")
-	assert.Equal(t, " world", got)
-
-	p.markAssistantTextEmittedForItem("message-item-9", got)
-	got = p.normalizeAlternativeAssistantDelta("message-item-9", "Hello world")
-	assert.Equal(t, "", got)
-}
-
-func TestStreamProcessor_AlternativeTextDoesNotDoubleFeedObserver(t *testing.T) {
-	observer := &recordingObserver{}
-	p := &streamProcessor{
-		observer: observer,
-		ctx:      context.Background(),
-		state:    &streamState{},
-		events:   make(chan llm.StreamEvent, 8),
-		agg:      newStreamAggregator(),
-	}
-
-	require.True(t, p.emitAssistantTextDelta("content-item-1", "Hello"))
-	require.True(t, p.emitAssistantTextAlternative("message-item-9", "Hello world"))
-
-	require.Equal(t, []string{"Hello"}, observer.deltas)
-}
-
 // Data-driven test: verifies stream aggregation with Responses API events.
 func TestStream_ToolCalls_Aggregation(t *testing.T) {
 	testCases := []struct {
@@ -220,18 +192,23 @@ func TestStream_ResponseCompleted_PreservesToolCallsForObserver(t *testing.T) {
 	}
 }
 
-func TestStream_ResponseAlternativeTextEventsDoNotReplayAfterOutputTextDelta(t *testing.T) {
+func TestStream_ResponseSnapshotsDoNotReplayForgeOutputTextDeltas(t *testing.T) {
+	first := "```forge-report\n{\"version\":1,\"scope\":\"order_2687207\""
+	second := ",\"id\":\"order_2687207_troubleshoot\",\"sequence\":1,\"mode\":\"start\"}\n```"
+	finalText := first + second
 	lines := []string{
 		"event: response.output_text.delta",
-		`data: {"item_id":"msg_1","delta":"Hi"}`,
+		`data: {"item_id":"msg_1","delta":` + fmt.Sprintf("%q", first) + `}`,
 		"event: response.output_text.delta",
-		`data: {"item_id":"msg_1","delta":" there"}`,
+		`data: {"item_id":"msg_1","delta":` + fmt.Sprintf("%q", second) + `}`,
+		"event: response.content_part.done",
+		`data: {"item_id":"msg_1","content_part":{"type":"output_text","text":` + fmt.Sprintf("%q", finalText) + `}}`,
 		"event: response.output_item.done",
-		`data: {"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":"Hi there"}]}}`,
+		`data: {"item":{"id":"msg_1","type":"message","content":[{"type":"output_text","text":` + fmt.Sprintf("%q", finalText) + `}]}}`,
 		"event: response.message.delta",
-		`data: {"item_id":"msg_1","delta":{"content":"Hi there"}}`,
+		`data: {"item_id":"msg_1","delta":{"content":` + fmt.Sprintf("%q", finalText) + `}}`,
 		"event: response.completed",
-		`data: {"response":{"id":"resp_1","status":"completed","model":"gpt-5.4","output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"Hi there"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
+		`data: {"response":{"id":"resp_1","status":"completed","model":"gpt-5.4","output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":` + fmt.Sprintf("%q", finalText) + `}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2}}}`,
 	}
 	body := strings.Join(lines, "\n")
 	srv := newLocalServerOrSkip(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -272,10 +249,11 @@ func TestStream_ResponseAlternativeTextEventsDoNotReplayAfterOutputTextDelta(t *
 		}
 	}
 
-	assert.Equal(t, []string{"Hi", " there"}, gotTextDeltas)
-	assert.Equal(t, []string{"Hi", " there"}, observer.deltas)
+	assert.Equal(t, []string{first, second}, gotTextDeltas)
+	assert.Equal(t, []string{first, second}, observer.deltas)
+	assert.Equal(t, finalText, strings.Join(gotTextDeltas, ""))
 	if assert.NotNil(t, final) {
-		assert.Equal(t, "Hi there", llm.MessageText(final.Choices[0].Message))
+		assert.Equal(t, finalText, llm.MessageText(final.Choices[0].Message))
 	}
 }
 
@@ -721,7 +699,7 @@ func TestStream_ResponseMessageDelta(t *testing.T) {
 	}
 }
 
-func TestStream_ResponseAlternativeTextEventsEmitTypedDeltas(t *testing.T) {
+func TestStream_ResponseSnapshotEventsDoNotEmitTextDeltas(t *testing.T) {
 	testCases := []struct {
 		name           string
 		lines          []string
@@ -735,7 +713,7 @@ func TestStream_ResponseAlternativeTextEventsEmitTypedDeltas(t *testing.T) {
 				"event: response.completed",
 				`data: {"id":"resp_item_delta","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`,
 			},
-			expectedDeltas: []string{"Hello"},
+			expectedDeltas: nil,
 		},
 		{
 			name: "response.output_item.done message content",
@@ -745,7 +723,7 @@ func TestStream_ResponseAlternativeTextEventsEmitTypedDeltas(t *testing.T) {
 				"event: response.completed",
 				`data: {"id":"resp_item_done","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`,
 			},
-			expectedDeltas: []string{"Hello"},
+			expectedDeltas: nil,
 		},
 		{
 			name: "response.content_part events",
@@ -757,7 +735,7 @@ func TestStream_ResponseAlternativeTextEventsEmitTypedDeltas(t *testing.T) {
 				"event: response.completed",
 				`data: {"id":"resp_parts","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello world"}]}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`,
 			},
-			expectedDeltas: []string{"Hello", " world"},
+			expectedDeltas: nil,
 		},
 		{
 			name: "response.refusal.delta",
@@ -777,7 +755,7 @@ func TestStream_ResponseAlternativeTextEventsEmitTypedDeltas(t *testing.T) {
 				"event: response.completed",
 				`data: {"id":"resp_msg_delta","status":"completed","model":"o4-mini-2025-04-16","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"Hello"}]}],"usage":{"input_tokens":0,"output_tokens":0,"total_tokens":0}}`,
 			},
-			expectedDeltas: []string{"Hello"},
+			expectedDeltas: nil,
 		},
 	}
 
