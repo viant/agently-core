@@ -177,7 +177,7 @@ func TestShouldFallbackFromContinuation_Status404WithoutMeaningfulOutput(t *test
 	assert.False(t, shouldFallbackFromContinuation(&llm.GenerateRequest{}, err404, &StreamOutput{}))
 }
 
-func TestService_AppendStreamEvent_PreservesWhitespaceContent(t *testing.T) {
+func TestService_AppendStreamEvent_DoesNotProjectLegacySnapshotAsDelta(t *testing.T) {
 	svc := &Service{}
 	out := &StreamOutput{}
 
@@ -197,33 +197,7 @@ func TestService_AppendStreamEvent_PreservesWhitespaceContent(t *testing.T) {
 		},
 	}, out)
 	require.NoError(t, err)
-	require.Len(t, out.Events, 1)
-	assert.Equal(t, streaming.EventTypeTextDelta, out.Events[0].Type)
-	assert.Equal(t, "conv-1", out.Events[0].ConversationID)
-	assert.Equal(t, "conv-1", out.Events[0].StreamID)
-	assert.Equal(t, "turn-1", out.Events[0].TurnID)
-	assert.Equal(t, "user-1", out.Events[0].UserMessageID)
-	assert.Equal(t, " ", out.Events[0].Content)
-}
-
-func TestLegacyTextDelta_DeduplicatesCumulativeSnapshots(t *testing.T) {
-	output := &StreamOutput{Events: []streaming.Event{
-		{Type: streaming.EventTypeTextDelta, MessageID: "assistant-1", Content: "```forge-report\n{\"version\":1"},
-	}}
-
-	assert.Equal(t, ",\"id\":\"brief\"}\n```", legacyTextDelta(
-		"```forge-report\n{\"version\":1,\"id\":\"brief\"}\n```", output, "assistant-1"))
-	assert.Equal(t, "", legacyTextDelta(
-		"```forge-report\n{\"version\":1", output, "assistant-1"))
-	assert.Equal(t, "new delta", legacyTextDelta("new delta", output, "assistant-1"))
-}
-
-func TestLegacyTextDelta_DoesNotMixMessageStreams(t *testing.T) {
-	output := &StreamOutput{Events: []streaming.Event{
-		{Type: streaming.EventTypeTextDelta, MessageID: "assistant-1", Content: "old"},
-	}}
-
-	assert.Equal(t, "new", legacyTextDelta("new", output, "assistant-2"))
+	require.Empty(t, out.Events)
 }
 
 func TestIsTransientNetworkError_Status500And503(t *testing.T) {
@@ -257,17 +231,10 @@ func registerErrPropagatingHandler() string {
 
 func assistantChunkEvent(content, finishReason string) llm.StreamEvent {
 	return llm.StreamEvent{
-		Response: &llm.GenerateResponse{
-			Choices: []llm.Choice{
-				{
-					Message: llm.Message{
-						Role:    llm.RoleAssistant,
-						Content: content,
-					},
-					FinishReason: finishReason,
-				},
-			},
-		},
+		Kind:         llm.StreamEventTextDelta,
+		Delta:        content,
+		Role:         llm.RoleAssistant,
+		FinishReason: finishReason,
 	}
 }
 

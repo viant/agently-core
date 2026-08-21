@@ -27,9 +27,6 @@ type streamState struct {
 	emittedToolCallIDs map[string]struct{}
 	// Track arguments for emitted tool calls (for duplicate diagnostics)
 	emittedToolCallArgs map[string]string // id -> raw args
-	// Track emitted assistant text per item so cumulative fallback events can be
-	// reduced to only the unseen suffix instead of replaying the whole message.
-	emittedAssistantTextByItem map[string]string
 }
 
 type streamProcessor struct {
@@ -56,27 +53,6 @@ type pendingFuncCall struct {
 	ArgsBuf strings.Builder
 }
 
-func firstResponseText(items ...string) string {
-	for _, item := range items {
-		if item != "" {
-			return item
-		}
-	}
-	return ""
-}
-
-func extractOutputTextFromContentItems(items []struct {
-	Type string `json:"type"`
-	Text string `json:"text"`
-}) string {
-	for _, item := range items {
-		if strings.EqualFold(strings.TrimSpace(item.Type), "output_text") && item.Text != "" {
-			return item.Text
-		}
-	}
-	return ""
-}
-
 func (p *streamProcessor) emitAssistantTextDeltaWithObserver(itemID, delta string, notifyObserver bool) bool {
 	if delta == "" {
 		return true
@@ -87,7 +63,7 @@ func (p *streamProcessor) emitAssistantTextDeltaWithObserver(itemID, delta strin
 			return false
 		}
 	}
-	p.markAssistantTextEmittedForItem(itemID, delta)
+	p.state.emittedAssistantText = true
 	p.events <- llm.StreamEvent{
 		Kind:       llm.StreamEventTextDelta,
 		ResponseID: p.state.lastResponseID,
@@ -102,45 +78,6 @@ func (p *streamProcessor) emitAssistantTextDeltaWithObserver(itemID, delta strin
 
 func (p *streamProcessor) emitAssistantTextDelta(itemID, delta string) bool {
 	return p.emitAssistantTextDeltaWithObserver(itemID, delta, true)
-}
-
-func (p *streamProcessor) normalizeAlternativeAssistantDelta(itemID, text string) string {
-	value := text
-	if value == "" {
-		return ""
-	}
-	id := strings.TrimSpace(itemID)
-	if id == "" {
-		id = "_default"
-	}
-	if p.state.emittedAssistantTextByItem == nil {
-		p.state.emittedAssistantTextByItem = map[string]string{}
-	}
-	prev := p.state.emittedAssistantTextByItem[id]
-	if global := p.state.emittedAssistantTextByItem["_default"]; len(global) > len(prev) {
-		prev = global
-	}
-	switch {
-	case prev == "":
-		return value
-	case value == prev:
-		return ""
-	case strings.HasPrefix(value, prev):
-		return value[len(prev):]
-	case strings.Contains(prev, value):
-		return ""
-	default:
-		return value
-	}
-}
-
-func (p *streamProcessor) emitAssistantTextAlternative(itemID, text string) bool {
-	delta := p.normalizeAlternativeAssistantDelta(itemID, text)
-	if delta == "" {
-		return true
-	}
-	notifyObserver := !p.state.emittedAssistantText
-	return p.emitAssistantTextDeltaWithObserver(itemID, delta, notifyObserver)
 }
 
 // recordEmittedToolCall marks a tool call as emitted.
@@ -245,25 +182,10 @@ func cloneGenerateResponse(lr *llm.GenerateResponse) *llm.GenerateResponse {
 }
 
 func (p *streamProcessor) markAssistantTextEmitted(txt string) {
-	p.markAssistantTextEmittedForItem("", txt)
-}
-
-func (p *streamProcessor) markAssistantTextEmittedForItem(itemID, txt string) {
 	if txt == "" {
 		return
 	}
 	p.state.emittedAssistantText = true
-	id := strings.TrimSpace(itemID)
-	if id == "" {
-		id = "_default"
-	}
-	if p.state.emittedAssistantTextByItem == nil {
-		p.state.emittedAssistantTextByItem = map[string]string{}
-	}
-	p.state.emittedAssistantTextByItem[id] = p.state.emittedAssistantTextByItem[id] + txt
-	if id != "_default" {
-		p.state.emittedAssistantTextByItem["_default"] = p.state.emittedAssistantTextByItem["_default"] + txt
-	}
 }
 
 func (p *streamProcessor) shouldEmitTerminalResponse(lr *llm.GenerateResponse) bool {
@@ -395,9 +317,8 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			}
 			if err := json.Unmarshal([]byte(data), &e); err == nil {
 				if strings.EqualFold(e.Item.Type, "message") {
-					if delta := extractOutputTextFromContentItems(e.Item.Content); delta != "" {
-						return p.emitAssistantTextAlternative(e.Item.ID, delta)
-					}
+					// This is a completed item snapshot, not an incremental text
+					// delta. response.output_text.delta is the sole text stream.
 					return true
 				}
 				if strings.EqualFold(e.Item.Type, "function_call") {
@@ -446,72 +367,12 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			// tolerate shape variances
 			return true
 		case "response.output_item.delta":
-			var e struct {
-				Item struct {
-					ID      string `json:"id"`
-					Type    string `json:"type"`
-					Role    string `json:"role"`
-					Content []struct {
-						Type string `json:"type"`
-						Text string `json:"text"`
-					} `json:"content"`
-				} `json:"item"`
-			}
-			if err := json.Unmarshal([]byte(data), &e); err == nil {
-				if strings.EqualFold(strings.TrimSpace(e.Item.Type), "message") {
-					if delta := extractOutputTextFromContentItems(e.Item.Content); delta != "" {
-						return p.emitAssistantTextAlternative(e.Item.ID, delta)
-					}
-				}
-			}
+			// Non-standard compatibility snapshot. Never reinterpret an item
+			// object as text; only response.output_text.delta carries text deltas.
 			return true
 		case "response.content_part.added", "response.content_part.done":
-			var e struct {
-				ItemID string `json:"item_id"`
-				Part   *struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"part"`
-				ContentPart *struct {
-					Type string `json:"type"`
-					Text string `json:"text"`
-				} `json:"content_part"`
-			}
-			if err := json.Unmarshal([]byte(data), &e); err == nil {
-				partType := firstResponseText(
-					func() string {
-						if e.Part != nil {
-							return e.Part.Type
-						}
-						return ""
-					}(),
-					func() string {
-						if e.ContentPart != nil {
-							return e.ContentPart.Type
-						}
-						return ""
-					}(),
-				)
-				if strings.EqualFold(strings.TrimSpace(partType), "output_text") {
-					delta := firstResponseText(
-						func() string {
-							if e.Part != nil {
-								return e.Part.Text
-							}
-							return ""
-						}(),
-						func() string {
-							if e.ContentPart != nil {
-								return e.ContentPart.Text
-							}
-							return ""
-						}(),
-					)
-					if delta != "" {
-						return p.emitAssistantTextAlternative(e.ItemID, delta)
-					}
-				}
-			}
+			// Lifecycle events carry part snapshots (the done event contains the
+			// full text). They must never be published as incremental text.
 			return true
 		case "response.refusal.delta":
 			var e struct {
@@ -523,15 +384,8 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			}
 			return true
 		case "response.message.delta":
-			var e struct {
-				ItemID string `json:"item_id"`
-				Delta  struct {
-					Content string `json:"content"`
-				} `json:"delta"`
-			}
-			if err := json.Unmarshal([]byte(data), &e); err == nil && e.Delta.Content != "" {
-				return p.emitAssistantTextAlternative(e.ItemID, e.Delta.Content)
-			}
+			// This compatibility event has ambiguous snapshot semantics and is
+			// not part of the canonical Responses text stream.
 			return true
 		case "response.message.tool_call.delta", "response.tool_call.delta":
 			// Attempt to parse commonly observed tool_call delta shapes
