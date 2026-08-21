@@ -3,6 +3,7 @@ package modelcall
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -110,6 +111,21 @@ func (o *recorderObserver) drainStreamPublishBufferLocked(stopTimer bool) []byte
 func (o *recorderObserver) publishStreamDeltaNow(ctx context.Context, data []byte) {
 	if len(data) == 0 {
 		return
+	}
+	if debugtrace.Enabled() {
+		turnID := ""
+		if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+			turnID = strings.TrimSpace(turn.TurnID)
+		}
+		debugtrace.Write("modelcall_stream", "published_delta", map[string]any{
+			"sequence":       atomic.AddInt64(&o.tracePublishedDeltaSeq, 1),
+			"conversationID": strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)),
+			"turnID":         turnID,
+			"messageID":      strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx)),
+			"length":         len(data),
+			"sha256":         sha256Hex(data),
+			"delta":          string(data),
+		})
 	}
 	pub, ok := StreamPublisherFromContext(ctx)
 	if !ok {

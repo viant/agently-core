@@ -2,12 +2,14 @@ package openai
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/debugtrace"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcbuf "github.com/viant/agently-core/service/core/modelcall"
 )
@@ -37,6 +39,7 @@ type streamProcessor struct {
 	agg      *streamAggregator
 	state    *streamState
 	respBody []byte
+	traceSeq int64
 
 	// Pending function calls keyed by provider item_id
 	fcPending map[string]*pendingFuncCall
@@ -56,6 +59,16 @@ type pendingFuncCall struct {
 func (p *streamProcessor) emitAssistantTextDeltaWithObserver(itemID, delta string, notifyObserver bool) bool {
 	if delta == "" {
 		return true
+	}
+	if debugtrace.Enabled() {
+		sum := sha256.Sum256([]byte(delta))
+		debugtrace.Write("openai_stream", "text_delta", map[string]any{
+			"responseID": strings.TrimSpace(p.state.lastResponseID),
+			"itemID":     strings.TrimSpace(itemID),
+			"length":     len(delta),
+			"sha256":     fmt.Sprintf("%x", sum),
+			"delta":      delta,
+		})
 	}
 	if notifyObserver && p.observer != nil {
 		if err := p.observer.OnStreamDelta(p.ctx, []byte(delta)); err != nil {
@@ -189,13 +202,16 @@ func (p *streamProcessor) markAssistantTextEmitted(txt string) {
 }
 
 func (p *streamProcessor) shouldEmitTerminalResponse(lr *llm.GenerateResponse) bool {
-	if lr == nil || !p.state.emittedAssistantText || len(lr.Choices) == 0 {
+	if lr == nil || len(lr.Choices) == 0 {
 		return false
 	}
 	choice := lr.Choices[0]
 	if len(choice.Message.ToolCalls) > 0 {
 		return false
 	}
+	// response.completed always carries a terminal snapshot. Whether the
+	// provider happened to send canonical response.output_text.delta events
+	// earlier must not change that snapshot into another text delta.
 	return strings.TrimSpace(llm.MessageText(choice.Message)) != ""
 }
 
@@ -208,6 +224,18 @@ func (p *streamProcessor) emitFinalResponse(lr *llm.GenerateResponse) {
 }
 
 func (p *streamProcessor) handleEvent(eventName string, data string) bool {
+	if debugtrace.Enabled() {
+		p.traceSeq++
+		sum := sha256.Sum256([]byte(data))
+		debugtrace.Write("openai_stream", "provider_event", map[string]any{
+			"sequence":   p.traceSeq,
+			"eventName":  eventName,
+			"responseID": strings.TrimSpace(p.state.lastResponseID),
+			"length":     len(data),
+			"sha256":     fmt.Sprintf("%x", sum),
+			"data":       data,
+		})
+	}
 	if eventName == "error" {
 		msg, code := parseOpenAIError([]byte(data))
 		if msg == "" {

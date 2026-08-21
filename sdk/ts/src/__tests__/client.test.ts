@@ -319,6 +319,8 @@ describe('Streaming', () => {
 
         sub.close();
         expect(es.closed).toBe(true);
+        es.emit({ type: 'text_delta', streamId: 'conv_1', content: 'late' });
+        expect(text).toEqual(['hello']);
     });
 });
 

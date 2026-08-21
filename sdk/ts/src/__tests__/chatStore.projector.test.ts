@@ -326,7 +326,7 @@ describe('chatStore/projector — projectConversation', () => {
         const rows = projectConversation(state);
         const it = rows.find((row) => row.kind === 'iteration') as IterationRenderRow;
         expect(it.header).toEqual({ label: 'Execution details (1)', tone: 'running', count: 1 });
-        expect(it.isStreaming).toBe(false);
+        expect(it.isStreaming).toBe(true);
     });
 
     it('terminal lifecycle-only cancelled turn → header "Cancelled" with neutral tone', () => {

@@ -358,6 +358,7 @@ export class AgentlyClient {
         let closed = false;
 
         es.onmessage = (ev) => {
+            if (closed) return;
             try {
                 const parsed: SSEEvent = JSON.parse(ev.data);
                 const event = normalizeStreamEventIdentity(parsed, conversationId);
