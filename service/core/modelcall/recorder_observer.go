@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/google/uuid"
@@ -63,6 +64,8 @@ type recorderObserver struct {
 	streamPublishMu          sync.Mutex
 	streamPublishBuffer      strings.Builder
 	streamPublishTimer       *time.Timer
+	traceSourceDeltaSeq      int64
+	tracePublishedDeltaSeq   int64
 	// Optional: resolve token prices for a model (per 1k tokens).
 	priceProvider TokenPriceProvider
 }
@@ -412,6 +415,22 @@ func (o *recorderObserver) archiveOlderInterimAssistantNarratives(ctx context.Co
 func (o *recorderObserver) OnStreamDelta(ctx context.Context, data []byte) error {
 	if len(data) == 0 {
 		return nil
+	}
+	if debugtrace.Enabled() {
+		turnID := ""
+		if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+			turnID = strings.TrimSpace(turn.TurnID)
+		}
+		debugtrace.Write("modelcall_stream", "observer_delta", map[string]any{
+			"sequence":          atomic.AddInt64(&o.traceSourceDeltaSeq, 1),
+			"conversationID":    strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)),
+			"turnID":            turnID,
+			"messageID":         strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx)),
+			"length":            len(data),
+			"sha256":            sha256Hex(data),
+			"delta":             string(data),
+			"accumulatedBefore": o.acc.Len(),
+		})
 	}
 	o.publishStreamDelta(ctx, data, o.acc.Len()+len(data))
 	o.acc.Write(data)

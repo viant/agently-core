@@ -438,9 +438,10 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
     const rounds = turn.pages.map((p) => projectRound(p));
     const renderableCount = rounds.filter((r) => r.hasContent).length;
     const header = describeHeader(turn.lifecycle, renderableCount);
-    const lifecycleProvenance = getFieldProvenance(turn, 'lifecycle');
-    const isStreaming = (turn.lifecycle === 'pending' || turn.lifecycle === 'running')
-        && lifecycleProvenance !== 'transcript';
+    // A running transcript is the canonical late-join signal for work started
+    // by another client. It must drive live clocks just like an SSE-owned
+    // lifecycle; terminal transcript refinement will stop those clocks.
+    const isStreaming = turn.lifecycle === 'pending' || turn.lifecycle === 'running';
     return {
         kind: 'iteration',
         renderKey: turn.renderKey,

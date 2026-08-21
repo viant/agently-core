@@ -42,9 +42,15 @@ export function parseFences(content: string): FencePart[] {
 
   if (index < text.length) {
     const tail = text.slice(index);
-    // Detect an unclosed fence (streaming in progress).
-    const openFence = tail.match(new RegExp('^```' + FENCE_LANG + FENCE_BODY_START + '([\\s\\S]*)$'));
+    // Detect an unclosed fence (streaming in progress), including when
+    // authored prose precedes it. Keep that prose as its own ordered segment
+    // instead of folding it into the pending fence transport.
+    const openFence = tail.match(new RegExp('```' + FENCE_LANG + FENCE_BODY_START + '([\\s\\S]*)$'));
     if (openFence) {
+      const openIndex = Number(openFence.index || 0);
+      if (openIndex > 0) {
+        result.push({ kind: 'text', value: tail.slice(0, openIndex) });
+      }
       result.push({
         kind: 'fence',
         lang: String(openFence[1] || '').trim().toLowerCase(),

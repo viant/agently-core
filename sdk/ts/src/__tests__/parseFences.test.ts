@@ -35,4 +35,13 @@ describe('parseFences', () => {
     });
     expect(parts[0].body).toBe('{"a":1, "b":');
   });
+
+  it('preserves prose before an unterminated streaming fence', () => {
+    const parts = parseFences('### Key findings\n- Keep this visible.\n\n```forge-report\n{"version":1');
+
+    expect(parts).toEqual([
+      { kind: 'text', value: '### Key findings\n- Keep this visible.\n\n' },
+      { kind: 'fence', lang: 'forge-report', body: '{"version":1' },
+    ]);
+  });
 });
