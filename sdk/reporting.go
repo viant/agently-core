@@ -83,8 +83,8 @@ func (c *ReportingClient) RecordReportRun(ctx context.Context, input *reportings
 }
 
 // SubmitSavedReportExport queues an export from a persisted report identity.
-func (c *ReportingClient) SubmitSavedReportExport(ctx context.Context, reportID string, format reportingsvc.ExportFormat) (*reportingsvc.ExportJob, error) {
-	result := &reportingsvc.ExportJob{}
+func (c *ReportingClient) SubmitSavedReportExport(ctx context.Context, reportID string, format reportingsvc.ExportFormat) (*reportingsvc.ExportJobStatus, error) {
+	result := &reportingsvc.ExportJobStatus{}
 	input := &reportingsvc.SubmitExportRequest{
 		Format: format,
 		Source: &reportingsvc.ExportSource{
@@ -98,8 +98,8 @@ func (c *ReportingClient) SubmitSavedReportExport(ctx context.Context, reportID 
 	return result, nil
 }
 
-func (c *ReportingClient) GetExportStatus(ctx context.Context, jobID string) (*reportingsvc.ExportJob, error) {
-	result := &reportingsvc.ExportJob{}
+func (c *ReportingClient) GetExportStatus(ctx context.Context, jobID string) (*reportingsvc.ExportJobStatus, error) {
+	result := &reportingsvc.ExportJobStatus{}
 	if err := c.execute(ctx, "reporting:get_export_status", &reportingsvc.GetExportStatusInput{JobID: strings.TrimSpace(jobID)}, result); err != nil {
 		return nil, err
 	}

@@ -178,7 +178,7 @@ func TestBuilderBuild_ReportingRegistryExportsSavedReportViaUnifiedReportSource(
 	})
 	require.NoError(t, err)
 
-	var job reportingsvc.ExportJob
+	var job reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &job))
 	require.Equal(t, reportingsvc.JobStatusQueued, job.Status)
 	require.Equal(t, saved.ArtifactRef, job.ArtifactRef)
@@ -223,11 +223,13 @@ func TestBuilderBuild_ReportingRegistryExportsMaterializedPresetViaUnifiedPreset
 	})
 	require.NoError(t, err)
 
-	var job reportingsvc.ExportJob
+	var job reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &job))
 	require.Equal(t, reportingsvc.JobStatusQueued, job.Status)
 	require.Equal(t, "report://preset/metricReportBuilder/performance_inventory_brief", job.ArtifactRef)
-	require.JSONEq(t, `{"conversationId":"conv-preset","workspaceId":"steward","source":"preset-runtime","sourceKind":"preset","windowKey":"metricReportBuilder","presetId":"performance_inventory_brief"}`, string(job.Metadata))
+	persisted, err := rt.Reporting.GetExportStatus(ctx, job.JobID)
+	require.NoError(t, err)
+	require.JSONEq(t, `{"conversationId":"conv-preset","workspaceId":"steward","source":"preset-runtime","sourceKind":"preset","windowKey":"metricReportBuilder","presetId":"performance_inventory_brief"}`, string(persisted.Metadata))
 
 	completed, err := rt.Reporting.RunExport(context.Background(), job.JobID)
 	require.NoError(t, err)
@@ -343,7 +345,7 @@ default:
 		"reportPrint": validReportingIntegrationPrintPayload(),
 	})
 	require.NoError(t, err)
-	var queued reportingsvc.ExportJob
+	var queued reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &queued))
 	require.Equal(t, reportingsvc.JobStatusQueued, queued.Status)
 
@@ -388,7 +390,7 @@ func TestBuilderBuild_ReportingRegistryRoundTrip(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var job reportingsvc.ExportJob
+	var job reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &job))
 	require.Equal(t, reportingsvc.JobStatusQueued, job.Status)
 	require.Equal(t, "builder-user", job.OwnerID)
@@ -444,7 +446,7 @@ func TestBuilderBuild_ReportingRegistryAcceptsCanonicalExportEnvelope(t *testing
 	})
 	require.NoError(t, err)
 
-	var job reportingsvc.ExportJob
+	var job reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &job))
 	require.Equal(t, reportingsvc.JobStatusQueued, job.Status)
 	require.Equal(t, reportingsvc.ExportScopeSavedPayload, job.Scope)
@@ -479,7 +481,7 @@ func TestBuilderBuild_DefaultReportingServiceRunsForgePDFExport(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var queued reportingsvc.ExportJob
+	var queued reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &queued))
 	require.Equal(t, reportingsvc.JobStatusQueued, queued.Status)
 
@@ -516,7 +518,7 @@ func TestBuilderBuild_DefaultReportingServiceRunsForgeCSVExport(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var queued reportingsvc.ExportJob
+	var queued reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &queued))
 	require.Equal(t, reportingsvc.JobStatusQueued, queued.Status)
 
@@ -552,7 +554,7 @@ func TestBuilderBuild_DefaultReportingServiceRunsForgeXLSXExport(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	var queued reportingsvc.ExportJob
+	var queued reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &queued))
 	require.Equal(t, reportingsvc.JobStatusQueued, queued.Status)
 
@@ -607,7 +609,7 @@ func TestBuilderBuild_DefaultReportingServiceWorkerProcessesQueuedExports(t *tes
 	})
 	require.NoError(t, err)
 
-	var queued reportingsvc.ExportJob
+	var queued reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &queued))
 	require.Equal(t, reportingsvc.JobStatusQueued, queued.Status)
 
@@ -645,7 +647,7 @@ func TestBuilderBuild_DefaultReportingServiceWorkerUsesFallbackIntervalWhenEnabl
 	})
 	require.NoError(t, err)
 
-	var queued reportingsvc.ExportJob
+	var queued reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(submitRaw), &queued))
 	require.Equal(t, reportingsvc.JobStatusQueued, queued.Status)
 
@@ -693,8 +695,8 @@ func TestBuilderBuild_DefaultReportingServiceWorkerPreservesOwnerVisibility(t *t
 	})
 	require.NoError(t, err)
 
-	var firstJob reportingsvc.ExportJob
-	var secondJob reportingsvc.ExportJob
+	var firstJob reportingsvc.ExportJobStatus
+	var secondJob reportingsvc.ExportJobStatus
 	require.NoError(t, json.Unmarshal([]byte(firstRaw), &firstJob))
 	require.NoError(t, json.Unmarshal([]byte(secondRaw), &secondJob))
 

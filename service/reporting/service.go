@@ -203,15 +203,15 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "export_report",
-			Description: "Submit an async reporting export job against canonical report artifacts.",
+			Description: "Submit an async reporting export job against canonical report artifacts and return its compact lifecycle status.",
 			Input:       reflect.TypeOf(&SubmitExportRequest{}),
-			Output:      reflect.TypeOf(&ExportJob{}),
+			Output:      reflect.TypeOf(&ExportJobStatus{}),
 		},
 		{
 			Name:        "submit_export",
-			Description: "Submit an async reporting export job. Use exactly one input form: an exact completed reportRunId plus PDF format, a unified source (report, preset, or inline), or a fully materialized reportExportRequest; never mix forms. Only for one logical serial hosted report-to-email delivery attempt: call this tool at most once; with wait execution, preserve the exact jobId and consume either a direct terminal ExportJob or an AwaitTerminal result containing exactly one item; and do not request status after any delivered terminal observation, requesting it at most once only when none was delivered. A new explicit user export request may start a new export operation and logical attempt.",
+			Description: "Submit an async reporting export job and return its compact lifecycle status. Use exactly one input form: an exact completed reportRunId plus PDF format, a unified source (report, preset, or inline), or a fully materialized reportExportRequest; never mix forms. Only for one logical serial hosted report-to-email delivery attempt: call this tool at most once; with wait execution, preserve the exact jobId and consume either a direct terminal ExportJobStatus or an AwaitTerminal result containing exactly one item; and do not request status after any delivered terminal observation, requesting it at most once only when none was delivered. A new explicit user export request may start a new export operation and logical attempt.",
 			Input:       reflect.TypeOf(&SubmitExportRequest{}),
-			Output:      reflect.TypeOf(&ExportJob{}),
+			Output:      reflect.TypeOf(&ExportJobStatus{}),
 		},
 		{
 			Name:        "get_export_status",
@@ -886,7 +886,7 @@ func (s *Service) submitExportTool(ctx context.Context, in, out interface{}) err
 	if !ok {
 		return svc.NewInvalidInputError(in)
 	}
-	output, ok := out.(*ExportJob)
+	output, ok := out.(*ExportJobStatus)
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
@@ -894,7 +894,7 @@ func (s *Service) submitExportTool(ctx context.Context, in, out interface{}) err
 	if err != nil {
 		return err
 	}
-	*output = *cloneJob(job)
+	*output = *exportJobStatus(job)
 	return nil
 }
 
