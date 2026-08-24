@@ -400,6 +400,23 @@ default:
 		if job.Status != "queued" {
 			t.Fatalf("expected queued status, got %q", job.Status)
 		}
+		var submitFields map[string]json.RawMessage
+		if err := json.Unmarshal([]byte(submitEnvelope.Result), &submitFields); err != nil {
+			t.Fatalf("decode submit fields: %v", err)
+		}
+		for _, field := range []string{
+			"reportSpec",
+			"reportFill",
+			"reportPrint",
+			"metadata",
+			"authContextRef",
+			"exportRequestId",
+			"reportRunRevision",
+		} {
+			if _, ok := submitFields[field]; ok {
+				t.Fatalf("submit result unexpectedly contains %q: %s", field, submitEnvelope.Result)
+			}
+		}
 
 		statusBody := []byte(`{"name":"reporting:get_export_status","args":{"jobId":"` + job.JobID + `"}}`)
 		statusReq := httptest.NewRequest(http.MethodPost, "/v1/tools/execute", bytes.NewReader(statusBody))
