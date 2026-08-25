@@ -289,9 +289,111 @@ func TestExecuteToolStep_CoalescesConcurrentDuplicateActiveTurnSteps(t *testing.
 		}
 	}
 	assert.Equal(t, 2, statusCounts["running"])
-	assert.Equal(t, 1, statusCounts["completed"], "one call should represent the real tool execution")
-	assert.Equal(t, 1, statusCounts["coalesced"], "duplicate call should remain protocol-visible without a second execution")
+	assert.Equal(t, 2, statusCounts["completed"], "both model tool call IDs should reach a supported terminal status")
+	assert.Zero(t, statusCounts["coalesced"], "coalescing is an execution detail, not a durable lifecycle status")
+	messageStatusCounts := map[string]int{}
+	for _, message := range conv.patchedMessages {
+		messageStatusCounts[strings.TrimSpace(derefString(message.Status))]++
+	}
+	assert.Equal(t, 2, messageStatusCounts["completed"], "both tool messages should be terminal")
 	assert.Len(t, conv.patchedPayloads, 4, "each model call id needs request/response payloads for history replay")
+}
+
+func TestPersistCoalescedToolResult_SharedErrorRemainsFailed(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-coalesced-error", TurnID: "t-coalesced-error", ParentMessageID: "p-coalesced-error"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	conv := &stubConv{}
+
+	err := persistCoalescedToolResult(ctx, conv, turn, time.Now(), StepInfo{
+		ID:         "call-coalesced-error",
+		Name:       "ui/window/setFormData",
+		ResponseID: "resp-coalesced-error",
+	}, map[string]interface{}{"clientId": "ios-ui-test"}, "", assert.AnError)
+	require.NoError(t, err)
+
+	statusCounts := map[string]int{}
+	for _, call := range conv.patchedToolCalls {
+		if strings.TrimSpace(call.OpID) == "call-coalesced-error" {
+			statusCounts[strings.TrimSpace(call.Status)]++
+		}
+	}
+	assert.Equal(t, 1, statusCounts["running"])
+	assert.Equal(t, 1, statusCounts["failed"])
+	assert.Zero(t, statusCounts["completed"])
+	assert.Zero(t, statusCounts["coalesced"])
+}
+
+func TestExecuteToolStep_ProtectedConcurrentDuplicatesBypassCoalescing(t *testing.T) {
+	previousCoalescer := activeToolStepCoalescer
+	activeToolStepCoalescer = newToolStepCoalescer(5 * time.Second)
+	t.Cleanup(func() { activeToolStepCoalescer = previousCoalescer })
+
+	turn := memory.TurnMeta{ConversationID: "c-protected", TurnID: "t-protected", ParentMessageID: "p-protected"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	reg := &scriptedRegistry{
+		script: []scriptedResult{
+			{result: `{"status":"accepted","providerCalled":true}`, delay: 25 * time.Millisecond},
+			{result: `{"status":"duplicate_suppressed","providerCalled":false,"ruleId":"send-at-most-once"}`},
+		},
+		protectedTools: map[string]bool{"sendgrid/sendgridSendMail": true},
+	}
+	args := map[string]interface{}{
+		"to":      "recipient@example.com",
+		"subject": "Report",
+		"content": "Attached report",
+	}
+	conversations := map[string]*stubConv{
+		"call-a": {},
+		"call-b": {},
+	}
+	start := make(chan struct{})
+	results := make(chan llm.ToolCall, 2)
+	errs := make(chan error, 2)
+	var wait sync.WaitGroup
+	for id, conv := range conversations {
+		wait.Add(1)
+		go func(id string, conv *stubConv) {
+			defer wait.Done()
+			<-start
+			call, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+				ID:         id,
+				Name:       "sendgrid/sendgridSendMail",
+				Args:       args,
+				ResponseID: "resp-protected",
+			}, conv)
+			results <- call
+			errs <- err
+		}(id, conv)
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	seenAccepted := false
+	seenSuppressed := false
+	for call := range results {
+		seenAccepted = seenAccepted || strings.Contains(call.Result, `"status":"accepted"`)
+		seenSuppressed = seenSuppressed || strings.Contains(call.Result, `"status":"duplicate_suppressed"`)
+	}
+	assert.True(t, seenAccepted)
+	assert.True(t, seenSuppressed)
+	assert.Equal(t, 2, reg.calls, "protected duplicates must reach durable registry protection")
+	for id, conv := range conversations {
+		statusCounts := map[string]int{}
+		for _, call := range conv.patchedToolCalls {
+			if strings.TrimSpace(call.OpID) == id {
+				statusCounts[strings.TrimSpace(call.Status)]++
+			}
+		}
+		assert.Equal(t, 1, statusCounts["running"], id)
+		assert.Equal(t, 1, statusCounts["completed"], id)
+		assert.Zero(t, statusCounts["coalesced"], id)
+		assert.Len(t, conv.patchedPayloads, 2, "each protected model call id needs request/response payloads")
+	}
 }
 
 func TestExecuteToolStep_ForceTerminalCloseWhenCompleteWriteFails(t *testing.T) {
@@ -759,13 +861,14 @@ type scriptedResult struct {
 }
 
 type scriptedRegistry struct {
-	mu          sync.Mutex
-	script      []scriptedResult
-	retryPolicy map[string]bool
-	calls       int
-	lastArgs    map[string]interface{}
-	lastName    string
-	requestIDs  []string
+	mu             sync.Mutex
+	script         []scriptedResult
+	retryPolicy    map[string]bool
+	protectedTools map[string]bool
+	calls          int
+	lastArgs       map[string]interface{}
+	lastName       string
+	requestIDs     []string
 }
 
 func newStubRegistry(documents map[string]string) *stubRegistry {
@@ -841,6 +944,10 @@ func (s *scriptedRegistry) Initialize(context.Context)                       {}
 func (s *scriptedRegistry) ToolRetryable(name string) (bool, bool) {
 	retryable, ok := s.retryPolicy[name]
 	return retryable, ok
+}
+
+func (s *scriptedRegistry) ToolExecutionProtected(name string) bool {
+	return s.protectedTools[name]
 }
 
 func gzipStringValue(t *testing.T, value string) string {

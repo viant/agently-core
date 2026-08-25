@@ -32,7 +32,9 @@ func TestServiceMethodsExposeReportingSurface(t *testing.T) {
 	require.Equal(t, "share_artifact", signatures[4].Name)
 	require.Equal(t, "transition_artifact", signatures[5].Name)
 	require.Equal(t, "export_report", signatures[6].Name)
+	require.Equal(t, reflect.TypeOf(&ExportJobStatus{}), signatures[6].Output)
 	require.Equal(t, "submit_export", signatures[7].Name)
+	require.Equal(t, reflect.TypeOf(&ExportJobStatus{}), signatures[7].Output)
 	require.Equal(t, "get_export_status", signatures[8].Name)
 	require.Contains(t, signatures[8].Description, "compact")
 	require.Equal(t, reflect.TypeOf(&ExportJobStatus{}), signatures[8].Output)
@@ -123,26 +125,37 @@ func TestServiceToolMethodDispatchesLifecycle(t *testing.T) {
 
 	submitMethod, err := service.Method("submit_export")
 	require.NoError(t, err)
-	jobOut := &ExportJob{}
+	envelope := validTestReportExportRequestEnvelope()
+	envelope.Metadata = json.RawMessage(`{"renderHints":{"theme":"print"}}`)
+	submitOut := &ExportJobStatus{}
 	require.NoError(t, submitMethod(ctx, &SubmitExportRequest{
-		ReportExportRequest: validTestReportExportRequestEnvelope(),
-	}, jobOut))
-	require.Equal(t, JobStatusQueued, jobOut.Status)
-	require.Equal(t, ExportScopeSavedPayload, jobOut.Scope)
+		ReportExportRequest: envelope,
+	}, submitOut))
+	require.Equal(t, JobStatusQueued, submitOut.Status)
+	require.Equal(t, ExportScopeSavedPayload, submitOut.Scope)
+
+	persisted, err := service.GetExportStatus(ctx, submitOut.JobID)
+	require.NoError(t, err)
+	require.NotEmpty(t, persisted.ReportSpec)
+	require.NotEmpty(t, persisted.ReportFill)
+	require.NotEmpty(t, persisted.ReportPrint)
+	require.JSONEq(t, string(envelope.Metadata), string(persisted.Metadata))
+	require.Contains(t, persisted.AuthContextRef, "actor=user-1")
 
 	runMethod, err := service.Method("run_export")
 	require.NoError(t, err)
-	require.NoError(t, runMethod(context.Background(), &RunExportInput{JobID: jobOut.JobID}, jobOut))
-	require.Equal(t, JobStatusSucceeded, jobOut.Status)
-	require.NotEmpty(t, jobOut.ArtifactID)
+	runOut := &ExportJob{}
+	require.NoError(t, runMethod(context.Background(), &RunExportInput{JobID: submitOut.JobID}, runOut))
+	require.Equal(t, JobStatusSucceeded, runOut.Status)
+	require.NotEmpty(t, runOut.ArtifactID)
 	require.NotNil(t, exporter.request)
-	require.Equal(t, jobOut.JobID, exporter.request.JobID)
+	require.Equal(t, submitOut.JobID, exporter.request.JobID)
 	require.Equal(t, ExportFormatPDF, exporter.request.Format)
 
 	statusMethod, err := service.Method("get_export_status")
 	require.NoError(t, err)
 	statusOut := &ExportJobStatus{}
-	require.NoError(t, statusMethod(ctx, &GetExportStatusInput{JobID: jobOut.JobID}, statusOut))
+	require.NoError(t, statusMethod(ctx, &GetExportStatusInput{JobID: submitOut.JobID}, statusOut))
 	require.Equal(t, JobStatusSucceeded, statusOut.Status)
 
 	statusJSON, err := json.Marshal(statusOut)
@@ -174,7 +187,7 @@ func TestServiceToolMethodDispatchesLifecycle(t *testing.T) {
 	require.NoError(t, listMethod(ctx, &ListExportJobsInput{Limit: 1}, listOut))
 	require.Equal(t, 1, listOut.TotalCount)
 	require.Len(t, listOut.Jobs, 1)
-	require.Equal(t, jobOut.JobID, listOut.Jobs[0].JobID)
+	require.Equal(t, submitOut.JobID, listOut.Jobs[0].JobID)
 
 	listArtifactsMethod, err := service.Method("list_export_artifacts")
 	require.NoError(t, err)
@@ -182,17 +195,17 @@ func TestServiceToolMethodDispatchesLifecycle(t *testing.T) {
 	require.NoError(t, listArtifactsMethod(ctx, &ListExportArtifactsInput{Limit: 1}, artifactsOut))
 	require.Equal(t, 1, artifactsOut.TotalCount)
 	require.Len(t, artifactsOut.Artifacts, 1)
-	require.Equal(t, jobOut.ArtifactID, artifactsOut.Artifacts[0].ArtifactID)
+	require.Equal(t, runOut.ArtifactID, artifactsOut.Artifacts[0].ArtifactID)
 
 	artifactMethod, err := service.Method("get_artifact")
 	require.NoError(t, err)
 	artifactOut := &Artifact{}
-	require.NoError(t, artifactMethod(ctx, &GetArtifactInput{ArtifactID: jobOut.ArtifactID}, artifactOut))
+	require.NoError(t, artifactMethod(ctx, &GetArtifactInput{ArtifactID: runOut.ArtifactID}, artifactOut))
 	require.Empty(t, artifactOut.Data)
 
 	artifactWithData := &Artifact{}
 	require.NoError(t, artifactMethod(ctx, &GetArtifactInput{
-		ArtifactID:  jobOut.ArtifactID,
+		ArtifactID:  runOut.ArtifactID,
 		IncludeData: true,
 	}, artifactWithData))
 	require.Equal(t, []byte("%PDF-run"), artifactWithData.Data)
@@ -409,15 +422,16 @@ func TestServiceToolMethodSupportsManualLifecycleWhenNeeded(t *testing.T) {
 
 	submitMethod, err := service.Method("submit_export")
 	require.NoError(t, err)
-	jobOut := &ExportJob{}
+	submitOut := &ExportJobStatus{}
 	require.NoError(t, submitMethod(ctx, &SubmitExportRequest{
 		ReportExportRequest: validTestReportExportRequestEnvelope(),
-	}, jobOut))
-	require.Equal(t, JobStatusQueued, jobOut.Status)
+	}, submitOut))
+	require.Equal(t, JobStatusQueued, submitOut.Status)
 
 	startMethod, err := service.Method("start_export")
 	require.NoError(t, err)
-	require.NoError(t, startMethod(context.Background(), &StartExportInput{JobID: jobOut.JobID}, jobOut))
+	jobOut := &ExportJob{}
+	require.NoError(t, startMethod(context.Background(), &StartExportInput{JobID: submitOut.JobID}, jobOut))
 	require.Equal(t, JobStatusRunning, jobOut.Status)
 
 	completeMethod, err := service.Method("complete_export")
@@ -456,8 +470,8 @@ func TestServiceToolMethodDispatchesQueuedLifecycle(t *testing.T) {
 
 	submitMethod, err := service.Method("submit_export")
 	require.NoError(t, err)
-	firstJob := &ExportJob{}
-	secondJob := &ExportJob{}
+	firstJob := &ExportJobStatus{}
+	secondJob := &ExportJobStatus{}
 	require.NoError(t, submitMethod(ctx, &SubmitExportRequest{
 		ArtifactRef: "report://draft/one",
 		Format:      ExportFormatPDF,
@@ -573,8 +587,8 @@ func TestServiceToolMethodRunQueuedExportsPreservesPartialResultOnError(t *testi
 
 	submitMethod, err := service.Method("submit_export")
 	require.NoError(t, err)
-	firstJob := &ExportJob{}
-	secondJob := &ExportJob{}
+	firstJob := &ExportJobStatus{}
+	secondJob := &ExportJobStatus{}
 	require.NoError(t, submitMethod(ctx, &SubmitExportRequest{
 		ArtifactRef: "report://draft/one",
 		Format:      ExportFormatPDF,
@@ -649,9 +663,9 @@ func TestServiceToolMethodRunQueuedExportsPreservesMixedBatchResults(t *testing.
 
 	submitMethod, err := service.Method("submit_export")
 	require.NoError(t, err)
-	firstJob := &ExportJob{}
-	secondJob := &ExportJob{}
-	thirdJob := &ExportJob{}
+	firstJob := &ExportJobStatus{}
+	secondJob := &ExportJobStatus{}
+	thirdJob := &ExportJobStatus{}
 	require.NoError(t, submitMethod(ctx, &SubmitExportRequest{
 		ArtifactRef: "report://draft/claimed",
 		Format:      ExportFormatPDF,
@@ -723,17 +737,18 @@ func TestServiceToolMethodRunExportPreservesFailedJobOnArtifactCollision(t *test
 
 	submitMethod, err := service.Method("submit_export")
 	require.NoError(t, err)
-	jobOut := &ExportJob{}
+	submitOut := &ExportJobStatus{}
 	require.NoError(t, submitMethod(ctx, &SubmitExportRequest{
 		ArtifactRef: "report://draft/collision",
 		Format:      ExportFormatPDF,
 		Scope:       ExportScopeDraft,
 		ReportPrint: json.RawMessage(validRenderableTestReportPrintJSON()),
-	}, jobOut))
+	}, submitOut))
 
 	runMethod, err := service.Method("run_export")
 	require.NoError(t, err)
-	err = runMethod(context.Background(), &RunExportInput{JobID: jobOut.JobID}, jobOut)
+	jobOut := &ExportJob{}
+	err = runMethod(context.Background(), &RunExportInput{JobID: submitOut.JobID}, jobOut)
 	require.Error(t, err)
 	require.ErrorIs(t, err, ErrAlreadyExists)
 	require.Equal(t, JobStatusFailed, jobOut.Status)
@@ -770,17 +785,18 @@ func TestServiceToolMethodCompleteExportPreservesFailedJobOnArtifactCollision(t 
 
 	submitMethod, err := service.Method("submit_export")
 	require.NoError(t, err)
-	jobOut := &ExportJob{}
+	submitOut := &ExportJobStatus{}
 	require.NoError(t, submitMethod(ctx, &SubmitExportRequest{
 		ArtifactRef: "report://draft/collision",
 		Format:      ExportFormatPDF,
 		Scope:       ExportScopeDraft,
 		ReportPrint: json.RawMessage(validRenderableTestReportPrintJSON()),
-	}, jobOut))
+	}, submitOut))
 
 	startMethod, err := service.Method("start_export")
 	require.NoError(t, err)
-	require.NoError(t, startMethod(context.Background(), &StartExportInput{JobID: jobOut.JobID}, jobOut))
+	jobOut := &ExportJob{}
+	require.NoError(t, startMethod(context.Background(), &StartExportInput{JobID: submitOut.JobID}, jobOut))
 	require.Equal(t, JobStatusRunning, jobOut.Status)
 
 	completeMethod, err := service.Method("complete_export")

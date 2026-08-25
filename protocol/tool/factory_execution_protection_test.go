@@ -33,8 +33,15 @@ func TestSetExecutionProtectionWiresDefaultRegistryOnlyWhenExplicit(t *testing.T
 	if !ok {
 		t.Fatal("default registry does not expose retry policy resolution")
 	}
+	protectionResolver, ok := registry.(ExecutionProtectionResolver)
+	if !ok {
+		t.Fatal("default registry does not expose execution protection resolution")
+	}
 	if _, configured := resolver.ToolRetryable("delivery/send"); configured {
 		t.Fatal("default registry protected an unconfigured tool")
+	}
+	if protectionResolver.ToolExecutionProtected("delivery/send") {
+		t.Fatal("default registry reported an unconfigured tool as protected")
 	}
 	if !SetExecutionProtection(registry, factoryProtectionGuard{}) {
 		t.Fatal("SetExecutionProtection() did not recognize the default registry")
@@ -44,5 +51,11 @@ func TestSetExecutionProtectionWiresDefaultRegistryOnlyWhenExplicit(t *testing.T
 		if retryable || !configured {
 			t.Fatalf("ToolRetryable(%q) = %v, %v; want false, true", alias, retryable, configured)
 		}
+		if !protectionResolver.ToolExecutionProtected(alias) {
+			t.Fatalf("ToolExecutionProtected(%q) = false, want true", alias)
+		}
+	}
+	if protectionResolver.ToolExecutionProtected("delivery/preview") {
+		t.Fatal("default registry reported an unprotected tool as protected")
 	}
 }

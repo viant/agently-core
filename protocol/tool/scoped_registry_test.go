@@ -13,6 +13,7 @@ import (
 type captureRegistry struct {
 	lastConversationID string
 	retryPolicies      map[string]bool
+	protectedTools     map[string]bool
 }
 
 func (c *captureRegistry) Definitions() []llm.ToolDefinition { return nil }
@@ -31,6 +32,9 @@ func (c *captureRegistry) Initialize(context.Context) {
 func (c *captureRegistry) ToolRetryable(name string) (bool, bool) {
 	retryable, ok := c.retryPolicies[name]
 	return retryable, ok
+}
+func (c *captureRegistry) ToolExecutionProtected(name string) bool {
+	return c.protectedTools[name]
 }
 
 func TestScopedRegistry_InjectsConversationID_WhenModelMessageIDPresent(t *testing.T) {
@@ -52,4 +56,14 @@ func TestScopedRegistry_DelegatesRetryPolicy(t *testing.T) {
 	retryable, configured := resolver.ToolRetryable("ui/report:run")
 	assert.True(t, configured)
 	assert.False(t, retryable)
+}
+
+func TestScopedRegistry_DelegatesExecutionProtection(t *testing.T) {
+	inner := &captureRegistry{protectedTools: map[string]bool{"sendgrid/sendgridSendMail": true}}
+	reg := WithConversation(inner, "conv-123")
+
+	resolver, ok := reg.(ExecutionProtectionResolver)
+	assert.True(t, ok)
+	assert.True(t, resolver.ToolExecutionProtected("sendgrid/sendgridSendMail"))
+	assert.False(t, resolver.ToolExecutionProtected("ui/report:run"))
 }
