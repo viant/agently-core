@@ -129,6 +129,15 @@ func (s *scopedRegistry) ToolRetryable(name string) (bool, bool) {
 	return false, false
 }
 
+// ToolExecutionProtected delegates durable execution protection resolution to
+// the underlying registry.
+func (s *scopedRegistry) ToolExecutionProtected(name string) bool {
+	if resolver, ok := s.inner.(ExecutionProtectionResolver); ok {
+		return resolver.ToolExecutionProtected(name)
+	}
+	return false
+}
+
 func (s *scopedRegistry) AsyncConfig(name string) (*asynccfg.Config, bool) {
 	if ar, ok := s.inner.(AsyncResolver); ok {
 		return ar.AsyncConfig(name)

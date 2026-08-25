@@ -39,10 +39,22 @@ func TestReportingClientSavedReportLifecycle(t *testing.T) {
 	require.Equal(t, "reporting:delete_report", executor.name)
 	require.True(t, deleted.Deleted)
 
-	executor.out = &reportingsvc.ExportJob{JobID: "job-1", Status: reportingsvc.JobStatusQueued}
+	executor.out = &reportingsvc.ExportJobStatus{JobID: "job-1", Status: reportingsvc.JobStatusQueued}
 	job, err := client.SubmitSavedReportExport(context.Background(), "delivery", reportingsvc.ExportFormatPDF)
 	require.NoError(t, err)
 	require.Equal(t, "reporting:submit_export", executor.name)
 	require.Equal(t, "job-1", job.JobID)
 	require.Equal(t, "report", executor.args["source"].(map[string]interface{})["kind"])
+
+	executor.out = &reportingsvc.ExportJobStatus{
+		JobID:      "job-1",
+		Status:     reportingsvc.JobStatusSucceeded,
+		ArtifactID: "artifact-1",
+	}
+	status, err := client.GetExportStatus(context.Background(), "job-1")
+	require.NoError(t, err)
+	require.Equal(t, "reporting:get_export_status", executor.name)
+	require.Equal(t, "job-1", executor.args["jobId"])
+	require.Equal(t, reportingsvc.JobStatusSucceeded, status.Status)
+	require.Equal(t, "artifact-1", status.ArtifactID)
 }
