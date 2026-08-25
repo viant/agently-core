@@ -93,7 +93,10 @@ func persistCoalescedToolResult(ctx context.Context, conv apiconv.Client, turn r
 		}
 	}
 	body := result
-	status := "coalesced"
+	// Coalescing describes how this call obtained its result, not a durable
+	// lifecycle state. The duplicate still has its own model tool_call_id and
+	// therefore must be persisted with a supported terminal status.
+	status := "completed"
 	errMsg := ""
 	if resultErr != nil {
 		body = resultErr.Error()

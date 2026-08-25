@@ -289,9 +289,38 @@ func TestExecuteToolStep_CoalescesConcurrentDuplicateActiveTurnSteps(t *testing.
 		}
 	}
 	assert.Equal(t, 2, statusCounts["running"])
-	assert.Equal(t, 1, statusCounts["completed"], "one call should represent the real tool execution")
-	assert.Equal(t, 1, statusCounts["coalesced"], "duplicate call should remain protocol-visible without a second execution")
+	assert.Equal(t, 2, statusCounts["completed"], "both model tool call IDs should reach a supported terminal status")
+	assert.Zero(t, statusCounts["coalesced"], "coalescing is an execution detail, not a durable lifecycle status")
+	messageStatusCounts := map[string]int{}
+	for _, message := range conv.patchedMessages {
+		messageStatusCounts[strings.TrimSpace(derefString(message.Status))]++
+	}
+	assert.Equal(t, 2, messageStatusCounts["completed"], "both tool messages should be terminal")
 	assert.Len(t, conv.patchedPayloads, 4, "each model call id needs request/response payloads for history replay")
+}
+
+func TestPersistCoalescedToolResult_SharedErrorRemainsFailed(t *testing.T) {
+	turn := memory.TurnMeta{ConversationID: "c-coalesced-error", TurnID: "t-coalesced-error", ParentMessageID: "p-coalesced-error"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	conv := &stubConv{}
+
+	err := persistCoalescedToolResult(ctx, conv, turn, time.Now(), StepInfo{
+		ID:         "call-coalesced-error",
+		Name:       "ui/window/setFormData",
+		ResponseID: "resp-coalesced-error",
+	}, map[string]interface{}{"clientId": "ios-ui-test"}, "", assert.AnError)
+	require.NoError(t, err)
+
+	statusCounts := map[string]int{}
+	for _, call := range conv.patchedToolCalls {
+		if strings.TrimSpace(call.OpID) == "call-coalesced-error" {
+			statusCounts[strings.TrimSpace(call.Status)]++
+		}
+	}
+	assert.Equal(t, 1, statusCounts["running"])
+	assert.Equal(t, 1, statusCounts["failed"])
+	assert.Zero(t, statusCounts["completed"])
+	assert.Zero(t, statusCounts["coalesced"])
 }
 
 func TestExecuteToolStep_ProtectedConcurrentDuplicatesBypassCoalescing(t *testing.T) {
