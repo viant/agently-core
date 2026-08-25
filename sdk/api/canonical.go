@@ -236,8 +236,26 @@ type PlanStep struct {
 }
 
 type UsageSummary struct {
-	TotalInputTokens  int `json:"totalInputTokens,omitempty"`
-	TotalOutputTokens int `json:"totalOutputTokens,omitempty"`
+	TotalInputTokens       int                  `json:"totalInputTokens,omitempty"`
+	TotalOutputTokens      int                  `json:"totalOutputTokens,omitempty"`
+	TotalCachedInputTokens int                  `json:"totalCachedInputTokens,omitempty"`
+	TotalReasoningTokens   int                  `json:"totalReasoningTokens,omitempty"`
+	TotalEmbeddingTokens   int                  `json:"totalEmbeddingTokens,omitempty"`
+	TotalTokens            int                  `json:"totalTokens,omitempty"`
+	Cost                   *float64             `json:"cost,omitempty"`
+	Models                 []*UsageModelSummary `json:"models,omitempty"`
+}
+
+type UsageModelSummary struct {
+	Provider          string   `json:"provider,omitempty"`
+	Model             string   `json:"model"`
+	ExecutionRole     string   `json:"executionRole,omitempty"`
+	InputTokens       int      `json:"inputTokens,omitempty"`
+	OutputTokens      int      `json:"outputTokens,omitempty"`
+	CachedInputTokens int      `json:"cachedInputTokens,omitempty"`
+	ReasoningTokens   int      `json:"reasoningTokens,omitempty"`
+	TotalTokens       int      `json:"totalTokens,omitempty"`
+	Cost              *float64 `json:"cost,omitempty"`
 }
 
 type ConversationStateResponse struct {

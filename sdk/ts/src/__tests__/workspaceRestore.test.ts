@@ -235,7 +235,7 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
         });
     });
 
-    it('restores hosted workspace state from the last turn only', () => {
+    it('preserves hosted workspace state when a later turn lists no live windows', () => {
         expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
             {
                 turnId: 'turn-1',
@@ -283,10 +283,13 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     ],
                 },
             } as any,
-        ])).toBeNull();
+        ])).toMatchObject({
+            selectedWindowId: 'report_legacy',
+            windows: [{ windowId: 'report_legacy', parameters: { entityId: [111] } }],
+        });
     });
 
-    it('does not backfill older hosted view-open state when the last turn has no hosted workspace', () => {
+    it('restores older hosted view-open state when later turns do not close it', () => {
         expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
             {
                 turnId: 'turn-1',
@@ -339,7 +342,17 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
                     ],
                 },
             } as any,
-        ])).toBeNull();
+        ])).toMatchObject({
+            selectedWindowId: 'metricReportBuilder__conv-1',
+            windows: [{
+                windowId: 'metricReportBuilder__conv-1',
+                parameters: {
+                    metrics_ad_cube_report: {
+                        parameters: { filters: { channelIds: [1] } },
+                    },
+                },
+            }],
+        });
     });
 
     it('restores hosted ui/view/open state from tool content when the response payload is a gzip envelope', () => {

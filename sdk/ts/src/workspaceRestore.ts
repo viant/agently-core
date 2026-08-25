@@ -255,35 +255,68 @@ function applySetFormDataSteps(toolSteps: any[], windows: WorkspaceWindowSnapsho
 
 export function deriveHostedWorkspaceRestoreStateFromTranscriptTurns(turns: Turn[] = []): HostedWorkspaceRestoreState | null {
     const list = Array.isArray(turns) ? turns : [];
-    const toolSteps = toolStepsForTurn(list[list.length - 1]);
+    const toolSteps = list.flatMap((turn) => toolStepsForTurn(turn));
     if (toolSteps.length === 0) return null;
-    for (let i = toolSteps.length - 1; i >= 0; i -= 1) {
+    let windows: WorkspaceWindowSnapshot[] = [];
+    let selectedWindowId = '';
+    const upsertWindows = (incoming: WorkspaceWindowSnapshot[]) => {
+        incoming.forEach((candidate) => {
+            const windowId = String(candidate?.windowId || '').trim();
+            if (!windowId) return;
+            const existingIndex = windows.findIndex((window) => String(window?.windowId || '').trim() === windowId);
+            if (existingIndex < 0) {
+                windows.push(candidate);
+                return;
+            }
+            const existing = windows[existingIndex];
+            windows[existingIndex] = {
+                ...existing,
+                ...candidate,
+                parameters: mergeWindowFormValue(existing.parameters, candidate.parameters) as Record<string, unknown>,
+                windowForm: mergeWindowFormValue(existing.windowForm, candidate.windowForm) as Record<string, unknown>,
+            };
+        });
+    };
+    for (let i = 0; i < toolSteps.length; i += 1) {
         const step = toolSteps[i] || {};
         if (String(step?.status || '').trim().toLowerCase() !== 'completed') continue;
         const toolName = normalizeToolName(step?.toolName);
         if (toolName === 'ui/window/list') {
-            const windows = applySetFormDataSteps(
-                toolSteps,
-                hostedWorkspaceWindowsFromListPayload(firstParsedPayload(step?.responsePayload, step?.content)),
-                i,
-            );
-            if (windows.length === 0) continue;
-            return {
-                windows,
-                selectedWindowId: selectedWindowIdFromToolSteps(toolSteps, windows) || null,
-            };
+            const listed = hostedWorkspaceWindowsFromListPayload(firstParsedPayload(step?.responsePayload, step?.content));
+            upsertWindows(listed);
+            const focused = String(firstParsedPayload(step?.responsePayload, step?.content)?.focusedWindowId || '').trim();
+            if (focused) selectedWindowId = focused;
+            continue;
         }
         if (toolName === 'ui/view/open' || toolName === 'ui/window/open') {
-            const windows = applySetFormDataSteps(toolSteps, hostedWorkspaceWindowsFromViewOpenStep(step), i);
-            if (windows.length === 0) continue;
+            const opened = hostedWorkspaceWindowsFromViewOpenStep(step);
+            upsertWindows(opened);
             const responsePayload = firstParsedPayload(step?.responsePayload, step?.content);
-            const selectedWindowId = String(responsePayload?.selectedWindowId || '').trim()
-                || String(windows[windows.length - 1]?.windowId || '').trim();
-            return {
-                windows,
-                selectedWindowId: selectedWindowId || null,
-            };
+            selectedWindowId = String(responsePayload?.selectedWindowId || '').trim()
+                || String(opened[opened.length - 1]?.windowId || '').trim()
+                || selectedWindowId;
+            continue;
+        }
+        if (toolName === 'ui/window/setformdata') {
+            windows = applySetFormDataSteps([step], windows, -1);
+            continue;
+        }
+        if (toolName === 'ui/window/show') {
+            const requestPayload = firstParsedPayload(step?.requestPayload);
+            const target = String(requestPayload?.windowId || '').trim();
+            if (target) selectedWindowId = target;
+            continue;
+        }
+        if (toolName === 'ui/window/close') {
+            const requestPayload = firstParsedPayload(step?.requestPayload);
+            const target = String(requestPayload?.windowId || '').trim();
+            if (target) windows = windows.filter((window) => String(window.windowId || '').trim() !== target);
         }
     }
-    return null;
+    if (windows.length === 0) return null;
+    if (!windows.some((window) => String(window.windowId || '').trim() === selectedWindowId)) {
+        selectedWindowId = selectedWindowIdFromToolSteps(toolSteps, windows)
+            || String(windows[windows.length - 1]?.windowId || '').trim();
+    }
+    return { windows, selectedWindowId: selectedWindowId || null };
 }

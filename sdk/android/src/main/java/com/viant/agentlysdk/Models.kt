@@ -1525,5 +1525,24 @@ data class LinkedConversationState(
 @Serializable
 data class UsageSummary(
     val totalInputTokens: Int? = null,
-    val totalOutputTokens: Int? = null
+    val totalOutputTokens: Int? = null,
+    val totalCachedInputTokens: Int? = null,
+    val totalReasoningTokens: Int? = null,
+    val totalEmbeddingTokens: Int? = null,
+    val totalTokens: Int? = null,
+    val cost: Double? = null,
+    val models: List<UsageModelSummary> = emptyList()
+)
+
+@Serializable
+data class UsageModelSummary(
+    val provider: String? = null,
+    val model: String,
+    val executionRole: String? = null,
+    val inputTokens: Int? = null,
+    val outputTokens: Int? = null,
+    val cachedInputTokens: Int? = null,
+    val reasoningTokens: Int? = null,
+    val totalTokens: Int? = null,
+    val cost: Double? = null
 )

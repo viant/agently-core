@@ -163,13 +163,61 @@ func usageSummaryFromConversation(conv *conversation.Conversation) *UsageSummary
 			output = *conv.Usage.CompletionTokens
 		}
 	}
-	if input == 0 && output == 0 {
+	embedding := 0
+	if conv.UsageEmbeddingTokens != nil {
+		embedding = *conv.UsageEmbeddingTokens
+	}
+	cached := 0
+	reasoning := 0
+	var cost *float64
+	var models []*UsageModelSummary
+	if conv.Usage != nil {
+		cached = usageIntValue(conv.Usage.PromptCachedTokens)
+		reasoning = usageIntValue(conv.Usage.CompletionReasoningTokens)
+		cost = conv.Usage.Cost
+		for _, item := range conv.Usage.Model {
+			if item == nil {
+				continue
+			}
+			modelInput := usageIntValue(item.PromptTokens)
+			modelOutput := usageIntValue(item.CompletionTokens)
+			modelTotal := usageIntValue(item.TotalTokens)
+			if modelTotal == 0 {
+				modelTotal = modelInput + modelOutput
+			}
+			models = append(models, &UsageModelSummary{
+				Provider:          strings.TrimSpace(item.Provider),
+				Model:             strings.TrimSpace(item.Model),
+				ExecutionRole:     strings.TrimSpace(item.ExecutionRole),
+				InputTokens:       modelInput,
+				OutputTokens:      modelOutput,
+				CachedInputTokens: usageIntValue(item.PromptCachedTokens),
+				ReasoningTokens:   usageIntValue(item.CompletionReasoningTokens),
+				TotalTokens:       modelTotal,
+				Cost:              item.Cost,
+			})
+		}
+	}
+	if input == 0 && output == 0 && embedding == 0 && len(models) == 0 {
 		return nil
 	}
 	return &UsageSummary{
-		TotalInputTokens:  input,
-		TotalOutputTokens: output,
+		TotalInputTokens:       input,
+		TotalOutputTokens:      output,
+		TotalCachedInputTokens: cached,
+		TotalReasoningTokens:   reasoning,
+		TotalEmbeddingTokens:   embedding,
+		TotalTokens:            input + output + embedding,
+		Cost:                   cost,
+		Models:                 models,
 	}
+}
+
+func usageIntValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 // GetLiveState returns the current canonical state snapshot together with an

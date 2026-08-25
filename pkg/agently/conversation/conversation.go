@@ -322,7 +322,9 @@ type UsageView struct {
 
 type ModelView struct {
 	ConversationId                     string   `sqlx:"conversation_id"`
+	Provider                           string   `sqlx:"provider"`
 	Model                              string   `sqlx:"model"`
+	ExecutionRole                      string   `sqlx:"execution_role"`
 	PromptTokens                       *int     `sqlx:"prompt_tokens"`
 	PromptCachedTokens                 *int     `sqlx:"prompt_cached_tokens"`
 	PromptAudioTokens                  *int     `sqlx:"prompt_audio_tokens"`
