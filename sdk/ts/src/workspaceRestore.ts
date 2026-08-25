@@ -13,6 +13,8 @@ export interface WorkspaceWindowSnapshot {
     inTab?: boolean;
     parameters?: Record<string, unknown>;
     windowForm?: Record<string, unknown>;
+    navigation?: { label?: string; icon?: string } | null;
+    mcpUI?: { uri?: string; title?: string } | null;
 }
 
 export interface HostedWorkspaceRestoreState {
@@ -105,6 +107,14 @@ function normalizeHostedWorkspaceWindow(raw: any): WorkspaceWindowSnapshot | nul
         inTab: raw.inTab !== false,
         parameters,
         windowForm,
+        navigation: raw.navigation && typeof raw.navigation === 'object' ? {
+            label: String(raw.navigation.label || '').trim() || undefined,
+            icon: String(raw.navigation.icon || '').trim() || undefined,
+        } : undefined,
+        mcpUI: raw.mcpUI && typeof raw.mcpUI === 'object' ? {
+            uri: String(raw.mcpUI.uri || '').trim() || undefined,
+            title: String(raw.mcpUI.title || '').trim() || undefined,
+        } : undefined,
     };
 }
 
@@ -185,6 +195,12 @@ function hostedWorkspaceWindowsFromViewOpenStep(step: any): WorkspaceWindowSnaps
         parameters: requestPayload?.parameters && typeof requestPayload.parameters === 'object' ? requestPayload.parameters : {},
         windowForm: responsePayload?.windowForm && typeof responsePayload.windowForm === 'object'
             ? responsePayload.windowForm
+            : undefined,
+        navigation: responsePayload?.navigation && typeof responsePayload.navigation === 'object'
+            ? responsePayload.navigation
+            : undefined,
+        mcpUI: responsePayload?.mcpUI && typeof responsePayload.mcpUI === 'object'
+            ? responsePayload.mcpUI
             : undefined,
     });
     return normalized ? [normalized] : [];

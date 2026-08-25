@@ -110,6 +110,21 @@ func TestAvailableViewIDs(t *testing.T) {
 	}
 }
 
+func TestBuildOpenWindowOptionsCarriesNavigationMetadata(t *testing.T) {
+	options := buildOpenWindowOptions(&ListItem{
+		Presentation: "hosted",
+		Region:       "chat.top",
+		Navigation:   &viewproto.Navigation{Label: "Reports", Icon: "chart"},
+	}, "conv-1", "")
+	navigation, ok := options["navigation"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected navigation options, got %#v", options["navigation"])
+	}
+	if navigation["label"] != "Reports" || navigation["icon"] != "chart" {
+		t.Fatalf("unexpected navigation metadata: %#v", navigation)
+	}
+}
+
 func TestResolveReportStarterIDCanonicalization(t *testing.T) {
 	presets := []viewproto.ReportPreset{
 		{ID: "Alpha_ID", Label: "Alpha Report"},

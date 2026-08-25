@@ -100,6 +100,16 @@ func (n *feedNotifier) EmitInactiveForMissing(ctx context.Context, convID string
 	defer n.mu.Unlock()
 	feedsByConversation := n.activeFeeds[convID]
 	for feedID := range feedsByConversation {
+		var turnScoped bool
+		for _, spec := range n.registry.Specs() {
+			if spec != nil && spec.ID == feedID {
+				turnScoped = strings.EqualFold(strings.TrimSpace(spec.Activation.Scope), "turn")
+				break
+			}
+		}
+		if !turnScoped {
+			continue
+		}
 		if !currentFeedIDs[feedID] {
 			emitFeedInactive(ctx, n.bus, convID, feedID)
 			delete(feedsByConversation, feedID)

@@ -101,6 +101,7 @@ func TestFeedNotifier_BuiltinFeedsLiveBehavior(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			spec := loadBuiltinFeedSpec(t, tc.specName)
+			spec.Activation.Scope = "turn"
 			bus := streaming.NewMemoryBus(4)
 			sub, err := bus.Subscribe(context.Background(), nil)
 			require.NoError(t, err)
@@ -254,6 +255,7 @@ func TestResolveActiveFeedsFromState_BuiltinYAMLBehavior(t *testing.T) {
 
 func TestResolveActiveFeedsFromState_TerminalFeedDecodesCompressedPayloads(t *testing.T) {
 	spec := loadBuiltinFeedSpec(t, "terminal")
+	spec.DeveloperOnly = true
 	client := &backendClient{
 		conv: newPayloadOnlyConversationClientWithCompression(
 			map[string]string{
@@ -517,6 +519,7 @@ func TestHandleGetFeedData_ReturnsResolvedBuiltinFeed(t *testing.T) {
 		},
 	}
 	spec := loadBuiltinFeedSpec(t, "terminal")
+	spec.DeveloperOnly = true
 	client := &backendClient{
 		conv:  newConversationWithPayloadsClient(conv, payloads),
 		feeds: &FeedRegistry{specs: []*FeedSpec{spec}},
@@ -532,6 +535,7 @@ func TestHandleGetFeedData_ReturnsResolvedBuiltinFeed(t *testing.T) {
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &decoded))
 	assert.Equal(t, "terminal", decoded["feedId"])
 	assert.Equal(t, "Terminal", decoded["title"])
+	assert.Equal(t, true, decoded["developerOnly"])
 	assert.NotNil(t, decoded["data"])
 	assert.NotNil(t, decoded["dataSources"])
 	assert.NotNil(t, decoded["ui"])
@@ -577,6 +581,20 @@ func TestFeedNotifier_DoesNotEmitInactiveWhenFeedStillMatched(t *testing.T) {
 	assert.Equal(t, streaming.EventTypeToolFeedActive, ev.Type)
 
 	notifier.EmitInactiveForMissing(ctx, "conv-still-active", []string{"system_exec-execute"})
+	assertNoEvent(t, sub)
+}
+
+func TestFeedNotifier_PersistentFeedSurvivesLaterUnmatchedTool(t *testing.T) {
+	spec := loadBuiltinFeedSpec(t, "changes")
+	bus := streaming.NewMemoryBus(4)
+	sub, err := bus.Subscribe(context.Background(), nil)
+	require.NoError(t, err)
+	defer sub.Close()
+	notifier := newFeedNotifier(&FeedRegistry{specs: []*FeedSpec{spec}}, bus)
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-persist", TurnID: "turn-1"})
+	notifier.NotifyToolCompleted(ctx, "system_patch-apply", nil, `{"changes":[{"url":"/tmp/a.go","kind":"updated"}],"status":"ok"}`)
+	require.Equal(t, streaming.EventTypeToolFeedActive, readEvent(t, sub).Type)
+	notifier.EmitInactiveForMissing(ctx, "conv-persist", []string{"resources-read"})
 	assertNoEvent(t, sub)
 }
 
@@ -671,6 +689,10 @@ ui:
 
 	require.NoError(t, os.WriteFile(filepath.Join(feedsDir, "plan.yaml"), []byte(`
 id: plan
+developerOnly: true
+presentation:
+  icon: list
+  accent: blue
 match:
   service: orchestration
   method: updatePlan
@@ -679,6 +701,17 @@ ui:
 `), 0o644))
 	reg.Reload()
 	require.Len(t, reg.Specs(), 2)
+	var planSpec *FeedSpec
+	for _, candidate := range reg.Specs() {
+		if candidate.ID == "plan" {
+			planSpec = candidate
+			break
+		}
+	}
+	require.NotNil(t, planSpec)
+	assert.True(t, planSpec.DeveloperOnly)
+	require.NotNil(t, planSpec.Presentation)
+	assert.Equal(t, "list", planSpec.Presentation.Icon)
 
 	client := &backendClient{feeds: reg}
 	req := httptest.NewRequest("GET", "/v1/feeds", nil)
@@ -690,6 +723,18 @@ ui:
 	feeds, ok := decoded["feeds"].([]interface{})
 	require.True(t, ok)
 	assert.Len(t, feeds, 2)
+	var developerOnlyFound bool
+	var presentationFound bool
+	for _, item := range feeds {
+		row, _ := item.(map[string]interface{})
+		if row["id"] == "plan" && row["developerOnly"] == true {
+			developerOnlyFound = true
+			presentation, _ := row["presentation"].(map[string]interface{})
+			presentationFound = presentation["icon"] == "list" && presentation["accent"] == "blue"
+		}
+	}
+	assert.True(t, developerOnlyFound)
+	assert.True(t, presentationFound)
 }
 
 func TestEmbeddedFeedHelpers_DeprecatedAndPayloadAccess(t *testing.T) {

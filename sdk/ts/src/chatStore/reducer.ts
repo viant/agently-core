@@ -503,6 +503,8 @@ export function applyEvent(
             return onModelStarted(state, event);
         case 'model_completed':
             return onModelCompleted(state, event);
+        case 'tool_calls_planned':
+            return onToolCallsPlanned(state, event);
         case 'tool_call_started':
         case 'tool_call_waiting':
         case 'tool_call_completed':
@@ -544,6 +546,16 @@ export function applyEvent(
         default:
             return state;
     }
+}
+
+function onToolCallsPlanned(state: ClientConversationState, event: SSEEvent): ClientConversationState {
+    const turn = resolveEventTurn(state, event);
+    if (!turn) return state;
+    const page = ensurePageForEvent(turn, event, 'event');
+    if (Array.isArray(event.toolCallsPlanned)) {
+        writeField(page, 'toolCallsPlanned', event.toolCallsPlanned, 'event');
+    }
+    return state;
 }
 
 /** Resolve or create the target turn for a server event. */
@@ -692,6 +704,7 @@ function ensureAnchorPageForLifecycle(
         phase: 'main',
         modelSteps: [],
         toolCalls: [],
+        toolCallsPlanned: [],
         lifecycleEntries: [],
     };
     setFieldProvenance(page, 'iteration', source);
@@ -802,6 +815,7 @@ function ensurePageForEvent(turn: ClientTurnState, event: SSEEvent, source: Writ
         phase: normalizedPhase,
         modelSteps: [],
         toolCalls: [],
+        toolCallsPlanned: [],
         lifecycleEntries: [],
         createdAt: event.createdAt,
     };
@@ -957,6 +971,7 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     if (event.providerRequestPayloadId) writeField(step, 'providerRequestPayloadId', event.providerRequestPayloadId, 'event');
     if (event.providerResponsePayloadId) writeField(step, 'providerResponsePayloadId', event.providerResponsePayloadId, 'event');
     if (event.streamPayloadId) writeField(step, 'streamPayloadId', event.streamPayloadId, 'event');
+    if (event.usage) writeField(step, 'usage', event.usage, 'event');
     if (event.completedAt) writeField(step, 'completedAt', event.completedAt, 'event');
     if (derivedPhase !== 'main') writeField(page, 'phase', derivedPhase, 'event');
     // NOTE: model_completed does NOT change turn lifecycle per §4.3.
@@ -1621,6 +1636,7 @@ function mergeTranscriptPage(
             finalAssistantMessageId: snapshotPage.finalAssistantMessageId,
             modelSteps: [],
             toolCalls: [],
+            toolCallsPlanned: snapshotPage.toolCallsPlanned ?? [],
             lifecycleEntries: [],
             createdAt: snapshotPage.createdAt,
             startedAt: snapshotPage.startedAt,
@@ -1652,6 +1668,7 @@ function mergeTranscriptPage(
         if (snapshotPage.createdAt) writeField(page, 'createdAt', snapshotPage.createdAt, 'transcript');
         if (snapshotPage.startedAt) writeField(page, 'startedAt', snapshotPage.startedAt, 'transcript');
         if (snapshotPage.completedAt) writeField(page, 'completedAt', snapshotPage.completedAt, 'transcript');
+        if (snapshotPage.toolCallsPlanned) writeField(page, 'toolCallsPlanned', snapshotPage.toolCallsPlanned, 'transcript');
     }
 
     for (const ms of snapshotPage.modelSteps ?? []) mergeTranscriptModelStep(page, ms);
@@ -1686,6 +1703,7 @@ function mergeTranscriptModelStep(
     if (snapshotStep.streamPayloadId) writeField(step, 'streamPayloadId', snapshotStep.streamPayloadId, 'transcript');
     if (snapshotStep.startedAt) writeField(step, 'startedAt', snapshotStep.startedAt, 'transcript');
     if (snapshotStep.completedAt) writeField(step, 'completedAt', snapshotStep.completedAt, 'transcript');
+    if (snapshotStep.usage) writeField(step, 'usage', snapshotStep.usage, 'transcript');
 }
 
 function mergeTranscriptToolCall(

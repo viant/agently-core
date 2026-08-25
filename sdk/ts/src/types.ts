@@ -234,6 +234,16 @@ export interface ModelStepState {
     streamPayloadId?: string;
     startedAt?: string;
     completedAt?: string;
+    usage?: ModelUsageState;
+}
+
+export interface ModelUsageState {
+    inputTokens?: number;
+    outputTokens?: number;
+    cachedInputTokens?: number;
+    reasoningTokens?: number;
+    embeddingTokens?: number;
+    totalTokens?: number;
 }
 
 export interface ToolStepState {
@@ -406,6 +416,7 @@ export type SSEEventType =
     | 'assistant'
     | 'message_appended'
     // Tool call lifecycle
+    | 'tool_calls_planned'
     | 'tool_call_started'
     | 'tool_call_waiting'
     | 'tool_call_completed'
@@ -495,6 +506,7 @@ export interface SSEEvent {
     latestPage?: boolean;
     finalResponse?: boolean;
     model?: EventModel;
+    usage?: ModelUsageState & { scope?: 'model_call' | 'turn' | 'conversation' };
     toolCallsPlanned?: PlannedToolCall[];
     createdAt?: string;
     completedAt?: string;
@@ -510,6 +522,9 @@ export interface SSEEvent {
     // Tool feed fields
     feedId?: string;
     feedTitle?: string;
+    feedDeveloperOnly?: boolean;
+    feedIcon?: string;
+    feedAccent?: string;
     feedItemCount?: number;
     feedData?: JSONValue;
     // Planner fields
@@ -1130,12 +1145,21 @@ export interface IDPDelegateOutput {
 export interface FeedSpec {
     id: string;
     title: string;
+    developerOnly?: boolean;
+    presentation?: FeedPresentation;
     match: { service: string; method: string };
+}
+
+export interface FeedPresentation {
+    icon?: string;
+    accent?: string;
 }
 
 export interface ActiveFeed {
     feedId: string;
     title: string;
+    developerOnly?: boolean;
+    presentation?: FeedPresentation;
     itemCount: number;
     conversationId?: string;
     turnId?: string;

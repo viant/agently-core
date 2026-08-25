@@ -343,6 +343,13 @@ func TestEmitCanonicalModelEvent_EmitsRequestPayloadIDsOnModelCompleted(t *testi
 	mc.SetProviderRequestPayloadID("preq-sidecar-1")
 	mc.SetResponsePayloadID("resp-sidecar-1")
 	mc.SetProviderResponsePayloadID("presp-sidecar-1")
+	mc.SetPromptTokens(120)
+	mc.SetPromptCachedTokens(40)
+	mc.SetCompletionTokens(30)
+	mc.SetTotalTokens(150)
+	reasoning := 12
+	mc.CompletionReasoningTokens = &reasoning
+	mc.Has.CompletionReasoningTokens = true
 
 	svc.emitCanonicalModelEvent(ctx, mc)
 
@@ -355,6 +362,14 @@ func TestEmitCanonicalModelEvent_EmitsRequestPayloadIDsOnModelCompleted(t *testi
 		require.Equal(t, "preq-sidecar-1", ev.ProviderRequestPayloadID)
 		require.Equal(t, "resp-sidecar-1", ev.ResponsePayloadID)
 		require.Equal(t, "presp-sidecar-1", ev.ProviderResponsePayloadID)
+		require.Equal(t, &streaming.UsageSnapshot{
+			Scope:             "model_call",
+			InputTokens:       120,
+			OutputTokens:      30,
+			CachedInputTokens: 40,
+			ReasoningTokens:   12,
+			TotalTokens:       150,
+		}, ev.Usage)
 	case <-time.After(2 * time.Second):
 		t.Fatal("expected model_completed event")
 	}

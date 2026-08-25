@@ -23,7 +23,7 @@ export type {
     // Turn / Transcript
     Turn, TranscriptOutput, GetTranscriptInput, GetTranscriptOptions, QuerySelector,
     // Execution pages (canonical)
-    ExecutionPage, LiveExecutionGroup, LiveExecutionGroupsById, ModelStepState, ToolStepState,
+    ExecutionPage, LiveExecutionGroup, LiveExecutionGroupsById, ModelStepState, ModelUsageState, ToolStepState,
     // Message
     Message, MessagePage, GetMessagesInput,
     ToolMessageView, ToolCallView, ModelCallView,
@@ -69,7 +69,7 @@ export type {
     OAuthConfigOutput, CreateSessionInput, CreateSessionOutput, OAuthInitiateInput,
     OOBLoginInput, IDPDelegateOutput,
     // Tool Feeds
-    FeedSpec, ActiveFeed,
+    FeedSpec, FeedPresentation, ActiveFeed,
 } from './types';
 
 // Elicitation tracking
@@ -110,6 +110,32 @@ export {
     describeExecutionTimelineEvent,
 } from './executionGroups';
 export type { ExecutionStepLike } from './executionGroups';
+
+// Turn presentation helpers
+export {
+    normalizeTokenUsageSummary,
+    summarizeExecutionTokenUsage,
+    summarizeToolProgress,
+    resolveActiveTurnProgress,
+    resolveTurnNarration,
+    resolveTurnTerminalNotice,
+} from './turnPresentation';
+export type {
+    ActiveTurnState,
+    TurnOutcome,
+    TurnActivityKind,
+    TokenUsageScope,
+    ModelTokenUsage,
+    TokenUsageSummary,
+    ToolProgressRow,
+    ToolProgressSummary,
+    TurnActivity,
+    ActiveTurnProgress,
+    TurnNarration,
+    TurnTerminalNotice,
+    TurnPresentationInput,
+    TurnNarrationInput,
+} from './turnPresentation';
 
 // Stream identity helpers
 export {

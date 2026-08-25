@@ -2,6 +2,7 @@ package com.viant.agentlysdk.stream
 
 import com.viant.agentlysdk.PlannerState
 import com.viant.agentlysdk.RenderedContent
+import com.viant.agentlysdk.ModelUsageState
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -81,6 +82,9 @@ data class SSEEvent(
     val responsePayload: JsonElement? = null,
     val feedId: String? = null,
     val feedTitle: String? = null,
+    val feedDeveloperOnly: Boolean? = null,
+    val feedIcon: String? = null,
+    val feedAccent: String? = null,
     val feedItemCount: Int? = null,
     val feedData: JsonElement? = null,
     val plannerTrigger: String? = null,
@@ -93,7 +97,8 @@ data class SSEEvent(
     val usageInputTokens: Int? = null,
     val usageOutputTokens: Int? = null,
     val usageEmbeddingTokens: Int? = null,
-    val usageTotalTokens: Int? = null
+    val usageTotalTokens: Int? = null,
+    val usage: ModelUsageState? = null
 )
 
 data class ActiveFeed(
@@ -103,7 +108,9 @@ data class ActiveFeed(
     val conversationId: String? = null,
     val turnId: String? = null,
     val updatedAt: Long = System.currentTimeMillis(),
-    val data: JsonElement? = null
+    val data: JsonElement? = null,
+    val developerOnly: Boolean = false,
+    val presentation: com.viant.agentlysdk.FeedPresentation? = null
 )
 
 data class PendingElicitation(
@@ -150,7 +157,8 @@ data class LiveModelStepState(
     val responsePayloadId: String? = null,
     val providerRequestPayloadId: String? = null,
     val providerResponsePayloadId: String? = null,
-    val streamPayloadId: String? = null
+    val streamPayloadId: String? = null,
+    val usage: ModelUsageState? = null
 )
 
 data class LiveToolStepState(

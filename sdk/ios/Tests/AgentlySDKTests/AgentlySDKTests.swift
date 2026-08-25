@@ -1087,7 +1087,8 @@ final class AgentlySDKTests: XCTestCase {
                           "executionRole": "main",
                           "phase": "intake",
                           "provider": "openai",
-                          "model": "gpt-5.4"
+                          "model": "gpt-5.4",
+                          "usage": {"inputTokens":120,"outputTokens":30,"cachedInputTokens":40,"reasoningTokens":12,"totalTokens":150}
                         }
                       ],
                       "toolSteps": [
@@ -1132,6 +1133,8 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(page.executionRole, "main")
         XCTAssertEqual(page.phase, "intake")
         XCTAssertEqual(page.modelSteps.first?.executionRole, "main")
+        XCTAssertEqual(page.modelSteps.first?.usage?.totalTokens, 150)
+        XCTAssertEqual(page.modelSteps.first?.usage?.cachedInputTokens, 40)
         let toolStep = try XCTUnwrap(page.toolSteps.first)
         XCTAssertEqual(toolStep.parentMessageID, "user-1")
         XCTAssertEqual(toolStep.executionRole, "sidecar")
@@ -1739,11 +1742,13 @@ final class AgentlySDKTests: XCTestCase {
         let tracker = ConversationStreamTracker()
 
         _ = await tracker.apply(SSEEvent(data: #"{"type":"model_started","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","modelCallId":"mc-1","status":"running","model":{"provider":"openai","model":"gpt-5-mini"}}"#))
-        _ = await tracker.apply(SSEEvent(data: #"{"type":"tool_feed_active","conversationId":"conv-1","turnId":"turn-1","feedId":"feed-1","feedTitle":"Feed","feedItemCount":2}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"tool_feed_active","conversationId":"conv-1","turnId":"turn-1","feedId":"feed-1","feedTitle":"Feed","feedDeveloperOnly":true,"feedIcon":"chart","feedAccent":"purple","feedItemCount":2}"#))
         let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"control","op":"message_patch","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","patch":{"content":"Patched","status":"running","toolName":"prompt-get","linkedConversationId":"linked-1"}}"#))
 
         XCTAssertEqual(snapshot.feeds.count, 1)
         XCTAssertEqual(snapshot.feeds.first?.feedID, "feed-1")
+        XCTAssertEqual(snapshot.feeds.first?.developerOnly, true)
+        XCTAssertEqual(snapshot.feeds.first?.presentation, FeedPresentation(icon: "chart", accent: "purple"))
         XCTAssertEqual(snapshot.liveExecutionGroupsByID["msg-1"]?.modelSteps.first?.modelCallID, "mc-1")
         XCTAssertEqual(snapshot.liveExecutionGroupsByID["msg-1"]?.modelSteps.first?.provider, "openai")
         XCTAssertEqual(snapshot.bufferedMessages.first?.content, "Patched")

@@ -393,6 +393,16 @@ public struct RunView: Codable, Sendable, Equatable {
     }
 }
 
+public struct WorkspaceNavigation: Codable, Sendable, Equatable {
+    public let label: String?
+    public let icon: String?
+
+    public init(label: String? = nil, icon: String? = nil) {
+        self.label = label
+        self.icon = icon
+    }
+}
+
 public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
     public let windowId: String
     public let conversationId: String?
@@ -406,6 +416,7 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
     public let inTab: Bool?
     public let parameters: [String: JSONValue]?
     public let windowForm: [String: JSONValue]?
+    public let navigation: WorkspaceNavigation?
 
     public init(
         windowId: String,
@@ -419,7 +430,8 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
         workspaceMinHeight: Int? = nil,
         inTab: Bool? = nil,
         parameters: [String: JSONValue]? = nil,
-        windowForm: [String: JSONValue]? = nil
+        windowForm: [String: JSONValue]? = nil,
+        navigation: WorkspaceNavigation? = nil
     ) {
         self.windowId = windowId
         self.conversationId = conversationId
@@ -433,6 +445,7 @@ public struct WorkspaceWindowSnapshot: Codable, Sendable, Equatable {
         self.inTab = inTab
         self.parameters = parameters
         self.windowForm = windowForm
+        self.navigation = navigation
     }
 }
 
@@ -1477,6 +1490,31 @@ public struct ExecutionPageState: Codable, Sendable, Identifiable {
     }
 }
 
+public struct ModelUsageState: Codable, Sendable, Equatable {
+    public let inputTokens: Int?
+    public let outputTokens: Int?
+    public let cachedInputTokens: Int?
+    public let reasoningTokens: Int?
+    public let embeddingTokens: Int?
+    public let totalTokens: Int?
+
+    public init(
+        inputTokens: Int? = nil,
+        outputTokens: Int? = nil,
+        cachedInputTokens: Int? = nil,
+        reasoningTokens: Int? = nil,
+        embeddingTokens: Int? = nil,
+        totalTokens: Int? = nil
+    ) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.reasoningTokens = reasoningTokens
+        self.embeddingTokens = embeddingTokens
+        self.totalTokens = totalTokens
+    }
+}
+
 public struct ModelStepState: Codable, Sendable, Identifiable {
     public var id: String { modelCallID }
     public let modelCallID: String
@@ -1498,6 +1536,7 @@ public struct ModelStepState: Codable, Sendable, Identifiable {
     public let streamPayload: JSONValue?
     public let startedAt: String?
     public let completedAt: String?
+    public let usage: ModelUsageState?
 
     enum CodingKeys: String, CodingKey {
         case modelCallID = "modelCallId"
@@ -1519,6 +1558,7 @@ public struct ModelStepState: Codable, Sendable, Identifiable {
         case streamPayload
         case startedAt
         case completedAt
+        case usage
     }
 }
 
@@ -1635,11 +1675,23 @@ public typealias ConversationTurn = TurnState
 public typealias ConversationMessagePart = AssistantMessageState
 public typealias AssistantTurnPart = AssistantState
 
+public struct FeedPresentation: Codable, Sendable, Equatable {
+    public let icon: String?
+    public let accent: String?
+
+    public init(icon: String? = nil, accent: String? = nil) {
+        self.icon = icon
+        self.accent = accent
+    }
+}
+
 public struct ActiveFeedState: Codable, Sendable, Identifiable {
     public var id: String { feedID ?? UUID().uuidString }
     public let feedID: String?
     public let name: String?
     public let title: String?
+    public let developerOnly: Bool?
+    public let presentation: FeedPresentation?
     public let itemCount: Int?
     public let conversationID: String?
     public let turnID: String?
@@ -1650,6 +1702,8 @@ public struct ActiveFeedState: Codable, Sendable, Identifiable {
         case feedID = "feedId"
         case name
         case title
+        case developerOnly
+        case presentation
         case itemCount
         case conversationID = "conversationId"
         case turnID = "turnId"
@@ -1661,6 +1715,8 @@ public struct ActiveFeedState: Codable, Sendable, Identifiable {
         feedID: String? = nil,
         name: String? = nil,
         title: String? = nil,
+        developerOnly: Bool? = nil,
+        presentation: FeedPresentation? = nil,
         itemCount: Int? = nil,
         conversationID: String? = nil,
         turnID: String? = nil,
@@ -1670,6 +1726,8 @@ public struct ActiveFeedState: Codable, Sendable, Identifiable {
         self.feedID = feedID
         self.name = name
         self.title = title
+        self.developerOnly = developerOnly
+        self.presentation = presentation
         self.itemCount = itemCount
         self.conversationID = conversationID
         self.turnID = turnID
@@ -3012,6 +3070,8 @@ public struct LinkedConversationPage: Decodable, Sendable {
 public struct FeedDataResponse: Codable, Sendable {
     public let feedID: String?
     public let title: String?
+    public let developerOnly: Bool?
+    public let presentation: FeedPresentation?
     public let data: JSONValue?
     public let dataSources: JSONValue?
     public let ui: JSONValue?
@@ -3019,6 +3079,8 @@ public struct FeedDataResponse: Codable, Sendable {
     enum CodingKeys: String, CodingKey {
         case feedID = "feedId"
         case title
+        case developerOnly
+        case presentation
         case data
         case dataSources
         case ui
@@ -3027,12 +3089,16 @@ public struct FeedDataResponse: Codable, Sendable {
     public init(
         feedID: String? = nil,
         title: String? = nil,
+        developerOnly: Bool? = nil,
+        presentation: FeedPresentation? = nil,
         data: JSONValue? = nil,
         dataSources: JSONValue? = nil,
         ui: JSONValue? = nil
     ) {
         self.feedID = feedID
         self.title = title
+        self.developerOnly = developerOnly
+        self.presentation = presentation
         self.data = data
         self.dataSources = dataSources
         self.ui = ui

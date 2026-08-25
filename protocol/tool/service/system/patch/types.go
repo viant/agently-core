@@ -57,6 +57,11 @@ type DiffOutput struct {
 type EmptyInput struct{}
 type EmptyOutput struct{}
 
+// PreviewInput selects one tracked file from the active patch session.
+type PreviewInput struct {
+	URL string `json:"url" description:"Current or original URL of a file listed by snapshot"`
+}
+
 // Change represents a single tracked change in the active session.
 type Change struct {
 	Kind    string `json:"kind"`
@@ -65,11 +70,31 @@ type Change struct {
 	Diff    string `json:"diff,omitempty"`
 }
 
+// SnapshotChange is the lightweight list item returned by snapshot.
+type SnapshotChange struct {
+	Kind        string `json:"kind"`
+	OrigURL     string `json:"origUrl,omitempty"`
+	URL         string `json:"url,omitempty"`
+	HasPrevious bool   `json:"hasPrevious,omitempty"`
+}
+
+// PreviewOutput contains content for one selected snapshot row.
+type PreviewOutput struct {
+	Kind     string `json:"kind,omitempty"`
+	OrigURL  string `json:"origUrl,omitempty"`
+	URL      string `json:"url,omitempty"`
+	Current  string `json:"current,omitempty"`
+	Previous string `json:"previous,omitempty"`
+	Diff     string `json:"diff,omitempty"`
+	Status   string `json:"status,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
 // SnapshotOutput lists the current uncommitted changes captured by the active session.
 // Each change already carries resolved file locations in OrigURL/URL, so snapshot
 // does not repeat workdir at the top level.
 type SnapshotOutput struct {
-	Changes []Change `json:"changes,omitempty"`
-	Status  string   `json:"status,omitempty"`
-	Error   string   `json:"error,omitempty"`
+	Changes []SnapshotChange `json:"changes,omitempty"`
+	Status  string           `json:"status,omitempty"`
+	Error   string           `json:"error,omitempty"`
 }

@@ -8,10 +8,12 @@ import (
 )
 
 type ActiveFeedState struct {
-	FeedID    string          `json:"feedId"`
-	Title     string          `json:"title"`
-	ItemCount int             `json:"itemCount"`
-	Data      json.RawMessage `json:"data,omitempty"`
+	FeedID        string            `json:"feedId"`
+	Title         string            `json:"title"`
+	DeveloperOnly bool              `json:"developerOnly,omitempty"`
+	Presentation  *FeedPresentation `json:"presentation,omitempty"`
+	ItemCount     int               `json:"itemCount"`
+	Data          json.RawMessage   `json:"data,omitempty"`
 }
 
 type ConversationState struct {
@@ -128,25 +130,35 @@ type RenderedReportAssembly = rendering.RenderedReportAssembly
 type RenderedContentWarning = rendering.RenderedContentWarning
 
 type ModelStepState struct {
-	ModelCallID               string          `json:"modelCallId"`
-	AssistantMessageID        string          `json:"assistantMessageId"`
-	ExecutionRole             string          `json:"executionRole,omitempty"`
-	Phase                     string          `json:"phase,omitempty"`
-	Provider                  string          `json:"provider,omitempty"`
-	Model                     string          `json:"model,omitempty"`
-	Status                    string          `json:"status,omitempty"`
-	RequestPayloadID          string          `json:"requestPayloadId,omitempty"`
-	ResponsePayloadID         string          `json:"responsePayloadId,omitempty"`
-	ProviderRequestPayloadID  string          `json:"providerRequestPayloadId,omitempty"`
-	ProviderResponsePayloadID string          `json:"providerResponsePayloadId,omitempty"`
-	StreamPayloadID           string          `json:"streamPayloadId,omitempty"`
-	RequestPayload            json.RawMessage `json:"requestPayload,omitempty"`
-	ResponsePayload           json.RawMessage `json:"responsePayload,omitempty"`
-	ProviderRequestPayload    json.RawMessage `json:"providerRequestPayload,omitempty"`
-	ProviderResponsePayload   json.RawMessage `json:"providerResponsePayload,omitempty"`
-	StreamPayload             json.RawMessage `json:"streamPayload,omitempty"`
-	StartedAt                 *time.Time      `json:"startedAt,omitempty"`
-	CompletedAt               *time.Time      `json:"completedAt,omitempty"`
+	ModelCallID               string           `json:"modelCallId"`
+	AssistantMessageID        string           `json:"assistantMessageId"`
+	ExecutionRole             string           `json:"executionRole,omitempty"`
+	Phase                     string           `json:"phase,omitempty"`
+	Provider                  string           `json:"provider,omitempty"`
+	Model                     string           `json:"model,omitempty"`
+	Status                    string           `json:"status,omitempty"`
+	RequestPayloadID          string           `json:"requestPayloadId,omitempty"`
+	ResponsePayloadID         string           `json:"responsePayloadId,omitempty"`
+	ProviderRequestPayloadID  string           `json:"providerRequestPayloadId,omitempty"`
+	ProviderResponsePayloadID string           `json:"providerResponsePayloadId,omitempty"`
+	StreamPayloadID           string           `json:"streamPayloadId,omitempty"`
+	RequestPayload            json.RawMessage  `json:"requestPayload,omitempty"`
+	ResponsePayload           json.RawMessage  `json:"responsePayload,omitempty"`
+	ProviderRequestPayload    json.RawMessage  `json:"providerRequestPayload,omitempty"`
+	ProviderResponsePayload   json.RawMessage  `json:"providerResponsePayload,omitempty"`
+	StreamPayload             json.RawMessage  `json:"streamPayload,omitempty"`
+	StartedAt                 *time.Time       `json:"startedAt,omitempty"`
+	CompletedAt               *time.Time       `json:"completedAt,omitempty"`
+	Usage                     *ModelUsageState `json:"usage,omitempty"`
+}
+
+type ModelUsageState struct {
+	InputTokens       int `json:"inputTokens,omitempty"`
+	OutputTokens      int `json:"outputTokens,omitempty"`
+	CachedInputTokens int `json:"cachedInputTokens,omitempty"`
+	ReasoningTokens   int `json:"reasoningTokens,omitempty"`
+	EmbeddingTokens   int `json:"embeddingTokens,omitempty"`
+	TotalTokens       int `json:"totalTokens,omitempty"`
 }
 
 type ToolStepState struct {

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "progressCases": [
+    {
+      "name": "planning without tools",
+      "input": { "turnId": "turn-plan", "status": "running", "phase": "planning", "startedAt": "2026-08-24T20:00:00Z" },
+      "expected": { "state": "running", "activity": { "kind": "planning" }, "completedToolCount": 0, "activeToolCount": 0, "queuedToolCount": 0, "failedToolCount": 0, "totalToolCount": 0, "identityComplete": true, "canStop": true }
+    },
+    {
+      "name": "single active tool",
+      "input": { "turnId": "turn-one", "status": "running", "groups": [{ "toolSteps": [{ "toolCallId": "tool-1", "toolName": "Delivery diagnostics", "status": "running" }] }] },
+      "expected": { "state": "running", "activity": { "kind": "tool", "label": "Delivery diagnostics" }, "activeToolCount": 1, "totalToolCount": 1, "identityComplete": true }
+    },
+    {
+      "name": "concurrent tool states",
+      "input": { "turnId": "turn-many", "status": "running", "groups": [{ "toolCallsPlanned": [{ "toolCallId": "a", "toolName": "A" }, { "toolCallId": "b", "toolName": "B" }, { "toolCallId": "c", "toolName": "C" }, { "toolCallId": "d", "toolName": "D" }], "toolSteps": [{ "toolCallId": "a", "toolName": "A", "status": "completed" }, { "toolCallId": "b", "toolName": "B", "status": "running" }, { "toolCallId": "c", "toolName": "C", "status": "failed" }] }] },
+      "expected": { "state": "running", "activity": { "kind": "tool", "label": "B" }, "completedToolCount": 1, "activeToolCount": 1, "queuedToolCount": 1, "failedToolCount": 1, "totalToolCount": 4, "identityComplete": true }
+    },
+    {
+      "name": "waiting for input",
+      "input": { "turnId": "turn-wait", "status": "waiting_for_user" },
+      "expected": { "state": "waiting_for_user", "activity": { "kind": "waiting_for_user" }, "canStop": false }
+    },
+    {
+      "name": "terminal turn hidden from active progress",
+      "input": { "turnId": "turn-done", "status": "completed" },
+      "expected": null
+    },
+    {
+      "name": "unstable tool identity disables numeric trust",
+      "input": { "turnId": "turn-unstable", "status": "running", "groups": [{ "toolCallsPlanned": [{ "toolName": "Unknown" }] }] },
+      "expected": { "identityComplete": false, "totalToolCount": 0 }
+    }
+  ],
+  "narrationCases": [
+    {
+      "name": "active narration",
+      "input": { "turnId": "turn-narr", "narrationMessageId": "narr-1", "candidates": ["Checking delivery."] },
+      "expected": { "turnId": "turn-narr", "messageId": "narr-1", "content": "Checking delivery.", "status": "active" }
+    },
+    {
+      "name": "structured artifact is not narration",
+      "input": { "turnId": "turn-artifact", "candidates": ["```forge-report\n{}\n```"] },
+      "expected": null
+    }
+  ]
+}

@@ -1950,6 +1950,7 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 				Kind:     strings.TrimSpace(modelCall.ModelKind),
 			}
 		}
+		event.Usage = modelCallUsageSnapshot(modelCall)
 		if modelCall.Has != nil && modelCall.Has.StartedAt && modelCall.StartedAt != nil && !modelCall.StartedAt.IsZero() {
 			event.StartedAt = modelCall.StartedAt
 		}
@@ -1998,6 +1999,43 @@ func (s *Service) emitCanonicalModelEvent(ctx context.Context, modelCall *convcl
 		applyIterationPage(event, modelCall.Iteration)
 		s.emitTimelineEvent(ctx, event, "PatchModelCall publish model_completed")
 	}
+}
+
+func modelCallUsageSnapshot(modelCall *convcli.MutableModelCall) *streaming.UsageSnapshot {
+	if modelCall == nil || modelCall.Has == nil {
+		return nil
+	}
+	hasUsage := modelCall.Has.PromptTokens || modelCall.Has.CompletionTokens || modelCall.Has.PromptCachedTokens ||
+		modelCall.Has.CompletionReasoningTokens || modelCall.Has.TotalTokens
+	if !hasUsage {
+		return nil
+	}
+	input := intPointerValue(modelCall.PromptTokens)
+	output := intPointerValue(modelCall.CompletionTokens)
+	total := intPointerValue(modelCall.TotalTokens)
+	if total <= 0 {
+		total = input + output
+	}
+	embedding := total - input - output
+	if embedding < 0 {
+		embedding = 0
+	}
+	return &streaming.UsageSnapshot{
+		Scope:             "model_call",
+		InputTokens:       input,
+		OutputTokens:      output,
+		CachedInputTokens: intPointerValue(modelCall.PromptCachedTokens),
+		ReasoningTokens:   intPointerValue(modelCall.CompletionReasoningTokens),
+		EmbeddingTokens:   embedding,
+		TotalTokens:       total,
+	}
+}
+
+func intPointerValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func resolveTurnID(ctx context.Context, explicit string) string {

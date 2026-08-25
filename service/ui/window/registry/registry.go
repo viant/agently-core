@@ -45,6 +45,8 @@ type WindowSnapshot struct {
 	ParentKey          string                        `json:"parentKey,omitempty"`
 	WorkspaceSharePct  int                           `json:"workspaceSharePct,omitempty"`
 	WorkspaceMinHeight int                           `json:"workspaceMinHeight,omitempty"`
+	Navigation         map[string]string             `json:"navigation,omitempty"`
+	MCPUI              map[string]interface{}        `json:"mcpUI,omitempty"`
 	CompareContext     map[string]interface{}        `json:"compareContext,omitempty"`
 	Parameters         map[string]interface{}        `json:"parameters,omitempty"`
 	WindowForm         map[string]interface{}        `json:"windowForm,omitempty"`

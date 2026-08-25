@@ -58,9 +58,15 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "snapshot",
-			Description: "List uncommitted changes captured by the current patch session. Each change includes resolved file locations in origUrl/url and an optional diff. If there are no uncommitted changes, this tool returns {\"status\":\"noFound\"} — treat that as an empty result (equivalent to changes: []). This is not an error. Do not retry system_patch-snapshot after receiving {\"status\":\"noFound\"}; proceed to the next step.",
+			Description: "List uncommitted changed files captured by the current patch session. Content and diffs are loaded separately with preview.",
 			Input:       reflect.TypeOf(&EmptyInput{}),
 			Output:      reflect.TypeOf(&SnapshotOutput{}),
+		},
+		{
+			Name:        "preview",
+			Description: "Load current, previous, and unified diff content for one file returned by snapshot.",
+			Input:       reflect.TypeOf(&PreviewInput{}),
+			Output:      reflect.TypeOf(&PreviewOutput{}),
 		},
 		{
 			Name:        "commit",
@@ -88,6 +94,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.diff, nil
 	case "snapshot":
 		return s.snapshot, nil
+	case "preview":
+		return s.preview, nil
 	case "commit":
 		return s.commit, nil
 	case "rollback":
@@ -322,7 +330,43 @@ func (s *Service) snapshot(ctx context.Context, in, out interface{}) error {
 	if len(changes) == 0 {
 		output.Status = "noFound"
 	}
-	output.Changes = changes
+	output.Changes = make([]SnapshotChange, 0, len(changes))
+	for _, change := range changes {
+		output.Changes = append(output.Changes, SnapshotChange{
+			Kind: change.Kind, OrigURL: change.OrigURL, URL: change.URL,
+			HasPrevious: change.Kind != "create" && change.OrigURL != "",
+		})
+	}
+	return nil
+}
+
+func (s *Service) preview(ctx context.Context, in, out interface{}) error {
+	input, ok := in.(*PreviewInput)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*PreviewOutput)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	convID := runtimerequestctx.ConversationIDFromContext(ctx)
+	if convID == "" {
+		convID = "_global"
+	}
+	s.mu.Lock()
+	sess := s.sessions[convID]
+	s.mu.Unlock()
+	if sess == nil {
+		output.Status = "noFound"
+		return nil
+	}
+	preview, err := sess.Preview(ctx, strings.TrimSpace(input.URL))
+	if err != nil {
+		output.Status = "error"
+		output.Error = err.Error()
+		return nil
+	}
+	*output = *preview
 	return nil
 }
 

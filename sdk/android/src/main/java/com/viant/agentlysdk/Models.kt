@@ -244,6 +244,12 @@ data class RunView(
 )
 
 @Serializable
+data class WorkspaceNavigation(
+    val label: String? = null,
+    val icon: String? = null
+)
+
+@Serializable
 data class WorkspaceWindowSnapshot(
     val windowId: String,
     val conversationId: String? = null,
@@ -256,7 +262,8 @@ data class WorkspaceWindowSnapshot(
     val workspaceMinHeight: Int? = null,
     val inTab: Boolean? = null,
     val parameters: JsonObject? = null,
-    val windowForm: JsonObject? = null
+    val windowForm: JsonObject? = null,
+    val navigation: WorkspaceNavigation? = null
 )
 
 @Serializable
@@ -1232,17 +1239,27 @@ data class ConversationState(
 )
 
 @Serializable
+data class FeedPresentation(
+    val icon: String? = null,
+    val accent: String? = null
+)
+
+@Serializable
 data class ActiveFeedState(
     val feedId: String,
     val title: String,
     val itemCount: Int,
-    val data: JsonElement? = null
+    val data: JsonElement? = null,
+    val developerOnly: Boolean = false,
+    val presentation: FeedPresentation? = null
 )
 
 @Serializable
 data class FeedDataResponse(
     val feedId: String? = null,
     val title: String? = null,
+    val developerOnly: Boolean = false,
+    val presentation: FeedPresentation? = null,
     val data: JsonElement? = null,
     val dataSources: JsonObject? = null,
     val ui: JsonObject? = null
@@ -1417,6 +1434,16 @@ data class ExecutionPageState(
 )
 
 @Serializable
+data class ModelUsageState(
+    val inputTokens: Int? = null,
+    val outputTokens: Int? = null,
+    val cachedInputTokens: Int? = null,
+    val reasoningTokens: Int? = null,
+    val embeddingTokens: Int? = null,
+    val totalTokens: Int? = null
+)
+
+@Serializable
 data class ModelStepState(
     val modelCallId: String,
     val assistantMessageId: String? = null,
@@ -1436,7 +1463,8 @@ data class ModelStepState(
     val providerResponsePayload: JsonElement? = null,
     val streamPayload: JsonElement? = null,
     val startedAt: String? = null,
-    val completedAt: String? = null
+    val completedAt: String? = null,
+    val usage: ModelUsageState? = null
 )
 
 @Serializable

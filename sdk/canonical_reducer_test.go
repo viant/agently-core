@@ -34,6 +34,14 @@ func TestReduce_ModelPayloadIDsArePreserved(t *testing.T) {
 		CreatedAt:                 now.Add(2 * time.Second),
 		ResponsePayloadID:         "resp-1",
 		ProviderResponsePayloadID: "presp-1",
+		Usage: &streaming.UsageSnapshot{
+			Scope:             "model_call",
+			InputTokens:       100,
+			OutputTokens:      25,
+			CachedInputTokens: 20,
+			ReasoningTokens:   5,
+			TotalTokens:       125,
+		},
 	})
 
 	if state == nil || len(state.Turns) != 1 {
@@ -59,6 +67,13 @@ func TestReduce_ModelPayloadIDsArePreserved(t *testing.T) {
 	if step.StreamPayloadID != "stream-1" {
 		t.Fatalf("expected stream payload id, got %q", step.StreamPayloadID)
 	}
+	require.Equal(t, &ModelUsageState{
+		InputTokens:       100,
+		OutputTokens:      25,
+		CachedInputTokens: 20,
+		ReasoningTokens:   5,
+		TotalTokens:       125,
+	}, step.Usage)
 }
 
 func TestReduce_ModelCallIDRemainsDistinctFromAssistantMessageID(t *testing.T) {
@@ -168,11 +183,12 @@ func TestReduce_ModelCompletedPreservesMarkdownBoundaries(t *testing.T) {
 
 func TestReduce_FeedLifecycle(t *testing.T) {
 	state := Reduce(nil, &streaming.Event{
-		Type:           streaming.EventTypeToolFeedActive,
-		ConversationID: "conv-1",
-		FeedID:         "plan",
-		FeedTitle:      "Plan",
-		FeedItemCount:  3,
+		Type:              streaming.EventTypeToolFeedActive,
+		ConversationID:    "conv-1",
+		FeedID:            "plan",
+		FeedTitle:         "Plan",
+		FeedDeveloperOnly: true,
+		FeedItemCount:     3,
 		FeedData: map[string]any{
 			"foo": "bar",
 		},
@@ -188,6 +204,9 @@ func TestReduce_FeedLifecycle(t *testing.T) {
 	}
 	if state.Feeds[0].ItemCount != 3 {
 		t.Fatalf("expected feed item count 3, got %d", state.Feeds[0].ItemCount)
+	}
+	if !state.Feeds[0].DeveloperOnly {
+		t.Fatal("expected developer-only feed metadata to survive reduction")
 	}
 
 	state = Reduce(state, &streaming.Event{

@@ -2,12 +2,21 @@ package api
 
 // FeedSpec describes a tool feed loaded from workspace YAML.
 type FeedSpec struct {
-	ID         string                 `yaml:"id" json:"id"`
-	Title      string                 `yaml:"title,omitempty" json:"title,omitempty"`
-	Match      FeedMatch              `yaml:"match" json:"match"`
-	Activation FeedActivation         `yaml:"activation,omitempty" json:"activation,omitempty"`
-	DataSource map[string]interface{} `yaml:"dataSource,omitempty" json:"dataSource,omitempty"`
-	UI         interface{}            `yaml:"ui,omitempty" json:"ui,omitempty"`
+	ID            string                 `yaml:"id" json:"id"`
+	Title         string                 `yaml:"title,omitempty" json:"title,omitempty"`
+	DeveloperOnly bool                   `yaml:"developerOnly,omitempty" json:"developerOnly,omitempty"`
+	Presentation  *FeedPresentation      `yaml:"presentation,omitempty" json:"presentation,omitempty"`
+	Match         FeedMatch              `yaml:"match" json:"match"`
+	Activation    FeedActivation         `yaml:"activation,omitempty" json:"activation,omitempty"`
+	DataSource    map[string]interface{} `yaml:"dataSource,omitempty" json:"dataSource,omitempty"`
+	UI            interface{}            `yaml:"ui,omitempty" json:"ui,omitempty"`
+}
+
+// FeedPresentation contains optional, workspace-owned visual hints. Clients
+// must use neutral defaults when it is absent or contains an unknown token.
+type FeedPresentation struct {
+	Icon   string `yaml:"icon,omitempty" json:"icon,omitempty"`
+	Accent string `yaml:"accent,omitempty" json:"accent,omitempty"`
 }
 
 // FeedMatch defines which tool calls trigger this feed.
@@ -26,8 +35,10 @@ type FeedActivation struct {
 
 // FeedState tracks active feeds for a conversation.
 type FeedState struct {
-	FeedID    string `json:"feedId"`
-	Title     string `json:"title"`
-	ItemCount int    `json:"itemCount"`
-	ToolName  string `json:"toolName,omitempty"`
+	FeedID        string            `json:"feedId"`
+	Title         string            `json:"title"`
+	DeveloperOnly bool              `json:"developerOnly,omitempty"`
+	Presentation  *FeedPresentation `json:"presentation,omitempty"`
+	ItemCount     int               `json:"itemCount"`
+	ToolName      string            `json:"toolName,omitempty"`
 }
