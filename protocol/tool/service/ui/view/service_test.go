@@ -125,6 +125,58 @@ func TestBuildOpenWindowOptionsCarriesNavigationMetadata(t *testing.T) {
 	}
 }
 
+func TestResolveOpenClientRejectsClientAttachedToDifferentConversation(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+		"clientId": "client-other",
+		"data": map[string]interface{}{
+			"clientId":       "client-other",
+			"conversationId": "conv-other",
+			"windows": []interface{}{map[string]interface{}{
+				"windowId":       "chat/new",
+				"windowKey":      "chat/new",
+				"conversationId": "conv-other",
+			}},
+		},
+	})
+
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-target")
+	ctx = runtimerequestctx.WithPreferredUIClientID(ctx, "client-other")
+	svc := New(repo.New(afs.New()), bridge)
+	_, _, _, err := svc.resolveOpenClient(ctx, "")
+	if err == nil || !strings.Contains(err.Error(), `no active ui client attached to conversation "conv-target"`) {
+		t.Fatalf("expected conversation-scoped client rejection, got %v", err)
+	}
+}
+
+func TestResolveOpenClientRejectsExplicitClientOutsideConversation(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	for clientID, conversationID := range map[string]string{
+		"client-target": "conv-target",
+		"client-other":  "conv-other",
+	} {
+		postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
+			"clientId": clientID,
+			"data": map[string]interface{}{
+				"clientId":       clientID,
+				"conversationId": conversationID,
+				"windows": []interface{}{map[string]interface{}{
+					"windowId":       "chat/new",
+					"windowKey":      "chat/new",
+					"conversationId": conversationID,
+				}},
+			},
+		})
+	}
+
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-target")
+	svc := New(repo.New(afs.New()), bridge)
+	_, _, _, err := svc.resolveOpenClient(ctx, "client-other")
+	if err == nil || !strings.Contains(err.Error(), `ui client "client-other" is not attached to conversation "conv-target"`) {
+		t.Fatalf("expected explicit cross-conversation client rejection, got %v", err)
+	}
+}
+
 func TestResolveReportStarterIDCanonicalization(t *testing.T) {
 	presets := []viewproto.ReportPreset{
 		{ID: "Alpha_ID", Label: "Alpha Report"},

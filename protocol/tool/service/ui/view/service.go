@@ -314,28 +314,16 @@ func (s *Service) resolveOpenClient(ctx context.Context, requestedClientID strin
 		clientID = preferredClientID
 	}
 	namespace := ""
-	if len(clients) == 0 && clientID != "" {
-		if clientSnap, findErr := s.reg.FindClient(ctx, clientID); findErr == nil && clientSnap != nil {
-			clients = append(clients, *clientSnap)
-		} else if preferredClientID != "" && preferredClientID != clientID {
-			if preferredSnap, preferredErr := s.reg.FindClient(ctx, preferredClientID); preferredErr == nil && preferredSnap != nil {
-				clientID = preferredClientID
-				clients = append(clients, *preferredSnap)
-			}
-		}
+	if len(clients) == 0 {
+		return "", "", "", fmt.Errorf("no active ui client attached to conversation %q", conversationID)
 	}
 	if clientID == "" {
-		if len(clients) == 0 {
-			return "", "", "", fmt.Errorf("no active ui client attached to conversation %q", conversationID)
-		}
 		clientID = clients[0].ClientID
 		namespace = clients[0].Namespace
 	} else {
 		namespace = clientNamespaceFromSnapshots(clients, clientID)
 		if namespace == "" {
-			if clientSnap, findErr := s.reg.FindClient(ctx, clientID); findErr == nil && clientSnap != nil {
-				namespace = strings.TrimSpace(clientSnap.Namespace)
-			}
+			return "", "", "", fmt.Errorf("ui client %q is not attached to conversation %q", clientID, conversationID)
 		}
 	}
 	return clientID, namespace, conversationID, nil

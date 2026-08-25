@@ -284,11 +284,16 @@ func (s *Service) resolveWindowTarget(ctx context.Context, requestedClientID, wi
 	clientTargetID := strings.TrimSpace(preferredClientID)
 	namespace = ""
 	if clientTargetID != "" {
-		clientSnap, findErr := s.reg.FindClient(ctx, clientTargetID)
-		if findErr != nil || clientSnap == nil {
+		items, listErr := s.reg.ListByConversation(ctx, conversationID)
+		if listErr != nil {
 			return nil, err
 		}
-		namespace = strings.TrimSpace(clientSnap.Namespace)
+		for i := range items {
+			if strings.TrimSpace(items[i].ClientID) == clientTargetID {
+				namespace = strings.TrimSpace(items[i].Namespace)
+				break
+			}
+		}
 	} else {
 		items, listErr := s.reg.ListByConversation(ctx, conversationID)
 		if listErr != nil || len(items) != 1 {
