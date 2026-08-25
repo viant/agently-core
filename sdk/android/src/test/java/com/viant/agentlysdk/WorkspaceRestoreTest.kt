@@ -108,6 +108,12 @@ class WorkspaceRestoreTest {
                                                     "values",
                                                     buildJsonObject {
                                                         put(
+                                                            "reportBuilder:metricsCubeBuilder",
+                                                            buildJsonObject {
+                                                                put("reportDocumentTitle", "Performance Delivery")
+                                                            }
+                                                        )
+                                                        put(
                                                             "prefill",
                                                             buildJsonObject {
                                                                 put(
@@ -256,6 +262,10 @@ class WorkspaceRestoreTest {
                                                                 put("recordId", 123)
                                                             }
                                                         )
+                                                        put(
+                                                            "reportDefinition",
+                                                            buildJsonObject { put("id", "delivery") }
+                                                        )
                                                     }
                                                 )
                                             },
@@ -278,6 +288,16 @@ class WorkspaceRestoreTest {
             ?.jsonObject
 
         assertEquals(7, prefill?.get("accountId")?.jsonPrimitive?.int)
+        assertEquals(
+            "delivery",
+            restore?.windows?.firstOrNull()?.windowForm
+                ?.get("reportDefinition")?.jsonObject
+                ?.get("id")?.jsonPrimitive?.content
+        )
+        assertEquals(
+            null,
+            restore?.windows?.firstOrNull()?.windowForm?.get("reportBuilder:metricsCubeBuilder")
+        )
         assertEquals(123, prefill?.get("recordId")?.jsonPrimitive?.int)
     }
 

@@ -306,13 +306,24 @@ private fun applyWindowFormDataPatches(
                 val nextForm = if (replace) {
                     patch
                 } else {
-                    mergeJsonObjects(window.windowForm, patch)
+                    mergeJsonObjects(
+                        invalidateDerivedReportBuilderState(window.windowForm, patch),
+                        patch
+                    )
                 }
                 window.copy(windowForm = nextForm)
             }
         }
     }
     return restored
+}
+
+private fun invalidateDerivedReportBuilderState(
+    current: JsonObject?,
+    patch: JsonObject
+): JsonObject? {
+    if (current == null || patch["reportDefinition"] !is JsonObject) return current
+    return JsonObject(current.filterKeys { !it.startsWith("reportBuilder:") })
 }
 
 private fun hostedWorkspaceFormPatchTargets(
