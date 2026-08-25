@@ -30,6 +30,7 @@ type LinkedConversationState = api.LinkedConversationState
 type PlanFeedPayload = api.PlanFeedPayload
 type PlanStep = api.PlanStep
 type UsageSummary = api.UsageSummary
+type UsageModelSummary = api.UsageModelSummary
 type ConversationStateResponse = api.ConversationStateResponse
 
 const (

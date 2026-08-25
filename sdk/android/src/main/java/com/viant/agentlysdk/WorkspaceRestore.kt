@@ -14,9 +14,10 @@ import kotlinx.serialization.json.contentOrNull
 fun deriveHostedWorkspaceRestoreState(
     state: ConversationStateResponse
 ): HostedWorkspaceRestoreState? {
-    val lastTurn = state.conversation?.turns.orEmpty().lastOrNull() ?: return null
     return deriveHostedWorkspaceRestoreStateFromToolSteps(
-        lastTurn.execution?.pages.orEmpty().flatMap { it.toolSteps }
+        state.conversation?.turns.orEmpty().flatMap { turn ->
+            turn.execution?.pages.orEmpty().flatMap { it.toolSteps }
+        }
     )
 }
 
@@ -58,11 +59,15 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
                 val payload = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
                 val windows = hostedWorkspaceWindowsFromContextPayload(payload)
                 if (windows.isNotEmpty()) {
+                    val restoredWindows = applyWindowFormDataPatches(
+                        windows = windows,
+                        toolSteps = completedToolSteps
+                    )
                     val selected = jsonString((payload?.get("selected") as? JsonObject)?.get("windowId"))
                         .ifBlank { jsonString(payload?.get("focusedWindowId")) }
-                        .takeIf { candidate -> windows.any { it.windowId == candidate } }
-                        ?: windows.last().windowId
-                    return HostedWorkspaceRestoreState(windows = windows, selectedWindowId = selected)
+                        .takeIf { candidate -> restoredWindows.any { it.windowId == candidate } }
+                        ?: restoredWindows.last().windowId
+                    return HostedWorkspaceRestoreState(windows = restoredWindows, selectedWindowId = selected)
                 }
             }
             "ui/window/list" -> {
@@ -72,11 +77,12 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
                 if (windows.isNotEmpty()) {
                     val restoredWindows = applyWindowFormDataPatches(
                         windows = windows,
-                        toolSteps = completedToolSteps.drop(index + 1)
+                        toolSteps = completedToolSteps
                     )
                     return HostedWorkspaceRestoreState(
                         windows = restoredWindows,
                         selectedWindowId = selectedWindowIdFromToolSteps(completedToolSteps, restoredWindows)
+                            .ifBlank { restoredWindows.lastOrNull()?.windowId.orEmpty() }
                             .ifBlank { null }
                     )
                 }
@@ -86,7 +92,7 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
                 if (windows.isNotEmpty()) {
                     val restoredWindows = applyWindowFormDataPatches(
                         windows = windows,
-                        toolSteps = completedToolSteps.drop(index + 1)
+                        toolSteps = completedToolSteps
                     )
                     val response = parseHostedWorkspaceObject(step)
                     val selectedWindowId = jsonString(response?.get("selectedWindowId"))

@@ -282,7 +282,7 @@ class WorkspaceRestoreTest {
     }
 
     @Test
-    fun `deriveHostedWorkspaceRestoreState does not fall back past latest transcript turn`() {
+    fun `deriveHostedWorkspaceRestoreState preserves workspace across later non workspace turns`() {
         val oldHostedTurn = TurnState(
             turnId = "turn-1",
             execution = ExecutionState(
@@ -335,16 +335,16 @@ class WorkspaceRestoreTest {
             )
         )
 
-        assertNull(
-            deriveHostedWorkspaceRestoreState(
-                ConversationStateResponse(
-                    conversation = ConversationState(
-                        conversationId = "conv-1",
-                        turns = listOf(oldHostedTurn, latestNonHostedTurn)
-                    )
+        val restored = deriveHostedWorkspaceRestoreState(
+            ConversationStateResponse(
+                conversation = ConversationState(
+                    conversationId = "conv-1",
+                    turns = listOf(oldHostedTurn, latestNonHostedTurn)
                 )
             )
         )
+        assertEquals("legacy__conv-1", restored?.selectedWindowId)
+        assertEquals("legacy__conv-1", restored?.windows?.singleOrNull()?.windowId)
     }
 
     @Test

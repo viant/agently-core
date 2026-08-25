@@ -3,10 +3,10 @@ import Foundation
 public func deriveHostedWorkspaceRestoreState(
     from response: ConversationStateResponse
 ) -> HostedWorkspaceRestoreState? {
-    guard let lastTurn = response.conversation?.turns.last else {
-        return nil
-    }
-    let toolSteps = lastTurn.execution?.pages.flatMap(\.toolSteps).map(HostedWorkspaceToolStep.init) ?? []
+    let toolSteps = response.conversation?.turns.flatMap { turn in
+        turn.execution?.pages.flatMap(\.toolSteps).map(HostedWorkspaceToolStep.init) ?? []
+    } ?? []
+    guard !toolSteps.isEmpty else { return nil }
     return deriveHostedWorkspaceRestoreState(from: toolSteps)
 }
 
@@ -73,27 +73,27 @@ private func deriveHostedWorkspaceRestoreState(
     }
     for index in completedToolSteps.indices.reversed() {
         let step = completedToolSteps[index]
-        let laterCompletedToolSteps = completedToolSteps.dropFirst(index + 1)
+        let allCompletedToolSteps = completedToolSteps[...]
         let toolName = normalizeHostedWorkspaceToolName(step.toolName)
         if toolName == "ui/window/list" {
             let windows = applyWindowFormDataPatches(
                 hostedWorkspaceWindowsFromListPayload(
                     firstParsedPayload(step.responsePayload, step.content)
                 ),
-                laterCompletedToolSteps
+                allCompletedToolSteps
             )
             if !windows.isEmpty {
                 let selectedWindowID = selectedWindowIDFromToolSteps(completedToolSteps, windows)
                 return HostedWorkspaceRestoreState(
                     windows: windows,
-                    selectedWindowId: selectedWindowID.isEmpty ? nil : selectedWindowID
+                    selectedWindowId: selectedWindowID.isEmpty ? windows.last?.windowId : selectedWindowID
                 )
             }
         }
         if toolName == "ui/view/open" || toolName == "ui/window/open" {
             let windows = applyWindowFormDataPatches(
                 hostedWorkspaceWindowsFromViewOpenStep(step),
-                laterCompletedToolSteps
+                allCompletedToolSteps
             )
             if !windows.isEmpty {
                 let responsePayload = firstParsedPayload(step.responsePayload, step.content)

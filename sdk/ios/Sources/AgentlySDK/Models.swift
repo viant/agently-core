@@ -1669,6 +1669,66 @@ public struct LinkedConversationState: Codable, Sendable, Identifiable {
 public struct UsageSummary: Codable, Sendable {
     public let totalInputTokens: Int?
     public let totalOutputTokens: Int?
+    public let totalCachedInputTokens: Int?
+    public let totalReasoningTokens: Int?
+    public let totalEmbeddingTokens: Int?
+    public let totalTokens: Int?
+    public let cost: Double?
+    public let models: [UsageModelSummary]?
+
+    public init(
+        totalInputTokens: Int? = nil,
+        totalOutputTokens: Int? = nil,
+        totalCachedInputTokens: Int? = nil,
+        totalReasoningTokens: Int? = nil,
+        totalEmbeddingTokens: Int? = nil,
+        totalTokens: Int? = nil,
+        cost: Double? = nil,
+        models: [UsageModelSummary]? = nil
+    ) {
+        self.totalInputTokens = totalInputTokens
+        self.totalOutputTokens = totalOutputTokens
+        self.totalCachedInputTokens = totalCachedInputTokens
+        self.totalReasoningTokens = totalReasoningTokens
+        self.totalEmbeddingTokens = totalEmbeddingTokens
+        self.totalTokens = totalTokens
+        self.cost = cost
+        self.models = models
+    }
+}
+
+public struct UsageModelSummary: Codable, Sendable {
+    public let provider: String?
+    public let model: String
+    public let executionRole: String?
+    public let inputTokens: Int?
+    public let outputTokens: Int?
+    public let cachedInputTokens: Int?
+    public let reasoningTokens: Int?
+    public let totalTokens: Int?
+    public let cost: Double?
+
+    public init(
+        provider: String? = nil,
+        model: String,
+        executionRole: String? = nil,
+        inputTokens: Int? = nil,
+        outputTokens: Int? = nil,
+        cachedInputTokens: Int? = nil,
+        reasoningTokens: Int? = nil,
+        totalTokens: Int? = nil,
+        cost: Double? = nil
+    ) {
+        self.provider = provider
+        self.model = model
+        self.executionRole = executionRole
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cachedInputTokens = cachedInputTokens
+        self.reasoningTokens = reasoningTokens
+        self.totalTokens = totalTokens
+        self.cost = cost
+    }
 }
 
 public typealias ConversationTurn = TurnState

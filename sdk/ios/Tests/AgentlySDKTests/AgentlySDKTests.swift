@@ -275,7 +275,7 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
-    func testHostedWorkspaceRestoreUsesLatestTranscriptTurnOnly() throws {
+    func testHostedWorkspaceRestorePreservesWorkspaceAcrossLaterNonWorkspaceTurn() throws {
         let json = """
         {
           "conversation": {
@@ -336,7 +336,9 @@ final class AgentlySDKTests: XCTestCase {
             from: XCTUnwrap(json.data(using: .utf8))
         )
 
-        XCTAssertNil(deriveHostedWorkspaceRestoreState(from: response))
+        let restored = deriveHostedWorkspaceRestoreState(from: response)
+        XCTAssertEqual(restored?.selectedWindowId, "legacy__conv-1")
+        XCTAssertEqual(restored?.windows.first?.windowId, "legacy__conv-1")
     }
 
     func testHostedWorkspaceRestoreUsesLiveStreamPayloads() throws {

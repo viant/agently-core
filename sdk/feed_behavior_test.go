@@ -563,6 +563,28 @@ func TestGetTranscript_UsesConversationUsageCountersInResponse(t *testing.T) {
 	assert.Equal(t, 45, resp.Usage.TotalOutputTokens)
 }
 
+func TestUsageSummaryIncludesSidecarModelsSeparately(t *testing.T) {
+	cost := 0.02
+	conv := &conversation.Conversation{
+		Id:                "conv-usage-roles",
+		UsageInputTokens:  intPtr(1000),
+		UsageOutputTokens: intPtr(100),
+		Usage: &agconv.UsageView{
+			Model: []*agconv.ModelView{
+				{Provider: "openai", Model: "gpt-5-mini", ExecutionRole: "react", PromptTokens: intPtr(800), CompletionTokens: intPtr(80), TotalTokens: intPtr(880)},
+				{Provider: "openai", Model: "gpt-5-mini", ExecutionRole: "intake", PromptTokens: intPtr(200), CompletionTokens: intPtr(20), TotalTokens: intPtr(220), Cost: &cost},
+			},
+		},
+	}
+
+	got := usageSummaryFromConversation(conv)
+	require.NotNil(t, got)
+	require.Len(t, got.Models, 2)
+	assert.Equal(t, "react", got.Models[0].ExecutionRole)
+	assert.Equal(t, "intake", got.Models[1].ExecutionRole)
+	assert.Equal(t, 1100, got.TotalTokens)
+}
+
 func TestFeedNotifier_DoesNotEmitInactiveWhenFeedStillMatched(t *testing.T) {
 	spec := loadBuiltinFeedSpec(t, "terminal")
 	bus := streaming.NewMemoryBus(4)
