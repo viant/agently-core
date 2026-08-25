@@ -81,6 +81,12 @@ type RetryResolver interface {
 	ToolRetryable(name string) (retryable bool, configured bool)
 }
 
+// ExecutionProtectionResolver may be implemented by registries that expose
+// whether a tool is covered by durable execution protection.
+type ExecutionProtectionResolver interface {
+	ToolExecutionProtected(name string) bool
+}
+
 type AsyncResolver interface {
 	AsyncConfig(name string) (*asynccfg.Config, bool)
 }

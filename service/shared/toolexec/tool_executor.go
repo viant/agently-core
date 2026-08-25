@@ -228,7 +228,16 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	var toolResult string
 	coalesceArgs := stripAgentlyControlArgs(step.Args)
-	coalesceKey := toolStepCoalesceKey(ctx, turn, step, coalesceArgs)
+	// Durable at-most-once protection lives in the registry, so every protected
+	// call must reach reg.Execute independently: the first call acquires the
+	// claim and a concurrent duplicate receives duplicate_suppressed. Leaving
+	// the key empty uses the coalescer's existing no-op path. Registries without
+	// this optional resolver, and tools it reports as unprotected, retain the
+	// existing executor-level coalescing behavior.
+	coalesceKey := ""
+	if resolver, ok := reg.(tool.ExecutionProtectionResolver); !ok || !resolver.ToolExecutionProtected(step.Name) {
+		coalesceKey = toolStepCoalesceKey(ctx, turn, step, coalesceArgs)
+	}
 	if call, owner, sharedResult, sharedErr, handled := activeToolStepCoalescer.begin(ctx, coalesceKey); handled {
 		span.SetEnd(time.Now())
 		if pErr := persistCoalescedToolResult(ctx, conv, turn, span.StartedAt, step, coalesceArgs, sharedResult, sharedErr); pErr != nil {
