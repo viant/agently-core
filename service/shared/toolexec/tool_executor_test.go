@@ -294,6 +294,79 @@ func TestExecuteToolStep_CoalescesConcurrentDuplicateActiveTurnSteps(t *testing.
 	assert.Len(t, conv.patchedPayloads, 4, "each model call id needs request/response payloads for history replay")
 }
 
+func TestExecuteToolStep_ProtectedConcurrentDuplicatesBypassCoalescing(t *testing.T) {
+	previousCoalescer := activeToolStepCoalescer
+	activeToolStepCoalescer = newToolStepCoalescer(5 * time.Second)
+	t.Cleanup(func() { activeToolStepCoalescer = previousCoalescer })
+
+	turn := memory.TurnMeta{ConversationID: "c-protected", TurnID: "t-protected", ParentMessageID: "p-protected"}
+	ctx := memory.WithTurnMeta(context.Background(), turn)
+	reg := &scriptedRegistry{
+		script: []scriptedResult{
+			{result: `{"status":"accepted","providerCalled":true}`, delay: 25 * time.Millisecond},
+			{result: `{"status":"duplicate_suppressed","providerCalled":false,"ruleId":"send-at-most-once"}`},
+		},
+		protectedTools: map[string]bool{"sendgrid/sendgridSendMail": true},
+	}
+	args := map[string]interface{}{
+		"to":      "recipient@example.com",
+		"subject": "Report",
+		"content": "Attached report",
+	}
+	conversations := map[string]*stubConv{
+		"call-a": {},
+		"call-b": {},
+	}
+	start := make(chan struct{})
+	results := make(chan llm.ToolCall, 2)
+	errs := make(chan error, 2)
+	var wait sync.WaitGroup
+	for id, conv := range conversations {
+		wait.Add(1)
+		go func(id string, conv *stubConv) {
+			defer wait.Done()
+			<-start
+			call, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+				ID:         id,
+				Name:       "sendgrid/sendgridSendMail",
+				Args:       args,
+				ResponseID: "resp-protected",
+			}, conv)
+			results <- call
+			errs <- err
+		}(id, conv)
+	}
+	close(start)
+	wait.Wait()
+	close(results)
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	seenAccepted := false
+	seenSuppressed := false
+	for call := range results {
+		seenAccepted = seenAccepted || strings.Contains(call.Result, `"status":"accepted"`)
+		seenSuppressed = seenSuppressed || strings.Contains(call.Result, `"status":"duplicate_suppressed"`)
+	}
+	assert.True(t, seenAccepted)
+	assert.True(t, seenSuppressed)
+	assert.Equal(t, 2, reg.calls, "protected duplicates must reach durable registry protection")
+	for id, conv := range conversations {
+		statusCounts := map[string]int{}
+		for _, call := range conv.patchedToolCalls {
+			if strings.TrimSpace(call.OpID) == id {
+				statusCounts[strings.TrimSpace(call.Status)]++
+			}
+		}
+		assert.Equal(t, 1, statusCounts["running"], id)
+		assert.Equal(t, 1, statusCounts["completed"], id)
+		assert.Zero(t, statusCounts["coalesced"], id)
+		assert.Len(t, conv.patchedPayloads, 2, "each protected model call id needs request/response payloads")
+	}
+}
+
 func TestExecuteToolStep_ForceTerminalCloseWhenCompleteWriteFails(t *testing.T) {
 	cases := []struct {
 		name                string
@@ -759,13 +832,14 @@ type scriptedResult struct {
 }
 
 type scriptedRegistry struct {
-	mu          sync.Mutex
-	script      []scriptedResult
-	retryPolicy map[string]bool
-	calls       int
-	lastArgs    map[string]interface{}
-	lastName    string
-	requestIDs  []string
+	mu             sync.Mutex
+	script         []scriptedResult
+	retryPolicy    map[string]bool
+	protectedTools map[string]bool
+	calls          int
+	lastArgs       map[string]interface{}
+	lastName       string
+	requestIDs     []string
 }
 
 func newStubRegistry(documents map[string]string) *stubRegistry {
@@ -841,6 +915,10 @@ func (s *scriptedRegistry) Initialize(context.Context)                       {}
 func (s *scriptedRegistry) ToolRetryable(name string) (bool, bool) {
 	retryable, ok := s.retryPolicy[name]
 	return retryable, ok
+}
+
+func (s *scriptedRegistry) ToolExecutionProtected(name string) bool {
+	return s.protectedTools[name]
 }
 
 func gzipStringValue(t *testing.T, value string) string {

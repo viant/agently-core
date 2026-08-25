@@ -1584,6 +1584,15 @@ func (r *Registry) ToolRetryable(name string) (bool, bool) {
 	return retryable, ok
 }
 
+// ToolExecutionProtected reports whether durable execution protection covers
+// the supplied tool name.
+func (r *Registry) ToolExecutionProtected(name string) bool {
+	r.mu.RLock()
+	guard := r.executionProtection
+	r.mu.RUnlock()
+	return guard != nil && guard.IsProtected(name)
+}
+
 // Initialize attempts to eagerly discover MCP servers and list their tools to
 // warm the local cache. It logs warnings for unreachable servers.
 func (r *Registry) Initialize(ctx context.Context) {
