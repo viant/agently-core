@@ -189,6 +189,16 @@ func (s *Service) waitForDurableRun(ctx context.Context, output *ActionOutput) e
 		}
 		return fmt.Errorf("%s", message)
 	}
+	if output.Result["materialized"] == true {
+		status, _ := output.Result["status"].(string)
+		materializationID, _ := output.Result["materializationId"].(string)
+		if strings.EqualFold(strings.TrimSpace(status), "completed") && strings.TrimSpace(materializationID) != "" {
+			output.OK = true
+			output.Error = ""
+			return nil
+		}
+		return fmt.Errorf("native report materialization did not return an exact completed materializationId")
+	}
 	if output.Result == nil || output.Result["durable"] != true {
 		return fmt.Errorf("browser report run did not return durable=true")
 	}

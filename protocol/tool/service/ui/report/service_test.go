@@ -167,10 +167,35 @@ func TestServiceRunOrchestrationWaitsForExactDurableRun(t *testing.T) {
 	require.Equal(t, int64(7), output.Result["revision"])
 }
 
+func TestServiceRunOrchestrationAcceptsExactNativeMaterialization(t *testing.T) {
+	bridge := prepareReportWindow(t)
+	waiter := &fakeTerminalRunWaiter{}
+	service := New(bridge, WithOrchestration(waiter))
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	done := make(chan error, 1)
+	output := &ActionOutput{}
+	go func() {
+		done <- service.run(ctx, &WindowInput{WindowID: "report-window-1"}, output)
+	}()
+
+	respondToReportRun(t, bridge, map[string]interface{}{
+		"ok":                true,
+		"materialized":      true,
+		"materializationId": "native-run-1",
+		"status":            "completed",
+		"datasetRefs":       []interface{}{"summary", "daily"},
+	})
+	require.NoError(t, <-done)
+	require.True(t, output.OK)
+	require.Empty(t, waiter.reportRunID)
+	require.Equal(t, "native-run-1", output.Result["materializationId"])
+}
+
 func TestServiceRunOrchestrationRejectsNonDurableAndFailedRuns(t *testing.T) {
 	for name, result := range map[string]map[string]interface{}{
-		"missing durable":  {"ok": true, "reportRunId": "run-1"},
-		"missing exact id": {"ok": true, "durable": true},
+		"missing durable":   {"ok": true, "reportRunId": "run-1"},
+		"missing exact id":  {"ok": true, "durable": true},
+		"native missing id": {"ok": true, "materialized": true, "status": "completed"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			bridge := prepareReportWindow(t)
