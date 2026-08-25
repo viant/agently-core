@@ -906,7 +906,8 @@ class AgentlyClientTest {
                               "executionRole": "main",
                               "phase": "intake",
                               "provider": "openai",
-                              "model": "gpt-5.4"
+                              "model": "gpt-5.4",
+                              "usage": {"inputTokens":120,"outputTokens":30,"cachedInputTokens":40,"reasoningTokens":12,"totalTokens":150}
                             }
                           ],
                           "toolSteps": [
@@ -950,6 +951,8 @@ class AgentlyClientTest {
         assertEquals("main", page?.executionRole)
         assertEquals("intake", page?.phase)
         assertEquals("main", page?.modelSteps?.first()?.executionRole)
+        assertEquals(150, page?.modelSteps?.first()?.usage?.totalTokens)
+        assertEquals(40, page?.modelSteps?.first()?.usage?.cachedInputTokens)
         val toolStep = page?.toolSteps?.first()
         assertEquals("user-1", toolStep?.parentMessageId)
         assertEquals("sidecar", toolStep?.executionRole)

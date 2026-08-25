@@ -21,6 +21,7 @@ type RenderedReportTarget = api.RenderedReportTarget
 type RenderedReportAssembly = api.RenderedReportAssembly
 type RenderedContentWarning = api.RenderedContentWarning
 type ModelStepState = api.ModelStepState
+type ModelUsageState = api.ModelUsageState
 type ToolStepState = api.ToolStepState
 type AsyncOperationState = api.AsyncOperationState
 type ElicitationState = api.ElicitationState

@@ -751,6 +751,16 @@ func applyModelCompletion(step *ModelStepState, event *streaming.Event) {
 	if event.StreamPayloadID != "" {
 		step.StreamPayloadID = strings.TrimSpace(event.StreamPayloadID)
 	}
+	if event.Usage != nil {
+		step.Usage = &ModelUsageState{
+			InputTokens:       event.Usage.InputTokens,
+			OutputTokens:      event.Usage.OutputTokens,
+			CachedInputTokens: event.Usage.CachedInputTokens,
+			ReasoningTokens:   event.Usage.ReasoningTokens,
+			EmbeddingTokens:   event.Usage.EmbeddingTokens,
+			TotalTokens:       event.Usage.TotalTokens,
+		}
+	}
 	if event.Phase != "" {
 		step.Phase = strings.TrimSpace(event.Phase)
 	}
@@ -876,6 +886,7 @@ func activateFeed(state *ConversationState, feed *ActiveFeedState) {
 			if feed.Title != "" {
 				f.Title = feed.Title
 			}
+			f.DeveloperOnly = feed.DeveloperOnly
 			if feed.ItemCount > 0 || f.ItemCount == 0 {
 				f.ItemCount = feed.ItemCount
 			}

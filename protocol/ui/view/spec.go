@@ -18,6 +18,12 @@ type Spec struct {
 	Parameters         []Parameter    `json:"parameters,omitempty" yaml:"parameters,omitempty"`
 	ReportPresets      []ReportPreset `json:"reportPresets,omitempty" yaml:"reportPresets,omitempty"`
 	Capabilities       Capabilities   `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
+	Navigation         *Navigation    `json:"navigation,omitempty" yaml:"navigation,omitempty"`
+}
+
+type Navigation struct {
+	Label string `json:"label,omitempty" yaml:"label,omitempty"`
+	Icon  string `json:"icon,omitempty" yaml:"icon,omitempty"`
 }
 
 // ReportPreset describes a built-in, read-only report starter exposed by a view.

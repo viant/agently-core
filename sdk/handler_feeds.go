@@ -15,13 +15,15 @@ func handleListFeeds(client Client) http.HandlerFunc {
 				return
 			}
 			type feedSummary struct {
-				ID    string    `json:"id"`
-				Title string    `json:"title"`
-				Match FeedMatch `json:"match"`
+				ID            string            `json:"id"`
+				Title         string            `json:"title"`
+				DeveloperOnly bool              `json:"developerOnly,omitempty"`
+				Presentation  *FeedPresentation `json:"presentation,omitempty"`
+				Match         FeedMatch         `json:"match"`
 			}
 			result := make([]feedSummary, 0, len(specs))
 			for _, s := range specs {
-				result = append(result, feedSummary{ID: s.ID, Title: s.Title, Match: s.Match})
+				result = append(result, feedSummary{ID: s.ID, Title: s.Title, DeveloperOnly: s.DeveloperOnly, Presentation: s.Presentation, Match: s.Match})
 			}
 			httpJSON(w, http.StatusOK, map[string]interface{}{"feeds": result})
 			return
@@ -89,11 +91,13 @@ func handleGetFeedData(client Client) http.HandlerFunc {
 			}
 		}
 		httpJSON(w, http.StatusOK, map[string]interface{}{
-			"feedId":      spec.ID,
-			"title":       spec.Title,
-			"data":        feedData,
-			"dataSources": spec.DataSource,
-			"ui":          spec.UI,
+			"feedId":        spec.ID,
+			"title":         spec.Title,
+			"developerOnly": spec.DeveloperOnly,
+			"presentation":  spec.Presentation,
+			"data":          feedData,
+			"dataSources":   spec.DataSource,
+			"ui":            spec.UI,
 		})
 	}
 }

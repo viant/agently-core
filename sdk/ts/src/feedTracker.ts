@@ -63,6 +63,10 @@ export class FeedTracker {
             this.setActive({
                 feedId: event.feedId,
                 title: event.feedTitle || event.feedId,
+                developerOnly: event.feedDeveloperOnly === true,
+                presentation: event.feedIcon || event.feedAccent
+                    ? { icon: event.feedIcon, accent: event.feedAccent }
+                    : undefined,
                 itemCount: event.feedItemCount || 0,
                 conversationId: resolveEventConversationId(event),
                 turnId: resolveEventTurnId(event),

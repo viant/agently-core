@@ -158,6 +158,20 @@ type PlannedToolCall struct {
 	ToolName   string `json:"toolName,omitempty"`
 }
 
+// UsageSnapshot is an absolute token-usage snapshot scoped by the containing
+// event identity. Model lifecycle events use scope=model_call; aggregate usage
+// events use turn or conversation. Missing scope on legacy flat usage events
+// remains conversation-scoped for backward compatibility.
+type UsageSnapshot struct {
+	Scope             string `json:"scope,omitempty"`
+	InputTokens       int    `json:"inputTokens,omitempty"`
+	OutputTokens      int    `json:"outputTokens,omitempty"`
+	CachedInputTokens int    `json:"cachedInputTokens,omitempty"`
+	ReasoningTokens   int    `json:"reasoningTokens,omitempty"`
+	EmbeddingTokens   int    `json:"embeddingTokens,omitempty"`
+	TotalTokens       int    `json:"totalTokens,omitempty"`
+}
+
 // Event is a transport-neutral streaming event.
 type Event struct {
 	ID                        string                     `json:"id,omitempty"`
@@ -226,6 +240,7 @@ type Event struct {
 	// persisted page state in a transcript-refresh path.
 	FinalResponse    bool                   `json:"finalResponse,omitempty"`
 	Model            *EventModel            `json:"model,omitempty"`
+	Usage            *UsageSnapshot         `json:"usage,omitempty"`
 	ToolCallsPlanned []PlannedToolCall      `json:"toolCallsPlanned,omitempty"`
 	CreatedAt        time.Time              `json:"createdAt,omitempty"`
 	ElicitationID    string                 `json:"elicitationId,omitempty"`
@@ -245,10 +260,13 @@ type Event struct {
 	Provider           string `json:"provider,omitempty"`
 	ModelName          string `json:"modelName,omitempty"`
 	// Tool feed fields.
-	FeedID        string      `json:"feedId,omitempty"`
-	FeedTitle     string      `json:"feedTitle,omitempty"`
-	FeedItemCount int         `json:"feedItemCount,omitempty"`
-	FeedData      interface{} `json:"feedData,omitempty"`
+	FeedID            string      `json:"feedId,omitempty"`
+	FeedTitle         string      `json:"feedTitle,omitempty"`
+	FeedDeveloperOnly bool        `json:"feedDeveloperOnly,omitempty"`
+	FeedIcon          string      `json:"feedIcon,omitempty"`
+	FeedAccent        string      `json:"feedAccent,omitempty"`
+	FeedItemCount     int         `json:"feedItemCount,omitempty"`
+	FeedData          interface{} `json:"feedData,omitempty"`
 	// Planner fields.
 	PlannerTrigger         string `json:"plannerTrigger,omitempty"`
 	PlannerStaticProfile   string `json:"plannerStaticProfile,omitempty"`

@@ -175,6 +175,12 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 
 	var result []*ActiveFeedState
 	for _, col := range collectors {
+		if strings.EqualFold(strings.TrimSpace(col.spec.Activation.Kind), "tool_call") {
+			if activationFeed := c.resolveActivationToolFeed(ctx, state, col.spec); activationFeed != nil {
+				result = append(result, activationFeed)
+			}
+			continue
+		}
 		if len(col.requestPayloads) == 0 && len(col.responsePayloads) == 0 {
 			if activationFeed := c.resolveActivationToolFeed(ctx, state, col.spec); activationFeed != nil {
 				result = append(result, activationFeed)
@@ -191,10 +197,12 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 			continue
 		}
 		result = append(result, &ActiveFeedState{
-			FeedID:    col.spec.ID,
-			Title:     col.spec.Title,
-			ItemCount: itemCount,
-			Data:      marshalToRawJSON(rootData),
+			FeedID:        col.spec.ID,
+			Title:         col.spec.Title,
+			DeveloperOnly: col.spec.DeveloperOnly,
+			Presentation:  col.spec.Presentation,
+			ItemCount:     itemCount,
+			Data:          marshalToRawJSON(rootData),
 		})
 	}
 	return result
@@ -232,10 +240,12 @@ func (c *backendClient) resolveActivationToolFeed(ctx context.Context, state *Co
 		return nil
 	}
 	return &ActiveFeedState{
-		FeedID:    spec.ID,
-		Title:     spec.Title,
-		ItemCount: resultSet.ItemCount,
-		Data:      marshalToRawJSON(resultSet.RootData),
+		FeedID:        spec.ID,
+		Title:         spec.Title,
+		DeveloperOnly: spec.DeveloperOnly,
+		Presentation:  spec.Presentation,
+		ItemCount:     resultSet.ItemCount,
+		Data:          marshalToRawJSON(resultSet.RootData),
 	}
 }
 

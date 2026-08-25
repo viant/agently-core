@@ -205,6 +205,14 @@ function createLiveExecutionGroup(event: SSEEvent = {} as SSEEvent) {
             providerRequestPayloadId: firstString(event?.providerRequestPayloadId),
             providerResponsePayloadId: firstString(event?.providerResponsePayloadId),
             streamPayloadId: firstString(event?.streamPayloadId),
+            usage: event?.usage ? {
+                inputTokens: firstNumber(event.usage.inputTokens),
+                outputTokens: firstNumber(event.usage.outputTokens),
+                cachedInputTokens: firstNumber(event.usage.cachedInputTokens),
+                reasoningTokens: firstNumber(event.usage.reasoningTokens),
+                embeddingTokens: firstNumber(event.usage.embeddingTokens),
+                totalTokens: firstNumber(event.usage.totalTokens),
+            } : undefined,
         }] : [],
         toolSteps: [],
         toolCallsPlanned: Array.isArray(event?.toolCallsPlanned) ? event.toolCallsPlanned : [],
@@ -230,7 +238,7 @@ function applyLiveGroupIdentity(current: LiveExecutionGroup, event: SSEEvent) {
 function mergePrimaryModelStep(current: LiveExecutionGroup, event: SSEEvent, fallbackStatus = 'running') {
     const phase = normalizeEventPhase(event);
     const executionRole = normalizeEventExecutionRole(event);
-    const existMs = Array.isArray(current.modelSteps) && current.modelSteps.length > 0 ? current.modelSteps[0] : {};
+    const existMs: Partial<ModelStepState> = Array.isArray(current.modelSteps) && current.modelSteps.length > 0 ? current.modelSteps[0] : {};
     current.modelSteps = [{
         ...existMs,
         modelCallId: firstString(event?.modelCallId, existMs?.modelCallId),
@@ -245,6 +253,15 @@ function mergePrimaryModelStep(current: LiveExecutionGroup, event: SSEEvent, fal
         providerRequestPayloadId: firstString(event?.providerRequestPayloadId, existMs?.providerRequestPayloadId),
         providerResponsePayloadId: firstString(event?.providerResponsePayloadId, existMs?.providerResponsePayloadId),
         streamPayloadId: firstString(event?.streamPayloadId, existMs?.streamPayloadId),
+        usage: event?.usage ? {
+            ...(existMs?.usage || {}),
+            inputTokens: firstNumber(event.usage.inputTokens, existMs?.usage?.inputTokens),
+            outputTokens: firstNumber(event.usage.outputTokens, existMs?.usage?.outputTokens),
+            cachedInputTokens: firstNumber(event.usage.cachedInputTokens, existMs?.usage?.cachedInputTokens),
+            reasoningTokens: firstNumber(event.usage.reasoningTokens, existMs?.usage?.reasoningTokens),
+            embeddingTokens: firstNumber(event.usage.embeddingTokens, existMs?.usage?.embeddingTokens),
+            totalTokens: firstNumber(event.usage.totalTokens, existMs?.usage?.totalTokens),
+        } : existMs?.usage,
     }];
     return current;
 }

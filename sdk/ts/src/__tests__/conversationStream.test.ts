@@ -22,12 +22,18 @@ describe('ConversationStreamTracker', () => {
             type: 'tool_feed_active',
             feedId: 'plan',
             feedTitle: 'Plan',
+            feedDeveloperOnly: true,
+            feedIcon: 'list',
+            feedAccent: 'blue',
             feedItemCount: 2,
             conversationId: 'conv-1',
             turnId: 'turn-1',
         } as SSEEvent);
         expect(tracker.feeds).toHaveLength(1);
-        expect(tracker.feeds[0]).toMatchObject({ feedId: 'plan', conversationId: 'conv-1', turnId: 'turn-1' });
+        expect(tracker.feeds[0]).toMatchObject({
+            feedId: 'plan', developerOnly: true, presentation: { icon: 'list', accent: 'blue' },
+            conversationId: 'conv-1', turnId: 'turn-1',
+        });
 
         tracker.applyEvent({
             type: 'goal.updated',

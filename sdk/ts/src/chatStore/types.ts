@@ -16,7 +16,7 @@
  * Canonical client state).
  */
 
-import type { JSONObject, JSONValue } from '../types';
+import type { JSONObject, JSONValue, ModelUsageState, PlannedToolCall } from '../types';
 
 // ─── Provenance ────────────────────────────────────────────────────────────────
 
@@ -100,6 +100,7 @@ export interface ClientModelStep extends EntityIdentity {
     streamPayloadId?: string;
     startedAt?: string;
     completedAt?: string;
+    usage?: ModelUsageState;
 }
 
 export interface ClientToolCall extends EntityIdentity {
@@ -247,6 +248,7 @@ export interface ClientExecutionPage extends EntityIdentity {
     finalAssistantMessageId?: string;
     modelSteps: ClientModelStep[];
     toolCalls: ClientToolCall[];
+    toolCallsPlanned?: PlannedToolCall[];
     lifecycleEntries: ClientLifecycleEntry[];
     createdAt?: string;
     startedAt?: string;
@@ -507,6 +509,7 @@ export interface CanonicalExecutionPageState {
     status?: string;
     modelSteps?: CanonicalModelStepState[];
     toolSteps?: CanonicalToolStepState[];
+    toolCallsPlanned?: PlannedToolCall[];
     narrationMessageId?: string;
     finalAssistantMessageId?: string;
     narration?: string;
@@ -536,6 +539,7 @@ export interface CanonicalModelStepState {
     streamPayloadId?: string;
     startedAt?: string;
     completedAt?: string;
+    usage?: ModelUsageState;
 }
 
 export interface CanonicalToolStepState {

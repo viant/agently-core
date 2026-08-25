@@ -3,6 +3,7 @@ package com.viant.agentlysdk.stream
 import com.viant.agentlysdk.ActiveFeedState
 import com.viant.agentlysdk.ConversationStateResponse
 import com.viant.agentlysdk.ExecutionPageState
+import com.viant.agentlysdk.FeedPresentation
 import com.viant.agentlysdk.Message
 import com.viant.agentlysdk.ModelStepState
 import com.viant.agentlysdk.PlannerState
@@ -31,6 +32,10 @@ class FeedTracker {
                 feedsById[feedId] = ActiveFeed(
                     feedId = feedId,
                     title = firstString(event.feedTitle, feedId),
+                    developerOnly = event.feedDeveloperOnly == true,
+                    presentation = if (!event.feedIcon.isNullOrBlank() || !event.feedAccent.isNullOrBlank()) {
+                        FeedPresentation(icon = event.feedIcon, accent = event.feedAccent)
+                    } else null,
                     itemCount = event.feedItemCount ?: 0,
                     conversationId = resolveEventConversationId(event).ifBlank { null },
                     turnId = resolveEventTurnId(event).ifBlank { null },
@@ -375,6 +380,9 @@ class ConversationStreamTracker(conversationId: String = "") {
                     conversationId = currentConversationId,
                     feedId = feed.feedId,
                     feedTitle = feed.title,
+                    feedDeveloperOnly = feed.developerOnly,
+                    feedIcon = feed.presentation?.icon,
+                    feedAccent = feed.presentation?.accent,
                     feedItemCount = feed.itemCount,
                     feedData = feed.data
                 )
@@ -495,7 +503,8 @@ private fun liveModelStepFromTranscript(step: ModelStepState): LiveModelStepStat
         responsePayloadId = firstString(step.responsePayloadId).ifBlank { null },
         providerRequestPayloadId = firstString(step.providerRequestPayloadId).ifBlank { null },
         providerResponsePayloadId = firstString(step.providerResponsePayloadId).ifBlank { null },
-        streamPayloadId = firstString(step.streamPayloadId).ifBlank { null }
+        streamPayloadId = firstString(step.streamPayloadId).ifBlank { null },
+        usage = step.usage
     )
 }
 
@@ -790,7 +799,7 @@ private fun createLiveExecutionGroup(event: SSEEvent): LiveExecutionGroup {
         finalResponse = event.finalResponse ?: false,
         modelSteps = if (event.model != null) listOf(
             LiveModelStepState(
-                modelCallId = assistantMessageId,
+                modelCallId = firstString(event.modelCallId, assistantMessageId),
                 provider = event.model.provider,
                 model = event.model.model,
                 status = firstString(event.status, "running"),
@@ -798,7 +807,8 @@ private fun createLiveExecutionGroup(event: SSEEvent): LiveExecutionGroup {
                 responsePayloadId = event.responsePayloadId,
                 providerRequestPayloadId = event.providerRequestPayloadId,
                 providerResponsePayloadId = event.providerResponsePayloadId,
-                streamPayloadId = event.streamPayloadId
+                streamPayloadId = event.streamPayloadId,
+                usage = event.usage
             )
         ) else emptyList(),
         toolCallsPlanned = event.toolCallsPlanned,
@@ -822,7 +832,7 @@ private fun mergePrimaryModelStep(current: LiveExecutionGroup, event: SSEEvent, 
     return current.copy(
         modelSteps = listOf(
             LiveModelStepState(
-                modelCallId = firstString(assistantMessageId, existing?.modelCallId),
+                modelCallId = firstString(event.modelCallId, assistantMessageId, existing?.modelCallId),
                 assistantMessageId = firstString(event.assistantMessageId, existing?.assistantMessageId).ifBlank { null },
                 provider = firstString(event.model?.provider, existing?.provider).ifBlank { null },
                 model = firstString(event.model?.model, existing?.model).ifBlank { null },
@@ -832,7 +842,8 @@ private fun mergePrimaryModelStep(current: LiveExecutionGroup, event: SSEEvent, 
                 responsePayloadId = firstString(event.responsePayloadId, existing?.responsePayloadId).ifBlank { null },
                 providerRequestPayloadId = firstString(event.providerRequestPayloadId, existing?.providerRequestPayloadId).ifBlank { null },
                 providerResponsePayloadId = firstString(event.providerResponsePayloadId, existing?.providerResponsePayloadId).ifBlank { null },
-                streamPayloadId = firstString(event.streamPayloadId, existing?.streamPayloadId).ifBlank { null }
+                streamPayloadId = firstString(event.streamPayloadId, existing?.streamPayloadId).ifBlank { null },
+                usage = event.usage ?: existing?.usage
             )
         )
     )

@@ -52,6 +52,7 @@ public struct LiveModelStepState: Codable, Sendable, Equatable, Identifiable {
     public let providerRequestPayloadID: String?
     public let providerResponsePayloadID: String?
     public let streamPayloadID: String?
+    public let usage: ModelUsageState?
 
     public init(
         modelCallID: String,
@@ -64,7 +65,8 @@ public struct LiveModelStepState: Codable, Sendable, Equatable, Identifiable {
         responsePayloadID: String? = nil,
         providerRequestPayloadID: String? = nil,
         providerResponsePayloadID: String? = nil,
-        streamPayloadID: String? = nil
+        streamPayloadID: String? = nil,
+        usage: ModelUsageState? = nil
     ) {
         self.modelCallID = modelCallID
         self.assistantMessageID = assistantMessageID
@@ -77,6 +79,7 @@ public struct LiveModelStepState: Codable, Sendable, Equatable, Identifiable {
         self.providerRequestPayloadID = providerRequestPayloadID
         self.providerResponsePayloadID = providerResponsePayloadID
         self.streamPayloadID = streamPayloadID
+        self.usage = usage
     }
 }
 
@@ -419,6 +422,9 @@ private extension ConversationStreamTracker {
         let callbackURL: String?
         let feedID: String?
         let feedTitle: String?
+        let feedDeveloperOnly: Bool?
+        let feedIcon: String?
+        let feedAccent: String?
         let feedItemCount: Int?
         let feedData: JSONValue?
         let plannerTrigger: String?
@@ -432,6 +438,7 @@ private extension ConversationStreamTracker {
         let usageOutputTokens: Int?
         let usageEmbeddingTokens: Int?
         let usageTotalTokens: Int?
+        let usage: ModelUsageState?
 
         enum CodingKeys: String, CodingKey {
             case id
@@ -486,6 +493,9 @@ private extension ConversationStreamTracker {
             case callbackURL = "callbackUrl"
             case feedID = "feedId"
             case feedTitle
+            case feedDeveloperOnly
+            case feedIcon
+            case feedAccent
             case feedItemCount
             case feedData
             case plannerTrigger
@@ -499,6 +509,7 @@ private extension ConversationStreamTracker {
             case usageOutputTokens
             case usageEmbeddingTokens
             case usageTotalTokens
+            case usage
         }
 
         var resolvedMessageID: String? {
@@ -534,6 +545,10 @@ private extension ConversationStreamTracker {
                 feedID: feedID,
                 name: payload.feedTitle ?? feedID,
                 title: payload.feedTitle ?? feedID,
+                developerOnly: payload.feedDeveloperOnly,
+                presentation: (payload.feedIcon?.trimmedNonEmpty != nil || payload.feedAccent?.trimmedNonEmpty != nil)
+                    ? FeedPresentation(icon: payload.feedIcon?.trimmedNonEmpty, accent: payload.feedAccent?.trimmedNonEmpty)
+                    : nil,
                 itemCount: payload.feedItemCount ?? 0,
                 conversationID: payload.conversationID?.trimmedNonEmpty,
                 turnID: payload.turnID?.trimmedNonEmpty,
@@ -1031,7 +1046,8 @@ private extension ConversationStreamTracker {
             responsePayloadID: step.responsePayloadID?.trimmedNonEmpty,
             providerRequestPayloadID: step.providerRequestPayloadID?.trimmedNonEmpty,
             providerResponsePayloadID: step.providerResponsePayloadID?.trimmedNonEmpty,
-            streamPayloadID: step.streamPayloadID?.trimmedNonEmpty
+            streamPayloadID: step.streamPayloadID?.trimmedNonEmpty,
+            usage: step.usage
         )
     }
 
@@ -1167,7 +1183,8 @@ private extension ConversationStreamTracker {
                     responsePayloadID: payload.responsePayloadID,
                     providerRequestPayloadID: payload.providerRequestPayloadID,
                     providerResponsePayloadID: payload.providerResponsePayloadID,
-                    streamPayloadID: payload.streamPayloadID
+                    streamPayloadID: payload.streamPayloadID,
+                    usage: payload.usage
                 )
             ]
         } else {
@@ -1216,7 +1233,8 @@ private extension ConversationStreamTracker {
             responsePayloadID: payload.responsePayloadID ?? existing?.responsePayloadID,
             providerRequestPayloadID: payload.providerRequestPayloadID ?? existing?.providerRequestPayloadID,
             providerResponsePayloadID: payload.providerResponsePayloadID ?? existing?.providerResponsePayloadID,
-            streamPayloadID: payload.streamPayloadID ?? existing?.streamPayloadID
+            streamPayloadID: payload.streamPayloadID ?? existing?.streamPayloadID,
+            usage: payload.usage ?? existing?.usage
         )
         return current.copy(modelSteps: [step])
     }
@@ -1339,7 +1357,8 @@ private extension ConversationStreamTracker {
                     responsePayloadID: $0.responsePayloadID,
                     providerRequestPayloadID: $0.providerRequestPayloadID,
                     providerResponsePayloadID: $0.providerResponsePayloadID,
-                    streamPayloadID: $0.streamPayloadID
+                    streamPayloadID: $0.streamPayloadID,
+                    usage: $0.usage
                 )
             },
             toolSteps: current.toolSteps.map {

@@ -81,6 +81,7 @@ func defaultBundleMatch(service string) []llm.Tool {
 			{Name: "system/patch:apply"},
 			{Name: "system/patch:replace"},
 			{Name: "system/patch:snapshot"},
+			{Name: "system/patch:preview"},
 		}
 	default:
 		return []llm.Tool{{Name: service + "/*"}}

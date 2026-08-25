@@ -39,6 +39,7 @@ type ListItem struct {
 	Parameters         []viewproto.Parameter    `json:"parameters,omitempty"`
 	ReportPresets      []viewproto.ReportPreset `json:"reportPresets,omitempty"`
 	Capabilities       viewproto.Capabilities   `json:"capabilities,omitempty"`
+	Navigation         *viewproto.Navigation    `json:"navigation,omitempty"`
 }
 
 type ListOutput struct {
@@ -80,6 +81,7 @@ type OpenOutput struct {
 	ParentKey              string                            `json:"parentKey,omitempty"`
 	WorkspaceSharePct      int                               `json:"workspaceSharePct,omitempty"`
 	WorkspaceMinHeight     int                               `json:"workspaceMinHeight,omitempty"`
+	Navigation             *viewproto.Navigation             `json:"navigation,omitempty"`
 	Parameters             map[string]interface{}            `json:"parameters,omitempty"`
 	ReportPresetResolution *viewproto.ReportPresetResolution `json:"reportPresetResolution,omitempty"`
 	Items                  []OpenResultItem                  `json:"items,omitempty"`
@@ -97,6 +99,7 @@ type OpenResultItem struct {
 	ParentKey              string                            `json:"parentKey,omitempty"`
 	WorkspaceSharePct      int                               `json:"workspaceSharePct,omitempty"`
 	WorkspaceMinHeight     int                               `json:"workspaceMinHeight,omitempty"`
+	Navigation             *viewproto.Navigation             `json:"navigation,omitempty"`
 	Parameters             map[string]interface{}            `json:"parameters,omitempty"`
 	ReportPresetResolution *viewproto.ReportPresetResolution `json:"reportPresetResolution,omitempty"`
 }
@@ -269,6 +272,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 			ParentKey:              resolved.ParentKey,
 			WorkspaceSharePct:      resolved.WorkspaceSharePct,
 			WorkspaceMinHeight:     resolved.WorkspaceMinHeight,
+			Navigation:             resolved.Navigation,
 			Parameters:             resolved.Parameters,
 			ReportPresetResolution: resolved.ReportPresetResolution,
 		})
@@ -285,6 +289,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 		output.ParentKey = selected.ParentKey
 		output.WorkspaceSharePct = selected.WorkspaceSharePct
 		output.WorkspaceMinHeight = selected.WorkspaceMinHeight
+		output.Navigation = selected.Navigation
 		output.Parameters = selected.Parameters
 		output.ReportPresetResolution = selected.ReportPresetResolution
 	}
@@ -433,6 +438,7 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		ParentKey:              parentKeyForPresentation(item),
 		WorkspaceSharePct:      item.WorkspaceSharePct,
 		WorkspaceMinHeight:     item.WorkspaceMinHeight,
+		Navigation:             item.Navigation,
 		Parameters:             windowParameters,
 		ReportPresetResolution: prepared.reportPresetResolution,
 		OK:                     resp.OK,
@@ -637,6 +643,12 @@ func buildOpenWindowOptions(item *ListItem, conversationID string, openModeOverr
 	if item.WorkspaceMinHeight > 0 {
 		options["workspaceMinHeight"] = item.WorkspaceMinHeight
 	}
+	if item.Navigation != nil {
+		options["navigation"] = map[string]interface{}{
+			"label": strings.TrimSpace(item.Navigation.Label),
+			"icon":  strings.TrimSpace(item.Navigation.Icon),
+		}
+	}
 	if strings.EqualFold(strings.TrimSpace(item.Presentation), "hosted") {
 		// Hosted workspace windows are explicit subwindows of the main chat root.
 		options["parentKey"] = "chat/new"
@@ -742,6 +754,7 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 			Parameters:         append([]viewproto.Parameter(nil), spec.Parameters...),
 			ReportPresets:      append([]viewproto.ReportPreset(nil), spec.ReportPresets...),
 			Capabilities:       spec.Capabilities,
+			Navigation:         spec.Navigation,
 		}
 		if s.itemEnricher != nil {
 			if err := s.itemEnricher(ctx, &item); err != nil {

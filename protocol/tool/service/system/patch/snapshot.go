@@ -2,6 +2,7 @@ package patch
 
 import (
 	"context"
+	"fmt"
 )
 
 // internal change entry used for tracking and rollback
@@ -147,4 +148,34 @@ func (s *Session) Snapshot(ctx context.Context) ([]Change, error) {
 		})
 	}
 	return out, nil
+}
+
+func (s *Session) Preview(ctx context.Context, url string) (*PreviewOutput, error) {
+	s.mu.Lock()
+	e := s.byCurrent[url]
+	if e == nil {
+		e = s.byOrigin[url]
+	}
+	if e == nil || !e.alive {
+		s.mu.Unlock()
+		return nil, fmt.Errorf("change not found: %s", url)
+	}
+	kind, orig, currentURL, backup, diff := e.kind, e.orig, e.url, e.backup, e.diff
+	s.mu.Unlock()
+	result := &PreviewOutput{Kind: kind, OrigURL: orig, URL: currentURL, Diff: diff, Status: "ok"}
+	if currentURL != "" {
+		data, err := s.fs.DownloadWithURL(ctx, currentURL)
+		if err != nil {
+			return nil, err
+		}
+		result.Current = string(data)
+	}
+	if backup != "" {
+		data, err := s.fs.DownloadWithURL(ctx, backup)
+		if err != nil {
+			return nil, err
+		}
+		result.Previous = string(data)
+	}
+	return result, nil
 }

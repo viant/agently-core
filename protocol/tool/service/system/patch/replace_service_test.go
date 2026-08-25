@@ -23,6 +23,8 @@ func TestServiceReplace_StagesExactReplacement(t *testing.T) {
 	require.NoError(t, err)
 	snapshot, err := s.Method("snapshot")
 	require.NoError(t, err)
+	preview, err := s.Method("preview")
+	require.NoError(t, err)
 
 	out := &ReplaceOutput{}
 	err = replace(ctx, &ReplaceInput{
@@ -47,8 +49,13 @@ func TestServiceReplace_StagesExactReplacement(t *testing.T) {
 	assert.Equal(t, "updated", snapshotOut.Changes[0].Kind)
 	assert.Equal(t, target, snapshotOut.Changes[0].OrigURL)
 	assert.Equal(t, target, snapshotOut.Changes[0].URL)
-	assert.Contains(t, snapshotOut.Changes[0].Diff, "-beta")
-	assert.Contains(t, snapshotOut.Changes[0].Diff, "+gamma")
+	assert.True(t, snapshotOut.Changes[0].HasPrevious)
+	previewOut := &PreviewOutput{}
+	require.NoError(t, preview(ctx, &PreviewInput{URL: target}, previewOut))
+	assert.Equal(t, "alpha\ngamma\n", previewOut.Current)
+	assert.Equal(t, "alpha\nbeta\n", previewOut.Previous)
+	assert.Contains(t, previewOut.Diff, "-beta")
+	assert.Contains(t, previewOut.Diff, "+gamma")
 }
 
 func TestServiceReplace_RejectsAmbiguousReplacement(t *testing.T) {

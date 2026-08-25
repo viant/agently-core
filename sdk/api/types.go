@@ -258,9 +258,16 @@ type WorkspaceWindowSnapshot struct {
 	ParentKey          string                 `json:"parentKey,omitempty"`
 	WorkspaceSharePct  int                    `json:"workspaceSharePct,omitempty"`
 	WorkspaceMinHeight int                    `json:"workspaceMinHeight,omitempty"`
+	Navigation         *WorkspaceNavigation   `json:"navigation,omitempty"`
+	MCPUI              map[string]interface{} `json:"mcpUI,omitempty"`
 	InTab              bool                   `json:"inTab,omitempty"`
 	Parameters         map[string]interface{} `json:"parameters,omitempty"`
 	WindowForm         map[string]interface{} `json:"windowForm,omitempty"`
+}
+
+type WorkspaceNavigation struct {
+	Label string `json:"label,omitempty"`
+	Icon  string `json:"icon,omitempty"`
 }
 
 type HostedWorkspaceRestoreState struct {

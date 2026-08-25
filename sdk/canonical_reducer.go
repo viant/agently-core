@@ -484,12 +484,26 @@ func reduceFeedActive(state *ConversationState, event *streaming.Event) *Convers
 		return state
 	}
 	activateFeed(state, &ActiveFeedState{
-		FeedID:    feedID,
-		Title:     strings.TrimSpace(event.FeedTitle),
-		ItemCount: event.FeedItemCount,
-		Data:      marshalToRawJSON(event.FeedData),
+		FeedID:        feedID,
+		Title:         strings.TrimSpace(event.FeedTitle),
+		DeveloperOnly: event.FeedDeveloperOnly,
+		Presentation:  feedPresentationFromEvent(event),
+		ItemCount:     event.FeedItemCount,
+		Data:          marshalToRawJSON(event.FeedData),
 	})
 	return state
+}
+
+func feedPresentationFromEvent(event *streaming.Event) *FeedPresentation {
+	if event == nil {
+		return nil
+	}
+	icon := strings.TrimSpace(event.FeedIcon)
+	accent := strings.TrimSpace(event.FeedAccent)
+	if icon == "" && accent == "" {
+		return nil
+	}
+	return &FeedPresentation{Icon: icon, Accent: accent}
 }
 
 func reduceFeedInactive(state *ConversationState, event *streaming.Event) *ConversationState {

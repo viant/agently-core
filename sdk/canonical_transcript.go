@@ -530,6 +530,7 @@ func buildModelStep(message *agconv.MessageView) *ModelStepState {
 		Status:             stepStatusFromString(mc.Status, ""),
 		StartedAt:          mc.StartedAt,
 		CompletedAt:        mc.CompletedAt,
+		Usage:              modelCallViewUsage(mc),
 	}
 	if mc.RequestPayloadId != nil {
 		step.RequestPayloadID = strings.TrimSpace(*mc.RequestPayloadId)
@@ -563,6 +564,42 @@ func buildModelStep(message *agconv.MessageView) *ModelStepState {
 	}
 	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, step.Phase, "", "", step.RequestPayload, step.ProviderRequestPayload, step.ResponsePayload, step.ProviderResponsePayload, step.StreamPayload)
 	return step
+}
+
+func modelCallViewUsage(mc *agconv.ModelCallView) *ModelUsageState {
+	if mc == nil {
+		return nil
+	}
+	input := intPtrValue(mc.PromptTokens)
+	output := intPtrValue(mc.CompletionTokens)
+	total := intPtrValue(mc.TotalTokens)
+	hasUsage := mc.PromptTokens != nil || mc.CompletionTokens != nil || mc.PromptCachedTokens != nil ||
+		mc.CompletionReasoningTokens != nil || mc.TotalTokens != nil
+	if !hasUsage {
+		return nil
+	}
+	if total <= 0 {
+		total = input + output
+	}
+	embedding := total - input - output
+	if embedding < 0 {
+		embedding = 0
+	}
+	return &ModelUsageState{
+		InputTokens:       input,
+		OutputTokens:      output,
+		CachedInputTokens: intPtrValue(mc.PromptCachedTokens),
+		ReasoningTokens:   intPtrValue(mc.CompletionReasoningTokens),
+		EmbeddingTokens:   embedding,
+		TotalTokens:       total,
+	}
+}
+
+func intPtrValue(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {

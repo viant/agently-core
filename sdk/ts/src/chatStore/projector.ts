@@ -35,6 +35,7 @@ import type {
     ClientTurnState,
     ClientUserMessage,
 } from './types';
+import type { ModelUsageState, PlannedToolCall } from '../types';
 
 import { compareTemporalEntries } from '../ordering';
 import { getFieldProvenance } from './reducer';
@@ -96,6 +97,7 @@ export interface ModelStepRenderView {
     streamPayloadId?: string;
     startedAt?: string;
     completedAt?: string;
+    usage?: ModelUsageState;
 }
 
 export interface ToolCallRenderView {
@@ -135,6 +137,7 @@ export interface RoundRenderView {
     finalResponse: boolean;
     modelSteps: ModelStepRenderView[];
     toolCalls: ToolCallRenderView[];
+    toolCallsPlanned: PlannedToolCall[];
     lifecycleEntries: LifecycleEntryRenderView[];
     /** True iff this round has any non-lifecycle renderable signal. */
     hasContent: boolean;
@@ -537,6 +540,7 @@ function projectRound(page: ClientExecutionPage): RoundRenderView {
         finalResponse: !!page.finalResponse,
         modelSteps,
         toolCalls,
+        toolCallsPlanned: page.toolCallsPlanned ?? [],
         lifecycleEntries,
         hasContent: false,
     };
@@ -561,6 +565,7 @@ function projectModelStep(step: ClientModelStep): ModelStepRenderView {
         streamPayloadId: step.streamPayloadId,
         startedAt: step.startedAt,
         completedAt: step.completedAt,
+        usage: step.usage,
     };
 }
 

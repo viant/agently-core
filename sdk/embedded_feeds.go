@@ -169,10 +169,12 @@ func (c *backendClient) resolveActiveFeeds(ctx context.Context, turns conversati
 				itemCount = estimateItemCount(content)
 			}
 			feedResults[spec.ID] = &ActiveFeedState{
-				FeedID:    spec.ID,
-				Title:     spec.Title,
-				ItemCount: itemCount,
-				Data:      marshalToRawJSON(data),
+				FeedID:        spec.ID,
+				Title:         spec.Title,
+				DeveloperOnly: spec.DeveloperOnly,
+				Presentation:  spec.Presentation,
+				ItemCount:     itemCount,
+				Data:          marshalToRawJSON(data),
 			}
 		}
 	}

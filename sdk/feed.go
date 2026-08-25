@@ -20,6 +20,7 @@ import (
 type FeedSpec = api.FeedSpec
 type FeedMatch = api.FeedMatch
 type FeedActivation = api.FeedActivation
+type FeedPresentation = api.FeedPresentation
 type FeedState = api.FeedState
 
 // FeedRegistry loads feed specs from workspace and matches tool calls.
@@ -160,19 +161,36 @@ func emitFeedActive(ctx context.Context, bus streaming.Bus, convID, turnID strin
 		messageID = strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 	}
 	event := &streaming.Event{
-		StreamID:       convID,
-		ConversationID: convID,
-		TurnID:         turnID,
-		MessageID:      messageID,
-		Type:           streaming.EventTypeToolFeedActive,
-		FeedID:         spec.ID,
-		FeedTitle:      spec.Title,
-		FeedItemCount:  itemCount,
-		FeedData:       data,
-		CreatedAt:      time.Now(),
+		StreamID:          convID,
+		ConversationID:    convID,
+		TurnID:            turnID,
+		MessageID:         messageID,
+		Type:              streaming.EventTypeToolFeedActive,
+		FeedID:            spec.ID,
+		FeedTitle:         spec.Title,
+		FeedDeveloperOnly: spec.DeveloperOnly,
+		FeedIcon:          feedPresentationIcon(spec),
+		FeedAccent:        feedPresentationAccent(spec),
+		FeedItemCount:     itemCount,
+		FeedData:          data,
+		CreatedAt:         time.Now(),
 	}
 	event.NormalizeIdentity(convID, turnID)
 	_ = bus.Publish(ctx, event)
+}
+
+func feedPresentationIcon(f *FeedSpec) string {
+	if f == nil || f.Presentation == nil {
+		return ""
+	}
+	return strings.TrimSpace(f.Presentation.Icon)
+}
+
+func feedPresentationAccent(f *FeedSpec) string {
+	if f == nil || f.Presentation == nil {
+		return ""
+	}
+	return strings.TrimSpace(f.Presentation.Accent)
 }
 
 // emitFeedInactive publishes a tool_feed_inactive SSE event.

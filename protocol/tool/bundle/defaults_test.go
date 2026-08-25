@@ -12,6 +12,7 @@ func TestDeriveBundles_SystemPatchExcludesCommitRollback(t *testing.T) {
 		{Name: "system/patch:apply"},
 		{Name: "system/patch:replace"},
 		{Name: "system/patch:snapshot"},
+		{Name: "system/patch:preview"},
 		{Name: "system/patch:commit"},
 		{Name: "system/patch:rollback"},
 	}
@@ -30,6 +31,7 @@ func TestDeriveBundles_SystemPatchExcludesCommitRollback(t *testing.T) {
 			{Name: "system/patch:apply"},
 			{Name: "system/patch:replace"},
 			{Name: "system/patch:snapshot"},
+			{Name: "system/patch:preview"},
 		}, patchBundle.Match)
 	}
 }
