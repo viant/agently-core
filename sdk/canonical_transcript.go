@@ -431,6 +431,12 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 	if content := visibleContentOrEmpty(message.Content); content != "" && shouldExposeTranscriptExecutionContent(page, message) {
 		page.Content = content
 	}
+	if page.Content == "" && message.ModelCall.ModelCallStreamPayload != nil && message.ModelCall.ModelCallStreamPayload.InlineBody != nil {
+		page.Content = convstore.DecodeInlineBody(
+			*message.ModelCall.ModelCallStreamPayload.InlineBody,
+			message.ModelCall.ModelCallStreamPayload.Compression,
+		)
+	}
 	if isFinalExecutionMessage(message) && !isSummaryAssistantMessage(message) && !isInternalTranscriptExecutionPage(page) {
 		page.FinalResponse = true
 	}

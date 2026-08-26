@@ -163,6 +163,12 @@ func handleGetTranscript(client Client) http.HandlerFunc {
 		if q.Get("includeFeeds") == "true" {
 			opts = append(opts, WithIncludeFeeds())
 		}
+		if q.Get("includeModelCalls") == "true" || q.Get("includeModelCall") == "true" {
+			opts = append(opts, WithIncludeModelCalls())
+		}
+		if q.Get("includeToolCalls") == "true" || q.Get("includeToolCall") == "true" {
+			opts = append(opts, WithIncludeToolCalls())
+		}
 		out, err := client.GetTranscript(r.Context(), input, opts...)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
@@ -327,6 +333,12 @@ func handleGetLiveState(client Client) http.HandlerFunc {
 		var opts []TranscriptOption
 		if q.Get("includeFeeds") == "true" {
 			opts = append(opts, WithIncludeFeeds())
+		}
+		if q.Get("includeModelCalls") == "true" || q.Get("includeModelCall") == "true" {
+			opts = append(opts, WithIncludeModelCalls())
+		}
+		if q.Get("includeToolCalls") == "true" || q.Get("includeToolCall") == "true" {
+			opts = append(opts, WithIncludeToolCalls())
 		}
 		out, err := client.GetLiveState(r.Context(), id, opts...)
 		if err != nil {

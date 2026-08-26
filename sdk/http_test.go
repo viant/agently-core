@@ -1199,11 +1199,12 @@ func TestHandler_SkillHandlers(t *testing.T) {
 
 type spyTranscriptClient struct {
 	*HTTPClient
-	gotInput      *GetTranscriptInput
-	gotOptions    []TranscriptOption
-	gotPayloadIDs []string
-	payloads      map[string]*conversation.Payload
-	transcript    *ConversationStateResponse
+	gotInput       *GetTranscriptInput
+	gotOptions     []TranscriptOption
+	gotLiveOptions []TranscriptOption
+	gotPayloadIDs  []string
+	payloads       map[string]*conversation.Payload
+	transcript     *ConversationStateResponse
 }
 
 func (s *spyTranscriptClient) GetTranscript(_ context.Context, input *GetTranscriptInput, options ...TranscriptOption) (*ConversationStateResponse, error) {
@@ -1231,7 +1232,30 @@ func (s *spyTranscriptClient) GetPayloads(_ context.Context, ids []string) (map[
 }
 
 func (s *spyTranscriptClient) GetLiveState(_ context.Context, conversationID string, options ...TranscriptOption) (*ConversationStateResponse, error) {
+	s.gotLiveOptions = options
 	return &ConversationStateResponse{SchemaVersion: "2", Conversation: &ConversationState{ConversationID: conversationID}}, nil
+}
+
+func TestHandler_GetLiveState_HonorsExecutionDetailFlags(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyTranscriptClient{HTTPClient: base}
+	handler := NewHandler(spy)
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations/c1/live-state?includeModelCalls=true&includeToolCalls=true", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status: %d body=%s", rec.Code, rec.Body.String())
+	}
+	opts := &transcriptOptions{}
+	for _, option := range spy.gotLiveOptions {
+		option(opts)
+	}
+	if !opts.includeModelCalls || !opts.includeToolCalls {
+		t.Fatalf("expected model and tool details in live-state options: %#v", opts)
+	}
 }
 
 func TestHandler_GetTranscript_AcceptsLegacyIncludeToolCallParam(t *testing.T) {
