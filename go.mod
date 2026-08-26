@@ -155,7 +155,7 @@ require (
 	github.com/viant/pgo v0.11.0 // indirect
 	github.com/viant/sqlite-vec v0.3.0 // indirect
 	github.com/viant/sqlparser v0.12.1-0.20260409013525-147f8fc299b7 // indirect
-	github.com/viant/sqlx v0.22.1-0.20260326175456-cec446e28372 // indirect
+	github.com/viant/sqlx v0.25.0 // indirect
 	github.com/viant/structology v0.9.0 // indirect
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect
