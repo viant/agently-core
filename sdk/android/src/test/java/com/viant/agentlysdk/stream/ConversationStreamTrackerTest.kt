@@ -594,6 +594,51 @@ class ConversationStreamTrackerTest {
     }
 
     @Test
+    fun `hydrate replays a late join delta after the authoritative transcript prefix`() {
+        val tracker = ConversationStreamTracker("conv-1")
+        tracker.applyEvent(
+            SSEEvent(
+                type = "text_delta",
+                conversationId = "conv-1",
+                turnId = "turn-1",
+                messageId = "assistant-1",
+                assistantMessageId = "assistant-1",
+                eventSeq = 8,
+                content = "inside fence\n```",
+                contentMode = "delta",
+                contentOffset = "Visible summary\n```forge-data\n".toByteArray(Charsets.UTF_8).size,
+                createdAt = "2026-06-05T10:00:01Z"
+            )
+        )
+
+        tracker.hydrate(
+            ConversationStateResponse(
+                eventCursor = "2026-06-05T10:00:00Z",
+                conversation = ConversationState(
+                    conversationId = "conv-1",
+                    turns = listOf(
+                        TurnState(
+                            turnId = "turn-1",
+                            status = "running",
+                            assistant = AssistantState(
+                                final = AssistantMessageState(
+                                    messageId = "assistant-1",
+                                    content = "Visible summary\n```forge-data\n"
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        assertEquals(
+            "Visible summary\n```forge-data\ninside fence\n```",
+            tracker.snapshot().bufferedMessages.single { it.id == "assistant-1" }.content
+        )
+    }
+
+    @Test
     fun `hydrate falls back to transcript message sequence when cursor is unavailable`() {
         val tracker = ConversationStreamTracker("conv-1")
 

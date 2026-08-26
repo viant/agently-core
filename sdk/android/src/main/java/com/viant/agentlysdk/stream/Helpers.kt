@@ -227,25 +227,42 @@ internal fun bufferedFromMessage(message: Message): BufferedMessage {
 }
 
 internal fun assistantMessagesFromTurns(turns: List<TurnState>): List<BufferedMessage> {
-    val output = mutableListOf<BufferedMessage>()
+    val output = linkedMapOf<String, BufferedMessage>()
     turns.forEach { turn ->
+        turn.execution?.pages.orEmpty().forEach { page ->
+            val messageId = firstString(page.assistantMessageId, page.pageId)
+            if (messageId.isBlank()) return@forEach
+            output[messageId] = BufferedMessage(
+                id = messageId,
+                conversationId = null,
+                turnId = turn.turnId,
+                role = "assistant",
+                type = "text",
+                content = page.content,
+                narration = page.narration,
+                status = page.status ?: turn.status,
+                interim = if (page.finalResponse == true) 0 else 1,
+                createdAt = turn.createdAt,
+                sequence = page.sequence
+            )
+        }
         val final = turn.assistant?.final
         if (final != null && final.messageId.isNotBlank()) {
-            output.add(
-                BufferedMessage(
+            val page = output[final.messageId]
+            output[final.messageId] = BufferedMessage(
                     id = final.messageId,
                     conversationId = null,
                     turnId = turn.turnId,
                     role = "assistant",
                     type = "text",
-                    content = final.content,
-                    narration = turn.assistant.narration?.content,
+                    content = final.content?.takeIf { it.isNotBlank() } ?: page?.content,
+                    narration = turn.assistant.narration?.content ?: page?.narration,
                     status = turn.status,
                     interim = if (turn.status.equals("completed", true)) 0 else 1,
-                    createdAt = turn.createdAt
+                    createdAt = turn.createdAt,
+                    sequence = page?.sequence
                 )
-            )
         }
     }
-    return output
+    return output.values.toList()
 }

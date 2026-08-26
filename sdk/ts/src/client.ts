@@ -246,6 +246,18 @@ export class AgentlyClient {
         return this.get<TranscriptOutput>(`/conversations/${enc(input.conversationId)}/transcript`, q);
     }
 
+    /** Get the compact authoritative live snapshot and event cursor before joining SSE. */
+    async getLiveState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+        const q = new URLSearchParams();
+        if (input.includeModelCalls) q.set('includeModelCalls', 'true');
+        if (input.includeToolCalls) q.set('includeToolCalls', 'true');
+        if (input.includeFeeds) q.set('includeFeeds', 'true');
+        if (options?.selectors && Object.keys(options.selectors).length > 0) {
+            q.set('selectors', JSON.stringify(options.selectors));
+        }
+        return this.get<TranscriptOutput>(`/conversations/${enc(input.conversationId)}/live-state`, q);
+    }
+
     // ── Query ────────────────────────────────────────────────────────────────
 
     /**

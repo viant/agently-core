@@ -398,6 +398,8 @@ private extension ConversationStreamTracker {
         let op: String?
         let patch: [String: JSONValue]?
         let content: String?
+        let contentMode: String?
+        let contentOffset: Int?
         let renderedContent: RenderedContent?
         let narration: String?
         let toolName: String?
@@ -469,6 +471,8 @@ private extension ConversationStreamTracker {
             case op
             case patch
             case content
+            case contentMode
+            case contentOffset
             case renderedContent
             case narration
             case toolName
@@ -730,6 +734,10 @@ private extension ConversationStreamTracker {
 
         switch type {
         case "text_delta":
+            if let expectedOffset = payload.contentOffset,
+               (existing.content ?? "").utf8.count != expectedOffset {
+                return
+            }
             messagesByID[messageID] = existing.with(
                 content: (existing.content ?? "") + (payload.content ?? ""),
                 status: payload.status ?? existing.status ?? "running"

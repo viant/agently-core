@@ -368,6 +368,9 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 			ev.AssistantMessageID = strings.TrimSpace(event.ItemID)
 			ev.ModelCallID = strings.TrimSpace(event.ItemID)
 			ev.Content = event.Delta
+			ev.ContentMode = "delta"
+			offset := textDeltaByteOffset(output.Events, ev.AssistantMessageID)
+			ev.ContentOffset = &offset
 		case llm.StreamEventReasoningDelta:
 			ev.Type = streaming.EventTypeReasoningDelta
 			ev.AssistantMessageID = strings.TrimSpace(event.ItemID)
@@ -430,6 +433,16 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 		})
 	}
 	return nil
+}
+
+func textDeltaByteOffset(events []streaming.Event, assistantMessageID string) int {
+	offset := 0
+	for _, event := range events {
+		if event.Type == streaming.EventTypeTextDelta && event.AssistantMessageID == assistantMessageID {
+			offset += len([]byte(event.Content))
+		}
+	}
+	return offset
 }
 
 func (s *Service) toolCallEvents(streamID, turnID, responseID string, choice *llm.Choice) []streaming.Event {

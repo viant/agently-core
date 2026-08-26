@@ -165,6 +165,9 @@ export function applyEvent(
     switch (event.type) {
         case 'text_delta': {
             const existing = ensureMessageEntry(buf, key, event, conversationId, turnId);
+            if (Number.isInteger(event.contentOffset) && new TextEncoder().encode(existing.content || '').length !== event.contentOffset) {
+                return null;
+            }
             existing.content = (existing.content || '') + (event.content || '');
             storeEntry(buf, key, existing);
             setActiveTurn(buf, turnId);

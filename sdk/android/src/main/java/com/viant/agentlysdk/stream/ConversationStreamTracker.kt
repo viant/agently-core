@@ -228,6 +228,8 @@ class ConversationStreamTracker(conversationId: String = "") {
     private val planner = PlannerTracker()
     private var usage: StreamUsageState? = null
     private var currentConversationId: String = conversationId.trim()
+    private var hydrated = false
+    private val preHydrationEvents = mutableListOf<SSEEvent>()
 
     val state: ConversationStreamSnapshot
         get() = snapshot()
@@ -257,9 +259,14 @@ class ConversationStreamTracker(conversationId: String = "") {
         planner.clear()
         usage = null
         currentConversationId = ""
+        hydrated = false
+        preHydrationEvents.clear()
     }
 
     fun applyEvent(event: SSEEvent, hydrationCursor: String? = null): MessageUpdate? {
+        if (!hydrated) {
+            preHydrationEvents += event
+        }
         if (shouldSkipHydratedPayload(event, hydrationCursor)) {
             return null
         }
@@ -287,6 +294,16 @@ class ConversationStreamTracker(conversationId: String = "") {
     }
 
     fun hydrate(response: ConversationStateResponse) {
+        val pendingEvents = if (!hydrated) preHydrationEvents.toList() else emptyList()
+        if (!hydrated && pendingEvents.isNotEmpty()) {
+            messages.byId.clear()
+            messages.activeTurnId = null
+            executionGroupsById.clear()
+            feeds.clear()
+            elicitation.clear()
+            planner.clear()
+            maxAppliedEventSeqByTurnId.clear()
+        }
         response.conversation?.conversationId?.trim()?.takeIf { it.isNotEmpty() }?.let {
             currentConversationId = it
         }
@@ -300,6 +317,18 @@ class ConversationStreamTracker(conversationId: String = "") {
             val input = persisted.totalInputTokens ?: 0
             val output = persisted.totalOutputTokens ?: 0
             usage = StreamUsageState(inputTokens = input, outputTokens = output, totalTokens = input + output)
+        }
+        hydrated = true
+        preHydrationEvents.clear()
+        if (response.eventCursor.isNullOrBlank()) {
+            pendingEvents.asSequence()
+                .filter { it.type.equals("model_started", ignoreCase = true) }
+                .map { firstString(it.assistantMessageId, it.id) }
+                .filter { it.isNotBlank() }
+                .forEach(executionGroupsById::remove)
+        }
+        pendingEvents.forEach { event ->
+            applyEvent(event, response.eventCursor)
         }
     }
 
@@ -560,6 +589,10 @@ fun applyMessageEvent(buffer: MessageBuffer, event: SSEEvent): MessageUpdate? {
     return when (normalizedType) {
         "text_delta" -> {
             val existing = ensureMessageEntry(buffer, key, event, conversationId, turnId)
+            val expectedOffset = event.contentOffset
+            if (expectedOffset != null && existing.content.orEmpty().toByteArray(Charsets.UTF_8).size != expectedOffset) {
+                return null
+            }
             val updated = existing.copy(content = (existing.content ?: "") + (event.content ?: ""))
             storeEntry(buffer, key, updated)
             if (turnId.isNotBlank()) buffer.activeTurnId = turnId
@@ -689,7 +722,7 @@ fun applyExecutionStreamEventToGroups(
     }
     if ((type == "model_completed" || type == "text_delta") && assistantMessageId.isNotBlank()) {
         val current = ensureLiveExecutionGroup(next, assistantMessageId, event) ?: return next
-        val content = if (type == "text_delta") {
+		val content = if (type == "text_delta") {
             "${firstString(current.content)}${firstString(event.content)}"
         } else {
             firstString(event.content, current.content)
