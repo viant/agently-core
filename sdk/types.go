@@ -97,8 +97,10 @@ type QuerySelector = api.QuerySelector
 type TranscriptOption func(*transcriptOptions)
 
 type transcriptOptions struct {
-	selectors    map[string]*QuerySelector
-	includeFeeds bool
+	selectors         map[string]*QuerySelector
+	includeFeeds      bool
+	includeModelCalls bool
+	includeToolCalls  bool
 }
 
 const (
@@ -136,6 +138,14 @@ func WithIncludeFeeds() TranscriptOption {
 	return func(o *transcriptOptions) {
 		o.includeFeeds = true
 	}
+}
+
+func WithIncludeModelCalls() TranscriptOption {
+	return func(o *transcriptOptions) { o.includeModelCalls = true }
+}
+
+func WithIncludeToolCalls() TranscriptOption {
+	return func(o *transcriptOptions) { o.includeToolCalls = true }
 }
 
 func WithTranscriptTurnSelector(selector *QuerySelector) TranscriptOption {

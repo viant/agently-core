@@ -1231,6 +1231,27 @@ func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T)
 	require.Equal(t, content, state.Turns[0].Assistant.Final.Content)
 }
 
+func TestBuildCanonicalStateSeedsActivePageFromStreamPayload(t *testing.T) {
+	stream := "Visible summary\n```forge-data\n{}\n```"
+	iteration := 1
+	turn := &agconv.TranscriptView{
+		Id: "turn-live",
+		Message: []*agconv.MessageView{{
+			Id: "assistant-live", Role: "assistant", Interim: 1, Iteration: &iteration,
+			ModelCall: &agconv.ModelCallView{
+				MessageId: "assistant-live", Status: "streaming",
+				ModelCallStreamPayload: &agconv.ModelCallStreamPayloadView{Id: "assistant-live", InlineBody: &stream},
+			},
+		}},
+	}
+	state := BuildCanonicalState("conv-live", convstore.Transcript{(*convstore.Turn)(turn)})
+	require.NotNil(t, state)
+	require.Len(t, state.Turns, 1)
+	require.NotNil(t, state.Turns[0].Execution)
+	require.Len(t, state.Turns[0].Execution.Pages, 1)
+	require.Equal(t, stream, state.Turns[0].Execution.Pages[0].Content)
+}
+
 func TestBuildTranscriptSelectors(t *testing.T) {
 	selectors := buildTranscriptQuerySelectors(map[string]*QuerySelector{
 		TranscriptSelectorTurn:    {Limit: 1},

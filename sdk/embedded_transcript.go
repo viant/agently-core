@@ -244,8 +244,8 @@ func (c *backendClient) getTranscriptConversation(ctx context.Context, conversat
 	if optsState != nil {
 		selectors = optsState.selectors
 	}
-	includeModelCalls := input != nil && input.IncludeModelCalls
-	includeToolCalls := input != nil && input.IncludeToolCalls
+	includeModelCalls := input != nil && input.IncludeModelCalls || optsState != nil && optsState.includeModelCalls
+	includeToolCalls := input != nil && input.IncludeToolCalls || optsState != nil && optsState.includeToolCalls
 	if c.data != nil && len(selectors) > 0 {
 		in := &agconv.ConversationInput{
 			Id:                conversationID,
