@@ -188,17 +188,17 @@ func DecodeInlineBody(inline string, compression string) string {
 	}
 	reader, err := gzip.NewReader(bytes.NewReader([]byte(inline)))
 	if err != nil {
-		return inline
+		return ""
 	}
 	defer reader.Close()
 	data, err := io.ReadAll(reader)
+	if len(data) > 0 {
+		return string(data)
+	}
 	if err != nil {
-		return inline
+		return ""
 	}
-	if len(data) == 0 {
-		return inline
-	}
-	return string(data)
+	return ""
 }
 
 // SortedByCreatedAt returns a new slice with messages ordered by CreatedAt.
