@@ -164,11 +164,25 @@ private func applyWindowFormDataPatches(
             }
             let nextWindowForm = authoritativeWindowForm != nil || replace
                 ? nextValues
-                : mergeJSONObjects(base: window.windowForm ?? [:], override: nextValues)
+                : mergeJSONObjects(
+                    base: invalidateDerivedReportBuilderState(
+                        current: window.windowForm ?? [:],
+                        patch: nextValues
+                    ),
+                    override: nextValues
+                )
             return replacingWindowForm(window, windowForm: nextWindowForm)
         }
     }
     return patchedWindows
+}
+
+private func invalidateDerivedReportBuilderState(
+    current: [String: JSONValue],
+    patch: [String: JSONValue]
+) -> [String: JSONValue] {
+    guard patch["reportDefinition"]?.objectValue != nil else { return current }
+    return current.filter { !$0.key.hasPrefix("reportBuilder:") }
 }
 
 private func hostedWorkspaceWindowFromGetStep(
