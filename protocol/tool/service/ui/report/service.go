@@ -32,6 +32,42 @@ type ActionOutput struct {
 	Result   map[string]interface{} `json:"result,omitempty"`
 }
 
+// ActionResult is the typed view of the report bridge result. ActionOutput
+// keeps the raw map to preserve forward-compatible UI payloads and the exact
+// JSON wire shape; orchestration code uses this struct instead of ad-hoc keys.
+type ActionResult struct {
+	OK                *bool                  `json:"ok,omitempty"`
+	Error             string                 `json:"error,omitempty"`
+	WindowID          string                 `json:"windowId,omitempty"`
+	ReportID          string                 `json:"reportId,omitempty"`
+	ReportName        string                 `json:"reportName,omitempty"`
+	ArtifactID        string                 `json:"artifactId,omitempty"`
+	Request           map[string]interface{} `json:"request,omitempty"`
+	CanRun            *bool                  `json:"canRun,omitempty"`
+	CanSave           *bool                  `json:"canSave,omitempty"`
+	HasCompletedRun   *bool                  `json:"hasCompletedRun,omitempty"`
+	Accepted          *bool                  `json:"accepted,omitempty"`
+	Materialized      *bool                  `json:"materialized,omitempty"`
+	MaterializationID string                 `json:"materializationId,omitempty"`
+	Status            string                 `json:"status,omitempty"`
+	Durable           *bool                  `json:"durable,omitempty"`
+	ReportRunID       string                 `json:"reportRunId,omitempty"`
+	Revision          *int64                 `json:"revision,omitempty"`
+	DatasetRefs       []string               `json:"datasetRefs,omitempty"`
+	RowCounts         map[string]int64       `json:"rowCounts,omitempty"`
+	Materialization   *MaterializationResult `json:"materialization,omitempty"`
+}
+
+type MaterializationResult struct {
+	ID                string           `json:"id,omitempty"`
+	RequestID         string           `json:"requestId,omitempty"`
+	MaterializationID string           `json:"materializationId,omitempty"`
+	Status            string           `json:"status,omitempty"`
+	DatasetRefs       []string         `json:"datasetRefs,omitempty"`
+	RowCounts         map[string]int64 `json:"rowCounts,omitempty"`
+	Errors            []string         `json:"errors,omitempty"`
+}
+
 type TerminalRunWaiter interface {
 	WaitTerminal(ctx context.Context, reportRunID, conversationID string) (*reportrun.Record, error)
 }
@@ -159,11 +195,15 @@ func (s *Service) execute(ctx context.Context, action, eventKind string, in, out
 		if err := json.Unmarshal(resp.Result, &output.Result); err != nil {
 			return fmt.Errorf("decode ui.report.%s result: %w", action, err)
 		}
-		if resultOK, exists := output.Result["ok"].(bool); exists {
-			output.OK = output.OK && resultOK
+		result, err := decodeActionResult(output.Result)
+		if err != nil {
+			return fmt.Errorf("decode typed ui.report.%s result: %w", action, err)
 		}
-		if resultError, exists := output.Result["error"].(string); exists && strings.TrimSpace(resultError) != "" {
-			output.Error = strings.TrimSpace(resultError)
+		if result.OK != nil {
+			output.OK = output.OK && *result.OK
+		}
+		if resultError := strings.TrimSpace(result.Error); resultError != "" {
+			output.Error = resultError
 		}
 	}
 	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
@@ -189,24 +229,25 @@ func (s *Service) waitForDurableRun(ctx context.Context, output *ActionOutput) e
 		}
 		return fmt.Errorf("%s", message)
 	}
-	if output.Result["materialized"] == true {
-		status, _ := output.Result["status"].(string)
-		materializationID, _ := output.Result["materializationId"].(string)
-		if strings.EqualFold(strings.TrimSpace(status), "completed") && strings.TrimSpace(materializationID) != "" {
+	result, err := decodeActionResult(output.Result)
+	if err != nil {
+		return fmt.Errorf("decode report run result: %w", err)
+	}
+	if boolResult(result.Materialized) {
+		if strings.EqualFold(strings.TrimSpace(result.Status), "completed") && strings.TrimSpace(result.MaterializationID) != "" {
 			output.OK = true
 			output.Error = ""
 			return nil
 		}
 		return fmt.Errorf("native report materialization did not return an exact completed materializationId")
 	}
-	if output.Result["accepted"] == true && strings.EqualFold(stringResult(output.Result, "status"), "running") {
-		return s.waitForNativeMaterialization(ctx, output)
+	if boolResult(result.Accepted) && strings.EqualFold(strings.TrimSpace(result.Status), "running") {
+		return s.waitForNativeMaterialization(ctx, output, result)
 	}
-	if output.Result == nil || output.Result["durable"] != true {
+	if !boolResult(result.Durable) {
 		return fmt.Errorf("browser report run did not return durable=true")
 	}
-	reportRunID, _ := output.Result["reportRunId"].(string)
-	reportRunID = strings.TrimSpace(reportRunID)
+	reportRunID := strings.TrimSpace(result.ReportRunID)
 	if reportRunID == "" {
 		return fmt.Errorf("browser report run did not return an exact reportRunId")
 	}
@@ -225,10 +266,14 @@ func (s *Service) waitForDurableRun(ctx context.Context, output *ActionOutput) e
 		return fmt.Errorf("durable report-run service returned a mismatched run")
 	}
 	status := strings.ToLower(strings.TrimSpace(run.Status))
-	output.Result["reportRunId"] = reportRunID
-	output.Result["durable"] = true
-	output.Result["status"] = status
-	output.Result["revision"] = run.Revision
+	if err := output.mergeResult(ActionResult{
+		ReportRunID: reportRunID,
+		Durable:     boolResultPointer(true),
+		Status:      status,
+		Revision:    int64ResultPointer(run.Revision),
+	}); err != nil {
+		return fmt.Errorf("update durable report run result: %w", err)
+	}
 	switch status {
 	case reportrun.StatusCompleted:
 		output.OK = true
@@ -246,9 +291,9 @@ func (s *Service) waitForDurableRun(ctx context.Context, output *ActionOutput) e
 	}
 }
 
-func (s *Service) waitForNativeMaterialization(ctx context.Context, output *ActionOutput) error {
-	expectedID := stringResult(output.Result, "materializationId")
-	windowID := stringResult(output.Result, "windowId")
+func (s *Service) waitForNativeMaterialization(ctx context.Context, output *ActionOutput, result *ActionResult) error {
+	expectedID := strings.TrimSpace(result.MaterializationID)
+	windowID := strings.TrimSpace(result.WindowID)
 	if expectedID == "" || windowID == "" {
 		return fmt.Errorf("native report run did not return an exact windowId and materializationId")
 	}
@@ -267,30 +312,35 @@ func (s *Service) waitForNativeMaterialization(ctx context.Context, output *Acti
 		}, inspection); err != nil {
 			return fmt.Errorf("inspect native report materialization %q: %w", expectedID, err)
 		}
-		materialization, _ := inspection.Result["materialization"].(map[string]interface{})
-		if len(materialization) == 0 {
+		inspectionResult, err := decodeActionResult(inspection.Result)
+		if err != nil {
+			return fmt.Errorf("decode native report materialization %q: %w", expectedID, err)
+		}
+		materialization := inspectionResult.Materialization
+		if materialization == nil {
 			continue
 		}
-		actualID := stringResult(materialization, "id", "requestId", "materializationId")
+		actualID := firstNonEmpty(materialization.ID, materialization.RequestID, materialization.MaterializationID)
 		if actualID != expectedID {
 			continue
 		}
-		status := strings.ToLower(stringResult(materialization, "status"))
+		status := strings.ToLower(strings.TrimSpace(materialization.Status))
 		switch status {
 		case "completed":
 			output.OK = true
 			output.Error = ""
-			output.Result["materialized"] = true
-			output.Result["status"] = status
-			for _, key := range []string{"datasetRefs", "rowCounts"} {
-				if value, ok := materialization[key]; ok {
-					output.Result[key] = value
-				}
+			if err := output.mergeResult(ActionResult{
+				Materialized: boolResultPointer(true),
+				Status:       status,
+				DatasetRefs:  materialization.DatasetRefs,
+				RowCounts:    materialization.RowCounts,
+			}); err != nil {
+				return fmt.Errorf("update native report materialization %q: %w", expectedID, err)
 			}
 			return nil
 		case "failed":
 			output.OK = false
-			output.Error = stringSliceResult(materialization, "errors")
+			output.Error = strings.Join(materialization.Errors, "; ")
 			if output.Error == "" {
 				output.Error = "native report materialization failed"
 			}
@@ -299,29 +349,57 @@ func (s *Service) waitForNativeMaterialization(ctx context.Context, output *Acti
 	}
 }
 
-func stringResult(values map[string]interface{}, keys ...string) string {
-	for _, key := range keys {
-		if value, ok := values[key].(string); ok {
-			if trimmed := strings.TrimSpace(value); trimmed != "" {
-				return trimmed
-			}
+func decodeActionResult(values map[string]interface{}) (*ActionResult, error) {
+	result := &ActionResult{}
+	if len(values) == 0 {
+		return result, nil
+	}
+	payload, err := json.Marshal(values)
+	if err != nil {
+		return nil, err
+	}
+	if err := json.Unmarshal(payload, result); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (o *ActionOutput) mergeResult(patch ActionResult) error {
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		return err
+	}
+	values := map[string]interface{}{}
+	if err := json.Unmarshal(payload, &values); err != nil {
+		return err
+	}
+	// Keep Go-side numeric identity stable for callers inspecting ActionOutput
+	// before it is serialized; JSON encoding still emits the same number.
+	if patch.Revision != nil {
+		values["revision"] = *patch.Revision
+	}
+	if o.Result == nil {
+		o.Result = map[string]interface{}{}
+	}
+	for key, value := range values {
+		o.Result[key] = value
+	}
+	return nil
+}
+
+func boolResult(value *bool) bool { return value != nil && *value }
+
+func boolResultPointer(value bool) *bool { return &value }
+
+func int64ResultPointer(value int64) *int64 { return &value }
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
 		}
 	}
 	return ""
-}
-
-func stringSliceResult(values map[string]interface{}, key string) string {
-	raw, ok := values[key].([]interface{})
-	if !ok {
-		return ""
-	}
-	items := make([]string, 0, len(raw))
-	for _, item := range raw {
-		if value, ok := item.(string); ok && strings.TrimSpace(value) != "" {
-			items = append(items, strings.TrimSpace(value))
-		}
-	}
-	return strings.Join(items, "; ")
 }
 
 func (s *Service) resolveWindow(ctx context.Context, input *WindowInput) (string, string, *uireg.WindowSnapshot, error) {

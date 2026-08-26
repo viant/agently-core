@@ -317,3 +317,23 @@ func TestServiceMethodsRegistered(t *testing.T) {
 		}
 	}
 }
+
+func TestTypedActionResultPreservesForwardCompatibleRawFields(t *testing.T) {
+	output := &ActionOutput{Result: map[string]interface{}{
+		"ok":           true,
+		"windowId":     "report-window-1",
+		"futureField":  map[string]interface{}{"enabled": true},
+		"materialized": false,
+	}}
+	result, err := decodeActionResult(output.Result)
+	require.NoError(t, err)
+	require.Equal(t, "report-window-1", result.WindowID)
+	require.False(t, boolResult(result.Materialized))
+	require.NoError(t, output.mergeResult(ActionResult{
+		Materialized: boolResultPointer(true),
+		Status:       "completed",
+	}))
+	require.Equal(t, map[string]interface{}{"enabled": true}, output.Result["futureField"])
+	require.Equal(t, true, output.Result["materialized"])
+	require.Equal(t, "completed", output.Result["status"])
+}
