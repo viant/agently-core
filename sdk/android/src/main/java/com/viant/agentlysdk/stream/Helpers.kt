@@ -230,6 +230,8 @@ internal fun assistantMessagesFromTurns(turns: List<TurnState>): List<BufferedMe
     val output = linkedMapOf<String, BufferedMessage>()
     turns.forEach { turn ->
         turn.execution?.pages.orEmpty().forEach pageLoop@ { page ->
+            val executionRole = page.executionRole?.trim()?.lowercase()
+            if (page.finalResponse != true && executionRole != "react") return@pageLoop
             val messageId = firstString(page.assistantMessageId, page.pageId)
             if (messageId.isBlank()) return@pageLoop
             output[messageId] = BufferedMessage(
