@@ -166,8 +166,12 @@ public final class AgentlyClient: Sendable {
         try await get("/v1/conversations/linked", query: linkedConversationQueryItems(from: input), as: LinkedConversationPage.self)
     }
 
-    public func getLiveState(conversationID: String, includeFeeds: Bool = false) async throws -> ConversationStateResponse {
-        let query = includeFeeds ? [URLQueryItem(name: "includeFeeds", value: "true")] : []
+    public func getLiveState(conversationID: String, includeFeeds: Bool = false, includeExecutionDetails: Bool = true) async throws -> ConversationStateResponse {
+        var query = includeFeeds ? [URLQueryItem(name: "includeFeeds", value: "true")] : []
+        if includeExecutionDetails {
+            query.append(URLQueryItem(name: "includeModelCalls", value: "true"))
+            query.append(URLQueryItem(name: "includeToolCalls", value: "true"))
+        }
         return try await get("/v1/conversations/\(encodePath(conversationID))/live-state", query: query, as: ConversationStateResponse.self)
     }
 

@@ -229,9 +229,9 @@ internal fun bufferedFromMessage(message: Message): BufferedMessage {
 internal fun assistantMessagesFromTurns(turns: List<TurnState>): List<BufferedMessage> {
     val output = linkedMapOf<String, BufferedMessage>()
     turns.forEach { turn ->
-        turn.execution?.pages.orEmpty().forEach { page ->
+        turn.execution?.pages.orEmpty().forEach pageLoop@ { page ->
             val messageId = firstString(page.assistantMessageId, page.pageId)
-            if (messageId.isBlank()) return@forEach
+            if (messageId.isBlank()) return@pageLoop
             output[messageId] = BufferedMessage(
                 id = messageId,
                 conversationId = null,
