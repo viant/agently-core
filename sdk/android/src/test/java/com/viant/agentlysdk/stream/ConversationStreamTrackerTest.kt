@@ -54,9 +54,17 @@ class ConversationStreamTrackerTest {
                                         content = "internal worker payload"
                                     ),
                                     ExecutionPageState(
+                                        pageId = "intermediate-react-page",
+                                        assistantMessageId = "intermediate-react-message",
+                                        executionRole = "react",
+                                        finalResponse = false,
+                                        content = "internal intermediate model payload"
+                                    ),
+                                    ExecutionPageState(
                                         pageId = "primary-page",
                                         assistantMessageId = "primary-message",
                                         executionRole = "react",
+                                        finalResponse = true,
                                         content = "Visible streaming response"
                                     )
                                 )

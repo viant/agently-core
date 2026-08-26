@@ -21,6 +21,22 @@ func gzipString(t *testing.T, value string) string {
 	return buf.String()
 }
 
+func TestDecodeInlineBody_GzipNeverReturnsCompressedBytes(t *testing.T) {
+	encoded := gzipString(t, "visible assistant response")
+	if got := DecodeInlineBody(encoded, "gzip"); got != "visible assistant response" {
+		t.Fatalf("decoded payload = %q", got)
+	}
+
+	truncated := encoded[:len(encoded)-8]
+	if got := DecodeInlineBody(truncated, "gzip"); got != "visible assistant response" {
+		t.Fatalf("truncated decoded payload = %q", got)
+	}
+
+	if got := DecodeInlineBody("not a gzip member", "gzip"); got != "" {
+		t.Fatalf("invalid gzip payload was exposed as text: %q", got)
+	}
+}
+
 func TestMessage_ToolCallArguments_DecodesCompressedRequestPayload(t *testing.T) {
 	payload := gzipString(t, `{"name":"capacity-review","args":"WorkspaceId=7268995"}`)
 	msg := &Message{
