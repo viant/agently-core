@@ -191,6 +191,49 @@ func TestServiceRunOrchestrationAcceptsExactNativeMaterialization(t *testing.T) 
 	require.Equal(t, "native-run-1", output.Result["materializationId"])
 }
 
+func TestServiceRunOrchestrationWaitsForAcceptedNativeMaterialization(t *testing.T) {
+	bridge := prepareReportWindow(t)
+	waiter := &fakeTerminalRunWaiter{}
+	service := New(bridge, WithOrchestration(waiter))
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	done := make(chan error, 1)
+	output := &ActionOutput{}
+	go func() {
+		done <- service.run(ctx, &WindowInput{WindowID: "report-window-1"}, output)
+	}()
+
+	respondToReportRun(t, bridge, map[string]interface{}{
+		"ok":                true,
+		"accepted":          true,
+		"windowId":          "report-window-1",
+		"materialized":      false,
+		"materializationId": "native-run-async-1",
+		"status":            "running",
+	})
+	poll := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-1", "timeoutMs": 1000})
+	command, _ := poll["params"].(map[string]interface{})
+	require.Equal(t, "ui.report.getCurrent", command["method"])
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
+		"id": command["id"],
+		"ok": true,
+		"result": map[string]interface{}{
+			"ok": true,
+			"materialization": map[string]interface{}{
+				"id":          "native-run-async-1",
+				"status":      "completed",
+				"datasetRefs": []interface{}{"summary", "daily"},
+				"rowCounts":   map[string]interface{}{"summary": float64(1), "daily": float64(8)},
+			},
+		},
+	})
+	require.NoError(t, <-done)
+	require.True(t, output.OK)
+	require.Equal(t, true, output.Result["materialized"])
+	require.Equal(t, "completed", output.Result["status"])
+	require.Equal(t, []interface{}{"summary", "daily"}, output.Result["datasetRefs"])
+	require.Empty(t, waiter.reportRunID)
+}
+
 func TestServiceRunOrchestrationRejectsNonDurableAndFailedRuns(t *testing.T) {
 	for name, result := range map[string]map[string]interface{}{
 		"missing durable":   {"ok": true, "reportRunId": "run-1"},
