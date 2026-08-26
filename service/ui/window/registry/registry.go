@@ -17,7 +17,12 @@ type Registry struct {
 }
 
 const defaultSnapshotFreshness = 15 * time.Second
-const defaultPollFreshness = 12 * time.Second
+
+// Native bridge clients use a 20-second long poll. LastPollAt is recorded when
+// the request starts, so freshness must outlive the in-flight poll plus a small
+// reconnect margin; otherwise a healthy client is falsely detached near the
+// end of every poll and UI commands are rejected intermittently.
+const defaultPollFreshness = 30 * time.Second
 
 func New(bridge *forgeuisvc.Service) *Registry {
 	return &Registry{bridge: bridge, state: sharedStateFor(bridge)}

@@ -352,7 +352,12 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	if useTransportAuth {
 		clientRT = rt
 	}
-	cli, err := mcp.NewClient(h, opts.ClientOptions)
+	// Tool-surface discovery is deliberately bounded by the caller.  Using
+	// NewClient here discards that deadline because it negotiates with a
+	// background context, allowing one unavailable MCP endpoint to stall every
+	// agent iteration for minutes.  Preserve cancellation through protocol
+	// negotiation so best-effort discovery can fail fast and use its cooldown.
+	cli, err := mcp.NewClientWithContext(ctx, h, opts.ClientOptions)
 	if err != nil {
 		return nil, err
 	}
