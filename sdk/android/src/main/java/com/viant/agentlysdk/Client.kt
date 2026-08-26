@@ -231,11 +231,16 @@ class AgentlyClient(
     suspend fun getLiveState(
         conversationId: String,
         includeFeeds: Boolean = false,
+        includeExecutionDetails: Boolean = true,
         maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
     ): ConversationStateResponse = withContext(Dispatchers.IO) {
         val query = linkedMapOf<String, String>()
         if (includeFeeds) {
             query["includeFeeds"] = "true"
+        }
+        if (includeExecutionDetails) {
+            query["includeModelCalls"] = "true"
+            query["includeToolCalls"] = "true"
         }
         get(
             appendQuery("/v1/conversations/${encodePath(conversationId)}/live-state", query),
