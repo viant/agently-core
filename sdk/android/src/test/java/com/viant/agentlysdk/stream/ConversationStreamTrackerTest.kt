@@ -27,6 +27,51 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 class ConversationStreamTrackerTest {
+    @Test
+    fun `hydrate projects only primary execution page into assistant messages`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.hydrate(
+            ConversationStateResponse(
+                conversation = ConversationState(
+                    conversationId = "conv-1",
+                    turns = listOf(
+                        TurnState(
+                            turnId = "turn-1",
+                            status = "running",
+                            execution = ExecutionState(
+                                pages = listOf(
+                                    ExecutionPageState(
+                                        pageId = "narrator-page",
+                                        assistantMessageId = "narrator-message",
+                                        executionRole = "narrator",
+                                        content = "internal narration payload"
+                                    ),
+                                    ExecutionPageState(
+                                        pageId = "worker-page",
+                                        assistantMessageId = "worker-message",
+                                        executionRole = "worker",
+                                        content = "internal worker payload"
+                                    ),
+                                    ExecutionPageState(
+                                        pageId = "primary-page",
+                                        assistantMessageId = "primary-message",
+                                        executionRole = "react",
+                                        content = "Visible streaming response"
+                                    )
+                                )
+                            )
+                        )
+                    )
+                )
+            )
+        )
+
+        val messages = tracker.snapshot().bufferedMessages
+        assertEquals(listOf("primary-message"), messages.map { it.id })
+        assertEquals("Visible streaming response", messages.single().content)
+    }
+
 
     @Test
     fun `shared progressive rendered content fixture decodes`() {
