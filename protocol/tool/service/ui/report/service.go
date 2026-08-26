@@ -199,6 +199,9 @@ func (s *Service) waitForDurableRun(ctx context.Context, output *ActionOutput) e
 		}
 		return fmt.Errorf("native report materialization did not return an exact completed materializationId")
 	}
+	if output.Result["accepted"] == true && strings.EqualFold(stringResult(output.Result, "status"), "running") {
+		return s.waitForNativeMaterialization(ctx, output)
+	}
 	if output.Result == nil || output.Result["durable"] != true {
 		return fmt.Errorf("browser report run did not return durable=true")
 	}
@@ -241,6 +244,84 @@ func (s *Service) waitForDurableRun(ctx context.Context, output *ActionOutput) e
 	default:
 		return fmt.Errorf("durable report run %q returned non-terminal status %q", reportRunID, status)
 	}
+}
+
+func (s *Service) waitForNativeMaterialization(ctx context.Context, output *ActionOutput) error {
+	expectedID := stringResult(output.Result, "materializationId")
+	windowID := stringResult(output.Result, "windowId")
+	if expectedID == "" || windowID == "" {
+		return fmt.Errorf("native report run did not return an exact windowId and materializationId")
+	}
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("wait for native report materialization %q: %w", expectedID, ctx.Err())
+		case <-ticker.C:
+		}
+		inspection := &ActionOutput{}
+		if err := s.execute(ctx, "getCurrent", "report.run_polled", &WindowInput{
+			ClientID: output.ClientID,
+			WindowID: windowID,
+		}, inspection); err != nil {
+			return fmt.Errorf("inspect native report materialization %q: %w", expectedID, err)
+		}
+		materialization, _ := inspection.Result["materialization"].(map[string]interface{})
+		if len(materialization) == 0 {
+			continue
+		}
+		actualID := stringResult(materialization, "id", "requestId", "materializationId")
+		if actualID != expectedID {
+			continue
+		}
+		status := strings.ToLower(stringResult(materialization, "status"))
+		switch status {
+		case "completed":
+			output.OK = true
+			output.Error = ""
+			output.Result["materialized"] = true
+			output.Result["status"] = status
+			for _, key := range []string{"datasetRefs", "rowCounts"} {
+				if value, ok := materialization[key]; ok {
+					output.Result[key] = value
+				}
+			}
+			return nil
+		case "failed":
+			output.OK = false
+			output.Error = stringSliceResult(materialization, "errors")
+			if output.Error == "" {
+				output.Error = "native report materialization failed"
+			}
+			return fmt.Errorf("native report materialization %q failed: %s", expectedID, output.Error)
+		}
+	}
+}
+
+func stringResult(values map[string]interface{}, keys ...string) string {
+	for _, key := range keys {
+		if value, ok := values[key].(string); ok {
+			if trimmed := strings.TrimSpace(value); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	return ""
+}
+
+func stringSliceResult(values map[string]interface{}, key string) string {
+	raw, ok := values[key].([]interface{})
+	if !ok {
+		return ""
+	}
+	items := make([]string, 0, len(raw))
+	for _, item := range raw {
+		if value, ok := item.(string); ok && strings.TrimSpace(value) != "" {
+			items = append(items, strings.TrimSpace(value))
+		}
+	}
+	return strings.Join(items, "; ")
 }
 
 func (s *Service) resolveWindow(ctx context.Context, input *WindowInput) (string, string, *uireg.WindowSnapshot, error) {
