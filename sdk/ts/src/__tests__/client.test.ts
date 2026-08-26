@@ -232,6 +232,15 @@ describe('Transcript', () => {
         expect(selectors.ExecutionGroup.limit).toBe(5);
         expect(selectors.ExecutionGroup.offset).toBe(2);
     });
+
+    it('getLiveState loads the stream bootstrap snapshot', async () => {
+        const f = mockFetch(200, { schemaVersion: '2', eventCursor: 'cursor-1', conversation: { turns: [] } });
+        const c = client(f);
+        await c.getLiveState({ conversationId: 'conv_1', includeFeeds: true });
+        const call = lastCall(f);
+        expect(call.url).toContain('/conversations/conv_1/live-state');
+        expect(call.url).toContain('includeFeeds=true');
+    });
 });
 
 // ─── Query ─────────────────────────────────────────────────────────────────────

@@ -62,6 +62,26 @@ func TestService_Stream_RetriesOnTransientStartError_Non500(t *testing.T) {
 	assert.Equal(t, "ok-503", out.Events[0].Content)
 }
 
+func TestService_Stream_TextDeltasCarryUTF8ContentOffsets(t *testing.T) {
+	model := &scriptedStreamModel{attempts: []streamAttempt{{events: []llm.StreamEvent{
+		assistantChunkEvent("hé", ""),
+		assistantChunkEvent("llo", "stop"),
+	}}}}
+	svc := &Service{llmFinder: &fixedFinder{model: model}}
+	out := &StreamOutput{}
+	cleanup, err := svc.Stream(context.Background(), newStreamInput(registerErrPropagatingHandler()), out)
+	require.NoError(t, err)
+	require.NotNil(t, cleanup)
+	defer cleanup()
+
+	require.GreaterOrEqual(t, len(out.Events), 2)
+	require.NotNil(t, out.Events[0].ContentOffset)
+	require.NotNil(t, out.Events[1].ContentOffset)
+	assert.Equal(t, "delta", out.Events[0].ContentMode)
+	assert.Equal(t, 0, *out.Events[0].ContentOffset)
+	assert.Equal(t, len([]byte("hé")), *out.Events[1].ContentOffset)
+}
+
 func TestService_Stream_DoesNotRetryOnNonTransientStartError(t *testing.T) {
 	model := &scriptedStreamModel{
 		attempts: []streamAttempt{

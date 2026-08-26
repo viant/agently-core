@@ -202,6 +202,8 @@ export interface ExecutionPage {
     phase?: string;
     narration?: string;
     content?: string;
+    contentMode?: 'delta' | 'snapshot';
+    contentOffset?: number;
     finalResponse: boolean;
     status?: string;
     modelSteps: ModelStepState[];

@@ -205,6 +205,8 @@ type Event struct {
 	Op                        string                     `json:"op,omitempty"`
 	Patch                     map[string]interface{}     `json:"patch,omitempty"`
 	Content                   string                     `json:"content,omitempty"`
+	ContentMode               string                     `json:"contentMode,omitempty"`
+	ContentOffset             *int                       `json:"contentOffset,omitempty"`
 	RenderedContent           *rendering.RenderedContent `json:"renderedContent,omitempty"`
 	Narration                 string                     `json:"narration,omitempty"`
 	// NarrationSource identifies the author of a narration payload.

@@ -56,6 +56,8 @@ data class SSEEvent(
     val op: String? = null,
     val patch: JsonObject? = null,
     val content: String? = null,
+    val contentMode: String? = null,
+    val contentOffset: Int? = null,
     val renderedContent: RenderedContent? = null,
     val narration: String? = null,
     val toolName: String? = null,
