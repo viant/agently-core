@@ -7,6 +7,8 @@ import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.buildJsonArray
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.int
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -14,6 +16,67 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.JsonPrimitive
 
 class WorkspaceRestoreTest {
+    @Test
+    fun `later window get restores authoritative report datasets`() {
+        val state = ConversationStateResponse(
+            conversation = ConversationState(
+                conversationId = "conv-1",
+                turns = listOf(TurnState(
+                    turnId = "turn-1",
+                    execution = ExecutionState(pages = listOf(ExecutionPageState(
+                        pageId = "page-1",
+                        toolSteps = listOf(ToolStepState(
+                            toolCallId = "get-1",
+                            toolName = "ui/window/get",
+                            status = "completed",
+                            responsePayload = buildJsonObject {
+                                put("window", buildJsonObject {
+                                    put("windowId", "report__conv-1")
+                                    put("conversationId", "conv-1")
+                                    put("windowKey", "reportBuilder")
+                                    put("windowTitle", "Performance")
+                                    put("presentation", "hosted")
+                                    put("region", "chat.top")
+                                    put("parentKey", "chat/new")
+                                    put("windowForm", buildJsonObject {
+                                        put("reportStaticDatasets", buildJsonArray {
+                                            add(buildJsonObject {
+                                                put("id", "summary")
+                                                put("rows", buildJsonArray { add(buildJsonObject { put("spend", 10) }) })
+                                            })
+                                        })
+                                    })
+                                })
+                            }
+                        ), ToolStepState(
+                            toolCallId = "get-2",
+                            toolName = "ui/window/get",
+                            status = "completed",
+                            responsePayload = buildJsonObject {
+                                put("window", buildJsonObject {
+                                    put("windowId", "report__conv-1")
+                                    put("conversationId", "conv-1")
+                                    put("windowKey", "reportBuilder")
+                                    put("windowTitle", "Performance")
+                                    put("presentation", "hosted")
+                                    put("region", "chat.top")
+                                    put("parentKey", "chat/new")
+                                    put("windowForm", buildJsonObject {
+                                        put("reportMaterialization", buildJsonObject { put("status", "running") })
+                                    })
+                                })
+                            }
+                        ))
+                    )))
+                ))
+            )
+        )
+
+        val restore = deriveHostedWorkspaceRestoreState(state)
+        val datasets = restore?.windows?.singleOrNull()?.windowForm?.get("reportStaticDatasets") as? JsonArray
+        assertEquals(1, datasets?.size)
+    }
+
 
     @Test
     fun `deriveHostedWorkspaceRestoreState restores hosted window from latest transcript turn`() {

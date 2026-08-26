@@ -171,6 +171,22 @@ func TestIsAttachedClientAllowsUnchangedSnapshotWithCurrentPoll(t *testing.T) {
 	}
 }
 
+func TestIsServiceableClientOutlivesNativeLongPoll(t *testing.T) {
+	now := time.Now()
+	item := ClientSnapshot{
+		LastPollAt: now.Add(-20 * time.Second),
+		Transport:  "http",
+		Snapshot:   &Snapshot{},
+	}
+	if !isServiceableClient(item, now) {
+		t.Fatalf("expected a client inside its 20-second long poll to remain serviceable")
+	}
+	item.LastPollAt = now.Add(-31 * time.Second)
+	if isServiceableClient(item, now) {
+		t.Fatalf("expected a client beyond the reconnect margin to be stale")
+	}
+}
+
 func TestIsAttachedClientRejectsStaleDisconnectedSnapshot(t *testing.T) {
 	now := time.Now()
 	item := ClientSnapshot{

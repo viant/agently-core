@@ -55,6 +55,35 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
     for (index in completedToolSteps.indices.reversed()) {
         val step = completedToolSteps[index]
         when (normalizeToolName(step.toolName)) {
+            "ui/window/get" -> {
+                val payload = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
+                val latestWindow = normalizeHostedWorkspaceWindow(
+                    (payload?.get("window") as? JsonObject) ?: payload
+                )
+                if (latestWindow != null) {
+                    val window = completedToolSteps.take(index + 1)
+                        .asSequence()
+                        .filter { normalizeToolName(it.toolName) == "ui/window/get" }
+                        .mapNotNull { prior ->
+                            val priorPayload = firstParsedPayload(prior.responsePayload, prior.content) as? JsonObject
+                            normalizeHostedWorkspaceWindow(
+                                (priorPayload?.get("window") as? JsonObject) ?: priorPayload
+                            )
+                        }
+                        .filter { it.windowId == latestWindow.windowId }
+                        .fold<WorkspaceWindowSnapshot, WorkspaceWindowSnapshot?>(null) { merged, snapshot ->
+                            merged?.let { mergeHostedWorkspaceSnapshots(it, snapshot) } ?: snapshot
+                        } ?: latestWindow
+                    val restoredWindows = applyWindowFormDataPatches(
+                        windows = listOf(window),
+                        toolSteps = completedToolSteps.drop(index + 1)
+                    )
+                    return HostedWorkspaceRestoreState(
+                        windows = restoredWindows,
+                        selectedWindowId = restoredWindows.first().windowId
+                    )
+                }
+            }
             "ui/context/get" -> {
                 val payload = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
                 val windows = hostedWorkspaceWindowsFromContextPayload(payload)
@@ -107,6 +136,23 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
     }
     return null
 }
+
+private fun mergeHostedWorkspaceSnapshots(
+    base: WorkspaceWindowSnapshot,
+    overlay: WorkspaceWindowSnapshot
+): WorkspaceWindowSnapshot = base.copy(
+    conversationId = overlay.conversationId ?: base.conversationId,
+    windowTitle = overlay.windowTitle ?: base.windowTitle,
+    presentation = overlay.presentation ?: base.presentation,
+    region = overlay.region ?: base.region,
+    parentKey = overlay.parentKey ?: base.parentKey,
+    workspaceSharePct = overlay.workspaceSharePct ?: base.workspaceSharePct,
+    workspaceMinHeight = overlay.workspaceMinHeight ?: base.workspaceMinHeight,
+    inTab = overlay.inTab ?: base.inTab,
+    parameters = overlay.parameters?.let { mergeJsonObjects(base.parameters, it) } ?: base.parameters,
+    windowForm = overlay.windowForm?.let { mergeJsonObjects(base.windowForm, it) } ?: base.windowForm,
+    navigation = overlay.navigation ?: base.navigation
+)
 
 private fun liveHostedWorkspaceGroups(
     snapshot: ConversationStreamSnapshot,
