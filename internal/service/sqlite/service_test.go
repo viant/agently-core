@@ -101,6 +101,36 @@ func TestService_EnsureInMemory_MessageLookupIndexesExist(t *testing.T) {
 	}
 }
 
+func TestService_EnsureInMemory_MessageRelationIndexesExist(t *testing.T) {
+	svc := New("")
+	dsn, err := svc.EnsureInMemory(context.Background())
+	if err != nil {
+		t.Fatalf("EnsureInMemory() error = %v", err)
+	}
+
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open() error = %v", err)
+	}
+	defer db.Close()
+
+	expected := map[string][]string{
+		"message": {"idx_message_superseded_by", "idx_message_linked_conversation"},
+	}
+
+	for table, indexes := range expected {
+		for _, index := range indexes {
+			var count int
+			if err := db.QueryRow(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND name = ?`, table, index).Scan(&count); err != nil {
+				t.Fatalf("query index %s on %s: %v", index, table, err)
+			}
+			if count != 1 {
+				t.Errorf("missing index %s on %s", index, table)
+			}
+		}
+	}
+}
+
 func TestService_EnsureInMemory_MessageAttachmentLookupUsesIndex(t *testing.T) {
 	svc := New("")
 	dsn, err := svc.EnsureInMemory(context.Background())

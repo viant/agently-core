@@ -169,6 +169,8 @@ CREATE INDEX IF NOT EXISTS idx_message_elicitation_payload ON message(elicitatio
 CREATE INDEX IF NOT EXISTS idx_message_parent_seq_created ON message(parent_message_id, sequence, created_at);
 CREATE INDEX IF NOT EXISTS idx_message_parent_attachment ON message(parent_message_id, attachment_payload_id);
 CREATE INDEX IF NOT EXISTS idx_message_parent_elicitation ON message(parent_message_id, elicitation_payload_id);
+CREATE INDEX IF NOT EXISTS idx_message_superseded_by ON message(superseded_by);
+CREATE INDEX IF NOT EXISTS idx_message_linked_conversation ON message(linked_conversation_id);
 
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,

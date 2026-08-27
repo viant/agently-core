@@ -32,7 +32,7 @@ func (s *datlyService) DeleteScheduleCascade(ctx context.Context, id string) err
 		return nil
 	}
 	_, err := sqlitewrite.Do(ctx, s.writeGate, func() (struct{}, error) {
-		db, err := s.db()
+		db, driver, err := s.dbWithDriver()
 		if err != nil {
 			return struct{}{}, err
 		}
@@ -46,7 +46,7 @@ func (s *datlyService) DeleteScheduleCascade(ctx context.Context, id string) err
 				_ = tx.Rollback()
 			}
 		}()
-		if err := deleteScheduleCascadeTx(ctx, tx, id, time.Now().UTC()); err != nil {
+		if err := deleteScheduleCascadeTx(ctx, tx, id, driver, time.Now().UTC()); err != nil {
 			return struct{}{}, err
 		}
 		if err := tx.Commit(); err != nil {
@@ -58,7 +58,11 @@ func (s *datlyService) DeleteScheduleCascade(ctx context.Context, id string) err
 	return err
 }
 
-func deleteScheduleCascadeTx(ctx context.Context, tx *sql.Tx, scheduleID string, now time.Time) error {
+func deleteScheduleCascadeTx(ctx context.Context, tx *sql.Tx, scheduleID, driver string, now time.Time) error {
+	capabilities, err := deleteSchemaCapabilitiesForDriver(driver)
+	if err != nil {
+		return err
+	}
 	row, err := loadScheduleForDelete(ctx, tx, scheduleID)
 	if err != nil {
 		return err
@@ -68,13 +72,13 @@ func deleteScheduleCascadeTx(ctx context.Context, tx *sql.Tx, scheduleID string,
 		return ErrPermissionDenied
 	}
 
-	rootIDs, err := collectScheduleConversationRoots(ctx, tx, scheduleID)
+	rootIDs, err := collectScheduleConversationRoots(ctx, tx, scheduleID, capabilities)
 	if err != nil {
 		return err
 	}
 	graph := &conversationDeleteGraph{Rows: map[string]*conversationTreeRow{}}
 	if len(rootIDs) > 0 {
-		graph, err = buildConversationDeleteGraph(ctx, tx, rootIDs)
+		graph, err = buildConversationDeleteGraph(ctx, tx, rootIDs, capabilities)
 		if err != nil {
 			return err
 		}
@@ -101,8 +105,10 @@ func deleteScheduleCascadeTx(ctx context.Context, tx *sql.Tx, scheduleID string,
 	if err := execDeleteIDs(ctx, tx, "run", remainingRunIDs); err != nil {
 		return err
 	}
-	if err := optionalExecIDs(ctx, tx, "DELETE FROM schedule_run WHERE schedule_id IN (%s)", []string{scheduleID}); err != nil {
-		return err
+	if capabilities.hasColumn("schedule_run", "schedule_id") {
+		if err := execIDs(ctx, tx, "DELETE FROM schedule_run WHERE schedule_id IN (%s)", []string{scheduleID}); err != nil {
+			return err
+		}
 	}
 	if err := execDeleteIDs(ctx, tx, "schedule", []string{scheduleID}); err != nil {
 		return err
@@ -122,7 +128,7 @@ func loadScheduleForDelete(ctx context.Context, tx *sql.Tx, scheduleID string) (
 	return &row, nil
 }
 
-func collectScheduleConversationRoots(ctx context.Context, tx *sql.Tx, scheduleID string) ([]string, error) {
+func collectScheduleConversationRoots(ctx context.Context, tx *sql.Tx, scheduleID string, capabilities *deleteSchemaCapabilities) ([]string, error) {
 	ids := map[string]struct{}{}
 	if err := addStringsFromQuery(ctx, tx, ids, "SELECT id FROM conversation WHERE schedule_id IN (%s)", []string{scheduleID}); err != nil {
 		return nil, err
@@ -130,8 +136,10 @@ func collectScheduleConversationRoots(ctx context.Context, tx *sql.Tx, scheduleI
 	if err := addStringsFromQuery(ctx, tx, ids, "SELECT conversation_id FROM run WHERE schedule_id IN (%s)", []string{scheduleID}); err != nil {
 		return nil, err
 	}
-	if err := addStringsFromQueryOptional(ctx, tx, ids, "SELECT conversation_id FROM schedule_run WHERE schedule_id IN (%s)", []string{scheduleID}); err != nil {
-		return nil, err
+	if capabilities.hasColumn("schedule_run", "schedule_id") && capabilities.hasColumn("schedule_run", "conversation_id") {
+		if err := addStringsFromQuery(ctx, tx, ids, "SELECT conversation_id FROM schedule_run WHERE schedule_id IN (%s)", []string{scheduleID}); err != nil {
+			return nil, err
+		}
 	}
 	if len(ids) == 0 {
 		return nil, nil

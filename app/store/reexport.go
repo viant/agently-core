@@ -11,6 +11,10 @@ import (
 var ErrPermissionDenied = old.ErrPermissionDenied
 var ErrConversationNotFound = old.ErrConversationNotFound
 var ErrConversationActive = old.ErrConversationActive
+var ErrConversationNonTerminal = old.ErrConversationNonTerminal
+var ErrConversationGraphReferenced = old.ErrConversationGraphReferenced
+var ErrConversationGraphTooLarge = old.ErrConversationGraphTooLarge
+var ErrConversationScheduleReferenced = old.ErrConversationScheduleReferenced
 
 type Service = old.Service
 type Direction = old.Direction

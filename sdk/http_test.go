@@ -993,6 +993,10 @@ func TestHandler_DeleteConversation_ErrorStatusMapping(t *testing.T) {
 		wantStatus int
 	}{
 		{name: "active", err: data.ErrConversationActive, wantStatus: http.StatusConflict},
+		{name: "non-terminal graph", err: data.ErrConversationNonTerminal, wantStatus: http.StatusConflict},
+		{name: "externally referenced graph", err: data.ErrConversationGraphReferenced, wantStatus: http.StatusConflict},
+		{name: "graph too large", err: data.ErrConversationGraphTooLarge, wantStatus: http.StatusConflict},
+		{name: "schedule reference", err: data.ErrConversationScheduleReferenced, wantStatus: http.StatusConflict},
 		{name: "not found", err: data.ErrConversationNotFound, wantStatus: http.StatusNotFound},
 		{name: "permission", err: data.ErrPermissionDenied, wantStatus: http.StatusForbidden},
 		{name: "validation", err: errors.New("conversation ID is required"), wantStatus: http.StatusBadRequest},

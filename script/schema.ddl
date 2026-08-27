@@ -155,6 +155,8 @@ CREATE TABLE IF NOT EXISTS message (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_message_turn_seq ON message(turn_id, sequence);
 CREATE INDEX IF NOT EXISTS idx_msg_conv_created ON message(conversation_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_message_iteration ON message(turn_id, iteration, created_at);
+CREATE INDEX IF NOT EXISTS idx_message_superseded_by ON message(superseded_by);
+CREATE INDEX IF NOT EXISTS idx_message_linked_conversation ON message(linked_conversation_id);
 
 CREATE TABLE IF NOT EXISTS users (
     id TEXT PRIMARY KEY,
