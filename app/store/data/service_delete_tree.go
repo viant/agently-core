@@ -42,15 +42,28 @@ type conversationDeleteGraph struct {
 	Capabilities    *deleteSchemaCapabilities
 }
 
-func (s *datlyService) DeleteConversationTree(ctx context.Context, ids ...string) error {
+func (s *datlyService) DeleteConversationTree(ctx context.Context, ids ...string) (retErr error) {
 	ids = normalizeDeleteIDs(ids)
 	if len(ids) == 0 {
 		return nil
 	}
-	_, err := sqlitewrite.Do(ctx, s.writeGate, func() (struct{}, error) {
+	ctx, diagnostics := beginConversationDeleteDiagnostics(ctx, ids)
+	if diagnostics != nil {
+		defer func() {
+			diagnostics.finish(retErr)
+		}()
+	}
+	gateStarted := conversationDeleteDiagPhaseStart(ctx, "write_gate_wait")
+	gateAcquired := false
+	_, retErr = sqlitewrite.Do(ctx, s.writeGate, func() (struct{}, error) {
+		gateAcquired = true
+		conversationDeleteDiagPhaseDone(ctx, "write_gate_wait", gateStarted, nil, "")
 		return struct{}{}, s.deleteConversationTreeDirect(ctx, ids, time.Now().UTC())
 	})
-	return err
+	if !gateAcquired {
+		conversationDeleteDiagPhaseDone(ctx, "write_gate_wait", gateStarted, retErr, "")
+	}
+	return retErr
 }
 
 func buildConversationDeleteGraph(ctx context.Context, tx *sql.Tx, rootIDs []string, capabilities *deleteSchemaCapabilities) (*conversationDeleteGraph, error) {
@@ -181,27 +194,36 @@ func queryConversationRows(ctx context.Context, tx *sql.Tx, queryTemplate string
 		return nil, nil
 	}
 	var result []conversationTreeRow
-	for _, chunk := range chunkStrings(ids, deleteChunkSize) {
-		rows, err := tx.QueryContext(ctx, fmt.Sprintf(queryTemplate, placeholders(len(chunk))), stringArgs(chunk)...)
+	chunks := chunkStrings(ids, deleteChunkSize)
+	for chunkIndex, chunk := range chunks {
+		query := fmt.Sprintf(queryTemplate, placeholders(len(chunk)))
+		started := conversationDeleteDiagSQLStart(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks))
+		rows, err := tx.QueryContext(ctx, query, stringArgs(chunk)...)
 		if err != nil {
+			conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), 0, -1, started, err)
 			return nil, err
 		}
+		rowCount := 0
 		for rows.Next() {
 			var row conversationTreeRow
 			var rawCreated sql.NullString
 			row.Depth = depth
 			if err := rows.Scan(&row.ID, &row.OwnerID, &row.Status, &row.ScheduleRunID, &rawCreated); err != nil {
 				_ = rows.Close()
+				conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, err)
 				return nil, err
 			}
 			if parsed, ok := parseDBTime(rawCreated.String); ok {
 				row.CreatedAt = parsed
 			}
 			result = append(result, row)
+			rowCount++
 		}
 		if err := rows.Close(); err != nil {
+			conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, err)
 			return nil, err
 		}
+		conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, nil)
 	}
 	return result, nil
 }
@@ -270,18 +292,25 @@ func scanActiveStatusRows(ctx context.Context, tx *sql.Tx, queryTemplate string,
 	if len(ids) == 0 {
 		return nil
 	}
-	for _, chunk := range chunkStrings(ids, deleteChunkSize) {
-		rows, err := tx.QueryContext(ctx, fmt.Sprintf(queryTemplate, placeholders(len(chunk))), stringArgs(chunk)...)
+	chunks := chunkStrings(ids, deleteChunkSize)
+	for chunkIndex, chunk := range chunks {
+		query := fmt.Sprintf(queryTemplate, placeholders(len(chunk)))
+		started := conversationDeleteDiagSQLStart(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks))
+		rows, err := tx.QueryContext(ctx, query, stringArgs(chunk)...)
 		if err != nil {
+			conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), 0, -1, started, err)
 			return err
 		}
+		rowCount := 0
 		for rows.Next() {
 			var status sql.NullString
 			var rawTime sql.NullString
 			if err := rows.Scan(&status, &rawTime); err != nil {
 				_ = rows.Close()
+				conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, err)
 				return err
 			}
+			rowCount++
 			if _, ok := active[normalizeStatus(status.String)]; !ok {
 				continue
 			}
@@ -293,8 +322,10 @@ func scanActiveStatusRows(ctx context.Context, tx *sql.Tx, queryTemplate string,
 			consider(parsed, ok)
 		}
 		if err := rows.Close(); err != nil {
+			conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, err)
 			return err
 		}
+		conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, nil)
 	}
 	return nil
 }
@@ -480,26 +511,48 @@ func collectScheduleRunIDsForDelete(ctx context.Context, tx *sql.Tx, rows map[st
 func collectPayloadIDsForDelete(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) ([]string, error) {
 	values := map[string]struct{}{}
 	payloadQueries := []struct {
-		query string
-		ids   []string
+		query       string
+		ids         []string
+		columnCount int
 	}{
-		{query: "SELECT attachment_payload_id FROM message WHERE conversation_id IN (%s)", ids: graph.ConversationIDs},
-		{query: "SELECT elicitation_payload_id FROM message WHERE conversation_id IN (%s)", ids: graph.ConversationIDs},
-		{query: "SELECT request_payload_id FROM model_call WHERE message_id IN (%s)", ids: graph.MessageIDs},
-		{query: "SELECT response_payload_id FROM model_call WHERE message_id IN (%s)", ids: graph.MessageIDs},
-		{query: "SELECT provider_request_payload_id FROM model_call WHERE message_id IN (%s)", ids: graph.MessageIDs},
-		{query: "SELECT provider_response_payload_id FROM model_call WHERE message_id IN (%s)", ids: graph.MessageIDs},
-		{query: "SELECT stream_payload_id FROM model_call WHERE message_id IN (%s)", ids: graph.MessageIDs},
-		{query: "SELECT request_payload_id FROM tool_call WHERE message_id IN (%s)", ids: graph.MessageIDs},
-		{query: "SELECT response_payload_id FROM tool_call WHERE message_id IN (%s)", ids: graph.MessageIDs},
-		{query: "SELECT payload_id FROM generated_file WHERE conversation_id IN (%s)", ids: graph.ConversationIDs},
+		{
+			query:       "SELECT attachment_payload_id, elicitation_payload_id FROM message WHERE conversation_id IN (%s)",
+			ids:         graph.ConversationIDs,
+			columnCount: 2,
+		},
+		{
+			query:       "SELECT request_payload_id, response_payload_id, provider_request_payload_id, provider_response_payload_id, stream_payload_id FROM model_call WHERE message_id IN (%s)",
+			ids:         graph.MessageIDs,
+			columnCount: 5,
+		},
+		{
+			query:       "SELECT request_payload_id, response_payload_id FROM tool_call WHERE message_id IN (%s)",
+			ids:         graph.MessageIDs,
+			columnCount: 2,
+		},
+		{
+			query:       "SELECT payload_id FROM generated_file WHERE conversation_id IN (%s)",
+			ids:         graph.ConversationIDs,
+			columnCount: 1,
+		},
 	}
 	for _, item := range payloadQueries {
-		if err := addStringsFromQuery(ctx, tx, values, item.query, item.ids); err != nil {
+		if err := addStringsFromMultiColumnQuery(ctx, tx, values, item.query, item.ids, item.columnCount); err != nil {
 			return nil, err
 		}
 	}
 	return sortedKeys(values), nil
+}
+
+func addStringsFromMultiColumnQuery(ctx context.Context, tx *sql.Tx, target map[string]struct{}, queryTemplate string, ids []string, columnCount int) error {
+	rows, err := queryStringsForColumns(ctx, tx, queryTemplate, ids, columnCount)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		target[row] = struct{}{}
+	}
+	return nil
 }
 
 func addStringsFromQuery(ctx context.Context, tx *sql.Tx, target map[string]struct{}, queryTemplate string, ids []string) error {
@@ -514,31 +567,53 @@ func addStringsFromQuery(ctx context.Context, tx *sql.Tx, target map[string]stru
 }
 
 func queryStringsForColumn(ctx context.Context, tx *sql.Tx, queryTemplate string, ids []string) ([]string, error) {
+	return queryStringsForColumns(ctx, tx, queryTemplate, ids, 1)
+}
+
+func queryStringsForColumns(ctx context.Context, tx *sql.Tx, queryTemplate string, ids []string, columnCount int) ([]string, error) {
 	ids = normalizeDeleteIDs(ids)
 	if len(ids) == 0 {
 		return nil, nil
 	}
+	if columnCount <= 0 {
+		return nil, fmt.Errorf("query string column count must be positive")
+	}
 	values := map[string]struct{}{}
-	for _, chunk := range chunkStrings(ids, deleteChunkSize) {
-		rows, err := tx.QueryContext(ctx, fmt.Sprintf(queryTemplate, placeholders(len(chunk))), stringArgs(chunk)...)
+	chunks := chunkStrings(ids, deleteChunkSize)
+	for chunkIndex, chunk := range chunks {
+		query := fmt.Sprintf(queryTemplate, placeholders(len(chunk)))
+		started := conversationDeleteDiagSQLStart(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks))
+		rows, err := tx.QueryContext(ctx, query, stringArgs(chunk)...)
 		if err != nil {
+			conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), 0, -1, started, err)
 			return nil, err
 		}
+		rowCount := 0
+		rowValues := make([]sql.NullString, columnCount)
+		destinations := make([]interface{}, columnCount)
+		for i := range rowValues {
+			destinations[i] = &rowValues[i]
+		}
 		for rows.Next() {
-			var value sql.NullString
-			if err := rows.Scan(&value); err != nil {
+			if err := rows.Scan(destinations...); err != nil {
 				_ = rows.Close()
+				conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, err)
 				return nil, err
 			}
-			if value.Valid {
-				if normalized := strings.TrimSpace(value.String); normalized != "" {
-					values[normalized] = struct{}{}
+			rowCount++
+			for _, value := range rowValues {
+				if value.Valid {
+					if normalized := strings.TrimSpace(value.String); normalized != "" {
+						values[normalized] = struct{}{}
+					}
 				}
 			}
 		}
 		if err := rows.Close(); err != nil {
+			conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, err)
 			return nil, err
 		}
+		conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, nil)
 	}
 	return sortedKeys(values), nil
 }
@@ -552,10 +627,20 @@ func execIDs(ctx context.Context, tx *sql.Tx, queryTemplate string, ids []string
 	if len(ids) == 0 {
 		return nil
 	}
-	for _, chunk := range chunkStrings(ids, deleteChunkSize) {
-		if _, err := tx.ExecContext(ctx, fmt.Sprintf(queryTemplate, placeholders(len(chunk))), stringArgs(chunk)...); err != nil {
+	chunks := chunkStrings(ids, deleteChunkSize)
+	for chunkIndex, chunk := range chunks {
+		query := fmt.Sprintf(queryTemplate, placeholders(len(chunk)))
+		started := conversationDeleteDiagSQLStart(ctx, "exec", query, len(chunk), chunkIndex+1, len(chunks))
+		result, err := tx.ExecContext(ctx, query, stringArgs(chunk)...)
+		if err != nil {
+			conversationDeleteDiagSQLDone(ctx, "exec", query, len(chunk), chunkIndex+1, len(chunks), 0, -1, started, err)
 			return err
 		}
+		affected, affectedErr := result.RowsAffected()
+		if affectedErr != nil {
+			affected = -1
+		}
+		conversationDeleteDiagSQLDone(ctx, "exec", query, len(chunk), chunkIndex+1, len(chunks), 0, affected, started, nil)
 	}
 	return nil
 }
@@ -571,20 +656,38 @@ WHERE id IN (%s)
   AND NOT EXISTS (
     SELECT 1 FROM message
     WHERE attachment_payload_id = call_payload.id
-       OR elicitation_payload_id = call_payload.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM message
+    WHERE elicitation_payload_id = call_payload.id
   )
   AND NOT EXISTS (
     SELECT 1 FROM model_call
     WHERE request_payload_id = call_payload.id
-       OR response_payload_id = call_payload.id
-       OR provider_request_payload_id = call_payload.id
-       OR provider_response_payload_id = call_payload.id
-       OR stream_payload_id = call_payload.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM model_call
+    WHERE response_payload_id = call_payload.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM model_call
+    WHERE provider_request_payload_id = call_payload.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM model_call
+    WHERE provider_response_payload_id = call_payload.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM model_call
+    WHERE stream_payload_id = call_payload.id
   )
   AND NOT EXISTS (
     SELECT 1 FROM tool_call
     WHERE request_payload_id = call_payload.id
-       OR response_payload_id = call_payload.id
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM tool_call
+    WHERE response_payload_id = call_payload.id
   )
   AND NOT EXISTS (
     SELECT 1 FROM generated_file

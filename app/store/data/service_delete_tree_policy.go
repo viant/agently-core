@@ -47,123 +47,42 @@ var conversationDeleteSchemaTables = []string{
 }
 
 type deleteSchemaCapabilities struct {
-	driver  string
-	tables  map[string]bool
-	columns map[string]map[string]bool
+	driver            string
+	unavailableTables map[string]struct{}
 }
 
 func (c *deleteSchemaCapabilities) hasTable(table string) bool {
-	return c != nil && c.tables[strings.ToLower(strings.TrimSpace(table))]
-}
-
-func (c *deleteSchemaCapabilities) hasColumn(table, column string) bool {
 	if c == nil {
 		return false
 	}
-	return c.columns[strings.ToLower(strings.TrimSpace(table))][strings.ToLower(strings.TrimSpace(column))]
+	_, unavailable := c.unavailableTables[strings.ToLower(strings.TrimSpace(table))]
+	return !unavailable
 }
 
-func loadDeleteSchemaCapabilities(ctx context.Context, tx *sql.Tx, driver string) (*deleteSchemaCapabilities, error) {
+func (c *deleteSchemaCapabilities) hasColumn(table, column string) bool {
+	return c != nil && strings.TrimSpace(column) != "" && c.hasTable(table)
+}
+
+// deleteSchemaCapabilitiesForDriver describes the current schema contract for
+// each supported driver. It deliberately does not inspect the connected
+// database: deployments are expected to provision the matching schema before
+// the application starts.
+func deleteSchemaCapabilitiesForDriver(driver string) (*deleteSchemaCapabilities, error) {
 	driver = strings.ToLower(strings.TrimSpace(driver))
-	capabilities := &deleteSchemaCapabilities{
-		driver:  driver,
-		tables:  map[string]bool{},
-		columns: map[string]map[string]bool{},
-	}
 	switch {
 	case strings.Contains(driver, "sqlite"):
-		if err := loadSQLiteDeleteSchemaCapabilities(ctx, tx, capabilities); err != nil {
-			return nil, err
-		}
+		return &deleteSchemaCapabilities{
+			driver: driver,
+			unavailableTables: map[string]struct{}{
+				"investigation": {},
+				"schedule_run":  {},
+			},
+		}, nil
 	case strings.Contains(driver, "mysql"):
-		if err := loadMySQLDeleteSchemaCapabilities(ctx, tx, capabilities); err != nil {
-			return nil, err
-		}
+		return &deleteSchemaCapabilities{driver: driver}, nil
 	default:
 		return nil, fmt.Errorf("unsupported deletion database driver %q", driver)
 	}
-	for _, required := range []string{"conversation", "turn", "turn_queue", "message", "model_call", "tool_call", "tool_approval_queue", "run", "generated_file", "call_payload"} {
-		if !capabilities.hasTable(required) {
-			return nil, fmt.Errorf("conversation deletion schema is missing required table %s", required)
-		}
-	}
-	return capabilities, nil
-}
-
-func loadSQLiteDeleteSchemaCapabilities(ctx context.Context, tx *sql.Tx, capabilities *deleteSchemaCapabilities) error {
-	rows, err := tx.QueryContext(ctx,
-		fmt.Sprintf("SELECT name FROM sqlite_master WHERE type = 'table' AND name IN (%s)", placeholders(len(conversationDeleteSchemaTables))),
-		stringArgs(conversationDeleteSchemaTables)...,
-	)
-	if err != nil {
-		return err
-	}
-	var tables []string
-	for rows.Next() {
-		var table string
-		if err := rows.Scan(&table); err != nil {
-			_ = rows.Close()
-			return err
-		}
-		table = strings.ToLower(strings.TrimSpace(table))
-		if table != "" {
-			capabilities.tables[table] = true
-			tables = append(tables, table)
-		}
-	}
-	if err := rows.Close(); err != nil {
-		return err
-	}
-	for _, table := range tables {
-		columnRows, err := tx.QueryContext(ctx, fmt.Sprintf("PRAGMA table_info(%s)", table))
-		if err != nil {
-			return err
-		}
-		columns := map[string]bool{}
-		for columnRows.Next() {
-			var cid int
-			var name, dataType string
-			var notNull, primaryKey int
-			var defaultValue interface{}
-			if err := columnRows.Scan(&cid, &name, &dataType, &notNull, &defaultValue, &primaryKey); err != nil {
-				_ = columnRows.Close()
-				return err
-			}
-			columns[strings.ToLower(strings.TrimSpace(name))] = true
-		}
-		if err := columnRows.Close(); err != nil {
-			return err
-		}
-		capabilities.columns[table] = columns
-	}
-	return nil
-}
-
-func loadMySQLDeleteSchemaCapabilities(ctx context.Context, tx *sql.Tx, capabilities *deleteSchemaCapabilities) error {
-	rows, err := tx.QueryContext(ctx,
-		fmt.Sprintf(`SELECT TABLE_NAME, COLUMN_NAME
-FROM information_schema.COLUMNS
-WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN (%s)`, placeholders(len(conversationDeleteSchemaTables))),
-		stringArgs(conversationDeleteSchemaTables)...,
-	)
-	if err != nil {
-		return err
-	}
-	defer rows.Close()
-	for rows.Next() {
-		var table, column string
-		if err := rows.Scan(&table, &column); err != nil {
-			return err
-		}
-		table = strings.ToLower(strings.TrimSpace(table))
-		column = strings.ToLower(strings.TrimSpace(column))
-		capabilities.tables[table] = true
-		if capabilities.columns[table] == nil {
-			capabilities.columns[table] = map[string]bool{}
-		}
-		capabilities.columns[table][column] = true
-	}
-	return rows.Err()
 }
 
 func (s *datlyService) deleteConversationTreeDirect(ctx context.Context, rootIDs []string, now time.Time) error {
@@ -171,47 +90,73 @@ func (s *datlyService) deleteConversationTreeDirect(ctx context.Context, rootIDs
 	if userID == "" {
 		return ErrPermissionDenied
 	}
+	phaseStarted := conversationDeleteDiagPhaseStart(ctx, "database_resolve")
 	db, driver, err := s.dbWithDriver()
+	conversationDeleteDiagPhaseDone(ctx, "database_resolve", phaseStarted, err, fmt.Sprintf("driver=%q", driver))
 	if err != nil {
 		return err
 	}
+	phaseStarted = conversationDeleteDiagPhaseStart(ctx, "transaction_begin")
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
+	conversationDeleteDiagPhaseDone(ctx, "transaction_begin", phaseStarted, err, fmt.Sprintf("driver=%q isolation=serializable", driver))
 	if err != nil {
 		return err
 	}
 	committed := false
 	defer func() {
 		if !committed {
-			_ = tx.Rollback()
+			rollbackStarted := conversationDeleteDiagPhaseStart(ctx, "transaction_rollback")
+			rollbackErr := tx.Rollback()
+			conversationDeleteDiagPhaseDone(ctx, "transaction_rollback", rollbackStarted, rollbackErr, "")
 		}
 	}()
 
-	capabilities, err := loadDeleteSchemaCapabilities(ctx, tx, driver)
+	capabilities, err := deleteSchemaCapabilitiesForDriver(driver)
 	if err != nil {
 		return err
 	}
+	phaseStarted = conversationDeleteDiagPhaseStart(ctx, "graph_build")
 	graph, err := buildConversationDeleteGraph(ctx, tx, rootIDs, capabilities)
+	conversationDeleteDiagPhaseDone(ctx, "graph_build", phaseStarted, err, conversationDeleteGraphDetails(graph))
 	if err != nil {
 		return err
 	}
+	phaseStarted = conversationDeleteDiagPhaseStart(ctx, "authorize")
 	if err := authorizeConversationTreeDelete(graph.Rows, userID); err != nil {
+		conversationDeleteDiagPhaseDone(ctx, "authorize", phaseStarted, err, conversationDeleteGraphDetails(graph))
 		return err
 	}
+	conversationDeleteDiagPhaseDone(ctx, "authorize", phaseStarted, nil, conversationDeleteGraphDetails(graph))
+	phaseStarted = conversationDeleteDiagPhaseStart(ctx, "graph_lock")
 	if err := lockConversationGraphForDelete(ctx, tx, graph); err != nil {
+		conversationDeleteDiagPhaseDone(ctx, "graph_lock", phaseStarted, err, conversationDeleteGraphDetails(graph))
 		return err
 	}
+	conversationDeleteDiagPhaseDone(ctx, "graph_lock", phaseStarted, nil, conversationDeleteGraphDetails(graph))
+	phaseStarted = conversationDeleteDiagPhaseStart(ctx, "graph_prepare")
 	if err := prepareConversationDeleteGraph(ctx, tx, graph, userID, now.UTC()); err != nil {
+		conversationDeleteDiagPhaseDone(ctx, "graph_prepare", phaseStarted, err, conversationDeleteGraphDetails(graph))
 		return err
 	}
+	conversationDeleteDiagPhaseDone(ctx, "graph_prepare", phaseStarted, nil, conversationDeleteGraphDetails(graph))
+	phaseStarted = conversationDeleteDiagPhaseStart(ctx, "graph_validate")
 	if err := validateConversationDeleteGraph(ctx, tx, graph, now.UTC()); err != nil {
+		conversationDeleteDiagPhaseDone(ctx, "graph_validate", phaseStarted, err, conversationDeleteGraphDetails(graph))
 		return err
 	}
+	conversationDeleteDiagPhaseDone(ctx, "graph_validate", phaseStarted, nil, conversationDeleteGraphDetails(graph))
+	phaseStarted = conversationDeleteDiagPhaseStart(ctx, "graph_delete")
 	if err := deleteConversationGraph(ctx, tx, graph); err != nil {
+		conversationDeleteDiagPhaseDone(ctx, "graph_delete", phaseStarted, err, conversationDeleteGraphDetails(graph))
 		return err
 	}
+	conversationDeleteDiagPhaseDone(ctx, "graph_delete", phaseStarted, nil, conversationDeleteGraphDetails(graph))
+	phaseStarted = conversationDeleteDiagPhaseStart(ctx, "transaction_commit")
 	if err := tx.Commit(); err != nil {
+		conversationDeleteDiagPhaseDone(ctx, "transaction_commit", phaseStarted, err, "")
 		return err
 	}
+	conversationDeleteDiagPhaseDone(ctx, "transaction_commit", phaseStarted, nil, "")
 	committed = true
 	return nil
 }

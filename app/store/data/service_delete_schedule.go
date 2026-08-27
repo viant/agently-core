@@ -59,7 +59,7 @@ func (s *datlyService) DeleteScheduleCascade(ctx context.Context, id string) err
 }
 
 func deleteScheduleCascadeTx(ctx context.Context, tx *sql.Tx, scheduleID, driver string, now time.Time) error {
-	capabilities, err := loadDeleteSchemaCapabilities(ctx, tx, driver)
+	capabilities, err := deleteSchemaCapabilitiesForDriver(driver)
 	if err != nil {
 		return err
 	}

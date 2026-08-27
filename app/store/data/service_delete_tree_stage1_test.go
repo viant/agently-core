@@ -161,14 +161,6 @@ func TestDeleteConversationTree_DeletesCurrentDatabaseDependenciesAndRetainsAudi
 	}
 	assertStage1RowCount(t, db, "report_audit_event", "event_id", "audit-current", 1)
 	assertStage1RowCount(t, db, "report_shared_artifact", "artifact_id", "shared-current", 1)
-
-	var investigationConversationID sql.NullString
-	if err := db.QueryRow(`SELECT conversation_id FROM investigation WHERE id = ?`, "investigation-current").Scan(&investigationConversationID); err != nil {
-		t.Fatalf("query retained investigation: %v", err)
-	}
-	if investigationConversationID.Valid {
-		t.Fatalf("investigation conversation_id should be detached, got %q", investigationConversationID.String)
-	}
 }
 
 func TestDeleteConversationTree_RetainsPayloadReferencedOutsideGraph(t *testing.T) {
@@ -188,6 +180,75 @@ func TestDeleteConversationTree_RetainsPayloadReferencedOutsideGraph(t *testing.
 	assertStage1RowCount(t, db, "conversation", "id", "conv-payload-root", 0)
 	assertStage1RowCount(t, db, "conversation", "id", "conv-payload-other", 1)
 	assertStage1RowCount(t, db, "call_payload", "id", "payload-shared", 1)
+}
+
+func TestDeleteConversationTree_RetainsPayloadForEveryExternalReferenceColumn(t *testing.T) {
+	testCases := []struct {
+		name   string
+		table  string
+		column string
+	}{
+		{name: "message attachment", table: "message", column: "attachment_payload_id"},
+		{name: "message elicitation", table: "message", column: "elicitation_payload_id"},
+		{name: "model request", table: "model_call", column: "request_payload_id"},
+		{name: "model response", table: "model_call", column: "response_payload_id"},
+		{name: "model provider request", table: "model_call", column: "provider_request_payload_id"},
+		{name: "model provider response", table: "model_call", column: "provider_response_payload_id"},
+		{name: "model stream", table: "model_call", column: "stream_payload_id"},
+		{name: "tool request", table: "tool_call", column: "request_payload_id"},
+		{name: "tool response", table: "tool_call", column: "response_payload_id"},
+		{name: "generated file", table: "generated_file", column: "payload_id"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+				dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+					{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-payload-root", "succeeded", "u1"}},
+					{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-payload-other", "succeeded", "u1"}},
+					{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-payload-root", "conv-payload-root", "succeeded"}},
+					{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-payload-other", "conv-payload-other", "succeeded"}},
+					{SQL: `INSERT INTO call_payload (id, kind, mime_type, size_bytes, storage, uri, compression) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"payload-shared", "attachment", "text/plain", 4, "db", "shared", "none"}},
+					{SQL: `INSERT INTO message (id, conversation_id, turn_id, role, type, content) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-payload-root", "conv-payload-root", "turn-payload-root", "assistant", "text", "root"}},
+					{SQL: `INSERT INTO message (id, conversation_id, turn_id, role, type, content) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-payload-other", "conv-payload-other", "turn-payload-other", "assistant", "text", "other"}},
+				})
+			})
+
+			switch testCase.table {
+			case "message":
+				dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+					{SQL: fmt.Sprintf(`UPDATE message SET %s = ? WHERE id = ?`, testCase.column), Params: []interface{}{"payload-shared", "msg-payload-root"}},
+					{SQL: fmt.Sprintf(`UPDATE message SET %s = ? WHERE id = ?`, testCase.column), Params: []interface{}{"payload-shared", "msg-payload-other"}},
+				})
+			case "model_call":
+				query := fmt.Sprintf(`INSERT INTO model_call (message_id, turn_id, provider, model, model_kind, status, %s) VALUES (?, ?, ?, ?, ?, ?, ?)`, testCase.column)
+				dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+					{SQL: query, Params: []interface{}{"msg-payload-root", "turn-payload-root", "openai", "gpt", "chat", "completed", "payload-shared"}},
+					{SQL: query, Params: []interface{}{"msg-payload-other", "turn-payload-other", "openai", "gpt", "chat", "completed", "payload-shared"}},
+				})
+			case "tool_call":
+				query := fmt.Sprintf(`INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, %s) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, testCase.column)
+				dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+					{SQL: query, Params: []interface{}{"msg-payload-root", "turn-payload-root", "op-root", 1, "test/tool", "mcp", "completed", "payload-shared"}},
+					{SQL: query, Params: []interface{}{"msg-payload-other", "turn-payload-other", "op-other", 1, "test/tool", "mcp", "completed", "payload-shared"}},
+				})
+			case "generated_file":
+				dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+					{SQL: `INSERT INTO generated_file (id, conversation_id, turn_id, message_id, provider, mode, copy_mode, status, payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"file-payload-root", "conv-payload-root", "turn-payload-root", "msg-payload-root", "local", "tool", "eager", "ready", "payload-shared"}},
+					{SQL: `INSERT INTO generated_file (id, conversation_id, turn_id, message_id, provider, mode, copy_mode, status, payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"file-payload-other", "conv-payload-other", "turn-payload-other", "msg-payload-other", "local", "tool", "eager", "ready", "payload-shared"}},
+				})
+			default:
+				t.Fatalf("unsupported payload reference table %q", testCase.table)
+			}
+
+			if err := svc.DeleteConversationTree(deleteTestContext(), "conv-payload-root"); err != nil {
+				t.Fatalf("DeleteConversationTree() error: %v", err)
+			}
+			assertStage1RowCount(t, db, "conversation", "id", "conv-payload-root", 0)
+			assertStage1RowCount(t, db, "conversation", "id", "conv-payload-other", 1)
+			assertStage1RowCount(t, db, "call_payload", "id", "payload-shared", 1)
+		})
+	}
 }
 
 func TestDeleteConversationTree_RequiresOwnershipOfReportContext(t *testing.T) {
@@ -244,10 +305,10 @@ func TestApplyInvestigationDeletePolicy_DeleteModeIsReadyForFutureUse(t *testing
 	if err != nil {
 		t.Fatalf("begin investigation policy transaction: %v", err)
 	}
-	capabilities, err := loadDeleteSchemaCapabilities(context.Background(), tx, "sqlite")
+	capabilities, err := deleteSchemaCapabilitiesForDriver("mysql")
 	if err != nil {
 		_ = tx.Rollback()
-		t.Fatalf("load schema capabilities: %v", err)
+		t.Fatalf("create schema capabilities: %v", err)
 	}
 	graph := &conversationDeleteGraph{
 		ConversationIDs: []string{"conv-investigation-future"},
@@ -262,6 +323,68 @@ func TestApplyInvestigationDeletePolicy_DeleteModeIsReadyForFutureUse(t *testing
 	}
 	assertStage1RowCount(t, db, "investigation", "id", "investigation-future", 0)
 	assertStage1RowCount(t, db, "conversation", "id", "conv-investigation-future", 1)
+}
+
+func TestApplyInvestigationDeletePolicy_RetainModeDetachesReference(t *testing.T) {
+	_, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `CREATE TABLE investigation (id TEXT PRIMARY KEY, conversation_id TEXT)`},
+			{SQL: `INSERT INTO investigation (id, conversation_id) VALUES (?, ?)`, Params: []interface{}{"investigation-retained", "conv-investigation-retained"}},
+		})
+	})
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin investigation policy transaction: %v", err)
+	}
+	capabilities, err := deleteSchemaCapabilitiesForDriver("mysql")
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("create schema capabilities: %v", err)
+	}
+	graph := &conversationDeleteGraph{
+		ConversationIDs: []string{"conv-investigation-retained"},
+		Capabilities:    capabilities,
+	}
+	if err := applyInvestigationDeletePolicy(context.Background(), tx, graph, investigationRetainAndDetach); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("apply investigation retain policy: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit investigation policy transaction: %v", err)
+	}
+
+	var conversationID sql.NullString
+	if err := db.QueryRow(`SELECT conversation_id FROM investigation WHERE id = ?`, "investigation-retained").Scan(&conversationID); err != nil {
+		t.Fatalf("query retained investigation: %v", err)
+	}
+	if conversationID.Valid {
+		t.Fatalf("investigation conversation_id should be detached, got %q", conversationID.String)
+	}
+}
+
+func TestDeleteSchemaCapabilitiesForDriver_UsesStaticContracts(t *testing.T) {
+	mysqlCapabilities, err := deleteSchemaCapabilitiesForDriver("mysql")
+	if err != nil {
+		t.Fatalf("create MySQL schema capabilities: %v", err)
+	}
+	if !mysqlCapabilities.hasColumn("investigation", "conversation_id") || !mysqlCapabilities.hasColumn("schedule_run", "conversation_id") {
+		t.Fatal("MySQL schema contract should include investigation and schedule_run")
+	}
+
+	sqliteCapabilities, err := deleteSchemaCapabilitiesForDriver("sqlite")
+	if err != nil {
+		t.Fatalf("create SQLite schema capabilities: %v", err)
+	}
+	if !sqliteCapabilities.hasColumn("conversation", "conversation_parent_turn_id") {
+		t.Fatal("SQLite schema contract should include current conversation columns")
+	}
+	if sqliteCapabilities.hasTable("investigation") || sqliteCapabilities.hasTable("schedule_run") {
+		t.Fatal("SQLite schema contract should exclude tables absent from the embedded schema")
+	}
+
+	if _, err := deleteSchemaCapabilitiesForDriver("postgres"); err == nil {
+		t.Fatal("expected unsupported driver error")
+	}
 }
 
 func TestCollectConversationTree_RejectsOversizedRootSetBeforeQuery(t *testing.T) {
@@ -351,7 +474,6 @@ func seedStage1CurrentDependencies(t *testing.T, db *sql.DB) {
 	t.Helper()
 	now := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
 	dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
-		{SQL: `CREATE TABLE investigation (id TEXT PRIMARY KEY, conversation_id TEXT)`},
 		{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-current", "succeeded", "u1"}},
 		{SQL: `INSERT INTO goal (id, conversation_id, objective, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"goal-current", "conv-current", "finish", "complete"}},
 		{SQL: `INSERT INTO turn (id, conversation_id, goal_id, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"turn-current", "conv-current", "goal-current", "succeeded"}},
@@ -364,6 +486,5 @@ func seedStage1CurrentDependencies(t *testing.T, db *sql.DB) {
 		{SQL: `INSERT INTO report_export_artifact (artifact_id, job_id, artifact_ref, owner_id, format, content_type) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"report-artifact-current", "report-job-current", "external://report.pdf", "u1", "pdf", "application/pdf"}},
 		{SQL: `INSERT INTO report_audit_event (event_id, event_type, artifact_ref, job_id, artifact_id, actor_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"audit-current", "export", "external://report.pdf", "report-job-current", "report-artifact-current", "u1"}},
 		{SQL: `INSERT INTO report_shared_artifact (artifact_id, artifact_ref, owner_id, kind, lifecycle) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"shared-current", "external://shared", "u1", "report", "retained"}},
-		{SQL: `INSERT INTO investigation (id, conversation_id) VALUES (?, ?)`, Params: []interface{}{"investigation-current", "conv-current"}},
 	})
 }
