@@ -201,6 +201,8 @@ CREATE TABLE `message`
 
 CREATE UNIQUE INDEX idx_message_turn_seq ON `message` (turn_id, sequence);
 CREATE INDEX idx_msg_conv_created ON `message` (conversation_id, created_at DESC);
+CREATE INDEX idx_message_superseded_by ON `message` (superseded_by);
+CREATE INDEX idx_message_linked_conversation ON `message` (linked_conversation_id);
 
 CREATE TABLE generated_file
 (

@@ -339,9 +339,6 @@ func registerReadComponents(ctx context.Context, svc *datly.Service) error {
 	if _, err := goalwrite.DefineDeleteComponent(ctx, svc); err != nil {
 		return err
 	}
-	if _, err := defineConversationTreeDeleteComponent(ctx, svc); err != nil {
-		return err
-	}
 	if _, err := messagewrite.DefineDeleteComponent(ctx, svc); err != nil {
 		return err
 	}

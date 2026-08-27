@@ -2674,4 +2674,35 @@ END $$
 CALL schema_upgrade_33() $$
 DROP PROCEDURE schema_upgrade_33 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_34 $$
+CREATE PROCEDURE schema_upgrade_34()
+BEGIN
+    IF get_schema_version() = 34 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'message'
+              AND INDEX_NAME = 'idx_message_superseded_by'
+        ) THEN
+            ALTER TABLE `message`
+                ADD KEY idx_message_superseded_by (superseded_by);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'message'
+              AND INDEX_NAME = 'idx_message_linked_conversation'
+        ) THEN
+            ALTER TABLE `message`
+                ADD KEY idx_message_linked_conversation (linked_conversation_id);
+        END IF;
+
+        CALL set_schema_version(35);
+    END IF;
+END $$
+
+CALL schema_upgrade_34() $$
+DROP PROCEDURE schema_upgrade_34 $$
+
 DELIMITER ;
