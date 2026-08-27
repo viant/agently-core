@@ -46,6 +46,10 @@ import (
 var ErrPermissionDenied = errors.New("permission denied")
 var ErrConversationNotFound = errors.New("conversation not found")
 var ErrConversationActive = errors.New("conversation is still in progress")
+var ErrConversationNonTerminal = errors.New("conversation_graph_non_terminal: every non-empty conversation in the graph must be terminal")
+var ErrConversationGraphReferenced = errors.New("conversation_graph_referenced: the conversation graph is referenced from outside the graph")
+var ErrConversationGraphTooLarge = errors.New("conversation_graph_too_large: the conversation graph exceeds the deletion limit")
+var ErrConversationScheduleReferenced = errors.New("conversation_schedule_referenced: a user schedule references the conversation graph")
 
 // Service is a thin facade over generated Datly read components.
 type Service interface {

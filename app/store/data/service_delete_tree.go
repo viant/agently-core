@@ -4,37 +4,18 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
-	"net/http"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
 
-	"github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/sqlitewrite"
-	"github.com/viant/datly"
-	"github.com/viant/datly/repository"
-	"github.com/viant/datly/repository/contract"
-	"github.com/viant/xdatly/handler"
-	"github.com/viant/xdatly/handler/response"
 )
 
 const (
-	conversationTreeDeletePathURI = "/v1/api/agently/conversation/delete-tree"
-	deleteChunkSize               = 500
-	staleActiveCutoff             = 48 * time.Hour
+	deleteChunkSize      = 500
+	maxConversationGraph = 10_000
+	staleActiveCutoff    = 48 * time.Hour // retained for schedule cascade compatibility
 )
-
-type deleteConversationTreeInput struct {
-	IDs []string `parameter:",kind=body,in=ids" json:"ids"`
-}
-
-type deleteConversationTreeOutput struct {
-	response.Status `parameter:",kind=output,in=status" anonymous:"true" json:",omitempty"`
-	Deleted         []string `parameter:",kind=body,in=deleted" json:"deleted,omitempty"`
-}
-
-type deleteConversationTreeHandler struct{}
 
 type conversationTreeRow struct {
 	ID            string
@@ -54,17 +35,11 @@ type conversationDeleteGraph struct {
 	ApprovalIDs     []string
 	ScheduleRunIDs  []string
 	PayloadIDs      []string
-}
-
-func defineConversationTreeDeleteComponent(ctx context.Context, srv *datly.Service) (*repository.Component, error) {
-	return srv.AddHandler(ctx, contract.NewPath(http.MethodDelete, conversationTreeDeletePathURI), &deleteConversationTreeHandler{},
-		repository.WithResource(srv.Resource()),
-		repository.WithContract(
-			reflect.TypeOf(&deleteConversationTreeInput{}),
-			reflect.TypeOf(&deleteConversationTreeOutput{}),
-			nil,
-		),
-	)
+	GoalIDs         []string
+	ScheduleIDs     []string
+	ReportRunIDs    []string
+	ReportJobIDs    []string
+	Capabilities    *deleteSchemaCapabilities
 }
 
 func (s *datlyService) DeleteConversationTree(ctx context.Context, ids ...string) error {
@@ -73,84 +48,17 @@ func (s *datlyService) DeleteConversationTree(ctx context.Context, ids ...string
 		return nil
 	}
 	_, err := sqlitewrite.Do(ctx, s.writeGate, func() (struct{}, error) {
-		in := &deleteConversationTreeInput{IDs: ids}
-		out := &deleteConversationTreeOutput{}
-		_, err := s.dao.Operate(ctx,
-			datly.WithPath(contract.NewPath(http.MethodDelete, conversationTreeDeletePathURI)),
-			datly.WithInput(in),
-			datly.WithOutput(out),
-		)
-		return struct{}{}, err
+		return struct{}{}, s.deleteConversationTreeDirect(ctx, ids, time.Now().UTC())
 	})
 	return err
 }
 
-func (h *deleteConversationTreeHandler) Exec(ctx context.Context, sess handler.Session) (interface{}, error) {
-	out := &deleteConversationTreeOutput{}
-	out.Status.Status = "ok"
-	if err := h.exec(ctx, sess, out); err != nil {
-		out.Status.Status = "error"
-		out.Status.Message = err.Error()
-		return out, err
-	}
-	return out, nil
-}
-
-func (h *deleteConversationTreeHandler) exec(ctx context.Context, sess handler.Session, out *deleteConversationTreeOutput) error {
-	in := &deleteConversationTreeInput{}
-	if err := sess.Stater().Bind(ctx, in); err != nil {
-		return err
-	}
-	rootIDs := normalizeDeleteIDs(in.IDs)
-	if len(rootIDs) == 0 {
-		return nil
-	}
-	userID := strings.TrimSpace(auth.EffectiveUserID(ctx))
-	if userID == "" {
-		return ErrPermissionDenied
-	}
-	sqlxService, err := sess.Db()
-	if err != nil {
-		return err
-	}
-	tx, err := sqlxService.Tx(ctx)
-	if err != nil {
-		return err
-	}
-	committed := false
-	defer func() {
-		if !committed {
-			_ = tx.Rollback()
-		}
-	}()
-
-	graph, err := buildConversationDeleteGraph(ctx, tx, rootIDs)
-	if err != nil {
-		return err
-	}
-	if err := authorizeConversationTreeDelete(graph.Rows, userID); err != nil {
-		return err
-	}
-	if err := ensureConversationTreeNotRecentActive(ctx, tx, graph, time.Now().UTC()); err != nil {
-		return err
-	}
-	if err := deleteConversationGraph(ctx, tx, graph); err != nil {
-		return err
-	}
-	if err := tx.Commit(); err != nil {
-		return err
-	}
-	committed = true
-	out.Deleted = graph.ConversationIDs
-	return nil
-}
-
-func buildConversationDeleteGraph(ctx context.Context, tx *sql.Tx, rootIDs []string) (*conversationDeleteGraph, error) {
-	rows, err := collectConversationTree(ctx, tx, rootIDs)
+func buildConversationDeleteGraph(ctx context.Context, tx *sql.Tx, rootIDs []string, capabilities *deleteSchemaCapabilities) (*conversationDeleteGraph, error) {
+	rows, err := collectConversationTreeWithCapabilities(ctx, tx, rootIDs, capabilities)
 	if err != nil {
 		return nil, err
 	}
-	graph := &conversationDeleteGraph{Rows: rows}
+	graph := &conversationDeleteGraph{Rows: rows, Capabilities: capabilities}
 	graph.ConversationIDs = sortedKeys(rows)
 	graph.TurnIDs, err = queryStringsForColumn(ctx, tx, "SELECT id FROM turn WHERE conversation_id IN (%s)", graph.ConversationIDs)
 	if err != nil {
@@ -168,7 +76,7 @@ func buildConversationDeleteGraph(ctx context.Context, tx *sql.Tx, rootIDs []str
 	if err != nil {
 		return nil, err
 	}
-	graph.ScheduleRunIDs, err = collectScheduleRunIDsForDelete(ctx, tx, rows, graph.ConversationIDs)
+	graph.ScheduleRunIDs, err = collectScheduleRunIDsForDelete(ctx, tx, rows, graph.ConversationIDs, capabilities)
 	if err != nil {
 		return nil, err
 	}
@@ -180,6 +88,13 @@ func buildConversationDeleteGraph(ctx context.Context, tx *sql.Tx, rootIDs []str
 }
 
 func collectConversationTree(ctx context.Context, tx *sql.Tx, rootIDs []string) (map[string]*conversationTreeRow, error) {
+	return collectConversationTreeWithCapabilities(ctx, tx, rootIDs, nil)
+}
+
+func collectConversationTreeWithCapabilities(ctx context.Context, tx *sql.Tx, rootIDs []string, capabilities *deleteSchemaCapabilities) (map[string]*conversationTreeRow, error) {
+	if len(rootIDs) > maxConversationGraph {
+		return nil, fmt.Errorf("%w: limit=%d", ErrConversationGraphTooLarge, maxConversationGraph)
+	}
 	rootRows, err := loadConversationsByIDs(ctx, tx, rootIDs, 0)
 	if err != nil {
 		return nil, err
@@ -202,14 +117,26 @@ func collectConversationTree(ctx context.Context, tx *sql.Tx, rootIDs []string) 
 		if err != nil {
 			return nil, err
 		}
+		var turnChildren []conversationTreeRow
+		if capabilities == nil || capabilities.hasColumn("conversation", "conversation_parent_turn_id") {
+			turnChildren, err = loadChildConversationsByParentTurns(ctx, tx, frontier, depth)
+			if err != nil {
+				return nil, err
+			}
+		}
 		linked, err := loadLinkedConversations(ctx, tx, frontier, depth)
 		if err != nil {
 			return nil, err
 		}
-		next := make([]string, 0, len(children)+len(linked))
-		for _, row := range append(children, linked...) {
+		next := make([]string, 0, len(children)+len(turnChildren)+len(linked))
+		candidates := append(children, turnChildren...)
+		candidates = append(candidates, linked...)
+		for _, row := range candidates {
 			if _, ok := rows[row.ID]; ok {
 				continue
+			}
+			if len(rows) >= maxConversationGraph {
+				return nil, fmt.Errorf("%w: limit=%d", ErrConversationGraphTooLarge, maxConversationGraph)
 			}
 			copied := row
 			rows[row.ID] = &copied
@@ -228,6 +155,15 @@ func loadConversationsByIDs(ctx context.Context, tx *sql.Tx, ids []string, depth
 func loadChildConversations(ctx context.Context, tx *sql.Tx, parentIDs []string, depth int) ([]conversationTreeRow, error) {
 	query := `SELECT id, COALESCE(created_by_user_id, ''), COALESCE(status, ''), COALESCE(schedule_run_id, ''), CAST(created_at AS CHAR) FROM conversation WHERE conversation_parent_id IN (%s)`
 	return queryConversationRows(ctx, tx, query, parentIDs, depth)
+}
+
+func loadChildConversationsByParentTurns(ctx context.Context, tx *sql.Tx, parentConversationIDs []string, depth int) ([]conversationTreeRow, error) {
+	turnIDs, err := queryStringsForColumn(ctx, tx, "SELECT id FROM turn WHERE conversation_id IN (%s)", parentConversationIDs)
+	if err != nil {
+		return nil, err
+	}
+	query := `SELECT id, COALESCE(created_by_user_id, ''), COALESCE(status, ''), COALESCE(schedule_run_id, ''), CAST(created_at AS CHAR) FROM conversation WHERE conversation_parent_turn_id IN (%s)`
+	return queryConversationRows(ctx, tx, query, turnIDs, depth)
 }
 
 func loadLinkedConversations(ctx context.Context, tx *sql.Tx, conversationIDs []string, depth int) ([]conversationTreeRow, error) {
@@ -364,17 +300,55 @@ func scanActiveStatusRows(ctx context.Context, tx *sql.Tx, queryTemplate string,
 }
 
 func deleteConversationGraph(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
-	if err := optionalExecIDs(ctx, tx, "UPDATE investigation SET conversation_id = NULL WHERE conversation_id IN (%s)", graph.ConversationIDs); err != nil {
+	capabilities := graph.Capabilities
+	if capabilities == nil {
+		return fmt.Errorf("conversation deletion schema capabilities are unavailable")
+	}
+	if err := applyInvestigationDeletePolicy(ctx, tx, graph, conversationInvestigationPolicy); err != nil {
 		return err
 	}
-	if err := optionalExecIDs(ctx, tx, "DELETE FROM schedule_run WHERE conversation_id IN (%s)", graph.ConversationIDs); err != nil {
-		return err
+	if capabilities.hasTable("report_export_artifact") {
+		if err := execIDs(ctx, tx, "DELETE FROM report_export_artifact WHERE job_id IN (%s)", graph.ReportJobIDs); err != nil {
+			return err
+		}
 	}
-	if err := optionalExecIDs(ctx, tx, "DELETE FROM schedule_run WHERE id IN (%s)", graph.ScheduleRunIDs); err != nil {
-		return err
+	if capabilities.hasTable("report_export_job") {
+		if err := execIDs(ctx, tx, "DELETE FROM report_export_job WHERE job_id IN (%s)", graph.ReportJobIDs); err != nil {
+			return err
+		}
+	}
+	if capabilities.hasTable("conversation_report_context") {
+		if err := execIDs(ctx, tx, "DELETE FROM conversation_report_context WHERE conversation_id IN (%s)", graph.ConversationIDs); err != nil {
+			return err
+		}
+	}
+	if capabilities.hasTable("report_run") {
+		if err := execIDs(ctx, tx, "DELETE FROM report_run WHERE report_run_id IN (%s)", graph.ReportRunIDs); err != nil {
+			return err
+		}
+	}
+	if capabilities.hasTable("schedule_run") {
+		if capabilities.hasColumn("schedule_run", "conversation_id") {
+			if err := execIDs(ctx, tx, "DELETE FROM schedule_run WHERE conversation_id IN (%s)", graph.ConversationIDs); err != nil {
+				return err
+			}
+		}
+		if err := execIDs(ctx, tx, "DELETE FROM schedule_run WHERE id IN (%s)", graph.ScheduleRunIDs); err != nil {
+			return err
+		}
 	}
 	if err := execDeleteIDs(ctx, tx, "tool_approval_queue", graph.ApprovalIDs); err != nil {
 		return err
+	}
+	if capabilities.hasColumn("tool_execution_claim", "turn_id") {
+		if err := execIDs(ctx, tx, "DELETE FROM tool_execution_claim WHERE turn_id IN (%s)", graph.TurnIDs); err != nil {
+			return err
+		}
+	}
+	if capabilities.hasColumn("run", "resumed_from_run_id") {
+		if err := execIDs(ctx, tx, "UPDATE run SET resumed_from_run_id = NULL WHERE resumed_from_run_id IN (%s)", graph.RunIDs); err != nil {
+			return err
+		}
 	}
 	if err := execDeleteIDs(ctx, tx, "run", graph.RunIDs); err != nil {
 		return err
@@ -391,11 +365,41 @@ func deleteConversationGraph(ctx context.Context, tx *sql.Tx, graph *conversatio
 	if err := execIDs(ctx, tx, "DELETE FROM generated_file WHERE conversation_id IN (%s)", graph.ConversationIDs); err != nil {
 		return err
 	}
+	if capabilities.hasColumn("message", "parent_message_id") {
+		if err := execIDs(ctx, tx, "UPDATE message SET parent_message_id = NULL WHERE parent_message_id IN (%s)", graph.MessageIDs); err != nil {
+			return err
+		}
+	}
+	if capabilities.hasColumn("message", "superseded_by") {
+		if err := execIDs(ctx, tx, "UPDATE message SET superseded_by = NULL WHERE superseded_by IN (%s)", graph.MessageIDs); err != nil {
+			return err
+		}
+	}
+	if capabilities.hasColumn("turn", "started_by_message_id") {
+		if err := execIDs(ctx, tx, "UPDATE turn SET started_by_message_id = NULL WHERE started_by_message_id IN (%s)", graph.MessageIDs); err != nil {
+			return err
+		}
+	}
+	if capabilities.hasColumn("turn", "retry_of") {
+		if err := execIDs(ctx, tx, "UPDATE turn SET retry_of = NULL WHERE retry_of IN (%s)", graph.TurnIDs); err != nil {
+			return err
+		}
+	}
 	if err := execDeleteIDs(ctx, tx, "message", graph.MessageIDs); err != nil {
 		return err
 	}
 	if err := execDeleteIDs(ctx, tx, "turn", graph.TurnIDs); err != nil {
 		return err
+	}
+	if capabilities.hasTable("schedule") {
+		if err := execDeleteIDs(ctx, tx, "schedule", graph.ScheduleIDs); err != nil {
+			return err
+		}
+	}
+	if capabilities.hasTable("goal") {
+		if err := execDeleteIDs(ctx, tx, "goal", graph.GoalIDs); err != nil {
+			return err
+		}
 	}
 	for _, ids := range conversationIDsByDepthDesc(graph.Rows) {
 		if err := execDeleteIDs(ctx, tx, "conversation", ids); err != nil {
@@ -408,12 +412,34 @@ func deleteConversationGraph(ctx context.Context, tx *sql.Tx, graph *conversatio
 	return nil
 }
 
+func applyInvestigationDeletePolicy(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, policy investigationDeletePolicy) error {
+	capabilities := graph.Capabilities
+	if capabilities.hasColumn("investigation", "conversation_id") {
+		switch policy {
+		case investigationRetainAndDetach:
+			return execIDs(ctx, tx, "UPDATE investigation SET conversation_id = NULL WHERE conversation_id IN (%s)", graph.ConversationIDs)
+		case investigationDelete:
+			return execIDs(ctx, tx, "DELETE FROM investigation WHERE conversation_id IN (%s)", graph.ConversationIDs)
+		}
+	}
+	return nil
+}
+
 func collectRunIDsForDelete(ctx context.Context, tx *sql.Tx, conversationIDs, turnIDs []string) ([]string, error) {
 	values := map[string]struct{}{}
 	if err := addStringsFromQuery(ctx, tx, values, "SELECT id FROM run WHERE conversation_id IN (%s)", conversationIDs); err != nil {
 		return nil, err
 	}
 	if err := addStringsFromQuery(ctx, tx, values, "SELECT id FROM run WHERE turn_id IN (%s)", turnIDs); err != nil {
+		return nil, err
+	}
+	if err := addStringsFromQuery(ctx, tx, values, "SELECT run_id FROM turn WHERE id IN (%s)", turnIDs); err != nil {
+		return nil, err
+	}
+	if err := addStringsFromQuery(ctx, tx, values, "SELECT run_id FROM model_call WHERE turn_id IN (%s)", turnIDs); err != nil {
+		return nil, err
+	}
+	if err := addStringsFromQuery(ctx, tx, values, "SELECT run_id FROM tool_call WHERE turn_id IN (%s)", turnIDs); err != nil {
 		return nil, err
 	}
 	return sortedKeys(values), nil
@@ -433,7 +459,7 @@ func collectApprovalIDsForDelete(ctx context.Context, tx *sql.Tx, conversationID
 	return sortedKeys(values), nil
 }
 
-func collectScheduleRunIDsForDelete(ctx context.Context, tx *sql.Tx, rows map[string]*conversationTreeRow, conversationIDs []string) ([]string, error) {
+func collectScheduleRunIDsForDelete(ctx context.Context, tx *sql.Tx, rows map[string]*conversationTreeRow, conversationIDs []string, capabilities *deleteSchemaCapabilities) ([]string, error) {
 	values := map[string]struct{}{}
 	for _, row := range rows {
 		if row == nil {
@@ -443,8 +469,10 @@ func collectScheduleRunIDsForDelete(ctx context.Context, tx *sql.Tx, rows map[st
 			values[id] = struct{}{}
 		}
 	}
-	if err := addStringsFromQueryOptional(ctx, tx, values, "SELECT id FROM schedule_run WHERE conversation_id IN (%s)", conversationIDs); err != nil {
-		return nil, err
+	if capabilities != nil && capabilities.hasColumn("schedule_run", "conversation_id") {
+		if err := addStringsFromQuery(ctx, tx, values, "SELECT id FROM schedule_run WHERE conversation_id IN (%s)", conversationIDs); err != nil {
+			return nil, err
+		}
 	}
 	return sortedKeys(values), nil
 }
@@ -476,20 +504,6 @@ func collectPayloadIDsForDelete(ctx context.Context, tx *sql.Tx, graph *conversa
 
 func addStringsFromQuery(ctx context.Context, tx *sql.Tx, target map[string]struct{}, queryTemplate string, ids []string) error {
 	rows, err := queryStringsForColumn(ctx, tx, queryTemplate, ids)
-	if err != nil {
-		return err
-	}
-	for _, row := range rows {
-		target[row] = struct{}{}
-	}
-	return nil
-}
-
-func addStringsFromQueryOptional(ctx context.Context, tx *sql.Tx, target map[string]struct{}, queryTemplate string, ids []string) error {
-	rows, err := queryStringsForColumn(ctx, tx, queryTemplate, ids)
-	if isOptionalTableMissing(err) {
-		return nil
-	}
 	if err != nil {
 		return err
 	}
@@ -531,14 +545,6 @@ func queryStringsForColumn(ctx context.Context, tx *sql.Tx, queryTemplate string
 
 func execDeleteIDs(ctx context.Context, tx *sql.Tx, table string, ids []string) error {
 	return execIDs(ctx, tx, fmt.Sprintf("DELETE FROM %s WHERE id IN (%%s)", table), ids)
-}
-
-func optionalExecIDs(ctx context.Context, tx *sql.Tx, queryTemplate string, ids []string) error {
-	err := execIDs(ctx, tx, queryTemplate, ids)
-	if isOptionalTableMissing(err) {
-		return nil
-	}
-	return err
 }
 
 func execIDs(ctx context.Context, tx *sql.Tx, queryTemplate string, ids []string) error {
@@ -756,14 +762,4 @@ func parseDBTime(value string) (time.Time, bool) {
 		}
 	}
 	return time.Time{}, false
-}
-
-func isOptionalTableMissing(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := strings.ToLower(err.Error())
-	return strings.Contains(msg, "no such table") ||
-		strings.Contains(msg, "doesn't exist") ||
-		strings.Contains(msg, "unknown table")
 }

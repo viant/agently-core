@@ -327,8 +327,11 @@ func seedForConversationTreeDelete(t *testing.T, db *sql.DB) {
 func seedForRecentActiveConversation(t *testing.T, db *sql.DB) {
 	t.Helper()
 	now := time.Now().UTC().Format(time.RFC3339)
+	leaseUntil := time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
 	dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
-		dbtest.ParameterizedSQL{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"conv-active", now, now, "running", "u1"}},
+		{SQL: `INSERT INTO conversation (id, created_at, updated_at, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"conv-active", now, now, "succeeded", "u1"}},
+		{SQL: `INSERT INTO turn (id, conversation_id, created_at, queue_seq, status, run_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"turn-active", "conv-active", now, 1, "succeeded", "run-active"}},
+		{SQL: `INSERT INTO run (id, turn_id, conversation_id, conversation_kind, status, lease_until, last_heartbeat_at, heartbeat_interval_sec, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-active", "turn-active", "conv-active", "interactive", "running", leaseUntil, now, 5, now, now}},
 	})
 }
 
