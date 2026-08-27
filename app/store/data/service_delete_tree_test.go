@@ -122,12 +122,29 @@ func TestDeleteConversationTree_AllowsStaleActiveConversation(t *testing.T) {
 	}
 }
 
-func TestDeleteConversationTree_RemovesLegacyScheduleRunRows(t *testing.T) {
-	svc, db := newSeededServiceWithDB(t, seedForLegacyScheduleRunConversationDelete)
-	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})
-
-	if err := svc.DeleteConversationTree(ctx, "conv-root"); err != nil {
-		t.Fatalf("DeleteConversationTree() error: %v", err)
+func TestDeleteConversationGraph_RemovesLegacyScheduleRunRowsWhenContractIncludesTable(t *testing.T) {
+	_, db := newSeededServiceWithDB(t, seedForLegacyScheduleRunConversationDelete)
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("begin legacy schedule_run transaction: %v", err)
+	}
+	capabilities := &deleteSchemaCapabilities{
+		driver: "sqlite",
+		unavailableTables: map[string]struct{}{
+			"investigation": {},
+		},
+	}
+	graph, err := buildConversationDeleteGraph(context.Background(), tx, []string{"conv-root"}, capabilities)
+	if err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("build conversation delete graph: %v", err)
+	}
+	if err := deleteConversationGraph(context.Background(), tx, graph); err != nil {
+		_ = tx.Rollback()
+		t.Fatalf("delete conversation graph: %v", err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatalf("commit legacy schedule_run transaction: %v", err)
 	}
 
 	for _, id := range []string{"sr-by-conversation", "sr-by-conversation-column"} {
