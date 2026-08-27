@@ -32,7 +32,11 @@ func statusForDeleteConversationError(err error) int {
 	if err == nil {
 		return http.StatusNoContent
 	}
-	if errors.Is(err, data.ErrConversationActive) {
+	if errors.Is(err, data.ErrConversationActive) ||
+		errors.Is(err, data.ErrConversationNonTerminal) ||
+		errors.Is(err, data.ErrConversationGraphReferenced) ||
+		errors.Is(err, data.ErrConversationGraphTooLarge) ||
+		errors.Is(err, data.ErrConversationScheduleReferenced) {
 		return http.StatusConflict
 	}
 	if errors.Is(err, data.ErrConversationNotFound) {

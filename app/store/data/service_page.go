@@ -614,18 +614,23 @@ func nullableTimePointer(value sql.NullTime) *time.Time {
 }
 
 func (s *datlyService) db() (*sql.DB, error) {
+	db, _, err := s.dbWithDriver()
+	return db, err
+}
+
+func (s *datlyService) dbWithDriver() (*sql.DB, string, error) {
 	if s == nil || s.dao == nil {
-		return nil, fmt.Errorf("data service is not initialized")
+		return nil, "", fmt.Errorf("data service is not initialized")
 	}
 	conn, err := s.dao.Resource().Connector("agently")
 	if err != nil {
-		return nil, fmt.Errorf("lookup agently connector: %w", err)
+		return nil, "", fmt.Errorf("lookup agently connector: %w", err)
 	}
 	db, err := conn.DB()
 	if err != nil {
-		return nil, fmt.Errorf("open agently connector db: %w", err)
+		return nil, "", fmt.Errorf("open agently connector db: %w", err)
 	}
-	return db, nil
+	return db, strings.ToLower(strings.TrimSpace(conn.Driver)), nil
 }
 
 func (s *datlyService) GetTurnsPage(ctx context.Context, in *agturnlistall.TurnRowsInput, page *PageInput, opts ...Option) (*TurnPage, error) {
