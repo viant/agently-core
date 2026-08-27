@@ -26,6 +26,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.contentOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -117,6 +118,10 @@ class AgentlyClient(
             defaultModel = metadata.defaultModel ?: metadata.defaults?.model,
             defaultEmbedder = metadata.defaultEmbedder ?: metadata.defaults?.embedder
         )
+    }
+
+    suspend fun getPublicAgents(): List<WorkspaceAgentInfo> = withContext(Dispatchers.IO) {
+        get("/v1/workspace/metadata/publicagents", PublicAgentsResponse.serializer()).agentInfos
     }
 
     suspend fun query(input: QueryInput): QueryOutput = withContext(Dispatchers.IO) {
@@ -338,11 +343,15 @@ class AgentlyClient(
     }
 
     suspend fun getSchedule(id: String): Schedule? = withContext(Dispatchers.IO) {
-        get("/v1/api/agently/scheduler/schedule/${encodePath(id)}", ScheduleEnvelope.serializer()).data
+        get("/v1/api/agently/scheduler/schedule/${encodePath(id)}", Schedule.serializer())
+    }
+
+    suspend fun deleteSchedule(id: String): Unit = withContext(Dispatchers.IO) {
+        delete("/v1/api/agently/scheduler/schedule/${encodePath(id)}", EmptyResponse.serializer())
     }
 
     suspend fun listSchedules(): List<Schedule> = withContext(Dispatchers.IO) {
-        get("/v1/api/agently/scheduler/", ScheduleListEnvelope.serializer()).data.schedules
+        get("/v1/api/agently/scheduler/", ScheduleListEnvelopeData.serializer()).schedules
     }
 
     suspend fun upsertSchedules(schedules: List<Schedule>): Unit = withContext(Dispatchers.IO) {
@@ -351,6 +360,30 @@ class AgentlyClient(
 
     suspend fun runScheduleNow(id: String): Unit = withContext(Dispatchers.IO) {
         post("/v1/api/agently/scheduler/run-now/${encodePath(id)}", emptyMap<String, JsonElement>(), EmptyResponse.serializer())
+    }
+
+    suspend fun listScheduleRuns(
+        scheduleId: String? = null,
+        filters: Map<String, String> = emptyMap(),
+        page: Int = 1,
+        size: Int = 10
+    ): ScheduleRunPage = withContext(Dispatchers.IO) {
+        val query = linkedMapOf<String, String>()
+        scheduleId?.trim()?.takeIf { it.isNotEmpty() }?.let { query["scheduleId"] = it }
+        filters.forEach { (key, value) -> value.trim().takeIf { it.isNotEmpty() }?.let { query[key] = it } }
+        query["page"] = page.coerceAtLeast(1).toString()
+        query["size"] = size.coerceAtLeast(1).toString()
+        val root = parseJson(restClient.get(endpointName, appendQuery("/v1/api/agently/scheduler/run", query)) { it }) as? JsonObject
+            ?: return@withContext ScheduleRunPage()
+        val rows = (root["data"] as? JsonArray)?.let {
+            json.decodeFromJsonElement(ListSerializer(ScheduleRun.serializer()), it)
+        }.orEmpty()
+        val info = root["info"] as? JsonObject
+        ScheduleRunPage(
+            rows = rows,
+            pageCount = (info?.get("pageCount") as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: 0,
+            totalCount = (info?.get("totalCount") as? JsonPrimitive)?.contentOrNull?.toIntOrNull() ?: rows.size
+        )
     }
 
     suspend fun listFiles(input: ListFilesInput): ListFilesOutput = withContext(Dispatchers.IO) {
@@ -620,6 +653,7 @@ class AgentlyClient(
         input.agentId?.takeIf { it.isNotBlank() }?.let { query["agentId"] = it }
         input.parentId?.takeIf { it.isNotBlank() }?.let { query["parentId"] = it }
         input.parentTurnId?.takeIf { it.isNotBlank() }?.let { query["parentTurnId"] = it }
+        input.scheduleId?.takeIf { it.isNotBlank() }?.let { query["scheduleId"] = it }
         if (input.excludeScheduled == true) query["excludeScheduled"] = "true"
         input.query?.takeIf { it.isNotBlank() }?.let { query["q"] = it }
         input.status?.takeIf { it.isNotBlank() }?.let { query["status"] = it }

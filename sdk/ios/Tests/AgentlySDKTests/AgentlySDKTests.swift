@@ -1438,6 +1438,7 @@ final class AgentlySDKTests: XCTestCase {
             XCTAssertEqual(value(for: "agentId"), "coder")
             XCTAssertEqual(value(for: "parentId"), "parent-1")
             XCTAssertEqual(value(for: "parentTurnId"), "turn-2")
+            XCTAssertEqual(value(for: "scheduleId"), "schedule-3")
             XCTAssertEqual(value(for: "excludeScheduled"), "true")
             XCTAssertEqual(value(for: "q"), "android qa")
             XCTAssertEqual(value(for: "status"), "active")
@@ -1457,6 +1458,7 @@ final class AgentlySDKTests: XCTestCase {
                 agentID: "coder",
                 parentID: "parent-1",
                 parentTurnID: "turn-2",
+                scheduleID: "schedule-3",
                 excludeScheduled: true,
                 query: "android qa",
                 status: "active",

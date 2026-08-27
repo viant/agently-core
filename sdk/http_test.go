@@ -121,6 +121,25 @@ func TestHTTPClient_GetWorkspaceMetadataWithTarget_QueryParams(t *testing.T) {
 	}
 }
 
+func TestHTTPClient_GetPublicAgents(t *testing.T) {
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/workspace/metadata/publicagents" {
+			t.Fatalf("unexpected path: %s", r.URL.Path)
+		}
+		_ = json.NewEncoder(w).Encode(&api.PublicAgentsResponse{
+			AgentInfos: []api.WorkspaceAgentInfo{{ID: "steward", Name: "Steward"}},
+		})
+	}))
+
+	agents, err := c.GetPublicAgents(context.Background())
+	if err != nil {
+		t.Fatalf("GetPublicAgents: %v", err)
+	}
+	if len(agents) != 1 || agents[0].ID != "steward" {
+		t.Fatalf("unexpected agents: %#v", agents)
+	}
+}
+
 func TestHTTPClient_GetWorkspaceMetadata_EnvelopeAndDefaultFallbacks(t *testing.T) {
 	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/workspace/metadata" {
@@ -513,6 +532,7 @@ func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
 		AgentID:          "agent-1",
 		ParentID:         "parent-conv",
 		ParentTurnID:     "parent-turn",
+		ScheduleID:       "schedule-3",
 		ExcludeScheduled: true,
 		Query:            "favorite color",
 		Status:           "active",
@@ -528,7 +548,7 @@ func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
 	if gotPath != "/v1/conversations" {
 		t.Fatalf("unexpected path: %s", gotPath)
 	}
-	if gotQuery.Get("agentId") != "agent-1" || gotQuery.Get("parentId") != "parent-conv" || gotQuery.Get("parentTurnId") != "parent-turn" || gotQuery.Get("q") != "favorite color" || gotQuery.Get("status") != "active" {
+	if gotQuery.Get("agentId") != "agent-1" || gotQuery.Get("parentId") != "parent-conv" || gotQuery.Get("parentTurnId") != "parent-turn" || gotQuery.Get("scheduleId") != "schedule-3" || gotQuery.Get("q") != "favorite color" || gotQuery.Get("status") != "active" {
 		t.Fatalf("unexpected query values: %#v", gotQuery)
 	}
 	if gotQuery.Get("excludeScheduled") != "true" {
@@ -536,6 +556,36 @@ func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
 	}
 	if gotQuery.Get("limit") != "5" || gotQuery.Get("cursor") != "c-2" || gotQuery.Get("direction") != "after" {
 		t.Fatalf("unexpected page query values: %#v", gotQuery)
+	}
+}
+
+type spyConversationListClient struct {
+	*HTTPClient
+	gotInput *ListConversationsInput
+}
+
+func (s *spyConversationListClient) ListConversations(_ context.Context, input *ListConversationsInput) (*ConversationPage, error) {
+	s.gotInput = input
+	return &ConversationPage{}, nil
+}
+
+func TestHandler_ListConversations_ScheduleFilter(t *testing.T) {
+	base, err := NewHTTP("http://127.0.0.1")
+	if err != nil {
+		t.Fatalf("NewHTTP: %v", err)
+	}
+	spy := &spyConversationListClient{HTTPClient: base}
+	handler := NewHandler(spy)
+	req := httptest.NewRequest(http.MethodGet, "/v1/conversations?scheduleId=schedule-3", nil)
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+	if spy.gotInput == nil || spy.gotInput.ScheduleID != "schedule-3" {
+		t.Fatalf("unexpected schedule filter: %#v", spy.gotInput)
 	}
 }
 

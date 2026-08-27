@@ -47,6 +47,7 @@ type StarterTask = api.StarterTask
 type WorkspaceAgentInfo = api.WorkspaceAgentInfo
 type WorkspaceModelInfo = api.WorkspaceModelInfo
 type WorkspaceMetadata = api.WorkspaceMetadata
+type PublicAgentsResponse = api.PublicAgentsResponse
 type ListTemplatesInput = api.ListTemplatesInput
 type TemplateListItem = api.TemplateListItem
 type ListTemplatesOutput = api.ListTemplatesOutput

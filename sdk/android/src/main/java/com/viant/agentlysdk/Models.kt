@@ -525,6 +525,11 @@ data class WorkspaceAgentInfo(
 )
 
 @Serializable
+data class PublicAgentsResponse(
+    val agentInfos: List<WorkspaceAgentInfo> = emptyList()
+)
+
+@Serializable
 data class StarterTask(
     val id: String? = null,
     val title: String? = null,
@@ -761,6 +766,7 @@ data class ListConversationsInput(
     val agentId: String? = null,
     val parentId: String? = null,
     val parentTurnId: String? = null,
+    val scheduleId: String? = null,
     val excludeScheduled: Boolean? = null,
     @SerialName("q")
     val query: String? = null,
@@ -1072,6 +1078,26 @@ data class Schedule(
     val leaseUntil: String? = null,
     val createdAt: String? = null,
     val updatedAt: String? = null
+)
+
+@Serializable
+data class ScheduleRun(
+    @SerialName("Id") val id: String,
+    @SerialName("ScheduleId") val scheduleId: String,
+    @SerialName("ConversationId") val conversationId: String? = null,
+    @SerialName("Status") val status: String? = null,
+    @SerialName("ErrorMessage") val errorMessage: String? = null,
+    @SerialName("ScheduledFor") val scheduledFor: String? = null,
+    @SerialName("StartedAt") val startedAt: String? = null,
+    @SerialName("CompletedAt") val completedAt: String? = null,
+    @SerialName("CreatedAt") val createdAt: String? = null,
+    @SerialName("UpdatedAt") val updatedAt: String? = null
+)
+
+data class ScheduleRunPage(
+    val rows: List<ScheduleRun> = emptyList(),
+    val pageCount: Int = 0,
+    val totalCount: Int = 0
 )
 
 @Serializable

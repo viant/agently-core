@@ -136,6 +136,7 @@ export interface UpdateGoalInput {
 
 export interface ListConversationsInput {
     agentId?: string;
+    scheduleId?: string;
     excludeScheduled?: boolean;
     query?: string;
     status?: string;

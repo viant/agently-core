@@ -121,7 +121,12 @@ describe('Conversations', () => {
     it('listConversations with search query', async () => {
         const f = mockFetch(200, { Rows: [{ id: 'c1' }], HasMore: false, NextCursor: 'c1' });
         const c = client(f);
-        const res = await c.listConversations({ query: 'sales', excludeScheduled: true, page: { limit: 10 } });
+        const res = await c.listConversations({
+            query: 'sales',
+            scheduleId: 'schedule-3',
+            excludeScheduled: true,
+            page: { limit: 10 },
+        });
 
         expect(res.data).toHaveLength(1);
         expect(res.page?.hasMore).toBe(false);
@@ -129,6 +134,7 @@ describe('Conversations', () => {
         const call = lastCall(f);
         expect(call.method).toBe('GET');
         expect(call.url).toContain('q=sales');
+        expect(call.url).toContain('scheduleId=schedule-3');
         expect(call.url).toContain('excludeScheduled=true');
         expect(call.url).toContain('limit=10');
     });

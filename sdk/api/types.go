@@ -34,6 +34,7 @@ type ListConversationsInput struct {
 	AgentID          string
 	ParentID         string
 	ParentTurnID     string
+	ScheduleID       string
 	ExcludeScheduled bool
 	Query            string
 	Status           string
@@ -221,8 +222,13 @@ type StarterTask struct {
 type WorkspaceAgentInfo struct {
 	ID           string        `json:"id,omitempty"`
 	Name         string        `json:"name,omitempty"`
+	Internal     bool          `json:"internal,omitempty"`
 	ModelRef     string        `json:"modelRef,omitempty"`
 	StarterTasks []StarterTask `json:"starterTasks,omitempty"`
+}
+
+type PublicAgentsResponse struct {
+	AgentInfos []WorkspaceAgentInfo `json:"agentInfos"`
 }
 
 type WorkspaceModelInfo struct {

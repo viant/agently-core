@@ -702,6 +702,10 @@ func (c *backendClient) ListConversations(ctx context.Context, input *ListConver
 			in.ParentTurnId = strings.TrimSpace(input.ParentTurnID)
 			in.Has.ParentTurnId = true
 		}
+		if strings.TrimSpace(input.ScheduleID) != "" {
+			in.ScheduleId = strings.TrimSpace(input.ScheduleID)
+			in.Has.ScheduleId = true
+		}
 		if input.ExcludeScheduled {
 			in.ExcludeScheduled = true
 			in.Has.ExcludeScheduled = true
@@ -743,6 +747,10 @@ func (c *backendClient) ListConversations(ctx context.Context, input *ListConver
 	if strings.TrimSpace(in.ParentTurnId) != "" {
 		queryInput.ParentTurnId = strings.TrimSpace(in.ParentTurnId)
 		queryInput.Has.ParentTurnId = true
+	}
+	if strings.TrimSpace(in.ScheduleId) != "" {
+		queryInput.ScheduleId = strings.TrimSpace(in.ScheduleId)
+		queryInput.Has.ScheduleId = true
 	}
 	if in.ExcludeScheduled {
 		queryInput.ExcludeScheduled = true
