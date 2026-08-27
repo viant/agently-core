@@ -216,6 +216,14 @@ func TestEmbeddedClient_ListConversations_ConvFallbackAppliesBackendFilters(t *t
 	require.NotNil(t, page)
 	require.Len(t, page.Rows, 1)
 	require.Equal(t, "root-visible", page.Rows[0].Id)
+
+	schedulePage, err := client.ListConversations(ctx, &ListConversationsInput{
+		ScheduleID: "sched-1",
+	})
+	require.NoError(t, err)
+	require.NotNil(t, schedulePage)
+	require.Len(t, schedulePage.Rows, 1)
+	require.Equal(t, "scheduled-hit", schedulePage.Rows[0].Id)
 }
 
 func ptrValue[T any](value *T) T {

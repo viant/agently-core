@@ -191,6 +191,7 @@ func handleListConversations(client Client) http.HandlerFunc {
 			AgentID:          strings.TrimSpace(q.Get("agentId")),
 			ParentID:         strings.TrimSpace(q.Get("parentId")),
 			ParentTurnID:     strings.TrimSpace(q.Get("parentTurnId")),
+			ScheduleID:       strings.TrimSpace(q.Get("scheduleId")),
 			ExcludeScheduled: queryBool(r, "excludeScheduled", false),
 			Query:            strings.TrimSpace(q.Get("q")),
 			Status:           strings.TrimSpace(q.Get("status")),

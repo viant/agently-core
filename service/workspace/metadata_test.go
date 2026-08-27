@@ -116,6 +116,29 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	}
 }
 
+func TestMetadataHandler_PublicAgents(t *testing.T) {
+	store := &metadataTestStore{items: map[string]map[string][]byte{
+		ws.KindAgent: {
+			"steward": []byte("id: steward\nname: Steward\n"),
+			"planner": []byte("id: planner\nname: Planner\ninternal: true\n"),
+		},
+	}}
+	handler := NewMetadataHandler(&config.Defaults{}, store, "test-version")
+	mux := http.NewServeMux()
+	handler.Register(mux)
+
+	req := httptest.NewRequest(http.MethodGet, "/v1/workspace/metadata/publicagents", nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	assert.Equal(t, http.StatusOK, rec.Code)
+	var response PublicAgentsResponse
+	assert.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	if assert.Len(t, response.AgentInfos, 1) {
+		assert.Equal(t, "steward", response.AgentInfos[0].ID)
+	}
+}
+
 func TestMetadataHandler_WorkspaceVersionFromRootFile(t *testing.T) {
 	prevRoot := ws.Root()
 	tempRoot := t.TempDir()

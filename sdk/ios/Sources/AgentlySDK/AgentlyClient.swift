@@ -890,6 +890,9 @@ public final class AgentlyClient: Sendable {
         if let parentTurnID = value.parentTurnID?.trimmingCharacters(in: .whitespacesAndNewlines), !parentTurnID.isEmpty {
             items.append(URLQueryItem(name: "parentTurnId", value: parentTurnID))
         }
+        if let scheduleID = value.scheduleID?.trimmingCharacters(in: .whitespacesAndNewlines), !scheduleID.isEmpty {
+            items.append(URLQueryItem(name: "scheduleId", value: scheduleID))
+        }
         if let excludeScheduled = value.excludeScheduled {
             items.append(URLQueryItem(name: "excludeScheduled", value: excludeScheduled ? "true" : "false"))
         }

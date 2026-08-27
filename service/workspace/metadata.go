@@ -38,6 +38,10 @@ type MetadataResponse struct {
 	Version          string       `json:"version,omitempty"`
 }
 
+type PublicAgentsResponse struct {
+	AgentInfos []AgentInfo `json:"agentInfos"`
+}
+
 // Defaults captures UI-facing runtime defaults in a stable nested shape.
 type Defaults struct {
 	AppName         string `json:"appName,omitempty"`
@@ -128,6 +132,25 @@ func (h *MetadataHandler) SetReportingCapabilityEnabled(enabled bool) {
 // Register mounts the metadata endpoint.
 func (h *MetadataHandler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workspace/metadata", h.handleMetadata())
+	mux.HandleFunc("GET /v1/workspace/metadata/publicagents", h.handlePublicAgents())
+}
+
+func (h *MetadataHandler) handlePublicAgents() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		result := PublicAgentsResponse{AgentInfos: []AgentInfo{}}
+		if h.store != nil {
+			if agents, err := h.store.List(r.Context(), ws.KindAgent); err == nil {
+				for _, agent := range h.loadAgentInfos(r.Context(), agents) {
+					if !agent.Internal {
+						result.AgentInfos = append(result.AgentInfos, agent)
+					}
+				}
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_ = json.NewEncoder(w).Encode(result)
+	}
 }
 
 func (h *MetadataHandler) handleMetadata() http.HandlerFunc {

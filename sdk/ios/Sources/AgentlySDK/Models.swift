@@ -774,6 +774,7 @@ public struct ListConversationsInput: Codable, Sendable {
     public let agentID: String?
     public let parentID: String?
     public let parentTurnID: String?
+    public let scheduleID: String?
     public let excludeScheduled: Bool?
     public let query: String?
     public let status: String?
@@ -783,6 +784,7 @@ public struct ListConversationsInput: Codable, Sendable {
         case agentID = "agentId"
         case parentID = "parentId"
         case parentTurnID = "parentTurnId"
+        case scheduleID = "scheduleId"
         case excludeScheduled
         case query = "q"
         case status
@@ -793,6 +795,7 @@ public struct ListConversationsInput: Codable, Sendable {
         agentID: String? = nil,
         parentID: String? = nil,
         parentTurnID: String? = nil,
+        scheduleID: String? = nil,
         excludeScheduled: Bool? = nil,
         query: String? = nil,
         status: String? = nil,
@@ -801,6 +804,7 @@ public struct ListConversationsInput: Codable, Sendable {
         self.agentID = agentID
         self.parentID = parentID
         self.parentTurnID = parentTurnID
+        self.scheduleID = scheduleID
         self.excludeScheduled = excludeScheduled
         self.query = query
         self.status = status

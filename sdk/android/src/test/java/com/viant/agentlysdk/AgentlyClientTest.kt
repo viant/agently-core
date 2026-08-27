@@ -39,6 +39,62 @@ class AgentlyClientTest {
     private val server = MockWebServer()
 
     @Test
+    fun `deleteSchedule calls scheduler delete endpoint`() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(204))
+        server.start()
+
+        client().deleteSchedule("schedule one")
+
+        val request = server.takeRequest()
+        assertEquals("DELETE", request.method)
+        assertEquals("/v1/api/agently/scheduler/schedule/schedule%20one", request.path)
+    }
+
+    @Test
+    fun `schedule endpoints decode single and list data envelopes once`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"data":{"id":"one","name":"Hello","agentRef":"steward","scheduleType":"cron"}}"""
+            )
+        )
+        server.enqueue(
+            MockResponse().setBody(
+                """{"data":{"schedules":[{"id":"two","name":"World","agentRef":"steward","scheduleType":"interval"}]}}"""
+            )
+        )
+        server.start()
+        val client = client()
+
+        assertEquals("one", client.getSchedule("one")?.id)
+        assertEquals(listOf("two"), client.listSchedules().map { it.id })
+    }
+
+    @Test
+    fun `listScheduleRuns preserves rows paging and filters`() = runBlocking {
+        server.enqueue(
+            MockResponse().setBody(
+                """{"status":"ok","data":[{"Id":"run-1","ScheduleId":"schedule-1","Status":"succeeded"}],"info":{"pageCount":2,"totalCount":3}}"""
+            )
+        )
+        server.start()
+
+        val page = client().listScheduleRuns(
+            scheduleId = "schedule-1",
+            filters = mapOf("status" to "succ"),
+            page = 2,
+            size = 1
+        )
+
+        assertEquals(listOf("run-1"), page.rows.map { it.id })
+        assertEquals(2, page.pageCount)
+        assertEquals(3, page.totalCount)
+        assertEquals(
+            "/v1/api/agently/scheduler/run?scheduleId=schedule-1&status=succ&page=2&size=1",
+            server.takeRequest().path
+        )
+    }
+
+    @Test
     fun `bounded get accepts an exact limit response`() {
         server.enqueue(MockResponse().setBody("12345678"))
         server.start()
@@ -521,7 +577,7 @@ class AgentlyClientTest {
         val streamRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
         val liveStateRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
         assertTrue(streamRequest.path.orEmpty().startsWith("/v1/stream?"))
-        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true", liveStateRequest.path)
+        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true&includeModelCalls=true&includeToolCalls=true", liveStateRequest.path)
         assertEquals("Hello", snapshots[0].bufferedMessages.single { it.id == "assistant-1" }.content)
         assertEquals("Hello live", snapshots[1].bufferedMessages.single { it.id == "assistant-1" }.content)
     }
@@ -574,7 +630,7 @@ class AgentlyClientTest {
         val liveStateRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
         assertTrue(streamRequest.path.orEmpty().startsWith("/v1/stream?"))
         assertEquals("stream", streamRequest.getHeader("X-Test-Transport"))
-        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true", liveStateRequest.path)
+        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true&includeModelCalls=true&includeToolCalls=true", liveStateRequest.path)
         assertEquals("short", liveStateRequest.getHeader("X-Test-Transport"))
     }
 
@@ -749,9 +805,9 @@ class AgentlyClientTest {
         assertEquals("Hello live", snapshots[1].bufferedMessages.single { it.id == "assistant-1" }.content)
         assertEquals("Recovered", snapshots[2].bufferedMessages.single { it.id == "assistant-1" }.content)
         assertTrue(server.takeRequest().path.orEmpty().startsWith("/v1/stream?"))
-        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true", server.takeRequest().path)
+        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true&includeModelCalls=true&includeToolCalls=true", server.takeRequest().path)
         assertTrue(server.takeRequest().path.orEmpty().startsWith("/v1/stream?"))
-        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true", server.takeRequest().path)
+        assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true&includeModelCalls=true&includeToolCalls=true", server.takeRequest().path)
     }
 
     @Test
@@ -1568,6 +1624,7 @@ class AgentlyClientTest {
                 agentId = "coder",
                 parentId = "parent-1",
                 parentTurnId = "turn-2",
+                scheduleId = "schedule-3",
                 excludeScheduled = true,
                 query = "android qa",
                 status = "active",
@@ -1580,6 +1637,7 @@ class AgentlyClientTest {
         assertTrue(path.contains("agentId=coder"))
         assertTrue(path.contains("parentId=parent-1"))
         assertTrue(path.contains("parentTurnId=turn-2"))
+        assertTrue(path.contains("scheduleId=schedule-3"))
         assertTrue(path.contains("excludeScheduled=true"))
         assertTrue(path.contains("q=android+qa"))
         assertTrue(path.contains("status=active"))

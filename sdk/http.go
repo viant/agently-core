@@ -179,6 +179,14 @@ func (c *HTTPClient) GetWorkspaceMetadata(ctx context.Context) (*WorkspaceMetada
 	return c.GetWorkspaceMetadataWithTarget(ctx, nil)
 }
 
+func (c *HTTPClient) GetPublicAgents(ctx context.Context) ([]WorkspaceAgentInfo, error) {
+	var out PublicAgentsResponse
+	if err := c.doJSON(ctx, http.MethodGet, "/v1/workspace/metadata/publicagents", nil, &out); err != nil {
+		return nil, err
+	}
+	return out.AgentInfos, nil
+}
+
 func (c *HTTPClient) GetWorkspaceMetadataWithTarget(ctx context.Context, target *MetadataTargetContext) (*WorkspaceMetadata, error) {
 	path := appendMetadataTargetQuery("/v1/workspace/metadata", target)
 	req, err := c.newRequest(ctx, http.MethodGet, path, nil, "")
@@ -475,6 +483,9 @@ func (c *HTTPClient) ListConversations(ctx context.Context, input *ListConversat
 		}
 		if strings.TrimSpace(input.ParentTurnID) != "" {
 			q.Set("parentTurnId", input.ParentTurnID)
+		}
+		if strings.TrimSpace(input.ScheduleID) != "" {
+			q.Set("scheduleId", input.ScheduleID)
 		}
 		if input.ExcludeScheduled {
 			q.Set("excludeScheduled", "true")
