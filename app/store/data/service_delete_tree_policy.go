@@ -226,7 +226,7 @@ func validateConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *con
 	if err := ensureNoLiveConversationRuns(ctx, tx, graph, now); err != nil {
 		return err
 	}
-	return ensureNoActiveReportWork(ctx, tx, graph)
+	return ensureNoActiveReportExports(ctx, tx, graph)
 }
 
 func ensureNoInboundConversationReferences(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
@@ -589,14 +589,7 @@ func isNonExpiredDBTime(value sql.NullString, now time.Time) bool {
 	return !ok || parsed.After(now)
 }
 
-func ensureNoActiveReportWork(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
-	if graph.Capabilities.hasTable("report_run") {
-		if active, err := hasStatusInSet(ctx, tx, "SELECT status FROM report_run WHERE report_run_id IN (%s)", graph.ReportRunIDs, statusSet("running")); err != nil {
-			return err
-		} else if active {
-			return ErrConversationActive
-		}
-	}
+func ensureNoActiveReportExports(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
 	if graph.Capabilities.hasTable("report_export_job") {
 		if active, err := hasStatusInSet(ctx, tx, "SELECT status FROM report_export_job WHERE job_id IN (%s)", graph.ReportJobIDs, statusSet("queued", "running")); err != nil {
 			return err

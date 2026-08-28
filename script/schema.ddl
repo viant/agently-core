@@ -441,6 +441,30 @@ CREATE TABLE IF NOT EXISTS session (
 CREATE INDEX IF NOT EXISTS idx_session_user_id ON session(user_id);
 CREATE INDEX IF NOT EXISTS idx_session_expires_at ON session(expires_at);
 
+CREATE TABLE IF NOT EXISTS oauth_link_state (
+    flow_hash TEXT NOT NULL,
+    state_hash TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    session_hash TEXT NOT NULL,
+    server_name TEXT NOT NULL,
+    provider_ref TEXT NOT NULL,
+    client_ref TEXT,
+    resource_hash TEXT NOT NULL,
+    scope_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'consumed')),
+    version INTEGER NOT NULL DEFAULT 0,
+    expires_at DATETIME NOT NULL,
+    consumed_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (flow_hash),
+    UNIQUE (state_hash),
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_oauth_link_state_expiry ON oauth_link_state(status, expires_at);
+CREATE INDEX IF NOT EXISTS idx_oauth_link_state_user_provider ON oauth_link_state(user_id, provider_ref);
+
 CREATE TABLE IF NOT EXISTS report_run (
     report_run_id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL,
