@@ -268,6 +268,61 @@ func TestDeleteConversationTree_RequiresOwnershipOfReportContext(t *testing.T) {
 	assertStage1RowCount(t, db, "conversation", "id", "conv-report-owner", 1)
 }
 
+func TestDeleteConversationTree_IgnoresRunningReportRunWhenConversationIsTerminal(t *testing.T) {
+	now := time.Now().UTC()
+	testCases := []struct {
+		name      string
+		updatedAt time.Time
+	}{
+		{name: "fresh", updatedAt: now},
+		{name: "stale", updatedAt: now.Add(-30 * 24 * time.Hour)},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			conversationID := "conv-report-running-" + testCase.name
+			reportRunID := "report-run-running-" + testCase.name
+			svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+				dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+					{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{conversationID, "succeeded", "u1"}},
+					{SQL: `INSERT INTO report_run (report_run_id, owner_id, conversation_id, materializer, status, started_at, revision, ui_run_request_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{reportRunID, "u1", conversationID, "test", "running", testCase.updatedAt.Format(time.RFC3339), 1, "request-" + testCase.name, testCase.updatedAt.Format(time.RFC3339)}},
+				})
+			})
+
+			if err := svc.DeleteConversationTree(deleteTestContext(), conversationID); err != nil {
+				t.Fatalf("DeleteConversationTree() error: %v", err)
+			}
+			assertStage1RowCount(t, db, "conversation", "id", conversationID, 0)
+			assertStage1RowCount(t, db, "report_run", "report_run_id", reportRunID, 0)
+		})
+	}
+}
+
+func TestDeleteConversationTree_BlocksActiveReportExportJob(t *testing.T) {
+	for _, status := range []string{"queued", "running"} {
+		t.Run(status, func(t *testing.T) {
+			conversationID := "conv-report-export-" + status
+			reportRunID := "report-run-export-" + status
+			jobID := "report-job-" + status
+			now := time.Now().UTC().Format(time.RFC3339)
+			svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+				dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+					{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{conversationID, "succeeded", "u1"}},
+					{SQL: `INSERT INTO report_run (report_run_id, owner_id, conversation_id, materializer, status, started_at, completed_at, revision, ui_run_request_id, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{reportRunID, "u1", conversationID, "test", "completed", now, now, 1, "request-export-" + status, now}},
+					{SQL: `INSERT INTO report_export_job (job_id, artifact_ref, owner_id, conversation_id, format, scope, status, submitted_at, report_run_id, report_run_revision, export_request_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{jobID, "external://report", "u1", conversationID, "pdf", "draft", status, now, reportRunID, 1, "export-" + status}},
+				})
+			})
+
+			err := svc.DeleteConversationTree(deleteTestContext(), conversationID)
+			if !errors.Is(err, ErrConversationActive) {
+				t.Fatalf("expected ErrConversationActive, got %v", err)
+			}
+			assertStage1RowCount(t, db, "conversation", "id", conversationID, 1)
+			assertStage1RowCount(t, db, "report_export_job", "job_id", jobID, 1)
+		})
+	}
+}
+
 func TestDeleteConversationTree_RollsBackEarlierDeletesWhenLaterDeleteFails(t *testing.T) {
 	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
