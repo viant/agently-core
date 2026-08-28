@@ -106,9 +106,11 @@ func (r *Runtime) authenticate(req *http.Request) (*runtimeAuthUser, bool) {
 				tok := &scyauth.Token{}
 				tok.Token.AccessToken = token
 				tok.IDToken = token
+				subject := strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email))
 				return &runtimeAuthUser{
-					EffectiveUserID: strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email)),
-					Subject:         strings.TrimSpace(firstNonEmpty(claims.Subject, claims.Email)),
+					EffectiveUserID: subject,
+					CanonicalUserID: r.resolveBearerCanonicalUserID(req.Context(), subject, strings.TrimSpace(claims.Email)),
+					Subject:         subject,
 					Email:           strings.TrimSpace(claims.Email),
 					Provider:        "jwt",
 					Tokens:          tok,
@@ -225,11 +227,42 @@ func runtimeAuthUserFromSession(sess *Session, tokens *scyauth.Token) *runtimeAu
 	requestUserID := strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email, sess.Username))
 	return &runtimeAuthUser{
 		EffectiveUserID: requestUserID,
+		CanonicalUserID: strings.TrimSpace(sess.UserID),
 		Subject:         strings.TrimSpace(firstNonEmpty(sess.Subject, sess.Email, sess.Username)),
 		Email:           strings.TrimSpace(sess.Email),
 		Provider:        strings.TrimSpace(sess.Provider),
 		Tokens:          tokens,
 	}
+}
+
+// resolveBearerCanonicalUserID maps a verified bearer identity to the
+// canonical users.id through the same shared resolver as the session path.
+// A miss returns empty: request authentication still proceeds (unchanged
+// legacy behaviour), while delegated MCP credential use fails closed on the
+// missing canonical owner.
+func (r *Runtime) resolveBearerCanonicalUserID(ctx context.Context, subject, email string) string {
+	resolver := r.canonicalResolver()
+	if resolver == nil || strings.TrimSpace(subject) == "" {
+		return ""
+	}
+	provider := "jwt"
+	if r != nil && r.ext != nil {
+		provider = r.ext.oauthProviderName()
+	}
+	identity := VerifiedWorkspaceIdentity{Provider: provider, Subject: subject, Email: email}
+	id, err := resolver.ResolveCanonicalWorkspaceUser(ctx, identity)
+	if err == nil {
+		return id
+	}
+	// Legacy JWT users may be recorded under provider "jwt" rather than the
+	// configured workspace OAuth provider; apply the same resolver with that
+	// alias before giving up.
+	if provider != "jwt" {
+		if id, err := resolver.ResolveCanonicalWorkspaceUser(ctx, VerifiedWorkspaceIdentity{Provider: "jwt", Subject: subject, Email: email}); err == nil {
+			return id
+		}
+	}
+	return ""
 }
 
 func (r *Runtime) ensureSessionCanonicalUserID(ctx context.Context, sess *Session) {

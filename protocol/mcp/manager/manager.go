@@ -12,18 +12,27 @@ import (
 	"sync"
 	"time"
 
+	"github.com/viant/agently-core/internal/auth/mcpauth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/mcp"
 	protoclient "github.com/viant/mcp-protocol/client"
 	mcpclient "github.com/viant/mcp/client"
 	auth "github.com/viant/mcp/client/auth"
+	authcfg "github.com/viant/mcp/client/auth/config"
 	authtransport "github.com/viant/mcp/client/auth/transport"
 )
 
 // Provider returns client options for a given MCP server name.
 type Provider interface {
 	Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error)
+}
+
+// inlineProviderRegistrar is optionally implemented by host provider
+// registries that support registering validated inline MCP providers in a
+// runtime overlay (see service/auth/providerregistry.Registry.RegisterInline).
+type inlineProviderRegistrar interface {
+	RegisterInline(ctx context.Context, provider *authcfg.OAuthProvider) error
 }
 
 // Option configures Manager. It can return an error which will be bubbled up by New.
@@ -90,18 +99,37 @@ func WithTokenProvider(tp token.Provider) Option {
 	return func(m *Manager) error { m.tokenProvider = tp; return nil }
 }
 
+// WithCredentialResolver installs the host credential resolver used for MCP
+// definitions with auth.mode=oauth (delegated). For those servers viant/mcp
+// becomes the sole transport-level OAuth coordinator and the resolver the
+// sole credential-policy implementation; legacy servers are unaffected.
+func WithCredentialResolver(resolver authcfg.CredentialResolver) Option {
+	return func(m *Manager) error { m.credResolver = resolver; return nil }
+}
+
+// WithProviderRegistry installs the host OAuth provider registry so delegated
+// requirement compilation can resolve providerRef before the first request.
+func WithProviderRegistry(registry authcfg.ProviderRegistry) Option {
+	return func(m *Manager) error { m.providerRegistry = registry; return nil }
+}
+
 // Manager caches MCP clients per (userID:conversationID, serverName) and handles idle reaping.
 type Manager struct {
-	prov           Provider
-	ttl            time.Duration
-	newHandler     func() protoclient.Handler
-	newClientFn    func(context.Context, string, string) (mcpclient.Interface, error)
-	cookieJar      http.CookieJar
-	jarProvider    JarProvider
-	authRT         *authtransport.RoundTripper
-	authRTProvider AuthRTProvider
-	userIDFn       UserIDExtractor
-	tokenProvider  token.Provider
+	prov             Provider
+	ttl              time.Duration
+	newHandler       func() protoclient.Handler
+	newClientFn      func(context.Context, string, string) (mcpclient.Interface, error)
+	cookieJar        http.CookieJar
+	jarProvider      JarProvider
+	authRT           *authtransport.RoundTripper
+	authRTProvider   AuthRTProvider
+	userIDFn         UserIDExtractor
+	tokenProvider    token.Provider
+	credResolver     authcfg.CredentialResolver
+	providerRegistry authcfg.ProviderRegistry
+	// bindings persists validated non-secret challenge-learned MCP auth
+	// bindings (workspace StateStore); explicit configuration always wins.
+	bindings *AuthBindingStore
 
 	mu       sync.Mutex
 	pool     map[string]map[string]*entry      // poolKey -> serverName -> entry
@@ -146,6 +174,9 @@ func New(prov Provider, opts ...Option) (*Manager, error) {
 		if err := o(m); err != nil {
 			return nil, fmt.Errorf("mcp manager option: %w", err)
 		}
+	}
+	if m.bindings == nil {
+		m.bindings = NewAuthBindingStore(nil)
 	}
 	return m, nil
 }
@@ -320,16 +351,94 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	if ca, ok := h.(interface{ SetConversationID(string) }); ok {
 		ca.SetConversationID(convID)
 	}
+	// Delegated OAuth (auth.mode=oauth with providerRef/inlineProvider):
+	// viant/mcp owns transport-level coordination through the installed
+	// external resolver, and the legacy BFF/browser transport paths are
+	// disabled for this server. The selection is mutually exclusive with the
+	// legacy transport-authorizer wiring below and is decided here, when the
+	// configuration is compiled — there is no state where both paths can
+	// attach credentials.
+	// Challenge-mode delegated servers (auth.mode=oauth without an explicit
+	// providerRef/inline provider) may resolve eagerly through a previously
+	// validated learned binding; explicit configuration is never touched.
+	if opts.ClientOptions.Auth != nil && opts.ClientOptions.Auth.IsDelegated() {
+		m.applyLearnedBinding(ctx, serverName, opts.ClientOptions.Transport.URL, opts.ClientOptions.Auth)
+	}
+	delegated := opts.IsDelegatedAuth()
+	if delegated {
+		if opts.DisableDelegatedAuth {
+			return nil, fmt.Errorf("provider_disabled: delegated auth for mcp server %q is disabled by configuration", serverName)
+		}
+		if m.credResolver == nil {
+			return nil, fmt.Errorf("mcp server %q requires delegated oauth but no credential resolver is installed", serverName)
+		}
+		// Backward-compatible legacy flag handling must run before viant/mcp
+		// compiles the requirement from this configuration.
+		if err := opts.NormalizeDelegatedAuth(); err != nil {
+			return nil, fmt.Errorf("mcp server %q: %w", serverName, err)
+		}
+		if err := opts.ClientOptions.Auth.Validate(); err != nil {
+			return nil, err
+		}
+		opts.ClientOptions.Auth.ExternalResolver = m.credResolver
+		if opts.ClientOptions.Auth.ProviderRegistry == nil {
+			opts.ClientOptions.Auth.ProviderRegistry = m.providerRegistry
+		}
+		// A providerRef can only be validated and resolved through a registry;
+		// compiling the requirement without one would silently skip provider
+		// and client validation, so fail fast instead.
+		if strings.TrimSpace(opts.ClientOptions.Auth.ProviderRef) != "" && opts.ClientOptions.Auth.ProviderRegistry == nil {
+			return nil, fmt.Errorf("mcp server %q: auth.providerRef %q requires an oauth provider registry, but none is installed", serverName, opts.ClientOptions.Auth.ProviderRef)
+		}
+		// Register a validated inline provider in the runtime overlay (keyed
+		// by its stable id) so credential storage and the background refresh
+		// watcher can route to it. Registry-file providers win; a conflicting
+		// definition fails client creation.
+		if inline := opts.ClientOptions.Auth.InlineProvider; inline != nil {
+			if registrar, ok := opts.ClientOptions.Auth.ProviderRegistry.(inlineProviderRegistrar); ok {
+				if err := registrar.RegisterInline(ctx, inline); err != nil {
+					return nil, fmt.Errorf("mcp server %q: %w", serverName, err)
+				}
+			}
+		}
+		// Delegated tokens live in the encrypted canonical store owned by the
+		// resolver; never attach the per-user file token store or the
+		// workspace auth transport.
+		opts.ClientOptions.Auth.Store = nil
+		// One-time protected-resource metadata cross-check for explicitly
+		// configured providers: unreachable metadata is tolerated, but
+		// metadata disagreeing with explicit configuration is a configuration
+		// error — never an opportunity to silently rewrite providerRef.
+		if strings.TrimSpace(opts.ClientOptions.Auth.ProviderRef) != "" || opts.ClientOptions.Auth.InlineProvider != nil {
+			issuer := ""
+			if inline := opts.ClientOptions.Auth.InlineProvider; inline != nil {
+				issuer = inline.Issuer
+			} else if m.providerRegistry != nil {
+				if provider, pErr := m.providerRegistry.ResolveProvider(ctx, strings.TrimSpace(opts.ClientOptions.Auth.ProviderRef)); pErr == nil && provider != nil {
+					issuer = provider.Issuer
+				}
+			}
+			resource := strings.TrimSpace(opts.ClientOptions.Auth.Resource)
+			if resource == "" {
+				resource = strings.TrimSpace(opts.ClientOptions.Transport.URL)
+			}
+			if err := m.crossCheckExplicitMetadata(ctx, serverName, opts.ClientOptions.Transport.URL, issuer, resource); err != nil {
+				return nil, err
+			}
+		}
+	}
 	// Resolve per-user auth RoundTripper.
 	var rt *authtransport.RoundTripper
-	if m.authRTProvider != nil {
-		rt = m.authRTProvider(ctx)
-	}
-	if rt == nil {
-		rt = m.authRT
+	if !delegated {
+		if m.authRTProvider != nil {
+			rt = m.authRTProvider(ctx)
+		}
+		if rt == nil {
+			rt = m.authRT
+		}
 	}
 	useTransportAuth := false
-	if opts.ClientOptions.Auth != nil {
+	if !delegated && opts.ClientOptions.Auth != nil {
 		if opts.ClientOptions.Auth.BackendForFrontend == nil {
 			useTransportAuth = true
 		} else {
@@ -359,11 +468,23 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	// negotiation so best-effort discovery can fail fast and use its cooldown.
 	cli, err := mcp.NewClientWithContext(ctx, h, opts.ClientOptions)
 	if err != nil {
-		return nil, err
+		// Surface delegated link-required failures as the stable Agently
+		// typed error, preserving issuer/resource/metadata URL.
+		wrapped := mcpauth.WrapError(err)
+		// Persist a validated challenge-learned binding for challenge-mode
+		// delegated servers so the next attempt resolves eagerly. Explicitly
+		// configured servers never learn.
+		if typed, ok := mcpauth.FromError(wrapped); ok && typed.MetadataURL != "" &&
+			delegated && strings.TrimSpace(opts.ClientOptions.Auth.ProviderRef) == "" && opts.ClientOptions.Auth.InlineProvider == nil {
+			m.learnAuthBinding(ctx, serverName, opts.ClientOptions.Transport.URL, typed.Issuer, typed.Resource, typed.MetadataURL, typed.Scopes)
+		}
+		return nil, wrapped
 	}
 	// Attach the MCP-level auth interceptor for per-request token injection
-	// and protocol-level 401 retries.
-	if clientRT != nil {
+	// and protocol-level 401 retries. Delegated servers never receive it:
+	// the viant/mcp delegated transport is the single owner of token
+	// injection and 401 recovery there.
+	if clientRT != nil && !delegated {
 		authorizer := auth.NewAuthorizer(clientRT)
 		mcpclient.WithAuthInterceptor(authorizer)(cli)
 	}
@@ -605,6 +726,39 @@ func (m *Manager) CloseConversation(convID string) {
 	}
 	for key := range m.inflight {
 		if key == convID || strings.HasSuffix(key, ":"+convID) {
+			m.epoch[key]++
+		}
+	}
+	m.mu.Unlock()
+	for _, client := range toClose {
+		closeClientBestEffort(client)
+	}
+}
+
+// EvictUserServer drops every pooled client for one user and MCP server.
+// Called after a delegated credential change (link, disconnect,
+// invalid_grant) so the next use resolves the new credential instead of
+// reusing a client authenticated with the old one. It never touches other
+// users' entries, sessions or auth context.
+func (m *Manager) EvictUserServer(userID, serverName string) {
+	userID = strings.TrimSpace(userID)
+	serverName = strings.TrimSpace(serverName)
+	if m == nil || userID == "" || serverName == "" {
+		return
+	}
+	var toClose []mcpclient.Interface
+	m.mu.Lock()
+	if m.epoch == nil {
+		m.epoch = map[string]uint64{}
+	}
+	for key, perServer := range m.pool {
+		if key != userID && !strings.HasPrefix(key, userID+":") {
+			continue
+		}
+		if e := perServer[serverName]; e != nil {
+			if client := m.evictEntryLocked(key, serverName, e); client != nil {
+				toClose = append(toClose, client)
+			}
 			m.epoch[key]++
 		}
 	}

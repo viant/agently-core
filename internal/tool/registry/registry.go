@@ -24,6 +24,7 @@ import (
 	"github.com/viant/afs"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/auth/mcpauth"
 	"github.com/viant/agently-core/internal/logx"
 	tmatch "github.com/viant/agently-core/internal/tool/matcher"
 	transform "github.com/viant/agently-core/internal/transform"
@@ -58,6 +59,29 @@ type mcpManager interface {
 	Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error)
 	UseIDToken(ctx context.Context, serverName string) bool
 	WithAuthTokenContext(ctx context.Context, serverName string) context.Context
+}
+
+// delegatedAuthReporter is optionally implemented by managers that own
+// delegated (auth.mode=oauth) credential resolution.
+type delegatedAuthReporter interface {
+	IsDelegatedAuth(ctx context.Context, serverName string) bool
+}
+
+// isDelegatedAuthServer reports whether serverName uses manager-owned
+// delegated OAuth. For those servers the registry must not independently
+// select or attach a workspace token: initialization, discovery, execution
+// and reconnect all use the manager's single resolution.
+func (r *Registry) isDelegatedAuthServer(ctx context.Context, serverName string) bool {
+	if r == nil || r.mgr == nil {
+		return false
+	}
+	if reporter, ok := r.mgr.(delegatedAuthReporter); ok {
+		return reporter.IsDelegatedAuth(ctx, serverName)
+	}
+	if cfg, err := r.mgr.Options(ctx, serverName); err == nil && cfg != nil {
+		return cfg.IsDelegatedAuth()
+	}
+	return false
 }
 
 // Registry bridges per-server MCP tools and internal services to the generic
@@ -854,17 +878,26 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	if r.mgr != nil {
 		ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	}
-	useID := false
-	if r.mgr != nil {
-		useID = r.mgr.UseIDToken(ctx, server)
-	}
-	if tok := authctx.MCPAuthToken(ctx, useID); tok != "" {
-		debugPrintMCPAuthToken(server, useID, tok, ctx)
-		options = append(options, mcpclient.WithAuthToken(tok))
-	} else {
-		// Debug-only: emit a line when no token is available so auth propagation issues are visible.
+	if r.isDelegatedAuthServer(ctx, server) {
+		// Delegated servers resolve credentials through the manager-installed
+		// viant/mcp CredentialResolver; the registry must not independently
+		// select or attach a workspace token for them.
 		if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_MCP_AUTH")) != "" {
-			fmt.Fprintf(os.Stderr, "[mcp-auth] server=%s useID=%v src=none\n", strings.TrimSpace(server), useID)
+			fmt.Fprintf(os.Stderr, "[mcp-auth] server=%s src=delegated_resolver\n", strings.TrimSpace(server))
+		}
+	} else {
+		useID := false
+		if r.mgr != nil {
+			useID = r.mgr.UseIDToken(ctx, server)
+		}
+		if tok := authctx.MCPAuthToken(ctx, useID); tok != "" {
+			debugPrintMCPAuthToken(server, useID, tok, ctx)
+			options = append(options, mcpclient.WithAuthToken(tok))
+		} else {
+			// Debug-only: emit a line when no token is available so auth propagation issues are visible.
+			if strings.TrimSpace(os.Getenv("AGENTLY_DEBUG_MCP_AUTH")) != "" {
+				fmt.Fprintf(os.Stderr, "[mcp-auth] server=%s useID=%v src=none\n", strings.TrimSpace(server), useID)
+			}
 		}
 	}
 	// Request ID ownership belongs to the downstream layer: the MCP Adapter for
@@ -882,7 +915,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	}
 	if err != nil {
 		debugMCPExecf("registry client get error server=%s base=%s elapsed=%s err=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), err)
-		return "", err
+		return "", mcpauth.WrapError(err)
 	}
 	debugMCPExecf("registry client ready server=%s base=%s elapsed=%s", server, baseName, time.Since(execStart).Round(time.Millisecond))
 	if r.mgr != nil {
@@ -984,7 +1017,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 		// Non-reconnectable or reconnect failed
 		debugMCPExecf("registry calltool returning transport error server=%s base=%s elapsed=%s err=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), err)
-		return "", err
+		return "", mcpauth.WrapError(err)
 	}
 	if res == nil {
 		if protected {
@@ -1920,7 +1953,7 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		if r.mgr != nil {
 			useID = r.mgr.UseIDToken(ctx, server)
 		}
-		if tok := authctx.MCPAuthToken(ctx, useID); tok != "" {
+		if tok := authctx.MCPAuthToken(ctx, useID); tok != "" && !r.isDelegatedAuthServer(ctx, server) {
 			opts = append(opts, mcpclient.WithAuthToken(tok))
 		}
 		var tools []mcpschema.Tool
@@ -1940,6 +1973,11 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	useID := r.mgr.UseIDToken(ctx, server)
 	token := authctx.MCPAuthToken(ctx, useID)
+	if r.isDelegatedAuthServer(ctx, server) {
+		// Delegated servers authenticate through the manager-installed
+		// resolver; never forward the workspace token to them.
+		token = ""
+	}
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	scope := r.discoveryClientScope(ctx, server)
 	r.observeSharedDiscoveryIdentity(server, scope, userID, token, useID)
@@ -2107,6 +2145,31 @@ func (r *Registry) clearDiscoveryFailure(server, scope string) {
 	r.mu.Lock()
 	delete(r.discoveryFailUntil, key)
 	delete(r.discoveryFailErr, key)
+	r.mu.Unlock()
+}
+
+// EvictDelegatedAuthState clears the discovery failure/cooldown state for a
+// server across all scopes. Called after a delegated credential change (link,
+// disconnect) so the next discovery retries immediately with the new
+// credential instead of waiting out a cooldown earned by the old one.
+func (r *Registry) EvictDelegatedAuthState(server string) {
+	server = strings.TrimSpace(server)
+	if r == nil || server == "" {
+		return
+	}
+	prefix := server + "|"
+	r.mu.Lock()
+	for key := range r.discoveryFailUntil {
+		if key == server || strings.HasPrefix(key, prefix) {
+			delete(r.discoveryFailUntil, key)
+			delete(r.discoveryFailErr, key)
+		}
+	}
+	for key := range r.discoveryFailErr {
+		if key == server || strings.HasPrefix(key, prefix) {
+			delete(r.discoveryFailErr, key)
+		}
+	}
 	r.mu.Unlock()
 }
 

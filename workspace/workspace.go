@@ -55,6 +55,7 @@ const (
 	KindPrompt           = "prompts"
 	KindTemplateBundle   = "templates/bundles"
 	KindOAuth            = "oauth"
+	KindOAuthProvider    = "oauth/providers"
 	KindFeeds            = "feeds"
 	KindA2A              = "a2a"
 	KindCallback         = "callbacks"
@@ -73,7 +74,7 @@ const (
 func AllKinds() []string {
 	return []string{
 		KindAgent, KindModel, KindEmbedder, KindMCP, KindWorkflow, KindSkill,
-		KindTool, KindToolBundle, KindToolInstructions, KindTemplate, KindTemplateBundle, KindOAuth, KindFeeds, KindA2A, KindCallback,
+		KindTool, KindToolBundle, KindToolInstructions, KindTemplate, KindTemplateBundle, KindOAuth, KindOAuthProvider, KindFeeds, KindA2A, KindCallback,
 		KindForgeDataSource, KindForgeDialog, KindForgeLookup, KindForgeWindow,
 	}
 }

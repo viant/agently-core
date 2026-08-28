@@ -6,6 +6,10 @@ import (
 )
 
 // OAuthToken represents a stored OAuth token set for a user/provider pair.
+// The metadata fields (Issuer, Resource, Scopes, TokenType, Subject,
+// ProviderRef, ClientRef) are optional for backward compatibility with legacy
+// workspace rows; delegated (per-provider MCP) tokens always populate them and
+// every conversion/refresh path must preserve them.
 type OAuthToken struct {
 	Username     string    `json:"username"`
 	Provider     string    `json:"provider"`
@@ -13,6 +17,79 @@ type OAuthToken struct {
 	IDToken      string    `json:"idToken,omitempty"`
 	RefreshToken string    `json:"refreshToken,omitempty"`
 	ExpiresAt    time.Time `json:"expiresAt,omitempty"`
+
+	// Issuer is the normalized OAuth issuer the token was granted by.
+	Issuer string `json:"issuer,omitempty"`
+	// Resource is the protected resource (audience) the token targets.
+	Resource string `json:"resource,omitempty"`
+	// Scopes are the granted scopes (authoritative after refresh).
+	Scopes []string `json:"scopes,omitempty"`
+	// TokenType records accessToken versus idToken usage intent.
+	TokenType string `json:"tokenType,omitempty"`
+	// Subject is the provider subject extracted from the verified token; it is
+	// credential metadata only and never becomes the effective user.
+	Subject string `json:"subject,omitempty"`
+	// ProviderRef/ClientRef record the workspace provider registry references
+	// for delegated tokens (the row provider column stores a fixed-length
+	// hashed storage key).
+	ProviderRef string `json:"providerRef,omitempty"`
+	ClientRef   string `json:"clientRef,omitempty"`
+	// IDTokenExpiresAt is the verified ID-token exp. ExpiresAt remains the
+	// access-token expiry for compatibility; tokenType=idToken consumers must
+	// derive validity and refresh thresholds from this field instead.
+	IDTokenExpiresAt time.Time `json:"idTokenExpiresAt,omitempty"`
+	// IssuedAt records when the token set was obtained (login, exchange or
+	// refresh); the refresh policy uses it to derive the original selected
+	// token lifetime for the 20% clamp.
+	IssuedAt time.Time `json:"issuedAt,omitempty"`
+}
+
+// HasDelegatedMetadata reports whether the token carries the delegated
+// credential metadata that refresh/CAS paths must not drop.
+func (t *OAuthToken) HasDelegatedMetadata() bool {
+	if t == nil {
+		return false
+	}
+	return t.Issuer != "" || t.Resource != "" || len(t.Scopes) > 0 ||
+		t.TokenType != "" || t.Subject != "" || t.ProviderRef != "" || t.ClientRef != ""
+}
+
+// MergeMetadataFrom copies missing metadata fields from prior. Populated
+// fields on the receiver win (e.g. an authoritative refreshed scope set).
+func (t *OAuthToken) MergeMetadataFrom(prior *OAuthToken) {
+	if t == nil || prior == nil {
+		return
+	}
+	if t.Issuer == "" {
+		t.Issuer = prior.Issuer
+	}
+	if t.Resource == "" {
+		t.Resource = prior.Resource
+	}
+	if len(t.Scopes) == 0 && len(prior.Scopes) > 0 {
+		t.Scopes = append([]string(nil), prior.Scopes...)
+	}
+	if t.TokenType == "" {
+		t.TokenType = prior.TokenType
+	}
+	if t.Subject == "" {
+		t.Subject = prior.Subject
+	}
+	if t.ProviderRef == "" {
+		t.ProviderRef = prior.ProviderRef
+	}
+	if t.ClientRef == "" {
+		t.ClientRef = prior.ClientRef
+	}
+	if t.IssuedAt.IsZero() {
+		t.IssuedAt = prior.IssuedAt
+	}
+	// The ID-token expiry belongs to one specific ID token value: carry it
+	// over only when the receiver retained exactly the prior ID token. A
+	// dropped or rotated ID token must never resurrect a stale expiry.
+	if t.IDTokenExpiresAt.IsZero() && t.IDToken != "" && t.IDToken == prior.IDToken {
+		t.IDTokenExpiresAt = prior.IDTokenExpiresAt
+	}
 }
 
 // TokenStore abstracts encrypted OAuth token persistence.

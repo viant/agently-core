@@ -447,6 +447,23 @@ CREATE TABLE IF NOT EXISTS user_oauth_token (
   CONSTRAINT fk_uot_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
+-- Distributed single-use OAuth link state for delegated MCP OAuth callbacks.
+-- Holds only non-secret hashes and flow metadata: never authorization codes,
+-- PKCE verifiers, client secrets or tokens.
+CREATE TABLE IF NOT EXISTS oauth_link_state (
+  state_hash   VARCHAR(64)  NOT NULL,
+  flow_hash    VARCHAR(64)  NOT NULL,
+  user_id      VARCHAR(255) NOT NULL,
+  session_hash VARCHAR(64)  NOT NULL,
+  provider     VARCHAR(128) NOT NULL,
+  expires_at   DATETIME     NOT NULL,
+  consumed_at  DATETIME     NULL DEFAULT NULL,
+  created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (state_hash),
+  UNIQUE KEY ux_oauth_link_state_flow (flow_hash),
+  KEY ix_oauth_link_state_expires (expires_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
 -- Sessions (server-side). Each session is tied to a user + auth provider.
 CREATE TABLE IF NOT EXISTS session (
   id          VARCHAR(64)  PRIMARY KEY,
