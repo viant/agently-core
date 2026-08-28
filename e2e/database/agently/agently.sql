@@ -620,6 +620,28 @@ CREATE TABLE `user_oauth_token` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `oauth_link_state`
+--
+
+DROP TABLE IF EXISTS `oauth_link_state`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `oauth_link_state` (
+  `state_hash` varchar(64) NOT NULL,
+  `flow_hash` varchar(64) NOT NULL,
+  `user_id` varchar(255) NOT NULL,
+  `session_hash` varchar(64) NOT NULL,
+  `provider` varchar(128) NOT NULL,
+  `expires_at` datetime NOT NULL,
+  `consumed_at` datetime NULL DEFAULT NULL,
+  `created_at` datetime NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`state_hash`),
+  UNIQUE KEY `ux_oauth_link_state_flow` (`flow_hash`),
+  KEY `ix_oauth_link_state_expires` (`expires_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
 -- Dumping data for table `user_oauth_token`
 --
 

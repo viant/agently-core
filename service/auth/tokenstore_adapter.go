@@ -21,6 +21,11 @@ func (s *canonicalTokenStore) resolveOwner(ctx context.Context, username, provid
 	if s == nil || s.inner == nil {
 		return ""
 	}
+	// Delegated storage keys are always addressed by the canonical users.id
+	// directly; provider-based owner resolution must never run for them.
+	if IsDelegatedProviderKey(provider) {
+		return strings.TrimSpace(username)
+	}
 	cacheKey := strings.TrimSpace(provider) + "|" + strings.TrimSpace(username)
 	if cacheKey != "|" {
 		s.mu.RLock()
@@ -118,12 +123,21 @@ func (a *tokenStoreAdapter) Get(ctx context.Context, username, provider string) 
 		expiresAt = time.Time{}
 	}
 	return &token.OAuthToken{
-		Username:     t.Username,
-		Provider:     t.Provider,
-		AccessToken:  t.AccessToken,
-		IDToken:      t.IDToken,
-		RefreshToken: t.RefreshToken,
-		ExpiresAt:    expiresAt,
+		Username:         t.Username,
+		Provider:         t.Provider,
+		AccessToken:      t.AccessToken,
+		IDToken:          t.IDToken,
+		RefreshToken:     t.RefreshToken,
+		ExpiresAt:        expiresAt,
+		Issuer:           t.Issuer,
+		Resource:         t.Resource,
+		Scopes:           append([]string(nil), t.Scopes...),
+		TokenType:        t.TokenType,
+		Subject:          t.Subject,
+		ProviderRef:      t.ProviderRef,
+		ClientRef:        t.ClientRef,
+		IDTokenExpiresAt: t.IDTokenExpiresAt,
+		IssuedAt:         t.IssuedAt,
 	}, nil
 }
 
@@ -131,14 +145,32 @@ func (a *tokenStoreAdapter) Put(ctx context.Context, t *token.OAuthToken) error 
 	if t == nil {
 		return nil
 	}
-	return a.inner.Put(ctx, &OAuthToken{
-		Username:     t.Username,
-		Provider:     t.Provider,
-		AccessToken:  t.AccessToken,
-		IDToken:      t.IDToken,
-		RefreshToken: t.RefreshToken,
-		ExpiresAt:    t.ExpiresAt,
-	})
+	return a.inner.Put(ctx, serviceOAuthTokenFromInternal(t))
+}
+
+// serviceOAuthTokenFromInternal converts the internal mirrored token type into
+// the service representation, preserving all delegated metadata.
+func serviceOAuthTokenFromInternal(t *token.OAuthToken) *OAuthToken {
+	if t == nil {
+		return nil
+	}
+	return &OAuthToken{
+		Username:         t.Username,
+		Provider:         t.Provider,
+		AccessToken:      t.AccessToken,
+		IDToken:          t.IDToken,
+		RefreshToken:     t.RefreshToken,
+		ExpiresAt:        t.ExpiresAt,
+		Issuer:           t.Issuer,
+		Resource:         t.Resource,
+		Scopes:           append([]string(nil), t.Scopes...),
+		TokenType:        t.TokenType,
+		Subject:          t.Subject,
+		ProviderRef:      t.ProviderRef,
+		ClientRef:        t.ClientRef,
+		IDTokenExpiresAt: t.IDTokenExpiresAt,
+		IssuedAt:         t.IssuedAt,
+	}
 }
 
 func (a *tokenStoreAdapter) Delete(ctx context.Context, username, provider string) error {
@@ -157,12 +189,5 @@ func (a *tokenStoreAdapter) CASPut(ctx context.Context, t *token.OAuthToken, exp
 	if t == nil {
 		return false, nil
 	}
-	return a.inner.CASPut(ctx, &OAuthToken{
-		Username:     t.Username,
-		Provider:     t.Provider,
-		AccessToken:  t.AccessToken,
-		IDToken:      t.IDToken,
-		RefreshToken: t.RefreshToken,
-		ExpiresAt:    t.ExpiresAt,
-	}, expectedVersion, owner)
+	return a.inner.CASPut(ctx, serviceOAuthTokenFromInternal(t), expectedVersion, owner)
 }

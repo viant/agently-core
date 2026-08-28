@@ -137,6 +137,7 @@ type Builder struct {
 	stateStore        workspace.StateStore
 	tokenProvider     token.Provider
 	reportingService  *reportingsvc.Service
+	mcpDelegatedAuth  *svcauth.DelegatedMCPAuth
 }
 
 func resolveReportingStoreDefaults(defaults *config.Defaults) config.ReportingStoreDefaults {
@@ -313,6 +314,18 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if b.tokenProvider == nil {
 		b.tokenProvider = svcauth.NewCreatedByUserTokenProvider(out.AuthConfig, out.DAO)
 	}
+	// Delegated MCP OAuth (auth.mode=oauth with providerRef/inlineProvider):
+	// build the workspace provider registry and credential resolver so the MCP
+	// manager can install them for delegated configs only. Legacy MCP auth is
+	// untouched when this stays nil.
+	if b.mcpDelegatedAuth == nil {
+		b.mcpDelegatedAuth = svcauth.NewDelegatedMCPAuth(out.AuthConfig, out.DAO)
+		if b.mcpDelegatedAuth != nil && out.DAO != nil {
+			// Gate delegated resolution and background refresh on the canonical
+			// user's active status: disabled/deleted users fail closed.
+			b.mcpDelegatedAuth.SetUserLookup(svcauth.NewDatlyUserService(out.DAO))
+		}
+	}
 
 	out.Conversation = b.conversation
 	if out.Conversation == nil {
@@ -354,6 +367,21 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			return nil, err
 		}
 		out.Registry = reg
+	}
+	// After a delegated MCP credential change (link/disconnect through the
+	// hosted auth endpoints), evict the affected user's pooled MCP clients and
+	// the registry discovery cooldown so the next call uses the new
+	// credential. EffectiveUserID, sessions and the workspace provider are
+	// untouched.
+	if manager, registry := out.MCPManager, out.Registry; manager != nil {
+		delegatedAuth := b.mcpDelegatedAuth
+		svcauth.RegisterMCPAuthChangeListener(func(event svcauth.MCPAuthChangeEvent) {
+			manager.EvictUserServer(event.EffectiveUserID, event.ServerName)
+			if invalidator, ok := registry.(interface{ EvictDelegatedAuthState(server string) }); ok {
+				invalidator.EvictDelegatedAuthState(event.ServerName)
+			}
+			delegatedAuth.ClearResolverCooldown(event.CanonicalUserID, event.StorageKey)
+		})
 	}
 	if out.Defaults.ToolExecutionProtection.Enabled {
 		guard, err := executionprotection.New(
@@ -648,6 +676,12 @@ func (b *Builder) newDefaultMCPManager(conv conversation.Client, elicitation *el
 	}
 	if b.tokenProvider != nil {
 		opts = append(opts, mcpmgr.WithTokenProvider(b.tokenProvider))
+	}
+	if b.mcpDelegatedAuth != nil {
+		opts = append(opts,
+			mcpmgr.WithCredentialResolver(b.mcpDelegatedAuth.Resolver()),
+			mcpmgr.WithProviderRegistry(b.mcpDelegatedAuth.Registry()),
+		)
 	}
 	return mcpmgr.New(mcpmgr.NewRepoProvider(), opts...)
 }

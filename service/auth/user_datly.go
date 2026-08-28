@@ -36,6 +36,15 @@ func (s *DatlyUserService) GetByUsername(ctx context.Context, username string) (
 	return s.lookupByID(ctx, username)
 }
 
+// GetByID resolves a canonical user by users.id, including its active status.
+// It implements UserByIDLookup for delegated-credential active checks.
+func (s *DatlyUserService) GetByID(ctx context.Context, id string) (*User, error) {
+	if s == nil || s.dao == nil || strings.TrimSpace(id) == "" {
+		return nil, nil
+	}
+	return s.lookupByID(ctx, strings.TrimSpace(id))
+}
+
 func (s *DatlyUserService) GetBySubjectAndProvider(ctx context.Context, subject, provider string) (*User, error) {
 	if s == nil || s.dao == nil || strings.TrimSpace(subject) == "" || strings.TrimSpace(provider) == "" {
 		return nil, nil
@@ -48,7 +57,7 @@ func (s *DatlyUserService) GetBySubjectAndProvider(ctx context.Context, subject,
 	if err != nil {
 		return nil, err
 	}
-	const query = `SELECT id, username, display_name, email, provider, subject, settings
+	const query = `SELECT id, username, display_name, email, provider, subject, settings, disabled
 FROM users
 WHERE subject = ? AND provider = ?
 LIMIT 1`
@@ -59,13 +68,15 @@ LIMIT 1`
 		emailVal   sql.NullString
 		subjectVal sql.NullString
 		settings   sql.NullString
+		disabled   sql.NullInt64
 	)
-	if err := row.Scan(&user.ID, &user.Username, &display, &emailVal, &user.Provider, &subjectVal, &settings); err != nil {
+	if err := row.Scan(&user.ID, &user.Username, &display, &emailVal, &user.Provider, &subjectVal, &settings, &disabled); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
 		return nil, err
 	}
+	user.Disabled = disabled.Valid && disabled.Int64 != 0
 	user.DisplayName = strings.TrimSpace(firstNonEmpty(display.String, user.Username))
 	user.Email = strings.TrimSpace(emailVal.String)
 	user.Subject = strings.TrimSpace(subjectVal.String)
@@ -312,6 +323,7 @@ func (s *DatlyUserService) lookup(ctx context.Context, in *userread.UserInput) (
 			Provider:    strings.TrimSpace(item.Provider),
 			Subject:     strings.TrimSpace(stringValue(item.Subject)),
 			Preferences: preferences,
+			Disabled:    item.Disabled != 0,
 		}, nil
 	}
 	return nil, nil

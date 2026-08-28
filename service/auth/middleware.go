@@ -146,6 +146,9 @@ func Protect(cfg *Config, sessions *Manager, opts ...ProtectOption) func(http.Ha
 								Subject: subject,
 								Email:   email,
 							})
+							if canonical := strings.TrimSpace(sess.UserID); canonical != "" {
+								ctx = iauth.WithCanonicalUserID(ctx, canonical)
+							}
 							if sess.Tokens != nil {
 								ctx = iauth.WithTokens(ctx, sess.Tokens)
 								if sess.Tokens.AccessToken != "" {

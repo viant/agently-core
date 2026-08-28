@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	token "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/authlog"
 	"github.com/viant/agently-core/internal/logx"
 	sessionread "github.com/viant/agently-core/pkg/agently/user/session"
@@ -77,11 +78,20 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 	opts := make([]HandlerOption, 0, 2)
 
 	var tokenStore TokenStore
-	if dao != nil && cfg.OAuth != nil && cfg.OAuth.Client != nil {
-		if configURL := strings.TrimSpace(cfg.OAuth.Client.ConfigURL); configURL != "" {
-			tokenStore = NewTokenStoreDAO(dao, configURL)
+	if dao != nil {
+		configURL := ""
+		if cfg.OAuth != nil && cfg.OAuth.Client != nil {
+			configURL = strings.TrimSpace(cfg.OAuth.Client.ConfigURL)
+		}
+		// The delegated salt lets the store decrypt delegated (mcp:v1) rows
+		// even when they are keyed differently from workspace rows, and it
+		// enables the token store for JWT/local-auth workspaces that have no
+		// OAuth client but configure auth.tokenEncryptionKey.
+		delegatedSalt := cfg.DelegatedTokenEncryptionSalt()
+		if configURL != "" || delegatedSalt != "" {
+			tokenStore = NewTokenStoreDAO(dao, firstNonEmpty(configURL, delegatedSalt), WithDelegatedSalt(delegatedSalt))
 			opts = append(opts, WithTokenStore(tokenStore))
-			logx.Debugf("auth-token", "runtime token store enabled provider=%q", firstNonEmpty(strings.TrimSpace(cfg.OAuth.Name), "oauth"))
+			logx.Debugf("auth-token", "runtime token store enabled provider=%q", firstNonEmpty(strings.TrimSpace(configuredOAuthProvider(cfg)), "oauth"))
 		}
 	}
 	var users UserService
@@ -144,6 +154,25 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 		jwtService:  jwtService,
 		handlerOpts: opts,
 		ext:         newAuthExtension(cfg, sessions, strings.TrimSpace(jwtPrivateKeyPath(cfg)), tokenStore, users),
+	}
+	// Enable delegated-row routing for the background watcher: without this,
+	// rows stored under delegated provider keys are skipped without mutation.
+	if delegated := NewDelegatedMCPAuth(cfg, dao); delegated != nil {
+		if users != nil {
+			delegated.SetUserLookup(users)
+		}
+		runtime.delegatedRefresher = delegated.TokenRefresher()
+		// Delegated MCP OAuth link endpoints: register the oauth_link_state
+		// Datly components and expose the state store through the narrow
+		// OAuthStateStore adapter. HTTP handlers never touch database/sql.
+		if dao != nil && runtime.ext != nil {
+			if err := DefineOAuthLinkStateComponents(ctx, dao); err != nil {
+				return nil, err
+			}
+			if states := NewOAuthStateStoreDatly(dao); states != nil {
+				runtime.ext.mcpLink = newMCPLinkService(cfg, delegated, states, nil, users)
+			}
+		}
 	}
 	runtime.stopRefresh = runtime.startTokenRefreshWatcher(ctx)
 	return runtime, nil
@@ -213,6 +242,9 @@ func expandAuthEnvTemplates(cfg *Config) {
 	cfg.DefaultUsername = expandAuthEnvString(cfg.DefaultUsername)
 	cfg.IpHashKey = expandAuthEnvString(cfg.IpHashKey)
 	cfg.RedirectPath = expandAuthEnvString(cfg.RedirectPath)
+	cfg.TokenEncryptionKey = expandAuthEnvString(cfg.TokenEncryptionKey)
+	cfg.StateEncryptionKey = expandAuthEnvString(cfg.StateEncryptionKey)
+	cfg.StateEncryptionKeyPrevious = expandAuthEnvString(cfg.StateEncryptionKeyPrevious)
 	for i := range cfg.TrustedProxies {
 		cfg.TrustedProxies[i] = expandAuthEnvString(cfg.TrustedProxies[i])
 	}
@@ -291,9 +323,12 @@ func jwtPrivateKeyPath(cfg *Config) string {
 	return strings.TrimSpace(cfg.JWT.RSAPrivateKey)
 }
 
+// tokenRefreshLead returns the workspace refresh lead. The default is the
+// shared 15-minute lead applied to every provider; provider-aware code
+// computes the effective (lifetime-clamped) lead before invoking a broker.
 func (c *Config) tokenRefreshLead() time.Duration {
 	if c == nil || c.TokenRefreshLeadMinutes <= 0 {
-		return 30 * time.Minute
+		return token.DefaultRefreshLead
 	}
 	return time.Duration(c.TokenRefreshLeadMinutes) * time.Minute
 }

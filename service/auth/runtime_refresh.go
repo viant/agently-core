@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	itoken "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/authlog"
 	"github.com/viant/agently-core/internal/logx"
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
@@ -273,14 +274,24 @@ func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvail
 	}
 	if tokenStore != nil {
 		storeCtx, cancel := authStoreContext(ctx)
-		err := tokenStore.Put(storeCtx, &OAuthToken{
-			Username:     owner.id,
-			Provider:     provider,
-			AccessToken:  refreshed.AccessToken,
-			IDToken:      refreshedIDToken,
-			RefreshToken: refreshed.RefreshToken,
-			ExpiresAt:    refreshed.Expiry,
-		})
+		candidate := &OAuthToken{
+			Username:         owner.id,
+			Provider:         provider,
+			AccessToken:      refreshed.AccessToken,
+			IDToken:          refreshedIDToken,
+			RefreshToken:     refreshed.RefreshToken,
+			ExpiresAt:        refreshed.Expiry,
+			IDTokenExpiresAt: oauthJWTExpiry(refreshedIDToken),
+			IssuedAt:         time.Now(),
+		}
+		// Preserve stored credential metadata across the refresh write — but
+		// only from the exact same provider row. Get may legacy-fall-back to a
+		// different provider, and delegated (mcp:v1) metadata must never be
+		// copied into a workspace token.
+		if prior, pErr := tokenStore.Get(storeCtx, owner.id, provider); pErr == nil && mergeableRefreshPrior(prior, provider) {
+			candidate.MergeMetadataFrom(prior)
+		}
+		err := tokenStore.Put(storeCtx, candidate)
 		cancel()
 		if err != nil {
 			authlog.Log(ctx, authlog.Event{
@@ -343,6 +354,53 @@ func oauthJWTExpired(token string, now time.Time) bool {
 	}
 	expiresAt, ok := claimUnixTime(parseJWTClaims(token), "exp")
 	return ok && !expiresAt.After(now.Add(30*time.Second))
+}
+
+// oauthJWTExpiry returns the exp claim of a JWT-shaped token; zero when the
+// token is empty or carries no parseable exp.
+func oauthJWTExpiry(token string) time.Time {
+	if strings.TrimSpace(token) == "" {
+		return time.Time{}
+	}
+	if expiresAt, ok := claimUnixTime(parseJWTClaims(token), "exp"); ok {
+		return expiresAt
+	}
+	return time.Time{}
+}
+
+// mergeableRefreshPrior reports whether a row loaded while refreshing
+// (provider) may donate metadata to the refresh candidate. It requires an
+// exact provider match — the legacy Get fallback may serve another provider's
+// row — and refuses delegated (mcp:v1) rows outright so delegated metadata can
+// never be copied into a workspace token.
+func mergeableRefreshPrior(prior *OAuthToken, provider string) bool {
+	if prior == nil {
+		return false
+	}
+	if IsDelegatedProviderKey(prior.Provider) {
+		return false
+	}
+	return strings.TrimSpace(prior.Provider) == strings.TrimSpace(provider)
+}
+
+// storedTokenLifetime derives the original access-token lifetime for the
+// refresh-policy 20% clamp: the persisted issued-at metadata when present,
+// otherwise the iat claim of a JWT access token. Zero when unavailable — the
+// policy then applies the configured lead with a per-token cooldown.
+func storedTokenLifetime(tok *OAuthToken) time.Duration {
+	if tok == nil || tok.ExpiresAt.IsZero() {
+		return 0
+	}
+	issued := tok.IssuedAt
+	if issued.IsZero() {
+		if iat, ok := claimUnixTime(parseJWTClaims(tok.AccessToken), "iat"); ok {
+			issued = iat
+		}
+	}
+	if issued.IsZero() || !tok.ExpiresAt.After(issued) {
+		return 0
+	}
+	return tok.ExpiresAt.Sub(issued)
 }
 
 func tokenFingerprint(token string) string {
@@ -409,7 +467,7 @@ func (r *Runtime) startTokenRefreshWatcher(ctx context.Context) func() {
 	}
 	lead := r.cfg.tokenRefreshLead()
 	if lead <= 0 {
-		lead = 30 * time.Minute
+		lead = itoken.DefaultRefreshLead
 	}
 	interval, overrideActive := tokenRefreshWatchInterval(lead)
 	logx.Debugf("token-watcher", "starting lead=%s interval=%s override_active=%t", lead, interval, overrideActive)
@@ -420,6 +478,7 @@ func (r *Runtime) startTokenRefreshWatcher(ctx context.Context) func() {
 		time.Sleep(10 * time.Second)
 		r.refreshExpiringSessions(watcherCtx)
 		r.refreshTokenStore(watcherCtx)
+		r.cleanupOAuthLinkState(watcherCtx)
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -427,6 +486,7 @@ func (r *Runtime) startTokenRefreshWatcher(ctx context.Context) func() {
 			case <-ticker.C:
 				r.refreshExpiringSessions(watcherCtx)
 				r.refreshTokenStore(watcherCtx)
+				r.cleanupOAuthLinkState(watcherCtx)
 			case <-done:
 				return
 			case <-watcherCtx.Done():
@@ -435,6 +495,16 @@ func (r *Runtime) startTokenRefreshWatcher(ctx context.Context) func() {
 		}
 	}()
 	return func() { close(done) }
+}
+
+// cleanupOAuthLinkState is the maintenance-loop owner of oauth_link_state
+// expiry cleanup; the service records deleted-row count and oldest-expired
+// age metrics.
+func (r *Runtime) cleanupOAuthLinkState(ctx context.Context) {
+	if r == nil || r.ext == nil || r.ext.mcpLink == nil {
+		return
+	}
+	r.ext.mcpLink.cleanupExpiredStates(ctx)
 }
 
 func tokenRefreshWatchInterval(lead time.Duration) (time.Duration, bool) {
@@ -495,8 +565,12 @@ func (r *Runtime) refreshExpiringSessions(ctx context.Context) {
 }
 
 // refreshTokenStore proactively refreshes tokens stored in the persistent token
-// store that are expiring soon but have no active in-memory session. This covers
-// users who are idle (tab open, no requests) but whose tokens will soon expire.
+// store that are expiring soon but have no active in-memory session. It covers
+// every supported provider: workspace rows use the legacy workspace refresh
+// path; delegated rows route to their exact provider broker through the
+// installed DelegatedTokenRefresher. Unknown providers, malformed metadata and
+// missing routing are skipped without modifying stored credentials, and a
+// failure for one row never stops the others.
 func (r *Runtime) refreshTokenStore(ctx context.Context) {
 	if r == nil || r.ext == nil {
 		return
@@ -505,7 +579,9 @@ func (r *Runtime) refreshTokenStore(ctx context.Context) {
 	if !ok || scanner == nil {
 		return
 	}
-	horizon := time.Now().Add(r.cfg.tokenRefreshLead())
+	// The persistent scan uses the largest configured lead as its broad
+	// horizon; each candidate is then evaluated with its own provider policy.
+	horizon := time.Now().Add(r.storeScanHorizon(ctx))
 	tokens, err := scanner.ScanExpiring(ctx, horizon)
 	if err != nil {
 		authlog.Log(ctx, authlog.Event{
@@ -519,12 +595,51 @@ func (r *Runtime) refreshTokenStore(ctx context.Context) {
 	if len(tokens) == 0 {
 		return
 	}
-	var refreshed int
+	var refreshed, delegated, skipped int
 	for _, tok := range tokens {
 		if tok == nil || tok.RefreshToken == "" {
 			continue
 		}
-		// Build a minimal session to drive the existing refresh path.
+		provider := strings.TrimSpace(tok.Provider)
+		if IsDelegatedProviderKey(provider) {
+			// Delegated rows may be processed only after routing is deployed;
+			// without a refresher they are skipped without mutation and are
+			// never sent to the workspace refresh path.
+			if r.delegatedRefresher == nil {
+				skipped++
+				continue
+			}
+			if err := r.delegatedRefresher.RefreshStoredDelegatedToken(ctx, tok); err != nil {
+				authlog.Log(ctx, authlog.Event{
+					Op:             "store_refresh_delegated",
+					UserID:         strings.TrimSpace(tok.Username),
+					Provider:       strings.TrimSpace(tok.ProviderRef),
+					Classification: "delegated_auth",
+					Action:         "preserve",
+					Err:            err,
+				})
+			} else {
+				delegated++
+			}
+			continue
+		}
+		if !IsWorkspaceProviderAlias(r.cfg, provider) {
+			// Unknown provider rows are reported and skipped; they must never
+			// reach the workspace broker or be mutated.
+			skipped++
+			authlog.Log(ctx, authlog.Event{
+				Op:             "store_refresh_unknown_provider",
+				UserID:         strings.TrimSpace(tok.Username),
+				Provider:       provider,
+				Classification: "provider_routing",
+				Action:         "skip_no_mutation",
+			})
+			continue
+		}
+		if !itoken.ShouldRefresh(time.Now(), tok.ExpiresAt, r.cfg.tokenRefreshLead(), storedTokenLifetime(tok)) {
+			continue
+		}
+		// Build a minimal session to drive the existing workspace refresh path.
 		sess := &Session{
 			ID: "store-refresh-" + tok.Username,
 
@@ -544,7 +659,22 @@ func (r *Runtime) refreshTokenStore(ctx context.Context) {
 			refreshed++
 		}
 	}
-	if len(tokens) > 0 {
-		logx.Debugf("token-watcher", "store_scan=%d store_refreshed=%d", len(tokens), refreshed)
+	logx.Debugf("token-watcher", "store_scan=%d store_refreshed=%d delegated_refreshed=%d skipped=%d",
+		len(tokens), refreshed, delegated, skipped)
+}
+
+// storeScanHorizon returns the broad watcher horizon: the maximum of the
+// workspace lead, every provider-configured lead, and the shared default so
+// the workspace lead never excludes another provider's rows.
+func (r *Runtime) storeScanHorizon(ctx context.Context) time.Duration {
+	horizon := r.cfg.tokenRefreshLead()
+	if horizon < itoken.DefaultRefreshLead {
+		horizon = itoken.DefaultRefreshLead
 	}
+	if r.delegatedRefresher != nil {
+		if lead := r.delegatedRefresher.MaxRefreshLead(ctx); lead > horizon {
+			horizon = lead
+		}
+	}
+	return horizon
 }

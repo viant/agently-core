@@ -17,9 +17,47 @@ type Config struct {
 	IpHashKey               string   `yaml:"ipHashKey" json:"ipHashKey"`
 	TrustedProxies          []string `yaml:"trustedProxies" json:"trustedProxies"`
 	RedirectPath            string   `yaml:"redirectPath" json:"redirectPath"`
-	OAuth                   *OAuth   `yaml:"oauth" json:"oauth"`
-	Local                   *Local   `yaml:"local" json:"local"`
-	JWT                     *JWT     `yaml:"jwt,omitempty" json:"jwt,omitempty"`
+	// WorkspaceNamespace is the immutable identifier mixed into delegated MCP
+	// token storage keys. It is not a filesystem path or display name;
+	// changing it requires an explicit token-key migration. Empty selects
+	// "default".
+	WorkspaceNamespace string `yaml:"workspaceNamespace,omitempty" json:"workspaceNamespace,omitempty"`
+	// TokenEncryptionKey is the explicit (env-expandable) encryption key for
+	// delegated MCP token storage. When empty, delegated storage falls back to
+	// the legacy workspace OAuth client configURL-derived salt. It lets
+	// JWT/local-auth workspaces (no OAuth client) use delegated MCP OAuth.
+	TokenEncryptionKey string `yaml:"tokenEncryptionKey,omitempty" json:"tokenEncryptionKey,omitempty"`
+	// StateEncryptionKey is the active AEAD key material for delegated MCP
+	// OAuth callback state (env-expandable). When empty, the delegated token
+	// encryption salt is used. StateEncryptionKeyPrevious keeps the retired
+	// key decryptable for at least the state TTL plus clock skew after a
+	// rotation; new state always seals with the active key.
+	StateEncryptionKey         string `yaml:"stateEncryptionKey,omitempty" json:"stateEncryptionKey,omitempty"`
+	StateEncryptionKeyPrevious string `yaml:"stateEncryptionKeyPrevious,omitempty" json:"stateEncryptionKeyPrevious,omitempty"`
+	// MCPLinkStateTTLMinutes bounds the delegated MCP OAuth state lifetime;
+	// values are clamped to the mandated 5–10 minute window (default 7).
+	MCPLinkStateTTLMinutes int    `yaml:"mcpLinkStateTTLMinutes,omitempty" json:"mcpLinkStateTTLMinutes,omitempty"`
+	OAuth                  *OAuth `yaml:"oauth" json:"oauth"`
+	Local                  *Local `yaml:"local" json:"local"`
+	JWT                    *JWT   `yaml:"jwt,omitempty" json:"jwt,omitempty"`
+}
+
+// DelegatedTokenEncryptionSalt returns the salt encrypting delegated MCP
+// token rows: the explicit auth.tokenEncryptionKey when configured, otherwise
+// the legacy workspace OAuth client configURL. Empty means delegated storage
+// has no usable key; delegated configuration must then fail loudly rather
+// than silently disable.
+func (c *Config) DelegatedTokenEncryptionSalt() string {
+	if c == nil {
+		return ""
+	}
+	if key := strings.TrimSpace(c.TokenEncryptionKey); key != "" {
+		return key
+	}
+	if c.OAuth != nil && c.OAuth.Client != nil {
+		return strings.TrimSpace(c.OAuth.Client.ConfigURL)
+	}
+	return ""
 }
 
 type OAuth struct {

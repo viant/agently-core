@@ -24,13 +24,24 @@ func NewCreatedByUserTokenProvider(cfg *Config, dao *datly.Service) token.Provid
 	if configURL == "" {
 		return nil
 	}
-	store := NewTokenStoreDAO(dao, configURL)
+	store := NewTokenStoreDAO(dao, configURL, WithDelegatedSalt(cfg.DelegatedTokenEncryptionSalt()))
 	users := NewDatlyUserService(dao)
 	canonicalStore := &canonicalTokenStore{inner: store, users: users}
-	broker := &oauthRefreshBroker{
+	workspaceBroker := &oauthRefreshBroker{
 		configURL: configURL,
 		store:     canonicalStore,
 		client:    cfg.OAuth.Client,
+	}
+	// One token.Manager serves every provider. Refreshes route by provider:
+	// workspace aliases go to the workspace broker; anything else (including
+	// delegated storage keys, which refresh through the delegated resolver)
+	// fails with ErrNoBrokerForProvider — a routing condition the manager
+	// treats as transient, never as invalid_grant, so rows are never deleted.
+	broker := &token.RoutingBroker{
+		Workspace: workspaceBroker,
+		IsWorkspaceAlias: func(provider string) bool {
+			return IsWorkspaceProviderAlias(cfg, provider)
+		},
 	}
 	return token.NewManager(
 		token.WithBroker(broker),

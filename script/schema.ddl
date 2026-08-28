@@ -394,6 +394,24 @@ CREATE TABLE IF NOT EXISTS user_oauth_token (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+-- Distributed single-use OAuth link state for delegated MCP OAuth callbacks.
+-- Holds only non-secret hashes and flow metadata: never authorization codes,
+-- PKCE verifiers, client secrets or tokens.
+CREATE TABLE IF NOT EXISTS oauth_link_state (
+    state_hash TEXT NOT NULL,
+    flow_hash TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    session_hash TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    expires_at DATETIME NOT NULL,
+    consumed_at DATETIME,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (state_hash)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS ux_oauth_link_state_flow ON oauth_link_state(flow_hash);
+CREATE INDEX IF NOT EXISTS ix_oauth_link_state_expires ON oauth_link_state(expires_at);
+
 CREATE TABLE IF NOT EXISTS generated_file (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL,

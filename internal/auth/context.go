@@ -12,12 +12,13 @@ import (
 
 // ctx keys use unexported distinct types to avoid collisions.
 type (
-	bearerKey   struct{}
-	userInfoKey struct{}
-	idTokenKey  struct{}
-	tokensKey   struct{}
-	providerKey struct{}
-	tokenMask   struct{}
+	bearerKey        struct{}
+	userInfoKey      struct{}
+	idTokenKey       struct{}
+	tokensKey        struct{}
+	providerKey      struct{}
+	tokenMask        struct{}
+	canonicalUserKey struct{}
 )
 
 // UserInfo carries minimal identity extracted from a bearer token.
@@ -184,6 +185,31 @@ func User(ctx context.Context) *UserInfo {
 		return &v
 	}
 	return nil
+}
+
+// WithCanonicalUserID stores the canonical Agently users.id resolved for the
+// verified workspace identity. It is a persistence identity only: it never
+// replaces EffectiveUserID, which stays on the workspace provider
+// subject/email for the entire request lifetime.
+func WithCanonicalUserID(ctx context.Context, id string) context.Context {
+	if ctx == nil || strings.TrimSpace(id) == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, canonicalUserKey{}, strings.TrimSpace(id))
+}
+
+// CanonicalUserID returns the canonical Agently users.id from context, or an
+// empty string when no canonical owner has been resolved. Callers persisting
+// delegated (per-provider) credentials must fail closed on empty results and
+// must never fall back to EffectiveUserID.
+func CanonicalUserID(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	if v, ok := ctx.Value(canonicalUserKey{}).(string); ok {
+		return strings.TrimSpace(v)
+	}
+	return ""
 }
 
 // EffectiveUserID returns a stable user identifier from context (subject or email).

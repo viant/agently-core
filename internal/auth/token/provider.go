@@ -28,7 +28,9 @@ type Provider interface {
 }
 
 // OAuthToken represents a stored OAuth token set for a user/provider pair.
-// This mirrors service/auth.OAuthToken to avoid import cycles.
+// This mirrors service/auth.OAuthToken to avoid import cycles. The metadata
+// fields are optional for legacy workspace rows; conversions and refresh/CAS
+// paths must preserve them when present.
 type OAuthToken struct {
 	Username     string
 	Provider     string
@@ -36,6 +38,57 @@ type OAuthToken struct {
 	IDToken      string
 	RefreshToken string
 	ExpiresAt    time.Time
+
+	Issuer      string
+	Resource    string
+	Scopes      []string
+	TokenType   string
+	Subject     string
+	ProviderRef string
+	ClientRef   string
+	// IDTokenExpiresAt mirrors the verified ID-token exp; ExpiresAt remains
+	// the access-token expiry for compatibility.
+	IDTokenExpiresAt time.Time
+	// IssuedAt records when the token set was obtained; the refresh policy
+	// derives the original selected-token lifetime from it.
+	IssuedAt time.Time
+}
+
+// MergeMetadataFrom copies missing metadata fields from prior. Populated
+// fields on the receiver win (e.g. an authoritative refreshed scope set).
+func (t *OAuthToken) MergeMetadataFrom(prior *OAuthToken) {
+	if t == nil || prior == nil {
+		return
+	}
+	if t.Issuer == "" {
+		t.Issuer = prior.Issuer
+	}
+	if t.Resource == "" {
+		t.Resource = prior.Resource
+	}
+	if len(t.Scopes) == 0 && len(prior.Scopes) > 0 {
+		t.Scopes = append([]string(nil), prior.Scopes...)
+	}
+	if t.TokenType == "" {
+		t.TokenType = prior.TokenType
+	}
+	if t.Subject == "" {
+		t.Subject = prior.Subject
+	}
+	if t.ProviderRef == "" {
+		t.ProviderRef = prior.ProviderRef
+	}
+	if t.ClientRef == "" {
+		t.ClientRef = prior.ClientRef
+	}
+	if t.IssuedAt.IsZero() {
+		t.IssuedAt = prior.IssuedAt
+	}
+	// The ID-token expiry belongs to one specific ID token value: carry it
+	// over only when the receiver retained exactly the prior ID token.
+	if t.IDTokenExpiresAt.IsZero() && t.IDToken != "" && t.IDToken == prior.IDToken {
+		t.IDTokenExpiresAt = prior.IDTokenExpiresAt
+	}
 }
 
 // TokenStore abstracts encrypted OAuth token persistence.
@@ -320,7 +373,9 @@ func (m *Manager) Store(ctx context.Context, key Key, tok *scyauth.Token) error 
 		expiry = time.Now().Add(1 * time.Hour)
 	}
 	if m.store != nil {
-		if err := m.store.Put(ctx, scyToOAuthToken(key, tok)); err != nil {
+		persisted := scyToOAuthToken(key, tok)
+		persisted.IssuedAt = time.Now()
+		if err := m.store.Put(ctx, persisted); err != nil {
 			authlog.Log(ctx, authlog.Event{
 				Op:             "scheduler_store_put",
 				UserID:         strings.TrimSpace(key.Subject),
@@ -475,7 +530,7 @@ func (m *Manager) serializedRefresh(ctx context.Context, key Key, refreshToken s
 
 	// Update persistent store.
 	if m.store != nil {
-		if err := m.store.Put(ctx, scyToOAuthToken(key, tok)); err != nil {
+		if err := m.store.Put(ctx, m.persistableRefreshToken(ctx, key, tok)); err != nil {
 			authlog.Log(ctx, authlog.Event{
 				Op:             "scheduler_store_put_candidate",
 				UserID:         strings.TrimSpace(key.Subject),
@@ -489,6 +544,27 @@ func (m *Manager) serializedRefresh(ctx context.Context, key Key, refreshToken s
 	m.cacheToken(key, tok, expiry)
 
 	return tok, nil
+}
+
+// persistableRefreshToken builds the persistable row for a refresh result.
+// scyauth.Token cannot carry delegated credential metadata, so the previously
+// stored row's issuer/resource/scopes/tokenType/subject are re-attached — a
+// refresh must never drop stored delegated metadata through Put or CASPut.
+//
+// The merge requires an exact provider match: legacy Get implementations may
+// fall back to a different provider row, and metadata from another provider —
+// in particular a delegated (mcp:v1) row — must never be copied into a
+// workspace token.
+func (m *Manager) persistableRefreshToken(ctx context.Context, key Key, tok *scyauth.Token) *OAuthToken {
+	next := scyToOAuthToken(key, tok)
+	next.IssuedAt = time.Now()
+	if m != nil && m.store != nil {
+		if prior, err := m.store.Get(ctx, key.Subject, key.Provider); err == nil && prior != nil &&
+			strings.TrimSpace(prior.Provider) == strings.TrimSpace(key.Provider) {
+			next.MergeMetadataFrom(prior)
+		}
+	}
+	return next
 }
 
 // distributedRefresh coordinates token refresh across multiple pods using a DB-level lease.
@@ -566,7 +642,7 @@ func (m *Manager) distributedRefresh(ctx context.Context, key Key, refreshToken 
 	}
 
 	// CAS-write the new token — only succeeds if version hasn't changed.
-	oauthTok := scyToOAuthToken(key, tok)
+	oauthTok := m.persistableRefreshToken(ctx, key, tok)
 	swapped, err := m.store.CASPut(ctx, oauthTok, version, owner)
 	if err != nil {
 		if releaseErr := m.store.ReleaseRefreshLease(ctx, key.Subject, key.Provider, owner); releaseErr != nil {
@@ -626,7 +702,7 @@ func (m *Manager) localRefresh(ctx context.Context, key Key, refreshToken string
 		expiry = time.Now().Add(1 * time.Hour)
 	}
 	if m.store != nil {
-		if err := m.store.Put(ctx, scyToOAuthToken(key, tok)); err != nil {
+		if err := m.store.Put(ctx, m.persistableRefreshToken(ctx, key, tok)); err != nil {
 			authlog.Log(ctx, authlog.Event{
 				Op:             "scheduler_store_put_candidate",
 				UserID:         strings.TrimSpace(key.Subject),

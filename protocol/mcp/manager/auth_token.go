@@ -30,11 +30,35 @@ func (m *Manager) UseIDToken(ctx context.Context, serverName string) bool {
 	return cfg.ClientOptions.Auth.UseIdToken
 }
 
+// IsDelegatedAuth reports whether the MCP server config selects delegated
+// OAuth (auth.mode=oauth with providerRef/inlineProvider). Delegated servers
+// resolve credentials exclusively through the installed CredentialResolver:
+// workspace tokens must never be injected for them.
+func (m *Manager) IsDelegatedAuth(ctx context.Context, serverName string) bool {
+	if m == nil {
+		return false
+	}
+	name := strings.TrimSpace(serverName)
+	if name == "" {
+		return false
+	}
+	cfg, err := m.Options(ctx, name)
+	if err != nil || cfg == nil {
+		return false
+	}
+	return cfg.IsDelegatedAuth()
+}
+
 // WithAuthTokenContext injects the selected auth token into context under the
 // MCP auth transport key so HTTP transports can emit the appropriate Bearer header.
 // This is a best-effort helper; when no token is available it returns ctx as-is.
+// Delegated servers are excluded: the parent context is returned unchanged so
+// the workspace bearer/ID token can never reach a delegated MCP transport.
 func (m *Manager) WithAuthTokenContext(ctx context.Context, serverName string) context.Context {
 	if ctx == nil || m == nil {
+		return ctx
+	}
+	if m.IsDelegatedAuth(ctx, serverName) {
 		return ctx
 	}
 	debugMCPAuthEnsure(serverName, ctx, "before_ensure", m.UseIDToken(ctx, serverName))

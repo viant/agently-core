@@ -24,10 +24,16 @@ type Runtime struct {
 	retryMu         sync.Mutex
 	retryAtByID     map[string]time.Time
 	loggedRetryByID map[string]time.Time
+
+	delegatedRefresher DelegatedTokenRefresher
 }
 
 type runtimeAuthUser struct {
 	EffectiveUserID string
+	// CanonicalUserID is the Agently users.id resolved for the verified
+	// workspace identity; it is a persistence identity only and never
+	// replaces EffectiveUserID.
+	CanonicalUserID string
 	Subject         string
 	Email           string
 	Provider        string
@@ -59,6 +65,9 @@ func withRuntimeAuthUser(ctx context.Context, user *runtimeAuthUser) context.Con
 	}
 	ctx = context.WithValue(ctx, runtimeAuthContextKey{}, *user)
 	ctx = InjectUser(ctx, user.effectiveUserID())
+	if strings.TrimSpace(user.CanonicalUserID) != "" {
+		ctx = iauth.WithCanonicalUserID(ctx, user.CanonicalUserID)
+	}
 	if strings.TrimSpace(user.Provider) != "" {
 		ctx = iauth.WithProvider(ctx, user.Provider)
 	}
@@ -66,6 +75,26 @@ func withRuntimeAuthUser(ctx context.Context, user *runtimeAuthUser) context.Con
 		ctx = InjectTokens(ctx, user.Tokens)
 	}
 	return ctx
+}
+
+// canonicalResolver returns the shared canonical workspace-user resolver used
+// by both session and verified-bearer identity paths. It is owned by the auth
+// extension so both entry paths share one cache and one set of checks.
+func (r *Runtime) canonicalResolver() *CanonicalUserResolver {
+	if r == nil || r.ext == nil {
+		return nil
+	}
+	return r.ext.canonical
+}
+
+// SetDelegatedTokenRefresher installs the delegated (per-provider) refresher
+// used by the background watcher for rows stored under delegated provider
+// keys. Until it is installed, delegated rows are skipped without mutation.
+func (r *Runtime) SetDelegatedTokenRefresher(refresher DelegatedTokenRefresher) {
+	if r == nil {
+		return
+	}
+	r.delegatedRefresher = refresher
 }
 
 func (u *runtimeAuthUser) effectiveUserID() string {

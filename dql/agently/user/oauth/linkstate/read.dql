@@ -1,0 +1,18 @@
+#define($_ = $Status<?>(output/status))
+#define($_ = $Data<?>(output/view))
+#define($_ = $Metrics<?>(output/metrics))
+
+#define($_ = $FlowHash<string>(query/flowHash).Required().WithPredicate(0, 'expr', 't.flow_hash = ? AND t.consumed_at IS NULL'))
+SELECT link_state.*
+FROM (
+    SELECT t.state_hash,
+           t.flow_hash,
+           t.user_id,
+           t.session_hash,
+           t.provider,
+           t.expires_at,
+           t.consumed_at,
+           t.created_at
+    FROM oauth_link_state t
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+) link_state

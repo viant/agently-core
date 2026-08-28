@@ -20,6 +20,11 @@ type authExtension struct {
 	tokenStore TokenStore
 	users      UserService
 	oauthOOB   oobOAuthAuthorizer
+	canonical  *CanonicalUserResolver
+	// mcpLink serves the delegated MCP OAuth link endpoints; nil when the
+	// persistence layer or state encryption key is unavailable — the routes
+	// then answer with a non-enumerable unavailable error.
+	mcpLink *mcpLinkService
 }
 
 var authPersistMu sync.Mutex
@@ -31,13 +36,17 @@ func newAuthExtension(cfg *Config, sessions *Manager, jwtSignKey string, tokenSt
 	if cfg == nil || sessions == nil {
 		return nil
 	}
-	return &authExtension{
+	ext := &authExtension{
 		cfg:        cfg,
 		sessions:   sessions,
 		jwtSignKey: strings.TrimSpace(jwtSignKey),
 		tokenStore: tokenStore,
 		users:      users,
 	}
+	if users != nil {
+		ext.canonical = NewCanonicalUserResolver(users)
+	}
+	return ext
 }
 
 func (a *authExtension) Register(mux *http.ServeMux) {
@@ -58,6 +67,7 @@ func (a *authExtension) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/api/auth/idp/login", a.handleIDPLogin())
 	mux.HandleFunc("POST /v1/api/auth/jwt/keypair", a.handleJWTKeyPair())
 	mux.HandleFunc("POST /v1/api/auth/jwt/mint", a.handleJWTMint())
+	a.registerMCPLinkRoutes(mux)
 }
 
 func writeSessionCookie(w http.ResponseWriter, cfg *Config, sessions *Manager, sessionID string) {
@@ -133,12 +143,14 @@ func (a *authExtension) persistOAuthToken(ctx context.Context, source, username,
 	}
 	started := time.Now()
 	if err := a.tokenStore.Put(persistCtx, &OAuthToken{
-		Username:     storeUser,
-		Provider:     provider,
-		AccessToken:  strings.TrimSpace(accessToken),
-		IDToken:      strings.TrimSpace(idToken),
-		RefreshToken: strings.TrimSpace(refreshToken),
-		ExpiresAt:    expiresAt,
+		Username:         storeUser,
+		Provider:         provider,
+		AccessToken:      strings.TrimSpace(accessToken),
+		IDToken:          strings.TrimSpace(idToken),
+		RefreshToken:     strings.TrimSpace(refreshToken),
+		ExpiresAt:        expiresAt,
+		IDTokenExpiresAt: oauthJWTExpiry(strings.TrimSpace(idToken)),
+		IssuedAt:         time.Now(),
 	}); err != nil {
 		authlog.Log(ctx, authlog.Event{
 			Op:             "callback_persist",
@@ -179,16 +191,27 @@ func (a *authExtension) canonicalizeSessionUser(ctx context.Context, sess *Sessi
 	}
 	provider := strings.TrimSpace(firstNonEmpty(sess.Provider, a.oauthProviderName()))
 	subject := strings.TrimSpace(sess.Subject)
-	if provider != "" && subject != "" {
+	if provider != "" && subject != "" && a.canonical != nil {
 		lookupCtx, cancel := durableAuthLookupContext(ctx)
 		defer cancel()
-		if user, err := a.users.GetBySubjectAndProvider(lookupCtx, subject, provider); err == nil && user != nil && strings.TrimSpace(user.ID) != "" {
-			sess.UserID = strings.TrimSpace(user.ID)
-			if strings.TrimSpace(sess.Username) == "" {
-				sess.Username = strings.TrimSpace(firstNonEmpty(user.Username, user.DisplayName, sess.Username))
-			}
-			if strings.TrimSpace(sess.Email) == "" {
-				sess.Email = strings.TrimSpace(firstNonEmpty(user.Email, sess.Email))
+		// Route the subject+provider mapping through the shared canonical
+		// resolver so the session path applies the same checks as the
+		// verified-bearer path.
+		if id, err := a.canonical.ResolveCanonicalWorkspaceUser(lookupCtx, VerifiedWorkspaceIdentity{
+			Provider: provider,
+			Subject:  subject,
+			Email:    strings.TrimSpace(sess.Email),
+		}); err == nil && id != "" {
+			sess.UserID = id
+			if strings.TrimSpace(sess.Username) == "" || strings.TrimSpace(sess.Email) == "" {
+				if user, uErr := a.users.GetBySubjectAndProvider(lookupCtx, subject, provider); uErr == nil && user != nil {
+					if strings.TrimSpace(sess.Username) == "" {
+						sess.Username = strings.TrimSpace(firstNonEmpty(user.Username, user.DisplayName, sess.Username))
+					}
+					if strings.TrimSpace(sess.Email) == "" {
+						sess.Email = strings.TrimSpace(firstNonEmpty(user.Email, sess.Email))
+					}
+				}
 			}
 			return
 		}

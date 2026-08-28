@@ -66,6 +66,15 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 		}
 	}
 	expandEnvTemplates(cfg)
+	if cfg.IsDelegatedAuth() {
+		// Delegated OAuth credentials live in the encrypted canonical token
+		// store owned by the credential resolver; never attach a per-user
+		// file token store for these servers.
+		for _, warning := range mcpcfg.ValidateResourceRoots(cfg.Metadata) {
+			log.Printf("mcp config %q: %s", name, warning)
+		}
+		return cfg, nil
+	}
 	// Derive per-user state dir for tokens/cookies
 	userID := authctx.EffectiveUserID(ctx)
 	if userID == "" {

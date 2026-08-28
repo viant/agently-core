@@ -2705,4 +2705,32 @@ END $$
 CALL schema_upgrade_34() $$
 DROP PROCEDURE schema_upgrade_34 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_35 $$
+CREATE PROCEDURE schema_upgrade_35()
+BEGIN
+    IF get_schema_version() = 35 THEN
+        -- Distributed single-use OAuth link state for delegated MCP OAuth
+        -- callbacks. Holds only non-secret hashes and flow metadata: never
+        -- authorization codes, PKCE verifiers, client secrets or tokens.
+        CREATE TABLE IF NOT EXISTS oauth_link_state (
+            state_hash   VARCHAR(64)  NOT NULL,
+            flow_hash    VARCHAR(64)  NOT NULL,
+            user_id      VARCHAR(255) NOT NULL,
+            session_hash VARCHAR(64)  NOT NULL,
+            provider     VARCHAR(128) NOT NULL,
+            expires_at   DATETIME     NOT NULL,
+            consumed_at  DATETIME     NULL DEFAULT NULL,
+            created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (state_hash),
+            UNIQUE KEY ux_oauth_link_state_flow (flow_hash),
+            KEY ix_oauth_link_state_expires (expires_at)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+        CALL set_schema_version(36);
+    END IF;
+END $$
+
+CALL schema_upgrade_35() $$
+DROP PROCEDURE schema_upgrade_35 $$
+
 DELIMITER ;

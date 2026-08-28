@@ -94,6 +94,22 @@ func (r *Repository[T]) Filename(name string) string {
 	return filepath.Join(r.dir, name)
 }
 
+// DirExists reports whether the repository's workspace directory exists. It
+// lets callers distinguish "kind not configured" from an IO failure when List
+// returns an error.
+func (r *Repository[T]) DirExists(ctx context.Context) (bool, error) {
+	if r.store != nil {
+		if _, err := os.Stat(r.dir); err != nil {
+			if os.IsNotExist(err) {
+				return false, nil
+			}
+			return false, err
+		}
+		return true, nil
+	}
+	return r.fs.Exists(ctx, r.dir)
+}
+
 // List basenames (without extension).
 func (r *Repository[T]) List(ctx context.Context) ([]string, error) {
 	if r.store != nil {
