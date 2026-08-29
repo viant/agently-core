@@ -2710,32 +2710,17 @@ CREATE PROCEDURE schema_upgrade_35()
 BEGIN
     IF get_schema_version() = 35 THEN
         CREATE TABLE IF NOT EXISTS oauth_link_state (
-            flow_hash     CHAR(64)     NOT NULL,
-            state_hash    CHAR(64)     NOT NULL,
-            user_id       VARCHAR(255) NOT NULL,
-            session_hash  CHAR(64)     NOT NULL,
-            server_name   VARCHAR(255) NOT NULL,
-            provider_ref  VARCHAR(255) NOT NULL,
-            client_ref    VARCHAR(255) NULL,
-            resource_hash CHAR(64)     NOT NULL,
-            scope_hash    CHAR(64)     NOT NULL,
-            status        VARCHAR(16)  NOT NULL DEFAULT 'pending',
-            version       BIGINT       NOT NULL DEFAULT 0,
-            expires_at    DATETIME(6)  NOT NULL,
-            consumed_at   DATETIME(6)  NULL,
-            created_at    DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
-            updated_at    DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6)
-                                      ON UPDATE CURRENT_TIMESTAMP(6),
-
-            PRIMARY KEY (flow_hash),
-            UNIQUE KEY ux_oauth_link_state_state (state_hash),
-            KEY idx_oauth_link_state_expiry (status, expires_at),
-            KEY idx_oauth_link_state_user_provider (user_id, provider_ref),
-
-            CONSTRAINT fk_oauth_link_state_user
-                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-            CONSTRAINT chk_oauth_link_state_status
-                CHECK (status IN ('pending', 'consumed'))
+            state_hash   VARCHAR(64)  NOT NULL,
+            flow_hash    VARCHAR(64)  NOT NULL,
+            user_id      VARCHAR(255) NOT NULL,
+            session_hash VARCHAR(64)  NOT NULL,
+            provider     VARCHAR(128) NOT NULL,
+            expires_at   DATETIME     NOT NULL,
+            consumed_at  DATETIME     NULL DEFAULT NULL,
+            created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (state_hash),
+            UNIQUE KEY ux_oauth_link_state_flow (flow_hash),
+            KEY ix_oauth_link_state_expires (expires_at)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
         CALL set_schema_version(36);
