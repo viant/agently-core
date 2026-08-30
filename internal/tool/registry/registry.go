@@ -2189,6 +2189,12 @@ func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, c
 			if r.discoveryStrictTTL > 0 {
 				timeout = r.discoveryStrictTTL
 			}
+		} else if mode.Required {
+			// A user-selected required bundle gets the normal bounded discovery
+			// window once. Ordinary tool-surface discovery keeps its short bound.
+			if r.discoveryTimeout > 0 {
+				timeout = r.discoveryTimeout
+			}
 		} else if mode.ToolSurface && r.discoverySurfaceTimeout > 0 {
 			timeout = r.discoverySurfaceTimeout
 		}
@@ -2198,7 +2204,7 @@ func (r *Registry) withDiscoveryTimeout(ctx context.Context) (context.Context, c
 
 func bestEffortToolSurfaceDiscovery(ctx context.Context) bool {
 	mode, ok := runtimediscovery.ModeFromContext(ctx)
-	return ok && mode.ToolSurface && !mode.Strict
+	return ok && mode.ToolSurface && !mode.Strict && !mode.Required
 }
 
 func shouldSkipBestEffortToolSurfaceDiscoveryError(ctx context.Context, err error) bool {

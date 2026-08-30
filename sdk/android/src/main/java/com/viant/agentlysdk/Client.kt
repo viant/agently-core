@@ -26,6 +26,7 @@ import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.decodeFromJsonElement
+import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.contentOrNull
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.MultipartBody
@@ -513,6 +514,32 @@ class AgentlyClient(
             return@withContext ListUIEventsOutput(conversationId = input.conversationId)
         }
         json.decodeFromString(ListUIEventsOutput.serializer(), raw)
+    }
+
+    suspend fun getFeedDraft(input: GetFeedDraftInput): GetFeedDraftOutput = withContext(Dispatchers.IO) {
+        require(input.conversationId.isNotBlank()) { "conversationId is required" }
+        require(input.feedId.isNotBlank()) { "feedId is required" }
+        require(input.dataSourceRefs.isNotEmpty()) { "dataSourceRefs are required" }
+        val args = mutableMapOf<String, JsonElement>(
+            "feedId" to JsonPrimitive(input.feedId),
+            "dataSourceRefs" to JsonArray(input.dataSourceRefs.map { JsonPrimitive(it) })
+        )
+        input.clientId?.takeIf { it.isNotBlank() }?.let { args["clientId"] = JsonPrimitive(it) }
+        val raw = executeTool("ui/feed:get", args, conversationId = input.conversationId)
+        json.decodeFromString(GetFeedDraftOutput.serializer(), raw)
+    }
+
+    suspend fun updateFeedDraft(input: UpdateFeedDraftInput): UpdateFeedDraftOutput = withContext(Dispatchers.IO) {
+        require(input.conversationId.isNotBlank()) { "conversationId is required" }
+        require(input.feedId.isNotBlank()) { "feedId is required" }
+        require(input.operations.isNotEmpty()) { "operations are required" }
+        val args = mutableMapOf<String, JsonElement>(
+            "feedId" to JsonPrimitive(input.feedId),
+            "operations" to json.encodeToJsonElement(ListSerializer(FeedPatchOperation.serializer()), input.operations)
+        )
+        input.clientId?.takeIf { it.isNotBlank() }?.let { args["clientId"] = JsonPrimitive(it) }
+        val raw = executeTool("ui/feed:update", args, conversationId = input.conversationId)
+        json.decodeFromString(UpdateFeedDraftOutput.serializer(), raw)
     }
 
     suspend fun executeMCPUIToolCall(input: MCPUIToolCallInput): MCPUIToolCallOutput = withContext(Dispatchers.IO) {

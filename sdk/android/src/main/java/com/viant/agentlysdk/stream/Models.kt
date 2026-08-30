@@ -87,6 +87,7 @@ data class SSEEvent(
     val feedDeveloperOnly: Boolean? = null,
     val feedIcon: String? = null,
     val feedAccent: String? = null,
+    val feedTarget: String? = null,
     val feedItemCount: Int? = null,
     val feedData: JsonElement? = null,
     val plannerTrigger: String? = null,
@@ -113,6 +114,14 @@ data class ActiveFeed(
     val data: JsonElement? = null,
     val developerOnly: Boolean = false,
     val presentation: com.viant.agentlysdk.FeedPresentation? = null
+)
+
+@Serializable
+data class FeedPatchOperation(
+    val dataSourceRef: String,
+    val op: String,
+    val path: String,
+    val value: JsonElement? = null
 )
 
 data class PendingElicitation(

@@ -3,7 +3,18 @@ package toolexec
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/viant/agently-core/pkg/jsonrepair"
 )
+
+// normalizeBareRedactionMarkers repairs upstream safety filters that replace a
+// JSON scalar with an unquoted [REDACTED:KIND] marker. The marker is converted
+// to null only when it appears outside a JSON string, preserving valid markers
+// embedded in ordinary text. The repaired value is accepted only when the
+// complete result is valid JSON.
+func normalizeBareRedactionMarkers(result string) (string, bool) {
+	return jsonrepair.NormalizeBareRedactionMarkers(result)
+}
 
 // redactToolResultIfNeeded removes large binary data (for example, base64 images) from a tool result
 // so the tool output does not consume the LLM context window.

@@ -1742,10 +1742,14 @@ public typealias AssistantTurnPart = AssistantState
 public struct FeedPresentation: Codable, Sendable, Equatable {
     public let icon: String?
     public let accent: String?
+    public let target: String?
+    public let suppressReportIds: [String]
 
-    public init(icon: String? = nil, accent: String? = nil) {
+    public init(icon: String? = nil, accent: String? = nil, target: String? = nil, suppressReportIds: [String] = []) {
         self.icon = icon
         self.accent = accent
+        self.target = target
+        self.suppressReportIds = suppressReportIds
     }
 }
 
@@ -1797,6 +1801,70 @@ public struct ActiveFeedState: Codable, Sendable, Identifiable {
         self.turnID = turnID
         self.updatedAt = updatedAt
         self.data = data
+    }
+}
+
+public struct FeedPatchOperation: Codable, Sendable, Equatable {
+    public let dataSourceRef: String
+    public let op: String
+    public let path: String
+    public let value: JSONValue?
+
+    public init(dataSourceRef: String, op: String, path: String, value: JSONValue? = nil) {
+        self.dataSourceRef = dataSourceRef
+        self.op = op
+        self.path = path
+        self.value = value
+    }
+}
+
+public struct GetFeedDraftInput: Codable, Sendable, Equatable {
+    public let conversationId: String
+    public let feedId: String
+    public let dataSourceRefs: [String]
+    public let clientId: String?
+
+    public init(conversationId: String, feedId: String, dataSourceRefs: [String], clientId: String? = nil) {
+        self.conversationId = conversationId
+        self.feedId = feedId
+        self.dataSourceRefs = dataSourceRefs
+        self.clientId = clientId
+    }
+}
+
+public struct GetFeedDraftOutput: Codable, Sendable, Equatable {
+    public let clientId: String?
+    public let data: JSONValue?
+
+    public init(clientId: String? = nil, data: JSONValue? = nil) {
+        self.clientId = clientId
+        self.data = data
+    }
+}
+
+public struct UpdateFeedDraftInput: Codable, Sendable, Equatable {
+    public let conversationId: String
+    public let feedId: String
+    public let operations: [FeedPatchOperation]
+    public let clientId: String?
+
+    public init(conversationId: String, feedId: String, operations: [FeedPatchOperation], clientId: String? = nil) {
+        self.conversationId = conversationId
+        self.feedId = feedId
+        self.operations = operations
+        self.clientId = clientId
+    }
+}
+
+public struct UpdateFeedDraftOutput: Codable, Sendable, Equatable {
+    public let clientId: String?
+    public let ok: Bool
+    public let error: String?
+
+    public init(clientId: String? = nil, ok: Bool = false, error: String? = nil) {
+        self.clientId = clientId
+        self.ok = ok
+        self.error = error
     }
 }
 

@@ -1,13 +1,16 @@
 package auth
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"html"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/internal/authlog"
+	"golang.org/x/oauth2"
 )
 
 // MCPLinkCSRFHeader carries the per-session CSRF token required on the
@@ -24,7 +27,19 @@ func (a *authExtension) registerMCPLinkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /v1/api/auth/mcp/callback", a.handleMCPOAuthCallback())
 	mux.HandleFunc("GET /v1/api/auth/mcp/{server}/status", a.handleMCPOAuthStatus())
 	mux.HandleFunc("POST /v1/api/auth/mcp/{server}/initiate", a.handleMCPOAuthInitiate())
+	mux.HandleFunc("POST /v1/api/auth/mcp/{server}/oob", a.handleMCPOAuthOOB())
 	mux.HandleFunc("DELETE /v1/api/auth/mcp/{server}", a.handleMCPOAuthDisconnect())
+}
+
+// mcpOOBGrant is the token envelope produced by a trusted local OAuth client.
+// The server still validates the grant cryptographically and against the
+// configured provider, resource and scopes before storing it.
+type mcpOOBGrant struct {
+	AccessToken  string `json:"accessToken"`
+	RefreshToken string `json:"refreshToken,omitempty"`
+	IDToken      string `json:"idToken,omitempty"`
+	TokenType    string `json:"tokenType,omitempty"`
+	ExpiresAt    string `json:"expiresAt,omitempty"`
 }
 
 // mcpLinkIdentity is the authenticated caller of a link endpoint.
@@ -149,6 +164,64 @@ func (a *authExtension) handleMCPOAuthInitiate() http.HandlerFunc {
 			return
 		}
 		runtimeJSON(w, http.StatusOK, result)
+	}
+}
+
+// handleMCPOAuthOOB links a grant obtained by a local/headless OAuth client.
+// It intentionally requires the same cookie-backed workspace identity and
+// per-session CSRF protection as the browser initiation flow. Tokens supplied
+// by the client are never trusted as identity assertions: completeOOBLink
+// verifies their issuer, signature/introspection, audience/resource, expiry
+// and scopes before associating them with the canonical workspace user.
+func (a *authExtension) handleMCPOAuthOOB() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		identity, ok := a.requireMCPLinkSession(w, r)
+		if !ok {
+			return
+		}
+		if !a.requireMCPLinkCSRF(w, r, identity) {
+			return
+		}
+		service := a.mcpLink
+		if !service.limits.initiateUser.Allow(identity.canonicalUserID) || !service.limits.initiateIP.Allow(clientIPKey(r)) {
+			writeMCPLinkRateLimited(w)
+			return
+		}
+
+		var in mcpOOBGrant
+		decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&in); err != nil || strings.TrimSpace(in.AccessToken) == "" {
+			writeMCPCallbackFailure(w, r, http.StatusBadRequest)
+			return
+		}
+		token := &oauth2.Token{
+			AccessToken:  strings.TrimSpace(in.AccessToken),
+			RefreshToken: strings.TrimSpace(in.RefreshToken),
+			TokenType:    strings.TrimSpace(in.TokenType),
+		}
+		if raw := strings.TrimSpace(in.ExpiresAt); raw != "" {
+			expiresAt, err := time.Parse(time.RFC3339, raw)
+			if err != nil {
+				writeMCPCallbackFailure(w, r, http.StatusBadRequest)
+				return
+			}
+			token.Expiry = expiresAt
+		}
+		extra := map[string]interface{}{}
+		if idToken := strings.TrimSpace(in.IDToken); idToken != "" {
+			extra["id_token"] = idToken
+		}
+		if len(extra) > 0 {
+			token = token.WithExtra(extra)
+		}
+
+		result, err := service.completeOOBLink(r.Context(), r.PathValue("server"), token, identity.canonicalUserID, identity.effectiveUserID)
+		if err != nil {
+			writeMCPCallbackFailure(w, r, http.StatusBadRequest)
+			return
+		}
+		runtimeJSON(w, http.StatusOK, map[string]any{"status": "connected", "server": result.ServerName, "provider": result.ProviderRef})
 	}
 }
 

@@ -693,6 +693,36 @@ describe('Tools', () => {
         expect(call.body).toEqual({ objective: 'finish refactor' });
     });
 
+    it('getFeedDraft wraps the scoped feed read tool', async () => {
+        const f = mockFetch(200, { result: JSON.stringify({ clientId: 'ui-1', data: { dataSources: { draft: { form: { budget: 10 } } } } }) });
+        const c = client(f);
+        const result = await c.getFeedDraft({ conversationId: 'conv-1', feedId: 'plan', dataSourceRefs: ['draft'] });
+
+        expect(result.clientId).toBe('ui-1');
+        expect(result.data).toEqual({ dataSources: { draft: { form: { budget: 10 } } } });
+        const call = lastCall(f);
+        expect(call.url).toContain('/tools/ui%2Ffeed%3Aget/execute?conversationId=conv-1');
+        expect(call.body).toEqual({ feedId: 'plan', dataSourceRefs: ['draft'] });
+    });
+
+    it('updateFeedDraft wraps preview patch operations without publishing', async () => {
+        const f = mockFetch(200, { result: JSON.stringify({ clientId: 'ui-1', ok: true }) });
+        const c = client(f);
+        const result = await c.updateFeedDraft({
+            conversationId: 'conv-1',
+            feedId: 'plan',
+            operations: [{ dataSourceRef: 'draft', op: 'remove', path: '/channels/1' }],
+        });
+
+        expect(result).toEqual({ clientId: 'ui-1', ok: true, error: undefined });
+        const call = lastCall(f);
+        expect(call.url).toContain('/tools/ui%2Ffeed%3Aupdate/execute?conversationId=conv-1');
+        expect(call.body).toEqual({
+            feedId: 'plan',
+            operations: [{ dataSourceRef: 'draft', op: 'remove', path: '/channels/1' }],
+        });
+    });
+
     it('listUIEvents executes the scoped ui events tool and parses structured results', async () => {
         const f = mockFetch(200, {
             result: JSON.stringify({

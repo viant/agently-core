@@ -65,9 +65,17 @@ func normalizeToolName(server, name string) string {
 	if name == "" {
 		return name
 	}
+	// Display names may carry a multi-segment service namespace before the
+	// final method slash (for example inventory:planner/get_plan), while the
+	// configured MCP key is flattened (inventory_planner). Compare canonical service
+	// keys before stripping so the remote server receives only its local tool
+	// name.
+	if i := strings.LastIndexByte(name, '/'); i > 0 && serviceKeysEqual(server, name[:i]) {
+		return name[i+1:]
+	}
 	// service:method → method (MCP expects method scoped to this server)
 	if i := strings.IndexByte(name, ':'); i != -1 {
-		if strings.TrimSpace(server) == strings.TrimSpace(name[:i]) {
+		if serviceKeysEqual(server, name[:i]) {
 			return name[i+1:]
 		}
 		return name
@@ -75,7 +83,7 @@ func normalizeToolName(server, name string) string {
 	// server/method → method (MCP expects method scoped to this server)
 	if i := strings.IndexByte(name, '/'); i != -1 {
 		// Only strip when the prefix matches our server; otherwise leave as-is
-		if strings.TrimSpace(server) == strings.TrimSpace(name[:i]) {
+		if serviceKeysEqual(server, name[:i]) {
 			return name[i+1:]
 		}
 		return name
@@ -85,4 +93,13 @@ func normalizeToolName(server, name string) string {
 		return name[i+1:]
 	}
 	return name
+}
+
+func serviceKeysEqual(left, right string) bool {
+	normalize := func(value string) string {
+		value = strings.TrimSpace(value)
+		value = strings.NewReplacer("/", "_", ":", "_").Replace(value)
+		return value
+	}
+	return normalize(left) == normalize(right)
 }

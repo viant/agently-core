@@ -1468,6 +1468,30 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `feed draft facade wraps scoped get and update tools`() = runBlocking {
+        server.enqueue(MockResponse().setBody("{\"result\":\"{\\\"clientId\\\":\\\"android-ui\\\",\\\"data\\\":{\\\"dataSources\\\":{}}}\"}"))
+        server.enqueue(MockResponse().setBody("{\"result\":\"{\\\"clientId\\\":\\\"android-ui\\\",\\\"ok\\\":true}\"}"))
+        server.start()
+        val client = client()
+
+        val read = client.getFeedDraft(GetFeedDraftInput("conv-1", "plan", listOf("draft")))
+        val update = client.updateFeedDraft(UpdateFeedDraftInput(
+            conversationId = "conv-1",
+            feedId = "plan",
+            operations = listOf(FeedPatchOperation("draft", "remove", "/channels/1"))
+        ))
+
+        assertEquals("android-ui", read.clientId)
+        assertTrue(update.ok)
+        val readRequest = server.takeRequest()
+        assertEquals("/v1/tools/ui%2Ffeed%3Aget/execute?conversationId=conv-1", readRequest.path)
+        assertTrue(readRequest.body.readUtf8().contains("\"dataSourceRefs\":[\"draft\"]"))
+        val updateRequest = server.takeRequest()
+        assertEquals("/v1/tools/ui%2Ffeed%3Aupdate/execute?conversationId=conv-1", updateRequest.path)
+        assertTrue(updateRequest.body.readUtf8().contains("\"op\":\"remove\""))
+    }
+
+    @Test
     fun `template and skill transports encode slash-bearing path segments`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"name":"templates/brief","includedDocument":true}"""))
         server.enqueue(MockResponse().setBody("""{"name":"skills/playwright-cli","body":"Loaded skill"}"""))

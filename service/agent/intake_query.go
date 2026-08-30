@@ -1634,19 +1634,23 @@ func normalizePlannerSubmitTurnContext(input *QueryInput, tc *intakesvc.Context,
 		return
 	}
 	guidedTool := strings.TrimSpace(stringValue(toolGuidance["tool"]))
-	if guidedTool == "" {
+	guidedBundle := strings.TrimSpace(stringValue(toolGuidance["toolBundle"]))
+	if guidedTool == "" && guidedBundle == "" {
 		return
 	}
 	tc.DirectAction = intakesvc.DirectActionContext{}
 	if cfg != nil && cfg.HasScope(agentmdl.IntakeScopeProfile) && strings.TrimSpace(tc.Prompting.SuggestedProfileID) == "" {
-		tc.Prompting.SuggestedProfileID = "entity_list_review"
+		profileID := strings.TrimSpace(stringValue(toolGuidance["promptProfileId"]))
+		if profileID == "" {
+			profileID = "entity_list_review"
+		}
+		tc.Prompting.SuggestedProfileID = profileID
 	}
 	if cfg != nil && cfg.HasScope(agentmdl.IntakeScopeTemplate) {
 		tc.Prompting.TemplateID = ""
 		input.TemplateId = ""
 	}
 	if cfg != nil && cfg.HasScope(agentmdl.IntakeScopeTools) {
-		guidedBundle := strings.TrimSpace(stringValue(toolGuidance["toolBundle"]))
 		if guidedBundle != "" {
 			exists := false
 			for _, item := range tc.Prompting.AppendToolBundles {

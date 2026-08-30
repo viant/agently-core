@@ -420,6 +420,90 @@ func TestResolveTools_CachesStructuredBundleResolution(t *testing.T) {
 	assert.Equal(t, firstCalls, registry.matchCalls)
 }
 
+func TestResolveTools_DoesNotCacheEmptyStructuredBundleResolution(t *testing.T) {
+	registry := &countingRegistry{fakeRegistry: fakeRegistry{}}
+	svc := &Service{
+		registry: registry,
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{{
+				ID: "catalog-tools",
+				Match: []llm.Tool{
+					{Name: "catalog:get_record"},
+				},
+			}}, nil
+		},
+	}
+	query := &QueryInput{
+		Agent: &agentmdl.Agent{
+			Tool: agentmdl.Tool{Bundles: []string{"catalog-tools"}},
+		},
+	}
+
+	actual, err := svc.resolveTools(context.Background(), query)
+	require.NoError(t, err)
+	require.Empty(t, actual)
+	firstCalls := registry.matchCalls
+	require.Greater(t, firstCalls, 0)
+
+	registry.defs = []llm.ToolDefinition{{Name: "catalog:get_record"}}
+	actual, err = svc.resolveTools(context.Background(), query)
+	require.NoError(t, err)
+	require.Len(t, actual, 1)
+	assert.Equal(t, canon("catalog:get_record"), actual[0].Definition.Name)
+	assert.Greater(t, registry.matchCalls, firstCalls)
+}
+
+func TestResolveTools_FailsClosedWhenAutoSelectedBundleIsUnavailable(t *testing.T) {
+	svc := &Service{
+		registry: &fakeRegistry{},
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{{
+				ID:    "catalog-tools",
+				Match: []llm.Tool{{Name: "catalog:get_record"}},
+			}}, nil
+		},
+	}
+	query := &QueryInput{
+		ToolBundles:             []string{"catalog-tools"},
+		toolBundlesAutoSelected: true,
+		Agent:                   &agentmdl.Agent{},
+	}
+
+	_, err := svc.resolveTools(context.Background(), query)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "requested tool bundles resolved zero tool definitions")
+	assert.Contains(t, err.Error(), "catalog-tools")
+}
+
+func TestResolveTools_DoesNotCachePartialBundleSurface(t *testing.T) {
+	registry := &countingRegistry{fakeRegistry: fakeRegistry{defs: []llm.ToolDefinition{{Name: "llm/skills:list"}}}}
+	svc := &Service{
+		registry: registry,
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{{
+				ID:    "catalog-tools",
+				Match: []llm.Tool{{Name: "catalog:get_record"}},
+			}}, nil
+		},
+	}
+	query := &QueryInput{
+		ToolBundles: []string{"catalog-tools"},
+		Agent: &agentmdl.Agent{Tool: agentmdl.Tool{Items: []*llm.Tool{{
+			Definition: llm.ToolDefinition{Name: "llm/skills:list"},
+		}}}},
+	}
+
+	_, err := svc.resolveTools(context.Background(), query)
+	require.Error(t, err)
+	firstCalls := registry.matchCalls
+
+	registry.defs = append(registry.defs, llm.ToolDefinition{Name: "catalog:get_record"})
+	actual, err := svc.resolveTools(context.Background(), query)
+	require.NoError(t, err)
+	require.Len(t, actual, 2)
+	assert.Greater(t, registry.matchCalls, firstCalls)
+}
+
 func TestResolveBundleDefinitions_WithPromptApprovalBundle(t *testing.T) {
 	reg := &fakeRegistry{defs: []llm.ToolDefinition{{Name: "system/os:getEnv"}}}
 	svc := &Service{

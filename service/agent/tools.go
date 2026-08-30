@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
+	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
@@ -25,6 +26,7 @@ type resolvedToolSurface struct {
 	Definitions  []llm.ToolDefinition
 	ApprovalByID map[string]*llm.ApprovalConfig
 	AsyncByID    map[string]*llm.Tool
+	Complete     bool
 }
 
 // resolveTools resolves tools using the following precedence:
@@ -32,6 +34,9 @@ type resolvedToolSurface struct {
 //     and do not gate by agent patterns (explicit allow-list).
 //   - Otherwise, resolve tools from agent patterns.
 func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool, error) {
+	if qi != nil && len(qi.ToolBundles) > 0 {
+		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
+	}
 	// Clear any previous registry warnings before this resolution cycle.
 	if w, ok := s.registry.(interface{ ClearWarnings() }); ok {
 		w.ClearWarnings()
@@ -85,14 +90,66 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 	if err != nil {
 		return nil, err
 	}
+	if unresolved, validationErr := s.unresolvedTurnBundles(ctx, qi.ToolBundles, defs); validationErr != nil {
+		return nil, validationErr
+	} else if len(unresolved) > 0 {
+		return nil, fmt.Errorf("requested tool bundles resolved zero tool definitions: %s", strings.Join(unresolved, ", "))
+	}
 	if len(defs) == 0 {
-		if required := requiredResolvedToolBundlesFromContext(ctx); len(required) > 0 {
+		required := requiredResolvedToolBundlesFromContext(ctx)
+		// Turn-level bundles (explicit, intake, or classifier-selected) are part
+		// of the trusted route. Continuing without them lets the model answer without the
+		// authoritative MCP capability, so fail closed with a connectivity /
+		// discovery error instead.
+		if len(required) == 0 && qi != nil && len(qi.ToolBundles) > 0 {
+			required = append([]string(nil), qi.ToolBundles...)
+		}
+		if len(required) > 0 {
 			return nil, fmt.Errorf("requested tool bundles resolved zero tool definitions: %s", strings.Join(required, ", "))
 		}
 	}
 	out := defsToTools(defs)
 	out = s.appendRegistryWarnings(ctx, out)
 	return out, nil
+}
+
+// unresolvedTurnBundles validates only the turn-level bundles against the
+// already-resolved surface. It performs no MCP discovery and therefore adds no
+// network latency; it prevents unrelated skill tools from masking a missing
+// authoritative bundle.
+func (s *Service) unresolvedTurnBundles(ctx context.Context, bundleIDs []string, defs []llm.ToolDefinition) ([]string, error) {
+	if len(bundleIDs) == 0 {
+		return nil, nil
+	}
+	bundles, err := s.loadBundles(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var unresolved []string
+	for _, rawID := range bundleIDs {
+		id := strings.TrimSpace(rawID)
+		if id == "" {
+			continue
+		}
+		bundle := bundles[strings.ToLower(id)]
+		if bundle == nil {
+			unresolved = append(unresolved, id)
+			continue
+		}
+		resolved := toolbundle.ResolveDefinitionsWithOptions(bundle, func(pattern string) []*llm.ToolDefinition {
+			var matches []*llm.ToolDefinition
+			for i := range defs {
+				if toolmatcher.Match(pattern, defs[i].Name) {
+					matches = append(matches, &defs[i])
+				}
+			}
+			return matches
+		})
+		if len(resolved.Definitions) == 0 {
+			unresolved = append(unresolved, id)
+		}
+	}
+	return unresolved, nil
 }
 
 func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agenttool.Selection, error) {
@@ -219,7 +276,7 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 		}
 	}
 
-	entry := &resolvedToolSurface{}
+	entry := &resolvedToolSurface{Complete: true}
 	if len(control.Bundles) > 0 {
 		res, err := s.resolveBundleResult(ctx, control.Bundles)
 		if err != nil {
@@ -228,6 +285,7 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 		entry.Definitions = append(entry.Definitions, res.Definitions...)
 		entry.ApprovalByID = res.ApprovalByID
 		entry.AsyncByID = res.AsyncByID
+		entry.Complete = res.Complete
 	}
 	var err error
 	entry.Definitions, err = s.appendToolSelections(ctx, entry.Definitions, control.Tools)
@@ -236,7 +294,10 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 	}
 	entry.Definitions = dedupeDefinitions(entry.Definitions)
 	entry.Definitions = augmentPromptApprovalReviewDefinitions(entry.Definitions, entry.ApprovalByID)
-	if key != "" {
+	// External MCP definitions can become available after delegated OAuth or a
+	// lazy discovery reconnect. Caching an empty surface makes that transient
+	// state permanent for the process, so only cache successful resolutions.
+	if key != "" && len(entry.Definitions) > 0 && entry.Complete {
 		s.toolSurfaceCache.Store(key, entry)
 	}
 	s.applyResolvedToolSurfaceMetadata(ctx, entry)
@@ -328,6 +389,7 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 	entry := &resolvedToolSurface{
 		ApprovalByID: map[string]*llm.ApprovalConfig{},
 		AsyncByID:    map[string]*llm.Tool{},
+		Complete:     true,
 	}
 	for _, id := range bundleIDs {
 		key := strings.ToLower(strings.TrimSpace(id))
@@ -341,13 +403,20 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 			b = derived[key]
 		}
 		if b == nil {
-			entry.Definitions = append(entry.Definitions, s.resolveDirectBundleDefinitions(ctx, id)...)
+			direct := s.resolveDirectBundleDefinitions(ctx, id)
+			entry.Definitions = append(entry.Definitions, direct...)
+			if len(direct) == 0 {
+				entry.Complete = false
+			}
 			appendWarning(ctx, fmt.Sprintf("unknown tool bundle: %s", id))
 			continue
 		}
 		res := toolbundle.ResolveDefinitionsWithOptions(b, func(pattern string) []*llm.ToolDefinition {
 			return s.matchDefinitions(ctx, pattern)
 		})
+		if len(res.Definitions) == 0 {
+			entry.Complete = false
+		}
 		for name, cfg := range res.ApprovalByID {
 			entry.ApprovalByID[name] = cfg
 		}

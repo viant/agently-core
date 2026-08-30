@@ -64,8 +64,8 @@ export class FeedTracker {
                 feedId: event.feedId,
                 title: event.feedTitle || event.feedId,
                 developerOnly: event.feedDeveloperOnly === true,
-                presentation: event.feedIcon || event.feedAccent
-                    ? { icon: event.feedIcon, accent: event.feedAccent }
+                presentation: event.feedIcon || event.feedAccent || event.feedTarget
+                    ? { icon: event.feedIcon, accent: event.feedAccent, target: event.feedTarget }
                     : undefined,
                 itemCount: event.feedItemCount || 0,
                 conversationId: resolveEventConversationId(event),
@@ -74,9 +74,12 @@ export class FeedTracker {
             });
         } else if (event.type === 'goal.updated') {
             const conversationId = resolveEventConversationId(event);
+            const feedId = event.feedId || 'goal';
+            const existing = this.get(feedId);
             this.setActive({
-                feedId: event.feedId || 'goal',
+                feedId,
                 title: event.feedTitle || 'Goal',
+                presentation: existing?.presentation,
                 itemCount: 1,
                 conversationId,
                 turnId: resolveEventTurnId(event),
@@ -85,9 +88,11 @@ export class FeedTracker {
             });
         } else if (event.type === 'goal.cleared') {
             const feedId = event.feedId || 'goal';
+            const existing = this.get(feedId);
             this.setActive({
                 feedId,
                 title: event.feedTitle || 'Goal',
+                presentation: existing?.presentation,
                 itemCount: 0,
                 conversationId: resolveEventConversationId(event),
                 turnId: resolveEventTurnId(event),
@@ -100,6 +105,7 @@ export class FeedTracker {
             this.setActive({
                 feedId,
                 title: existing?.title || event.feedTitle || 'Goal',
+                presentation: existing?.presentation,
                 itemCount: existing?.itemCount ?? 1,
                 conversationId: resolveEventConversationId(event),
                 turnId: resolveEventTurnId(event),

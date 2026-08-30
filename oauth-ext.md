@@ -957,9 +957,26 @@ for the flow owner, or:
 for concurrent callers. The pending response contains no state blob, PKCE
 verifier, authorization code, or reusable authorization URL.
 
-Version one requires a cookie-backed workspace session for initiate and
-callback. Bearer-only API and CLI clients receive an unsupported_flow response
-and must use a future device-code or explicit out-of-band flow.
+The browser authorization-code flow requires a cookie-backed workspace session
+for initiate and callback. Bearer-only clients receive `unsupported_flow`.
+The CLI also supports an explicit out-of-band provider bootstrap after it has
+created a cookie-backed workspace session:
+
+- `--oob`, `--oauth-config`, and `--oauth-scopes` authenticate the workspace
+  user and establish the canonical/effective user context.
+- `--mcp-oob`, `--mcp-oauth-config`, `--mcp-oauth-scopes`, and
+  `--mcp-oauth-resource` obtain a distinct provider grant locally.
+- The CLI submits that grant to `POST /v1/api/auth/mcp/{server}/oob` with the
+  active workspace cookie and per-session CSRF token.
+- The server treats the submitted token envelope as untrusted: it re-resolves
+  provider policy, verifies signature or introspection, issuer, audience,
+  expiry, subject, and scopes, then persists it under the canonical workspace
+  user using the normal encrypted delegated-provider storage key.
+- Future calls need only workspace auth; the stored MCP token is reused and
+  refreshed by the existing delegated-token lifecycle.
+
+The OOB endpoint never accepts bearer-only workspace identity, never trusts
+client-supplied scope metadata, and never weakens resource/audience matching.
 
 ### Callback
 

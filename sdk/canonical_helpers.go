@@ -883,6 +883,9 @@ func activateFeed(state *ConversationState, feed *ActiveFeedState) {
 	}
 	for _, f := range state.Feeds {
 		if f != nil && f.FeedID == feed.FeedID {
+			if feed.TurnID != "" {
+				f.TurnID = feed.TurnID
+			}
 			if feed.Title != "" {
 				f.Title = feed.Title
 			}

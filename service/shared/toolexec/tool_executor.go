@@ -411,6 +411,10 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if !parkedStatus && len(suppressedAfterStatus) > 0 {
 		out.Result = ""
 	}
+	if normalized, ok := normalizeBareRedactionMarkers(toolResult); ok {
+		toolResult = normalized
+		out.Result = normalized
+	}
 
 	// Debug trace: log tool call result to /tmp/agently-debug.log
 	{
@@ -619,6 +623,9 @@ func cloneInterfaceMap(input map[string]interface{}) map[string]interface{} {
 func SynthesizeToolStep(ctx context.Context, conv apiconv.Client, step StepInfo, toolResult string) error {
 	if strings.TrimSpace(step.ID) == "" {
 		step.ID = "tool-" + uuid.NewString()
+	}
+	if normalized, ok := normalizeBareRedactionMarkers(toolResult); ok {
+		toolResult = normalized
 	}
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {

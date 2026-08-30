@@ -188,6 +188,9 @@ func TestReduce_FeedLifecycle(t *testing.T) {
 		FeedID:            "plan",
 		FeedTitle:         "Plan",
 		FeedDeveloperOnly: true,
+		FeedIcon:          "list",
+		FeedAccent:        "blue",
+		FeedTarget:        "workspace",
 		FeedItemCount:     3,
 		FeedData: map[string]any{
 			"foo": "bar",
@@ -207,6 +210,9 @@ func TestReduce_FeedLifecycle(t *testing.T) {
 	}
 	if !state.Feeds[0].DeveloperOnly {
 		t.Fatal("expected developer-only feed metadata to survive reduction")
+	}
+	if state.Feeds[0].Presentation == nil || state.Feeds[0].Presentation.Target != "workspace" {
+		t.Fatalf("expected workspace presentation target, got %#v", state.Feeds[0].Presentation)
 	}
 
 	state = Reduce(state, &streaming.Event{

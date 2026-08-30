@@ -69,8 +69,11 @@ export type {
     OAuthConfigOutput, CreateSessionInput, CreateSessionOutput, OAuthInitiateInput,
     OOBLoginInput, IDPDelegateOutput,
     // Tool Feeds
-    FeedSpec, FeedPresentation, ActiveFeed,
+    FeedSpec, FeedPresentation, ActiveFeed, FeedPatchOp, FeedPatchOperation,
+    GetFeedDraftInput, GetFeedDraftOutput, UpdateFeedDraftInput, UpdateFeedDraftOutput,
 } from './types';
+
+export { applyFeedPatchOperation, applyFeedPatchOperations } from './feedPatch';
 
 // Elicitation tracking
 export { ElicitationTracker } from './elicitation';

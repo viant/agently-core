@@ -172,7 +172,7 @@ func (c *backendClient) resolveActiveFeeds(ctx context.Context, turns conversati
 				FeedID:        spec.ID,
 				Title:         spec.Title,
 				DeveloperOnly: spec.DeveloperOnly,
-				Presentation:  spec.Presentation,
+				Presentation:  normalizedFeedPresentation(spec),
 				ItemCount:     itemCount,
 				Data:          marshalToRawJSON(data),
 			}

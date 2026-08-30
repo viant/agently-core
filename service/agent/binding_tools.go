@@ -2,16 +2,18 @@ package agent
 
 import (
 	"context"
-	"github.com/viant/agently-core/internal/logx"
+	"fmt"
 	"path/filepath"
 	"strings"
 
 	"github.com/viant/afs/url"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/logx"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
+	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/workspace/repository/toolplaybook"
@@ -492,6 +494,16 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 	if s.registry == nil || input == nil || input.Agent == nil {
 		return nil, nil
 	}
+	ctx = bindEffectiveUserFromInput(ctx, input)
+	if strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)) == "" && strings.TrimSpace(input.ConversationID) != "" {
+		ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{
+			ConversationID: strings.TrimSpace(input.ConversationID),
+			TurnID:         strings.TrimSpace(input.MessageID),
+		})
+	}
+	if len(input.ToolBundles) > 0 {
+		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
+	}
 	control, err := s.resolveToolControl(ctx, input)
 	if err != nil {
 		return nil, err
@@ -502,6 +514,11 @@ func (s *Service) buildToolSignatures(ctx context.Context, input *QueryInput) ([
 	defs, err := s.resolveStructuredToolDefinitions(ctx, control)
 	if err != nil {
 		return nil, err
+	}
+	if unresolved, validationErr := s.unresolvedTurnBundles(ctx, input.ToolBundles, defs); validationErr != nil {
+		return nil, validationErr
+	} else if len(unresolved) > 0 {
+		return nil, fmt.Errorf("requested tool bundles resolved zero tool definitions: %s", strings.Join(unresolved, ", "))
 	}
 	out := make([]*llm.ToolDefinition, 0, len(defs))
 	for _, def := range defs {

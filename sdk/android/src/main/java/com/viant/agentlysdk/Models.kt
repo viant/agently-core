@@ -1267,7 +1267,9 @@ data class ConversationState(
 @Serializable
 data class FeedPresentation(
     val icon: String? = null,
-    val accent: String? = null
+    val accent: String? = null,
+    val target: String? = null,
+    val suppressReportIds: List<String> = emptyList()
 )
 
 @Serializable
@@ -1275,9 +1277,47 @@ data class ActiveFeedState(
     val feedId: String,
     val title: String,
     val itemCount: Int,
+    val turnId: String? = null,
     val data: JsonElement? = null,
     val developerOnly: Boolean = false,
     val presentation: FeedPresentation? = null
+)
+
+@Serializable
+data class FeedPatchOperation(
+    val dataSourceRef: String,
+    val op: String,
+    val path: String,
+    val value: JsonElement? = null
+)
+
+@Serializable
+data class GetFeedDraftInput(
+    val conversationId: String,
+    val feedId: String,
+    val dataSourceRefs: List<String>,
+    val clientId: String? = null
+)
+
+@Serializable
+data class GetFeedDraftOutput(
+    val clientId: String? = null,
+    val data: JsonElement? = null
+)
+
+@Serializable
+data class UpdateFeedDraftInput(
+    val conversationId: String,
+    val feedId: String,
+    val operations: List<FeedPatchOperation>,
+    val clientId: String? = null
+)
+
+@Serializable
+data class UpdateFeedDraftOutput(
+    val clientId: String? = null,
+    val ok: Boolean = false,
+    val error: String? = null
 )
 
 @Serializable

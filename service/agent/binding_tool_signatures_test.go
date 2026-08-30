@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	base "github.com/viant/agently-core/genai/llm/provider/base"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
@@ -318,6 +319,30 @@ func TestActiveSkillCanAugmentMissingToolDefinition(t *testing.T) {
 		got = append(got, def.Name)
 	}
 	assert.EqualValues(t, []string{"prompt:list", "analyst:MetricsCube"}, got)
+}
+
+func TestBuildToolSignatures_FailsWhenTurnBundleIsMaskedBySkillTools(t *testing.T) {
+	svc := &Service{
+		registry: &fakeRegistry{defs: []llm.ToolDefinition{
+			{Name: "llm/skills:list"},
+			{Name: "llm/skills:activate"},
+		}},
+		toolBundles: func(context.Context) ([]*toolbundle.Bundle, error) {
+			return []*toolbundle.Bundle{{
+				ID:    "catalog-tools",
+				Match: []llm.Tool{{Name: "catalog:get_record"}},
+			}}, nil
+		},
+	}
+
+	_, err := svc.buildToolSignatures(context.Background(), &QueryInput{
+		ToolBundles: []string{"catalog-tools"},
+		Agent: &agentmdl.Agent{
+			Tool: agentmdl.Tool{Items: []*llm.Tool{{Definition: llm.ToolDefinition{Name: "llm/skills:list"}}}},
+		},
+	})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "catalog-tools")
 }
 
 func TestAllowContinuationPreview_UsesModelContinuationCapability(t *testing.T) {

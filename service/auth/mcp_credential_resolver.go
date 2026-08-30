@@ -284,7 +284,6 @@ func (r *DelegatedCredentialResolver) resolve(ctx context.Context, requirement *
 	if err := r.ensureColumnWidth(ctx); err != nil {
 		return nil, err
 	}
-
 	// Validated workspace-token reuse: only on explicit ifCompatible policy
 	// and only after full issuer/audience/scope/type/expiry verification of a
 	// parseable JWT. A refresh request must mint through the provider, so

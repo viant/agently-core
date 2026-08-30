@@ -99,7 +99,7 @@ type mcpLinkService struct {
 
 	// Overridable collaborators (tests).
 	loadClientConfig func(ctx context.Context, configURL string) (*oauth2.Config, error)
-	exchangeCode     func(ctx context.Context, oauthCfg *oauth2.Config, code, redirectURI, codeVerifier string) (*oauth2.Token, error)
+	exchangeCode     func(ctx context.Context, oauthCfg *oauth2.Config, code, redirectURI, codeVerifier, resource string) (*oauth2.Token, error)
 	verifyJWT        mcpJWTVerifierFunc
 	httpClient       *http.Client
 
@@ -133,11 +133,15 @@ func newMCPLinkService(cfg *Config, delegated *DelegatedMCPAuth, states OAuthSta
 		httpClient:       &http.Client{Timeout: 10 * time.Second},
 		flows:            map[string]*sync.Mutex{},
 	}
-	service.exchangeCode = func(ctx context.Context, oauthCfg *oauth2.Config, code, redirectURI, codeVerifier string) (*oauth2.Token, error) {
-		return flow.Exchange(ctx, oauthCfg, code,
-			flow.WithRedirectURI(redirectURI),
-			flow.WithPKCE(true),
-			flow.WithCodeVerifier(codeVerifier))
+	service.exchangeCode = func(ctx context.Context, oauthCfg *oauth2.Config, code, redirectURI, codeVerifier, resource string) (*oauth2.Token, error) {
+		opts := []oauth2.AuthCodeOption{
+			oauth2.SetAuthURLParam("redirect_uri", redirectURI),
+			oauth2.SetAuthURLParam("code_verifier", codeVerifier),
+		}
+		if resource = strings.TrimSpace(resource); resource != "" {
+			opts = append(opts, oauth2.SetAuthURLParam("resource", resource))
+		}
+		return oauthCfg.Exchange(ctx, code, opts...)
 	}
 	service.verifyJWT = service.defaultVerifyJWT()
 	return service
@@ -314,7 +318,7 @@ func (s *mcpLinkService) initiate(ctx context.Context, link *resolvedMCPLink, ca
 		// row expires.
 		return &mcpInitiateResult{Status: "pending", RetryAfterSeconds: 2}, nil
 	}
-	authURL, err := s.buildAuthorizationURL(ctx, resolved, scopes, stateBlob, redirectURI, codeVerifier, nonce)
+	authURL, err := s.buildAuthorizationURL(ctx, resolved, scopes, requirement.Resource, stateBlob, redirectURI, codeVerifier, nonce)
 	if err != nil {
 		// Free the flow row so a failed owner does not block relinking for the
 		// whole TTL; the consume is best-effort.
@@ -325,7 +329,7 @@ func (s *mcpLinkService) initiate(ctx context.Context, link *resolvedMCPLink, ca
 	return &mcpInitiateResult{Status: "connect", AuthorizationURL: authURL}, nil
 }
 
-func (s *mcpLinkService) buildAuthorizationURL(ctx context.Context, resolved *resolvedProvider, scopes []string, stateBlob, redirectURI, codeVerifier, nonce string) (string, error) {
+func (s *mcpLinkService) buildAuthorizationURL(ctx context.Context, resolved *resolvedProvider, scopes []string, resource, stateBlob, redirectURI, codeVerifier, nonce string) (string, error) {
 	if resolved.client == nil || strings.TrimSpace(resolved.client.ConfigURL) == "" {
 		return "", fmt.Errorf("oauth provider %q client has no configURL", resolved.refKey)
 	}
@@ -336,15 +340,18 @@ func (s *mcpLinkService) buildAuthorizationURL(ctx context.Context, resolved *re
 		}
 		return "", err
 	}
-	return flow.BuildAuthCodeURL(
-		cloneOAuthConfigWithScopes(oauthCfg, scopes),
+	options := []flow.Option{
 		flow.WithPKCE(true),
 		flow.WithState(stateBlob),
 		flow.WithRedirectURI(redirectURI),
 		flow.WithScopes(scopes...),
 		flow.WithCodeVerifier(codeVerifier),
 		flow.WithAuthURLParam("nonce", nonce),
-	)
+	}
+	if resource = strings.TrimSpace(resource); resource != "" {
+		options = append(options, flow.WithAuthURLParam("resource", resource))
+	}
+	return flow.BuildAuthCodeURL(cloneOAuthConfigWithScopes(oauthCfg, scopes), options...)
 }
 
 // mcpStatusResult is the JSON contract of GET status. Unknown servers,
