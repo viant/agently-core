@@ -198,9 +198,10 @@ func (c *backendClient) resolveActiveFeedsWithVisited(ctx context.Context, state
 		}
 		result = append(result, &ActiveFeedState{
 			FeedID:        col.spec.ID,
+			TurnID:        strings.TrimSpace(state.Turns[col.turnIdx].TurnID),
 			Title:         col.spec.Title,
 			DeveloperOnly: col.spec.DeveloperOnly,
-			Presentation:  col.spec.Presentation,
+			Presentation:  normalizedFeedPresentation(col.spec),
 			ItemCount:     itemCount,
 			Data:          marshalToRawJSON(rootData),
 		})
@@ -243,7 +244,7 @@ func (c *backendClient) resolveActivationToolFeed(ctx context.Context, state *Co
 		FeedID:        spec.ID,
 		Title:         spec.Title,
 		DeveloperOnly: spec.DeveloperOnly,
-		Presentation:  spec.Presentation,
+		Presentation:  normalizedFeedPresentation(spec),
 		ItemCount:     resultSet.ItemCount,
 		Data:          marshalToRawJSON(resultSet.RootData),
 	}

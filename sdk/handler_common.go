@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -123,9 +124,15 @@ func decodeJSON(r *http.Request, v interface{}) error {
 }
 
 func httpJSON(w http.ResponseWriter, code int, v interface{}) {
+	payload, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("sdk http json encode failed: %v", err)
+		http.Error(w, `{"message":"response serialization failed","status":"error"}`, http.StatusInternalServerError)
+		return
+	}
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
+	_, _ = w.Write(append(payload, '\n'))
 }
 
 func httpError(w http.ResponseWriter, code int, err error) {

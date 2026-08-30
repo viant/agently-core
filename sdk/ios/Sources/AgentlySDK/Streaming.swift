@@ -427,6 +427,7 @@ private extension ConversationStreamTracker {
         let feedDeveloperOnly: Bool?
         let feedIcon: String?
         let feedAccent: String?
+        let feedTarget: String?
         let feedItemCount: Int?
         let feedData: JSONValue?
         let plannerTrigger: String?
@@ -500,6 +501,7 @@ private extension ConversationStreamTracker {
             case feedDeveloperOnly
             case feedIcon
             case feedAccent
+            case feedTarget
             case feedItemCount
             case feedData
             case plannerTrigger
@@ -550,8 +552,12 @@ private extension ConversationStreamTracker {
                 name: payload.feedTitle ?? feedID,
                 title: payload.feedTitle ?? feedID,
                 developerOnly: payload.feedDeveloperOnly,
-                presentation: (payload.feedIcon?.trimmedNonEmpty != nil || payload.feedAccent?.trimmedNonEmpty != nil)
-                    ? FeedPresentation(icon: payload.feedIcon?.trimmedNonEmpty, accent: payload.feedAccent?.trimmedNonEmpty)
+                presentation: (payload.feedIcon?.trimmedNonEmpty != nil || payload.feedAccent?.trimmedNonEmpty != nil || payload.feedTarget?.trimmedNonEmpty != nil)
+                    ? FeedPresentation(
+                        icon: payload.feedIcon?.trimmedNonEmpty,
+                        accent: payload.feedAccent?.trimmedNonEmpty,
+                        target: payload.feedTarget?.trimmedNonEmpty
+                    )
                     : nil,
                 itemCount: payload.feedItemCount ?? 0,
                 conversationID: payload.conversationID?.trimmedNonEmpty,

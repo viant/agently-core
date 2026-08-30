@@ -2,9 +2,58 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+
+	"github.com/viant/agently-core/pkg/jsonrepair"
 )
+
+func normalizeFeedResponseData(value interface{}) interface{} {
+	var raw json.RawMessage
+	switch actual := value.(type) {
+	case json.RawMessage:
+		raw = actual
+	case *json.RawMessage:
+		if actual != nil {
+			raw = *actual
+		}
+	default:
+		return value
+	}
+	if len(raw) == 0 || json.Valid(raw) {
+		return raw
+	}
+	if repaired, ok := jsonrepair.NormalizeBareRedactionMarkers(string(raw)); ok {
+		return json.RawMessage(repaired)
+	}
+	return nil
+}
+
+func normalizeFeedConfigValue(value interface{}) interface{} {
+	switch actual := value.(type) {
+	case map[string]interface{}:
+		result := make(map[string]interface{}, len(actual))
+		for key, item := range actual {
+			result[key] = normalizeFeedConfigValue(item)
+		}
+		return result
+	case map[interface{}]interface{}:
+		result := make(map[string]interface{}, len(actual))
+		for key, item := range actual {
+			result[fmt.Sprint(key)] = normalizeFeedConfigValue(item)
+		}
+		return result
+	case []interface{}:
+		result := make([]interface{}, len(actual))
+		for index, item := range actual {
+			result[index] = normalizeFeedConfigValue(item)
+		}
+		return result
+	default:
+		return value
+	}
+}
 
 func handleListFeeds(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -23,7 +72,7 @@ func handleListFeeds(client Client) http.HandlerFunc {
 			}
 			result := make([]feedSummary, 0, len(specs))
 			for _, s := range specs {
-				result = append(result, feedSummary{ID: s.ID, Title: s.Title, DeveloperOnly: s.DeveloperOnly, Presentation: s.Presentation, Match: s.Match})
+				result = append(result, feedSummary{ID: s.ID, Title: s.Title, DeveloperOnly: s.DeveloperOnly, Presentation: normalizedFeedPresentation(s), Match: s.Match})
 			}
 			httpJSON(w, http.StatusOK, map[string]interface{}{"feeds": result})
 			return
@@ -94,10 +143,10 @@ func handleGetFeedData(client Client) http.HandlerFunc {
 			"feedId":        spec.ID,
 			"title":         spec.Title,
 			"developerOnly": spec.DeveloperOnly,
-			"presentation":  spec.Presentation,
-			"data":          feedData,
-			"dataSources":   spec.DataSource,
-			"ui":            spec.UI,
+			"presentation":  normalizedFeedPresentation(spec),
+			"data":          normalizeFeedResponseData(feedData),
+			"dataSources":   normalizeFeedConfigValue(spec.DataSource),
+			"ui":            normalizeFeedConfigValue(spec.UI),
 		})
 	}
 }

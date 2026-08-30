@@ -84,6 +84,8 @@ type mcpLinkFixture struct {
 	dao       *datly.Service
 	canonical string
 	session   *Session
+	accessJWT string
+	idJWT     string
 }
 
 func newMCPLinkFixture(t *testing.T) *mcpLinkFixture {
@@ -155,12 +157,15 @@ func newMCPLinkFixture(t *testing.T) *mcpLinkFixture {
 		"exp": now.Add(2 * time.Hour).Unix(),
 		"iat": now.Unix(),
 	})
-	service.exchangeCode = func(_ context.Context, _ *oauth2.Config, code, redirectURI, codeVerifier string) (*oauth2.Token, error) {
+	service.exchangeCode = func(_ context.Context, _ *oauth2.Config, code, redirectURI, codeVerifier, resource string) (*oauth2.Token, error) {
 		if code != "good-code" {
 			return nil, fmt.Errorf("invalid code")
 		}
 		if strings.TrimSpace(codeVerifier) == "" {
 			return nil, fmt.Errorf("missing pkce verifier")
+		}
+		if resource != testMCPResource {
+			return nil, fmt.Errorf("missing oauth resource")
 		}
 		token := &oauth2.Token{
 			AccessToken:  accessToken,
@@ -182,7 +187,7 @@ func newMCPLinkFixture(t *testing.T) *mcpLinkFixture {
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
 	sessions.Put(ctx, sess)
-	return &mcpLinkFixture{ext: ext, service: service, delegated: delegated, dao: dao, canonical: canonical, session: sess}
+	return &mcpLinkFixture{ext: ext, service: service, delegated: delegated, dao: dao, canonical: canonical, session: sess, accessJWT: accessToken, idJWT: idToken}
 }
 
 func (f *mcpLinkFixture) mux() *http.ServeMux {
@@ -209,6 +214,64 @@ func decodeJSONBody(t *testing.T, recorder *httptest.ResponseRecorder) map[strin
 		t.Fatalf("response %q is not JSON: %v", recorder.Body.String(), err)
 	}
 	return payload
+}
+
+func TestMCPLinkEndpoints_OOBGrantIsValidatedAndStored(t *testing.T) {
+	fixture := newMCPLinkFixture(t)
+	mux := fixture.mux()
+
+	statusRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(statusRecorder, fixture.request(http.MethodGet, "/v1/api/auth/mcp/"+testMCPServer+"/status", true, ""))
+	csrf, _ := decodeJSONBody(t, statusRecorder)["csrfToken"].(string)
+	if csrf == "" {
+		t.Fatal("status returned no csrf token")
+	}
+
+	body, err := json.Marshal(mcpOOBGrant{
+		AccessToken:  fixture.accessJWT,
+		RefreshToken: "refresh-oob",
+		IDToken:      fixture.idJWT,
+		TokenType:    "Bearer",
+		ExpiresAt:    time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+	})
+	if err != nil {
+		t.Fatalf("marshal OOB grant: %v", err)
+	}
+	unauthenticated := httptest.NewRequest(http.MethodPost, "/v1/api/auth/mcp/"+testMCPServer+"/oob", strings.NewReader(string(body)))
+	unauthenticated.Header.Set("Content-Type", "application/json")
+	unauthRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(unauthRecorder, unauthenticated)
+	if unauthRecorder.Code != http.StatusUnauthorized {
+		t.Fatalf("unauthenticated OOB link = %d, want 401", unauthRecorder.Code)
+	}
+
+	withoutCSRF := httptest.NewRequest(http.MethodPost, "/v1/api/auth/mcp/"+testMCPServer+"/oob", strings.NewReader(string(body)))
+	withoutCSRF.Header.Set("Content-Type", "application/json")
+	withoutCSRF.AddCookie(&http.Cookie{Name: "agently_session", Value: fixture.session.ID})
+	csrfRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(csrfRecorder, withoutCSRF)
+	if csrfRecorder.Code != http.StatusForbidden {
+		t.Fatalf("OOB link without CSRF = %d, want 403", csrfRecorder.Code)
+	}
+
+	request := httptest.NewRequest(http.MethodPost, "/v1/api/auth/mcp/"+testMCPServer+"/oob", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set(MCPLinkCSRFHeader, csrf)
+	request.AddCookie(&http.Cookie{Name: "agently_session", Value: fixture.session.ID})
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("OOB link = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+
+	storageKey := DelegatedProviderStorageKey("default", "test-provider")
+	stored, err := fixture.delegated.resolver.store.GetExact(context.Background(), fixture.canonical, storageKey)
+	if err != nil || stored == nil {
+		t.Fatalf("stored OOB grant = %+v, %v", stored, err)
+	}
+	if stored.RefreshToken != "refresh-oob" || stored.Subject != "provider-subject-1" || stored.ProviderRef != "test-provider" {
+		t.Fatalf("stored OOB metadata = %+v", stored)
+	}
 }
 
 func TestMCPLinkEndpoints_AuthenticationAndCSRF(t *testing.T) {
@@ -293,6 +356,9 @@ func TestMCPLinkEndpoints_FullLinkFlow(t *testing.T) {
 	}
 	if parsed.Query().Get("code_challenge_method") != "S256" {
 		t.Fatalf("authorization URL is not S256 PKCE: %s", authURL)
+	}
+	if parsed.Query().Get("resource") != testMCPResource {
+		t.Fatalf("authorization URL resource = %q, want %q", parsed.Query().Get("resource"), testMCPResource)
 	}
 
 	// A concurrent initiation (same user/provider/resource/scopes) is pending

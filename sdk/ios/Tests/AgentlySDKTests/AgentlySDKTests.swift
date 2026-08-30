@@ -1746,13 +1746,14 @@ final class AgentlySDKTests: XCTestCase {
         let tracker = ConversationStreamTracker()
 
         _ = await tracker.apply(SSEEvent(data: #"{"type":"model_started","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","modelCallId":"mc-1","status":"running","model":{"provider":"openai","model":"gpt-5-mini"}}"#))
-        _ = await tracker.apply(SSEEvent(data: #"{"type":"tool_feed_active","conversationId":"conv-1","turnId":"turn-1","feedId":"feed-1","feedTitle":"Feed","feedDeveloperOnly":true,"feedIcon":"chart","feedAccent":"purple","feedItemCount":2}"#))
+        _ = await tracker.apply(SSEEvent(data: #"{"type":"tool_feed_active","conversationId":"conv-1","turnId":"turn-1","feedId":"feed-1","feedTitle":"Feed","feedDeveloperOnly":true,"feedIcon":"chart","feedAccent":"purple","feedTarget":"inline","feedItemCount":2}"#))
         let snapshot = await tracker.apply(SSEEvent(data: #"{"type":"control","op":"message_patch","conversationId":"conv-1","turnId":"turn-1","assistantMessageId":"msg-1","patch":{"content":"Patched","status":"running","toolName":"prompt-get","linkedConversationId":"linked-1"}}"#))
 
         XCTAssertEqual(snapshot.feeds.count, 1)
         XCTAssertEqual(snapshot.feeds.first?.feedID, "feed-1")
         XCTAssertEqual(snapshot.feeds.first?.developerOnly, true)
-        XCTAssertEqual(snapshot.feeds.first?.presentation, FeedPresentation(icon: "chart", accent: "purple"))
+        XCTAssertEqual(snapshot.feeds.first?.presentation, FeedPresentation(icon: "chart", accent: "purple", target: "inline"))
+        XCTAssertEqual(snapshot.feeds.first?.turnID, "turn-1")
         XCTAssertEqual(snapshot.liveExecutionGroupsByID["msg-1"]?.modelSteps.first?.modelCallID, "mc-1")
         XCTAssertEqual(snapshot.liveExecutionGroupsByID["msg-1"]?.modelSteps.first?.provider, "openai")
         XCTAssertEqual(snapshot.bufferedMessages.first?.content, "Patched")
@@ -2434,6 +2435,45 @@ final class AgentlySDKTests: XCTestCase {
         }
         XCTAssertEqual(payload["invalidWorkspaceId"], .string("legacyAlias"))
         XCTAssertEqual(payload["availableWorkspaceIds"], .array([.string("orders")]))
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testFeedDraftFacadeWrapsScopedGetAndUpdateTools() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        var call = 0
+        URLProtocolStub.requestHandler = { request in
+            call += 1
+            let url = try XCTUnwrap(request.url)
+            let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+            XCTAssertEqual(components.queryItems?.first(where: { $0.name == "conversationId" })?.value, "conv-1")
+            let body = try XCTUnwrap(self.requestBodyString(request))
+            let result: String
+            if call == 1 {
+                XCTAssertEqual(components.percentEncodedPath, "/v1/tools/ui%2Ffeed%3Aget/execute")
+                XCTAssertTrue(body.contains(#""dataSourceRefs":["draft"]"#))
+                result = #"{"clientId":"ios-ui","data":{"dataSources":{}}}"#
+            } else {
+                XCTAssertEqual(components.percentEncodedPath, "/v1/tools/ui%2Ffeed%3Aupdate/execute")
+                XCTAssertTrue(body.contains(#""op":"remove""#))
+                result = #"{"clientId":"ios-ui","ok":true}"#
+            }
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            return (response, try JSONEncoder.agently().encode(["result": result]))
+        }
+
+        let read = try await client.getFeedDraft(GetFeedDraftInput(conversationId: "conv-1", feedId: "plan", dataSourceRefs: ["draft"]))
+        let update = try await client.updateFeedDraft(UpdateFeedDraftInput(
+            conversationId: "conv-1",
+            feedId: "plan",
+            operations: [FeedPatchOperation(dataSourceRef: "draft", op: "remove", path: "/channels/1")]
+        ))
+
+        XCTAssertEqual(read.clientId, "ios-ui")
+        XCTAssertTrue(update.ok)
         URLProtocolStub.requestHandler = nil
     }
 

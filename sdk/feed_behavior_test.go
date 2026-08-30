@@ -715,6 +715,8 @@ developerOnly: true
 presentation:
   icon: list
   accent: blue
+  target: workspace
+  suppressReportIds: [legacy-plan, legacy-plan, '  ']
 match:
   service: orchestration
   method: updatePlan
@@ -734,6 +736,8 @@ ui:
 	assert.True(t, planSpec.DeveloperOnly)
 	require.NotNil(t, planSpec.Presentation)
 	assert.Equal(t, "list", planSpec.Presentation.Icon)
+	assert.Equal(t, "workspace", planSpec.Presentation.Target)
+	assert.Equal(t, []string{"legacy-plan"}, planSpec.Presentation.SuppressReportIDs)
 
 	client := &backendClient{feeds: reg}
 	req := httptest.NewRequest("GET", "/v1/feeds", nil)
@@ -752,7 +756,8 @@ ui:
 		if row["id"] == "plan" && row["developerOnly"] == true {
 			developerOnlyFound = true
 			presentation, _ := row["presentation"].(map[string]interface{})
-			presentationFound = presentation["icon"] == "list" && presentation["accent"] == "blue"
+			suppressed, _ := presentation["suppressReportIds"].([]interface{})
+			presentationFound = presentation["icon"] == "list" && presentation["accent"] == "blue" && presentation["target"] == "workspace" && len(suppressed) == 1 && suppressed[0] == "legacy-plan"
 		}
 	}
 	assert.True(t, developerOnlyFound)

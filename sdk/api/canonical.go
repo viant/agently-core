@@ -9,6 +9,7 @@ import (
 
 type ActiveFeedState struct {
 	FeedID        string            `json:"feedId"`
+	TurnID        string            `json:"turnId,omitempty"`
 	Title         string            `json:"title"`
 	DeveloperOnly bool              `json:"developerOnly,omitempty"`
 	Presentation  *FeedPresentation `json:"presentation,omitempty"`

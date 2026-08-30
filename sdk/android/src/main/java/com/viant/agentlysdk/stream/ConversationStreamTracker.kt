@@ -33,8 +33,8 @@ class FeedTracker {
                     feedId = feedId,
                     title = firstString(event.feedTitle, feedId),
                     developerOnly = event.feedDeveloperOnly == true,
-                    presentation = if (!event.feedIcon.isNullOrBlank() || !event.feedAccent.isNullOrBlank()) {
-                        FeedPresentation(icon = event.feedIcon, accent = event.feedAccent)
+                    presentation = if (!event.feedIcon.isNullOrBlank() || !event.feedAccent.isNullOrBlank() || !event.feedTarget.isNullOrBlank()) {
+                        FeedPresentation(icon = event.feedIcon, accent = event.feedAccent, target = event.feedTarget)
                     } else null,
                     itemCount = event.feedItemCount ?: 0,
                     conversationId = resolveEventConversationId(event).ifBlank { null },
@@ -412,8 +412,10 @@ class ConversationStreamTracker(conversationId: String = "") {
                     feedDeveloperOnly = feed.developerOnly,
                     feedIcon = feed.presentation?.icon,
                     feedAccent = feed.presentation?.accent,
+                    feedTarget = feed.presentation?.target,
                     feedItemCount = feed.itemCount,
-                    feedData = feed.data
+                    feedData = feed.data,
+                    turnId = feed.turnId
                 )
             )
         }

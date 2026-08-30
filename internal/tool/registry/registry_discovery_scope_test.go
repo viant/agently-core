@@ -457,6 +457,18 @@ func TestWithDiscoveryTimeout_ToolSurfaceUsesShortBoundUnlessStrict(t *testing.T
 		t.Fatalf("expected short tool-surface timeout, got remaining=%s", surfaceRemaining)
 	}
 
+	requiredCtx := runtimediscovery.MergeMode(context.Background(), runtimediscovery.Mode{ToolSurface: true, Required: true})
+	requiredCtx, requiredCancel := reg.withDiscoveryTimeout(requiredCtx)
+	defer requiredCancel()
+	requiredDeadline, ok := requiredCtx.Deadline()
+	if !ok {
+		t.Fatal("expected required tool-surface discovery deadline")
+	}
+	requiredRemaining := time.Until(requiredDeadline)
+	if requiredRemaining < 5*time.Second || requiredRemaining > 15*time.Second {
+		t.Fatalf("expected required discovery to use normal bounded timeout, got remaining=%s", requiredRemaining)
+	}
+
 	strictCtx := runtimediscovery.MergeMode(context.Background(), runtimediscovery.Mode{ToolSurface: true, Strict: true})
 	strictCtx, strictCancel := reg.withDiscoveryTimeout(strictCtx)
 	defer strictCancel()

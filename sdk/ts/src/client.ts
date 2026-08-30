@@ -30,7 +30,8 @@ import type {
     OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
     OAuthConfigOutput, CreateSessionInput, CreateSessionOutput, OAuthInitiateInput,
     OOBLoginInput, IDPDelegateOutput,
-    FeedSpec, JSONObject, JSONValue,
+    FeedSpec, JSONObject, JSONValue, GetFeedDraftInput, GetFeedDraftOutput,
+    UpdateFeedDraftInput, UpdateFeedDraftOutput,
     FetchDatasourceInput, FetchDatasourceOutput, InvalidateDatasourceCacheInput,
     ListLookupRegistryInput, ListLookupRegistryOutput,
     ListUIEventsInput, ListUIEventsOutput,
@@ -574,6 +575,41 @@ export class AgentlyClient {
             conversationId: String(output.conversationId || conversationId),
             clientId: typeof output.clientId === 'string' ? output.clientId : filters.clientId,
             events: Array.isArray(output.events) ? output.events as ListUIEventsOutput['events'] : [],
+        };
+    }
+
+    /** Read unified live state for selected datasources in an active Tool Feed. */
+    async getFeedDraft(input: GetFeedDraftInput): Promise<GetFeedDraftOutput> {
+        const { conversationId, ...args } = input;
+        if (!conversationId || !conversationId.trim()) throw new Error('conversationId is required');
+        if (!args.feedId || !args.feedId.trim()) throw new Error('feedId is required');
+        if (!Array.isArray(args.dataSourceRefs) || args.dataSourceRefs.length === 0) {
+            throw new Error('dataSourceRefs are required');
+        }
+        const raw = await this.executeTool('ui/feed:get', compactObject(args), { conversationId });
+        const parsed = safeParseJSON(raw);
+        const output = isJSONObject(parsed) ? parsed : {};
+        return {
+            clientId: typeof output.clientId === 'string' ? output.clientId : args.clientId,
+            data: output.data as JSONValue | undefined,
+        };
+    }
+
+    /** Apply preview-only JSON Pointer operations to an active Tool Feed draft. */
+    async updateFeedDraft(input: UpdateFeedDraftInput): Promise<UpdateFeedDraftOutput> {
+        const { conversationId, ...args } = input;
+        if (!conversationId || !conversationId.trim()) throw new Error('conversationId is required');
+        if (!args.feedId || !args.feedId.trim()) throw new Error('feedId is required');
+        if (!Array.isArray(args.operations) || args.operations.length === 0) {
+            throw new Error('operations are required');
+        }
+        const raw = await this.executeTool('ui/feed:update', compactObject(args), { conversationId });
+        const parsed = safeParseJSON(raw);
+        const output = isJSONObject(parsed) ? parsed : {};
+        return {
+            clientId: typeof output.clientId === 'string' ? output.clientId : args.clientId,
+            ok: output.ok === true,
+            error: typeof output.error === 'string' && output.error ? output.error : undefined,
         };
     }
 

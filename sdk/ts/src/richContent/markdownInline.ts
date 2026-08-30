@@ -32,6 +32,9 @@ export function resolveHref(url: string): string {
  */
 export function inlineMarkdown(escaped: string): string {
   let s = escaped;
+  s = s.replace(/@\{([a-zA-Z][a-zA-Z0-9_-]*):([^\s"]+)\s+"((?:[^"\\]|\\.)*)"\}/g, (_, entityType, entityId, label) => (
+    `<span class="agently-entity-chip" data-entity-type="${escapeHTMLAttr(entityType)}" data-entity-id="${escapeHTMLAttr(entityId)}" title="${escapeHTMLAttr(entityId)}">${label}</span>`
+  ));
   s = s.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
   s = s.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/\*(.*?)\*/g, '<em>$1</em>');

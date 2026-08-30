@@ -307,8 +307,9 @@ func validateVerifiedClaims(claims map[string]interface{}, expectedIssuer, resou
 		return fmt.Errorf("token issued in the future")
 	}
 	if strings.TrimSpace(resource) != "" {
-		if !audienceContains(claimAudiences(claims), resource) {
-			return fmt.Errorf("audience does not include the required resource")
+		audiences := claimAudiences(claims)
+		if !audienceContains(audiences, resource) {
+			return fmt.Errorf("audience %q does not include the required resource %q", audiences, resource)
 		}
 	}
 	return nil
@@ -533,7 +534,7 @@ func (s *mcpLinkService) completeCallback(ctx context.Context, code, stateBlob s
 		return nil, errMCPLinkFailed
 	}
 	scopes := normalizeScopes(payload.Scopes)
-	token, err := s.exchangeCode(ctx, cloneOAuthConfigWithScopes(oauthCfg, scopes), code, payload.RedirectURI, payload.CodeVerifier)
+	token, err := s.exchangeCode(ctx, cloneOAuthConfigWithScopes(oauthCfg, scopes), code, payload.RedirectURI, payload.CodeVerifier, payload.Resource)
 	if err != nil {
 		// The state is already consumed: the user starts a new authorization
 		// flow, which is exactly the mandated recovery.
@@ -545,22 +546,78 @@ func (s *mcpLinkService) completeCallback(ctx context.Context, code, stateBlob s
 		s.auditLink(ctx, canonicalUserID, payload.ServerName, link.resolved.refKey, "mcp_auth_link_failed", "token_validation_failed")
 		return nil, errMCPLinkFailed
 	}
+	if err := s.persistVerifiedGrant(ctx, link, token, grant, canonicalUserID, effectiveUserID); err != nil {
+		return nil, err
+	}
+	return &mcpCallbackResult{
+		ServerName:  link.serverName,
+		ProviderRef: link.resolved.refKey,
+		ReturnURL:   sanitizeMCPReturnURL(payload.ReturnURL),
+	}, nil
+}
+
+// completeOOBLink validates and stores a provider grant obtained by a local
+// out-of-band OAuth client. The active workspace session is enforced by the
+// HTTP handler; this method independently re-resolves server policy, checks
+// canonical-user activity and applies the same validation/persistence rules
+// as the authorization-code callback.
+func (s *mcpLinkService) completeOOBLink(ctx context.Context, serverName string, token *oauth2.Token, canonicalUserID, effectiveUserID string) (*mcpCallbackResult, error) {
+	canonicalUserID = strings.TrimSpace(canonicalUserID)
+	if canonicalUserID == "" || !s.userActive(ctx, canonicalUserID) {
+		return nil, errMCPLinkFailed
+	}
+	link, err := s.resolveServer(ctx, serverName)
+	if err != nil {
+		authlog.Log(ctx, authlog.Event{
+			Op:             "mcp_auth_oob_resolution",
+			UserID:         canonicalUserID,
+			Classification: "provider_resolution",
+			Action:         "reject",
+			Err:            err,
+		})
+		return nil, errMCPLinkFailed
+	}
+	grant, err := s.validateGrant(ctx, link, token, "")
+	if err != nil {
+		s.auditLink(ctx, canonicalUserID, link.serverName, link.resolved.refKey, "mcp_auth_oob_failed", "token_validation_failed")
+		authlog.Log(ctx, authlog.Event{
+			Op:             "mcp_auth_oob_validation",
+			UserID:         canonicalUserID,
+			Provider:       link.resolved.refKey,
+			Classification: "token_validation",
+			Action:         "reject",
+			Err:            err,
+		})
+		return nil, errMCPLinkFailed
+	}
+	if err := s.persistVerifiedGrant(ctx, link, token, grant, canonicalUserID, effectiveUserID); err != nil {
+		return nil, err
+	}
+	s.auditLink(ctx, canonicalUserID, link.serverName, link.resolved.refKey, "mcp_auth_oob_succeeded", "linked")
+	return &mcpCallbackResult{ServerName: link.serverName, ProviderRef: link.resolved.refKey}, nil
+}
+
+// persistVerifiedGrant is shared by browser-code and OOB linking. Callers
+// must pass a grant returned by validateGrant; raw client token envelopes are
+// never persisted directly.
+func (s *mcpLinkService) persistVerifiedGrant(ctx context.Context, link *resolvedMCPLink, token *oauth2.Token, grant *verifiedGrant, canonicalUserID, effectiveUserID string) error {
+	now := s.now()
 	resolver := s.delegated.resolver
 	storageKey := link.resolved.storageKey
 	stored, err := resolver.store.GetExact(ctx, canonicalUserID, storageKey)
 	if err != nil {
-		return nil, errMCPLinkFailed
+		return errMCPLinkFailed
 	}
 	// Version one permits one resource token per storage key: an existing row
 	// granted by another issuer or for another resource is never overwritten.
 	if stored != nil {
 		if stored.Issuer != "" && authcfg.NormalizeIssuer(stored.Issuer) != grant.issuer {
-			s.auditLink(ctx, canonicalUserID, payload.ServerName, link.resolved.refKey, "mcp_auth_link_failed", "issuer_conflict")
-			return nil, errMCPResourceConflict
+			s.auditLink(ctx, canonicalUserID, link.serverName, link.resolved.refKey, "mcp_auth_link_failed", "issuer_conflict")
+			return errMCPResourceConflict
 		}
 		if stored.Resource != "" && link.requirement.Resource != "" && !exactURLEqual(stored.Resource, link.requirement.Resource) {
-			s.auditLink(ctx, canonicalUserID, payload.ServerName, link.resolved.refKey, "mcp_auth_link_failed", "resource_conflict")
-			return nil, errMCPResourceConflict
+			s.auditLink(ctx, canonicalUserID, link.serverName, link.resolved.refKey, "mcp_auth_link_failed", "resource_conflict")
+			return errMCPResourceConflict
 		}
 	}
 	next := &OAuthToken{
@@ -581,8 +638,8 @@ func (s *mcpLinkService) completeCallback(ctx context.Context, code, stateBlob s
 		IssuedAt:         now,
 	}
 	if err := resolver.store.Put(ctx, next); err != nil {
-		s.auditLink(ctx, canonicalUserID, payload.ServerName, link.resolved.refKey, "mcp_auth_link_failed", "persist_failed")
-		return nil, errMCPLinkFailed
+		s.auditLink(ctx, canonicalUserID, link.serverName, link.resolved.refKey, "mcp_auth_link_failed", "persist_failed")
+		return errMCPLinkFailed
 	}
 	resolver.clearCooldown(canonicalUserID, storageKey)
 	NotifyMCPAuthChange(MCPAuthChangeEvent{
@@ -594,11 +651,7 @@ func (s *mcpLinkService) completeCallback(ctx context.Context, code, stateBlob s
 		StorageKey:      storageKey,
 	})
 	s.auditLink(ctx, canonicalUserID, link.serverName, link.resolved.refKey, "mcp_auth_link_succeeded", "linked")
-	return &mcpCallbackResult{
-		ServerName:  link.serverName,
-		ProviderRef: link.resolved.refKey,
-		ReturnURL:   sanitizeMCPReturnURL(payload.ReturnURL),
-	}, nil
+	return nil
 }
 
 // revokeBestEffort attempts provider-side revocation of the refresh (and

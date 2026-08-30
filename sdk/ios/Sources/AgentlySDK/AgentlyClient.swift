@@ -516,6 +516,53 @@ public final class AgentlyClient: Sendable {
         return try decoder.decode(ListUIEventsOutput.self, from: data)
     }
 
+    public func getFeedDraft(_ input: GetFeedDraftInput) async throws -> GetFeedDraftOutput {
+        let conversationID = input.conversationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !conversationID.isEmpty else { throw AgentlySDKError.invalidArgument("conversationId is required") }
+        guard !input.feedId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AgentlySDKError.invalidArgument("feedId is required")
+        }
+        guard !input.dataSourceRefs.isEmpty else { throw AgentlySDKError.invalidArgument("dataSourceRefs are required") }
+        var args: [String: JSONValue] = [
+            "feedId": .string(input.feedId),
+            "dataSourceRefs": .array(input.dataSourceRefs.map { .string($0) })
+        ]
+        if let clientID = input.clientId, !clientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args["clientId"] = .string(clientID)
+        }
+        let raw = try await executeTool(name: "ui/feed:get", args: args, conversationID: conversationID)
+        guard let data = raw.data(using: .utf8) else { return GetFeedDraftOutput(clientId: input.clientId) }
+        return try decoder.decode(GetFeedDraftOutput.self, from: data)
+    }
+
+    public func updateFeedDraft(_ input: UpdateFeedDraftInput) async throws -> UpdateFeedDraftOutput {
+        let conversationID = input.conversationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !conversationID.isEmpty else { throw AgentlySDKError.invalidArgument("conversationId is required") }
+        guard !input.feedId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw AgentlySDKError.invalidArgument("feedId is required")
+        }
+        guard !input.operations.isEmpty else { throw AgentlySDKError.invalidArgument("operations are required") }
+        let operationValues = input.operations.map { operation -> JSONValue in
+            var value: [String: JSONValue] = [
+                "dataSourceRef": .string(operation.dataSourceRef),
+                "op": .string(operation.op),
+                "path": .string(operation.path)
+            ]
+            if let operationValue = operation.value { value["value"] = operationValue }
+            return .object(value)
+        }
+        var args: [String: JSONValue] = [
+            "feedId": .string(input.feedId),
+            "operations": .array(operationValues)
+        ]
+        if let clientID = input.clientId, !clientID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            args["clientId"] = .string(clientID)
+        }
+        let raw = try await executeTool(name: "ui/feed:update", args: args, conversationID: conversationID)
+        guard let data = raw.data(using: .utf8) else { return UpdateFeedDraftOutput(clientId: input.clientId) }
+        return try decoder.decode(UpdateFeedDraftOutput.self, from: data)
+    }
+
     public func executeMCPUIToolCall(_ input: MCPUIToolCallInput) async throws -> MCPUIToolCallOutput {
         try await post("/v1/api/mcp-ui/tools/call", body: input, as: MCPUIToolCallOutput.self)
     }

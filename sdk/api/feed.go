@@ -15,8 +15,13 @@ type FeedSpec struct {
 // FeedPresentation contains optional, workspace-owned visual hints. Clients
 // must use neutral defaults when it is absent or contains an unknown token.
 type FeedPresentation struct {
-	Icon   string `yaml:"icon,omitempty" json:"icon,omitempty"`
-	Accent string `yaml:"accent,omitempty" json:"accent,omitempty"`
+	Icon              string   `yaml:"icon,omitempty" json:"icon,omitempty"`
+	Accent            string   `yaml:"accent,omitempty" json:"accent,omitempty"`
+	SuppressReportIDs []string `yaml:"suppressReportIds,omitempty" json:"suppressReportIds,omitempty"`
+	// Target selects where this specific feed is rendered. Empty/auto keeps
+	// the legacy client-selected placement. Supported explicit targets are
+	// inline, workspace, and detached.
+	Target string `yaml:"target,omitempty" json:"target,omitempty"`
 }
 
 // FeedMatch defines which tool calls trigger this feed.
@@ -36,6 +41,7 @@ type FeedActivation struct {
 // FeedState tracks active feeds for a conversation.
 type FeedState struct {
 	FeedID        string            `json:"feedId"`
+	TurnID        string            `json:"turnId,omitempty"`
 	Title         string            `json:"title"`
 	DeveloperOnly bool              `json:"developerOnly,omitempty"`
 	Presentation  *FeedPresentation `json:"presentation,omitempty"`

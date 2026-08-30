@@ -528,6 +528,7 @@ export interface SSEEvent {
     feedDeveloperOnly?: boolean;
     feedIcon?: string;
     feedAccent?: string;
+    feedTarget?: FeedPresentationTarget;
     feedItemCount?: number;
     feedData?: JSONValue;
     // Planner fields
@@ -1156,7 +1157,11 @@ export interface FeedSpec {
 export interface FeedPresentation {
     icon?: string;
     accent?: string;
+    target?: FeedPresentationTarget;
+    suppressReportIds?: string[];
 }
+
+export type FeedPresentationTarget = 'auto' | 'inline' | 'workspace' | 'detached';
 
 export interface ActiveFeed {
     feedId: string;
@@ -1167,4 +1172,39 @@ export interface ActiveFeed {
     conversationId?: string;
     turnId?: string;
     updatedAt: number;
+    data?: unknown;
+}
+
+export type FeedPatchOp = 'add' | 'replace' | 'remove';
+
+export interface FeedPatchOperation {
+    dataSourceRef: string;
+    op: FeedPatchOp;
+    path: string;
+    value?: unknown;
+}
+
+export interface GetFeedDraftInput {
+    conversationId: string;
+    feedId: string;
+    dataSourceRefs: string[];
+    clientId?: string;
+}
+
+export interface GetFeedDraftOutput {
+    clientId?: string;
+    data?: JSONValue;
+}
+
+export interface UpdateFeedDraftInput {
+    conversationId: string;
+    feedId: string;
+    operations: FeedPatchOperation[];
+    clientId?: string;
+}
+
+export interface UpdateFeedDraftOutput {
+    clientId?: string;
+    ok: boolean;
+    error?: string;
 }

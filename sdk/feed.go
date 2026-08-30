@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -46,6 +47,7 @@ func (r *FeedRegistry) loadFromWorkspace() {
 	feedsDir := filepath.Join(workspace.Root(), "feeds")
 	entries, err := os.ReadDir(feedsDir)
 	if err != nil {
+		log.Printf("[feed-registry] load skipped dir=%q err=%v", feedsDir, err)
 		return
 	}
 	var specs []*FeedSpec
@@ -55,6 +57,7 @@ func (r *FeedRegistry) loadFromWorkspace() {
 		}
 		var spec FeedSpec
 		if err := wscodec.DecodeFile(filepath.Join(feedsDir, entry.Name()), &spec); err != nil {
+			log.Printf("[feed-registry] decode skipped file=%q err=%v", filepath.Join(feedsDir, entry.Name()), err)
 			continue
 		}
 		if spec.ID == "" {
@@ -71,11 +74,15 @@ func (r *FeedRegistry) loadFromWorkspace() {
 				spec.Title = cases.Title(language.English).String(spec.ID)
 			}
 		}
+		if spec.Presentation != nil {
+			spec.Presentation = normalizedFeedPresentation(&spec)
+		}
 		specs = append(specs, &spec)
 	}
 	r.mu.Lock()
 	r.specs = specs
 	r.mu.Unlock()
+	log.Printf("[feed-registry] loaded dir=%q specs=%d", feedsDir, len(specs))
 }
 
 // Reload reloads all feed specs from workspace. Safe for hot-swap.
@@ -129,26 +136,42 @@ func matchesRule(m FeedMatch, service, method string) bool {
 
 func parseToolName(name string) (string, string) {
 	normalized := strings.ToLower(strings.TrimSpace(name))
-	normalized = strings.ReplaceAll(normalized, "_", "/")
-	if idx := strings.Index(normalized, ":"); idx >= 0 {
-		return normalized[:idx], normalized[idx+1:]
+	if normalized == "" {
+		return "", "*"
 	}
-	// Handle names like "system_patch-apply" and "system/patch-apply" where the
-	// final hyphen separates service path from method.
-	if slash := strings.LastIndex(normalized, "/"); slash >= 0 {
-		if dash := strings.LastIndex(normalized, "-"); dash > slash {
-			return normalized[:dash], normalized[dash+1:]
-		}
+	lastSlash := strings.LastIndex(normalized, "/")
+	lastDash := strings.LastIndex(normalized, "-")
+	lastColon := strings.LastIndex(normalized, ":")
+	separator := -1
+	// Canonical service/path-method names use a final dash after the service
+	// path. Display service/path/method names split on the final slash. A colon
+	// is a separator only when no later slash/dash identifies the method.
+	switch {
+	case lastDash > lastSlash && lastDash > lastColon:
+		separator = lastDash
+	case lastSlash >= 0:
+		separator = lastSlash
+	case lastColon >= 0:
+		separator = lastColon
+	case lastDash >= 0:
+		separator = lastDash
 	}
-	// Handle "service/method" — split on last slash.
-	if idx := strings.LastIndex(normalized, "/"); idx >= 0 {
-		return normalized[:idx], normalized[idx+1:]
+	if separator < 0 {
+		return normalizeFeedServiceName(normalized), "*"
 	}
-	// Try splitting on hyphen for "prefix-method" pattern.
-	if idx := strings.Index(normalized, "-"); idx >= 0 {
-		return normalized[:idx], normalized[idx+1:]
+	service := normalizeFeedServiceName(normalized[:separator])
+	method := strings.TrimSpace(normalized[separator+1:])
+	if method == "" {
+		method = "*"
 	}
-	return normalized, "*"
+	return service, method
+}
+
+func normalizeFeedServiceName(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.ReplaceAll(value, "_", "/")
+	value = strings.ReplaceAll(value, ":", "/")
+	return strings.Trim(value, "/")
 }
 
 // emitFeedActive publishes a tool_feed_active SSE event with the tool result data.
@@ -171,6 +194,7 @@ func emitFeedActive(ctx context.Context, bus streaming.Bus, convID, turnID strin
 		FeedDeveloperOnly: spec.DeveloperOnly,
 		FeedIcon:          feedPresentationIcon(spec),
 		FeedAccent:        feedPresentationAccent(spec),
+		FeedTarget:        feedPresentationTarget(spec),
 		FeedItemCount:     itemCount,
 		FeedData:          data,
 		CreatedAt:         time.Now(),
@@ -191,6 +215,48 @@ func feedPresentationAccent(f *FeedSpec) string {
 		return ""
 	}
 	return strings.TrimSpace(f.Presentation.Accent)
+}
+
+func feedPresentationTarget(f *FeedSpec) string {
+	if f == nil || f.Presentation == nil {
+		return ""
+	}
+	return normalizeFeedPresentationTarget(f.Presentation.Target)
+}
+
+func normalizedFeedPresentation(f *FeedSpec) *FeedPresentation {
+	if f == nil || f.Presentation == nil {
+		return nil
+	}
+	result := *f.Presentation
+	result.Icon = strings.TrimSpace(result.Icon)
+	result.Accent = strings.TrimSpace(result.Accent)
+	result.Target = normalizeFeedPresentationTarget(result.Target)
+	seenReportIDs := map[string]bool{}
+	result.SuppressReportIDs = result.SuppressReportIDs[:0]
+	for _, candidate := range f.Presentation.SuppressReportIDs {
+		id := strings.TrimSpace(candidate)
+		if id == "" || seenReportIDs[id] {
+			continue
+		}
+		seenReportIDs[id] = true
+		result.SuppressReportIDs = append(result.SuppressReportIDs, id)
+	}
+	if result.Icon == "" && result.Accent == "" && result.Target == "" && len(result.SuppressReportIDs) == 0 {
+		return nil
+	}
+	return &result
+}
+
+func normalizeFeedPresentationTarget(value string) string {
+	switch normalized := strings.ToLower(strings.TrimSpace(value)); normalized {
+	case "", "auto":
+		return normalized
+	case "inline", "workspace", "detached":
+		return normalized
+	default:
+		return "auto"
+	}
 }
 
 // emitFeedInactive publishes a tool_feed_inactive SSE event.

@@ -944,6 +944,34 @@ func TestApplyTurnContext_ClearsDirectActionForPlannerSubmitGuidedTool(t *testin
 	require.Contains(t, stored.Prompting.AppendToolBundles, "analyst-sitelist-tools")
 }
 
+func TestApplyTurnContext_PlannerSubmitBundleSelectsDeclaredProfileWithoutSingleTool(t *testing.T) {
+	cfg := &agentmdl.Intake{
+		Enabled:             true,
+		ConfidenceThreshold: 0.5,
+		Scope:               []string{agentmdl.IntakeScopeContext, agentmdl.IntakeScopeProfile, agentmdl.IntakeScopeTemplate, agentmdl.IntakeScopeTools},
+	}
+	input := &QueryInput{Context: map[string]interface{}{
+		"plannerSubmitEvent": map[string]interface{}{
+			"plannerSubmit": map[string]interface{}{
+				"domain": "catalog",
+				"toolGuidance": map[string]interface{}{
+					"toolBundle":      "catalog-tools",
+					"promptProfileId": "catalog_management",
+				},
+			},
+		},
+	}}
+	tc := &intakesvc.Context{Prompting: intakesvc.PromptingContext{TemplateID: "catalog_dashboard"}}
+
+	applyTurnContext(input, tc, cfg)
+
+	stored := intakesvc.FromContext(input.Context)
+	require.NotNil(t, stored)
+	require.Equal(t, "catalog_management", stored.Prompting.SuggestedProfileID)
+	require.Contains(t, stored.Prompting.AppendToolBundles, "catalog-tools")
+	require.Empty(t, stored.Prompting.TemplateID)
+}
+
 func TestApplyTurnContext_SkipsPlannerModeForCreativeConcreteTroubleshoot(t *testing.T) {
 	cfg := &agentmdl.Intake{
 		Enabled:                  true,

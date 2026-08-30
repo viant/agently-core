@@ -267,6 +267,7 @@ type Event struct {
 	FeedDeveloperOnly bool        `json:"feedDeveloperOnly,omitempty"`
 	FeedIcon          string      `json:"feedIcon,omitempty"`
 	FeedAccent        string      `json:"feedAccent,omitempty"`
+	FeedTarget        string      `json:"feedTarget,omitempty"`
 	FeedItemCount     int         `json:"feedItemCount,omitempty"`
 	FeedData          interface{} `json:"feedData,omitempty"`
 	// Planner fields.

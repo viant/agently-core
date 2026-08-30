@@ -28,6 +28,44 @@ import kotlinx.serialization.json.put
 
 class ConversationStreamTrackerTest {
     @Test
+    fun `tool feed target and owning turn survive live and canonical tracking`() {
+        val tracker = ConversationStreamTracker("conv-1")
+
+        tracker.applyEvent(
+            SSEEvent(
+                type = "tool_feed_active",
+                conversationId = "conv-1",
+                turnId = "turn-live",
+                feedId = "plan",
+                feedTitle = "Plan",
+                feedTarget = "inline",
+                feedItemCount = 2
+            )
+        )
+
+        assertEquals("inline", tracker.snapshot().feeds.single().presentation?.target)
+        assertEquals("turn-live", tracker.snapshot().feeds.single().turnId)
+
+        val hydratedTracker = ConversationStreamTracker("conv-1")
+        hydratedTracker.hydrate(
+            ConversationStateResponse(
+                feeds = listOf(
+                    com.viant.agentlysdk.ActiveFeedState(
+                        feedId = "plan",
+                        title = "Plan",
+                        itemCount = 2,
+                        turnId = "turn-canonical",
+                        presentation = com.viant.agentlysdk.FeedPresentation(target = "detached")
+                    )
+                )
+            )
+        )
+
+        assertEquals("detached", hydratedTracker.snapshot().feeds.single().presentation?.target)
+        assertEquals("turn-canonical", hydratedTracker.snapshot().feeds.single().turnId)
+    }
+
+    @Test
     fun `hydrate projects only primary execution page into assistant messages`() {
         val tracker = ConversationStreamTracker("conv-1")
 
