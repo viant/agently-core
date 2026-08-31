@@ -516,6 +516,21 @@ class AgentlyClient(
         json.decodeFromString(ListUIEventsOutput.serializer(), raw)
     }
 
+    suspend fun recordUIEvent(input: RecordUIEventInput): RecordUIEventOutput = withContext(Dispatchers.IO) {
+        require(input.conversationId.isNotBlank()) { "conversationId is required" }
+        require(input.kind.isNotBlank()) { "kind is required" }
+        val args = linkedMapOf<String, JsonElement>(
+            "kind" to JsonPrimitive(input.kind.trim()),
+            "detail" to input.detail
+        )
+        input.clientId?.trim()?.takeIf { it.isNotEmpty() }?.let { args["clientId"] = JsonPrimitive(it) }
+        input.windowId?.trim()?.takeIf { it.isNotEmpty() }?.let { args["windowId"] = JsonPrimitive(it) }
+        input.windowKey?.trim()?.takeIf { it.isNotEmpty() }?.let { args["windowKey"] = JsonPrimitive(it) }
+        val raw = executeTool("ui/events:record", args, conversationId = input.conversationId)
+        if (raw.isBlank()) return@withContext RecordUIEventOutput()
+        json.decodeFromString(RecordUIEventOutput.serializer(), raw)
+    }
+
     suspend fun getFeedDraft(input: GetFeedDraftInput): GetFeedDraftOutput = withContext(Dispatchers.IO) {
         require(input.conversationId.isNotBlank()) { "conversationId is required" }
         require(input.feedId.isNotBlank()) { "feedId is required" }

@@ -302,6 +302,21 @@ data class ListUIEventsOutput(
     val events: List<UIEvent> = emptyList()
 )
 
+data class RecordUIEventInput(
+    val conversationId: String,
+    val clientId: String? = null,
+    val windowId: String? = null,
+    val windowKey: String? = null,
+    val kind: String,
+    val detail: JsonObject = JsonObject(emptyMap())
+)
+
+@Serializable
+data class RecordUIEventOutput(
+    val recorded: Boolean = false,
+    val event: UIEvent? = null
+)
+
 @Serializable
 class ListTemplatesInput
 

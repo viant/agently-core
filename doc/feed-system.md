@@ -413,6 +413,32 @@ This is backend rendering. It is not browser `window.print` or DOM capture.
 Interactive-only blocks are converted to printable report blocks; tabbed
 sections can expand for print.
 
+The authored toolbar action uses the semantic `pdf` icon token and an
+`Export PDF` label. Native renderers map that token to their platform PDF
+symbol. A mobile host must not substitute a generic print action or client-side
+screen capture. Android and iOS both compile the current feed metadata plus
+form/collection snapshots before submitting the same reporting export job.
+
+## Mobile interaction events
+
+Forge exposes a domain-neutral interaction observer. It emits user intent only
+from native controls, without importing Agently or workspace policy:
+
+- `feed.tab_changed` with container/tab identity, title, and index;
+- `feed.form_changed` with datasource ref, field, scope, control type, and the
+  current value.
+
+Agently mobile hosts accept those events only for rendered `feed-*` windows,
+attach conversation/window identity, debounce repeated text edits, and call
+`ui/events:record`. Agents inspect:
+
+- the current authoritative preview snapshot through `ui/feed:get`;
+- recent user interaction intent through `ui/events:list`.
+
+Interaction events are observational. They do not submit a chat message,
+publish a draft, or invoke a domain mutation. Workspace-specific meaning stays
+in the feed declaration and tools.
+
 ## SDK support
 
 TypeScript, Android, and iOS expose:
@@ -424,6 +450,8 @@ TypeScript, Android, and iOS expose:
 - `getFeedData`;
 - `getFeedDraft`;
 - `updateFeedDraft`.
+- `recordUIEvent` and `listUIEvents` for conversation-scoped interaction
+  inspection.
 
 The mobile client methods execute the same internal `ui/feed` tools with an
 explicit conversation ID. Presentation decisions remain client-specific while
@@ -591,6 +619,8 @@ For a new feed:
 13. Verify switching to another conversation removes the previous
     conversation-owned workspace/feed surfaces and updates route, selection,
     and main-chat parameters together.
+14. Verify native tab and reversible form edits produce acknowledged
+    `feed.tab_changed` / `feed.form_changed` events without creating a turn.
 
 ## Related documentation
 
