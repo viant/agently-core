@@ -404,10 +404,18 @@ tools.
 
 ## Backend PDF export
 
-`feed.print` materializes the current feed container/data map into reporting
-`reportSpec`, `reportFill`, and `reportPrint` primitives. The client submits a
-report-export request, waits for the backend job, retrieves the artifact, and
-downloads the returned PDF bytes.
+`feed.print` sends a reference-first request to
+`reporting:compile_and_export_forge_ui`. The preferred view identity is
+`feed://{feedId}` (for example `feed://media-plan`); Forge window exports may
+use `forge://window/{key}`. The backend resolves the shared Forge UI for the
+requested platform/form-factor target, deterministically lowers it into
+reporting primitives, submits the export job, and returns the PDF artifact.
+
+Datasource references are declared explicitly. Backend-resolvable values are
+loaded there; current unsaved client state is sent only as a datasource
+override containing `form`, `collection`, and `selection` snapshots. Missing
+requested datasource values fail closed. Clients do not maintain a second
+feed-to-report lowering implementation.
 
 This is backend rendering. It is not browser `window.print` or DOM capture.
 Interactive-only blocks are converted to printable report blocks; tabbed
@@ -416,8 +424,8 @@ sections can expand for print.
 The authored toolbar action uses the semantic `pdf` icon token and an
 `Export PDF` label. Native renderers map that token to their platform PDF
 symbol. A mobile host must not substitute a generic print action or client-side
-screen capture. Android and iOS both compile the current feed metadata plus
-form/collection snapshots before submitting the same reporting export job.
+screen capture. Android, iOS, and web submit the same reference-first backend
+request.
 
 ## Mobile interaction events
 
