@@ -102,6 +102,28 @@ type CompileAndExportFencedReportResult struct {
 	Diagnostics []Diagnostic `json:"diagnostics,omitempty"`
 }
 
+type ForgeTargetContext struct {
+	Platform     string   `json:"platform,omitempty"`
+	FormFactor   string   `json:"formFactor,omitempty"`
+	Surface      string   `json:"surface,omitempty"`
+	Capabilities []string `json:"capabilities,omitempty"`
+}
+
+type CompileAndExportForgeUIRequest struct {
+	ViewRef             string                     `json:"viewRef,omitempty"`
+	UI                  json.RawMessage            `json:"ui,omitempty"`
+	DataSourceRefs      []string                   `json:"dataSourceRefs,omitempty"`
+	DataSourceOverrides map[string]json.RawMessage `json:"dataSourceOverrides,omitempty"`
+	ReportID            string                     `json:"reportId,omitempty"`
+	Title               string                     `json:"title,omitempty"`
+	Format              ExportFormat               `json:"format,omitempty"`
+	ConversationID      string                     `json:"conversationId,omitempty"`
+	WorkspaceID         string                     `json:"workspaceId,omitempty"`
+	Target              ForgeTargetContext         `json:"target,omitempty"`
+}
+
+type CompileAndExportForgeUIResult = CompileAndExportFencedReportResult
+
 // CompileRequest carries an authored artifact into the backend compile seam.
 type CompileRequest struct {
 	ArtifactRef string          `json:"artifactRef,omitempty"`

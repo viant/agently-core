@@ -4,6 +4,7 @@ public final class AgentlyClient: Sendable {
     let endpoints: [String: EndpointConfig]
     let endpointName: String
     let session: URLSession
+    let metadataSession: URLSession
     let decoder: JSONDecoder
     let encoder: JSONEncoder
     let sessionCookieStore: AgentlySessionCookieStoring?
@@ -13,6 +14,7 @@ public final class AgentlyClient: Sendable {
         endpointName: String = "appAPI",
         sessionDebug: SessionDebugOptions? = nil,
         session: URLSession = .shared,
+        metadataSession: URLSession? = nil,
         sessionCookieStore: AgentlySessionCookieStoring? = nil,
         decoder: JSONDecoder = .agently(),
         encoder: JSONEncoder = .agently()
@@ -30,6 +32,14 @@ public final class AgentlyClient: Sendable {
         }
         self.endpointName = endpointName
         self.session = session
+        if let metadataSession {
+            self.metadataSession = metadataSession
+        } else {
+            let configuration = URLSessionConfiguration.ephemeral
+            configuration.timeoutIntervalForRequest = 15
+            configuration.timeoutIntervalForResource = 30
+            self.metadataSession = URLSession(configuration: configuration)
+        }
         self.sessionCookieStore = sessionCookieStore
         self.decoder = decoder
         self.encoder = encoder
@@ -98,6 +108,13 @@ public final class AgentlyClient: Sendable {
             query: metadataTargetQueryItems(from: targetContext)
         )
         return try decodeWorkspaceMetadata(data)
+    }
+
+    public func getPublicAgents() async throws -> [WorkspaceAgentInfo] {
+        try await get(
+            "/v1/workspace/metadata/publicagents",
+            as: PublicAgentsEnvelope.self
+        ).agentInfos
     }
 
     public func query(_ input: QueryInput) async throws -> QueryOutput {
@@ -302,6 +319,42 @@ public final class AgentlyClient: Sendable {
             "/v1/api/agently/scheduler/run-now/\(encodePath(id))",
             body: EmptyResponse(),
             as: EmptyResponse.self
+        )
+    }
+
+    public func deleteSchedule(id: String) async throws {
+        let _: EmptyResponse = try await rawRequest(
+            path: "/v1/api/agently/scheduler/schedule/\(encodePath(id))",
+            method: "DELETE",
+            as: EmptyResponse.self
+        )
+    }
+
+    public func listScheduleRuns(
+        scheduleID: String? = nil,
+        filters: [String: String] = [:],
+        page: Int = 1,
+        size: Int = 10
+    ) async throws -> ScheduleRunPage {
+        var query: [URLQueryItem] = []
+        if let scheduleID = scheduleID?.trimmingCharacters(in: .whitespacesAndNewlines), !scheduleID.isEmpty {
+            query.append(URLQueryItem(name: "scheduleId", value: scheduleID))
+        }
+        for (key, value) in filters.sorted(by: { $0.key < $1.key }) {
+            let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !normalized.isEmpty { query.append(URLQueryItem(name: key, value: normalized)) }
+        }
+        query.append(URLQueryItem(name: "page", value: String(max(1, page))))
+        query.append(URLQueryItem(name: "size", value: String(max(1, size))))
+        let envelope = try await get(
+            "/v1/api/agently/scheduler/run",
+            query: query,
+            as: ScheduleRunEnvelope.self
+        )
+        return ScheduleRunPage(
+            rows: envelope.data,
+            pageCount: envelope.info?.pageCount ?? 0,
+            totalCount: envelope.info?.totalCount ?? envelope.data.count
         )
     }
 
@@ -514,6 +567,29 @@ public final class AgentlyClient: Sendable {
             return ListUIEventsOutput(conversationId: conversationID)
         }
         return try decoder.decode(ListUIEventsOutput.self, from: data)
+    }
+
+    public func recordUIEvent(_ input: RecordUIEventInput) async throws -> RecordUIEventOutput {
+        let conversationID = input.conversationId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let kind = input.kind.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !conversationID.isEmpty else { throw AgentlySDKError.invalidArgument("conversationId is required") }
+        guard !kind.isEmpty else { throw AgentlySDKError.invalidArgument("kind is required") }
+        var args: [String: JSONValue] = [
+            "kind": .string(kind),
+            "detail": .object(input.detail)
+        ]
+        if let value = input.clientId?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            args["clientId"] = .string(value)
+        }
+        if let value = input.windowId?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            args["windowId"] = .string(value)
+        }
+        if let value = input.windowKey?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+            args["windowKey"] = .string(value)
+        }
+        let raw = try await executeTool(name: "ui/events:record", args: args, conversationID: conversationID)
+        guard let data = raw.data(using: .utf8) else { return RecordUIEventOutput(recorded: false, event: nil) }
+        return try decoder.decode(RecordUIEventOutput.self, from: data)
     }
 
     public func getFeedDraft(_ input: GetFeedDraftInput) async throws -> GetFeedDraftOutput {
@@ -819,6 +895,18 @@ public final class AgentlyClient: Sendable {
         return data
     }
 
+    func rawMetadataDataRequest(
+        path: String,
+        method: String = "GET",
+        query: [URLQueryItem] = []
+    ) async throws -> Data {
+        let builder = RequestBuilder(endpoint: try endpoint(), encoder: encoder)
+        let request = try builder.makeRequest(path: path, method: method, queryItems: query)
+        let (data, response) = try await metadataSession.data(for: request)
+        try validate(response: response, data: data)
+        return data
+    }
+
     private func applyStoredSessionCookies(to request: inout URLRequest) {
         guard let url = request.url,
               let cookieHeader = sessionCookieStore?.cookieHeader(for: url),
@@ -1034,8 +1122,22 @@ private struct SchedulePatchInput: Codable {
     let schedules: [Schedule]
 }
 
+private struct ScheduleRunEnvelope: Codable {
+    let data: [ScheduleRun]
+    let info: ScheduleRunInfo?
+}
+
+private struct ScheduleRunInfo: Codable {
+    let pageCount: Int?
+    let totalCount: Int?
+}
+
 private struct WorkspaceMetadataEnvelope: Codable {
     let data: WorkspaceMetadata
+}
+
+private struct PublicAgentsEnvelope: Codable {
+    let agentInfos: [WorkspaceAgentInfo]
 }
 
 private extension AgentlyClient {

@@ -60,6 +60,7 @@ type Options struct {
 	// ConversationAdoptionEnabled allows the active-run resolver to expose an
 	// adopted completed manual run when its full durable snapshot is valid.
 	ConversationAdoptionEnabled bool
+	ForgeUIViewResolver         ForgeUIViewResolver
 }
 
 // Service is the agently-core runtime boundary for reporting compile and
@@ -77,6 +78,7 @@ type Service struct {
 	exportFromRunEnabled        bool
 	conversationAdoptionEnabled bool
 	activeRunResolver           ActiveReportRunResolver
+	forgeUIViewResolver         ForgeUIViewResolver
 }
 
 // New constructs a reporting Service.
@@ -110,6 +112,7 @@ func New(opts Options) *Service {
 		exportFromRunEnabled:        opts.ExportFromRunEnabled,
 		conversationAdoptionEnabled: opts.ConversationAdoptionEnabled,
 		activeRunResolver:           normalizeActiveReportRunResolver(opts.ActiveRunResolver),
+		forgeUIViewResolver:         normalizeForgeUIViewResolver(opts.ForgeUIViewResolver),
 	}
 }
 
@@ -182,6 +185,12 @@ func (s *Service) Methods() svc.Signatures {
 			Description: "Compile committed forge-report and forge-data fences and synchronously export the result. Prefer this compact one-call path when no interactive report-builder UI is attached; it returns job and downloadable artifact metadata without report payloads or artifact bytes.",
 			Input:       reflect.TypeOf(&CompileAndExportFencedReportRequest{}),
 			Output:      reflect.TypeOf(&CompileAndExportFencedReportResult{}),
+		},
+		{
+			Name:        "compile_and_export_forge_ui",
+			Description: "Resolve a Forge view reference (or transient inline UI), merge backend datasource values with explicit client overrides, deterministically compile it on the backend, and synchronously export the result.",
+			Input:       reflect.TypeOf(&CompileAndExportForgeUIRequest{}),
+			Output:      reflect.TypeOf(&CompileAndExportForgeUIResult{}),
 		},
 		{
 			Name:        "record_audit_event",
@@ -350,6 +359,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.compileFencedReportTool, nil
 	case "compile_and_export_fenced_report":
 		return s.compileAndExportFencedReportTool, nil
+	case "compile_and_export_forge_ui":
+		return s.compileAndExportForgeUITool, nil
 	case "record_audit_event":
 		return s.recordAuditEventTool, nil
 	case "share_artifact":

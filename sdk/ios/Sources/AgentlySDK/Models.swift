@@ -533,6 +533,36 @@ public struct ListUIEventsOutput: Codable, Sendable, Equatable {
     }
 }
 
+public struct RecordUIEventInput: Sendable, Equatable {
+    public let conversationId: String
+    public let clientId: String?
+    public let windowId: String?
+    public let windowKey: String?
+    public let kind: String
+    public let detail: [String: JSONValue]
+
+    public init(
+        conversationId: String,
+        clientId: String? = nil,
+        windowId: String? = nil,
+        windowKey: String? = nil,
+        kind: String,
+        detail: [String: JSONValue] = [:]
+    ) {
+        self.conversationId = conversationId
+        self.clientId = clientId
+        self.windowId = windowId
+        self.windowKey = windowKey
+        self.kind = kind
+        self.detail = detail
+    }
+}
+
+public struct RecordUIEventOutput: Codable, Sendable, Equatable {
+    public let recorded: Bool
+    public let event: UIEvent?
+}
+
 public struct ListTemplatesInput: Codable, Sendable {
     public init() {}
 }
@@ -2329,6 +2359,44 @@ public struct Schedule: Codable, Sendable, Identifiable {
         self.leaseUntil = leaseUntil
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+    }
+}
+
+public struct ScheduleRun: Codable, Sendable, Identifiable {
+    public let id: String
+    public let scheduleID: String
+    public let conversationID: String?
+    public let status: String?
+    public let errorMessage: String?
+    public let scheduledFor: String?
+    public let startedAt: String?
+    public let completedAt: String?
+    public let createdAt: String?
+    public let updatedAt: String?
+
+    enum CodingKeys: String, CodingKey {
+        case id = "Id"
+        case scheduleID = "ScheduleId"
+        case conversationID = "ConversationId"
+        case status = "Status"
+        case errorMessage = "ErrorMessage"
+        case scheduledFor = "ScheduledFor"
+        case startedAt = "StartedAt"
+        case completedAt = "CompletedAt"
+        case createdAt = "CreatedAt"
+        case updatedAt = "UpdatedAt"
+    }
+}
+
+public struct ScheduleRunPage: Sendable {
+    public let rows: [ScheduleRun]
+    public let pageCount: Int
+    public let totalCount: Int
+
+    public init(rows: [ScheduleRun] = [], pageCount: Int = 0, totalCount: Int = 0) {
+        self.rows = rows
+        self.pageCount = pageCount
+        self.totalCount = totalCount
     }
 }
 

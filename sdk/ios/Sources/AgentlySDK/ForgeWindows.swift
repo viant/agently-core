@@ -7,7 +7,7 @@ public extension AgentlyClient {
     ) async throws -> JSONValue {
         let key = try normalizedForgeWindowKey(windowKey)
         let path = "/v1/api/agently/forge/window/\(encodeForgeWindowKey(key))"
-        let data = try await rawDataRequest(
+        let data = try await rawMetadataDataRequest(
             path: path,
             method: "GET",
             query: metadataTargetQueryItems(from: targetContext)
