@@ -89,6 +89,10 @@ type mcpLinkFixture struct {
 }
 
 func newMCPLinkFixture(t *testing.T) *mcpLinkFixture {
+	return newMCPLinkFixtureWithConfig(t, testDelegatedMCPConfig(false))
+}
+
+func newMCPLinkFixtureWithConfig(t *testing.T, mcpConfig *mcpcfg.MCPClient) *mcpLinkFixture {
 	t.Helper()
 	ctx := context.Background()
 	dao := newMCPLinkTestDAO(t)
@@ -117,7 +121,7 @@ func newMCPLinkFixture(t *testing.T) *mcpLinkFixture {
 	}
 	delegated.SetUserLookup(users)
 	states := NewOAuthStateStoreDatly(dao)
-	configs := &fakeMCPConfigProvider{configs: map[string]*mcpcfg.MCPClient{testMCPServer: testDelegatedMCPConfig(false)}}
+	configs := &fakeMCPConfigProvider{configs: map[string]*mcpcfg.MCPClient{testMCPServer: mcpConfig}}
 	service := newMCPLinkService(cfg, delegated, states, configs, users)
 	if service == nil {
 		t.Fatalf("newMCPLinkService() = nil")
@@ -454,6 +458,63 @@ func TestMCPLinkEndpoints_FullLinkFlow(t *testing.T) {
 	mux.ServeHTTP(recorder, fixture.request(http.MethodDelete, "/v1/api/auth/mcp/"+testMCPServer, true, csrf))
 	if recorder.Code != http.StatusOK {
 		t.Fatalf("repeated disconnect = %d, want 200 (idempotent)", recorder.Code)
+	}
+}
+
+func TestMCPLinkEndpoints_DerivesHostedCallbackFromForwardedOriginAndKeepsSession(t *testing.T) {
+	mcpConfig := testDelegatedMCPConfig(false)
+	mcpConfig.ClientOptions.Auth.InlineProvider.ID = "test-provider-derived-callback"
+	mcpConfig.ClientOptions.Auth.InlineProvider.Clients["web"].RedirectURI = ""
+	fixture := newMCPLinkFixtureWithConfig(t, mcpConfig)
+	mux := fixture.mux()
+
+	statusRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(statusRecorder, fixture.request(http.MethodGet, "/v1/api/auth/mcp/"+testMCPServer+"/status", true, ""))
+	csrf, _ := decodeJSONBody(t, statusRecorder)["csrfToken"].(string)
+	if csrf == "" {
+		t.Fatal("status carries no csrf token")
+	}
+
+	initiateRequest := fixture.request(http.MethodPost, "/v1/api/auth/mcp/"+testMCPServer+"/initiate", true, csrf)
+	initiateRequest.Header.Set("X-Forwarded-Proto", "https")
+	initiateRequest.Header.Set("X-Forwarded-Host", "steward-local.viant.ai")
+	initiateRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(initiateRecorder, initiateRequest)
+	if initiateRecorder.Code != http.StatusOK {
+		t.Fatalf("initiate = %d, body=%s", initiateRecorder.Code, initiateRecorder.Body.String())
+	}
+	authorizationURL, _ := decodeJSONBody(t, initiateRecorder)["authorizationURL"].(string)
+	parsed, err := url.Parse(authorizationURL)
+	if err != nil {
+		t.Fatalf("parse authorization URL: %v", err)
+	}
+	const expectedCallback = "https://steward-local.viant.ai/v1/api/auth/mcp/callback"
+	if got := parsed.Query().Get("redirect_uri"); got != expectedCallback {
+		t.Fatalf("redirect_uri = %q, want %q", got, expectedCallback)
+	}
+	state := parsed.Query().Get("state")
+	if state == "" {
+		t.Fatal("authorization URL carries no state")
+	}
+
+	callbackRequest := fixture.request(http.MethodGet, "/v1/api/auth/mcp/callback?code=good-code&state="+url.QueryEscape(state), true, "")
+	callbackRequest.Host = "steward-local.viant.ai"
+	callbackRequest.Header.Set("X-Forwarded-Proto", "https")
+	callbackRequest.Header.Set("X-Forwarded-Host", "steward-local.viant.ai")
+	callbackRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(callbackRecorder, callbackRequest)
+	if callbackRecorder.Code != http.StatusOK {
+		t.Fatalf("callback = %d, body=%s", callbackRecorder.Code, callbackRecorder.Body.String())
+	}
+	if fixture.ext.sessions.Get(context.Background(), fixture.session.ID) == nil {
+		t.Fatal("hosted MCP callback removed the workspace session")
+	}
+
+	connectedRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(connectedRecorder, fixture.request(http.MethodGet, "/v1/api/auth/mcp/"+testMCPServer+"/status", true, ""))
+	connected, _ := decodeJSONBody(t, connectedRecorder)["connected"].(bool)
+	if !connected {
+		t.Fatalf("status after callback is not connected: %s", connectedRecorder.Body.String())
 	}
 }
 

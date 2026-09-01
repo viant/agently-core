@@ -116,6 +116,24 @@ data class OAuthInitiateInput(
 )
 
 @Serializable
+data class MCPAuthStatusOutput(
+    val server: String,
+    val provider: String? = null,
+    val connected: Boolean = false,
+    val scopes: List<String> = emptyList(),
+    val expiresAt: String? = null,
+    val pending: Boolean = false,
+    val csrfToken: String? = null
+)
+
+@Serializable
+data class MCPAuthInitiateOutput(
+    val status: String,
+    val authorizationURL: String? = null,
+    val retryAfterSeconds: Int? = null
+)
+
+@Serializable
 data class OAuthCallbackInput(
     val code: String,
     val state: String
@@ -1360,6 +1378,7 @@ data class FeedDataResponse(
 data class TurnState(
     val turnId: String,
     val status: String? = null,
+    val errorMessage: String? = null,
     val user: UserMessageState? = null,
     val users: List<UserMessageState> = emptyList(),
     val messages: List<TurnMessageState> = emptyList(),

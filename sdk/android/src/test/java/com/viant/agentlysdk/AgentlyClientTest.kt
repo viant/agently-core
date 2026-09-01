@@ -1236,6 +1236,24 @@ class AgentlyClientTest {
     }
 
     @Test
+    fun `MCP OAuth status and initiate preserve session transport and CSRF`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"server":"media/planner","connected":false,"csrfToken":"csrf-1"}"""))
+        server.enqueue(MockResponse().setBody("""{"status":"connect","authorizationURL":"https://idp.example.test/authorize"}"""))
+        server.start()
+        val client = client()
+
+        val status = client.getMCPAuthStatus("media/planner")
+        assertEquals("csrf-1", status.csrfToken)
+        val initiated = client.initiateMCPAuth("media/planner", status.csrfToken!!, "/conversation/one")
+        assertEquals("connect", initiated.status)
+
+        assertEquals("/v1/api/auth/mcp/media%2Fplanner/status", server.takeRequest().path)
+        val initiateRequest = server.takeRequest()
+        assertEquals("/v1/api/auth/mcp/media%2Fplanner/initiate?returnURL=%2Fconversation%2Fone", initiateRequest.path)
+        assertEquals("csrf-1", initiateRequest.getHeader("X-Agently-Csrf"))
+    }
+
+    @Test
     fun `oauthMobileInitiate posts mobile endpoint`() = runBlocking {
         server.enqueue(
             MockResponse().setBody(

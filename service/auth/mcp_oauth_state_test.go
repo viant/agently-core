@@ -1,9 +1,12 @@
 package auth
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	authcfg "github.com/viant/mcp/client/auth/config"
 )
 
 func testStateConfig(active, previous string) *Config {
@@ -111,6 +114,22 @@ func TestMCPStateTTL_Clamped(t *testing.T) {
 	}
 	if ttl := mcpStateTTL(&Config{MCPLinkStateTTLMinutes: 6}); ttl != 6*time.Minute {
 		t.Fatalf("in-window TTL = %v, want 6m", ttl)
+	}
+}
+
+func TestMCPStateTTLForClient_UsesDedicatedAuthTimeout(t *testing.T) {
+	client := &authcfg.OAuthClient{}
+	field := reflect.ValueOf(client).Elem().FieldByName("AuthTimeout")
+	if field.IsValid() && field.CanSet() {
+		field.SetString("9m")
+	}
+	if ttl := mcpStateTTLForClient(&Config{MCPLinkStateTTLMinutes: 6}, client); ttl != 9*time.Minute {
+		if field.IsValid() {
+			t.Fatalf("client auth timeout = %v, want 9m", ttl)
+		}
+	}
+	if ttl := mcpStateTTLForClient(&Config{}, &authcfg.OAuthClient{}); ttl != 5*time.Minute {
+		t.Fatalf("default client auth timeout = %v, want 5m", ttl)
 	}
 }
 

@@ -139,6 +139,44 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
+    func testMCPAuthStatusAndInitiateUseCurrentSessionAndCSRF() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let client = AgentlyClient(
+            endpoints: ["appAPI": EndpointConfig(baseURL: try XCTUnwrap(URL(string: "https://steward-local.viant.ai")))],
+            session: session
+        )
+        var requestIndex = 0
+        URLProtocolStub.requestHandler = { request in
+            defer { requestIndex += 1 }
+            let response = HTTPURLResponse(
+                url: try XCTUnwrap(request.url),
+                statusCode: 200,
+                httpVersion: nil,
+                headerFields: [:]
+            )!
+            if requestIndex == 0 {
+                XCTAssertEqual(request.url?.path, "/v1/api/auth/mcp/mediaplanner/status")
+                return (response, #"{"server":"mediaplanner","connected":false,"csrfToken":"csrf-1"}"#.data(using: .utf8)!)
+            }
+            XCTAssertEqual(request.url?.path, "/v1/api/auth/mcp/mediaplanner/initiate")
+            XCTAssertEqual(request.url?.query, "returnURL=%2Fconversation%2Fone")
+            XCTAssertEqual(request.value(forHTTPHeaderField: "X-Agently-Csrf"), "csrf-1")
+            return (response, #"{"status":"connect","authorizationURL":"https://idp.example.test/authorize"}"#.data(using: .utf8)!)
+        }
+
+        let status = try await client.getMCPAuthStatus(server: "mediaplanner")
+        XCTAssertEqual(status.csrfToken, "csrf-1")
+        let initiated = try await client.initiateMCPAuth(
+            server: "mediaplanner",
+            csrfToken: try XCTUnwrap(status.csrfToken),
+            returnURL: "/conversation/one"
+        )
+        XCTAssertEqual(initiated.status, "connect")
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testOAuthMobileInitiatePostsMobileEndpoint() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]

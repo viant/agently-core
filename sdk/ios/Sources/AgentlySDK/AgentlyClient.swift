@@ -101,6 +101,35 @@ public final class AgentlyClient: Sendable {
         try await post("/v1/api/auth/idp/delegate", body: EmptyResponse(), as: IDPDelegateOutput.self)
     }
 
+    public func getMCPAuthStatus(server: String) async throws -> MCPAuthStatusOutput {
+        let name = server.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw AgentlySDKError.invalidArgument("MCP server is required.") }
+        return try await get(
+            "/v1/api/auth/mcp/\(agentlyPercentEncodedPathSegment(name))/status",
+            as: MCPAuthStatusOutput.self
+        )
+    }
+
+    public func initiateMCPAuth(
+        server: String,
+        csrfToken: String,
+        returnURL: String? = nil
+    ) async throws -> MCPAuthInitiateOutput {
+        let name = server.trimmingCharacters(in: .whitespacesAndNewlines)
+        let csrf = csrfToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else { throw AgentlySDKError.invalidArgument("MCP server is required.") }
+        guard !csrf.isEmpty else { throw AgentlySDKError.invalidArgument("MCP auth CSRF token is required.") }
+        let data = try encoder.encode(EmptyResponse())
+        return try await rawRequest(
+            path: "/v1/api/auth/mcp/\(agentlyPercentEncodedPathSegment(name))/initiate",
+            method: "POST",
+            query: returnURL.map { [URLQueryItem(name: "returnURL", value: $0)] } ?? [],
+            body: data,
+            additionalHeaders: ["X-Agently-Csrf": csrf],
+            as: MCPAuthInitiateOutput.self
+        )
+    }
+
     public func getWorkspaceMetadata(_ targetContext: MetadataTargetContext? = nil) async throws -> WorkspaceMetadata {
         let data = try await rawDataRequest(
             path: "/v1/workspace/metadata",
@@ -831,6 +860,7 @@ public final class AgentlyClient: Sendable {
         query: [URLQueryItem] = [],
         body: Data? = nil,
         contentType: String = "application/json",
+        additionalHeaders: [String: String] = [:],
         maxResponseBytes: Int64? = nil,
         as type: T.Type
     ) async throws -> T {
@@ -842,6 +872,7 @@ public final class AgentlyClient: Sendable {
             body: body,
             contentType: contentType
         )
+        additionalHeaders.forEach { request.setValue($1, forHTTPHeaderField: $0) }
         applyStoredSessionCookies(to: &request)
         let data: Data
         let response: URLResponse

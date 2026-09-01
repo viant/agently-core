@@ -453,6 +453,37 @@ describe('Auth', () => {
             scopes: ['openid', 'profile', 'email'],
         });
     });
+
+    it('initiates MCP OAuth with the current cookie session and CSRF token', async () => {
+        const f = mockFetch(200, { connected: false, csrfToken: 'csrf-1' });
+        f.mockResolvedValueOnce(mockResponse({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            text: () => Promise.resolve(JSON.stringify({ connected: false, csrfToken: 'csrf-1' })),
+            json: () => Promise.resolve({ connected: false, csrfToken: 'csrf-1' }),
+            headers: new Headers(),
+            arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+        }));
+        f.mockResolvedValueOnce(mockResponse({
+            ok: true,
+            status: 200,
+            statusText: 'OK',
+            text: () => Promise.resolve(JSON.stringify({ status: 'connect', authorizationURL: 'https://idp.test/authorize' })),
+            json: () => Promise.resolve({ status: 'connect', authorizationURL: 'https://idp.test/authorize' }),
+            headers: new Headers(),
+            arrayBuffer: () => Promise.resolve(new ArrayBuffer(0)),
+        }));
+        const c = client(f);
+        const status = await c.getMCPAuthStatus('catalog');
+        expect(status.connected).toBe(false);
+        const result = await c.initiateMCPAuth('catalog', 'csrf-1', { returnURL: '/conversation/conv-1' });
+        expect(result.status).toBe('connect');
+        const call = lastCall(f);
+        expect(call.method).toBe('POST');
+        expect(call.url).toBe('http://localhost:8585/v1/api/auth/mcp/catalog/initiate?returnURL=%2Fconversation%2Fconv-1');
+        expect(call.headers['X-Agently-Csrf']).toBe('csrf-1');
+    });
 });
 
 // ─── Tool Approvals ────────────────────────────────────────────────────────────

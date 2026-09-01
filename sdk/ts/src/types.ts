@@ -1155,6 +1155,26 @@ export interface IDPDelegateOutput {
     expiresIn?: number;
 }
 
+export interface MCPAuthStatusOutput {
+    server: string;
+    provider?: string;
+    connected: boolean;
+    scopes?: string[];
+    expiresAt?: string;
+    pending?: boolean;
+    csrfToken?: string;
+}
+
+export interface MCPAuthInitiateInput {
+    returnURL?: string;
+}
+
+export interface MCPAuthInitiateOutput {
+    status: 'connect' | 'pending' | string;
+    authorizationURL?: string;
+    retryAfterSeconds?: number;
+}
+
 // ─── Tool Feeds ────────────────────────────────────────────────────────────────
 
 export interface FeedSpec {

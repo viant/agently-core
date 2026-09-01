@@ -278,7 +278,7 @@ func (s *mcpLinkService) initiate(ctx context.Context, link *resolvedMCPLink, ca
 	}
 	fingerprint, _ := s.delegated.registry.Fingerprint(ctx)
 	now := s.now().UTC()
-	expiresAt := now.Add(mcpStateTTL(s.cfg))
+	expiresAt := now.Add(mcpStateTTLForClient(s.cfg, resolved.client))
 	codeVerifier := flow.GenerateCodeVerifier()
 	sessionHash := s.keyring.mcpSessionHash(sessionID)
 	statePayload := &MCPAuthState{
