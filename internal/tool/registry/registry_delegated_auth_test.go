@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
+	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcpclient "github.com/viant/mcp/client"
@@ -82,5 +84,31 @@ func TestExecute_MapsLinkRequiredToTypedError(t *testing.T) {
 	}
 	if typed.ServerName != "helper" || typed.ProviderRef != "adelphic-dev6" {
 		t.Fatalf("typed error identity = %+v", typed)
+	}
+}
+
+func TestMatchDefinitionWithContextResult_MapsDiscoveryLinkRequired(t *testing.T) {
+	reg := &Registry{
+		mgr:                &delegatedLinkErrManagerStub{},
+		cache:              map[string]*toolCacheEntry{},
+		internal:           map[string]mcpclient.Interface{},
+		virtualDefs:        map[string]llm.ToolDefinition{},
+		recentResults:      map[string]map[string]recentItem{},
+		discoveryShared:    map[string]discoveryIdentity{},
+		discoveryWarnAt:    map[string]time.Time{},
+		discoveryFailUntil: map[string]time.Time{},
+		discoveryFailErr:   map[string]string{},
+	}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	definitions, err := reg.MatchDefinitionWithContextResult(ctx, "helper/*")
+	if len(definitions) != 0 {
+		t.Fatalf("definitions = %d, want 0", len(definitions))
+	}
+	var typed *mcpauth.LinkRequiredError
+	if !errors.As(err, &typed) {
+		t.Fatalf("expected Agently-typed link error, got %T: %v", err, err)
+	}
+	if typed.ServerName != "helper" {
+		t.Fatalf("server = %q, want helper", typed.ServerName)
 	}
 }

@@ -55,6 +55,22 @@ public struct OAuthInitiateInput: Codable, Sendable {
     }
 }
 
+public struct MCPAuthStatusOutput: Codable, Sendable {
+    public let server: String
+    public let provider: String?
+    public let connected: Bool
+    public let scopes: [String]?
+    public let expiresAt: String?
+    public let pending: Bool?
+    public let csrfToken: String?
+}
+
+public struct MCPAuthInitiateOutput: Codable, Sendable {
+    public let status: String
+    public let authorizationURL: String?
+    public let retryAfterSeconds: Int?
+}
+
 public struct OAuthCallbackInput: Codable, Sendable {
     public let code: String
     public let state: String

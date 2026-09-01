@@ -55,6 +55,13 @@ type ContextMatcher interface {
 	MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition
 }
 
+// ContextMatcherWithError is the error-aware form of ContextMatcher. It lets
+// callers distinguish an empty match from a remote registry that requires
+// delegated OAuth or is otherwise unavailable.
+type ContextMatcherWithError interface {
+	MatchDefinitionWithContextResult(ctx context.Context, pattern string) ([]*llm.ToolDefinition, error)
+}
+
 // ContextDefinitionLister is an optional extension for registries that can list
 // tool definitions using request-scoped context.
 type ContextDefinitionLister interface {

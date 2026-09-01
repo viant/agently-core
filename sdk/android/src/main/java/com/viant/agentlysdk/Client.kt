@@ -108,6 +108,32 @@ class AgentlyClient(
         post("/v1/api/auth/idp/delegate", emptyMap<String, JsonElement>(), IDPDelegateOutput.serializer())
     }
 
+    suspend fun getMCPAuthStatus(server: String): MCPAuthStatusOutput = withContext(Dispatchers.IO) {
+        val name = requireMCPServer(server)
+        get("/v1/api/auth/mcp/${encodePathSegment(name)}/status", MCPAuthStatusOutput.serializer())
+    }
+
+    suspend fun initiateMCPAuth(
+        server: String,
+        csrfToken: String,
+        returnURL: String? = null
+    ): MCPAuthInitiateOutput = withContext(Dispatchers.IO) {
+        val name = requireMCPServer(server)
+        require(csrfToken.isNotBlank()) { "MCP auth CSRF token is required" }
+        val path = buildString {
+            append("/v1/api/auth/mcp/${encodePathSegment(name)}/initiate")
+            returnURL?.takeIf { it.isNotBlank() }?.let {
+                append("?returnURL=${URLEncoder.encode(it, StandardCharsets.UTF_8)}")
+            }
+        }
+        postWithHeaders(
+            path,
+            emptyMap<String, JsonElement>(),
+            MCPAuthInitiateOutput.serializer(),
+            mapOf("X-Agently-Csrf" to csrfToken.trim())
+        )
+    }
+
     suspend fun getWorkspaceMetadata(targetContext: MetadataTargetContext? = null): WorkspaceMetadata = withContext(Dispatchers.IO) {
         val query = targetContext.toTargetQuery()
         val path = appendRepeatedQuery("/v1/workspace/metadata", query)
@@ -835,6 +861,17 @@ class AgentlyClient(
         return decode(root, serializer)
     }
 
+    internal fun <I, T> postWithHeaders(
+        path: String,
+        payload: I,
+        serializer: KSerializer<T>,
+        headers: Map<String, String>
+    ): T {
+        val request = json.encodeToString(serializerFor(payload), payload)
+        val root = parseJson(restClient.post(endpointName, path, request, headers) { it })
+        return decode(root, serializer)
+    }
+
     internal fun <I, T> postLongRunning(path: String, payload: I, serializer: KSerializer<T>): T {
         val request = json.encodeToString(serializerFor(payload), payload)
         val root = parseJson(restClient.postLongRunning(endpointName, path, request) { it })
@@ -893,6 +930,13 @@ class AgentlyClient(
         else -> error("Unsupported payload type: ${payload?.let { it::class.qualifiedName } ?: "null"}")
     }
 }
+
+private fun requireMCPServer(server: String): String = server.trim().also {
+    require(it.isNotEmpty()) { "MCP server is required" }
+}
+
+private fun encodePathSegment(value: String): String =
+    URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20")
 
 const val DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES: Long = 16L * 1024 * 1024
 const val DEFAULT_MAX_PAYLOAD_RESPONSE_BYTES: Long = 1L * 1024 * 1024

@@ -78,12 +78,19 @@ class RestClient(
         }
     }
 
-    fun <T> post(endpoint: String?, uri: String, payload: String, parser: (String) -> T): T {
+    fun <T> post(
+        endpoint: String?,
+        uri: String,
+        payload: String,
+        headers: Map<String, String> = emptyMap(),
+        parser: (String) -> T
+    ): T {
         val config = endpoints.resolve(endpoint)
             ?: error("Endpoint not found: $endpoint")
         val url = config.baseUrl.trimEnd('/') + "/" + uri.trimStart('/')
         val request = Request.Builder().url(url)
             .applyEndpointConfig(config)
+            .apply { headers.forEach { (name, value) -> header(name, value) } }
             .post(payload.toRequestBody("application/json".toMediaType()))
             .build()
         clientFor(config).newCall(request).execute().use { resp ->

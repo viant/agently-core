@@ -30,6 +30,7 @@ import type {
     OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
     OAuthConfigOutput, CreateSessionInput, CreateSessionOutput, OAuthInitiateInput,
     OOBLoginInput, IDPDelegateOutput,
+    MCPAuthStatusOutput, MCPAuthInitiateInput, MCPAuthInitiateOutput,
     FeedSpec, JSONObject, JSONValue, GetFeedDraftInput, GetFeedDraftOutput,
     UpdateFeedDraftInput, UpdateFeedDraftOutput,
     FetchDatasourceInput, FetchDatasourceOutput, InvalidateDatasourceCacheInput,
@@ -996,6 +997,34 @@ export class AgentlyClient {
         return this.post<IDPDelegateOutput>('/api/auth/idp/delegate', {});
     }
 
+    /** Read delegated OAuth status for a configured MCP server. */
+    async getMCPAuthStatus(server: string): Promise<MCPAuthStatusOutput> {
+        const normalized = String(server || '').trim();
+        if (!normalized) throw new Error('MCP server is required');
+        return this.get<MCPAuthStatusOutput>(`/api/auth/mcp/${enc(normalized)}/status`);
+    }
+
+    /** Initiate browser-delegated OAuth using the current cookie-backed session. */
+    async initiateMCPAuth(
+        server: string,
+        csrfToken: string,
+        input: MCPAuthInitiateInput = {},
+    ): Promise<MCPAuthInitiateOutput> {
+        const normalized = String(server || '').trim();
+        const csrf = String(csrfToken || '').trim();
+        if (!normalized) throw new Error('MCP server is required');
+        if (!csrf) throw new Error('MCP auth CSRF token is required');
+        const query = new URLSearchParams();
+        if (input.returnURL) query.set('returnURL', input.returnURL);
+        const suffix = query.toString() ? `?${query.toString()}` : '';
+        return this.request<MCPAuthInitiateOutput>(
+            'POST',
+            `${this.baseURL}/api/auth/mcp/${enc(normalized)}/initiate${suffix}`,
+            undefined,
+            { 'X-Agently-Csrf': csrf },
+        );
+    }
+
     /**
      * Build the full IDP login redirect URL (v1 extension).
      * The backend responds with a 307 redirect to the IDP — callers
@@ -1141,12 +1170,13 @@ export class AgentlyClient {
         await this.request('DELETE', `${this.baseURL}${path}`);
     }
 
-    private async request<T = APIResponse>(method: string, url: string, body?: RequestBody): Promise<T> {
+    private async request<T = APIResponse>(method: string, url: string, body?: RequestBody, extraHeaders: Record<string, string> = {}): Promise<T> {
         const maxAttempts = Math.max(1, this.retries);
         let lastErr: unknown = null;
 
         for (let attempt = 1; attempt <= maxAttempts; attempt++) {
             const headers = await this.authHeaders();
+            Object.assign(headers, extraHeaders);
             if (body !== undefined) {
                 headers['Content-Type'] = 'application/json';
             }

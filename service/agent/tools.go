@@ -412,8 +412,15 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 			continue
 		}
 		res := toolbundle.ResolveDefinitionsWithOptions(b, func(pattern string) []*llm.ToolDefinition {
-			return s.matchDefinitions(ctx, pattern)
+			definitions, matchErr := s.matchDefinitionsResult(ctx, pattern)
+			if err == nil && matchErr != nil {
+				err = matchErr
+			}
+			return definitions
 		})
+		if err != nil {
+			return nil, err
+		}
 		if len(res.Definitions) == 0 {
 			entry.Complete = false
 		}
@@ -668,11 +675,19 @@ func (s *Service) appendRegistryWarnings(ctx context.Context, tools []llm.Tool) 
 }
 
 func (s *Service) matchDefinitions(ctx context.Context, pattern string) []*llm.ToolDefinition {
+	definitions, _ := s.matchDefinitionsResult(ctx, pattern)
+	return definitions
+}
+
+func (s *Service) matchDefinitionsResult(ctx context.Context, pattern string) ([]*llm.ToolDefinition, error) {
 	ctx = toolSurfaceDiscoveryContext(ctx)
-	if cm, ok := s.registry.(toolctx.ContextMatcher); ok {
-		return cm.MatchDefinitionWithContext(ctx, pattern)
+	if cm, ok := s.registry.(toolctx.ContextMatcherWithError); ok {
+		return cm.MatchDefinitionWithContextResult(ctx, pattern)
 	}
-	return s.registry.MatchDefinition(pattern)
+	if cm, ok := s.registry.(toolctx.ContextMatcher); ok {
+		return cm.MatchDefinitionWithContext(ctx, pattern), nil
+	}
+	return s.registry.MatchDefinition(pattern), nil
 }
 
 func (s *Service) definitions(ctx context.Context) []llm.ToolDefinition {

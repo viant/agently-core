@@ -538,7 +538,14 @@ func (s *mcpLinkService) completeCallback(ctx context.Context, code, stateBlob s
 	if err != nil {
 		// The state is already consumed: the user starts a new authorization
 		// flow, which is exactly the mandated recovery.
-		s.auditLink(ctx, canonicalUserID, payload.ServerName, link.resolved.refKey, "mcp_auth_exchange_after_state_consume_failed", "exchange_failed")
+		authlog.Log(ctx, authlog.Event{
+			Op:             "mcp_auth_exchange_after_state_consume_failed",
+			UserID:         canonicalUserID,
+			Provider:       link.resolved.refKey,
+			Classification: "delegated_auth",
+			Action:         "exchange_failed",
+			Err:            err,
+		})
 		return nil, errMCPLinkFailed
 	}
 	grant, err := s.validateGrant(ctx, link, token, payload.Nonce)

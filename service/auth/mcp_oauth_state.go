@@ -9,9 +9,12 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 	"time"
+
+	authcfg "github.com/viant/mcp/client/auth/config"
 )
 
 // MCP OAuth link state is protected with authenticated encryption (AES-256-GCM)
@@ -30,7 +33,7 @@ const (
 
 	// State TTL window mandated by the design: default 7 minutes, clamped to
 	// [5, 10] minutes when configured explicitly.
-	mcpStateDefaultTTL = 7 * time.Minute
+	mcpStateDefaultTTL = 5 * time.Minute
 	mcpStateMinTTL     = 5 * time.Minute
 	mcpStateMaxTTL     = 10 * time.Minute
 )
@@ -285,4 +288,41 @@ func mcpStateTTL(cfg *Config) time.Duration {
 		return mcpStateMaxTTL
 	}
 	return ttl
+}
+
+func mcpStateTTLForClient(cfg *Config, client *authcfg.OAuthClient) time.Duration {
+	if authTimeout := oauthClientAuthTimeout(client); authTimeout != "" {
+		if timeout, err := time.ParseDuration(authTimeout); err == nil {
+			if timeout < mcpStateMinTTL {
+				return mcpStateMinTTL
+			}
+			if timeout > mcpStateMaxTTL {
+				return mcpStateMaxTTL
+			}
+			return timeout
+		}
+	}
+	return mcpStateTTL(cfg)
+}
+
+// oauthClientAuthTimeout keeps agently-core source-compatible with the prior
+// viant/mcp release while the authTimeout field rolls through dependent
+// modules. New MCP versions expose the field; older versions safely retain
+// the five-minute default.
+func oauthClientAuthTimeout(client *authcfg.OAuthClient) string {
+	if client == nil {
+		return ""
+	}
+	value := reflect.ValueOf(client)
+	if value.Kind() == reflect.Ptr {
+		value = value.Elem()
+	}
+	if !value.IsValid() || value.Kind() != reflect.Struct {
+		return ""
+	}
+	field := value.FieldByName("AuthTimeout")
+	if !field.IsValid() || field.Kind() != reflect.String {
+		return ""
+	}
+	return strings.TrimSpace(field.String())
 }

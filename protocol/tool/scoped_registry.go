@@ -54,11 +54,21 @@ func (s *scopedRegistry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 // MatchDefinitionWithContext delegates to the underlying registry when it
 // supports ContextMatcher; otherwise falls back to MatchDefinition.
 func (s *scopedRegistry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
+	definitions, _ := s.MatchDefinitionWithContextResult(ctx, pattern)
+	return definitions
+}
+
+// MatchDefinitionWithContextResult preserves discovery failures while binding
+// the conversation scope used by delegated MCP credential resolution.
+func (s *scopedRegistry) MatchDefinitionWithContextResult(ctx context.Context, pattern string) ([]*llm.ToolDefinition, error) {
 	ctx = s.withConversation(ctx)
-	if cm, ok := s.inner.(ContextMatcher); ok {
-		return cm.MatchDefinitionWithContext(ctx, pattern)
+	if cm, ok := s.inner.(ContextMatcherWithError); ok {
+		return cm.MatchDefinitionWithContextResult(ctx, pattern)
 	}
-	return s.inner.MatchDefinition(pattern)
+	if cm, ok := s.inner.(ContextMatcher); ok {
+		return cm.MatchDefinitionWithContext(ctx, pattern), nil
+	}
+	return s.inner.MatchDefinition(pattern), nil
 }
 
 // GetDefinition delegates to the underlying registry with the scoped conversation.

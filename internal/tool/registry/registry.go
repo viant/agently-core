@@ -573,6 +573,15 @@ func (r *Registry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 }
 
 func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern string) []*llm.ToolDefinition {
+	definitions, _ := r.MatchDefinitionWithContextResult(ctx, pattern)
+	return definitions
+}
+
+// MatchDefinitionWithContextResult matches definitions and preserves remote
+// discovery failures. The legacy matcher intentionally discards the error for
+// best-effort catalogue consumers; required tool-bundle resolution uses this
+// method so delegated OAuth can reach the API/UI as a typed outcome.
+func (r *Registry) MatchDefinitionWithContextResult(ctx context.Context, pattern string) ([]*llm.ToolDefinition, error) {
 	ctx = r.discoveryLookupContext(ctx)
 	ctx, cancel := r.withDiscoveryTimeout(ctx)
 	defer func() {
@@ -621,10 +630,10 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 	r.mu.RUnlock()
 	if len(result) > 0 {
 		if isExplicitPattern(pattern) {
-			return result
+			return result, nil
 		}
 		if svc := serverFromPattern(pattern); svc != "" {
-			return result
+			return result, nil
 		}
 	}
 	// When an explicit tool id already matches a virtual definition,
@@ -640,6 +649,7 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 			if !shouldSuppressMissingMCPConfigWarning(svc, err) {
 				r.warnf("list tools failed for %s: %v", svc, err)
 			}
+			return result, mcpauth.WrapError(err)
 		}
 		for _, t := range tools {
 			full := qualifiedToolName(svc, strings.TrimSpace(t.Name))
@@ -669,7 +679,7 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 			}
 		}
 	}
-	return result
+	return result, nil
 }
 
 func isExplicitPattern(pattern string) bool {
