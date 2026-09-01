@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -38,6 +39,10 @@ type MCPAuthConfigProvider interface {
 	Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error)
 }
 
+type mcpAuthConfigLister interface {
+	Names(ctx context.Context) ([]string, error)
+}
+
 // workspaceMCPConfigProvider loads MCP definitions straight from the
 // workspace repository, mirroring the manager's flat-alias fallback.
 type workspaceMCPConfigProvider struct {
@@ -60,6 +65,37 @@ func (p *workspaceMCPConfigProvider) Options(ctx context.Context, name string) (
 		}
 	}
 	return cfg, err
+}
+
+func (p *workspaceMCPConfigProvider) Names(ctx context.Context) ([]string, error) {
+	if p == nil || p.repo == nil {
+		return nil, nil
+	}
+	return p.repo.List(ctx)
+}
+
+func (s *mcpLinkService) eagerStatuses(ctx context.Context, canonicalUserID, sessionID string) []*mcpStatusResult {
+	lister, ok := s.configs.(mcpAuthConfigLister)
+	if !ok || lister == nil {
+		return nil
+	}
+	names, err := lister.Names(ctx)
+	if err != nil {
+		return nil
+	}
+	sort.Strings(names)
+	result := make([]*mcpStatusResult, 0, len(names))
+	for _, name := range names {
+		cfg, loadErr := s.configs.Options(ctx, name)
+		if loadErr != nil || cfg == nil || !cfg.EagerLink || !cfg.IsDelegatedAuth() || cfg.DisableDelegatedAuth {
+			continue
+		}
+		status := s.status(ctx, name, canonicalUserID, sessionID)
+		if status != nil {
+			result = append(result, status)
+		}
+	}
+	return result
 }
 
 // mcpLinkRateLimits bundles the bounded per-dimension endpoint limits.
@@ -252,7 +288,7 @@ type mcpInitiateResult struct {
 // initiate creates (or joins) the single authorization flow for one canonical
 // user, provider, resource and scope set. Only the flow creator receives the
 // authorization URL; concurrent callers across pods receive pending.
-func (s *mcpLinkService) initiate(ctx context.Context, link *resolvedMCPLink, canonicalUserID, sessionID, returnURL, hostedCallback string) (*mcpInitiateResult, error) {
+func (s *mcpLinkService) initiate(ctx context.Context, link *resolvedMCPLink, canonicalUserID, sessionID, returnURL, hostedCallback string, restart bool) (*mcpInitiateResult, error) {
 	requirement := link.requirement
 	resolved := link.resolved
 	if !s.userActive(ctx, canonicalUserID) {
@@ -301,16 +337,29 @@ func (s *mcpLinkService) initiate(ctx context.Context, link *resolvedMCPLink, ca
 		return nil, err
 	}
 	stateHash := mcpStateHash(stateBlob)
-	_, created, err := s.states.CreateOrGetPending(ctx, &OAuthStateRecord{
+	stateRecord := &OAuthStateRecord{
 		StateHash:       stateHash,
 		FlowHash:        flowHash,
 		CanonicalUserID: canonicalUserID,
 		SessionHash:     sessionHash,
 		Provider:        resolved.refKey,
 		ExpiresAt:       expiresAt,
-	})
+	}
+	stored, created, err := s.states.CreateOrGetPending(ctx, stateRecord)
 	if err != nil {
 		return nil, err
+	}
+	if !created && restart && stored != nil && stored.SessionHash == sessionHash {
+		// An explicit reconnect may replace only a pending flow owned by this
+		// exact browser/WebView session. This recovers a flow whose original
+		// authorization window was closed without letting another session steal
+		// or invalidate it.
+		if consumeErr := s.states.Consume(ctx, stored.StateHash, canonicalUserID, sessionHash); consumeErr == nil {
+			_, created, err = s.states.CreateOrGetPending(ctx, stateRecord)
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	if !created {
 		// A concurrent caller never reconstructs the owner's PKCE verifier or

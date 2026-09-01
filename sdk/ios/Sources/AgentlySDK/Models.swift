@@ -65,6 +65,10 @@ public struct MCPAuthStatusOutput: Codable, Sendable {
     public let csrfToken: String?
 }
 
+public struct MCPAuthConnectionsOutput: Codable, Sendable {
+    public let connections: [MCPAuthStatusOutput]
+}
+
 public struct MCPAuthInitiateOutput: Codable, Sendable {
     public let status: String
     public let authorizationURL: String?

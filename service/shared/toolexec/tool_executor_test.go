@@ -17,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/auth/mcpauth"
 	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -48,6 +49,38 @@ func TestResolveToolStatus_AuthChallenge(t *testing.T) {
 	ctx := context.Background()
 	got, _ := resolveToolStatus(nil, ctx, `MCP server requires authentication. Please sign in to continue.`)
 	assert.EqualValues(t, "waiting_for_user", got)
+}
+
+type acceptingMCPAuthBlocker struct{ calls int }
+
+func (b *acceptingMCPAuthBlocker) AwaitMCPAuth(context.Context, *mcpauth.LinkRequiredError) error {
+	b.calls++
+	return nil
+}
+
+func TestExecuteToolStep_BlocksBeforeRemoteExecutionForMCPAuth(t *testing.T) {
+	required := &mcpauth.LinkRequiredError{ServerName: "mediaplanner", ProviderRef: "media-planner-oauth"}
+	reg := &scriptedRegistry{
+		preflight: []error{required, nil},
+		script:    []scriptedResult{{result: `{"status":"ok"}`}},
+	}
+	blocker := &acceptingMCPAuthBlocker{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-auth", TurnID: "turn-auth"})
+	ctx = mcpauth.WithBlocker(ctx, blocker)
+	conv := &stubConv{}
+
+	call, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: "call-auth", Name: "mediaplanner/create_media_plan"}, conv)
+
+	require.NoError(t, err)
+	assert.Equal(t, 1, blocker.calls)
+	assert.Equal(t, 2, reg.preflightCalls)
+	assert.Equal(t, 1, reg.calls, "the remote tool must execute only after authorization")
+	assert.Equal(t, `{"status":"ok"}`, call.Result)
+	for _, message := range conv.patchedMessages {
+		if message != nil && message.Content != nil {
+			assert.NotContains(t, *message.Content, mcpauth.APICode)
+		}
+	}
 }
 
 func TestToolExecContext_Timeout(t *testing.T) {
@@ -869,6 +902,22 @@ type scriptedRegistry struct {
 	lastArgs       map[string]interface{}
 	lastName       string
 	requestIDs     []string
+	preflight      []error
+	preflightCalls int
+}
+
+func (s *scriptedRegistry) PreflightCredential(context.Context, string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	index := s.preflightCalls
+	s.preflightCalls++
+	if len(s.preflight) == 0 {
+		return nil
+	}
+	if index >= len(s.preflight) {
+		index = len(s.preflight) - 1
+	}
+	return s.preflight[index]
 }
 
 func newStubRegistry(documents map[string]string) *stubRegistry {

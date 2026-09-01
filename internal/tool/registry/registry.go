@@ -67,6 +67,10 @@ type delegatedAuthReporter interface {
 	IsDelegatedAuth(ctx context.Context, serverName string) bool
 }
 
+type delegatedCredentialPreflighter interface {
+	PreflightCredential(ctx context.Context, serverName string) error
+}
+
 // isDelegatedAuthServer reports whether serverName uses manager-owned
 // delegated OAuth. For those servers the registry must not independently
 // select or attach a workspace token: initialization, discovery, execution
@@ -1118,6 +1122,27 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	}
 	debugMCPExecf("registry compose empty server=%s base=%s elapsed=%s", server, baseName, time.Since(execStart).Round(time.Millisecond))
 	return "", nil
+}
+
+// PreflightCredential resolves delegated OAuth before Execute acquires an
+// at-most-once claim. It does not call the remote MCP tool.
+func (r *Registry) PreflightCredential(ctx context.Context, name string) error {
+	if r == nil || r.mgr == nil {
+		return nil
+	}
+	baseName := strings.TrimSpace(name)
+	if i := strings.Index(baseName, "|"); i >= 0 {
+		baseName = strings.TrimSpace(baseName[:i])
+	}
+	server, _ := splitToolName(baseName)
+	if server == "" || !r.isDelegatedAuthServer(ctx, server) {
+		return nil
+	}
+	preflight, ok := r.mgr.(delegatedCredentialPreflighter)
+	if !ok {
+		return nil
+	}
+	return preflight.PreflightCredential(ctx, server)
 }
 
 func (r *Registry) beginRecentCall(ctx context.Context, convID, recentKey string) (*recentCall, bool, string, error, bool) {

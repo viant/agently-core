@@ -65,6 +65,15 @@ public final class AgentlyClient: Sendable {
         sessionCookieStore?.clear()
     }
 
+    public func endpointBaseURL() -> URL? {
+        endpoints[endpointName]?.baseURL
+    }
+
+    public func sessionCookieHeader(for url: URL? = nil) -> String? {
+        guard let target = url ?? endpointBaseURL() else { return nil }
+        return sessionCookieStore?.cookieHeader(for: target)
+    }
+
     public func oauthInitiate(_ input: OAuthInitiateInput = OAuthInitiateInput()) async throws -> OAuthInitiateOutput {
         try await post("/v1/api/auth/oauth/initiate", body: input, as: OAuthInitiateOutput.self)
     }
@@ -110,20 +119,27 @@ public final class AgentlyClient: Sendable {
         )
     }
 
+    public func listMCPAuthConnections() async throws -> MCPAuthConnectionsOutput {
+        try await get("/v1/api/auth/mcp/status", as: MCPAuthConnectionsOutput.self)
+    }
+
     public func initiateMCPAuth(
         server: String,
         csrfToken: String,
-        returnURL: String? = nil
+        returnURL: String? = nil,
+        restart: Bool = false
     ) async throws -> MCPAuthInitiateOutput {
         let name = server.trimmingCharacters(in: .whitespacesAndNewlines)
         let csrf = csrfToken.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty else { throw AgentlySDKError.invalidArgument("MCP server is required.") }
         guard !csrf.isEmpty else { throw AgentlySDKError.invalidArgument("MCP auth CSRF token is required.") }
         let data = try encoder.encode(EmptyResponse())
+        var query = returnURL.map { [URLQueryItem(name: "returnURL", value: $0)] } ?? []
+        if restart { query.append(URLQueryItem(name: "restart", value: "true")) }
         return try await rawRequest(
             path: "/v1/api/auth/mcp/\(agentlyPercentEncodedPathSegment(name))/initiate",
             method: "POST",
-            query: returnURL.map { [URLQueryItem(name: "returnURL", value: $0)] } ?? [],
+            query: query,
             body: data,
             additionalHeaders: ["X-Agently-Csrf": csrf],
             as: MCPAuthInitiateOutput.self

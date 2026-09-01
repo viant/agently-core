@@ -16,6 +16,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	plan "github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/auth/mcpauth"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
@@ -205,6 +206,24 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if err := waitForAsyncRecallPollWindow(ctx, reg, step, turn); err != nil {
 		retErr = err
 		return
+	}
+	if preflight, ok := reg.(tool.CredentialPreflighter); ok {
+		if err := preflight.PreflightCredential(ctx, step.Name); err != nil {
+			required, needsLink := mcpauth.FromError(err)
+			blocker, canBlock := mcpauth.BlockerFromContext(ctx)
+			if !needsLink || !canBlock {
+				retErr = err
+				return
+			}
+			if err := blocker.AwaitMCPAuth(ctx, required); err != nil {
+				retErr = err
+				return
+			}
+			if err := preflight.PreflightCredential(ctx, step.Name); err != nil {
+				retErr = err
+				return
+			}
+		}
 	}
 	argsJSON := ""
 	if logx.Enabled() && len(step.Args) > 0 {

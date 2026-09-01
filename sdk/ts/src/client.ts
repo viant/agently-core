@@ -30,7 +30,7 @@ import type {
     OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
     OAuthConfigOutput, CreateSessionInput, CreateSessionOutput, OAuthInitiateInput,
     OOBLoginInput, IDPDelegateOutput,
-    MCPAuthStatusOutput, MCPAuthInitiateInput, MCPAuthInitiateOutput,
+    MCPAuthStatusOutput, MCPAuthConnectionsOutput, MCPAuthInitiateInput, MCPAuthInitiateOutput,
     FeedSpec, JSONObject, JSONValue, GetFeedDraftInput, GetFeedDraftOutput,
     UpdateFeedDraftInput, UpdateFeedDraftOutput,
     FetchDatasourceInput, FetchDatasourceOutput, InvalidateDatasourceCacheInput,
@@ -998,6 +998,11 @@ export class AgentlyClient {
     }
 
     /** Read delegated OAuth status for a configured MCP server. */
+    async listMCPAuthConnections(): Promise<MCPAuthConnectionsOutput> {
+        return this.get<MCPAuthConnectionsOutput>('/api/auth/mcp/status');
+    }
+
+    /** Read delegated OAuth status for a configured MCP server. */
     async getMCPAuthStatus(server: string): Promise<MCPAuthStatusOutput> {
         const normalized = String(server || '').trim();
         if (!normalized) throw new Error('MCP server is required');
@@ -1016,6 +1021,7 @@ export class AgentlyClient {
         if (!csrf) throw new Error('MCP auth CSRF token is required');
         const query = new URLSearchParams();
         if (input.returnURL) query.set('returnURL', input.returnURL);
+        if (input.restart === true) query.set('restart', 'true');
         const suffix = query.toString() ? `?${query.toString()}` : '';
         return this.request<MCPAuthInitiateOutput>(
             'POST',

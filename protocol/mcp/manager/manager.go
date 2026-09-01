@@ -28,6 +28,10 @@ type Provider interface {
 	Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error)
 }
 
+type providerLister interface {
+	Names(ctx context.Context) ([]string, error)
+}
+
 // inlineProviderRegistrar is optionally implemented by host provider
 // registries that support registering validated inline MCP providers in a
 // runtime overlay (see service/auth/providerregistry.Registry.RegisterInline).
@@ -181,6 +185,66 @@ func New(prov Provider, opts ...Option) (*Manager, error) {
 	return m, nil
 }
 
+// PreflightCredential resolves delegated credentials before a tool execution
+// claim is acquired or any remote MCP request is made. Interactive hosts may
+// block on a typed link-required result and invoke this method again after the
+// same authorization interaction completes.
+func (m *Manager) PreflightCredential(ctx context.Context, serverName string) error {
+	if m == nil || m.prov == nil {
+		return nil
+	}
+	opts, err := m.prov.Options(ctx, strings.TrimSpace(serverName))
+	if err != nil || opts == nil || opts.ClientOptions == nil || opts.ClientOptions.Auth == nil {
+		return err
+	}
+	if opts.ClientOptions.Auth.IsDelegated() {
+		m.applyLearnedBinding(ctx, serverName, opts.ClientOptions.Transport.URL, opts.ClientOptions.Auth)
+	}
+	if !opts.IsDelegatedAuth() {
+		return nil
+	}
+	if opts.DisableDelegatedAuth {
+		return fmt.Errorf("provider_disabled: delegated auth for mcp server %q is disabled by configuration", serverName)
+	}
+	if m.credResolver == nil {
+		return fmt.Errorf("mcp server %q requires delegated oauth but no credential resolver is installed", serverName)
+	}
+	if err := opts.NormalizeDelegatedAuth(); err != nil {
+		return fmt.Errorf("mcp server %q: %w", serverName, err)
+	}
+	auth := opts.ClientOptions.Auth
+	auth.ExternalResolver = m.credResolver
+	if auth.ProviderRegistry == nil {
+		auth.ProviderRegistry = m.providerRegistry
+	}
+	if strings.TrimSpace(auth.ProviderRef) != "" && auth.ProviderRegistry == nil {
+		return fmt.Errorf("mcp server %q: auth.providerRef %q requires an oauth provider registry, but none is installed", serverName, auth.ProviderRef)
+	}
+	if inline := auth.InlineProvider; inline != nil {
+		if registrar, ok := auth.ProviderRegistry.(inlineProviderRegistrar); ok {
+			if err := registrar.RegisterInline(ctx, inline); err != nil {
+				return fmt.Errorf("mcp server %q: %w", serverName, err)
+			}
+		}
+	}
+	requirement, err := auth.CompileRequirement(ctx, serverName, opts.ClientOptions.Transport.URL)
+	if err != nil {
+		return err
+	}
+	_, err = m.credResolver.Resolve(ctx, *requirement)
+	wrapped := mcpauth.WrapError(err)
+	if required, ok := mcpauth.FromError(wrapped); ok && auth.ProviderRegistry != nil {
+		if provider, providerErr := auth.ProviderRegistry.ResolveProvider(ctx, requirement.ProviderRef); providerErr == nil && provider != nil {
+			if client, _, clientErr := provider.Client(requirement.ClientRef); clientErr == nil && client != nil {
+				if timeout, timeoutErr := client.AuthTimeoutDuration(); timeoutErr == nil {
+					required.AuthTimeout = timeout
+				}
+			}
+		}
+	}
+	return wrapped
+}
+
 // poolKey returns a user-scoped key for the connection pool.
 // When a UserIDExtractor is configured, the key is "userID:convID" to
 // prevent shared conversations from leaking MCP auth/tokens across users.
@@ -200,6 +264,19 @@ func (m *Manager) Options(ctx context.Context, serverName string) (*mcpcfg.MCPCl
 		return nil, errors.New("mcp manager: provider not configured")
 	}
 	return m.prov.Options(ctx, serverName)
+}
+
+// Names lists configured MCP servers when the provider supports local
+// inventory. It never initializes or contacts an MCP server.
+func (m *Manager) Names(ctx context.Context) ([]string, error) {
+	if m == nil || m.prov == nil {
+		return nil, errors.New("mcp manager: provider not configured")
+	}
+	lister, ok := m.prov.(providerLister)
+	if !ok {
+		return nil, nil
+	}
+	return lister.Names(ctx)
 }
 
 // Get returns an MCP client for (user+convID, serverName), creating it if needed.

@@ -34,6 +34,10 @@ type MCPClient struct {
 	// typed provider-disabled error; it never silently falls back to
 	// workspace credentials.
 	DisableDelegatedAuth bool `yaml:"disableDelegatedAuth,omitempty" json:"disableDelegatedAuth,omitempty"`
+	// EagerLink asks an interactive Agently client to establish delegated OAuth
+	// when this MCP server is first selected for use, before calling it remotely.
+	// Discovery and workspace startup must not initiate the authorization flow.
+	EagerLink bool `yaml:"eagerLink,omitempty" json:"eagerLink,omitempty"`
 }
 
 // IsDelegatedAuth reports whether this MCP definition selects the delegated
