@@ -1003,7 +1003,8 @@ describe('Workspace Metadata', () => {
                     id: 'coder',
                     name: 'Coder',
                     modelRef: 'gpt-4',
-                    starterTasks: [{ id: 'analyze', title: 'Analyze', prompt: 'Analyze this repo.' }],
+                    starterTaskCategories: [{ id: 'understand', title: 'Understand', icon: 'tree-structure' }],
+                    starterTasks: [{ id: 'analyze', categoryId: 'understand', title: 'Analyze', prompt: 'Analyze this repo.' }],
                 },
             ],
         };
@@ -1016,6 +1017,8 @@ describe('Workspace Metadata', () => {
         expect(res.defaults?.autoSelectTools).toBe(true);
         expect(res.capabilities?.agentAutoSelection).toBe(true);
         expect(res.agentInfos?.[0]?.starterTasks?.[0]?.id).toBe('analyze');
+        expect(res.agentInfos?.[0]?.starterTasks?.[0]?.categoryId).toBe('understand');
+        expect(res.agentInfos?.[0]?.starterTaskCategories?.[0]?.icon).toBe('tree-structure');
         const call = lastCall(f);
         expect(call.method).toBe('GET');
         expect(call.url).toBe('http://localhost:8585/v1/workspace/metadata');

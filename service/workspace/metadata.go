@@ -74,22 +74,24 @@ type Capabilities struct {
 
 // AgentInfo describes a UI-facing agent entry with its preferred model.
 type AgentInfo struct {
-	ID           string                 `json:"id,omitempty"`
-	Name         string                 `json:"name,omitempty"`
-	Internal     bool                   `json:"internal,omitempty"`
-	ModelRef     string                 `json:"modelRef,omitempty"`
-	Tools        []string               `json:"tools,omitempty"`
-	StarterTasks []agentmdl.StarterTask `json:"starterTasks,omitempty"`
+	ID                    string                         `json:"id,omitempty"`
+	Name                  string                         `json:"name,omitempty"`
+	Internal              bool                           `json:"internal,omitempty"`
+	ModelRef              string                         `json:"modelRef,omitempty"`
+	Tools                 []string                       `json:"tools,omitempty"`
+	StarterTasks          []agentmdl.StarterTask         `json:"starterTasks,omitempty"`
+	StarterTaskCategories []agentmdl.StarterTaskCategory `json:"starterTaskCategories,omitempty"`
 }
 
 type metadataAgentProjection struct {
-	ID           string                 `yaml:"id,omitempty"`
-	Name         string                 `yaml:"name,omitempty"`
-	Internal     bool                   `yaml:"internal,omitempty"`
-	ModelRef     string                 `yaml:"modelRef,omitempty"`
-	Model        string                 `yaml:"model,omitempty"`
-	Profile      *metadataProfile       `yaml:"profile,omitempty"`
-	StarterTasks []agentmdl.StarterTask `yaml:"starterTasks,omitempty"`
+	ID                    string                         `yaml:"id,omitempty"`
+	Name                  string                         `yaml:"name,omitempty"`
+	Internal              bool                           `yaml:"internal,omitempty"`
+	ModelRef              string                         `yaml:"modelRef,omitempty"`
+	Model                 string                         `yaml:"model,omitempty"`
+	Profile               *metadataProfile               `yaml:"profile,omitempty"`
+	StarterTasks          []agentmdl.StarterTask         `yaml:"starterTasks,omitempty"`
+	StarterTaskCategories []agentmdl.StarterTaskCategory `yaml:"starterTaskCategories,omitempty"`
 }
 
 type metadataProfile struct {
@@ -294,12 +296,13 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 			label = id
 		}
 		result = append(result, AgentInfo{
-			ID:           id,
-			Name:         label,
-			Internal:     cfg.Internal,
-			ModelRef:     firstNonEmpty(cfg.ModelRef, cfg.Model, stringValue(rawMap["modelRef"]), stringValue(rawMap["model"])),
-			Tools:        agentToolDefaults(rawMap),
-			StarterTasks: append([]agentmdl.StarterTask(nil), cfg.StarterTasks...),
+			ID:                    id,
+			Name:                  label,
+			Internal:              cfg.Internal,
+			ModelRef:              firstNonEmpty(cfg.ModelRef, cfg.Model, stringValue(rawMap["modelRef"]), stringValue(rawMap["model"])),
+			Tools:                 agentToolDefaults(rawMap),
+			StarterTasks:          append([]agentmdl.StarterTask(nil), cfg.StarterTasks...),
+			StarterTaskCategories: append([]agentmdl.StarterTaskCategory(nil), cfg.StarterTaskCategories...),
 		})
 	}
 	sort.SliceStable(result, func(i, j int) bool {

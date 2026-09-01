@@ -1,8 +1,14 @@
 id: starter-demo
 name: Starter Demo
 model: openai_gpt-5.2
+starterTaskCategories:
+  - id: build
+    title: Build
+    description: Create or improve something.
+    icon: rocket
 starterTasks:
   - id: analyze-repo
+    categoryId: build
     title: Analyze this repo
     prompt: Analyze this repository.
     description: Architecture summary and next steps.
@@ -10,6 +16,7 @@ starterTasks:
     coverageEvalIds:
       - repo-analysis
   - id: write-tests
+    categoryId: build
     title: Add missing tests
     prompt: Add focused tests for a weakly covered area.
     description: Targeted coverage improvements.

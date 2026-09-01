@@ -536,7 +536,8 @@ data class WorkspaceAgentInfo(
     val modelRef: String? = null,
     @SerialName("internal")
     val internalAgent: Boolean? = null,
-    val starterTasks: List<StarterTask> = emptyList()
+    val starterTasks: List<StarterTask> = emptyList(),
+    val starterTaskCategories: List<StarterTaskCategory> = emptyList()
 )
 
 @Serializable
@@ -547,8 +548,17 @@ data class PublicAgentsResponse(
 @Serializable
 data class StarterTask(
     val id: String? = null,
+    val categoryId: String? = null,
     val title: String? = null,
     val prompt: String? = null,
+    val description: String? = null,
+    val icon: String? = null
+)
+
+@Serializable
+data class StarterTaskCategory(
+    val id: String? = null,
+    val title: String? = null,
     val description: String? = null,
     val icon: String? = null
 )

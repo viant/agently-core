@@ -212,6 +212,7 @@ type WorkspaceCapabilities struct {
 
 type StarterTask struct {
 	ID              string   `json:"id,omitempty"`
+	CategoryID      string   `json:"categoryId,omitempty"`
 	Title           string   `json:"title,omitempty"`
 	Prompt          string   `json:"prompt,omitempty"`
 	Description     string   `json:"description,omitempty"`
@@ -219,12 +220,20 @@ type StarterTask struct {
 	CoverageEvalIDs []string `json:"coverageEvalIds,omitempty"`
 }
 
+type StarterTaskCategory struct {
+	ID          string `json:"id,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Icon        string `json:"icon,omitempty"`
+}
+
 type WorkspaceAgentInfo struct {
-	ID           string        `json:"id,omitempty"`
-	Name         string        `json:"name,omitempty"`
-	Internal     bool          `json:"internal,omitempty"`
-	ModelRef     string        `json:"modelRef,omitempty"`
-	StarterTasks []StarterTask `json:"starterTasks,omitempty"`
+	ID                    string                `json:"id,omitempty"`
+	Name                  string                `json:"name,omitempty"`
+	Internal              bool                  `json:"internal,omitempty"`
+	ModelRef              string                `json:"modelRef,omitempty"`
+	StarterTasks          []StarterTask         `json:"starterTasks,omitempty"`
+	StarterTaskCategories []StarterTaskCategory `json:"starterTaskCategories,omitempty"`
 }
 
 type PublicAgentsResponse struct {

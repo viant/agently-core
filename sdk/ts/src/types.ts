@@ -826,6 +826,7 @@ export interface AgentInfo {
     description?: string;
     modelRef?: string;
     starterTasks?: StarterTask[];
+    starterTaskCategories?: StarterTaskCategory[];
 }
 
 export interface ModelInfo {
@@ -836,9 +837,19 @@ export interface ModelInfo {
 
 export interface StarterTask {
     id?: string;
+    categoryId?: string;
     title?: string;
     prompt?: string;
+    description?: string;
+    icon?: string;
     agentId?: string;
+}
+
+export interface StarterTaskCategory {
+    id?: string;
+    title?: string;
+    description?: string;
+    icon?: string;
 }
 
 export interface WorkspaceCapabilities {
