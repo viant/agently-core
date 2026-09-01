@@ -26,6 +26,59 @@ func TestDeleteConversationTree_BlocksNonTerminalNonEmptyConversation(t *testing
 	}
 }
 
+func TestDeleteConversationTree_AllowsWaitingForUserConversation(t *testing.T) {
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-waiting", "waiting_for_user", "u1"}},
+			{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-waiting", "conv-waiting", "waiting_for_user"}},
+			{SQL: `INSERT INTO message (id, conversation_id, turn_id, role, type, content) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-waiting", "conv-waiting", "turn-waiting", "assistant", "text", "waiting"}},
+			{SQL: `INSERT INTO run (id, turn_id, conversation_id, conversation_kind, status, completed_at) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-waiting", "turn-waiting", "conv-waiting", "interactive", "completed", time.Now().UTC().Format(time.RFC3339)}},
+			{SQL: `UPDATE turn SET run_id = ? WHERE id = ?`, Params: []interface{}{"run-waiting", "turn-waiting"}},
+			{SQL: `INSERT INTO tool_call (message_id, turn_id, op_id, attempt, tool_name, tool_kind, status, run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-waiting", "turn-waiting", "op-waiting", 1, "test/tool", "mcp", "running", "run-waiting"}},
+		})
+	})
+
+	if err := svc.DeleteConversationTree(deleteTestContext(), "conv-waiting"); err != nil {
+		t.Fatalf("DeleteConversationTree() error: %v", err)
+	}
+	assertStage1RowCount(t, db, "conversation", "id", "conv-waiting", 0)
+	assertStage1RowCount(t, db, "run", "id", "run-waiting", 0)
+}
+
+func TestDeleteConversationTree_AllowsMixedTerminalAndWaitingForUserGraph(t *testing.T) {
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-mixed-root", "succeeded", "u1"}},
+			{SQL: `INSERT INTO conversation (id, status, created_by_user_id, conversation_parent_id) VALUES (?, ?, ?, ?)`, Params: []interface{}{"conv-mixed-child", "waiting_for_user", "u1", "conv-mixed-root"}},
+			{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-mixed-child", "conv-mixed-child", "waiting_for_user"}},
+			{SQL: `INSERT INTO message (id, conversation_id, turn_id, role, type, content) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"msg-mixed-child", "conv-mixed-child", "turn-mixed-child", "assistant", "text", "waiting"}},
+		})
+	})
+
+	if err := svc.DeleteConversationTree(deleteTestContext(), "conv-mixed-root"); err != nil {
+		t.Fatalf("DeleteConversationTree() error: %v", err)
+	}
+	assertStage1RowCount(t, db, "conversation", "id", "conv-mixed-root", 0)
+	assertStage1RowCount(t, db, "conversation", "id", "conv-mixed-child", 0)
+}
+
+func TestDeleteConversationTree_BlocksWaitingForUserConversationWithLiveRun(t *testing.T) {
+	now := time.Now().UTC()
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-waiting-live", "waiting_for_user", "u1"}},
+			{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-waiting-live", "conv-waiting-live", "waiting_for_user"}},
+			{SQL: `INSERT INTO run (id, turn_id, conversation_id, conversation_kind, status, lease_until, last_heartbeat_at, heartbeat_interval_sec) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-waiting-live", "turn-waiting-live", "conv-waiting-live", "interactive", "running", now.Add(time.Minute).Format(time.RFC3339), now.Format(time.RFC3339), 5}},
+		})
+	})
+
+	err := svc.DeleteConversationTree(deleteTestContext(), "conv-waiting-live")
+	if !errors.Is(err, ErrConversationActive) {
+		t.Fatalf("expected ErrConversationActive, got %v", err)
+	}
+	assertStage1RowCount(t, db, "conversation", "id", "conv-waiting-live", 1)
+}
+
 func TestDeleteConversationTree_IgnoresNonTerminalToolStatusWhenConversationIsTerminal(t *testing.T) {
 	svc := newSeededService(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{

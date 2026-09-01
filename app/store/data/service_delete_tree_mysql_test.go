@@ -101,6 +101,70 @@ func TestDeleteConversationTree_MySQLStage1(t *testing.T) {
 	}
 }
 
+func TestDeleteConversationTree_MySQLWaitingForUser(t *testing.T) {
+	dsn := os.Getenv("AGENTLY_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("AGENTLY_TEST_MYSQL_DSN is not set")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open(mysql): %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.PingContext(context.Background()); err != nil {
+		t.Fatalf("ping MySQL: %v", err)
+	}
+
+	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	conversationID := "delete-mysql-waiting-conv-" + suffix
+	turnID := "delete-mysql-waiting-turn-" + suffix
+	messageID := "delete-mysql-waiting-msg-" + suffix
+	runID := "delete-mysql-waiting-run-" + suffix
+
+	t.Cleanup(func() {
+		cleanupMySQLDeleteTestRows(t, db, map[string]string{
+			"conversation": conversationID,
+			"turn":         turnID,
+			"message":      messageID,
+			"run":          runID,
+		})
+	})
+
+	statements := []struct {
+		query string
+		args  []interface{}
+	}{
+		{query: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, args: []interface{}{conversationID, "waiting_for_user", "u1"}},
+		{query: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, args: []interface{}{turnID, conversationID, "waiting_for_user"}},
+		{query: `INSERT INTO message (id, conversation_id, turn_id, role, type, content) VALUES (?, ?, ?, ?, ?, ?)`, args: []interface{}{messageID, conversationID, turnID, "assistant", "text", "waiting"}},
+		{query: `INSERT INTO run (id, turn_id, conversation_id, conversation_kind, status, completed_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())`, args: []interface{}{runID, turnID, conversationID, "interactive", "completed"}},
+		{query: `UPDATE turn SET run_id = ? WHERE id = ?`, args: []interface{}{runID, turnID}},
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement.query, statement.args...); err != nil {
+			t.Fatalf("seed MySQL waiting-for-user delete test with %q: %v", statement.query, err)
+		}
+	}
+
+	ctx := context.Background()
+	dao, err := datly.New(ctx)
+	if err != nil {
+		t.Fatalf("datly.New() error: %v", err)
+	}
+	connector := view.NewConnector("agently", "mysql", dsn)
+	if err = dao.AddConnectors(ctx, connector); err != nil {
+		t.Fatalf("AddConnectors() error: %v", err)
+	}
+	if err = registerReadComponents(ctx, dao); err != nil {
+		t.Fatalf("registerReadComponents() error: %v", err)
+	}
+
+	if err := NewService(dao).DeleteConversationTree(deleteTestContext(), conversationID); err != nil {
+		t.Fatalf("DeleteConversationTree() on MySQL: %v", err)
+	}
+	assertStage1RowCount(t, db, "conversation", "id", conversationID, 0)
+}
+
 func cleanupMySQLDeleteTestRows(t *testing.T, db *sql.DB, ids map[string]string) {
 	t.Helper()
 	statements := []struct {
