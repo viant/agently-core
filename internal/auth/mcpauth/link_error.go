@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+	"time"
 
 	authcfg "github.com/viant/mcp/client/auth/config"
 )
@@ -29,6 +30,9 @@ type LinkRequiredError struct {
 	// MetadataURL carries the protected-resource metadata URL the requirement
 	// was learned from, enabling learned-binding persistence.
 	MetadataURL string
+	// AuthTimeout bounds an interactive blocker. It is host policy and is not
+	// included in model-visible text or the public API error.
+	AuthTimeout time.Duration
 	Cause       error
 }
 

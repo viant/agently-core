@@ -113,18 +113,26 @@ class AgentlyClient(
         get("/v1/api/auth/mcp/${encodePathSegment(name)}/status", MCPAuthStatusOutput.serializer())
     }
 
+    suspend fun listMCPAuthConnections(): MCPAuthConnectionsOutput = withContext(Dispatchers.IO) {
+        get("/v1/api/auth/mcp/status", MCPAuthConnectionsOutput.serializer())
+    }
+
     suspend fun initiateMCPAuth(
         server: String,
         csrfToken: String,
-        returnURL: String? = null
+        returnURL: String? = null,
+        restart: Boolean = false
     ): MCPAuthInitiateOutput = withContext(Dispatchers.IO) {
         val name = requireMCPServer(server)
         require(csrfToken.isNotBlank()) { "MCP auth CSRF token is required" }
         val path = buildString {
             append("/v1/api/auth/mcp/${encodePathSegment(name)}/initiate")
+            val query = mutableListOf<String>()
             returnURL?.takeIf { it.isNotBlank() }?.let {
-                append("?returnURL=${URLEncoder.encode(it, StandardCharsets.UTF_8)}")
+                query += "returnURL=${URLEncoder.encode(it, StandardCharsets.UTF_8)}"
             }
+            if (restart) query += "restart=true"
+            if (query.isNotEmpty()) append("?${query.joinToString("&")}")
         }
         postWithHeaders(
             path,

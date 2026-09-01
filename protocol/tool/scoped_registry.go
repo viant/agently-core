@@ -98,6 +98,14 @@ func (s *scopedRegistry) Execute(ctx context.Context, name string, args map[stri
 	return s.inner.Execute(ctx, name, args)
 }
 
+func (s *scopedRegistry) PreflightCredential(ctx context.Context, name string) error {
+	ctx = s.withConversation(ctx)
+	if preflight, ok := s.inner.(CredentialPreflighter); ok {
+		return preflight.PreflightCredential(ctx, name)
+	}
+	return nil
+}
+
 func (s *scopedRegistry) withConversation(ctx context.Context) context.Context {
 	if ctx == nil {
 		ctx = context.Background()

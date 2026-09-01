@@ -74,6 +74,12 @@ type ContextDefinitionGetter interface {
 	GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool)
 }
 
+// CredentialPreflighter resolves any request-scoped delegated credential
+// before execution protection is claimed or a remote tool is contacted.
+type CredentialPreflighter interface {
+	PreflightCredential(ctx context.Context, name string) error
+}
+
 // TimeoutResolver may be implemented by registries that can suggest per-tool
 // execution timeouts.  The returned duration should be >0 to take effect; the
 // boolean indicates whether a suggestion is available for the given name.

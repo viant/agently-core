@@ -1165,8 +1165,13 @@ export interface MCPAuthStatusOutput {
     csrfToken?: string;
 }
 
+export interface MCPAuthConnectionsOutput {
+    connections: MCPAuthStatusOutput[];
+}
+
 export interface MCPAuthInitiateInput {
     returnURL?: string;
+    restart?: boolean;
 }
 
 export interface MCPAuthInitiateOutput {

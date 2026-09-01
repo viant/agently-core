@@ -103,6 +103,14 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 	return cfg, nil
 }
 
+// Names lists configured MCP server definitions without performing discovery.
+func (p *RepoProvider) Names(ctx context.Context) ([]string, error) {
+	if p == nil || p.repo == nil {
+		return nil, nil
+	}
+	return p.repo.List(ctx)
+}
+
 var nonWord = regexp.MustCompile(`[^A-Za-z0-9_.@-]+`)
 var envTemplate = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}`)
 

@@ -32,6 +32,14 @@ type fakeMCPConfigProvider struct {
 	configs map[string]*mcpcfg.MCPClient
 }
 
+func (p *fakeMCPConfigProvider) Names(_ context.Context) ([]string, error) {
+	names := make([]string, 0, len(p.configs))
+	for name := range p.configs {
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 func (p *fakeMCPConfigProvider) Options(_ context.Context, name string) (*mcpcfg.MCPClient, error) {
 	cfg, ok := p.configs[strings.TrimSpace(name)]
 	if !ok {
@@ -515,6 +523,72 @@ func TestMCPLinkEndpoints_DerivesHostedCallbackFromForwardedOriginAndKeepsSessio
 	connected, _ := decodeJSONBody(t, connectedRecorder)["connected"].(bool)
 	if !connected {
 		t.Fatalf("status after callback is not connected: %s", connectedRecorder.Body.String())
+	}
+}
+
+func TestMCPLinkEndpoints_EagerStatusUsesOnlyConfiguredLocalTokenState(t *testing.T) {
+	mcpConfig := testDelegatedMCPConfig(false)
+	mcpConfig.EagerLink = true
+	fixture := newMCPLinkFixtureWithConfig(t, mcpConfig)
+	recorder := httptest.NewRecorder()
+	fixture.mux().ServeHTTP(recorder, fixture.request(http.MethodGet, "/v1/api/auth/mcp/status", true, ""))
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("eager status = %d, body=%s", recorder.Code, recorder.Body.String())
+	}
+	payload := decodeJSONBody(t, recorder)
+	connections, _ := payload["connections"].([]interface{})
+	if len(connections) != 1 {
+		t.Fatalf("connections = %#v, want one eager connection", payload["connections"])
+	}
+	connection, _ := connections[0].(map[string]interface{})
+	if connection["server"] != testMCPServer || connection["connected"] != false {
+		t.Fatalf("connection = %#v", connection)
+	}
+	if strings.TrimSpace(fmt.Sprint(connection["csrfToken"])) == "" {
+		t.Fatal("eager status carries no session CSRF token")
+	}
+}
+
+func TestMCPLinkEndpoints_RestartReplacesOnlySameSessionPendingFlow(t *testing.T) {
+	fixture := newMCPLinkFixture(t)
+	mux := fixture.mux()
+	csrf := fixture.service.keyring.mcpCSRFToken(fixture.session.ID)
+	path := "/v1/api/auth/mcp/" + testMCPServer + "/initiate?returnURL=%2Fconversation%2Fone"
+
+	firstRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(firstRecorder, fixture.request(http.MethodPost, path, true, csrf))
+	firstURL, _ := decodeJSONBody(t, firstRecorder)["authorizationURL"].(string)
+	firstParsed, _ := url.Parse(firstURL)
+	firstState := firstParsed.Query().Get("state")
+	if firstState == "" {
+		t.Fatal("first initiate returned no state")
+	}
+
+	pendingRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(pendingRecorder, fixture.request(http.MethodPost, path, true, csrf))
+	pending := decodeJSONBody(t, pendingRecorder)
+	if pending["status"] != "pending" || pending["authorizationURL"] != nil {
+		t.Fatalf("ordinary duplicate initiate = %#v, want pending without URL", pending)
+	}
+
+	restartRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(restartRecorder, fixture.request(http.MethodPost, path+"&restart=true", true, csrf))
+	restarted := decodeJSONBody(t, restartRecorder)
+	if restarted["status"] != "connect" {
+		t.Fatalf("restart = %#v, want connect", restarted)
+	}
+	restartURL, _ := restarted["authorizationURL"].(string)
+	restartParsed, _ := url.Parse(restartURL)
+	restartState := restartParsed.Query().Get("state")
+	if restartState == "" || restartState == firstState {
+		t.Fatalf("restart state = %q, first = %q", restartState, firstState)
+	}
+
+	// The replaced state is consumed and can no longer complete.
+	oldCallback := httptest.NewRecorder()
+	mux.ServeHTTP(oldCallback, fixture.request(http.MethodGet, "/v1/api/auth/mcp/callback?code=good-code&state="+url.QueryEscape(firstState), true, ""))
+	if oldCallback.Code != http.StatusBadRequest {
+		t.Fatalf("replaced state callback = %d, want 400", oldCallback.Code)
 	}
 }
 

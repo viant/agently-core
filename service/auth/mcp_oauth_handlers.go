@@ -26,9 +26,27 @@ func (a *authExtension) registerMCPLinkRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/api/auth/mcp/callback", a.handleMCPOAuthCallback())
 	mux.HandleFunc("POST /v1/api/auth/mcp/callback", a.handleMCPOAuthCallback())
 	mux.HandleFunc("GET /v1/api/auth/mcp/{server}/status", a.handleMCPOAuthStatus())
+	mux.HandleFunc("GET /v1/api/auth/mcp/status", a.handleMCPOAuthEagerStatus())
 	mux.HandleFunc("POST /v1/api/auth/mcp/{server}/initiate", a.handleMCPOAuthInitiate())
 	mux.HandleFunc("POST /v1/api/auth/mcp/{server}/oob", a.handleMCPOAuthOOB())
 	mux.HandleFunc("DELETE /v1/api/auth/mcp/{server}", a.handleMCPOAuthDisconnect())
+}
+
+func (a *authExtension) handleMCPOAuthEagerStatus() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		identity, ok := a.requireMCPLinkSession(w, r)
+		if !ok {
+			return
+		}
+		service := a.mcpLink
+		if !service.limits.statusUser.Allow(identity.canonicalUserID) {
+			writeMCPLinkRateLimited(w)
+			return
+		}
+		runtimeJSON(w, http.StatusOK, map[string]any{
+			"connections": service.eagerStatuses(r.Context(), identity.canonicalUserID, identity.session.ID),
+		})
+	}
 }
 
 // mcpOOBGrant is the token envelope produced by a trusted local OAuth client.
@@ -158,7 +176,8 @@ func (a *authExtension) handleMCPOAuthInitiate() http.HandlerFunc {
 			return
 		}
 		returnURL := strings.TrimSpace(firstNonEmpty(r.URL.Query().Get("returnURL"), r.URL.Query().Get("returnUrl")))
-		result, err := service.initiate(r.Context(), link, identity.canonicalUserID, identity.session.ID, returnURL, hostedMCPCallbackURL(r))
+		restart := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("restart")), "true") || strings.TrimSpace(r.URL.Query().Get("restart")) == "1"
+		result, err := service.initiate(r.Context(), link, identity.canonicalUserID, identity.session.ID, returnURL, hostedMCPCallbackURL(r), restart)
 		if err != nil {
 			writeMCPLinkError(w, r, err)
 			return

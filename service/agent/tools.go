@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/auth/mcpauth"
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
@@ -266,6 +267,24 @@ func defsToTools(in []llm.ToolDefinition) []llm.Tool {
 }
 
 func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control agenttool.Selection) ([]llm.ToolDefinition, error) {
+	definitions, err := s.resolveStructuredToolDefinitionsOnce(ctx, control)
+	if err == nil {
+		return definitions, nil
+	}
+	required, needsLink := mcpauth.FromError(err)
+	blocker, canBlock := mcpauth.BlockerFromContext(ctx)
+	if !needsLink || !canBlock {
+		return nil, err
+	}
+	if err := blocker.AwaitMCPAuth(ctx, required); err != nil {
+		return nil, err
+	}
+	// Credential resolution previously stopped before remote discovery. Continue
+	// the same surface resolution now that the blocker has completed.
+	return s.resolveStructuredToolDefinitionsOnce(ctx, control)
+}
+
+func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, control agenttool.Selection) ([]llm.ToolDefinition, error) {
 	key := toolSelectionCacheKey(control)
 	if key != "" {
 		if cached, ok := s.toolSurfaceCache.Load(key); ok {

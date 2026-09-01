@@ -21,6 +21,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/auth/mcpauth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/debugtrace"
 	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
@@ -504,6 +505,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	ctx = asyncwait.WithState(ctx)
 	if s.elicitation != nil {
 		ctx = toolapproval.WithElicitor(ctx, &agentToolApprovalElicitor{elicService: s.elicitation})
+		ctx = mcpauth.WithBlocker(ctx, &mcpAuthBlocker{elicitation: s.elicitation})
 	}
 	if s.asyncManager != nil {
 		ctx = toolexec.WithAsyncManager(ctx, s.asyncManager)

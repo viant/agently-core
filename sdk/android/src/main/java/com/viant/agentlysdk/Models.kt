@@ -127,6 +127,11 @@ data class MCPAuthStatusOutput(
 )
 
 @Serializable
+data class MCPAuthConnectionsOutput(
+    val connections: List<MCPAuthStatusOutput> = emptyList()
+)
+
+@Serializable
 data class MCPAuthInitiateOutput(
     val status: String,
     val authorizationURL: String? = null,
