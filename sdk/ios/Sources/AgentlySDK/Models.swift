@@ -219,6 +219,7 @@ public struct WorkspaceCapabilities: Codable, Sendable {
 public struct StarterTask: Codable, Sendable, Identifiable {
     public var id: String { rawID ?? UUID().uuidString }
     public let rawID: String?
+    public let categoryID: String?
     public let title: String?
     public let prompt: String?
     public let description: String?
@@ -226,6 +227,7 @@ public struct StarterTask: Codable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case rawID = "id"
+        case categoryID = "categoryId"
         case title
         case prompt
         case description
@@ -234,14 +236,38 @@ public struct StarterTask: Codable, Sendable, Identifiable {
 
     public init(
         id: String? = nil,
+        categoryID: String? = nil,
         title: String? = nil,
         prompt: String? = nil,
         description: String? = nil,
         icon: String? = nil
     ) {
         self.rawID = id
+        self.categoryID = categoryID
         self.title = title
         self.prompt = prompt
+        self.description = description
+        self.icon = icon
+    }
+}
+
+public struct StarterTaskCategory: Codable, Sendable, Identifiable {
+    public var id: String { rawID ?? UUID().uuidString }
+    public let rawID: String?
+    public let title: String?
+    public let description: String?
+    public let icon: String?
+
+    enum CodingKeys: String, CodingKey {
+        case rawID = "id"
+        case title
+        case description
+        case icon
+    }
+
+    public init(id: String? = nil, title: String? = nil, description: String? = nil, icon: String? = nil) {
+        self.rawID = id
+        self.title = title
         self.description = description
         self.icon = icon
     }
@@ -254,6 +280,7 @@ public struct WorkspaceAgentInfo: Codable, Sendable, Identifiable {
     public let modelRef: String?
     public let internalAgent: Bool?
     public let starterTasks: [StarterTask]
+    public let starterTaskCategories: [StarterTaskCategory]
 
     enum CodingKeys: String, CodingKey {
         case agentID = "id"
@@ -261,6 +288,7 @@ public struct WorkspaceAgentInfo: Codable, Sendable, Identifiable {
         case modelRef
         case internalAgent = "internal"
         case starterTasks
+        case starterTaskCategories
     }
 
     public init(
@@ -268,13 +296,15 @@ public struct WorkspaceAgentInfo: Codable, Sendable, Identifiable {
         name: String? = nil,
         modelRef: String? = nil,
         internalAgent: Bool? = nil,
-        starterTasks: [StarterTask] = []
+        starterTasks: [StarterTask] = [],
+        starterTaskCategories: [StarterTaskCategory] = []
     ) {
         self.agentID = agentID
         self.name = name
         self.modelRef = modelRef
         self.internalAgent = internalAgent
         self.starterTasks = starterTasks
+        self.starterTaskCategories = starterTaskCategories
     }
 
     public init(from decoder: Decoder) throws {
@@ -284,6 +314,7 @@ public struct WorkspaceAgentInfo: Codable, Sendable, Identifiable {
         self.modelRef = try container.decodeIfPresent(String.self, forKey: .modelRef)
         self.internalAgent = try container.decodeIfPresent(Bool.self, forKey: .internalAgent)
         self.starterTasks = try container.decodeIfPresent([StarterTask].self, forKey: .starterTasks) ?? []
+        self.starterTaskCategories = try container.decodeIfPresent([StarterTaskCategory].self, forKey: .starterTaskCategories) ?? []
     }
 }
 

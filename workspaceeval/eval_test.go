@@ -46,6 +46,28 @@ func TestCheckEvalCatalogAndPublicCoverage(t *testing.T) {
 	}
 }
 
+func TestCheckStarterTaskCoverageValidatesOptionalCategories(t *testing.T) {
+	evals := t.TempDir()
+	if err := os.WriteFile(filepath.Join(evals, "ok.yaml"), []byte("id: ok\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	agents := map[string]AgentDoc{
+		"steward": {
+			ID:                    "steward",
+			StarterTaskCategories: []StarterTaskCategoryDoc{{ID: "plan", Title: "Plan"}},
+			StarterTasks:          []StarterTaskDoc{{ID: "forecast", CategoryID: "missing", CoverageEvalIDs: []string{"ok"}}},
+		},
+	}
+	agent := agents["steward"]
+	agent.Profile.Publish = true
+	agents["steward"] = agent
+
+	got := CheckStarterTaskCoverage(evals, agents)
+	if len(got) != 1 || got[0] != "starter task forecast on published agent steward references unknown category missing" {
+		t.Fatalf("unexpected category validation errors: %v", got)
+	}
+}
+
 func TestCheckEvidenceContractProfiles(t *testing.T) {
 	root := t.TempDir()
 	prompts := filepath.Join(root, "prompts")

@@ -42,17 +42,24 @@ type EvalToolExpectation struct {
 }
 
 type AgentDoc struct {
-	ID           string           `yaml:"id"`
-	StarterTasks []StarterTaskDoc `yaml:"starterTasks"`
-	Profile      struct {
+	ID                    string                   `yaml:"id"`
+	StarterTasks          []StarterTaskDoc         `yaml:"starterTasks"`
+	StarterTaskCategories []StarterTaskCategoryDoc `yaml:"starterTaskCategories"`
+	Profile               struct {
 		Publish bool `yaml:"publish"`
 	} `yaml:"profile"`
 }
 
 type StarterTaskDoc struct {
 	ID              string   `yaml:"id"`
+	CategoryID      string   `yaml:"categoryId"`
 	Title           string   `yaml:"title"`
 	CoverageEvalIDs []string `yaml:"coverageEvalIds"`
+}
+
+type StarterTaskCategoryDoc struct {
+	ID    string `yaml:"id"`
+	Title string `yaml:"title"`
 }
 
 type PromptDoc struct {
@@ -262,11 +269,30 @@ func CheckStarterTaskCoverage(evalRoot string, agentIndex map[string]AgentDoc) [
 		if !doc.Profile.Publish {
 			continue
 		}
+		categoryIDs := map[string]bool{}
+		for _, category := range doc.StarterTaskCategories {
+			categoryID := strings.TrimSpace(category.ID)
+			if categoryID == "" {
+				failures = append(failures, fmt.Sprintf("published agent %s has a starterTaskCategory missing id", agentID))
+				continue
+			}
+			if strings.TrimSpace(category.Title) == "" {
+				failures = append(failures, fmt.Sprintf("starter task category %s on published agent %s must declare title", categoryID, agentID))
+			}
+			if categoryIDs[categoryID] {
+				failures = append(failures, fmt.Sprintf("published agent %s has duplicate starterTaskCategory id %s", agentID, categoryID))
+			}
+			categoryIDs[categoryID] = true
+		}
 		for _, task := range doc.StarterTasks {
 			taskID := strings.TrimSpace(task.ID)
 			if taskID == "" {
 				failures = append(failures, fmt.Sprintf("published agent %s has a starterTask missing id", agentID))
 				continue
+			}
+			categoryID := strings.TrimSpace(task.CategoryID)
+			if len(doc.StarterTaskCategories) > 0 && categoryID != "" && !categoryIDs[categoryID] {
+				failures = append(failures, fmt.Sprintf("starter task %s on published agent %s references unknown category %s", taskID, agentID, categoryID))
 			}
 			if len(task.CoverageEvalIDs) == 0 {
 				failures = append(failures, fmt.Sprintf("starter task %s on published agent %s must declare coverageEvalIds", taskID, agentID))

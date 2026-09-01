@@ -347,6 +347,18 @@ func (s *Service) parseStarterTasksBlock(valueNode *yml.Node, agent *agentmdl.Ag
 	return nil
 }
 
+func (s *Service) parseStarterTaskCategoriesBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
+	if valueNode.Kind != yaml.SequenceNode {
+		return fmt.Errorf("starterTaskCategories must be a sequence")
+	}
+	var categories []agentmdl.StarterTaskCategory
+	if err := (*yaml.Node)(valueNode).Decode(&categories); err != nil {
+		return fmt.Errorf("invalid starterTaskCategories definition: %w", err)
+	}
+	agent.StarterTaskCategories = append([]agentmdl.StarterTaskCategory(nil), categories...)
+	return nil
+}
+
 func (s *Service) parseServeBlock(valueNode *yml.Node, agent *agentmdl.Agent) error {
 	if valueNode.Kind != yaml.MappingNode {
 		return fmt.Errorf("serve must be a mapping")

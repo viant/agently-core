@@ -53,7 +53,7 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 	store := &metadataTestStore{
 		items: map[string]map[string][]byte{
 			ws.KindAgent: {
-				"coder": []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\ntool:\n  bundles:\n    - system/exec\n    - system/patch\nstarterTasks:\n  - id: analyze-repo\n    title: Analyze this repo\n    prompt: Analyze this repository.\n    description: Architecture summary and next steps.\n    icon: tree-structure\nintake:\n  enabled: true\n  activationRules: $import(../../intake/activation_rules.yaml)\n"),
+				"coder": []byte("id: coder\nname: Coder\nmodelRef: openai_gpt-5.2\ntool:\n  bundles:\n    - system/exec\n    - system/patch\nstarterTaskCategories:\n  - id: understand\n    title: Understand\n    icon: tree-structure\nstarterTasks:\n  - id: analyze-repo\n    categoryId: understand\n    title: Analyze this repo\n    prompt: Analyze this repository.\n    description: Architecture summary and next steps.\n    icon: tree-structure\nintake:\n  enabled: true\n  activationRules: $import(../../intake/activation_rules.yaml)\n"),
 			},
 		},
 	}
@@ -110,8 +110,14 @@ func TestMetadataHandler_StarterTasks(t *testing.T) {
 		assert.ElementsMatch(t, []string{"system/exec", "system/patch"}, response.AgentInfos[0].Tools)
 		if assert.Len(t, response.AgentInfos[0].StarterTasks, 1) {
 			assert.Equal(t, "analyze-repo", response.AgentInfos[0].StarterTasks[0].ID)
+			assert.Equal(t, "understand", response.AgentInfos[0].StarterTasks[0].CategoryID)
 			assert.Equal(t, "Analyze this repo", response.AgentInfos[0].StarterTasks[0].Title)
 			assert.Equal(t, "tree-structure", response.AgentInfos[0].StarterTasks[0].Icon)
+		}
+		if assert.Len(t, response.AgentInfos[0].StarterTaskCategories, 1) {
+			assert.Equal(t, "understand", response.AgentInfos[0].StarterTaskCategories[0].ID)
+			assert.Equal(t, "Understand", response.AgentInfos[0].StarterTaskCategories[0].Title)
+			assert.Equal(t, "tree-structure", response.AgentInfos[0].StarterTaskCategories[0].Icon)
 		}
 	}
 }

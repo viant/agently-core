@@ -123,6 +123,11 @@ type (
 		// workspace-global suggestions.
 		StarterTasks []StarterTask `yaml:"starterTasks,omitempty" json:"starterTasks,omitempty"`
 
+		// StarterTaskCategories optionally groups StarterTasks for category-first
+		// empty-state presentation. Declaration order is display order. When this
+		// list is empty, clients preserve the legacy ungrouped presentation.
+		StarterTaskCategories []StarterTaskCategory `yaml:"starterTaskCategories,omitempty" json:"starterTaskCategories,omitempty"`
+
 		// Delegation controls whether this agent can delegate to other agents
 		// and the max depth for same-agent-type delegation.
 		Delegation *Delegation `yaml:"delegation,omitempty" json:"delegation,omitempty"`
@@ -160,11 +165,21 @@ type (
 	// StarterTask describes a suggested starter prompt for empty chat state.
 	StarterTask struct {
 		ID              string   `yaml:"id,omitempty" json:"id,omitempty"`
+		CategoryID      string   `yaml:"categoryId,omitempty" json:"categoryId,omitempty"`
 		Title           string   `yaml:"title,omitempty" json:"title,omitempty"`
 		Prompt          string   `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 		Description     string   `yaml:"description,omitempty" json:"description,omitempty"`
 		Icon            string   `yaml:"icon,omitempty" json:"icon,omitempty"`
 		CoverageEvalIDs []string `yaml:"coverageEvalIds,omitempty" json:"coverageEvalIds,omitempty"`
+	}
+
+	// StarterTaskCategory describes an optional workspace-owned grouping for
+	// starter tasks. Icon is a semantic token interpreted by each client.
+	StarterTaskCategory struct {
+		ID          string `yaml:"id,omitempty" json:"id,omitempty"`
+		Title       string `yaml:"title,omitempty" json:"title,omitempty"`
+		Description string `yaml:"description,omitempty" json:"description,omitempty"`
+		Icon        string `yaml:"icon,omitempty" json:"icon,omitempty"`
 	}
 
 	// Resource defines a single resource root with optional binding behavior.

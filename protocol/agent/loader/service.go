@@ -697,6 +697,11 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 				return err
 			}
 
+		case "startertaskcategories":
+			if err := s.parseStarterTaskCategoriesBlock(valueNode, agent); err != nil {
+				return err
+			}
+
 		case "serve":
 			if err := s.parseServeBlock(valueNode, agent); err != nil {
 				return err
