@@ -99,8 +99,12 @@ func (m *executeAuthManagerStub) WithAuthTokenContext(ctx context.Context, serve
 func TestExecute_UsesRefreshedAuthContextForMCPCall(t *testing.T) {
 	client := &authCaptureClient{}
 	reg := &Registry{
-		mgr:           &executeAuthManagerStub{client: client},
-		cache:         map[string]*toolCacheEntry{},
+		mgr: &executeAuthManagerStub{client: client},
+		cache: map[string]*toolCacheEntry{
+			"helper/ping": {exec: func(context.Context, map[string]interface{}) (string, error) {
+				return "stale-discovery-client", nil
+			}},
+		},
 		internal:      map[string]mcpclient.Interface{},
 		recentResults: map[string]map[string]recentItem{},
 	}

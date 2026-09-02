@@ -27,6 +27,7 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.boolean
@@ -363,6 +364,30 @@ class AgentlyClientTest {
         assertTrue(path.contains("formFactor=phone"))
         assertTrue(path.contains("surface=app"))
         assertEquals(listOf("markdown", "chart"), request.requestUrl!!.queryParameterValues("capabilities"))
+    }
+
+    @Test
+    fun `applyPermission is separate from authored metadata fetch`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"data":{"id":"advertiser"}}"""))
+        server.start()
+        val client = client()
+
+        val result = client.applyPermission(
+            " advertiser ",
+            ApplyPermissionInput(
+                conversationId = " conv-1 ",
+                resource = mapOf("advertiserId" to JsonPrimitive(85141)),
+                windowParams = mapOf("AdvertiserId" to JsonArray(listOf(JsonPrimitive(85141)))),
+                targetContext = MetadataTargetContext(platform = "android", formFactor = "phone")
+            )
+        )
+
+        assertEquals("advertiser", result.jsonObject["id"]!!.jsonPrimitive.content)
+        val request = server.takeRequest().requestUrl!!
+        assertEquals("true", request.queryParameter("applyPermission"))
+        assertEquals("conv-1", request.queryParameter("conversationId"))
+        assertTrue(request.queryParameter("resource")!!.contains("85141"))
+        assertTrue(request.queryParameter("windowParams")!!.contains("85141"))
     }
 
     @Test
@@ -1924,6 +1949,8 @@ class AgentlyClientTest {
         val fetchBody = Json.parseToJsonElement(fetch.body.readUtf8()).jsonObject
         assertTrue(!fetchBody.containsKey("id"))
         assertEquals("conv-1", fetchBody["conversationId"]!!.jsonPrimitive.content)
+        assertTrue(!fetchBody.containsKey("windowId"))
+        assertTrue(!fetchBody.containsKey("permitVersion"))
         assertEquals("acme", fetchBody["inputs"]!!.jsonObject["q"]!!.jsonPrimitive.content)
         assertEquals(true, fetchBody["cache"]!!.jsonObject["bypassCache"]!!.jsonPrimitive.boolean)
         assertEquals(true, fetchBody["cache"]!!.jsonObject["writeThrough"]!!.jsonPrimitive.boolean)

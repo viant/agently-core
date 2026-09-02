@@ -1457,6 +1457,42 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
+    func testApplyPermissionUsesDedicatedOperation() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session, metadataSession: session)
+
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let items = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)).queryItems ?? []
+            func value(_ name: String) -> String? { items.first(where: { $0.name == name })?.value }
+            XCTAssertEqual(value("applyPermission"), "true")
+            XCTAssertEqual(value("conversationId"), "conv-1")
+            XCTAssertTrue(value("resource")?.contains("85141") == true)
+            XCTAssertTrue(value("windowParams")?.contains("85141") == true)
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            return (response, #"{"data":{"id":"advertiser"}}"#.data(using: .utf8)!)
+        }
+
+        let metadata = try await client.applyPermission(
+            windowKey: " advertiser ",
+            input: ApplyPermissionInput(
+                conversationId: " conv-1 ",
+                resource: ["advertiserId": .number(85141)],
+                windowParams: ["AdvertiserId": .array([.number(85141)])],
+                targetContext: MetadataTargetContext(platform: "ios", formFactor: "phone")
+            )
+        )
+        if case .object(let object) = metadata {
+            XCTAssertEqual(object["id"], .string("advertiser"))
+        } else {
+            XCTFail("expected permitted metadata object")
+        }
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testListConversationsBuildsExpectedQueryParameters() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
@@ -2739,6 +2775,8 @@ final class AgentlySDKTests: XCTestCase {
                 let bodyData = try XCTUnwrap(bodyString.data(using: .utf8))
                 let payload = try XCTUnwrap(JSONSerialization.jsonObject(with: bodyData) as? [String: Any])
                 XCTAssertEqual(payload["conversationId"] as? String, "conv-1")
+                XCTAssertNil(payload["windowId"])
+                XCTAssertNil(payload["permitVersion"])
                 let inputs = payload["inputs"] as? [String: Any]
                 XCTAssertEqual(inputs?["query"] as? String, "find")
                 body = #"{"rows":[]}"#

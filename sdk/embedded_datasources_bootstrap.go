@@ -10,6 +10,7 @@ import (
 	dssvc "github.com/viant/agently-core/service/datasource"
 	dsadapter "github.com/viant/agently-core/service/datasource/adapter"
 	oversvc "github.com/viant/agently-core/service/lookup/overlay"
+	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/agently-core/workspace/repository/forgedatasource"
 	"github.com/viant/agently-core/workspace/repository/forgelookup"
 )
@@ -47,6 +48,8 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 	if rt.Registry != nil {
 		if reg, ok := rt.Registry.(dsadapter.ToolRegistry); ok {
 			opts.Executor = dsadapter.FromRegistry(reg)
+			c.permittedRuntime = permittedview.NewRuntime(&permittedview.MCPResolver{Executor: reg})
+			permittedview.SetDefaultRuntime(c.permittedRuntime)
 		}
 	}
 	dsService := dssvc.New(opts)

@@ -48,6 +48,7 @@ import (
 	oversvc "github.com/viant/agently-core/service/lookup/overlay"
 	"github.com/viant/agently-core/service/scheduler"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
+	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
@@ -110,8 +111,9 @@ type backendClient struct {
 	// The embedded backend keeps mutable in-memory stores for forge
 	// datasources/lookups so the runtime can refresh them from the live
 	// workspace store without rebuilding the whole backend.
-	datasourceStore *dssvc.MemoryStore
-	overlayStore    *oversvc.MemoryStore
+	datasourceStore  *dssvc.MemoryStore
+	overlayStore     *oversvc.MemoryStore
+	permittedRuntime *permittedview.Runtime
 }
 
 type skillBackend interface {
