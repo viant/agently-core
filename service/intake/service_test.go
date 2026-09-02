@@ -323,7 +323,7 @@ func TestBuildGenerateInput_UsesMinimalReasoningForJSONIntake(t *testing.T) {
 	require.NotNil(t, in)
 	require.NotNil(t, in.ModelSelection.Options)
 	require.NotNil(t, in.ModelSelection.Options.Reasoning)
-	assert.Equal(t, "minimal", in.ModelSelection.Options.Reasoning.Effort)
+	assert.Equal(t, "low", in.ModelSelection.Options.Reasoning.Effort)
 	assert.True(t, in.ModelSelection.Options.JSONMode)
 	assert.Equal(t, "application/json", in.ModelSelection.Options.ResponseMIMEType)
 	require.NotNil(t, in.ModelSelection.Options.OutputSchema)

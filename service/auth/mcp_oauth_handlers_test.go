@@ -592,6 +592,53 @@ func TestMCPLinkEndpoints_RestartReplacesOnlySameSessionPendingFlow(t *testing.T
 	}
 }
 
+func TestMCPLinkEndpoints_ExplicitForceRestartReplacesOtherSessionPendingFlow(t *testing.T) {
+	fixture := newMCPLinkFixture(t)
+	mux := fixture.mux()
+	path := "/v1/api/auth/mcp/" + testMCPServer + "/initiate?returnURL=%2Fconversation%2Fone"
+
+	firstRecorder := httptest.NewRecorder()
+	mux.ServeHTTP(firstRecorder, fixture.request(http.MethodPost, path, true, fixture.service.keyring.mcpCSRFToken(fixture.session.ID)))
+	firstURL, _ := decodeJSONBody(t, firstRecorder)["authorizationURL"].(string)
+	firstParsed, _ := url.Parse(firstURL)
+	firstState := firstParsed.Query().Get("state")
+	if firstState == "" {
+		t.Fatal("first initiate returned no state")
+	}
+
+	other := &Session{
+		ID:        "sess-force-restart",
+		UserID:    fixture.canonical,
+		Username:  "linkuser",
+		Subject:   "link-subject",
+		Provider:  "oauth",
+		CreatedAt: time.Now(),
+		ExpiresAt: time.Now().Add(time.Hour),
+	}
+	fixture.ext.sessions.Put(context.Background(), other)
+	request := httptest.NewRequest(http.MethodPost, path+"&restart=true&forceRestart=true", nil)
+	request.AddCookie(&http.Cookie{Name: "agently_session", Value: other.ID})
+	request.Header.Set(MCPLinkCSRFHeader, fixture.service.keyring.mcpCSRFToken(other.ID))
+	recorder := httptest.NewRecorder()
+	mux.ServeHTTP(recorder, request)
+	forced := decodeJSONBody(t, recorder)
+	if forced["status"] != "connect" {
+		t.Fatalf("forced restart = %#v, want connect", forced)
+	}
+	forcedURL, _ := forced["authorizationURL"].(string)
+	forcedParsed, _ := url.Parse(forcedURL)
+	forcedState := forcedParsed.Query().Get("state")
+	if forcedState == "" || forcedState == firstState {
+		t.Fatalf("forced state = %q, first = %q", forcedState, firstState)
+	}
+
+	oldCallback := httptest.NewRecorder()
+	mux.ServeHTTP(oldCallback, fixture.request(http.MethodGet, "/v1/api/auth/mcp/callback?code=good-code&state="+url.QueryEscape(firstState), true, ""))
+	if oldCallback.Code != http.StatusBadRequest {
+		t.Fatalf("replaced state callback = %d, want 400", oldCallback.Code)
+	}
+}
+
 func TestMCPLinkEndpoints_CallbackCrossSessionRejected(t *testing.T) {
 	fixture := newMCPLinkFixture(t)
 	mux := fixture.mux()

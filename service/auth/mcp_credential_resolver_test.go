@@ -412,6 +412,37 @@ func TestResolveTransientRefreshFailureKeepsUsableToken(t *testing.T) {
 	}
 }
 
+func TestResolveExpiredTokenTransientRefreshFailureRequiresRelink(t *testing.T) {
+	store := newFakeDelegatedStore()
+	store.seed(seededDev6Token(time.Now().Add(-time.Minute)))
+	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
+		return nil, fmt.Errorf("invalid character 'Ã' looking for beginning of value")
+	}
+
+	_, err := resolver.Resolve(delegatedCtx("uuid-1"), dev6Requirement())
+	if !authcfg.IsLinkRequired(err) {
+		t.Fatalf("an unusable token whose refresh fails must require relinking, got %v", err)
+	}
+	if row, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey()); row == nil {
+		t.Fatal("a transient refresh failure must preserve the stored credential for diagnostics/retry")
+	}
+}
+
+func TestForceRefreshFailureRequiresRelink(t *testing.T) {
+	store := newFakeDelegatedStore()
+	store.seed(seededDev6Token(time.Now().Add(time.Hour)))
+	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, base *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
+		return nil, fmt.Errorf("token endpoint unavailable")
+	}
+
+	_, err := resolver.Refresh(delegatedCtx("uuid-1"), dev6Requirement())
+	if !authcfg.IsLinkRequired(err) {
+		t.Fatalf("a provider-rejected credential whose forced refresh fails must require relinking, got %v", err)
+	}
+}
+
 func TestResolveScopeNarrowingPersistsAndRequiresRelink(t *testing.T) {
 	store := newFakeDelegatedStore()
 	store.seed(seededDev6Token(time.Now().Add(5 * time.Minute)))

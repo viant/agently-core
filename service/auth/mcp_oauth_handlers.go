@@ -177,7 +177,8 @@ func (a *authExtension) handleMCPOAuthInitiate() http.HandlerFunc {
 		}
 		returnURL := strings.TrimSpace(firstNonEmpty(r.URL.Query().Get("returnURL"), r.URL.Query().Get("returnUrl")))
 		restart := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("restart")), "true") || strings.TrimSpace(r.URL.Query().Get("restart")) == "1"
-		result, err := service.initiate(r.Context(), link, identity.canonicalUserID, identity.session.ID, returnURL, hostedMCPCallbackURL(r), restart)
+		forceRestart := strings.EqualFold(strings.TrimSpace(r.URL.Query().Get("forceRestart")), "true") || strings.TrimSpace(r.URL.Query().Get("forceRestart")) == "1"
+		result, err := service.initiate(r.Context(), link, identity.canonicalUserID, identity.session.ID, returnURL, hostedMCPCallbackURL(r), restart, forceRestart)
 		if err != nil {
 			writeMCPLinkError(w, r, err)
 			return

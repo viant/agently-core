@@ -30,7 +30,9 @@ func (s *Service) CompileAndExportForgeUI(ctx context.Context, request *CompileA
 		return nil, fmt.Errorf("reporting forge UI export: request is required")
 	}
 	resolved := &ResolvedForgeUIView{}
-	if ref := strings.TrimSpace(request.ViewRef); ref != "" {
+	if len(request.UI) > 0 {
+		resolved.UI = cloneJSON(request.UI)
+	} else if ref := strings.TrimSpace(request.ViewRef); ref != "" {
 		value, err := s.forgeUIViewResolver.ResolveForgeUIView(ctx, ref, request.Target, request.DataSourceRefs)
 		if err != nil {
 			return nil, fmt.Errorf("reporting forge UI export resolve %s: %w", ref, err)
