@@ -220,7 +220,7 @@ func prepareConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conv
 }
 
 func validateConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, now time.Time) error {
-	if err := ensureConversationGraphTerminalOrEmpty(ctx, tx, graph); err != nil {
+	if err := ensureConversationGraphDeletableOrEmpty(ctx, tx, graph); err != nil {
 		return err
 	}
 	if err := ensureNoLiveConversationRuns(ctx, tx, graph, now); err != nil {
@@ -463,7 +463,7 @@ func ensureNoExternalReportContexts(ctx context.Context, tx *sql.Tx, graph *conv
 	return nil
 }
 
-func ensureConversationGraphTerminalOrEmpty(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
+func ensureConversationGraphDeletableOrEmpty(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
 	activity := map[string]struct{}{}
 	queries := []struct {
 		table  string
@@ -490,11 +490,19 @@ func ensureConversationGraphTerminalOrEmpty(ctx context.Context, tx *sql.Tx, gra
 		}
 	}
 	terminal := statusSet("succeeded", "completed", "complete", "success", "done", "ok", "failed", "error", "canceled", "cancelled")
+	deletablePaused := statusSet("waiting_for_user")
 	for _, row := range graph.Rows {
 		if row == nil {
 			continue
 		}
-		if _, ok := terminal[normalizeStatus(row.Status)]; ok {
+		status := normalizeStatus(row.Status)
+		if _, ok := terminal[status]; ok {
+			continue
+		}
+		// waiting_for_user is resumable rather than terminal, but deleting it is
+		// an explicit abandonment of the pending interaction. Live execution is
+		// still rejected separately by ensureNoLiveConversationRuns.
+		if _, ok := deletablePaused[status]; ok {
 			continue
 		}
 		if _, empty := activity[row.ID]; empty {
