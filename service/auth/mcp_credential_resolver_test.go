@@ -680,6 +680,54 @@ func TestRefreshStoredDelegatedTokenRefreshesDueRow(t *testing.T) {
 	}
 }
 
+func TestRefreshStoredDelegatedTokenAdoptsRotatedTokenAfterWaiting(t *testing.T) {
+	store := newFakeDelegatedStore()
+	base := time.Now().Truncate(time.Second)
+	stale := seededDev6Token(base.Add(5 * time.Minute))
+	stale.IssuedAt = base.Add(-55 * time.Minute)
+	store.seed(stale)
+	resolver := newTestResolver(t, store, dev6ProviderDoc(false))
+	resolver.now = func() time.Time { return base }
+
+	var submitted []string
+	resolver.refreshToken = func(ctx context.Context, config *oauth2.Config, token *oauth2.Token, scopes []string, resource string) (*oauth2.Token, error) {
+		submitted = append(submitted, token.RefreshToken)
+		n := len(submitted)
+		return &oauth2.Token{
+			AccessToken:  fmt.Sprintf("access-%d", n),
+			RefreshToken: fmt.Sprintf("refresh-%d", n),
+			Expiry:       resolver.now().Add(time.Hour),
+		}, nil
+	}
+
+	// The first caller rotates the original one-time refresh token.
+	if err := resolver.RefreshStoredDelegatedToken(context.Background(), stale); err != nil {
+		t.Fatalf("first background refresh: %v", err)
+	}
+	// This caller still holds the pre-refresh snapshot. It must adopt the
+	// protected current row instead of replaying the consumed token.
+	if err := resolver.RefreshStoredDelegatedToken(context.Background(), stale); err != nil {
+		t.Fatalf("stale background refresh: %v", err)
+	}
+	if len(submitted) != 1 || submitted[0] != "dev6-refresh" {
+		t.Fatalf("stale waiter replayed a refresh token: submitted=%v", submitted)
+	}
+
+	// At the next refresh window, even a stale scan item must submit the last
+	// persisted rotation and durably store the next one.
+	resolver.now = func() time.Time { return base.Add(59 * time.Minute) }
+	if err := resolver.RefreshStoredDelegatedToken(context.Background(), stale); err != nil {
+		t.Fatalf("second rotation: %v", err)
+	}
+	if len(submitted) != 2 || submitted[1] != "refresh-1" {
+		t.Fatalf("second rotation did not use the persisted token: submitted=%v", submitted)
+	}
+	persisted, _ := store.GetExact(context.Background(), "uuid-1", dev6StorageKey())
+	if persisted == nil || persisted.RefreshToken != "refresh-2" || persisted.AccessToken != "access-2" {
+		t.Fatalf("second rotation was not persisted: %+v", persisted)
+	}
+}
+
 // --- selected-token (idToken) expiry semantics ---
 
 func idTokenValue(t *testing.T, issued, expires time.Time) string {
@@ -971,6 +1019,9 @@ func TestInlineProviderEndToEnd(t *testing.T) {
 	if err := resolver.registry.RegisterInline(context.Background(), inline); err != nil {
 		t.Fatalf("register inline: %v", err)
 	}
+	// Persist the due state: refresh acquires the lease and intentionally
+	// reloads the protected row rather than trusting this caller's snapshot.
+	store.seed(stored)
 	if err := resolver.RefreshStoredDelegatedToken(context.Background(), stored); err != nil {
 		t.Fatalf("registered inline provider must refresh in background: %v", err)
 	}
