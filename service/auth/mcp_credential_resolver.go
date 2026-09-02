@@ -621,6 +621,36 @@ func (r *DelegatedCredentialResolver) refreshDelegated(ctx context.Context, cano
 		}
 	}
 
+	// The token passed by the caller may have been loaded before it waited on
+	// the in-process mutex or distributed lease. Refresh tokens can be
+	// one-time credentials, so always adopt the row protected by the lease
+	// before calling the provider. Otherwise a waiter can replay the token a
+	// preceding refresher just consumed and then invalidate its fresh result.
+	latest, err := r.store.GetExact(ctx, canonical, resolved.storageKey)
+	if err != nil {
+		release()
+		r.setCooldown(canonical, resolved.storageKey)
+		return nil, err
+	}
+	if latest == nil || strings.TrimSpace(latest.RefreshToken) == "" {
+		release()
+		r.clearCooldown(canonical, resolved.storageKey)
+		return nil, authcfg.NewLinkRequired(requirement, fmt.Errorf("stored credential for provider %q has no refresh token", resolved.refKey))
+	}
+	stored = latest
+	if !force {
+		now := r.now()
+		lead := r.clientRefreshLead(resolved.client)
+		effectiveLead := token.EffectiveRefreshLead(lead, selectedTokenLifetime(stored, requirement.TokenType))
+		key := token.Key{Subject: canonical, Provider: resolved.storageKey}
+		jitter := token.RefreshJitter(key, effectiveLead)
+		if !r.refreshDue(now, selectedTokenExpiry(stored, requirement.TokenType), effectiveLead, jitter) {
+			release()
+			r.clearCooldown(canonical, resolved.storageKey)
+			return stored, nil
+		}
+	}
+
 	oauthCfg, err := r.loadClientConfig(ctx, resolved.client.ConfigURL)
 	if err != nil || oauthCfg == nil {
 		release()
