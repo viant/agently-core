@@ -1039,6 +1039,7 @@ export class AgentlyClient {
         const query = new URLSearchParams();
         if (input.returnURL) query.set('returnURL', input.returnURL);
         if (input.restart === true) query.set('restart', 'true');
+        if (input.forceRestart === true) query.set('forceRestart', 'true');
         const suffix = query.toString() ? `?${query.toString()}` : '';
         return this.request<MCPAuthInitiateOutput>(
             'POST',

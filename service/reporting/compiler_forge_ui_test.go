@@ -57,3 +57,26 @@ func TestCompileAndExportForgeUIFailsClosedForMissingDatasource(t *testing.T) {
 	})
 	require.ErrorContains(t, err, "datasource rows is unavailable")
 }
+
+func TestCompileAndExportForgeUIPrefersExactRenderedUIOverWorkspaceReload(t *testing.T) {
+	resolver := &forgeUIViewResolverStub{resolved: &ResolvedForgeUIView{
+		UI: json.RawMessage(`{"containers":[{"id":"wrong","title":"Reloaded workspace view"}]}`),
+	}}
+	service := New(Options{
+		Exporter: NewForgeExporter(nil), Store: NewStoreAdapter(reportmemory.New()),
+		ForgeUIViewResolver: resolver, NewID: func() string { return "inline-ui-id" },
+	})
+	ctx := authsvc.InjectUser(context.Background(), "user-1")
+	result, err := service.CompileAndExportForgeUI(ctx, &CompileAndExportForgeUIRequest{
+		ViewRef:        "feed://media-plan",
+		UI:             json.RawMessage(`{"containers":[{"id":"exact","title":"Exact rendered view","dataSourceRef":"rows","columns":[{"key":"name","label":"Name"}]}]}`),
+		DataSourceRefs: []string{"rows"},
+		DataSourceOverrides: map[string]json.RawMessage{
+			"rows": json.RawMessage(`{"collection":[{"name":"Visible"}]}`),
+		},
+		ReportID: "media-plan", Title: "Media Plan", Format: ExportFormatPDF,
+	})
+	require.NoError(t, err)
+	require.Empty(t, resolver.ref)
+	require.Equal(t, JobStatusSucceeded, result.Job.Status)
+}

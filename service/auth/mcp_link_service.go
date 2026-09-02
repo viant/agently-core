@@ -288,7 +288,7 @@ type mcpInitiateResult struct {
 // initiate creates (or joins) the single authorization flow for one canonical
 // user, provider, resource and scope set. Only the flow creator receives the
 // authorization URL; concurrent callers across pods receive pending.
-func (s *mcpLinkService) initiate(ctx context.Context, link *resolvedMCPLink, canonicalUserID, sessionID, returnURL, hostedCallback string, restart bool) (*mcpInitiateResult, error) {
+func (s *mcpLinkService) initiate(ctx context.Context, link *resolvedMCPLink, canonicalUserID, sessionID, returnURL, hostedCallback string, restart, forceRestart bool) (*mcpInitiateResult, error) {
 	requirement := link.requirement
 	resolved := link.resolved
 	if !s.userActive(ctx, canonicalUserID) {
@@ -349,12 +349,17 @@ func (s *mcpLinkService) initiate(ctx context.Context, link *resolvedMCPLink, ca
 	if err != nil {
 		return nil, err
 	}
-	if !created && restart && stored != nil && stored.SessionHash == sessionHash {
+	if !created && restart && stored != nil && (stored.SessionHash == sessionHash || forceRestart) {
 		// An explicit reconnect may replace only a pending flow owned by this
-		// exact browser/WebView session. This recovers a flow whose original
-		// authorization window was closed without letting another session steal
-		// or invalidate it.
-		if consumeErr := s.states.Consume(ctx, stored.StateHash, canonicalUserID, sessionHash); consumeErr == nil {
+		// exact browser/WebView session. A separately CSRF-protected explicit
+		// forceRestart may also replace a stale flow for the same canonical user;
+		// the flow hash is user-bound, and consuming the old state makes its
+		// callback unusable before the new PKCE flow is returned.
+		consumeSessionHash := sessionHash
+		if forceRestart {
+			consumeSessionHash = stored.SessionHash
+		}
+		if consumeErr := s.states.Consume(ctx, stored.StateHash, canonicalUserID, consumeSessionHash); consumeErr == nil {
 			_, created, err = s.states.CreateOrGetPending(ctx, stateRecord)
 			if err != nil {
 				return nil, err

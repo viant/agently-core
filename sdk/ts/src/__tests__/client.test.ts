@@ -483,6 +483,14 @@ describe('Auth', () => {
         expect(call.method).toBe('POST');
         expect(call.url).toBe('http://localhost:8585/v1/api/auth/mcp/catalog/initiate?returnURL=%2Fconversation%2Fconv-1');
         expect(call.headers['X-Agently-Csrf']).toBe('csrf-1');
+
+		await c.initiateMCPAuth('catalog', 'csrf-1', {
+			returnURL: '/conversation/conv-1',
+			restart: true,
+			forceRestart: true,
+		});
+		const forcedCall = lastCall(f);
+		expect(forcedCall.url).toBe('http://localhost:8585/v1/api/auth/mcp/catalog/initiate?returnURL=%2Fconversation%2Fconv-1&restart=true&forceRestart=true');
     });
 });
 

@@ -1179,6 +1179,7 @@ export interface MCPAuthConnectionsOutput {
 export interface MCPAuthInitiateInput {
     returnURL?: string;
     restart?: boolean;
+    forceRestart?: boolean;
 }
 
 export interface MCPAuthInitiateOutput {

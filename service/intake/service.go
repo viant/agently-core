@@ -211,7 +211,7 @@ func (s *Service) buildGenerateInputWithContext(ctx context.Context, modelName, 
 				OutputSchema:     s.buildOutputJSONSchema(ctx, cfg),
 				ToolChoice:       llm.NewNoneToolChoice(),
 				Mode:             "router",
-				Reasoning:        &llm.Reasoning{Effort: "minimal"},
+				Reasoning:        &llm.Reasoning{Effort: "low"},
 			},
 		},
 		Message: []llm.Message{

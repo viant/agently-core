@@ -348,6 +348,15 @@ func (r *DelegatedCredentialResolver) resolve(ctx context.Context, requirement *
 			if !forceRefresh && selectedTokenValid(stored, requirement.TokenType, now) {
 				return r.credentialFromStored(stored, requirement, resolved), nil
 			}
+			// Once the selected token is unusable—or the MCP transport has
+			// explicitly rejected it and requested a forced refresh—there is no
+			// credential the caller can safely retry. Surface the stable typed
+			// link-required outcome even when the token endpoint returned a
+			// transient or malformed response, so interactive hosts can start a
+			// fresh authorization flow instead of exposing a decoder error.
+			if forceRefresh || !selectedTokenValid(stored, requirement.TokenType, now) {
+				return nil, authcfg.NewLinkRequired(requirement, err)
+			}
 			return nil, err
 		}
 		stored = refreshed
