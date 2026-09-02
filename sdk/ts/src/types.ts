@@ -879,6 +879,13 @@ export interface MetadataTargetContext {
     capabilities?: string[];
 }
 
+export interface ApplyPermissionInput {
+    conversationId: string;
+    resource?: JSONObject;
+    windowParams?: JSONObject;
+    targetContext?: MetadataTargetContext;
+}
+
 export interface WorkspaceMetadata {
     workspaceRoot?: string;
     workspaceVersion?: string;

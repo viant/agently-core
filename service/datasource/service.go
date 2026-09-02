@@ -20,7 +20,9 @@ import (
 	"sync"
 	"time"
 
+	internalAuth "github.com/viant/agently-core/internal/auth"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // ToolExecutor is the seam to invoke an MCP tool. In production this is wired
@@ -124,7 +126,6 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 	if ds.Backend == nil {
 		return nil, fmt.Errorf("datasource %q has no backend", id)
 	}
-
 	policy := dsproto.CachePolicyOrDefault(ds.Cache)
 	scopeID := s.scopeID(ctx, policy.Scope)
 	normalizedInputs := normalizeFilterSemantics(inputs, &ds.DataSource)
@@ -400,6 +401,12 @@ func defaultIdentity(ctx context.Context) Identity {
 	}
 	if v, ok := ctx.Value(CtxConversationKey).(string); ok {
 		id.Conversation = v
+	}
+	if id.User == "" {
+		id.User = strings.TrimSpace(internalAuth.EffectiveUserID(ctx))
+	}
+	if id.Conversation == "" {
+		id.Conversation = strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	}
 	return id
 }

@@ -3,14 +3,18 @@ package ui
 import (
 	"embed"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/service/ui/permittedview"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	forgeHandlers "github.com/viant/forge/backend/handlers"
 	metaSvc "github.com/viant/forge/backend/service/meta"
+	forgeTypes "github.com/viant/forge/backend/types"
 )
 
 // NewEmbeddedHandler builds a UI http.Handler backed by an embedded filesystem.
@@ -71,14 +75,98 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		var authorization *permittedview.Snapshot
+		if aWindow.Authorization != nil && applyPermissionRequested(r) {
+			runtime := permittedview.DefaultRuntime()
+			if runtime == nil {
+				http.Error(w, "permitted-view authorization runtime is unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			parameters, err := windowParametersFromRequest(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			resourceData, err := resourceDataFromRequest(r)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			windowID := strings.TrimSpace(r.URL.Query().Get("windowId"))
+			conversationID := strings.TrimSpace(r.URL.Query().Get("conversationId"))
+			applyContext := r.Context()
+			if conversationID != "" {
+				applyContext = runtimerequestctx.WithConversationID(applyContext, conversationID)
+			}
+			bound, err := permittedview.BindResource(aWindow, windowID, conversationID, parameters, resourceData)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+			compiled, err := runtime.Apply(applyContext, bound)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusForbidden)
+				return
+			}
+			if compiled == nil || compiled.Denied || compiled.Window == nil {
+				http.Error(w, "resource not found or access denied", http.StatusForbidden)
+				return
+			}
+			aWindow = compiled.Window
+			authorization = compiled.Authorization
+			if raw, marshalErr := json.Marshal(authorization); marshalErr == nil {
+				_ = json.Unmarshal(raw, &aWindow.AuthorizationSnapshot)
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(forgeHandlers.WindowResponse{
-			Status: "ok",
-			Data:   aWindow,
+		_ = json.NewEncoder(w).Encode(permittedWindowResponse{
+			Status:        "ok",
+			Data:          aWindow,
+			Authorization: authorization,
 		})
 	})
 
 	return mux
+}
+
+func applyPermissionRequested(r *http.Request) bool {
+	if r == nil {
+		return false
+	}
+	value := strings.TrimSpace(r.URL.Query().Get("applyPermission"))
+	return strings.EqualFold(value, "true") || value == "1"
+}
+
+type permittedWindowResponse struct {
+	Status        string                  `json:"status"`
+	Data          *forgeTypes.Window      `json:"data"`
+	Authorization *permittedview.Snapshot `json:"authorization,omitempty"`
+}
+
+func windowParametersFromRequest(r *http.Request) (map[string]interface{}, error) {
+	result := map[string]interface{}{}
+	if r == nil {
+		return result, nil
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("windowParams")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &result); err != nil {
+			return nil, fmt.Errorf("invalid windowParams: %w", err)
+		}
+	}
+	return result, nil
+}
+
+func resourceDataFromRequest(r *http.Request) (map[string]interface{}, error) {
+	result := map[string]interface{}{}
+	if r == nil {
+		return result, nil
+	}
+	if raw := strings.TrimSpace(r.URL.Query().Get("resource")); raw != "" {
+		if err := json.Unmarshal([]byte(raw), &result); err != nil {
+			return nil, fmt.Errorf("invalid resource: %w", err)
+		}
+	}
+	return result, nil
 }
 
 func targetContextFromRequest(r *http.Request) *metaSvc.TargetContext {

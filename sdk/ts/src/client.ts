@@ -24,7 +24,7 @@ import type {
     FileEntry, UploadFileOutput,
     Resource, ResourceRef, RunView,
     Schedule, ScheduleListOutput,
-    WorkspaceMetadata, PayloadView, GetPayloadOptions, MetadataTargetContext,
+    WorkspaceMetadata, PayloadView, GetPayloadOptions, MetadataTargetContext, ApplyPermissionInput,
     ListLinkedConversationsInput, LinkedConversationPage,
     AuthProvider, AuthUser, LocalLoginInput, LocalLoginOutput,
     OAuthInitiateOutput, OAuthCallbackInput, OAuthCallbackOutput,
@@ -800,6 +800,23 @@ export class AgentlyClient {
         const key = String(windowKey || '').trim();
         if (!key) throw new Error('window key is required');
         const decoded = await this.get<JSONValue>(`/api/agently/forge/window/${enc(key)}`, targetContextQuery(targetContext));
+        if (isJSONObject(decoded) && Object.prototype.hasOwnProperty.call(decoded, 'data')) {
+            return decoded.data as JSONValue;
+        }
+        return decoded;
+    }
+
+    /** Apply authorization to one authored window before rendering or datasource initialization. */
+    async applyPermission(windowKey: string, input: ApplyPermissionInput): Promise<JSONValue> {
+        const key = String(windowKey || '').trim();
+        if (!key) throw new Error('window key is required');
+        const query = targetContextQuery(input.targetContext);
+        query.set('applyPermission', 'true');
+        const conversationId = String(input?.conversationId || '').trim();
+        if (conversationId) query.set('conversationId', conversationId);
+        if (input?.resource && Object.keys(input.resource).length > 0) query.set('resource', JSON.stringify(input.resource));
+        if (input.windowParams) query.set('windowParams', JSON.stringify(input.windowParams));
+        const decoded = await this.get<JSONValue>(`/api/agently/forge/window/${enc(key)}`, query);
         if (isJSONObject(decoded) && Object.prototype.hasOwnProperty.call(decoded, 'data')) {
             return decoded.data as JSONValue;
         }

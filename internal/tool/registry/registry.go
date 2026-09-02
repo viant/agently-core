@@ -868,8 +868,12 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	}
 	// cached executable?
 	if !hasInternalClient {
+		requestScopedAuth := strings.TrimSpace(authctx.EffectiveUserID(ctx)) != "" || strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)) != ""
+		if !requestScopedAuth && r.mgr != nil {
+			requestScopedAuth = strings.TrimSpace(authctx.MCPAuthToken(ctx, r.mgr.UseIDToken(ctx, serviceName))) != ""
+		}
 		r.mu.RLock()
-		if e, ok := r.cache[baseName]; ok && e.exec != nil {
+		if e, ok := r.cache[baseName]; ok && e.exec != nil && !requestScopedAuth {
 			r.mu.RUnlock()
 			out, err := e.exec(ctx, callArgs)
 			if err != nil || selector == "" {

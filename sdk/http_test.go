@@ -244,6 +244,32 @@ func TestHTTPClient_GetForgeWindowMetadata_RawPayloadAndRequiredKey(t *testing.T
 	}
 }
 
+func TestHTTPClient_ApplyPermissionUsesDedicatedMetadataOperation(t *testing.T) {
+	var gotQuery url.Values
+	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQuery = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{"id": "advertiser"}})
+	}))
+	raw, err := c.ApplyPermission(context.Background(), " advertiser ", &ApplyPermissionInput{
+		ConversationID: " conv-1 ",
+		Resource:       map[string]interface{}{"advertiserId": 85141},
+		WindowParams:   map[string]interface{}{"AdvertiserId": []int{85141}},
+		Target:         &MetadataTargetContext{Platform: "web", FormFactor: "desktop"},
+	})
+	if err != nil {
+		t.Fatalf("ApplyPermission: %v", err)
+	}
+	if gotQuery.Get("applyPermission") != "true" || gotQuery.Get("conversationId") != "conv-1" || gotQuery.Get("resource") != `{"advertiserId":85141}` {
+		t.Fatalf("missing dedicated permission context: %#v", gotQuery)
+	}
+	if gotQuery.Get("windowParams") != `{"AdvertiserId":[85141]}` {
+		t.Fatalf("unexpected window params: %q", gotQuery.Get("windowParams"))
+	}
+	if !strings.Contains(string(raw), `"id":"advertiser"`) {
+		t.Fatalf("unexpected permitted metadata: %s", raw)
+	}
+}
+
 func TestHTTPClient_ListSkillsAndActivateSkill(t *testing.T) {
 	var gotPaths []string
 	var gotActivateBody map[string]string

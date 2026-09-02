@@ -62,6 +62,7 @@ func (m *Manager) WithAuthTokenContext(ctx context.Context, serverName string) c
 		return ctx
 	}
 	debugMCPAuthEnsure(serverName, ctx, "before_ensure", m.UseIDToken(ctx, serverName))
+	useIDToken := m.UseIDToken(ctx, serverName)
 	if m.tokenProvider != nil {
 		if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
 			provider := strings.TrimSpace(authctx.Provider(ctx))
@@ -71,15 +72,15 @@ func (m *Manager) WithAuthTokenContext(ctx context.Context, serverName string) c
 			if next, err := m.tokenProvider.EnsureTokens(ctx, token.Key{
 				Subject:  userID,
 				Provider: provider,
-			}); err == nil && next != nil {
+			}); err == nil && next != nil && strings.TrimSpace(authctx.MCPAuthToken(next, useIDToken)) != "" {
 				ctx = next
-				debugMCPAuthEnsure(serverName, ctx, "after_ensure_ok", m.UseIDToken(ctx, serverName))
+				debugMCPAuthEnsure(serverName, ctx, "after_ensure_ok", useIDToken)
 			} else if err != nil {
-				debugMCPAuthEnsureError(serverName, ctx, userID, provider, m.UseIDToken(ctx, serverName), err)
+				debugMCPAuthEnsureError(serverName, ctx, userID, provider, useIDToken, err)
 			}
 		}
 	}
-	useID := m.UseIDToken(ctx, serverName)
+	useID := useIDToken
 	tok := authctx.MCPAuthToken(ctx, useID)
 	if strings.TrimSpace(tok) == "" {
 		return ctx

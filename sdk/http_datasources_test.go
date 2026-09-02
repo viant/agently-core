@@ -39,6 +39,12 @@ func TestHTTPClient_FetchDatasource_ForwardsCacheHints(t *testing.T) {
 	if gotBody["conversationId"] != "conv-1" {
 		t.Fatalf("conversation id not trimmed: %v", gotBody)
 	}
+	if _, ok := gotBody["windowId"]; ok {
+		t.Fatalf("public fetch leaked window permit context: %v", gotBody)
+	}
+	if _, ok := gotBody["permitVersion"]; ok {
+		t.Fatalf("public fetch leaked permit version: %v", gotBody)
+	}
 	if gotBody["cache"] == nil {
 		t.Fatalf("cache hints not forwarded; body=%v", gotBody)
 	}

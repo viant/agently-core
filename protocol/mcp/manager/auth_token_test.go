@@ -19,6 +19,12 @@ type authTokenProviderStub struct {
 	key   token.Key
 }
 
+type emptyRefreshTokenProvider struct{ authTokenProviderStub }
+
+func (s *emptyRefreshTokenProvider) EnsureTokens(context.Context, token.Key) (context.Context, error) {
+	return context.Background(), nil
+}
+
 func (s *authTokenProviderStub) EnsureTokens(ctx context.Context, key token.Key) (context.Context, error) {
 	s.calls++
 	s.key = key
@@ -76,5 +82,20 @@ func TestWithAuthTokenContext_RefreshesTokensForCurrentUser(t *testing.T) {
 	}
 	if got, _ := next.Value(authtransport.ContextAuthTokenKey).(string); got != "id-token" {
 		t.Fatalf("context auth token = %q, want %q", got, "id-token")
+	}
+}
+
+func TestWithAuthTokenContext_PreservesInboundTokenWhenRefreshReturnsEmptyContext(t *testing.T) {
+	mgr, err := New(&authTokenProviderConfigStub{cfg: &mcpcfg.MCPClient{
+		ClientOptions: &mcp.ClientOptions{Auth: &mcp.ClientAuth{UseIdToken: true}},
+	}}, WithTokenProvider(&emptyRefreshTokenProvider{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "user-123"})
+	ctx = authctx.WithIDToken(ctx, "inbound-id-token")
+	next := mgr.WithAuthTokenContext(ctx, "helper")
+	if got, _ := next.Value(authtransport.ContextAuthTokenKey).(string); got != "inbound-id-token" {
+		t.Fatalf("inbound token was discarded after empty refresh: %q", got)
 	}
 }

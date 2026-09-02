@@ -1173,12 +1173,32 @@ describe('Forge Window Metadata', () => {
         await expect(c.getForgeWindowMetadata('   ')).rejects.toThrow('window key is required');
         expect(f).not.toHaveBeenCalled();
     });
+
+    it('applyPermission is the dedicated authorized metadata operation', async () => {
+        const f = mockFetch(200, {data: {key: 'advertiser', authorizationSnapshot: {authorizationVersion: 'v1'}}});
+        const c = client(f);
+
+        const metadata = await c.applyPermission(' advertiser ', {
+            conversationId: ' conv-1 ',
+            resource: {advertiserId: 85141},
+            windowParams: {AdvertiserId: [85141]},
+            targetContext: {platform: 'web', formFactor: 'desktop'},
+        });
+
+        expect(metadata).toEqual({key: 'advertiser', authorizationSnapshot: {authorizationVersion: 'v1'}});
+        const call = lastCall(f);
+        expect(call.url).toContain('/v1/api/agently/forge/window/advertiser?');
+        expect(call.url).toContain('applyPermission=true');
+        expect(call.url).toContain('conversationId=conv-1');
+        expect(call.url).toContain('resource=');
+        expect(call.url).toContain('windowParams=');
+    });
 });
 
 // ─── Datasources + Lookups ────────────────────────────────────────────────────
 
 describe('Datasources + Lookups', () => {
-    it('fetchDatasource posts inputs, cache hints, and conversation id to an encoded datasource path', async () => {
+    it('fetchDatasource retains the existing public request contract', async () => {
         const f = mockFetch(200, {
             rows: [{ id: 'fixture-account-1', name: 'Fixture Account' }],
             metrics: { total: 1 },
