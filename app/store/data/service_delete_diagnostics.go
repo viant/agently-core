@@ -106,6 +106,28 @@ func conversationDeleteDiagSQLDone(ctx context.Context, kind, statement string, 
 	diagnostics.logDone("sql", started, err, details)
 }
 
+func conversationDeleteDiagRunDecision(ctx context.Context, runID, status string, heartbeatIntervalSeconds int64, decision conversationRunDeleteDecision) {
+	diagnostics := conversationDeleteDiagnosticsFromContext(ctx)
+	if diagnostics == nil {
+		return
+	}
+	diagnostics.logf(
+		"phase=run_liveness event=decision run=%q status=%q interval_sec=%d grace_sec=%.0f lease_present=%t lease_valid=%t lease_current=%t heartbeat_present=%t heartbeat_valid=%t heartbeat_fresh=%t blocks_delete=%t reason=%s",
+		runID,
+		normalizeStatus(status),
+		heartbeatIntervalSeconds,
+		decision.Grace.Seconds(),
+		decision.LeasePresent,
+		decision.LeaseValid,
+		decision.LeaseCurrent,
+		decision.HeartbeatPresent,
+		decision.HeartbeatValid,
+		decision.HeartbeatFresh,
+		decision.BlocksDelete,
+		decision.Reason,
+	)
+}
+
 func (d *conversationDeleteDiagnostics) logDone(phase string, started time.Time, err error, details string) {
 	elapsed := time.Duration(0)
 	if !started.IsZero() {

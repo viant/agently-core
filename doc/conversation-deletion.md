@@ -11,7 +11,7 @@ Expected responses:
 - `204 No Content`: delete succeeded.
 - `403 Forbidden`: current user does not own every conversation in the tree.
 - `404 Not Found`: root conversation does not exist.
-- `409 Conflict`: the tree is still in progress and is not stale.
+- `409 Conflict`: the tree has a live run, an unknown nonterminal state, or another protected dependency.
 - `500 Internal Server Error`: unexpected failure.
 
 The Go and TypeScript SDKs expose this as:
@@ -50,11 +50,14 @@ Conversation rows are deleted deepest-child-first, with roots last.
 
 ## In-Progress Guard
 
-Deletion is blocked when active markers exist and the newest active timestamp is within 48 hours.
+Known conversation lifecycle states, including active-looking states such as `running` and `waiting_for_user`, are validated using their runs rather than conversation, turn, message, model-call, or tool-call timestamps.
 
-Active markers include conversation, message, turn, turn queue, run, model call, tool call, and tool approval statuses that represent queued/running/waiting work.
+A run is live when its status is `pending`, `prechecking`, `queued`, or `running` and either:
 
-If active markers are older than 48 hours, deletion is allowed. This handles conversations stuck in a broken active state.
+- its lease is still current (an unparsable non-empty lease is treated conservatively as current), or
+- its last heartbeat is no older than twice `heartbeat_interval_sec`, with a minimum grace period of 15 seconds.
+
+An active-status run with a missing or invalid heartbeat is considered stale when its lease is missing or expired. Unknown nonterminal conversation statuses remain blocked when the conversation has stored activity. This lets old stuck conversations be removed without allowing deletion of a worker that still owns a valid lease or is sending heartbeats.
 
 ## Transaction Order
 
@@ -63,7 +66,7 @@ The data service performs the DB cleanup in a single SQL transaction:
 1. Build the conversation tree.
 2. Collect conversation, message, turn, run, tool approval, deprecated `schedule_run`, and payload IDs.
 3. Check owner permissions for every conversation.
-4. Check in-progress markers with the 48-hour stale exception.
+4. Refresh run IDs inside the transaction and reject live runs or unknown nonterminal conversation states.
 5. Set `investigation.conversation_id = NULL` when the table exists.
 6. Delete deprecated `schedule_run` rows when the table exists.
 7. Delete explicit `tool_approval_queue` rows.
