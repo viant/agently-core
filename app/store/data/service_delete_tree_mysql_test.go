@@ -101,7 +101,7 @@ func TestDeleteConversationTree_MySQLStage1(t *testing.T) {
 	}
 }
 
-func TestDeleteConversationTree_MySQLWaitingForUser(t *testing.T) {
+func TestDeleteConversationTree_MySQLLegacyNullStatusWithStaleRun(t *testing.T) {
 	dsn := os.Getenv("AGENTLY_TEST_MYSQL_DSN")
 	if dsn == "" {
 		t.Skip("AGENTLY_TEST_MYSQL_DSN is not set")
@@ -116,10 +116,10 @@ func TestDeleteConversationTree_MySQLWaitingForUser(t *testing.T) {
 	}
 
 	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
-	conversationID := "delete-mysql-waiting-conv-" + suffix
-	turnID := "delete-mysql-waiting-turn-" + suffix
-	messageID := "delete-mysql-waiting-msg-" + suffix
-	runID := "delete-mysql-waiting-run-" + suffix
+	conversationID := "delete-mysql-stale-conv-" + suffix
+	turnID := "delete-mysql-stale-turn-" + suffix
+	messageID := "delete-mysql-stale-msg-" + suffix
+	runID := "delete-mysql-stale-run-" + suffix
 
 	t.Cleanup(func() {
 		cleanupMySQLDeleteTestRows(t, db, map[string]string{
@@ -134,15 +134,15 @@ func TestDeleteConversationTree_MySQLWaitingForUser(t *testing.T) {
 		query string
 		args  []interface{}
 	}{
-		{query: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, args: []interface{}{conversationID, "waiting_for_user", "u1"}},
-		{query: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, args: []interface{}{turnID, conversationID, "waiting_for_user"}},
-		{query: `INSERT INTO message (id, conversation_id, turn_id, role, type, content) VALUES (?, ?, ?, ?, ?, ?)`, args: []interface{}{messageID, conversationID, turnID, "assistant", "text", "waiting"}},
-		{query: `INSERT INTO run (id, turn_id, conversation_id, conversation_kind, status, completed_at) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP())`, args: []interface{}{runID, turnID, conversationID, "interactive", "completed"}},
+		{query: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, args: []interface{}{conversationID, nil, "u1"}},
+		{query: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, args: []interface{}{turnID, conversationID, "running"}},
+		{query: `INSERT INTO message (id, conversation_id, turn_id, role, type, content) VALUES (?, ?, ?, ?, ?, ?)`, args: []interface{}{messageID, conversationID, turnID, "assistant", "text", "stale"}},
+		{query: `INSERT INTO run (id, turn_id, conversation_id, conversation_kind, status, lease_until, last_heartbeat_at, heartbeat_interval_sec) VALUES (?, ?, ?, ?, ?, DATE_SUB(UTC_TIMESTAMP(), INTERVAL 10 MINUTE), DATE_SUB(UTC_TIMESTAMP(), INTERVAL 10 MINUTE), ?)`, args: []interface{}{runID, turnID, conversationID, "interactive", "running", 60}},
 		{query: `UPDATE turn SET run_id = ? WHERE id = ?`, args: []interface{}{runID, turnID}},
 	}
 	for _, statement := range statements {
 		if _, err := db.Exec(statement.query, statement.args...); err != nil {
-			t.Fatalf("seed MySQL waiting-for-user delete test with %q: %v", statement.query, err)
+			t.Fatalf("seed MySQL stale-running delete test with %q: %v", statement.query, err)
 		}
 	}
 
