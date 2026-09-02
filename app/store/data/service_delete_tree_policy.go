@@ -220,6 +220,9 @@ func prepareConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conv
 }
 
 func validateConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, now time.Time) error {
+	if err := refreshConversationDeleteRunIDs(ctx, tx, graph); err != nil {
+		return err
+	}
 	if err := ensureConversationGraphDeletableOrEmpty(ctx, tx, graph); err != nil {
 		return err
 	}
@@ -227,6 +230,22 @@ func validateConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *con
 		return err
 	}
 	return ensureNoActiveReportExports(ctx, tx, graph)
+}
+
+func refreshConversationDeleteRunIDs(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
+	if graph == nil {
+		return nil
+	}
+	runIDs, err := collectRunIDsForDelete(ctx, tx, graph.ConversationIDs, graph.TurnIDs)
+	if err != nil {
+		return err
+	}
+	allRunIDs := makeStringSet(graph.RunIDs)
+	for _, runID := range runIDs {
+		allRunIDs[runID] = struct{}{}
+	}
+	graph.RunIDs = sortedKeys(allRunIDs)
+	return nil
 }
 
 func ensureNoInboundConversationReferences(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
@@ -489,8 +508,8 @@ func ensureConversationGraphDeletableOrEmpty(ctx context.Context, tx *sql.Tx, gr
 			return err
 		}
 	}
-	terminal := statusSet("succeeded", "completed", "complete", "success", "done", "ok", "failed", "error", "canceled", "cancelled")
-	deletablePaused := statusSet("waiting_for_user")
+	terminal := statusSet("succeeded", "completed", "complete", "success", "done", "ok", "failed", "error", "canceled", "cancelled", "terminated", "compacted", "pruned")
+	deletableNonTerminal := conversationDeleteActiveStatuses()
 	for _, row := range graph.Rows {
 		if row == nil {
 			continue
@@ -499,10 +518,16 @@ func ensureConversationGraphDeletableOrEmpty(ctx context.Context, tx *sql.Tx, gr
 		if _, ok := terminal[status]; ok {
 			continue
 		}
-		// waiting_for_user is resumable rather than terminal, but deleting it is
-		// an explicit abandonment of the pending interaction. Live execution is
-		// still rejected separately by ensureNoLiveConversationRuns.
-		if _, ok := deletablePaused[status]; ok {
+		// Legacy conversations may predate status persistence and therefore have
+		// a NULL or empty status. Let them reach the run liveness check instead of
+		// treating the missing metadata itself as proof of active execution.
+		if status == "" {
+			continue
+		}
+		// Known lifecycle states are allowed to reach the run liveness check.
+		// This covers resumable and stale active-looking conversations without
+		// treating unknown legacy states as safe to delete.
+		if _, ok := deletableNonTerminal[status]; ok {
 			continue
 		}
 		if _, empty := activity[row.ID]; empty {
@@ -510,6 +535,70 @@ func ensureConversationGraphDeletableOrEmpty(ctx context.Context, tx *sql.Tx, gr
 		}
 	}
 	return nil
+}
+
+type conversationRunDeleteDecision struct {
+	BlocksDelete     bool
+	Reason           string
+	LeasePresent     bool
+	LeaseValid       bool
+	LeaseCurrent     bool
+	HeartbeatPresent bool
+	HeartbeatValid   bool
+	HeartbeatFresh   bool
+	Grace            time.Duration
+}
+
+func evaluateConversationRunDeleteDecision(status string, leaseUntil, heartbeat sql.NullString, heartbeatIntervalSeconds int64, now time.Time) conversationRunDeleteDecision {
+	decision := conversationRunDeleteDecision{
+		Reason:           "status_not_active",
+		LeasePresent:     leaseUntil.Valid && strings.TrimSpace(leaseUntil.String) != "",
+		HeartbeatPresent: heartbeat.Valid && strings.TrimSpace(heartbeat.String) != "",
+	}
+	if _, active := runDeleteActiveStatuses()[normalizeStatus(status)]; !active {
+		return decision
+	}
+
+	interval := time.Duration(heartbeatIntervalSeconds) * time.Second
+	if interval < 0 {
+		interval = 0
+	}
+	decision.Grace = 2 * interval
+	if decision.Grace < 15*time.Second {
+		decision.Grace = 15 * time.Second
+	}
+
+	if decision.LeasePresent {
+		leaseAt, valid := parseDBTime(leaseUntil.String)
+		decision.LeaseValid = valid
+		if !valid {
+			decision.BlocksDelete = true
+			decision.Reason = "lease_invalid"
+			return decision
+		}
+		decision.LeaseCurrent = leaseAt.After(now)
+		if decision.LeaseCurrent {
+			decision.BlocksDelete = true
+			decision.Reason = "lease_current"
+			return decision
+		}
+	}
+
+	if decision.HeartbeatPresent {
+		heartbeatAt, valid := parseDBTime(heartbeat.String)
+		decision.HeartbeatValid = valid
+		if valid {
+			decision.HeartbeatFresh = !heartbeatAt.Before(now.Add(-decision.Grace))
+			if decision.HeartbeatFresh {
+				decision.BlocksDelete = true
+				decision.Reason = "heartbeat_fresh"
+				return decision
+			}
+		}
+	}
+
+	decision.Reason = "stale"
+	return decision
 }
 
 func ensureNoLiveConversationRuns(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, now time.Time) error {
@@ -527,35 +616,23 @@ func ensureNoLiveConversationRuns(ctx context.Context, tx *sql.Tx, graph *conver
 		intervalExpr = "COALESCE(heartbeat_interval_sec, 5)"
 	}
 	for _, chunk := range chunkStrings(graph.RunIDs, deleteChunkSize) {
-		query := fmt.Sprintf("SELECT status, %s, %s, %s FROM run WHERE id IN (%s)", leaseExpr, heartbeatExpr, intervalExpr, placeholders(len(chunk)))
+		query := fmt.Sprintf("SELECT id, status, %s, %s, %s FROM run WHERE id IN (%s)", leaseExpr, heartbeatExpr, intervalExpr, placeholders(len(chunk)))
 		rows, err := tx.QueryContext(ctx, query, stringArgs(chunk)...)
 		if err != nil {
 			return err
 		}
 		for rows.Next() {
+			var runID string
 			var status sql.NullString
 			var leaseUntil, heartbeat sql.NullString
 			var heartbeatInterval sql.NullInt64
-			if err := rows.Scan(&status, &leaseUntil, &heartbeat, &heartbeatInterval); err != nil {
+			if err := rows.Scan(&runID, &status, &leaseUntil, &heartbeat, &heartbeatInterval); err != nil {
 				_ = rows.Close()
 				return err
 			}
-			if _, active := runDeleteActiveStatuses()[normalizeStatus(status.String)]; !active {
-				continue
-			}
-			if isNonExpiredDBTime(leaseUntil, now) {
-				_ = rows.Close()
-				return ErrConversationActive
-			}
-			interval := time.Duration(heartbeatInterval.Int64) * time.Second
-			if interval < 0 {
-				interval = 0
-			}
-			grace := 2 * interval
-			if grace < 15*time.Second {
-				grace = 15 * time.Second
-			}
-			if heartbeatAt, ok := parseDBTime(heartbeat.String); ok && !heartbeatAt.Before(now.Add(-grace)) {
+			decision := evaluateConversationRunDeleteDecision(status.String, leaseUntil, heartbeat, heartbeatInterval.Int64, now)
+			conversationDeleteDiagRunDecision(ctx, runID, status.String, heartbeatInterval.Int64, decision)
+			if decision.BlocksDelete {
 				_ = rows.Close()
 				return ErrConversationActive
 			}
