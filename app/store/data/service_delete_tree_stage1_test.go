@@ -12,17 +12,141 @@ import (
 	"github.com/viant/agently-core/internal/testutil/dbtest"
 )
 
-func TestDeleteConversationTree_BlocksNonTerminalNonEmptyConversation(t *testing.T) {
-	svc := newSeededService(t, func(t *testing.T, db *sql.DB) {
+func TestDeleteConversationTree_AllowsKnownActiveStatusWithoutLiveRun(t *testing.T) {
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-running", "running", "u1"}},
 			{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-running", "conv-running", "running"}},
 		})
 	})
 
-	err := svc.DeleteConversationTree(deleteTestContext(), "conv-running")
+	if err := svc.DeleteConversationTree(deleteTestContext(), "conv-running"); err != nil {
+		t.Fatalf("DeleteConversationTree() error: %v", err)
+	}
+	assertStage1RowCount(t, db, "conversation", "id", "conv-running", 0)
+}
+
+func TestDeleteConversationTree_AllowsLegacyEmptyStatusWithoutLiveRun(t *testing.T) {
+	testCases := []struct {
+		name   string
+		status interface{}
+	}{
+		{name: "null", status: nil},
+		{name: "empty", status: ""},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			conversationID := "conv-legacy-" + testCase.name
+			turnID := "turn-legacy-" + testCase.name
+			messageID := "msg-legacy-" + testCase.name
+			svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+				dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+					{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{conversationID, testCase.status, "u1"}},
+					{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{turnID, conversationID, "running"}},
+					{SQL: `INSERT INTO message (id, conversation_id, turn_id, role, type, content) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{messageID, conversationID, turnID, "assistant", "text", "legacy"}},
+				})
+			})
+
+			if err := svc.DeleteConversationTree(deleteTestContext(), conversationID); err != nil {
+				t.Fatalf("DeleteConversationTree() error: %v", err)
+			}
+			assertStage1RowCount(t, db, "conversation", "id", conversationID, 0)
+		})
+	}
+}
+
+func TestDeleteConversationTree_BlocksLegacyNullStatusWithLiveRun(t *testing.T) {
+	now := time.Now().UTC()
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-legacy-live", nil, "u1"}},
+			{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-legacy-live", "conv-legacy-live", "running"}},
+			{SQL: `INSERT INTO run (id, turn_id, conversation_id, conversation_kind, status, lease_until, last_heartbeat_at, heartbeat_interval_sec) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-legacy-live", "turn-legacy-live", "conv-legacy-live", "interactive", "running", now.Add(time.Minute).Format(time.RFC3339), now.Format(time.RFC3339), 5}},
+			{SQL: `UPDATE turn SET run_id = ? WHERE id = ?`, Params: []interface{}{"run-legacy-live", "turn-legacy-live"}},
+		})
+	})
+
+	err := svc.DeleteConversationTree(deleteTestContext(), "conv-legacy-live")
+	if !errors.Is(err, ErrConversationActive) {
+		t.Fatalf("expected ErrConversationActive, got %v", err)
+	}
+	assertStage1RowCount(t, db, "run", "id", "run-legacy-live", 1)
+	assertStage1RowCount(t, db, "conversation", "id", "conv-legacy-live", 1)
+}
+
+func TestDeleteConversationTree_BlocksUnknownNonTerminalNonEmptyConversation(t *testing.T) {
+	svc := newSeededService(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-unknown", "legacy_busy", "u1"}},
+			{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-unknown", "conv-unknown", "running"}},
+		})
+	})
+
+	err := svc.DeleteConversationTree(deleteTestContext(), "conv-unknown")
 	if !errors.Is(err, ErrConversationNonTerminal) {
 		t.Fatalf("expected ErrConversationNonTerminal, got %v", err)
+	}
+}
+
+func TestEvaluateConversationRunDeleteDecision(t *testing.T) {
+	now := time.Date(2026, time.September, 1, 12, 0, 0, 0, time.UTC)
+	dbTime := func(value time.Time) sql.NullString {
+		return sql.NullString{String: value.Format(time.RFC3339Nano), Valid: true}
+	}
+	testCases := []struct {
+		name      string
+		status    string
+		lease     sql.NullString
+		heartbeat sql.NullString
+		interval  int64
+		blocked   bool
+		reason    string
+	}{
+		{name: "terminal status ignores liveness fields", status: "completed", lease: dbTime(now.Add(time.Hour)), heartbeat: dbTime(now), interval: 60, reason: "status_not_active"},
+		{name: "current lease blocks stale heartbeat", status: "running", lease: dbTime(now.Add(time.Second)), heartbeat: dbTime(now.Add(-time.Hour)), interval: 60, blocked: true, reason: "lease_current"},
+		{name: "invalid lease blocks conservatively", status: "running", lease: sql.NullString{String: "not-a-time", Valid: true}, interval: 60, blocked: true, reason: "lease_invalid"},
+		{name: "fresh heartbeat blocks expired lease", status: "running", lease: dbTime(now.Add(-time.Second)), heartbeat: dbTime(now.Add(-119 * time.Second)), interval: 60, blocked: true, reason: "heartbeat_fresh"},
+		{name: "heartbeat at grace boundary blocks", status: "running", lease: dbTime(now.Add(-time.Second)), heartbeat: dbTime(now.Add(-120 * time.Second)), interval: 60, blocked: true, reason: "heartbeat_fresh"},
+		{name: "heartbeat older than grace is stale", status: "running", lease: dbTime(now.Add(-time.Second)), heartbeat: dbTime(now.Add(-120*time.Second - time.Nanosecond)), interval: 60, reason: "stale"},
+		{name: "missing heartbeat and expired lease is stale", status: "running", lease: dbTime(now.Add(-time.Second)), interval: 60, reason: "stale"},
+		{name: "invalid heartbeat and missing lease is stale", status: "running", heartbeat: sql.NullString{String: "not-a-time", Valid: true}, interval: 60, reason: "stale"},
+		{name: "minimum heartbeat grace blocks boundary", status: "pending", heartbeat: dbTime(now.Add(-15 * time.Second)), interval: 5, blocked: true, reason: "heartbeat_fresh"},
+	}
+
+	for _, testCase := range testCases {
+		t.Run(testCase.name, func(t *testing.T) {
+			decision := evaluateConversationRunDeleteDecision(testCase.status, testCase.lease, testCase.heartbeat, testCase.interval, now)
+			if decision.BlocksDelete != testCase.blocked || decision.Reason != testCase.reason {
+				t.Fatalf("decision = {blocked:%t reason:%q}, want {blocked:%t reason:%q}", decision.BlocksDelete, decision.Reason, testCase.blocked, testCase.reason)
+			}
+		})
+	}
+}
+
+func TestRefreshConversationDeleteRunIDsIncludesNewlyVisibleRuns(t *testing.T) {
+	_, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-refresh-runs", "running", "u1"}},
+			{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-refresh-runs", "conv-refresh-runs", "running"}},
+			{SQL: `INSERT INTO run (id, turn_id, conversation_id, conversation_kind, status) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"run-refreshed", "turn-refresh-runs", "conv-refresh-runs", "interactive", "running"}},
+		})
+	})
+	tx, err := db.BeginTx(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("BeginTx() error: %v", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	graph := &conversationDeleteGraph{
+		ConversationIDs: []string{"conv-refresh-runs"},
+		TurnIDs:         []string{"turn-refresh-runs"},
+		RunIDs:          []string{"run-already-collected"},
+	}
+	if err := refreshConversationDeleteRunIDs(context.Background(), tx, graph); err != nil {
+		t.Fatalf("refreshConversationDeleteRunIDs() error: %v", err)
+	}
+	if got, want := fmt.Sprint(graph.RunIDs), "[run-already-collected run-refreshed]"; got != want {
+		t.Fatalf("RunIDs = %s, want %s", got, want)
 	}
 }
 
@@ -77,6 +201,24 @@ func TestDeleteConversationTree_BlocksWaitingForUserConversationWithLiveRun(t *t
 		t.Fatalf("expected ErrConversationActive, got %v", err)
 	}
 	assertStage1RowCount(t, db, "conversation", "id", "conv-waiting-live", 1)
+}
+
+func TestDeleteConversationTree_AllowsStaleRunningConversation(t *testing.T) {
+	now := time.Now().UTC()
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-running-stale", "running", "u1"}},
+			{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-running-stale", "conv-running-stale", "running"}},
+			{SQL: `INSERT INTO run (id, turn_id, conversation_id, conversation_kind, status, lease_until, last_heartbeat_at, heartbeat_interval_sec) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-running-stale", "turn-running-stale", "conv-running-stale", "interactive", "running", now.Add(-10 * time.Minute).Format(time.RFC3339), now.Add(-10 * time.Minute).Format(time.RFC3339), 60}},
+			{SQL: `UPDATE turn SET run_id = ? WHERE id = ?`, Params: []interface{}{"run-running-stale", "turn-running-stale"}},
+		})
+	})
+
+	if err := svc.DeleteConversationTree(deleteTestContext(), "conv-running-stale"); err != nil {
+		t.Fatalf("DeleteConversationTree() error: %v", err)
+	}
+	assertStage1RowCount(t, db, "run", "id", "run-running-stale", 0)
+	assertStage1RowCount(t, db, "conversation", "id", "conv-running-stale", 0)
 }
 
 func TestDeleteConversationTree_IgnoresNonTerminalToolStatusWhenConversationIsTerminal(t *testing.T) {

@@ -809,7 +809,7 @@ func statusSet(values ...string) map[string]struct{} {
 }
 
 func conversationDeleteActiveStatuses() map[string]struct{} {
-	return statusSet("running", "in_progress", "processing", "queued", "pending", "thinking", "streaming", "waiting_for_user", "prechecking", "executing")
+	return statusSet("running", "in_progress", "processing", "queued", "pending", "thinking", "streaming", "waiting_for_user", "prechecking", "executing", "open")
 }
 
 func messageDeleteActiveStatuses() map[string]struct{} {
