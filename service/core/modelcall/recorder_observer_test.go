@@ -188,8 +188,18 @@ func TestFinishModelCallSetsCost_DataDriven(t *testing.T) {
 				t.Fatalf("missing model call cost: %v", err)
 			}
 
-			// Expected cost formula with per-1k prices
-			expected := (float64(c.pt)*c.inP + float64(c.ct)*c.outP + float64(c.cached)*c.cacheP) / 1000.0
+			// Prompt totals include cached input, so cached tokens must not also be
+			// charged at the full input rate.
+			uncached := c.pt
+			pricedCached := 0
+			if c.cacheP > 0 {
+				pricedCached = c.cached
+				if pricedCached > uncached {
+					pricedCached = uncached
+				}
+				uncached -= pricedCached
+			}
+			expected := (float64(uncached)*c.inP + float64(c.ct)*c.outP + float64(pricedCached)*c.cacheP) / 1000.0
 			assert.EqualValues(t, expected, *msg.ModelCall.Cost)
 		})
 	}

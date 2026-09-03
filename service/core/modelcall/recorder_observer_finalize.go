@@ -122,7 +122,7 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 				if cached == 0 && u.PromptCachedTokens > 0 {
 					cached = u.PromptCachedTokens
 				}
-				cost := (float64(u.PromptTokens)*inP + float64(u.CompletionTokens)*outP + float64(cached)*cachedP) / 1000.0
+				cost := modelCallTokenCost(u.PromptTokens, u.CompletionTokens, cached, inP, outP, cachedP)
 				if cost > 0 {
 					upd.SetCost(cost)
 					debugPricingf("computed cost model=%s in=%.6f out=%.6f cached=%.6f -> cost=%.6f", strings.TrimSpace(info.Model), inP, outP, cachedP, cost)
@@ -163,6 +163,22 @@ func (o *recorderObserver) finishModelCall(ctx context.Context, msgID, status st
 	}
 	logx.Infof("conversation", "finishModelCall ok msg=%q status=%q", strings.TrimSpace(msgID), strings.TrimSpace(status))
 	return nil
+}
+
+func modelCallTokenCost(promptTokens, completionTokens, cachedTokens int, inputPrice, outputPrice, cachedPrice float64) float64 {
+	prompt := promptTokens
+	cached := 0
+	// Provider prompt totals include cached input. Split it out only when a
+	// cached rate is configured; otherwise retain full input pricing rather than
+	// treating an omitted cached rate as free usage.
+	if cachedPrice > 0 && cachedTokens > 0 {
+		cached = cachedTokens
+		if cached > prompt {
+			cached = prompt
+		}
+		prompt -= cached
+	}
+	return (float64(prompt)*inputPrice + float64(completionTokens)*outputPrice + float64(cached)*cachedPrice) / 1000.0
 }
 
 func (o *recorderObserver) propagateConversationUsage(ctx context.Context, u *llm.Usage) error {
