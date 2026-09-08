@@ -1571,7 +1571,7 @@ func TestResolveWorkspaceActivationProfileOverride_MultiOrderCompare(t *testing.
 							Input:   map[string]interface{}{"timeoutMs": 600000},
 							Item: map[string]interface{}{
 								"id":       "order",
-								"openMode": "append",
+								"openMode": "replace_then_append",
 								"parameters": map[string]interface{}{
 									"RecordId": []interface{}{"$item:int"},
 								},
@@ -1591,6 +1591,9 @@ func TestResolveWorkspaceActivationProfileOverride_MultiOrderCompare(t *testing.
 	require.Equal(t, "2656980,2609393", override.Scope.Values["recordIds"])
 	require.Equal(t, "ui/view:open", override.DirectAction.ToolName)
 	require.Len(t, override.DirectAction.Input["items"], 2)
+	renderedItems := override.DirectAction.Input["items"].([]interface{})
+	require.Equal(t, "replace", renderedItems[0].(map[string]interface{})["openMode"])
+	require.Equal(t, "append", renderedItems[1].(map[string]interface{})["openMode"])
 }
 
 func TestBuildFollowUpOverrideFromState_UsesGenericRelatedRecordIDs(t *testing.T) {

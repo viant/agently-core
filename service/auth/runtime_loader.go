@@ -89,7 +89,11 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 		// OAuth client but configure auth.tokenEncryptionKey.
 		delegatedSalt := cfg.DelegatedTokenEncryptionSalt()
 		if configURL != "" || delegatedSalt != "" {
-			tokenStore = NewTokenStoreDAO(dao, firstNonEmpty(configURL, delegatedSalt), WithDelegatedSalt(delegatedSalt))
+			storeOpts := []TokenStoreOption{WithDelegatedSalt(delegatedSalt)}
+			if cfg.OAuth != nil && cfg.OAuth.Client != nil {
+				storeOpts = append(storeOpts, WithPreviousSalts(cfg.OAuth.Client.ConfigURLPrevious...))
+			}
+			tokenStore = NewTokenStoreDAO(dao, firstNonEmpty(configURL, delegatedSalt), storeOpts...)
 			opts = append(opts, WithTokenStore(tokenStore))
 			logx.Debugf("auth-token", "runtime token store enabled provider=%q", firstNonEmpty(strings.TrimSpace(configuredOAuthProvider(cfg)), "oauth"))
 		}
@@ -254,6 +258,9 @@ func expandAuthEnvTemplates(cfg *Config) {
 		cfg.OAuth.Label = expandAuthEnvString(cfg.OAuth.Label)
 		if cfg.OAuth.Client != nil {
 			cfg.OAuth.Client.ConfigURL = expandAuthEnvString(cfg.OAuth.Client.ConfigURL)
+			for i := range cfg.OAuth.Client.ConfigURLPrevious {
+				cfg.OAuth.Client.ConfigURLPrevious[i] = expandAuthEnvString(cfg.OAuth.Client.ConfigURLPrevious[i])
+			}
 			cfg.OAuth.Client.DiscoveryURL = expandAuthEnvString(cfg.OAuth.Client.DiscoveryURL)
 			cfg.OAuth.Client.JWKSURL = expandAuthEnvString(cfg.OAuth.Client.JWKSURL)
 			cfg.OAuth.Client.RedirectURI = expandAuthEnvString(cfg.OAuth.Client.RedirectURI)

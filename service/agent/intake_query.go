@@ -471,13 +471,23 @@ func buildActivationActionInput(action agentmdl.ActivationAction, vars map[strin
 		return nil, false
 	}
 	renderedItems := make([]interface{}, 0, len(itemsList))
-	for _, item := range itemsList {
+	for index, item := range itemsList {
 		itemVars := map[string]interface{}{}
 		for key, value := range vars {
 			itemVars[key] = value
 		}
 		itemVars["item"] = item
-		renderedItems = append(renderedItems, renderActivationValue(action.Item, itemVars, nil))
+		rendered := renderActivationValue(action.Item, itemVars, nil)
+		if renderedMap, ok := rendered.(map[string]interface{}); ok {
+			if mode, ok := renderedMap["openMode"].(string); ok && strings.EqualFold(strings.TrimSpace(mode), "replace_then_append") {
+				if index == 0 {
+					renderedMap["openMode"] = "replace"
+				} else {
+					renderedMap["openMode"] = "append"
+				}
+			}
+		}
+		renderedItems = append(renderedItems, rendered)
 	}
 	input["items"] = renderedItems
 	return input, true

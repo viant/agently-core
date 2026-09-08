@@ -3,6 +3,8 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"path/filepath"
+	"strings"
 
 	"github.com/viant/agently-core/app/executor"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
@@ -62,7 +64,7 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 
 	// Compile-time assertions that bootstrap didn't drop a target kind.
 	_ = []interface{}{
-		dsproto.BackendMCPTool, loproto.ModePartial,
+		dsproto.BackendMCPTool, dsproto.BackendMCPTools, dsproto.BackendMCPFanout, loproto.ModePartial,
 	}
 	return nil
 }
@@ -90,6 +92,7 @@ func (c *backendClient) refreshForgeDatasources(ctx context.Context) error {
 		return fmt.Errorf("list forge datasources: %w", err)
 	}
 	loaded := make([]*dsproto.DataSource, 0, len(names))
+	loadedByID := make(map[string]string, len(names))
 	for _, name := range names {
 		v, err := repo.Load(ctx, name)
 		if err != nil {
@@ -98,9 +101,14 @@ func (c *backendClient) refreshForgeDatasources(ctx context.Context) error {
 		if v == nil {
 			continue
 		}
+		v.ID = strings.TrimSpace(v.ID)
 		if v.ID == "" {
-			v.ID = name
+			v.ID = filepath.Base(name)
 		}
+		if previous, ok := loadedByID[v.ID]; ok {
+			return fmt.Errorf("duplicate forge datasource id %q in %q and %q", v.ID, previous, name)
+		}
+		loadedByID[v.ID] = name
 		loaded = append(loaded, v)
 	}
 	c.datasourceStore.Replace(loaded)

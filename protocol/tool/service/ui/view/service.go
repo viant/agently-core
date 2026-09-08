@@ -33,8 +33,10 @@ type ListItem struct {
 	Region             string                   `json:"region,omitempty"`
 	OpenMode           string                   `json:"openMode,omitempty"`
 	IdentityScope      string                   `json:"identityScope,omitempty"`
+	IdentityParameters []string                 `json:"identityParameters,omitempty"`
 	WorkspaceSharePct  int                      `json:"workspaceSharePct,omitempty"`
 	WorkspaceMinHeight int                      `json:"workspaceMinHeight,omitempty"`
+	RefreshOnOpen      *bool                    `json:"refreshOnOpen,omitempty"`
 	ReportBuilderRef   string                   `json:"reportBuilderRef,omitempty"`
 	Parameters         []viewproto.Parameter    `json:"parameters,omitempty"`
 	ReportPresets      []viewproto.ReportPreset `json:"reportPresets,omitempty"`
@@ -615,6 +617,9 @@ func shouldRefreshOpenedWindow(item *ListItem, windowID string) bool {
 	if !item.Capabilities.Datasource {
 		return false
 	}
+	if item.RefreshOnOpen != nil {
+		return *item.RefreshOnOpen
+	}
 	return strings.EqualFold(strings.TrimSpace(item.Presentation), "hosted")
 }
 
@@ -636,6 +641,9 @@ func buildOpenWindowOptions(item *ListItem, conversationID string, openModeOverr
 			"label": strings.TrimSpace(item.Navigation.Label),
 			"icon":  strings.TrimSpace(item.Navigation.Icon),
 		}
+	}
+	if len(item.IdentityParameters) > 0 {
+		options["identityParameters"] = append([]string(nil), item.IdentityParameters...)
 	}
 	if strings.EqualFold(strings.TrimSpace(item.Presentation), "hosted") {
 		// Hosted workspace windows are explicit subwindows of the main chat root.
@@ -668,7 +676,18 @@ func computeWindowID(windowKey string, parameters map[string]interface{}, conver
 		return ""
 	}
 	if len(parameters) > 0 && !strings.EqualFold(strings.TrimSpace(item.IdentityScope), "conversation") {
-		base = fmt.Sprintf("%s_%d", base, generateIntHash(parameters))
+		identity := parameters
+		if len(item.IdentityParameters) > 0 {
+			identity = make(map[string]interface{}, len(item.IdentityParameters))
+			for _, name := range item.IdentityParameters {
+				if value, ok := parameters[strings.TrimSpace(name)]; ok {
+					identity[strings.TrimSpace(name)] = value
+				}
+			}
+		}
+		if len(identity) > 0 {
+			base = fmt.Sprintf("%s_%d", base, generateIntHash(identity))
+		}
 	}
 	if strings.EqualFold(strings.TrimSpace(item.Presentation), "hosted") {
 		convID := strings.TrimSpace(conversationID)
@@ -736,8 +755,10 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 			Region:             strings.TrimSpace(spec.Region),
 			OpenMode:           strings.TrimSpace(spec.OpenMode),
 			IdentityScope:      strings.TrimSpace(spec.IdentityScope),
+			IdentityParameters: append([]string(nil), spec.IdentityParameters...),
 			WorkspaceSharePct:  spec.WorkspaceSharePct,
 			WorkspaceMinHeight: spec.WorkspaceMinHeight,
+			RefreshOnOpen:      spec.RefreshOnOpen,
 			ReportBuilderRef:   strings.TrimSpace(spec.ReportBuilderRef),
 			Parameters:         append([]viewproto.Parameter(nil), spec.Parameters...),
 			ReportPresets:      append([]viewproto.ReportPreset(nil), spec.ReportPresets...),
@@ -834,23 +855,20 @@ func expandOpenParameters(specParams []viewproto.Parameter, provided map[string]
 
 	result := map[string]interface{}{}
 	for key, value := range provided {
+		// Preserve the declared resource parameter at the top level for generic
+		// authorization and window identity. BindTo entries fan the same value
+		// out to datasource-specific parameter paths; they do not replace it.
+		result[key] = value
 		matches := matchingViewParameters(specParams, key)
 		if len(matches) == 0 {
-			result[key] = value
 			continue
 		}
-		appliedBinding := false
 		for _, specParam := range matches {
 			bindTo := strings.TrimSpace(specParam.BindTo)
 			if bindTo == "" {
-				result[key] = value
 				continue
 			}
 			setNestedValue(result, bindTo, value)
-			appliedBinding = true
-		}
-		if !appliedBinding && result[key] == nil {
-			result[key] = value
 		}
 	}
 	return result

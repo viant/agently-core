@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"sort"
 	"testing"
+
+	"github.com/viant/agently-core/workspace"
 )
 
 func TestStore_CRUD(t *testing.T) {
@@ -194,5 +196,38 @@ func TestStore_MissingKindListAndEntriesReturnEmpty(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Fatalf("Entries missing kind: got %v, want empty", entries)
+	}
+}
+
+func TestStore_ForgeDatasourcesSupportDomainSubfolders(t *testing.T) {
+	root := t.TempDir()
+	s := New(root)
+	ctx := context.Background()
+
+	datasourcePath := filepath.Join(root, "extension/forge/datasources", "advertiser", "lookup.yaml")
+	if err := os.MkdirAll(filepath.Dir(datasourcePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(datasourcePath, []byte("id: advertiser_lookup\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	names, err := s.List(ctx, workspace.KindForgeDataSource)
+	if err != nil {
+		t.Fatalf("List nested datasource: %v", err)
+	}
+	if len(names) != 1 || names[0] != "advertiser/lookup" {
+		t.Fatalf("List nested datasource: got %v, want [advertiser/lookup]", names)
+	}
+	data, err := s.Load(ctx, workspace.KindForgeDataSource, names[0])
+	if err != nil {
+		t.Fatalf("Load nested datasource: %v", err)
+	}
+	if string(data) != "id: advertiser_lookup\n" {
+		t.Fatalf("unexpected nested datasource: %q", data)
+	}
+	entries, err := s.Entries(ctx, workspace.KindForgeDataSource)
+	if err != nil || len(entries) != 1 || entries[0].Name != "advertiser/lookup" {
+		t.Fatalf("Entries nested datasource: entries=%v err=%v", entries, err)
 	}
 }

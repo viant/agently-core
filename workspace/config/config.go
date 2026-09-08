@@ -128,7 +128,34 @@ func Load(root string) (*Root, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, fmt.Errorf("parse workspace config: %w", err)
 	}
+	if cfg.MCPServer != nil {
+		cfg.MCPServer.Addr = expandEnvTemplate(cfg.MCPServer.Addr)
+	}
 	return cfg, nil
+}
+
+func expandEnvTemplate(value string) string {
+	for {
+		start := strings.Index(value, "${")
+		if start < 0 {
+			return value
+		}
+		endOffset := strings.Index(value[start+2:], "}")
+		if endOffset < 0 {
+			return value
+		}
+		end := start + 2 + endOffset
+		expression := value[start+2 : end]
+		name, fallback := expression, ""
+		if parts := strings.SplitN(expression, ":-", 2); len(parts) == 2 {
+			name, fallback = parts[0], parts[1]
+		}
+		replacement := strings.TrimSpace(os.Getenv(strings.TrimSpace(name)))
+		if replacement == "" {
+			replacement = fallback
+		}
+		value = value[:start] + replacement + value[end+1:]
+	}
 }
 
 // ForgeReportingRoot returns the optional singular reporting asset root owned

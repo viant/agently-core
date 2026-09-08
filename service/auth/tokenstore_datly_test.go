@@ -2,8 +2,11 @@ package auth
 
 import (
 	"context"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/viant/agently-core/app/store/data"
 )
 
 // TestChooseTokenRowNeverFallsBackToDelegatedRow proves fix semantics for the
@@ -93,5 +96,139 @@ func TestTokenStoreDelegatedSaltSelection(t *testing.T) {
 	}
 	if decoded, err := legacyStore.decrypt(context.Background(), encFallback, delegatedKey); err != nil || decoded.AccessToken != "delegated-access" {
 		t.Fatalf("configURL-salt fallback must keep delegated rows readable: %v", err)
+	}
+}
+
+func TestCanonicalTokenStoreSalt_LocalSCYEquivalence(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	relative := "idp_viant.enc|blowfish://default"
+	absolute := filepath.Join(home, ".secret", "idp_viant.enc") + "|blowfish://default"
+	if got := canonicalTokenStoreSalt(relative); got != absolute {
+		t.Fatalf("canonical relative salt = %q, want %q", got, absolute)
+	}
+	if got := canonicalTokenStoreSalt(absolute); got != absolute {
+		t.Fatalf("canonical absolute salt = %q, want %q", got, absolute)
+	}
+	remote := "gs://secret-bucket/idp_viant.enc|blowfish://rotated/key"
+	if got := canonicalTokenStoreSalt(remote); got != remote {
+		t.Fatalf("non-file URL changed: got %q want %q", got, remote)
+	}
+}
+
+func TestTokenStorePreviousSalts_AreAllowlistedAndExcludeDelegated(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	relative := "idp_viant.enc|blowfish://default"
+	absolute := filepath.Join(home, ".secret", "idp_viant.enc") + "|blowfish://default"
+
+	legacy := &TokenStoreDAO{salt: relative}
+	workspace := &OAuthToken{Provider: "oauth", AccessToken: "workspace-access"}
+	legacyEnc, err := legacy.encrypt(context.Background(), workspace)
+	if err != nil {
+		t.Fatalf("legacy encrypt: %v", err)
+	}
+	current := NewTokenStoreDAO(nil, absolute, WithPreviousSalts(relative))
+	decoded, usedPrevious, err := current.decryptWithPrevious(context.Background(), legacyEnc, "oauth")
+	if err != nil || decoded.AccessToken != "workspace-access" || !usedPrevious {
+		t.Fatalf("previous-salt read = token %+v previous=%v err=%v", decoded, usedPrevious, err)
+	}
+	if _, _, err := NewTokenStoreDAO(nil, absolute).decryptWithPrevious(context.Background(), legacyEnc, "oauth"); err == nil {
+		t.Fatalf("unrelated/unconfigured legacy salt must fail closed")
+	}
+	// A process still configured with the relative SCY locator writes with the
+	// same canonical active key as a process configured with the absolute path,
+	// while automatically retaining its own pre-canonicalization text for reads.
+	relativeConfigured := NewTokenStoreDAO(nil, relative)
+	if decoded, previous, err := relativeConfigured.decryptWithPrevious(context.Background(), legacyEnc, "oauth"); err != nil || decoded.AccessToken != "workspace-access" || !previous {
+		t.Fatalf("relative configured store did not read its legacy raw salt: token=%+v previous=%v err=%v", decoded, previous, err)
+	}
+	canonicalEnc, err := relativeConfigured.encrypt(context.Background(), workspace)
+	if err != nil {
+		t.Fatalf("canonical encrypt from relative config: %v", err)
+	}
+	if decoded, err := NewTokenStoreDAO(nil, absolute).decrypt(context.Background(), canonicalEnc, "oauth"); err != nil || decoded.AccessToken != "workspace-access" {
+		t.Fatalf("relative/absolute configured processes do not share the canonical write key: %v %+v", err, decoded)
+	}
+
+	delegatedProvider := DelegatedProviderStorageKey("ns", "provider")
+	delegatedLegacy := &TokenStoreDAO{salt: relative}
+	delegatedEnc, err := delegatedLegacy.encrypt(context.Background(), &OAuthToken{
+		Provider: delegatedProvider, AccessToken: "delegated-access",
+	})
+	if err != nil {
+		t.Fatalf("delegated legacy encrypt: %v", err)
+	}
+	delegatedCurrent := NewTokenStoreDAO(nil, absolute,
+		WithDelegatedSalt("delegated-current-key"), WithPreviousSalts(relative))
+	if _, _, err := delegatedCurrent.decryptWithPrevious(context.Background(), delegatedEnc, delegatedProvider); err == nil {
+		t.Fatalf("workspace previous salts must never decrypt delegated provider rows")
+	}
+}
+
+func TestTokenStorePreviousSaltRead_MigratesWithCiphertextCAS(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	relative := "idp_viant.enc|blowfish://default"
+	absolute := filepath.Join(home, ".secret", "idp_viant.enc") + "|blowfish://default"
+	ctx := context.Background()
+	dao, err := data.NewDatlyInMemory(ctx)
+	if err != nil {
+		t.Fatalf("NewDatlyInMemory: %v", err)
+	}
+	users := NewDatlyUserService(dao)
+	userID, err := users.UpsertWithProvider(ctx, "salt-user", "salt-user", "salt@example.test", "oauth", "salt-subject")
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+	store := NewTokenStoreDAO(dao, absolute, WithPreviousSalts(relative))
+	tok := &OAuthToken{Username: userID, Provider: "oauth", AccessToken: "access", RefreshToken: "refresh"}
+	if err := store.Put(ctx, tok); err != nil {
+		t.Fatalf("Put: %v", err)
+	}
+	legacy := &TokenStoreDAO{salt: relative}
+	legacyEnc, err := legacy.encrypt(ctx, tok)
+	if err != nil {
+		t.Fatalf("legacy encrypt: %v", err)
+	}
+	db, err := store.db()
+	if err != nil {
+		t.Fatalf("db: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, `UPDATE user_oauth_token SET enc_token = ? WHERE user_id = ? AND provider = ?`, legacyEnc, userID, "oauth"); err != nil {
+		t.Fatalf("seed legacy ciphertext: %v", err)
+	}
+	var versionBefore int64
+	if err := db.QueryRowContext(ctx, `SELECT version FROM user_oauth_token WHERE user_id = ? AND provider = ?`, userID, "oauth").Scan(&versionBefore); err != nil {
+		t.Fatalf("version before: %v", err)
+	}
+	got, err := store.GetExact(ctx, userID, "oauth")
+	if err != nil || got == nil || got.AccessToken != "access" {
+		t.Fatalf("GetExact legacy row = %+v err=%v", got, err)
+	}
+	var migratedEnc string
+	var versionAfter int64
+	if err := db.QueryRowContext(ctx, `SELECT enc_token, version FROM user_oauth_token WHERE user_id = ? AND provider = ?`, userID, "oauth").Scan(&migratedEnc, &versionAfter); err != nil {
+		t.Fatalf("read migrated row: %v", err)
+	}
+	if migratedEnc == legacyEnc || versionAfter != versionBefore+1 {
+		t.Fatalf("migration ciphertext/version = changed:%v version:%d want %d", migratedEnc != legacyEnc, versionAfter, versionBefore+1)
+	}
+	activeOnly := NewTokenStoreDAO(nil, absolute)
+	if decoded, err := activeOnly.decrypt(ctx, migratedEnc, "oauth"); err != nil || decoded.AccessToken != "access" {
+		t.Fatalf("migrated ciphertext is not active-key readable: %v %+v", err, decoded)
+	}
+
+	// A stale migration attempt must not overwrite the ciphertext produced by
+	// the first reader/refresh because the old ciphertext no longer matches.
+	if err := store.migrateCiphertext(ctx, userID, "oauth", legacyEnc, got); err != nil {
+		t.Fatalf("stale migration: %v", err)
+	}
+	var afterStale string
+	if err := db.QueryRowContext(ctx, `SELECT enc_token FROM user_oauth_token WHERE user_id = ? AND provider = ?`, userID, "oauth").Scan(&afterStale); err != nil {
+		t.Fatalf("read after stale migration: %v", err)
+	}
+	if afterStale != migratedEnc {
+		t.Fatalf("stale migration overwrote concurrent ciphertext")
 	}
 }

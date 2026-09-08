@@ -43,6 +43,7 @@ func (r *Runtime) protect(next http.Handler) http.Handler {
 			return
 		}
 		if strings.HasPrefix(req.URL.Path, "/v1/") && user == nil {
+			w.Header().Set("X-Agently-Auth-Required", "true")
 			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
 			return
 		}
@@ -74,6 +75,7 @@ func (r *Runtime) protectAll(next http.Handler) http.Handler {
 			ctx = withRuntimeAuthUser(ctx, user)
 		}
 		if user == nil {
+			w.Header().Set("X-Agently-Auth-Required", "true")
 			runtimeError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
 			return
 		}
@@ -149,11 +151,15 @@ func (r *Runtime) authenticate(req *http.Request) (*runtimeAuthUser, bool) {
 						logx.Debugf("token-refresh", "cooldown active user_id=%q provider=%q retry_at=%q",
 							strings.TrimSpace(sess.UserID), strings.TrimSpace(sess.Provider), retryAt.UTC().Format(time.RFC3339))
 					}
-					return runtimeAuthUserFromSession(sess, nil), false
+					// Keep the durable session for a later refresh attempt, but fail the
+					// workspace request closed. An OAuth/BFF session is not authenticated
+					// unless its workspace token can be injected. MCP clients that declare
+					// a different provider resolve their delegated credentials separately.
+					return nil, false
 				}
 
 				if sess.Tokens == nil || strings.TrimSpace(sess.Tokens.RefreshToken) == "" {
-					return runtimeAuthUserFromSession(sess, nil), false
+					return nil, false
 				}
 
 				refreshCtx := req.Context()
@@ -186,7 +192,7 @@ func (r *Runtime) authenticate(req *http.Request) (*runtimeAuthUser, bool) {
 						logx.Debugf("token-refresh", "refresh failed; preserving without injection user_id=%q provider=%q retry_at=%q",
 							strings.TrimSpace(sess.UserID), strings.TrimSpace(sess.Provider), retryAt.UTC().Format(time.RFC3339))
 					}
-					return runtimeAuthUserFromSession(sess, nil), false
+					return nil, false
 				}
 			}
 		}

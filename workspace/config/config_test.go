@@ -1,11 +1,45 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	"gopkg.in/yaml.v3"
 )
+
+func TestLoadExpandsMCPServerAddress(t *testing.T) {
+	tests := []struct {
+		name   string
+		setEnv bool
+		want   string
+	}{
+		{name: "environment override", setEnv: true, want: "127.0.0.1:5003"},
+		{name: "fallback", want: "127.0.0.1:5001"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if test.setEnv {
+				t.Setenv("AGENTLY_TEST_MCP_ADDR", "127.0.0.1:5003")
+			} else {
+				t.Setenv("AGENTLY_TEST_MCP_ADDR", "")
+			}
+			root := t.TempDir()
+			data := []byte("mcpServer:\n  addr: ${AGENTLY_TEST_MCP_ADDR:-127.0.0.1:5001}\n")
+			if err := os.WriteFile(filepath.Join(root, "config.yaml"), data, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			loaded, err := Load(root)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := loaded.MCPServer.Addr; got != test.want {
+				t.Fatalf("MCPServer.Addr = %q, want %q", got, test.want)
+			}
+		})
+	}
+}
 
 func TestDefaultsWithFallbackMergesAdvancedDefaults(t *testing.T) {
 	fallback := &execconfig.Defaults{

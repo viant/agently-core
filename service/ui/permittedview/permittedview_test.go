@@ -74,6 +74,28 @@ func TestCompileFailsClosed(t *testing.T) {
 	}
 }
 
+func TestBindAcceptsScalarForExplicitSingletonSelector(t *testing.T) {
+	bound, err := Bind(testWindow(t), "advertiser-85141", "conversation-1", map[string]any{"AdvertiserId": 85141})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request, err := ResolveRequest(bound)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(request.ResourceIDs) != 1 || request.ResourceIDs[0] != 85141 {
+		t.Fatalf("unexpected singleton authorization request: %#v", request)
+	}
+}
+
+func TestBindRejectsScalarForNonzeroArraySelector(t *testing.T) {
+	window := testWindow(t)
+	window.Authorization.Resource.ID.Selector = "AdvertiserId.1"
+	if _, err := Bind(window, "advertiser-85141", "conversation-1", map[string]any{"AdvertiserId": 85141}); err == nil {
+		t.Fatal("expected nonzero scalar array selector to remain unresolved")
+	}
+}
+
 func stringsJoin(values []string) string {
 	result := ""
 	for _, value := range values {

@@ -247,7 +247,7 @@ Storage format for named tokens is opaque to core — proposal: `@{<name>:<id> "
 
 Hardcoded in the framework:
 
-- A `Backend` contract on datasources (kinds: `mcp_tool`, `mcp_resource`, `feed_ref`, `inline`) — adding a kind is one interface implementation.
+- A `Backend` contract on datasources (kinds: `mcp_tool`, `mcp_tools`, `mcp_fanout`, `mcp_resource`, `feed_ref`, `inline`) — adding a kind is one interface implementation.
 - Cache key formula: `(scope-id, datasourceID, paramsHash)`.
 - Overlay placement: JSONPath into JSON Schema (same placement forge already understands for UI hints).
 - The `/` hotkey trigger char is a **default** — each text input can override.
@@ -312,7 +312,7 @@ uniqueKey: [{ field: id }]
 
 # === agently extension ===
 backend:
-  kind: mcp_tool                   # mcp_tool | mcp_resource | feed_ref | inline
+  kind: mcp_tool                   # mcp_tool | mcp_tools | mcp_fanout | mcp_resource | feed_ref | inline
   service: <mcp-service>           # for mcp_tool
   method:  <mcp-tool-name>
   pinned:                          # fixed args — workspace author's choice, never overridable by caller
@@ -330,6 +330,15 @@ cache:
 ```
 
 No `auth:` field. User identity is whatever `context.Context` carries into `Fetch`.
+
+`mcp_tools` executes a fixed declaration of independent calls concurrently and
+concatenates their normalized rows. `mcp_fanout` is the sequential/dynamic counterpart:
+it executes one seed call, selects an item array from that result, then executes one
+follow-up call per item concurrently. `valueSets`, `listArgument`, `resultMap`, and
+`fieldMap` declaratively preserve the relationship between an input value and its
+resolved result. With `includeUnresolved: true`, missing result-map entries remain rows
+without resolved fields so consumers can fail closed instead of showing a partial label
+set. Both kinds preserve the caller context and therefore the same MCP authorization.
 
 **What the framework knows:** how to load the file, how to merge `pinned` + caller-supplied `parameters` into the backend call, how to apply forge `selectors`/`paging`/`uniqueKey` to the result, how to cache under the declared policy. Nothing about what the datasource "means", nothing about auth.
 

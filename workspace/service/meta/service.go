@@ -4,6 +4,7 @@ import (
 	"context"
 	"path"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/viant/afs"
@@ -54,7 +55,7 @@ func (s *Service) Load(ctx context.Context, URL string, v interface{}) error {
 			return err
 		}
 		if node, ok := v.(*yaml.Node); ok {
-			return ResolveImports(ctx, s.fs, node, filepath.Dir(URL), s.options...)
+			return ResolveImports(ctx, s.fs, node, importBaseDir(URL), s.options...)
 		}
 		return nil
 	}
@@ -62,7 +63,7 @@ func (s *Service) Load(ctx context.Context, URL string, v interface{}) error {
 	if err := wscodec.DecodeURL(ctx, s.fs, URL, &node, s.options...); err != nil {
 		return err
 	}
-	if err := ResolveImports(ctx, s.fs, &node, filepath.Dir(URL), s.options...); err != nil {
+	if err := ResolveImports(ctx, s.fs, &node, importBaseDir(URL), s.options...); err != nil {
 		return err
 	}
 	return node.Decode(v)
@@ -89,6 +90,67 @@ func (s *Service) List(ctx context.Context, URL string) ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// ListRecursive returns all YAML candidates below a directory. Unlike List,
+// it preserves subdirectory paths so callers can organize resources by domain.
+func (s *Service) ListRecursive(ctx context.Context, URL string) ([]string, error) {
+	URL = s.resolve(URL)
+	if ext := strings.ToLower(path.Ext(URL)); ext == ".yaml" || ext == ".yml" {
+		return []string{URL}, nil
+	}
+	var out []string
+	seenFiles := map[string]bool{}
+	visitedDirs := map[string]bool{}
+	if err := s.listRecursive(ctx, URL, &out, seenFiles, visitedDirs); err != nil {
+		return nil, err
+	}
+	sort.Strings(out)
+	return out, nil
+}
+
+func (s *Service) listRecursive(ctx context.Context, URL string, out *[]string, seenFiles, visitedDirs map[string]bool) error {
+	normalizedURL := normalizeResourcePath(URL)
+	if visitedDirs[normalizedURL] {
+		return nil
+	}
+	visitedDirs[normalizedURL] = true
+	objects, err := s.fs.List(ctx, URL, s.options...)
+	if err != nil {
+		return err
+	}
+	for _, object := range objects {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		candidate := object.URL()
+		if sameResourcePath(URL, candidate) {
+			continue
+		}
+		if object.IsDir() {
+			if err := s.listRecursive(ctx, candidate, out, seenFiles, visitedDirs); err != nil {
+				return err
+			}
+			continue
+		}
+		ext := strings.ToLower(filepath.Ext(object.Name()))
+		normalizedCandidate := normalizeResourcePath(candidate)
+		if (ext == ".yaml" || ext == ".yml") && !seenFiles[normalizedCandidate] {
+			*out = append(*out, candidate)
+			seenFiles[normalizedCandidate] = true
+		}
+	}
+	return nil
+}
+
+func sameResourcePath(left, right string) bool {
+	return normalizeResourcePath(left) == normalizeResourcePath(right)
+}
+
+func normalizeResourcePath(candidate string) string {
+	candidate = strings.TrimPrefix(candidate, "file://localhost")
+	candidate = strings.TrimPrefix(candidate, "file://")
+	return filepath.Clean(filepath.FromSlash(candidate))
 }
 
 // Exists checks if the resolved URL exists.

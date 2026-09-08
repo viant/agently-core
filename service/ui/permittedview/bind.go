@@ -44,6 +44,19 @@ func BindResource(window *forgetypes.Window, windowID, conversationID string, pa
 			selectorRoot = resource
 		}
 		value, ok := selectValue(selectorRoot, spec.Resource.ID.Selector)
+		// Window activation normally preserves declared array parameters, but
+		// direct activation cards may carry a singleton resource id as a scalar.
+		// Treat an explicit trailing `.0` selector as that scalar singleton; other
+		// indices and unresolved paths remain fail-closed.
+		if !ok && strings.HasSuffix(strings.TrimSpace(spec.Resource.ID.Selector), ".0") {
+			selector := strings.TrimSuffix(strings.TrimSpace(spec.Resource.ID.Selector), ".0")
+			if candidate, found := selectValue(selectorRoot, selector); found {
+				kind := reflect.ValueOf(candidate)
+				if kind.IsValid() && kind.Kind() != reflect.Slice && kind.Kind() != reflect.Array && kind.Kind() != reflect.Map {
+					value, ok = candidate, true
+				}
+			}
+		}
 		if !ok {
 			return nil, fmt.Errorf("permitted view: authorization resource selector %q was not resolved", spec.Resource.ID.Selector)
 		}

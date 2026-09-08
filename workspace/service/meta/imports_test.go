@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/viant/afs"
@@ -36,6 +37,27 @@ func TestResolveImports_ResolvesNestedTopLevelScalarImports(t *testing.T) {
 	}
 	if actual.ID != "order" || actual.WindowKey != "order" {
 		t.Fatalf("unexpected resolved content: %#v", actual)
+	}
+}
+
+func TestServiceListRecursiveLoadResolvesFileURLImport(t *testing.T) {
+	root := t.TempDir()
+	mustWriteImportFile(t, filepath.Join(root, "datasources", "advanced_reporting.yaml"), `'$import(../shared/datasource.yaml:datasource, {"id":"advanced_reporting"})'`)
+	mustWriteImportFile(t, filepath.Join(root, "shared", "datasource.yaml"), "datasource:\n  id: $param(id)\n  backend:\n    kind: inline\n")
+
+	service := New(afs.New(), root)
+	paths, err := service.ListRecursive(context.Background(), "datasources")
+	if err != nil || len(paths) != 1 {
+		t.Fatalf("list recursive paths=%v err=%v", paths, err)
+	}
+	var actual struct {
+		ID string `yaml:"id"`
+	}
+	if err := service.Load(context.Background(), paths[0], &actual); err != nil {
+		t.Fatalf("load recursively discovered file URL import: %v", err)
+	}
+	if actual.ID != "advanced_reporting" {
+		t.Fatalf("unexpected imported datasource: %#v", actual)
 	}
 }
 
@@ -184,6 +206,160 @@ ignored:
 	}
 	if actual.View.Content.TargetOverrides["iosTablet"].ReportBuilder["filterSummaryMode"] != "pinned" {
 		t.Fatalf("expected iosTablet target override to survive import, got %#v", actual.View.Content.TargetOverrides)
+	}
+}
+
+func TestResolveImports_ParameterizedFragmentInstantiatesIndependentTargetingCards(t *testing.T) {
+	root := t.TempDir()
+	mustWriteImportFile(t, filepath.Join(root, "main.yaml"), `
+containers:
+  - '$import(shared/targeting.yaml:card, {"prefix":"advertiser","dataSourceRef":"advertiser_defaults","dataRoot":"targetingGroups","handlerNamespace":"Advertiser Workspace","readOnly":false,"layout":{"kind":"grid","columns":2},"visibleWhen":{"source":"authorization","field":"resource.capabilities.write","equals":true},"options":["context","location"]})'
+  - '$import(shared/targeting.yaml:card, {"prefix":"line","dataSourceRef":"line_properties","dataRoot":"targeting","handlerNamespace":"Line Workspace","readOnly":true,"layout":{"kind":"grid","columns":1},"visibleWhen":{"source":"authorization","field":"resource.capabilities.read","equals":true},"options":["location"]})'
+`)
+	mustWriteImportFile(t, filepath.Join(root, "shared", "targeting.yaml"), `
+card:
+  id: $param(prefix)Targeting
+  dataSourceRef: $param(dataSourceRef)
+  stateKey: $param(prefix)-$param(dataRoot)-collapsed
+  readOnly: $param(readOnly)
+  layout: $param(layout)
+  visibleWhen: $param(visibleWhen)
+  options: $param(options)
+  items:
+    - '$import(nested/item.yaml:item, {"prefix":"nested","dataRoot":"$param(dataRoot)"})'
+    - id: $param(prefix)Sibling
+      dataField: $param(dataRoot).context
+      handler: $param(handlerNamespace).updateTargeting
+`)
+	mustWriteImportFile(t, filepath.Join(root, "shared", "nested", "item.yaml"), `
+item:
+  id: $param(prefix)Item
+  dataField: $param(dataRoot).location
+`)
+
+	data, err := os.ReadFile(filepath.Join(root, "main.yaml"))
+	if err != nil {
+		t.Fatalf("read root yaml: %v", err)
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		t.Fatalf("unmarshal root yaml: %v", err)
+	}
+	if err := ResolveImports(context.Background(), afs.New(), &node, root); err != nil {
+		t.Fatalf("resolve imports: %v", err)
+	}
+	var actual struct {
+		Containers []struct {
+			ID            string                 `yaml:"id"`
+			DataSourceRef string                 `yaml:"dataSourceRef"`
+			StateKey      string                 `yaml:"stateKey"`
+			ReadOnly      bool                   `yaml:"readOnly"`
+			Layout        map[string]interface{} `yaml:"layout"`
+			VisibleWhen   map[string]interface{} `yaml:"visibleWhen"`
+			Options       []string               `yaml:"options"`
+			Items         []struct {
+				ID        string `yaml:"id"`
+				DataField string `yaml:"dataField"`
+				Handler   string `yaml:"handler"`
+			} `yaml:"items"`
+		} `yaml:"containers"`
+	}
+	if err := node.Decode(&actual); err != nil {
+		t.Fatalf("decode resolved yaml: %v", err)
+	}
+	if len(actual.Containers) != 2 {
+		t.Fatalf("expected two independent cards, got %#v", actual.Containers)
+	}
+	advertiser, line := actual.Containers[0], actual.Containers[1]
+	if advertiser.ID != "advertiserTargeting" || advertiser.DataSourceRef != "advertiser_defaults" || advertiser.StateKey != "advertiser-targetingGroups-collapsed" {
+		t.Fatalf("unexpected advertiser card identity: %#v", advertiser)
+	}
+	if line.ID != "lineTargeting" || line.DataSourceRef != "line_properties" || line.StateKey != "line-targeting-collapsed" {
+		t.Fatalf("unexpected line card identity: %#v", line)
+	}
+	if advertiser.ReadOnly || !line.ReadOnly || advertiser.Layout["columns"] != 2 || line.Layout["columns"] != 1 {
+		t.Fatalf("typed parameters were not preserved: advertiser=%#v line=%#v", advertiser, line)
+	}
+	if len(advertiser.Options) != 2 || len(line.Options) != 1 {
+		t.Fatalf("list parameters were not preserved: advertiser=%#v line=%#v", advertiser.Options, line.Options)
+	}
+	if advertiser.Items[0].ID != "nestedItem" || line.Items[0].ID != "nestedItem" {
+		t.Fatalf("nested override did not apply: advertiser=%#v line=%#v", advertiser.Items, line.Items)
+	}
+	if advertiser.Items[1].ID != "advertiserSibling" || line.Items[1].ID != "lineSibling" {
+		t.Fatalf("nested override leaked to a sibling: advertiser=%#v line=%#v", advertiser.Items, line.Items)
+	}
+	if advertiser.Items[1].Handler != "Advertiser Workspace.updateTargeting" || line.Items[1].Handler != "Line Workspace.updateTargeting" {
+		t.Fatalf("embedded handler interpolation failed: advertiser=%#v line=%#v", advertiser.Items[1], line.Items[1])
+	}
+}
+
+func TestResolveImports_ParameterizedFragmentFailsOnMissingParameter(t *testing.T) {
+	root := t.TempDir()
+	mustWriteImportFile(t, filepath.Join(root, "main.yaml"), `$import(fragment.yaml, {"prefix":"advertiser"})`)
+	mustWriteImportFile(t, filepath.Join(root, "fragment.yaml"), "id: $param(missing)\n")
+	data, err := os.ReadFile(filepath.Join(root, "main.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		t.Fatal(err)
+	}
+	err = ResolveImports(context.Background(), afs.New(), &node, root)
+	if err == nil || !strings.Contains(err.Error(), `missing import parameter "missing"`) {
+		t.Fatalf("expected missing-parameter error, got %v", err)
+	}
+}
+
+func TestResolveImports_KeyedFragmentDoesNotEvaluateUnselectedParameterizedSibling(t *testing.T) {
+	root := t.TempDir()
+	mustWriteImportFile(t, filepath.Join(root, "main.yaml"), "selected: $import(fragment.yaml:selected)\n")
+	mustWriteImportFile(t, filepath.Join(root, "fragment.yaml"), "selected:\n  id: ready\nunselected:\n  id: $param(missing)\n")
+	data, err := os.ReadFile(filepath.Join(root, "main.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var node yaml.Node
+	if err := yaml.Unmarshal(data, &node); err != nil {
+		t.Fatal(err)
+	}
+	if err := ResolveImports(context.Background(), afs.New(), &node, root); err != nil {
+		t.Fatalf("unselected sibling consumed parameters: %v", err)
+	}
+	var actual struct {
+		Selected struct {
+			ID string `yaml:"id"`
+		} `yaml:"selected"`
+	}
+	if err := node.Decode(&actual); err != nil || actual.Selected.ID != "ready" {
+		t.Fatalf("unexpected selected fragment: %#v err=%v", actual, err)
+	}
+}
+
+func TestServiceLoad_ParameterizedKeyedImportPreservesFileURLBase(t *testing.T) {
+	root := t.TempDir()
+	mustWriteImportFile(t, filepath.Join(root, "main.yaml"),
+		`'$import(fragment.yaml:template, {"id":"catalog"})'`)
+	mustWriteImportFile(t, filepath.Join(root, "fragment.yaml"), `
+template:
+  id: $param(id)
+  backend:
+    method: AdvancedReportingRun
+`)
+
+	var actual struct {
+		ID      string `yaml:"id"`
+		Backend struct {
+			Method string `yaml:"method"`
+		} `yaml:"backend"`
+	}
+	loader := New(afs.New(), "file://"+filepath.ToSlash(root))
+	if err := loader.Load(context.Background(), "main.yaml", &actual); err != nil {
+		t.Fatalf("load parameterized keyed import from file URL: %v", err)
+	}
+	if actual.ID != "catalog" || actual.Backend.Method != "AdvancedReportingRun" {
+		t.Fatalf("unexpected imported datasource: %#v", actual)
 	}
 }
 

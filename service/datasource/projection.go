@@ -16,6 +16,12 @@ func project(raw interface{}, ds *types.DataSource) ([]map[string]interface{}, m
 	if ds != nil && ds.Selectors != nil {
 		if ds.Selectors.Data != "" {
 			rowsRaw = selectPath(ds.Selectors.Data, raw)
+			if rowsRaw == nil && strings.EqualFold(strings.TrimSpace(ds.Selectors.Data), "data") {
+				switch raw.(type) {
+				case []map[string]interface{}, []interface{}:
+					rowsRaw = raw
+				}
+			}
 		}
 		if ds.Selectors.DataInfo != "" {
 			if di, ok := selectPath(ds.Selectors.DataInfo, raw).(map[string]interface{}); ok {
