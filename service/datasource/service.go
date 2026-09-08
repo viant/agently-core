@@ -128,12 +128,13 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		return nil, fmt.Errorf("datasource %q has no backend", id)
 	}
 	policy := dsproto.CachePolicyOrDefault(ds.Cache)
+	cacheEnabled := policy.Enabled == nil || *policy.Enabled
 	scopeID := s.scopeID(ctx, policy.Scope)
 	normalizedInputs := normalizeFilterSemantics(inputs, &ds.DataSource)
 	mergedArgs := expandNestedArgs(mergeArgs(normalizedInputs, ds.Backend.Pinned))
 	cacheKey := buildCacheKey(scopeID, ds.ID, policy.Key, mergedArgs)
 
-	if !opts.BypassCache {
+	if cacheEnabled && !opts.BypassCache {
 		if entry, ok := s.cache.get(cacheKey); ok {
 			age := s.now().Sub(entry.fetchedAt)
 			if age <= policy.TTL {
@@ -160,15 +161,17 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 	rows, dataInfo = applyPaging(rows, dataInfo, &ds.DataSource, mergedArgs)
 	result := &dsproto.FetchResult{Rows: rows, DataInfo: dataInfo, Metrics: metrics}
 
-	s.cache.put(cacheKey, cacheEntry{
-		result:    cloneResult(result),
-		fetchedAt: s.now(),
-	}, policy.MaxEntries)
+	if cacheEnabled {
+		s.cache.put(cacheKey, cacheEntry{
+			result:    cloneResult(result),
+			fetchedAt: s.now(),
+		}, policy.MaxEntries)
 
-	result.Cache = &dsproto.CacheMeta{
-		Hit:        false,
-		FetchedAt:  s.now(),
-		TTLSeconds: int(policy.TTL.Seconds()),
+		result.Cache = &dsproto.CacheMeta{
+			Hit:        false,
+			FetchedAt:  s.now(),
+			TTLSeconds: int(policy.TTL.Seconds()),
+		}
 	}
 	return result, nil
 }
@@ -181,6 +184,9 @@ func (s *Service) InvalidateCache(ctx context.Context, id, inputsHash string) er
 		return fmt.Errorf("datasource %q not found", id)
 	}
 	policy := dsproto.CachePolicyOrDefault(ds.Cache)
+	if policy.Enabled != nil && !*policy.Enabled {
+		return nil
+	}
 	scopeID := s.scopeID(ctx, policy.Scope)
 	prefix := scopeID + "|" + ds.ID + "|"
 	if inputsHash == "" {

@@ -7,13 +7,92 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/viant/agently-core/app/store/conversation"
 	convdata "github.com/viant/agently-core/app/store/data"
+	dsproto "github.com/viant/agently-core/protocol/datasource"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
+	dssvc "github.com/viant/agently-core/service/datasource"
 )
+
+type delayedCampaignMutationExecutor struct {
+	calls atomic.Int64
+}
+
+func (e *delayedCampaignMutationExecutor) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	e.calls.Add(1)
+	if name != "platform:CampaignPartialMetricMerged" {
+		return "", errors.New("unexpected tool " + name)
+	}
+	select {
+	case <-ctx.Done():
+		return "", ctx.Err()
+	case <-time.After(20 * time.Millisecond):
+	}
+	return `{"messages":[],"entity":{"id":553233,"dailyBudget":0.01}}`, nil
+}
+
+type datasourceServiceBackend struct {
+	Backend
+	service *dssvc.Service
+}
+
+func (b datasourceServiceBackend) FetchDatasource(ctx context.Context, in *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
+	result, err := b.service.Fetch(ctx, in.ID, in.Inputs, dssvc.FetchOptions{BypassCache: in.Cache != nil && in.Cache.BypassCache})
+	if err != nil {
+		return nil, err
+	}
+	return toAPIFetchOutput(result), nil
+}
+
+func TestHandleFetchDatasource_CampaignMutationDelayedResponsesSettleAndNeverCache(t *testing.T) {
+	enabled := false
+	store := dssvc.NewMemoryStore()
+	store.Put(&dsproto.DataSource{
+		ID: "advertiser_campaign_partial_metric",
+		Backend: &dsproto.Backend{
+			Kind:    dsproto.BackendMCPTool,
+			Service: "platform",
+			Method:  "CampaignPartialMetricMerged",
+		},
+		Cache: &dsproto.CachePolicy{Enabled: &enabled},
+	})
+	executor := &delayedCampaignMutationExecutor{}
+	backend := datasourceServiceBackend{service: dssvc.New(dssvc.Options{Store: store, Executor: executor})}
+	body := `{"inputs":{"Campaign":{"id":553233,"dailyBudget":0.01}},"cache":{"bypassCache":true}}`
+
+	for attempt := 0; attempt < 2; attempt++ {
+		req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/advertiser_campaign_partial_metric/fetch", strings.NewReader(body))
+		req.SetPathValue("id", "advertiser_campaign_partial_metric")
+		writer := httptest.NewRecorder()
+		handleFetchDatasource(backend)(writer, req)
+		if writer.Code != http.StatusOK {
+			t.Fatalf("attempt %d: want 200, got %d body=%s", attempt+1, writer.Code, writer.Body.String())
+		}
+		var output api.FetchDatasourceOutput
+		if err := json.Unmarshal(writer.Body.Bytes(), &output); err != nil {
+			t.Fatal(err)
+		}
+		if len(output.Rows) != 1 || output.Rows[0]["entity"] == nil {
+			t.Fatalf("attempt %d: Campaign mutation result did not normalize: %#v", attempt+1, output.Rows)
+		}
+		if output.Cache != nil {
+			t.Fatalf("attempt %d: disabled mutation cache emitted cache metadata: %#v", attempt+1, output.Cache)
+		}
+		if attempt == 0 {
+			if err := backend.service.InvalidateCache(context.Background(), "advertiser_campaign_partial_metric", "ignored"); err != nil {
+				t.Fatalf("disabled cache invalidation must be a no-op: %v", err)
+			}
+		}
+	}
+	if executor.calls.Load() != 2 {
+		t.Fatalf("two identical mutation requests must both execute, got %d calls", executor.calls.Load())
+	}
+}
 
 // dsStubBackend is a Backend stub for HTTP handler tests. The embedded
 // Backend is nil — we only override the three methods under test; any other

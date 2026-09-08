@@ -183,6 +183,58 @@ content:
 	})
 }
 
+func TestLoadWorkspaceWindowValidatesGlobalModelsLazilyByAffectedWindow(t *testing.T) {
+	withLoaderWorkspaceRoot(t, func(root string) {
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "order.yaml"), `
+namespace: Order
+view:
+  content: {id: order}
+`)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.yaml"), `
+namespace: Advertiser
+view:
+  content:
+    id: advertiser
+    mutationCommand:
+      dataSourceRef: advertiser_patch
+      payload: {modelRef: advertiserMutation, source: {scope: form}}
+`)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeModel, "advertiser.yaml"), `
+schemas:
+  advertiserMutation:
+    type: object
+    properties:
+      flights: {type: array}
+  advertiserFlight:
+    type: object
+    properties: {startDate: {type: string}}
+resourceModels:
+  advertiserMutation:
+    schemaRef: advertiserMutation
+    write: {dataSourceRef: advertiser_patch, inputPath: Data, mode: full}
+    fields:
+      flights: {write: Flights, collection: {modelRef: advertiserFlight, mode: replace}}
+  advertiserFlight:
+    schemaRef: advertiserFlight
+    fields: {startDate: {write: StartDate}}
+`)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDataSource, "advertiser", "patch.yaml"), "id: advertiser_patch\ncardinality: object\nbackend: {kind: inline, rows: []}\n")
+
+		order, err := LoadWorkspaceWindow(context.Background(), "order", nil)
+		if err != nil {
+			t.Fatalf("invalid Advertiser registry must not block Order: %v", err)
+		}
+		if _, ok := order.ResourceModels["advertiserMutation"]; ok {
+			t.Fatal("invalid unrelated registry must be quarantined from Order")
+		}
+
+		_, err = LoadWorkspaceWindow(context.Background(), "advertiser", nil)
+		if err == nil || !strings.Contains(err.Error(), "unknown resource model advertiserMutation") {
+			t.Fatalf("Advertiser must fail closed when it references its quarantined model, got %v", err)
+		}
+	})
+}
+
 func TestLoadWorkspaceWindowQuarantinesUnrelatedGlobalIdentityConflicts(t *testing.T) {
 	withLoaderWorkspaceRoot(t, func(root string) {
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.yaml"), `

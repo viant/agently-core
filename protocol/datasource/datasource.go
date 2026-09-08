@@ -32,8 +32,10 @@ type DataSource struct {
 	// Backend describes the upstream source. Required.
 	Backend *Backend `json:"backend" yaml:"backend"`
 
-	// Cache policy. When nil, defaults apply (scope=user, ttl=30m,
-	// refreshPolicy=stale-while-revalidate, maxEntries=5000).
+	// Cache policy. When nil, defaults apply (enabled=true, scope=user,
+	// ttl=30m, refreshPolicy=stale-while-revalidate, maxEntries=5000).
+	// Writers should declare cache: {enabled:false}; datasource semantics are
+	// never inferred from a tool name or HTTP method.
 	Cache *CachePolicy `json:"cache,omitempty" yaml:"cache,omitempty"`
 }
 
@@ -146,8 +148,10 @@ const (
 )
 
 // CachePolicy is per-datasource. Any omitted field picks up the documented
-// default via CachePolicyOrDefault.
+// default via CachePolicyOrDefault. Enabled=false bypasses get/put and makes
+// invalidation a no-op.
 type CachePolicy struct {
+	Enabled       *bool         `json:"enabled,omitempty" yaml:"enabled,omitempty"`
 	Scope         CacheScope    `json:"scope,omitempty" yaml:"scope,omitempty"`
 	TTL           time.Duration `json:"ttl,omitempty" yaml:"ttl,omitempty"`
 	MaxEntries    int           `json:"maxEntries,omitempty" yaml:"maxEntries,omitempty"`
@@ -163,7 +167,9 @@ const (
 
 // CachePolicyOrDefault returns p filled in with defaults for zero-valued fields.
 func CachePolicyOrDefault(p *CachePolicy) CachePolicy {
+	enabled := true
 	out := CachePolicy{
+		Enabled:       &enabled,
 		Scope:         ScopeUser,
 		TTL:           DefaultTTL,
 		MaxEntries:    DefaultMaxEntries,
@@ -171,6 +177,10 @@ func CachePolicyOrDefault(p *CachePolicy) CachePolicy {
 	}
 	if p == nil {
 		return out
+	}
+	if p.Enabled != nil {
+		value := *p.Enabled
+		out.Enabled = &value
 	}
 	if p.Scope != "" {
 		out.Scope = p.Scope
