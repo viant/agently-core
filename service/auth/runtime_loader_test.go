@@ -16,6 +16,7 @@ import (
 func TestLoadConfig_ExpandsOAuthConfigURLTemplate(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("WORKSPACE_OAUTH_CONFIG_URL", "oauth_override.ref")
+	t.Setenv("WORKSPACE_OAUTH_CONFIG_URL_PREVIOUS", "oauth_previous.ref")
 
 	config := `auth:
   enabled: true
@@ -25,6 +26,8 @@ func TestLoadConfig_ExpandsOAuthConfigURLTemplate(t *testing.T) {
     mode: bff
     client:
       configURL: ${WORKSPACE_OAUTH_CONFIG_URL:-oauth_default.ref}
+      configURLPrevious:
+        - ${WORKSPACE_OAUTH_CONFIG_URL_PREVIOUS:-oauth_previous_default.ref}
 `
 	if err := os.WriteFile(filepath.Join(root, "config.yaml"), []byte(config), 0o644); err != nil {
 		t.Fatalf("failed to write config.yaml: %v", err)
@@ -39,6 +42,9 @@ func TestLoadConfig_ExpandsOAuthConfigURLTemplate(t *testing.T) {
 	}
 	if got, want := cfg.OAuth.Client.ConfigURL, "oauth_override.ref"; got != want {
 		t.Fatalf("ConfigURL = %q, want %q", got, want)
+	}
+	if got, want := cfg.OAuth.Client.ConfigURLPrevious, []string{"oauth_previous.ref"}; len(got) != 1 || got[0] != want[0] {
+		t.Fatalf("ConfigURLPrevious = %#v, want %#v", got, want)
 	}
 }
 

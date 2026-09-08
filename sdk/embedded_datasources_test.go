@@ -256,7 +256,7 @@ func TestBackendClient_FetchDatasourceReloadsForgeDatasourcesFromWorkspaceStore(
 	root := t.TempDir()
 	store := fsstore.New(root)
 
-	dsPath := filepath.Join(root, "extension/forge/datasources", "item_lookup.yaml")
+	dsPath := filepath.Join(root, "extension/forge/datasources", "advertiser", "item.yaml")
 	if err := osWriteFile(dsPath, []byte(`
 id: item_lookup
 title: Item Lookup

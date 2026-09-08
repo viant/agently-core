@@ -422,11 +422,11 @@ func TestRuntimeOwnerLookupErrorPreservesExpiredSessionWithoutStoreOrRefresh(t *
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK || !downstreamCalled {
+	if rec.Code != http.StatusUnauthorized || downstreamCalled {
 		t.Fatalf("status = %d, downstream called = %v, body=%s", rec.Code, downstreamCalled, rec.Body.String())
 	}
-	if downstreamUser != "provider-subject" {
-		t.Fatalf("effective user = %q, want provider subject", downstreamUser)
+	if downstreamUser != "" {
+		t.Fatalf("effective user = %q, want no downstream user", downstreamUser)
 	}
 	if downstreamToken != nil {
 		t.Fatalf("downstream token = %#v, want no injection", downstreamToken)
@@ -475,7 +475,7 @@ func TestRuntimeTokenAvailabilityMatrix(t *testing.T) {
 			name:       "preserve without injection",
 			users:      &lifecycleUserService{subjectUser: canonical},
 			tokenStore: &lifecycleTokenStore{getErr: errors.New("store unavailable")},
-			wantStatus: http.StatusOK,
+			wantStatus: http.StatusUnauthorized,
 		},
 	}
 

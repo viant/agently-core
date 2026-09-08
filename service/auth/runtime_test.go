@@ -50,6 +50,29 @@ func TestWithRuntimeAuthUserBridgesCoreContexts(t *testing.T) {
 	}
 }
 
+func TestRuntimeProtectMarksWorkspaceAuthenticationFailures(t *testing.T) {
+	rt := &Runtime{
+		cfg: &Config{
+			Enabled:    true,
+			CookieName: "agently_session",
+			Local:      &Local{Enabled: false},
+		},
+		sessions: NewManager(0, nil),
+	}
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "/v1/conversations", nil)
+	rt.protect(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("unauthenticated request reached protected handler")
+	})).ServeHTTP(recorder, request)
+
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", recorder.Code, http.StatusUnauthorized)
+	}
+	if actual := recorder.Header().Get("X-Agently-Auth-Required"); actual != "true" {
+		t.Fatalf("X-Agently-Auth-Required = %q, want true", actual)
+	}
+}
+
 func TestRuntime_EnsureDefaultUser_OAuthBFFDoesNotFallbackToDefaultUsername(t *testing.T) {
 	rt := &Runtime{
 		cfg: &Config{
@@ -253,7 +276,7 @@ func TestRuntimeProtectAll_JWTBearer_PopulatesIDToken(t *testing.T) {
 	assert.Equal(t, token, strings.TrimSpace(rec.Body.String()))
 }
 
-func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T) {
+func TestRuntimeProtect_TransientRefreshFailurePreservesSessionButRejectsWorkspaceRequest(t *testing.T) {
 	store := &sessionStoreContextProbe{}
 	rt := &Runtime{
 		cfg: &Config{
@@ -299,8 +322,8 @@ func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
 	}
 	if got := rt.sessions.Get(context.Background(), "sess-expired"); got == nil {
 		t.Fatalf("expected session to be preserved after transient refresh failure")
@@ -318,7 +341,7 @@ func TestRuntimeProtect_TransientRefreshFailureDoesNotDeleteSession(t *testing.T
 	}
 }
 
-func TestRuntimeProtect_UnderScopedStoredSessionIsPreservedButNotInjected(t *testing.T) {
+func TestRuntimeProtect_UnderScopedStoredSessionIsPreservedButRejected(t *testing.T) {
 	underScoped := fakeJWTWithClaims(t, map[string]any{"scope": "openid"})
 	cfg := &Config{
 		Enabled:    true,
@@ -363,8 +386,8 @@ func TestRuntimeProtect_UnderScopedStoredSessionIsPreservedButNotInjected(t *tes
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
 	if downstreamTokens != nil {
 		t.Fatalf("under-scoped token reached downstream context: %#v", downstreamTokens)
@@ -374,7 +397,7 @@ func TestRuntimeProtect_UnderScopedStoredSessionIsPreservedButNotInjected(t *tes
 	}
 }
 
-func TestRuntimeProtect_TransientRefreshFailurePersistsWithCanceledRequestContext(t *testing.T) {
+func TestRuntimeProtect_TransientRefreshFailurePersistsWithCanceledRequestContextButRejectsRequest(t *testing.T) {
 	store := &sessionStoreContextProbe{}
 	rt := &Runtime{
 		cfg: &Config{
@@ -418,8 +441,8 @@ func TestRuntimeProtect_TransientRefreshFailurePersistsWithCanceledRequestContex
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
 	}
 	if got := rt.sessions.Get(context.Background(), "sess-expired-canceled"); got == nil {
 		t.Fatalf("expected session to be preserved after transient refresh failure")
@@ -516,7 +539,7 @@ func signTestJWT(t *testing.T, privPath string, claims map[string]interface{}, t
 	return token
 }
 
-func TestRuntimeProtect_TransientRefreshCooldownSkipsRepeatedRefreshAttempts(t *testing.T) {
+func TestRuntimeProtect_TransientRefreshCooldownRejectsWorkspaceRequest(t *testing.T) {
 	rt := &Runtime{
 		cfg: &Config{
 			Enabled:    true,
@@ -551,8 +574,8 @@ func TestRuntimeProtect_TransientRefreshCooldownSkipsRepeatedRefreshAttempts(t *
 
 	handler.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d body=%s", rec.Code, http.StatusUnauthorized, rec.Body.String())
 	}
 	got := rt.sessions.Get(context.Background(), "sess-expired-cooldown")
 	if got == nil {

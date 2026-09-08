@@ -1,7 +1,7 @@
 // Package datasource implements Fetch over a declarative protocol/datasource
 // DataSource. It composes four pluggable concerns:
 //
-//  1. Backend   — how rows are obtained (mcp_tool | mcp_resource | feed_ref | inline).
+//  1. Backend   — how rows are obtained (MCP, resource, feed, or inline adapters).
 //  2. Projection — forge selectors project the backend result into rows.
 //  3. Cache     — per-user/conversation/global memoisation with TTL.
 //  4. Identity  — carried in ctx; never a method arg.
@@ -16,6 +16,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -222,6 +223,12 @@ func (s *Service) runBackend(ctx context.Context, ds *dsproto.DataSource, args m
 		}
 		return parsed, nil
 
+	case dsproto.BackendMCPTools:
+		return s.runMCPTools(ctx, ds.Backend, args)
+
+	case dsproto.BackendMCPFanout:
+		return s.runMCPFanout(ctx, ds.Backend, args)
+
 	case dsproto.BackendFeedRef:
 		if s.feedRef == nil {
 			return nil, fmt.Errorf("datasource %q: feed_ref backend but no resolver configured", ds.ID)
@@ -278,7 +285,20 @@ func expandNestedArgs(args map[string]interface{}) map[string]interface{} {
 		return args
 	}
 	out := map[string]interface{}{}
-	for key, value := range args {
+	keys := make([]string, 0, len(args))
+	for key := range args {
+		keys = append(keys, key)
+	}
+	sort.SliceStable(keys, func(i, j int) bool {
+		leftDepth := strings.Count(keys[i], ".")
+		rightDepth := strings.Count(keys[j], ".")
+		if leftDepth == rightDepth {
+			return keys[i] < keys[j]
+		}
+		return leftDepth < rightDepth
+	})
+	for _, key := range keys {
+		value := args[key]
 		assignNestedArg(out, key, value)
 	}
 	return out
@@ -290,30 +310,48 @@ func assignNestedArg(target map[string]interface{}, key string, value interface{
 		return
 	}
 	parts := strings.Split(key, ".")
-	current := target
-	for i, part := range parts {
-		part = strings.TrimSpace(part)
-		if part == "" {
+	for index := range parts {
+		parts[index] = strings.TrimSpace(parts[index])
+		if parts[index] == "" {
 			return
 		}
-		if i == len(parts)-1 {
-			current[part] = value
-			return
-		}
-		next, ok := current[part]
-		if !ok {
-			child := map[string]interface{}{}
-			current[part] = child
-			current = child
-			continue
-		}
-		child, ok := next.(map[string]interface{})
-		if !ok {
-			child = map[string]interface{}{}
-			current[part] = child
-		}
-		current = child
 	}
+	assignNestedPath(target, parts, value)
+}
+
+func assignNestedPath(current interface{}, parts []string, value interface{}) interface{} {
+	if len(parts) == 0 {
+		return value
+	}
+	part := parts[0]
+	if index, ok := numericPathIndex(part); ok {
+		items, _ := current.([]interface{})
+		for len(items) <= index {
+			items = append(items, nil)
+		}
+		items[index] = assignNestedPath(items[index], parts[1:], value)
+		return items
+	}
+	holder, _ := current.(map[string]interface{})
+	if holder == nil {
+		holder = map[string]interface{}{}
+	}
+	holder[part] = assignNestedPath(holder[part], parts[1:], value)
+	return holder
+}
+
+func numericPathIndex(value string) (int, bool) {
+	if value == "" {
+		return 0, false
+	}
+	index := 0
+	for _, char := range value {
+		if char < '0' || char > '9' {
+			return 0, false
+		}
+		index = index*10 + int(char-'0')
+	}
+	return index, true
 }
 
 // buildCacheKey produces a stable, hashed cache key. When cacheKeyPaths is

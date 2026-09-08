@@ -3,7 +3,9 @@ package window
 import (
 	"context"
 	"fmt"
+	"log"
 	"path/filepath"
+	"reflect"
 	"strings"
 
 	"github.com/viant/afs"
@@ -26,7 +28,7 @@ func LoadWorkspaceWindow(ctx context.Context, windowKey string, target *metaSvc.
 	workspaceWindowRoot := "file://" + filepath.ToSlash(filepath.Join(workspace.Root(), workspace.KindForgeWindow))
 	loader := metaSvc.New(afs.New(), workspaceWindowRoot)
 	if _, err := loader.ResolveWindowBase(ctx, metaURL.Join(workspaceWindowRoot, windowKey, "main"), target); err == nil {
-		window, err := forgeHandlers.LoadWindow(ctx, loader, workspaceWindowRoot, windowKey, "", target)
+		window, err := forgeHandlers.LoadWindowStructure(ctx, loader, workspaceWindowRoot, windowKey, "", target)
 		if err != nil {
 			return nil, err
 		}
@@ -120,11 +122,14 @@ func mergeWorkspaceWindowActionRefs(ctx context.Context, loader *metaSvc.Service
 }
 
 func workspaceWindowActionRefs(window *forgeTypes.Window) []string {
-	if window == nil || window.View.Content == nil || window.View.Content.Dashboard == nil {
+	if window == nil {
 		return nil
 	}
+	result := append([]string(nil), window.ActionRefs...)
+	if window.View.Content == nil || window.View.Content.Dashboard == nil {
+		return result
+	}
 	raw := window.View.Content.Dashboard.ReportBuilder["actionRefs"]
-	result := make([]string, 0)
 	switch actual := raw.(type) {
 	case []string:
 		result = append(result, actual...)
@@ -146,28 +151,6 @@ func MergeWorkspaceForgeAssets(ctx context.Context, window *forgeTypes.Window) e
 	}
 	svc := wsmeta.New(afs.New(), workspace.Root())
 
-	dialogs, err := loadWorkspaceDialogs(ctx, svc)
-	if err != nil {
-		return err
-	}
-	if len(dialogs) > 0 {
-		existing := map[string]bool{}
-		for _, dialog := range window.Dialogs {
-			id := strings.TrimSpace(dialog.Id)
-			if id != "" {
-				existing[id] = true
-			}
-		}
-		for _, dialog := range dialogs {
-			id := strings.TrimSpace(dialog.Id)
-			if id == "" || existing[id] {
-				continue
-			}
-			window.Dialogs = append(window.Dialogs, dialog)
-			existing[id] = true
-		}
-	}
-
 	dataSources, err := loadWorkspaceDataSources(ctx, svc)
 	if err != nil {
 		return err
@@ -183,41 +166,169 @@ func MergeWorkspaceForgeAssets(ctx context.Context, window *forgeTypes.Window) e
 			window.DataSource[id] = dataSource
 		}
 	}
-	return enrichWorkspaceWindow(ctx, window)
+	if err := mergeWorkspaceResourceModels(ctx, svc, window); err != nil {
+		return err
+	}
+	dialogs, err := loadWorkspaceDialogs(ctx, svc)
+	if err != nil {
+		return err
+	}
+	if len(dialogs) > 0 {
+		existing := map[string]bool{}
+		for _, dialog := range window.Dialogs {
+			id := strings.TrimSpace(dialog.Id)
+			if id != "" {
+				existing[id] = true
+			}
+		}
+		for _, asset := range dialogs {
+			dialog := asset.dialog
+			id := strings.TrimSpace(dialog.Id)
+			if id == "" || existing[id] {
+				continue
+			}
+			probe := *window
+			probe.View = forgeTypes.View{}
+			probe.Dialogs = []forgeTypes.Dialog{dialog}
+			if err := forgeTypes.ValidateResourceModels(&probe); err != nil {
+				log.Printf("workspace forge: skipping invalid global dialog %s (%s): %v", id, workspaceAssetPath(asset.path), err)
+				continue
+			}
+			window.Dialogs = append(window.Dialogs, dialog)
+			existing[id] = true
+		}
+	}
+	if err := enrichWorkspaceWindow(ctx, window); err != nil {
+		return err
+	}
+	return forgeTypes.ValidateResourceModels(window)
 }
 
-func loadWorkspaceDialogs(ctx context.Context, svc *wsmeta.Service) ([]forgeTypes.Dialog, error) {
+func mergeWorkspaceResourceModels(ctx context.Context, svc *wsmeta.Service, window *forgeTypes.Window) error {
+	paths, err := svc.ListRecursive(ctx, workspace.KindForgeModel)
+	if err != nil {
+		return nil
+	}
+	if window.Schemas == nil {
+		window.Schemas = map[string]forgeTypes.ResourceSchema{}
+	}
+	if window.ResourceModels == nil {
+		window.ResourceModels = map[string]forgeTypes.ResourceModel{}
+	}
+	windowSchemas := make(map[string]bool, len(window.Schemas))
+	for name := range window.Schemas {
+		windowSchemas[name] = true
+	}
+	windowModels := make(map[string]bool, len(window.ResourceModels))
+	for name := range window.ResourceModels {
+		windowModels[name] = true
+	}
+	schemaSources := map[string]string{}
+	modelSources := map[string]string{}
+	conflictedSchemas := map[string]bool{}
+	conflictedModels := map[string]bool{}
+	for _, modelPath := range paths {
+		var registry struct {
+			Schemas        map[string]forgeTypes.ResourceSchema `yaml:"schemas"`
+			ResourceModels map[string]forgeTypes.ResourceModel  `yaml:"resourceModels"`
+		}
+		if err := svc.Load(ctx, modelPath, &registry); err != nil {
+			log.Printf("workspace forge: skipping invalid resource model asset %s: %v", workspaceAssetPath(modelPath), err)
+			continue
+		}
+		for name, schema := range registry.Schemas {
+			if conflictedSchemas[name] {
+				continue
+			}
+			if existing, ok := window.Schemas[name]; ok && !reflect.DeepEqual(existing, schema) {
+				if windowSchemas[name] {
+					log.Printf("workspace forge: ignoring global resource schema %q from %s because the requested window owns that name", name, workspaceAssetPath(modelPath))
+					continue
+				}
+				log.Printf("workspace forge: quarantining conflicting resource schema %q from %s and %s", name, workspaceAssetPath(schemaSources[name]), workspaceAssetPath(modelPath))
+				delete(window.Schemas, name)
+				conflictedSchemas[name] = true
+				continue
+			}
+			window.Schemas[name] = schema
+			schemaSources[name] = modelPath
+		}
+		for name, model := range registry.ResourceModels {
+			if conflictedModels[name] {
+				continue
+			}
+			if existing, ok := window.ResourceModels[name]; ok && !reflect.DeepEqual(existing, model) {
+				if windowModels[name] {
+					log.Printf("workspace forge: ignoring global resource model %q from %s because the requested window owns that name", name, workspaceAssetPath(modelPath))
+					continue
+				}
+				log.Printf("workspace forge: quarantining conflicting resource model %q from %s and %s", name, workspaceAssetPath(modelSources[name]), workspaceAssetPath(modelPath))
+				delete(window.ResourceModels, name)
+				conflictedModels[name] = true
+				continue
+			}
+			window.ResourceModels[name] = model
+			modelSources[name] = modelPath
+		}
+	}
+	return nil
+}
+
+type workspaceDialogAsset struct {
+	path   string
+	dialog forgeTypes.Dialog
+}
+
+func loadWorkspaceDialogs(ctx context.Context, svc *wsmeta.Service) ([]workspaceDialogAsset, error) {
 	paths, err := svc.List(ctx, workspace.KindForgeDialog)
 	if err != nil {
 		return nil, nil
 	}
-	result := make([]forgeTypes.Dialog, 0, len(paths))
+	result := make([]workspaceDialogAsset, 0, len(paths))
 	for _, dialogPath := range paths {
 		var dialog forgeTypes.Dialog
 		if err := svc.Load(ctx, filepath.Clean(dialogPath), &dialog); err != nil {
-			return nil, err
+			log.Printf("workspace forge: skipping invalid dialog asset %s: %v", workspaceAssetPath(dialogPath), err)
+			continue
 		}
-		result = append(result, dialog)
+		result = append(result, workspaceDialogAsset{path: dialogPath, dialog: dialog})
 	}
 	return result, nil
 }
 
 func loadWorkspaceDataSources(ctx context.Context, svc *wsmeta.Service) (map[string]forgeTypes.DataSource, error) {
-	paths, err := svc.List(ctx, workspace.KindForgeDataSource)
+	paths, err := svc.ListRecursive(ctx, workspace.KindForgeDataSource)
 	if err != nil {
 		return nil, nil
 	}
 	result := make(map[string]forgeTypes.DataSource, len(paths))
+	sources := make(map[string]string, len(paths))
+	conflicted := map[string]bool{}
 	for _, dataSourcePath := range paths {
-		var dataSource forgeTypes.DataSource
-		if err := svc.Load(ctx, filepath.Clean(dataSourcePath), &dataSource); err != nil {
-			return nil, err
+		var identity struct {
+			ID string `yaml:"id"`
 		}
-		id := strings.TrimSpace(filepath.Base(strings.TrimSuffix(dataSourcePath, filepath.Ext(dataSourcePath))))
-		if strings.TrimSpace(dataSource.DataSourceRef) != "" {
+		if err := svc.Load(ctx, dataSourcePath, &identity); err != nil {
+			log.Printf("workspace forge: skipping invalid datasource identity %s: %v", workspaceAssetPath(dataSourcePath), err)
+			continue
+		}
+		var dataSource forgeTypes.DataSource
+		if err := svc.Load(ctx, dataSourcePath, &dataSource); err != nil {
+			log.Printf("workspace forge: skipping invalid datasource asset %s: %v", workspaceAssetPath(dataSourcePath), err)
+			continue
+		}
+		id := strings.TrimSpace(identity.ID)
+		if id == "" && strings.TrimSpace(dataSource.DataSourceRef) != "" {
 			id = strings.TrimSpace(dataSource.DataSourceRef)
 		}
 		if id == "" {
+			id = strings.TrimSpace(filepath.Base(strings.TrimSuffix(dataSourcePath, filepath.Ext(dataSourcePath))))
+		}
+		if id == "" {
+			continue
+		}
+		if conflicted[id] {
+			log.Printf("workspace forge: skipping additional duplicate datasource id %q from %s", id, workspaceAssetPath(dataSourcePath))
 			continue
 		}
 		if dataSource.Service == nil {
@@ -236,7 +347,23 @@ func loadWorkspaceDataSources(ctx context.Context, svc *wsmeta.Service) (map[str
 				dataSource.Selectors.DataInfo = "dataInfo"
 			}
 		}
+		if _, exists := result[id]; exists {
+			log.Printf("workspace forge: quarantining duplicate datasource id %q from %s and %s", id, workspaceAssetPath(sources[id]), workspaceAssetPath(dataSourcePath))
+			delete(result, id)
+			delete(sources, id)
+			conflicted[id] = true
+			continue
+		}
 		result[id] = dataSource
+		sources[id] = dataSourcePath
 	}
 	return result, nil
+}
+
+func workspaceAssetPath(assetPath string) string {
+	cleaned := filepath.Clean(assetPath)
+	if relative, err := filepath.Rel(workspace.Root(), cleaned); err == nil && relative != "." && !strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return filepath.ToSlash(relative)
+	}
+	return filepath.ToSlash(cleaned)
 }

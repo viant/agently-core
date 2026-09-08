@@ -24,7 +24,9 @@ func NewCreatedByUserTokenProvider(cfg *Config, dao *datly.Service) token.Provid
 	if configURL == "" {
 		return nil
 	}
-	store := NewTokenStoreDAO(dao, configURL, WithDelegatedSalt(cfg.DelegatedTokenEncryptionSalt()))
+	store := NewTokenStoreDAO(dao, configURL,
+		WithDelegatedSalt(cfg.DelegatedTokenEncryptionSalt()),
+		WithPreviousSalts(cfg.OAuth.Client.ConfigURLPrevious...))
 	users := NewDatlyUserService(dao)
 	canonicalStore := &canonicalTokenStore{inner: store, users: users}
 	workspaceBroker := &oauthRefreshBroker{

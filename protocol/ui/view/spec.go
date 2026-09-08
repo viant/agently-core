@@ -12,8 +12,10 @@ type Spec struct {
 	Region             string         `json:"region,omitempty" yaml:"region,omitempty"`
 	OpenMode           string         `json:"openMode,omitempty" yaml:"openMode,omitempty"`
 	IdentityScope      string         `json:"identityScope,omitempty" yaml:"identityScope,omitempty"`
+	IdentityParameters []string       `json:"identityParameters,omitempty" yaml:"identityParameters,omitempty"`
 	WorkspaceSharePct  int            `json:"workspaceSharePct,omitempty" yaml:"workspaceSharePct,omitempty"`
 	WorkspaceMinHeight int            `json:"workspaceMinHeight,omitempty" yaml:"workspaceMinHeight,omitempty"`
+	RefreshOnOpen      *bool          `json:"refreshOnOpen,omitempty" yaml:"refreshOnOpen,omitempty"`
 	ReportBuilderRef   string         `json:"reportBuilderRef,omitempty" yaml:"reportBuilderRef,omitempty"`
 	Parameters         []Parameter    `json:"parameters,omitempty" yaml:"parameters,omitempty"`
 	ReportPresets      []ReportPreset `json:"reportPresets,omitempty" yaml:"reportPresets,omitempty"`

@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +52,9 @@ type TokenStoreDAO struct {
 	// it falls back to salt so existing single-key deployments are unchanged.
 	salt          string
 	delegatedSalt string
+	// previousSalts are explicit, allowlisted workspace-token salts accepted
+	// only for backward-compatible reads. Delegated rows never use them.
+	previousSalts []string
 	mu            sync.RWMutex
 	dbCache       *sql.DB
 	dialect       string
@@ -64,15 +69,84 @@ func WithDelegatedSalt(salt string) TokenStoreOption {
 	return func(s *TokenStoreDAO) { s.delegatedSalt = strings.TrimSpace(salt) }
 }
 
+// WithPreviousSalts adds retired workspace-token salts that may be used for
+// backward-compatible reads. New writes always use the active canonical salt.
+// Delegated provider rows deliberately ignore this list.
+func WithPreviousSalts(salts ...string) TokenStoreOption {
+	return func(s *TokenStoreDAO) {
+		for _, salt := range salts {
+			s.addPreviousSalt(salt)
+		}
+	}
+}
+
 // NewTokenStoreDAO creates a Datly-backed token store.
 func NewTokenStoreDAO(dao *datly.Service, salt string, opts ...TokenStoreOption) *TokenStoreDAO {
-	store := &TokenStoreDAO{dao: dao, salt: salt}
+	rawSalt := strings.TrimSpace(salt)
+	store := &TokenStoreDAO{dao: dao, salt: canonicalTokenStoreSalt(rawSalt)}
+	// Existing rows may have been written before local SCY resource paths were
+	// canonicalized. Keep the exact configured text as an allowlisted legacy
+	// candidate, but only when it differs from the canonical active salt.
+	if rawSalt != "" && rawSalt != store.salt {
+		store.addPreviousSalt(rawSalt)
+	}
 	for _, opt := range opts {
 		if opt != nil {
 			opt(store)
 		}
 	}
 	return store
+}
+
+func (s *TokenStoreDAO) addPreviousSalt(salt string) {
+	if s == nil {
+		return
+	}
+	add := func(candidate string) {
+		candidate = strings.TrimSpace(candidate)
+		if candidate == "" || candidate == s.salt {
+			return
+		}
+		for _, existing := range s.previousSalts {
+			if existing == candidate {
+				return
+			}
+		}
+		s.previousSalts = append(s.previousSalts, candidate)
+	}
+	add(salt)
+	add(canonicalTokenStoreSalt(salt))
+}
+
+// canonicalTokenStoreSalt mirrors SCY's local secret lookup: a relative file
+// resource is resolved beneath $HOME/.secret. Non-file URLs and the key suffix
+// (for example |blowfish://default) are preserved verbatim.
+func canonicalTokenStoreSalt(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	resource, suffix := raw, ""
+	if idx := strings.Index(raw, "|"); idx >= 0 {
+		resource, suffix = raw[:idx], raw[idx:]
+	} else {
+		// NewTokenStoreDAO also accepts opaque application-provided salts and
+		// plain local config paths. Only SCY resource|key locators have the
+		// well-defined $HOME/.secret relative-path semantics normalized here.
+		return raw
+	}
+	resource = strings.TrimSpace(resource)
+	if resource == "" || strings.Contains(resource, "://") {
+		return raw
+	}
+	if filepath.IsAbs(resource) {
+		return filepath.Clean(resource) + suffix
+	}
+	home, err := os.UserHomeDir()
+	if err != nil || strings.TrimSpace(home) == "" {
+		return raw
+	}
+	return filepath.Join(home, ".secret", resource) + suffix
 }
 
 // saltFor selects the encryption salt for a provider row: delegated rows use
@@ -121,15 +195,46 @@ func (s *TokenStoreDAO) encrypt(ctx context.Context, t *OAuthToken) (string, err
 }
 
 func (s *TokenStoreDAO) decrypt(ctx context.Context, enc, provider string) (*OAuthToken, error) {
+	tok, _, err := s.decryptWithPrevious(ctx, enc, provider)
+	return tok, err
+}
+
+func (s *TokenStoreDAO) decryptWithPrevious(ctx context.Context, enc, provider string) (*OAuthToken, bool, error) {
 	raw, err := base64RawURLDecode(enc)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	key := &kms.Key{Kind: "raw", Raw: string(blowfish.EnsureKey([]byte(s.saltFor(provider))))}
-	dec, err := tokCipher.Decrypt(ctx, key, raw)
-	if err != nil {
-		return nil, err
+	activeSalt := s.saltFor(provider)
+	candidates := []string{activeSalt}
+	if !IsDelegatedProviderKey(provider) {
+		candidates = append(candidates, s.previousSalts...)
 	}
+	var lastErr error
+	for idx, candidate := range candidates {
+		key := &kms.Key{Kind: "raw", Raw: string(blowfish.EnsureKey([]byte(candidate)))}
+		// The Blowfish implementation decrypts in place. Every candidate must
+		// receive an untouched ciphertext copy or a failed active-key attempt
+		// would corrupt the bytes used by the allowlisted legacy candidates.
+		candidateRaw := append([]byte(nil), raw...)
+		dec, decErr := tokCipher.Decrypt(ctx, key, candidateRaw)
+		if decErr != nil {
+			lastErr = decErr
+			continue
+		}
+		tok, decErr := decodeEncryptedToken(dec)
+		if decErr != nil {
+			lastErr = decErr
+			continue
+		}
+		return tok, idx > 0, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("tokenstore: no configured decryption salt")
+	}
+	return nil, false, lastErr
+}
+
+func decodeEncryptedToken(dec []byte) (*OAuthToken, error) {
 	var et encToken
 	if err := json.Unmarshal(dec, &et); err != nil {
 		return nil, err
@@ -225,7 +330,7 @@ ORDER BY provider`,
 			Action:         "served_" + selected.provider,
 		})
 	}
-	tok, err := s.decrypt(ctx, selected.enc, selected.provider)
+	tok, err := s.decryptRow(ctx, selected.userID, selected.provider, selected.enc)
 	if err != nil {
 		logDatlyStoreOp(ctx, "token", "decrypt", selected.userID+"|"+selected.provider, time.Now(), err)
 		return nil, err
@@ -298,7 +403,7 @@ func (s *TokenStoreDAO) GetExact(ctx context.Context, username, provider string)
 	if strings.TrimSpace(enc) == "" {
 		return nil, nil
 	}
-	tok, err := s.decrypt(ctx, enc, provider)
+	tok, err := s.decryptRow(ctx, username, provider, enc)
 	if err != nil {
 		opErr = err
 		return nil, err
@@ -347,7 +452,7 @@ func (s *TokenStoreDAO) ListDelegated(ctx context.Context, userID string) ([]*OA
 		if !IsDelegatedProviderKey(strings.TrimSpace(rowProvider)) {
 			continue
 		}
-		tok, decErr := s.decrypt(ctx, rowEnc, strings.TrimSpace(rowProvider))
+		tok, decErr := s.decryptRow(ctx, strings.TrimSpace(rowUser), strings.TrimSpace(rowProvider), rowEnc)
 		if decErr != nil {
 			logDatlyStoreOp(ctx, "token", "decrypt", userID+"|"+strings.TrimSpace(rowProvider), time.Now(), decErr)
 			continue
@@ -482,7 +587,7 @@ func (s *TokenStoreDAO) ScanExpiring(ctx context.Context, horizon time.Time) ([]
 			logDatlyStoreOp(ctx, "token", "scan_row", "|", time.Now(), err)
 			continue
 		}
-		tok, err := s.decrypt(ctx, encTok, provider)
+		tok, err := s.decryptRow(ctx, strings.TrimSpace(userID), strings.TrimSpace(provider), encTok)
 		if err != nil {
 			logDatlyStoreOp(ctx, "token", "decrypt", strings.TrimSpace(userID)+"|"+strings.TrimSpace(provider), time.Now(), err)
 			continue
@@ -503,6 +608,54 @@ func (s *TokenStoreDAO) ScanExpiring(ctx context.Context, horizon time.Time) ([]
 	}
 	opErr = rows.Err()
 	return result, opErr
+}
+
+// decryptRow reads using the active salt plus explicitly allowed legacy salts.
+// A legacy hit is migrated in place with a ciphertext compare-and-swap, so a
+// concurrent refresh is never overwritten. Token material is never logged.
+func (s *TokenStoreDAO) decryptRow(ctx context.Context, username, provider, enc string) (*OAuthToken, error) {
+	tok, usedPrevious, err := s.decryptWithPrevious(ctx, enc, provider)
+	if err != nil || tok == nil {
+		return tok, err
+	}
+	username = strings.TrimSpace(username)
+	provider = strings.TrimSpace(provider)
+	tok.Username = username
+	tok.Provider = provider
+	if usedPrevious && s.dao != nil {
+		started := time.Now()
+		if migrateErr := s.migrateCiphertext(ctx, username, provider, enc, tok); migrateErr != nil {
+			logDatlyStoreOp(ctx, "token", "migrate_encryption", username+"|"+provider, started, migrateErr)
+		}
+	}
+	return tok, nil
+}
+
+func (s *TokenStoreDAO) migrateCiphertext(ctx context.Context, username, provider, oldEnc string, tok *OAuthToken) error {
+	if s == nil || s.dao == nil || tok == nil || strings.TrimSpace(oldEnc) == "" {
+		return nil
+	}
+	newEnc, err := s.encrypt(ctx, tok)
+	if err != nil {
+		return err
+	}
+	if newEnc == oldEnc {
+		return nil
+	}
+	db, err := s.db()
+	if err != nil {
+		return err
+	}
+	dialect, err := s.dbDialect()
+	if err != nil {
+		return err
+	}
+	query, err := migrateTokenEncryptionSQL(dialect)
+	if err != nil {
+		return err
+	}
+	_, err = db.ExecContext(ctx, query, newEnc, strings.TrimSpace(username), strings.TrimSpace(provider), oldEnc)
+	return err
 }
 
 // db returns a raw *sql.DB from the datly connector.
@@ -606,6 +759,21 @@ func casPutSQL(dialect string) (string, error) {
 		 SET enc_token = ?, updated_at = DATETIME('now'), version = version + 1,
 		     lease_owner = NULL, lease_until = NULL, refresh_status = 'idle'
 		 WHERE user_id = ? AND provider = ? AND version = ? AND lease_owner = ?`, nil
+	default:
+		return "", fmt.Errorf("tokenstore: unsupported dialect %q", dialect)
+	}
+}
+
+func migrateTokenEncryptionSQL(dialect string) (string, error) {
+	switch dialect {
+	case "mysql":
+		return `UPDATE user_oauth_token
+		 SET enc_token = ?, updated_at = UTC_TIMESTAMP(), version = version + 1
+		 WHERE user_id = ? AND provider = ? AND enc_token = ?`, nil
+	case "sqlite":
+		return `UPDATE user_oauth_token
+		 SET enc_token = ?, updated_at = DATETIME('now'), version = version + 1
+		 WHERE user_id = ? AND provider = ? AND enc_token = ?`, nil
 	default:
 		return "", fmt.Errorf("tokenstore: unsupported dialect %q", dialect)
 	}

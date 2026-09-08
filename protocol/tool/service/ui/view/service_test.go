@@ -38,6 +38,9 @@ func TestExpandOpenParametersBindsOneInputToMultipleTargets(t *testing.T) {
 		"RecordId": []interface{}{2664124.0},
 	})
 
+	if !reflect.DeepEqual(actual["RecordId"], []interface{}{2664124.0}) {
+		t.Fatalf("expected raw RecordId to remain available for resource authorization, got %#v", actual["RecordId"])
+	}
 	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_profile", "parameters", "RecordId")
 	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_today", "parameters", "RecordId")
 	assertNestedValue(t, actual, []interface{}{2664124.0}, "order_performance_period_yesterday", "parameters", "RecordId")
@@ -553,6 +556,7 @@ presentation: hosted
 region: chat.top
 workspaceSharePct: 72
 workspaceMinHeight: 500
+refreshOnOpen: false
 `)
 		svc := &Service{
 			repo: repo.New(afs.New()),
@@ -569,6 +573,9 @@ workspaceMinHeight: 500
 		}
 		if items[0].WorkspaceMinHeight != 500 {
 			t.Fatalf("expected workspaceMinHeight=500, got %#v", items[0].WorkspaceMinHeight)
+		}
+		if items[0].RefreshOnOpen == nil || *items[0].RefreshOnOpen {
+			t.Fatalf("expected refreshOnOpen=false, got %#v", items[0].RefreshOnOpen)
 		}
 	})
 }
@@ -630,6 +637,30 @@ func TestComputeWindowIDUsesViewIDForAliasedHostedViewIdentity(t *testing.T) {
 	}, "conv-forecast", item)
 	if got != "forecastingCubeBuilder__conv-forecast" {
 		t.Fatalf("unexpected aliased hosted window id: %s", got)
+	}
+}
+
+func TestComputeWindowIDUsesDeclaredIdentityParameters(t *testing.T) {
+	item := &ListItem{
+		WindowKey:          "order",
+		Presentation:       "hosted",
+		IdentityParameters: []string{"AdOrderId"},
+	}
+	fromCampaign := computeWindowID("order", map[string]interface{}{
+		"AdOrderId": []interface{}{2694007}, "CampaignId": []interface{}{532743},
+	}, "conv-1", item)
+	direct := computeWindowID("order", map[string]interface{}{
+		"AdOrderId": []interface{}{2694007},
+	}, "conv-1", item)
+	other := computeWindowID("order", map[string]interface{}{
+		"AdOrderId": []interface{}{2694008}, "CampaignId": []interface{}{532743},
+	}, "conv-1", item)
+	if fromCampaign != direct || other == direct {
+		t.Fatalf("expected exact Order identity, got campaign=%q direct=%q other=%q", fromCampaign, direct, other)
+	}
+	options := buildOpenWindowOptions(item, "conv-1", "")
+	if fmt.Sprint(options["identityParameters"]) != "[AdOrderId]" {
+		t.Fatalf("identity parameters not forwarded to the UI: %#v", options)
 	}
 }
 
@@ -1186,6 +1217,14 @@ func TestShouldRefreshOpenedWindow(t *testing.T) {
 	}
 	if !shouldRefreshOpenedWindow(&ListItem{Presentation: "hosted", Capabilities: viewproto.Capabilities{Datasource: true}}, "win-1") {
 		t.Fatalf("expected hosted datasource view to refresh")
+	}
+	disabled := false
+	if shouldRefreshOpenedWindow(&ListItem{Presentation: "hosted", Capabilities: viewproto.Capabilities{Datasource: true}, RefreshOnOpen: &disabled}, "win-1") {
+		t.Fatalf("expected explicit refreshOnOpen=false to suppress the eager refresh")
+	}
+	enabled := true
+	if !shouldRefreshOpenedWindow(&ListItem{Presentation: "tab", Capabilities: viewproto.Capabilities{Datasource: true}, RefreshOnOpen: &enabled}, "win-1") {
+		t.Fatalf("expected explicit refreshOnOpen=true to retain eager refresh")
 	}
 }
 

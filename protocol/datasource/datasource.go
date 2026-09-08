@@ -44,6 +44,8 @@ type BackendKind string
 
 const (
 	BackendMCPTool     BackendKind = "mcp_tool"
+	BackendMCPTools    BackendKind = "mcp_tools"
+	BackendMCPFanout   BackendKind = "mcp_fanout"
 	BackendMCPResource BackendKind = "mcp_resource"
 	BackendFeedRef     BackendKind = "feed_ref"
 	BackendInline      BackendKind = "inline"
@@ -60,8 +62,11 @@ type Backend struct {
 	Kind BackendKind `json:"kind" yaml:"kind"`
 
 	// mcp_tool
-	Service string `json:"service,omitempty" yaml:"service,omitempty"`
-	Method  string `json:"method,omitempty" yaml:"method,omitempty"`
+	Service string      `json:"service,omitempty" yaml:"service,omitempty"`
+	Method  string      `json:"method,omitempty" yaml:"method,omitempty"`
+	Calls   []MCPCall   `json:"calls,omitempty" yaml:"calls,omitempty"`
+	Fanout  *MCPFanout  `json:"fanout,omitempty" yaml:"fanout,omitempty"`
+	Sort    []SortField `json:"sort,omitempty" yaml:"sort,omitempty"`
 
 	// mcp_resource
 	URI string `json:"uri,omitempty" yaml:"uri,omitempty"`
@@ -75,6 +80,49 @@ type Backend struct {
 	// Pinned args — fixed inputs the workspace author sets. On merge with
 	// caller-supplied inputs, Pinned wins on conflict.
 	Pinned map[string]interface{} `json:"pinned,omitempty" yaml:"pinned,omitempty"`
+}
+
+// MCPCall describes one call in a fixed MCP composite or a fanout stage.
+type MCPCall struct {
+	ID             string                            `json:"id,omitempty" yaml:"id,omitempty"`
+	Service        string                            `json:"service,omitempty" yaml:"service,omitempty"`
+	Method         string                            `json:"method,omitempty" yaml:"method,omitempty"`
+	Args           map[string]string                 `json:"args,omitempty" yaml:"args,omitempty"`
+	Pinned         map[string]interface{}            `json:"pinned,omitempty" yaml:"pinned,omitempty"`
+	FieldMap       map[string]string                 `json:"fieldMap,omitempty" yaml:"fieldMap,omitempty"`
+	Constants      map[string]interface{}            `json:"constants,omitempty" yaml:"constants,omitempty"`
+	ValueMaps      map[string]map[string]interface{} `json:"valueMaps,omitempty" yaml:"valueMaps,omitempty"`
+	IgnoreNotFound bool                              `json:"ignoreNotFound,omitempty" yaml:"ignoreNotFound,omitempty"`
+}
+
+type SortField struct {
+	Field     string `json:"field,omitempty" yaml:"field,omitempty"`
+	Direction string `json:"direction,omitempty" yaml:"direction,omitempty"`
+}
+
+type ValueSet struct {
+	Selector  string                 `json:"selector,omitempty" yaml:"selector,omitempty"`
+	Constants map[string]interface{} `json:"constants,omitempty" yaml:"constants,omitempty"`
+}
+
+type ListArgument struct {
+	Target string            `json:"target,omitempty" yaml:"target,omitempty"`
+	Fields map[string]string `json:"fields,omitempty" yaml:"fields,omitempty"`
+}
+
+// MCPFanout runs Seed once, expands ValueSets from ItemsSelector, and invokes
+// Call once per seed item. Selector prefixes are inputs, item, selection, and result.
+type MCPFanout struct {
+	Seed                 MCPCall           `json:"seed" yaml:"seed"`
+	ItemsSelector        string            `json:"itemsSelector,omitempty" yaml:"itemsSelector,omitempty"`
+	Call                 MCPCall           `json:"call" yaml:"call"`
+	ValueSets            []ValueSet        `json:"valueSets,omitempty" yaml:"valueSets,omitempty"`
+	ListArgument         *ListArgument     `json:"listArgument,omitempty" yaml:"listArgument,omitempty"`
+	ResultMap            string            `json:"resultMap,omitempty" yaml:"resultMap,omitempty"`
+	ResultKey            string            `json:"resultKey,omitempty" yaml:"resultKey,omitempty"`
+	IncludeUnresolved    bool              `json:"includeUnresolved,omitempty" yaml:"includeUnresolved,omitempty"`
+	UnmappedAsUnresolved bool              `json:"unmappedAsUnresolved,omitempty" yaml:"unmappedAsUnresolved,omitempty"`
+	FieldMap             map[string]string `json:"fieldMap,omitempty" yaml:"fieldMap,omitempty"`
 }
 
 // CacheScope keys the cache to a user, a conversation, or shares globally.

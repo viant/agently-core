@@ -8,7 +8,7 @@ import (
 )
 
 func applyPaging(rows []map[string]interface{}, dataInfo map[string]interface{}, ds *types.DataSource, args map[string]interface{}) ([]map[string]interface{}, map[string]interface{}) {
-	if ds == nil || ds.Paging == nil || !ds.Paging.Enabled {
+	if ds == nil || ds.Paging == nil || !ds.Paging.Enabled || strings.EqualFold(ds.PaginationMode, "client") {
 		return rows, dataInfo
 	}
 
@@ -40,6 +40,34 @@ func applyPaging(rows []map[string]interface{}, dataInfo map[string]interface{},
 
 	if dataInfo == nil {
 		dataInfo = map[string]interface{}{}
+	}
+	if ds.Paging.OpenEnded {
+		delete(dataInfo, "pageCount")
+		delete(dataInfo, "totalPages")
+		delete(dataInfo, "totalCount")
+		delete(dataInfo, "recordCount")
+		dataInfo["page"] = page
+		dataInfo["pageSize"] = pageSize
+		dataInfo["returnedCount"] = len(rows)
+		dataInfo["hasMore"] = pageSize > 0 && len(rows) >= pageSize
+		return rows, dataInfo
+	}
+	if strings.EqualFold(pageName, "offset") {
+		offset := intArg(args, pageName, 0)
+		if offset < 0 {
+			offset = 0
+		}
+		page = 1
+		if pageSize > 0 {
+			page = (offset / pageSize) + 1
+		}
+		if _, known := explicitDataInfoTotalCount(dataInfo, ds); !known {
+			dataInfo["page"] = page
+			dataInfo["pageSize"] = pageSize
+			dataInfo["returnedCount"] = len(rows)
+			dataInfo["hasMore"] = pageSize > 0 && len(rows) >= pageSize
+			return rows, dataInfo
+		}
 	}
 	totalCount := dataInfoTotalCount(dataInfo, ds, len(rows))
 	if totalCount <= 0 {
@@ -82,6 +110,25 @@ func applyPaging(rows []map[string]interface{}, dataInfo map[string]interface{},
 	dataInfo["page"] = page
 	dataInfo["pageSize"] = pageSize
 	return rows, dataInfo
+}
+
+func explicitDataInfoTotalCount(dataInfo map[string]interface{}, ds *types.DataSource) (int, bool) {
+	if dataInfo == nil {
+		return 0, false
+	}
+	keys := []string{"totalCount", "recordCount"}
+	if ds != nil && ds.Paging != nil && ds.Paging.DataInfoSelectors != nil {
+		if key := strings.TrimSpace(ds.Paging.DataInfoSelectors.TotalCount); key != "" {
+			keys = append([]string{key}, keys...)
+		}
+	}
+	for _, key := range keys {
+		if _, ok := dataInfo[key]; !ok {
+			continue
+		}
+		return intArg(dataInfo, key, 0), true
+	}
+	return 0, false
 }
 
 func dataInfoTotalCount(dataInfo map[string]interface{}, ds *types.DataSource, fallback int) int {

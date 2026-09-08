@@ -67,6 +67,7 @@ const (
 	KindForgeDataSource = "extension/forge/datasources"
 	KindForgeDialog     = "extension/forge/dialogs"
 	KindForgeLookup     = "extension/forge/lookups"
+	KindForgeModel      = "extension/forge/models"
 	KindForgeWindow     = "extension/forge/windows"
 )
 
@@ -75,7 +76,7 @@ func AllKinds() []string {
 	return []string{
 		KindAgent, KindModel, KindEmbedder, KindMCP, KindWorkflow, KindSkill,
 		KindTool, KindToolBundle, KindToolInstructions, KindTemplate, KindTemplateBundle, KindOAuth, KindOAuthProvider, KindFeeds, KindA2A, KindCallback,
-		KindForgeDataSource, KindForgeDialog, KindForgeLookup, KindForgeWindow,
+		KindForgeDataSource, KindForgeDialog, KindForgeLookup, KindForgeModel, KindForgeWindow,
 	}
 }
 

@@ -17,6 +17,12 @@ own Go services or exposed as a standalone HTTP API.
 - **MCP tool exposure** — expose workspace tools as an MCP HTTP server (`protocol/mcp/expose`)
 - **Authentication** — JWT (RSA/HMAC), OAuth BFF/SPA/bearer/mixed, local sessions, distributed token refresh
 - **Workspace-driven config** — agents, models, embedders, MCP clients, tools and policies as YAML files
+- **Composable workspace metadata** — `$import(path.yaml)`, keyed
+  `$import(path.yaml:key)`, and scoped parameterized
+  `'$import(path.yaml:key, {"name":"value"})'` fragments. Imported YAML uses
+  `$param(name)`; exact values preserve YAML types while embedded scalar values
+  interpolate into IDs, handlers, selectors, and state keys. Nested scopes inherit
+  and override without leaking to siblings.
 - **Persistent conversations** — SQL-backed (SQLite/MySQL) via Datly; auto-creates workspace SQLite DB
 - **Scheduler** — cron/interval/adhoc schedule execution with distributed lease coordination
 - **Parallel tool calls** — enabled by default for models that support it

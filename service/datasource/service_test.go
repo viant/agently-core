@@ -267,6 +267,28 @@ func TestFetch_InlineBackend(t *testing.T) {
 	}
 }
 
+func TestFetch_InlineBackendRetainsRootRowsForLegacyDataSelector(t *testing.T) {
+	store := datasource.NewMemoryStore()
+	store.Put(&dsproto.DataSource{
+		ID: "draft",
+		Backend: &dsproto.Backend{
+			Kind: dsproto.BackendInline,
+			Rows: []map[string]interface{}{{"id": "draft-1", "name": ""}},
+		},
+		DataSource: types.DataSource{
+			Selectors: &types.Selectors{Data: "data"},
+		},
+	})
+	svc := datasource.New(datasource.Options{Store: store})
+	res, err := svc.Fetch(aliceCtx(), "draft", nil, datasource.FetchOptions{})
+	if err != nil {
+		t.Fatalf("fetch: %v", err)
+	}
+	if len(res.Rows) != 1 || res.Rows[0]["id"] != "draft-1" {
+		t.Fatalf("want inline root row preserved, got %#v", res.Rows)
+	}
+}
+
 func TestFetch_InlineBackendProjectsRowsAndMetricsViaSelectors(t *testing.T) {
 	store := datasource.NewMemoryStore()
 	store.Put(&dsproto.DataSource{
@@ -414,6 +436,12 @@ func TestFetch_OffsetPagingUsesBackendWindowAndDataInfoSelectors(t *testing.T) {
 	}
 	if size, _ := res.DataInfo["pageSize"].(int); size != 20 {
 		t.Fatalf("want pageSize 20, got %#v", res.DataInfo["pageSize"])
+	}
+	if hasMore, _ := res.DataInfo["hasMore"].(bool); hasMore {
+		t.Fatalf("short offset page must not advertise more rows: %#v", res.DataInfo)
+	}
+	if _, ok := res.DataInfo["pageCount"]; ok {
+		t.Fatalf("count-less offset paging must not invent pageCount: %#v", res.DataInfo)
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/viant/afs"
@@ -39,6 +40,17 @@ func (s *Store) Root() string { return s.root }
 // List returns the names of all resources of the given kind.
 func (s *Store) List(ctx context.Context, kind string) ([]string, error) {
 	dir := filepath.Join(s.root, kind)
+	if kind == workspace.KindForgeDataSource {
+		entries, err := s.recursiveYAMLEntries(ctx, kind, dir)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]string, 0, len(entries))
+		for _, entry := range entries {
+			result = append(result, entry.Name)
+		}
+		return result, nil
+	}
 	if ok, err := s.fs.Exists(ctx, dir); err == nil && !ok {
 		return nil, nil
 	}
@@ -76,7 +88,7 @@ func (s *Store) Load(ctx context.Context, kind, name string) ([]byte, error) {
 	if ok, _ := s.fs.Exists(ctx, flat); ok {
 		return s.fs.DownloadWithURL(ctx, flat)
 	}
-	nested := filepath.Join(s.root, kind, name, name+".yaml")
+	nested := filepath.Join(s.root, kind, name, filepath.Base(name)+".yaml")
 	if ok, _ := s.fs.Exists(ctx, nested); ok {
 		return s.fs.DownloadWithURL(ctx, nested)
 	}
@@ -99,7 +111,7 @@ func (s *Store) Delete(ctx context.Context, kind, name string) error {
 	if ok, _ := s.fs.Exists(ctx, flat); ok {
 		return s.fs.Delete(ctx, flat)
 	}
-	nested := filepath.Join(s.root, kind, name, name+".yaml")
+	nested := filepath.Join(s.root, kind, name, filepath.Base(name)+".yaml")
 	if ok, _ := s.fs.Exists(ctx, nested); ok {
 		return s.fs.Delete(ctx, nested)
 	}
@@ -112,7 +124,7 @@ func (s *Store) Exists(ctx context.Context, kind, name string) (bool, error) {
 	if ok, _ := s.fs.Exists(ctx, flat); ok {
 		return true, nil
 	}
-	nested := filepath.Join(s.root, kind, name, name+".yaml")
+	nested := filepath.Join(s.root, kind, name, filepath.Base(name)+".yaml")
 	if ok, _ := s.fs.Exists(ctx, nested); ok {
 		return true, nil
 	}
@@ -122,6 +134,9 @@ func (s *Store) Exists(ctx context.Context, kind, name string) (bool, error) {
 // Entries returns metadata-enriched listings for polling watchers.
 func (s *Store) Entries(ctx context.Context, kind string) ([]workspace.Entry, error) {
 	dir := filepath.Join(s.root, kind)
+	if kind == workspace.KindForgeDataSource {
+		return s.recursiveYAMLEntries(ctx, kind, dir)
+	}
 	if ok, err := s.fs.Exists(ctx, dir); err == nil && !ok {
 		return nil, nil
 	}
@@ -156,5 +171,53 @@ func (s *Store) Entries(ctx context.Context, kind string) ([]workspace.Entry, er
 			})
 		}
 	}
+	return entries, nil
+}
+
+func (s *Store) recursiveYAMLEntries(ctx context.Context, kind, dir string) ([]workspace.Entry, error) {
+	if _, err := os.Stat(dir); err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	var entries []workspace.Entry
+	err := filepath.WalkDir(dir, func(candidate string, item os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if item.IsDir() {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(item.Name()))
+		if ext != ".yaml" && ext != ".yml" {
+			return nil
+		}
+		relative, err := filepath.Rel(dir, candidate)
+		if err != nil {
+			return err
+		}
+		name := strings.TrimSuffix(relative, filepath.Ext(relative))
+		if filepath.Base(filepath.Dir(name)) == filepath.Base(name) {
+			name = filepath.Dir(name)
+		}
+		info, err := item.Info()
+		if err != nil {
+			return err
+		}
+		entries = append(entries, workspace.Entry{
+			Kind:      kind,
+			Name:      filepath.ToSlash(name),
+			UpdatedAt: info.ModTime(),
+		})
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].Name < entries[j].Name })
 	return entries, nil
 }
