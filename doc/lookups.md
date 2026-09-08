@@ -100,6 +100,7 @@ backend:
   pinned:                          # fixed args, never caller-overridable
     limit: 50
 cache:
+  enabled: true                   # false bypasses cache get/put (required for writers)
   scope: user                      # user | conversation | global — affects cache key only
   ttl: 30m                         # configurable; default 30m
   maxEntries: 5000
@@ -322,6 +323,7 @@ backend:
   # for inline:        rows: [ {...}, {...} ]
 
 cache:
+  enabled: true                   # false disables cache get/put and invalidation
   scope: user                      # user (default) | conversation | global — cache-key only, not auth
   ttl: 30m                         # default 30m; any duration
   maxEntries: 5000

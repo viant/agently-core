@@ -236,6 +236,19 @@ func mergeWorkspaceResourceModels(ctx context.Context, svc *wsmeta.Service, wind
 			log.Printf("workspace forge: skipping invalid resource model asset %s: %v", workspaceAssetPath(modelPath), err)
 			continue
 		}
+		// Global model files are lazy assets. Validate each registry before it is
+		// merged so an invalid Advertiser (or Campaign/Order) registry cannot make
+		// an unrelated requested window fail. A window that actually references a
+		// quarantined model still fails closed during the final effective-window
+		// validation below with an unknown-model error.
+		probe := &forgeTypes.Window{
+			Schemas:        registry.Schemas,
+			ResourceModels: registry.ResourceModels,
+		}
+		if err := forgeTypes.ValidateResourceModelStructure(probe); err != nil {
+			log.Printf("workspace forge: quarantining invalid resource model asset %s: %v", workspaceAssetPath(modelPath), err)
+			continue
+		}
 		for name, schema := range registry.Schemas {
 			if conflictedSchemas[name] {
 				continue
