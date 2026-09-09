@@ -87,6 +87,17 @@ func (s *Service) terminateConversationTree(ctx context.Context, conversationID 
 	}
 
 	for _, turn := range conv.GetTranscript() {
+		if turn != nil && !isTerminalTurnStatus(turn.Status) {
+			patch := apiconv.NewTurn()
+			patch.SetId(strings.TrimSpace(turn.Id))
+			patch.SetConversationID(conversationID)
+			patch.SetStatus("canceled")
+			patch.SetStatusReason("conversation_terminated")
+			patch.SetErrorMessage("canceled by explicit conversation termination")
+			if err := s.conversation.PatchTurn(patchCtx, patch); err != nil {
+				return err
+			}
+		}
 		for _, msg := range turn.Message {
 			if msg == nil {
 				continue
@@ -97,6 +108,15 @@ func (s *Service) terminateConversationTree(ctx context.Context, conversationID 
 		}
 	}
 	return nil
+}
+
+func isTerminalTurnStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "succeeded", "completed", "failed", "error", "canceled", "cancelled":
+		return true
+	default:
+		return false
+	}
 }
 
 func pointerString(v *string) string {
