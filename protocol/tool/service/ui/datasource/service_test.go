@@ -170,3 +170,105 @@ func TestRefreshFallsBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {
 		t.Fatalf("refresh failed: %v", err)
 	}
 }
+
+func TestSetSelectionRoutesStableIdentitiesAndReturnsObservedSelection(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	seedActiveWindow(t, bridge)
+
+	svc := New(bridge)
+	if _, err := svc.Method("setSelection"); err != nil {
+		t.Fatalf("setSelection method not registered: %v", err)
+	}
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	done := make(chan error, 1)
+	go func() {
+		out := &SetSelectionOutput{}
+		err := svc.setSelection(ctx, &SetSelectionInput{
+			ClientID:       "stale-client",
+			WindowID:       "genericBuilder__conv-1",
+			WindowKey:      "genericBuilder",
+			DataSourceRef:  "forecast_rows",
+			IdentityFields: []string{"advertiser.id", "reportId"},
+			Identities: []interface{}{
+				map[string]interface{}{"advertiser": map[string]interface{}{"id": 17}, "reportId": "spend"},
+				map[string]interface{}{"advertiser": map[string]interface{}{"id": 31}, "reportId": "reach"},
+			},
+		}, out)
+		if err != nil {
+			done <- err
+			return
+		}
+		if !out.OK || out.ClientID != "active-client" || out.WindowID != "genericBuilder__conv-1" {
+			done <- fmt.Errorf("expected selection command routed to live window, got %#v", out)
+			return
+		}
+		if out.SelectionMode != "multi" || len(out.SelectedIdentities) != 2 || len(out.RowIndexes) != 2 {
+			done <- fmt.Errorf("expected observable selected identities, got %#v", out)
+			return
+		}
+		if got := out.SelectedIdentities[0]["reportId"]; got != "spend" {
+			done <- fmt.Errorf("expected first observed report identity, got %#v", got)
+			return
+		}
+		done <- nil
+	}()
+
+	result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{
+		"clientId":  "active-client",
+		"timeoutMs": 1000,
+	})
+	command, ok := result["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params, got %#v", result["params"])
+	}
+	if got := command["method"]; got != "ui.datasource.setSelection" {
+		t.Fatalf("expected ui.datasource.setSelection, got %#v", got)
+	}
+	commandParams, ok := command["params"].(map[string]interface{})
+	if !ok {
+		t.Fatalf("expected command params map, got %#v", command["params"])
+	}
+	if got := commandParams["windowId"]; got != "genericBuilder__conv-1" {
+		t.Fatalf("expected live window id, got %#v", got)
+	}
+	if got := commandParams["dataSourceRef"]; got != "forecast_rows" {
+		t.Fatalf("expected forecast_rows datasource ref, got %#v", got)
+	}
+	identities, ok := commandParams["identities"].([]interface{})
+	if !ok || len(identities) != 2 {
+		t.Fatalf("expected two stable identities, got %#v", commandParams["identities"])
+	}
+
+	postUIRPC(t, bridge, "ui.response", map[string]interface{}{
+		"id": command["id"],
+		"ok": true,
+		"result": map[string]interface{}{
+			"ok":                 true,
+			"selectionMode":      "multi",
+			"identityFields":     []interface{}{"advertiser.id", "reportId"},
+			"selectedIdentities": []interface{}{map[string]interface{}{"advertiser.id": 17, "reportId": "spend"}, map[string]interface{}{"advertiser.id": 31, "reportId": "reach"}},
+			"rowIndexes":         []interface{}{1, 2},
+		},
+	})
+	if err := <-done; err != nil {
+		t.Fatalf("setSelection failed: %v", err)
+	}
+}
+
+func TestSetSelectionRejectsDatasourceOutsideLiveWindowSnapshot(t *testing.T) {
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+	seedActiveWindow(t, bridge)
+	postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "active-client", "timeoutMs": 1})
+	svc := New(bridge)
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	out := &SetSelectionOutput{}
+	err := svc.setSelection(ctx, &SetSelectionInput{
+		ClientID:      "active-client",
+		WindowID:      "genericBuilder__conv-1",
+		DataSourceRef: "unknown_rows",
+		Identities:    []interface{}{17},
+	}, out)
+	if err == nil || err.Error() != `datasource "unknown_rows" not found on window` {
+		t.Fatalf("expected unknown live datasource rejection, got %v", err)
+	}
+}

@@ -117,6 +117,16 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 		return preserveOAuthSession()
 	}
 	if !dbTok.ExpiresAt.IsZero() && !dbTok.ExpiresAt.After(time.Now()) {
+		// Durable sessions intentionally persist identity only. After a process
+		// restart, an expired store row is therefore the sole owner of the refresh
+		// credential. Keep the stale access/ID tokens out of request contexts, but
+		// restore the token set onto the in-memory session so authenticate can run
+		// the normal refresh path below instead of treating the session as
+		// permanently tokenless and requiring a new browser/OOB login.
+		if strings.TrimSpace(dbTok.RefreshToken) != "" {
+			sess.Tokens = oauthTokenToSessionToken(dbTok)
+			sess.Provider = provider
+		}
 		return preserveOAuthSession()
 	}
 	if sess.Tokens != nil && !sess.Tokens.Expiry.IsZero() && !dbTok.ExpiresAt.After(sess.Tokens.Expiry) {
@@ -133,14 +143,7 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 		})
 		return preserveOAuthSession()
 	}
-	result := &scyauth.Token{
-		Token: oauth2.Token{
-			AccessToken:  dbTok.AccessToken,
-			RefreshToken: dbTok.RefreshToken,
-			Expiry:       dbTok.ExpiresAt,
-		},
-		IDToken: dbTok.IDToken,
-	}
+	result := oauthTokenToSessionToken(dbTok)
 	if !usableOAuthToken(result, time.Now()) {
 		return preserveOAuthSession()
 	}
@@ -149,6 +152,20 @@ func (r *Runtime) tryLoadFreshTokenFromStore(ctx context.Context, sess *Session)
 	r.putSessionDurable(ctx, sess)
 	logx.Debugf("token-refresh", "loaded fresh token from DB user=%q provider=%q expiry=%v", owner.id, provider, dbTok.ExpiresAt.Format(time.RFC3339))
 	return availableOAuthToken(result)
+}
+
+func oauthTokenToSessionToken(token *OAuthToken) *scyauth.Token {
+	if token == nil {
+		return nil
+	}
+	return &scyauth.Token{
+		Token: oauth2.Token{
+			AccessToken:  token.AccessToken,
+			RefreshToken: token.RefreshToken,
+			Expiry:       token.ExpiresAt,
+		},
+		IDToken: token.IDToken,
+	}
 }
 
 func (r *Runtime) tryRefreshToken(ctx context.Context, sess *Session) tokenAvailabilityResult {

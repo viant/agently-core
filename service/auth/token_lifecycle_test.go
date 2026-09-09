@@ -530,6 +530,69 @@ func TestRuntimeTokenAvailabilityMatrix(t *testing.T) {
 	}
 }
 
+func TestRuntimeRestartRefreshesExpiredStoredToken(t *testing.T) {
+	var tokenCalls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		tokenCalls.Add(1)
+		if err := req.ParseForm(); err != nil {
+			t.Fatalf("ParseForm() error = %v", err)
+		}
+		if got := req.Form.Get("refresh_token"); got != "restart-refresh" {
+			t.Fatalf("refresh_token = %q, want persisted restart credential", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"access_token":"fresh-after-restart","token_type":"Bearer","expires_in":3600}`))
+	}))
+	defer server.Close()
+
+	cfg := lifecycleConfig()
+	cfg.OAuth.Client.ConfigURL = writeRuntimeRefreshOAuthConfig(t, server.URL)
+	canonical := &User{ID: "user-42", Subject: "provider-subject", Provider: "oauth"}
+	store := &lifecycleTokenStore{
+		acquired: true,
+		token: &OAuthToken{
+			Username:     canonical.ID,
+			Provider:     "oauth",
+			AccessToken:  "expired-before-restart",
+			IDToken:      "previous-id",
+			RefreshToken: "restart-refresh",
+			ExpiresAt:    time.Now().Add(-time.Minute),
+		},
+	}
+	sessions := NewManager(time.Hour, nil)
+	// Session records intentionally rehydrate without token material.
+	sess := lifecycleSession("restart-expired-store", nil)
+	sessions.Put(context.Background(), sess)
+	runtime := &Runtime{
+		cfg:      cfg,
+		sessions: sessions,
+		ext:      newAuthExtension(cfg, sessions, "", store, &lifecycleUserService{subjectUser: canonical}),
+	}
+	var downstream *scyauth.Token
+	handler := runtime.protectAll(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		downstream = iauth.TokensFromContext(req.Context())
+		w.WriteHeader(http.StatusOK)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/v1/query", nil)
+	req.AddCookie(&http.Cookie{Name: cfg.CookieName, Value: sess.ID})
+	rec := httptest.NewRecorder()
+
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 body=%s", rec.Code, rec.Body.String())
+	}
+	if tokenCalls.Load() != 1 {
+		t.Fatalf("token endpoint calls = %d, want 1", tokenCalls.Load())
+	}
+	if downstream == nil || downstream.AccessToken != "fresh-after-restart" {
+		t.Fatalf("downstream tokens = %#v, want refreshed access token", downstream)
+	}
+	if downstream.AccessToken == "expired-before-restart" {
+		t.Fatal("expired stored access token reached the request context")
+	}
+}
+
 func TestRuntimeHandleMeTokenAvailabilityMatrix(t *testing.T) {
 	canonical := &User{ID: "user-42", Subject: "provider-subject", Provider: "oauth"}
 	tests := []struct {
