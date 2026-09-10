@@ -349,6 +349,10 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 				if msg == "" {
 					msg = string(respBytes)
 				}
+				if resp.StatusCode == http.StatusServiceUnavailable {
+					baseErr := fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
+					return nil, fmt.Errorf("%w (observer OnCallEnd failed: %v)", withOpenAIRetryAfter(baseErr, resp.StatusCode, resp.Header), obErr)
+				}
 				return nil, fmt.Errorf("OpenAI API error (status %d): %s (observer OnCallEnd failed: %v)", resp.StatusCode, msg, obErr)
 			}
 		}
@@ -356,7 +360,8 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 		if msg == "" {
 			msg = string(respBytes)
 		}
-		return nil, fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
+		baseErr := fmt.Errorf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
+		return nil, withOpenAIRetryAfter(baseErr, resp.StatusCode, resp.Header)
 	}
 	lr, perr := c.parseGenerateResponse(req.Model, respBytes)
 	// Observer end
@@ -665,6 +670,10 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 				if msg == "" {
 					msg = string(respBytes)
 				}
+				if resp.StatusCode == http.StatusServiceUnavailable {
+					baseErr := fmt.Errorf("OpenAI Chat API (chat.completions) error (status %d): %s", resp.StatusCode, msg)
+					return nil, fmt.Errorf("%w (observer OnCallEnd failed: %v)", withOpenAIRetryAfter(baseErr, resp.StatusCode, resp.Header), obErr)
+				}
 				return nil, fmt.Errorf("OpenAI Chat API (chat.completions) error (status %d): %s (observer OnCallEnd failed: %v)", resp.StatusCode, msg, obErr)
 			}
 		}
@@ -672,7 +681,8 @@ func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.Gen
 		if msg == "" {
 			msg = string(respBytes)
 		}
-		return nil, fmt.Errorf("OpenAI Chat API (chat.completions) error (status %d): %s", resp.StatusCode, msg)
+		baseErr := fmt.Errorf("OpenAI Chat API (chat.completions) error (status %d): %s", resp.StatusCode, msg)
+		return nil, withOpenAIRetryAfter(baseErr, resp.StatusCode, resp.Header)
 	}
 	lr, perr := c.parseGenerateResponse(req.Model, respBytes)
 	// Observer end
@@ -922,6 +932,15 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 						events <- llm.StreamEvent{Err: fmt.Errorf("websocket fallback read failed: %w", readErr)}
 						return
 					}
+					if resp.StatusCode == http.StatusServiceUnavailable {
+						msg, _ := parseOpenAIError(respBody)
+						if msg == "" {
+							msg = strings.TrimSpace(string(respBody))
+						}
+						full := fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
+						events <- llm.StreamEvent{Err: withOpenAIRetryAfter(fmt.Errorf("%s", full), resp.StatusCode, resp.Header)}
+						return
+					}
 					proc.respBody = respBody
 					scanner := bufio.NewScanner(bytes.NewReader(respBody))
 					buf := make([]byte, 0, sseInitialBuf)
@@ -1003,7 +1022,11 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				msg = strings.TrimSpace(string(respBody))
 			}
 			full := fmt.Sprintf("OpenAI API error (status %d): %s", resp.StatusCode, msg)
-			events <- llm.StreamEvent{Err: fmt.Errorf("%s", full)}
+			streamErr := error(fmt.Errorf("%s", full))
+			if resp.StatusCode == http.StatusServiceUnavailable {
+				streamErr = withOpenAIRetryAfter(streamErr, resp.StatusCode, resp.Header)
+			}
+			events <- llm.StreamEvent{Err: streamErr}
 			if proc.observer != nil && !proc.state.ended {
 				if obErr := endObserverErrorOnce(proc.observer, proc.ctx, proc.state.lastModel, respBody, full, code, &proc.state.ended); obErr != nil {
 					events <- llm.StreamEvent{Err: fmt.Errorf("observer OnCallEnd failed: %w", obErr)}
