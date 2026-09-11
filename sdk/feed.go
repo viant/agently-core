@@ -252,8 +252,12 @@ func normalizeFeedPresentationTarget(value string) string {
 	switch normalized := strings.ToLower(strings.TrimSpace(value)); normalized {
 	case "", "auto":
 		return normalized
-	case "inline", "workspace", "detached":
+	case "inline", "rail", "overlay":
 		return normalized
+	case "workspace":
+		return "rail"
+	case "detached":
+		return "overlay"
 	default:
 		return "auto"
 	}

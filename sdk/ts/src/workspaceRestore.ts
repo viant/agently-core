@@ -1,6 +1,7 @@
 import type { Turn } from './types';
 
 export interface WorkspaceWindowSnapshot {
+    workspaceObject?: { version: number; objectId: string; origin?: { turnId?: string; toolCallId?: string }; lifecycle?: { state: string } };
     windowId: string;
     conversationId?: string | null;
     windowKey: string;
@@ -96,6 +97,7 @@ function normalizeHostedWorkspaceWindow(raw: any): WorkspaceWindowSnapshot | nul
         : undefined;
     return {
         windowId,
+        workspaceObject: raw.workspaceObject,
         conversationId: String(raw.conversationId || '').trim() || null,
         windowKey,
         windowTitle: String(raw.windowTitle || '').trim() || windowKey,
@@ -178,6 +180,7 @@ function hostedWorkspaceWindowsFromViewOpenStep(step: any): WorkspaceWindowSnaps
             .filter((item): item is WorkspaceWindowSnapshot => !!item);
     }
     const normalized = normalizeHostedWorkspaceWindow({
+        workspaceObject: responsePayload?.workspaceObject,
         windowId: String(responsePayload?.windowId || '').trim(),
         conversationId: String(responsePayload?.conversationId || '').trim() || null,
         windowKey: String(responsePayload?.windowKey || requestPayload?.id || requestPayload?.windowKey || '').trim(),
@@ -319,4 +322,39 @@ export function deriveHostedWorkspaceRestoreStateFromTranscriptTurns(turns: Turn
             || String(windows[windows.length - 1]?.windowId || '').trim();
     }
     return { windows, selectedWindowId: selectedWindowId || null };
+}
+
+/** Durable ownership is projected forward from acknowledged open results. Close
+ * changes lifecycle, never deletes the assistant's historical object reference. */
+export function deriveWorkspaceHistoryFromTranscriptTurns(turns: Turn[] = []): WorkspaceWindowSnapshot[] {
+    const history = new Map<string, WorkspaceWindowSnapshot>();
+    for (const turn of turns) {
+        const turnId = String(turn.turnId || turn.id || '').trim();
+        for (const step of toolStepsForTurn(turn)) {
+            if (String(step.status || '').toLowerCase() !== 'completed') continue;
+            const name = normalizeToolName(step.toolName);
+            const response = firstParsedPayload(step.responsePayload, step.content);
+            if (response?.ok === false || response?.error) continue;
+            if (name === 'ui/view/open' || name === 'ui/window/open') {
+                for (const entry of hostedWorkspaceWindowsFromViewOpenStep(step)) {
+                    const previous = history.get(entry.windowId);
+                    const descriptor = entry.workspaceObject || {
+                        version: 1, objectId: `workspace:${entry.windowId}`,
+                        origin: { turnId, toolCallId: String(step.toolCallId || '') },
+                        lifecycle: { state: 'ready' },
+                    };
+                    history.set(entry.windowId, { ...previous, ...entry, workspaceObject: {
+                        ...descriptor, origin: previous?.workspaceObject?.origin || descriptor.origin,
+                    } });
+                }
+            } else if (name === 'ui/window/close') {
+                const request = firstParsedPayload(step.requestPayload);
+                const entry = history.get(String(request?.windowId || ''));
+                if (entry?.workspaceObject) history.set(entry.windowId, { ...entry, workspaceObject: {
+                    ...entry.workspaceObject, lifecycle: { ...entry.workspaceObject.lifecycle, state: 'closed' },
+                } });
+            }
+        }
+    }
+    return [...history.values()];
 }

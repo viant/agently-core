@@ -11,6 +11,7 @@ import (
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
+	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	repo "github.com/viant/agently-core/workspace/repository/forgewindow"
@@ -72,6 +73,7 @@ type OpenItem struct {
 }
 
 type OpenOutput struct {
+	WorkspaceObject        *workspaceproto.Object            `json:"workspaceObject,omitempty"`
 	ClientID               string                            `json:"clientId,omitempty"`
 	WindowID               string                            `json:"windowId,omitempty"`
 	SelectedWindowID       string                            `json:"selectedWindowId,omitempty"`
@@ -92,6 +94,7 @@ type OpenOutput struct {
 }
 
 type OpenResultItem struct {
+	WorkspaceObject        *workspaceproto.Object            `json:"workspaceObject,omitempty"`
 	WindowID               string                            `json:"windowId,omitempty"`
 	WindowKey              string                            `json:"windowKey,omitempty"`
 	WindowTitle            string                            `json:"windowTitle,omitempty"`
@@ -265,6 +268,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 			return openErr
 		}
 		output.Items = append(output.Items, OpenResultItem{
+			WorkspaceObject:        resolved.WorkspaceObject,
 			WindowID:               resolved.WindowID,
 			WindowKey:              resolved.WindowKey,
 			WindowTitle:            resolved.WindowTitle,
@@ -281,6 +285,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 	}
 	if len(output.Items) > 0 {
 		selected := output.Items[len(output.Items)-1]
+		output.WorkspaceObject = selected.WorkspaceObject
 		output.WindowID = selected.WindowID
 		output.SelectedWindowID = selected.WindowID
 		output.WindowKey = selected.WindowKey
@@ -388,6 +393,35 @@ func (s *Service) prepareOpenItem(ctx context.Context, input OpenItem) (*prepare
 	}, nil
 }
 
+func (s *Service) workspaceDescriptor(ctx context.Context, windowID, conversationID string, item *ListItem, windowParameters map[string]interface{}) *workspaceproto.Object {
+	descriptor := workspaceproto.New(ctx, windowID, conversationID)
+	// Repeated opens retain the server-recorded original owner; activation is
+	// associated with this request separately.
+	for _, event := range s.reg.ListConversationEvents(conversationID) {
+		if event.Kind != "view.open" || event.Actor != "agent" || event.WindowID != windowID {
+			continue
+		}
+		raw, marshalErr := json.Marshal(event.Detail["workspaceObject"])
+		var previous workspaceproto.Object
+		if marshalErr == nil && json.Unmarshal(raw, &previous) == nil && previous.ObjectID == descriptor.ObjectID {
+			descriptor.Origin = previous.Origin
+			descriptor.Lifecycle.CreatedAt = previous.Lifecycle.CreatedAt
+			descriptor.Revision = previous.Revision + 1
+		}
+	}
+	if item.ReportBuilderRef != "" {
+		descriptor.Kind = "report"
+	}
+	descriptor.Content.WindowID = windowID
+	descriptor.Content.WindowKey = item.WindowKey
+	descriptor.Content.Parameters = windowParameters
+	descriptor.Capabilities["refresh"] = item.Capabilities.Datasource
+	if item.Navigation != nil {
+		descriptor.Navigation = map[string]string{"label": item.Navigation.Label, "icon": item.Navigation.Icon}
+	}
+	return descriptor
+}
+
 func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, conversationID string, prepared *preparedOpenItem, timeout int) (*OpenOutput, error) {
 	if prepared == nil || prepared.item == nil {
 		return nil, fmt.Errorf("prepared view item is required")
@@ -395,6 +429,9 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 	item := prepared.item
 	windowParameters := prepared.windowParameters
 	windowID := computeWindowID(item.WindowKey, windowParameters, conversationID, item)
+	descriptor := s.workspaceDescriptor(ctx, windowID, conversationID, item, windowParameters)
+	options := buildOpenWindowOptions(item, conversationID, prepared.openMode)
+	options["workspaceObject"] = descriptor
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
@@ -404,7 +441,7 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 			"windowKey":   item.WindowKey,
 			"windowTitle": item.Title,
 			"parameters":  windowParameters,
-			"options":     buildOpenWindowOptions(item, conversationID, prepared.openMode),
+			"options":     options,
 		},
 		TimeoutMs: timeout,
 	})
@@ -418,7 +455,9 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		}
 		return nil, fmt.Errorf("ui.window.open rejected for view %q: %s", strings.TrimSpace(item.ID), rejection)
 	}
+	descriptor.Lifecycle.State = "ready"
 	output := &OpenOutput{
+		WorkspaceObject:        descriptor,
 		ClientID:               clientID,
 		WindowKey:              item.WindowKey,
 		WindowTitle:            item.Title,
@@ -457,13 +496,14 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		}
 	}
 	eventDetail := map[string]interface{}{
-		"viewId":     strings.TrimSpace(item.ID),
-		"parameters": windowParameters,
+		"workspaceObject": descriptor,
+		"viewId":          strings.TrimSpace(item.ID),
+		"parameters":      windowParameters,
 	}
 	if prepared.reportPresetResolution != nil {
 		eventDetail["reportPresetResolution"] = prepared.reportPresetResolution
 	}
-	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+	s.reg.RecordConversationEvent(conversationID, uireg.UIEvent{
 		ConversationID: conversationID,
 		ClientID:       clientID,
 		WindowID:       strings.TrimSpace(output.WindowID),
@@ -625,6 +665,9 @@ func shouldRefreshOpenedWindow(item *ListItem, windowID string) bool {
 
 func buildOpenWindowOptions(item *ListItem, conversationID string, openModeOverride string) map[string]interface{} {
 	openMode := strings.ToLower(strings.TrimSpace(firstNonEmpty(openModeOverride, item.OpenMode)))
+	if openMode == "" && strings.EqualFold(item.Presentation, "hosted") {
+		openMode = "append"
+	}
 	options := map[string]interface{}{
 		"conversationId": strings.TrimSpace(conversationID),
 		"presentation":   strings.TrimSpace(item.Presentation),
@@ -764,6 +807,17 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 			ReportPresets:      append([]viewproto.ReportPreset(nil), spec.ReportPresets...),
 			Capabilities:       spec.Capabilities,
 			Navigation:         spec.Navigation,
+		}
+		// Conversation-owned reports/resources use the UI workspace unless the
+		// definition explicitly opts into another presentation.
+		if item.Presentation == "" {
+			item.Presentation = "hosted"
+		}
+		if strings.EqualFold(item.Presentation, "hosted") && item.Region == "" {
+			item.Region = "chat.top"
+		}
+		if item.OpenMode == "" && strings.EqualFold(item.Presentation, "hosted") {
+			item.OpenMode = "append"
 		}
 		if s.itemEnricher != nil {
 			if err := s.itemEnricher(ctx, &item); err != nil {

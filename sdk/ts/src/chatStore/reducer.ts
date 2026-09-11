@@ -1575,6 +1575,7 @@ function mergeTranscriptTurnMessage(
     if (message) {
         writeField(message, 'role', snapshotMessage.role, 'transcript');
         if (snapshotMessage.content !== undefined) writeField(message, 'content', snapshotMessage.content, 'transcript');
+        if (snapshotMessage.attachments !== undefined) writeField(message, 'attachments', snapshotMessage.attachments, 'transcript');
         if (snapshotMessage.renderedContent !== undefined) writeField(message, 'renderedContent', snapshotMessage.renderedContent, 'transcript');
         if (snapshotMessage.createdAt) writeField(message, 'createdAt', snapshotMessage.createdAt, 'transcript');
         if (typeof snapshotMessage.sequence === 'number') writeField(message, 'sequence', snapshotMessage.sequence, 'transcript');
@@ -1588,6 +1589,7 @@ function mergeTranscriptTurnMessage(
         messageId,
         role: snapshotMessage.role,
         content: snapshotMessage.content ?? '',
+        attachments: snapshotMessage.attachments,
         renderedContent: snapshotMessage.renderedContent,
         createdAt: snapshotMessage.createdAt,
         sequence: snapshotMessage.sequence,
@@ -1792,6 +1794,7 @@ function mergeTranscriptAssistantFinal(
     const f = turn.assistantFinal as ClientAssistantFinal;
     if (snapshot.messageId) writeField(f, 'messageId', snapshot.messageId, 'transcript');
     if (snapshot.content !== undefined) writeField(f, 'content', snapshot.content, 'transcript');
+    if (snapshot.attachments !== undefined) writeField(f, 'attachments', snapshot.attachments, 'transcript');
     if (snapshot.renderedContent !== undefined) writeField(f, 'renderedContent', snapshot.renderedContent, 'transcript');
     if (snapshot.createdAt) writeField(f, 'createdAt', snapshot.createdAt, 'transcript');
 }

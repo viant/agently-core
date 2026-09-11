@@ -20,7 +20,8 @@ type FeedPresentation struct {
 	SuppressReportIDs []string `yaml:"suppressReportIds,omitempty" json:"suppressReportIds,omitempty"`
 	// Target selects where this specific feed is rendered. Empty/auto keeps
 	// the legacy client-selected placement. Supported explicit targets are
-	// inline, workspace, and detached.
+	// inline, rail, and overlay. Legacy workspace/detached values are accepted
+	// on input and emitted as rail/overlay.
 	Target string `yaml:"target,omitempty" json:"target,omitempty"`
 }
 

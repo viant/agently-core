@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"time"
 
+	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
 	"github.com/viant/agently-core/sdk/rendering"
 )
 
@@ -59,16 +60,25 @@ type UserMessageState struct {
 	Content   string `json:"content,omitempty"`
 }
 
+type WorkspaceAttachment struct {
+	Kind            string                 `json:"kind"`
+	ObjectID        string                 `json:"objectId"`
+	Label           string                 `json:"label"`
+	Icon            string                 `json:"icon,omitempty"`
+	WorkspaceObject *workspaceproto.Object `json:"workspaceObject"`
+}
+
 type TurnMessageState struct {
-	MessageID       string           `json:"messageId"`
-	Role            string           `json:"role"`
-	Content         string           `json:"content,omitempty"`
-	RenderedContent *RenderedContent `json:"renderedContent,omitempty"`
-	CreatedAt       time.Time        `json:"createdAt,omitempty"`
-	Sequence        int              `json:"sequence,omitempty"`
-	Interim         int              `json:"interim,omitempty"`
-	Mode            string           `json:"mode,omitempty"`
-	Status          string           `json:"status,omitempty"`
+	Attachments     []WorkspaceAttachment `json:"attachments,omitempty"`
+	MessageID       string                `json:"messageId"`
+	Role            string                `json:"role"`
+	Content         string                `json:"content,omitempty"`
+	RenderedContent *RenderedContent      `json:"renderedContent,omitempty"`
+	CreatedAt       time.Time             `json:"createdAt,omitempty"`
+	Sequence        int                   `json:"sequence,omitempty"`
+	Interim         int                   `json:"interim,omitempty"`
+	Mode            string                `json:"mode,omitempty"`
+	Status          string                `json:"status,omitempty"`
 }
 
 type AssistantState struct {
@@ -78,10 +88,11 @@ type AssistantState struct {
 }
 
 type AssistantMessageState struct {
-	MessageID       string           `json:"messageId"`
-	Content         string           `json:"content,omitempty"`
-	RenderedContent *RenderedContent `json:"renderedContent,omitempty"`
-	CreatedAt       time.Time        `json:"createdAt,omitempty"`
+	Attachments     []WorkspaceAttachment `json:"attachments,omitempty"`
+	MessageID       string                `json:"messageId"`
+	Content         string                `json:"content,omitempty"`
+	RenderedContent *RenderedContent      `json:"renderedContent,omitempty"`
+	CreatedAt       time.Time             `json:"createdAt,omitempty"`
 }
 
 type PlannerState struct {

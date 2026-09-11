@@ -1,3 +1,4 @@
+import type { WorkspaceAttachmentState } from './types';
 /**
  * chatStore/projector.ts — pure projection from canonical client state to
  * render rows consumed by the chat feed.
@@ -57,6 +58,7 @@ export interface UserRenderRow {
 }
 
 export interface AssistantRenderRow {
+    attachments?: WorkspaceAttachmentState[];
     kind: 'assistant';
     renderKey: string;
     turnId: string;
@@ -70,6 +72,7 @@ export interface AssistantRenderRow {
 }
 
 export interface MCPUIRenderRow {
+    historical?: boolean;
     kind: 'mcpui';
     renderKey: string;
     turnId: string;
@@ -162,6 +165,7 @@ export interface LinkedConversationRenderView {
 }
 
 export interface IterationRenderRow {
+    attachments?: WorkspaceAttachmentState[];
     kind: 'iteration';
     renderKey: string;
     turnId: string;
@@ -310,6 +314,7 @@ function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
             rows.push({
                 kind: 'mcpui',
                 renderKey: `${tool.renderKey}:mcpui`,
+            historical: getFieldProvenance(tool, 'uiResourceUri') !== 'event',
                 turnId: turn.turnId,
                 toolCallId: tool.toolCallId,
                 toolName: tool.toolName,
@@ -327,6 +332,7 @@ function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
         rows.push({
             kind: 'mcpui',
             renderKey: `${page.renderKey}:mcpui`,
+            historical: getFieldProvenance(page, 'content') !== 'event',
             turnId: turn.turnId,
             toolCallId: undefined,
             toolName: 'interactive_app',
@@ -344,6 +350,7 @@ function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
         rows.push({
             kind: 'mcpui',
             renderKey: `${message.renderKey}:mcpui`,
+            historical: getFieldProvenance(message, 'content') !== 'event',
             turnId: turn.turnId,
             toolCallId: undefined,
             toolName: 'interactive_app',
@@ -359,6 +366,7 @@ function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
         rows.push({
             kind: 'mcpui',
             renderKey: `${turn.assistantFinal?.renderKey || turn.turnId}:mcpui`,
+            historical: getFieldProvenance(turn.assistantFinal || {}, 'content') !== 'event',
             turnId: turn.turnId,
             toolCallId: undefined,
             toolName: 'interactive_app',
@@ -425,6 +433,7 @@ function messageToRow(message: ClientStandaloneMessage, turn: ClientTurnState): 
     }
     return {
         kind: 'assistant',
+        attachments: message.attachments,
         renderKey: message.renderKey,
         turnId: turn.turnId,
         messageId: message.messageId,
@@ -447,6 +456,7 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
     const isStreaming = turn.lifecycle === 'pending' || turn.lifecycle === 'running';
     return {
         kind: 'iteration',
+        attachments: turn.assistantFinal?.attachments,
         renderKey: turn.renderKey,
         turnId: turn.turnId,
         lifecycle: turn.lifecycle,

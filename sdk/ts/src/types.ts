@@ -1205,7 +1205,8 @@ export interface FeedPresentation {
     suppressReportIds?: string[];
 }
 
-export type FeedPresentationTarget = 'auto' | 'inline' | 'workspace' | 'detached';
+// workspace and detached are read-only compatibility aliases for rail/overlay.
+export type FeedPresentationTarget = 'auto' | 'inline' | 'rail' | 'overlay' | 'workspace' | 'detached';
 
 export interface ActiveFeed {
     feedId: string;
