@@ -211,8 +211,8 @@ func TestReduce_FeedLifecycle(t *testing.T) {
 	if !state.Feeds[0].DeveloperOnly {
 		t.Fatal("expected developer-only feed metadata to survive reduction")
 	}
-	if state.Feeds[0].Presentation == nil || state.Feeds[0].Presentation.Target != "workspace" {
-		t.Fatalf("expected workspace presentation target, got %#v", state.Feeds[0].Presentation)
+	if state.Feeds[0].Presentation == nil || state.Feeds[0].Presentation.Target != "rail" {
+		t.Fatalf("expected canonical rail presentation target, got %#v", state.Feeds[0].Presentation)
 	}
 
 	state = Reduce(state, &streaming.Event{

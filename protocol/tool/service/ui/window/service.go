@@ -8,6 +8,7 @@ import (
 	"time"
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
@@ -20,6 +21,7 @@ type ListInput struct {
 }
 
 type WindowItem struct {
+	WorkspaceObject    *workspaceproto.Object `json:"workspaceObject,omitempty"`
 	ClientID           string                 `json:"clientId,omitempty"`
 	WindowID           string                 `json:"windowId,omitempty"`
 	WindowKey          string                 `json:"windowKey,omitempty"`
@@ -110,9 +112,10 @@ type SetFormDataInput struct {
 }
 
 type CommandOutput struct {
-	ClientID string `json:"clientId,omitempty"`
-	OK       bool   `json:"ok,omitempty"`
-	Error    string `json:"error,omitempty"`
+	WorkspaceObject *workspaceproto.Object `json:"workspaceObject,omitempty"`
+	ClientID        string                 `json:"clientId,omitempty"`
+	OK              bool                   `json:"ok,omitempty"`
+	Error           string                 `json:"error,omitempty"`
 }
 
 type resolvedWindowTarget struct {
@@ -200,6 +203,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 					refs = append(refs, ref)
 				}
 				output.Items = append(output.Items, WindowItem{
+					WorkspaceObject:    win.WorkspaceObject,
 					ClientID:           item.ClientID,
 					WindowID:           win.WindowID,
 					WindowKey:          win.WindowKey,
@@ -329,9 +333,17 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	if windowAlreadyFocused(target.Snapshot, target.Window) {
+	descriptor := target.Window.WorkspaceObject
+	if descriptor != nil {
+		copied := *descriptor
+		meta, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+		copied.LastActivatedBy = workspaceproto.Origin{TurnID: meta.TurnID, ToolCallID: runtimerequestctx.ToolMessageIDFromContext(ctx), ToolName: "ui/window/show"}
+		descriptor = &copied
+	}
+	if windowAlreadyFocused(target.Snapshot, target.Window) && (descriptor == nil || descriptor.LastActivatedBy.TurnID == "") {
 		output.ClientID = target.ClientID
 		output.OK = true
+		output.WorkspaceObject = descriptor
 		return nil
 	}
 	if s.bridge == nil {
@@ -341,13 +353,16 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 		ClientID:  target.ClientID,
 		Namespace: target.Namespace,
 		Method:    "ui.window.activate",
-		Params:    map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID)},
+		Params:    map[string]interface{}{"windowId": strings.TrimSpace(input.WindowID), "workspaceObject": descriptor},
 	})
 	if err != nil {
 		return err
 	}
 	output.ClientID = target.ClientID
 	output.OK = resp.OK
+	if resp.OK {
+		output.WorkspaceObject = descriptor
+	}
 	output.Error = resp.Error
 	s.reg.RecordEvent(target.Namespace, target.ClientID, uireg.UIEvent{
 		ConversationID: strings.TrimSpace(target.Window.ConversationID),

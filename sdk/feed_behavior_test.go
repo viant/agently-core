@@ -736,7 +736,7 @@ ui:
 	assert.True(t, planSpec.DeveloperOnly)
 	require.NotNil(t, planSpec.Presentation)
 	assert.Equal(t, "list", planSpec.Presentation.Icon)
-	assert.Equal(t, "workspace", planSpec.Presentation.Target)
+	assert.Equal(t, "rail", planSpec.Presentation.Target)
 	assert.Equal(t, []string{"legacy-plan"}, planSpec.Presentation.SuppressReportIDs)
 
 	client := &backendClient{feeds: reg}
@@ -757,7 +757,7 @@ ui:
 			developerOnlyFound = true
 			presentation, _ := row["presentation"].(map[string]interface{})
 			suppressed, _ := presentation["suppressReportIds"].([]interface{})
-			presentationFound = presentation["icon"] == "list" && presentation["accent"] == "blue" && presentation["target"] == "workspace" && len(suppressed) == 1 && suppressed[0] == "legacy-plan"
+			presentationFound = presentation["icon"] == "list" && presentation["accent"] == "blue" && presentation["target"] == "rail" && len(suppressed) == 1 && suppressed[0] == "legacy-plan"
 		}
 	}
 	assert.True(t, developerOnlyFound)

@@ -167,6 +167,7 @@ export interface ClientUserMessage extends EntityIdentity {
 }
 
 export interface ClientStandaloneMessage extends EntityIdentity {
+    attachments?: WorkspaceAttachmentState[];
     role: 'user' | 'assistant';
     content: string;
     renderedContent?: CanonicalRenderedContent | null;
@@ -180,6 +181,7 @@ export interface ClientStandaloneMessage extends EntityIdentity {
 // ─── Assistant (optional aggregates) ──────────────────────────────────────────
 
 export interface ClientAssistantFinal extends EntityIdentity {
+    attachments?: WorkspaceAttachmentState[];
     content?: string;
     renderedContent?: CanonicalRenderedContent | null;
     createdAt?: string;
@@ -388,6 +390,7 @@ export interface CanonicalUserMessageState {
 }
 
 export interface CanonicalTurnMessageState {
+    attachments?: WorkspaceAttachmentState[];
     messageId: string;
     role: 'user' | 'assistant';
     content?: string;
@@ -405,6 +408,7 @@ export interface CanonicalAssistantState {
 }
 
 export interface CanonicalAssistantMessageState {
+    attachments?: WorkspaceAttachmentState[];
     messageId: string;
     content?: string;
     renderedContent?: CanonicalRenderedContent | null;
@@ -599,4 +603,20 @@ export interface CanonicalLifecycleEntryState {
     createdAt: string;
     status?: string;
     errorMessage?: string;
+}
+
+export interface WorkspaceAttachmentState {
+    kind: 'workspaceObject';
+    objectId: string;
+    label: string;
+    icon?: string;
+    workspaceObject?: {
+        version: number;
+        objectId: string;
+        conversationId?: string;
+        origin?: { turnId?: string; messageId?: string; toolCallId?: string };
+        lifecycle?: { state: string };
+        content?: { renderer?: string; windowId?: string; windowKey?: string; parameters?: Record<string, unknown> };
+        navigation?: { label?: string; icon?: string };
+    };
 }

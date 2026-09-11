@@ -15,6 +15,8 @@ type ToolExecutor interface {
 
 type MCPResolver struct {
 	Executor ToolExecutor
+	// ToolName must be explicitly supplied when resolving a view's authorization.
+	// Views without authorization bypass this resolver entirely.
 	ToolName string
 }
 
@@ -24,7 +26,7 @@ func (r *MCPResolver) Resolve(ctx context.Context, request *Request) (*Snapshot,
 	}
 	toolName := strings.TrimSpace(r.ToolName)
 	if toolName == "" {
-		toolName = "steward:ResourceAuthorization"
+		return nil, fmt.Errorf("permitted view: authorization tool is not configured")
 	}
 	args := map[string]interface{}{
 		"ResourceType":                request.ResourceType,

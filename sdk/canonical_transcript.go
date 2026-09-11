@@ -25,6 +25,7 @@ func BuildCanonicalState(conversationID string, turns convstore.Transcript) *Con
 			state.Turns = append(state.Turns, ts)
 		}
 	}
+	projectWorkspaceAttachments(state)
 	hydrateRenderedContent(state)
 	return state
 }
@@ -633,7 +634,11 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 		step.RequestPayload = marshalToRawJSON(tc.RequestPayload)
 	}
 	if tc.ResponsePayload != nil {
-		step.ResponsePayload = marshalToRawJSON(tc.ResponsePayload)
+		if name := strings.ReplaceAll(strings.ToLower(step.ToolName), ":", "/"); name == "ui/view/open" || name == "ui/window/open" {
+			step.ResponsePayload = workspaceToolResponsePayload(tc.ResponsePayload)
+		} else {
+			step.ResponsePayload = marshalToRawJSON(tc.ResponsePayload)
+		}
 	}
 	step.UIResourceURI = deriveUIResourceURI(step.ResponsePayload)
 	if tm.LinkedConversationId != nil {

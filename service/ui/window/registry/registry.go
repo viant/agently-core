@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
 
@@ -41,6 +42,7 @@ type SnapshotSelected struct {
 }
 
 type WindowSnapshot struct {
+	WorkspaceObject    *workspaceproto.Object        `json:"workspaceObject,omitempty"`
 	WindowID           string                        `json:"windowId,omitempty"`
 	WindowKey          string                        `json:"windowKey,omitempty"`
 	WindowTitle        string                        `json:"windowTitle,omitempty"`
