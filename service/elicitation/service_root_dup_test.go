@@ -542,3 +542,20 @@ func assertResolvedEvent(t *testing.T, events []*streaming.Event, conversationID
 func strPtr(value string) *string {
 	return &value
 }
+
+func TestRecord_PreservesMarkdownMessageInRootAndChildEvents(t *testing.T) {
+	rootID := "markdown-root"
+	fake := newSeqRecordingConv("markdown-child")
+	fake.conversations["markdown-child"] = &apiconv.Conversation{Id: "markdown-child", ConversationParentId: &rootID}
+	fake.conversations[rootID] = &apiconv.Conversation{Id: rootID}
+	publisher := &captureEventsPublisher{}
+	service := New(fake, nil, router.New(), func() Awaiter { return acceptNoPayloadAwaiter{} })
+	service.SetStreamPublisher(publisher)
+	message := "## Review\n**Budget** needs *approval*.\n- First\n- Last\n\n```json\n{\"mode\":\"Last\"}\n```"
+	_, err := service.Record(context.Background(), &memory.TurnMeta{ConversationID: "markdown-child", TurnID: "turn"}, "assistant", &execution.Elicitation{ElicitRequestParams: mcpproto.ElicitRequestParams{Message: message}})
+	assert.NoError(t, err)
+	assert.Len(t, publisher.events, 2)
+	for _, event := range publisher.events {
+		assert.Equal(t, message, event.Content)
+	}
+}

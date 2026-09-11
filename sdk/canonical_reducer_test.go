@@ -638,3 +638,16 @@ func TestReduce_NarrationUpdateReusesMessageID(t *testing.T) {
 		t.Fatalf("expected latest narration phase 2, got %q", page.Narration)
 	}
 }
+
+func TestReduce_ElicitationPreservesMarkdownAndStructuredSchema(t *testing.T) {
+	message := "## Review\n**Budget** needs approval.\n- First\n- Last\n\n```json\n{\"mode\":\"Last\"}\n```"
+	state := Reduce(nil, &streaming.Event{
+		Type:           streaming.EventTypeElicitationRequested,
+		ConversationID: "conv-markdown", TurnID: "turn-markdown", ElicitationID: "elic-markdown",
+		Content:         message,
+		ElicitationData: map[string]interface{}{"type": "object", "properties": map[string]interface{}{"approved": map[string]interface{}{"type": "boolean"}}},
+	})
+	require.Equal(t, message, state.Turns[0].Elicitation.Message)
+	require.Contains(t, string(state.Turns[0].Elicitation.RequestedSchema), `"approved"`)
+	require.Equal(t, ElicitationStatusPending, state.Turns[0].Elicitation.Status)
+}

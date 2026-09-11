@@ -84,7 +84,8 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 
 		// Thinking budget (Gemini 2.5 specific)
 		if thinking := request.Options.Thinking; thinking != nil {
-			req.GenerationConfig.ThinkingConfig = &ThinkingConfig{ThinkingBudget: thinking.BudgetTokens}
+			budget := thinking.BudgetTokens
+			req.GenerationConfig.ThinkingConfig = &ThinkingConfig{ThinkingBudget: &budget}
 		}
 
 		// Set response MIME type if provided

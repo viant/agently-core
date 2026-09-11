@@ -31,11 +31,18 @@ export function resolveHref(url: string): string {
  * an already HTML-escaped string.
  */
 export function inlineMarkdown(escaped: string): string {
+  return escaped.split(/(`[^`\n]+`)/g).map((part) => (
+    part.startsWith('`') && part.endsWith('`')
+      ? `<code>${part.slice(1, -1)}</code>`
+      : renderInlineProse(part)
+  )).join('');
+}
+
+function renderInlineProse(escaped: string): string {
   let s = escaped;
   s = s.replace(/@\{([a-zA-Z][a-zA-Z0-9_-]*):([^\s"]+)\s+"((?:[^"\\]|\\.)*)"\}/g, (_, entityType, entityId, label) => (
     `<span class="agently-entity-chip" data-entity-type="${escapeHTMLAttr(entityType)}" data-entity-id="${escapeHTMLAttr(entityId)}" title="${escapeHTMLAttr(entityId)}">${label}</span>`
   ));
-  s = s.replace(/`([^`\n]+?)`/g, '<code>$1</code>');
   s = s.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
   s = s.replace(/\*(.*?)\*/g, '<em>$1</em>');
   s = s.replace(/(^|[^\w])_([^_\n]+)_/g, '$1<em>$2</em>');
@@ -76,6 +83,33 @@ export function renderMarkdownBlock(value: string): string {
 
   while (i < lines.length) {
     const line = lines[i];
+
+    const fence = line.match(/^\s*(`{3,}|~{3,})(.*)$/);
+    if (fence) {
+      const marker = fence[1];
+      const body: string[] = [];
+      i++;
+      while (i < lines.length && !new RegExp(`^\\s*${marker[0]}{${marker.length},}\\s*$`).test(lines[i])) {
+        body.push(lines[i++]);
+      }
+      if (i < lines.length) i++;
+      blocks.push(`<pre style="white-space:pre-wrap;overflow-wrap:anywhere"><code>${escapeHTML(body.join('\n'))}</code></pre>`);
+      continue;
+    }
+
+    const tableCells = (row: string) => row.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((cell) => cell.trim());
+    if (line.includes('|') && i + 1 < lines.length) {
+      const headings = tableCells(line);
+      const divider = tableCells(lines[i + 1]);
+      if (headings.length > 1 && headings.length === divider.length && divider.every((cell) => /^:?-{3,}:?$/.test(cell))) {
+        i += 2;
+        const rows: string[][] = [];
+        while (i < lines.length && lines[i].trim() && lines[i].includes('|')) rows.push(tableCells(lines[i++]));
+        const cell = (text: string) => inlineMarkdown(escapeHTML(text));
+        blocks.push(`<table><thead><tr>${headings.map((heading) => `<th>${cell(heading)}</th>`).join('')}</tr></thead><tbody>${rows.map((row) => `<tr>${headings.map((_, index) => `<td>${cell(row[index] || '')}</td>`).join('')}</tr>`).join('')}</tbody></table>`);
+        continue;
+      }
+    }
 
     // Horizontal rule
     if (/^(\s*[-*_]\s*){3,}$/.test(line)) {

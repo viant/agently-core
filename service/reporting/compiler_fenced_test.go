@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -135,4 +136,12 @@ func validFencedReportContent() string {
 		"\n```\n```forge-report\n" +
 		`{"version":1,"id":"backend","sequence":4,"mode":"commit"}` +
 		"\n```"
+}
+
+func TestCompileFencedReportPreservesReportOptionContext(t *testing.T) {
+	service := New(Options{Store: NewStoreAdapter(reportmemory.New()), Exporter: NewForgeExporter(nil)})
+	content := strings.Replace(validFencedReportContent(), `"blocks":[]`, `"metadata":{"reportOptions":[{"name":"exposurePerspective","label":"First vs. Last Exposure"}],"options":{"exposurePerspective":"First"}},"blocks":[]`, 1)
+	compiled, err := service.CompileFencedReport(context.Background(), &CompileFencedReportRequest{Content: content, ReportID: "backend", Format: ExportFormatPDF})
+	require.NoError(t, err)
+	require.JSONEq(t, `{"reportOptions":[{"name":"exposurePerspective","label":"First vs. Last Exposure"}],"options":{"exposurePerspective":"First"}}`, string(compiled.ReportExportRequest.Metadata))
 }

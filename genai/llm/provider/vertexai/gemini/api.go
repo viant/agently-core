@@ -36,6 +36,9 @@ func (c *Client) Implements(feature string) bool {
 }
 
 func (c *Client) canStream() bool {
+	if c.StreamingDisabled {
+		return false
+	}
 	m := strings.ToLower(c.Model)
 	// Gemini embedding endpoints do not stream
 	if strings.Contains(m, "embed") || strings.Contains(m, "embedding") {
@@ -59,6 +62,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	if err != nil {
 		return nil, err
 	}
+	c.applyThinkingDefault(req)
 	// client defaults
 	if req.GenerationConfig != nil {
 		if req.GenerationConfig.MaxOutputTokens == 0 && c.MaxTokens > 0 {
@@ -135,7 +139,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	// Send the request
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to send request: %s", redactAPIKey(err.Error(), c.APIKey))
 	}
 	defer resp.Body.Close()
 
@@ -191,6 +195,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	if err != nil {
 		return nil, err
 	}
+	c.applyThinkingDefault(req)
 	// Ensure we do not send an unsupported field
 	req.Stream = false
 
@@ -222,12 +227,13 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	}
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
+		safeErr := redactAPIKey(err.Error(), c.APIKey)
 		if observer != nil {
-			if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", CompletedAt: time.Now(), Err: err.Error()}); obErr != nil {
-				return nil, fmt.Errorf("failed to send request: %w (observer OnCallEnd failed: %v)", err, obErr)
+			if obErr := observer.OnCallEnd(ctx, mcbuf.Info{Provider: "gemini", Model: c.Model, ModelKind: "chat", CompletedAt: time.Now(), Err: safeErr}); obErr != nil {
+				return nil, fmt.Errorf("failed to send request: %s (observer OnCallEnd failed: %v)", safeErr, obErr)
 			}
 		}
-		return nil, fmt.Errorf("failed to send request: %w", err)
+		return nil, fmt.Errorf("failed to send request: %s", safeErr)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -297,6 +303,27 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 		endObserver(final)
 	}()
 	return out, nil
+}
+
+func redactAPIKey(message, apiKey string) string {
+	if apiKey == "" {
+		return message
+	}
+	return strings.ReplaceAll(message, apiKey, "[REDACTED]")
+}
+
+func (c *Client) applyThinkingDefault(req *Request) {
+	if c.ThinkingBudget == nil || req == nil {
+		return
+	}
+	if req.GenerationConfig == nil {
+		req.GenerationConfig = &GenerationConfig{}
+	}
+	if req.GenerationConfig.ThinkingConfig != nil {
+		return
+	}
+	budget := *c.ThinkingBudget
+	req.GenerationConfig.ThinkingConfig = &ThinkingConfig{ThinkingBudget: &budget}
 }
 
 // geminiAggregator accumulates per-candidate content/tool calls and emits only when finished.

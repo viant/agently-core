@@ -11,7 +11,6 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
-	"github.com/viant/agently-core/genai/llm/provider/openai"
 	mcbuf "github.com/viant/agently-core/service/core/modelcall"
 )
 
@@ -89,13 +88,13 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 	}
 
 	// Unmarshal the response
-	var apiResp openai.Response
+	var apiResp Response
 	if err := json.Unmarshal(respBytes, &apiResp); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	// Convert Response to llms.ChatResponse
-	llmsResp := openai.ToLLMSResponse(&apiResp)
+	llmsResp := ToLLMSResponse(&apiResp)
 	var usage *llm.Usage
 	if llmsResp != nil {
 		usage = llmsResp.Usage

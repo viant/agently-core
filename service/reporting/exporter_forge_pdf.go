@@ -49,6 +49,8 @@ func (e *ForgePDFExporter) Export(_ context.Context, request *RenderRequest) (*R
 	}
 	result, err := forgepdf.Render(report, forgepdf.Options{
 		CreationDate: e.options.CreationDate,
+		ReportSpec:   request.ReportSpec,
+		Metadata:     request.Metadata,
 	})
 	if err != nil {
 		return nil, fmt.Errorf("reporting forge pdf export: %w", err)

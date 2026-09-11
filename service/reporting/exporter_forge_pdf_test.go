@@ -56,3 +56,21 @@ func TestForgePDFExporter_RejectsUnsupportedFormatsAndInvalidPrints(t *testing.T
 	require.ErrorContains(t, err, "reporting forge pdf export:")
 	require.ErrorContains(t, err, "reportPrint.specVersion must be >= 1")
 }
+
+func TestForgePDFExporter_PassesOptionContextToSharedRenderer(t *testing.T) {
+	request := &RenderRequest{
+		Format:      ExportFormatPDF,
+		ReportPrint: json.RawMessage(validRenderableTestReportPrintJSON()),
+		Metadata:    json.RawMessage(`{"reportOptions":[{"name":"exposurePerspective","label":"First vs. Last Exposure"}],"options":{"exposurePerspective":"First"}}`),
+	}
+	result, err := NewForgePDFExporter(nil).Export(context.Background(), request)
+	require.NoError(t, err)
+	report, err := reportprint.DecodeJSON(request.ReportPrint)
+	require.NoError(t, err)
+	expected, err := forgepdf.Render(report, forgepdf.Options{Metadata: request.Metadata})
+	require.NoError(t, err)
+	require.Equal(t, expected.Bytes, result.Data)
+	without, err := forgepdf.Render(report, forgepdf.Options{})
+	require.NoError(t, err)
+	require.NotEqual(t, without.Bytes, result.Data)
+}

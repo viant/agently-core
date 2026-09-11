@@ -59,6 +59,12 @@ func (s *Service) CompileFencedReport(_ context.Context, request *CompileFencedR
 		ReportSpec: cloneJSON(compiled.ReportSpec), ReportFill: cloneJSON(compiled.ReportFill),
 		ReportPrint: cloneJSON(compiled.ReportPrint),
 	}
+	if metadata, ok := compiled.Assembly.Source["metadata"].(map[string]any); ok {
+		envelope.Metadata, err = json.Marshal(metadata)
+		if err != nil {
+			return nil, fmt.Errorf("reporting fenced export metadata: %w", err)
+		}
+	}
 	if normalized, err := normalizeSubmitExportRequest(&SubmitExportRequest{ReportExportRequest: envelope}); err != nil {
 		return nil, fmt.Errorf("reporting fenced compile produced invalid export request: %w", err)
 	} else if err := validateSubmitExportRequest(normalized); err != nil {
