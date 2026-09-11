@@ -206,6 +206,12 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 			return nil, err
 		}
 		opts := []gemini.ClientOption{gemini.WithUsageListener(options.UsageListener)}
+		if options.DisableStreaming {
+			opts = append(opts, gemini.WithStreamingDisabled())
+		}
+		if options.ThinkingBudget != nil {
+			opts = append(opts, gemini.WithThinkingBudget(*options.ThinkingBudget))
+		}
 		if options.MaxTokens > 0 {
 			opts = append(opts, gemini.WithMaxTokens(options.MaxTokens))
 		}
@@ -260,18 +266,14 @@ func (f *Factory) CreateModel(ctx context.Context, options *Options) (llm.Model,
 		}
 		return bedrockconverse.NewClient(ctx, options.Model, bedrockOpts...)
 	case ProviderInceptionLabs:
-		apiKey, err := f.apiKey(ctx, options.APIKeyURL)
-		if err != nil {
-			return nil, err
-		}
-		// Fallback to environment variable when not provided via secrets.
+		// Production environment credentials intentionally override the optional
+		// encrypted local-development fallback.
+		apiKey := strings.TrimSpace(os.Getenv(defaultEnvKey(options.EnvKey, "INCEPTIONLABS_API_KEY")))
 		if apiKey == "" {
-			// Prefer explicitly provided EnvKey; otherwise default to INCEPTIONLABS_API_KEY
-			if envKey := options.EnvKey; envKey != "" {
-				apiKey = os.Getenv(envKey)
-			}
-			if apiKey == "" {
-				apiKey = os.Getenv("INCEPTIONLABS_API_KEY")
+			var err error
+			apiKey, err = f.apiKey(ctx, options.APIKeyURL)
+			if err != nil {
+				return nil, err
 			}
 		}
 		return inceptionlabs.NewClient(apiKey, options.Model,

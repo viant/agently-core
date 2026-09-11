@@ -11,6 +11,10 @@ import (
 	mcpproto "github.com/viant/mcp-protocol/schema"
 )
 
+// Message is human-facing Markdown (plain text remains valid). Clients render
+// it as presentation only; RequestedSchema and callback payloads remain structured
+// data and are never inferred from Markdown.
+//
 // Elicitation describes a request to obtain a user-supplied payload that
 // conforms to the supplied JSON Schema document (Schema field).  The struct
 // embeds mcp-protocol’s ElicitRequestParams so that callers that already work

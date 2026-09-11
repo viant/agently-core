@@ -15,8 +15,10 @@ type Client struct {
 	APIKey  string
 	Version string
 
-	MaxTokens   int
-	Temperature *float64
+	MaxTokens         int
+	Temperature       *float64
+	StreamingDisabled bool
+	ThinkingBudget    *int
 }
 
 // NewClient creates a new Gemini client with the given API key and model resource name

@@ -38,3 +38,16 @@ func WithTemperature(temp float64) ClientOption {
 func WithUsageListener(l basecfg.UsageListener) ClientOption {
 	return func(c *Client) { c.UsageListener = l }
 }
+
+// WithStreamingDisabled makes callers use GenerateContent instead of the
+// streaming endpoint. This is useful for latency-sensitive clients when a
+// model's streaming endpoint can remain open longer than their request budget.
+func WithStreamingDisabled() ClientOption {
+	return func(c *Client) { c.StreamingDisabled = true }
+}
+
+// WithThinkingBudget sets the provider default thinking budget. Zero is
+// significant and disables thinking for latency-sensitive requests.
+func WithThinkingBudget(tokens int) ClientOption {
+	return func(c *Client) { c.ThinkingBudget = &tokens }
+}

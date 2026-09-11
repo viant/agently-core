@@ -1,9 +1,5 @@
 package inceptionlabs
 
-import (
-	"github.com/viant/agently-core/genai/llm"
-)
-
 // TODO warning - this file is almost identical to openai/adapter.go
 
 // Request represents the request structure for OpenAI API
@@ -12,16 +8,29 @@ type Request struct {
 	Model         string         `json:"model"`
 	Messages      []Message      `json:"messages"`
 	Temperature   *float64       `json:"temperature,omitempty"`
-	MaxTokens     int            `json:"max_completion_tokens,omitempty"`
+	MaxTokens     int            `json:"max_tokens,omitempty"`
 	TopP          float64        `json:"top_p,omitempty"`
 	N             int            `json:"n,omitempty"`
 	Stream        bool           `json:"stream,omitempty"`
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
-	// Reasoning enables configuration of internal chain-of-thought reasoning features.
-	Reasoning *llm.Reasoning `json:"reasoning,omitempty"`
+	// ReasoningEffort controls Mercury's reasoning mode (for example "instant").
+	ReasoningEffort string          `json:"reasoning_effort,omitempty"`
+	ResponseFormat  *ResponseFormat `json:"response_format,omitempty"`
 
 	ToolChoice        interface{} `json:"tool_choice,omitempty"`
 	ParallelToolCalls bool        `json:"parallel_tool_calls,omitempty"`
+}
+
+// ResponseFormat requests JSON object or strict JSON-schema output.
+type ResponseFormat struct {
+	Type       string      `json:"type"`
+	JSONSchema *JSONSchema `json:"json_schema,omitempty"`
+}
+
+type JSONSchema struct {
+	Name   string                 `json:"name"`
+	Strict bool                   `json:"strict,omitempty"`
+	Schema map[string]interface{} `json:"schema"`
 }
 
 // StreamOptions controls additional streaming behavior.
@@ -101,6 +110,8 @@ type Usage struct {
 	PromptTokens        int `json:"prompt_tokens"`
 	CompletionTokens    int `json:"completion_tokens"`
 	TotalTokens         int `json:"total_tokens"`
+	CachedInputTokens   int `json:"cached_input_tokens,omitempty"`
+	ReasoningTokens     int `json:"reasoning_tokens,omitempty"`
 	PromptTokensDetails struct {
 		CachedTokens int `json:"cached_tokens"`
 		AudioTokens  int `json:"audio_tokens"`

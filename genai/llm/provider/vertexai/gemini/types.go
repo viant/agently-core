@@ -81,7 +81,7 @@ type GenerationConfig struct {
 
 // ThinkingConfig controls model "thinking" behaviour for Gemini 2.5 flash
 type ThinkingConfig struct {
-	ThinkingBudget int `json:"thinkingBudget,omitempty"`
+	ThinkingBudget *int `json:"thinkingBudget,omitempty"`
 }
 
 // SafetySetting represents a safety setting for the Gemini API
