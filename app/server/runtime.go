@@ -53,9 +53,11 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 		workspace.SetRoot(workspaceRoot)
 	}
 	defaults := opts.Defaults
+	var workspaceConfig *wsconfig.Root
 	if cfg, err := wsconfig.Load(workspace.Root()); err != nil {
 		return nil, nil, nil, err
 	} else {
+		workspaceConfig = cfg
 		defaults, err = cfg.ResolveDefaultsWithFallback(defaults)
 		if err != nil {
 			return nil, nil, nil, err
@@ -126,6 +128,9 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 		Build(ctx)
 	if err != nil {
 		return nil, nil, nil, err
+	}
+	if workspaceConfig != nil {
+		rt.AuthorizationTool = workspaceConfig.AuthorizationTool()
 	}
 	if opts.ConfigureRuntime != nil {
 		opts.ConfigureRuntime(ctx, rt, workspaceRoot)

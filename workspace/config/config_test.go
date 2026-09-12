@@ -179,6 +179,20 @@ forge:
 	}
 }
 
+func TestRootAuthorizationTool(t *testing.T) {
+	root := &Root{}
+	if err := yaml.Unmarshal([]byte(`
+ui:
+  authorization:
+    tool: steward:ResourceAuthorization
+`), root); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+	if got := root.AuthorizationTool(); got != "steward:ResourceAuthorization" {
+		t.Fatalf("AuthorizationTool() = %q", got)
+	}
+}
+
 func TestGoalsEnabled(t *testing.T) {
 	testCases := []struct {
 		name     string
