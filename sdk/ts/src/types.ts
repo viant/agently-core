@@ -559,6 +559,7 @@ export interface QueryInput {
     autoSelectTools?: boolean;
     context?: JSONObject;
     attachments?: QueryAttachment[];
+    resourceURIs?: string[];
     reasoningEffort?: string;
     elicitationMode?: string;
     userId?: string;
@@ -763,6 +764,7 @@ export interface UploadFileInput {
 }
 
 export interface UploadFileOutput {
+  resource?: { uri: string; id: string; name: string; mimeType: string; sizeBytes: number; sha256?: string };
     id: string;
     uri: string;
 }

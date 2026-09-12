@@ -49,6 +49,12 @@ binder doesn't distinguish them.
 - **Per-agent filters**: agent YAML can declare `knowledgeTags: [foo, bar]` to narrow the candidate set.
 - **Reranker**: plug in a cross-encoder by implementing `augmenter.Reranker` — the default returns similarity scores unchanged.
 
+## Uploaded assets
+
+For on-demand inspection, extraction, native image/file presentation, and export
+of user uploads, use [resource tools](resources.md). Uploading via `resourceURIs`
+adds availability metadata; it does not automatically index the file for RAG.
+
 ## Related docs
 
 - [doc/embedius-embeddings.md](embedius-embeddings.md)

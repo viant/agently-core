@@ -477,10 +477,17 @@ public final class AgentlyClient: Sendable {
     }
 
     public func uploadFile(_ input: UploadFileInput) async throws -> UploadFileOutput {
+        guard !input.data.isEmpty, input.data.count <= 64 * 1024 * 1024 else {
+            throw AgentlySDKError.invalidArgument("File data must contain between 1 byte and 64 MiB")
+        }
+        if let mime = input.contentType, mime.unicodeScalars.contains(where: { $0.value == 13 || $0.value == 10 }) {
+            throw AgentlySDKError.invalidArgument("Invalid content type")
+        }
+        let conversationID = input.conversationID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let boundary = "Boundary-\(UUID().uuidString)"
         let body = makeMultipartBody(input: input, boundary: boundary)
         return try await rawRequest(
-            path: "/v1/files",
+            path: conversationID.isEmpty ? "/upload" : "/v1/files",
             method: "POST",
             body: body,
             contentType: "multipart/form-data; boundary=\(boundary)",
@@ -1106,12 +1113,25 @@ public final class AgentlyClient: Sendable {
             data.append(string.data(using: .utf8)!)
         }
 
+        func field(_ name: String, _ value: String) {
+            append("--\(boundary)\r\n")
+            append("Content-Disposition: form-data; name=\"\(name)\"\r\n\r\n")
+            append("\(value)\r\n")
+        }
+        if let conversationID = input.conversationID?.trimmingCharacters(in: .whitespacesAndNewlines), !conversationID.isEmpty {
+            field("conversationId", conversationID)
+        }
+        let name = input.name.isEmpty ? "upload.bin" : input.name
+        field("name", name)
+        let contentType = input.contentType?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let contentType, !contentType.isEmpty { field("contentType", contentType) }
+        let filename = name.replacingOccurrences(of: "\r", with: "%0D")
+            .replacingOccurrences(of: "\n", with: "%0A")
+            .replacingOccurrences(of: "\"", with: "%22")
+            .replacingOccurrences(of: "\\", with: "%5C")
         append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"conversationId\"\r\n\r\n")
-        append("\(input.conversationID)\r\n")
-        append("--\(boundary)\r\n")
-        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(input.name)\"\r\n")
-        append("Content-Type: \(input.contentType ?? "application/octet-stream")\r\n\r\n")
+        append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
+        append("Content-Type: \(contentType?.isEmpty == false ? contentType! : "application/octet-stream")\r\n\r\n")
         data.append(input.data)
         append("\r\n--\(boundary)--\r\n")
         return data

@@ -46,11 +46,14 @@ type Client struct {
 
 	// Defaults applied when GenerateRequest.Options is nil or leaves the
 	// respective field unset.
-	MaxTokens        int
-	Temperature      *float64
-	storageMgr       storage.Manager
-	storageMgrAPIKey string
-	storageMgrMu     sync.Mutex
+	MaxTokens         int
+	Temperature       *float64
+	storageMgr        storage.Manager
+	storageMgrAPIKey  string
+	storageMgrBaseURL string
+	storageMgrMu      sync.Mutex
+	inputFileMu       sync.Mutex
+	inputFiles        map[string]inputFileHandle
 
 	// ContextContinuation controls whether this client should use
 	// response continuation by response_id when supported. When nil,
@@ -90,7 +93,8 @@ func NewClient(apiKey, model string, options ...ClientOption) *Client {
 
 	if client.APIKey != "" {
 		client.storageMgrAPIKey = client.APIKey
-		client.storageMgr = afsco.New(assets.NewConfig(client.APIKey))
+		client.storageMgrBaseURL = client.BaseURL
+		client.storageMgr = afsco.New(assets.NewConfig(client.APIKey, assets.WithBaseURL(client.BaseURL)))
 	}
 
 	return client
@@ -178,17 +182,6 @@ func isChatGPTBackendURL(baseURL string) bool {
 }
 
 func (c *Client) ensureStorageManager(ctx context.Context) error {
-	apiKey, err := c.apiKey(ctx)
-	if err != nil {
-		return err
-	}
-	c.storageMgrMu.Lock()
-	defer c.storageMgrMu.Unlock()
-
-	if c.storageMgr != nil && c.storageMgrAPIKey == apiKey {
-		return nil
-	}
-	c.storageMgrAPIKey = apiKey
-	c.storageMgr = afsco.New(assets.NewConfig(apiKey))
-	return nil
+	_, _, err := c.inputFileManager(ctx)
+	return err
 }

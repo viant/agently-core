@@ -23,9 +23,10 @@ const (
 )
 
 type Service struct {
-	fs           afs.Service
-	rootTemplate string
-	now          func() time.Time
+	fs             afs.Service
+	artifactClient *afsscratchpad.Service
+	rootTemplate   string
+	now            func() time.Time
 }
 
 type Option func(*Service)
@@ -123,6 +124,9 @@ func (s *Service) memorize(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	if strings.HasPrefix(strings.TrimSpace(input.Key), "artifact/") {
+		return fmt.Errorf("artifact manifests are private; use resources tools")
+	}
 	output.Status = "ok"
 	result, err := s.client(ctx).Memorize(ctx, input)
 	if err != nil {
@@ -143,6 +147,9 @@ func (s *Service) append(ctx context.Context, in, out interface{}) error {
 	output, ok := out.(*AppendOutput)
 	if !ok {
 		return svc.NewInvalidOutputError(out)
+	}
+	if strings.HasPrefix(strings.TrimSpace(input.Key), "artifact/") {
+		return fmt.Errorf("artifact manifests are private; use resources tools")
 	}
 	output.Status = "ok"
 	result, err := s.client(ctx).Append(ctx, input)
@@ -171,6 +178,13 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		output.Error = err.Error()
 		return nil
 	}
+	filtered := result.Entries[:0]
+	for _, entry := range result.Entries {
+		if !strings.HasPrefix(entry.Key, "artifact/") {
+			filtered = append(filtered, entry)
+		}
+	}
+	result.Entries = filtered
 	*output = *result
 	output.Status = "ok"
 	return nil
@@ -185,6 +199,9 @@ func (s *Service) fetch(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	if strings.HasPrefix(strings.TrimSpace(input.Key), "artifact/") {
+		return fmt.Errorf("artifact manifests are private; use resources tools")
+	}
 	output.Status = "ok"
 	result, err := s.client(ctx).Fetch(ctx, input.Key)
 	if err != nil {
@@ -198,6 +215,9 @@ func (s *Service) fetch(ctx context.Context, in, out interface{}) error {
 }
 
 func (s *Service) client(ctx context.Context) *afsscratchpad.Service {
+	if s.artifactClient != nil {
+		return s.artifactClient
+	}
 	template := s.effectiveRootTemplate()
 	options := []afsscratchpad.Option{
 		afsscratchpad.WithAFS(s.fs),
@@ -216,6 +236,9 @@ func (s *Service) client(ctx context.Context) *afsscratchpad.Service {
 }
 
 func (s *Service) resolveRootURI(ctx context.Context) (string, string, error) {
+	if s.artifactClient != nil {
+		return s.artifactClient.ResolveRootURIContext(ctx)
+	}
 	return ResolveRootURI(ctx, s.effectiveRootTemplate())
 }
 

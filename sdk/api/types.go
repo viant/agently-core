@@ -1,6 +1,7 @@
 package api
 
 import (
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	"time"
 
 	"github.com/viant/agently-core/app/store/data"
@@ -507,11 +508,12 @@ type UploadFileInput struct {
 }
 
 type UploadFileOutput struct {
-	ID       string `json:"id,omitempty"`
-	URI      string `json:"uri"`
-	Name     string `json:"name"`
-	Size     int64  `json:"size"`
-	MimeType string `json:"mimeType,omitempty"`
+	Resource *scratchpadsvc.ArtifactDescriptor `json:"resource,omitempty"`
+	ID       string                            `json:"id,omitempty"`
+	URI      string                            `json:"uri"`
+	Name     string                            `json:"name"`
+	Size     int64                             `json:"size"`
+	MimeType string                            `json:"mimeType,omitempty"`
 }
 
 type DownloadFileInput struct {

@@ -50,6 +50,9 @@ func EnsureGenerateOptions(ctx context.Context, i *core.GenerateInput, agent *ag
 		if m := strings.TrimSpace(strings.ToLower(agent.Attachment.Mode)); m != "" {
 			mode = m
 		}
+		if agent.Attachment.LimitBytes > 0 {
+			i.Options.Metadata["nativePresentationLimitBytes"] = agent.Attachment.LimitBytes
+		}
 		if agent.Attachment.TTLSec > 0 {
 			i.Options.Metadata["attachmentTTLSec"] = agent.Attachment.TTLSec
 		}

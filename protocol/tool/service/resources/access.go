@@ -23,7 +23,7 @@ func isAllowedWorkspace(loc string, allowed []string) bool {
 		if aKey == "" {
 			continue
 		}
-		if strings.HasPrefix(uKey, aKey) {
+		if uKey == aKey || strings.HasPrefix(uKey, strings.TrimRight(aKey, "/")+"/") {
 			return true
 		}
 	}
@@ -41,7 +41,7 @@ func normalizeWorkspaceKey(value string) string {
 		v = toWorkspaceURI(v)
 		v = strings.TrimRight(v, "/")
 	}
-	return strings.ToLower(strings.TrimSpace(v))
+	return strings.TrimSpace(v)
 }
 
 func (s *Service) agentAllowed(ctx context.Context) []string {

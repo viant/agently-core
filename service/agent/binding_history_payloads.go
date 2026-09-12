@@ -274,10 +274,11 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 	}
 	mimeType := strings.TrimSpace(payload.MimeType)
 	att := &binding.Attachment{
-		Name: name,
-		URI:  uri,
-		Mime: mimeType,
-		Data: data,
+		Native: payload.Subtype != nil && (*payload.Subtype == "native_file" || *payload.Subtype == "native_image"),
+		Name:   name,
+		URI:    uri,
+		Mime:   mimeType,
+		Data:   data,
 	}
 	debugAttachmentf("loaded attachment payload=%s bytes=%d mime=%s name=%s", payloadID, len(data), mimeType, name)
 	if cache != nil {
