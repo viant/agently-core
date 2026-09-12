@@ -98,6 +98,24 @@ streaming produce a single chunk at the end.
 `raw`. Providers that can't consume a given content type either drop it
 (with a logged warning) or error depending on `Options.StrictContent`.
 
+### Native resource presentation
+
+Uploaded assets remain provider-independent until the agent requests native
+presentation. `resources:readImage` presents an image; `resources:read` with
+`representation: "native"` presents an entire supported file. The normal next
+model request carries the native content. Explicit native PDF reads retain PDF
+content instead of using the legacy PDF-to-text path.
+
+Native requests surface unsupported-model and presentation-limit errors. Binary
+content currently uses full-history replay so anchored continuation cannot omit
+newly read assets. The OpenAI adapter uses the configured endpoint for file
+uploads, propagates request context, and reuses uploaded handles within their
+credential/user/content/expiry scope.
+
+See [resources.md](resources.md) for supported operations and examples. Native
+input support is provider/model-specific; generic text/table extraction and
+compatible MCP handoff remain available independently.
+
 ## Retries + backoff
 
 - The default retry loop in [service/core/generate_execute.go](../service/core/generate_execute.go) retries on transient errors with exponential backoff.

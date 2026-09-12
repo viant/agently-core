@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
+	"io"
 	"strings"
 
 	"github.com/viant/afs"
@@ -56,7 +58,21 @@ func persistToolImageAttachmentIfNeeded(ctx context.Context, conv apiconv.Client
 		if uri == "" {
 			return nil
 		}
-		downloaded, err := afs.New().DownloadWithURL(ctx, uri)
+		var downloaded []byte
+		var err error
+		if strings.HasPrefix(uri, "scratchpad://") {
+			_, r, e := scratchpadsvc.New().OpenArtifact(ctx, uri)
+			if e != nil {
+				return e
+			}
+			downloaded, err = io.ReadAll(io.LimitReader(r, scratchpadsvc.MaxArtifactBytes+1))
+			r.Close()
+			if int64(len(downloaded)) > scratchpadsvc.MaxArtifactBytes {
+				return fmt.Errorf("image exceeds input limit")
+			}
+		} else {
+			downloaded, err = afs.New().DownloadWithURL(ctx, uri)
+		}
 		if err != nil {
 			return fmt.Errorf("download readImage encoded uri: %w", err)
 		}
@@ -105,10 +121,13 @@ func addToolAttachment(ctx context.Context, conv apiconv.Client, turn runtimereq
 	if err != nil {
 		return fmt.Errorf("persist attachment payload: %w", err)
 	}
-	if strings.TrimSpace(uri) != "" {
+	{
 		updPayload := apiconv.NewPayload()
 		updPayload.SetId(pid)
 		updPayload.SetURI(uri)
+		subtype := "native_image"
+		updPayload.Subtype = &subtype
+		updPayload.Has.Subtype = true
 		if err := conv.PatchPayload(ctx, updPayload); err != nil {
 			return fmt.Errorf("update attachment payload uri: %w", err)
 		}

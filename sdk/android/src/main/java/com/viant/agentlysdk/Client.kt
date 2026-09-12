@@ -426,8 +426,10 @@ class AgentlyClient(
     }
 
     suspend fun uploadFile(input: UploadFileInput): UploadFileOutput = withContext(Dispatchers.IO) {
-        require(input.conversationId.isNotBlank()) { "conversationId is required" }
-        require(input.data.isNotEmpty()) { "file data is required" }
+        val conversationId = input.conversationId?.trim().orEmpty()
+        val path = if (conversationId.isEmpty()) "/upload" else "/v1/files"
+        require(input.data.isNotEmpty() && input.data.size <= 64 * 1024 * 1024) { "file data must contain between 1 byte and 64 MiB" }
+        require(input.contentType?.any { it == '\r' || it == '\n' } != true) { "invalid content type" }
 
         val endpoint = requireNotNull(endpointRegistry.resolve(endpointName)) {
             "Endpoint not found: $endpointName"
@@ -435,7 +437,7 @@ class AgentlyClient(
         val mediaType = input.contentType?.takeIf { it.isNotBlank() }?.toMediaTypeOrNull()
         val body = MultipartBody.Builder()
             .setType(MultipartBody.FORM)
-            .addFormDataPart("conversationId", input.conversationId)
+            .apply { if (conversationId.isNotEmpty()) addFormDataPart("conversationId", conversationId) }
             .apply {
                 input.name.takeIf { it.isNotBlank() }?.let { addFormDataPart("name", it) }
                 input.contentType?.takeIf { it.isNotBlank() }?.let { addFormDataPart("contentType", it) }
@@ -448,7 +450,7 @@ class AgentlyClient(
             .build()
 
         val request = Request.Builder()
-            .url(endpoint.baseUrl.trimEnd('/') + "/v1/files")
+            .url(endpoint.baseUrl.trimEnd('/') + path)
             .applyEndpointConfig(endpoint)
             .post(body)
             .build()

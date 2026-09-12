@@ -19,7 +19,8 @@ rest of the runtime) cannot tell internal apart from external.
 | `system/os` | [protocol/tool/service/system/os/](../protocol/tool/service/system/os/) | File / dir / env introspection |
 | `system/image` | [protocol/tool/service/system/image/](../protocol/tool/service/system/image/) | Image helpers |
 | `system/platform` | [protocol/tool/service/system/](../protocol/tool/service/system/) | Platform detection (web vs iOS vs Android renderers) |
-| `resources` | [protocol/tool/service/resources/](../protocol/tool/service/resources/) | Read / list resources (local + MCP-backed) |
+| `resources` | [protocol/tool/service/resources/](../protocol/tool/service/resources/) | List / inspect / read / readImage / export local, scratchpad, and MCP resources ([resources.md](resources.md)) |
+| `scratchpad` | [protocol/tool/service/scratchpad/](../protocol/tool/service/scratchpad/) | User-scoped notes; uploaded/generated artifacts are accessed through `resources` |
 | `message` | [protocol/tool/service/message/](../protocol/tool/service/message/) | Append messages to a conversation from a tool body |
 | `printer` | [protocol/tool/service/printer/](../protocol/tool/service/printer/) | Structured output emission |
 

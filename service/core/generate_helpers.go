@@ -199,14 +199,25 @@ func (s *Service) enforceAttachmentPolicy(ctx context.Context, input *GenerateIn
 		return nil
 	}
 	isMM := input.Binding != nil && input.Binding.Flags.IsMultimodal
-	convID := ""
-	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
-		convID = tm.ConversationID
+	limit := s.ProviderAttachmentLimit(model)
+	nativeLimit := int64(64 << 20)
+	metadata := map[string]interface{}{}
+	if input.Options != nil {
+		metadata = input.Options.Metadata
 	}
-	var limit int64 = s.ProviderAttachmentLimit(model)
-	used := int64(0)
-	if convID != "" && s.attachUsage != nil {
-		used = s.attachUsage[convID]
+	switch v := metadata["nativePresentationLimitBytes"].(type) {
+	case int64:
+		if v > 0 && v < nativeLimit {
+			nativeLimit = v
+		}
+	case int:
+		if v > 0 && int64(v) < nativeLimit {
+			nativeLimit = int64(v)
+		}
+	case float64:
+		if v > 0 && v < float64(nativeLimit) {
+			nativeLimit = int64(v)
+		}
 	}
 	var keptBytes int64
 	filtered := make([]llm.Message, 0, len(input.Message))
@@ -222,6 +233,9 @@ func (s *Service) enforceAttachmentPolicy(ctx context.Context, input *GenerateIn
 				continue
 			}
 			if !isMM {
+				if it.Metadata != nil && it.Metadata["nativePresentation"] == true {
+					return fmt.Errorf("native presentation unsupported by selected model")
+				}
 				continue
 			}
 			rawSize := int64(0)
@@ -230,9 +244,15 @@ func (s *Service) enforceAttachmentPolicy(ctx context.Context, input *GenerateIn
 					rawSize = int64(len(dec))
 				}
 			}
+			if it.Metadata != nil && it.Metadata["nativePresentation"] == true && rawSize+keptBytes > nativeLimit {
+				return fmt.Errorf("native presentation exceeds configured byte limit")
+			}
 			if limit > 0 {
-				remain := limit - used - keptBytes
+				remain := limit - keptBytes
 				if remain <= 0 || (rawSize > 0 && rawSize > remain) {
+					if it.Metadata != nil && it.Metadata["nativePresentation"] == true {
+						return fmt.Errorf("native presentation exceeds model attachment limit")
+					}
 					continue
 				}
 			}
@@ -244,9 +264,7 @@ func (s *Service) enforceAttachmentPolicy(ctx context.Context, input *GenerateIn
 			filtered = append(filtered, m)
 		}
 	}
-	if convID != "" && s.attachUsage != nil && keptBytes > 0 {
-		s.attachUsage[convID] = used + keptBytes
-	}
+
 	input.Message = filtered
 	if !isMM {
 		fmt.Println("[warning] attachments ignored: selected model is not multimodal")

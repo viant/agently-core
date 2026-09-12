@@ -3,9 +3,12 @@ package openai
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"github.com/google/uuid"
 	"path"
 	"sort"
 	"strings"
@@ -180,6 +183,10 @@ func middleTruncate(body string, limit int) string {
 
 // ToRequest converts an llm.ChatRequest to a Request
 func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
+	return c.ToRequestContext(context.Background(), request)
+}
+
+func (c *Client) ToRequestContext(ctx context.Context, request *llm.GenerateRequest) (*Request, error) {
 	// Create the request with defaults
 	req := &Request{}
 
@@ -432,7 +439,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 						}
 					} else {
 						if strings.HasPrefix(item.MimeType, "image/") && item.Data != "" {
-							fileID, err := c.uploadInputFileAndGetID(context.Background(), item.Data, item.Name, item.MimeType, agentID, ttlSec, openai.FilePurposeVision)
+							fileID, err := c.uploadInputFileAndGetID(ctx, item.Data, item.Name, item.MimeType, agentID, ttlSec, openai.FilePurposeVision)
 							if err != nil {
 								return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("failed to upload image content item: %w", err))
 							}
@@ -444,7 +451,7 @@ func (c *Client) ToRequest(request *llm.GenerateRequest) (*Request, error) {
 								contentItem.File = &File{FileID: fileID}
 							}
 						} else if isOpenAIInputFileSupported(item.MimeType, item.Name) {
-							fileID, err := c.uploadInputFileAndGetID(context.Background(), item.Data, item.Name, item.MimeType, agentID, ttlSec, openai.FilePurposeUserData)
+							fileID, err := c.uploadInputFileAndGetID(ctx, item.Data, item.Name, item.MimeType, agentID, ttlSec, openai.FilePurposeUserData)
 							if err != nil {
 								return nil, llm.NewAttachmentCapabilityError(item.Name, item.MimeType, req.Model, attachMode, fmt.Errorf("failed to upload file content item: %w", err))
 							}
@@ -810,18 +817,46 @@ func (c *Client) uploadInputFileAndGetID(ctx context.Context, base64Data string,
 		return "", fmt.Errorf("failed to determine host ip prefix: %w", err)
 	}
 
-	baseName := defaultInputFileName(name, mimeType)
-	sanitize := strings.NewReplacer("/", "_", "\\", "_", " ", "_", ":", "_")
-	filename := fmt.Sprintf("agently_%s_%s_%s_%s",
-		sanitize.Replace(strings.TrimSpace(user)),
-		sanitize.Replace(strings.TrimSpace(agentID)),
-		sanitize.Replace(strings.TrimSpace(c.Model)),
-		sanitize.Replace(baseName),
-	)
-	dest := "openai://assets/" + filename
-	if err := c.ensureStorageManager(ctx); err != nil {
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
+	manager, credential, err := c.inputFileManager(ctx)
+	if err != nil {
+		return "", err
+	}
+	if purpose == "" {
+		purpose = openai.FilePurposeUserData
+	}
+	digest := sha256.Sum256(data)
+	keyBytes, _ := json.Marshal([]string{user, credential, c.BaseURL, string(purpose), name, mimeType, hex.EncodeToString(digest[:]), fmt.Sprint(attachmentTTLSec)})
+	keyHash := sha256.Sum256(keyBytes)
+	key := hex.EncodeToString(keyHash[:])
+	c.inputFileMu.Lock()
+	defer c.inputFileMu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if c.inputFiles == nil {
+		c.inputFiles = map[string]inputFileHandle{}
+	}
+	if handle, ok := c.inputFiles[key]; ok && time.Now().Before(handle.expires) {
+		return handle.id, nil
+	}
+	for k, handle := range c.inputFiles {
+		if !time.Now().Before(handle.expires) {
+			delete(c.inputFiles, k)
+		}
+	}
+	// Bound the client-local cache. Eviction only drops reusable handles.
+	if len(c.inputFiles) >= 256 {
+		for k := range c.inputFiles {
+			delete(c.inputFiles, k)
+			break
+		}
+	}
+	baseName := defaultInputFileName(name, mimeType)
+	filename := "agently_" + uuid.NewString() + "_" + strings.NewReplacer("/", "_", "\\", "_").Replace(baseName)
+	dest := "openai://assets/" + filename
 	// Build options with optional TTL
 	var opts []storage.Option
 	if purpose == "" {
@@ -831,14 +866,14 @@ func (c *Client) uploadInputFileAndGetID(ctx context.Context, base64Data string,
 	// Always include TTL (provider default baked above)
 	opts = append(opts, &openai.FileNewParamsExpiresAfter{Seconds: attachmentTTLSec})
 
-	if err := c.storageMgr.Upload(ctx, dest, 0644, bytes.NewReader(data), opts...); err != nil {
+	if err := manager.Upload(ctx, dest, 0644, bytes.NewReader(data), opts...); err != nil {
 		return "", err
 	}
 
 	// Find created file id by listing (with small retries)
 	var fileID string
 	for attempt := 0; attempt < 2 && fileID == ""; attempt++ {
-		files, err := c.storageMgr.List(ctx, "openai://assets/")
+		files, err := manager.List(ctx, "openai://assets/")
 		if err != nil {
 			return "", err
 		}
@@ -851,12 +886,17 @@ func (c *Client) uploadInputFileAndGetID(ctx context.Context, base64Data string,
 			}
 		}
 		if fileID == "" {
-			time.Sleep(250 * time.Millisecond)
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(250 * time.Millisecond):
+			}
 		}
 	}
 	if fileID == "" {
 		return "", fmt.Errorf("uploaded file id not found")
 	}
+	c.inputFiles[key] = inputFileHandle{id: fileID, expires: time.Now().Add(time.Duration(attachmentTTLSec)*time.Second - time.Second)}
 	return fileID, nil
 }
 

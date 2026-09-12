@@ -34,6 +34,7 @@ type QueryInput struct {
 	Agent        *agentmdl.Agent       `json:"agent"`                  // Agent to use (alternative to agentId)
 	Query        string                `json:"query"`                  // Internal query/prompt submitted to the runtime
 	DisplayQuery string                `json:"displayQuery,omitempty"` // Display-safe user task persisted in transcript/UI
+	ResourceURIs []string              `json:"resourceURIs,omitempty"`
 	Attachments  []*binding.Attachment `json:"attachments,omitempty"`
 
 	MaxResponseSize int    `json:"maxResponseSize"` // Maximum size of the response in bytes

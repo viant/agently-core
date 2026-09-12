@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"fmt"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	"io"
 	"net/http"
 	"strings"
@@ -11,10 +12,12 @@ import (
 
 func handleUploadFile(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, scratchpadsvc.MaxArtifactBytes+(1<<20))
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("parse multipart form: %w", err))
 			return
 		}
+		defer r.MultipartForm.RemoveAll()
 		conversationID := strings.TrimSpace(r.FormValue("conversationId"))
 		if conversationID == "" {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
@@ -27,12 +30,16 @@ func handleUploadFile(client Client) http.HandlerFunc {
 		}
 		defer file.Close()
 
-		data, err := io.ReadAll(file)
+		data, err := io.ReadAll(io.LimitReader(file, scratchpadsvc.MaxArtifactBytes+1))
 		if err != nil {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("read file: %w", err))
 			return
 		}
 
+		if int64(len(data)) > scratchpadsvc.MaxArtifactBytes {
+			httpError(w, http.StatusRequestEntityTooLarge, fmt.Errorf("upload byte limit exceeded"))
+			return
+		}
 		name := strings.TrimSpace(r.FormValue("name"))
 		if name == "" && header != nil {
 			name = strings.TrimSpace(header.Filename)

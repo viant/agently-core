@@ -1,9 +1,12 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	authctx "github.com/viant/agently-core/internal/auth"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	"strings"
 	"time"
 
@@ -66,7 +69,17 @@ func (c *backendClient) UploadFile(ctx context.Context, input *UploadFileInput) 
 		}
 	}
 
-	return &UploadFileOutput{ID: fileID}, nil
+	out := &UploadFileOutput{ID: fileID, Name: input.Name, Size: int64(len(input.Data)), MimeType: contentType}
+	// Anonymous legacy clients retain their old contract; user-scoped resource
+	// publication requires authenticated identity, never an invented shared user.
+	if authctx.EffectiveUserID(ctx) != "" {
+		d, err := scratchpadsvc.New().PublishArtifact(ctx, fileID, input.Name, contentType, "", bytes.NewReader(input.Data))
+		if err != nil {
+			return nil, err
+		}
+		out.Resource = d
+	}
+	return out, nil
 }
 
 func (c *backendClient) DownloadFile(ctx context.Context, input *DownloadFileInput) (*DownloadFileOutput, error) {

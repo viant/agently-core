@@ -48,6 +48,28 @@ Internal services publish MCP `resources/*` and `prompts/*` via
 [protocol/mcp/expose/](../protocol/mcp/expose/). Client-side discovery is in
 [protocol/tool/service/resources/mcp.go](../protocol/tool/service/resources/mcp.go).
 
+## Passing uploaded assets to tools
+
+Compatible tools can receive an original or exported scratchpad URI in their
+existing file-input field, for example:
+
+```json
+{"sourceURL":"scratchpad://artifact/a123"}
+```
+
+The receiving tool resolves the reference using its authenticated identity and
+accessible storage. Artifacts are user-owned and reusable across that user's
+conversations; conversation associations do not impose another artifact ACL.
+Existing MCP client/credential isolation and scratchpad ownership checks apply.
+
+Passing a URI does not transfer bytes to an arbitrary remote server. Direct
+handoff requires a scratchpad-aware AFS resolver and backing-storage access;
+other consumers need their own file transport. The resource feature does not
+introduce a universal MCP upload adapter. Reading or presenting the file to the
+LLM is unnecessary before forwarding it.
+
+See [resources.md](resources.md) for upload, export, and handoff examples.
+
 ## Extensibility
 
 - **New MCP server**: add YAML under `<workspace>/mcp/<name>.yaml` with `uri`, `auth`, and optional headers.
