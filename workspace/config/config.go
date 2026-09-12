@@ -37,6 +37,19 @@ type Root struct {
 	Raw         map[string]interface{}  `yaml:",inline"`
 }
 
+// AuthorizationTool returns the MCP tool used by authorization-enabled Forge
+// views. The value is workspace-owned so each deployment can select its own
+// authorization adapter without coupling agently-core to a product service.
+func (r *Root) AuthorizationTool() string {
+	if r == nil || r.Raw == nil {
+		return ""
+	}
+	ui := mapLookup(r.Raw, "ui")
+	authorization := mapLookup(ui, "authorization")
+	value, _ := authorization["tool"].(string)
+	return strings.TrimSpace(value)
+}
+
 // GoalsEnabled reports whether workspace goal features are enabled by policy.
 // Missing config defaults to true so existing workspaces retain behavior until
 // they explicitly opt out.

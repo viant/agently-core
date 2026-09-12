@@ -60,7 +60,10 @@ import (
 )
 
 type Runtime struct {
-	Defaults          *config.Defaults
+	Defaults *config.Defaults
+	// AuthorizationTool is the workspace-configured MCP adapter for permitted
+	// Forge views.
+	AuthorizationTool string
 	DAO               *datly.Service
 	Conversation      conversation.Client
 	Data              data.Service
