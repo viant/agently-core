@@ -442,7 +442,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 			errStr = execErr.Error()
 		}
 		status, _ := resolveToolStatus(execErr, ctx, toolResult)
-		debugtrace.LogToolCall(step.Name, step.ID, status, len(toolResult), toolResult, errStr)
+		traceResult := toolResult
+		if redacted, ok := redactToolResultIfNeeded(step.Name, traceResult); ok {
+			traceResult = redacted
+		}
+		debugtrace.LogToolCall(step.Name, step.ID, status, len(traceResult), traceResult, errStr)
 	}
 
 	// 5) Persist side effects + response payload.
@@ -459,8 +463,17 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		if err := persistDocumentsIfNeeded(persistCtx, reg, conv, turn, step.Name, toolResult); err != nil {
 			errs = append(errs, fmt.Errorf("emit system content: %w", err))
 		}
+		if execErr == nil {
+			if err := persistNativeResource(persistCtx, conv, turn, toolMsgID, step.Name, step.Args, toolResult); err != nil {
+				errs = append(errs, err)
+				execErr = err
+				out.Error = err.Error()
+			}
+		}
 		if err := persistToolImageAttachmentIfNeeded(persistCtx, conv, turn, toolMsgID, step.Name, toolResult); err != nil {
 			errs = append(errs, fmt.Errorf("persist tool attachments: %w", err))
+			execErr = err
+			out.Error = err.Error()
 		}
 		if redacted, ok := redactToolResultIfNeeded(step.Name, toolResult); ok {
 			toolResult = redacted

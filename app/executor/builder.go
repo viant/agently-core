@@ -498,13 +498,11 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if out.Reporting == nil && b.reportingService != nil {
 		out.Reporting = b.reportingService
 	}
+	scratchpadsvc.RegisterProvider()
 	if out.Reporting == nil && out.Defaults != nil && out.Defaults.Reporting.Enabled {
 		scratchpadTemplate := resolveScratchpadTemplate()
 		scratchpadFS := afs.New()
-		afsscratchpad.Register(
-			afsscratchpad.WithAFS(scratchpadFS),
-			afsscratchpad.WithRootURI(scratchpadTemplate),
-		)
+
 		reportScratchpad := afsscratchpad.New(
 			afsscratchpad.WithAFS(scratchpadFS),
 			afsscratchpad.WithRootURI(scratchpadTemplate),

@@ -37,6 +37,7 @@ If you're new, read in this order:
 |---|---|
 | [tool-system.md](tool-system.md) | Registry, bundles, policy, feeds |
 | [internal-tools.md](internal-tools.md) | Built-in services unified with external MCP |
+| [resources.md](resources.md) | Uploaded assets, inspection, native presentation, and export |
 | [mcp-integration.md](mcp-integration.md) | MCP client lifecycle + auth bridge |
 | [a2a-protocol.md](a2a-protocol.md) | Agent-to-agent protocol |
 
@@ -84,6 +85,7 @@ If you're new, read in this order:
 
 | I want to… | Start with |
 |---|---|
+| Work with uploaded spreadsheets, PDFs, or images | [resources.md](resources.md) + [sdk.md](sdk.md) |
 | Add a new tool | [tool-system.md](tool-system.md) → [internal-tools.md](internal-tools.md) |
 | Integrate a new MCP server | [mcp-integration.md](mcp-integration.md) + [auth-system.md](auth-system.md) |
 | Add a UI picker for a form field | [lookups.md](lookups.md) + [overlays.md](overlays.md) |

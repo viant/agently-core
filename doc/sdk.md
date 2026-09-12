@@ -195,6 +195,90 @@ scope.launch {
 5. **Elicitations + approvals** — when the stream emits `elicitation_requested` or `tool_approval_pending`, call `resolveElicitation` / `decideToolApproval` to unblock the turn.
 6. **Picker data** — `fetchDatasource` + `listLookupRegistry` for form inputs that need live data (see [lookups.md](lookups.md)).
 
+## Uploaded assets as resources
+
+Authenticated Go/HTTP uploads return a `Resource` / `resource` descriptor in
+addition to the existing file ID and download information. Send its URI in
+`QueryInput.ResourceURIs` (JSON/TypeScript `resourceURIs`) to make the file
+available without automatically sending its bytes to the model:
+
+```go
+// client and conv are from the construction/query example above.
+// The configured client/context must carry an authenticated effective user.
+file, err := client.UploadFile(ctx, &agentlysdk.UploadFileInput{
+    ConversationID: conv.ID,
+    Name: "customers.csv",
+    ContentType: "text/csv",
+    Data: []byte("id,name\n1,Alice\n"),
+})
+if err != nil { log.Fatal(err) }
+if file.Resource == nil { log.Fatal("upload did not publish a user-scoped resource") }
+
+result, err := client.Query(ctx, &agentsvc.QueryInput{
+    ConversationID: conv.ID,
+    AgentID: "orchestrator",
+    Query: "Inspect this customer file",
+    ResourceURIs: []string{file.Resource.URI},
+})
+if err != nil { log.Fatal(err) }
+_ = result
+```
+
+`POST /upload` also supports authenticated uploads before a conversation exists;
+its returned `uri` is directly usable in `resourceURIs`. Anonymous callers retain
+legacy staging/upload responses. Existing `attachments` keep their automatic
+presentation semantics.
+
+See [Uploaded assets and resource tools](resources.md) for inspection, selected
+reads, provider-native presentation, export, limits, and tool handoff. The new
+resource fields are exposed in the Go/HTTP, TypeScript, Swift, and Kotlin contracts.
+
+### Mobile resource uploads
+
+Swift and Kotlin `uploadFile` return the optional `resource` descriptor. Supply a
+conversation ID to use `/v1/files`, or omit it to use `/upload` before a
+conversation exists. Both paths use the client's configured authentication.
+Upload validation rejects empty content and files larger than 64 MiB.
+
+```swift
+let uploaded = try await client.uploadFile(UploadFileInput(
+    name: "customers.xlsx",
+    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    data: fileData
+))
+if let resource = uploaded.resource {
+    let result = try await client.query(QueryInput(
+        conversationID: conversationID,
+        agentID: "orchestrator",
+        query: "Inspect this workbook",
+        resourceURIs: [resource.uri]
+    ))
+    // Consume result or the conversation event stream.
+}
+```
+
+```kotlin
+val uploaded = client.uploadFile(UploadFileInput(
+    name = "customers.xlsx",
+    contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    data = fileBytes
+))
+uploaded.resource?.let { resource ->
+    val result = client.query(QueryInput(
+        conversationId = conversationId,
+        agentId = "orchestrator",
+        query = "Inspect this workbook",
+        resourceURIs = listOf(resource.uri)
+    ))
+}
+```
+
+The mobile app composers prefer resource references when returned by the server.
+For older or anonymous upload responses without `resource`, they retain the
+legacy `QueryAttachment` flow. Both SDKs decode current lowercase upload fields
+and legacy uppercase `ID`/`URI` fields. File-picker access and loading the selected
+bytes remain the app's responsibility.
+
 ## Error handling
 
 - HTTP client surfaces typed `HttpError`s carrying the server's JSON body.

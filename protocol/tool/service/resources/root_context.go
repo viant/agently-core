@@ -3,6 +3,8 @@ package resources
 import (
 	"context"
 	"fmt"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
+	neturl "net/url"
 	"os"
 	pathpkg "path"
 	"path/filepath"
@@ -139,12 +141,31 @@ func (rc *rootContext) Workspace() string {
 }
 
 func (s *Service) normalizeFullURI(ctx context.Context, uri string, allowed []string) (string, error) {
+	uri = strings.TrimSpace(uri)
+	if strings.HasPrefix(strings.ToLower(uri), "scratchpad:") {
+		id, err := scratchpadsvc.ArtifactID(uri)
+		if err != nil {
+			return "", err
+		}
+		return scratchpadsvc.ArtifactURI(id), nil
+	}
+	if !filepath.IsAbs(uri) && !isWindowsAbsPath(uri) && !mcpuri.Is(uri) && strings.Contains(uri, ":") {
+		u, err := neturl.Parse(uri)
+		if err != nil {
+			return "", fmt.Errorf("invalid absolute resource URI")
+		}
+		switch u.Scheme {
+		case "file", "workspace", "github":
+		default:
+			return "", fmt.Errorf("unsupported resource scheme %q", u.Scheme)
+		}
+	}
 	wsRoot, _, err := s.normalizeUserRoot(ctx, uri)
 	if err != nil {
 		return "", err
 	}
-	if len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
-		return "", fmt.Errorf("resource not allowed: %s", uri)
+	if !isAbsLikePath(uri) && !strings.Contains(uri, "://") && len(allowed) > 0 && !isAllowedWorkspace(wsRoot, allowed) {
+		return "", fmt.Errorf("resource not allowed")
 	}
 	if strings.HasPrefix(wsRoot, "workspace://") {
 		return workspaceToFile(wsRoot), nil
@@ -256,7 +277,19 @@ func joinBaseWithPath(wsRoot, base, p, rootAlias string) (string, error) {
 			return candidate, nil
 		}
 	}
-	return url.Join(base, strings.TrimPrefix(p, "/")), nil
+	cleaned := pathpkg.Clean(p)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("relative path escapes resource root")
+	}
+	target := url.Join(base, strings.TrimPrefix(p, "/"))
+	if strings.HasPrefix(base, "file://") {
+		resolved, e := filepath.EvalSymlinks(fileURLToPath(target))
+		rootResolved, re := filepath.EvalSymlinks(fileURLToPath(base))
+		if e == nil && re == nil && !isUnderRootPath(resolved, rootResolved) {
+			return "", fmt.Errorf("relative path escapes resource root")
+		}
+	}
+	return target, nil
 }
 
 func relativePath(rootURI, fullURI string) string {

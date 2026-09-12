@@ -14,11 +14,16 @@ import (
 	"github.com/viant/agently-core/internal/logx"
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
 type ListInput struct {
+	absolute bool
+	URI      string `json:"uri,omitempty"`
+	Scope    string `json:"scope,omitempty" description:"artifacts lists user-owned uploaded/generated resources without a root"`
+	Cursor   string `json:"cursor,omitempty"`
 	// RootURI is the normalized or user-provided root URI. Prefer using
 	// RootID when possible; RootURI is retained for backward compatibility
 	// but hidden from public schemas.
@@ -49,6 +54,7 @@ type ListInput struct {
 }
 
 type ListItem struct {
+	MimeType string    `json:"mimeType,omitempty"`
 	URI      string    `json:"uri"`
 	Path     string    `json:"path"`
 	Name     string    `json:"name"`
@@ -58,8 +64,9 @@ type ListItem struct {
 }
 
 type ListOutput struct {
-	Items []ListItem `json:"items"`
-	Total int        `json:"total"`
+	NextCursor string     `json:"nextCursor,omitempty"`
+	Items      []ListItem `json:"items"`
+	Total      int        `json:"total"`
 }
 
 // normalizeListGlobs trims whitespace and removes empty patterns.
@@ -185,7 +192,45 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	if input.Scope != "" {
+		if input.Scope != "artifacts" {
+			return fmt.Errorf("unsupported list scope")
+		}
+		if input.URI != "" || input.Path != "" || input.RootID != "" || input.RootURI != "" {
+			return fmt.Errorf("artifact scope does not accept a root/path")
+		}
+		ds, next, err := scratchpadsvc.New().ListArtifacts(ctx, input.Cursor, input.MaxItems)
+		if err != nil {
+			return err
+		}
+		output.Items = []ListItem{}
+		for _, d := range ds {
+			output.Items = append(output.Items, ListItem{URI: d.URI, Name: d.Name, Size: d.SizeBytes, MimeType: d.MimeType})
+		}
+		output.Total = len(output.Items)
+		output.NextCursor = next
+		return nil
+	}
+	if input.URI != "" || isAbsLikePath(input.Path) || isWindowsAbsPath(input.Path) {
+		uri := input.URI
+		if uri == "" {
+			uri = input.Path
+		}
+		full, err := s.normalizeFullURI(ctx, uri, nil)
+		if err != nil {
+			return err
+		}
+		copyInput := *input
+		copyInput.URI = ""
+		copyInput.RootID = ""
+		copyInput.RootURI = full
+		copyInput.Path = ""
+		return s.listAbsolute(ctx, &copyInput, output)
+	}
 	allowed := s.agentAllowed(ctx)
+	if input.absolute {
+		allowed = nil
+	}
 	rootURI := strings.TrimSpace(input.RootURI)
 	rootID := strings.TrimSpace(input.RootID)
 	if (rootURI == "" && rootID == "") || rootID == "workspace://localhost" || rootID == "workspace://localhost/" {
@@ -354,4 +399,9 @@ func defaultResourcePath(ctx context.Context, current string) string {
 		return strings.TrimSpace(workdir)
 	}
 	return ""
+}
+
+func (s *Service) listAbsolute(ctx context.Context, input *ListInput, output *ListOutput) error {
+	input.absolute = true
+	return s.list(ctx, input, output)
 }

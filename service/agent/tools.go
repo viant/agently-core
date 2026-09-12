@@ -179,6 +179,10 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 	}
 	selections.Profile = agenttool.FromPromptProfile(profileDef)
 	effective := agenttool.BuildEffective(selections)
+	if len(qi.ResourceURIs) > 0 && len(qi.ToolsAllowed) == 0 {
+		effective.Final.Tools = append(effective.Final.Tools, "resources:inspect", "resources:read", "resources:readImage", "resources:export", "resources:list")
+		effective.Final = agenttool.Normalize(effective.Final)
+	}
 	if !hasVisibleSkills {
 		effective.Final = withoutSkillControlSelection(effective.Final)
 	}

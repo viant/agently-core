@@ -266,7 +266,7 @@ func shouldUseResponsesAPI(model llm.Model, req *Request) bool {
 
 // Generate sends a chat request to the OpenAI API and returns the response
 func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
-	req, err := c.prepareChatRequest(request)
+	req, err := c.prepareChatRequestContext(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -279,7 +279,7 @@ func (c *Client) Generate(ctx context.Context, request *llm.GenerateRequest) (*l
 
 func (c *Client) generateViaResponses(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	// Prepare request
-	req, err := c.prepareChatRequest(request)
+	req, err := c.prepareChatRequestContext(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -388,7 +388,11 @@ func (c *Client) generateViaResponses(ctx context.Context, request *llm.Generate
 
 // prepareChatRequest converts a generic request and applies client/model defaults.
 func (c *Client) prepareChatRequest(request *llm.GenerateRequest) (*Request, error) {
-	req, err := c.ToRequest(request)
+	return c.prepareChatRequestContext(context.Background(), request)
+}
+
+func (c *Client) prepareChatRequestContext(ctx context.Context, request *llm.GenerateRequest) (*Request, error) {
+	req, err := c.ToRequestContext(ctx, request)
 	if err != nil {
 		return nil, fmt.Errorf("failed to convert to llm.Request: %w", err)
 	}
@@ -593,7 +597,7 @@ func isContinuationError(body []byte) bool {
 
 func (c *Client) generateViaChatCompletion(ctx context.Context, request *llm.GenerateRequest) (*llm.GenerateResponse, error) {
 	// Prepare request
-	req, err := c.prepareChatRequest(request)
+	req, err := c.prepareChatRequestContext(ctx, request)
 	if err != nil {
 		return nil, err
 	}
@@ -828,7 +832,7 @@ func parseAnyFinal(data string) *llm.GenerateResponse {
 // Stream sends a chat request to the OpenAI API with streaming enabled and returns a channel of partial responses.
 func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-chan llm.StreamEvent, error) {
 	// Prepare request
-	req, err := c.prepareChatRequest(request)
+	req, err := c.prepareChatRequestContext(ctx, request)
 	if err != nil {
 		return nil, err
 	}
