@@ -69,6 +69,7 @@ type (
 	}
 
 	Attachment struct {
+		Native        bool   `yaml:"native,omitempty" json:"native,omitempty"`
 		Name          string `yaml:"name,omitempty" json:"name,omitempty"`
 		URI           string `yaml:"uri,omitempty" json:"uri,omitempty"`
 		StagingFolder string `yaml:"stagingFolder,omitempty" json:"stagingFolder,omitempty"`
@@ -476,7 +477,11 @@ func (m *Message) ToLLM() llm.Message {
 			items = append(items, attItem)
 			continue
 		}
-		items = append(items, llm.NewBinaryContent(a.Data, a.MIMEType(), a.Name))
+		item := llm.NewBinaryContent(a.Data, a.MIMEType(), a.Name)
+		if a.Native {
+			item.Metadata = map[string]interface{}{"nativePresentation": true}
+		}
+		items = append(items, item)
 	}
 	if strings.TrimSpace(m.Content) != "" {
 		items = append(items, llm.NewTextContent(m.Content))
@@ -485,7 +490,7 @@ func (m *Message) ToLLM() llm.Message {
 }
 
 func attachmentToLLMContent(a *Attachment) (llm.ContentItem, bool) {
-	if a == nil {
+	if a == nil || a.Native {
 		return llm.ContentItem{}, false
 	}
 	mimeType := strings.TrimSpace(a.MIMEType())
@@ -625,6 +630,7 @@ func newToolResultMessageWithAttachments(call llm.ToolCall, attachments []*Attac
 			continue
 		}
 		items = append(items, &llm.AttachmentItem{
+			Native:   a.Native,
 			Name:     a.Name,
 			MimeType: a.MIMEType(),
 			Data:     a.Data,

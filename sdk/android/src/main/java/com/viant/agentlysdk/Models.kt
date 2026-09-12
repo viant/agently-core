@@ -602,6 +602,7 @@ data class QueryInput(
     val userId: String? = null,
     val query: String,
     val attachments: List<QueryAttachment> = emptyList(),
+    val resourceURIs: List<String> = emptyList(),
     val model: String? = null,
     val tools: List<String> = emptyList(),
     val toolBundles: List<String> = emptyList(),
@@ -1172,18 +1173,34 @@ data class ListFilesOutput(
 )
 
 data class UploadFileInput(
-    val conversationId: String,
+    val conversationId: String? = null,
     val name: String,
     val contentType: String? = null,
     val data: ByteArray
 )
 
 @Serializable
-data class UploadFileOutput(
-    @SerialName("ID")
+data class ResourceDescriptor(
+    val uri: String,
     val id: String,
-    @SerialName("URI")
-    val uri: String
+    val name: String,
+    val mimeType: String,
+    val sizeBytes: Long,
+    val sha256: String? = null,
+    val sourceURI: String? = null
+)
+
+@OptIn(ExperimentalSerializationApi::class)
+@Serializable
+data class UploadFileOutput(
+    @JsonNames("ID", "Id")
+    val id: String = "",
+    @JsonNames("URI")
+    val uri: String,
+    val name: String? = null,
+    val size: Long? = null,
+    val mimeType: String? = null,
+    val resource: ResourceDescriptor? = null
 )
 
 data class DownloadFileOutput(

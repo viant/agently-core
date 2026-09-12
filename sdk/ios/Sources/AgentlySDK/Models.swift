@@ -979,6 +979,7 @@ public struct QueryInput: Codable, Sendable {
     public let userID: String?
     public let query: String
     public let attachments: [QueryAttachment]
+    public let resourceURIs: [String]?
     public let model: String?
     public let tools: [String]
     public let toolBundles: [String]
@@ -1000,6 +1001,7 @@ public struct QueryInput: Codable, Sendable {
         case userID = "userId"
         case query
         case attachments
+        case resourceURIs
         case model
         case tools
         case toolBundles
@@ -1022,6 +1024,7 @@ public struct QueryInput: Codable, Sendable {
         userID: String? = nil,
         query: String,
         attachments: [QueryAttachment] = [],
+        resourceURIs: [String]? = nil,
         model: String? = nil,
         tools: [String] = [],
         toolBundles: [String] = [],
@@ -1042,6 +1045,7 @@ public struct QueryInput: Codable, Sendable {
         self.userID = userID
         self.query = query
         self.attachments = attachments
+        self.resourceURIs = resourceURIs
         self.model = model
         self.tools = tools
         self.toolBundles = toolBundles
@@ -2665,12 +2669,13 @@ public struct ListFilesOutput: Decodable, Sendable {
 }
 
 public struct UploadFileInput: Sendable {
-    public let conversationID: String
+    /// Omit to upload before a conversation exists, using POST /upload.
+    public let conversationID: String?
     public let name: String
     public let contentType: String?
     public let data: Data
 
-    public init(conversationID: String, name: String, contentType: String? = nil, data: Data) {
+    public init(conversationID: String? = nil, name: String, contentType: String? = nil, data: Data) {
         self.conversationID = conversationID
         self.name = name
         self.contentType = contentType
@@ -2678,13 +2683,53 @@ public struct UploadFileInput: Sendable {
     }
 }
 
+public struct ResourceDescriptor: Codable, Sendable {
+    public let uri: String
+    public let id: String
+    public let name: String
+    public let mimeType: String
+    public let sizeBytes: Int64
+    public let sha256: String?
+    public let sourceURI: String?
+
+    public init(uri: String, id: String, name: String, mimeType: String, sizeBytes: Int64,
+                sha256: String? = nil, sourceURI: String? = nil) {
+        self.uri = uri; self.id = id; self.name = name; self.mimeType = mimeType
+        self.sizeBytes = sizeBytes; self.sha256 = sha256; self.sourceURI = sourceURI
+    }
+}
+
 public struct UploadFileOutput: Codable, Sendable {
     public let id: String?
     public let uri: String
+    public let name: String?
+    public let size: Int64?
+    public let mimeType: String?
+    public let resource: ResourceDescriptor?
 
-    public init(id: String? = nil, uri: String) {
-        self.id = id
-        self.uri = uri
+    public init(id: String? = nil, uri: String, name: String? = nil, size: Int64? = nil,
+                mimeType: String? = nil, resource: ResourceDescriptor? = nil) {
+        self.id = id; self.uri = uri; self.name = name; self.size = size
+        self.mimeType = mimeType; self.resource = resource
+    }
+
+    enum CodingKeys: String, CodingKey { case id, uri, name, size, mimeType, resource }
+    private enum LegacyKeys: String, CodingKey { case id = "ID", uri = "URI" }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        let legacy = try decoder.container(keyedBy: LegacyKeys.self)
+        id = try values.decodeIfPresent(String.self, forKey: .id)
+            ?? legacy.decodeIfPresent(String.self, forKey: .id)
+        if let current = try values.decodeIfPresent(String.self, forKey: .uri) {
+            uri = current
+        } else {
+            uri = try legacy.decode(String.self, forKey: .uri)
+        }
+        name = try values.decodeIfPresent(String.self, forKey: .name)
+        size = try values.decodeIfPresent(Int64.self, forKey: .size)
+        mimeType = try values.decodeIfPresent(String.self, forKey: .mimeType)
+        resource = try values.decodeIfPresent(ResourceDescriptor.self, forKey: .resource)
     }
 }
 

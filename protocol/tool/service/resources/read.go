@@ -1,9 +1,15 @@
 package resources
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
+	authctx "github.com/viant/agently-core/internal/auth"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
+	"io"
 	pathpkg "path"
 	"strings"
 	"unicode/utf8"
@@ -21,6 +27,12 @@ import (
 )
 
 type ReadInput struct {
+	Representation  string             `json:"representation,omitempty"`
+	Select          *ResourceSelection `json:"select,omitempty"`
+	Options         *ResourceOptions   `json:"options,omitempty"`
+	Limits          *ResourceLimits    `json:"limits,omitempty"`
+	ExpectedVersion string             `json:"expectedVersion,omitempty"`
+	Cursor          string             `json:"cursor,omitempty"`
 	// RootURI is the normalized or user-provided root URI. Prefer using
 	// RootID when possible; RootURI is retained for backward compatibility
 	// but hidden from public schemas.
@@ -47,11 +59,17 @@ type ReadInput struct {
 
 // ReadOutput contains the resolved URI, relative path and optionally truncated content.
 type ReadOutput struct {
-	URI       string `json:"uri"`
-	Path      string `json:"path"`
-	Content   string `json:"content"`
-	SkillName string `json:"skillName,omitempty"`
-	Size      int    `json:"size"`
+	Warnings  []string          `json:"warnings,omitempty"`
+	Version   string            `json:"version,omitempty"`
+	Table     *ResourceTable    `json:"table,omitempty"`
+	Native    *NativeResource   `json:"native,omitempty"`
+	Coverage  *ResourceCoverage `json:"coverage,omitempty"`
+	Cursor    string            `json:"cursor,omitempty"`
+	URI       string            `json:"uri"`
+	Path      string            `json:"path"`
+	Content   string            `json:"content"`
+	SkillName string            `json:"skillName,omitempty"`
+	Size      int               `json:"size"`
 	// Returned and Remaining describe how much of the original payload was
 	// returned after applying caps/ranges.
 	Returned  int `json:"returned,omitempty"`
@@ -117,6 +135,12 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	if input.Representation != "" {
+		return s.readAsset(ctx, input, output)
+	}
+	if input.Select != nil || input.Options != nil || input.Cursor != "" {
+		return fmt.Errorf("specify a representation for structured selection/options")
+	}
 	target, err := s.resolveReadTarget(ctx, input, s.agentAllowed(ctx))
 	if err != nil {
 		logx.Debugf("resources", "read resolve error rootId=%q root=%q uri=%q err=%v", input.RootID, input.RootURI, input.URI, err)
@@ -148,6 +172,11 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		logx.Debugf("resources", "read download error uri=%q err=%v", target.fullURI, err)
 		return err
+	}
+	hash := sha256.Sum256(data)
+	output.Version = hex.EncodeToString(hash[:])
+	if input.ExpectedVersion != "" && input.ExpectedVersion != output.Version {
+		return fmt.Errorf("resource_changed")
 	}
 	selection, err := applyReadSelection(data, input)
 	if err != nil {
@@ -183,6 +212,15 @@ func (s *Service) readImage(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	if err := validateImageInput(raw); err != nil {
+		return err
+	}
+	if input.MaxWidth > 4096 || input.MaxHeight > 4096 || input.MaxBytes > 8<<20 {
+		return fmt.Errorf("image output limit exceeded")
+	}
+	if input.DestURL != "" {
+		return fmt.Errorf("destURL is no longer supported; encoded images use managed storage")
+	}
 	options := imageio.NormalizeOptions(imageio.Options{
 		MaxWidth:  input.MaxWidth,
 		MaxHeight: input.MaxHeight,
@@ -199,15 +237,41 @@ func (s *Service) readImage(ctx context.Context, in, out interface{}) error {
 		output.Path = strings.TrimSpace(readTarget.fullURI)
 	}
 	output.Name = pathpkg.Base(output.Path)
+	if strings.HasPrefix(readTarget.fullURI, "scratchpad://") {
+		d, e := scratchpadsvc.New().DescribeArtifact(ctx, readTarget.fullURI)
+		if e != nil {
+			return e
+		}
+		if d.Name != "" {
+			output.Name = pathpkg.Base(d.Name)
+		}
+	}
+	extension := ".png"
+	if encoded.MimeType == "image/jpeg" {
+		extension = ".jpeg"
+	}
+	output.Name = strings.TrimSuffix(output.Name, pathpkg.Ext(output.Name)) + extension
 	output.MimeType = encoded.MimeType
 	output.Width = encoded.Width
 	output.Height = encoded.Height
 	output.Bytes = len(encoded.Bytes)
-	encodedURI, err := imageio.StoreEncodedImage(ctx, encoded, imageio.StoreOptions{DestURL: strings.TrimSpace(input.DestURL)})
-	if err != nil {
-		return err
+	if authctx.EffectiveUserID(ctx) != "" {
+		snapshotHash := sha256.New()
+		snapshotHash.Write([]byte(readTarget.fullURI + "\x00" + encoded.MimeType))
+		snapshotHash.Write(encoded.Bytes)
+		d, err := scratchpadsvc.New().PublishArtifact(ctx, "image-"+hex.EncodeToString(snapshotHash.Sum(nil)), output.Name, encoded.MimeType, readTarget.fullURI, bytes.NewReader(encoded.Bytes))
+		if err != nil {
+			return err
+		}
+		output.Encoded = d.URI
+	} else {
+		encodedURI, err := imageio.StoreEncodedImage(ctx, encoded, imageio.StoreOptions{})
+		if err != nil {
+			return err
+		}
+		output.Encoded = encodedURI
 	}
-	output.Encoded = encodedURI
+
 	if input.IncludeData {
 		output.Base64 = base64.StdEncoding.EncodeToString(encoded.Bytes)
 	}
@@ -221,6 +285,9 @@ type readTarget struct {
 
 func (s *Service) resolveReadTarget(ctx context.Context, input *ReadInput, allowed []string) (*readTarget, error) {
 	uri := strings.TrimSpace(input.URI)
+	if uri == "" && (isAbsLikePath(input.Path) || isWindowsAbsPath(input.Path) || strings.Contains(input.Path, "://")) {
+		uri = strings.TrimSpace(input.Path)
+	}
 	if uri != "" {
 		fullURI, err := s.normalizeFullURI(ctx, uri, allowed)
 		if err != nil {
@@ -270,13 +337,37 @@ func (s *Service) downloadResource(ctx context.Context, uri string) ([]byte, err
 		}
 		data, err := mfs.DownloadDirect(ctx, mcpfs.NewObjectFromURI(uri))
 		if err == nil {
+			if int64(len(data)) > scratchpadsvc.MaxArtifactBytes {
+				return nil, fmt.Errorf("resource exceeds input byte limit")
+			}
 			return data, nil
 		}
 		logx.Debugf("resources", "download direct failed uri=%q err=%v; falling back to snapshot", uri, err)
-		return mfs.Download(ctx, mcpfs.NewObjectFromURI(uri))
+		data, err = mfs.Download(ctx, mcpfs.NewObjectFromURI(uri))
+		if int64(len(data)) > scratchpadsvc.MaxArtifactBytes {
+			return nil, fmt.Errorf("resource exceeds input byte limit")
+		}
+		return data, err
 	}
-	fs := afs.New()
-	return fs.DownloadWithURL(ctx, uri)
+	var reader io.ReadCloser
+	var err error
+	if strings.HasPrefix(uri, "scratchpad://") {
+		_, reader, err = scratchpadsvc.New().OpenArtifact(ctx, uri)
+	} else {
+		reader, err = afs.New().OpenURL(ctx, uri)
+	}
+	if err != nil {
+		return nil, err
+	}
+	defer reader.Close()
+	data, err := io.ReadAll(io.LimitReader(reader, scratchpadsvc.MaxArtifactBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > scratchpadsvc.MaxArtifactBytes {
+		return nil, fmt.Errorf("resource exceeds input byte limit")
+	}
+	return data, ctx.Err()
 }
 
 type readSelection struct {

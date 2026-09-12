@@ -608,6 +608,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// active turn that has no starter message.
 	s.maybeRunIntakeSidecar(ctx, input)
 
+	if err := s.persistResourceInputs(ctx, turn, input.ResourceURIs); err != nil {
+		return err
+	}
 	if err := s.processAttachments(ctx, turn, input); err != nil {
 		return err
 	}

@@ -2,6 +2,8 @@ package sdk
 
 import (
 	"fmt"
+	authctx "github.com/viant/agently-core/internal/auth"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	"io"
 	"net/http"
 	"os"
@@ -51,10 +53,12 @@ func cleanupStagedUploads(root string, ttl time.Duration) error {
 
 func handleStagedUpload() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, scratchpadsvc.MaxArtifactBytes+(1<<20))
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("parse multipart form: %w", err))
 			return
 		}
+		defer r.MultipartForm.RemoveAll()
 		file, header, err := r.FormFile("file")
 		if err != nil {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("missing file field: %w", err))
@@ -76,6 +80,17 @@ func handleStagedUpload() http.HandlerFunc {
 			contentType = strings.TrimSpace(header.Header.Get("Content-Type"))
 		}
 
+		// Authenticated uploads are immediately usable user-scoped resources,
+		// even before a conversation exists. Anonymous legacy staging is preserved.
+		if authctx.EffectiveUserID(r.Context()) != "" {
+			d, err := scratchpadsvc.New().PublishArtifact(r.Context(), "", name, contentType, "", file)
+			if err != nil {
+				httpError(w, http.StatusBadRequest, err)
+				return
+			}
+			httpJSON(w, http.StatusOK, &UploadFileOutput{ID: d.ID, URI: d.URI, Name: d.Name, Size: d.SizeBytes, MimeType: d.MimeType, Resource: d})
+			return
+		}
 		stagingID := uuid.NewString()
 		targetDir := filepath.Join(stagedUploadRoot(), stagingID)
 		if err := os.MkdirAll(targetDir, 0o700); err != nil {
@@ -88,8 +103,13 @@ func handleStagedUpload() http.HandlerFunc {
 			httpError(w, http.StatusInternalServerError, fmt.Errorf("create staged file: %w", err))
 			return
 		}
-		size, copyErr := io.Copy(out, file)
+		size, copyErr := io.Copy(out, io.LimitReader(file, scratchpadsvc.MaxArtifactBytes+1))
 		closeErr := out.Close()
+		if size > scratchpadsvc.MaxArtifactBytes {
+			_ = os.RemoveAll(targetDir)
+			httpError(w, http.StatusRequestEntityTooLarge, fmt.Errorf("upload byte limit exceeded"))
+			return
+		}
 		if copyErr != nil {
 			_ = os.RemoveAll(targetDir)
 			httpError(w, http.StatusInternalServerError, fmt.Errorf("write staged file: %w", copyErr))

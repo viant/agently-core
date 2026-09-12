@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -287,7 +288,7 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPro
 				if !replacedCurrentUser &&
 					m.Kind == binding.MessageKindChatUser &&
 					strings.EqualFold(strings.TrimSpace(m.Role), string(llm.RoleUser)) {
-					out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments, strings.TrimSpace(m.ID)))
+					out = append(out, newExpandedUserLLMMessage(trimmedPrompt, mergePromptAttachments(attachments, m.Attachment), strings.TrimSpace(m.ID)))
 					replacedCurrentUser = true
 					continue
 				}
@@ -305,6 +306,31 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPro
 	return out
 }
 
+// Preserve tool-added native content when replacing the current user text
+// with its expanded prompt. Upload and history copies are deduplicated by bytes.
+func mergePromptAttachments(task, history []*binding.Attachment) []*binding.Attachment {
+	result := []*binding.Attachment{}
+	seen := map[string]int{}
+	for _, group := range [][]*binding.Attachment{task, history} {
+		for _, a := range group {
+			if a == nil {
+				continue
+			}
+			digest := sha256.Sum256(a.Data)
+			key := fmt.Sprintf("%s:%x", a.MIMEType(), digest)
+			if i, ok := seen[key]; ok {
+				if a.Native {
+					result[i] = a
+				}
+				continue
+			}
+			seen[key] = len(result)
+			result = append(result, a)
+		}
+	}
+	return result
+}
+
 func newExpandedUserLLMMessage(content string, attachments []*binding.Attachment, messageID string) llm.Message {
 	var msg llm.Message
 	if len(attachments) == 0 {
@@ -316,6 +342,7 @@ func newExpandedUserLLMMessage(content string, attachments []*binding.Attachment
 				continue
 			}
 			items = append(items, &llm.AttachmentItem{
+				Native:   attachment.Native,
 				Name:     attachment.Name,
 				MimeType: attachment.Mime,
 				Data:     attachment.Data,

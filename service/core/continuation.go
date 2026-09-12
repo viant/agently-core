@@ -31,6 +31,21 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 		conversationID = runtimerequestctx.ConversationIDFromContext(ctx)
 	}
 
+	// Binary content can be added to an older user message by a resource
+	// read. Anchored continuation cannot prove the provider has those bytes.
+	// Replay full history in that case; never silently omit a presentation.
+	if req != nil {
+		for _, msg := range req.Messages {
+			for _, item := range msg.Items {
+				if item.Type == llm.ContentTypeBinary {
+					return nil
+				}
+			}
+		}
+	}
+	if history == nil {
+		return nil
+	}
 	anchor := history.LastResponse
 	if req == nil || strings.TrimSpace(conversationID) == "" || anchor == nil || !anchor.IsValid() || len(history.Traces) == 0 {
 		if debugtrace.Enabled() {
