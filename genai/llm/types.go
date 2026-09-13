@@ -401,6 +401,12 @@ func NewMessageWithBinaries(role MessageRole, attachItems []*AttachmentItem, con
 		if a == nil {
 			continue
 		}
+		if !a.Native {
+			if item, ok := TextAttachmentContent(a.Data, a.MimeType, a.Name); ok {
+				items = append(items, item)
+				continue
+			}
+		}
 		item := NewBinaryContent(a.Data, a.MimeType, a.Name)
 		if a.Native {
 			item.Metadata = map[string]interface{}{"nativePresentation": true}

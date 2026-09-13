@@ -26,11 +26,16 @@ public struct AuthProvider: Codable, Sendable, Identifiable {
 }
 
 public struct AuthUser: Codable, Sendable {
+    public let subject: String?
+    public let username: String?
+    public let provider: String?
     public let id: String?
     public let email: String?
     public let displayName: String?
 
-    public init(id: String? = nil, email: String? = nil, displayName: String? = nil) {
+    public init(id: String? = nil, email: String? = nil, displayName: String? = nil,
+                subject: String? = nil, username: String? = nil, provider: String? = nil) {
+        self.subject = subject; self.username = username; self.provider = provider
         self.id = id
         self.email = email
         self.displayName = displayName
@@ -354,7 +359,24 @@ public struct WorkspaceModelInfo: Codable, Sendable, Identifiable {
     }
 }
 
+public struct WorkspaceAssetDescriptor: Codable, Sendable {
+    public var isThemeCatalog: Bool {
+        version == 1 && revision.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil && href == "/v1/workspace/ui/themes/\(revision).json"
+    }
+    public let version: Int
+    public let revision: String
+    public let href: String
+    public let themeRevision: String?
+    public init(version: Int = 1, revision: String, href: String, themeRevision: String? = nil) {
+        self.version = version; self.revision = revision; self.href = href; self.themeRevision = themeRevision
+    }
+}
+
 public struct WorkspaceMetadata: Codable, Sendable {
+    public let workspaceId: String?
+    public let uiThemes: WorkspaceAssetDescriptor?
+    public let uiStyles: WorkspaceAssetDescriptor?
+    public let uiStyleDiagnostics: [String]?
     public let workspaceRoot: String?
     public let workspaceVersion: String?
     public let metadataVersion: String?
@@ -372,6 +394,10 @@ public struct WorkspaceMetadata: Codable, Sendable {
     public let version: String?
 
     public init(
+        workspaceId: String? = nil,
+        uiThemes: WorkspaceAssetDescriptor? = nil,
+        uiStyles: WorkspaceAssetDescriptor? = nil,
+        uiStyleDiagnostics: [String]? = nil,
         workspaceRoot: String? = nil,
         workspaceVersion: String? = nil,
         metadataVersion: String? = nil,
@@ -388,6 +414,10 @@ public struct WorkspaceMetadata: Codable, Sendable {
         capabilities: WorkspaceCapabilities? = nil,
         version: String? = nil
     ) {
+        self.workspaceId = workspaceId
+        self.uiThemes = uiThemes
+        self.uiStyles = uiStyles
+        self.uiStyleDiagnostics = uiStyleDiagnostics
         self.workspaceRoot = workspaceRoot
         self.workspaceVersion = workspaceVersion
         self.metadataVersion = metadataVersion
@@ -681,13 +711,16 @@ public struct GetTemplateOutput: Codable, Sendable {
 
 public struct ListSkillsInput: Codable, Sendable {
     public let conversationID: String?
+    public let agentID: String?
 
     enum CodingKeys: String, CodingKey {
         case conversationID = "conversationId"
+        case agentID = "agentId"
     }
 
-    public init(conversationID: String? = nil) {
+    public init(conversationID: String? = nil, agentID: String? = nil) {
         self.conversationID = conversationID
+        self.agentID = agentID
     }
 }
 

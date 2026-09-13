@@ -1,3 +1,4 @@
+import type {ListSkillsInput, ListSkillsOutput, ActivateSkillInput, ActivateSkillOutput} from './types';
 /**
  * AgentlyClient — TypeScript HTTP client for agently-core SDK.
  *
@@ -119,6 +120,19 @@ export class AgentlyClient {
     }
 
     /** List conversations with optional search, filter, and pagination. */
+    /** Lists skills visible to the selected agent, including before a conversation exists. */
+    async listSkills(input: ListSkillsInput = {}): Promise<ListSkillsOutput> {
+        const q = new URLSearchParams();
+        if (input.conversationId) q.set('conversationId', input.conversationId);
+        if (input.agentId) q.set('agentId', input.agentId);
+        return this.get('/skills', q);
+    }
+
+    async activateSkill(input: ActivateSkillInput): Promise<ActivateSkillOutput> {
+        const q = new URLSearchParams({conversationId: input.conversationId});
+        return this.post(`/skills/${enc(input.name)}/activate?${q}`, {args: input.args || ''});
+    }
+
     async listConversations(input?: ListConversationsInput): Promise<ConversationPage> {
         const q = new URLSearchParams();
         if (input?.query) q.set('q', input.query);
@@ -795,6 +809,15 @@ export class AgentlyClient {
         return normalizeWorkspaceMetadata(decoded);
     }
 
+    /** Fetch a validated workspace CSS/catalog URL using this client's auth policy. */
+    async getWorkspaceStyleAsset(href: string): Promise<string> {
+        if (!/^\/v1\/workspace\/ui\/(styles\/[a-f0-9]{64}\.css|themes\/[a-f0-9]{64}\.json)$/.test(href)) {
+            throw new Error('Invalid workspace style asset URL');
+        }
+        return this.request<string>('GET', `${this.baseURL}${href.slice(3)}`, undefined,
+            {Accept: href.endsWith('.css') ? 'text/css' : 'application/json'}, 'text');
+    }
+
     /** Get Forge window metadata with optional platform/form-factor targeting. */
     async getForgeWindowMetadata(windowKey: string, targetContext?: MetadataTargetContext): Promise<JSONValue> {
         const key = String(windowKey || '').trim();
@@ -1194,7 +1217,7 @@ export class AgentlyClient {
         await this.request('DELETE', `${this.baseURL}${path}`);
     }
 
-    private async request<T = APIResponse>(method: string, url: string, body?: RequestBody, extraHeaders: Record<string, string> = {}): Promise<T> {
+    private async request<T = APIResponse>(method: string, url: string, body?: RequestBody, extraHeaders: Record<string, string> = {}, format: 'json' | 'text' = 'json'): Promise<T> {
         const maxAttempts = Math.max(1, this.retries);
         let lastErr: unknown = null;
 
@@ -1232,6 +1255,11 @@ export class AgentlyClient {
                 }
 
                 const text = await resp.text();
+                if (format === 'text') {
+                    const expectedType = url.endsWith('.css') ? 'text/css' : 'application/json';
+                    if (!String(resp.headers.get('content-type') || '').startsWith(expectedType)) throw new Error('Unexpected workspace asset content type');
+                    return text as T;
+                }
                 return (text ? JSON.parse(text) : undefined) as T;
             } catch (err) {
                 if (err instanceof HttpError) throw err;

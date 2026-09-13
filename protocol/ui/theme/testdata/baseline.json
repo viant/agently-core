@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "paletteVersion": 1,
+  "defaultTheme": "baseline",
+  "defaultMode": "system",
+  "themes": [
+    {
+      "id": "baseline",
+      "label": "Baseline",
+      "fallbackMode": "light",
+      "modes": {
+        "dark": {
+          "button.background": "#a9bfff",
+          "button.foreground": "#172447",
+          "control.background": "#242d3d",
+          "control.border": "#8491a6",
+          "control.foreground": "#edf1f7",
+          "control.minHeight": 36,
+          "control.paddingInline": 10,
+          "control.radius": 4,
+          "disabled.background": "#30394a",
+          "disabled.foreground": "#a2adbf",
+          "focus.color": "#9db5ff",
+          "surface": "#1b2230",
+          "text": "#edf1f7",
+          "typography.family": "system",
+          "typography.size": 14,
+          "validation.border": "#ff9b91"
+        },
+        "light": {
+          "button.background": "#3453b3",
+          "button.foreground": "#ffffff",
+          "control.background": "#ffffff",
+          "control.border": "#788397",
+          "control.foreground": "#171b26",
+          "control.minHeight": 36,
+          "control.paddingInline": 10,
+          "control.radius": 4,
+          "disabled.background": "#edf0f5",
+          "disabled.foreground": "#626d7e",
+          "focus.color": "#4466cc",
+          "surface": "#ffffff",
+          "text": "#171b26",
+          "typography.family": "system",
+          "typography.size": 14,
+          "validation.border": "#b42318"
+        }
+      }
+    }
+  ]
+}

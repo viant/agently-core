@@ -205,7 +205,7 @@ func (s *Service) runBackend(ctx context.Context, ds *dsproto.DataSource, args m
 		}
 		rows := make([]map[string]interface{}, 0, len(ds.Backend.Rows))
 		rows = append(rows, ds.Backend.Rows...)
-		return rows, nil
+		return filterInlineRows(rows, ds.Backend.InlineFilters, args)
 
 	case dsproto.BackendMCPTool:
 		if s.executor == nil {

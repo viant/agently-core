@@ -1097,10 +1097,23 @@ func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) 
 	if c.skills == nil {
 		return &ListSkillsOutput{}, nil
 	}
-	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
-		return nil, errors.New("conversation ID is required")
+	if input == nil || (strings.TrimSpace(input.ConversationID) == "" && strings.TrimSpace(input.AgentID) == "") {
+		return nil, errors.New("conversation ID or agent ID is required")
 	}
-	items, diags, err := c.skills.ListForConversation(ctx, strings.TrimSpace(input.ConversationID))
+	var items []skillproto.Metadata
+	var diags []string
+	var err error
+	if strings.TrimSpace(input.AgentID) != "" {
+		scoped, ok := c.skills.(interface {
+			ListForSelection(context.Context, string, string) ([]skillproto.Metadata, []string, error)
+		})
+		if !ok {
+			return nil, errors.New("agent-scoped skill listing unavailable")
+		}
+		items, diags, err = scoped.ListForSelection(ctx, strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.AgentID))
+	} else {
+		items, diags, err = c.skills.ListForConversation(ctx, strings.TrimSpace(input.ConversationID))
+	}
 	if err != nil {
 		return nil, err
 	}

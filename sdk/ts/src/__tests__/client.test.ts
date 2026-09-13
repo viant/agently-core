@@ -1690,3 +1690,19 @@ describe('Auth', () => {
         expect(c.idpLoginURL('/dashboard')).toBe('http://localhost:8585/v1/api/auth/idp/login?returnURL=%2Fdashboard');
     });
 });
+
+describe('skills', () => {
+    it('lists agent-scoped skills before a conversation exists', async () => {
+        const fetch = mockFetch(200, {items: [{name: 'report', description: 'Build reports'}]});
+        const result = await client(fetch).listSkills({agentId: 'coder'});
+        expect(String(fetch.mock.calls[0][0])).toBe('http://localhost:8585/v1/skills?agentId=coder');
+        expect(result.items?.[0].name).toBe('report');
+    });
+    it('activates a named skill only through an explicit activation call', async () => {
+        const fetch = mockFetch(200, {name: 'report', body: 'Instructions'});
+        await client(fetch).activateSkill({name: 'report', conversationId: 'c1', args: 'data'});
+        expect(String(fetch.mock.calls[0][0])).toBe('http://localhost:8585/v1/skills/report/activate?conversationId=c1');
+        expect(fetch.mock.calls[0][1]?.method).toBe('POST');
+        expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({args: 'data'});
+    });
+});

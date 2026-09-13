@@ -1,0 +1,38 @@
+.agently-workspace[data-forge-theme="baseline"][data-forge-color-mode="light"] {
+  color-scheme: light;
+  --forge-button-bg: #3453b3;
+  --forge-button-text: #ffffff;
+  --forge-control-bg: #ffffff;
+  --forge-control-border: #788397;
+  --forge-control-text: #171b26;
+  --forge-control-height: 36px;
+  --forge-control-padding-inline: 10px;
+  --forge-control-radius: 4px;
+  --forge-disabled-bg: #edf0f5;
+  --forge-disabled-text: #626d7e;
+  --forge-focus-color: #4466cc;
+  --forge-surface: #ffffff;
+  --forge-text: #171b26;
+  --forge-font-family: system-ui, sans-serif;
+  --forge-font-size: 14px;
+  --forge-invalid-border: #b42318;
+}
+.agently-workspace[data-forge-theme="baseline"][data-forge-color-mode="dark"] {
+  color-scheme: dark;
+  --forge-button-bg: #a9bfff;
+  --forge-button-text: #172447;
+  --forge-control-bg: #242d3d;
+  --forge-control-border: #8491a6;
+  --forge-control-text: #edf1f7;
+  --forge-control-height: 36px;
+  --forge-control-padding-inline: 10px;
+  --forge-control-radius: 4px;
+  --forge-disabled-bg: #30394a;
+  --forge-disabled-text: #a2adbf;
+  --forge-focus-color: #9db5ff;
+  --forge-surface: #1b2230;
+  --forge-text: #edf1f7;
+  --forge-font-family: system-ui, sans-serif;
+  --forge-font-size: 14px;
+  --forge-invalid-border: #ff9b91;
+}

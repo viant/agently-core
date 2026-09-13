@@ -1,0 +1,10 @@
+version: 1
+defaultTheme: baseline
+defaultMode: system
+themes:
+  - id: baseline
+    label: Baseline
+    fallbackMode: light
+    modes:
+      light: {}
+      dark: {}

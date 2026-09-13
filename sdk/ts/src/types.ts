@@ -888,7 +888,18 @@ export interface ApplyPermissionInput {
     targetContext?: MetadataTargetContext;
 }
 
+export interface WorkspaceAssetDescriptor {
+    version: number;
+    revision: string;
+    href: string;
+    themeRevision?: string;
+}
+
 export interface WorkspaceMetadata {
+    workspaceId?: string;
+    uiStyles?: WorkspaceAssetDescriptor;
+    uiThemes?: WorkspaceAssetDescriptor;
+    uiStyleDiagnostics?: string[];
     workspaceRoot?: string;
     workspaceVersion?: string;
     metadataVersion?: string;
@@ -1255,3 +1266,10 @@ export interface UpdateFeedDraftOutput {
     ok: boolean;
     error?: string;
 }
+
+/** Visible skill catalog for a draft agent or an existing conversation. */
+export interface ListSkillsInput { conversationId?: string; agentId?: string; }
+export interface SkillItem { name: string; description?: string; }
+export interface ListSkillsOutput { items?: SkillItem[]; diagnostics?: string[]; }
+export interface ActivateSkillInput { name: string; conversationId: string; args?: string; }
+export interface ActivateSkillOutput { name: string; body: string; }

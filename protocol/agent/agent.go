@@ -164,6 +164,7 @@ type (
 
 	// StarterTask describes a suggested starter prompt for empty chat state.
 	StarterTask struct {
+		AgentID         string   `yaml:"agentId,omitempty" json:"agentId,omitempty"`
 		ID              string   `yaml:"id,omitempty" json:"id,omitempty"`
 		CategoryID      string   `yaml:"categoryId,omitempty" json:"categoryId,omitempty"`
 		Title           string   `yaml:"title,omitempty" json:"title,omitempty"`

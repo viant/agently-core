@@ -61,3 +61,17 @@ func TestNativePresentationPolicy(t *testing.T) {
 		})
 	}
 }
+
+func TestCSVAttachmentSurvivesTextOnlyExpandedPrompt(t *testing.T) {
+	a := &binding.Attachment{Name: "delivery.csv", Mime: "text/csv", Data: []byte("date,spend\n2026-09-09,300")}
+	h := &binding.History{CurrentTurnID: "turn", Current: &binding.Turn{ID: "turn", Messages: []*binding.Message{{ID: "user", Kind: binding.MessageKindChatUser, Role: "user", Content: "analyze", Attachment: []*binding.Attachment{a}}}}}
+	messages := historyLLMMessagesWithExpandedCurrentPrompt(h, "analyze", []*binding.Attachment{a})
+	input := &GenerateInput{Binding: &binding.Binding{}, Message: messages}
+	require.NoError(t, (&Service{}).enforceAttachmentPolicy(context.Background(), input, nil))
+	require.Len(t, input.Message, 1)
+	require.Equal(t, llm.ContentTypeText, input.Message[0].Items[0].Type)
+	require.Contains(t, input.Message[0].Items[0].Text, "2026-09-09,300")
+	original := h.Current.Messages[0].ToLLM()
+	require.Equal(t, llm.ContentTypeText, original.Items[0].Type)
+	require.Contains(t, original.Items[0].Text, "2026-09-09,300")
+}

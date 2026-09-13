@@ -32,6 +32,7 @@ func handleListToolDefinitions(client Client) http.HandlerFunc {
 func handleListSkills(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		out, err := client.ListSkills(r.Context(), &ListSkillsInput{
+			AgentID:        strings.TrimSpace(r.URL.Query().Get("agentId")),
 			ConversationID: strings.TrimSpace(r.URL.Query().Get("conversationId")),
 		})
 		if err != nil {
