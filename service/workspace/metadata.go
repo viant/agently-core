@@ -14,6 +14,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	llmprovider "github.com/viant/agently-core/genai/llm/provider"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	uistyle "github.com/viant/agently-core/service/ui/style"
 	ws "github.com/viant/agently-core/workspace"
 	wscodec "github.com/viant/agently-core/workspace/codec"
 	wscfg "github.com/viant/agently-core/workspace/config"
@@ -21,21 +22,26 @@ import (
 
 // MetadataResponse is the response for the workspace metadata endpoint.
 type MetadataResponse struct {
-	WorkspaceRoot    string       `json:"workspaceRoot,omitempty"`
-	WorkspaceVersion string       `json:"workspaceVersion,omitempty"`
-	MetadataVersion  string       `json:"metadataVersion,omitempty"`
-	DefaultAgent     string       `json:"defaultAgent,omitempty"`
-	DefaultModel     string       `json:"defaultModel,omitempty"`
-	DefaultEmbedder  string       `json:"defaultEmbedder,omitempty"`
-	AppName          string       `json:"appName,omitempty"`
-	AppIconRef       string       `json:"appIconRef,omitempty"`
-	Defaults         *Defaults    `json:"defaults,omitempty"`
-	Capabilities     Capabilities `json:"capabilities,omitempty"`
-	Agents           []string     `json:"agents,omitempty"`
-	Models           []string     `json:"models,omitempty"`
-	AgentInfos       []AgentInfo  `json:"agentInfos,omitempty"`
-	ModelInfos       []ModelInfo  `json:"modelInfos,omitempty"`
-	Version          string       `json:"version,omitempty"`
+	Composer           wscfg.Composer      `json:"composer"`
+	WorkspaceID        string              `json:"workspaceId,omitempty"`
+	UIStyles           *uistyle.Descriptor `json:"uiStyles,omitempty"`
+	UIThemes           *uistyle.Descriptor `json:"uiThemes,omitempty"`
+	UIStyleDiagnostics []string            `json:"uiStyleDiagnostics,omitempty"`
+	WorkspaceRoot      string              `json:"workspaceRoot,omitempty"`
+	WorkspaceVersion   string              `json:"workspaceVersion,omitempty"`
+	MetadataVersion    string              `json:"metadataVersion,omitempty"`
+	DefaultAgent       string              `json:"defaultAgent,omitempty"`
+	DefaultModel       string              `json:"defaultModel,omitempty"`
+	DefaultEmbedder    string              `json:"defaultEmbedder,omitempty"`
+	AppName            string              `json:"appName,omitempty"`
+	AppIconRef         string              `json:"appIconRef,omitempty"`
+	Defaults           *Defaults           `json:"defaults,omitempty"`
+	Capabilities       Capabilities        `json:"capabilities,omitempty"`
+	Agents             []string            `json:"agents,omitempty"`
+	Models             []string            `json:"models,omitempty"`
+	AgentInfos         []AgentInfo         `json:"agentInfos,omitempty"`
+	ModelInfos         []ModelInfo         `json:"modelInfos,omitempty"`
+	Version            string              `json:"version,omitempty"`
 }
 
 type PublicAgentsResponse struct {
@@ -106,6 +112,7 @@ type ModelInfo struct {
 
 // MetadataHandler serves the workspace metadata endpoint.
 type MetadataHandler struct {
+	styles            *uistyle.Service
 	defaults          *config.Defaults
 	store             ws.Store
 	version           string
@@ -115,6 +122,7 @@ type MetadataHandler struct {
 // NewMetadataHandler creates a metadata handler.
 func NewMetadataHandler(defaults *config.Defaults, store ws.Store, version string) *MetadataHandler {
 	return &MetadataHandler{
+		styles:   uistyle.Workspace(),
 		defaults: defaults,
 		store:    store,
 		version:  version,
@@ -133,6 +141,7 @@ func (h *MetadataHandler) SetReportingCapabilityEnabled(enabled bool) {
 
 // Register mounts the metadata endpoint.
 func (h *MetadataHandler) Register(mux *http.ServeMux) {
+	h.styles.Register(mux)
 	mux.HandleFunc("GET /v1/workspace/metadata", h.handleMetadata())
 	mux.HandleFunc("GET /v1/workspace/metadata/publicagents", h.handlePublicAgents())
 }
@@ -204,7 +213,17 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 				resp.Models = modelInfoIDs(resp.ModelInfos)
 			}
 		}
+		var composerConfig *wscfg.Root
+		if loaded, err := wscfg.Load(ws.Root()); err == nil {
+			composerConfig = loaded
+		}
+		resp.Composer = composerConfig.Composer()
 		resp.Capabilities.Goals = goalsCapabilityEnabled(resp.AgentInfos)
+		styles := h.styles.Current(ctx)
+		resp.WorkspaceID = styles.WorkspaceID
+		resp.UIStyles = styles.Styles
+		resp.UIThemes = styles.Themes
+		resp.UIStyleDiagnostics = styles.Diagnostics
 		resp.MetadataVersion = resolveMetadataVersion(resp)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)

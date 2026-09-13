@@ -1265,6 +1265,25 @@ func (s *Service) currentAgent(ctx context.Context) (*agentmdl.Agent, error) {
 	return s.agentFinder.Find(ctx, strings.TrimSpace(*conv.AgentId))
 }
 
+// ListForSelection supports the composer's selected agent before a conversation exists.
+func (s *Service) ListForSelection(ctx context.Context, conversationID, agentID string) ([]skillproto.Metadata, []string, error) {
+	if strings.TrimSpace(agentID) == "" {
+		return s.ListForConversation(ctx, conversationID)
+	}
+	if s.agentFinder == nil {
+		return nil, nil, fmt.Errorf("agent catalog unavailable")
+	}
+	agent, err := s.agentFinder.Find(ctx, strings.TrimSpace(agentID))
+	if err != nil {
+		return nil, nil, err
+	}
+	if agent == nil {
+		return nil, nil, fmt.Errorf("agent not found")
+	}
+	meta, _ := s.Visible(agent)
+	return meta, s.Diagnostics(), nil
+}
+
 func (s *Service) ListForConversation(ctx context.Context, conversationID string) ([]skillproto.Metadata, []string, error) {
 	if strings.TrimSpace(conversationID) == "" {
 		return nil, nil, fmt.Errorf("conversation ID is required")

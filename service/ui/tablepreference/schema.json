@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:agently-core:table-preferences:v1",
+  "title": "Table preferences v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "version"
+  ],
+  "properties": {
+    "version": {
+      "const": 1
+    },
+    "columns": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "visible": {
+            "type": "boolean"
+          },
+          "width": {
+            "type": "number",
+            "minimum": 24,
+            "maximum": 4096
+          },
+          "displayName": {
+            "type": "string",
+            "maxLength": 256
+          },
+          "align": {
+            "enum": [
+              "left",
+              "center",
+              "right"
+            ]
+          },
+          "tooltip": {
+            "type": "string",
+            "maxLength": 1024
+          }
+        }
+      }
+    },
+    "sort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "columnId",
+        "direction"
+      ],
+      "properties": {
+        "columnId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "direction": {
+          "enum": [
+            "asc",
+            "desc"
+          ]
+        }
+      }
+    },
+    "density": {
+      "enum": [
+        "compact",
+        "normal"
+      ]
+    },
+    "frozenColumnIds": {
+      "type": "array",
+      "maxItems": 256,
+      "uniqueItems": true,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      }
+    }
+  }
+}

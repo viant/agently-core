@@ -78,6 +78,8 @@ type Backend struct {
 
 	// inline
 	Rows []map[string]interface{} `json:"rows,omitempty" yaml:"rows,omitempty"`
+	// InlineFilters explicitly opt fixtures into request-scoped filtering.
+	InlineFilters []InlineFilter `json:"inlineFilters,omitempty" yaml:"inlineFilters,omitempty"`
 
 	// Pinned args — fixed inputs the workspace author sets. On merge with
 	// caller-supplied inputs, Pinned wins on conflict.
@@ -216,4 +218,13 @@ type CacheMeta struct {
 	Stale      bool      `json:"stale,omitempty"`
 	FetchedAt  time.Time `json:"fetchedAt"`
 	TTLSeconds int       `json:"ttlSeconds,omitempty"`
+}
+
+// InlineFilter binds a request input to one inline row field. Missing inputs are
+// ignored. Operators are eq, gte, and lte; date values use YYYY-MM-DD.
+type InlineFilter struct {
+	Field    string `json:"field" yaml:"field"`
+	Input    string `json:"input" yaml:"input"`
+	Operator string `json:"operator" yaml:"operator"`
+	Type     string `json:"type,omitempty" yaml:"type,omitempty"`
 }

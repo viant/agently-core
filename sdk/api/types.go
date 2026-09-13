@@ -212,6 +212,7 @@ type WorkspaceCapabilities struct {
 }
 
 type StarterTask struct {
+	AgentID         string   `json:"agentId,omitempty"`
 	ID              string   `json:"id,omitempty"`
 	CategoryID      string   `json:"categoryId,omitempty"`
 	Title           string   `json:"title,omitempty"`
@@ -320,6 +321,7 @@ type GetTemplateOutput struct {
 }
 
 type ListSkillsInput struct {
+	AgentID        string `json:"agentId,omitempty"`
 	ConversationID string `json:"conversationId,omitempty"`
 }
 

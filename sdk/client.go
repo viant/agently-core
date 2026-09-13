@@ -107,7 +107,7 @@ type Client interface {
 
 	// ListToolDefinitions returns the set of tool definitions available in the workspace.
 	ListToolDefinitions(ctx context.Context) ([]ToolDefinitionInfo, error)
-	// ListSkills returns visible skills for the conversation's current agent.
+	// ListSkills returns visible skills for an explicit draft agent or the conversation's current agent.
 	ListSkills(ctx context.Context, input *ListSkillsInput) (*ListSkillsOutput, error)
 	// ActivateSkill returns the SKILL.md body for a named skill in the conversation context.
 	ActivateSkill(ctx context.Context, input *ActivateSkillInput) (*ActivateSkillOutput, error)

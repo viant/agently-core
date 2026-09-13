@@ -494,6 +494,9 @@ func attachmentToLLMContent(a *Attachment) (llm.ContentItem, bool) {
 		return llm.ContentItem{}, false
 	}
 	mimeType := strings.TrimSpace(a.MIMEType())
+	if item, ok := llm.TextAttachmentContent(a.Data, mimeType, a.Name); ok {
+		return item, true
+	}
 	if !strings.EqualFold(mimeType, "application/pdf") {
 		return llm.ContentItem{}, false
 	}

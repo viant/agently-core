@@ -640,3 +640,24 @@ func valuesToServices(value interface{}) []string {
 		return nil
 	}
 }
+
+// Composer configures selector availability in workspace composers.
+type Composer struct {
+	AllowAgentSelection bool `json:"allowAgentSelection"`
+	AllowModelSelection bool `json:"allowModelSelection"`
+}
+
+func (r *Root) Composer() Composer {
+	result := Composer{true, true}
+	if r == nil {
+		return result
+	}
+	section := mapLookup(mapLookup(r.Raw, "ui"), "composer")
+	if value, ok := boolLookup(section, "allowAgentSelection"); ok {
+		result.AllowAgentSelection = value
+	}
+	if value, ok := boolLookup(section, "allowModelSelection"); ok {
+		result.AllowModelSelection = value
+	}
+	return result
+}

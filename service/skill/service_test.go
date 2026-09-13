@@ -1152,3 +1152,25 @@ allowed-tools: Bash(git:*) system/exec:execute
 		t.Fatalf("expected denial marker, got %q", body)
 	}
 }
+
+func TestListForSelectionBeforeConversation(t *testing.T) {
+	root := t.TempDir()
+	for _, name := range []string{"visible", "private"} {
+		dir := filepath.Join(root, name)
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: example\n---\nInstructions"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agent := &agentmdl.Agent{Skills: []string{"visible"}}
+	svc := New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{root}}}, nil, &testFinder{agent: agent})
+	if err := svc.Load(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	items, _, err := svc.ListForSelection(context.Background(), "", "coder")
+	if err != nil || len(items) != 1 || items[0].Name != "visible" {
+		t.Fatalf("items=%v err=%v", items, err)
+	}
+}

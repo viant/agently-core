@@ -35,7 +35,10 @@ public final class AgentlyClient: Sendable {
         if let metadataSession {
             self.metadataSession = metadataSession
         } else {
-            let configuration = URLSessionConfiguration.ephemeral
+            // Keep the caller's transport (including cookie storage and custom
+            // URLProtocol classes) while bounding metadata requests separately.
+            let configuration = session.configuration
+            configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
             configuration.timeoutIntervalForRequest = 15
             configuration.timeoutIntervalForResource = 30
             self.metadataSession = URLSession(configuration: configuration)
@@ -147,12 +150,30 @@ public final class AgentlyClient: Sendable {
     }
 
     public func getWorkspaceMetadata(_ targetContext: MetadataTargetContext? = nil) async throws -> WorkspaceMetadata {
-        let data = try await rawDataRequest(
+        let data = try await rawMetadataDataRequest(
             path: "/v1/workspace/metadata",
             method: "GET",
             query: metadataTargetQueryItems(from: targetContext)
         )
         return try decodeWorkspaceMetadata(data)
+    }
+
+    /// Native clients consume a validated catalog URL, never workspace CSS.
+    public func getWorkspaceThemeCatalog(_ asset: WorkspaceAssetDescriptor) async throws -> Data {
+        guard asset.isThemeCatalog else {
+            throw AgentlySDKError.invalidResponse
+        }
+        let builder = RequestBuilder(endpoint: try endpoint(), encoder: encoder)
+        var request = try builder.makeRequest(path: asset.href, method: "GET")
+        applyStoredSessionCookies(to: &request)
+        let (data, response) = try await metadataSession.data(for: request)
+        storeSessionCookies(from: response, requestURL: request.url)
+        try validate(response: response, data: data)
+        guard data.count <= 512 * 1024,
+              (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("application/json") == true else {
+            throw AgentlySDKError.invalidResponse
+        }
+        return data
     }
 
     public func getPublicAgents() async throws -> [WorkspaceAgentInfo] {
@@ -955,8 +976,10 @@ public final class AgentlyClient: Sendable {
         query: [URLQueryItem] = []
     ) async throws -> Data {
         let builder = RequestBuilder(endpoint: try endpoint(), encoder: encoder)
-        let request = try builder.makeRequest(path: path, method: method, queryItems: query)
+        var request = try builder.makeRequest(path: path, method: method, queryItems: query)
+        applyStoredSessionCookies(to: &request)
         let (data, response) = try await metadataSession.data(for: request)
+        storeSessionCookies(from: response, requestURL: request.url)
         try validate(response: response, data: data)
         return data
     }
@@ -1209,19 +1232,23 @@ private struct PublicAgentsEnvelope: Codable {
 
 private extension AgentlyClient {
     func decodeWorkspaceMetadata(_ data: Data) throws -> WorkspaceMetadata {
-        let metadata: WorkspaceMetadata
-        if let decoded = try? decoder.decode(WorkspaceMetadata.self, from: data) {
-            metadata = decoded
-        } else {
-            metadata = try decoder.decode(WorkspaceMetadataEnvelope.self, from: data).data
+        guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw AgentlySDKError.invalidResponse
         }
-        return metadata.withDefaultFallbacks()
+        var payload = object["data"] as? [String: Any] ?? object
+        // Empty workspaces legitimately omit these omitempty collections.
+        for key in ["agents", "models", "agentInfos", "modelInfos"] where payload[key] == nil || payload[key] is NSNull {
+            payload[key] = [Any]()
+        }
+        let canonical = try JSONSerialization.data(withJSONObject: payload)
+        return try decoder.decode(WorkspaceMetadata.self, from: canonical).withDefaultFallbacks()
     }
 }
 
 private extension WorkspaceMetadata {
     func withDefaultFallbacks() -> WorkspaceMetadata {
         WorkspaceMetadata(
+            workspaceId: workspaceId, uiThemes: uiThemes, uiStyles: uiStyles, uiStyleDiagnostics: uiStyleDiagnostics,
             workspaceRoot: workspaceRoot,
             workspaceVersion: workspaceVersion,
             metadataVersion: metadataVersion,

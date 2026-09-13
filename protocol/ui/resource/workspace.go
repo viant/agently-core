@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/viant/afs"
+	uistyle "github.com/viant/agently-core/service/ui/style"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/agently-core/workspace"
 	wsmeta "github.com/viant/agently-core/workspace/service/meta"
@@ -174,7 +175,11 @@ func ReadWorkspaceViewResource(ctx context.Context, uri, windowKey string) (*mcp
 	if window == nil {
 		return nil, fmt.Errorf("workspace ui resource: unknown window %q", windowKey)
 	}
-	htmlPayload := renderWorkspaceForgeHTML(windowKey, window)
+	styleRevision := ""
+	if publication := uistyle.Workspace().Current(ctx); publication.Styles != nil {
+		styleRevision = publication.Styles.Revision
+	}
+	htmlPayload := renderWorkspaceForgeHTML(windowKey, window, styleRevision)
 	contentHash := mcpuiresource.ContentHash(htmlPayload)
 	contents, err := mcpuiresource.NewReadResultHTMLContents(uri, htmlPayload, mcpuimeta.ResourceUI{
 		ContentHash:     contentHash,
@@ -191,10 +196,11 @@ func ReadWorkspaceViewResource(ctx context.Context, uri, windowKey string) (*mcp
 }
 
 type workspaceForgeTemplateData struct {
-	Title       string
-	WindowKey   string
-	Datasources []workspaceForgeDatasourceView
-	Content     *workspaceForgeContainerView
+	StyleRevision string
+	Title         string
+	WindowKey     string
+	Datasources   []workspaceForgeDatasourceView
+	Content       *workspaceForgeContainerView
 }
 
 type workspaceForgeDatasourceView struct {
@@ -214,16 +220,17 @@ type workspaceForgeItemView struct {
 	DataSourceRef string
 }
 
-func renderWorkspaceForgeHTML(windowKey string, window *forgeTypes.Window) string {
+func renderWorkspaceForgeHTML(windowKey string, window *forgeTypes.Window, styleRevision string) string {
 	namespace := strings.TrimSpace(window.Namespace)
 	title := namespace
 	if title == "" {
 		title = windowKey
 	}
 	view := workspaceForgeTemplateData{
-		Title:       title,
-		WindowKey:   windowKey,
-		Datasources: workspaceForgeDatasources(window.DataSource),
+		StyleRevision: styleRevision,
+		Title:         title,
+		WindowKey:     windowKey,
+		Datasources:   workspaceForgeDatasources(window.DataSource),
 	}
 	if window.View.Content != nil {
 		content := workspaceForgeContainer(window.View.Content)

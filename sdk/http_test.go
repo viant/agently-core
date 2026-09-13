@@ -1231,13 +1231,13 @@ func TestHandler_SkillHandlers(t *testing.T) {
 	spy := &spyToolResourceClient{HTTPClient: base}
 
 	t.Run("list", func(t *testing.T) {
-		req := httptest.NewRequest(http.MethodGet, "/v1/skills?conversationId=c1", nil)
+		req := httptest.NewRequest(http.MethodGet, "/v1/skills?conversationId=c1&agentId=coder", nil)
 		rec := httptest.NewRecorder()
 		handleListSkills(spy).ServeHTTP(rec, req)
 		if rec.Code != http.StatusOK {
 			t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
 		}
-		if spy.listSkills == nil || spy.listSkills.ConversationID != "c1" {
+		if spy.listSkills == nil || spy.listSkills.ConversationID != "c1" || spy.listSkills.AgentID != "coder" {
 			t.Fatalf("unexpected list input: %#v", spy.listSkills)
 		}
 	})
@@ -2350,5 +2350,23 @@ func TestHandler_DecideToolApproval_ReturnsConflictWhenApprovedExecutionFails(t 
 	}
 	if spy.gotDecideInput == nil {
 		t.Fatal("expected DecideToolApproval to be called")
+	}
+}
+
+func TestHTTPClient_ListSkillsByAgent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/skills" || r.URL.Query().Get("agentId") != "coder" || r.URL.Query().Get("conversationId") != "" {
+			t.Errorf("unexpected request: %s", r.URL.String())
+		}
+		_ = json.NewEncoder(w).Encode(&ListSkillsOutput{Items: []SkillItem{{Name: "report"}}})
+	}))
+	defer server.Close()
+	c, err := NewHTTP(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := c.ListSkills(context.Background(), &ListSkillsInput{AgentID: "coder"})
+	if err != nil || len(out.Items) != 1 {
+		t.Fatalf("out=%v err=%v", out, err)
 	}
 }

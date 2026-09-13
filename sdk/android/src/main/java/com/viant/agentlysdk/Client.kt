@@ -4,6 +4,9 @@ import com.viant.agentlysdk.stream.SSEEvent
 import com.viant.agentlysdk.stream.ConversationStreamSnapshot
 import com.viant.agentlysdk.stream.ConversationStreamTracker
 import com.viant.agentlysdk.stream.openEventStream
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CancellationException
@@ -50,6 +53,7 @@ class AgentlyClient(
     ) : this(EndpointRegistry(applySessionDebug(endpoints, sessionDebug)), endpointName, json)
 
     private val restClient = RestClient(endpoints)
+    private val themeFallbackClient = okhttp3.OkHttpClient()
 
     suspend fun authProviders(): List<AuthProvider> = withContext(Dispatchers.IO) {
         val root = parseJson(restClient.get(endpointName, "/v1/api/auth/providers") { it })
@@ -140,6 +144,32 @@ class AgentlyClient(
             MCPAuthInitiateOutput.serializer(),
             mapOf("X-Agently-Csrf" to csrfToken.trim())
         )
+    }
+
+    /** Native themes use JSON only; arbitrary and CSS asset URLs are rejected. */
+    suspend fun getWorkspaceThemeCatalog(asset: WorkspaceAssetDescriptor): String = withContext(Dispatchers.IO) {
+        require(asset.isThemeCatalog) { "Invalid workspace theme catalog URL" }
+        val endpoint = requireNotNull(endpointRegistry.resolve(endpointName))
+        val request = Request.Builder().url(endpoint.baseUrl.trimEnd('/') + asset.href)
+            .applyEndpointConfig(endpoint).header("Accept", "application/json").get().build()
+        val client = (endpoint.httpClient ?: themeFallbackClient).newBuilder()
+            .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) { continuation.resumeWithException(e) }
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    response.use {
+                        try {
+                            if (!it.isSuccessful) throw WorkspaceThemeRequestException(it.code)
+                            require(it.header("Content-Type").orEmpty().startsWith("application/json")) { "Invalid theme catalog content type" }
+                            continuation.resume(readResponseBytes(it.body, 512L * 1024).toString(Charsets.UTF_8))
+                        } catch (error: Exception) { continuation.resumeWithException(error) }
+                    }
+                }
+            })
+        }
     }
 
     suspend fun getWorkspaceMetadata(targetContext: MetadataTargetContext? = null): WorkspaceMetadata = withContext(Dispatchers.IO) {
@@ -612,6 +642,7 @@ class AgentlyClient(
 
     suspend fun listSkills(input: ListSkillsInput): ListSkillsOutput = withContext(Dispatchers.IO) {
         val query = linkedMapOf<String, String>()
+        input.agentId?.takeIf { it.isNotBlank() }?.let { query["agentId"] = it }
         input.conversationId?.takeIf { it.isNotBlank() }?.let { query["conversationId"] = it }
         get(appendQuery("/v1/skills", query), ListSkillsOutput.serializer())
     }

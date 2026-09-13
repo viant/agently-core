@@ -19,7 +19,7 @@ SELECT
     SUM(COALESCE(mc.completion_accepted_prediction_tokens, 0))          AS completion_accepted_prediction_tokens,
     SUM(COALESCE(mc.completion_rejected_prediction_tokens, 0))          AS completion_rejected_prediction_tokens,
     SUM(COALESCE(mc.total_tokens, 0))                                    AS total_tokens,
-    SUM(COALESCE(mc.cost, 0))                                    AS cost
+    CASE WHEN COUNT(mc.cost) = COUNT(*) THEN SUM(mc.cost) ELSE NULL END                                    AS cost
   FROM model_call mc
   JOIN message m ON m.id = mc.message_id
   LEFT JOIN turn t ON t.id = m.turn_id

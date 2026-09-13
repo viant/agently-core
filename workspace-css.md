@@ -1,16 +1,56 @@
 # Workspace-owned CSS and themes for Agently and Forge
 
-Status: design proposal; no runtime changes implemented. Source inspection: 2026-09-11.
+Status: implementation in progress; shared assets and initial web/native theme integration are implemented; remaining release checks are incomplete. Initial source inspection: 2026-09-11.
+
+See the [completion audit](workspace-css-audit.md) for the requirement/evidence matrix and remaining release gaps.
+
+## Implementation checkpoint: prerequisites
+
+The first implementation slice provides the shared contract in [protocol/ui/theme](protocol/ui/theme/theme.go), including token validation, light/dark defaults, mode fallback, and web CSS generation. A [shared resolved fixture](protocol/ui/theme/testdata/baseline.json) is consumed by Go, Swift, and Kotlin tests. The [style asset service](service/ui/style/README.md) now validates workspace files, publishes versioned catalog/CSS routes through private metadata, and includes the style revision in MCP UI resource content. It retains valid snapshots on edit errors, bounds its cache, and confines file access to the configured root.
+
+Native catalog decoders and baseline views exist for iOS and Android. iOS now also has production integration: authenticated catalog loading, scoped selection/cache persistence, offline restoration, logout/workspace cleanup, a Settings appearance section, and a shared SwiftUI theme environment consumed by Forge windows, inputs, textareas, and buttons. Android now has production loading, scoped preferences/cache, Settings selection, and Material/Forge token projection; the no-theme appearance remains unchanged. The iOS simulator visual check and remaining release proofs remain pending.
+
+Forge now forwards authored classes on its ordinary container content root and existing card/section anchor, adds initial widget/control/part attributes, supplies accessible label/message targets, consumes a subset of tokens, and propagates host-provided themes to window/portal boundaries. The [readiness ledger](../forge/doc/workspace-theme-readiness.md) records remaining branches, labels, states, portal integration, and browser proof. Verification so far: Go theme tests, Swift package theme tests, Android debug Kotlin compilation and theme unit tests, Forge render contracts, Forge production build, and the browser theme suite passed. The browser suite exercises actual runtime binding, state retention during theme changes, popup/nested-dialog interaction, focus, disabled/invalid colors, wrapper bypass, and portal cleanup. Passing contract/build checks is not completion of the prerequisite release gates below.
+
+### Web application checkpoint
+
+Agently's main route tree now mounts the shared style provider, including UI Settings and the standalone MCP Forge renderer. Appearance settings expose named themes, light/dark/system preferences, effective-mode fallback, diagnostics, and explicit metadata reload. The SDK preserves asset descriptors and fetches CSS/catalog text with its configured authentication; metadata cache refresh and logout invalidation are implemented. Hosts may supply a style nonce explicitly, through `meta[name="agently-style-nonce"]`, or through an existing nonce-bearing script.
+
+Browser verification against an isolated host confirmed that the dark selection survives reload, a standalone Forge window uses it, and changing theme from settings updates an already-open window without losing its input. The standalone renderer now fills the viewport with its selected surface color. Evidence: `/Users/awitas/Downloads/tmp/outcome/agently-workspace-appearance.png` and `agently-workspace-dark.png` in the same directory. Same-origin parent/guest selection messaging has source/origin/workspace/revision validation and unit coverage; end-to-end embedded-frame verification now passes with parent preference storage disabled, including a catalog/token revision change while retaining iframe text. Evidence: `/Users/awitas/Downloads/tmp/outcome/workspace-theme-iframe.png`.
+
+Targeted SDK asset tests, UI lifecycle/auth/settings tests, and the production UI build passed. The SDK-wide TypeScript check has 167 existing errors; a temporary baseline comparison against pre-change client/types sources showed the same diagnostics and no new errors from this work. Android production selection/cache integration is now implemented; remaining visual and release checks are tracked below.
+
+### iOS integration checkpoint
+
+[WorkspaceThemeRuntime](../agently/ios/Sources/AgentlyAppFoundation/Theme/WorkspaceThemeRuntime.swift) scopes preferences and validated cached catalogs by server, authenticated account, and workspace ID. It restores the last validated scope for offline startup, clears the restore pointer on logout, resets deleted selections, and rejects late results after a scope change. Session-only Default selection also survives an in-session refresh. The app owns refresh/cancellation and passes theme state through a SwiftUI environment; Settings and presented content inherit that environment.
+
+The Swift SDK now preserves theme descriptors in sparse metadata and uses its configured authenticated transport for catalog requests. Metadata requests retain the caller's URLSession configuration while using separate bounded timeouts; stored session cookies are applied consistently. Forge's iOS surface and shared text/password/numeric/textarea/button renderers consume a native projection of the portable tokens while preserving the no-theme path. A macOS-only checkbox style in the tree editor was made conditional so the iOS target builds.
+
+Verified: seven theme/catalog lifecycle tests in Agently's Swift package; seven SDK metadata/theme asset tests; and an Xcode iOS Simulator-target build. Simulator visual execution is not yet verified: all available simulators were shut down, and the iOS debugging skill requires an explicit boot request. The boot question is pending. This does not block continued Android implementation or non-visual verification.
+
+### Android integration checkpoint
+
+Android now loads catalog descriptors through the existing SDK authentication/cookie configuration, with a 512 KiB response limit and cancellable requests. The app scopes saved preferences and validated catalogs by server/account/workspace, restores cached appearance during offline startup, and clears active state on workspace/auth resets. Settings includes named themes, light/dark/system preferences, reload, and an interactive preview using Forge's production native input/button adapters. `AgentlyTheme` and the Forge composition local project the shared tokens into native colors, typography, shapes, and control states.
+
+Verified on a read-only API 35 test emulator: the actual app loads the workspace catalog; dark mode changes the input/button and surrounding native appearance; typed sample text survives switching modes and switching to Compact; the dark choice survives cold restart; and after stopping the server, cold-start Settings still shows the cached Compact theme with its declared light fallback. Settings header/text and status-bar icon contrast were corrected based on the rendered UI. Evidence is in `/Users/awitas/Downloads/tmp/outcome/android-workspace-theme-dark.png`, `android-workspace-theme-compact.png`, and `android-workspace-theme-offline.png`.
+
+The debug build, seven app theme/lifecycle tests, and two SDK asset authentication/cancellation tests passed. The emulator and temporary server were shut down after verification. Native OS-driven mode changes, broader native presentation coverage, and the pending iOS simulator visual check still need release-gate verification; these results do not claim every native component is fully themed.
+
+### Window preview coverage
+
+The standalone `agently/preview` host also uses the shared style service. Its `--workspace-root` option selects the workspace containing `extension/forge/styles`; when omitted, it uses the preview `--root`. `--metadata-root` remains the Forge metadata root and does not implicitly select a style directory. Preview's `/api/workspace` advertises the same style/catalog descriptors, and its frontend uses the shared `WorkspaceStyleProvider` and Forge window/portal boundary. Preview refreshes style metadata without reopening windows; CSS edits must retain window parameters and form state.
+
+The preview runtime must be included in end-to-end acceptance: change a scoped input/container rule in workspace CSS, observe the change in the rendered preview without a frontend rebuild, and verify a popup plus a second window receive the same scope. Keep a failed update's last valid styling and remove customization after manifest deletion. Backend preview tests cover revision changes and asset routes. An isolated built-preview instance was also verified in Chrome: editing the workspace CSS changed the actual container and input background without a rebuild or reload, while the typed value remained intact. Evidence was saved to `/Users/awitas/Downloads/tmp/outcome/window-preview-css-overrides.png`. Preview-specific popup/second-window coverage now passes, including manifest removal without form reset; the generic Forge browser suite also covers popup/nested-dialog propagation.
 
 ## Recommendation
 
 Yes: a workspace should ship its own CSS alongside its Forge windows, models, dialogs, and actions. Forge already accepts named classes and inline style objects. What is missing is an asset delivery and lifecycle contract, plus consistent styling targets across renderers.
 
-Add an optional `extension/forge/styles/manifest.yaml` with shared CSS files, named themes, token values, and light/dark variants. Agently-core validates and serves them as one versioned CSS bundle; the Agently web host loads it after its application styles and establishes a workspace scope around Forge surfaces and their portals. Retain existing `className`, `style`, and `properties` semantics. Add stable Forge tokens and component parts incrementally so ordinary appearance changes stop requiring changes in Forge.
+Add an optional `extension/forge/styles/manifest.yaml` with shared CSS files, named themes, token values, and light/dark variants. Agently-core validates the shared theme contract and serves a versioned token catalog plus a derived web CSS bundle; the Agently web host loads it after its application styles and establishes a workspace scope around Forge surfaces and their portals. Retain existing `className`, `style`, and `properties` semantics. Add stable Forge tokens and component parts incrementally so ordinary appearance changes stop requiring changes in Forge.
 
 The smallest useful release needs one server bundle endpoint, an additive workspace metadata field, a shared host loader and theme selector, portal propagation, a small input/button token contract, and a fix for generic container class forwarding. It does not need a new widget framework, a workspace npm build, CSS-in-JS, or a rewrite of existing Forge CSS.
 
-**Release prerequisite:** standardize the public styling targets for the components advertised as theme-supported before shipping named themes. This is a bounded compatibility task, not a repository-wide class rename. Asset delivery can be developed in parallel; theme readiness requires the explicit gate below.
+**Release prerequisite:** define a platform-neutral token/selection contract and prove its baseline on web, native iOS, and native Android; also standardize the public styling targets for the components advertised as theme-supported before shipping named themes. This is a bounded compatibility task, not a repository-wide class rename. Asset delivery can be developed in parallel; theme readiness requires the explicit gate below.
 
 ## Current architecture and ownership
 
@@ -165,45 +205,45 @@ themes:
     label: Branded
     fallbackMode: light
     tokens:                    # Shared by this theme's variants
-      --forge-font-family: '"Inter", system-ui, sans-serif'
-      --forge-font-size: 14px
-      --forge-control-height: 36px
-      --forge-control-radius: 8px
-      --forge-control-padding-inline: 10px
+      typography.family: system
+      typography.size: 14
+      control.minHeight: 36
+      control.radius: 8
+      control.paddingInline: 10
     files:
       - themes/branded.css
     modes:
       light:
         tokens:
-          --forge-surface: '#ffffff'
-          --forge-text: '#171b26'
-          --forge-control-bg: '#fffdf5'
-          --forge-control-text: '#171b26'
-          --forge-control-border: '#788397'
-          --forge-focus-color: '#4466cc'
-          --forge-button-bg: '#3453b3'
-          --forge-button-text: '#ffffff'
+          surface: '#ffffff'
+          text: '#171b26'
+          control.background: '#fffdf5'
+          control.foreground: '#171b26'
+          control.border: '#788397'
+          focus.color: '#4466cc'
+          button.background: '#3453b3'
+          button.foreground: '#ffffff'
       dark:
         tokens:
-          --forge-surface: '#1b2230'
-          --forge-text: '#edf1f7'
-          --forge-control-bg: '#242d3d'
-          --forge-control-text: '#edf1f7'
-          --forge-control-border: '#8491a6'
-          --forge-focus-color: '#9db5ff'
-          --forge-button-bg: '#a9bfff'
-          --forge-button-text: '#172447'
+          surface: '#1b2230'
+          text: '#edf1f7'
+          control.background: '#242d3d'
+          control.foreground: '#edf1f7'
+          control.border: '#8491a6'
+          focus.color: '#9db5ff'
+          button.background: '#a9bfff'
+          button.foreground: '#172447'
         files:
           - themes/branded-dark.css
   - id: compact
     label: Compact
     fallbackMode: light
     tokens:
-      --forge-control-height: 30px
-      --forge-control-radius: 4px
-      --forge-control-padding-inline: 6px
+      control.minHeight: 30
+      control.radius: 4
+      control.paddingInline: 6
     modes:
-      light: {}                # Inherit Forge's built-in light token defaults
+      light: {}                # Inherit shared built-in light token defaults
 ```
 
 Theme IDs must be unique lowercase identifiers matching `[a-z][a-z0-9-]{0,63}`. Reserve `forge-default` for the framework fallback; it cannot be redefined by a workspace. Require at least one declared mode, a supported `fallbackMode`, and a `defaultTheme` referencing a declared theme whenever `themes` is nonempty. `defaultMode` defaults to `system`. Labels are plain display text.
@@ -212,21 +252,27 @@ Each `files` list is ordered and paths remain relative to `styles/`. Reject dupl
 
 ### Token ownership and resolution
 
-Forge owns the token vocabulary and default palettes. Agently-core serializes valid token declarations; the host selects a theme/mode; Blueprint adapters consume those variables. Do not introduce a second copy of Blueprint's complete theming API in workspace YAML.
+The shared Agently theme schema and default palettes live in agently-core as a versioned, platform-neutral contract. Forge owns the web token mapping and widget consumption; Agently's iOS and Android clients own native adapters. Generate or validate client bindings against shared fixtures so each client does not invent its own token names or defaults. Do not introduce a second copy of Blueprint's complete theming API in workspace YAML.
 
-| First-release tokens | Consumer and purpose |
-| --- | --- |
-| `--forge-font-family`, `--forge-font-size` | Typography on themed Forge surfaces and supported controls |
-| `--forge-surface`, `--forge-text` | Themed surface background and foreground |
-| `--forge-control-height`, `--forge-control-radius`, `--forge-control-padding-inline` | Text/numeric inputs and buttons; textarea uses minimum sizing rather than a fixed single-line height |
-| `--forge-control-bg`, `--forge-control-text`, `--forge-control-border` | Supported input appearance |
-| `--forge-focus-color` | Visible keyboard focus indicator |
-| `--forge-button-bg`, `--forge-button-text` | Ordinary enabled button appearance; semantic intent states retain their own styles |
-| `--forge-disabled-bg`, `--forge-disabled-text`, `--forge-invalid-border` | Disabled and validation states; framework supplies mode-appropriate defaults |
+Manifest token keys are semantic names, not CSS custom-property names. Dotted names are literal map keys, not nested objects. The original CSS-only examples remain valid web overrides; `--forge-*` names belong to the generated web representation.
 
-For each selected mode, resolve a complete token map in this order: Forge built-in mode defaults → theme tokens → mode tokens. Unspecified values inherit defaults, never values left over from the previous selection. Generate CSS declarations rather than putting theme tokens through typed item `StyleProperties` or applying them as inline styles.
+| Shared token | Web variable | Value and native interpretation |
+| --- | --- | --- |
+| `typography.family` | `--forge-font-family` | Enum `system` in v1; each platform chooses its system font |
+| `typography.size` | `--forge-font-size` | Positive logical size; native text respects user scaling |
+| `surface`, `text` | `--forge-surface`, `--forge-text` | Surface and foreground colors |
+| `control.minHeight` | `--forge-control-height` | Minimum visual control height; never overrides platform minimum touch targets |
+| `control.radius`, `control.paddingInline` | `--forge-control-radius`, `--forge-control-padding-inline` | Nonnegative logical dimensions; padding follows writing direction |
+| `control.background`, `control.foreground`, `control.border` | `--forge-control-bg`, `--forge-control-text`, `--forge-control-border` | Input colors |
+| `focus.color` | `--forge-focus-color` | Focus accent where platform customization is supported; retain native accessibility feedback |
+| `button.background`, `button.foreground` | `--forge-button-bg`, `--forge-button-text` | Ordinary enabled buttons; semantic intent states retain their own styles |
+| `disabled.background`, `disabled.foreground`, `validation.border` | `--forge-disabled-bg`, `--forge-disabled-text`, `--forge-invalid-border` | Disabled and validation colors |
 
-Validate known token names and property-appropriate string values before CSS serialization. Use a CSS parser to reject declaration/rule injection and unsupported resource references; reject unknown tokens with a diagnostic. CSS files remain the extension point for workspace-specific variables. Reject token dependency cycles if `var()` references are supported; a first implementation may restrict manifest values to literal colors, lengths, and font lists. The example uses only literal values. A listed font is not downloaded automatically.
+Use finite JSON/YAML numbers for dimensions, not `px`, `rem`, `dp`, or CSS expressions. Web maps logical dimensions to CSS pixels (and accessible font scaling); iOS maps them to points, Android to density-independent dimensions and scaled text. This is semantic parity, not a promise of identical pixel geometry. Control adapters apply minimum sizes and text reflow required by their platforms. Textarea uses minimum sizing, not a fixed single-line height.
+
+For each selected mode, resolve a complete token map in this order: shared built-in mode defaults → theme tokens → mode tokens. Unspecified values inherit defaults, never values left over from the previous selection. The backend publishes resolved typed maps. Web generates CSS declarations rather than passing tokens through item `StyleProperties` or applying them inline; native consumes the typed maps directly.
+
+Version 1 accepts literal `#RRGGBB` or `#RRGGBBAA` colors, bounded nonnegative numeric dimensions (font size and minimum height must be positive), and the documented typography enum. Define numeric bounds in the shared schema. Reject unknown tokens and wrong types with diagnostics. No CSS `var()`, `calc()`, font download URLs, or token-reference expressions in portable tokens. CSS files remain the web extension point for custom variables, fonts, and selectors, with the existing parser validation. Native must never parse or execute those files.
 
 Both built-in palettes and token consumption for the listed input/button targets ship in phase 1. They do not imply complete dark-mode support for all Forge dashboards or third-party widgets. Publish a coverage list with the feature. Validate actual contrast/focus and disabled/invalid visibility rather than assuming the example palette proves accessibility.
 
@@ -272,9 +318,48 @@ Because every variant is already in the bundle, changing theme/mode needs no req
 
 For dark mode, the Blueprint adapter applies its supported dark-theme class to the same scope and portal boundaries, alongside Forge tokens. Keep the vendor class inside the adapter; workspace authors select `dark`, not a Blueprint class name. Confirm behavior with the installed Blueprint version, including nested overlays and date/select components; adding a class is not proof of full coverage.
 
-The first release themes Forge surfaces. Agently's surrounding navigation/chat shell retains its current styling. A future shell bridge can map `--forge-surface`, `--forge-text`, and additional semantic tokens to `--app-*` on an explicit shell scope; raw Forge CSS must not silently become global shell styling. Native iOS/Android and print/export are separate renderers and do not consume this browser CSS contract automatically.
+The first release themes Forge surfaces. Agently's surrounding navigation/chat shell retains its current styling. A future shell bridge can map `--forge-surface`, `--forge-text`, and additional semantic tokens to `--app-*` on an explicit shell scope; raw Forge CSS must not silently become global shell styling. Native iOS/Android consume the shared semantic token catalog through the adapters below, never browser CSS. Print/export remains a separate rendering contract.
 
 The authenticated MCP Forge page loads the same catalog/bundle. When embedded, the parent sends its current selection and subsequent changes through a small theme message on the existing guest bridge; validate the exact origin, source window, workspace identity, and catalog revision. The guest validates theme IDs/modes against its own catalog, requests a metadata refresh on revision mismatch, and ignores stale messages. Theme messages carry IDs/preferences, never raw CSS or arbitrary asset URLs. Apply the parent's effective mode to match the parent precisely; a directly opened renderer resolves the local preference itself. Use storage events for other same-origin tabs and an in-document provider notification for immediate local updates. Inbound synchronization must not echo messages or write new preferences in a loop.
+
+## Prerequisite: shared themes for native Agently
+
+**Establish the shared contract and a small native proof before calling named themes cross-platform.** Full native component migration does not block the web CSS endpoint or loader. The prerequisite is a typed theme schema, common default palettes and selection rules, and demonstrated consumption by a representative surface, text input, and button on web, iOS, and Android. Native implementation details and current coverage still need a code audit; this document does not claim native theming already exists.
+
+### Shared data, separate platform adapters
+
+Keep the existing proposed workspace manifest location for compatibility with this design, but treat its semantic tokens as renderer-independent. The `files` entries are optional web-only extensions; a tokens-only workspace theme must work without any CSS files. Do not create a second native theme manifest or force native clients to depend on Forge JavaScript.
+
+Add a private metadata descriptor `uiThemes` with `version`, `revision`, and `href`, alongside `uiStyles`. Serve a versioned JSON catalog at the proposed `/v1/workspace/ui/themes/<revision>.json`. The catalog contains contract version, shared default-palette version, default theme/mode, and each theme's ID, label, fallback mode, and fully resolved token map for each supported mode. It contains no filesystem paths or CSS source. Apply the same authenticated access, immutable revision lookup, private caching, and bounded snapshot retention as the CSS route.
+
+Use one shared snapshot revision for the token catalog and its derived CSS in v1. Include canonical manifest data, all source bytes, resolved palettes, and compiler/contract version in that revision. A CSS-only change may therefore refresh a native catalog unnecessarily; accept that small cost initially to simplify consistency. Advertise both descriptors atomically. `uiStyles.themeRevision` identifies the catalog revision it was built from. The catalog is authoritative for selection/defaults; remove duplicated theme lists/defaults from `uiStyles` so clients cannot see conflicting catalogs.
+
+CSS-only manifests can omit `uiThemes`; native then uses built-in appearance. Tokens-only manifests still generate web CSS. Missing manifest produces existing platform appearance. A backend validation failure retains the previous valid snapshot for that workspace; native does not bypass validation just because the invalid source is web-only.
+
+| Adapter | Required baseline behavior |
+| --- | --- |
+| Web / Forge | Map shared tokens to `--forge-*`, stable parts and Blueprint theme integration; CSS can supplement the mapped tokens |
+| Native iOS | Resolve a typed theme through the native view environment/state mechanism and apply it to the covered surface/input/button; preserve platform text scaling, focus, and presentation behavior |
+| Native Android | Resolve the same typed theme through the app's native theme/state mechanism and apply it to the covered surface/input/button; preserve font scaling, touch targets, and system interaction feedback |
+
+Do not require native components to emulate Blueprint or invent CSS-like class names. Each client documents which semantic tokens its components consume. Native sheets/dialogs must receive the same selected theme through their platform presentation mechanisms, just as web portals receive scope attributes. Broader coverage is incremental.
+
+### Built-in themes, selection, and offline behavior
+
+First implement built-in light/dark palettes through the same typed resolver used for workspace themes; then feed a workspace-defined catalog through it. This proves the adapter independently of networking and prevents two separate styling systems. Keep the web's proposed `forge-default` option web-only; it means existing Forge appearance, not a portable theme ID. Native uses a local Default option for its existing platform appearance. Workspace theme IDs, supported modes, fallback mode, and light/dark/system resolution remain identical across clients.
+
+Persist theme ID and mode preference in platform-local settings under the authenticated account and stable workspace ID. Use native OS appearance for System and observe changes only while System is selected. Do not persist the resolved effective mode as the user's preference. Removing a selected theme resets its saved selection to workspace defaults; unknown schema versions fall back to a previously supported catalog or built-in appearance with a diagnostic.
+
+Cache only validated catalogs for the correct account/workspace. On offline startup, use that workspace's last valid catalog; otherwise use built-in appearance. On logout/workspace change clear active theme state and prevent stale in-flight updates from applying. Do not display a cached theme from another workspace. Cross-device preference synchronization remains deferred: clients share rules and themes, not automatically the same locally selected preference.
+
+### Cross-platform acceptance gate
+
+- [x] One versioned schema/default-palette fixture yields identical resolved semantic values on web, iOS, and Android for both modes.
+- [ ] A representative surface, text input, and button consume built-in palettes and one workspace-defined theme on all three platforms.
+- [x] Native clients load the typed JSON catalog without requesting CSS or interpreting CSS tokens; web derives variables from the same values.
+- [x] Light/dark/system, unsupported-mode fallback, deleted themes, workspace/account isolation, and offline recovery have shared scenario coverage.
+- [ ] Theme changes retain form state and navigation state; native text scaling, screen-reader semantics, touch targets, focus, and modal presentation remain usable.
+- [x] Coverage explicitly separates proven components from unmigrated components; the web-only CSS escape hatch does not imply native visual parity.
 
 ## Backend design: agently-core
 
@@ -283,36 +368,36 @@ Add a small style asset service, separate from YAML resource decoding, under a p
 1. Read the manifest and exact referenced CSS bytes. Missing manifest means no customization.
 2. Validate schema version, relative paths, duplicate entries, file type, UTF-8, and size limits. Suggested initial limits: 32 unique CSS files and 512 KiB of emitted CSS, including all generated theme variants. Reject absolute paths, URL paths, traversal, and symlinks escaping the resolved styles directory. Do not expose a generic filesystem route.
 3. Compile shared CSS and all theme variants in the order defined above, with explicit file separators. Compute a revision over canonical manifest/catalog data, ordered source names and bytes, generated CSS, and the token/compiler contract version. Theme labels/defaults and token-only edits must invalidate the revision too. Publish the bundle and catalog only after the entire snapshot succeeds.
-4. Add an optional `uiStyles` descriptor to `MetadataResponse`, and include its revision in metadata version computation.
+4. Add optional `uiStyles` and `uiThemes` descriptors to `MetadataResponse`; publish them from the same snapshot and include its revision in metadata version computation.
 5. Serve the exact immutable snapshot through the proposed authenticated endpoint below. A request for an unavailable revision must fail, never return newer bytes under the old revision.
 
 ```json
 {
+  "uiThemes": {
+    "version": 1,
+    "revision": "<sha256>",
+    "href": "/v1/workspace/ui/themes/<sha256>.json"
+  },
   "uiStyles": {
     "version": 1,
     "revision": "<sha256>",
-    "href": "/v1/workspace/ui/styles/<sha256>.css",
-    "defaultTheme": "branded",
-    "defaultMode": "system",
-    "themes": [
-      {"id": "branded", "label": "Branded", "modes": ["light", "dark"], "fallbackMode": "light"},
-      {"id": "compact", "label": "Compact", "modes": ["light"], "fallbackMode": "light"}
-    ]
+    "themeRevision": "<sha256>",
+    "href": "/v1/workspace/ui/styles/<sha256>.css"
   }
 }
 ```
 
-For CSS-only manifests, omit theme defaults and return an empty theme catalog. Add a separate opaque stable `workspaceId` to private metadata for preference scoping; the shared asset revision is not a user preference or identity. The bundle endpoint never varies bytes by the requesting user's selected theme.
+For CSS-only manifests, omit `uiThemes` and `uiStyles.themeRevision`. The implemented identity source is root `config.yaml` → `workspaceId`, with a generated `.workspace-id` fallback; copy that file or configure the same ID when relocating a workspace. Add a separate opaque stable `workspaceId` to private metadata for preference scoping; the shared asset revision is not a user preference or identity. The bundle endpoint never varies bytes by the requesting user's selected theme.
 
 Respond with `Content-Type: text/css; charset=utf-8`, `X-Content-Type-Options: nosniff`, an ETag, and private caching with revalidation. Keep a bounded cache of compiled snapshots to cover metadata/bundle request races. Authorization still applies on cache hits and conditional requests. Never let a shared HTTP cache expose another workspace's assets.
 
-Manifest deletion removes `uiStyles` from metadata. An invalid replacement retains the last valid bundle for the same workspace and reports a diagnostic; on first load it uses default styling. Do not convert a styling failure into an unavailable agent/window service. Log path-relative diagnostics without returning filesystem contents.
+Manifest deletion removes `uiStyles` and `uiThemes` from metadata. An invalid replacement retains the last valid bundle for the same workspace and reports a diagnostic; on first load it uses default styling. Do not convert a styling failure into an unavailable agent/window service. Log path-relative diagnostics without returning filesystem contents.
 
 Initial freshness contract: metadata refresh/page reload reevaluates style bytes and produces a new revision. Do not claim existing model/agent hot-swap automatically watches CSS. Add file watching or a refresh notification later if editing without reload is needed. Avoid timestamp-only revision detection.
 
 ## Host design: Agently web
 
-Implement one reusable workspace style manager, invoked by both normal application bootstrap and the standalone MCP Forge page. It consumes the descriptor rather than knowing workspace paths.
+Implement one reusable workspace style manager, invoked by both normal application bootstrap and the standalone MCP Forge page. It consumes the descriptors rather than knowing workspace paths. Fetch the token catalog through the authenticated client, validate the contract version, and reconcile it with the matching CSS revision before activating either. A missing `uiThemes` means CSS-only behavior.
 
 - Insert a managed `<link rel="stylesheet">` after base/application styles. Use a stable insertion anchor; keep later lazy component CSS ahead of this anchor or reestablish order when it is inserted.
 - Deduplicate by document, workspace identity, and revision. Track load/error completion; reference count if multiple providers share one document.
@@ -413,16 +498,16 @@ Maintain a checked-in styling coverage ledger in Forge as part of implementation
 | MCP Forge renderer | Same styling targets and selected theme as normal hosted windows | Non-Forge MCP content remains outside the contract |
 | Select/date, tables, dashboards, charts | Document as compatibility-only; smoke-check that the theme infrastructure does not break them | Full stable-part/token coverage before claiming theme support |
 
-Release gates:
+Release gates for the published initial web styling family (cross-platform visual acceptance remains a separate gate above):
 
-- [ ] Inventory current class and inline-style handling for every first-release renderer; distinguish public contracts from implementation details.
-- [ ] Preserve authored class tokens, framework classes, and existing style/property precedence; verify typed YAML → Go → JSON → rendered DOM behavior.
-- [ ] Fix supported container branches and cover normal wrappers, wrapper bypass, and validation wrappers.
-- [ ] Place public parts on actual nodes in every covered pack; publish supported states and any repeated-part rules.
-- [ ] Prove input/button token changes in both modes using computed styles, including focus/disabled/invalid states and default appearance without a manifest.
-- [ ] Prove matching scope and selection across window roots, portal mounts, and the MCP iframe without clipping, focus, or form-state regressions.
-- [ ] Verify a workspace example changes a covered control using only Forge parts/tokens, without `.bp6-*`, DOM-depth selectors, or `!important`.
-- [ ] Publish the coverage ledger and migration notes; do not label compatibility-only components as fully theme-supported.
+- [x] Inventory current class and inline-style handling for every first-release renderer; distinguish public contracts from implementation details.
+- [x] Preserve authored class tokens, framework classes, and existing style/property precedence; verify typed YAML → Go → JSON → rendered DOM behavior.
+- [x] Fix supported container branches and cover normal wrappers, wrapper bypass, and validation wrappers.
+- [x] Place public parts on actual nodes in every covered pack; publish supported states and any repeated-part rules.
+- [x] Prove input/button token changes in both modes using computed styles, including focus/disabled/invalid states and default appearance without a manifest.
+- [x] Prove matching scope and selection across window roots, portal mounts, and the MCP iframe without clipping, focus, or form-state regressions.
+- [x] Verify a workspace example changes a covered control using only Forge parts/tokens, without `.bp6-*`, DOM-depth selectors, or `!important`.
+- [x] Publish the coverage ledger and migration notes; do not label compatibility-only components as fully theme-supported.
 
 ### Compatibility and ownership of follow-up work
 
@@ -430,7 +515,7 @@ Introduce public hooks additively. Preserve existing Forge and Blueprint classes
 
 Forge owns runtime/pack hooks, decorative defaults, and renderer proof. Agently owns boundary propagation, selection, portal integration, and iframe parity. Agently-core owns token/schema validation and metadata round-trip proof. Backend CSS delivery must not try to compensate for missing frontend targets by rewriting vendor selectors.
 
-Global class renaming, a complete BEM conversion, removal of all inline styles, full Blueprint replacement, shell theming, and complete dashboard/print/native theming are not prerequisites. Apply the same readiness gate incrementally as each additional component family becomes theme-supported.
+Global class renaming, a complete BEM conversion, removal of all inline styles, full Blueprint replacement, shell theming, and complete dashboard/print/native component coverage are not prerequisites. The small shared native baseline above is a prerequisite for cross-platform named themes. Apply the same readiness gate incrementally as each additional component family becomes theme-supported.
 
 ## Cascade and override policy
 
@@ -462,22 +547,27 @@ Ship self-contained CSS initially. Do not support `@import` or relative `url(...
 
 ## Delivery plan and acceptance criteria
 
+### Phase 0: shared theme contract and native baseline
+
+Define the platform-neutral schema, default palettes, versioned catalog, and shared resolution fixtures in agently-core. Implement a baseline adapter on web, iOS, and Android, first with built-in light/dark themes, then with one workspace theme. Audit native component/state architecture during implementation and record proof in each client's coverage ledger. Complete the cross-platform acceptance gate above before claiming cross-platform theme support. Full native migration is not required to develop or deliver standalone web CSS loading.
+
 ### Phase 1: ship workspace CSS and named themes
 
-**Entry work and release gate:** complete the styling standardization checklist above for the declared first-release coverage. Asset service and host-loader development may run in parallel, but successful CSS loading alone is not acceptance for named themes.
+**Entry work and release gate:** complete phase 0 and the styling standardization checklist above for the declared first-release coverage. Asset service and host-loader development may run in parallel, but successful CSS loading alone is not acceptance for named themes.
 
 Agently-core adds the manifest/theme catalog, token validation and bundle compilation, authenticated endpoint, stable workspace identity, and metadata/revision handling. Agently adds the shared loader, Appearance selection/persistence, and window/portal boundaries, including standalone MCP loading and embedded theme synchronization. Forge fixes container class propagation, exposes portal integration, and ships the small token set, default palettes, and input/button part targets specified above. Document Blueprint-specific selectors and incomplete component coverage explicitly.
 
 Acceptance: a workspace author adds the manifest and CSS, refreshes, and changes an input's appearance without rebuilding Agently or modifying Forge. Opening, closing, restoring, and embedding that window retains the same theme. No manifest produces existing appearance. Removing the manifest restores default styling after refresh. Named themes and light/dark/system preferences can be switched without a rebuild, network fetch, or lost form state; reload retains the selection for the same account/workspace, and portals/embedded windows match it.
 
-### Phase 2: reduce vendor coupling
+### Phase 2: expand web and native component coverage
 
-Extend the phase-1 pack styling contract beyond inputs/buttons to select/date controls, tables, dialogs, and dashboards as required. Expand coverage tests and consider an explicit Agently shell token bridge. Update example workspaces to use those hooks. Keep direct `.bp6-*` rules available as an explicit compatibility escape hatch. Align and verify the actual Blueprint dependency/CSS versions independently of the theme feature.
+Extend the phase-1 pack styling contract beyond inputs/buttons to select/date controls, tables, dialogs, and dashboards as required. Expand native theme consumption to additional screens, sheets, dialogs, and controls with platform-specific proofs. Expand coverage tests and consider an explicit Agently web-shell token bridge. Update example workspaces to use those hooks. Keep direct `.bp6-*` rules available as an explicit compatibility escape hatch. Align and verify the actual Blueprint dependency/CSS versions independently of the theme feature.
 
 ### Required verification when implemented
 
 - Backend: absent/invalid manifest, order, revision changes for CSS-only edits, duplicate/traversal/symlink rejection, unsupported import/URL rejection, authorization, conditional requests, and old-revision request races.
 - Themes: CSS-only compatibility, invalid IDs/defaults/modes/tokens, token injection rejection, deterministic compilation, token/catalog-only revision changes, single-mode fallback, deleted themes, system changes, disabled storage, and account/workspace preference isolation.
+- Native contract: shared resolution fixtures, typed catalog validation/version fallback, no CSS dependency, cached offline startup, account/workspace isolation, OS mode changes, text scaling, touch targets, and native modal/theme propagation.
 - Metadata serialization: additive descriptor survives the SDK/host normalization path; unknown fields do not break older clients.
 - Forge render proof: generic container branches, wrapper bypass, input versus wrapper parts, existing class/style precedence, validation/read-only/disabled states.
 - Host lifecycle: deduplication, failed replacement, deletion, stale load callbacks, workspace switch/logout, late CSS imports, and restored windows.
@@ -485,4 +575,100 @@ Extend the phase-1 pack styling contract beyond inputs/buttons to select/date co
 - Theme lifecycle: switching preserves form/scroll state, never leaks inactive-theme rules, updates portal/native control appearance, synchronizes embedded and directly opened Forge pages, rejects untrusted bridge messages, and reconciles catalog revisions atomically. Verify supported control contrast and focus in both modes.
 - Run both development and production builds for style ordering. Verify a CSS-only workspace edit causes no frontend build dependency.
 
-This document is based on source inspection, not a completed browser/runtime proof. It makes no claim that the proposed loader, tokens, scope attributes, or endpoints exist today.
+The implementation checkpoint above distinguishes code already added from planned work. Browser/native visual proof and the prerequisite release gates remain incomplete; the proposed workspace loader, HTTP endpoints, and application selection lifecycle are not implemented yet.
+
+
+## Web tab sizing: ownership and source fixes
+
+The host allocates available space. Forge owns the layout within that space;
+metadata supplies content, behavior, and deliberate layout choices. Workspace
+CSS supplies appearance through supported hooks. A theme must not repair tab
+geometry with generated IDs, Blueprint internals, inline-style substring
+selectors, or per-tab forced heights.
+
+The September 12 source trace identified two independent leaks:
+
+- Preview shell selectors matched every `section` and `section > div`, including
+  Forge content. The host now uses explicit `preview-*` classes and allocates a
+  viewport-sized flex column; status notices do not consume the window's flex space.
+- WindowManager and FormPanel used descendant Blueprint panel selectors and
+  `height: 100%`. Outer window rules reached nested panels, and panel height could
+  consume the entire parent in addition to the tab rail. These components now
+  pass owned panel classes through Blueprint's public `panelClassName` API,
+  target direct children, and allocate remaining space with flex. Inactive
+  mounted panels do not participate in layout.
+
+`forge-window-manager-tabs__panel` and `forge-form-panel-tabs__panel` identify
+owned panel surfaces. Their layout declarations belong to Forge. Section tabs
+remain content-sized by default; `tabs.fill: true` participates in the available
+space contract and gives its active panel a flex column and scrolling. Equal
+panel heights are not promised for content-sized sections. A host must provide
+bounded space before expecting fill mode to scroll within it.
+
+Regression coverage: `forge/scripts/test-tab-layout.mjs` renders real Blueprint
+Tabs with nested window/form panels at 1280px and 390px widths. It checks bounded
+active panels, excluded inactive content, long-content scrolling, and a nested
+content-sized section unaffected by preview shell rules.
+
+Remaining advertiser migration: the active workspace still contains per-tab
+minimum heights in metadata and geometry/message overrides in `advertiser.css`.
+Those must be evaluated and removed as the relevant content/behavior contracts
+are migrated. Passing the isolated layout regression does not certify that
+customized advertiser screen. Operational messages must be rendered from actual
+application state, never CSS-generated content.
+
+
+### Explicit sizing and scroll ownership follow-up
+
+Container metadata now supports `sizingMode: fill | content` (retained by the Go
+model). Section-tab content receives content allocation unless `tabs.fill` is
+true; ordinary nested stacks pass their allocation to children. The generic
+container and its card/section chrome no longer repeat `height: 100%`. Explicit
+metadata heights apply once at the outer boundary. Only that boundary handles
+`scrollMode: self`.
+
+WindowManager delegates scrolling to WindowLayout. When WindowLayout owns root
+scrolling, it passes content allocation and parent-scroll mode to the root,
+avoiding a second root scroll area. A residual broad WindowManager Blueprint
+panel rule discovered in the follow-up was removed; the regression now asserts
+nested computed overflow as well as bounding rectangles.
+
+See `forge/doc/container-layout.md` for defaults, compatibility behavior, and the
+scroll-owner table. Exact advertiser-pair validation is still pending; this is
+not a claim that every customized advertiser tab now has identical geometry.
+
+
+### Shared table and control consistency acceptance
+
+The broader Campaigns/History review is tracked in
+`forge/doc/web-component-consistency.md`. Shared component changes consolidate
+collection actions with table tools, simplify table/pagination chrome, keep
+short tables compact within fill panels, place overflow controls outside data,
+budget sticky-column width, and guarantee a visible error fallback. Section-tab
+arrows occupy layout space instead of covering labels. Actual preview acceptance
+covers desktop, narrow, and error states; it does not certify fixture correctness.
+The advertiser workspace now uses catalog tokens and supported CSS hooks instead
+of generated-ID selectors, global Blueprint overrides, or injected messages.
+
+### Final workspace overrides
+
+The optional top-level `overrides: [overrides.css]` manifest list loads after
+shared files, theme tokens, theme files, and mode files. Paths use the same
+workspace-relative validation and size limits as `files`. Ordinary CSS
+specificity still applies; use matching scoped selectors to override a theme.
+Existing `files` ordering is unchanged.
+
+### Composer selector availability
+
+Workspace `config.yaml` can configure composer selectors:
+
+```yaml
+ui:
+  composer:
+    allowAgentSelection: true
+    allowModelSelection: true
+```
+
+Both default to true. These settings control UI selector availability, not
+backend authorization. Individual Forge chat metadata may further hide selectors
+with the same keys; hiding a selector preserves the current/default selection.

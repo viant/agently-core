@@ -728,10 +728,13 @@ func (c *HTTPClient) ListToolDefinitions(ctx context.Context) ([]ToolDefinitionI
 }
 
 func (c *HTTPClient) ListSkills(ctx context.Context, input *ListSkillsInput) (*ListSkillsOutput, error) {
-	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
-		return nil, errors.New("conversation ID is required")
+	if input == nil || (strings.TrimSpace(input.ConversationID) == "" && strings.TrimSpace(input.AgentID) == "") {
+		return nil, errors.New("conversation ID or agent ID is required")
 	}
 	path := "/v1/skills?conversationId=" + url.QueryEscape(strings.TrimSpace(input.ConversationID))
+	if agentID := strings.TrimSpace(input.AgentID); agentID != "" {
+		path += "&agentId=" + url.QueryEscape(agentID)
+	}
 	var out ListSkillsOutput
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err

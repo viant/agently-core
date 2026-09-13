@@ -230,7 +230,23 @@ data class IDPDelegateOutput(
 )
 
 @Serializable
+data class WorkspaceAssetDescriptor(
+    val version: Int,
+    val revision: String,
+    val href: String,
+    val themeRevision: String? = null,
+) {
+    val isThemeCatalog: Boolean get() = version == 1 && revision.matches(Regex("^[a-f0-9]{64}$")) && href == "/v1/workspace/ui/themes/$revision.json"
+}
+
+class WorkspaceThemeRequestException(val statusCode: Int) : java.io.IOException("Workspace theme request failed ($statusCode)")
+
+@Serializable
 data class WorkspaceMetadata(
+    val workspaceId: String? = null,
+    val uiThemes: WorkspaceAssetDescriptor? = null,
+    val uiStyles: WorkspaceAssetDescriptor? = null,
+    val uiStyleDiagnostics: List<String> = emptyList(),
     val workspaceRoot: String? = null,
     val workspaceVersion: String? = null,
     val metadataVersion: String? = null,
@@ -375,7 +391,8 @@ data class GetTemplateOutput(
 
 @Serializable
 data class ListSkillsInput(
-    val conversationId: String? = null
+    val conversationId: String? = null,
+    val agentId: String? = null
 )
 
 @Serializable
