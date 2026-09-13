@@ -606,3 +606,26 @@ The right sequence is:
 
 That approach keeps the implementation aligned with Codex, Claude, Cursor, and
 other runtimes while fitting cleanly into Agently's current architecture.
+
+
+## Unqualified tool references
+
+A skill may declare `allowed-tools: lookup` when it does not know the MCP server
+name. Existing exact tool names, aliases, service names, qualified references,
+wildcards, and `Bash(...)` declarations keep their existing interpretation.
+Only an otherwise unmatched unqualified name triggers a registry method lookup.
+
+- One match: activation instructions name the qualified tool to use.
+- Multiple matches: activation instructions list the qualified candidates and
+  ask the agent to use its existing elicitation flow to obtain the user's choice.
+  The agent must not choose a default or execute every candidate. Cancellation
+  or no answer leaves the action unresolved.
+- No match: activation reports that the tool is unavailable; it must not invent
+  a server or claim execution.
+
+Resolution uses the caller's registry context and does not mutate shared skill
+metadata. Inline tool exposure and dynamically derived skill children support
+these references. Tool authorization and approval policies still apply.
+Selection is prompt-driven: this does not introduce a hardcoded dialog, a new
+selection API, or a runtime execution lock pending an answer. Applications that
+require an enforced approval boundary must continue to use tool policies.

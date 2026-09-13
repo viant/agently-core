@@ -191,6 +191,12 @@ func ExpandDefinitionsForConstraints(defs []*llm.ToolDefinition, reg tool.Regist
 // Returns nil unmatched when c, reg, or c.ToolPatterns is empty (no
 // expansion attempted).
 func ExpandDefinitionsForConstraintsWithDiag(defs []*llm.ToolDefinition, reg tool.Registry, c *Constraints) (out []*llm.ToolDefinition, unmatched []string) {
+	return ExpandDefinitionsForConstraintsWithContext(context.Background(), defs, reg, c)
+}
+
+// ExpandDefinitionsForConstraintsWithContext preserves caller-scoped discovery.
+func ExpandDefinitionsForConstraintsWithContext(ctx context.Context, defs []*llm.ToolDefinition, reg tool.Registry, c *Constraints) (out []*llm.ToolDefinition, unmatched []string) {
+
 	if c == nil || reg == nil || len(c.ToolPatterns) == 0 {
 		return defs, nil
 	}
@@ -223,7 +229,7 @@ func ExpandDefinitionsForConstraintsWithDiag(defs []*llm.ToolDefinition, reg too
 	for _, pattern := range c.ToolPatterns {
 		matchedAny := false
 		for _, variant := range toolPatternVariants(pattern) {
-			for _, def := range reg.MatchDefinition(variant) {
+			for _, def := range matchSkillTool(ctx, reg, variant) {
 				appendDef(def)
 				matchedAny = true
 			}

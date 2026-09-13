@@ -3,7 +3,7 @@
 Agently uses [viant/embedius](https://github.com/viant/embedius) for
 embeddings + vector search. Feature reach: knowledge retrieval, skill
 discovery, semantic search over prior conversations, and similarity-ranked
-prompt profile selection.
+intake profile selection.
 
 ## Packages
 
@@ -41,7 +41,7 @@ Hits carry `score`, `document`, `chunk`, and metadata; the consumer decides what
 
 - **Knowledge injection** — at bind time, the binder may call retrieve() and inject top-K chunks.
 - **Skill discovery** — when multiple SKILL.md candidates match, embedding similarity breaks ties ([doc/skills.md](skills.md)).
-- **Prompt profile selection** — intake can use embeddings over `appliesTo` tags as one input to the confidence score ([doc/planning-and-intake.md](planning-and-intake.md)).
+- **Intake profile selection** — intake can use embeddings over `appliesTo` tags as one input to the confidence score ([doc/planning-and-intake.md](planning-and-intake.md)).
 
 ## Workspace config
 

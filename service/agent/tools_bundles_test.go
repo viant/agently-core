@@ -21,7 +21,7 @@ import (
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	planner "github.com/viant/agently-core/service/planner"
 	skillsvc "github.com/viant/agently-core/service/skill"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
 
@@ -543,7 +543,7 @@ func TestResolveToolControl_MergesAgentProfileAndRuntimeSelections(t *testing.T)
 	skillSvc := newLoadedTestSkillService(t, tmpDir, "forecast")
 
 	svc := &Service{
-		promptRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
+		promptRepo: intakerepo.NewWithStore(fsstore.New(tmpDir)),
 		skillSvc:   skillSvc,
 	}
 	actual, err := svc.resolveToolControl(context.Background(), &QueryInput{

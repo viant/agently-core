@@ -357,7 +357,7 @@ func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryI
 	if len(state.Skills) == 0 {
 		return nil
 	}
-	b.Tools.Signatures = skillsvc.ExpandDefinitionsForActiveSkills(b.Tools.Signatures, s.registry, state.Skills)
+	b.Tools.Signatures, _ = skillsvc.ExpandDefinitionsForConstraintsWithContext(ctx, b.Tools.Signatures, s.registry, skillsvc.BuildConstraints(state.Skills))
 	return nil
 }
 

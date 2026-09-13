@@ -1,4 +1,4 @@
-package prompt
+package intake
 
 // Profile is a scenario configuration unit pairing instruction messages,
 // tool bundles, and one default plus optional additional output templates.

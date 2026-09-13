@@ -14,7 +14,7 @@ the right user without any parameter plumbing.
 | [internal/auth/token/](../internal/auth/token/) | Token lifecycle (validate, refresh, rotate) |
 | [service/auth/session/](../service/auth/session/) | Session cookie, CSRF, idle TTL |
 | [protocol/mcp/manager/auth_token.go](../protocol/mcp/manager/auth_token.go) | Injects per-request MCP auth token (see [doc/mcp-integration.md](mcp-integration.md)) |
-| [service/policy/](../service/policy/) | Workspace-configured visibility authorization for reports, windows, starter prompts, and prompt profiles |
+| [service/policy/](../service/policy/) | Workspace-configured visibility authorization for reports, windows, starter prompts, and intake profiles |
 
 ## Modes
 

@@ -7,7 +7,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
@@ -46,7 +46,7 @@ func TestMerge_DedupesCaseInsensitiveSelections(t *testing.T) {
 }
 
 func TestFromPromptProfile_ActivatesOnlyDeclaredProfileTools(t *testing.T) {
-	actual := FromPromptProfile(&promptdef.Profile{
+	actual := FromPromptProfile(&intake.Profile{
 		ToolBundles:    []string{"practice-control"},
 		PreferredTools: []string{"pathwise/practice:select", "PATHWISE/PRACTICE:SELECT"},
 	})

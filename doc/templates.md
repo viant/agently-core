@@ -65,5 +65,5 @@ work identically against both.
 
 ## Related docs
 
-- [doc/prompts.md](prompts.md) — prompt profiles use template ids to pair instructions with output shapes.
+- [doc/prompts.md](prompts.md) — intake profiles use template ids to pair instructions with output shapes.
 - [doc/agent-orchestration.md](agent-orchestration.md)

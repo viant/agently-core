@@ -1,4 +1,21 @@
-# Prompt Profiles and Tool Bundles — Simplifying Orchestrator Workspaces
+# Intake Profiles and Tool Bundles — Simplifying Orchestrator Workspaces
+
+## Naming and workspace migration
+
+Intake profiles are loaded per name from `intent/<id>.yaml` first, then
+`prompts/<id>.yaml` only when no intent definition exists. Both catalogs are
+listed together, with intent definitions taking precedence. An invalid intent
+file is an error; it does not activate a legacy definition. Existing nested
+`<id>/<id>.yaml` layouts and relative imports remain supported. Repository
+writes target `intent`; legacy files do not need to be moved to keep working.
+
+The Go type is `intake.Profile` in `protocol/intake`; its repository is
+`intake.Repository` in `workspace/repository/intake`. Update Go imports from
+`protocol/prompt` and `workspace/repository/prompt` to those new package paths.
+Existing `promptProfileId`, agent `prompts` access configuration, `prompt:list`,
+`prompt:get`, and MCP `prompts/list` / `prompts/get` retain their names for
+compatibility. Output templates and model prompt text are separate concepts.
+
 
 Workspace paths:
 - Runtime: `/Users/awitas/go/src/github.com/viant/agently-core`
@@ -85,12 +102,12 @@ Separate workers are only justified when the tool family, validation rules, or f
 
 ---
 
-## Prompt Profiles — IMPLEMENTED
+## Intake Profiles — IMPLEMENTED
 
 > **IMPLEMENTED** — All of the following are in production code:
-> - `protocol/prompt/profile.go` — `Profile`, `Message`, `MCPSource`, `Expansion` types + `EffectiveMessages()`
-> - `protocol/prompt/render.go` — `Profile.Render()` supporting local text/URI messages and MCP-sourced messages
-> - `workspace/repository/prompt/` — profile repository
+> - `protocol/intake/profile.go` — `Profile`, `Message`, `MCPSource`, `Expansion` types + `EffectiveMessages()`
+> - `protocol/intake/render.go` — `Profile.Render()` supporting local text/URI messages and MCP-sourced messages
+> - `workspace/repository/intake/` — profile repository
 > - `protocol/tool/service/prompt/service.go` — `prompt:list` / `prompt:get` tools
 > - `protocol/tool/service/llm/agents/types.go` — `RunInput` extended with `PromptProfileId`, `ToolBundles`, `TemplateId`
 > - `protocol/tool/service/llm/agents/profile_resolve.go` — runtime profile expansion in child turns
@@ -190,7 +207,7 @@ When `includeDocument` is absent or `false`, the messages appear only in the res
 **What is grounded in existing behavior vs what is proposed:**
 
 - System-role injection (`SystemDocumentMode` + `SystemDocumentTag`) is grounded in the existing `template:get` implementation (`protocol/tool/service/template/service.go:247`). This path exists and works today.
-- User-role and assistant-role injection via `AddMessage()` is also implemented for prompt profiles. `prompt:get` injects each rendered message using its authored role; only `system` messages receive `SystemDocumentMode` / `SystemDocumentTag`.
+- User-role and assistant-role injection via `AddMessage()` is also implemented for intake profiles. `prompt:get` injects each rendered message using its authored role; only `system` messages receive `SystemDocumentMode` / `SystemDocumentTag`.
 
 The same injection loop applies wherever profile messages are injected — whether from `prompt:get` with `includeDocument: true` (Option 2) or from the runtime during child conversation setup (Options 1 and 4). Both paths use identical per-role branching logic.
 
@@ -252,7 +269,7 @@ The same injection loop applies wherever profile messages are injected — wheth
 
 ### Outbound MCP Exposure
 
-The agently-core MCP server's `ListPrompts` and `GetPrompt` handlers (currently stubbed) are wired to the profile registry. External MCP clients see agently-core prompt profiles as standard MCP prompts. No translation is needed — profiles already produce `[]PromptMessage`.
+The agently-core MCP server's `ListPrompts` and `GetPrompt` handlers (currently stubbed) are wired to the profile registry. External MCP clients see agently-core intake profiles as standard MCP prompts. No translation is needed — profiles already produce `[]PromptMessage`.
 
 ---
 
@@ -294,23 +311,23 @@ Template selection is not additive — one template per turn. An empty value def
 
 ## Package Organization — IMPLEMENTED
 
-> **IMPLEMENTED** — `protocol/prompt` was renamed to `protocol/binding` (Phase 1). `protocol/prompt` now contains profile types.
+> **IMPLEMENTED** — `protocol/intake` was renamed to `protocol/binding` (Phase 1). `protocol/intake` now contains profile types.
 
 ### The Naming Problem
 
-The existing `protocol/prompt` package contains rendering primitives: `Prompt` (text-template engine), `Binding` (conversation context), `Persona`. Prompt profiles are a different concept. Both cannot cleanly share the `prompt` package name.
+The existing `protocol/intake` package contains rendering primitives: `Prompt` (text-template engine), `Binding` (conversation context), `Persona`. Intake profiles are a different concept. Both cannot cleanly share the `prompt` package name.
 
-### Option A — Keep `protocol/prompt`, add `protocol/promptprofile`
+### Option A — Keep `protocol/intake`, add `protocol/intakeprofile`
 
 No rename. Separate package for profiles. Low disruption but perpetual disambiguation.
 
-### Option B — Rename `protocol/prompt` to `protocol/binding` (recommended)
+### Option B — Rename `protocol/intake` to `protocol/binding` (recommended)
 
 `Binding`, `Prompt` (text renderer), and `Persona` are all about how data is bound and rendered into conversation text. `binding` describes the package correctly.
 
 After rename:
 - `protocol/binding` — rendering primitives (Binding, Prompt text engine, Persona)
-- `protocol/prompt` — scenario profiles, profile repository, `prompt:list`/`prompt:get` service
+- `protocol/intake` — scenario profiles, profile repository, `prompt:list`/`prompt:get` service
 
 `prompt.Profile` reads clearly. No disambiguation needed. No separate `promptprofile` package.
 
@@ -678,7 +695,7 @@ This is the lowest-risk, highest-value first step. It eliminates duplicated form
 ### Incremental Implementation Path
 
 1. **Output templates** — EXISTING — `template:list` / `template:get` + `template.bundles` on agents, no code changes
-2. **Prompt profiles** — IMPLEMENTED IN CORE — `prompt:list` / `prompt:get`, profile repository, and `RunInput.promptProfileId` resolution are in place; any remaining work is refinement and documentation alignment
+2. **Intake profiles** — IMPLEMENTED IN CORE — `prompt:list` / `prompt:get`, profile repository, and `RunInput.promptProfileId` resolution are in place; any remaining work is refinement and documentation alignment
 3. **Agent collapse** — only after profiles are stable in production (Phase after 6)
 
 ### Architecture Layers
@@ -768,7 +785,7 @@ All eleven phases are implemented as of 2026-04-15. The descriptions below are p
 
 ---
 
-### Phase 1 — Rename `protocol/prompt` → `protocol/binding`
+### Phase 1 — Rename `protocol/intake` → `protocol/binding`
 
 **Why first:** every subsequent phase imports `protocol/binding`. Do this once as a mechanical refactor before any new code is written.
 
@@ -776,40 +793,40 @@ All eleven phases are implemented as of 2026-04-15. The descriptions below are p
 
 | New path | Source |
 |---|---|
-| `protocol/binding/prompt.go` | `protocol/prompt/prompt.go` — change `package prompt` → `package binding` |
-| `protocol/binding/binding.go` | `protocol/prompt/binding.go` — same |
-| `protocol/binding/persona.go` | `protocol/prompt/persona.go` — same |
-| `protocol/binding/history_test.go` | `protocol/prompt/history_test.go` — same |
-| `protocol/binding/adapter/document.go` | `protocol/prompt/adapter/document.go` — same |
-| `protocol/binding/adapter/tool.go` | `protocol/prompt/adapter/tool.go` — same |
+| `protocol/binding/prompt.go` | `protocol/intake/prompt.go` — change `package prompt` → `package binding` |
+| `protocol/binding/binding.go` | `protocol/intake/binding.go` — same |
+| `protocol/binding/persona.go` | `protocol/intake/persona.go` — same |
+| `protocol/binding/history_test.go` | `protocol/intake/history_test.go` — same |
+| `protocol/binding/adapter/document.go` | `protocol/intake/adapter/document.go` — same |
+| `protocol/binding/adapter/tool.go` | `protocol/intake/adapter/tool.go` — same |
 
 **Import path changes (43 files):**
 
 ```
-"github.com/viant/agently-core/protocol/prompt"  →  "github.com/viant/agently-core/protocol/binding"
+"github.com/viant/agently-core/protocol/intake"  →  "github.com/viant/agently-core/protocol/binding"
 prompt.Binding  →  binding.Binding
 prompt.Prompt   →  binding.Prompt
 prompt.Persona  →  binding.Persona
 ```
 
-Use `gofmt` + `sed` or IDE refactor. Delete `protocol/prompt/` after all imports are updated.
+Use `gofmt` + `sed` or IDE refactor. Delete `protocol/intake/` after all imports are updated.
 
 **Verification checkpoint:**
 ```
 go build ./...          # must pass with zero errors
 go test ./...           # all existing tests pass
-grep -r "protocol/prompt" . --include="*.go"   # must return zero results
+grep -r "protocol/intake" . --include="*.go"   # must return zero results
 ```
 
 ---
 
-### Phase 2 — Prompt Profile Types
+### Phase 2 — Intake Profile Types
 
-**New package:** `protocol/prompt/` (now free after Phase 1)
+**New package:** `protocol/intake/` (now free after Phase 1)
 
 **New files:**
 
-`protocol/prompt/profile.go`
+`protocol/intake/profile.go`
 ```go
 package prompt
 
@@ -859,7 +876,7 @@ func (p *Profile) EffectiveMessages() []Message {
 }
 ```
 
-`protocol/prompt/render.go`
+`protocol/intake/render.go`
 ```go
 // Render resolves the profile instruction source and returns []schema.PromptMessage.
 // Sources: local Messages/Instructions (velty rendered) or MCP server GetPrompt.
@@ -868,7 +885,7 @@ func (p *Profile) Render(ctx context.Context, b *binding.Binding, mgr mcpmanager
 
 **Verification checkpoint:**
 ```go
-// protocol/prompt/profile_test.go
+// protocol/intake/profile_test.go
 p := &Profile{Instructions: "Focus on performance."}
 msgs := p.EffectiveMessages()
 assert.Equal(t, 1, len(msgs))
@@ -879,13 +896,13 @@ assert.Equal(t, "system", msgs[0].Role)
 
 ### Phase 3 — Profile Repository
 
-**New file:** `workspace/repository/prompt/repository.go`
+**New file:** `workspace/repository/intake/repository.go`
 
 ```go
 package prompt
 
 import "github.com/viant/agently-core/workspace/repository/base"
-import promptmdl "github.com/viant/agently-core/protocol/prompt"
+import promptmdl "github.com/viant/agently-core/protocol/intake"
 
 type Repository = base.Repository[promptmdl.Profile]
 
@@ -899,7 +916,7 @@ func New(workspace string) *Repository {
 KindPrompt = "prompts"
 ```
 
-**Test data:** create `workspace/repository/prompt/testdata/prompts/performance_analysis.yaml`:
+**Test data:** create `workspace/repository/intake/testdata/prompts/performance_analysis.yaml`:
 ```yaml
 id: performance_analysis
 name: Performance Analysis
@@ -1109,7 +1126,7 @@ ri := &RunInput{
 
 **`protocol/agent/agent.go`** — `PromptAccess` struct + `Prompts PromptAccess` field on `Agent`.
 
-**`protocol/prompt/profile.go`** — `Profile.Bundles []string` field added (separate from `ToolBundles`).
+**`protocol/intake/profile.go`** — `Profile.Bundles []string` field added (separate from `ToolBundles`).
 
 **Access control contract (as implemented):**
 
@@ -1132,7 +1149,7 @@ prompts:
 
 ### Phase 8 — MCP Source Rendering
 
-**Edit:** `protocol/prompt/render.go` — add MCP branch in `Render()`:
+**Edit:** `protocol/intake/render.go` — add MCP branch in `Render()`:
 
 ```go
 if p.MCP != nil {
@@ -1239,7 +1256,7 @@ The sidecar uses a fixed meta-prompt (hardcoded in the runtime, not configurable
 
 Output is validated: role structure must match input, total token count bounded by `cfg.MaxTokens`.
 
-**Edit:** `protocol/prompt/profile.go` — `Expansion.Mode` drives the branch in `run_support.go`.
+**Edit:** `protocol/intake/profile.go` — `Expansion.Mode` drives the branch in `run_support.go`.
 
 **Edit:** `app/executor/builder.go` — pass `expansionModel` config to llm/agents service.
 
@@ -1335,14 +1352,14 @@ assert.Equal(t, "performance_analysis", tc.SuggestedProfileId)
 
 | Phase | What | Key files | Status |
 |---|---|---|---|
-| 1 | `protocol/prompt` → `protocol/binding` rename | 43 files | ✅ |
-| 2 | `prompt.Profile` types + `Render()` | `protocol/prompt/profile.go`, `render.go` | ✅ |
-| 3 | Profile repository | `workspace/repository/prompt/` | ✅ |
+| 1 | `protocol/intake` → `protocol/binding` rename | 43 files | ✅ |
+| 2 | `prompt.Profile` types + `Render()` | `protocol/intake/profile.go`, `render.go` | ✅ |
+| 3 | Profile repository | `workspace/repository/intake/` | ✅ |
 | 4 | Extend `RunInput` | `protocol/tool/service/llm/agents/types.go` | ✅ |
 | 5 | `prompt:list`/`prompt:get` service | `protocol/tool/service/prompt/` | ✅ |
 | 6 | Runtime profile expansion | `run_support.go`, `profile_resolve.go` | ✅ |
-| 7 | Agent access control (`Profile.Bundles` + `Agent.Prompts`) | `protocol/agent/agent.go`, `protocol/prompt/profile.go`, prompt service | ✅ |
-| 8 | MCP source rendering | `protocol/prompt/render.go` | ✅ |
+| 7 | Agent access control (`Profile.Bundles` + `Agent.Prompts`) | `protocol/agent/agent.go`, `protocol/intake/profile.go`, prompt service | ✅ |
+| 8 | MCP source rendering | `protocol/intake/render.go` | ✅ |
 | 9 | MCP server exposure | `protocol/mcp/expose/tool_handler.go`, `localclient/service_handler.go` | ✅ |
 | 10 | Expansion sidecar | `protocol/tool/service/llm/agents/expand.go` | ✅ |
 | 11 | Intake sidecar | `service/intake/`, `service/agent/intake_query.go`, `protocol/agent/intake.go` | ✅ |

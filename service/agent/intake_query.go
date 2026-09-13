@@ -24,7 +24,7 @@ import (
 // configured for it.  It is a no-op when:
 //   - the intake service is not wired
 //   - the agent's Intake.Enabled is false
-//   - the turn already carries an explicit prompt profile, usually because it
+//   - the turn already carries an explicit intake profile, usually because it
 //     is a delegated child/profile run whose prompt contract is fixed
 //   - the caller already provided an intake Context via RunInput.WorkspaceIntake
 //     (skip rule §2.c — caller's value short-circuits the LLM call but the

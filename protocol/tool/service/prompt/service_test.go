@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	policy "github.com/viant/agently-core/service/policy"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
 
@@ -28,7 +28,7 @@ func (promptPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.D
 
 func TestFilterAuthorizedProfiles(t *testing.T) {
 	svc := &Service{policy: policy.NewRuntime(promptPolicyResolver{}, policy.OperationIntentView)}
-	profiles := []*promptdef.Profile{{ID: "allowed"}, {ID: "denied"}}
+	profiles := []*intake.Profile{{ID: "allowed"}, {ID: "denied"}}
 	got, err := svc.filterAuthorizedProfiles(context.Background(), profiles)
 	require.NoError(t, err)
 	require.Len(t, got, 1)
@@ -98,7 +98,7 @@ func (c *promptTestConversationClient) DeleteMessage(context.Context, string, st
 }
 
 func TestService_list_AllowsProfilesByDirectID(t *testing.T) {
-	repo := promptrepo.NewWithStore(fsstore.New("/Users/awitas/go/src/github.com/viant/agently-core/workspace/repository/prompt/testdata"))
+	repo := intakerepo.NewWithStore(fsstore.New("/Users/awitas/go/src/github.com/viant/agently-core/workspace/repository/intake/testdata"))
 	agentID := "analyst"
 	client := &promptTestConversationClient{
 		conversation: &apiconv.Conversation{AgentId: &agentID},
@@ -126,7 +126,7 @@ func TestService_list_AllowsProfilesByDirectID(t *testing.T) {
 }
 
 func TestService_get_InjectsRolePreservingMessages(t *testing.T) {
-	repo := promptrepo.NewWithStore(fsstore.New("/Users/awitas/go/src/github.com/viant/agently-core/workspace/repository/prompt/testdata"))
+	repo := intakerepo.NewWithStore(fsstore.New("/Users/awitas/go/src/github.com/viant/agently-core/workspace/repository/intake/testdata"))
 	agentID := "analyst"
 	client := &promptTestConversationClient{
 		conversation: &apiconv.Conversation{AgentId: &agentID},

@@ -4,17 +4,17 @@ import (
 	"context"
 	"strings"
 
-	promptdef "github.com/viant/agently-core/protocol/prompt"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	"github.com/viant/jsonrpc"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
-// ProfileRepo is the subset of *promptrepo.Repository used by the MCP prompt handlers.
-// *promptrepo.Repository satisfies this interface without any changes.
+// ProfileRepo is the subset of *intakerepo.Repository used by the MCP prompt handlers.
+// *intakerepo.Repository satisfies this interface without any changes.
 type ProfileRepo interface {
-	LoadAll(ctx context.Context) ([]*promptdef.Profile, error)
-	Load(ctx context.Context, id string) (*promptdef.Profile, error)
+	LoadAll(ctx context.Context) ([]*intake.Profile, error)
+	Load(ctx context.Context, id string) (*intake.Profile, error)
 }
 
 // WithProfileRepo injects a profile repository into a ToolHandler so that
@@ -44,7 +44,7 @@ func listPrompts(ctx context.Context, repo ProfileRepo) (*mcpschema.ListPromptsR
 }
 
 // getPrompt implements prompts/get: renders a profile and returns its messages.
-func getPrompt(ctx context.Context, repo ProfileRepo, mgr promptdef.MCPManager, params *mcpschema.GetPromptRequestParams) (*mcpschema.GetPromptResult, *jsonrpc.Error) {
+func getPrompt(ctx context.Context, repo ProfileRepo, mgr intake.MCPManager, params *mcpschema.GetPromptRequestParams) (*mcpschema.GetPromptResult, *jsonrpc.Error) {
 	if repo == nil {
 		return nil, jsonrpc.NewMethodNotFound("no profile repository configured", nil)
 	}
@@ -68,7 +68,7 @@ func getPrompt(ctx context.Context, repo ProfileRepo, mgr promptdef.MCPManager, 
 		}
 	}
 
-	msgs, err := profile.Render(ctx, mgr, &promptdef.RenderOptions{Binding: binding})
+	msgs, err := profile.Render(ctx, mgr, &intake.RenderOptions{Binding: binding})
 	if err != nil {
 		return nil, jsonrpc.NewInternalError("render profile: "+err.Error(), nil)
 	}
@@ -91,7 +91,7 @@ func getPrompt(ctx context.Context, repo ProfileRepo, mgr promptdef.MCPManager, 
 	}, nil
 }
 
-func profileToMCPPrompt(p *promptdef.Profile) mcpschema.Prompt {
+func profileToMCPPrompt(p *intake.Profile) mcpschema.Prompt {
 	desc := strings.TrimSpace(p.Description)
 	name := strings.TrimSpace(p.Name)
 	entry := mcpschema.Prompt{Name: strings.TrimSpace(p.ID)}
@@ -114,7 +114,7 @@ func profileToMCPPrompt(p *promptdef.Profile) mcpschema.Prompt {
 
 // NewToolHandlerWithProfiles constructs a ToolHandler with an optional profile
 // repository so callers can pass both in a single call.
-func NewToolHandlerWithProfiles(exec Executor, patterns []string, repo *promptrepo.Repository) *ToolHandler {
+func NewToolHandlerWithProfiles(exec Executor, patterns []string, repo *intakerepo.Repository) *ToolHandler {
 	h := NewToolHandler(exec, patterns)
 	if repo != nil {
 		h.profileRepo = repo

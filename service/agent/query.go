@@ -81,7 +81,7 @@ type QueryInput struct {
 	// Populated by the llm/agents runtime when a PromptProfile specifies a template.
 	TemplateId string `json:"templateId,omitempty"`
 
-	// PromptProfileId optionally selects a prompt profile for this turn.
+	// PromptProfileId optionally selects a intake profile for this turn.
 	// For direct agent turns this is typically populated by intake/routing,
 	// not by llm/agents child-run wiring.
 	PromptProfileId string `json:"promptProfileId,omitempty"`

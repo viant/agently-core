@@ -7,7 +7,7 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
@@ -28,7 +28,7 @@ var _ = toolexec.SystemDocumentMode
 func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *agentsvc.QueryInput, childConvID string) error {
 	profileID := strings.TrimSpace(ri.PromptProfileId)
 	if qi != nil && profileID != "" && strings.TrimSpace(qi.PromptProfileId) == "" {
-		// Child turns with an explicit prompt profile are already routed. Mirror
+		// Child turns with an explicit intake profile are already routed. Mirror
 		// that contract onto QueryInput before any later intake/routing checks so
 		// the child path does not re-run classification.
 		qi.PromptProfileId = profileID
@@ -46,7 +46,7 @@ func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *agentsvc
 
 	// 1. Render profile messages (local text/URI or MCP source).
 	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	msgs, err := profile.Render(ctx, s.mcpMgr, &promptdef.RenderOptions{ConversationID: convID})
+	msgs, err := profile.Render(ctx, s.mcpMgr, &intake.RenderOptions{ConversationID: convID})
 	if err != nil {
 		return fmt.Errorf("render profile %q: %w", ri.PromptProfileId, err)
 	}
@@ -85,7 +85,7 @@ func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *agentsvc
 // under the pre-assigned turn ID.  System-role messages are stored as system
 // documents (SystemDocumentMode + SystemDocumentTag) so BuildBinding loads them.
 // User and assistant messages are stored with their natural roles.
-func (s *Service) injectProfileMessages(ctx context.Context, ri *RunInput, qi *agentsvc.QueryInput, childConvID string, msgs []promptdef.Message) error {
+func (s *Service) injectProfileMessages(ctx context.Context, ri *RunInput, qi *agentsvc.QueryInput, childConvID string, msgs []intake.Message) error {
 	if s.conv == nil || len(msgs) == 0 || strings.TrimSpace(childConvID) == "" || strings.TrimSpace(qi.MessageID) == "" {
 		return nil
 	}

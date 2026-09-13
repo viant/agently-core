@@ -9,7 +9,7 @@ type requiredResolvedToolBundlesContextKey struct{}
 
 // WithRequiredResolvedToolBundles marks a context as requiring the supplied
 // bundle ids to resolve to at least one live tool definition. This is used for
-// delegated child turns whose prompt profiles explicitly selected tool bundles:
+// delegated child turns whose intake profiles explicitly selected tool bundles:
 // if those bundles resolve to zero tools, the run must fail instead of
 // proceeding tool-less.
 func WithRequiredResolvedToolBundles(ctx context.Context, bundles []string) context.Context {

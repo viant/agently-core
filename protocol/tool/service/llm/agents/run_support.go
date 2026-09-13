@@ -173,7 +173,7 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 		qi.ConversationID = runCtx.childConversationID
 		ro.ConversationID = runCtx.childConversationID
 	}
-	// Expand prompt profile: inject instructions, merge bundles, set template.
+	// Expand intake profile: inject instructions, merge bundles, set template.
 	// Must run after qi.MessageID and qi.ConversationID are both set.
 	if strings.TrimSpace(ri.PromptProfileId) != "" {
 		if err := s.resolveProfile(ctx, ri, qi, runCtx.childConversationID); err != nil {

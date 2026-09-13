@@ -5,13 +5,13 @@ import (
 	"sort"
 	"strings"
 
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 	skillproto "github.com/viant/agently-core/protocol/skill"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 )
 
-func Catalog(profiles []*promptdef.Profile, allow []string) string {
-	profiles = promptrepo.FilterAllowedProfiles(profiles, allow)
+func Catalog(profiles []*intake.Profile, allow []string) string {
+	profiles = intakerepo.FilterAllowedProfiles(profiles, allow)
 	if len(profiles) == 0 {
 		return ""
 	}
@@ -181,7 +181,7 @@ func SkillCatalog(skills []*skillproto.Skill) string {
 	return out
 }
 
-func profileTemplates(profile *promptdef.Profile) []string {
+func profileTemplates(profile *intake.Profile) []string {
 	if profile == nil {
 		return nil
 	}

@@ -1,7 +1,7 @@
 # Planning & intake
 
 Before the reactor starts its ReAct loop, an **intake** sidecar classifies the
-user's query and selects a **prompt profile + tool bundle**. This keeps the
+user's query and selects a **intake profile + tool bundle**. This keeps the
 main orchestrator's system prompt small and lets the runtime inject the right
 scope per turn.
 

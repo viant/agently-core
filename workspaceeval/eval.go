@@ -18,6 +18,8 @@ import (
 
 	"github.com/viant/agently-core/sdk"
 	sdkapi "github.com/viant/agently-core/sdk/api"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
+	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	"gopkg.in/yaml.v3"
 )
 
@@ -213,8 +215,8 @@ func CheckEvalCatalog(evalRoot, promptRoot, templateRoot string, agentIndex map[
 			}
 		}
 		if profileID := strings.TrimSpace(doc.ExpectedRouting.Profile); profileID != "" {
-			if _, err := os.Stat(filepath.Join(promptRoot, profileID+".yaml")); err != nil {
-				failures = append(failures, fmt.Sprintf("%s: expected_routing.profile=%s not found in prompts/", name, profileID))
+			if _, err := loadIntakeProfile(promptRoot, profileID); err != nil {
+				failures = append(failures, fmt.Sprintf("%s: expected_routing.profile=%s not found in intent/ or prompts/: %v", name, profileID, err))
 			}
 		}
 		if templateID := strings.TrimSpace(doc.ExpectedOutput.Template); templateID != "" {
@@ -313,12 +315,34 @@ func CheckStarterTaskCoverage(evalRoot string, agentIndex map[string]AgentDoc) [
 	return failures
 }
 
+// loadIntakeProfile shares runtime precedence for standard workspace directories.
+func loadIntakeProfile(profileRoot, id string) (*PromptDoc, error) {
+	if base := filepath.Base(filepath.Clean(profileRoot)); base != "prompts" && base != "intent" {
+		var doc PromptDoc
+		err := LoadYAML(filepath.Join(profileRoot, id+".yaml"), &doc)
+		return &doc, err
+	}
+	repo := intakerepo.NewWithStore(fsstore.New(filepath.Dir(filepath.Clean(profileRoot))))
+	profile, err := repo.Load(context.Background(), id)
+	if err != nil {
+		return nil, err
+	}
+	var doc PromptDoc
+	// Match YAML field names used by the evaluation document projection.
+	data, err := yaml.Marshal(profile)
+	if err != nil {
+		return nil, err
+	}
+	err = yaml.Unmarshal(data, &doc)
+	return &doc, err
+}
+
 func CheckEvidenceContractProfiles(promptRoot string, requiredProfiles []string) []string {
 	var failures []string
 	for _, profileID := range requiredProfiles {
 		full := filepath.Join(promptRoot, profileID+".yaml")
-		var doc PromptDoc
-		if err := LoadYAML(full, &doc); err != nil {
+		doc, err := loadIntakeProfile(promptRoot, profileID)
+		if err != nil {
 			failures = append(failures, err.Error())
 			continue
 		}

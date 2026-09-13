@@ -34,7 +34,7 @@ import (
 	"github.com/viant/agently-core/service/reactor"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	bundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
@@ -97,7 +97,7 @@ type Service struct {
 	intakeSvc *intakesvc.Service
 	skillSvc  *skillsvc.Service
 
-	promptRepo          *promptrepo.Repository
+	promptRepo          *intakerepo.Repository
 	templateRepo        *tplrepo.Repository
 	toolBundleRepo      *bundlerepo.Repository
 	templateBundleRepo  *tplbundlerepo.Repository
@@ -132,6 +132,9 @@ func (s *Service) SetSkillService(svc *skillsvc.Service) {
 		return
 	}
 	s.skillSvc = svc
+	if svc != nil {
+		svc.SetToolRegistry(s.registry)
+	}
 }
 
 func (s *Service) SetAuthorizationPolicy(runtime *policy.Runtime) {
@@ -271,7 +274,7 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 		srv.toolBundleRepo = bundlerepo.New(afs.New())
 	}
 	if srv.promptRepo == nil {
-		srv.promptRepo = promptrepo.New(afs.New())
+		srv.promptRepo = intakerepo.New(afs.New())
 	}
 	if srv.templateRepo == nil {
 		srv.templateRepo = tplrepo.New(afs.New())
@@ -371,6 +374,9 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 		})
 
 	srv.elicitation = elicitation.New(srv.conversation, nil, srv.elicRouter, srv.awaiterFactory)
+	if srv.skillSvc != nil {
+		srv.skillSvc.SetToolRegistry(srv.registry)
+	}
 	if srv.dataService != nil {
 		srv.goalRuntime = goalruntime.NewRuntime(goalruntime.NewStore(srv.dataService))
 	}

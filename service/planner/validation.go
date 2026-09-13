@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
@@ -28,7 +28,7 @@ func (e ValidationError) Error() string {
 }
 
 type ValidationContext struct {
-	ProfileRepo        *promptrepo.Repository
+	ProfileRepo        *intakerepo.Repository
 	ToolBundleRepo     *toolbundlerepo.Repository
 	TemplateRepo       *tplrepo.Repository
 	TemplateBundleRepo *tplbundlerepo.Repository

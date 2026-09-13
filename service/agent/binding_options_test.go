@@ -21,7 +21,7 @@ import (
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
@@ -223,7 +223,7 @@ func TestService_BuildBinding_InjectsSelectedPromptProfile(t *testing.T) {
 				{ID: "system/os", Match: []llm.Tool{{Name: "system/os/*"}}},
 			}, nil
 		},
-		promptRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
+		promptRepo: intakerepo.NewWithStore(fsstore.New(tmpDir)),
 	}
 
 	binding, err := service.BuildBinding(ctx, &QueryInput{
@@ -284,7 +284,7 @@ func TestService_BuildBinding_SelectedPromptProfileCanBeDisabledPerAgent(t *test
 				{ID: "analyst-performance-tools", Match: []llm.Tool{{Name: "workspace/MetricsCube"}}},
 			}, nil
 		},
-		promptRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
+		promptRepo: intakerepo.NewWithStore(fsstore.New(tmpDir)),
 	}
 
 	input := &QueryInput{
@@ -410,7 +410,7 @@ func TestService_BuildBinding_SelectedPromptProfileBundlesAffectDirectTurnToolSu
 				{ID: "analyst-performance-tools", Match: []llm.Tool{{Name: "workspace/MetricsCube"}}},
 			}, nil
 		},
-		promptRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
+		promptRepo: intakerepo.NewWithStore(fsstore.New(tmpDir)),
 	}
 
 	binding, err := service.BuildBinding(ctx, &QueryInput{

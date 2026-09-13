@@ -45,14 +45,15 @@ type nestedToolCallRecord struct {
 }
 
 type Service struct {
-	defaults    *execconfig.Defaults
-	conv        apiconv.Client
-	agentFinder agentmdl.Finder
-	mu          sync.RWMutex
-	registry    *skillproto.Registry
-	loader      *skillrepo.Loader
-	budgetChars int
-	streamPub   streaming.Publisher
+	toolRegistry tool.Registry
+	defaults     *execconfig.Defaults
+	conv         apiconv.Client
+	agentFinder  agentmdl.Finder
+	mu           sync.RWMutex
+	registry     *skillproto.Registry
+	loader       *skillrepo.Loader
+	budgetChars  int
+	streamPub    streaming.Publisher
 }
 
 func New(defaults *execconfig.Defaults, conv apiconv.Client, finder agentmdl.Finder) *Service {
@@ -294,6 +295,7 @@ func (s *Service) activateResolvedWithContext(ctx context.Context, item *skillpr
 	if item == nil {
 		return "", preprocessStats{}, fmt.Errorf("skill is required")
 	}
+	item = s.resolvedToolSkill(ctx, item)
 	body := strings.TrimSpace(item.Body)
 	name := strings.TrimSpace(item.Frontmatter.Name)
 	if body == "" {
@@ -664,6 +666,7 @@ func (s *Service) activateChildConversation(ctx context.Context, agent *agentmdl
 		// errors.Is(err, ErrForkCapabilityUnavailable) still returns true.
 		return "", nil, fmt.Errorf("requested mode=%q: %w", strings.TrimSpace(mode), ErrForkCapabilityUnavailable)
 	}
+	item = s.resolvedToolSkill(ctx, item)
 	targetAgent := deriveDynamicSkillAgent(agent, item, "")
 	targetAgentID := ""
 	if targetAgent != nil {
