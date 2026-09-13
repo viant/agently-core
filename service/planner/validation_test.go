@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
@@ -65,7 +65,7 @@ templates:
 
 	store := fsstore.New(root)
 	vctx := ValidationContext{
-		ProfileRepo:        promptrepo.NewWithStore(store),
+		ProfileRepo:        intakerepo.NewWithStore(store),
 		ToolBundleRepo:     toolbundlerepo.NewWithStore(store),
 		TemplateRepo:       tplrepo.NewWithStore(store),
 		TemplateBundleRepo: tplbundlerepo.NewWithStore(store),

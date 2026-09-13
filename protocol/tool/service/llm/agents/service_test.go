@@ -31,7 +31,7 @@ import (
 	linksvc "github.com/viant/agently-core/service/linking"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	statussvc "github.com/viant/agently-core/service/tool/status"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
@@ -2548,7 +2548,7 @@ func TestService_Start_InvalidPromptProfileDoesNotCreateChildShell(t *testing.T)
 			"worker": {Identity: agentmdl.Identity{ID: "worker"}},
 		}},
 	}
-	s := New(nil, WithConversationClient(conv), WithPromptRepo(promptrepo.NewWithStore(fsstore.New(root))))
+	s := New(nil, WithConversationClient(conv), WithPromptRepo(intakerepo.NewWithStore(fsstore.New(root))))
 	s.agent = fake
 
 	var out StartOutput

@@ -85,7 +85,7 @@ type (
 		Skills []string `yaml:"skills,omitempty" json:"skills,omitempty"`
 		// Template assigns workspace output-template bundles to this agent.
 		Template Template `yaml:"template,omitempty" json:"template,omitempty"`
-		// Prompts restricts which prompt profiles are visible to this agent via
+		// Prompts restricts which intake profiles are visible to this agent via
 		// prompt:list.  Prompts.Bundles is a direct allow-list of profile IDs.
 		// When empty all profiles are accessible.
 		Prompts PromptAccess `yaml:"prompts,omitempty" json:"prompts,omitempty"`
@@ -326,7 +326,7 @@ type Template struct {
 	Bundles []string `yaml:"bundles,omitempty" json:"bundles,omitempty"`
 }
 
-// PromptAccess restricts which prompt profiles are visible to the agent via
+// PromptAccess restricts which intake profiles are visible to the agent via
 // prompt:list.  Bundles is a direct allow-list of profile IDs.
 // When empty all profiles are accessible.
 type PromptAccess struct {

@@ -16,13 +16,13 @@ import (
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 	tpldef "github.com/viant/agently-core/protocol/template"
 	toolbundledef "github.com/viant/agently-core/protocol/tool/bundle"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 	"github.com/viant/agently-core/workspace"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 )
@@ -31,7 +31,7 @@ import (
 type Service struct {
 	llm          *core.Service
 	conversation apiconv.Client
-	profileRepo  *promptrepo.Repository
+	profileRepo  *intakerepo.Repository
 	templateRepo *tplrepo.Repository
 	bundleRepo   *toolbundlerepo.Repository
 }
@@ -75,7 +75,7 @@ func New(llm *core.Service, opts ...func(*Service)) *Service {
 	return s
 }
 
-func WithProfileRepo(r *promptrepo.Repository) func(*Service) {
+func WithProfileRepo(r *intakerepo.Repository) func(*Service) {
 	return func(s *Service) { s.profileRepo = r }
 }
 
@@ -369,7 +369,7 @@ func (s *Service) allowedPromptProfileIDs(ctx context.Context) []string {
 		return nil
 	}
 	if allow := runtimerequestctx.PromptProfileAllowListFromContext(ctx); len(allow) > 0 {
-		profiles = promptrepo.FilterAllowedProfiles(profiles, allow)
+		profiles = intakerepo.FilterAllowedProfiles(profiles, allow)
 	}
 	ids := make([]string, 0, len(profiles))
 	seen := map[string]bool{}
@@ -493,9 +493,9 @@ func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (
 		profiles, err := s.profileRepo.LoadAll(ctx)
 		if err == nil && len(profiles) > 0 {
 			if allow := runtimerequestctx.PromptProfileAllowListFromContext(ctx); len(allow) > 0 {
-				profiles = promptrepo.FilterAllowedProfiles(profiles, allow)
+				profiles = intakerepo.FilterAllowedProfiles(profiles, allow)
 			}
-			b.WriteString("\n\nAvailable prompt profiles (id → description → appliesTo tags):\n")
+			b.WriteString("\n\nAvailable intake profiles (id → description → appliesTo tags):\n")
 			for _, p := range profiles {
 				if p == nil {
 					continue
@@ -775,8 +775,8 @@ func stripFence(s string) string {
 	return s
 }
 
-// ensure promptdef import is used (for future MCP-sourced profile metadata)
-var _ = promptdef.Profile{}
+// ensure intake import is used (for future MCP-sourced profile metadata)
+var _ = intake.Profile{}
 
 type contextWire struct {
 	Classification     *contextClassificationWire `json:"classification,omitempty"`

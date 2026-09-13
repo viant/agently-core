@@ -73,7 +73,7 @@ func (p *IntakePrompt) UnmarshalJSON(data []byte) error {
 // Intake configures the pre-turn intake sidecar for an agent.
 // The sidecar runs a lightweight LLM call before the main turn to extract
 // structured metadata (title, intent, context) and optionally suggest a
-// prompt profile, extra tool bundles, and an output template.
+// intake profile, extra tool bundles, and an output template.
 type Intake struct {
 	// Enabled turns the intake sidecar on for this agent. Default: false.
 	Enabled bool `yaml:"enabled" json:"enabled"`

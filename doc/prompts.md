@@ -1,4 +1,21 @@
-# Prompt Profiles and Tool Bundles — Simplifying Orchestrator Workspaces
+# Intake Profiles and Tool Bundles — Simplifying Orchestrator Workspaces
+
+## Naming and workspace migration
+
+Intake profiles are loaded per name from `intent/<id>.yaml` first, then
+`prompts/<id>.yaml` only when no intent definition exists. Both catalogs are
+listed together, with intent definitions taking precedence. An invalid intent
+file is an error; it does not activate a legacy definition. Existing nested
+`<id>/<id>.yaml` layouts and relative imports remain supported. Repository
+writes target `intent`; legacy files do not need to be moved to keep working.
+
+The Go type is `intake.Profile` in `protocol/intake`; its repository is
+`intake.Repository` in `workspace/repository/intake`. Update Go imports from
+`protocol/prompt` and `workspace/repository/prompt` to those new package paths.
+Existing `promptProfileId`, agent `prompts` access configuration, `prompt:list`,
+`prompt:get`, and MCP `prompts/list` / `prompts/get` retain their names for
+compatibility. Output templates and model prompt text are separate concepts.
+
 
 Workspace paths:
 - Runtime: `/Users/awitas/go/src/github.com/viant/agently-core`
@@ -85,12 +102,12 @@ Separate workers are only justified when the tool family, validation rules, or f
 
 ---
 
-## Prompt Profiles — IMPLEMENTED
+## Intake Profiles — IMPLEMENTED
 
 > **IMPLEMENTED** — All of the following are in production code:
-> - `protocol/prompt/profile.go` — `Profile`, `Message`, `MCPSource`, `Expansion` types + `EffectiveMessages()`
-> - `protocol/prompt/render.go` — `Profile.Render()` supporting local text/URI messages and MCP-sourced messages
-> - `workspace/repository/prompt/` — profile repository
+> - `protocol/intake/profile.go` — `Profile`, `Message`, `MCPSource`, `Expansion` types + `EffectiveMessages()`
+> - `protocol/intake/render.go` — `Profile.Render()` supporting local text/URI messages and MCP-sourced messages
+> - `workspace/repository/intake/` — profile repository
 > - `protocol/tool/service/prompt/service.go` — `prompt:list` / `prompt:get` tools
 > - `protocol/tool/service/llm/agents/types.go` — `RunInput` extended with `PromptProfileId`, `ToolBundles`, `TemplateId`
 > - `protocol/tool/service/llm/agents/profile_resolve.go` — runtime profile expansion in child turns
@@ -190,7 +207,7 @@ When `includeDocument` is absent or `false`, the messages appear only in the res
 **What is grounded in existing behavior vs what is proposed:**
 
 - System-role injection (`SystemDocumentMode` + `SystemDocumentTag`) is grounded in the existing `template:get` implementation (`protocol/tool/service/template/service.go:247`). This path exists and works today.
-- User-role and assistant-role injection via `AddMessage()` is also implemented for prompt profiles. `prompt:get` injects each rendered message using its authored role; only `system` messages receive `SystemDocumentMode` / `SystemDocumentTag`.
+- User-role and assistant-role injection via `AddMessage()` is also implemented for intake profiles. `prompt:get` injects each rendered message using its authored role; only `system` messages receive `SystemDocumentMode` / `SystemDocumentTag`.
 
 The same injection loop applies wherever profile messages are injected — whether from `prompt:get` with `includeDocument: true` (Option 2) or from the runtime during child conversation setup (Options 1 and 4). Both paths use identical per-role branching logic.
 
@@ -252,7 +269,7 @@ The same injection loop applies wherever profile messages are injected — wheth
 
 ### Outbound MCP Exposure
 
-The agently-core MCP server's `ListPrompts` and `GetPrompt` handlers (currently stubbed) are wired to the profile registry. External MCP clients see agently-core prompt profiles as standard MCP prompts. No translation is needed — profiles already produce `[]PromptMessage`.
+The agently-core MCP server's `ListPrompts` and `GetPrompt` handlers (currently stubbed) are wired to the profile registry. External MCP clients see agently-core intake profiles as standard MCP prompts. No translation is needed — profiles already produce `[]PromptMessage`.
 
 ---
 

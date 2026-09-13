@@ -5,29 +5,29 @@ import (
 	"fmt"
 	"strings"
 
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	policy "github.com/viant/agently-core/service/policy"
 )
 
 type selectedPromptProfileContextKey struct{}
 
-func withSelectedPromptProfile(ctx context.Context, profile *promptdef.Profile) context.Context {
+func withSelectedPromptProfile(ctx context.Context, profile *intake.Profile) context.Context {
 	if ctx == nil || profile == nil {
 		return ctx
 	}
 	return context.WithValue(ctx, selectedPromptProfileContextKey{}, profile)
 }
 
-func selectedPromptProfileFromContext(ctx context.Context) *promptdef.Profile {
+func selectedPromptProfileFromContext(ctx context.Context) *intake.Profile {
 	if ctx == nil {
 		return nil
 	}
-	profile, _ := ctx.Value(selectedPromptProfileContextKey{}).(*promptdef.Profile)
+	profile, _ := ctx.Value(selectedPromptProfileContextKey{}).(*intake.Profile)
 	return profile
 }
 
-func (s *Service) selectedPromptProfile(ctx context.Context, input *QueryInput) (*promptdef.Profile, error) {
+func (s *Service) selectedPromptProfile(ctx context.Context, input *QueryInput) (*intake.Profile, error) {
 	if s == nil || input == nil || s.promptRepo == nil {
 		return nil, nil
 	}
@@ -43,10 +43,10 @@ func (s *Service) selectedPromptProfile(ctx context.Context, input *QueryInput) 
 	}
 	profile, err := s.promptRepo.Load(ctx, profileID)
 	if err != nil {
-		return nil, fmt.Errorf("load prompt profile %q: %w", profileID, err)
+		return nil, fmt.Errorf("load intake profile %q: %w", profileID, err)
 	}
 	if profile == nil {
-		return nil, fmt.Errorf("prompt profile %q not found", profileID)
+		return nil, fmt.Errorf("intake profile %q not found", profileID)
 	}
 	if s.authorizationPolicy != nil {
 		if err := s.authorizationPolicy.Authorize(ctx, policy.OperationIntentView,
@@ -54,13 +54,13 @@ func (s *Service) selectedPromptProfile(ctx context.Context, input *QueryInput) 
 			policy.Candidate{ID: profileID, Kind: "promptProfile"},
 			map[string]any{"agentId": strings.TrimSpace(input.AgentID)},
 		); err != nil {
-			return nil, fmt.Errorf("prompt profile %q not found: %w", profileID, err)
+			return nil, fmt.Errorf("intake profile %q not found: %w", profileID, err)
 		}
 	}
 	return profile, nil
 }
 
-func ApplyPromptProfileExecutionDefaults(input *QueryInput, profile *promptdef.Profile) {
+func ApplyPromptProfileExecutionDefaults(input *QueryInput, profile *intake.Profile) {
 	if input == nil || profile == nil {
 		return
 	}

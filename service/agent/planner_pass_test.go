@@ -24,7 +24,7 @@ import (
 	intakesvc "github.com/viant/agently-core/service/intake"
 	planner "github.com/viant/agently-core/service/planner"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
@@ -207,7 +207,7 @@ func TestPlannerPass_PersistsStructuredGuidanceAndAppliesOutput(t *testing.T) {
 		defaults:           &config.Defaults{},
 		registry:           &plannerControlRegistry{},
 		plannerContracts:   testPlannerContractResolver(),
-		promptRepo:         promptrepo.NewWithStore(store),
+		promptRepo:         intakerepo.NewWithStore(store),
 		toolBundleRepo:     toolbundlerepo.NewWithStore(store),
 		templateRepo:       tplrepo.NewWithStore(store),
 		templateBundleRepo: tplbundlerepo.NewWithStore(store),
@@ -375,7 +375,7 @@ func TestPlannerPass_UsesDedicatedPlannerAgentWhenConfigured(t *testing.T) {
 		defaults:           &config.Defaults{},
 		registry:           reg,
 		plannerContracts:   testPlannerContractResolver(),
-		promptRepo:         promptrepo.NewWithStore(store),
+		promptRepo:         intakerepo.NewWithStore(store),
 		toolBundleRepo:     toolbundlerepo.NewWithStore(store),
 		templateRepo:       tplrepo.NewWithStore(store),
 		templateBundleRepo: tplbundlerepo.NewWithStore(store),
@@ -513,7 +513,7 @@ func TestPlannerPass_KeepsTemplateListVisibleForBootstrapWhenTemplateSelected(t 
 		registry:           reg,
 		agentFinder:        &allAgentFinder{items: []*agentmdl.Agent{plannerAgent}},
 		plannerContracts:   testPlannerContractResolver(),
-		promptRepo:         promptrepo.NewWithStore(store),
+		promptRepo:         intakerepo.NewWithStore(store),
 		toolBundleRepo:     toolbundlerepo.NewWithStore(store),
 		templateRepo:       tplrepo.NewWithStore(store),
 		templateBundleRepo: tplbundlerepo.NewWithStore(store),
@@ -610,7 +610,7 @@ func TestPlannerPass_RetriesWithValidationFeedback(t *testing.T) {
 		defaults:         &config.Defaults{},
 		registry:         &plannerControlRegistry{},
 		plannerContracts: testPlannerContractResolver(),
-		promptRepo:       promptrepo.NewWithStore(store),
+		promptRepo:       intakerepo.NewWithStore(store),
 	}
 
 	input := &QueryInput{
@@ -684,7 +684,7 @@ func TestPlannerPass_ClarifyFailurePublishesAssistantMessage(t *testing.T) {
 		defaults:         &config.Defaults{},
 		registry:         &plannerControlRegistry{},
 		plannerContracts: testPlannerContractResolver(),
-		promptRepo:       promptrepo.NewWithStore(store),
+		promptRepo:       intakerepo.NewWithStore(store),
 	}
 
 	input := &QueryInput{
@@ -786,7 +786,7 @@ func TestMaybeRunPlannerPass_EmitsEventsAndPayload(t *testing.T) {
 		defaults:           &config.Defaults{},
 		registry:           &plannerControlRegistry{},
 		plannerContracts:   testPlannerContractResolver(),
-		promptRepo:         promptrepo.NewWithStore(store),
+		promptRepo:         intakerepo.NewWithStore(store),
 		toolBundleRepo:     toolbundlerepo.NewWithStore(store),
 		templateRepo:       tplrepo.NewWithStore(store),
 		templateBundleRepo: tplbundlerepo.NewWithStore(store),

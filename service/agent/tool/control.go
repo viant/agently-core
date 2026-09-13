@@ -6,12 +6,12 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
 // Selection is the canonical internal tool-surface shape used by the agent
-// runtime regardless of whether the source was agent YAML, a prompt profile, or
+// runtime regardless of whether the source was agent YAML, a intake profile, or
 // turn-level runtime state.
 type Selection struct {
 	Bundles []string
@@ -62,7 +62,7 @@ func FromAgentTool(tool agentmdl.Tool) Selection {
 	return Normalize(out)
 }
 
-func FromPromptProfile(profile *promptdef.Profile) Selection {
+func FromPromptProfile(profile *intake.Profile) Selection {
 	if profile == nil {
 		return Selection{}
 	}

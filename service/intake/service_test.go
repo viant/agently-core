@@ -15,7 +15,7 @@ import (
 	"github.com/viant/agently-core/protocol/binding"
 	tpldef "github.com/viant/agently-core/protocol/template"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
@@ -366,7 +366,7 @@ func TestBuildGenerateInputWithContext_ConstrainsTemplateAndProfileEnums(t *test
 	require.NoError(t, os.WriteFile(filepath.Join(templateDir, "recommendation_review_dashboard.yaml"), []byte("id: recommendation_review_dashboard\nname: recommendation_review_dashboard\ndescription: recommendation template\nappliesTo: [recommendation]\n"), 0o644))
 
 	svc := &Service{
-		profileRepo:  promptrepo.NewWithStore(fsstore.New(tmpDir)),
+		profileRepo:  intakerepo.NewWithStore(fsstore.New(tmpDir)),
 		templateRepo: tplrepo.NewWithStore(fsstore.New(tmpDir)),
 	}
 	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "profile", "template"}}
@@ -492,7 +492,7 @@ func TestBuildSystemPrompt_FiltersProfilesByAllowList(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(promptDir, "performance_analysis.yaml"), []byte("id: performance_analysis\ndescription: visible\nappliesTo: [performance]\n"), 0o644))
 
 	svc := &Service{
-		profileRepo: promptrepo.NewWithStore(fsstore.New(tmpDir)),
+		profileRepo: intakerepo.NewWithStore(fsstore.New(tmpDir)),
 	}
 	cfg := &agentmdl.Intake{Scope: []string{"profile"}}
 	ctx := runtimerequestctx.WithPromptProfileAllowList(context.Background(), []string{"performance_analysis"})

@@ -9,8 +9,8 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/tool/matcher"
 	"github.com/viant/agently-core/pkg/mcpname"
+	intake "github.com/viant/agently-core/protocol/intake"
 	"github.com/viant/agently-core/protocol/mcp/uifallback"
-	promptdef "github.com/viant/agently-core/protocol/prompt"
 	"github.com/viant/jsonrpc"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpuimeta "github.com/viant/mcp-ui/meta"
@@ -21,7 +21,7 @@ type ToolHandler struct {
 	exec        Executor
 	patterns    []string
 	profileRepo ProfileRepo
-	mcpMgr      promptdef.MCPManager
+	mcpMgr      intake.MCPManager
 	clientCaps  *mcpschema.ClientCapabilities
 }
 
@@ -40,7 +40,7 @@ func NewToolHandler(exec Executor, patterns []string, opts ...func(*ToolHandler)
 }
 
 // WithMCPManager injects an MCP manager so MCP-sourced profiles can be rendered.
-func WithMCPManager(mgr promptdef.MCPManager) func(*ToolHandler) {
+func WithMCPManager(mgr intake.MCPManager) func(*ToolHandler) {
 	return func(h *ToolHandler) { h.mcpMgr = mgr }
 }
 

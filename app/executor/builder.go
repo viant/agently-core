@@ -52,7 +52,7 @@ import (
 	embedderloader "github.com/viant/agently-core/workspace/loader/embedder"
 	modelloader "github.com/viant/agently-core/workspace/loader/model"
 	callbackrepo "github.com/viant/agently-core/workspace/repository/callback"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
@@ -431,6 +431,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 	skillsvc.ExecFn = out.Registry.Execute
 	out.Skills = skillsvc.New(out.Defaults, out.Conversation, b.agentFinder)
+	out.Skills.SetToolRegistry(out.Registry)
 	if err := out.Skills.Load(ctx); err != nil {
 		return nil, err
 	}
@@ -496,7 +497,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		if out.Data != nil {
 			agentOpts = append(agentOpts, agentsvc.WithDataService(out.Data))
 		}
-		promptRepo := promptrepo.NewWithStore(out.Store)
+		promptRepo := intakerepo.NewWithStore(out.Store)
 		templateRepo := tplrepo.NewWithStore(out.Store)
 		bundleRepo := toolbundlerepo.NewWithStore(out.Store)
 		intakeSvc := intakesvc.New(out.Core,
@@ -617,7 +618,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			return nil, err
 		}
 	}
-	promptRepo := promptrepo.NewWithStore(out.Store)
+	promptRepo := intakerepo.NewWithStore(out.Store)
 	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent,
 		llmagents.WithConversationClient(out.Conversation),
 		llmagents.WithDataService(out.Data),

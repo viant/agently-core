@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
@@ -36,7 +36,7 @@ Rules:
 //
 // Output is validated: role structure must match input and total text is
 // bounded by cfg.MaxTokens (estimated as characters / 4).
-func (s *Service) expandMessages(ctx context.Context, msgs []promptdef.Message, objective string, cfg *promptdef.Expansion) []promptdef.Message {
+func (s *Service) expandMessages(ctx context.Context, msgs []intake.Message, objective string, cfg *intake.Expansion) []intake.Message {
 	if s.modelFinder == nil || cfg == nil || strings.TrimSpace(cfg.Model) == "" || len(msgs) == 0 {
 		return msgs
 	}
@@ -52,7 +52,7 @@ func (s *Service) expandMessages(ctx context.Context, msgs []promptdef.Message, 
 }
 
 // callExpansionSidecar performs the actual LLM call.
-func (s *Service) callExpansionSidecar(ctx context.Context, msgs []promptdef.Message, objective string, cfg *promptdef.Expansion) ([]promptdef.Message, error) {
+func (s *Service) callExpansionSidecar(ctx context.Context, msgs []intake.Message, objective string, cfg *intake.Expansion) ([]intake.Message, error) {
 	model, err := s.modelFinder.Find(ctx, strings.TrimSpace(cfg.Model))
 	if err != nil {
 		return nil, fmt.Errorf("expansion sidecar: find model %q: %w", cfg.Model, err)
@@ -115,9 +115,9 @@ func buildExpansionUserPrompt(objective string) string {
 
 // parseExpansionOutput parses the JSON array returned by the sidecar.
 // Tolerates a markdown code fence wrapper if present.
-func parseExpansionOutput(raw string) ([]promptdef.Message, error) {
+func parseExpansionOutput(raw string) ([]intake.Message, error) {
 	raw = stripMarkdownFence(raw)
-	var out []promptdef.Message
+	var out []intake.Message
 	if err := json.Unmarshal([]byte(raw), &out); err != nil {
 		// Try a lenient parse: look for the first '[' and last ']'.
 		if start := strings.Index(raw, "["); start >= 0 {
@@ -137,7 +137,7 @@ func parseExpansionOutput(raw string) ([]promptdef.Message, error) {
 //   - same role sequence
 //   - no message has empty text
 //   - estimated token count within MaxTokens (characters / 4 heuristic)
-func validExpansionOutput(out, original []promptdef.Message) bool {
+func validExpansionOutput(out, original []intake.Message) bool {
 	if len(out) != len(original) {
 		return false
 	}

@@ -15,7 +15,7 @@ import (
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 	toolreg "github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	agruntime "github.com/viant/agently-core/runtime"
@@ -25,7 +25,7 @@ import (
 	linksvc "github.com/viant/agently-core/service/linking"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	statussvc "github.com/viant/agently-core/service/tool/status"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 )
 
 const Name = "llm/agents"
@@ -58,10 +58,10 @@ type Service struct {
 	cancelReg    cancels.Registry
 	// promptRepo is optional. When set, llm/agents:run expands promptProfileId
 	// into injected instructions + tool bundles before the child turn starts.
-	promptRepo *promptrepo.Repository
+	promptRepo *intakerepo.Repository
 	// mcpMgr is optional. When set, MCP-sourced profiles are rendered via the
 	// MCP server rather than falling back to EffectiveMessages().
-	mcpMgr promptdef.MCPManager
+	mcpMgr intake.MCPManager
 	// modelFinder is optional. When set, the expansion sidecar (Phase 10) can
 	// call a lightweight LLM to synthesize task-specific profile instructions.
 	modelFinder llm.Finder
@@ -93,13 +93,13 @@ func WithCancelRegistry(reg cancels.Registry) Option {
 
 // WithPromptRepo injects a prompt-profile repository so that
 // RunInput.PromptProfileId is resolved before the child turn begins.
-func WithPromptRepo(repo *promptrepo.Repository) Option {
+func WithPromptRepo(repo *intakerepo.Repository) Option {
 	return func(s *Service) { s.promptRepo = repo }
 }
 
-// WithMCPManager injects an MCP manager so that MCP-sourced prompt profiles
+// WithMCPManager injects an MCP manager so that MCP-sourced intake profiles
 // are rendered via the MCP server at delegation time.
-func WithMCPManager(mgr promptdef.MCPManager) Option {
+func WithMCPManager(mgr intake.MCPManager) Option {
 	return func(s *Service) { s.mcpMgr = mgr }
 }
 

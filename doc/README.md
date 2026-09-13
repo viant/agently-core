@@ -45,7 +45,7 @@ If you're new, read in this order:
 
 | Doc | Topic |
 |---|---|
-| [prompts.md](prompts.md) | Prompt profiles + tool bundles |
+| [prompts.md](prompts.md) | Intake profiles + tool bundles |
 | [templates.md](templates.md) | Output templates + template bundles |
 | [skills.md](skills.md) | `SKILL.md` support |
 | [prompt-binding.md](prompt-binding.md) | How the model's message list is assembled |

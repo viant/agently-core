@@ -53,7 +53,7 @@ Elicitations honour `ctx.Done()`: if the calling turn is cancelled, the awaiter 
 
 - **New widget hint**: add an `x-ui-*` convention + extend the refiner.
 - **New terminal action**: add under `service/elicitation/action/`.
-- **Pre-fill via profile**: the intake sidecar or a prompt profile can pre-populate `x-ui-default` hints before the form reaches the user.
+- **Pre-fill via profile**: the intake sidecar or a intake profile can pre-populate `x-ui-default` hints before the form reaches the user.
 
 ## Related docs
 

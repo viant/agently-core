@@ -19,7 +19,7 @@ import (
 	intakesvc "github.com/viant/agently-core/service/intake"
 	planner "github.com/viant/agently-core/service/planner"
 	"github.com/viant/agently-core/service/reactor"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
@@ -63,7 +63,7 @@ func (m *sequenceModel) Generate(_ context.Context, request *llm.GenerateRequest
 
 func (*sequenceModel) Implements(string) bool { return false }
 
-func makePlannerRepos(t *testing.T) (*fsstore.Store, *promptrepo.Repository, *toolbundlerepo.Repository, *tplrepo.Repository, *tplbundlerepo.Repository) {
+func makePlannerRepos(t *testing.T) (*fsstore.Store, *intakerepo.Repository, *toolbundlerepo.Repository, *tplrepo.Repository, *tplbundlerepo.Repository) {
 	t.Helper()
 	root := t.TempDir()
 	write := func(rel, body string) {
@@ -77,7 +77,7 @@ func makePlannerRepos(t *testing.T) (*fsstore.Store, *promptrepo.Repository, *to
 	write("templates/bundles/analytics.yaml", "id: analytics-templates\ntemplates:\n  - dashboard\n")
 	store := fsstore.New(root)
 	return store,
-		promptrepo.NewWithStore(store),
+		intakerepo.NewWithStore(store),
 		toolbundlerepo.NewWithStore(store),
 		tplrepo.NewWithStore(store),
 		tplbundlerepo.NewWithStore(store)

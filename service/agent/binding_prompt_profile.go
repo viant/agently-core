@@ -6,7 +6,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/protocol/binding"
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 )
 
 func (s *Service) applySelectedPromptProfile(ctx context.Context, input *QueryInput, b *binding.Binding) error {
@@ -23,7 +23,7 @@ func (s *Service) applySelectedPromptProfile(ctx context.Context, input *QueryIn
 	profileID := strings.TrimSpace(input.PromptProfileId)
 	msgs, err := profile.Render(ctx, s.mcpMgr, nil)
 	if err != nil {
-		return fmt.Errorf("render prompt profile %q: %w", profileID, err)
+		return fmt.Errorf("render intake profile %q: %w", profileID, err)
 	}
 	for i, msg := range msgs {
 		if !strings.EqualFold(strings.TrimSpace(msg.Role), "system") {
@@ -51,4 +51,4 @@ func (s *Service) applySelectedPromptProfile(ctx context.Context, input *QueryIn
 	return nil
 }
 
-var _ = promptdef.Profile{}
+var _ = intake.Profile{}

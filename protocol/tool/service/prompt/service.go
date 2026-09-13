@@ -11,26 +11,26 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	promptdef "github.com/viant/agently-core/protocol/prompt"
+	intake "github.com/viant/agently-core/protocol/intake"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	policy "github.com/viant/agently-core/service/policy"
 	"github.com/viant/agently-core/service/shared/toolexec"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 )
 
 const Name = "prompt"
 
 // Service implements the prompt:list and prompt:get tools.
 type Service struct {
-	repo   *promptrepo.Repository
+	repo   *intakerepo.Repository
 	conv   apiconv.Client
 	finder agentmdl.Finder
-	mgr    promptdef.MCPManager // optional; enables MCP-sourced profiles
+	mgr    intake.MCPManager // optional; enables MCP-sourced profiles
 	policy *policy.Runtime
 }
 
-func New(repo *promptrepo.Repository, opts ...func(*Service)) *Service {
+func New(repo *intakerepo.Repository, opts ...func(*Service)) *Service {
 	s := &Service{repo: repo}
 	for _, opt := range opts {
 		if opt != nil {
@@ -42,7 +42,7 @@ func New(repo *promptrepo.Repository, opts ...func(*Service)) *Service {
 
 func WithConversationClient(c apiconv.Client) func(*Service) { return func(s *Service) { s.conv = c } }
 func WithAgentFinder(f agentmdl.Finder) func(*Service)       { return func(s *Service) { s.finder = f } }
-func WithMCPManager(m promptdef.MCPManager) func(*Service)   { return func(s *Service) { s.mgr = m } }
+func WithMCPManager(m intake.MCPManager) func(*Service)      { return func(s *Service) { s.mgr = m } }
 func WithAuthorizationPolicy(p *policy.Runtime) func(*Service) {
 	return func(s *Service) { s.policy = p }
 }
@@ -51,8 +51,8 @@ func (s *Service) Name() string { return Name }
 
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
-		{Name: "list", Description: "List available prompt profiles by id and description for scenario selection", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
-		{Name: "get", Description: "Get a prompt profile by id, returning rendered messages and metadata. Use includeDocument:true to inject instructions into the current conversation.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
+		{Name: "list", Description: "List available intake profiles by id and description for scenario selection", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
+		{Name: "get", Description: "Get a intake profile by id, returning rendered messages and metadata. Use includeDocument:true to inject instructions into the current conversation.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
 	}
 }
 
@@ -112,13 +112,13 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	}
 	id := strings.TrimSpace(gi.ID)
 	if id == "" {
-		return fmt.Errorf("prompt profile id is required")
+		return fmt.Errorf("intake profile id is required")
 	}
 	profiles, err := s.allowedProfiles(ctx)
 	if err != nil {
 		return err
 	}
-	var selected *promptdef.Profile
+	var selected *intake.Profile
 	for _, p := range profiles {
 		if p == nil {
 			continue
@@ -129,7 +129,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	if selected == nil {
-		return fmt.Errorf("prompt profile %q not found", id)
+		return fmt.Errorf("intake profile %q not found", id)
 	}
 
 	go_.ID = strings.TrimSpace(selected.ID)
@@ -145,7 +145,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	// Always render and return messages in the response body.
 	// Render supports local text/URI messages and MCP-sourced messages.
 	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	renderOpts := &promptdef.RenderOptions{ConversationID: convID}
+	renderOpts := &intake.RenderOptions{ConversationID: convID}
 	msgs, err := selected.Render(ctx, s.mgr, renderOpts)
 	if err != nil {
 		return fmt.Errorf("render profile %q: %w", id, err)
@@ -170,7 +170,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 // authored role.  System messages are stored as system documents
 // (SystemDocumentMode + SystemDocumentTag); user and assistant messages are
 // stored with their natural roles only.
-func (s *Service) injectMessages(ctx context.Context, msgs []promptdef.Message) error {
+func (s *Service) injectMessages(ctx context.Context, msgs []intake.Message) error {
 	if s == nil || s.conv == nil || len(msgs) == 0 {
 		return nil
 	}
@@ -207,7 +207,7 @@ func (s *Service) injectMessages(ctx context.Context, msgs []promptdef.Message) 
 
 // allowedProfiles returns all profiles visible to the current agent.
 // When the agent has no Prompts.Bundles restriction, all profiles are returned.
-func (s *Service) allowedProfiles(ctx context.Context) ([]*promptdef.Profile, error) {
+func (s *Service) allowedProfiles(ctx context.Context) ([]*intake.Profile, error) {
 	if s == nil || s.repo == nil {
 		return nil, fmt.Errorf("prompt repository not configured")
 	}
@@ -228,7 +228,7 @@ func (s *Service) allowedProfiles(ctx context.Context) ([]*promptdef.Profile, er
 	for _, b := range ag.Prompts.Bundles {
 		allowed[strings.ToLower(strings.TrimSpace(b))] = struct{}{}
 	}
-	filtered := make([]*promptdef.Profile, 0, len(all))
+	filtered := make([]*intake.Profile, 0, len(all))
 	for _, p := range all {
 		if p == nil {
 			continue
@@ -240,12 +240,12 @@ func (s *Service) allowedProfiles(ctx context.Context) ([]*promptdef.Profile, er
 	return s.filterAuthorizedProfiles(ctx, filtered)
 }
 
-func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*promptdef.Profile) ([]*promptdef.Profile, error) {
+func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*intake.Profile) ([]*intake.Profile, error) {
 	if s == nil || s.policy == nil || !s.policy.IsEnabled(policy.OperationIntentView) || len(profiles) == 0 {
 		return profiles, nil
 	}
 	candidates := make([]policy.Candidate, 0, len(profiles))
-	byID := make(map[string]*promptdef.Profile, len(profiles))
+	byID := make(map[string]*intake.Profile, len(profiles))
 	for _, profile := range profiles {
 		if profile == nil {
 			continue
@@ -266,7 +266,7 @@ func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*prom
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*promptdef.Profile, 0, len(allowed))
+	result := make([]*intake.Profile, 0, len(allowed))
 	for _, candidate := range allowed {
 		if profile := byID[strings.ToLower(strings.TrimSpace(candidate.ID))]; profile != nil {
 			result = append(result, profile)
@@ -295,7 +295,7 @@ func (s *Service) currentAgentID(ctx context.Context) string {
 	return strings.TrimSpace(*conv.AgentId)
 }
 
-func mapEvidenceContract(in *promptdef.EvidenceContract) *EvidenceContract {
+func mapEvidenceContract(in *intake.EvidenceContract) *EvidenceContract {
 	if in == nil {
 		return nil
 	}

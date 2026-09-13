@@ -13,7 +13,7 @@ import (
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
-	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
+	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
 
@@ -24,7 +24,7 @@ func TestResolveTools_WithPromptBundle(t *testing.T) {
 	reg, err := registry.NewWithManager(mgr)
 	require.NoError(t, err)
 
-	repo := promptrepo.NewWithStore(fsstore.New("/Users/awitas/go/src/github.com/viant/agently-core/workspace/repository/prompt/testdata"))
+	repo := intakerepo.NewWithStore(fsstore.New("/Users/awitas/go/src/github.com/viant/agently-core/workspace/repository/intake/testdata"))
 	require.NoError(t, reg.AddInternalService(promptsvc.New(repo)))
 	reg.Initialize(context.Background())
 
