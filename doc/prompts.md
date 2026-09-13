@@ -1346,3 +1346,12 @@ assert.Equal(t, "performance_analysis", tc.SuggestedProfileId)
 | 9 | MCP server exposure | `protocol/mcp/expose/tool_handler.go`, `localclient/service_handler.go` | ✅ |
 | 10 | Expansion sidecar | `protocol/tool/service/llm/agents/expand.go` | ✅ |
 | 11 | Intake sidecar | `service/intake/`, `service/agent/intake_query.go`, `protocol/agent/intake.go` | ✅ |
+
+## Authorization policy
+
+When `policy.authorization.intent` is enabled, prompt-profile discovery and
+runtime injection are filtered through the workspace MCP visibility policy.
+When `policy.authorization.starterPrompt` is enabled, suggested starter prompts
+are filtered from workspace metadata. These checks only reduce the existing
+agent/profile and workspace candidate sets. See
+[doc/authorization-policy.md](authorization-policy.md).

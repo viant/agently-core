@@ -102,3 +102,29 @@ func TestClientValidatesBothSidesOfExternalBoundary(t *testing.T) {
 		t.Fatal("adapter failure hidden")
 	}
 }
+
+func TestClientGetNullableResponses(t *testing.T) {
+	for _, tc := range []struct {
+		name, body string
+		invalid    bool
+	}{
+		{"null", "null", false},
+		{"encoder newline", "null\n", false},
+		{"JSON whitespace", " \t\r\nnull \t\r\n", false},
+		{"trailing value", "null {}", true},
+		{"invalid whitespace", "\u00a0null", true},
+		{"empty", "", true},
+		{"oversized", strings.Repeat(" ", MaxBytes) + "null", true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, err := NewClient(&fakeTransport{body: json.RawMessage(tc.body)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			p, err := c.Get(context.Background(), "table")
+			if (err != nil) != tc.invalid || p != nil {
+				t.Fatalf("preferences=%v error=%v", p, err)
+			}
+		})
+	}
+}

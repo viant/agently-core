@@ -12,6 +12,7 @@ import (
 	dssvc "github.com/viant/agently-core/service/datasource"
 	dsadapter "github.com/viant/agently-core/service/datasource/adapter"
 	oversvc "github.com/viant/agently-core/service/lookup/overlay"
+	policy "github.com/viant/agently-core/service/policy"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/agently-core/workspace/repository/forgedatasource"
 	"github.com/viant/agently-core/workspace/repository/forgelookup"
@@ -30,6 +31,7 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 	}
 
 	ctx := context.Background()
+	policy.SetDefaultRuntime(rt.AuthorizationPolicy)
 
 	// Load datasources.
 	dsStore := dssvc.NewMemoryStore()

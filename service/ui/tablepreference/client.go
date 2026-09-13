@@ -36,10 +36,17 @@ func (c *Client) Get(ctx context.Context, key string) (*Preferences, error) {
 	if err != nil {
 		return nil, err
 	}
-	if string(body) == "null" {
+	var preferences *Preferences
+	if err := decodeStrict(body, &preferences); err != nil {
+		return nil, err
+	}
+	if preferences == nil {
 		return nil, nil
 	}
-	return Decode(body)
+	if err := Validate(preferences); err != nil {
+		return nil, err
+	}
+	return preferences, nil
 }
 
 func (c *Client) Set(ctx context.Context, key string, p *Preferences) error {

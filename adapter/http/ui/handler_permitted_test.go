@@ -11,8 +11,10 @@ import (
 	"time"
 
 	internalAuth "github.com/viant/agently-core/internal/auth"
+	policy "github.com/viant/agently-core/service/policy"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/agently-core/workspace"
+	forgeTypes "github.com/viant/forge/backend/types"
 )
 
 type fixedAuthorizationResolver struct{}
@@ -24,6 +26,49 @@ func (fixedAuthorizationResolver) Resolve(context.Context, *permittedview.Reques
 			"85141": {Type: "advertiser", ID: 85141, Capabilities: map[string]bool{"read": true, "write": false}},
 		},
 	}, nil
+}
+
+type windowPolicyResolver struct{}
+
+func (windowPolicyResolver) Resolve(_ context.Context, request *policy.Request) (*policy.Decision, error) {
+	return &policy.Decision{
+		PolicyVersion: "v1", ExpiresAt: time.Now().Add(time.Minute), Allow: true,
+		AllowedIDs: []string{"allowed"},
+	}, nil
+}
+
+func TestWindowHandlerAppliesWholeWindowPolicyAndKeepsLegacyPermissionOptional(t *testing.T) {
+	metaRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	previous := workspace.Root()
+	workspace.SetRoot(workspaceRoot)
+	t.Cleanup(func() { workspace.SetRoot(previous) })
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "allowed.yaml"), "view: {content: {id: root}}\n")
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "denied.yaml"), "view: {content: {id: root}}\n")
+	cleanup := policy.SetDefaultRuntime(policy.NewRuntime(windowPolicyResolver{}, policy.OperationWindowView))
+	t.Cleanup(cleanup)
+
+	allowed := httptest.NewRecorder()
+	newHandler("file://"+metaRoot, nil).ServeHTTP(allowed, httptest.NewRequest(http.MethodGet, "/window/allowed", nil))
+	if allowed.Code != http.StatusOK {
+		t.Fatalf("allowed status = %d: %s", allowed.Code, allowed.Body.String())
+	}
+	denied := httptest.NewRecorder()
+	newHandler("file://"+metaRoot, nil).ServeHTTP(denied, httptest.NewRequest(http.MethodGet, "/window/denied", nil))
+	if denied.Code != http.StatusNotFound {
+		t.Fatalf("denied status = %d: %s", denied.Code, denied.Body.String())
+	}
+}
+
+func TestFilterNavigationItemsRemovesDeniedWindowsAndEmptyGroups(t *testing.T) {
+	items := []forgeTypes.NavigationItem{
+		{ID: "group", ChildNodes: []forgeTypes.NavigationItem{{ID: "allowed", WindowKey: "allowed"}, {ID: "denied", WindowKey: "denied"}}},
+		{ID: "empty", ChildNodes: []forgeTypes.NavigationItem{{ID: "hidden", WindowKey: "hidden"}}},
+	}
+	got := filterNavigationItems(items, map[string]bool{"allowed": true})
+	if len(got) != 1 || got[0].ID != "group" || len(got[0].ChildNodes) != 1 || got[0].ChildNodes[0].WindowKey != "allowed" {
+		t.Fatalf("filterNavigationItems() = %#v", got)
+	}
 }
 
 func TestWindowHandlerCompilesPermittedViewBeforeResponse(t *testing.T) {

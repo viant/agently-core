@@ -2370,3 +2370,43 @@ func TestHTTPClient_ListSkillsByAgent(t *testing.T) {
 		t.Fatalf("out=%v err=%v", out, err)
 	}
 }
+
+func TestHTTPClient_GetWorkspaceMetadata_PreservesAppearance(t *testing.T) {
+	const payload = `{"workspaceId":"workspace","uiStyles":{"version":1,"revision":"css-revision","href":"/v1/workspace/ui/styles/css-revision.css","themeRevision":"theme-revision"},"uiThemes":{"version":1,"revision":"theme-revision","href":"/v1/workspace/ui/themes/theme-revision.json"},"uiStyleDiagnostics":["scope warning"],"composer":{"allowAgentSelection":false,"allowModelSelection":true}}`
+	for _, wrapped := range []bool{false, true} {
+		name := "direct"
+		if wrapped {
+			name = "envelope"
+		}
+		t.Run(name, func(t *testing.T) {
+			c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				body := payload
+				if wrapped {
+					body = `{"data":` + payload + `}`
+				}
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = io.WriteString(w, body)
+			}))
+			out, err := c.GetWorkspaceMetadata(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := json.Marshal(out)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var want, got map[string]json.RawMessage
+			if err := json.Unmarshal([]byte(payload), &want); err != nil {
+				t.Fatal(err)
+			}
+			if err := json.Unmarshal(encoded, &got); err != nil {
+				t.Fatal(err)
+			}
+			for key, value := range want {
+				if !bytes.Equal(value, got[key]) {
+					t.Errorf("field %s: want %s, got %s", key, value, got[key])
+				}
+			}
+		})
+	}
+}

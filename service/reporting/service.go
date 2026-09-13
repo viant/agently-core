@@ -23,6 +23,7 @@ import (
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	authctx "github.com/viant/agently-core/service/auth"
+	policy "github.com/viant/agently-core/service/policy"
 )
 
 var (
@@ -61,6 +62,7 @@ type Options struct {
 	// adopted completed manual run when its full durable snapshot is valid.
 	ConversationAdoptionEnabled bool
 	ForgeUIViewResolver         ForgeUIViewResolver
+	AuthorizationPolicy         *policy.Runtime
 }
 
 // Service is the agently-core runtime boundary for reporting compile and
@@ -79,6 +81,7 @@ type Service struct {
 	conversationAdoptionEnabled bool
 	activeRunResolver           ActiveReportRunResolver
 	forgeUIViewResolver         ForgeUIViewResolver
+	authorizationPolicy         *policy.Runtime
 }
 
 // New constructs a reporting Service.
@@ -113,10 +116,17 @@ func New(opts Options) *Service {
 		conversationAdoptionEnabled: opts.ConversationAdoptionEnabled,
 		activeRunResolver:           normalizeActiveReportRunResolver(opts.ActiveRunResolver),
 		forgeUIViewResolver:         normalizeForgeUIViewResolver(opts.ForgeUIViewResolver),
+		authorizationPolicy:         opts.AuthorizationPolicy,
 	}
 }
 
 func (s *Service) Name() string { return Name }
+
+func (s *Service) SetAuthorizationPolicy(runtime *policy.Runtime) {
+	if s != nil {
+		s.authorizationPolicy = runtime
+	}
+}
 
 func (s *Service) AsyncConfig(toolName string) *asynccfg.Config {
 	for _, config := range s.AsyncConfigs() {
@@ -1960,6 +1970,9 @@ func (s *Service) GetReport(ctx context.Context, input *GetReportInput) (*Shared
 		if strings.TrimSpace(artifact.Kind) != savedReportArtifactKind {
 			return nil, ErrNotFound
 		}
+		if err := s.authorizeReport(ctx, artifact); err != nil {
+			return nil, ErrNotFound
+		}
 		return artifact, nil
 	}
 	artifactRef := strings.TrimSpace(input.ArtifactRef)
@@ -1979,9 +1992,15 @@ func (s *Service) GetReport(ctx context.Context, input *GetReportInput) (*Shared
 			continue
 		}
 		if artifactRef != "" && strings.TrimSpace(artifact.ArtifactRef) == artifactRef {
+			if err := s.authorizeReport(ctx, artifact); err != nil {
+				return nil, ErrNotFound
+			}
 			return cloneSharedArtifact(artifact), nil
 		}
 		if reportID != "" && strings.TrimSpace(artifact.ReportID) == reportID {
+			if err := s.authorizeReport(ctx, artifact); err != nil {
+				return nil, ErrNotFound
+			}
 			return cloneSharedArtifact(artifact), nil
 		}
 	}
@@ -2011,7 +2030,7 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 		normalized = *input
 	}
 	sharedLimit := normalized.Limit
-	if strings.TrimSpace(normalized.OrderID) != "" {
+	if strings.TrimSpace(normalized.OrderID) != "" || (s.authorizationPolicy != nil && s.authorizationPolicy.IsEnabled(policy.OperationReportView)) {
 		sharedLimit = 0
 	}
 	result, err := s.ListSharedArtifacts(ctx, &ListSharedArtifactsInput{
@@ -2029,8 +2048,12 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 			reports = append(reports, summary)
 		}
 	}
+	reports, err = s.filterAuthorizedReports(ctx, reports)
+	if err != nil {
+		return nil, err
+	}
 	totalCount := result.TotalCount
-	if strings.TrimSpace(normalized.OrderID) != "" {
+	if strings.TrimSpace(normalized.OrderID) != "" || (s.authorizationPolicy != nil && s.authorizationPolicy.IsEnabled(policy.OperationReportView)) {
 		totalCount = len(reports)
 	}
 	if normalized.Limit > 0 && len(reports) > normalized.Limit {
@@ -2040,6 +2063,56 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 		Reports:    reports,
 		TotalCount: totalCount,
 	}, nil
+}
+
+func (s *Service) authorizeReport(ctx context.Context, artifact *SharedArtifact) error {
+	if s == nil || s.authorizationPolicy == nil || !s.authorizationPolicy.IsEnabled(policy.OperationReportView) {
+		return nil
+	}
+	id := reportAuthorizationID(artifact.ReportID, artifact.ArtifactID, artifact.ArtifactRef)
+	return s.authorizationPolicy.Authorize(ctx, policy.OperationReportView,
+		runtimerequestctx.ConversationIDFromContext(ctx),
+		policy.Candidate{ID: id, Kind: "report", Metadata: map[string]any{"title": artifact.Title}}, nil)
+}
+
+func (s *Service) filterAuthorizedReports(ctx context.Context, reports []*ReportSummary) ([]*ReportSummary, error) {
+	if s == nil || s.authorizationPolicy == nil || !s.authorizationPolicy.IsEnabled(policy.OperationReportView) || len(reports) == 0 {
+		return reports, nil
+	}
+	candidates := make([]policy.Candidate, 0, len(reports))
+	byID := make(map[string]*ReportSummary, len(reports))
+	for _, report := range reports {
+		if report == nil {
+			continue
+		}
+		id := reportAuthorizationID(report.ReportID, report.ArtifactID, report.ArtifactRef)
+		candidates = append(candidates, policy.Candidate{ID: id, Kind: "report", Metadata: map[string]any{"title": report.Title}})
+		byID[strings.ToLower(id)] = report
+	}
+	allowed, err := s.authorizationPolicy.Filter(ctx, policy.OperationReportView,
+		runtimerequestctx.ConversationIDFromContext(ctx), candidates, nil)
+	if errors.Is(err, policy.ErrDenied) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*ReportSummary, 0, len(allowed))
+	for _, candidate := range allowed {
+		if report := byID[strings.ToLower(strings.TrimSpace(candidate.ID))]; report != nil {
+			result = append(result, report)
+		}
+	}
+	return result, nil
+}
+
+func reportAuthorizationID(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return "unknown"
 }
 
 func (s *Service) listReportsTool(ctx context.Context, in, out interface{}) error {

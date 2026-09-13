@@ -90,6 +90,11 @@ from `JWT.subject`. A user request such as "list my reports" may return both
 workspace presets and reports visible to that user, while preserving the
 read-only distinction for presets.
 
+When `policy.authorization.reports` is enabled, the shared MCP visibility
+policy further filters saved-report list and get results after ownership
+checks. It cannot expand ownership visibility. See
+[authorization policy](../doc/authorization-policy.md).
+
 ### Execution and export
 
 Execution and export use a unified source selector:

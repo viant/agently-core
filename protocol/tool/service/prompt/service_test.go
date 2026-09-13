@@ -3,18 +3,36 @@ package prompt
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	promptdef "github.com/viant/agently-core/protocol/prompt"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	policy "github.com/viant/agently-core/service/policy"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 )
 
 type promptTestFinder struct {
 	agent *agentmdl.Agent
+}
+
+type promptPolicyResolver struct{}
+
+func (promptPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
+	return &policy.Decision{PolicyVersion: "v1", ExpiresAt: time.Now().Add(time.Minute), Allow: true, AllowedIDs: []string{"allowed"}}, nil
+}
+
+func TestFilterAuthorizedProfiles(t *testing.T) {
+	svc := &Service{policy: policy.NewRuntime(promptPolicyResolver{}, policy.OperationIntentView)}
+	profiles := []*promptdef.Profile{{ID: "allowed"}, {ID: "denied"}}
+	got, err := svc.filterAuthorizedProfiles(context.Background(), profiles)
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	assert.Equal(t, "allowed", got[0].ID)
 }
 
 func (f *promptTestFinder) Find(context.Context, string) (*agentmdl.Agent, error) {

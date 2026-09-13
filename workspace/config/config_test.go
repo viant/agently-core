@@ -184,12 +184,72 @@ func TestRootAuthorizationTool(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(`
 ui:
   authorization:
-    tool: steward:ResourceAuthorization
+    tool: myMcp
 `), root); err != nil {
 		t.Fatalf("yaml.Unmarshal() error = %v", err)
 	}
-	if got := root.AuthorizationTool(); got != "steward:ResourceAuthorization" {
+	if got := root.AuthorizationTool(); got != "myMcp" {
 		t.Fatalf("AuthorizationTool() = %q", got)
+	}
+}
+
+func TestRootPolicyAuthorization(t *testing.T) {
+	root := &Root{}
+	if err := yaml.Unmarshal([]byte(`
+policy:
+  authorization:
+    mcpTool: myMcp:authorize
+    ui: {}
+    reports: {enabled: true}
+    starterPrompt: {}
+    intent: false
+`), root); err != nil {
+		t.Fatalf("yaml.Unmarshal() error = %v", err)
+	}
+	if got := root.PolicyAuthorizationMCPTool(); got != "myMcp:authorize" {
+		t.Fatalf("PolicyAuthorizationMCPTool() = %q", got)
+	}
+	if got := root.AuthorizationTool(); got != "" {
+		t.Fatalf("AuthorizationTool() = %q", got)
+	}
+	for _, operation := range []string{"ui", "reports", "starterPrompt"} {
+		if !root.PolicyAuthorizationEnabled(operation) {
+			t.Fatalf("PolicyAuthorizationEnabled(%q) = false", operation)
+		}
+	}
+	if root.PolicyAuthorizationEnabled("intent") {
+		t.Fatal("PolicyAuthorizationEnabled(intent) = true")
+	}
+}
+
+func TestRootPolicyAuthorizationStarterTaskAlias(t *testing.T) {
+	root := &Root{}
+	if err := yaml.Unmarshal([]byte("policy:\n  authorization:\n    mcpTool: myMcp:authorize\n    starterTask: {}\n"), root); err != nil {
+		t.Fatal(err)
+	}
+	if !root.PolicyAuthorizationEnabled("starterPrompt") {
+		t.Fatal("starterTask alias did not enable starterPrompt")
+	}
+}
+
+func TestRootLegacyUIAuthorizationRemainsIndependent(t *testing.T) {
+	root := &Root{}
+	if err := yaml.Unmarshal([]byte(`
+ui:
+  authorization:
+    tool: legacyMcp:resourceAuthorization
+policy:
+  authorization:
+    mcpTool: myMcp:authorize
+    ui: {}
+`), root); err != nil {
+		t.Fatal(err)
+	}
+	if got := root.AuthorizationTool(); got != "legacyMcp:resourceAuthorization" {
+		t.Fatalf("AuthorizationTool() = %q", got)
+	}
+	if got := root.PolicyAuthorizationMCPTool(); got != "myMcp:authorize" {
+		t.Fatalf("PolicyAuthorizationMCPTool() = %q", got)
 	}
 }
 

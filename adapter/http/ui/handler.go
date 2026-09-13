@@ -3,6 +3,7 @@ package ui
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	policy "github.com/viant/agently-core/service/policy"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	forgeHandlers "github.com/viant/forge/backend/handlers"
@@ -31,7 +33,7 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 	} else {
 		rootMSvc = metaSvc.New(afs.New(), root, efs)
 	}
-	mux.HandleFunc("/navigation", forgeHandlers.NavigationHandler(rootMSvc, root))
+	mux.HandleFunc("/navigation", navigationHandler(rootMSvc, root))
 
 	windowBase := "/window/"
 	windowRoot := root
@@ -55,6 +57,19 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 		if windowKey == "" {
 			http.Error(w, "window key is required", http.StatusBadRequest)
 			return
+		}
+		if runtime := policy.DefaultRuntime(); runtime != nil && runtime.IsEnabled(policy.OperationWindowView) {
+			err := runtime.Authorize(r.Context(), policy.OperationWindowView,
+				strings.TrimSpace(r.URL.Query().Get("conversationId")),
+				policy.Candidate{ID: windowKey, Kind: "window"}, nil)
+			if errors.Is(err, policy.ErrDenied) {
+				http.Error(w, "window not found", http.StatusNotFound)
+				return
+			}
+			if err != nil {
+				http.Error(w, "window authorization unavailable", http.StatusServiceUnavailable)
+				return
+			}
 		}
 		subPath := strings.Join(pathParts[1:], "/")
 		target := targetContextFromRequest(r)
@@ -127,6 +142,70 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 	})
 
 	return mux
+}
+
+func navigationHandler(loader *metaSvc.Service, root string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		items, err := forgeHandlers.FetchNavigationData(r.Context(), loader, root, targetContextFromRequest(r))
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		runtime := policy.DefaultRuntime()
+		if runtime != nil && runtime.IsEnabled(policy.OperationWindowView) {
+			candidates := navigationWindowCandidates(items)
+			allowedCandidates, policyErr := runtime.Filter(r.Context(), policy.OperationWindowView,
+				strings.TrimSpace(r.URL.Query().Get("conversationId")), candidates, nil)
+			if errors.Is(policyErr, policy.ErrDenied) {
+				allowedCandidates = nil
+			} else if policyErr != nil {
+				http.Error(w, "window authorization unavailable", http.StatusServiceUnavailable)
+				return
+			}
+			allowed := make(map[string]bool, len(allowedCandidates))
+			for _, candidate := range allowedCandidates {
+				allowed[strings.ToLower(strings.TrimSpace(candidate.ID))] = true
+			}
+			items = filterNavigationItems(items, allowed)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(forgeHandlers.NavigationResponse{Status: "ok", Data: items})
+	}
+}
+
+func navigationWindowCandidates(items []forgeTypes.NavigationItem) []policy.Candidate {
+	seen := map[string]bool{}
+	var result []policy.Candidate
+	var visit func([]forgeTypes.NavigationItem)
+	visit = func(entries []forgeTypes.NavigationItem) {
+		for _, item := range entries {
+			key := strings.TrimSpace(item.WindowKey)
+			normalized := strings.ToLower(key)
+			if key != "" && !seen[normalized] {
+				seen[normalized] = true
+				result = append(result, policy.Candidate{ID: key, Kind: "window", Metadata: map[string]any{"title": item.WindowTitle}})
+			}
+			visit(item.ChildNodes)
+		}
+	}
+	visit(items)
+	return result
+}
+
+func filterNavigationItems(items []forgeTypes.NavigationItem, allowed map[string]bool) []forgeTypes.NavigationItem {
+	result := make([]forgeTypes.NavigationItem, 0, len(items))
+	for _, item := range items {
+		key := strings.ToLower(strings.TrimSpace(item.WindowKey))
+		if key != "" && !allowed[key] {
+			continue
+		}
+		item.ChildNodes = filterNavigationItems(item.ChildNodes, allowed)
+		if key == "" && len(item.ChildNodes) == 0 {
+			continue
+		}
+		result = append(result, item)
+	}
+	return result
 }
 
 func applyPermissionRequested(r *http.Request) bool {

@@ -42,10 +42,12 @@ import (
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	intakesvc "github.com/viant/agently-core/service/intake"
+	policy "github.com/viant/agently-core/service/policy"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
 	reportingrunsvc "github.com/viant/agently-core/service/reportingrun"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	"github.com/viant/agently-core/workspace"
+	wscfg "github.com/viant/agently-core/workspace/config"
 	"github.com/viant/agently-core/workspace/hotswap"
 	embedderloader "github.com/viant/agently-core/workspace/loader/embedder"
 	modelloader "github.com/viant/agently-core/workspace/loader/model"
@@ -63,29 +65,30 @@ type Runtime struct {
 	Defaults *config.Defaults
 	// AuthorizationTool is the workspace-configured MCP adapter for permitted
 	// Forge views.
-	AuthorizationTool string
-	DAO               *datly.Service
-	Conversation      conversation.Client
-	Data              data.Service
-	Registry          tool.Registry
-	Core              *core.Service
-	Augmenter         *augmenter.Service
-	Agent             *agentsvc.Service
-	MCPManager        *mcpmgr.Manager
-	CancelRegistry    cancels.Registry
-	ElicitationRouter elicrouter.ElicitationRouter
-	Elicitation       *elicsvc.Service
-	Streaming         streaming.Bus
-	HotSwap           *hotswap.Manager
-	Skills            *skillsvc.Service
-	SkillWatcher      *skillsvc.Watcher
-	CallbackDispatch  *callbacksvc.Service
-	Reporting         *reportingsvc.Service
-	ReportRuns        *reportingrunsvc.Service
-	ReportingWorker   *reportingsvc.Worker
-	Store             workspace.Store
-	KnowledgeStore    workspace.KnowledgeStore
-	StateStore        workspace.StateStore
+	AuthorizationTool   string
+	AuthorizationPolicy *policy.Runtime
+	DAO                 *datly.Service
+	Conversation        conversation.Client
+	Data                data.Service
+	Registry            tool.Registry
+	Core                *core.Service
+	Augmenter           *augmenter.Service
+	Agent               *agentsvc.Service
+	MCPManager          *mcpmgr.Manager
+	CancelRegistry      cancels.Registry
+	ElicitationRouter   elicrouter.ElicitationRouter
+	Elicitation         *elicsvc.Service
+	Streaming           streaming.Bus
+	HotSwap             *hotswap.Manager
+	Skills              *skillsvc.Service
+	SkillWatcher        *skillsvc.Watcher
+	CallbackDispatch    *callbacksvc.Service
+	Reporting           *reportingsvc.Service
+	ReportRuns          *reportingrunsvc.Service
+	ReportingWorker     *reportingsvc.Worker
+	Store               workspace.Store
+	KnowledgeStore      workspace.KnowledgeStore
+	StateStore          workspace.StateStore
 	// UIBridge is the single Forge UI service shared by browser RPC, agents,
 	// and all UI-facing internal tools for this runtime.
 	UIBridge *forgeuisvc.Service
@@ -401,6 +404,31 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if !shouldSkipRegistryInitialize() {
 		out.Registry.Initialize(ctx)
 	}
+	workspaceConfig, err := wscfg.Load(workspace.Root())
+	if err != nil {
+		return nil, err
+	}
+	if workspaceConfig != nil {
+		out.AuthorizationTool = workspaceConfig.AuthorizationTool()
+		toolName := workspaceConfig.PolicyAuthorizationMCPTool()
+		var operations []string
+		for section, operation := range map[string]string{
+			"ui":            policy.OperationWindowView,
+			"reports":       policy.OperationReportView,
+			"starterPrompt": policy.OperationStarterPromptView,
+			"intent":        policy.OperationIntentView,
+		} {
+			if workspaceConfig.PolicyAuthorizationEnabled(section) {
+				operations = append(operations, operation)
+			}
+		}
+		if len(operations) > 0 {
+			if strings.TrimSpace(toolName) == "" {
+				return nil, fmt.Errorf("policy.authorization.mcpTool is required when an authorization section is enabled")
+			}
+			out.AuthorizationPolicy = policy.NewRuntime(&policy.MCPResolver{Executor: out.Registry, ToolName: toolName}, operations...)
+		}
+	}
 	skillsvc.ExecFn = out.Registry.Execute
 	out.Skills = skillsvc.New(out.Defaults, out.Conversation, b.agentFinder)
 	if err := out.Skills.Load(ctx); err != nil {
@@ -452,7 +480,10 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 
 	out.Agent = b.agentSvc
 	if out.Agent == nil {
-		agentOpts := []agentsvc.Option{agentsvc.WithCancelRegistry(out.CancelRegistry)}
+		agentOpts := []agentsvc.Option{
+			agentsvc.WithCancelRegistry(out.CancelRegistry),
+			agentsvc.WithAuthorizationPolicy(out.AuthorizationPolicy),
+		}
 		if out.ElicitationRouter != nil {
 			agentOpts = append(agentOpts, agentsvc.WithElicitationRouter(out.ElicitationRouter))
 		}
@@ -479,6 +510,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.Agent = agentsvc.New(out.Core, b.agentFinder, aug, out.Registry, out.Defaults, out.Conversation, agentOpts...)
 	}
 	if out.Agent != nil {
+		out.Agent.SetAuthorizationPolicy(out.AuthorizationPolicy)
 		out.Agent.SetSkillService(out.Skills)
 		out.Agent.SetUIBridge(out.UIBridge)
 	}
@@ -497,6 +529,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 	if out.Reporting == nil && b.reportingService != nil {
 		out.Reporting = b.reportingService
+		out.Reporting.SetAuthorizationPolicy(out.AuthorizationPolicy)
 	}
 	scratchpadsvc.RegisterProvider()
 	if out.Reporting == nil && out.Defaults != nil && out.Defaults.Reporting.Enabled {
@@ -547,6 +580,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			TokenProvider:               b.tokenProvider,
 			ExportFromRunEnabled:        out.Defaults.Reporting.ExportFromRunEnabled(),
 			ConversationAdoptionEnabled: out.Defaults.Reporting.ConversationAdoptionEnabled(),
+			AuthorizationPolicy:         out.AuthorizationPolicy,
 		})
 	}
 	if out.Registry != nil && out.Reporting != nil {
@@ -599,6 +633,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			promptsvc.WithConversationClient(out.Conversation),
 			promptsvc.WithAgentFinder(b.agentFinder),
 			promptsvc.WithMCPManager(out.MCPManager),
+			promptsvc.WithAuthorizationPolicy(out.AuthorizationPolicy),
 		)
 		if err := tool.AddInternalService(out.Registry, promptSvc); err != nil {
 			return nil, err
