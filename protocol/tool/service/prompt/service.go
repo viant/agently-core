@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"sort"
@@ -13,6 +14,7 @@ import (
 	promptdef "github.com/viant/agently-core/protocol/prompt"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	policy "github.com/viant/agently-core/service/policy"
 	"github.com/viant/agently-core/service/shared/toolexec"
 	promptrepo "github.com/viant/agently-core/workspace/repository/prompt"
 )
@@ -25,6 +27,7 @@ type Service struct {
 	conv   apiconv.Client
 	finder agentmdl.Finder
 	mgr    promptdef.MCPManager // optional; enables MCP-sourced profiles
+	policy *policy.Runtime
 }
 
 func New(repo *promptrepo.Repository, opts ...func(*Service)) *Service {
@@ -40,6 +43,9 @@ func New(repo *promptrepo.Repository, opts ...func(*Service)) *Service {
 func WithConversationClient(c apiconv.Client) func(*Service) { return func(s *Service) { s.conv = c } }
 func WithAgentFinder(f agentmdl.Finder) func(*Service)       { return func(s *Service) { s.finder = f } }
 func WithMCPManager(m promptdef.MCPManager) func(*Service)   { return func(s *Service) { s.mgr = m } }
+func WithAuthorizationPolicy(p *policy.Runtime) func(*Service) {
+	return func(s *Service) { s.policy = p }
+}
 
 func (s *Service) Name() string { return Name }
 
@@ -212,11 +218,11 @@ func (s *Service) allowedProfiles(ctx context.Context) ([]*promptdef.Profile, er
 	// No agent-scoped filtering configured — return everything.
 	agentID := s.currentAgentID(ctx)
 	if agentID == "" || s.finder == nil {
-		return all, nil
+		return s.filterAuthorizedProfiles(ctx, all)
 	}
 	ag, err := s.finder.Find(ctx, agentID)
 	if err != nil || ag == nil || len(ag.Prompts.Bundles) == 0 {
-		return all, nil
+		return s.filterAuthorizedProfiles(ctx, all)
 	}
 	allowed := make(map[string]struct{}, len(ag.Prompts.Bundles))
 	for _, b := range ag.Prompts.Bundles {
@@ -231,7 +237,42 @@ func (s *Service) allowedProfiles(ctx context.Context) ([]*promptdef.Profile, er
 			filtered = append(filtered, p)
 		}
 	}
-	return filtered, nil
+	return s.filterAuthorizedProfiles(ctx, filtered)
+}
+
+func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*promptdef.Profile) ([]*promptdef.Profile, error) {
+	if s == nil || s.policy == nil || !s.policy.IsEnabled(policy.OperationIntentView) || len(profiles) == 0 {
+		return profiles, nil
+	}
+	candidates := make([]policy.Candidate, 0, len(profiles))
+	byID := make(map[string]*promptdef.Profile, len(profiles))
+	for _, profile := range profiles {
+		if profile == nil {
+			continue
+		}
+		id := strings.TrimSpace(profile.ID)
+		if id == "" {
+			continue
+		}
+		candidates = append(candidates, policy.Candidate{ID: id, Kind: "promptProfile"})
+		byID[strings.ToLower(id)] = profile
+	}
+	allowed, err := s.policy.Filter(ctx, policy.OperationIntentView,
+		runtimerequestctx.ConversationIDFromContext(ctx), candidates,
+		map[string]any{"agentId": s.currentAgentID(ctx)})
+	if errors.Is(err, policy.ErrDenied) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*promptdef.Profile, 0, len(allowed))
+	for _, candidate := range allowed {
+		if profile := byID[strings.ToLower(strings.TrimSpace(candidate.ID))]; profile != nil {
+			result = append(result, profile)
+		}
+	}
+	return result, nil
 }
 
 func (s *Service) currentAgentID(ctx context.Context) string {

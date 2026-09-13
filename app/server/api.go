@@ -43,6 +43,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	metadataHandler := svcworkspace.NewMetadataHandler(opts.Runtime.Defaults, opts.Runtime.Store, metadataVersion)
 	metadataHandler.SetReportingCapabilityEnabled(opts.Runtime.Reporting != nil)
+	metadataHandler.SetAuthorizationPolicy(opts.Runtime.AuthorizationPolicy)
 	fileBrowserHandler := svcworkspace.NewFileBrowserHandler()
 	a2aSvc := svca2a.New(opts.Runtime.Agent, opts.AgentFinder)
 	a2aHandler := svca2a.NewHandler(a2aSvc)

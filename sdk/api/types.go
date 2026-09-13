@@ -247,22 +247,39 @@ type WorkspaceModelInfo struct {
 	Name string `json:"name,omitempty"`
 }
 
+type WorkspaceAssetDescriptor struct {
+	Version       int    `json:"version"`
+	Revision      string `json:"revision"`
+	Href          string `json:"href"`
+	ThemeRevision string `json:"themeRevision,omitempty"`
+}
+
+type WorkspaceComposer struct {
+	AllowAgentSelection bool `json:"allowAgentSelection"`
+	AllowModelSelection bool `json:"allowModelSelection"`
+}
+
 type WorkspaceMetadata struct {
-	WorkspaceRoot    string                `json:"workspaceRoot,omitempty"`
-	WorkspaceVersion string                `json:"workspaceVersion,omitempty"`
-	MetadataVersion  string                `json:"metadataVersion,omitempty"`
-	AppName          string                `json:"appName,omitempty"`
-	AppIconRef       string                `json:"appIconRef,omitempty"`
-	DefaultAgent     string                `json:"defaultAgent,omitempty"`
-	DefaultModel     string                `json:"defaultModel,omitempty"`
-	DefaultEmbedder  string                `json:"defaultEmbedder,omitempty"`
-	Defaults         *WorkspaceDefaults    `json:"defaults,omitempty"`
-	Capabilities     WorkspaceCapabilities `json:"capabilities,omitempty"`
-	Agents           []string              `json:"agents,omitempty"`
-	Models           []string              `json:"models,omitempty"`
-	AgentInfos       []WorkspaceAgentInfo  `json:"agentInfos,omitempty"`
-	ModelInfos       []WorkspaceModelInfo  `json:"modelInfos,omitempty"`
-	Version          string                `json:"version,omitempty"`
+	WorkspaceID        string                    `json:"workspaceId,omitempty"`
+	UIStyles           *WorkspaceAssetDescriptor `json:"uiStyles,omitempty"`
+	UIThemes           *WorkspaceAssetDescriptor `json:"uiThemes,omitempty"`
+	UIStyleDiagnostics []string                  `json:"uiStyleDiagnostics,omitempty"`
+	Composer           *WorkspaceComposer        `json:"composer,omitempty"`
+	WorkspaceRoot      string                    `json:"workspaceRoot,omitempty"`
+	WorkspaceVersion   string                    `json:"workspaceVersion,omitempty"`
+	MetadataVersion    string                    `json:"metadataVersion,omitempty"`
+	AppName            string                    `json:"appName,omitempty"`
+	AppIconRef         string                    `json:"appIconRef,omitempty"`
+	DefaultAgent       string                    `json:"defaultAgent,omitempty"`
+	DefaultModel       string                    `json:"defaultModel,omitempty"`
+	DefaultEmbedder    string                    `json:"defaultEmbedder,omitempty"`
+	Defaults           *WorkspaceDefaults        `json:"defaults,omitempty"`
+	Capabilities       WorkspaceCapabilities     `json:"capabilities,omitempty"`
+	Agents             []string                  `json:"agents,omitempty"`
+	Models             []string                  `json:"models,omitempty"`
+	AgentInfos         []WorkspaceAgentInfo      `json:"agentInfos,omitempty"`
+	ModelInfos         []WorkspaceModelInfo      `json:"modelInfos,omitempty"`
+	Version            string                    `json:"version,omitempty"`
 }
 
 type WorkspaceWindowSnapshot struct {

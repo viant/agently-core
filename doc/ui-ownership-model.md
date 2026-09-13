@@ -53,6 +53,8 @@ Rules:
 - hosted workspace children must never survive replacement of the parent chat surface
 - reopening a conversation may restore its hosted workspace subtree
 - hosted workspace children from one conversation must not leak into another conversation
+- when `policy.authorization.ui` is enabled, denied windows are removed from
+  navigation and rejected again on direct metadata load
 
 ### 3. Message/turn-embedded Forge content
 

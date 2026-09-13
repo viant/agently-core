@@ -30,6 +30,7 @@ import (
 	goalruntime "github.com/viant/agently-core/service/goal"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	planner "github.com/viant/agently-core/service/planner"
+	policy "github.com/viant/agently-core/service/policy"
 	"github.com/viant/agently-core/service/reactor"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
@@ -96,13 +97,14 @@ type Service struct {
 	intakeSvc *intakesvc.Service
 	skillSvc  *skillsvc.Service
 
-	promptRepo         *promptrepo.Repository
-	templateRepo       *tplrepo.Repository
-	toolBundleRepo     *bundlerepo.Repository
-	templateBundleRepo *tplbundlerepo.Repository
-	plannerContracts   planner.Resolver
-	uiBridge           *forgeuisvc.Service
-	uiRegistry         *uireg.Registry
+	promptRepo          *promptrepo.Repository
+	templateRepo        *tplrepo.Repository
+	toolBundleRepo      *bundlerepo.Repository
+	templateBundleRepo  *tplbundlerepo.Repository
+	plannerContracts    planner.Resolver
+	uiBridge            *forgeuisvc.Service
+	uiRegistry          *uireg.Registry
+	authorizationPolicy *policy.Runtime
 
 	runWorkerHost           string
 	runLeaseOwner           string
@@ -130,6 +132,12 @@ func (s *Service) SetSkillService(svc *skillsvc.Service) {
 		return
 	}
 	s.skillSvc = svc
+}
+
+func (s *Service) SetAuthorizationPolicy(runtime *policy.Runtime) {
+	if s != nil {
+		s.authorizationPolicy = runtime
+	}
 }
 
 func (s *Service) SetUIBridge(bridge *forgeuisvc.Service) {
@@ -215,6 +223,10 @@ func WithSkillService(svc *skillsvc.Service) Option {
 
 func WithPlannerContractResolver(resolver planner.Resolver) Option {
 	return func(s *Service) { s.plannerContracts = resolver }
+}
+
+func WithAuthorizationPolicy(runtime *policy.Runtime) Option {
+	return func(s *Service) { s.authorizationPolicy = runtime }
 }
 
 // New creates a new agent service instance with the given tool registry.

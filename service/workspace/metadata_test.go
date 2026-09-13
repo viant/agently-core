@@ -12,8 +12,34 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/app/executor/config"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
+	policy "github.com/viant/agently-core/service/policy"
 	ws "github.com/viant/agently-core/workspace"
 )
+
+type starterPromptPolicyResolver struct{}
+
+func (starterPromptPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
+	return &policy.Decision{PolicyVersion: "v1", ExpiresAt: time.Now().Add(time.Minute), Allow: true, AllowedIDs: []string{"agent:visible"}}, nil
+}
+
+func TestMetadataFiltersStarterPrompts(t *testing.T) {
+	handler := NewMetadataHandler(&config.Defaults{}, nil, "test")
+	handler.SetAuthorizationPolicy(policy.NewRuntime(starterPromptPolicyResolver{}, policy.OperationStarterPromptView))
+	infos, err := handler.filterStarterPrompts(context.Background(), []AgentInfo{{
+		ID: "agent", StarterTasks: []agentmdl.StarterTask{
+			{ID: "visible", CategoryID: "shown"}, {ID: "hidden", CategoryID: "hidden"},
+		},
+		StarterTaskCategories: []agentmdl.StarterTaskCategory{{ID: "shown"}, {ID: "hidden"}},
+	}})
+	assert.NoError(t, err)
+	if assert.Len(t, infos, 1) && assert.Len(t, infos[0].StarterTasks, 1) {
+		assert.Equal(t, "visible", infos[0].StarterTasks[0].ID)
+	}
+	if assert.Len(t, infos[0].StarterTaskCategories, 1) {
+		assert.Equal(t, "shown", infos[0].StarterTaskCategories[0].ID)
+	}
+}
 
 type metadataTestStore struct {
 	items map[string]map[string][]byte

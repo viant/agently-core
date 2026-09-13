@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	llmprovider "github.com/viant/agently-core/genai/llm/provider"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	policy "github.com/viant/agently-core/service/policy"
 	uistyle "github.com/viant/agently-core/service/ui/style"
 	ws "github.com/viant/agently-core/workspace"
 	wscodec "github.com/viant/agently-core/workspace/codec"
@@ -112,11 +114,18 @@ type ModelInfo struct {
 
 // MetadataHandler serves the workspace metadata endpoint.
 type MetadataHandler struct {
-	styles            *uistyle.Service
-	defaults          *config.Defaults
-	store             ws.Store
-	version           string
-	reportingOverride *bool
+	styles              *uistyle.Service
+	defaults            *config.Defaults
+	store               ws.Store
+	version             string
+	reportingOverride   *bool
+	authorizationPolicy *policy.Runtime
+}
+
+func (h *MetadataHandler) SetAuthorizationPolicy(runtime *policy.Runtime) {
+	if h != nil {
+		h.authorizationPolicy = runtime
+	}
 }
 
 // NewMetadataHandler creates a metadata handler.
@@ -151,7 +160,12 @@ func (h *MetadataHandler) handlePublicAgents() http.HandlerFunc {
 		result := PublicAgentsResponse{AgentInfos: []AgentInfo{}}
 		if h.store != nil {
 			if agents, err := h.store.List(r.Context(), ws.KindAgent); err == nil {
-				for _, agent := range h.loadAgentInfos(r.Context(), agents) {
+				infos, policyErr := h.filterStarterPrompts(r.Context(), h.loadAgentInfos(r.Context(), agents))
+				if policyErr != nil {
+					http.Error(w, "starter prompt authorization unavailable", http.StatusServiceUnavailable)
+					return
+				}
+				for _, agent := range infos {
 					if !agent.Internal {
 						result.AgentInfos = append(result.AgentInfos, agent)
 					}
@@ -206,6 +220,11 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 		if h.store != nil {
 			if agents, err := h.store.List(ctx, ws.KindAgent); err == nil {
 				resp.AgentInfos = h.loadAgentInfos(ctx, agents)
+				resp.AgentInfos, err = h.filterStarterPrompts(ctx, resp.AgentInfos)
+				if err != nil {
+					http.Error(w, "starter prompt authorization unavailable", http.StatusServiceUnavailable)
+					return
+				}
 				resp.Agents = agentInfoIDs(resp.AgentInfos)
 			}
 			if models, err := h.store.List(ctx, ws.KindModel); err == nil {
@@ -333,6 +352,52 @@ func (h *MetadataHandler) loadAgentInfos(ctx context.Context, names []string) []
 		return strings.TrimSpace(result[i].ID) < strings.TrimSpace(result[j].ID)
 	})
 	return result
+}
+
+func (h *MetadataHandler) filterStarterPrompts(ctx context.Context, infos []AgentInfo) ([]AgentInfo, error) {
+	if h == nil || h.authorizationPolicy == nil || !h.authorizationPolicy.IsEnabled(policy.OperationStarterPromptView) {
+		return infos, nil
+	}
+	var candidates []policy.Candidate
+	for _, info := range infos {
+		for _, starter := range info.StarterTasks {
+			candidateID := strings.TrimSpace(info.ID) + ":" + strings.TrimSpace(starter.ID)
+			candidates = append(candidates, policy.Candidate{ID: candidateID, Kind: "starterPrompt", Metadata: map[string]any{
+				"agentId": info.ID, "starterPromptId": starter.ID,
+			}})
+		}
+	}
+	allowedCandidates, err := h.authorizationPolicy.Filter(ctx, policy.OperationStarterPromptView, "", candidates, nil)
+	if errors.Is(err, policy.ErrDenied) {
+		allowedCandidates = nil
+	} else if err != nil {
+		return nil, err
+	}
+	allowed := make(map[string]bool, len(allowedCandidates))
+	for _, candidate := range allowedCandidates {
+		allowed[strings.ToLower(strings.TrimSpace(candidate.ID))] = true
+	}
+	result := append([]AgentInfo(nil), infos...)
+	for index := range result {
+		filtered := make([]agentmdl.StarterTask, 0, len(result[index].StarterTasks))
+		usedCategories := map[string]bool{}
+		for _, starter := range result[index].StarterTasks {
+			key := strings.ToLower(strings.TrimSpace(result[index].ID) + ":" + strings.TrimSpace(starter.ID))
+			if allowed[key] {
+				filtered = append(filtered, starter)
+				usedCategories[strings.ToLower(strings.TrimSpace(starter.CategoryID))] = true
+			}
+		}
+		result[index].StarterTasks = filtered
+		categories := make([]agentmdl.StarterTaskCategory, 0, len(result[index].StarterTaskCategories))
+		for _, category := range result[index].StarterTaskCategories {
+			if usedCategories[strings.ToLower(strings.TrimSpace(category.ID))] {
+				categories = append(categories, category)
+			}
+		}
+		result[index].StarterTaskCategories = categories
+	}
+	return result, nil
 }
 
 func agentToolDefaults(raw map[string]interface{}) []string {

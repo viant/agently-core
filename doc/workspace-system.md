@@ -53,6 +53,10 @@ constant + a per-kind repository wrapper (see [workspace/repository/forgedatasou
 4. Services read YAML on demand via their per-kind repository.
 5. Hotswap watcher notifies services when a file changes; services swap in-memory caches atomically.
 
+Optional `policy.authorization` configuration delegates report, window,
+starter-prompt, and prompt-profile visibility to a workspace MCP tool. See
+[doc/authorization-policy.md](authorization-policy.md).
+
 ## File layout per kind
 
 - **Flat**: `<kind>/<name>.yaml` (default).
@@ -78,3 +82,4 @@ Both layouts coexist — writes go to the flat form.
 - [doc/lookups.md](lookups.md) — `extension/forge/*` subtree.
 - [doc/prompts.md](prompts.md) — prompt + template + bundle YAML.
 - [doc/auth-system.md](auth-system.md) — `oauth/` config.
+- [doc/authorization-policy.md](authorization-policy.md) — shared MCP visibility authorization.

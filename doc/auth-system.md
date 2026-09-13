@@ -14,6 +14,7 @@ the right user without any parameter plumbing.
 | [internal/auth/token/](../internal/auth/token/) | Token lifecycle (validate, refresh, rotate) |
 | [service/auth/session/](../service/auth/session/) | Session cookie, CSRF, idle TTL |
 | [protocol/mcp/manager/auth_token.go](../protocol/mcp/manager/auth_token.go) | Injects per-request MCP auth token (see [doc/mcp-integration.md](mcp-integration.md)) |
+| [service/policy/](../service/policy/) | Workspace-configured visibility authorization for reports, windows, starter prompts, and prompt profiles |
 
 ## Modes
 
@@ -80,5 +81,6 @@ Caller code never sees the raw token.
 
 ## Related docs
 
+- [doc/authorization-policy.md](authorization-policy.md) — external MCP visibility policy and legacy Forge compatibility.
 - [doc/mcp-integration.md](mcp-integration.md) — how auth reaches external tools.
 - [doc/sdk.md](sdk.md) — which SDK surfaces honour OAuth automatically.

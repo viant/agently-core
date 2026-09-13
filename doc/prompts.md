@@ -479,3 +479,12 @@ worker LLM starts turn:
 Neither `orchestrator` nor the worker LLM performed entity extraction, title generation, bundle selection, or instruction synthesis. All handled by lightweight sidecars before either main model call.
 
 ---
+
+## Authorization policy
+
+When `policy.authorization.intent` is enabled, prompt-profile discovery and
+runtime injection are filtered through the workspace MCP visibility policy.
+When `policy.authorization.starterPrompt` is enabled, suggested starter prompts
+are filtered from workspace metadata. These checks only reduce the existing
+agent/profile and workspace candidate sets. See
+[doc/authorization-policy.md](authorization-policy.md).

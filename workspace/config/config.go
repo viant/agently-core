@@ -50,6 +50,52 @@ func (r *Root) AuthorizationTool() string {
 	return strings.TrimSpace(value)
 }
 
+// PolicyAuthorizationMCPTool returns the shared MCP tool used by enabled
+// policy.authorization operations.
+func (r *Root) PolicyAuthorizationMCPTool() string {
+	if r == nil || r.Raw == nil {
+		return ""
+	}
+	policy := mapLookup(r.Raw, "policy")
+	authorization := mapLookup(policy, "authorization")
+	value, _ := authorization["mcpTool"].(string)
+	return strings.TrimSpace(value)
+}
+
+// PolicyAuthorizationEnabled reports whether an authorization operation was
+// explicitly enabled by adding its subsection. Empty maps enable an operation.
+// starterTask is accepted as a compatibility alias for starterPrompt.
+func (r *Root) PolicyAuthorizationEnabled(operation string) bool {
+	if r == nil || r.Raw == nil {
+		return false
+	}
+	policy := mapLookup(r.Raw, "policy")
+	authorization := mapLookup(policy, "authorization")
+	if authorization == nil {
+		return false
+	}
+	keys := []string{strings.TrimSpace(operation)}
+	if strings.EqualFold(operation, "starterPrompt") {
+		keys = append(keys, "starterTask")
+	}
+	for _, key := range keys {
+		value, ok := authorization[key]
+		if !ok || value == nil {
+			continue
+		}
+		if enabled, ok := value.(bool); ok {
+			return enabled
+		}
+		if section, ok := value.(map[string]interface{}); ok {
+			if enabled, exists := boolLookup(section, "enabled"); exists {
+				return enabled
+			}
+			return true
+		}
+	}
+	return false
+}
+
 // GoalsEnabled reports whether workspace goal features are enabled by policy.
 // Missing config defaults to true so existing workspaces retain behavior until
 // they explicitly opt out.

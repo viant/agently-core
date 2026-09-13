@@ -16,9 +16,24 @@ import (
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
 	tokenctx "github.com/viant/agently-core/internal/auth/token"
 	authsvc "github.com/viant/agently-core/service/auth"
+	policy "github.com/viant/agently-core/service/policy"
 	scyauth "github.com/viant/scy/auth"
 	"golang.org/x/oauth2"
 )
+
+type reportPolicyResolver struct{}
+
+func (reportPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
+	return &policy.Decision{PolicyVersion: "v1", ExpiresAt: time.Now().Add(time.Minute), Allow: true, AllowedIDs: []string{"visible"}}, nil
+}
+
+func TestFilterAuthorizedReports(t *testing.T) {
+	service := &Service{authorizationPolicy: policy.NewRuntime(reportPolicyResolver{}, policy.OperationReportView)}
+	got, err := service.filterAuthorizedReports(context.Background(), []*ReportSummary{{ReportID: "visible"}, {ReportID: "hidden"}})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "visible", got[0].ReportID)
+}
 
 type compileRecorder struct {
 	request *CompileRequest

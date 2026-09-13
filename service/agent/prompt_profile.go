@@ -6,6 +6,8 @@ import (
 	"strings"
 
 	promptdef "github.com/viant/agently-core/protocol/prompt"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	policy "github.com/viant/agently-core/service/policy"
 )
 
 type selectedPromptProfileContextKey struct{}
@@ -45,6 +47,15 @@ func (s *Service) selectedPromptProfile(ctx context.Context, input *QueryInput) 
 	}
 	if profile == nil {
 		return nil, fmt.Errorf("prompt profile %q not found", profileID)
+	}
+	if s.authorizationPolicy != nil {
+		if err := s.authorizationPolicy.Authorize(ctx, policy.OperationIntentView,
+			runtimerequestctx.ConversationIDFromContext(ctx),
+			policy.Candidate{ID: profileID, Kind: "promptProfile"},
+			map[string]any{"agentId": strings.TrimSpace(input.AgentID)},
+		); err != nil {
+			return nil, fmt.Errorf("prompt profile %q not found: %w", profileID, err)
+		}
 	}
 	return profile, nil
 }
