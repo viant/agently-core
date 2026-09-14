@@ -307,7 +307,10 @@ func (a *authExtension) sessionOAuthTokenAvailability(ctx context.Context, sess 
 	sess.Tokens = result.token
 	sess.Provider = provider
 	if a.sessions != nil {
-		a.sessions.Put(ctx, sess)
+		// Token resolution is on the protected-request hot path. Keep the
+		// refreshed session authoritative in memory immediately, but do not make
+		// the response wait for Datly persistence/product detection.
+		a.sessions.PutAsync(ctx, sess)
 	}
 	return result
 }
