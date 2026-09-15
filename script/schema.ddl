@@ -1,5 +1,14 @@
 PRAGMA foreign_keys = ON;
 
+CREATE TABLE IF NOT EXISTS maintenance_lease (
+    lease_key TEXT PRIMARY KEY,
+    owner_id TEXT NOT NULL,
+    lease_token TEXT NOT NULL,
+    lease_until DATETIME NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE TABLE IF NOT EXISTS conversation (
     id TEXT PRIMARY KEY,
     summary TEXT,
@@ -495,6 +504,8 @@ CREATE INDEX IF NOT EXISTS idx_report_run_owner_conversation_updated
     ON report_run(owner_id, conversation_id, updated_at);
 CREATE INDEX IF NOT EXISTS idx_report_run_owner_status_updated
     ON report_run(owner_id, status, updated_at);
+CREATE INDEX IF NOT EXISTS idx_report_run_updated
+    ON report_run(updated_at, report_run_id);
 
 CREATE TABLE IF NOT EXISTS conversation_report_context (
     owner_id TEXT NOT NULL,

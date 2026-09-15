@@ -4,6 +4,7 @@ SET NAMES utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS maintenance_lease;
 DROP TABLE IF EXISTS tool_execution_claim;
 DROP TABLE IF EXISTS conversation_report_context;
 DROP TABLE IF EXISTS report_export_artifact;
@@ -22,6 +23,18 @@ DROP TABLE IF EXISTS conversation;
 
 SET FOREIGN_KEY_CHECKS = 1;
 
+CREATE TABLE maintenance_lease
+(
+    lease_key   VARCHAR(191) NOT NULL,
+    owner_id    VARCHAR(255) NOT NULL,
+    lease_token VARCHAR(255) NOT NULL,
+    lease_until DATETIME(6)  NOT NULL,
+    created_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    updated_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+    PRIMARY KEY (lease_key)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_0900_ai_ci;
 
 -- =========================
 -- conversation
@@ -646,6 +659,7 @@ CREATE TABLE IF NOT EXISTS report_run (
     CONSTRAINT ux_report_run_owner_id UNIQUE (owner_id, report_run_id),
     KEY idx_report_run_owner_conversation_updated (owner_id, conversation_id, updated_at),
     KEY idx_report_run_owner_status_updated (owner_id, status, updated_at),
+    KEY idx_report_run_updated (updated_at, report_run_id),
     CONSTRAINT fk_report_run_conversation
         FOREIGN KEY (conversation_id) REFERENCES conversation(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
@@ -741,6 +755,12 @@ CREATE INDEX IF NOT EXISTS idx_report_audit_event_actor_occurred_at
     ON report_audit_event(actor_id, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_report_audit_event_artifact_ref
     ON report_audit_event(artifact_ref(191));
+CREATE INDEX IF NOT EXISTS idx_report_audit_event_occurred
+    ON report_audit_event(occurred_at, event_id);
+CREATE INDEX IF NOT EXISTS idx_report_audit_event_job
+    ON report_audit_event(job_id);
+CREATE INDEX IF NOT EXISTS idx_report_audit_event_artifact
+    ON report_audit_event(artifact_id);
 
 CREATE TABLE IF NOT EXISTS conversation_report_context (
     owner_id VARCHAR(255) NOT NULL,

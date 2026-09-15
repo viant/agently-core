@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	storedata "github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
@@ -420,6 +422,224 @@ func TestHandler_DeleteScheduleRejectsOtherUser(t *testing.T) {
 	}
 
 	assertScheduleCount(t, db, "sched-delete-2", 1)
+}
+
+func TestHandler_DeleteScheduledRunRemovesGraphAndKeepsSchedule(t *testing.T) {
+	store, db := newTestStore(t)
+	svc := New(store, nil)
+	h := NewHandler(svc)
+
+	insertScheduleRowWithOwner(t, db, "sched-run-delete", "Delete One Run", "private", "devuser")
+	insertConversationRowWithOwner(t, db, "conv-run-delete", "private", "devuser")
+	insertSchedulerRunRow(t, db, "run-delete-one", "sched-run-delete", "conv-run-delete", "succeeded", time.Now().UTC().Add(-time.Minute))
+	insertSchedulerRunRow(t, db, "run-keep", "sched-run-delete", "", "succeeded", time.Now().UTC())
+
+	mux := http.NewServeMux()
+	h.RegisterWithoutRunNow(mux)
+	req := httptest.NewRequest(http.MethodDelete, "/v1/api/agently/scheduler/run/run-delete-one", nil)
+	req = req.WithContext(svcauth.InjectUser(req.Context(), "devuser"))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+	assertScheduleCount(t, db, "sched-run-delete", 1)
+	assertTableIDCount(t, db, "run", "run-delete-one", 0)
+	assertTableIDCount(t, db, "conversation", "conv-run-delete", 0)
+	assertTableIDCount(t, db, "run", "run-keep", 1)
+}
+
+func TestHandler_DeleteScheduledRunResponses(t *testing.T) {
+	tests := []struct {
+		name       string
+		seed       func(*testing.T, *sql.DB)
+		userID     string
+		runID      string
+		wantStatus int
+	}{
+		{
+			name: "not found",
+			seed: func(t *testing.T, db *sql.DB) {
+			},
+			userID:     "devuser",
+			runID:      "missing-run",
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name: "other owner",
+			seed: func(t *testing.T, db *sql.DB) {
+				insertScheduleRowWithOwner(t, db, "sched-run-other", "Other Owner", "private", "devuser")
+				insertSchedulerRunRow(t, db, "run-other", "sched-run-other", "", "succeeded", time.Now().UTC())
+			},
+			userID:     "otheruser",
+			runID:      "run-other",
+			wantStatus: http.StatusForbidden,
+		},
+		{
+			name: "live run",
+			seed: func(t *testing.T, db *sql.DB) {
+				now := time.Now().UTC()
+				insertScheduleRowWithOwner(t, db, "sched-run-live", "Live Run", "private", "devuser")
+				insertSchedulerRunRow(t, db, "run-live", "sched-run-live", "", "running", now)
+				if _, err := db.Exec(`UPDATE run SET lease_until = ?, last_heartbeat_at = ?, heartbeat_interval_sec = ? WHERE id = ?`, now.Add(time.Minute), now, 5, "run-live"); err != nil {
+					t.Fatalf("update live run: %v", err)
+				}
+			},
+			userID:     "devuser",
+			runID:      "run-live",
+			wantStatus: http.StatusConflict,
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store, db := newTestStore(t)
+			test.seed(t, db)
+			h := NewHandler(New(store, nil))
+			req := httptest.NewRequest(http.MethodDelete, "/v1/api/agently/scheduler/run/"+test.runID, nil)
+			req.SetPathValue("id", test.runID)
+			req = req.WithContext(svcauth.InjectUser(req.Context(), test.userID))
+			rec := httptest.NewRecorder()
+
+			h.handleDeleteRun()(rec, req)
+			if rec.Code != test.wantStatus {
+				t.Fatalf("unexpected status code: got %d want %d body=%s", rec.Code, test.wantStatus, rec.Body.String())
+			}
+		})
+	}
+}
+
+func TestHandler_DeleteScheduleBlocksCurrentClaim(t *testing.T) {
+	store, db := newTestStore(t)
+	insertScheduleRowWithOwner(t, db, "sched-claimed-delete", "Claimed Delete", "private", "devuser")
+	claimed, err := store.TryClaimSchedule(context.Background(), "sched-claimed-delete", "test-worker", time.Now().UTC().Add(time.Minute))
+	if err != nil {
+		t.Fatalf("TryClaimSchedule() error: %v", err)
+	}
+	if !claimed {
+		t.Fatalf("expected schedule claim")
+	}
+	h := NewHandler(New(store, nil))
+	req := httptest.NewRequest(http.MethodDelete, "/v1/api/agently/scheduler/schedule/sched-claimed-delete", nil)
+	req.SetPathValue("id", "sched-claimed-delete")
+	req = req.WithContext(svcauth.InjectUser(req.Context(), "devuser"))
+	rec := httptest.NewRecorder()
+
+	h.handleDeleteSchedule()(rec, req)
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("unexpected status code: got %d body=%s", rec.Code, rec.Body.String())
+	}
+	assertScheduleCount(t, db, "sched-claimed-delete", 1)
+}
+
+func TestDatlyStore_DeleteScheduledRunRacesRunClaim(t *testing.T) {
+	store, db := newTestStore(t)
+	deleteCtx := svcauth.InjectUser(context.Background(), "devuser")
+
+	for i := 0; i < 10; i++ {
+		scheduleID := fmt.Sprintf("sched-run-race-%d", i)
+		runID := fmt.Sprintf("run-race-%d", i)
+		insertScheduleRowWithOwner(t, db, scheduleID, "Run race", "private", "devuser")
+		insertSchedulerRunRow(t, db, runID, scheduleID, "", "pending", time.Now().UTC())
+
+		start := make(chan struct{})
+		deleteResult := make(chan error, 1)
+		type claimResult struct {
+			claimed bool
+			err     error
+		}
+		claimResults := make(chan claimResult, 1)
+		go func() {
+			<-start
+			deleteResult <- store.DeleteScheduledRun(deleteCtx, runID)
+		}()
+		go func() {
+			<-start
+			claimed, err := store.TryClaimRun(context.Background(), runID, "race-worker", time.Now().UTC().Add(time.Minute))
+			claimResults <- claimResult{claimed: claimed, err: err}
+		}()
+		close(start)
+
+		deleteErr := <-deleteResult
+		claim := <-claimResults
+		if claim.err != nil {
+			t.Fatalf("iteration %d claim error: %v", i, claim.err)
+		}
+		switch {
+		case deleteErr == nil:
+			if claim.claimed {
+				t.Fatalf("iteration %d: delete and claim both reported success", i)
+			}
+			assertTableIDCount(t, db, "run", runID, 0)
+		case errors.Is(deleteErr, storedata.ErrConversationActive):
+			if !claim.claimed {
+				t.Fatalf("iteration %d: delete was blocked without a successful claim", i)
+			}
+			assertTableIDCount(t, db, "run", runID, 1)
+		default:
+			t.Fatalf("iteration %d unexpected delete error: %v", i, deleteErr)
+		}
+
+		if _, err := db.Exec(`DELETE FROM run WHERE id = ?`, runID); err != nil {
+			t.Fatalf("cleanup run %s: %v", runID, err)
+		}
+		if _, err := db.Exec(`DELETE FROM schedule WHERE id = ?`, scheduleID); err != nil {
+			t.Fatalf("cleanup schedule %s: %v", scheduleID, err)
+		}
+	}
+}
+
+func TestDatlyStore_DeleteScheduleRacesScheduleClaim(t *testing.T) {
+	store, db := newTestStore(t)
+	deleteCtx := svcauth.InjectUser(context.Background(), "devuser")
+
+	for i := 0; i < 10; i++ {
+		scheduleID := fmt.Sprintf("sched-delete-race-%d", i)
+		insertScheduleRowWithOwner(t, db, scheduleID, "Schedule race", "private", "devuser")
+
+		start := make(chan struct{})
+		deleteResult := make(chan error, 1)
+		type claimResult struct {
+			claimed bool
+			err     error
+		}
+		claimResults := make(chan claimResult, 1)
+		go func() {
+			<-start
+			deleteResult <- store.DeleteSchedule(deleteCtx, scheduleID)
+		}()
+		go func() {
+			<-start
+			claimed, err := store.TryClaimSchedule(context.Background(), scheduleID, "race-worker", time.Now().UTC().Add(time.Minute))
+			claimResults <- claimResult{claimed: claimed, err: err}
+		}()
+		close(start)
+
+		deleteErr := <-deleteResult
+		claim := <-claimResults
+		if claim.err != nil {
+			t.Fatalf("iteration %d schedule claim error: %v", i, claim.err)
+		}
+		switch {
+		case deleteErr == nil:
+			if claim.claimed {
+				t.Fatalf("iteration %d: schedule delete and claim both reported success", i)
+			}
+			assertTableIDCount(t, db, "schedule", scheduleID, 0)
+		case errors.Is(deleteErr, storedata.ErrConversationActive):
+			if !claim.claimed {
+				t.Fatalf("iteration %d: schedule delete was blocked without a successful claim", i)
+			}
+			assertTableIDCount(t, db, "schedule", scheduleID, 1)
+		default:
+			t.Fatalf("iteration %d unexpected schedule delete error: %v", i, deleteErr)
+		}
+
+		if _, err := db.Exec(`DELETE FROM schedule WHERE id = ?`, scheduleID); err != nil {
+			t.Fatalf("cleanup schedule %s: %v", scheduleID, err)
+		}
+	}
 }
 
 func TestHandler_GetInternalScheduleReturnsNotFound(t *testing.T) {
@@ -1257,7 +1477,7 @@ func insertSchedulerRunRowWithError(t *testing.T, db *sql.DB, id, scheduleID, co
 	t.Helper()
 	createdAt := startedAt.Add(-1 * time.Minute)
 	completedAt := startedAt.Add(30 * time.Second)
-	if _, err := db.ExecContext(context.Background(), `INSERT INTO run (id, schedule_id, conversation_id, conversation_kind, status, error_message, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, scheduleID, conversationID, "scheduled", status, nullableString(errorMessage), createdAt, startedAt, completedAt); err != nil {
+	if _, err := db.ExecContext(context.Background(), `INSERT INTO run (id, schedule_id, conversation_id, conversation_kind, status, error_message, created_at, started_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, id, scheduleID, nullableString(conversationID), "scheduled", status, nullableString(errorMessage), createdAt, startedAt, completedAt); err != nil {
 		t.Fatalf("insert run error: %v", err)
 	}
 }

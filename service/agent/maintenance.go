@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -20,6 +22,27 @@ import (
 
 // maintenanceGuards prevents concurrent maintenance operations on the same conversation.
 var maintenanceGuards = &guardMap{m: make(map[string]*int32)}
+
+const (
+	defaultReconcileLimit       = 200
+	maxReconcileLimit           = 500
+	orphanActiveTurnGracePeriod = 2 * time.Minute
+)
+
+type reconcileDisposition uint8
+
+const (
+	reconcileSkipped reconcileDisposition = iota
+	reconcileRepaired
+)
+
+type reconcileStats struct {
+	found     int
+	processed int
+	repaired  int
+	skipped   int
+	failed    int
+}
 
 type guardMap struct {
 	mu sync.Mutex
@@ -131,11 +154,27 @@ func pointerString(v *string) string {
 // This is explicit maintenance for historical drift; it is intentionally
 // separate from stale-run recovery watchdog logic.
 func (s *Service) ReconcileRunningConversationStatuses(ctx context.Context, limit int) error {
+	started := time.Now()
+	stats := reconcileStats{}
+	defer func() {
+		log.Printf(
+			"[reconcile] running conversation status pass found=%d processed=%d repaired=%d skipped=%d failed=%d duration=%s",
+			stats.found,
+			stats.processed,
+			stats.repaired,
+			stats.skipped,
+			stats.failed,
+			time.Since(started).Round(time.Millisecond),
+		)
+	}()
 	if s == nil || s.dataService == nil || s.conversation == nil {
 		return nil
 	}
 	if limit <= 0 {
-		limit = 200
+		limit = defaultReconcileLimit
+	}
+	if limit > maxReconcileLimit {
+		limit = maxReconcileLimit
 	}
 	page, err := s.dataService.ListConversations(ctx, &agconvlist.ConversationRowsInput{
 		StatusFilter:     "running",
@@ -150,69 +189,113 @@ func (s *Service) ReconcileRunningConversationStatuses(ctx context.Context, limi
 	if err != nil {
 		return fmt.Errorf("list running conversations: %w", err)
 	}
-	for _, row := range page.Rows {
+	if page == nil {
+		return nil
+	}
+	rows := page.Rows
+	if len(rows) > limit {
+		rows = rows[:limit]
+	}
+	var reconcileErrs []error
+	for _, row := range rows {
 		if row == nil {
 			continue
 		}
-		if err := s.reconcileConversationStatus(ctx, strings.TrimSpace(row.Id)); err != nil {
-			return err
+		stats.found++
+		conversationID := strings.TrimSpace(row.Id)
+		if conversationID == "" {
+			stats.processed++
+			stats.skipped++
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return errors.Join(append(reconcileErrs, err)...)
+		}
+		disposition, err := s.reconcileConversationStatusAt(ctx, conversationID, time.Now())
+		if err != nil {
+			stats.failed++
+			wrapped := fmt.Errorf("reconcile conversation %s: %w", conversationID, err)
+			log.Printf("[reconcile] running conversation status error conversation_id=%s err=%v", conversationID, err)
+			reconcileErrs = append(reconcileErrs, wrapped)
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				break
+			}
+			continue
+		}
+		stats.processed++
+		if disposition == reconcileRepaired {
+			stats.repaired++
+		} else {
+			stats.skipped++
 		}
 	}
-	return nil
+	return errors.Join(reconcileErrs...)
 }
 
 func (s *Service) reconcileConversationStatus(ctx context.Context, conversationID string) error {
+	_, err := s.reconcileConversationStatusAt(ctx, conversationID, time.Now())
+	return err
+}
+
+func (s *Service) reconcileConversationStatusAt(ctx context.Context, conversationID string, now time.Time) (reconcileDisposition, error) {
 	if s == nil || s.dataService == nil || s.conversation == nil {
-		return nil
+		return reconcileSkipped, nil
 	}
 	conversationID = strings.TrimSpace(conversationID)
 	if conversationID == "" {
-		return nil
+		return reconcileSkipped, nil
 	}
-	activeRun, err := s.dataService.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
-		ConversationId: conversationID,
-		Has:            &agrunactive.ActiveRunsInputHas{ConversationId: true},
-	}, data.WithAdminPrincipal("maintenance"))
+	hasActiveRun, err := s.hasActiveRun(ctx, conversationID)
 	if err != nil {
-		return fmt.Errorf("load active run for %s: %w", conversationID, err)
+		return reconcileSkipped, err
 	}
-	if activeRun != nil && strings.TrimSpace(activeRun.Id) != "" {
-		return nil
+	if hasActiveRun {
+		return reconcileSkipped, nil
 	}
 	activeTurn, err := s.dataService.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
 		ConversationID: conversationID,
 		Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
 	}, data.WithAdminPrincipal("maintenance"))
 	if err != nil {
-		return fmt.Errorf("load active turn for %s: %w", conversationID, err)
+		return reconcileSkipped, fmt.Errorf("load active turn for %s: %w", conversationID, err)
 	}
 	if activeTurn != nil && strings.TrimSpace(activeTurn.Id) != "" {
 		activeTurnStatus := strings.TrimSpace(strings.ToLower(activeTurn.Status))
 		if activeTurnStatus == "waiting_for_user" || activeTurnStatus == "blocked" {
-			return nil
+			return reconcileSkipped, nil
+		}
+		if activeTurn.CreatedAt.After(now.Add(-orphanActiveTurnGracePeriod)) {
+			return reconcileSkipped, nil
+		}
+		hasActiveRun, err = s.hasActiveRun(ctx, conversationID)
+		if err != nil {
+			return reconcileSkipped, err
+		}
+		if hasActiveRun {
+			return reconcileSkipped, nil
 		}
 		upd := apiconv.NewTurn()
 		upd.SetId(strings.TrimSpace(activeTurn.Id))
 		upd.SetStatus("failed")
 		upd.SetErrorMessage("orphan active turn without active run")
 		if err := s.conversation.PatchTurn(ctx, upd); err != nil {
-			return fmt.Errorf("patch orphan active turn %s: %w", activeTurn.Id, err)
+			return reconcileSkipped, fmt.Errorf("patch orphan active turn %s: %w", activeTurn.Id, err)
 		}
 		if err := s.patchConversationStatus(ctx, conversationID, "failed"); err != nil {
-			return fmt.Errorf("patch orphan active conversation %s: %w", conversationID, err)
+			return reconcileSkipped, fmt.Errorf("patch orphan active conversation %s: %w", conversationID, err)
 		}
 		s.triggerQueueDrain(conversationID)
-		return nil
+		return reconcileRepaired, nil
 	}
 	queuedCount, err := s.dataService.CountQueuedTurns(ctx, &agturncount.QueuedTotalInput{
 		ConversationID: conversationID,
 		Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
 	}, data.WithAdminPrincipal("maintenance"))
 	if err != nil {
-		return fmt.Errorf("count queued turns for %s: %w", conversationID, err)
+		return reconcileSkipped, fmt.Errorf("count queued turns for %s: %w", conversationID, err)
 	}
 	if queuedCount > 0 {
-		return nil
+		return reconcileSkipped, nil
 	}
 	conv, err := s.dataService.GetConversation(ctx, conversationID, &agconv.ConversationInput{
 		Id:                conversationID,
@@ -223,19 +306,37 @@ func (s *Service) reconcileConversationStatus(ctx context.Context, conversationI
 		},
 	}, data.WithAdminPrincipal("maintenance"))
 	if err != nil {
-		return fmt.Errorf("load conversation %s: %w", conversationID, err)
+		return reconcileSkipped, fmt.Errorf("load conversation %s: %w", conversationID, err)
 	}
 	if conv == nil || conv.Status == nil {
-		return nil
+		return reconcileSkipped, nil
 	}
 	status := strings.TrimSpace(*conv.Status)
 	if status == "" || strings.EqualFold(status, "running") {
-		return nil
+		return reconcileSkipped, nil
+	}
+	hasActiveRun, err = s.hasActiveRun(ctx, conversationID)
+	if err != nil {
+		return reconcileSkipped, err
+	}
+	if hasActiveRun {
+		return reconcileSkipped, nil
 	}
 	if err := s.patchConversationStatus(ctx, conversationID, status); err != nil {
-		return fmt.Errorf("patch conversation %s to %q: %w", conversationID, status, err)
+		return reconcileSkipped, fmt.Errorf("patch conversation %s to %q: %w", conversationID, status, err)
 	}
-	return nil
+	return reconcileRepaired, nil
+}
+
+func (s *Service) hasActiveRun(ctx context.Context, conversationID string) (bool, error) {
+	activeRun, err := s.dataService.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+		ConversationId: conversationID,
+		Has:            &agrunactive.ActiveRunsInputHas{ConversationId: true},
+	}, data.WithAdminPrincipal("maintenance"))
+	if err != nil {
+		return false, fmt.Errorf("load active run for %s: %w", conversationID, err)
+	}
+	return activeRun != nil && strings.TrimSpace(activeRun.Id) != "", nil
 }
 
 // Compact generates an LLM summary of the conversation history, archiving old

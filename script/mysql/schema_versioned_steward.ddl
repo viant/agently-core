@@ -2730,4 +2730,76 @@ END $$
 CALL schema_upgrade_35() $$
 DROP PROCEDURE schema_upgrade_35 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_36 $$
+CREATE PROCEDURE schema_upgrade_36()
+BEGIN
+    IF get_schema_version() = 36 THEN
+        CREATE TABLE IF NOT EXISTS maintenance_lease (
+            lease_key   VARCHAR(191) NOT NULL,
+            owner_id    VARCHAR(255) NOT NULL,
+            lease_token VARCHAR(255) NOT NULL,
+            lease_until DATETIME(6)  NOT NULL,
+            created_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+            updated_at  DATETIME(6)  NOT NULL DEFAULT CURRENT_TIMESTAMP(6),
+            PRIMARY KEY (lease_key)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+        CALL set_schema_version(37);
+    END IF;
+END $$
+
+CALL schema_upgrade_36() $$
+DROP PROCEDURE schema_upgrade_36 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_37 $$
+CREATE PROCEDURE schema_upgrade_37()
+BEGIN
+    IF get_schema_version() = 37 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_run'
+              AND INDEX_NAME = 'idx_report_run_updated'
+        ) THEN
+            ALTER TABLE report_run
+                ADD KEY idx_report_run_updated (updated_at, report_run_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_audit_event'
+              AND INDEX_NAME = 'idx_report_audit_event_occurred'
+        ) THEN
+            ALTER TABLE report_audit_event
+                ADD KEY idx_report_audit_event_occurred (occurred_at, event_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_audit_event'
+              AND INDEX_NAME = 'idx_report_audit_event_job'
+        ) THEN
+            ALTER TABLE report_audit_event
+                ADD KEY idx_report_audit_event_job (job_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_audit_event'
+              AND INDEX_NAME = 'idx_report_audit_event_artifact'
+        ) THEN
+            ALTER TABLE report_audit_event
+                ADD KEY idx_report_audit_event_artifact (artifact_id);
+        END IF;
+
+        CALL set_schema_version(38);
+    END IF;
+END $$
+
+CALL schema_upgrade_37() $$
+DROP PROCEDURE schema_upgrade_37 $$
+
 DELIMITER ;

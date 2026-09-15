@@ -224,7 +224,7 @@ func TestDeleteScheduleCascade_RequiresOwner(t *testing.T) {
 	}
 }
 
-func TestDeleteScheduleCascade_BlocksRecentActiveRunWithoutConversation(t *testing.T) {
+func TestDeleteScheduleCascade_BlocksLiveRunWithoutConversation(t *testing.T) {
 	svc := newSeededService(t, seedForScheduleCascadeRecentActiveRun)
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})
 
@@ -432,17 +432,19 @@ func seedForScheduleCascadeDelete(t *testing.T, db *sql.DB) {
 func seedForScheduleCascadeRecentActiveRun(t *testing.T, db *sql.DB) {
 	t.Helper()
 	now := time.Now().UTC().Format(time.RFC3339)
+	leaseUntil := time.Now().UTC().Add(time.Minute).Format(time.RFC3339)
 	dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 		{SQL: `INSERT INTO schedule (id, name, created_by_user_id, visibility, agent_ref, enabled, schedule_type, timezone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"sched-active", "Active", "u1", "private", "simple", 1, "adhoc", "UTC", now}},
-		{SQL: `INSERT INTO run (id, schedule_id, conversation_kind, status, created_at, updated_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-active-no-conv", "sched-active", "scheduled", "running", now, now, now}},
+		{SQL: `INSERT INTO run (id, schedule_id, conversation_kind, status, lease_until, last_heartbeat_at, heartbeat_interval_sec, created_at, updated_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-active-no-conv", "sched-active", "scheduled", "running", leaseUntil, now, 5, now, now, now}},
 	})
 }
 
 func seedForScheduleCascadeStaleActiveRun(t *testing.T, db *sql.DB) {
 	t.Helper()
 	stale := time.Now().UTC().Add(-72 * time.Hour).Format(time.RFC3339)
+	expiredLease := time.Now().UTC().Add(-71 * time.Hour).Format(time.RFC3339)
 	dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 		{SQL: `INSERT INTO schedule (id, name, created_by_user_id, visibility, agent_ref, enabled, schedule_type, timezone, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"sched-stale", "Stale", "u1", "private", "simple", 1, "adhoc", "UTC", stale}},
-		{SQL: `INSERT INTO run (id, schedule_id, conversation_kind, status, created_at, updated_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-stale-no-conv", "sched-stale", "scheduled", "running", stale, stale, stale}},
+		{SQL: `INSERT INTO run (id, schedule_id, conversation_kind, status, lease_until, last_heartbeat_at, heartbeat_interval_sec, created_at, updated_at, started_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"run-stale-no-conv", "sched-stale", "scheduled", "running", expiredLease, stale, 5, stale, stale, stale}},
 	})
 }

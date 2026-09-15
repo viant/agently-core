@@ -14,7 +14,6 @@ import (
 const (
 	deleteChunkSize      = 500
 	maxConversationGraph = 10_000
-	staleActiveCutoff    = 48 * time.Hour // retained for schedule cascade compatibility
 )
 
 type conversationTreeRow struct {
@@ -27,19 +26,20 @@ type conversationTreeRow struct {
 }
 
 type conversationDeleteGraph struct {
-	Rows            map[string]*conversationTreeRow
-	ConversationIDs []string
-	TurnIDs         []string
-	MessageIDs      []string
-	RunIDs          []string
-	ApprovalIDs     []string
-	ScheduleRunIDs  []string
-	PayloadIDs      []string
-	GoalIDs         []string
-	ScheduleIDs     []string
-	ReportRunIDs    []string
-	ReportJobIDs    []string
-	Capabilities    *deleteSchemaCapabilities
+	Rows              map[string]*conversationTreeRow
+	ConversationIDs   []string
+	TurnIDs           []string
+	MessageIDs        []string
+	RunIDs            []string
+	ApprovalIDs       []string
+	ScheduleRunIDs    []string
+	PayloadIDs        []string
+	GoalIDs           []string
+	ScheduleIDs       []string
+	ReportRunIDs      []string
+	ReportJobIDs      []string
+	ReportArtifactIDs []string
+	Capabilities      *deleteSchemaCapabilities
 }
 
 func (s *datlyService) DeleteConversationTree(ctx context.Context, ids ...string) (retErr error) {
@@ -241,95 +241,6 @@ func authorizeConversationTreeDelete(rows map[string]*conversationTreeRow, userI
 	return nil
 }
 
-func ensureConversationTreeNotRecentActive(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, now time.Time) error {
-	var latestActive time.Time
-	activeFound := false
-	consider := func(ts time.Time, ok bool) {
-		if !ok {
-			ts = now
-		}
-		ts = ts.UTC()
-		if !activeFound || ts.After(latestActive) {
-			latestActive = ts
-		}
-		activeFound = true
-	}
-	if err := scanActiveStatusRows(ctx, tx, `SELECT status, CAST(COALESCE(updated_at, last_activity, created_at) AS CHAR) FROM conversation WHERE id IN (%s)`, graph.ConversationIDs, conversationDeleteActiveStatuses(), now, consider); err != nil {
-		return err
-	}
-	if err := scanActiveStatusRows(ctx, tx, `SELECT status, CAST(COALESCE(updated_at, created_at) AS CHAR) FROM message WHERE id IN (%s)`, graph.MessageIDs, messageDeleteActiveStatuses(), now, consider); err != nil {
-		return err
-	}
-	if err := scanActiveStatusRows(ctx, tx, `SELECT status, CAST(created_at AS CHAR) FROM turn WHERE id IN (%s)`, graph.TurnIDs, turnDeleteActiveStatuses(), now, consider); err != nil {
-		return err
-	}
-	if err := scanActiveStatusRows(ctx, tx, `SELECT status, CAST(COALESCE(updated_at, created_at) AS CHAR) FROM turn_queue WHERE turn_id IN (%s)`, graph.TurnIDs, queueDeleteActiveStatuses(), now, consider); err != nil {
-		return err
-	}
-	if err := scanActiveStatusRows(ctx, tx, `SELECT status, CAST(COALESCE(last_heartbeat_at, updated_at, started_at, created_at) AS CHAR) FROM run WHERE id IN (%s)`, graph.RunIDs, runDeleteActiveStatuses(), now, consider); err != nil {
-		return err
-	}
-	if err := scanActiveStatusRows(ctx, tx, `SELECT status, CAST(COALESCE(started_at, completed_at) AS CHAR) FROM model_call WHERE message_id IN (%s)`, graph.MessageIDs, modelCallDeleteActiveStatuses(), now, consider); err != nil {
-		return err
-	}
-	if err := scanActiveStatusRows(ctx, tx, `SELECT status, CAST(COALESCE(started_at, completed_at) AS CHAR) FROM tool_call WHERE message_id IN (%s)`, graph.MessageIDs, toolCallDeleteActiveStatuses(), now, consider); err != nil {
-		return err
-	}
-	if err := scanActiveStatusRows(ctx, tx, `SELECT status, CAST(COALESCE(updated_at, created_at) AS CHAR) FROM tool_approval_queue WHERE id IN (%s)`, graph.ApprovalIDs, approvalDeleteActiveStatuses(), now, consider); err != nil {
-		return err
-	}
-	if !activeFound {
-		return nil
-	}
-	if latestActive.After(now.Add(-staleActiveCutoff)) {
-		return ErrConversationActive
-	}
-	return nil
-}
-
-func scanActiveStatusRows(ctx context.Context, tx *sql.Tx, queryTemplate string, ids []string, active map[string]struct{}, now time.Time, consider func(time.Time, bool)) error {
-	ids = normalizeDeleteIDs(ids)
-	if len(ids) == 0 {
-		return nil
-	}
-	chunks := chunkStrings(ids, deleteChunkSize)
-	for chunkIndex, chunk := range chunks {
-		query := fmt.Sprintf(queryTemplate, placeholders(len(chunk)))
-		started := conversationDeleteDiagSQLStart(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks))
-		rows, err := tx.QueryContext(ctx, query, stringArgs(chunk)...)
-		if err != nil {
-			conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), 0, -1, started, err)
-			return err
-		}
-		rowCount := 0
-		for rows.Next() {
-			var status sql.NullString
-			var rawTime sql.NullString
-			if err := rows.Scan(&status, &rawTime); err != nil {
-				_ = rows.Close()
-				conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, err)
-				return err
-			}
-			rowCount++
-			if _, ok := active[normalizeStatus(status.String)]; !ok {
-				continue
-			}
-			parsed, ok := parseDBTime(rawTime.String)
-			if !rawTime.Valid || !ok {
-				parsed = now
-				ok = false
-			}
-			consider(parsed, ok)
-		}
-		if err := rows.Close(); err != nil {
-			conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, err)
-			return err
-		}
-		conversationDeleteDiagSQLDone(ctx, "query", query, len(chunk), chunkIndex+1, len(chunks), rowCount, -1, started, nil)
-	}
-	return nil
-}
-
 func deleteConversationGraph(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
 	capabilities := graph.Capabilities
 	if capabilities == nil {
@@ -337,6 +248,14 @@ func deleteConversationGraph(ctx context.Context, tx *sql.Tx, graph *conversatio
 	}
 	if err := applyInvestigationDeletePolicy(ctx, tx, graph, conversationInvestigationPolicy); err != nil {
 		return err
+	}
+	if capabilities.hasTable("report_audit_event") {
+		if err := execIDs(ctx, tx, "DELETE FROM report_audit_event WHERE job_id IN (%s)", graph.ReportJobIDs); err != nil {
+			return err
+		}
+		if err := execIDs(ctx, tx, "DELETE FROM report_audit_event WHERE artifact_id IN (%s)", graph.ReportArtifactIDs); err != nil {
+			return err
+		}
 	}
 	if capabilities.hasTable("report_export_artifact") {
 		if err := execIDs(ctx, tx, "DELETE FROM report_export_artifact WHERE job_id IN (%s)", graph.ReportJobIDs); err != nil {
@@ -812,32 +731,8 @@ func conversationDeleteActiveStatuses() map[string]struct{} {
 	return statusSet("running", "in_progress", "processing", "queued", "pending", "thinking", "streaming", "waiting_for_user", "prechecking", "executing", "open")
 }
 
-func messageDeleteActiveStatuses() map[string]struct{} {
-	return statusSet("pending", "open", "running", "in_progress", "processing")
-}
-
-func turnDeleteActiveStatuses() map[string]struct{} {
-	return statusSet("queued", "pending", "running", "waiting_for_user")
-}
-
-func queueDeleteActiveStatuses() map[string]struct{} {
-	return statusSet("queued", "pending", "running")
-}
-
 func runDeleteActiveStatuses() map[string]struct{} {
 	return statusSet("pending", "prechecking", "queued", "running")
-}
-
-func modelCallDeleteActiveStatuses() map[string]struct{} {
-	return statusSet("thinking", "streaming", "running")
-}
-
-func toolCallDeleteActiveStatuses() map[string]struct{} {
-	return statusSet("queued", "running", "waiting_for_user")
-}
-
-func approvalDeleteActiveStatuses() map[string]struct{} {
-	return statusSet("pending")
 }
 
 func parseDBTime(value string) (time.Time, bool) {
@@ -850,9 +745,11 @@ func parseDBTime(value string) (time.Time, bool) {
 		"2006-01-02 15:04:05.999999999-07:00",
 		"2006-01-02 15:04:05.999999999Z07:00",
 		"2006-01-02 15:04:05.999999999",
+		"2006-01-02 15:04:05.999999999 -0700 MST",
 		"2006-01-02 15:04:05-07:00",
 		"2006-01-02 15:04:05Z07:00",
 		"2006-01-02 15:04:05",
+		"2006-01-02 15:04:05 -0700 MST",
 		"2006-01-02T15:04:05.999999999",
 		"2006-01-02T15:04:05",
 	}

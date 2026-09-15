@@ -16,8 +16,9 @@ import (
 var ErrScheduleNotFound = errors.New("schedule not found")
 
 type scheduleDeleteRow struct {
-	ID      string
-	OwnerID string
+	ID         string
+	OwnerID    string
+	LeaseUntil sql.NullString
 }
 
 type scheduleConversationCandidate struct {
@@ -36,7 +37,7 @@ func (s *datlyService) DeleteScheduleCascade(ctx context.Context, id string) err
 		if err != nil {
 			return struct{}{}, err
 		}
-		tx, err := db.BeginTx(ctx, nil)
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
 		if err != nil {
 			return struct{}{}, err
 		}
@@ -63,13 +64,16 @@ func deleteScheduleCascadeTx(ctx context.Context, tx *sql.Tx, scheduleID, driver
 	if err != nil {
 		return err
 	}
-	row, err := loadScheduleForDelete(ctx, tx, scheduleID)
+	row, err := loadScheduleForDelete(ctx, tx, scheduleID, driver)
 	if err != nil {
 		return err
 	}
 	userID := strings.TrimSpace(auth.EffectiveUserID(ctx))
 	if owner := strings.TrimSpace(row.OwnerID); owner != "" && (userID == "" || userID != owner) {
 		return ErrPermissionDenied
+	}
+	if isNonExpiredDBTime(row.LeaseUntil, now) {
+		return ErrConversationActive
 	}
 
 	rootIDs, err := collectScheduleConversationRoots(ctx, tx, scheduleID, capabilities)
@@ -85,7 +89,13 @@ func deleteScheduleCascadeTx(ctx context.Context, tx *sql.Tx, scheduleID, driver
 		if err := authorizeConversationTreeDelete(graph.Rows, userID); err != nil {
 			return err
 		}
-		if err := ensureConversationTreeNotRecentActive(ctx, tx, graph, now); err != nil {
+		if err := lockConversationGraphForDelete(ctx, tx, graph); err != nil {
+			return err
+		}
+		if err := prepareConversationDeleteGraph(ctx, tx, graph, userID, now); err != nil {
+			return err
+		}
+		if err := validateConversationDeleteGraph(ctx, tx, graph, now); err != nil {
 			return err
 		}
 	}
@@ -94,7 +104,19 @@ func deleteScheduleCascadeTx(ctx context.Context, tx *sql.Tx, scheduleID, driver
 	if err != nil {
 		return err
 	}
-	if err := ensureScheduleRunsNotRecentActive(ctx, tx, remainingRunIDs, now); err != nil {
+	scheduleRunIDs, err := collectScheduleRunIDsForSchedule(ctx, tx, scheduleID, capabilities)
+	if err != nil {
+		return err
+	}
+	remaining := &conversationDeleteGraph{
+		RunIDs:         remainingRunIDs,
+		ScheduleRunIDs: scheduleRunIDs,
+		Capabilities:   capabilities,
+	}
+	if err := lockConversationRunRowsForDelete(ctx, tx, remaining); err != nil {
+		return err
+	}
+	if err := ensureNoLiveConversationRuns(ctx, tx, remaining, now); err != nil {
 		return err
 	}
 	if len(rootIDs) > 0 {
@@ -116,9 +138,13 @@ func deleteScheduleCascadeTx(ctx context.Context, tx *sql.Tx, scheduleID, driver
 	return nil
 }
 
-func loadScheduleForDelete(ctx context.Context, tx *sql.Tx, scheduleID string) (*scheduleDeleteRow, error) {
+func loadScheduleForDelete(ctx context.Context, tx *sql.Tx, scheduleID, driver string) (*scheduleDeleteRow, error) {
 	var row scheduleDeleteRow
-	err := tx.QueryRowContext(ctx, `SELECT id, COALESCE(created_by_user_id, '') FROM schedule WHERE id = ?`, scheduleID).Scan(&row.ID, &row.OwnerID)
+	query := `SELECT id, COALESCE(created_by_user_id, ''), CAST(lease_until AS CHAR) FROM schedule WHERE id = ?`
+	if strings.Contains(strings.ToLower(driver), "mysql") {
+		query += " FOR UPDATE"
+	}
+	err := tx.QueryRowContext(ctx, query, scheduleID).Scan(&row.ID, &row.OwnerID, &row.LeaseUntil)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("%w: %s", ErrScheduleNotFound, scheduleID)
 	}
@@ -126,6 +152,13 @@ func loadScheduleForDelete(ctx context.Context, tx *sql.Tx, scheduleID string) (
 		return nil, err
 	}
 	return &row, nil
+}
+
+func collectScheduleRunIDsForSchedule(ctx context.Context, tx *sql.Tx, scheduleID string, capabilities *deleteSchemaCapabilities) ([]string, error) {
+	if capabilities == nil || !capabilities.hasColumn("schedule_run", "schedule_id") {
+		return nil, nil
+	}
+	return queryStringsForColumn(ctx, tx, "SELECT id FROM schedule_run WHERE schedule_id IN (%s)", []string{scheduleID})
 }
 
 func collectScheduleConversationRoots(ctx context.Context, tx *sql.Tx, scheduleID string, capabilities *deleteSchemaCapabilities) ([]string, error) {
@@ -233,29 +266,4 @@ func collectRemainingScheduleRunIDs(ctx context.Context, tx *sql.Tx, scheduleID 
 		return nil, err
 	}
 	return sortedKeys(values), nil
-}
-
-func ensureScheduleRunsNotRecentActive(ctx context.Context, tx *sql.Tx, runIDs []string, now time.Time) error {
-	var latestActive time.Time
-	activeFound := false
-	consider := func(ts time.Time, ok bool) {
-		if !ok {
-			ts = now
-		}
-		ts = ts.UTC()
-		if !activeFound || ts.After(latestActive) {
-			latestActive = ts
-		}
-		activeFound = true
-	}
-	if err := scanActiveStatusRows(ctx, tx, `SELECT status, CAST(COALESCE(last_heartbeat_at, updated_at, started_at, created_at) AS CHAR) FROM run WHERE id IN (%s)`, runIDs, runDeleteActiveStatuses(), now, consider); err != nil {
-		return err
-	}
-	if !activeFound {
-		return nil
-	}
-	if latestActive.After(now.Add(-staleActiveCutoff)) {
-		return ErrConversationActive
-	}
-	return nil
 }
