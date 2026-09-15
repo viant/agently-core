@@ -1,3 +1,21 @@
+.agently-application[data-agently-theme="baseline"][data-agently-color-mode="light"] {
+  --agently-theme-button-background: #3453b3;
+  --agently-theme-button-foreground: #ffffff;
+  --agently-theme-control-background: #ffffff;
+  --agently-theme-control-border: #788397;
+  --agently-theme-control-foreground: #171b26;
+  --agently-theme-control-height: 36px;
+  --agently-theme-control-padding-inline: 10px;
+  --agently-theme-control-radius: 4px;
+  --agently-theme-disabled-background: #edf0f5;
+  --agently-theme-disabled-foreground: #626d7e;
+  --agently-theme-focus: #4466cc;
+  --agently-theme-surface: #ffffff;
+  --agently-theme-text: #171b26;
+  --agently-theme-font-family: system-ui, sans-serif;
+  --agently-theme-font-size: 14px;
+  --agently-theme-validation-border: #b42318;
+}
 .agently-workspace[data-forge-theme="baseline"][data-forge-color-mode="light"] {
   color-scheme: light;
   --forge-button-bg: #3453b3;
@@ -16,6 +34,24 @@
   --forge-font-family: system-ui, sans-serif;
   --forge-font-size: 14px;
   --forge-invalid-border: #b42318;
+}
+.agently-application[data-agently-theme="baseline"][data-agently-color-mode="dark"] {
+  --agently-theme-button-background: #a9bfff;
+  --agently-theme-button-foreground: #172447;
+  --agently-theme-control-background: #242d3d;
+  --agently-theme-control-border: #8491a6;
+  --agently-theme-control-foreground: #edf1f7;
+  --agently-theme-control-height: 36px;
+  --agently-theme-control-padding-inline: 10px;
+  --agently-theme-control-radius: 4px;
+  --agently-theme-disabled-background: #30394a;
+  --agently-theme-disabled-foreground: #a2adbf;
+  --agently-theme-focus: #9db5ff;
+  --agently-theme-surface: #1b2230;
+  --agently-theme-text: #edf1f7;
+  --agently-theme-font-family: system-ui, sans-serif;
+  --agently-theme-font-size: 14px;
+  --agently-theme-validation-border: #ff9b91;
 }
 .agently-workspace[data-forge-theme="baseline"][data-forge-color-mode="dark"] {
   color-scheme: dark;

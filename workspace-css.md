@@ -183,7 +183,15 @@ After the proposed loader and scope boundary exist, this CSS uses the current Bl
 }
 ```
 
-Those `--forge-*` names require Forge to consume them; merely defining a variable does not change a component. Existing `--app-*` variables can influence descendants that already consume them, but loading this bundle does not automatically theme the application shell. Keep shell branding as an explicit later scope, with a separate selector/contract if requested.
+Those `--forge-*` names require Forge to consume them; merely defining a
+variable does not change a component. The host also exposes
+`.agently-application`, `data-agently-theme`, and
+`data-agently-color-mode` on the document root. Generated theme CSS publishes
+the same resolved values there as `--agently-theme-*` variables. Loading a
+theme still does not automatically restyle the shell: a workspace opts in by
+mapping those portable values to Agently's stable `--app-*` roles in scoped
+CSS. This preserves existing appearances while providing one source of theme
+values for the shell and Forge.
 
 ## Named themes: first-release contract
 
@@ -254,19 +262,24 @@ Each `files` list is ordered and paths remain relative to `styles/`. Reject dupl
 
 The shared Agently theme schema and default palettes live in agently-core as a versioned, platform-neutral contract. Forge owns the web token mapping and widget consumption; Agently's iOS and Android clients own native adapters. Generate or validate client bindings against shared fixtures so each client does not invent its own token names or defaults. Do not introduce a second copy of Blueprint's complete theming API in workspace YAML.
 
-Manifest token keys are semantic names, not CSS custom-property names. Dotted names are literal map keys, not nested objects. The original CSS-only examples remain valid web overrides; `--forge-*` names belong to the generated web representation.
+Manifest token keys are semantic names, not CSS custom-property names. Dotted
+names are literal map keys, not nested objects. The original CSS-only examples
+remain valid web overrides. Generated web CSS exposes each value as an
+`--agently-theme-*` application variable and an established `--forge-*`
+renderer variable; workspaces should not hand-maintain a second copy of the
+same palette.
 
-| Shared token | Web variable | Value and native interpretation |
-| --- | --- | --- |
-| `typography.family` | `--forge-font-family` | Enum `system` in v1; each platform chooses its system font |
-| `typography.size` | `--forge-font-size` | Positive logical size; native text respects user scaling |
-| `surface`, `text` | `--forge-surface`, `--forge-text` | Surface and foreground colors |
-| `control.minHeight` | `--forge-control-height` | Minimum visual control height; never overrides platform minimum touch targets |
-| `control.radius`, `control.paddingInline` | `--forge-control-radius`, `--forge-control-padding-inline` | Nonnegative logical dimensions; padding follows writing direction |
-| `control.background`, `control.foreground`, `control.border` | `--forge-control-bg`, `--forge-control-text`, `--forge-control-border` | Input colors |
-| `focus.color` | `--forge-focus-color` | Focus accent where platform customization is supported; retain native accessibility feedback |
-| `button.background`, `button.foreground` | `--forge-button-bg`, `--forge-button-text` | Ordinary enabled buttons; semantic intent states retain their own styles |
-| `disabled.background`, `disabled.foreground`, `validation.border` | `--forge-disabled-bg`, `--forge-disabled-text`, `--forge-invalid-border` | Disabled and validation colors |
+| Shared token | Application variable | Forge variable | Value and native interpretation |
+| --- | --- | --- | --- |
+| `typography.family` | `--agently-theme-font-family` | `--forge-font-family` | Enum `system` in v1; each platform chooses its system font |
+| `typography.size` | `--agently-theme-font-size` | `--forge-font-size` | Positive logical size; native text respects user scaling |
+| `surface`, `text` | `--agently-theme-surface`, `--agently-theme-text` | `--forge-surface`, `--forge-text` | Surface and foreground colors |
+| `control.minHeight` | `--agently-theme-control-height` | `--forge-control-height` | Minimum visual control height; never overrides platform minimum touch targets |
+| `control.radius`, `control.paddingInline` | `--agently-theme-control-radius`, `--agently-theme-control-padding-inline` | `--forge-control-radius`, `--forge-control-padding-inline` | Nonnegative logical dimensions; padding follows writing direction |
+| `control.background`, `control.foreground`, `control.border` | `--agently-theme-control-background`, `--agently-theme-control-foreground`, `--agently-theme-control-border` | `--forge-control-bg`, `--forge-control-text`, `--forge-control-border` | Input colors |
+| `focus.color` | `--agently-theme-focus` | `--forge-focus-color` | Focus accent where platform customization is supported; retain native accessibility feedback |
+| `button.background`, `button.foreground` | `--agently-theme-button-background`, `--agently-theme-button-foreground` | `--forge-button-bg`, `--forge-button-text` | Ordinary enabled buttons; semantic intent states retain their own styles |
+| `disabled.background`, `disabled.foreground`, `validation.border` | `--agently-theme-disabled-background`, `--agently-theme-disabled-foreground`, `--agently-theme-validation-border` | `--forge-disabled-bg`, `--forge-disabled-text`, `--forge-invalid-border` | Disabled and validation colors |
 
 Use finite JSON/YAML numbers for dimensions, not `px`, `rem`, `dp`, or CSS expressions. Web maps logical dimensions to CSS pixels (and accessible font scaling); iOS maps them to points, Android to density-independent dimensions and scaled text. This is semantic parity, not a promise of identical pixel geometry. Control adapters apply minimum sizes and text reflow required by their platforms. Textarea uses minimum sizing, not a fixed single-line height.
 
@@ -281,7 +294,14 @@ Both built-in palettes and token consumption for the listed input/button targets
 Keep a single bundle containing all themes for v1. Generate fully resolved token rules using selectors such as:
 
 ```css
+.agently-application[data-agently-theme="branded"][data-agently-color-mode="dark"] {
+  --agently-theme-control-radius: 8px;
+  --agently-theme-control-background: #242d3d;
+  /* Remaining resolved tokens omitted in this illustration. */
+}
+
 .agently-workspace[data-forge-theme="branded"][data-forge-color-mode="dark"] {
+  color-scheme: dark;
   --forge-control-radius: 8px;
   --forge-control-bg: #242d3d;
   /* Remaining resolved tokens omitted in this illustration. */

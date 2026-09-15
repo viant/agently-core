@@ -68,7 +68,7 @@ func validateCSS(data []byte, themeID, mode string) ([]string, error) {
 				return nil, fmt.Errorf("invalid CSS syntax")
 			}
 			result := []string{}
-			for _, warning := range []string{"selector lacks .agently-workspace scope", "selector lacks its theme scope", "selector lacks its color-mode scope"} {
+			for _, warning := range []string{"selector lacks an application or workspace scope", "selector lacks its theme scope", "selector lacks its color-mode scope"} {
 				if warnings[warning] {
 					result = append(result, warning)
 				}
@@ -86,12 +86,12 @@ func validateCSS(data []byte, themeID, mode string) ([]string, error) {
 			}
 			selector := parser.Values()
 			if !hasScopeClass(selector) {
-				warnings["selector lacks .agently-workspace scope"] = true
+				warnings["selector lacks an application or workspace scope"] = true
 			}
-			if themeID != "" && !hasScopeAttribute(selector, "data-forge-theme", themeID) {
+			if themeID != "" && !hasEitherScopeAttribute(selector, "data-forge-theme", "data-agently-theme", themeID) {
 				warnings["selector lacks its theme scope"] = true
 			}
-			if mode != "" && !hasScopeAttribute(selector, "data-forge-color-mode", mode) {
+			if mode != "" && !hasEitherScopeAttribute(selector, "data-forge-color-mode", "data-agently-color-mode", mode) {
 				warnings["selector lacks its color-mode scope"] = true
 			}
 		}
@@ -99,11 +99,19 @@ func validateCSS(data []byte, themeID, mode string) ([]string, error) {
 }
 func hasScopeClass(tokens []css.Token) bool {
 	for i := 1; i < len(tokens); i++ {
-		if tokens[i-1].TokenType == css.DelimToken && bytes.Equal(tokens[i-1].Data, []byte(".")) && tokens[i].TokenType == css.IdentToken && unescapeCSS(string(tokens[i].Data)) == "agently-workspace" {
+		if tokens[i-1].TokenType == css.DelimToken && bytes.Equal(tokens[i-1].Data, []byte(".")) && tokens[i].TokenType == css.IdentToken {
+			className := unescapeCSS(string(tokens[i].Data))
+			if className != "agently-workspace" && className != "agently-application" {
+				continue
+			}
 			return true
 		}
 	}
 	return false
+}
+
+func hasEitherScopeAttribute(tokens []css.Token, first, second, value string) bool {
+	return hasScopeAttribute(tokens, first, value) || hasScopeAttribute(tokens, second, value)
 }
 func hasScopeAttribute(tokens []css.Token, key, value string) bool {
 	compact := make([]css.Token, 0, len(tokens))
