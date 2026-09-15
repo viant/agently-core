@@ -135,6 +135,10 @@ func (s *goalWakeupStoreStub) DeleteSchedule(context.Context, string) error {
 	return nil
 }
 
+func (s *goalWakeupStoreStub) DeleteScheduledRun(context.Context, string) error {
+	return nil
+}
+
 func (s *goalWakeupStoreStub) PatchSchedule(context.Context, *schedwrite.Schedule) error {
 	return nil
 }

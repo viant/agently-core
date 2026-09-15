@@ -11,6 +11,7 @@ import (
 
 	"github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/sqlitewrite"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	runlease "github.com/viant/agently-core/pkg/agently/scheduler/run/lease"
@@ -28,6 +29,7 @@ type Store interface {
 	List(ctx context.Context) ([]*schedulepkg.ScheduleView, error)
 	ListRuns(ctx context.Context, in *schrun.RunListInput, page, size int) (*RunListPage, error)
 	ListForRunDue(ctx context.Context) ([]*schedulepkg.ScheduleView, error)
+	DeleteScheduledRun(ctx context.Context, id string) error
 	DeleteSchedule(ctx context.Context, id string) error
 	PatchSchedule(ctx context.Context, schedule *schedwrite.Schedule) error
 	PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) error
@@ -39,8 +41,9 @@ type Store interface {
 }
 
 type datlyStore struct {
-	dao  *datly.Service
-	data data.Service
+	dao       *datly.Service
+	data      data.Service
+	writeGate string
 }
 
 type RunListPage struct {
@@ -55,7 +58,7 @@ func NewDatlyStore(ctx context.Context, dao *datly.Service, dataSvc data.Service
 	if dao == nil {
 		return nil, errors.New("scheduler store requires a non-nil datly service")
 	}
-	s := &datlyStore{dao: dao, data: dataSvc}
+	s := &datlyStore{dao: dao, data: dataSvc, writeGate: sqlitewrite.Key(dao, "agently")}
 	if s.data == nil {
 		s.data = data.NewService(dao)
 	}
@@ -310,6 +313,13 @@ func (s *datlyStore) DeleteSchedule(ctx context.Context, id string) error {
 	return nil
 }
 
+func (s *datlyStore) DeleteScheduledRun(ctx context.Context, id string) error {
+	if s == nil || s.data == nil || strings.TrimSpace(id) == "" {
+		return nil
+	}
+	return s.data.DeleteScheduledRun(ctx, id)
+}
+
 func (s *datlyStore) PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) error {
 	if s == nil || s.data == nil || len(rows) == 0 {
 		return nil
@@ -343,73 +353,81 @@ func (s *datlyStore) ListRunsForDue(ctx context.Context, scheduleID string, sche
 }
 
 func (s *datlyStore) TryClaimSchedule(ctx context.Context, scheduleID, leaseOwner string, leaseUntil time.Time) (bool, error) {
-	out := &schlease.ClaimLeaseOutput{}
-	in := &schlease.ClaimLeaseInput{
-		ScheduleID: strings.TrimSpace(scheduleID),
-		LeaseOwner: strings.TrimSpace(leaseOwner),
-		LeaseUntil: leaseUntil.UTC(),
-		Now:        time.Now().UTC(),
-		Has:        &schlease.ClaimLeaseInputHas{ScheduleID: true, LeaseOwner: true, LeaseUntil: true, Now: true},
-	}
-	if _, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPost, schlease.ClaimLeasePathURI)),
-		datly.WithInput(in),
-		datly.WithOutput(out),
-	); err != nil {
-		return false, err
-	}
-	return out.Claimed, nil
+	return sqlitewrite.Do(ctx, s.writeGate, func() (bool, error) {
+		out := &schlease.ClaimLeaseOutput{}
+		in := &schlease.ClaimLeaseInput{
+			ScheduleID: strings.TrimSpace(scheduleID),
+			LeaseOwner: strings.TrimSpace(leaseOwner),
+			LeaseUntil: leaseUntil.UTC(),
+			Now:        time.Now().UTC(),
+			Has:        &schlease.ClaimLeaseInputHas{ScheduleID: true, LeaseOwner: true, LeaseUntil: true, Now: true},
+		}
+		if _, err := s.dao.Operate(ctx,
+			datly.WithPath(contract.NewPath(http.MethodPost, schlease.ClaimLeasePathURI)),
+			datly.WithInput(in),
+			datly.WithOutput(out),
+		); err != nil {
+			return false, err
+		}
+		return out.Claimed, nil
+	})
 }
 
 func (s *datlyStore) ReleaseScheduleLease(ctx context.Context, scheduleID, leaseOwner string) (bool, error) {
-	out := &schlease.ReleaseLeaseOutput{}
-	in := &schlease.ReleaseLeaseInput{
-		ScheduleID: strings.TrimSpace(scheduleID),
-		LeaseOwner: strings.TrimSpace(leaseOwner),
-		Has:        &schlease.ReleaseLeaseInputHas{ScheduleID: true, LeaseOwner: true},
-	}
-	if _, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPost, schlease.ReleaseLeasePathURI)),
-		datly.WithInput(in),
-		datly.WithOutput(out),
-	); err != nil {
-		return false, err
-	}
-	return out.Released, nil
+	return sqlitewrite.Do(ctx, s.writeGate, func() (bool, error) {
+		out := &schlease.ReleaseLeaseOutput{}
+		in := &schlease.ReleaseLeaseInput{
+			ScheduleID: strings.TrimSpace(scheduleID),
+			LeaseOwner: strings.TrimSpace(leaseOwner),
+			Has:        &schlease.ReleaseLeaseInputHas{ScheduleID: true, LeaseOwner: true},
+		}
+		if _, err := s.dao.Operate(ctx,
+			datly.WithPath(contract.NewPath(http.MethodPost, schlease.ReleaseLeasePathURI)),
+			datly.WithInput(in),
+			datly.WithOutput(out),
+		); err != nil {
+			return false, err
+		}
+		return out.Released, nil
+	})
 }
 
 func (s *datlyStore) TryClaimRun(ctx context.Context, runID, leaseOwner string, leaseUntil time.Time) (bool, error) {
-	out := &runlease.ClaimLeaseOutput{}
-	in := &runlease.ClaimLeaseInput{
-		RunID:      strings.TrimSpace(runID),
-		LeaseOwner: strings.TrimSpace(leaseOwner),
-		LeaseUntil: leaseUntil.UTC(),
-		Now:        time.Now().UTC(),
-		Has:        &runlease.ClaimLeaseInputHas{RunID: true, LeaseOwner: true, LeaseUntil: true, Now: true},
-	}
-	if _, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPost, runlease.ClaimLeasePathURI)),
-		datly.WithInput(in),
-		datly.WithOutput(out),
-	); err != nil {
-		return false, err
-	}
-	return out.Claimed, nil
+	return sqlitewrite.Do(ctx, s.writeGate, func() (bool, error) {
+		out := &runlease.ClaimLeaseOutput{}
+		in := &runlease.ClaimLeaseInput{
+			RunID:      strings.TrimSpace(runID),
+			LeaseOwner: strings.TrimSpace(leaseOwner),
+			LeaseUntil: leaseUntil.UTC(),
+			Now:        time.Now().UTC(),
+			Has:        &runlease.ClaimLeaseInputHas{RunID: true, LeaseOwner: true, LeaseUntil: true, Now: true},
+		}
+		if _, err := s.dao.Operate(ctx,
+			datly.WithPath(contract.NewPath(http.MethodPost, runlease.ClaimLeasePathURI)),
+			datly.WithInput(in),
+			datly.WithOutput(out),
+		); err != nil {
+			return false, err
+		}
+		return out.Claimed, nil
+	})
 }
 
 func (s *datlyStore) ReleaseRunLease(ctx context.Context, runID, leaseOwner string) (bool, error) {
-	out := &runlease.ReleaseLeaseOutput{}
-	in := &runlease.ReleaseLeaseInput{
-		RunID:      strings.TrimSpace(runID),
-		LeaseOwner: strings.TrimSpace(leaseOwner),
-		Has:        &runlease.ReleaseLeaseInputHas{RunID: true, LeaseOwner: true},
-	}
-	if _, err := s.dao.Operate(ctx,
-		datly.WithPath(contract.NewPath(http.MethodPost, runlease.ReleaseLeasePathURI)),
-		datly.WithInput(in),
-		datly.WithOutput(out),
-	); err != nil {
-		return false, err
-	}
-	return out.Released, nil
+	return sqlitewrite.Do(ctx, s.writeGate, func() (bool, error) {
+		out := &runlease.ReleaseLeaseOutput{}
+		in := &runlease.ReleaseLeaseInput{
+			RunID:      strings.TrimSpace(runID),
+			LeaseOwner: strings.TrimSpace(leaseOwner),
+			Has:        &runlease.ReleaseLeaseInputHas{RunID: true, LeaseOwner: true},
+		}
+		if _, err := s.dao.Operate(ctx,
+			datly.WithPath(contract.NewPath(http.MethodPost, runlease.ReleaseLeasePathURI)),
+			datly.WithInput(in),
+			datly.WithOutput(out),
+		); err != nil {
+			return false, err
+		}
+		return out.Released, nil
+	})
 }

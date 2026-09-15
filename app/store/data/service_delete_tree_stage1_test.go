@@ -334,7 +334,7 @@ func TestDeleteConversationTree_BlocksUserScheduleReference(t *testing.T) {
 	}
 }
 
-func TestDeleteConversationTree_DeletesCurrentDatabaseDependenciesAndRetainsAuditData(t *testing.T) {
+func TestDeleteConversationTree_DeletesCurrentDatabaseDependenciesAndRetainsSavedReports(t *testing.T) {
 	svc, db := newSeededServiceWithDB(t, seedStage1CurrentDependencies)
 
 	if err := svc.DeleteConversationTree(deleteTestContext(), "conv-current"); err != nil {
@@ -354,7 +354,8 @@ func TestDeleteConversationTree_DeletesCurrentDatabaseDependenciesAndRetainsAudi
 	} {
 		assertStage1RowCount(t, db, table, columnAndID[0], columnAndID[1], 0)
 	}
-	assertStage1RowCount(t, db, "report_audit_event", "event_id", "audit-current", 1)
+	assertStage1RowCount(t, db, "report_audit_event", "event_id", "audit-current", 0)
+	assertStage1RowCount(t, db, "report_audit_event", "event_id", "audit-shared", 1)
 	assertStage1RowCount(t, db, "report_shared_artifact", "artifact_id", "shared-current", 1)
 }
 
@@ -736,5 +737,6 @@ func seedStage1CurrentDependencies(t *testing.T, db *sql.DB) {
 		{SQL: `INSERT INTO report_export_artifact (artifact_id, job_id, artifact_ref, owner_id, format, content_type) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"report-artifact-current", "report-job-current", "external://report.pdf", "u1", "pdf", "application/pdf"}},
 		{SQL: `INSERT INTO report_audit_event (event_id, event_type, artifact_ref, job_id, artifact_id, actor_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"audit-current", "export", "external://report.pdf", "report-job-current", "report-artifact-current", "u1"}},
 		{SQL: `INSERT INTO report_shared_artifact (artifact_id, artifact_ref, owner_id, kind, lifecycle) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"shared-current", "external://shared", "u1", "report", "retained"}},
+		{SQL: `INSERT INTO report_audit_event (event_id, event_type, artifact_ref, artifact_id, actor_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"audit-shared", "saved", "external://shared", "shared-current", "u1"}},
 	})
 }

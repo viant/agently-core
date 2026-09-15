@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -49,6 +50,8 @@ type Watchdog struct {
 
 const (
 	defaultRecoveryConcurrency       = 4
+	maxRecoveryAttempts              = 10
+	recoveryAttemptLimitErrorCode    = "recovery_attempt_limit_exceeded"
 	terminalArtifactSnapshotTimeout  = 10 * time.Second
 	terminalArtifactCleanupTimeout   = 10 * time.Second
 	terminalArtifactCleanupBatchSize = 250
@@ -429,6 +432,10 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 			}
 			return nil
 		}
+		currentAttempt := normalizedRecoveryAttempt(run.Attempt)
+		if currentAttempt >= maxRecoveryAttempts {
+			return w.failRecoveryAttemptLimit(ctx, run, conversationID, currentAttempt)
+		}
 		resumeCtx := ctx
 		var sd *token.SecurityData
 
@@ -467,6 +474,7 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 		newRun := &agrunwrite.MutableRunView{}
 		newRun.SetId(newRunID)
 		newRun.SetStatus("running")
+		newRun.SetAttempt(currentAttempt + 1)
 		newRun.SetResumedFromRunID(run.Id)
 		if run.ConversationId != nil {
 			newRun.SetConversationID(*run.ConversationId)
@@ -490,6 +498,13 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 			releaseRecoverySlot()
 			return fmt.Errorf("create resume run: %w", err)
 		}
+		log.Printf(
+			"[watchdog] resume stale run old_run_id=%s new_run_id=%s attempt=%d max_attempts=%d",
+			run.Id,
+			newRunID,
+			currentAttempt+1,
+			maxRecoveryAttempts,
+		)
 
 		// Mark old run as failed.
 		oldRun := &agrunwrite.MutableRunView{}
@@ -619,6 +634,73 @@ func activeRunSupersedesStale(staleRunID string, activeRun *agrunactive.ActiveRu
 		return false
 	}
 	return activeID != strings.TrimSpace(staleRunID)
+}
+
+func normalizedRecoveryAttempt(attempt int) int {
+	if attempt < 1 {
+		return 1
+	}
+	return attempt
+}
+
+func (w *Watchdog) failRecoveryAttemptLimit(ctx context.Context, run *agrunstale.StaleRunsView, conversationID string, attempt int) error {
+	if w == nil || run == nil || w.data == nil {
+		return nil
+	}
+	conversationID = strings.TrimSpace(conversationID)
+	reason := fmt.Sprintf("automatic recovery attempt limit reached (attempt %d of %d)", attempt, maxRecoveryAttempts)
+	log.Printf(
+		"[watchdog] recovery attempt limit reached run_id=%s attempt=%d max_attempts=%d",
+		run.Id,
+		attempt,
+		maxRecoveryAttempts,
+	)
+
+	var terminalizationErrs []error
+	turnID := strings.TrimSpace(valueOrEmpty(run.TurnId))
+	if w.agent != nil && w.agent.conversation != nil && conversationID != "" {
+		activeTurn, err := w.data.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
+			ConversationID: conversationID,
+			Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+		})
+		if err != nil {
+			terminalizationErrs = append(terminalizationErrs, fmt.Errorf("load active turn at recovery limit: %w", err))
+		} else if activeTurn != nil && strings.TrimSpace(activeTurn.Id) != "" {
+			activeTurnID := strings.TrimSpace(activeTurn.Id)
+			matchesRun := activeTurn.RunId != nil && strings.TrimSpace(*activeTurn.RunId) == strings.TrimSpace(run.Id)
+			matchesTurn := turnID != "" && activeTurnID == turnID
+			if matchesRun || matchesTurn {
+				turnID = activeTurnID
+				upd := apiconv.NewTurn()
+				upd.SetId(activeTurnID)
+				upd.SetStatus("failed")
+				upd.SetErrorMessage(reason)
+				if err := w.agent.conversation.PatchTurn(ctx, upd); err != nil {
+					terminalizationErrs = append(terminalizationErrs, fmt.Errorf("terminalize turn at recovery limit: %w", err))
+				}
+			}
+		}
+	}
+	if err := w.failSupersededRunArtifacts(ctx, conversationID, turnID, run.Id, reason); err != nil {
+		terminalizationErrs = append(terminalizationErrs, fmt.Errorf("terminalize artifacts at recovery limit: %w", err))
+	}
+	if w.agent != nil && conversationID != "" {
+		if err := w.agent.patchConversationStatus(ctx, conversationID, "failed"); err != nil {
+			terminalizationErrs = append(terminalizationErrs, fmt.Errorf("terminalize conversation at recovery limit: %w", err))
+		}
+		w.agent.triggerQueueDrain(conversationID)
+	}
+
+	failedRun := &agrunwrite.MutableRunView{}
+	failedRun.SetId(run.Id)
+	failedRun.SetStatus("failed")
+	failedRun.SetErrorCode(recoveryAttemptLimitErrorCode)
+	failedRun.SetErrorMessage(reason)
+	failedRun.SetCompletedAt(time.Now())
+	if _, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{failedRun}); err != nil {
+		terminalizationErrs = append(terminalizationErrs, fmt.Errorf("terminalize run at recovery limit: %w", err))
+	}
+	return errors.Join(terminalizationErrs...)
 }
 
 func (w *Watchdog) failSupersededRunArtifacts(ctx context.Context, conversationID, turnID, runID, reason string) error {

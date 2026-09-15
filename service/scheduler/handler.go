@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/viant/agently-core/app/store/data"
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	svcauth "github.com/viant/agently-core/service/auth"
 )
@@ -28,6 +29,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run/", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run/{id}", h.handleListRuns())
+	mux.HandleFunc("DELETE /v1/api/agently/scheduler/run/{id}", h.handleDeleteRun())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/schedule/{id}", h.handleGetSchedule())
 	mux.HandleFunc("DELETE /v1/api/agently/scheduler/schedule/{id}", h.handleDeleteSchedule())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/", h.handleListSchedules())
@@ -40,6 +42,7 @@ func (h *Handler) RegisterWithoutRunNow(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run/", h.handleListRuns())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/run/{id}", h.handleListRuns())
+	mux.HandleFunc("DELETE /v1/api/agently/scheduler/run/{id}", h.handleDeleteRun())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/schedule/{id}", h.handleGetSchedule())
 	mux.HandleFunc("DELETE /v1/api/agently/scheduler/schedule/{id}", h.handleDeleteSchedule())
 	mux.HandleFunc("GET /v1/api/agently/scheduler/", h.handleListSchedules())
@@ -267,20 +270,46 @@ func (h *Handler) handleDeleteSchedule() http.HandlerFunc {
 			return
 		}
 		if err := h.svc.Delete(r.Context(), id); err != nil {
-			switch {
-			case strings.Contains(err.Error(), "not found"):
-				httpError(w, http.StatusNotFound, err)
-			case strings.Contains(err.Error(), "only allowed for the owner"),
-				strings.Contains(err.Error(), "permission denied"):
-				httpError(w, http.StatusForbidden, err)
-			case strings.Contains(err.Error(), "still in progress"):
-				httpError(w, http.StatusConflict, err)
-			default:
-				httpError(w, http.StatusInternalServerError, err)
-			}
+			writeSchedulerDeleteError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func (h *Handler) handleDeleteRun() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		id := strings.TrimSpace(r.PathValue("id"))
+		if id == "" {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("run ID is required"))
+			return
+		}
+		if err := h.svc.DeleteRun(r.Context(), id); err != nil {
+			writeSchedulerDeleteError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}
+}
+
+func writeSchedulerDeleteError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, data.ErrScheduledRunNotFound),
+		errors.Is(err, data.ErrScheduleNotFound),
+		strings.Contains(err.Error(), "not found"):
+		httpError(w, http.StatusNotFound, err)
+	case errors.Is(err, data.ErrPermissionDenied),
+		strings.Contains(err.Error(), "only allowed for the owner"),
+		strings.Contains(err.Error(), "permission denied"):
+		httpError(w, http.StatusForbidden, err)
+	case errors.Is(err, data.ErrConversationActive),
+		errors.Is(err, data.ErrConversationNonTerminal),
+		errors.Is(err, data.ErrConversationGraphReferenced),
+		errors.Is(err, data.ErrConversationGraphTooLarge),
+		errors.Is(err, data.ErrConversationScheduleReferenced):
+		httpError(w, http.StatusConflict, err)
+	default:
+		httpError(w, http.StatusInternalServerError, err)
 	}
 }
 

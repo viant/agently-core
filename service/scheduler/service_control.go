@@ -30,6 +30,37 @@ func (s *Service) tryClaimRunLease(ctx context.Context, runID string, now time.T
 	return s.store.TryClaimRun(callCtx, runID, owner, now.Add(s.leaseTTL))
 }
 
+func (s *Service) claimRunLeaseForExecution(ctx context.Context, runID string) (bool, error) {
+	deadline := time.Now().Add(runLeaseCallTimeout)
+	retryDelay := 10 * time.Millisecond
+	for {
+		claimed, err := s.tryClaimRunLease(ctx, runID, time.Now().UTC())
+		if err == nil || !isRetryableRunLeaseClaimError(err) || !time.Now().Before(deadline) {
+			return claimed, err
+		}
+		timer := time.NewTimer(retryDelay)
+		select {
+		case <-ctx.Done():
+			if !timer.Stop() {
+				<-timer.C
+			}
+			return false, ctx.Err()
+		case <-timer.C:
+		}
+		if retryDelay < 100*time.Millisecond {
+			retryDelay *= 2
+		}
+	}
+}
+
+func isRetryableRunLeaseClaimError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "sqlite_busy") || strings.Contains(message, "database is locked")
+}
+
 func (s *Service) releaseRunLease(ctx context.Context, runID string) {
 	if s == nil || s.store == nil {
 		return

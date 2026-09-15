@@ -975,6 +975,7 @@ func TestService_executeRun_UserCredAuthFailureContinuesWithoutTokens(t *testing
 	})
 	ctx = iauth.WithBearer(ctx, "stale-access")
 	ctx = iauth.WithIDToken(ctx, "stale-id")
+	insertPendingSchedulerRun(t, db, "run-user-cred-auth-failure", scheduleID)
 	svc.executeRun(ctx, row, "run-user-cred-auth-failure", time.Now().UTC())
 
 	if !queryCalled {
@@ -1665,6 +1666,8 @@ func TestService_RunDue_ExecutesScheduledGoalWakeupInSameConversation(t *testing
 func TestService_ExecuteRun_InternalGoalWakeupResumesSameConversation(t *testing.T) {
 	store, db := newTestStore(t)
 	ensureRunWriteComponent(t, store)
+	insertScheduleRow(t, db, "goal-wakeup-goal-1", "Goal wakeup")
+	insertPendingSchedulerRun(t, db, "run-1", "goal-wakeup-goal-1")
 
 	var captured *agentsvc.QueryInput
 	svc := New(store, &agentsvc.Service{})
@@ -1729,5 +1732,42 @@ func TestService_ExecuteRun_InternalGoalWakeupResumesSameConversation(t *testing
 	}
 	if !conversationID.Valid || strings.TrimSpace(conversationID.String) != "conv-goal" {
 		t.Fatalf("run conversation_id = %#v, want conv-goal", conversationID)
+	}
+}
+
+func TestService_executeRun_SkipsExecutionWhenRunWasDeletedBeforeClaim(t *testing.T) {
+	store, db := newTestStore(t)
+	ensureRunWriteComponent(t, store)
+	insertScheduleRow(t, db, "sched-deleted-before-claim", "Deleted before claim")
+
+	queryCalled := false
+	svc := New(store, &agentsvc.Service{})
+	svc.queryRunner = func(context.Context, *agentsvc.QueryInput, *agentsvc.QueryOutput) error {
+		queryCalled = true
+		return nil
+	}
+	row := &schedulepkg.ScheduleView{
+		Id:           "sched-deleted-before-claim",
+		AgentRef:     "steward",
+		ScheduleType: "adhoc",
+		Timezone:     "UTC",
+		Enabled:      true,
+	}
+
+	svc.executeRun(context.Background(), row, "run-already-deleted", time.Now().UTC())
+
+	if queryCalled {
+		t.Fatal("query runner was called without owning the run lease")
+	}
+}
+
+func insertPendingSchedulerRun(t *testing.T, db *sql.DB, runID, scheduleID string) {
+	t.Helper()
+	now := time.Now().UTC()
+	if _, err := db.ExecContext(context.Background(), `
+		INSERT INTO run (id, schedule_id, conversation_kind, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?)
+	`, runID, scheduleID, "scheduled", "pending", now, now); err != nil {
+		t.Fatalf("insert pending scheduler run %s: %v", runID, err)
 	}
 }

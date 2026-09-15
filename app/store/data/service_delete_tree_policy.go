@@ -185,6 +185,18 @@ func lockConversationGraphForDelete(ctx context.Context, tx *sql.Tx, graph *conv
 }
 
 func prepareConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, userID string, now time.Time) error {
+	return prepareConversationDeleteGraphWithOwnership(ctx, tx, graph, userID, now, true)
+}
+
+// prepareConversationDeleteGraphForSystemMaintenance prepares a graph owned by
+// a system retention policy. Unlike user-initiated deletion, retention is not
+// authorized by historical owner columns; structural reference and liveness
+// checks remain enforced.
+func prepareConversationDeleteGraphForSystemMaintenance(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, now time.Time) error {
+	return prepareConversationDeleteGraphWithOwnership(ctx, tx, graph, "", now, false)
+}
+
+func prepareConversationDeleteGraphWithOwnership(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, userID string, now time.Time, enforceOwnership bool) error {
 	var err error
 	if graph.Capabilities.hasColumn("goal", "conversation_id") {
 		graph.GoalIDs, err = queryStringsForColumn(ctx, tx, "SELECT id FROM goal WHERE conversation_id IN (%s)", graph.ConversationIDs)
@@ -195,7 +207,7 @@ func prepareConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conv
 	if err := ensureNoInboundConversationReferences(ctx, tx, graph); err != nil {
 		return err
 	}
-	graph.ScheduleIDs, err = collectGoalWakeupSchedules(ctx, tx, graph, userID, now)
+	graph.ScheduleIDs, err = collectGoalWakeupSchedules(ctx, tx, graph, userID, now, enforceOwnership)
 	if err != nil {
 		return err
 	}
@@ -213,7 +225,7 @@ func prepareConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conv
 		}
 		graph.ScheduleRunIDs = sortedKeys(scheduleRunIDs)
 	}
-	if err := prepareReportDeleteGraph(ctx, tx, graph, userID); err != nil {
+	if err := prepareReportDeleteGraph(ctx, tx, graph, userID, enforceOwnership); err != nil {
 		return err
 	}
 	return nil
@@ -223,6 +235,9 @@ func validateConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *con
 	if err := refreshConversationDeleteRunIDs(ctx, tx, graph); err != nil {
 		return err
 	}
+	if err := lockConversationRunRowsForDelete(ctx, tx, graph); err != nil {
+		return err
+	}
 	if err := ensureConversationGraphDeletableOrEmpty(ctx, tx, graph); err != nil {
 		return err
 	}
@@ -230,6 +245,40 @@ func validateConversationDeleteGraph(ctx context.Context, tx *sql.Tx, graph *con
 		return err
 	}
 	return ensureNoActiveReportExports(ctx, tx, graph)
+}
+
+func lockConversationRunRowsForDelete(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
+	if graph == nil || graph.Capabilities == nil || !strings.Contains(graph.Capabilities.driver, "mysql") {
+		return nil
+	}
+	for _, item := range []struct {
+		table string
+		ids   []string
+	}{
+		{table: "run", ids: graph.RunIDs},
+		{table: "schedule_run", ids: graph.ScheduleRunIDs},
+	} {
+		if !graph.Capabilities.hasTable(item.table) {
+			continue
+		}
+		for _, chunk := range chunkStrings(item.ids, deleteChunkSize) {
+			rows, err := tx.QueryContext(ctx, fmt.Sprintf("SELECT id FROM %s WHERE id IN (%s) FOR UPDATE", item.table, placeholders(len(chunk))), stringArgs(chunk)...)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				var id string
+				if err := rows.Scan(&id); err != nil {
+					_ = rows.Close()
+					return err
+				}
+			}
+			if err := rows.Close(); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func refreshConversationDeleteRunIDs(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
@@ -249,6 +298,9 @@ func refreshConversationDeleteRunIDs(ctx context.Context, tx *sql.Tx, graph *con
 }
 
 func ensureNoInboundConversationReferences(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) error {
+	// This is a defensive edge-case guard, not the ordinary parent/child case:
+	// normal descendants and outbound-linked conversations are already included
+	// in the delete graph. Reject only inbound references from outside that graph.
 	inside := makeStringSet(graph.ConversationIDs)
 	sources, err := queryStringsForColumn(ctx, tx, "SELECT conversation_id FROM message WHERE linked_conversation_id IN (%s)", graph.ConversationIDs)
 	if err != nil {
@@ -295,7 +347,7 @@ type deleteScheduleDependency struct {
 	LeaseUntil     string
 }
 
-func collectGoalWakeupSchedules(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, userID string, now time.Time) ([]string, error) {
+func collectGoalWakeupSchedules(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, userID string, now time.Time, enforceOwnership bool) ([]string, error) {
 	capabilities := graph.Capabilities
 	if !capabilities.hasTable("schedule") || (!capabilities.hasColumn("schedule", "conversation_id") && !capabilities.hasColumn("schedule", "goal_id")) {
 		return nil, nil
@@ -319,7 +371,7 @@ func collectGoalWakeupSchedules(ctx context.Context, tx *sql.Tx, graph *conversa
 		if !dependency.Internal {
 			return nil, fmt.Errorf("%w: schedule=%s", ErrConversationScheduleReferenced, dependency.ID)
 		}
-		if dependency.OwnerID != "" && dependency.OwnerID != userID {
+		if enforceOwnership && dependency.OwnerID != "" && dependency.OwnerID != userID {
 			return nil, ErrPermissionDenied
 		}
 		if !isGoalWakeupDependency(dependency, conversationSet, goalSet) {
@@ -381,9 +433,9 @@ func isGoalWakeupDependency(dependency *deleteScheduleDependency, conversationID
 	return dependency.ID == "goal-wakeup-"+dependency.GoalID && dependency.Name == "autonomous::goal-wakeup::"+dependency.GoalID
 }
 
-func prepareReportDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, userID string) error {
+func prepareReportDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph, userID string, enforceOwnership bool) error {
 	capabilities := graph.Capabilities
-	if capabilities.hasColumn("conversation_report_context", "conversation_id") && capabilities.hasColumn("conversation_report_context", "owner_id") {
+	if enforceOwnership && capabilities.hasColumn("conversation_report_context", "conversation_id") && capabilities.hasColumn("conversation_report_context", "owner_id") {
 		if err := validateOwnedRows(ctx, tx, "SELECT owner_id FROM conversation_report_context WHERE conversation_id IN (%s)", graph.ConversationIDs, userID); err != nil {
 			return err
 		}
@@ -401,8 +453,10 @@ func prepareReportDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conversati
 	}
 	graph.ReportRunIDs = sortedKeys(runIDs)
 	if capabilities.hasTable("report_run") {
-		if err := validateOwnedReportRuns(ctx, tx, graph.ReportRunIDs, userID); err != nil {
-			return err
+		if enforceOwnership {
+			if err := validateOwnedReportRuns(ctx, tx, graph.ReportRunIDs, userID); err != nil {
+				return err
+			}
 		}
 		if err := ensureNoExternalReportContexts(ctx, tx, graph); err != nil {
 			return err
@@ -420,15 +474,22 @@ func prepareReportDeleteGraph(ctx context.Context, tx *sql.Tx, graph *conversati
 		}
 	}
 	graph.ReportJobIDs = sortedKeys(jobIDs)
-	if capabilities.hasTable("report_export_job") {
+	if enforceOwnership && capabilities.hasTable("report_export_job") {
 		if err := validateOwnedReportJobs(ctx, tx, graph.ReportJobIDs, userID); err != nil {
 			return err
 		}
 	}
-	if capabilities.hasColumn("report_export_artifact", "job_id") && capabilities.hasColumn("report_export_artifact", "owner_id") {
+	if enforceOwnership && capabilities.hasColumn("report_export_artifact", "job_id") && capabilities.hasColumn("report_export_artifact", "owner_id") {
 		if err := validateOwnedRows(ctx, tx, "SELECT owner_id FROM report_export_artifact WHERE job_id IN (%s)", graph.ReportJobIDs, userID); err != nil {
 			return err
 		}
+	}
+	if capabilities.hasColumn("report_export_artifact", "job_id") {
+		artifactIDs, queryErr := queryStringsForColumn(ctx, tx, "SELECT artifact_id FROM report_export_artifact WHERE job_id IN (%s)", graph.ReportJobIDs)
+		if queryErr != nil {
+			return queryErr
+		}
+		graph.ReportArtifactIDs = artifactIDs
 	}
 	return nil
 }

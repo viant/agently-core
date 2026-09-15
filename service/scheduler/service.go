@@ -210,6 +210,16 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 	return s.store.DeleteSchedule(ctx, id)
 }
 
+// DeleteRun removes one scheduler run and its conversation graph while
+// preserving the schedule definition.
+func (s *Service) DeleteRun(ctx context.Context, id string) error {
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return errors.New("run ID is required")
+	}
+	return s.store.DeleteScheduledRun(ctx, id)
+}
+
 // RunNow starts an immediate on-demand execution for a schedule.
 func (s *Service) RunNow(ctx context.Context, id string) error {
 	row, err := s.store.Get(ctx, id)

@@ -55,7 +55,16 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	}
 	logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "using effective user")
 
-	stopHeartbeat := func() {}
+	claimed, claimErr := s.claimRunLeaseForExecution(runCtx, runID)
+	if claimErr != nil {
+		log.Printf("scheduler: claim run lease schedule=%s run=%s owner=%s: %v", row.Id, runID, strings.TrimSpace(s.leaseOwner), claimErr)
+		return
+	}
+	if !claimed {
+		log.Printf("scheduler: run lease not claimed; execution skipped schedule=%s run=%s owner=%s", row.Id, runID, strings.TrimSpace(s.leaseOwner))
+		return
+	}
+	stopHeartbeat := s.startRunLeaseHeartbeat(runCtx, runID)
 	defer func() {
 		// Post-run cleanup: bound the call so a slow/unresponsive store cannot
 		// block process exit when the scheduler is shutting down.
@@ -63,12 +72,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 		defer cancel()
 		s.releaseRunLease(releaseCtx, runID)
 	}()
-	defer func() { stopHeartbeat() }()
-	if claimed, claimErr := s.tryClaimRunLease(runCtx, runID, time.Now().UTC()); claimErr != nil {
-		log.Printf("scheduler: claim run lease schedule=%s run=%s owner=%s: %v", row.Id, runID, strings.TrimSpace(s.leaseOwner), claimErr)
-	} else if claimed {
-		stopHeartbeat = s.startRunLeaseHeartbeat(runCtx, runID)
-	}
+	defer stopHeartbeat()
 
 	input := scheduleQueryInput(row, runID, userID)
 	output := &agentsvc.QueryOutput{}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/internal/sqlitewrite"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
@@ -50,6 +51,10 @@ var ErrConversationNonTerminal = errors.New("conversation_graph_non_terminal: ev
 var ErrConversationGraphReferenced = errors.New("conversation_graph_referenced: the conversation graph is referenced from outside the graph")
 var ErrConversationGraphTooLarge = errors.New("conversation_graph_too_large: the conversation graph exceeds the deletion limit")
 var ErrConversationScheduleReferenced = errors.New("conversation_schedule_referenced: a user schedule references the conversation graph")
+var ErrInvalidConversationMaintenanceRequest = errors.New("invalid conversation maintenance request")
+var ErrScheduledRunNotFound = errors.New("scheduled run not found")
+var ErrMaintenanceLeaseLost = errors.New("maintenance lease is no longer owned by this worker")
+var ErrInvalidMaintenanceLease = errors.New("invalid maintenance lease request")
 
 // Service is a thin facade over generated Datly read components.
 type Service interface {
@@ -91,6 +96,19 @@ type Service interface {
 	DeleteConversations(ctx context.Context, ids ...string) error
 	DeleteGoals(ctx context.Context, ids ...string) error
 	DeleteConversationTree(ctx context.Context, ids ...string) error
+	ListConversationMaintenanceCandidates(ctx context.Context, request ConversationMaintenanceCandidateRequest) ([]ConversationMaintenanceCandidate, error)
+	MaintainConversationTree(ctx context.Context, request ConversationMaintenanceRequest) (*ConversationMaintenanceResult, error)
+	ListScheduledRunMaintenanceCandidates(ctx context.Context, request ScheduledRunMaintenanceCandidateRequest) ([]ScheduledRunMaintenanceCandidate, error)
+	MaintainScheduledRun(ctx context.Context, request ScheduledRunMaintenanceRequest) (*ScheduledRunMaintenanceResult, error)
+	ListOrphanMaintenanceCandidates(ctx context.Context, request OrphanMaintenanceCandidateRequest) ([]OrphanMaintenanceCandidate, error)
+	MaintainOrphanCandidate(ctx context.Context, request OrphanMaintenanceRequest) (*OrphanMaintenanceResult, error)
+	ListTechnicalMaintenanceCandidates(ctx context.Context, request TechnicalMaintenanceCandidateRequest) ([]TechnicalMaintenanceCandidate, error)
+	MaintainTechnicalCandidate(ctx context.Context, request TechnicalMaintenanceRequest) (*TechnicalMaintenanceResult, error)
+	AcquireMaintenanceLease(ctx context.Context, request MaintenanceLeaseAcquireRequest) (*MaintenanceLeaseAcquireResult, error)
+	RenewMaintenanceLease(ctx context.Context, lease MaintenanceLease, ttl time.Duration) (*MaintenanceLeaseRenewResult, error)
+	ReleaseMaintenanceLease(ctx context.Context, lease MaintenanceLease) (bool, error)
+	DeleteExpiredMaintenanceLeases(ctx context.Context, lease MaintenanceLease) (int64, error)
+	DeleteScheduledRun(ctx context.Context, id string) error
 	DeleteScheduleCascade(ctx context.Context, id string) error
 	DeleteMessages(ctx context.Context, ids ...string) error
 	DeleteTurns(ctx context.Context, ids ...string) error

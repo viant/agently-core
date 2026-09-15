@@ -12,15 +12,20 @@ import (
 	"testing"
 	"time"
 
+	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	token "github.com/viant/agently-core/internal/auth/token"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagewrite "github.com/viant/agently-core/pkg/agently/message/write"
 	agmodelcallwrite "github.com/viant/agently-core/pkg/agently/modelcall/write"
 	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
 	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
 	agrunsteps "github.com/viant/agently-core/pkg/agently/run/steps"
+	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agtoolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
+	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
+	agturnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
 )
 
 func strptr(v string) *string { return &v }
@@ -100,6 +105,191 @@ func TestActiveRunSupersedesStale(t *testing.T) {
 		if got := activeRunSupersedesStale(tc.stale, tc.active); got != tc.want {
 			t.Fatalf("%s: got %v want %v", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestNormalizedRecoveryAttempt(t *testing.T) {
+	tests := []struct {
+		attempt int
+		want    int
+	}{
+		{attempt: -1, want: 1},
+		{attempt: 0, want: 1},
+		{attempt: 1, want: 1},
+		{attempt: 9, want: 9},
+	}
+	for _, test := range tests {
+		if got := normalizedRecoveryAttempt(test.attempt); got != test.want {
+			t.Fatalf("normalizedRecoveryAttempt(%d)=%d, want %d", test.attempt, got, test.want)
+		}
+	}
+}
+
+type resumeAttemptDataService struct {
+	data.Service
+
+	activeRun  *agrunactive.ActiveRunsView
+	patchCalls [][]*agrunwrite.MutableRunView
+}
+
+func (s *resumeAttemptDataService) GetActiveRun(_ context.Context, _ *agrunactive.ActiveRunsInput, _ ...data.Option) (*agrunactive.ActiveRunsView, error) {
+	return s.activeRun, nil
+}
+
+func (s *resumeAttemptDataService) PatchRuns(_ context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error) {
+	s.patchCalls = append(s.patchCalls, rows)
+	if len(s.patchCalls) == 2 {
+		return nil, errors.New("stop after resumed run creation")
+	}
+	return rows, nil
+}
+
+func TestWatchdogHandleStaleRun_IncrementsRecoveryAttempt(t *testing.T) {
+	tests := []struct {
+		name          string
+		sourceAttempt int
+		wantAttempt   int
+	}{
+		{name: "first recovery", sourceAttempt: 1, wantAttempt: 2},
+		{name: "last allowed recovery", sourceAttempt: 9, wantAttempt: 10},
+		{name: "legacy zero", sourceAttempt: 0, wantAttempt: 2},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store := &resumeAttemptDataService{}
+			watchdog := NewWatchdog(store, nil)
+			run := &agrunstale.StaleRunsView{
+				Id:               "source-run",
+				Attempt:          test.sourceAttempt,
+				ConversationId:   strptr("conversation-1"),
+				ConversationKind: "interactive",
+				TurnId:           strptr("turn-1"),
+			}
+			err := watchdog.handleStaleRun(context.Background(), run)
+			if err == nil || !strings.Contains(err.Error(), "mark stale run failed") {
+				t.Fatalf("handleStaleRun() error=%v, want forced old-run patch failure", err)
+			}
+			if len(store.patchCalls) != 2 || len(store.patchCalls[0]) != 1 {
+				t.Fatalf("PatchRuns calls=%d, want resumed-run creation followed by old-run patch", len(store.patchCalls))
+			}
+			created := store.patchCalls[0][0]
+			if created.Attempt == nil || *created.Attempt != test.wantAttempt {
+				t.Fatalf("created attempt=%v, want %d", created.Attempt, test.wantAttempt)
+			}
+			if created.ResumedFromRunID == nil || *created.ResumedFromRunID != run.Id {
+				t.Fatalf("resumed_from_run_id=%v, want %s", created.ResumedFromRunID, run.Id)
+			}
+		})
+	}
+}
+
+type recoveryLimitDataService struct {
+	data.Service
+
+	activeTurn           *agturnactive.ActiveTurnsView
+	patchedRuns          []*agrunwrite.MutableRunView
+	patchedConversations []*convw.Conversation
+	queueDrainCalled     chan struct{}
+}
+
+func (s *recoveryLimitDataService) GetActiveRun(_ context.Context, _ *agrunactive.ActiveRunsInput, _ ...data.Option) (*agrunactive.ActiveRunsView, error) {
+	return nil, nil
+}
+
+func (s *recoveryLimitDataService) GetActiveTurn(_ context.Context, _ *agturnactive.ActiveTurnsInput, _ ...data.Option) (*agturnactive.ActiveTurnsView, error) {
+	return s.activeTurn, nil
+}
+
+func (s *recoveryLimitDataService) GetRunStepsPage(_ context.Context, _ *agrunsteps.RunStepsInput, _ *data.PageInput, _ ...data.Option) (*data.RunStepPage, error) {
+	return &data.RunStepPage{}, nil
+}
+
+func (s *recoveryLimitDataService) GetConversation(_ context.Context, id string, _ *agconv.ConversationInput, _ ...data.Option) (*agconv.ConversationView, error) {
+	return &agconv.ConversationView{Id: id}, nil
+}
+
+func (s *recoveryLimitDataService) PatchRuns(_ context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error) {
+	s.patchedRuns = append(s.patchedRuns, rows...)
+	return rows, nil
+}
+
+func (s *recoveryLimitDataService) PatchConversations(_ context.Context, rows []*convw.Conversation) ([]*convw.Conversation, error) {
+	s.patchedConversations = append(s.patchedConversations, rows...)
+	return rows, nil
+}
+
+func (s *recoveryLimitDataService) GetNextQueuedTurn(_ context.Context, _ *agturnnext.QueuedTurnInput, _ ...data.Option) (*agturnnext.QueuedTurnView, error) {
+	select {
+	case s.queueDrainCalled <- struct{}{}:
+	default:
+	}
+	return nil, nil
+}
+
+type recoveryLimitConversationClient struct {
+	apiconv.Client
+
+	patchedTurns         []*apiconv.MutableTurn
+	patchedConversations []*apiconv.MutableConversation
+}
+
+func (c *recoveryLimitConversationClient) PatchTurn(_ context.Context, turn *apiconv.MutableTurn) error {
+	c.patchedTurns = append(c.patchedTurns, turn)
+	return nil
+}
+
+func (c *recoveryLimitConversationClient) PatchConversations(_ context.Context, conversation *apiconv.MutableConversation) error {
+	c.patchedConversations = append(c.patchedConversations, conversation)
+	return nil
+}
+
+func TestWatchdogHandleStaleRun_StopsAtRecoveryAttemptLimit(t *testing.T) {
+	store := &recoveryLimitDataService{
+		activeTurn: &agturnactive.ActiveTurnsView{
+			Id:             "turn-10",
+			ConversationId: "conversation-1",
+			Status:         "running",
+			RunId:          strptr("run-10"),
+		},
+		queueDrainCalled: make(chan struct{}, 1),
+	}
+	conversationClient := &recoveryLimitConversationClient{}
+	agentService := &Service{conversation: conversationClient, dataService: store}
+	watchdog := NewWatchdog(store, agentService)
+	run := &agrunstale.StaleRunsView{
+		Id:               "run-10",
+		Attempt:          maxRecoveryAttempts,
+		ConversationId:   strptr("conversation-1"),
+		ConversationKind: "interactive",
+		TurnId:           strptr("turn-10"),
+	}
+
+	if err := watchdog.handleStaleRun(context.Background(), run); err != nil {
+		t.Fatalf("handleStaleRun() error: %v", err)
+	}
+	if len(store.patchedRuns) != 1 {
+		t.Fatalf("patched runs=%d, want only terminalized source run", len(store.patchedRuns))
+	}
+	failedRun := store.patchedRuns[0]
+	if failedRun.Id != run.Id || failedRun.Status != "failed" {
+		t.Fatalf("unexpected failed run patch: %+v", failedRun)
+	}
+	if failedRun.ErrorCode == nil || *failedRun.ErrorCode != recoveryAttemptLimitErrorCode {
+		t.Fatalf("error_code=%v, want %q", failedRun.ErrorCode, recoveryAttemptLimitErrorCode)
+	}
+	if failedRun.CompletedAt == nil {
+		t.Fatalf("completed_at was not set on terminalized run")
+	}
+	if len(conversationClient.patchedTurns) != 1 || conversationClient.patchedTurns[0].Status != "failed" {
+		t.Fatalf("unexpected turn patches: %+v", conversationClient.patchedTurns)
+	}
+	if len(conversationClient.patchedConversations) != 1 || conversationClient.patchedConversations[0].Status == nil || *conversationClient.patchedConversations[0].Status != "failed" {
+		t.Fatalf("unexpected conversation patches: %+v", conversationClient.patchedConversations)
+	}
+	select {
+	case <-store.queueDrainCalled:
+	case <-time.After(time.Second):
+		t.Fatalf("queue drain was not triggered")
 	}
 }
 

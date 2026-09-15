@@ -185,6 +185,7 @@ func TestService_executeRun_CreatedByAuthFailureContinuesWithoutTokens(t *testin
 	})
 	ctx = iauth.WithBearer(ctx, "stale-access")
 	ctx = iauth.WithIDToken(ctx, "stale-id")
+	insertPendingSchedulerRun(t, db, "run-created-by-auth-failure", scheduleID)
 	svc.executeRun(ctx, row, "run-created-by-auth-failure", time.Now().UTC())
 
 	if !queryCalled {
@@ -247,6 +248,7 @@ func TestService_executeRun_CreatedByOwnerLookupMissContinuesWithoutTokens(t *te
 	})
 	ctx = iauth.WithBearer(ctx, "stale-bearer")
 	ctx = iauth.WithIDToken(ctx, "stale-id")
+	insertPendingSchedulerRun(t, db, "run-created-by-owner-lookup-miss", scheduleID)
 	svc.executeRun(ctx, row, "run-created-by-owner-lookup-miss", time.Now().UTC())
 
 	if !queryCalled {
@@ -262,7 +264,7 @@ func TestService_executeRun_CreatedByOwnerLookupMissContinuesWithoutTokens(t *te
 }
 
 func TestService_executeRun_UsesSchedulerModeAndCreatedByAuth(t *testing.T) {
-	store, _ := newTestStore(t)
+	store, db := newTestStore(t)
 	ensureRunWriteComponent(t, store)
 	subject := "agently_scheduler"
 	users := &fakeSchedulerUserService{
@@ -312,6 +314,8 @@ func TestService_executeRun_UsesSchedulerModeAndCreatedByAuth(t *testing.T) {
 		Enabled:         true,
 	}
 
+	insertScheduleRowWithOwner(t, db, "sched-created-by", "Created-by auth", "private", subject)
+	insertPendingSchedulerRun(t, db, "run-created-by", "sched-created-by")
 	svc.executeRun(context.Background(), row, "run-created-by", time.Now().UTC())
 
 	if !called {
