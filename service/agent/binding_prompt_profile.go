@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/viant/agently-core/internal/logx"
@@ -136,6 +138,16 @@ func (s *Service) applyProfileKnowledge(ctx context.Context, input *QueryInput, 
 			args["neighborFragmentsAfter"] = spec.NeighborFragmentsAfter
 		}
 		queries := profileKnowledgeQueries(input.Query, spec.QueryMode, spec.MaxQueries)
+		if spec.QueryCatalog != nil {
+			var err error
+			queries, err = profileKnowledgeCatalogQueries(input.Query, queries, spec.QueryCatalog, spec.MaxQueries)
+			if err != nil {
+				if spec.Required {
+					return fmt.Errorf("profile %q knowledge[%d] query catalog: %w", profile.ID, matchIndex, err)
+				}
+				logx.Warnf("conversation", "intent.profile.knowledge query catalog profile=%q index=%d err=%v", profile.ID, matchIndex, err)
+			}
+		}
 		groups := make([][]embSchema.Document, 0, len(queries))
 		for queryIndex, matchQuery := range queries {
 			queryArgs := cloneProfileKnowledgeArgs(args)
@@ -267,6 +279,105 @@ func (s *Service) applyProfileKnowledge(ctx context.Context, input *QueryInput, 
 		logx.Infof("conversation", "intent.profile.knowledge selected profile=%q index=%d kept=%d bytes=%d minScore=%v", strings.TrimSpace(profile.ID), matchIndex, kept, totalBytes, spec.MinScore)
 	}
 	return nil
+}
+
+type profileKnowledgeCatalogManifest struct {
+	Articles []struct {
+		Title string `json:"title"`
+	} `json:"articles"`
+}
+
+type profileKnowledgeCatalogCandidate struct {
+	title string
+	score float64
+}
+
+func profileKnowledgeCatalogQueries(original string, queries []string, catalog *intake.QueryCatalog, maxQueries int) ([]string, error) {
+	if catalog == nil || strings.TrimSpace(catalog.Path) == "" {
+		return queries, nil
+	}
+	path := workspace.ResolvePathTemplate(strings.TrimSpace(catalog.Path))
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(workspace.Root(), path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return queries, err
+	}
+	var manifest profileKnowledgeCatalogManifest
+	if err := json.Unmarshal(data, &manifest); err != nil {
+		return queries, err
+	}
+	queryTokens := profileKnowledgeSignificantTokens(original)
+	if len(queryTokens) == 0 {
+		return queries, nil
+	}
+	var candidates []profileKnowledgeCatalogCandidate
+	for _, article := range manifest.Articles {
+		title := strings.TrimSpace(article.Title)
+		if title == "" {
+			continue
+		}
+		titleTokens := profileKnowledgeSignificantTokens(title)
+		matched := 0
+		for token := range queryTokens {
+			if titleTokens[token] {
+				matched++
+			}
+		}
+		if matched == 0 {
+			continue
+		}
+		candidates = append(candidates, profileKnowledgeCatalogCandidate{title: title, score: float64(matched) / float64(len(queryTokens))})
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		if candidates[i].score == candidates[j].score {
+			// Prefer the more descriptive table-of-contents title when token
+			// overlap ties; terse titles are more likely to be ambiguous.
+			return len(candidates[i].title) > len(candidates[j].title)
+		}
+		return candidates[i].score > candidates[j].score
+	})
+	limit := catalog.MaxMatches
+	if limit <= 0 {
+		limit = 2
+	}
+	seen := map[string]bool{}
+	for _, query := range queries {
+		seen[strings.ToLower(strings.TrimSpace(query))] = true
+	}
+	added := 0
+	for _, candidate := range candidates {
+		if added >= limit || maxQueries > 0 && len(queries) >= maxQueries {
+			break
+		}
+		expanded := candidate.title + ". User question: " + strings.TrimSpace(original)
+		key := strings.ToLower(expanded)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		queries = append(queries, expanded)
+		added++
+	}
+	return queries, nil
+}
+
+var profileKnowledgeQueryStopWords = map[string]bool{
+	"about": true, "does": true, "explain": true, "how": true, "is": true,
+	"me": true, "the": true, "tell": true, "what": true, "works": true,
+}
+
+func profileKnowledgeSignificantTokens(value string) map[string]bool {
+	fields := strings.FieldsFunc(strings.ToLower(value), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+	result := map[string]bool{}
+	for _, field := range fields {
+		if len(field) < 3 || profileKnowledgeQueryStopWords[field] {
+			continue
+		}
+		result[field] = true
+	}
+	return result
 }
 
 func profileKnowledgeUseFullDocument(mode, query string) bool {

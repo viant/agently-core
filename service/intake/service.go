@@ -169,7 +169,11 @@ func (s *Service) patchCanonicalIntakeMessage(ctx context.Context, messageID str
 	msg.SetRole("assistant")
 	msg.SetType("text")
 	msg.SetContent(content)
-	msg.SetInterim(0)
+	// Intake output is control-plane data, not an assistant response. Retain the
+	// canonical record for diagnostics while keeping it out of transcript/UI
+	// projections and subsequent model context.
+	msg.SetInterim(1)
+	msg.SetArchived(1)
 	if mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)); mode != "" {
 		msg.SetMode(mode)
 	} else {
