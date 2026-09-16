@@ -2802,4 +2802,35 @@ END $$
 CALL schema_upgrade_37() $$
 DROP PROCEDURE schema_upgrade_37 $$
 
+DROP PROCEDURE IF EXISTS schema_upgrade_38 $$
+CREATE PROCEDURE schema_upgrade_38()
+BEGIN
+    IF get_schema_version() = 38 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'conversation'
+              AND INDEX_NAME = 'idx_conversation_parent_id'
+        ) THEN
+            ALTER TABLE conversation
+                ADD KEY idx_conversation_parent_id (conversation_parent_id);
+        END IF;
+
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'conversation'
+              AND INDEX_NAME = 'idx_conversation_parent_turn_id'
+        ) THEN
+            ALTER TABLE conversation
+                ADD KEY idx_conversation_parent_turn_id (conversation_parent_turn_id);
+        END IF;
+
+        CALL set_schema_version(39);
+    END IF;
+END $$
+
+CALL schema_upgrade_38() $$
+DROP PROCEDURE schema_upgrade_38 $$
+
 DELIMITER ;
