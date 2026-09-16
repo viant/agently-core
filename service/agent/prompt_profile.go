@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/viant/agently-core/internal/logx"
 	intake "github.com/viant/agently-core/protocol/intake"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	policy "github.com/viant/agently-core/service/policy"
@@ -76,10 +77,10 @@ func ApplyPromptProfileExecutionDefaults(input *QueryInput, profile *intake.Prof
 		return
 	}
 	if model := strings.TrimSpace(profile.Model); model != "" {
-		source := runtimeModelSource(input)
-		if strings.TrimSpace(input.ModelOverride) == "" || source == "conversation.defaultModel" {
+		if strings.TrimSpace(input.ModelOverride) == "" || modelSourcePriority(input) < 80 {
 			input.ModelOverride = model
 			setRuntimeModelSource(input, "intent.profile")
+			logx.Infof("conversation", "intent.profile.model profile=%q model=%q", strings.TrimSpace(profile.ID), model)
 		}
 	}
 	if profile.ParallelToolCalls != nil && input.ParallelToolCalls == nil {

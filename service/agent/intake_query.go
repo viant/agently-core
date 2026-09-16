@@ -1624,7 +1624,7 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.In
 	// A workspace activation rule is trusted configuration and may select a
 	// route-specific model without changing the agent's global default. An
 	// explicit caller model override always wins.
-	if strings.TrimSpace(tc.Prompting.ModelID) != "" {
+	if strings.TrimSpace(tc.Prompting.ModelID) != "" && modelSourcePriority(input) < 90 {
 		input.ModelOverride = strings.TrimSpace(tc.Prompting.ModelID)
 		setRuntimeModelSource(input, "intake.activationRule")
 		input.Context["intake.modelId"] = input.ModelOverride

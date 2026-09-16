@@ -1,6 +1,7 @@
 id: performance_analysis
 name: Performance Analysis
 description: "Use when the user asks about system health or performance trends."
+model: openai_gpt-5_6_terra
 appliesTo:
   - performance
   - health

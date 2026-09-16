@@ -118,6 +118,21 @@ func TestApplyPromptProfileExecutionDefaults_ModelOverride(t *testing.T) {
 	ApplyPromptProfileExecutionDefaults(inherited, &intake.Profile{Model: "profile-model"})
 	require.Equal(t, "profile-model", inherited.ModelOverride)
 	require.Equal(t, "intent.profile", runtimeModelSource(inherited))
+
+	projected := &QueryInput{ModelOverride: "conversation-model", Context: map[string]interface{}{"modelSource": "conversation.defaultModel"}}
+	ApplyPromptProfileExecutionDefaults(projected, &intake.Profile{Model: "profile-model"})
+	require.Equal(t, "profile-model", projected.ModelOverride)
+	require.Equal(t, "intent.profile", runtimeModelSource(projected))
+}
+
+func TestApplyPromptProfileExecutionDefaults_PreservesCallerAcrossProjectedContext(t *testing.T) {
+	input := &QueryInput{
+		ModelOverride: "caller-model",
+		Context:       map[string]interface{}{"modelSource": "caller"},
+	}
+	ApplyPromptProfileExecutionDefaults(input, &intake.Profile{Model: "profile-model"})
+	require.Equal(t, "caller-model", input.ModelOverride)
+	require.Equal(t, "caller", runtimeModelSource(input))
 }
 
 func TestProfileKnowledgeCanonicalSource(t *testing.T) {
