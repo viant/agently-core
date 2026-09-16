@@ -21,7 +21,9 @@ import (
 )
 
 type followupStubConversationClient struct {
-	conversation *apiconv.Conversation
+	conversation   *apiconv.Conversation
+	patchedTitle   string
+	patchCallCount int
 }
 
 func (s *followupStubConversationClient) GetConversation(ctx context.Context, id string, options ...apiconv.Option) (*apiconv.Conversation, error) {
@@ -35,6 +37,10 @@ func (s *followupStubConversationClient) GetConversations(ctx context.Context, i
 	return nil, nil
 }
 func (s *followupStubConversationClient) PatchConversations(ctx context.Context, conversations *apiconv.MutableConversation) error {
+	if s != nil && conversations != nil && conversations.Title != nil {
+		s.patchedTitle = strings.TrimSpace(*conversations.Title)
+		s.patchCallCount++
+	}
 	return nil
 }
 func (s *followupStubConversationClient) GetPayload(ctx context.Context, id string) (*apiconv.Payload, error) {
@@ -86,6 +92,55 @@ func TestJaccardWordSimilarity(t *testing.T) {
 		require.GreaterOrEqualf(t, got, tc.min, "%s: got %v", tc.name, got)
 		require.LessOrEqualf(t, got, tc.max, "%s: got %v", tc.name, got)
 	}
+}
+
+func TestShouldReplaceConversationTitle(t *testing.T) {
+	query := "Build me a report for order 2676771 with delivery and pacing details"
+	require.True(t, shouldReplaceConversationTitle("", "conv-1"))
+	require.True(t, shouldReplaceConversationTitle("conv-1", "conv-1"))
+	require.True(t, shouldReplaceConversationTitle("New conversation", "conv-1"))
+	require.True(t, shouldReplaceConversationTitle("New chat", "conv-1"))
+	require.False(t, shouldReplaceConversationTitle(query, "conv-1"))
+	require.False(t, shouldReplaceConversationTitle("Order Performance Report", "conv-1"))
+}
+
+func TestMaybeSetConversationTitlePreservesEstablishedTitleOnFollowup(t *testing.T) {
+	existing := "Order Performance Report"
+	client := &followupStubConversationClient{
+		conversation: &apiconv.Conversation{Id: "conv-1", Title: &existing},
+	}
+	svc := &Service{conversation: client}
+
+	svc.maybeSetConversationTitle(context.Background(), "conv-1", "Sites Served for Order 2676771")
+
+	require.Zero(t, client.patchCallCount)
+	require.Empty(t, client.patchedTitle)
+}
+
+func TestMaybeSetConversationTitlePreservesFirstTurnSeed(t *testing.T) {
+	query := "Build me a report for order 2676771 with delivery and pacing details"
+	client := &followupStubConversationClient{
+		conversation: &apiconv.Conversation{Id: "conv-1", Title: &query},
+	}
+	svc := &Service{conversation: client}
+
+	svc.maybeSetConversationTitle(context.Background(), "conv-1", "Order Performance Report")
+
+	require.Zero(t, client.patchCallCount)
+	require.Empty(t, client.patchedTitle)
+}
+
+func TestMaybeSetConversationTitleReplacesPlaceholder(t *testing.T) {
+	existing := "New conversation"
+	client := &followupStubConversationClient{
+		conversation: &apiconv.Conversation{Id: "conv-1", Title: &existing},
+	}
+	svc := &Service{conversation: client}
+
+	svc.maybeSetConversationTitle(context.Background(), "conv-1", "Order Performance Report")
+
+	require.Equal(t, 1, client.patchCallCount)
+	require.Equal(t, "Order Performance Report", client.patchedTitle)
 }
 
 // TestShouldRunIntake_TriggerOff verifies that when TriggerOnTopicShift is
