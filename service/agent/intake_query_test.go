@@ -705,7 +705,8 @@ func TestApplyTurnContext_ActivationModelOverridesTurnModel(t *testing.T) {
 
 	applyTurnContext(input, tc, cfg)
 
-	require.Equal(t, "openai_gpt-5_6_luna", input.ModelOverride)
+	require.Equal(t, "openai_gpt-5_6_sol", input.ModelOverride)
+	require.Empty(t, input.Context["intake.modelId"])
 }
 
 func TestApplyTurnContext_ActivationModelOverridesConversationDefault(t *testing.T) {

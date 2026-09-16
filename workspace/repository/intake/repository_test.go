@@ -33,6 +33,7 @@ func TestRepository_LoadAll(t *testing.T) {
 	p := profiles[0]
 	assert.Equal(t, "performance_analysis", p.ID)
 	assert.Equal(t, "Performance Analysis", p.Name)
+	assert.Equal(t, "openai_gpt-5_6_terra", p.Model)
 	assert.Contains(t, p.AppliesTo, "performance")
 	assert.Contains(t, p.AppliesTo, "health")
 	assert.Len(t, p.Messages, 2)

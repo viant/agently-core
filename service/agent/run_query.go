@@ -376,6 +376,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}()
 	queryStarted := time.Now()
 	if input != nil {
+		// Backward compatibility: historically any supplied `model` was an
+		// explicit caller override. New clients can mark inherited defaults with
+		// modelSource so intent profiles may override them.
+		if strings.TrimSpace(input.ModelOverride) != "" && runtimeModelSource(input) == "" {
+			setRuntimeModelSource(input, "caller")
+		}
 		input.normalizeIntentProfileID()
 	}
 	ctx = s.bindAuthFromInputContext(ctx, input)

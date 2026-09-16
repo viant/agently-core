@@ -45,8 +45,9 @@ type QueryInput struct {
 	EmbeddingModel  string `json:"embeddingModel"`  // Find to use for embeddings
 
 	// Optional runtime overrides (single-turn)
-	ModelOverride string   `json:"model,omitempty"` // llm model name
-	ToolsAllowed  []string `json:"tools,omitempty"` // allow-list for tools (empty = default)
+	ModelOverride string   `json:"model,omitempty"`       // llm model name
+	ModelSource   string   `json:"modelSource,omitempty"` // caller|conversation.defaultModel|agent.model|intent.profile|intake.activationRule
+	ToolsAllowed  []string `json:"tools,omitempty"`       // allow-list for tools (empty = default)
 	// ToolBundles selects global tool bundles by id for this turn. When provided,
 	// bundles are expanded into a concrete tool allow-list sent to the model.
 	ToolBundles []string `json:"toolBundles,omitempty"`
