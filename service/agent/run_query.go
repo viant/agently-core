@@ -375,6 +375,9 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		output.Projection = &snapshot
 	}()
 	queryStarted := time.Now()
+	if input != nil {
+		input.normalizeIntentProfileID()
+	}
 	ctx = s.bindAuthFromInputContext(ctx, input)
 	ctx = bindEffectiveUserFromInput(ctx, input)
 	if input != nil {

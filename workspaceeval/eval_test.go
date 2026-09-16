@@ -166,7 +166,7 @@ func TestParseConversationID(t *testing.T) {
 
 func TestIntakeProfilePrecedence(t *testing.T) {
 	root := t.TempDir()
-	for _, kind := range []string{"intent", "prompts", "evals"} {
+	for _, kind := range []string{"intents", "prompts", "evals"} {
 		if err := os.MkdirAll(filepath.Join(root, kind), 0755); err != nil {
 			t.Fatal(err)
 		}
@@ -177,7 +177,7 @@ func TestIntakeProfilePrecedence(t *testing.T) {
 		}
 	}
 	write("prompts/task.yaml", "id: task\n")
-	write("intent/task.yaml", "id: task\nevidenceContract:\n  required: [proof]\n  completion: [verified]\n")
+	write("intents/task.yaml", "id: task\nevidenceContract:\n  required: [proof]\n  completion: [verified]\n")
 	write("evals/task.yaml", "id: task\ntitle: task\nuser_prompt: test\nexpected_routing:\n  profile: task\n")
 	legacyRoot := filepath.Join(root, "prompts")
 	if failures := CheckEvidenceContractProfiles(legacyRoot, []string{"task"}); len(failures) != 0 {
@@ -186,7 +186,7 @@ func TestIntakeProfilePrecedence(t *testing.T) {
 	if failures := CheckEvalCatalog(filepath.Join(root, "evals"), legacyRoot, filepath.Join(root, "templates"), nil); len(failures) != 0 {
 		t.Fatal(failures)
 	}
-	write("intent/task.yaml", "messages: [")
+	write("intents/task.yaml", "messages: [")
 	if failures := CheckEvalCatalog(filepath.Join(root, "evals"), legacyRoot, filepath.Join(root, "templates"), nil); len(failures) == 0 {
 		t.Fatal("invalid intent silently fell back")
 	}

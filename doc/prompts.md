@@ -1,18 +1,20 @@
-# Intake Profiles and Tool Bundles — Simplifying Orchestrator Workspaces
+# Intent Profiles and Tool Bundles — Simplifying Orchestrator Workspaces
 
 ## Naming and workspace migration
 
-Intake profiles are loaded per name from `intent/<id>.yaml` first, then
+Intent profiles are loaded per name from `intents/<id>.yaml` first, then
 `prompts/<id>.yaml` only when no intent definition exists. Both catalogs are
 listed together, with intent definitions taking precedence. An invalid intent
 file is an error; it does not activate a legacy definition. Existing nested
 `<id>/<id>.yaml` layouts and relative imports remain supported. Repository
-writes target `intent`; legacy files do not need to be moved to keep working.
+writes target `intents`; legacy files do not need to be moved to keep working.
 
 The Go type is `intake.Profile` in `protocol/intake`; its repository is
 `intake.Repository` in `workspace/repository/intake`. Update Go imports from
 `protocol/prompt` and `workspace/repository/prompt` to those new package paths.
-Existing `promptProfileId`, agent `prompts` access configuration, `prompt:list`,
+`intentProfileId` is the canonical runtime field. The legacy
+`promptProfileId` key remains decode-only for compatibility and is omitted
+from generated Go/tool contracts. Agent `prompts` access configuration, `prompt:list`,
 `prompt:get`, and MCP `prompts/list` / `prompts/get` retain their names for
 compatibility. Output templates and model prompt text are separate concepts.
 
@@ -152,7 +154,7 @@ expansion:
 
 | Field | Purpose |
 |---|---|
-| `id` | Unique identifier used in `RunInput.promptProfileId` |
+| `id` | Unique identifier used in `RunInput.intentProfileId` |
 | `description` | Selection guidance — answers "when should I pick this?", not "what does this do?" |
 | `appliesTo` | Tag vocabulary used by intake sidecar for classification |
 | `messages` | Ordered `{role, text\|uri}` sequence — primary form |
@@ -162,7 +164,38 @@ expansion:
 | `preferredTools` | Advisory hints within the bundle boundary |
 | `template` | Default output template for this scenario |
 | `resources` | Optional knowledge sources |
+| `knowledge` | Profile-scoped semantic matches activated only for the selected intent profile |
 | `expansion` | Sidecar LLM config for task-specific instruction synthesis |
+
+### Profile-scoped knowledge
+
+Intent profiles may activate semantic retrieval for the current turn without
+adding knowledge matching to every turn of the parent agent:
+
+```yaml
+knowledge:
+  - rootIds: [viant-product-knowledge]
+    queryMode: multi
+    maxQueries: 4
+    maxFragments: 16
+    maxDocuments: 3
+    minScore: 0.60
+    neighborFragmentsBefore: 1
+    neighborFragmentsAfter: 1
+    documentMode: explicit
+    maxDocumentBytes: 32000
+    maxTotalBytes: 48000
+    canonicalSourceOnly: true
+```
+
+`maxFragments` controls the total vector-search anchor budget and is distributed
+across decomposed subqueries. `maxDocuments` controls
+the distinct documents injected after URI deduplication. In `multi` query mode,
+explicit comma/`and` topic lists are matched separately and interleaved so one
+topic cannot consume every document slot. Neighbor fragments are loaded by
+Embedius from the indexed source sequence. `documentMode: explicit` expands to
+the complete article only when the user asks for the full/whole article. All
+injected content remains subject to per-document and total-byte limits.
 
 ### Message Format and MCP Alignment
 
@@ -263,7 +296,7 @@ The same injection loop applies wherever profile messages are injected — wheth
 
 **Default rule for hybrid mode (Option 4):**
 
-> In the recommended hybrid path, `orchestrator` calls `prompt:list` to select a profile and passes only `promptProfileId` to `llm/agents:run`. **`orchestrator` does not call `prompt:get` in the normal flow.** The runtime resolves instructions from the profile at delegation time, keeping them out of the orchestrator's context entirely.
+> In the recommended hybrid path, `orchestrator` calls `prompt:list` to select a profile and passes only `intentProfileId` to `llm/agents:run`. **`orchestrator` does not call `prompt:get` in the normal flow.** The runtime resolves instructions from the profile at delegation time, keeping them out of the orchestrator's context entirely.
 
 `prompt:get` without injection (`includeDocument: false`) is an explicit escape hatch for cases where the orchestrator *deliberately* needs to read instruction content before deciding — for example, to adapt the objective text, or to confirm resource requirements. It is not a "metadata-only" shortcut and should not be the default step in the hybrid flow. Using it by default reintroduces instruction content into the orchestrator's context and partially recreates the context bloat the proposal is trying to avoid.
 
@@ -375,7 +408,7 @@ Everything else — tool selection, output shape, reasoning framing — is eithe
 {
   "agentId": "data-analyst",
   "objective": "Why is project 4821 below target this week?",
-  "promptProfileId": "performance_analysis",
+  "intentProfileId": "performance_analysis",
   "toolBundles": ["workspace-forecast-tools"],
   "templateId": ""
 }
@@ -390,7 +423,7 @@ This is a design decision with real tradeoffs.
 
 ### Option 1: Runtime-automatic
 
-`orchestrator` passes `promptProfileId` in `RunInput`. Runtime resolves profile, injects instructions, expands bundles — LLM never sees profile metadata.
+`orchestrator` passes `intentProfileId` in `RunInput`. Runtime resolves profile, injects instructions, expands bundles — LLM never sees profile metadata.
 
 - ✓ enforcement is structural
 - ✓ context stays minimal
@@ -430,7 +463,7 @@ Runtime classifies the task at delegation time and injects the matching profile 
 
 ### Option 4: Hybrid — agent selects id, runtime enforces (recommended)
 
-`orchestrator` calls `prompt:list`, reasons about which profile fits, passes `promptProfileId` in `RunInput`.
+`orchestrator` calls `prompt:list`, reasons about which profile fits, passes `intentProfileId` in `RunInput`.
 Runtime resolves instructions and expands bundles. Agent never receives raw instruction text.
 
 - ✓ selection is transparent and auditable (id visible in history)
@@ -453,7 +486,7 @@ Runtime resolves instructions and expands bundles. Agent never receives raw inst
 
 **Step 1 — Discovery.** `orchestrator` calls `prompt:list`. Sees descriptions and `appliesTo` tags. No instruction content.
 
-**Step 2 — This step is skipped in the normal hybrid flow.** `orchestrator` does not call `prompt:get`. It selects a profile from `prompt:list` and delegates directly with `promptProfileId`. Instructions stay out of the orchestrator's context.
+**Step 2 — This step is skipped in the normal hybrid flow.** `orchestrator` does not call `prompt:get`. It selects a profile from `prompt:list` and delegates directly with `intentProfileId`. Instructions stay out of the orchestrator's context.
 
 `prompt:get` is available as an escape hatch when the orchestrator has a specific reason to read instruction content before delegating — but this is the exception, not the default. Calling it routinely reintroduces instruction content into the orchestrator's context.
 
@@ -463,13 +496,13 @@ Runtime resolves instructions and expands bundles. Agent never receives raw inst
 {
   "agentId": "data-analyst",
   "objective": "Why is project 4821 below target this week?",
-  "promptProfileId": "performance_analysis",
+  "intentProfileId": "performance_analysis",
   "toolBundles": [],
   "templateId": ""
 }
 ```
 
-`promptProfileId` is the only routing field `orchestrator` passes. `toolBundles` and `templateId` are left empty — the profile is the source of truth. Orchestrator may extend `toolBundles` only when the task requires it.
+`intentProfileId` is the only routing field `orchestrator` passes. `toolBundles` and `templateId` are left empty — the profile is the source of truth. Orchestrator may extend `toolBundles` only when the task requires it.
 
 **Step 4 — Runtime profile expansion** (before `BuildBinding()`):
 
@@ -482,7 +515,7 @@ Runtime resolves instructions and expands bundles. Agent never receives raw inst
 6. Apply effective template
 
 **What is visible after the fact:**
-- `orchestrator` turn: `prompt:list` call + `llm/agents:run` with `promptProfileId`
+- `orchestrator` turn: `prompt:list` call + `llm/agents:run` with `intentProfileId`
 - child turn: profile messages injected by runtime — `system`-role messages tagged `system_doc`; `user` and `assistant` messages with natural roles
 - child turn: tool calls within resolved bundle
 
@@ -645,7 +678,7 @@ confidence >= threshold AND profile in scope?
             llm/agents:run {
               agentId:         data-analyst,
               objective:       user message,
-              promptProfileId: intake.Context.Prompting.SuggestedProfileID,
+              intentProfileId: intake.Context.Prompting.SuggestedProfileID,
               toolBundles:     intake.Context.Prompting.AppendToolBundles,
               templateId:      intake.Context.Prompting.TemplateID
             }
@@ -695,7 +728,7 @@ This is the lowest-risk, highest-value first step. It eliminates duplicated form
 ### Incremental Implementation Path
 
 1. **Output templates** — EXISTING — `template:list` / `template:get` + `template.bundles` on agents, no code changes
-2. **Intake profiles** — IMPLEMENTED IN CORE — `prompt:list` / `prompt:get`, profile repository, and `RunInput.promptProfileId` resolution are in place; any remaining work is refinement and documentation alignment
+2. **Intake profiles** — IMPLEMENTED IN CORE — `prompt:list` / `prompt:get`, profile repository, and `RunInput.intentProfileId` resolution are in place; any remaining work is refinement and documentation alignment
 3. **Agent collapse** — only after profiles are stable in production (Phase after 6)
 
 ### Architecture Layers
@@ -959,7 +992,7 @@ type RunInput struct {
     ModelPreferences *llm.ModelPreferences  `json:"modelPreferences,omitempty"`
     ReasoningEffort  *string                `json:"reasoningEffort,omitempty"`
     // New — all optional, backward compatible
-    PromptProfileId  string                 `json:"promptProfileId,omitempty"`
+    PromptProfileId  string                 `json:"intentProfileId,omitempty"`
     ToolBundles      []string               `json:"toolBundles,omitempty"`
     TemplateId       string                 `json:"templateId,omitempty"`
 }
@@ -1037,7 +1070,7 @@ if err := tool.AddInternalService(out.Registry,
 
 **Verification checkpoint:**
 ```bash
-# Create workspace/prompts/performance_analysis.yaml
+# Create workspace/intents/performance_analysis.yaml
 # Start agently-core, call via tool:
 prompt:list → returns [{id: "performance_analysis", ...}]
 prompt:get {id: "performance_analysis", includeDocument: false} → returns metadata + messages, no conversation injection
@@ -1048,14 +1081,14 @@ prompt:get {id: "performance_analysis", includeDocument: true}  → returns meta
 
 ### Phase 6 — Runtime Profile Expansion in `run_support.go`
 
-This is the core behavioral phase — where `promptProfileId` in `RunInput` actually takes effect.
+This is the core behavioral phase — where `intentProfileId` in `RunInput` actually takes effect.
 
 **Edit:** `protocol/tool/service/llm/agents/run_support.go`
 
 Add profile expansion step after `qi` (child `QueryInput`) is initialized and before `BuildBinding()`:
 
 ```go
-// resolveProfile expands promptProfileId into tool bundles, template, and injected messages
+// resolveProfile expands intentProfileId into tool bundles, template, and injected messages
 func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *QueryInput, turn *TurnMeta) error {
     if ri.PromptProfileId == "" {
         return nil
@@ -1107,7 +1140,7 @@ func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *QueryInp
 
 **Verification checkpoint:**
 ```go
-// integration test: delegate with promptProfileId
+// integration test: delegate with intentProfileId
 ri := &RunInput{
     AgentID:         "data-analyst",
     Objective:       "Why is project 4821 below target?",
@@ -1342,7 +1375,7 @@ assert.Equal(t, "performance_analysis", tc.SuggestedProfileId)
 
 // integration test: auto-routing
 // orchestrator with confidenceThreshold: 0.85, intake includes profile scope
-// user message → intake runs → confidence 0.91 → llm/agents:run auto-populated with promptProfileId
+// user message → intake runs → confidence 0.91 → llm/agents:run auto-populated with intentProfileId
 // verify: orchestrator never called prompt:list manually
 ```
 

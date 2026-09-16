@@ -96,7 +96,7 @@ agent metadata. Categories with no remaining prompts are removed.
 
 Intent authorization is applied after the existing agent prompt-profile
 allow-list. It filters `prompt:list`, makes denied profiles unavailable to
-`prompt:get`, and rechecks `RunInput.promptProfileId` before profile messages
+`prompt:get`, and rechecks `RunInput.intentProfileId` before profile messages
 are rendered or injected.
 
 ## Legacy Forge authorization

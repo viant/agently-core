@@ -175,7 +175,8 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 	}
 	// Expand intake profile: inject instructions, merge bundles, set template.
 	// Must run after qi.MessageID and qi.ConversationID are both set.
-	if strings.TrimSpace(ri.PromptProfileId) != "" {
+	ri.normalizeIntentProfileID()
+	if ri.effectiveIntentProfileID() != "" {
 		if err := s.resolveProfile(ctx, ri, qi, runCtx.childConversationID); err != nil {
 			s.failChildConversationShell(ctx, runCtx.childConversationID, err)
 			return fmt.Errorf("resolveProfile: %w", err)
@@ -1012,15 +1013,20 @@ func (s *Service) prepareLinkedRun(ctx context.Context, ri *RunInput, route stri
 }
 
 func (s *Service) validatePromptProfile(ctx context.Context, ri *RunInput) error {
-	if s == nil || s.promptRepo == nil || ri == nil || strings.TrimSpace(ri.PromptProfileId) == "" {
+	if s == nil || s.promptRepo == nil || ri == nil {
 		return nil
 	}
-	profile, err := s.promptRepo.Load(ctx, strings.TrimSpace(ri.PromptProfileId))
+	ri.normalizeIntentProfileID()
+	profileID := ri.effectiveIntentProfileID()
+	if profileID == "" {
+		return nil
+	}
+	profile, err := s.promptRepo.Load(ctx, profileID)
 	if err != nil {
-		return fmt.Errorf("promptProfileId %q: %w", strings.TrimSpace(ri.PromptProfileId), err)
+		return fmt.Errorf("intentProfileId %q: %w", profileID, err)
 	}
 	if profile == nil {
-		return fmt.Errorf("promptProfileId %q: not found", strings.TrimSpace(ri.PromptProfileId))
+		return fmt.Errorf("intentProfileId %q: not found", profileID)
 	}
 	return nil
 }

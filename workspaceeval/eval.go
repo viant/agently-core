@@ -747,9 +747,13 @@ func collectDelegations(toolSteps []*sdkapi.ToolStepState) []delegatedExpectatio
 			continue
 		}
 		payload := DecodePayloadObject(step.RequestPayload)
+		profileID := strings.TrimSpace(StringValue(payload["intentProfileId"]))
+		if profileID == "" {
+			profileID = strings.TrimSpace(StringValue(payload["promptProfileId"]))
+		}
 		result = append(result, delegatedExpectation{
 			AgentID:         strings.TrimSpace(StringValue(payload["agentId"])),
-			PromptProfileID: strings.TrimSpace(StringValue(payload["promptProfileId"])),
+			PromptProfileID: profileID,
 		})
 	}
 	return result

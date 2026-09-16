@@ -1,5 +1,7 @@
 module github.com/viant/agently-core
 
+replace github.com/viant/embedius => ../embedius
+
 go 1.25.5
 
 require (

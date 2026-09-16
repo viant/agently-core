@@ -16,7 +16,7 @@ import (
 // Ensure the toolexec import is used (SystemDocumentMode/Tag are used in injectProfileMessages).
 var _ = toolexec.SystemDocumentMode
 
-// resolveProfile expands RunInput.PromptProfileId into child-turn instructions,
+// resolveProfile expands the selected intent profile into child-turn instructions,
 // effective tool bundles, and an effective template id — all applied before the
 // child agent's BuildBinding runs.
 //
@@ -26,29 +26,30 @@ var _ = toolexec.SystemDocumentMode
 //     share the same turn ID
 //   - childConvID is the already-created child conversation ID
 func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *agentsvc.QueryInput, childConvID string) error {
-	profileID := strings.TrimSpace(ri.PromptProfileId)
-	if qi != nil && profileID != "" && strings.TrimSpace(qi.PromptProfileId) == "" {
+	ri.normalizeIntentProfileID()
+	profileID := ri.effectiveIntentProfileID()
+	if qi != nil && profileID != "" && qi.EffectiveIntentProfileID() == "" {
 		// Child turns with an explicit intake profile are already routed. Mirror
 		// that contract onto QueryInput before any later intake/routing checks so
 		// the child path does not re-run classification.
-		qi.PromptProfileId = profileID
+		qi.SetIntentProfileID(profileID)
 	}
 	if s.promptRepo == nil || profileID == "" {
 		return nil
 	}
 	profile, err := s.promptRepo.Load(ctx, profileID)
 	if err != nil {
-		return fmt.Errorf("promptProfileId %q: %w", ri.PromptProfileId, err)
+		return fmt.Errorf("intentProfileId %q: %w", profileID, err)
 	}
 	if profile == nil {
-		return fmt.Errorf("promptProfileId %q: not found", ri.PromptProfileId)
+		return fmt.Errorf("intentProfileId %q: not found", profileID)
 	}
 
 	// 1. Render profile messages (local text/URI or MCP source).
 	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	msgs, err := profile.Render(ctx, s.mcpMgr, &intake.RenderOptions{ConversationID: convID})
 	if err != nil {
-		return fmt.Errorf("render profile %q: %w", ri.PromptProfileId, err)
+		return fmt.Errorf("render profile %q: %w", profileID, err)
 	}
 
 	// 2. Optionally run expansion sidecar to synthesize task-specific instructions.
@@ -112,7 +113,7 @@ func (s *Service) injectProfileMessages(ctx context.Context, ri *RunInput, qi *a
 			apiconv.WithType("text"),
 			apiconv.WithCreatedByUserID("prompt"),
 			apiconv.WithContent(text),
-			apiconv.WithContextSummary(fmt.Sprintf("prompt://%s/message/%d", strings.TrimSpace(ri.PromptProfileId), i)),
+			apiconv.WithContextSummary(fmt.Sprintf("intent://%s/message/%d", ri.effectiveIntentProfileID(), i)),
 			apiconv.WithCreatedAt(time.Now()),
 		}
 		if role == "system" {

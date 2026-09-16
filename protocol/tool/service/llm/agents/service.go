@@ -56,7 +56,7 @@ type Service struct {
 	// Zero means use DefaultChildAgentTimeout.
 	ChildTimeout time.Duration
 	cancelReg    cancels.Registry
-	// promptRepo is optional. When set, llm/agents:run expands promptProfileId
+	// promptRepo is optional. When set, llm/agents:run expands intentProfileId
 	// into injected instructions + tool bundles before the child turn starts.
 	promptRepo *intakerepo.Repository
 	// mcpMgr is optional. When set, MCP-sourced profiles are rendered via the
@@ -198,7 +198,7 @@ func (s *Service) AsyncConfigs() []*asynccfg.Config {
 				OperationIDPath:   "conversationId",
 				ExecutionModePath: "executionMode",
 				IntentPath:        "objective",
-				SummaryPaths:      []string{"agentId", "context.workdir", "context.resolvedWorkdir", "promptProfileId", "templateId"},
+				SummaryPaths:      []string{"agentId", "context.workdir", "context.resolvedWorkdir", "intentProfileId", "templateId"},
 				Selector:          &asynccfg.Selector{StatusPath: "status"},
 			},
 			Status: asynccfg.StatusConfig{

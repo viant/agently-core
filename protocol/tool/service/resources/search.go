@@ -24,13 +24,15 @@ type MatchInput struct {
 	// RootIDs contains stable identifiers corresponding to roots returned by
 	// roots. When provided, they are resolved to URIs before
 	// enforcement and search.
-	RootIDs      []string        `json:"rootIds,omitempty" description:"resource root ids returned by roots"`
-	Path         string          `json:"path,omitempty"`
-	Model        string          `json:"model" internal:"true"`
-	MaxDocuments int             `json:"maxDocuments,omitempty" `
-	IncludeFile  bool            `json:"includeFile,omitempty" internal:"true"`
-	Match        *embopt.Options `json:"match,omitempty"`
-	Exclude      []string        `json:"exclude,omitempty" description:"optional file/path globs to exclude from match results; supports ** for any depth"`
+	RootIDs                 []string        `json:"rootIds,omitempty" description:"resource root ids returned by roots"`
+	Path                    string          `json:"path,omitempty"`
+	Model                   string          `json:"model" internal:"true"`
+	MaxDocuments            int             `json:"maxDocuments,omitempty" `
+	NeighborFragmentsBefore int             `json:"neighborFragmentsBefore,omitempty" description:"Adjacent indexed fragments to include before each semantic hit."`
+	NeighborFragmentsAfter  int             `json:"neighborFragmentsAfter,omitempty" description:"Adjacent indexed fragments to include after each semantic hit."`
+	IncludeFile             bool            `json:"includeFile,omitempty" internal:"true"`
+	Match                   *embopt.Options `json:"match,omitempty"`
+	Exclude                 []string        `json:"exclude,omitempty" description:"optional file/path globs to exclude from match results; supports ** for any depth"`
 	// LimitBytes controls the maximum total bytes of matched content returned for the current cursor page.
 	LimitBytes int `json:"limitBytes,omitempty" description:"Max total bytes per page of matched content. Default: 7000."`
 	// Cursor selects the page (1..N) over the ranked documents, grouped by LimitBytes.
@@ -194,15 +196,17 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 	for _, group := range grouped {
 		if !backfill {
 			augIn := &aug.AugmentDocsInput{
-				Query:        query,
-				Locations:    group.locs,
-				Match:        group.match,
-				Model:        embedderID,
-				DB:           group.db,
-				MaxDocuments: input.MaxDocuments,
-				IncludeFile:  input.IncludeFile,
-				TrimPath:     trimPrefix,
-				AllowPartial: true,
+				Query:                   query,
+				Locations:               group.locs,
+				Match:                   group.match,
+				Model:                   embedderID,
+				DB:                      group.db,
+				MaxDocuments:            input.MaxDocuments,
+				NeighborFragmentsBefore: input.NeighborFragmentsBefore,
+				NeighborFragmentsAfter:  input.NeighborFragmentsAfter,
+				IncludeFile:             input.IncludeFile,
+				TrimPath:                trimPrefix,
+				AllowPartial:            true,
 			}
 			var augOut aug.AugmentDocsOutput
 			if err := s.runAugmentDocs(ctx, augIn, &augOut); err != nil {
@@ -221,16 +225,18 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 				break
 			}
 			augIn := &aug.AugmentDocsInput{
-				Query:        query,
-				Locations:    group.locs,
-				Match:        group.match,
-				Model:        embedderID,
-				DB:           group.db,
-				MaxDocuments: targetDocs,
-				Offset:       offset,
-				IncludeFile:  input.IncludeFile,
-				TrimPath:     trimPrefix,
-				AllowPartial: true,
+				Query:                   query,
+				Locations:               group.locs,
+				Match:                   group.match,
+				Model:                   embedderID,
+				DB:                      group.db,
+				MaxDocuments:            targetDocs,
+				NeighborFragmentsBefore: input.NeighborFragmentsBefore,
+				NeighborFragmentsAfter:  input.NeighborFragmentsAfter,
+				Offset:                  offset,
+				IncludeFile:             input.IncludeFile,
+				TrimPath:                trimPrefix,
+				AllowPartial:            true,
 			}
 			var augOut aug.AugmentDocsOutput
 			if err := s.runAugmentDocs(ctx, augIn, &augOut); err != nil {

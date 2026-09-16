@@ -21,39 +21,57 @@ type Repository struct {
 }
 
 func New(fs afs.Service) *Repository {
-	return &Repository{Repository: base.New[intake.Profile](fs, workspace.KindIntent), legacy: base.New[intake.Profile](fs, workspace.KindPrompt), fs: fs}
+	return &Repository{
+		Repository: base.New[intake.Profile](fs, workspace.KindIntent),
+		legacy:     base.New[intake.Profile](fs, workspace.KindPrompt),
+		fs:         fs,
+	}
 }
 
 func NewWithStore(store workspace.Store) *Repository {
-	return &Repository{Repository: base.NewWithStore[intake.Profile](store, workspace.KindIntent), legacy: base.NewWithStore[intake.Profile](store, workspace.KindPrompt), store: store}
+	return &Repository{
+		Repository: base.NewWithStore[intake.Profile](store, workspace.KindIntent),
+		legacy:     base.NewWithStore[intake.Profile](store, workspace.KindPrompt),
+		store:      store,
+	}
 }
 
-// source selects intent first; only absence permits legacy fallback.
+// source selects the canonical intents directory first and falls back to the
+// legacy prompts directory only when the intent profile is absent.
 func (r *Repository) source(ctx context.Context, name string) (*base.Repository[intake.Profile], error) {
 	if r == nil || r.Repository == nil {
 		return nil, fmt.Errorf("intake profile repository not configured")
 	}
-	if r.legacy == nil {
-		return r.Repository, nil
-	}
-	var exists bool
-	var err error
-	if r.store != nil {
-		exists, err = r.store.Exists(ctx, workspace.KindIntent, name)
-	} else {
-		var filename string
-		filename, err = r.Repository.ResolveFilename(ctx, name)
-		if err == nil {
-			exists, err = r.fs.Exists(ctx, filename)
+	for _, candidate := range []struct {
+		kind string
+		repo *base.Repository[intake.Profile]
+	}{
+		{workspace.KindIntent, r.Repository},
+		{workspace.KindPrompt, r.legacy},
+	} {
+		if candidate.repo == nil {
+			continue
+		}
+		exists, err := r.sourceExists(ctx, candidate.kind, candidate.repo, name)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			return candidate.repo, nil
 		}
 	}
+	return r.Repository, nil
+}
+
+func (r *Repository) sourceExists(ctx context.Context, kind string, repo *base.Repository[intake.Profile], name string) (bool, error) {
+	if r.store != nil {
+		return r.store.Exists(ctx, kind, name)
+	}
+	filename, err := repo.ResolveFilename(ctx, name)
 	if err != nil {
-		return nil, err
+		return false, err
 	}
-	if exists {
-		return r.Repository, nil
-	}
-	return r.legacy, nil
+	return r.fs.Exists(ctx, filename)
 }
 
 func (r *Repository) Load(ctx context.Context, name string) (*intake.Profile, error) {
@@ -72,7 +90,7 @@ func (r *Repository) GetRaw(ctx context.Context, name string) ([]byte, error) {
 	return source.GetRaw(ctx, name)
 }
 
-// List merges both catalogs. Duplicate names resolve to intent through Load.
+// List merges all catalogs. Duplicate names resolve by source precedence.
 func (r *Repository) List(ctx context.Context) ([]string, error) {
 	if r == nil || r.Repository == nil {
 		return nil, fmt.Errorf("intake profile repository not configured")

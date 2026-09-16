@@ -1,5 +1,7 @@
 package prompt
 
+import intake "github.com/viant/agently-core/protocol/intake"
+
 // ListInput is the request payload for prompt:list.
 type ListInput struct{}
 
@@ -8,14 +10,15 @@ type ListInput struct{}
 // guidance only so that orchestrators can choose a profile without seeing its
 // full instruction text.
 type ListItem struct {
-	ID               string            `json:"id"`
-	Name             string            `json:"name,omitempty"`
-	Description      string            `json:"description,omitempty"`
-	AppliesTo        []string          `json:"appliesTo,omitempty"`
-	EvidenceContract *EvidenceContract `json:"evidenceContract,omitempty"`
-	ToolBundles      []string          `json:"toolBundles,omitempty"`
-	Template         string            `json:"template,omitempty"`
-	Templates        []string          `json:"templates,omitempty"`
+	ID               string                  `json:"id"`
+	Name             string                  `json:"name,omitempty"`
+	Description      string                  `json:"description,omitempty"`
+	AppliesTo        []string                `json:"appliesTo,omitempty"`
+	EvidenceContract *EvidenceContract       `json:"evidenceContract,omitempty"`
+	ToolBundles      []string                `json:"toolBundles,omitempty"`
+	Template         string                  `json:"template,omitempty"`
+	Templates        []string                `json:"templates,omitempty"`
+	Knowledge        []intake.KnowledgeMatch `json:"knowledge,omitempty"`
 }
 
 // ListOutput is the response payload for prompt:list.
@@ -34,16 +37,17 @@ type GetInput struct {
 // includeDocument controls only whether messages are also injected into the
 // current conversation via AddMessage().
 type GetOutput struct {
-	ID               string            `json:"id"`
-	Name             string            `json:"name,omitempty"`
-	Description      string            `json:"description,omitempty"`
-	EvidenceContract *EvidenceContract `json:"evidenceContract,omitempty"`
-	ToolBundles      []string          `json:"toolBundles,omitempty"`
-	PreferredTools   []string          `json:"preferredTools,omitempty"`
-	Template         string            `json:"template,omitempty"`
-	Templates        []string          `json:"templates,omitempty"`
-	Resources        []string          `json:"resources,omitempty"`
-	Messages         []Message         `json:"messages,omitempty"`
+	ID               string                  `json:"id"`
+	Name             string                  `json:"name,omitempty"`
+	Description      string                  `json:"description,omitempty"`
+	EvidenceContract *EvidenceContract       `json:"evidenceContract,omitempty"`
+	ToolBundles      []string                `json:"toolBundles,omitempty"`
+	PreferredTools   []string                `json:"preferredTools,omitempty"`
+	Template         string                  `json:"template,omitempty"`
+	Templates        []string                `json:"templates,omitempty"`
+	Resources        []string                `json:"resources,omitempty"`
+	Knowledge        []intake.KnowledgeMatch `json:"knowledge,omitempty"`
+	Messages         []Message               `json:"messages,omitempty"`
 	// Injected is true when includeDocument=true and messages were written into
 	// the conversation.
 	Injected bool `json:"injected,omitempty"`

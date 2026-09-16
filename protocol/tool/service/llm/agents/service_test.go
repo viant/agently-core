@@ -1490,7 +1490,7 @@ func TestService_AsyncConfig(t *testing.T) {
 	assert.Equal(t, "conversationId", cfg.Run.OperationIDPath)
 	assert.Equal(t, "executionMode", cfg.Run.ExecutionModePath)
 	assert.Equal(t, "objective", cfg.Run.IntentPath)
-	assert.Equal(t, []string{"agentId", "context.workdir", "context.resolvedWorkdir", "promptProfileId", "templateId"}, cfg.Run.SummaryPaths)
+	assert.Equal(t, []string{"agentId", "context.workdir", "context.resolvedWorkdir", "intentProfileId", "templateId"}, cfg.Run.SummaryPaths)
 	assert.Equal(t, "llm/agents:status", cfg.Status.Tool)
 	assert.Equal(t, "conversationId", cfg.Status.OperationIDArg)
 	if assert.NotNil(t, cfg.Cancel) {
@@ -2558,7 +2558,7 @@ func TestService_Start_InvalidPromptProfileDoesNotCreateChildShell(t *testing.T)
 		PromptProfileId: "policy_review",
 	}, &out)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), `promptProfileId "policy_review"`)
+	assert.Contains(t, err.Error(), `intentProfileId "policy_review"`)
 	assert.Nil(t, fake.lastInput)
 
 	items, getErr := conv.GetConversations(ctx, &convcli.Input{

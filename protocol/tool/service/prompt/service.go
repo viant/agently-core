@@ -94,6 +94,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			ToolBundles:      p.ToolBundles,
 			Template:         strings.TrimSpace(p.Template),
 			Templates:        append([]string(nil), p.Templates...),
+			Knowledge:        append([]intake.KnowledgeMatch(nil), p.Knowledge...),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].ID) < strings.ToLower(items[j].ID) })
@@ -141,6 +142,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	go_.Template = strings.TrimSpace(selected.Template)
 	go_.Templates = append([]string(nil), selected.Templates...)
 	go_.Resources = selected.Resources
+	go_.Knowledge = append([]intake.KnowledgeMatch(nil), selected.Knowledge...)
 
 	// Always render and return messages in the response body.
 	// Render supports local text/URI messages and MCP-sourced messages.

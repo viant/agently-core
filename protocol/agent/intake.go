@@ -267,11 +267,62 @@ type ActivationClassification struct {
 }
 
 type ActivationPrompting struct {
-	SuggestedProfileID string   `yaml:"suggestedProfileId,omitempty" json:"suggestedProfileId,omitempty"`
-	AppendToolBundles  []string `yaml:"appendToolBundles,omitempty" json:"appendToolBundles,omitempty"`
-	TemplateID         string   `yaml:"templateId,omitempty" json:"templateId,omitempty"`
-	ModelID            string   `yaml:"modelId,omitempty" json:"modelId,omitempty"`
-	SynthesisModelID   string   `yaml:"synthesisModelId,omitempty" json:"synthesisModelId,omitempty"`
+	SuggestedIntentProfileID string   `yaml:"suggestedIntentProfileId,omitempty" json:"suggestedIntentProfileId,omitempty"`
+	SuggestedProfileID       string   `yaml:"-" json:"-"` // Deprecated compatibility storage.
+	AppendToolBundles        []string `yaml:"appendToolBundles,omitempty" json:"appendToolBundles,omitempty"`
+	TemplateID               string   `yaml:"templateId,omitempty" json:"templateId,omitempty"`
+	ModelID                  string   `yaml:"modelId,omitempty" json:"modelId,omitempty"`
+	SynthesisModelID         string   `yaml:"synthesisModelId,omitempty" json:"synthesisModelId,omitempty"`
+}
+
+func (p ActivationPrompting) EffectiveIntentProfileID() string {
+	if value := strings.TrimSpace(p.SuggestedIntentProfileID); value != "" {
+		return value
+	}
+	return strings.TrimSpace(p.SuggestedProfileID)
+}
+
+func (p *ActivationPrompting) normalizeIntentProfileID() {
+	if p == nil {
+		return
+	}
+	value := p.EffectiveIntentProfileID()
+	p.SuggestedIntentProfileID = value
+	p.SuggestedProfileID = value
+}
+
+func (p *ActivationPrompting) UnmarshalJSON(data []byte) error {
+	type alias ActivationPrompting
+	decoded := struct {
+		*alias
+		LegacyIntentProfileID string `json:"suggestedProfileId"`
+	}{alias: (*alias)(p)}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.SuggestedIntentProfileID) == "" {
+		p.SuggestedIntentProfileID = strings.TrimSpace(decoded.LegacyIntentProfileID)
+	}
+	p.normalizeIntentProfileID()
+	return nil
+}
+
+func (p *ActivationPrompting) UnmarshalYAML(node *yaml.Node) error {
+	type alias ActivationPrompting
+	if err := node.Decode((*alias)(p)); err != nil {
+		return err
+	}
+	var compatibility struct {
+		LegacyIntentProfileID string `yaml:"suggestedProfileId"`
+	}
+	if err := node.Decode(&compatibility); err != nil {
+		return err
+	}
+	if strings.TrimSpace(p.SuggestedIntentProfileID) == "" {
+		p.SuggestedIntentProfileID = strings.TrimSpace(compatibility.LegacyIntentProfileID)
+	}
+	p.normalizeIntentProfileID()
+	return nil
 }
 
 type ActivationScope struct {

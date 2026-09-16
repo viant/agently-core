@@ -41,6 +41,17 @@ func (s *Service) maybeRunPlannerPass(ctx context.Context, input *QueryInput) er
 	if tc == nil || tc.Routing.Mode != intakesvc.ModePlanner {
 		return nil
 	}
+	profile, err := s.selectedPromptProfileAny(ctx, input)
+	if err != nil {
+		return err
+	}
+	if profile != nil && profile.Execution != nil && profile.Execution.DisablePlanner {
+		tc.Routing.Mode = intakesvc.ModeRoute
+		tc.Planner.Trigger = ""
+		tc.Planner.AgentID = ""
+		logx.Infof("conversation", "planner.pass.disabled_by_profile convo=%q profile=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(profile.ID))
+		return nil
+	}
 	logx.Infof("conversation", "planner.pass.selected convo=%q agent=%q selectedAgent=%q trigger=%q plannerAgent=%q",
 		strings.TrimSpace(input.ConversationID),
 		strings.TrimSpace(input.AgentID),
