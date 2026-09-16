@@ -44,6 +44,7 @@ The delete tree includes:
 
 - Root conversations requested by ID.
 - Descendants via `conversation.conversation_parent_id`.
+- Descendants whose `conversation_parent_turn_id` belongs to a turn in the graph.
 - Linked conversations via `message.linked_conversation_id`, recursively.
 
 Conversation rows are deleted deepest-child-first, with roots last.
@@ -66,15 +67,15 @@ The data service performs the DB cleanup in a single SQL transaction:
 1. Build the conversation tree.
 2. Collect conversation, message, turn, run, tool approval, deprecated `schedule_run`, and payload IDs.
 3. Check owner permissions for every conversation.
-4. Refresh run IDs inside the transaction and reject live runs or unknown nonterminal conversation states.
-5. Set `investigation.conversation_id = NULL` when the table exists.
-6. Delete deprecated `schedule_run` rows when the table exists.
-7. Delete explicit `tool_approval_queue` rows.
-8. Delete explicit `run` rows connected by `conversation_id` or `turn_id`.
-9. Delete `turn_queue`, `model_call`, `tool_call`, `generated_file`, `message`, and `turn` rows for the tree.
-10. Delete conversations deepest-first.
-11. Delete collected `call_payload` rows only if no remaining table references them.
-12. Commit.
+4. Collect goals, internal goal-wakeup schedules, report runs, export jobs, and export artifacts associated with the graph.
+5. Reject inbound graph references, user schedules, cross-owner report data, active report exports, live schedules, live runs, and unknown nonterminal conversation states.
+6. Set `investigation.conversation_id = NULL` when the table exists.
+7. Delete conversation-owned report audit events, export artifacts, export jobs, report contexts, and report runs. Durable shared reports are not included.
+8. Delete deprecated `schedule_run`, tool approval, execution claim, and current `run` rows.
+9. Delete `turn_queue`, `model_call`, `tool_call`, `generated_file`, `message`, and `turn` rows for the graph.
+10. Delete internal goal-wakeup schedules and their goals.
+11. Delete conversations deepest-first.
+12. Delete collected `call_payload` rows only if no remaining table references them, then commit.
 
 The implementation does not rely on FK cascade for correctness because local SQLite and deployed MySQL differ in table coverage and connection-level FK behavior.
 
@@ -93,10 +94,19 @@ Payload IDs are collected before dependent rows are deleted from:
 - `tool_call.request_payload_id`
 - `tool_call.response_payload_id`
 
-After deleting the tree, only those collected payload IDs are eligible for deletion, and only when no remaining table references them. There is no global orphan cleanup.
+After deleting the tree, only those collected payload IDs are eligible for
+deletion, and only when no remaining table references them.
+
+The periodic maintenance worker also has a global `call_payload.unused` orphan
+rule. It applies only after its configured grace period and independently
+rechecks that no supported consumer references the payload. See
+[database-maintenance.md](database-maintenance.md).
 
 Object-backed payloads currently delete only the DB row when it is unreferenced. Physical object deletion is intentionally deferred until Agently-owned storage can be distinguished from user/external paths.
 
 ## Retained Rows
 
 `investigation` rows are retained. When present, their `conversation_id` is set to `NULL` before the conversation tree is removed.
+
+`report_shared_artifact` rows are also retained. They are durable saved-report
+definitions and are not owned by the lifecycle of a single conversation.

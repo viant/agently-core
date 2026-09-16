@@ -39,7 +39,8 @@ func (s *datlyService) ListConversationMaintenanceCandidates(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	if _, err = deleteSchemaCapabilitiesForDriver(driver); err != nil {
+	capabilities, err := deleteSchemaCapabilitiesForDriver(driver)
+	if err != nil {
 		return nil, err
 	}
 
@@ -54,8 +55,26 @@ func (s *datlyService) ListConversationMaintenanceCandidates(ctx context.Context
        AND LOWER(TRIM(COALESCE(maintenance_run.conversation_kind, ''))) = 'scheduled'
  ))`
 	kindPredicate := "NOT " + scheduledExpr
+	ownerPredicate := "TRIM(COALESCE(c.created_by_user_id, '')) <> ''"
 	if request.Kind == ConversationMaintenanceScheduled {
 		kindPredicate = scheduledExpr
+	} else if request.Kind == ConversationMaintenanceScheduledFallback {
+		kindPredicate = scheduledExpr + `
+  AND NOT EXISTS (
+      SELECT 1 FROM run maintenance_any_run
+      WHERE maintenance_any_run.conversation_id = c.id
+  )`
+		if capabilities.hasColumn("schedule_run", "conversation_id") {
+			kindPredicate += `
+  AND NOT EXISTS (
+      SELECT 1 FROM schedule_run maintenance_legacy_run
+      WHERE maintenance_legacy_run.conversation_id = c.id
+         OR maintenance_legacy_run.id = TRIM(COALESCE(c.schedule_run_id, ''))
+  )`
+		}
+		// System retention does not use historical owner metadata as an
+		// authorization boundary. This also lets it clean legacy ownerless shells.
+		ownerPredicate = "1 = 1"
 	}
 
 	args := []interface{}{request.InactiveBefore}
@@ -65,11 +84,11 @@ func (s *datlyService) ListConversationMaintenanceCandidates(ctx context.Context
 		args = append(args, request.AfterActivity, request.AfterActivity, request.AfterRootID)
 	}
 	args = append(args, request.Limit)
-	query := fmt.Sprintf(`SELECT c.id, TRIM(c.created_by_user_id), CAST(%s AS CHAR)
+	query := fmt.Sprintf(`SELECT c.id, TRIM(COALESCE(c.created_by_user_id, '')), CAST(%s AS CHAR)
 FROM conversation c
 WHERE TRIM(COALESCE(c.conversation_parent_id, '')) = ''
   AND TRIM(COALESCE(c.conversation_parent_turn_id, '')) = ''
-  AND TRIM(COALESCE(c.created_by_user_id, '')) <> ''
+  AND %s
   AND %s IS NOT NULL
   AND %s <= ?
   AND %s
@@ -78,7 +97,7 @@ WHERE TRIM(COALESCE(c.conversation_parent_id, '')) = ''
       WHERE maintenance_link.linked_conversation_id = c.id
   )%s
 ORDER BY %s ASC, c.id ASC
-LIMIT ?`, activityExpr, activityExpr, activityExpr, kindPredicate, cursorPredicate, activityExpr)
+LIMIT ?`, activityExpr, ownerPredicate, activityExpr, activityExpr, kindPredicate, cursorPredicate, activityExpr)
 
 	rows, err := db.QueryContext(ctx, query, args...)
 	if err != nil {
@@ -110,7 +129,7 @@ LIMIT ?`, activityExpr, activityExpr, activityExpr, kindPredicate, cursorPredica
 
 func validateConversationMaintenanceCandidateRequest(request ConversationMaintenanceCandidateRequest) error {
 	switch {
-	case request.Kind != ConversationMaintenanceInteractive && request.Kind != ConversationMaintenanceScheduled:
+	case request.Kind != ConversationMaintenanceInteractive && request.Kind != ConversationMaintenanceScheduled && request.Kind != ConversationMaintenanceScheduledFallback:
 		return fmt.Errorf("%w: unsupported candidate kind %q", ErrInvalidConversationMaintenanceRequest, request.Kind)
 	case request.InactiveBefore.IsZero():
 		return fmt.Errorf("%w: candidate inactivity cutoff is required", ErrInvalidConversationMaintenanceRequest)
