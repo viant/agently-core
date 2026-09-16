@@ -81,6 +81,34 @@ func TestListConversationMaintenanceCandidates_ScheduledMarkers(t *testing.T) {
 	assertMaintenanceCandidateIDs(t, candidates, "scheduled-a", "scheduled-b")
 }
 
+func TestListConversationMaintenanceCandidates_ScheduledFallbackOnlyReturnsOldShellsWithoutRuns(t *testing.T) {
+	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	cutoff := old.Add(24 * time.Hour)
+	svc, _ := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, schedule_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"fallback-ownerless", old, old, "succeeded", "schedule-1"}},
+			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id, schedule_kind) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"fallback-owned", old, old, "succeeded", "owner-1", "cron"}},
+			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id, schedule_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"scheduled-with-run", old, old, "succeeded", "owner-1", "schedule-2"}},
+			{SQL: `INSERT INTO run (id, conversation_id, conversation_kind, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"existing-run", "scheduled-with-run", "scheduled", "completed"}},
+			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id, schedule_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"recent-shell", old, cutoff.Add(time.Second), "succeeded", "owner-1", "schedule-3"}},
+			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"interactive", old, old, "succeeded", "owner-1"}},
+		})
+	})
+
+	candidates, err := svc.ListConversationMaintenanceCandidates(context.Background(), ConversationMaintenanceCandidateRequest{
+		Kind:           ConversationMaintenanceScheduledFallback,
+		InactiveBefore: cutoff,
+		Limit:          10,
+	})
+	if err != nil {
+		t.Fatalf("ListConversationMaintenanceCandidates(scheduled fallback) error: %v", err)
+	}
+	assertMaintenanceCandidateIDs(t, candidates, "fallback-owned", "fallback-ownerless")
+	if candidates[0].ExpectedOwnerID != "owner-1" || candidates[1].ExpectedOwnerID != "" {
+		t.Fatalf("fallback candidate owners = %#v", candidates)
+	}
+}
+
 func TestListConversationMaintenanceCandidates_ValidatesSafetyInputs(t *testing.T) {
 	svc := newSeededService(t)
 	_, err := svc.ListConversationMaintenanceCandidates(context.Background(), ConversationMaintenanceCandidateRequest{})

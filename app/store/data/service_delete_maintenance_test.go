@@ -211,6 +211,59 @@ func TestMaintainConversationTree_VerifiesKindAndRoot(t *testing.T) {
 	}
 }
 
+func TestMaintainConversationTree_ScheduledFallbackDeletesOwnerlessShellAndPreservesSchedule(t *testing.T) {
+	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO schedule (id, name, created_by_user_id, agent_ref) VALUES (?, ?, ?, ?)`, Params: []interface{}{"fallback-schedule", "fallback-schedule", "schedule-owner", "agent"}},
+			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, schedule_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"fallback-shell", old, old, "succeeded", "fallback-schedule"}},
+		})
+	})
+
+	request := ConversationMaintenanceRequest{
+		RootID:         "fallback-shell",
+		Kind:           ConversationMaintenanceScheduledFallback,
+		InactiveBefore: old.Add(time.Hour),
+		Mode:           ConversationMaintenanceDryRun,
+	}
+	result := maintainConversationForTest(t, svc, request)
+	if !result.Eligible || result.Deleted || result.Reason != ConversationMaintenanceEligible {
+		t.Fatalf("dry-run result = %#v", result)
+	}
+
+	request.Mode = ConversationMaintenanceDelete
+	result = maintainConversationForTest(t, svc, request)
+	if !result.Eligible || !result.Deleted || result.Reason != ConversationMaintenanceDeleted {
+		t.Fatalf("delete result = %#v", result)
+	}
+	assertStage1RowCount(t, db, "conversation", "id", "fallback-shell", 0)
+	assertStage1RowCount(t, db, "schedule", "id", "fallback-schedule", 1)
+}
+
+func TestMaintainConversationTree_ScheduledFallbackRechecksWholeGraphForRuns(t *testing.T) {
+	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, schedule_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"fallback-root", old, old, "succeeded", "schedule-1"}},
+			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, conversation_parent_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"fallback-child", old, old, "succeeded", "fallback-root"}},
+			{SQL: `INSERT INTO run (id, conversation_id, conversation_kind, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"child-run", "fallback-child", "scheduled", "completed"}},
+		})
+	})
+
+	result := maintainConversationForTest(t, svc, ConversationMaintenanceRequest{
+		RootID:         "fallback-root",
+		Kind:           ConversationMaintenanceScheduledFallback,
+		InactiveBefore: old.Add(time.Hour),
+		Mode:           ConversationMaintenanceDelete,
+	})
+	if result.Eligible || result.Deleted || result.Reason != ConversationMaintenanceRunPresent {
+		t.Fatalf("result = %#v", result)
+	}
+	assertStage1RowCount(t, db, "conversation", "id", "fallback-root", 1)
+	assertStage1RowCount(t, db, "conversation", "id", "fallback-child", 1)
+	assertStage1RowCount(t, db, "run", "id", "child-run", 1)
+}
+
 func TestMaintainConversationTree_SkipsInteractiveGraphWithScheduledDescendant(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	svc, _ := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {

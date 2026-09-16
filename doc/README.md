@@ -66,6 +66,9 @@ If you're new, read in this order:
 | [sdk.md](sdk.md) | Embedded / HTTP / Swift / Kotlin SDKs |
 | [streaming-events.md](streaming-events.md) | Event bus + SSE |
 | [conversation-model.md](conversation-model.md) | Persistence schema |
+| [conversation-deletion.md](conversation-deletion.md) | User-authorized conversation graph deletion |
+| [schedule-deletion.md](schedule-deletion.md) | User-authorized schedule cascade deletion |
+| [database-maintenance.md](database-maintenance.md) | Retention, orphan cleanup, and distributed maintenance leases |
 | [auth-system.md](auth-system.md) | Local / JWT / BFF OAuth / mixed |
 | [scheduler.md](scheduler.md) | Cron / interval / ad-hoc, multi-node leasing |
 | [workspace-system.md](workspace-system.md) | YAML workspace layout + hotswap |
@@ -96,6 +99,7 @@ If you're new, read in this order:
 | Tune agent behavior | [prompts.md](prompts.md) + [skills.md](skills.md) + [templates.md](templates.md) + [prompt-binding.md](prompt-binding.md) |
 | Swap or add an LLM provider | [llm-providers.md](llm-providers.md) |
 | Reduce conversation context bloat | [context-management.md](context-management.md) |
+| Configure or extend database cleanup | [database-maintenance.md](database-maintenance.md) + [conversation-deletion.md](conversation-deletion.md) |
 | Delegate work to another agent | [a2a-protocol.md](a2a-protocol.md) + [async.md](async.md) |
 | Add a new workspace resource kind | [workspace-system.md](workspace-system.md) |
 | Run RAG over workspace knowledge | [augmentation.md](augmentation.md) + [embedius-embeddings.md](embedius-embeddings.md) |

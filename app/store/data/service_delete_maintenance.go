@@ -16,8 +16,9 @@ import (
 type ConversationMaintenanceKind string
 
 const (
-	ConversationMaintenanceInteractive ConversationMaintenanceKind = "interactive"
-	ConversationMaintenanceScheduled   ConversationMaintenanceKind = "scheduled"
+	ConversationMaintenanceInteractive       ConversationMaintenanceKind = "interactive"
+	ConversationMaintenanceScheduled         ConversationMaintenanceKind = "scheduled"
+	ConversationMaintenanceScheduledFallback ConversationMaintenanceKind = "scheduled_fallback"
 )
 
 // ConversationMaintenanceMode is explicit so a caller cannot accidentally
@@ -45,6 +46,7 @@ const (
 	ConversationMaintenanceKindMismatch         ConversationMaintenanceReason = "kind_mismatch"
 	ConversationMaintenanceRecentActivity       ConversationMaintenanceReason = "recent_activity"
 	ConversationMaintenanceActivityUnknown      ConversationMaintenanceReason = "activity_unknown"
+	ConversationMaintenanceRunPresent           ConversationMaintenanceReason = "run_present"
 	ConversationMaintenanceLiveRun              ConversationMaintenanceReason = "live_run"
 	ConversationMaintenanceLiveSchedule         ConversationMaintenanceReason = "live_schedule"
 	ConversationMaintenanceActiveReportExport   ConversationMaintenanceReason = "active_report_export"
@@ -105,11 +107,11 @@ func validateConversationMaintenanceRequest(request ConversationMaintenanceReque
 	switch {
 	case request.RootID == "":
 		return fmt.Errorf("%w: root id is required", ErrInvalidConversationMaintenanceRequest)
-	case request.ExpectedOwnerID == "":
+	case request.ExpectedOwnerID == "" && request.Kind != ConversationMaintenanceScheduledFallback:
 		return fmt.Errorf("%w: expected owner id is required", ErrInvalidConversationMaintenanceRequest)
 	case request.InactiveBefore.IsZero():
 		return fmt.Errorf("%w: inactivity cutoff is required", ErrInvalidConversationMaintenanceRequest)
-	case request.Kind != ConversationMaintenanceInteractive && request.Kind != ConversationMaintenanceScheduled:
+	case request.Kind != ConversationMaintenanceInteractive && request.Kind != ConversationMaintenanceScheduled && request.Kind != ConversationMaintenanceScheduledFallback:
 		return fmt.Errorf("%w: unsupported kind %q", ErrInvalidConversationMaintenanceRequest, request.Kind)
 	case request.Mode != ConversationMaintenanceDryRun && request.Mode != ConversationMaintenanceDelete:
 		return fmt.Errorf("%w: unsupported mode %q", ErrInvalidConversationMaintenanceRequest, request.Mode)
@@ -181,16 +183,22 @@ func (s *datlyService) maintainConversationTreeDirect(ctx context.Context, reque
 			return err
 		}
 	}
-	if reason := conversationMaintenanceOwnerReason(graph.Rows, request.ExpectedOwnerID); reason != "" {
-		result.Reason = reason
-		return nil
+	if request.Kind != ConversationMaintenanceScheduledFallback {
+		if reason := conversationMaintenanceOwnerReason(graph.Rows, request.ExpectedOwnerID); reason != "" {
+			result.Reason = reason
+			return nil
+		}
 	}
 
 	actualKind, err := conversationMaintenanceGraphKind(ctx, tx, graph)
 	if err != nil {
 		return err
 	}
-	if actualKind != request.Kind {
+	expectedKind := request.Kind
+	if expectedKind == ConversationMaintenanceScheduledFallback {
+		expectedKind = ConversationMaintenanceScheduled
+	}
+	if actualKind != expectedKind {
 		result.Reason = ConversationMaintenanceKindMismatch
 		return nil
 	}
@@ -209,7 +217,24 @@ func (s *datlyService) maintainConversationTreeDirect(ctx context.Context, reque
 		return nil
 	}
 
-	if err := prepareConversationDeleteGraph(ctx, tx, graph, request.ExpectedOwnerID, now); err != nil {
+	if request.Kind == ConversationMaintenanceScheduledFallback {
+		hasRuns, err := conversationMaintenanceGraphHasRunRecords(ctx, tx, graph)
+		if err != nil {
+			return err
+		}
+		if hasRuns {
+			result.Reason = ConversationMaintenanceRunPresent
+			return nil
+		}
+	}
+
+	prepareGraph := func() error {
+		if request.Kind == ConversationMaintenanceScheduledFallback {
+			return prepareConversationDeleteGraphForSystemMaintenance(ctx, tx, graph, now)
+		}
+		return prepareConversationDeleteGraph(ctx, tx, graph, request.ExpectedOwnerID, now)
+	}
+	if err := prepareGraph(); err != nil {
 		switch {
 		case errors.Is(err, ErrPermissionDenied):
 			result.Reason = ConversationMaintenanceRelatedOwnerMismatch
@@ -226,6 +251,16 @@ func (s *datlyService) maintainConversationTreeDirect(ctx context.Context, reque
 	}
 	if err := refreshConversationDeleteRunIDs(ctx, tx, graph); err != nil {
 		return err
+	}
+	if request.Kind == ConversationMaintenanceScheduledFallback {
+		hasRuns, err := conversationMaintenanceGraphHasRunRecords(ctx, tx, graph)
+		if err != nil {
+			return err
+		}
+		if hasRuns {
+			result.Reason = ConversationMaintenanceRunPresent
+			return nil
+		}
 	}
 	if request.Mode == ConversationMaintenanceDelete {
 		if err := lockConversationRunRowsForDelete(ctx, tx, graph); err != nil {
@@ -263,6 +298,44 @@ func (s *datlyService) maintainConversationTreeDirect(ctx context.Context, reque
 	result.Deleted = true
 	result.Reason = ConversationMaintenanceDeleted
 	return nil
+}
+
+// conversationMaintenanceGraphHasRunRecords is intentionally stricter than
+// the ordinary liveness check. The scheduled-conversation fallback only owns
+// historical shells which are not represented by either the current run
+// table or the legacy schedule_run table. A stale schedule_run_id marker alone
+// does not count unless the referenced row still exists.
+func conversationMaintenanceGraphHasRunRecords(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) (bool, error) {
+	if graph == nil {
+		return false, nil
+	}
+	runIDs, err := collectRunIDsForDelete(ctx, tx, graph.ConversationIDs, graph.TurnIDs)
+	if err != nil {
+		return false, err
+	}
+	if len(runIDs) > 0 {
+		return true, nil
+	}
+	if graph.Capabilities == nil || !graph.Capabilities.hasTable("schedule_run") {
+		return false, nil
+	}
+	scheduleRunIDs, err := collectScheduleRunIDsForDelete(ctx, tx, graph.Rows, graph.ConversationIDs, graph.Capabilities)
+	if err != nil {
+		return false, err
+	}
+	for _, chunk := range chunkStrings(scheduleRunIDs, deleteChunkSize) {
+		query := fmt.Sprintf("SELECT 1 FROM schedule_run WHERE id IN (%s) LIMIT 1", placeholders(len(chunk)))
+		var marker int
+		err = tx.QueryRowContext(ctx, query, stringArgs(chunk)...).Scan(&marker)
+		switch {
+		case err == nil:
+			return true, nil
+		case errors.Is(err, sql.ErrNoRows):
+		default:
+			return false, err
+		}
+	}
+	return false, nil
 }
 
 func conversationMaintenanceRootState(ctx context.Context, tx *sql.Tx, rootID string) (isRoot bool, found bool, err error) {
