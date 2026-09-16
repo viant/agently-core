@@ -1519,21 +1519,43 @@ func tokenizeWords(s string) map[string]struct{} {
 	return out
 }
 
-// maybeSetConversationTitle persists the intake-extracted title to the
-// conversation store and relies on PatchConversations emitting the
-// conversation_meta_updated SSE event so connected clients update their
-// sidebar / header without polling.
+func shouldReplaceConversationTitle(existingTitle, convID string) bool {
+	existing := strings.TrimSpace(existingTitle)
+	if existing == "" || strings.EqualFold(existing, strings.TrimSpace(convID)) {
+		return true
+	}
+	switch strings.ToLower(existing) {
+	case "new conversation", "new chat", "conversation", "untitled conversation":
+		return true
+	}
+	return false
+}
+
+// maybeSetConversationTitle replaces only an unlabeled placeholder. Intake
+// still runs on every turn to shape routing, but classification must not
+// silently replace a durable title, including the first-message seed.
 func (s *Service) maybeSetConversationTitle(ctx context.Context, convID, title string) {
 	title = strings.TrimSpace(title)
 	convID = strings.TrimSpace(convID)
 	if title == "" || convID == "" || s == nil || s.conversation == nil {
 		return
 	}
+	conversation, err := s.conversation.GetConversation(ctx, convID)
+	if err != nil || conversation == nil {
+		return
+	}
+	existingTitle := ""
+	if conversation.Title != nil {
+		existingTitle = strings.TrimSpace(*conversation.Title)
+	}
+	if !shouldReplaceConversationTitle(existingTitle, convID) || strings.EqualFold(existingTitle, title) {
+		return
+	}
 	patch := apiconv.NewConversation()
 	patch.SetId(convID)
 	patch.SetTitle(title)
-	if err := s.conversation.PatchConversations(ctx, patch); err != nil {
-		logx.Warnf("conversation", "intake: set title convo=%q err=%v", convID, err)
+	if err = s.conversation.PatchConversations(ctx, patch); err != nil {
+		logx.Warnf("conversation", "intake: set initial title convo=%q err=%v", convID, err)
 	}
 }
 
