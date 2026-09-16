@@ -67,7 +67,10 @@ func NewDocsAugmenter(ctx context.Context, embeddingsModel string, embedder base
 
 // NewDocsAugmenterWithStore constructs a DocsAugmenter that reuses the provided sqlitevec store.
 func NewDocsAugmenterWithStore(ctx context.Context, embeddingsModel string, embedder baseembed.Embedder, store *sqlitevec.Store, options ...option.Option) *DocsAugmenter {
-	baseURL := embeddingBaseURL(ctx)
+	return newDocsAugmenterWithStoreAtBase(embeddingBaseURL(ctx), embeddingsModel, embedder, store, options...)
+}
+
+func newDocsAugmenterWithStoreAtBase(baseURL, embeddingsModel string, embedder baseembed.Embedder, store *sqlitevec.Store, options ...option.Option) *DocsAugmenter {
 	_ = os.MkdirAll(baseURL, 0755)
 	matcher := matching.New(options...)
 	splitterFactory := splitter.NewFactory(4096)
@@ -114,6 +117,10 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 		return nil, fmt.Errorf("failed to create sqlitevec store: %v", err)
 	}
 	key += ":db=" + storeKey
+	baseURL := embeddingBaseURL(ctx)
+	if strings.TrimSpace(input.DB) != "" {
+		baseURL = filepath.Dir(storeKey)
+	}
 	augmenter, ok := s.DocsAugmenters.Get(key)
 	if !ok {
 		if s.finder == nil {
@@ -128,7 +135,6 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 			matchOptions = input.Match.Options()
 		}
 		if useMCP && s.mcpMgr != nil {
-			baseURL := embeddingBaseURL(ctx)
 			_ = os.MkdirAll(baseURL, 0755)
 			matcher := matching.New(matchOptions...)
 			splitterFactory := splitter.NewFactory(4096)
@@ -156,10 +162,10 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 			ret.service = indexer.NewService(baseURL, ret.store, adaptembed.LangchainEmbedderAdapter{Inner: model}, ret.fsIndexer)
 			augmenter = ret
 		} else {
-			augmenter = NewDocsAugmenterWithStore(ctx, input.Model, model, store, matchOptions...)
+			augmenter = newDocsAugmenterWithStoreAtBase(baseURL, input.Model, model, store, matchOptions...)
 			if augmenter != nil && augmenter.fsIndexer != nil {
 				augmenter.fsIndexer = newNamespaceOverrideIndexer(augmenter.fsIndexer, resolveNamespace)
-				augmenter.service = indexer.NewService(embeddingBaseURL(ctx), augmenter.store, adaptembed.LangchainEmbedderAdapter{Inner: model}, augmenter.fsIndexer)
+				augmenter.service = indexer.NewService(baseURL, augmenter.store, adaptembed.LangchainEmbedderAdapter{Inner: model}, augmenter.fsIndexer)
 			}
 		}
 		s.DocsAugmenters.Set(key, augmenter)
@@ -170,7 +176,7 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 func (s *Service) ensureStoreWithDB(ctx context.Context, dbPath string) (*sqlitevec.Store, string, error) {
 	baseURL := embeddingBaseURL(ctx)
 	_ = os.MkdirAll(baseURL, 0755)
-	key := strings.TrimSpace(dbPath)
+	key := ResolveResourceDBPath(ctx, dbPath)
 	if key == "" {
 		key = defaultSQLitePath(baseURL)
 	}

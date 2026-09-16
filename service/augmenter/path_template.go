@@ -46,6 +46,17 @@ func ResolveIndexPath(ctx context.Context, template string) string {
 	return resolveTemplate(ctx, envIndexPath, template, indexPathDefault)
 }
 
+// ResolveResourceDBPath resolves a per-resource Embedius database path without
+// applying the service-wide AGENTLY_INDEX_PATH override. This allows immutable
+// workspace roots to use a shared database while other roots remain user-scoped.
+func ResolveResourceDBPath(ctx context.Context, template string) string {
+	template = strings.TrimSpace(template)
+	if template == "" {
+		return ""
+	}
+	return normalizePath(resolveTemplate(ctx, "", template, template))
+}
+
 func resolveTemplate(ctx context.Context, envKey, template, fallback string) string {
 	if envVal := strings.TrimSpace(getenv(envKey)); envVal != "" {
 		template = envVal
