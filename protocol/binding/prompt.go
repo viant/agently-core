@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha1"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
@@ -14,7 +15,67 @@ import (
 	"github.com/viant/afs/file"
 	"github.com/viant/afs/url"
 	"github.com/viant/agently-core/internal/templating"
+	"gopkg.in/yaml.v3"
 )
+
+// UnmarshalYAML accepts both the legacy scalar prompt text and the prompt
+// object shape with text, uri, and engine fields.
+func (a *Prompt) UnmarshalYAML(node *yaml.Node) error {
+	if node == nil {
+		*a = Prompt{}
+		return nil
+	}
+	if node.Kind == yaml.ScalarNode {
+		*a = Prompt{Text: node.Value}
+		return nil
+	}
+	type plain Prompt
+	var decoded plain
+	if err := node.Decode(&decoded); err != nil {
+		return err
+	}
+	*a = Prompt(decoded)
+	return nil
+}
+
+func (a Prompt) MarshalYAML() (interface{}, error) {
+	if strings.TrimSpace(a.URI) == "" && strings.TrimSpace(a.Engine) == "" {
+		return a.Text, nil
+	}
+	type plain Prompt
+	return plain(a), nil
+}
+
+func (a *Prompt) UnmarshalJSON(data []byte) error {
+	trimmed := strings.TrimSpace(string(data))
+	if trimmed == "" || trimmed == "null" {
+		*a = Prompt{}
+		return nil
+	}
+	if strings.HasPrefix(trimmed, "\"") {
+		var text string
+		if err := json.Unmarshal(data, &text); err != nil {
+			return err
+		}
+		*a = Prompt{Text: text}
+		return nil
+	}
+	type plain Prompt
+	var decoded plain
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*a = Prompt(decoded)
+	return nil
+}
+
+func (a Prompt) MarshalJSON() ([]byte, error) {
+	if strings.TrimSpace(a.URI) == "" && strings.TrimSpace(a.Engine) == "" {
+		return json.Marshal(a.Text)
+	}
+	type plain Prompt
+	return json.Marshal(plain(a))
+}
 
 type (
 	Prompt struct {

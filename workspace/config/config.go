@@ -313,14 +313,14 @@ func (r *Root) resolveAgentAutoSelectionPrompt(defaults *execconfig.Defaults) er
 	if defaults == nil || strings.TrimSpace(defaults.AgentAutoSelection.Prompt.URI) == "" {
 		return nil
 	}
-	prompt := defaults.AgentAutoSelection.Prompt.Prompt
+	prompt := defaults.AgentAutoSelection.Prompt
 	if !strings.Contains(prompt.URI, "://") && !filepath.IsAbs(prompt.URI) {
 		prompt.URI = filepath.Join(r.workspaceRoot, prompt.URI)
 	}
 	if err := prompt.Init(context.Background()); err != nil {
 		return fmt.Errorf("load default.agentAutoSelection.prompt.uri: %w", err)
 	}
-	defaults.AgentAutoSelection.Prompt.Prompt = prompt
+	defaults.AgentAutoSelection.Prompt = prompt
 	return nil
 }
 
