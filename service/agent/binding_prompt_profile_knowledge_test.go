@@ -170,6 +170,19 @@ func TestProfileKnowledgeQueriesAndInterleave(t *testing.T) {
 	})
 }
 
+func TestProfileKnowledgeCatalogQueriesExpandsShorthandFromManifest(t *testing.T) {
+	root := t.TempDir()
+	manifestPath := filepath.Join(root, "manifest.json")
+	require.NoError(t, os.WriteFile(manifestPath, []byte(`{"articles":[{"title":"Viant Household ID Technology Overview"},{"title":"Household Conversions"},{"title":"Forecasting"}]}`), 0o600))
+
+	queries, err := profileKnowledgeCatalogQueries("how household works", []string{"how household works"}, &intake.QueryCatalog{Path: manifestPath, MaxMatches: 1}, 4)
+	require.NoError(t, err)
+	require.Equal(t, []string{
+		"how household works",
+		"Viant Household ID Technology Overview. User question: how household works",
+	}, queries)
+}
+
 type failingProfileKnowledgeRegistry struct{ staticRegistry }
 
 func (r *failingProfileKnowledgeRegistry) Execute(context.Context, string, map[string]interface{}) (string, error) {

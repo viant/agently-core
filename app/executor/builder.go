@@ -448,6 +448,21 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	aug := b.augmenter
 	if aug == nil {
 		opts := []func(*augmenter.Service){}
+		if out.Defaults != nil {
+			resources := out.Defaults.Resources
+			if strings.TrimSpace(resources.IndexPath) != "" {
+				opts = append(opts, augmenter.WithIndexPathTemplate(resources.IndexPath))
+			}
+			if resources.UpstreamSyncConcurrency > 0 {
+				opts = append(opts, augmenter.WithUpstreamSyncConcurrency(resources.UpstreamSyncConcurrency))
+			}
+			if resources.MatchConcurrency > 0 {
+				opts = append(opts, augmenter.WithMatchConcurrency(resources.MatchConcurrency))
+			}
+			if resources.IndexAsync != nil {
+				opts = append(opts, augmenter.WithIndexAsync(*resources.IndexAsync))
+			}
+		}
 		if out.MCPManager != nil {
 			opts = append(opts, augmenter.WithMCPManager(out.MCPManager))
 		}

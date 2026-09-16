@@ -122,6 +122,10 @@ func TestPatchCanonicalIntakeMessage_UsesParsedContent(t *testing.T) {
 	assert.Equal(t, "turn-1", *rec.message.TurnID)
 	require.NotNil(t, rec.message.Phase)
 	assert.Equal(t, "intake", *rec.message.Phase)
+	require.NotNil(t, rec.message.Interim)
+	assert.Equal(t, 1, *rec.message.Interim)
+	require.NotNil(t, rec.message.Archived)
+	assert.Equal(t, 1, *rec.message.Archived)
 }
 
 func TestParseOutput_WithoutDirectAction(t *testing.T) {

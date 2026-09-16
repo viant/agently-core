@@ -38,6 +38,9 @@ type KnowledgeMatch struct {
 	// explicit comma/and topic lists and interleaves their ranked matches.
 	QueryMode  string `yaml:"queryMode,omitempty" json:"queryMode,omitempty"`
 	MaxQueries int    `yaml:"maxQueries,omitempty" json:"maxQueries,omitempty"`
+	// QueryCatalog optionally expands shorthand queries with titles from a
+	// corpus-owned JSON manifest. The original query is always retained.
+	QueryCatalog *QueryCatalog `yaml:"queryCatalog,omitempty" json:"queryCatalog,omitempty"`
 	// MaxFragments controls semantic candidate depth before URI deduplication.
 	MaxFragments int `yaml:"maxFragments,omitempty" json:"maxFragments,omitempty"`
 	// MaxDocuments controls the final number of distinct documents injected.
@@ -63,6 +66,13 @@ type KnowledgeMatch struct {
 	// Required makes retrieval infrastructure failures fail the turn. An empty
 	// match after MinScore filtering is still a valid result.
 	Required bool `yaml:"required,omitempty" json:"required,omitempty"`
+}
+
+// QueryCatalog describes a JSON table of contents. The current manifest
+// contract is {"articles":[{"title":"..."}]}.
+type QueryCatalog struct {
+	Path       string `yaml:"path" json:"path"`
+	MaxMatches int    `yaml:"maxMatches,omitempty" json:"maxMatches,omitempty"`
 }
 
 // Execution applies turn-scoped runtime restrictions after this profile is
