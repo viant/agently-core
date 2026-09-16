@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"strings"
 	"time"
 
@@ -12,6 +13,7 @@ import (
 	agruntime "github.com/viant/agently-core/runtime"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	"github.com/viant/agently-core/runtime/usage"
+	"gopkg.in/yaml.v3"
 )
 
 // QueryInput represents the input for querying an agent's knowledge
@@ -81,10 +83,12 @@ type QueryInput struct {
 	// Populated by the llm/agents runtime when a PromptProfile specifies a template.
 	TemplateId string `json:"templateId,omitempty"`
 
-	// PromptProfileId optionally selects a intake profile for this turn.
-	// For direct agent turns this is typically populated by intake/routing,
-	// not by llm/agents child-run wiring.
-	PromptProfileId string `json:"promptProfileId,omitempty"`
+	// IntentProfileId optionally selects an intent profile for this turn.
+	// For direct agent turns this is typically populated by intake/routing.
+	IntentProfileId string `json:"intentProfileId,omitempty" yaml:"intentProfileId,omitempty"`
+	// PromptProfileId is the deprecated compatibility alias for
+	// IntentProfileId. New callers should use intentProfileId.
+	PromptProfileId string `json:"-" yaml:"-"`
 	// ParallelToolCalls optionally overrides the agent-level parallel tool
 	// execution preference for this specific turn.
 	ParallelToolCalls *bool `json:"parallelToolCalls,omitempty"`
@@ -105,6 +109,71 @@ type QueryInput struct {
 	// toolBundlesAutoSelected marks ToolBundles as runtime-selected by the
 	// generic tool router rather than explicitly supplied by the caller.
 	toolBundlesAutoSelected bool
+}
+
+// EffectiveIntentProfileID returns the canonical intent-profile selection,
+// preferring intentProfileId over the legacy promptProfileId alias.
+func (i *QueryInput) EffectiveIntentProfileID() string {
+	if i == nil {
+		return ""
+	}
+	if value := strings.TrimSpace(i.IntentProfileId); value != "" {
+		return value
+	}
+	return strings.TrimSpace(i.PromptProfileId)
+}
+
+// SetIntentProfileID mirrors the canonical value to the legacy field while
+// compatibility consumers are still supported.
+func (i *QueryInput) SetIntentProfileID(value string) {
+	if i == nil {
+		return
+	}
+	value = strings.TrimSpace(value)
+	i.IntentProfileId = value
+	i.PromptProfileId = value
+}
+
+func (i *QueryInput) normalizeIntentProfileID() {
+	i.SetIntentProfileID(i.EffectiveIntentProfileID())
+}
+
+// UnmarshalJSON accepts the legacy promptProfileId key without exposing it in
+// the generated QueryInput contract.
+func (i *QueryInput) UnmarshalJSON(data []byte) error {
+	type alias QueryInput
+	decoded := struct {
+		*alias
+		LegacyIntentProfileID string `json:"promptProfileId"`
+	}{alias: (*alias)(i)}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if strings.TrimSpace(i.IntentProfileId) == "" {
+		i.IntentProfileId = strings.TrimSpace(decoded.LegacyIntentProfileID)
+	}
+	i.normalizeIntentProfileID()
+	return nil
+}
+
+// UnmarshalYAML accepts the legacy promptProfileId key without exposing it in
+// the canonical YAML shape.
+func (i *QueryInput) UnmarshalYAML(node *yaml.Node) error {
+	type alias QueryInput
+	if err := node.Decode((*alias)(i)); err != nil {
+		return err
+	}
+	var compatibility struct {
+		LegacyIntentProfileID string `yaml:"promptProfileId"`
+	}
+	if err := node.Decode(&compatibility); err != nil {
+		return err
+	}
+	if strings.TrimSpace(i.IntentProfileId) == "" {
+		i.IntentProfileId = strings.TrimSpace(compatibility.LegacyIntentProfileID)
+	}
+	i.normalizeIntentProfileID()
+	return nil
 }
 
 // QueryOutput represents the result of an agent knowledge query

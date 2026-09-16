@@ -11,14 +11,16 @@ import (
 )
 
 type AugmentDocsInput struct {
-	Query           string
-	Locations       []string
-	Match           *option.Options
-	Model           string
-	DB              string
-	MaxResponseSize int //size in byte
-	MaxDocuments    int
-	Offset          int
+	Query                   string
+	Locations               []string
+	Match                   *option.Options
+	Model                   string
+	DB                      string
+	MaxResponseSize         int //size in byte
+	MaxDocuments            int
+	Offset                  int
+	NeighborFragmentsBefore int
+	NeighborFragmentsAfter  int
 	//based on meta['path'] include full path as long it does not go over //max response size
 	IncludeFile bool
 	TrimPath    string //trim path prefix

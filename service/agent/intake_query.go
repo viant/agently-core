@@ -75,13 +75,13 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	if !runCfg.Enabled {
 		return
 	}
-	logx.Infof("conversation", "intake.consider convo=%q agent=%q promptProfileId=%q",
+	logx.Infof("conversation", "intake.consider convo=%q agent=%q intentProfileId=%q",
 		strings.TrimSpace(input.ConversationID),
 		strings.TrimSpace(input.Agent.ID),
 		strings.TrimSpace(input.PromptProfileId),
 	)
 	if !s.shouldRunIntake(ctx, input, &runCfg) {
-		logx.Infof("conversation", "intake.skipped.gate convo=%q agent=%q promptProfileId=%q",
+		logx.Infof("conversation", "intake.skipped.gate convo=%q agent=%q intentProfileId=%q",
 			strings.TrimSpace(input.ConversationID),
 			strings.TrimSpace(input.Agent.ID),
 			strings.TrimSpace(input.PromptProfileId),
@@ -299,7 +299,7 @@ func evaluateActivationRule(query string, rule agentmdl.ActivationRule) *intakes
 				Confidence: activationConfidence(rule.Classification.Confidence),
 			},
 			Prompting: intakesvc.PromptingContext{
-				SuggestedProfileID: strings.TrimSpace(rule.Prompting.SuggestedProfileID),
+				SuggestedProfileID: rule.Prompting.EffectiveIntentProfileID(),
 				AppendToolBundles:  append([]string(nil), rule.Prompting.AppendToolBundles...),
 				TemplateID:         strings.TrimSpace(rule.Prompting.TemplateID),
 				ModelID:            strings.TrimSpace(rule.Prompting.ModelID),
@@ -750,7 +750,7 @@ func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[strin
 			AssistantText: renderActivationString(strings.TrimSpace(rule.Response.AssistantText), stateVars),
 		}
 	}
-	if direct == nil && strings.TrimSpace(rule.Prompting.SuggestedProfileID) == "" && len(rule.Scope.Values) == 0 {
+	if direct == nil && rule.Prompting.EffectiveIntentProfileID() == "" && len(rule.Scope.Values) == 0 {
 		return nil
 	}
 	if direct != nil && strings.TrimSpace(direct.AssistantText) == "" {
@@ -764,7 +764,7 @@ func buildFollowUpOverrideFromState(rule agentmdl.ActivationRule, vars map[strin
 			Confidence: activationConfidence(rule.Classification.Confidence),
 		},
 		Prompting: intakesvc.PromptingContext{
-			SuggestedProfileID: strings.TrimSpace(rule.Prompting.SuggestedProfileID),
+			SuggestedProfileID: rule.Prompting.EffectiveIntentProfileID(),
 			AppendToolBundles:  append([]string(nil), rule.Prompting.AppendToolBundles...),
 			TemplateID:         strings.TrimSpace(rule.Prompting.TemplateID),
 			ModelID:            strings.TrimSpace(rule.Prompting.ModelID),
@@ -1620,8 +1620,8 @@ func applyTurnContext(input *QueryInput, tc *intakesvc.Context, cfg *agentmdl.In
 			suggested := strings.TrimSpace(tc.Prompting.SuggestedProfileID)
 			input.Context["intake.suggestedProfileId"] = suggested
 			input.Context["intake.suggestedProfileConfidence"] = tc.Classification.Confidence
-			if strings.TrimSpace(input.PromptProfileId) == "" {
-				input.PromptProfileId = suggested
+			if input.EffectiveIntentProfileID() == "" {
+				input.SetIntentProfileID(suggested)
 			}
 		}
 	}
@@ -1650,7 +1650,10 @@ func normalizePlannerSubmitTurnContext(input *QueryInput, tc *intakesvc.Context,
 	}
 	tc.DirectAction = intakesvc.DirectActionContext{}
 	if cfg != nil && cfg.HasScope(agentmdl.IntakeScopeProfile) && strings.TrimSpace(tc.Prompting.SuggestedProfileID) == "" {
-		profileID := strings.TrimSpace(stringValue(toolGuidance["promptProfileId"]))
+		profileID := strings.TrimSpace(stringValue(toolGuidance["intentProfileId"]))
+		if profileID == "" {
+			profileID = strings.TrimSpace(stringValue(toolGuidance["promptProfileId"]))
+		}
 		if profileID == "" {
 			profileID = "entity_list_review"
 		}

@@ -52,7 +52,7 @@ const (
 	KindToolBundle       = "tools/bundles"
 	KindToolInstructions = "tools/instructions"
 	KindTemplate         = "templates"
-	KindIntent           = "intent"
+	KindIntent           = "intents"
 	KindPrompt           = "prompts" // Legacy intake profile directory.
 	KindTemplateBundle   = "templates/bundles"
 	KindOAuth            = "oauth"

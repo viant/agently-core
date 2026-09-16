@@ -28,16 +28,27 @@ func selectedPromptProfileFromContext(ctx context.Context) *intake.Profile {
 }
 
 func (s *Service) selectedPromptProfile(ctx context.Context, input *QueryInput) (*intake.Profile, error) {
-	if s == nil || input == nil || s.promptRepo == nil {
+	if input != nil && input.Agent != nil && !input.Agent.Prompts.AllowsSelectedProfileInjection() {
+		return nil, nil
+	}
+	return s.selectedPromptProfileAny(ctx, input)
+}
+
+// selectedPromptProfileAny resolves the selected profile without applying the
+// agent's message-injection gate. Profile-scoped knowledge uses this path
+// because selecting the profile is itself the activation boundary, even when
+// the orchestrator intentionally disables profile message injection.
+func (s *Service) selectedPromptProfileAny(ctx context.Context, input *QueryInput) (*intake.Profile, error) {
+	if s == nil || input == nil {
 		return nil, nil
 	}
 	if profile := selectedPromptProfileFromContext(ctx); profile != nil {
 		return profile, nil
 	}
-	if input.Agent != nil && !input.Agent.Prompts.AllowsSelectedProfileInjection() {
+	if s.promptRepo == nil {
 		return nil, nil
 	}
-	profileID := strings.TrimSpace(input.PromptProfileId)
+	profileID := input.EffectiveIntentProfileID()
 	if profileID == "" {
 		return nil, nil
 	}

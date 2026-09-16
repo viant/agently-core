@@ -26,3 +26,7 @@ template: analytics_dashboard
 templates:
   - analytics_dashboard
   - resource_list_review
+knowledge:
+  - rootIds: [product-knowledge]
+    maxDocuments: 3
+    minScore: 0.55

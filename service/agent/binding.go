@@ -24,6 +24,9 @@ import (
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding.Binding, error) {
+	if input != nil {
+		input.normalizeIntentProfileID()
+	}
 	start := time.Now()
 	convoID := ""
 	if input != nil {

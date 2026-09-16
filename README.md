@@ -214,10 +214,11 @@ Detailed documentation: [async.md](./doc/async.md)
 
 ## Workspace
 
-Intake profiles combine scenario instructions, tool bundles, output templates,
-and evidence requirements. Define them in `intent/<id>.yaml`; profiles not
+Intent profiles combine scenario instructions, tool bundles, scoped knowledge,
+output templates, and evidence requirements. Define them in
+`intents/<id>.yaml`; profiles not
 present there fall back to legacy `prompts/<id>.yaml`. Catalogs merge by name,
-with `intent` taking precedence. Invalid intent definitions fail rather than
+with `intents` taking precedence. Invalid intent definitions fail rather than
 silently falling back. See [intake profiles](doc/prompts.md) for migration details.
 
 

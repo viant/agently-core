@@ -248,6 +248,9 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 			if input.Offset > 0 {
 				matchOpts = append(matchOpts, vectorstores.WithOffset(input.Offset))
 			}
+			if input.NeighborFragmentsBefore > 0 || input.NeighborFragmentsAfter > 0 {
+				matchOpts = append(matchOpts, vectorstores.WithNeighborFragments(input.NeighborFragmentsBefore, input.NeighborFragmentsAfter))
+			}
 			docs, err := service.Match(matchCtx, input.Query, input.MaxDocuments, location, matchOpts...)
 			if err != nil {
 				results[i] = matchResult{err: err}

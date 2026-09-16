@@ -1,10 +1,14 @@
 package agents
 
 import (
+	"encoding/json"
+	"strings"
+
 	"github.com/viant/agently-core/genai/llm"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	agruntime "github.com/viant/agently-core/runtime"
 	intakesvc "github.com/viant/agently-core/service/intake"
+	"gopkg.in/yaml.v3"
 )
 
 // ListItem is a directory entry describing an agent option for selection.
@@ -102,10 +106,11 @@ type RunInput struct {
 	// ReasoningEffort optionally overrides agent-level reasoning effort
 	// (e.g., low|medium|high) for this run when supported by the backend.
 	ReasoningEffort *string `json:"reasoningEffort,omitempty"`
-	// PromptProfileId optionally selects a scenario profile whose instructions,
-	// tool bundles, and output template are applied to the child conversation.
-	// When absent, behaviour is identical to today.
-	PromptProfileId string `json:"promptProfileId,omitempty"`
+	// IntentProfileId optionally selects an intent profile whose instructions,
+	// tool bundles, knowledge, and output template apply to the child turn.
+	IntentProfileId string `json:"intentProfileId,omitempty" yaml:"intentProfileId,omitempty"`
+	// PromptProfileId is the deprecated compatibility alias.
+	PromptProfileId string `json:"-" yaml:"-"`
 	// ToolBundles optionally appends tool bundle ids on top of whatever the
 	// profile floor already provides.  Safe to leave empty.
 	ToolBundles []string `json:"toolBundles,omitempty"`
@@ -127,6 +132,59 @@ type RunInput struct {
 	// pre-populates routing fields, cached prior turns, or cross-conversation
 	// seeds. See intake-impt.md §9 skip-rule (c).
 	WorkspaceIntake *intakesvc.Context `json:"workspaceIntake,omitempty"`
+}
+
+func (i *RunInput) effectiveIntentProfileID() string {
+	if i == nil {
+		return ""
+	}
+	if value := strings.TrimSpace(i.IntentProfileId); value != "" {
+		return value
+	}
+	return strings.TrimSpace(i.PromptProfileId)
+}
+
+func (i *RunInput) normalizeIntentProfileID() {
+	if i == nil {
+		return
+	}
+	value := i.effectiveIntentProfileID()
+	i.IntentProfileId = value
+	i.PromptProfileId = value
+}
+
+func (i *RunInput) UnmarshalJSON(data []byte) error {
+	type alias RunInput
+	decoded := struct {
+		*alias
+		LegacyIntentProfileID string `json:"promptProfileId"`
+	}{alias: (*alias)(i)}
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	if strings.TrimSpace(i.IntentProfileId) == "" {
+		i.IntentProfileId = strings.TrimSpace(decoded.LegacyIntentProfileID)
+	}
+	i.normalizeIntentProfileID()
+	return nil
+}
+
+func (i *RunInput) UnmarshalYAML(node *yaml.Node) error {
+	type alias RunInput
+	if err := node.Decode((*alias)(i)); err != nil {
+		return err
+	}
+	var compatibility struct {
+		LegacyIntentProfileID string `yaml:"promptProfileId"`
+	}
+	if err := node.Decode(&compatibility); err != nil {
+		return err
+	}
+	if strings.TrimSpace(i.IntentProfileId) == "" {
+		i.IntentProfileId = strings.TrimSpace(compatibility.LegacyIntentProfileID)
+	}
+	i.normalizeIntentProfileID()
+	return nil
 }
 
 // StartInput launches an agent asynchronously and returns a conversation handle.
