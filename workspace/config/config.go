@@ -1,6 +1,7 @@
 package config
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -31,10 +32,11 @@ const (
 // Root represents the root workspace config.yaml in a reusable decoded form.
 // Package-specific consumers can decode sections they own from the stored YAML nodes.
 type Root struct {
-	DefaultNode yaml.Node               `yaml:"default"`
-	AuthNode    yaml.Node               `yaml:"auth"`
-	MCPServer   *mcpexpose.ServerConfig `yaml:"mcpServer"`
-	Raw         map[string]interface{}  `yaml:",inline"`
+	DefaultNode   yaml.Node               `yaml:"default"`
+	AuthNode      yaml.Node               `yaml:"auth"`
+	MCPServer     *mcpexpose.ServerConfig `yaml:"mcpServer"`
+	Raw           map[string]interface{}  `yaml:",inline"`
+	workspaceRoot string
 }
 
 // AuthorizationTool returns the MCP tool used by authorization-enabled Forge
@@ -183,14 +185,40 @@ func Load(root string) (*Root, error) {
 		}
 		return nil, fmt.Errorf("read workspace config: %w", err)
 	}
-	cfg := &Root{}
-	if err := yaml.Unmarshal(data, cfg); err != nil {
+	var document yaml.Node
+	if err := yaml.Unmarshal(data, &document); err != nil {
 		return nil, fmt.Errorf("parse workspace config: %w", err)
 	}
-	if cfg.MCPServer != nil {
-		cfg.MCPServer.Addr = expandEnvTemplate(cfg.MCPServer.Addr)
+	expandYAMLEnvTemplates(&document)
+	cfg := &Root{}
+	if err := document.Decode(cfg); err != nil {
+		return nil, fmt.Errorf("decode workspace config: %w", err)
 	}
+	cfg.workspaceRoot = root
 	return cfg, nil
+}
+
+// expandYAMLEnvTemplates expands shell-style environment references in every
+// scalar YAML value. Lowercase application macros (for example
+// ${runtimeRoot}, ${workspaceRoot}, and ${user}) are intentionally preserved
+// for the component that owns their later resolution.
+func expandYAMLEnvTemplates(node *yaml.Node) {
+	if node == nil {
+		return
+	}
+	if node.Kind == yaml.ScalarNode && node.Tag == "!!str" {
+		node.Value = expandEnvTemplate(node.Value)
+		return
+	}
+	if node.Kind == yaml.MappingNode {
+		for i := 1; i < len(node.Content); i += 2 {
+			expandYAMLEnvTemplates(node.Content[i])
+		}
+		return
+	}
+	for _, child := range node.Content {
+		expandYAMLEnvTemplates(child)
+	}
 }
 
 func expandEnvTemplate(value string) string {
@@ -209,12 +237,31 @@ func expandEnvTemplate(value string) string {
 		if parts := strings.SplitN(expression, ":-", 2); len(parts) == 2 {
 			name, fallback = parts[0], parts[1]
 		}
-		replacement := strings.TrimSpace(os.Getenv(strings.TrimSpace(name)))
+		name = strings.TrimSpace(name)
+		if !isEnvironmentName(name) {
+			// Skip application-owned macros and continue looking after this one.
+			rest := expandEnvTemplate(value[end+1:])
+			return value[:end+1] + rest
+		}
+		replacement := strings.TrimSpace(os.Getenv(name))
 		if replacement == "" {
 			replacement = fallback
 		}
 		value = value[:start] + replacement + value[end+1:]
 	}
+}
+
+func isEnvironmentName(value string) bool {
+	if value == "" {
+		return false
+	}
+	for i, char := range value {
+		if char == '_' || char >= 'A' && char <= 'Z' || i > 0 && char >= '0' && char <= '9' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 // ForgeReportingRoot returns the optional singular reporting asset root owned
@@ -251,12 +298,30 @@ func (r *Root) ResolveDefaultsWithFallback(fallback *execconfig.Defaults) (*exec
 	if err := r.DefaultNode.Decode(&cfg); err != nil {
 		return nil, fmt.Errorf("decode workspace default: %w", err)
 	}
+	if err := r.resolveAgentAutoSelectionPrompt(&cfg); err != nil {
+		return nil, err
+	}
 	mergeDefaults(base, &cfg)
 	ensureAsyncDefaults(base)
 	if err := base.ToolExecutionProtection.Validate(); err != nil {
 		return nil, err
 	}
 	return base, nil
+}
+
+func (r *Root) resolveAgentAutoSelectionPrompt(defaults *execconfig.Defaults) error {
+	if defaults == nil || strings.TrimSpace(defaults.AgentAutoSelection.Prompt.URI) == "" {
+		return nil
+	}
+	prompt := defaults.AgentAutoSelection.Prompt.Prompt
+	if !strings.Contains(prompt.URI, "://") && !filepath.IsAbs(prompt.URI) {
+		prompt.URI = filepath.Join(r.workspaceRoot, prompt.URI)
+	}
+	if err := prompt.Init(context.Background()); err != nil {
+		return fmt.Errorf("load default.agentAutoSelection.prompt.uri: %w", err)
+	}
+	defaults.AgentAutoSelection.Prompt.Prompt = prompt
+	return nil
 }
 
 func defaultsFallbackBase(fallback *execconfig.Defaults) *execconfig.Defaults {
@@ -472,8 +537,8 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	if strings.TrimSpace(src.AgentAutoSelection.Model) != "" {
 		dst.AgentAutoSelection.Model = strings.TrimSpace(src.AgentAutoSelection.Model)
 	}
-	if strings.TrimSpace(src.AgentAutoSelection.Prompt) != "" {
-		dst.AgentAutoSelection.Prompt = strings.TrimSpace(src.AgentAutoSelection.Prompt)
+	if strings.TrimSpace(src.AgentAutoSelection.Prompt.Text) != "" || strings.TrimSpace(src.AgentAutoSelection.Prompt.URI) != "" {
+		dst.AgentAutoSelection.Prompt = src.AgentAutoSelection.Prompt
 	}
 	if strings.TrimSpace(src.AgentAutoSelection.OutputKey) != "" {
 		dst.AgentAutoSelection.OutputKey = strings.TrimSpace(src.AgentAutoSelection.OutputKey)
