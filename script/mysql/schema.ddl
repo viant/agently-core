@@ -78,6 +78,9 @@ CREATE TABLE conversation
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_0900_ai_ci;
 
+CREATE INDEX idx_conversation_parent_id ON conversation (conversation_parent_id);
+CREATE INDEX idx_conversation_parent_turn_id ON conversation (conversation_parent_turn_id);
+
 CREATE TABLE goal
 (
     id                VARCHAR(255) PRIMARY KEY,

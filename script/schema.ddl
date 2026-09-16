@@ -39,6 +39,11 @@ CREATE TABLE IF NOT EXISTS conversation (
     external_task_ref TEXT
 );
 
+CREATE INDEX IF NOT EXISTS idx_conversation_parent_id
+    ON conversation(conversation_parent_id);
+CREATE INDEX IF NOT EXISTS idx_conversation_parent_turn_id
+    ON conversation(conversation_parent_turn_id);
+
 CREATE TABLE IF NOT EXISTS goal (
     id TEXT PRIMARY KEY,
     conversation_id TEXT NOT NULL UNIQUE,
