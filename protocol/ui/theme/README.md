@@ -1,6 +1,18 @@
 # Portable theme contract
 
-This package resolves manifest v1 into complete semantic token maps shared by Forge web, Agently iOS, and Agently Android. `Parse` rejects unknown manifest fields and invalid tokens; `Resolve` overlays common/mode tokens on independent built-in palettes. `CSS` maps resolved tokens to scoped web declarations. Native clients consume JSON, never CSS.
+This package resolves manifest v1 into complete semantic token maps shared by
+Forge web, the Agently web application shell, Agently iOS, and Agently Android.
+`Parse` rejects unknown manifest fields and invalid tokens; `Resolve` overlays
+common/mode tokens on independent built-in palettes. `CSS` maps the same
+resolved values to two web boundaries: `--agently-theme-*` variables on
+`.agently-application` and the established `--forge-*` variables on
+`.agently-workspace`. Native clients consume JSON, never CSS.
+
+The application variables are an opt-in bridge, not an automatic restyle.
+Agently keeps its incumbent `--app-*` defaults until a workspace-scoped CSS
+file maps the portable values to the public shell roles. This lets existing
+workspaces remain visually unchanged while one selected theme can configure
+the shell and Forge surfaces without duplicating token values.
 
 File references are only modeled here. Filesystem containment, CSS parsing, delivery, authentication, and caching belong to the pending workspace asset service. Do not serve a manifest's file list without that validation.
 

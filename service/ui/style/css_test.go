@@ -33,4 +33,8 @@ func TestScopeDiagnostics(t *testing.T) {
 	if err != nil || len(warnings) != 0 {
 		t.Fatalf("valid scoped CSS: %v %v", warnings, err)
 	}
+	warnings, err = validateCSS([]byte(`.agently-application[data-agently-theme="branded"][data-agently-color-mode="dark"] .app-shell {color: red}`), "branded", "dark")
+	if err != nil || len(warnings) != 0 {
+		t.Fatalf("valid application-scoped CSS: %v %v", warnings, err)
+	}
 }

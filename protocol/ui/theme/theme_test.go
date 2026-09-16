@@ -87,8 +87,19 @@ func TestCSSAndJSON(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(css, "--forge-control-radius: 8px;") || !strings.Contains(css, `data-forge-color-mode="dark"`) {
+	if !strings.Contains(css, "--forge-control-radius: 8px;") ||
+		!strings.Contains(css, "--agently-theme-control-radius: 8px;") ||
+		!strings.Contains(css, `data-forge-color-mode="dark"`) ||
+		!strings.Contains(css, `data-agently-color-mode="dark"`) {
 		t.Fatal(css)
+	}
+	applicationStart := strings.Index(css, ".agently-application")
+	if applicationStart < 0 {
+		t.Fatal("missing application theme scope")
+	}
+	applicationEnd := applicationStart + strings.Index(css[applicationStart:], "}\n")
+	if applicationEnd < applicationStart || strings.Contains(css[applicationStart:applicationEnd], "color-scheme") {
+		t.Fatal("application variables must not restyle browser controls before workspace opt-in")
 	}
 	bytes, err := json.Marshal(c)
 	if err != nil {

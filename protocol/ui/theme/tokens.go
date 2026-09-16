@@ -7,27 +7,27 @@ import (
 )
 
 type tokenSpec struct {
-	variable, kind string
-	min, max       float64
+	variable, applicationVariable, kind string
+	min, max                            float64
 }
 
 var tokenSpecs = map[string]tokenSpec{
-	"typography.family":     {variable: "--forge-font-family", kind: "font"},
-	"typography.size":       {variable: "--forge-font-size", min: 8, max: 72},
-	"surface":               {variable: "--forge-surface", kind: "color"},
-	"text":                  {variable: "--forge-text", kind: "color"},
-	"control.minHeight":     {variable: "--forge-control-height", min: 16, max: 128},
-	"control.radius":        {variable: "--forge-control-radius", max: 64},
-	"control.paddingInline": {variable: "--forge-control-padding-inline", max: 64},
-	"control.background":    {variable: "--forge-control-bg", kind: "color"},
-	"control.foreground":    {variable: "--forge-control-text", kind: "color"},
-	"control.border":        {variable: "--forge-control-border", kind: "color"},
-	"focus.color":           {variable: "--forge-focus-color", kind: "color"},
-	"button.background":     {variable: "--forge-button-bg", kind: "color"},
-	"button.foreground":     {variable: "--forge-button-text", kind: "color"},
-	"disabled.background":   {variable: "--forge-disabled-bg", kind: "color"},
-	"disabled.foreground":   {variable: "--forge-disabled-text", kind: "color"},
-	"validation.border":     {variable: "--forge-invalid-border", kind: "color"},
+	"typography.family":     {variable: "--forge-font-family", applicationVariable: "--agently-theme-font-family", kind: "font"},
+	"typography.size":       {variable: "--forge-font-size", applicationVariable: "--agently-theme-font-size", min: 8, max: 72},
+	"surface":               {variable: "--forge-surface", applicationVariable: "--agently-theme-surface", kind: "color"},
+	"text":                  {variable: "--forge-text", applicationVariable: "--agently-theme-text", kind: "color"},
+	"control.minHeight":     {variable: "--forge-control-height", applicationVariable: "--agently-theme-control-height", min: 16, max: 128},
+	"control.radius":        {variable: "--forge-control-radius", applicationVariable: "--agently-theme-control-radius", max: 64},
+	"control.paddingInline": {variable: "--forge-control-padding-inline", applicationVariable: "--agently-theme-control-padding-inline", max: 64},
+	"control.background":    {variable: "--forge-control-bg", applicationVariable: "--agently-theme-control-background", kind: "color"},
+	"control.foreground":    {variable: "--forge-control-text", applicationVariable: "--agently-theme-control-foreground", kind: "color"},
+	"control.border":        {variable: "--forge-control-border", applicationVariable: "--agently-theme-control-border", kind: "color"},
+	"focus.color":           {variable: "--forge-focus-color", applicationVariable: "--agently-theme-focus", kind: "color"},
+	"button.background":     {variable: "--forge-button-bg", applicationVariable: "--agently-theme-button-background", kind: "color"},
+	"button.foreground":     {variable: "--forge-button-text", applicationVariable: "--agently-theme-button-foreground", kind: "color"},
+	"disabled.background":   {variable: "--forge-disabled-bg", applicationVariable: "--agently-theme-disabled-background", kind: "color"},
+	"disabled.foreground":   {variable: "--forge-disabled-text", applicationVariable: "--agently-theme-disabled-foreground", kind: "color"},
+	"validation.border":     {variable: "--forge-invalid-border", applicationVariable: "--agently-theme-validation-border", kind: "color"},
 }
 
 // Defaults returns a fresh palette. Dimensions are logical units, not CSS strings.
@@ -81,27 +81,33 @@ func CSS(c *Catalog) (string, error) {
 			if err := validateTokens(values); err != nil {
 				return "", err
 			}
-			fmt.Fprintf(&out, ".agently-workspace[data-forge-theme=%q][data-forge-color-mode=%q] {\n", t.ID, mode)
-			fmt.Fprintf(&out, "  color-scheme: %s;\n", mode)
+			fmt.Fprintf(&out, ".agently-application[data-agently-theme=%q][data-agently-color-mode=%q] {\n", t.ID, mode)
 			keys := make([]string, 0, len(values))
 			for k := range values {
 				keys = append(keys, k)
 			}
 			sort.Strings(keys)
+			rendered := make(map[string]string, len(keys))
 			for _, k := range keys {
 				spec := tokenSpecs[k]
-				v := values[k]
-				var rendered string
+				value := values[k]
 				switch spec.kind {
 				case "font":
-					rendered = "system-ui, sans-serif"
+					rendered[k] = "system-ui, sans-serif"
 				case "color":
-					rendered = v.(string)
+					rendered[k] = value.(string)
 				default:
-					n, _ := number(v)
-					rendered = fmt.Sprintf("%gpx", n)
+					n, _ := number(value)
+					rendered[k] = fmt.Sprintf("%gpx", n)
 				}
-				fmt.Fprintf(&out, "  %s: %s;\n", spec.variable, rendered)
+				fmt.Fprintf(&out, "  %s: %s;\n", spec.applicationVariable, rendered[k])
+			}
+			out.WriteString("}\n")
+			fmt.Fprintf(&out, ".agently-workspace[data-forge-theme=%q][data-forge-color-mode=%q] {\n", t.ID, mode)
+			fmt.Fprintf(&out, "  color-scheme: %s;\n", mode)
+			for _, k := range keys {
+				spec := tokenSpecs[k]
+				fmt.Fprintf(&out, "  %s: %s;\n", spec.variable, rendered[k])
 			}
 			out.WriteString("}\n")
 		}
