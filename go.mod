@@ -1,7 +1,5 @@
 module github.com/viant/agently-core
 
-replace github.com/viant/embedius => ../embedius
-
 go 1.25.5
 
 require (
@@ -25,7 +23,7 @@ require (
 	github.com/viant/afs v1.30.1-0.20260707124824-0373fe4ae4cb
 	github.com/viant/afsc v1.16.0
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
-	github.com/viant/embedius v0.5.3
+	github.com/viant/embedius v0.5.4-0.20260916164300-beafd3cd42c2
 	github.com/viant/forge v0.3.37
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
