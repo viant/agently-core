@@ -190,6 +190,128 @@ func TestMaintainScheduledRun_MySQLDryRunCurrentAndLegacyThenDelete(t *testing.T
 	}
 }
 
+func TestMaintainConversationTree_ScheduledFallbackMySQL(t *testing.T) {
+	dsn := os.Getenv("AGENTLY_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("AGENTLY_TEST_MYSQL_DSN is not set")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open(mysql): %v", err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	if err := db.PingContext(context.Background()); err != nil {
+		t.Fatalf("ping MySQL: %v", err)
+	}
+
+	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	scheduleID := "maintenance-fallback-schedule-" + suffix
+	shellID := "maintenance-fallback-shell-" + suffix
+	currentRunConversationID := "maintenance-fallback-current-conversation-" + suffix
+	legacyRunConversationID := "maintenance-fallback-legacy-conversation-" + suffix
+	currentRunID := "maintenance-fallback-current-run-" + suffix
+	legacyRunID := "maintenance-fallback-legacy-run-" + suffix
+	leaseKey := "test-conversation-fallback-" + suffix
+	old := time.Now().UTC().Add(-60 * 24 * time.Hour).Truncate(time.Second)
+	cutoff := time.Now().UTC().Add(-30 * 24 * time.Hour)
+
+	t.Cleanup(func() {
+		_, _ = db.Exec(`DELETE FROM maintenance_lease WHERE lease_key = ?`, leaseKey)
+		_, _ = db.Exec(`DELETE FROM run WHERE id = ?`, currentRunID)
+		_, _ = db.Exec(`DELETE FROM schedule_run WHERE id = ?`, legacyRunID)
+		for _, conversationID := range []string{shellID, currentRunConversationID, legacyRunConversationID} {
+			_, _ = db.Exec(`DELETE FROM conversation WHERE id = ?`, conversationID)
+		}
+		_, _ = db.Exec(`DELETE FROM schedule WHERE id = ?`, scheduleID)
+	})
+
+	statements := []struct {
+		query string
+		args  []interface{}
+	}{
+		{query: `INSERT INTO schedule (id, name, created_by_user_id, internal, visibility, agent_ref, enabled, schedule_type, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, args: []interface{}{scheduleID, scheduleID, "owner-1", 0, "private", "agent", 1, "adhoc", "UTC"}},
+		{query: `INSERT INTO conversation (id, created_at, updated_at, last_activity, status, created_by_user_id, schedule_id) VALUES (?, ?, ?, ?, ?, ?, ?)`, args: []interface{}{shellID, old, old, old, "succeeded", nil, scheduleID}},
+		{query: `INSERT INTO conversation (id, created_at, updated_at, last_activity, status, created_by_user_id, schedule_id) VALUES (?, ?, ?, ?, ?, ?, ?)`, args: []interface{}{currentRunConversationID, old, old, old, "succeeded", "owner-1", scheduleID}},
+		{query: `INSERT INTO conversation (id, created_at, updated_at, last_activity, status, created_by_user_id, schedule_id, schedule_run_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, args: []interface{}{legacyRunConversationID, old, old, old, "succeeded", "owner-1", scheduleID, legacyRunID}},
+		{query: `INSERT INTO run (id, schedule_id, conversation_id, conversation_kind, status, effective_user_id, created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, args: []interface{}{currentRunID, scheduleID, currentRunConversationID, "scheduled", "succeeded", "owner-1", old, old, old}},
+		{query: `INSERT INTO schedule_run (id, schedule_id, conversation_id, status, conversation_kind, created_at, updated_at, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, args: []interface{}{legacyRunID, scheduleID, legacyRunConversationID, "succeeded", "scheduled", old, old, old}},
+	}
+	for _, statement := range statements {
+		if _, err := db.Exec(statement.query, statement.args...); err != nil {
+			t.Fatalf("seed MySQL scheduled fallback test with %q: %v", statement.query, err)
+		}
+	}
+
+	ctx := context.Background()
+	dao, err := datly.New(ctx)
+	if err != nil {
+		t.Fatalf("datly.New() error: %v", err)
+	}
+	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
+		t.Fatalf("AddConnectors() error: %v", err)
+	}
+	if err = registerReadComponents(ctx, dao); err != nil {
+		t.Fatalf("registerReadComponents() error: %v", err)
+	}
+	service := NewService(dao)
+
+	candidates, err := service.ListConversationMaintenanceCandidates(ctx, ConversationMaintenanceCandidateRequest{
+		Kind:           ConversationMaintenanceScheduledFallback,
+		InactiveBefore: cutoff,
+		Limit:          100,
+	})
+	if err != nil {
+		t.Fatalf("ListConversationMaintenanceCandidates(scheduled fallback) on MySQL: %v", err)
+	}
+	found := map[string]bool{
+		shellID:                  false,
+		currentRunConversationID: false,
+		legacyRunConversationID:  false,
+	}
+	for _, candidate := range candidates {
+		if _, ok := found[candidate.RootID]; ok {
+			found[candidate.RootID] = true
+		}
+	}
+	if !found[shellID] || found[currentRunConversationID] || found[legacyRunConversationID] {
+		t.Fatalf("scheduled fallback candidates include unexpected fixtures: found=%v candidates=%#v", found, candidates)
+	}
+
+	blocked, err := service.MaintainConversationTree(ctx, ConversationMaintenanceRequest{
+		RootID:         legacyRunConversationID,
+		Kind:           ConversationMaintenanceScheduledFallback,
+		InactiveBefore: cutoff,
+		Mode:           ConversationMaintenanceDryRun,
+	})
+	if err != nil {
+		t.Fatalf("MaintainConversationTree(blocked scheduled fallback) on MySQL: %v", err)
+	}
+	if blocked.Eligible || blocked.Deleted || blocked.Reason != ConversationMaintenanceRunPresent {
+		t.Fatalf("blocked scheduled fallback result = %#v", blocked)
+	}
+
+	lease := acquireTestMaintenanceLease(t, service, leaseKey, "test-worker-"+suffix)
+	deleted, err := service.MaintainConversationTree(ctx, ConversationMaintenanceRequest{
+		RootID:         shellID,
+		Kind:           ConversationMaintenanceScheduledFallback,
+		InactiveBefore: cutoff,
+		Mode:           ConversationMaintenanceDelete,
+		Lease:          lease,
+	})
+	if err != nil {
+		t.Fatalf("MaintainConversationTree(delete scheduled fallback) on MySQL: %v", err)
+	}
+	if !deleted.Eligible || !deleted.Deleted || deleted.Reason != ConversationMaintenanceDeleted {
+		t.Fatalf("deleted scheduled fallback result = %#v", deleted)
+	}
+	if got := scheduledMaintenanceFixtureCount(t, db, `SELECT COUNT(*) FROM conversation WHERE id = ?`, shellID); got != 0 {
+		t.Fatalf("deleted shell count = %d, want 0", got)
+	}
+	if got := scheduledMaintenanceFixtureCount(t, db, `SELECT COUNT(*) FROM schedule WHERE id = ?`, scheduleID); got != 1 {
+		t.Fatalf("schedule count after fallback delete = %d, want 1", got)
+	}
+}
+
 func scheduledMaintenanceFixtureCount(t *testing.T, db *sql.DB, query string, args ...interface{}) int {
 	t.Helper()
 	var count int
