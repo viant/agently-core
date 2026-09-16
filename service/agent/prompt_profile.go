@@ -75,6 +75,13 @@ func ApplyPromptProfileExecutionDefaults(input *QueryInput, profile *intake.Prof
 	if input == nil || profile == nil {
 		return
 	}
+	if model := strings.TrimSpace(profile.Model); model != "" {
+		source := runtimeModelSource(input)
+		if strings.TrimSpace(input.ModelOverride) == "" || source == "conversation.defaultModel" {
+			input.ModelOverride = model
+			setRuntimeModelSource(input, "intent.profile")
+		}
+	}
 	if profile.ParallelToolCalls != nil && input.ParallelToolCalls == nil {
 		value := *profile.ParallelToolCalls
 		input.ParallelToolCalls = &value

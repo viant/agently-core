@@ -3,9 +3,12 @@ package intake
 // Profile is a scenario configuration unit pairing instruction messages,
 // tool bundles, and one default plus optional additional output templates.
 type Profile struct {
-	ID               string            `yaml:"id"                       json:"id"`
-	Name             string            `yaml:"name,omitempty"           json:"name,omitempty"`
-	Description      string            `yaml:"description,omitempty"    json:"description,omitempty"`
+	ID          string `yaml:"id"                       json:"id"`
+	Name        string `yaml:"name,omitempty"           json:"name,omitempty"`
+	Description string `yaml:"description,omitempty"    json:"description,omitempty"`
+	// Model optionally overrides the selected agent model for turns using this
+	// profile. Intake classification keeps its independently configured model.
+	Model            string            `yaml:"model,omitempty"          json:"model,omitempty"`
 	AppliesTo        []string          `yaml:"appliesTo,omitempty"      json:"appliesTo,omitempty"`
 	EvidenceContract *EvidenceContract `yaml:"evidenceContract,omitempty" json:"evidenceContract,omitempty"`
 	Messages         []Message         `yaml:"messages,omitempty"       json:"messages,omitempty"`
