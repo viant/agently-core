@@ -548,7 +548,7 @@ func agentRouterOutputKey(defaults *config.Defaults) string {
 
 func agentRouterSystemPrompt(defaults *config.Defaults, outputKey string) string {
 	if defaults != nil {
-		if v := strings.TrimSpace(defaults.AgentAutoSelection.Prompt); v != "" {
+		if v := strings.TrimSpace(defaults.AgentAutoSelection.Prompt.Text); v != "" {
 			return v
 		}
 	}

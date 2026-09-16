@@ -41,6 +41,85 @@ func TestLoadExpandsMCPServerAddress(t *testing.T) {
 	}
 }
 
+func TestLoadExpandsEnvironmentInAllScalarValuesAndPreservesRuntimeMacros(t *testing.T) {
+	t.Setenv("AGENTLY_TEST_RUNTIME_ROOT", "/tmp/agently-runtime")
+	t.Setenv("AGENTLY_TEST_INDEX_PATH", "/tmp/agently-index")
+	root := t.TempDir()
+	data := []byte(`
+default:
+  runtimeRoot: ${AGENTLY_TEST_RUNTIME_ROOT:-/opt/agently/data}
+  statePath: ${runtimeRoot}/state
+  dbPath: ${AGENTLY_TEST_DB_PATH:-/tmp/default.db}
+  resources:
+    indexPath: ${AGENTLY_TEST_INDEX_PATH}
+    snapshotPath: ${runtimeRoot}/snapshots
+auth:
+  oauth:
+    client:
+      configURL: ${AGENTLY_TEST_CONFIG_URL:-idp.enc|blowfish://default}
+`)
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaults, err := loaded.ResolveDefaultsWithFallback(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := defaults.RuntimeRoot, "/tmp/agently-runtime"; got != want {
+		t.Fatalf("RuntimeRoot = %q, want %q", got, want)
+	}
+	if got, want := defaults.StatePath, "${runtimeRoot}/state"; got != want {
+		t.Fatalf("StatePath = %q, want %q", got, want)
+	}
+	if got, want := defaults.DBPath, "/tmp/default.db"; got != want {
+		t.Fatalf("DBPath = %q, want %q", got, want)
+	}
+	if got, want := defaults.Resources.IndexPath, "/tmp/agently-index"; got != want {
+		t.Fatalf("Resources.IndexPath = %q, want %q", got, want)
+	}
+	if got, want := defaults.Resources.SnapshotPath, "${runtimeRoot}/snapshots"; got != want {
+		t.Fatalf("Resources.SnapshotPath = %q, want %q", got, want)
+	}
+	var auth map[string]interface{}
+	if err := loaded.AuthNode.Decode(&auth); err != nil {
+		t.Fatal(err)
+	}
+	oauth := mapLookup(auth, "oauth")
+	client := mapLookup(oauth, "client")
+	if got, want := client["configURL"], "idp.enc|blowfish://default"; got != want {
+		t.Fatalf("auth.oauth.client.configURL = %q, want %q", got, want)
+	}
+}
+
+func TestResolveDefaultsLoadsAgentAutoSelectionPromptURI(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "intake"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "intake", "router.md"), []byte("Route to the best authorized agent."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	data := []byte("default:\n  agentAutoSelection:\n    prompt:\n      uri: intake/router.md\n")
+	if err := os.WriteFile(filepath.Join(root, "config.yaml"), data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := Load(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defaults, err := loaded.ResolveDefaultsWithFallback(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := defaults.AgentAutoSelection.Prompt.Text, "Route to the best authorized agent."; got != want {
+		t.Fatalf("AgentAutoSelection.Prompt.Text = %q, want %q", got, want)
+	}
+}
+
 func TestDefaultsWithFallbackMergesAdvancedDefaults(t *testing.T) {
 	fallback := &execconfig.Defaults{
 		Model:    "fallback-model",

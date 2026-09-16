@@ -48,8 +48,9 @@ default:
     # service/agent/prompts/router.md and instructs the LLM to output one of
     # {action: route|answer|clarify}. Custom prompts must preserve the same
     # output schema.
-    prompt: |
-      You are the workspace intake selector for <workspace name>. ...
+    # Either an inline scalar/block or a URI-backed prompt object.
+    prompt:
+      uri: intake/agent_auto_selection.md
 
     # Model used for the routing decision. Falls back to default.model when
     # empty. Should be a fast, cheap model — this is a classification task.
