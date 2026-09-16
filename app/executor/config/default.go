@@ -1,7 +1,6 @@
 package config
 
 import (
-	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -522,57 +521,13 @@ type AgentAutoSelectionDefaults struct {
 	// workspace-capability question; here is the answer directly." This
 	// eliminates the prior hardcoded `isCapabilityDiscoveryQuery` shortcut
 	// and unifies the auto-selection intake into a single LLM call.
-	Prompt AgentAutoSelectionPrompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+	Prompt binding.Prompt `yaml:"prompt,omitempty" json:"prompt,omitempty"`
 	// OutputKey controls the JSON field name the classifier should output.
 	// Examples: "agentId" (default), "agent_id".
 	OutputKey string `yaml:"outputKey,omitempty" json:"outputKey,omitempty"`
 	// TimeoutSec caps how long agent auto-selection classification may run.
 	// When zero, runtime applies a conservative default.
 	TimeoutSec int `yaml:"timeoutSec,omitempty" json:"timeoutSec,omitempty"`
-}
-
-// AgentAutoSelectionPrompt accepts both the legacy scalar prompt and the
-// shared URI-backed prompt object shape.
-type AgentAutoSelectionPrompt struct {
-	binding.Prompt `yaml:",inline" json:",inline"`
-}
-
-func (p *AgentAutoSelectionPrompt) UnmarshalYAML(node *yaml.Node) error {
-	if node == nil {
-		*p = AgentAutoSelectionPrompt{}
-		return nil
-	}
-	if node.Kind == yaml.ScalarNode {
-		p.Text = node.Value
-		p.URI = ""
-		p.Engine = ""
-		return nil
-	}
-	var prompt binding.Prompt
-	if err := node.Decode(&prompt); err != nil {
-		return err
-	}
-	p.Prompt = prompt
-	return nil
-}
-
-func (p AgentAutoSelectionPrompt) MarshalYAML() (interface{}, error) {
-	if strings.TrimSpace(p.URI) == "" && strings.TrimSpace(p.Engine) == "" {
-		return p.Text, nil
-	}
-	return p.Prompt, nil
-}
-
-func (p *AgentAutoSelectionPrompt) UnmarshalJSON(data []byte) error {
-	trimmed := strings.TrimSpace(string(data))
-	if trimmed == "" || trimmed == "null" {
-		*p = AgentAutoSelectionPrompt{}
-		return nil
-	}
-	if strings.HasPrefix(trimmed, "\"") {
-		return json.Unmarshal(data, &p.Text)
-	}
-	return json.Unmarshal(data, &p.Prompt)
 }
 
 // ToolAutoSelectionDefaults controls the optional tool bundle selector.
