@@ -108,7 +108,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	}
 
 	b.Task = s.buildTaskBinding(input)
-	if profile, err := s.selectedPromptProfile(ctx, input); err != nil {
+	// Execution defaults (model, parallel tool calls) belong to the selected
+	// profile even when the agent disables profile message injection.
+	if profile, err := s.selectedPromptProfileAny(ctx, input); err != nil {
 		logx.Infof("conversation", "agent.BuildBinding selectedPromptProfile error convo=%q elapsed=%s err=%v", convoID, time.Since(start).String(), err)
 		return nil, err
 	} else if profile != nil {

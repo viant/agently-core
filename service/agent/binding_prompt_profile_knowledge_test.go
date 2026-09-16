@@ -102,6 +102,24 @@ func TestProfileExecution_DisablesPlannerAndDelegation(t *testing.T) {
 	require.Equal(t, "resources:read", b.Tools.Signatures[0].Name)
 }
 
+func TestApplyPromptProfileExecutionDefaults_ModelOverride(t *testing.T) {
+	input := &QueryInput{}
+	ApplyPromptProfileExecutionDefaults(input, &intake.Profile{Model: "openai_gpt-5_6_terra"})
+	require.Equal(t, "openai_gpt-5_6_terra", input.ModelOverride)
+	require.Equal(t, "intent.profile", runtimeModelSource(input))
+
+	explicit := &QueryInput{ModelOverride: "caller-model"}
+	ApplyPromptProfileExecutionDefaults(explicit, &intake.Profile{Model: "profile-model"})
+	require.Equal(t, "caller-model", explicit.ModelOverride)
+	require.Empty(t, runtimeModelSource(explicit))
+
+	inherited := &QueryInput{ModelOverride: "conversation-model"}
+	setRuntimeModelSource(inherited, "conversation.defaultModel")
+	ApplyPromptProfileExecutionDefaults(inherited, &intake.Profile{Model: "profile-model"})
+	require.Equal(t, "profile-model", inherited.ModelOverride)
+	require.Equal(t, "intent.profile", runtimeModelSource(inherited))
+}
+
 func TestProfileKnowledgeCanonicalSource(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "article.md")
 	require.NoError(t, os.WriteFile(path, []byte("---\ntitle: \"Household ID\"\nsourceUrl: \"https://help.viantinc.com/hc/en-us/articles/123\"\n---\nbody\n"), 0600))
