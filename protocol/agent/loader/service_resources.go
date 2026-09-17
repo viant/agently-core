@@ -358,6 +358,12 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 			if err := (*yaml.Node)(v).Decode(&re.Metadata); err != nil {
 				return fmt.Errorf("invalid resource metadata: %w", err)
 			}
+		case "refreshintervalseconds":
+			if v.Kind == yaml.ScalarNode {
+				if n, err := parseInt64(fmt.Sprint(v.Interface())); err == nil && n > 0 {
+					re.RefreshIntervalSeconds = int(n)
+				}
+			}
 		case "minscore":
 			if v.Kind == yaml.ScalarNode {
 				val := v.Interface()

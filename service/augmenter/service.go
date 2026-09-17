@@ -32,6 +32,8 @@ import (
 
 const name = "llm/augmenter"
 
+const defaultIndexRefreshInterval = time.Hour
+
 // Service extracts structured information from LLM responses
 type Service struct {
 	finder         embedder.Finder
@@ -120,15 +122,16 @@ func WithIndexAsync(enabled bool) func(*Service) {
 
 // LocalRoot binds a non-MCP resource root to an upstream definition.
 type LocalRoot struct {
-	ID          string
-	URI         string
-	UpstreamRef string
-	SyncEnabled *bool
-	MinInterval int
-	Batch       int
-	Shadow      string
-	Force       *bool
-	Metadata    metadata.Config
+	ID                     string
+	URI                    string
+	UpstreamRef            string
+	SyncEnabled            *bool
+	MinInterval            int
+	RefreshIntervalSeconds int
+	Batch                  int
+	Shadow                 string
+	Force                  *bool
+	Metadata               metadata.Config
 }
 
 // LocalUpstream defines a database used to sync local/workspace resources.
@@ -242,6 +245,7 @@ func (s *Service) AugmentDocs(ctx context.Context, input *AugmentDocsInput, outp
 			matchCtx := ctx
 			if s.indexAsync {
 				matchCtx = embindexer.WithAsyncIndex(matchCtx, true)
+				matchCtx = embindexer.WithAsyncIndexRefreshInterval(matchCtx, s.indexRefreshInterval(ctx, location))
 			}
 			if cfg := s.upstreamSyncConfig(ctx, location, augmenter); cfg != nil {
 				matchCtx = embindexer.WithUpstreamSyncConfig(matchCtx, cfg)

@@ -127,10 +127,11 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 			continue
 		}
 		localRoots = append(localRoots, aug.LocalRoot{
-			ID:          root.ID,
-			URI:         root.URI,
-			UpstreamRef: root.UpstreamRef,
-			Metadata:    root.Metadata,
+			ID:                     root.ID,
+			URI:                    root.URI,
+			UpstreamRef:            root.UpstreamRef,
+			Metadata:               root.Metadata,
+			RefreshIntervalSeconds: root.RefreshIntervalSeconds,
 		})
 	}
 	if len(localRoots) > 0 {

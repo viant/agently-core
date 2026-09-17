@@ -3,6 +3,7 @@ package augmenter
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/afs/url"
@@ -85,4 +86,15 @@ func TestResolveMetadataConfig_LocalRootWithoutUpstream(t *testing.T) {
 
 	actual := svc.resolveMetadataConfig(ctx, location)
 	require.Equal(t, expected, actual)
+}
+
+func TestIndexRefreshInterval(t *testing.T) {
+	svc := New(nil)
+	require.Equal(t, time.Hour, svc.indexRefreshInterval(context.Background(), "workspace://localhost/docs"))
+
+	ctx := WithLocalRoots(context.Background(), []LocalRoot{{
+		URI:                    "workspace://localhost/docs",
+		RefreshIntervalSeconds: 600,
+	}})
+	require.Equal(t, 10*time.Minute, svc.indexRefreshInterval(ctx, "workspace://localhost/docs/article.md"))
 }

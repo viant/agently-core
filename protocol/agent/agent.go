@@ -205,6 +205,9 @@ type (
 		MinScore *float64        `yaml:"minScore,omitempty" json:"minScore,omitempty"`
 		// Metadata configures generic indexed document metadata extraction.
 		Metadata metadata.Config `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+		// RefreshIntervalSeconds limits background index checks for this root.
+		// Zero uses the Agently default.
+		RefreshIntervalSeconds int `yaml:"refreshIntervalSeconds,omitempty" json:"refreshIntervalSeconds,omitempty"`
 		// UpstreamRef links this resource root to a configured upstream sync definition.
 		UpstreamRef string `yaml:"upstreamRef,omitempty" json:"upstreamRef,omitempty"`
 		// DB optionally overrides the embedius sqlite database path for this root.
