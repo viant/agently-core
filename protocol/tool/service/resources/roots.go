@@ -17,6 +17,7 @@ import (
 	"github.com/viant/agently-core/workspace"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	embopt "github.com/viant/embedius/matching/option"
+	"github.com/viant/embedius/metadata"
 )
 
 type ResourcesDefaults struct {
@@ -49,6 +50,8 @@ type Root struct {
 	DB string `json:"-"`
 	// Match carries per-root match options (include/exclude/max file size).
 	Match *embopt.Options `json:"match,omitempty"`
+	// Metadata carries generic indexed document metadata extraction settings.
+	Metadata metadata.Config `json:"-"`
 	// AllowedSemanticSearch reports whether semantic match (match)
 	// is permitted for this root in the current agent configuration.
 	AllowedSemanticSearch bool `json:"allowedSemanticSearch"`
@@ -108,6 +111,7 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 		upstreamRef := ""
 		rootDB := ""
 		var rootMatch *embopt.Options
+		var rootMetadata metadata.Config
 		if curAgent != nil {
 			for _, r := range s.agentResources(ctx, curAgent) {
 				if r == nil || strings.TrimSpace(r.URI) == "" {
@@ -136,6 +140,7 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 					if r.Match != nil {
 						rootMatch = r.Match
 					}
+					rootMetadata = r.Metadata
 					break
 				}
 			}
@@ -151,6 +156,7 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 			Description:           desc,
 			UpstreamRef:           upstreamRef,
 			DB:                    rootDB,
+			Metadata:              rootMetadata,
 			AllowedSemanticSearch: semAllowed,
 			AllowedGrepSearch:     grepAllowed,
 			Role:                  role,
@@ -243,6 +249,7 @@ func (s *Service) collectMCPRoots(ctx context.Context) []Root {
 				AllowedSemanticSearch: root.Vectorize && root.Snapshot,
 				AllowedGrepSearch:     root.AllowGrep && root.Snapshot,
 				Role:                  "system",
+				Metadata:              root.Metadata,
 			}
 			if semAllowed && match != nil {
 				rootEntry.Match = match

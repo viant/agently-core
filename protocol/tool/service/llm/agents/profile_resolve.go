@@ -7,7 +7,7 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
@@ -47,7 +47,7 @@ func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *agentsvc
 
 	// 1. Render profile messages (local text/URI or MCP source).
 	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	msgs, err := profile.Render(ctx, s.mcpMgr, &intake.RenderOptions{ConversationID: convID})
+	msgs, err := profile.Render(ctx, s.mcpMgr, &intent.RenderOptions{ConversationID: convID})
 	if err != nil {
 		return fmt.Errorf("render profile %q: %w", profileID, err)
 	}
@@ -86,7 +86,7 @@ func (s *Service) resolveProfile(ctx context.Context, ri *RunInput, qi *agentsvc
 // under the pre-assigned turn ID.  System-role messages are stored as system
 // documents (SystemDocumentMode + SystemDocumentTag) so BuildBinding loads them.
 // User and assistant messages are stored with their natural roles.
-func (s *Service) injectProfileMessages(ctx context.Context, ri *RunInput, qi *agentsvc.QueryInput, childConvID string, msgs []intake.Message) error {
+func (s *Service) injectProfileMessages(ctx context.Context, ri *RunInput, qi *agentsvc.QueryInput, childConvID string, msgs []intent.Message) error {
 	if s.conv == nil || len(msgs) == 0 || strings.TrimSpace(childConvID) == "" || strings.TrimSpace(qi.MessageID) == "" {
 		return nil
 	}

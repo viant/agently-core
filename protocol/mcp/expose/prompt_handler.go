@@ -4,7 +4,7 @@ import (
 	"context"
 	"strings"
 
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	"github.com/viant/jsonrpc"
 	mcpschema "github.com/viant/mcp-protocol/schema"
@@ -13,8 +13,8 @@ import (
 // ProfileRepo is the subset of *intakerepo.Repository used by the MCP prompt handlers.
 // *intakerepo.Repository satisfies this interface without any changes.
 type ProfileRepo interface {
-	LoadAll(ctx context.Context) ([]*intake.Profile, error)
-	Load(ctx context.Context, id string) (*intake.Profile, error)
+	LoadAll(ctx context.Context) ([]*intent.Profile, error)
+	Load(ctx context.Context, id string) (*intent.Profile, error)
 }
 
 // WithProfileRepo injects a profile repository into a ToolHandler so that
@@ -44,7 +44,7 @@ func listPrompts(ctx context.Context, repo ProfileRepo) (*mcpschema.ListPromptsR
 }
 
 // getPrompt implements prompts/get: renders a profile and returns its messages.
-func getPrompt(ctx context.Context, repo ProfileRepo, mgr intake.MCPManager, params *mcpschema.GetPromptRequestParams) (*mcpschema.GetPromptResult, *jsonrpc.Error) {
+func getPrompt(ctx context.Context, repo ProfileRepo, mgr intent.MCPManager, params *mcpschema.GetPromptRequestParams) (*mcpschema.GetPromptResult, *jsonrpc.Error) {
 	if repo == nil {
 		return nil, jsonrpc.NewMethodNotFound("no profile repository configured", nil)
 	}
@@ -68,7 +68,7 @@ func getPrompt(ctx context.Context, repo ProfileRepo, mgr intake.MCPManager, par
 		}
 	}
 
-	msgs, err := profile.Render(ctx, mgr, &intake.RenderOptions{Binding: binding})
+	msgs, err := profile.Render(ctx, mgr, &intent.RenderOptions{Binding: binding})
 	if err != nil {
 		return nil, jsonrpc.NewInternalError("render profile: "+err.Error(), nil)
 	}
@@ -91,7 +91,7 @@ func getPrompt(ctx context.Context, repo ProfileRepo, mgr intake.MCPManager, par
 	}, nil
 }
 
-func profileToMCPPrompt(p *intake.Profile) mcpschema.Prompt {
+func profileToMCPPrompt(p *intent.Profile) mcpschema.Prompt {
 	desc := strings.TrimSpace(p.Description)
 	name := strings.TrimSpace(p.Name)
 	entry := mcpschema.Prompt{Name: strings.TrimSpace(p.ID)}

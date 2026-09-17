@@ -1,4 +1,4 @@
-package intake
+package intent
 
 import (
 	"bytes"

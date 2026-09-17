@@ -666,6 +666,24 @@ resources:
 	assert.Equal(t, "knowledge/targeting-tree/operations.md", agentCfg.Resources[1].URI)
 }
 
+func TestParseResourceEntry_MetadataExtractor(t *testing.T) {
+	var root yaml.Node
+	require.NoError(t, yaml.Unmarshal([]byte(`
+id: docs
+uri: knowledge/docs/
+metadata:
+  extractor: yaml-frontmatter
+  fields:
+    document.title: title
+    source.url: sourceUrl
+`), &root))
+	res, err := parseResourceEntry((*yml.Node)(root.Content[0]))
+	require.NoError(t, err)
+	require.Equal(t, "yaml-frontmatter", res.Metadata.Extractor)
+	require.Equal(t, "title", res.Metadata.Fields["document.title"])
+	require.Equal(t, "sourceUrl", res.Metadata.Fields["source.url"])
+}
+
 func TestParseKnowledge_MinScoreAndMaxFiles(t *testing.T) {
 	makeNode := func(doc string) *yml.Node {
 		var root yaml.Node

@@ -170,6 +170,7 @@ func parseEmbediusResourcesEntry(node *yml.Node) ([]*agentmdl.Resource, bool, er
 			DB: func() string {
 				return strings.TrimSpace(cfg.Store.DSN)
 			}(),
+			Metadata: root.Metadata,
 		}
 		if len(root.Include) > 0 || len(root.Exclude) > 0 || root.MaxSizeBytes > 0 {
 			res.Match = &option.Options{
@@ -352,6 +353,10 @@ func parseResourceEntry(node *yml.Node) (*agentmdl.Resource, error) {
 					return nil
 				})
 				re.Match = m
+			}
+		case "metadata":
+			if err := (*yaml.Node)(v).Decode(&re.Metadata); err != nil {
+				return fmt.Errorf("invalid resource metadata: %w", err)
 			}
 		case "minscore":
 			if v.Kind == yaml.ScalarNode {

@@ -10,6 +10,7 @@ import (
 	"github.com/viant/embedius/indexer/fs"
 	"github.com/viant/embedius/indexer/fs/splitter"
 	"github.com/viant/embedius/matching"
+	"github.com/viant/embedius/metadata"
 	"github.com/viant/embedius/vectordb/sqlitevec"
 )
 
@@ -60,4 +61,28 @@ func TestUpstreamSyncConfig_ContextRoots(t *testing.T) {
 	cfg := svc.upstreamSyncConfig(ctx, location, aug)
 	require.NotNil(t, cfg)
 	require.False(t, cfg.Enabled)
+}
+
+func TestResolveMetadataConfig_LocalRootWithoutUpstream(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("AGENTLY_WORKSPACE", tempDir)
+	t.Setenv("AGENTLY_WORKSPACE_NO_DEFAULTS", "1")
+
+	expected := metadata.Config{
+		Extractor: "yaml-frontmatter",
+		Fields: map[string]string{
+			"document.title": "title",
+			"source.url":     "sourceUrl",
+		},
+	}
+	svc := New(nil)
+	ctx := WithLocalRoots(context.Background(), []LocalRoot{{
+		ID:       "docs",
+		URI:      "workspace://localhost/docs",
+		Metadata: expected,
+	}})
+	location := url.Join(url.Normalize(workspace.Root(), "file"), "docs/article.md")
+
+	actual := svc.resolveMetadataConfig(ctx, location)
+	require.Equal(t, expected, actual)
 }

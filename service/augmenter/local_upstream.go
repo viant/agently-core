@@ -10,6 +10,7 @@ import (
 	"github.com/viant/afs/url"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/datly/view"
+	"github.com/viant/embedius/metadata"
 )
 
 type localRoot struct {
@@ -21,6 +22,7 @@ type localRoot struct {
 	Batch       int
 	Shadow      string
 	Force       *bool
+	Metadata    metadata.Config
 	matchKey    string
 }
 
@@ -69,6 +71,7 @@ func normalizeLocalRoots(roots []LocalRoot) []localRoot {
 			Batch:       root.Batch,
 			Shadow:      strings.TrimSpace(root.Shadow),
 			Force:       root.Force,
+			Metadata:    root.Metadata,
 			matchKey:    matchKey,
 		})
 	}
@@ -159,49 +162,20 @@ func isLocalUpstreamEnabled(upstream *LocalUpstream) bool {
 }
 
 func (s *Service) resolveLocalRootID(ctx context.Context, location string) (string, bool) {
-	if s == nil {
-		return "", false
-	}
-	locKey := normalizeLocalMatchKey(location)
-	if locKey == "" {
-		return "", false
-	}
-	roots := s.localRoots
-	if extra := normalizeLocalRoots(localRootsFromContext(ctx)); len(extra) > 0 {
-		merged := make([]localRoot, 0, len(roots)+len(extra))
-		merged = append(merged, roots...)
-		merged = append(merged, extra...)
-		roots = merged
-	}
-	if len(roots) == 0 {
-		return "", false
-	}
-	var best *localRoot
-	for i := range roots {
-		root := &roots[i]
-		if root.matchKey == "" {
-			continue
-		}
-		if !isUnderLocalPath(locKey, root.matchKey) {
-			continue
-		}
-		if best == nil || len(root.matchKey) > len(best.matchKey) {
-			best = root
-		}
-	}
+	best := s.resolveLocalRoot(ctx, location)
 	if best == nil || strings.TrimSpace(best.ID) == "" {
 		return "", false
 	}
 	return best.ID, true
 }
 
-func (s *Service) resolveLocalUpstream(ctx context.Context, location string) (*localRoot, *LocalUpstream, bool) {
+func (s *Service) resolveLocalRoot(ctx context.Context, location string) *localRoot {
 	if s == nil {
-		return nil, nil, false
+		return nil
 	}
 	locKey := normalizeLocalMatchKey(location)
 	if locKey == "" {
-		return nil, nil, false
+		return nil
 	}
 	roots := s.localRoots
 	if extra := normalizeLocalRoots(localRootsFromContext(ctx)); len(extra) > 0 {
@@ -211,7 +185,7 @@ func (s *Service) resolveLocalUpstream(ctx context.Context, location string) (*l
 		roots = merged
 	}
 	if len(roots) == 0 {
-		return nil, nil, false
+		return nil
 	}
 	var best *localRoot
 	for i := range roots {
@@ -226,6 +200,11 @@ func (s *Service) resolveLocalUpstream(ctx context.Context, location string) (*l
 			best = root
 		}
 	}
+	return best
+}
+
+func (s *Service) resolveLocalUpstream(ctx context.Context, location string) (*localRoot, *LocalUpstream, bool) {
+	best := s.resolveLocalRoot(ctx, location)
 	if best == nil {
 		return nil, nil, false
 	}

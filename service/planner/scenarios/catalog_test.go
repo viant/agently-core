@@ -4,13 +4,13 @@ import (
 	"strings"
 	"testing"
 
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
 func TestCatalog_IncludesResolvedProfileKnowledge(t *testing.T) {
 	parallel := true
-	profiles := []*intake.Profile{
+	profiles := []*intent.Profile{
 		{
 			ID:                "performance_analysis",
 			Name:              "Performance Analysis",
@@ -21,8 +21,8 @@ func TestCatalog_IncludesResolvedProfileKnowledge(t *testing.T) {
 			Template:          "analytics_dashboard",
 			Templates:         []string{"analytics_dashboard", "analytics_dashboard"},
 			ParallelToolCalls: &parallel,
-			Expansion:         &intake.Expansion{Mode: "llm", Model: "openai_gpt-5_mini", MaxTokens: 600},
-			Messages: []intake.Message{
+			Expansion:         &intent.Expansion{Mode: "llm", Model: "openai_gpt-5_mini", MaxTokens: 600},
+			Messages: []intent.Message{
 				{Role: "system", Text: "Hard rules:\n- MUST emit DATA:performance_summary"},
 				{Role: "user", Text: "Analyze performance and metric health."},
 			},

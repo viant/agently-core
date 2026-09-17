@@ -6,7 +6,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 	agproto "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/protocol/binding"
+	intent "github.com/viant/agently-core/protocol/intent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 )
@@ -137,4 +140,21 @@ func TestBootstrapToolEventStatus(t *testing.T) {
 	assert.Equal(t, "failed", bootstrapToolEventStatus(streaming.EventTypeToolCallFailed))
 	assert.Equal(t, "canceled", bootstrapToolEventStatus(streaming.EventTypeToolCallCanceled))
 	assert.Equal(t, "", bootstrapToolEventStatus(streaming.EventType("other")))
+}
+
+func TestSelectedProfileBootstrapUsesCentralExecutor(t *testing.T) {
+	registry := &staticRegistry{result: `{"status":"ready"}`}
+	profile := &intent.Profile{ID: "profile-a", Bootstrap: []agproto.BootstrapToolCall{{
+		ID: "profile_context", Tool: "context:load", Args: map[string]interface{}{"query": "{{query}}"},
+		Inject: agproto.BootstrapInject{As: "systemContext", SourceURI: "internal://profile/context"}, Required: true,
+	}}}
+	service := &Service{registry: registry}
+	input := &QueryInput{Query: "question", Agent: &agproto.Agent{Identity: agproto.Identity{ID: "agent-a"}}}
+	b := &binding.Binding{}
+	err := service.appendBootstrapSystemDocuments(withSelectedPromptProfile(context.Background(), profile), input, b)
+	require.NoError(t, err)
+	require.Equal(t, "context:load", registry.lastName)
+	require.Equal(t, "question", registry.lastArgs["query"])
+	require.Len(t, b.SystemDocuments.Items, 1)
+	require.Equal(t, "internal://profile/context", b.SystemDocuments.Items[0].SourceURI)
 }

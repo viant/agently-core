@@ -67,17 +67,17 @@ func NewDocsAugmenter(ctx context.Context, embeddingsModel string, embedder base
 
 // NewDocsAugmenterWithStore constructs a DocsAugmenter that reuses the provided sqlitevec store.
 func NewDocsAugmenterWithStore(ctx context.Context, embeddingsModel string, embedder baseembed.Embedder, store *sqlitevec.Store, options ...option.Option) *DocsAugmenter {
-	return newDocsAugmenterWithStoreAtBase(embeddingBaseURL(ctx), embeddingsModel, embedder, store, options...)
+	return newDocsAugmenterWithStoreAtBase(embeddingBaseURL(ctx), embeddingsModel, embedder, store, nil, options...)
 }
 
-func newDocsAugmenterWithStoreAtBase(baseURL, embeddingsModel string, embedder baseembed.Embedder, store *sqlitevec.Store, options ...option.Option) *DocsAugmenter {
+func newDocsAugmenterWithStoreAtBase(baseURL, embeddingsModel string, embedder baseembed.Embedder, store *sqlitevec.Store, metadataResolver fs.MetadataResolver, options ...option.Option) *DocsAugmenter {
 	_ = os.MkdirAll(baseURL, 0755)
 	matcher := matching.New(options...)
 	splitterFactory := splitter.NewFactory(4096)
 	splitterFactory.RegisterExtensionSplitter(".pdf", NewPDFSplitter(4096))
 	ret := &DocsAugmenter{
 		embedder:  embeddingsModel,
-		fsIndexer: fs.New(baseURL, embeddingsModel, matcher, splitterFactory),
+		fsIndexer: fs.New(baseURL, embeddingsModel, matcher, splitterFactory, fs.WithMetadataResolver(metadataResolver)),
 		store:     store,
 	}
 	ret.service = indexer.NewService(baseURL, ret.store, adaptembed.LangchainEmbedderAdapter{Inner: embedder}, ret.fsIndexer)
@@ -107,6 +107,7 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 		}
 		return s.resolveMCPRootID(ctx, uri)
 	}
+	resolveMetadata := fs.WithMetadataResolver(s.resolveMetadataConfig)
 	// Use a single augmenter per model+options(+mcp)+db and a shared sqlite store.
 	key := Key(input.Model, input.Match)
 	if useMCP {
@@ -152,6 +153,7 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 				matcher,
 				splitterFactory,
 				mcpfs.NewComposite(s.mcpMgr, opts...),
+				resolveMetadata,
 			)
 			idx = newNamespaceOverrideIndexer(idx, resolveNamespace)
 			ret := &DocsAugmenter{
@@ -162,7 +164,7 @@ func (s *Service) getDocAugmenter(ctx context.Context, input *AugmentDocsInput) 
 			ret.service = indexer.NewService(baseURL, ret.store, adaptembed.LangchainEmbedderAdapter{Inner: model}, ret.fsIndexer)
 			augmenter = ret
 		} else {
-			augmenter = newDocsAugmenterWithStoreAtBase(baseURL, input.Model, model, store, matchOptions...)
+			augmenter = newDocsAugmenterWithStoreAtBase(baseURL, input.Model, model, store, s.resolveMetadataConfig, matchOptions...)
 			if augmenter != nil && augmenter.fsIndexer != nil {
 				augmenter.fsIndexer = newNamespaceOverrideIndexer(augmenter.fsIndexer, resolveNamespace)
 				augmenter.service = indexer.NewService(baseURL, augmenter.store, adaptembed.LangchainEmbedderAdapter{Inner: model}, augmenter.fsIndexer)

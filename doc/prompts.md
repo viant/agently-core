@@ -9,7 +9,7 @@ file is an error; it does not activate a legacy definition. Existing nested
 `<id>/<id>.yaml` layouts and relative imports remain supported. Repository
 writes target `intents`; legacy files do not need to be moved to keep working.
 
-The Go type is `intake.Profile` in `protocol/intake`; its repository is
+The Go type is `intake.Profile` in `../protocol/intent`; its repository is
 `intake.Repository` in `workspace/repository/intake`. Update Go imports from
 `protocol/prompt` and `workspace/repository/prompt` to those new package paths.
 `intentProfileId` is the canonical runtime field. The legacy
@@ -107,8 +107,8 @@ Separate workers are only justified when the tool family, validation rules, or f
 ## Intake Profiles — IMPLEMENTED
 
 > **IMPLEMENTED** — All of the following are in production code:
-> - `protocol/intake/profile.go` — `Profile`, `Message`, `MCPSource`, `Expansion` types + `EffectiveMessages()`
-> - `protocol/intake/render.go` — `Profile.Render()` supporting local text/URI messages and MCP-sourced messages
+> - `../protocol/intent` — `Profile`, `Message`, `MCPSource`, `Expansion` types + `EffectiveMessages()`
+> - `../protocol/intent` — `Profile.Render()` supporting local text/URI messages and MCP-sourced messages
 > - `workspace/repository/intake/` — profile repository
 > - `protocol/tool/service/prompt/service.go` — `prompt:list` / `prompt:get` tools
 > - `protocol/tool/service/llm/agents/types.go` — `RunInput` extended with `PromptProfileId`, `ToolBundles`, `TemplateId`
@@ -344,23 +344,23 @@ Template selection is not additive — one template per turn. An empty value def
 
 ## Package Organization — IMPLEMENTED
 
-> **IMPLEMENTED** — `protocol/intake` was renamed to `protocol/binding` (Phase 1). `protocol/intake` now contains profile types.
+> **IMPLEMENTED** — `../protocol/intent` was renamed to `protocol/binding` (Phase 1). `../protocol/intent` now contains profile types.
 
 ### The Naming Problem
 
-The existing `protocol/intake` package contains rendering primitives: `Prompt` (text-template engine), `Binding` (conversation context), `Persona`. Intake profiles are a different concept. Both cannot cleanly share the `prompt` package name.
+The existing `../protocol/intent` package contains rendering primitives: `Prompt` (text-template engine), `Binding` (conversation context), `Persona`. Intake profiles are a different concept. Both cannot cleanly share the `prompt` package name.
 
-### Option A — Keep `protocol/intake`, add `protocol/intakeprofile`
+### Option A — Keep `../protocol/intent`, add `protocol/intakeprofile`
 
 No rename. Separate package for profiles. Low disruption but perpetual disambiguation.
 
-### Option B — Rename `protocol/intake` to `protocol/binding` (recommended)
+### Option B — Rename `../protocol/intent` to `protocol/binding` (recommended)
 
 `Binding`, `Prompt` (text renderer), and `Persona` are all about how data is bound and rendered into conversation text. `binding` describes the package correctly.
 
 After rename:
 - `protocol/binding` — rendering primitives (Binding, Prompt text engine, Persona)
-- `protocol/intake` — scenario profiles, profile repository, `prompt:list`/`prompt:get` service
+- `../protocol/intent` — scenario profiles, profile repository, `prompt:list`/`prompt:get` service
 
 `prompt.Profile` reads clearly. No disambiguation needed. No separate `promptprofile` package.
 
@@ -818,7 +818,7 @@ All eleven phases are implemented as of 2026-04-15. The descriptions below are p
 
 ---
 
-### Phase 1 — Rename `protocol/intake` → `protocol/binding`
+### Phase 1 — Rename `../protocol/intent` → `protocol/binding`
 
 **Why first:** every subsequent phase imports `protocol/binding`. Do this once as a mechanical refactor before any new code is written.
 
@@ -826,12 +826,12 @@ All eleven phases are implemented as of 2026-04-15. The descriptions below are p
 
 | New path | Source |
 |---|---|
-| `protocol/binding/prompt.go` | `protocol/intake/prompt.go` — change `package prompt` → `package binding` |
-| `protocol/binding/binding.go` | `protocol/intake/binding.go` — same |
-| `protocol/binding/persona.go` | `protocol/intake/persona.go` — same |
-| `protocol/binding/history_test.go` | `protocol/intake/history_test.go` — same |
-| `protocol/binding/adapter/document.go` | `protocol/intake/adapter/document.go` — same |
-| `protocol/binding/adapter/tool.go` | `protocol/intake/adapter/tool.go` — same |
+| `protocol/binding/prompt.go` | `../protocol/intent` — change `package prompt` → `package binding` |
+| `protocol/binding/binding.go` | `../protocol/intent` — same |
+| `protocol/binding/persona.go` | `../protocol/intent` — same |
+| `protocol/binding/history_test.go` | `../protocol/intent` — same |
+| `protocol/binding/adapter/document.go` | `../protocol/intent` — same |
+| `protocol/binding/adapter/tool.go` | `../protocol/intent` — same |
 
 **Import path changes (43 files):**
 
@@ -842,7 +842,7 @@ prompt.Prompt   →  binding.Prompt
 prompt.Persona  →  binding.Persona
 ```
 
-Use `gofmt` + `sed` or IDE refactor. Delete `protocol/intake/` after all imports are updated.
+Use `gofmt` + `sed` or IDE refactor. Delete `../protocol/intent` after all imports are updated.
 
 **Verification checkpoint:**
 ```
@@ -855,11 +855,11 @@ grep -r "protocol/intake" . --include="*.go"   # must return zero results
 
 ### Phase 2 — Intake Profile Types
 
-**New package:** `protocol/intake/` (now free after Phase 1)
+**New package:** `../protocol/intent` (now free after Phase 1)
 
 **New files:**
 
-`protocol/intake/profile.go`
+`../protocol/intent`
 ```go
 package prompt
 
@@ -909,7 +909,7 @@ func (p *Profile) EffectiveMessages() []Message {
 }
 ```
 
-`protocol/intake/render.go`
+`../protocol/intent`
 ```go
 // Render resolves the profile instruction source and returns []schema.PromptMessage.
 // Sources: local Messages/Instructions (velty rendered) or MCP server GetPrompt.
@@ -1159,7 +1159,7 @@ ri := &RunInput{
 
 **`protocol/agent/agent.go`** — `PromptAccess` struct + `Prompts PromptAccess` field on `Agent`.
 
-**`protocol/intake/profile.go`** — `Profile.Bundles []string` field added (separate from `ToolBundles`).
+**`../protocol/intent`** — `Profile.Bundles []string` field added (separate from `ToolBundles`).
 
 **Access control contract (as implemented):**
 
@@ -1182,7 +1182,7 @@ prompts:
 
 ### Phase 8 — MCP Source Rendering
 
-**Edit:** `protocol/intake/render.go` — add MCP branch in `Render()`:
+**Edit:** `../protocol/intent` — add MCP branch in `Render()`:
 
 ```go
 if p.MCP != nil {
@@ -1289,7 +1289,7 @@ The sidecar uses a fixed meta-prompt (hardcoded in the runtime, not configurable
 
 Output is validated: role structure must match input, total token count bounded by `cfg.MaxTokens`.
 
-**Edit:** `protocol/intake/profile.go` — `Expansion.Mode` drives the branch in `run_support.go`.
+**Edit:** `../protocol/intent` — `Expansion.Mode` drives the branch in `run_support.go`.
 
 **Edit:** `app/executor/builder.go` — pass `expansionModel` config to llm/agents service.
 
@@ -1385,14 +1385,14 @@ assert.Equal(t, "performance_analysis", tc.SuggestedProfileId)
 
 | Phase | What | Key files | Status |
 |---|---|---|---|
-| 1 | `protocol/intake` → `protocol/binding` rename | 43 files | ✅ |
-| 2 | `prompt.Profile` types + `Render()` | `protocol/intake/profile.go`, `render.go` | ✅ |
+| 1 | `../protocol/intent` → `protocol/binding` rename | 43 files | ✅ |
+| 2 | `prompt.Profile` types + `Render()` | `../protocol/intent`, `render.go` | ✅ |
 | 3 | Profile repository | `workspace/repository/intake/` | ✅ |
 | 4 | Extend `RunInput` | `protocol/tool/service/llm/agents/types.go` | ✅ |
 | 5 | `prompt:list`/`prompt:get` service | `protocol/tool/service/prompt/` | ✅ |
 | 6 | Runtime profile expansion | `run_support.go`, `profile_resolve.go` | ✅ |
-| 7 | Agent access control (`Profile.Bundles` + `Agent.Prompts`) | `protocol/agent/agent.go`, `protocol/intake/profile.go`, prompt service | ✅ |
-| 8 | MCP source rendering | `protocol/intake/render.go` | ✅ |
+| 7 | Agent access control (`Profile.Bundles` + `Agent.Prompts`) | `protocol/agent/agent.go`, `../protocol/intent`, prompt service | ✅ |
+| 8 | MCP source rendering | `../protocol/intent` | ✅ |
 | 9 | MCP server exposure | `protocol/mcp/expose/tool_handler.go`, `localclient/service_handler.go` | ✅ |
 | 10 | Expansion sidecar | `protocol/tool/service/llm/agents/expand.go` | ✅ |
 | 11 | Intake sidecar | `service/intake/`, `service/agent/intake_query.go`, `protocol/agent/intake.go` | ✅ |

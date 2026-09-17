@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	policy "github.com/viant/agently-core/service/policy"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
@@ -28,7 +28,7 @@ func (promptPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.D
 
 func TestFilterAuthorizedProfiles(t *testing.T) {
 	svc := &Service{policy: policy.NewRuntime(promptPolicyResolver{}, policy.OperationIntentView)}
-	profiles := []*intake.Profile{{ID: "allowed"}, {ID: "denied"}}
+	profiles := []*intent.Profile{{ID: "allowed"}, {ID: "denied"}}
 	got, err := svc.filterAuthorizedProfiles(context.Background(), profiles)
 	require.NoError(t, err)
 	require.Len(t, got, 1)

@@ -16,7 +16,7 @@ import (
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	tpldef "github.com/viant/agently-core/protocol/template"
 	toolbundledef "github.com/viant/agently-core/protocol/tool/bundle"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -36,7 +36,7 @@ type Service struct {
 	bundleRepo   *toolbundlerepo.Repository
 }
 
-// TranscriptMessage is a compact, generic transcript row provided to intake.
+// TranscriptMessage is a compact, generic transcript row provided to intent.
 // It intentionally carries only speaker role and visible text content so
 // workspace-specific state and internal execution details stay out of the
 // framework contract.
@@ -100,7 +100,7 @@ func (s *Service) Run(ctx context.Context, userMessage string, cfg *agentmdl.Int
 	}
 	tc, err := s.run(ctx, userMessage, cfg, userID, opts...)
 	if err != nil {
-		logx.Warnf("conversation", "intake.Run error: %v", err)
+		logx.Warnf("conversation", "intent.Run error: %v", err)
 		return nil
 	}
 	return tc
@@ -161,7 +161,7 @@ func (s *Service) patchCanonicalIntakeMessage(ctx context.Context, messageID str
 	}
 	content, err := canonicalIntakeContent(tc)
 	if err != nil {
-		logx.Warnf("conversation", "intake.canonical_content error message=%q err=%v", messageID, err)
+		logx.Warnf("conversation", "intent.canonical_content error message=%q err=%v", messageID, err)
 		return
 	}
 	msg := apiconv.NewMessage()
@@ -189,7 +189,7 @@ func (s *Service) patchCanonicalIntakeMessage(ctx context.Context, messageID str
 		}
 	}
 	if err := s.conversation.PatchMessage(ctx, msg); err != nil {
-		logx.Warnf("conversation", "intake.patch_canonical_message message=%q err=%v", messageID, err)
+		logx.Warnf("conversation", "intent.patch_canonical_message message=%q err=%v", messageID, err)
 	}
 }
 
@@ -569,7 +569,7 @@ func (s *Service) resolveIntakePromptText(ctx context.Context, prompt agentmdl.I
 		return text, nil
 	}
 	fs := afs.New()
-	base := filepath.Join(workspace.Root(), "intake", "inline-intake.tmpl")
+	base := filepath.Join(workspace.Root(), "intake", "inline-intent.tmpl")
 	return binding.ResolveTextImports(ctx, fs, text, base)
 }
 
@@ -780,7 +780,7 @@ func stripFence(s string) string {
 }
 
 // ensure intake import is used (for future MCP-sourced profile metadata)
-var _ = intake.Profile{}
+var _ = intent.Profile{}
 
 type contextWire struct {
 	Classification     *contextClassificationWire `json:"classification,omitempty"`
