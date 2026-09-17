@@ -671,7 +671,7 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     job_id VARCHAR(255) PRIMARY KEY,
     artifact_ref TEXT NOT NULL,
     owner_id VARCHAR(255) NOT NULL,
-    conversation_id VARCHAR(255) NULL,
+    conversation_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
     workspace_id VARCHAR(255) NULL,
     auth_context_ref TEXT NULL,
     format VARCHAR(64) NOT NULL,
