@@ -638,6 +638,24 @@ describe('Files', () => {
         expect(call.method).toBe('POST');
         expect(call.url).toBe('http://localhost:8585/v1/files');
         expect(call.body).toBeInstanceOf(FormData);
+        expect(call.body.get('file')).toBeInstanceOf(Blob);
+        expect(call.body.get('resourceURI')).toBeNull();
+    });
+
+    it('attachArtifact associates a scratchpad resource without uploading bytes', async () => {
+        const f = mockFetch(200, { id: 'file_2', uri: '/v1/files/file_2?conversationId=conv_1' });
+        const c = client(f);
+        const resourceURI = 'scratchpad://artifact/artifact_1';
+        const res = await c.attachArtifact('conv_1', resourceURI);
+
+        expect(res.id).toBe('file_2');
+        const call = lastCall(f);
+        expect(call.method).toBe('POST');
+        expect(call.url).toBe('http://localhost:8585/v1/files');
+        expect(call.body).toBeInstanceOf(FormData);
+        expect(call.body.get('conversationId')).toBe('conv_1');
+        expect(call.body.get('resourceURI')).toBe(resourceURI);
+        expect(call.body.get('file')).toBeNull();
     });
 
     it('listFiles uses the exposed GET /v1/files route', async () => {

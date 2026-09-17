@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
@@ -63,6 +64,36 @@ func TestHTTPClient_UploadFile(t *testing.T) {
 		t.Fatalf("upload file: %v", err)
 	}
 	if out == nil || out.ID != "file_1" {
+		t.Fatalf("unexpected output %+v", out)
+	}
+}
+
+func TestHTTPClient_AttachArtifact(t *testing.T) {
+	client := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("parse multipart: %v", err)
+		}
+		if got := r.FormValue("conversationId"); got != "conv_1" {
+			t.Fatalf("unexpected conversationId %q", got)
+		}
+		if got := r.FormValue("resourceURI"); got != "scratchpad://artifact/artifact_1" {
+			t.Fatalf("unexpected resourceURI %q", got)
+		}
+		if _, _, err := r.FormFile("file"); !errors.Is(err, http.ErrMissingFile) {
+			t.Fatalf("unexpected file field error: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(&UploadFileOutput{ID: "file_2", URI: "/v1/files/file_2?conversationId=conv_1"})
+	}))
+
+	out, err := client.UploadFile(context.Background(), &UploadFileInput{
+		ConversationID: "conv_1",
+		ResourceURI:    "scratchpad://artifact/artifact_1",
+	})
+	if err != nil {
+		t.Fatalf("attach artifact: %v", err)
+	}
+	if out == nil || out.ID != "file_2" {
 		t.Fatalf("unexpected output %+v", out)
 	}
 }
@@ -145,6 +176,90 @@ func TestHandler_UploadFile(t *testing.T) {
 	}
 	if out.URI == "" {
 		t.Fatalf("expected synthesized URI")
+	}
+}
+
+func TestHandler_AttachArtifact(t *testing.T) {
+	base, err := NewHTTP("http://example.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	spy := &spyUploadClient{HTTPClient: base}
+	handler := NewHandler(spy)
+
+	var body bytes.Buffer
+	w := multipart.NewWriter(&body)
+	if err := w.WriteField("conversationId", "conv_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.WriteField("resourceURI", "scratchpad://artifact/artifact_1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPost, "/v1/files", &body)
+	req.Header.Set("Content-Type", w.FormDataContentType())
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("unexpected status %d body=%s", rec.Code, rec.Body.String())
+	}
+	if spy.input == nil || spy.input.ResourceURI != "scratchpad://artifact/artifact_1" {
+		t.Fatalf("unexpected upload input %+v", spy.input)
+	}
+	if len(spy.input.Data) != 0 {
+		t.Fatalf("resource attachment unexpectedly included bytes")
+	}
+}
+
+func TestHandler_UploadFileRequiresExactlyOneSource(t *testing.T) {
+	base, err := NewHTTP("http://example.invalid")
+	if err != nil {
+		t.Fatal(err)
+	}
+	handler := NewHandler(&spyUploadClient{HTTPClient: base})
+
+	for _, tc := range []struct {
+		name        string
+		withFile    bool
+		resourceURI string
+	}{
+		{name: "neither"},
+		{name: "both", withFile: true, resourceURI: "scratchpad://artifact/artifact_1"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var body bytes.Buffer
+			w := multipart.NewWriter(&body)
+			if err := w.WriteField("conversationId", "conv_1"); err != nil {
+				t.Fatal(err)
+			}
+			if tc.resourceURI != "" {
+				if err := w.WriteField("resourceURI", tc.resourceURI); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if tc.withFile {
+				part, partErr := w.CreateFormFile("file", "note.txt")
+				if partErr != nil {
+					t.Fatal(partErr)
+				}
+				if _, partErr = part.Write([]byte("hello")); partErr != nil {
+					t.Fatal(partErr)
+				}
+			}
+			if err := w.Close(); err != nil {
+				t.Fatal(err)
+			}
+			req := httptest.NewRequest(http.MethodPost, "/v1/files", &body)
+			req.Header.Set("Content-Type", w.FormDataContentType())
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("unexpected status %d body=%s", rec.Code, rec.Body.String())
+			}
+		})
 	}
 }
 

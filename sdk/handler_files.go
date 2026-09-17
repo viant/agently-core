@@ -1,13 +1,14 @@
 package sdk
 
 import (
+	"errors"
 	"fmt"
-	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	"io"
 	"net/http"
 	"strings"
 
 	"github.com/viant/agently-core/app/store/conversation"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 )
 
 func handleUploadFile(client Client) http.HandlerFunc {
@@ -23,12 +24,32 @@ func handleUploadFile(client Client) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
 			return
 		}
-		file, header, err := r.FormFile("file")
-		if err != nil {
-			httpError(w, http.StatusBadRequest, fmt.Errorf("missing file field: %w", err))
+		resourceURI := strings.TrimSpace(r.FormValue("resourceURI"))
+		file, header, fileErr := r.FormFile("file")
+		hasFile := fileErr == nil
+		if fileErr != nil && !errors.Is(fileErr, http.ErrMissingFile) {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("read file field: %w", fileErr))
 			return
 		}
-		defer file.Close()
+		if hasFile {
+			defer file.Close()
+		}
+		if hasFile == (resourceURI != "") {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("exactly one of file or resourceURI is required"))
+			return
+		}
+		if resourceURI != "" {
+			if _, err := scratchpadsvc.ArtifactID(resourceURI); err != nil {
+				httpError(w, http.StatusBadRequest, err)
+				return
+			}
+			out, err := client.UploadFile(r.Context(), &UploadFileInput{
+				ConversationID: conversationID,
+				ResourceURI:    resourceURI,
+			})
+			writeUploadFileResponse(w, out, conversationID, err)
+			return
+		}
 
 		data, err := io.ReadAll(io.LimitReader(file, scratchpadsvc.MaxArtifactBytes+1))
 		if err != nil {
@@ -55,19 +76,23 @@ func handleUploadFile(client Client) http.HandlerFunc {
 			ContentType:    contentType,
 			Data:           data,
 		})
-		if err != nil {
-			httpError(w, http.StatusInternalServerError, err)
-			return
-		}
-		if out == nil {
-			httpError(w, http.StatusInternalServerError, fmt.Errorf("upload returned no result"))
-			return
-		}
-		if strings.TrimSpace(out.URI) == "" && strings.TrimSpace(out.ID) != "" {
-			out.URI = "/v1/files/" + strings.TrimSpace(out.ID) + "?conversationId=" + conversationID
-		}
-		httpJSON(w, http.StatusOK, out)
+		writeUploadFileResponse(w, out, conversationID, err)
 	}
+}
+
+func writeUploadFileResponse(w http.ResponseWriter, out *UploadFileOutput, conversationID string, err error) {
+	if err != nil {
+		httpError(w, http.StatusInternalServerError, err)
+		return
+	}
+	if out == nil {
+		httpError(w, http.StatusInternalServerError, fmt.Errorf("upload returned no result"))
+		return
+	}
+	if strings.TrimSpace(out.URI) == "" && strings.TrimSpace(out.ID) != "" {
+		out.URI = "/v1/files/" + strings.TrimSpace(out.ID) + "?conversationId=" + conversationID
+	}
+	httpJSON(w, http.StatusOK, out)
 }
 
 func handleListFiles(client Client) http.HandlerFunc {

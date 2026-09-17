@@ -819,36 +819,44 @@ func (c *HTTPClient) UploadFile(ctx context.Context, input *UploadFileInput) (*U
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
 	}
-	if len(input.Data) == 0 {
-		return nil, errors.New("file data is required")
+	resourceURI := strings.TrimSpace(input.ResourceURI)
+	hasData := len(input.Data) > 0
+	if hasData == (resourceURI != "") {
+		return nil, errors.New("exactly one of file data or resource URI is required")
 	}
 	var buf bytes.Buffer
 	w := multipart.NewWriter(&buf)
 	if err := w.WriteField("conversationId", strings.TrimSpace(input.ConversationID)); err != nil {
 		return nil, err
 	}
-	if name := strings.TrimSpace(input.Name); name != "" {
-		if err := w.WriteField("name", name); err != nil {
+	if resourceURI != "" {
+		if err := w.WriteField("resourceURI", resourceURI); err != nil {
+			return nil, err
+		}
+	} else {
+		if name := strings.TrimSpace(input.Name); name != "" {
+			if err := w.WriteField("name", name); err != nil {
+				return nil, err
+			}
+		}
+		if contentType := strings.TrimSpace(input.ContentType); contentType != "" {
+			if err := w.WriteField("contentType", contentType); err != nil {
+				return nil, err
+			}
+		}
+		filename := strings.TrimSpace(input.Name)
+		if filename == "" {
+			filename = "upload.bin"
+		}
+		part, err := w.CreateFormFile("file", filename)
+		if err != nil {
+			return nil, err
+		}
+		if _, err = part.Write(input.Data); err != nil {
 			return nil, err
 		}
 	}
-	if contentType := strings.TrimSpace(input.ContentType); contentType != "" {
-		if err := w.WriteField("contentType", contentType); err != nil {
-			return nil, err
-		}
-	}
-	filename := strings.TrimSpace(input.Name)
-	if filename == "" {
-		filename = "upload.bin"
-	}
-	part, err := w.CreateFormFile("file", filename)
-	if err != nil {
-		return nil, err
-	}
-	if _, err = part.Write(input.Data); err != nil {
-		return nil, err
-	}
-	if err = w.Close(); err != nil {
+	if err := w.Close(); err != nil {
 		return nil, err
 	}
 
