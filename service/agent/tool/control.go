@@ -6,7 +6,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
@@ -62,7 +62,7 @@ func FromAgentTool(tool agentmdl.Tool) Selection {
 	return Normalize(out)
 }
 
-func FromPromptProfile(profile *intake.Profile) Selection {
+func FromPromptProfile(profile *intent.Profile) Selection {
 	if profile == nil {
 		return Selection{}
 	}

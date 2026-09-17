@@ -6,29 +6,29 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/internal/logx"
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	policy "github.com/viant/agently-core/service/policy"
 )
 
 type selectedPromptProfileContextKey struct{}
 
-func withSelectedPromptProfile(ctx context.Context, profile *intake.Profile) context.Context {
+func withSelectedPromptProfile(ctx context.Context, profile *intent.Profile) context.Context {
 	if ctx == nil || profile == nil {
 		return ctx
 	}
 	return context.WithValue(ctx, selectedPromptProfileContextKey{}, profile)
 }
 
-func selectedPromptProfileFromContext(ctx context.Context) *intake.Profile {
+func selectedPromptProfileFromContext(ctx context.Context) *intent.Profile {
 	if ctx == nil {
 		return nil
 	}
-	profile, _ := ctx.Value(selectedPromptProfileContextKey{}).(*intake.Profile)
+	profile, _ := ctx.Value(selectedPromptProfileContextKey{}).(*intent.Profile)
 	return profile
 }
 
-func (s *Service) selectedPromptProfile(ctx context.Context, input *QueryInput) (*intake.Profile, error) {
+func (s *Service) selectedPromptProfile(ctx context.Context, input *QueryInput) (*intent.Profile, error) {
 	if input != nil && input.Agent != nil && !input.Agent.Prompts.AllowsSelectedProfileInjection() {
 		return nil, nil
 	}
@@ -39,7 +39,7 @@ func (s *Service) selectedPromptProfile(ctx context.Context, input *QueryInput) 
 // agent's message-injection gate. Profile-scoped knowledge uses this path
 // because selecting the profile is itself the activation boundary, even when
 // the orchestrator intentionally disables profile message injection.
-func (s *Service) selectedPromptProfileAny(ctx context.Context, input *QueryInput) (*intake.Profile, error) {
+func (s *Service) selectedPromptProfileAny(ctx context.Context, input *QueryInput) (*intent.Profile, error) {
 	if s == nil || input == nil {
 		return nil, nil
 	}
@@ -72,7 +72,7 @@ func (s *Service) selectedPromptProfileAny(ctx context.Context, input *QueryInpu
 	return profile, nil
 }
 
-func ApplyPromptProfileExecutionDefaults(input *QueryInput, profile *intake.Profile) {
+func ApplyPromptProfileExecutionDefaults(input *QueryInput, profile *intent.Profile) {
 	if input == nil || profile == nil {
 		return
 	}

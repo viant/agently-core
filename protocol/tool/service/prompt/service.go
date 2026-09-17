@@ -11,7 +11,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	policy "github.com/viant/agently-core/service/policy"
@@ -26,7 +26,7 @@ type Service struct {
 	repo   *intakerepo.Repository
 	conv   apiconv.Client
 	finder agentmdl.Finder
-	mgr    intake.MCPManager // optional; enables MCP-sourced profiles
+	mgr    intent.MCPManager // optional; enables MCP-sourced profiles
 	policy *policy.Runtime
 }
 
@@ -42,7 +42,7 @@ func New(repo *intakerepo.Repository, opts ...func(*Service)) *Service {
 
 func WithConversationClient(c apiconv.Client) func(*Service) { return func(s *Service) { s.conv = c } }
 func WithAgentFinder(f agentmdl.Finder) func(*Service)       { return func(s *Service) { s.finder = f } }
-func WithMCPManager(m intake.MCPManager) func(*Service)      { return func(s *Service) { s.mgr = m } }
+func WithMCPManager(m intent.MCPManager) func(*Service)      { return func(s *Service) { s.mgr = m } }
 func WithAuthorizationPolicy(p *policy.Runtime) func(*Service) {
 	return func(s *Service) { s.policy = p }
 }
@@ -94,7 +94,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			ToolBundles:      p.ToolBundles,
 			Template:         strings.TrimSpace(p.Template),
 			Templates:        append([]string(nil), p.Templates...),
-			Knowledge:        append([]intake.KnowledgeMatch(nil), p.Knowledge...),
+			Knowledge:        append([]intent.KnowledgeMatch(nil), p.Knowledge...),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].ID) < strings.ToLower(items[j].ID) })
@@ -119,7 +119,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	var selected *intake.Profile
+	var selected *intent.Profile
 	for _, p := range profiles {
 		if p == nil {
 			continue
@@ -142,12 +142,12 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	go_.Template = strings.TrimSpace(selected.Template)
 	go_.Templates = append([]string(nil), selected.Templates...)
 	go_.Resources = selected.Resources
-	go_.Knowledge = append([]intake.KnowledgeMatch(nil), selected.Knowledge...)
+	go_.Knowledge = append([]intent.KnowledgeMatch(nil), selected.Knowledge...)
 
 	// Always render and return messages in the response body.
 	// Render supports local text/URI messages and MCP-sourced messages.
 	convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	renderOpts := &intake.RenderOptions{ConversationID: convID}
+	renderOpts := &intent.RenderOptions{ConversationID: convID}
 	msgs, err := selected.Render(ctx, s.mgr, renderOpts)
 	if err != nil {
 		return fmt.Errorf("render profile %q: %w", id, err)
@@ -172,7 +172,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 // authored role.  System messages are stored as system documents
 // (SystemDocumentMode + SystemDocumentTag); user and assistant messages are
 // stored with their natural roles only.
-func (s *Service) injectMessages(ctx context.Context, msgs []intake.Message) error {
+func (s *Service) injectMessages(ctx context.Context, msgs []intent.Message) error {
 	if s == nil || s.conv == nil || len(msgs) == 0 {
 		return nil
 	}
@@ -209,7 +209,7 @@ func (s *Service) injectMessages(ctx context.Context, msgs []intake.Message) err
 
 // allowedProfiles returns all profiles visible to the current agent.
 // When the agent has no Prompts.Bundles restriction, all profiles are returned.
-func (s *Service) allowedProfiles(ctx context.Context) ([]*intake.Profile, error) {
+func (s *Service) allowedProfiles(ctx context.Context) ([]*intent.Profile, error) {
 	if s == nil || s.repo == nil {
 		return nil, fmt.Errorf("prompt repository not configured")
 	}
@@ -230,7 +230,7 @@ func (s *Service) allowedProfiles(ctx context.Context) ([]*intake.Profile, error
 	for _, b := range ag.Prompts.Bundles {
 		allowed[strings.ToLower(strings.TrimSpace(b))] = struct{}{}
 	}
-	filtered := make([]*intake.Profile, 0, len(all))
+	filtered := make([]*intent.Profile, 0, len(all))
 	for _, p := range all {
 		if p == nil {
 			continue
@@ -242,12 +242,12 @@ func (s *Service) allowedProfiles(ctx context.Context) ([]*intake.Profile, error
 	return s.filterAuthorizedProfiles(ctx, filtered)
 }
 
-func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*intake.Profile) ([]*intake.Profile, error) {
+func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*intent.Profile) ([]*intent.Profile, error) {
 	if s == nil || s.policy == nil || !s.policy.IsEnabled(policy.OperationIntentView) || len(profiles) == 0 {
 		return profiles, nil
 	}
 	candidates := make([]policy.Candidate, 0, len(profiles))
-	byID := make(map[string]*intake.Profile, len(profiles))
+	byID := make(map[string]*intent.Profile, len(profiles))
 	for _, profile := range profiles {
 		if profile == nil {
 			continue
@@ -268,7 +268,7 @@ func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*inta
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*intake.Profile, 0, len(allowed))
+	result := make([]*intent.Profile, 0, len(allowed))
 	for _, candidate := range allowed {
 		if profile := byID[strings.ToLower(strings.TrimSpace(candidate.ID))]; profile != nil {
 			result = append(result, profile)
@@ -297,7 +297,7 @@ func (s *Service) currentAgentID(ctx context.Context) string {
 	return strings.TrimSpace(*conv.AgentId)
 }
 
-func mapEvidenceContract(in *intake.EvidenceContract) *EvidenceContract {
+func mapEvidenceContract(in *intent.EvidenceContract) *EvidenceContract {
 	if in == nil {
 		return nil
 	}

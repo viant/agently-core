@@ -22,7 +22,7 @@ func (s *Service) appendBootstrapSystemDocuments(ctx context.Context, input *Que
 	if s == nil || input == nil || input.Agent == nil || b == nil || s.registry == nil {
 		return nil
 	}
-	for _, call := range input.Agent.Bootstrap.ToolCalls {
+	for _, call := range s.effectiveBootstrapCalls(ctx, input) {
 		if strings.TrimSpace(call.ID) == "" || strings.TrimSpace(call.Tool) == "" {
 			continue
 		}
@@ -53,6 +53,35 @@ func (s *Service) appendBootstrapSystemDocuments(ctx context.Context, input *Que
 		b.SystemDocuments.Items = append(b.SystemDocuments.Items, doc)
 	}
 	return nil
+}
+
+// effectiveBootstrapCalls composes agent and selected-profile metadata for the
+// one existing bootstrap executor. Profiles customize behavior without owning
+// a second execution path.
+func (s *Service) effectiveBootstrapCalls(ctx context.Context, input *QueryInput) []agproto.BootstrapToolCall {
+	if input == nil || input.Agent == nil {
+		return nil
+	}
+	result := append([]agproto.BootstrapToolCall(nil), input.Agent.Bootstrap.ToolCalls...)
+	profile, err := s.selectedPromptProfileAny(ctx, input)
+	if err != nil || profile == nil || len(profile.Bootstrap) == 0 {
+		return result
+	}
+	seen := map[string]bool{}
+	for _, call := range result {
+		if id := strings.TrimSpace(call.ID); id != "" {
+			seen[id] = true
+		}
+	}
+	for _, call := range profile.Bootstrap {
+		id := strings.TrimSpace(call.ID)
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		result = append(result, call)
+	}
+	return result
 }
 
 func (s *Service) bootstrapSystemDocument(ctx context.Context, input *QueryInput, call agproto.BootstrapToolCall) (*binding.Document, error) {

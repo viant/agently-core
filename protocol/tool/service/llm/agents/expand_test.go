@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 )
@@ -53,39 +53,39 @@ func svcWithFinder(f llm.Finder) *Service {
 
 func TestExpandMessages_NoFinderReturnsOriginal(t *testing.T) {
 	s := &Service{} // no modelFinder
-	msgs := []intake.Message{{Role: "system", Text: "original"}}
-	cfg := &intake.Expansion{Mode: "llm", Model: "haiku"}
+	msgs := []intent.Message{{Role: "system", Text: "original"}}
+	cfg := &intent.Expansion{Mode: "llm", Model: "haiku"}
 	result := s.expandMessages(context.Background(), msgs, "objective", cfg)
 	assert.Equal(t, msgs, result)
 }
 
 func TestExpandMessages_EmptyCfgReturnsOriginal(t *testing.T) {
 	s := svcWithFinder(&mockModelFinder{model: &mockModel{}})
-	msgs := []intake.Message{{Role: "system", Text: "original"}}
+	msgs := []intent.Message{{Role: "system", Text: "original"}}
 	result := s.expandMessages(context.Background(), msgs, "objective", nil)
 	assert.Equal(t, msgs, result)
 }
 
 func TestExpandMessages_EmptyModelReturnsOriginal(t *testing.T) {
 	s := svcWithFinder(&mockModelFinder{model: &mockModel{}})
-	msgs := []intake.Message{{Role: "system", Text: "original"}}
-	cfg := &intake.Expansion{Mode: "llm", Model: ""}
+	msgs := []intent.Message{{Role: "system", Text: "original"}}
+	cfg := &intent.Expansion{Mode: "llm", Model: ""}
 	result := s.expandMessages(context.Background(), msgs, "objective", cfg)
 	assert.Equal(t, msgs, result)
 }
 
 func TestExpandMessages_Success(t *testing.T) {
-	refined := []intake.Message{
+	refined := []intent.Message{
 		{Role: "system", Text: "You are analyzing project 4821 for a latency regression."},
 		{Role: "user", Text: "Focus on week-over-week latency for project 4821."},
 	}
 	raw, _ := json.Marshal(refined)
 	s := svcWithFinder(&mockModelFinder{model: &mockModel{response: string(raw)}})
-	original := []intake.Message{
+	original := []intent.Message{
 		{Role: "system", Text: "You are a systems analyst."},
 		{Role: "user", Text: "Analyze the project hierarchy."},
 	}
-	cfg := &intake.Expansion{Mode: "llm", Model: "haiku", MaxTokens: 600}
+	cfg := &intent.Expansion{Mode: "llm", Model: "haiku", MaxTokens: 600}
 	result := s.expandMessages(context.Background(), original, "Why is project 4821 experiencing a latency regression?", cfg)
 	require.Len(t, result, 2)
 	assert.Equal(t, "system", result[0].Role)
@@ -95,57 +95,57 @@ func TestExpandMessages_Success(t *testing.T) {
 func TestExpandMessages_LLMErrorFallsBack(t *testing.T) {
 	networkErr := fmt.Errorf("network error")
 	s := svcWithFinder(&mockModelFinder{err: networkErr})
-	msgs := []intake.Message{{Role: "system", Text: "original"}}
-	cfg := &intake.Expansion{Mode: "llm", Model: "haiku"}
+	msgs := []intent.Message{{Role: "system", Text: "original"}}
+	cfg := &intent.Expansion{Mode: "llm", Model: "haiku"}
 	result := s.expandMessages(context.Background(), msgs, "objective", cfg)
 	assert.Equal(t, msgs, result, "should fall back to original on LLM error")
 }
 
 func TestExpandMessages_RoleStructureMismatchFallsBack(t *testing.T) {
 	// Sidecar returns wrong number of messages
-	refined := []intake.Message{{Role: "system", Text: "only one"}}
+	refined := []intent.Message{{Role: "system", Text: "only one"}}
 	raw, _ := json.Marshal(refined)
 	s := svcWithFinder(&mockModelFinder{model: &mockModel{response: string(raw)}})
-	original := []intake.Message{
+	original := []intent.Message{
 		{Role: "system", Text: "sys"},
 		{Role: "user", Text: "usr"},
 	}
-	cfg := &intake.Expansion{Mode: "llm", Model: "haiku"}
+	cfg := &intent.Expansion{Mode: "llm", Model: "haiku"}
 	result := s.expandMessages(context.Background(), original, "obj", cfg)
 	assert.Equal(t, original, result, "role count mismatch should fall back")
 }
 
 func TestExpandMessages_RoleNameMismatchFallsBack(t *testing.T) {
 	// Sidecar flips system → user
-	refined := []intake.Message{
+	refined := []intent.Message{
 		{Role: "user", Text: "changed role"},
 		{Role: "system", Text: "changed role 2"},
 	}
 	raw, _ := json.Marshal(refined)
 	s := svcWithFinder(&mockModelFinder{model: &mockModel{response: string(raw)}})
-	original := []intake.Message{
+	original := []intent.Message{
 		{Role: "system", Text: "sys"},
 		{Role: "user", Text: "usr"},
 	}
-	cfg := &intake.Expansion{Mode: "llm", Model: "haiku"}
+	cfg := &intent.Expansion{Mode: "llm", Model: "haiku"}
 	result := s.expandMessages(context.Background(), original, "obj", cfg)
 	assert.Equal(t, original, result, "role name mismatch should fall back")
 }
 
 func TestExpandMessages_EmptyTextFallsBack(t *testing.T) {
-	refined := []intake.Message{
+	refined := []intent.Message{
 		{Role: "system", Text: ""},
 	}
 	raw, _ := json.Marshal(refined)
 	s := svcWithFinder(&mockModelFinder{model: &mockModel{response: string(raw)}})
-	original := []intake.Message{{Role: "system", Text: "original"}}
-	cfg := &intake.Expansion{Mode: "llm", Model: "haiku"}
+	original := []intent.Message{{Role: "system", Text: "original"}}
+	cfg := &intent.Expansion{Mode: "llm", Model: "haiku"}
 	result := s.expandMessages(context.Background(), original, "obj", cfg)
 	assert.Equal(t, original, result, "empty text should fall back")
 }
 
 func TestExpandMessages_SidecarDoesNotInheritConversationTracking(t *testing.T) {
-	refined := []intake.Message{
+	refined := []intent.Message{
 		{Role: "system", Text: "Refined system"},
 	}
 	raw, _ := json.Marshal(refined)
@@ -161,8 +161,8 @@ func TestExpandMessages_SidecarDoesNotInheritConversationTracking(t *testing.T) 
 		},
 	}
 	s := svcWithFinder(&mockModelFinder{model: model})
-	original := []intake.Message{{Role: "system", Text: "Original system"}}
-	cfg := &intake.Expansion{Mode: "llm", Model: "haiku"}
+	original := []intent.Message{{Role: "system", Text: "Original system"}}
+	cfg := &intent.Expansion{Mode: "llm", Model: "haiku"}
 	ctx := context.Background()
 	ctx = runtimerequestctx.WithConversationID(ctx, "conv-1")
 	ctx = runtimerequestctx.WithTurnMeta(ctx, runtimerequestctx.TurnMeta{

@@ -16,7 +16,7 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 	mcpserver "github.com/viant/mcp/server"
 
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	"github.com/viant/agently-core/protocol/mcp/uifallback"
 	mcpadapter "github.com/viant/agently-core/protocol/tool/adapter/mcp"
 	svc "github.com/viant/agently-core/protocol/tool/service"
@@ -30,7 +30,7 @@ type serviceHandler struct {
 	methods     map[string]svc.Signature // method name → signature (preserve case)
 	tools       []mcpschema.Tool
 	profileRepo profileRepo
-	mcpMgr      intake.MCPManager
+	mcpMgr      intent.MCPManager
 	clientCaps  *mcpschema.ClientCapabilities
 }
 
@@ -42,8 +42,8 @@ type resourceProvider interface {
 // profileRepo is the local alias of the expose.ProfileRepo interface, defined
 // here to avoid an import cycle (expose imports localclient via the registry).
 type profileRepo interface {
-	LoadAll(ctx context.Context) ([]*intake.Profile, error)
-	Load(ctx context.Context, id string) (*intake.Profile, error)
+	LoadAll(ctx context.Context) ([]*intent.Profile, error)
+	Load(ctx context.Context, id string) (*intent.Profile, error)
 }
 
 // ServiceHandlerOption configures a serviceHandler.
@@ -56,7 +56,7 @@ func WithServiceProfileRepo(repo profileRepo) ServiceHandlerOption {
 }
 
 // WithServiceMCPManager injects an MCP manager for MCP-sourced profile rendering.
-func WithServiceMCPManager(mgr intake.MCPManager) ServiceHandlerOption {
+func WithServiceMCPManager(mgr intent.MCPManager) ServiceHandlerOption {
 	return func(h *serviceHandler) { h.mcpMgr = mgr }
 }
 
@@ -332,7 +332,7 @@ func listLocalPrompts(ctx context.Context, repo profileRepo) (*mcpschema.ListPro
 	return &mcpschema.ListPromptsResult{Prompts: prompts}, nil
 }
 
-func getLocalPrompt(ctx context.Context, repo profileRepo, mgr intake.MCPManager, params *mcpschema.GetPromptRequestParams) (*mcpschema.GetPromptResult, *jsonrpc.Error) {
+func getLocalPrompt(ctx context.Context, repo profileRepo, mgr intent.MCPManager, params *mcpschema.GetPromptRequestParams) (*mcpschema.GetPromptResult, *jsonrpc.Error) {
 	if repo == nil {
 		return nil, jsonrpc.NewMethodNotFound("no profile repository configured", nil)
 	}
@@ -353,7 +353,7 @@ func getLocalPrompt(ctx context.Context, repo profileRepo, mgr intake.MCPManager
 			binding[k] = v
 		}
 	}
-	msgs, err := profile.Render(ctx, mgr, &intake.RenderOptions{Binding: binding})
+	msgs, err := profile.Render(ctx, mgr, &intent.RenderOptions{Binding: binding})
 	if err != nil {
 		return nil, jsonrpc.NewInternalError("render profile: "+err.Error(), nil)
 	}

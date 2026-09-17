@@ -23,7 +23,7 @@ require (
 	github.com/viant/afs v1.30.1-0.20260707124824-0373fe4ae4cb
 	github.com/viant/afsc v1.16.0
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
-	github.com/viant/embedius v0.5.4
+	github.com/viant/embedius v0.5.5
 	github.com/viant/forge v0.3.37
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
@@ -48,6 +48,8 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 	modernc.org/sqlite v1.45.0
 )
+
+replace github.com/viant/embedius => ../embedius
 
 require (
 	cel.dev/expr v0.24.0 // indirect

@@ -1210,6 +1210,8 @@ github.com/viant/dyndb v0.1.4-0.20221214043424-27654ab6ed9c h1:M5se4NJFV45xZXyOG
 github.com/viant/dyndb v0.1.4-0.20221214043424-27654ab6ed9c/go.mod h1:IIV7sI3e5JfCyq+NRimnrjbPCEL1YeKqFmbcm53sxl8=
 github.com/viant/embedius v0.5.4 h1:u5uXOFDm20iV47w/rqjk6ZH4VuhOKNTc1Zdvp0wxMAI=
 github.com/viant/embedius v0.5.4/go.mod h1:klyTcRglmMvW/EzFCS4S3RmgCDwaXqC9FWu7RZOtBkc=
+github.com/viant/embedius v0.5.5 h1:1YJkApXgvk3hfgPWH5AWT9r9+jcpF6raQF8jZlN40vA=
+github.com/viant/embedius v0.5.5/go.mod h1:klyTcRglmMvW/EzFCS4S3RmgCDwaXqC9FWu7RZOtBkc=
 github.com/viant/firebase v0.1.1 h1:a4IiehQ2GWoH4qTnUD7JnJ5lTc87nfxX8ClUwBO7AKU=
 github.com/viant/firebase v0.1.1/go.mod h1:Q2DK7L/pdGS5xNQRgMJ9B/x9VhIeXAfXCeh3cKpSIkM=
 github.com/viant/forge v0.3.37 h1:5tPiR9X1hDPYm5t3iTaT2GPb6eNLuQF8orqIrcVnOSw=

@@ -5,12 +5,12 @@ import (
 	"sort"
 	"strings"
 
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 )
 
-func Catalog(profiles []*intake.Profile, allow []string) string {
+func Catalog(profiles []*intent.Profile, allow []string) string {
 	profiles = intakerepo.FilterAllowedProfiles(profiles, allow)
 	if len(profiles) == 0 {
 		return ""
@@ -181,7 +181,7 @@ func SkillCatalog(skills []*skillproto.Skill) string {
 	return out
 }
 
-func profileTemplates(profile *intake.Profile) []string {
+func profileTemplates(profile *intent.Profile) []string {
 	if profile == nil {
 		return nil
 	}

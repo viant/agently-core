@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/viant/embedius/metadata"
 	"github.com/viant/scy"
 )
 
@@ -24,6 +25,7 @@ type ResourceRoot struct {
 	UpstreamRef  string
 	SnapshotURI  string
 	SnapshotRoot string
+	Metadata     metadata.Config
 }
 
 // Upstream describes an upstream database used for embedius sync/bootstrap.
@@ -76,6 +78,7 @@ func ResourceRoots(meta map[string]interface{}) []ResourceRoot {
 			UpstreamRef:  getString(m, "upstreamRef", "upstream_ref"),
 			SnapshotURI:  getString(m, "snapshotUri", "snapshotURI"),
 			SnapshotRoot: getString(m, "snapshotRoot", "snapshot_root"),
+			Metadata:     parseMetadataConfig(toStringMap(m["metadata"])),
 		}
 		if strings.TrimSpace(root.URI) == "" {
 			continue
@@ -83,6 +86,25 @@ func ResourceRoots(meta map[string]interface{}) []ResourceRoot {
 		out = append(out, root)
 	}
 	return out
+}
+
+func parseMetadataConfig(raw map[string]interface{}) metadata.Config {
+	if len(raw) == 0 {
+		return metadata.Config{}
+	}
+	result := metadata.Config{Extractor: getString(raw, "extractor")}
+	fields := toStringMap(raw["fields"])
+	if len(fields) == 0 {
+		return result
+	}
+	result.Fields = make(map[string]string, len(fields))
+	for target, source := range fields {
+		value, ok := source.(string)
+		if ok && strings.TrimSpace(target) != "" && strings.TrimSpace(value) != "" {
+			result.Fields[target] = strings.TrimSpace(value)
+		}
+	}
+	return result
 }
 
 // Upstreams extracts upstream definitions from metadata.

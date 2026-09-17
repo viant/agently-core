@@ -9,7 +9,7 @@ file is an error; it does not activate a legacy definition. Existing nested
 `<id>/<id>.yaml` layouts and relative imports remain supported. Repository
 writes target `intents`; legacy files do not need to be moved to keep working.
 
-The Go type is `intake.Profile` in `protocol/intake`; its repository is
+The Go type is `intake.Profile` in `../protocol/intent`; its repository is
 `intake.Repository` in `workspace/repository/intake`. Update Go imports from
 `protocol/prompt` and `workspace/repository/prompt` to those new package paths.
 `intentProfileId` is the canonical runtime field. The legacy
@@ -107,8 +107,8 @@ Separate workers are only justified when the tool family, validation rules, or f
 ## Intake Profiles — IMPLEMENTED
 
 > **IMPLEMENTED** — All of the following are in production code:
-> - `protocol/intake/profile.go` — `Profile`, `Message`, `MCPSource`, `Expansion` types + `EffectiveMessages()`
-> - `protocol/intake/render.go` — `Profile.Render()` supporting local text/URI messages and MCP-sourced messages
+> - `../protocol/intent` — `Profile`, `Message`, `MCPSource`, `Expansion` types + `EffectiveMessages()`
+> - `../protocol/intent` — `Profile.Render()` supporting local text/URI messages and MCP-sourced messages
 > - `workspace/repository/intake/` — profile repository
 > - `protocol/tool/service/prompt/service.go` — `prompt:list` / `prompt:get` tools
 > - `protocol/tool/service/llm/agents/types.go` — `RunInput` extended with `PromptProfileId`, `ToolBundles`, `TemplateId`

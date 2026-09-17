@@ -1,6 +1,6 @@
 package prompt
 
-import intake "github.com/viant/agently-core/protocol/intake"
+import intent "github.com/viant/agently-core/protocol/intent"
 
 // ListInput is the request payload for prompt:list.
 type ListInput struct{}
@@ -18,7 +18,7 @@ type ListItem struct {
 	ToolBundles      []string                `json:"toolBundles,omitempty"`
 	Template         string                  `json:"template,omitempty"`
 	Templates        []string                `json:"templates,omitempty"`
-	Knowledge        []intake.KnowledgeMatch `json:"knowledge,omitempty"`
+	Knowledge        []intent.KnowledgeMatch `json:"knowledge,omitempty"`
 }
 
 // ListOutput is the response payload for prompt:list.
@@ -46,7 +46,7 @@ type GetOutput struct {
 	Template         string                  `json:"template,omitempty"`
 	Templates        []string                `json:"templates,omitempty"`
 	Resources        []string                `json:"resources,omitempty"`
-	Knowledge        []intake.KnowledgeMatch `json:"knowledge,omitempty"`
+	Knowledge        []intent.KnowledgeMatch `json:"knowledge,omitempty"`
 	Messages         []Message               `json:"messages,omitempty"`
 	// Injected is true when includeDocument=true and messages were written into
 	// the conversation.

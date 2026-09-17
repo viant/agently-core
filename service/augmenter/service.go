@@ -21,6 +21,7 @@ import (
 	"github.com/viant/datly/view"
 	embedius "github.com/viant/embedius"
 	embindexer "github.com/viant/embedius/indexer"
+	"github.com/viant/embedius/metadata"
 	embSchema "github.com/viant/embedius/schema"
 	"github.com/viant/embedius/vectordb"
 	"github.com/viant/embedius/vectordb/sqlitevec"
@@ -127,6 +128,7 @@ type LocalRoot struct {
 	Batch       int
 	Shadow      string
 	Force       *bool
+	Metadata    metadata.Config
 }
 
 // LocalUpstream defines a database used to sync local/workspace resources.

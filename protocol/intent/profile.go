@@ -1,4 +1,6 @@
-package intake
+package intent
+
+import agent "github.com/viant/agently-core/protocol/agent"
 
 // Profile is a scenario configuration unit pairing instruction messages,
 // tool bundles, and one default plus optional additional output templates.
@@ -21,6 +23,10 @@ type Profile struct {
 	Template       string   `yaml:"template,omitempty"       json:"template,omitempty"`
 	Templates      []string `yaml:"templates,omitempty"      json:"templates,omitempty"`
 	Resources      []string `yaml:"resources,omitempty"      json:"resources,omitempty"`
+	// Bootstrap adds trusted pre-model tool calls for turns using this profile.
+	// The calls are executed by the same centralized bootstrap executor used by
+	// agent-level metadata.
+	Bootstrap []agent.BootstrapToolCall `yaml:"bootstrap,omitempty" json:"bootstrap,omitempty"`
 	// Knowledge declares semantic resource matches that activate only when this
 	// profile is selected for the current turn. The roots must already be
 	// authorized on the selected agent. This keeps large knowledge corpora out
@@ -37,13 +43,6 @@ type Profile struct {
 type KnowledgeMatch struct {
 	RootIDs []string `yaml:"rootIds" json:"rootIds"`
 	Path    string   `yaml:"path,omitempty" json:"path,omitempty"`
-	// QueryMode may be "single" (default) or "multi". Multi mode decomposes
-	// explicit comma/and topic lists and interleaves their ranked matches.
-	QueryMode  string `yaml:"queryMode,omitempty" json:"queryMode,omitempty"`
-	MaxQueries int    `yaml:"maxQueries,omitempty" json:"maxQueries,omitempty"`
-	// QueryCatalog optionally expands shorthand queries with titles from a
-	// corpus-owned JSON manifest. The original query is always retained.
-	QueryCatalog *QueryCatalog `yaml:"queryCatalog,omitempty" json:"queryCatalog,omitempty"`
 	// MaxFragments controls semantic candidate depth before URI deduplication.
 	MaxFragments int `yaml:"maxFragments,omitempty" json:"maxFragments,omitempty"`
 	// MaxDocuments controls the final number of distinct documents injected.
@@ -51,31 +50,16 @@ type KnowledgeMatch struct {
 	MinScore     *float64 `yaml:"minScore,omitempty" json:"minScore,omitempty"`
 	LimitBytes   int      `yaml:"limitBytes,omitempty" json:"limitBytes,omitempty"`
 	Exclude      []string `yaml:"exclude,omitempty" json:"exclude,omitempty"`
-	// DocumentMode controls fragment expansion: fragment (default), full, or
-	// explicit (full only when the query explicitly requests the whole article).
-	DocumentMode string `yaml:"documentMode,omitempty" json:"documentMode,omitempty"`
 	// NeighborFragmentsBefore/After include adjacent same-document fragments
 	// when those fragments are present in the semantic candidate pool.
 	NeighborFragmentsBefore int `yaml:"neighborFragmentsBefore,omitempty" json:"neighborFragmentsBefore,omitempty"`
 	NeighborFragmentsAfter  int `yaml:"neighborFragmentsAfter,omitempty" json:"neighborFragmentsAfter,omitempty"`
-	// MaxDocumentBytes bounds each full document. Zero means no additional cap.
-	MaxDocumentBytes int `yaml:"maxDocumentBytes,omitempty" json:"maxDocumentBytes,omitempty"`
 	// MaxTotalBytes bounds the combined injected content for this match entry.
 	// It is applied after full-document loading and includes canonical citations.
 	MaxTotalBytes int `yaml:"maxTotalBytes,omitempty" json:"maxTotalBytes,omitempty"`
-	// CanonicalSourceOnly removes incidental HTTP links from document content
-	// and retains only the canonical sourceUrl supplied by the document.
-	CanonicalSourceOnly bool `yaml:"canonicalSourceOnly,omitempty" json:"canonicalSourceOnly,omitempty"`
 	// Required makes retrieval infrastructure failures fail the turn. An empty
 	// match after MinScore filtering is still a valid result.
 	Required bool `yaml:"required,omitempty" json:"required,omitempty"`
-}
-
-// QueryCatalog describes a JSON table of contents. The current manifest
-// contract is {"articles":[{"title":"..."}]}.
-type QueryCatalog struct {
-	Path       string `yaml:"path" json:"path"`
-	MaxMatches int    `yaml:"maxMatches,omitempty" json:"maxMatches,omitempty"`
 }
 
 // Execution applies turn-scoped runtime restrictions after this profile is

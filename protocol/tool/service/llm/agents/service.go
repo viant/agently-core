@@ -15,7 +15,7 @@ import (
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
-	intake "github.com/viant/agently-core/protocol/intake"
+	intent "github.com/viant/agently-core/protocol/intent"
 	toolreg "github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	agruntime "github.com/viant/agently-core/runtime"
@@ -61,7 +61,7 @@ type Service struct {
 	promptRepo *intakerepo.Repository
 	// mcpMgr is optional. When set, MCP-sourced profiles are rendered via the
 	// MCP server rather than falling back to EffectiveMessages().
-	mcpMgr intake.MCPManager
+	mcpMgr intent.MCPManager
 	// modelFinder is optional. When set, the expansion sidecar (Phase 10) can
 	// call a lightweight LLM to synthesize task-specific profile instructions.
 	modelFinder llm.Finder
@@ -99,7 +99,7 @@ func WithPromptRepo(repo *intakerepo.Repository) Option {
 
 // WithMCPManager injects an MCP manager so that MCP-sourced intake profiles
 // are rendered via the MCP server at delegation time.
-func WithMCPManager(mgr intake.MCPManager) Option {
+func WithMCPManager(mgr intent.MCPManager) Option {
 	return func(s *Service) { s.mcpMgr = mgr }
 }
 

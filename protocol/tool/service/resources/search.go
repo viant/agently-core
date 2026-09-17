@@ -130,6 +130,7 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 			ID:          root.ID,
 			URI:         root.URI,
 			UpstreamRef: root.UpstreamRef,
+			Metadata:    root.Metadata,
 		})
 	}
 	if len(localRoots) > 0 {
