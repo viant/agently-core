@@ -6,6 +6,7 @@ import (
 	pathpkg "path"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/viant/afs/url"
 	"github.com/viant/agently-core/workspace"
@@ -14,16 +15,17 @@ import (
 )
 
 type localRoot struct {
-	ID          string
-	URI         string
-	UpstreamRef string
-	SyncEnabled *bool
-	MinInterval int
-	Batch       int
-	Shadow      string
-	Force       *bool
-	Metadata    metadata.Config
-	matchKey    string
+	ID                     string
+	URI                    string
+	UpstreamRef            string
+	SyncEnabled            *bool
+	MinInterval            int
+	RefreshIntervalSeconds int
+	Batch                  int
+	Shadow                 string
+	Force                  *bool
+	Metadata               metadata.Config
+	matchKey               string
 }
 
 type localRootsKey struct{}
@@ -63,16 +65,17 @@ func normalizeLocalRoots(roots []LocalRoot) []localRoot {
 			continue
 		}
 		out = append(out, localRoot{
-			ID:          strings.TrimSpace(root.ID),
-			URI:         uri,
-			UpstreamRef: strings.TrimSpace(root.UpstreamRef),
-			SyncEnabled: root.SyncEnabled,
-			MinInterval: root.MinInterval,
-			Batch:       root.Batch,
-			Shadow:      strings.TrimSpace(root.Shadow),
-			Force:       root.Force,
-			Metadata:    root.Metadata,
-			matchKey:    matchKey,
+			ID:                     strings.TrimSpace(root.ID),
+			URI:                    uri,
+			UpstreamRef:            strings.TrimSpace(root.UpstreamRef),
+			SyncEnabled:            root.SyncEnabled,
+			MinInterval:            root.MinInterval,
+			RefreshIntervalSeconds: root.RefreshIntervalSeconds,
+			Batch:                  root.Batch,
+			Shadow:                 strings.TrimSpace(root.Shadow),
+			Force:                  root.Force,
+			Metadata:               root.Metadata,
+			matchKey:               matchKey,
 		})
 	}
 	return out
@@ -201,6 +204,13 @@ func (s *Service) resolveLocalRoot(ctx context.Context, location string) *localR
 		}
 	}
 	return best
+}
+
+func (s *Service) indexRefreshInterval(ctx context.Context, location string) time.Duration {
+	if root := s.resolveLocalRoot(ctx, location); root != nil && root.RefreshIntervalSeconds > 0 {
+		return time.Duration(root.RefreshIntervalSeconds) * time.Second
+	}
+	return defaultIndexRefreshInterval
 }
 
 func (s *Service) resolveLocalUpstream(ctx context.Context, location string) (*localRoot, *LocalUpstream, bool) {

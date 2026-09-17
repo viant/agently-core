@@ -52,6 +52,8 @@ type Root struct {
 	Match *embopt.Options `json:"match,omitempty"`
 	// Metadata carries generic indexed document metadata extraction settings.
 	Metadata metadata.Config `json:"-"`
+	// RefreshIntervalSeconds limits background index checks for this root.
+	RefreshIntervalSeconds int `json:"-"`
 	// AllowedSemanticSearch reports whether semantic match (match)
 	// is permitted for this root in the current agent configuration.
 	AllowedSemanticSearch bool `json:"allowedSemanticSearch"`
@@ -112,6 +114,7 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 		rootDB := ""
 		var rootMatch *embopt.Options
 		var rootMetadata metadata.Config
+		rootRefreshIntervalSeconds := 0
 		if curAgent != nil {
 			for _, r := range s.agentResources(ctx, curAgent) {
 				if r == nil || strings.TrimSpace(r.URI) == "" {
@@ -141,6 +144,7 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 						rootMatch = r.Match
 					}
 					rootMetadata = r.Metadata
+					rootRefreshIntervalSeconds = r.RefreshIntervalSeconds
 					break
 				}
 			}
@@ -151,15 +155,16 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 		semAllowed := s.semanticAllowedForAgent(ctx, curAgent, wsRoot)
 		grepAllowed := s.grepAllowedForAgent(ctx, curAgent, wsRoot)
 		rootEntry := Root{
-			ID:                    rootID,
-			URI:                   wsRoot,
-			Description:           desc,
-			UpstreamRef:           upstreamRef,
-			DB:                    rootDB,
-			Metadata:              rootMetadata,
-			AllowedSemanticSearch: semAllowed,
-			AllowedGrepSearch:     grepAllowed,
-			Role:                  role,
+			ID:                     rootID,
+			URI:                    wsRoot,
+			Description:            desc,
+			UpstreamRef:            upstreamRef,
+			DB:                     rootDB,
+			Metadata:               rootMetadata,
+			RefreshIntervalSeconds: rootRefreshIntervalSeconds,
+			AllowedSemanticSearch:  semAllowed,
+			AllowedGrepSearch:      grepAllowed,
+			Role:                   role,
 		}
 		if semAllowed && rootMatch != nil {
 			rootEntry.Match = rootMatch

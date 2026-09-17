@@ -671,6 +671,7 @@ func TestParseResourceEntry_MetadataExtractor(t *testing.T) {
 	require.NoError(t, yaml.Unmarshal([]byte(`
 id: docs
 uri: knowledge/docs/
+refreshIntervalSeconds: 3600
 metadata:
   extractor: yaml-frontmatter
   fields:
@@ -682,6 +683,7 @@ metadata:
 	require.Equal(t, "yaml-frontmatter", res.Metadata.Extractor)
 	require.Equal(t, "title", res.Metadata.Fields["document.title"])
 	require.Equal(t, "sourceUrl", res.Metadata.Fields["source.url"])
+	require.Equal(t, 3600, res.RefreshIntervalSeconds)
 }
 
 func TestParseKnowledge_MinScoreAndMaxFiles(t *testing.T) {
