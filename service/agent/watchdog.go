@@ -25,8 +25,6 @@ import (
 	agtoolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
 	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
-	agruntime "github.com/viant/agently-core/runtime"
-	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 )
 
 // Watchdog periodically detects stale runs and either marks them failed
@@ -37,6 +35,7 @@ type Watchdog struct {
 	tokenProvider           token.Provider
 	interval                time.Duration
 	handleTimeout           time.Duration
+	recoveryLookback        time.Duration
 	workerHost              string
 	recoverySem             chan struct{}
 	handleSem               chan struct{}
@@ -51,6 +50,10 @@ type Watchdog struct {
 const (
 	defaultRecoveryConcurrency       = 4
 	maxRecoveryAttempts              = 10
+	defaultRecoveryLookback          = 24 * time.Hour
+	recoveryExpiryGrace              = 15 * time.Second
+	recoveryPageSize                 = 100
+	recoveryDefaultLeaseSeconds      = 120
 	recoveryAttemptLimitErrorCode    = "recovery_attempt_limit_exceeded"
 	terminalArtifactSnapshotTimeout  = 10 * time.Second
 	terminalArtifactCleanupTimeout   = 10 * time.Second
@@ -79,17 +82,32 @@ func WithWatchdogHandleTimeout(d time.Duration) WatchdogOption {
 	return func(w *Watchdog) { w.handleTimeout = d }
 }
 
+// WithWatchdogRecoveryLookback sets how far back the watchdog may consider an
+// abnormally interrupted root turn for restart recovery.
+func WithWatchdogRecoveryLookback(d time.Duration) WatchdogOption {
+	return func(w *Watchdog) {
+		if d > 0 {
+			w.recoveryLookback = d
+		}
+	}
+}
+
 // NewWatchdog creates a watchdog for stale run detection and resume.
 func NewWatchdog(data data.Service, agent *Service, opts ...WatchdogOption) *Watchdog {
 	hostname, _ := os.Hostname()
+	lookback := defaultRecoveryLookback
+	if agent != nil && agent.defaults != nil && agent.defaults.Recovery.LookbackHours > 0 {
+		lookback = time.Duration(agent.defaults.Recovery.LookbackHours) * time.Hour
+	}
 	w := &Watchdog{
-		data:          data,
-		agent:         agent,
-		interval:      60 * time.Second,
-		handleTimeout: 15 * time.Second,
-		workerHost:    hostname,
-		recoverySem:   make(chan struct{}, defaultRecoveryConcurrency),
-		handleSem:     make(chan struct{}, defaultRecoveryConcurrency),
+		data:             data,
+		agent:            agent,
+		interval:         60 * time.Second,
+		handleTimeout:    15 * time.Second,
+		recoveryLookback: lookback,
+		workerHost:       hostname,
+		recoverySem:      make(chan struct{}, defaultRecoveryConcurrency),
+		handleSem:        make(chan struct{}, defaultRecoveryConcurrency),
 	}
 	for _, o := range opts {
 		o(w)
@@ -143,16 +161,26 @@ func (w *Watchdog) releaseRecoverySlot() {
 }
 
 func (w *Watchdog) sweep(ctx context.Context) {
-	threshold := time.Now().Add(-2 * w.interval)
+	now := runLeaseTimestamp(time.Now())
+	// Any pod sharing the store may recover an expired root interactive run;
+	// the conditional claim, not the host, decides ownership.
 	input := &agrunstale.StaleRunsInput{
-		HeartbeatBefore: threshold,
-		WorkerHost:      w.workerHost,
-		Has:             &agrunstale.StaleRunsInputHas{HeartbeatBefore: true, WorkerHost: true},
+		HeartbeatBefore:    now.Add(-2 * w.interval),
+		LeaseExpiredBefore: now.Add(-recoveryExpiryGrace),
+		ActivityAfter:      now.Add(-w.recoveryLookback),
+		ConversationKind:   "interactive",
+		RootInteractive:    true,
+		Has: &agrunstale.StaleRunsInputHas{
+			HeartbeatBefore: true, LeaseExpiredBefore: true, ActivityAfter: true, ConversationKind: true, RootInteractive: true,
+		},
 	}
 	runs, err := w.data.ListStaleRuns(ctx, input)
 	if err != nil {
 		log.Printf("[watchdog] list stale runs: %v", err)
 		return
+	}
+	if len(runs) > recoveryPageSize {
+		runs = runs[:recoveryPageSize]
 	}
 	w.sweepRuns(ctx, runs)
 }
@@ -436,6 +464,11 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 		if currentAttempt >= maxRecoveryAttempts {
 			return w.failRecoveryAttemptLimit(ctx, run, conversationID, currentAttempt)
 		}
+		turnID := strings.TrimSpace(valueOrEmpty(run.TurnId))
+		if turnID == "" {
+			// Interactive run.id and turn.id share one identity.
+			turnID = strings.TrimSpace(run.Id)
+		}
 		resumeCtx := ctx
 		var sd *token.SecurityData
 
@@ -457,135 +490,44 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 			resumeCtx = iauth.WithUserInfo(resumeCtx, &iauth.UserInfo{Subject: resumeUserID})
 		}
 
-		if err := w.acquireRecoverySlot(ctx); err != nil {
-			return fmt.Errorf("acquire recovery slot: %w", err)
+		// Claim the same run atomically; competing pods are resolved by the run row.
+		leaseOwner := w.newLeaseOwner()
+		claimed, err := w.claimRun(ctx, run, leaseOwner, currentAttempt)
+		if err != nil {
+			return err
 		}
-		recoverySlotHeld := true
-		releaseRecoverySlot := func() {
-			if !recoverySlotHeld {
-				return
-			}
-			recoverySlotHeld = false
-			w.releaseRecoverySlot()
-		}
-
-		// Create new run as a resume of the stale one.
-		newRunID := uuid.New().String()
-		newRun := &agrunwrite.MutableRunView{}
-		newRun.SetId(newRunID)
-		newRun.SetStatus("running")
-		newRun.SetAttempt(currentAttempt + 1)
-		newRun.SetResumedFromRunID(run.Id)
-		if run.ConversationId != nil {
-			newRun.SetConversationID(*run.ConversationId)
-		}
-		if run.AgentId != nil {
-			newRun.SetAgentID(*run.AgentId)
-		}
-		if run.EffectiveUserId != nil {
-			newRun.SetEffectiveUserID(*run.EffectiveUserId)
-		}
-		now := time.Now()
-		newRun.SetCreatedAt(now)
-		newRun.SetStartedAt(now)
-		if w.agent != nil {
-			w.agent.populateInteractiveRunRuntime(newRun, now)
-		} else if strings.TrimSpace(w.workerHost) != "" {
-			newRun.SetWorkerHost(strings.TrimSpace(w.workerHost))
-			newRun.SetLastHeartbeatAt(now)
-		}
-		if _, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{newRun}); err != nil {
-			releaseRecoverySlot()
-			return fmt.Errorf("create resume run: %w", err)
+		if !claimed {
+			return nil
 		}
 		log.Printf(
-			"[watchdog] resume stale run old_run_id=%s new_run_id=%s attempt=%d max_attempts=%d",
+			"[watchdog] claimed stale run run_id=%s turn_id=%s attempt=%d max_attempts=%d",
 			run.Id,
-			newRunID,
+			turnID,
 			currentAttempt+1,
 			maxRecoveryAttempts,
 		)
-
-		// Mark old run as failed.
-		oldRun := &agrunwrite.MutableRunView{}
-		oldRun.SetId(run.Id)
-		oldRun.SetStatus("failed")
-		oldRun.SetErrorMessage(fmt.Sprintf("worker died, resumed as %s", newRunID))
-		oldRun.SetCompletedAt(now)
-		if _, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{oldRun}); err != nil {
-			releaseRecoverySlot()
-			return fmt.Errorf("mark stale run failed: %w", err)
+		if w.agent == nil {
+			return fmt.Errorf("agent service not configured for resume of run %s", run.Id)
 		}
-		// Also terminalize the stale active turn before resuming. If the old turn
-		// remains `running`, agent.Query will treat it as an active turn and queue
-		// the recovery behind it instead of taking over the stale work.
-		var resumeSkillContext *agruntime.Context
-		if w.agent != nil && w.agent.conversation != nil && w.data != nil {
-			active, err := w.data.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
-				ConversationID: conversationID,
-				Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
-			})
-			if err != nil {
-				return fmt.Errorf("load active turn for stale run: %w", err)
-			}
-			if active != nil && strings.TrimSpace(active.Id) != "" {
-				resumeSkillContext = loadInlineSkillContextForTurn(ctx, w.agent.conversation, conversationID, strings.TrimSpace(active.Id))
-				upd := apiconv.NewTurn()
-				upd.SetId(strings.TrimSpace(active.Id))
-				upd.SetStatus("failed")
-				upd.SetErrorMessage(fmt.Sprintf("stale turn superseded by resumed run %s", newRunID))
-				if err := w.agent.conversation.PatchTurn(ctx, upd); err != nil {
-					releaseRecoverySlot()
-					return fmt.Errorf("terminalize stale active turn: %w", err)
-				}
-				if err := w.failSupersededRunArtifacts(ctx, conversationID, strings.TrimSpace(active.Id), run.Id, fmt.Sprintf("stale turn superseded by resumed run %s", newRunID)); err != nil {
-					log.Printf("[watchdog] cleanup superseded run artifacts %s: %v", run.Id, err)
-				}
-				// The normal finalizeTurn path triggers queue drain after a turn
-				// becomes terminal. This watchdog path bypasses finalizeTurn, so do
-				// the same queue-drain handoff explicitly for old queued recovery
-				// attempts in the conversation.
-				w.agent.triggerQueueDrain(conversationID)
-			}
+		if err := w.acquireRecoverySlot(ctx); err != nil {
+			return fmt.Errorf("acquire recovery slot: %w", err)
 		}
-
-		agentID := ""
-		if run.AgentId != nil {
-			agentID = *run.AgentId
-		}
-		resumeCtx = runtimerecovery.WithMode(resumeCtx, runtimerecovery.ModeResume)
-		input := &QueryInput{
-			AgentID:        agentID,
+		req := resumeTurnRequest{
 			ConversationID: conversationID,
-			MessageID:      newRunID,
-			UserId:         resumeUserID,
-			Query:          "", // continue existing conversation
-		}
-		if resumeSkillContext != nil {
-			input.Runtime = resumeSkillContext
+			TurnID:         turnID,
+			LeaseOwner:     leaseOwner,
+			AgentID:        strings.TrimSpace(valueOrEmpty(run.AgentId)),
+			UserID:         resumeUserID,
+			Iteration:      run.Iteration,
 		}
 		resumeAsyncCtx := detachResumeContext(resumeCtx)
-		go func(resumeCtx context.Context, oldRunID, newRunID string, input *QueryInput) {
-			defer releaseRecoverySlot()
-			out := &QueryOutput{}
-			if err := w.agent.Query(resumeCtx, input, out); err != nil {
-				log.Printf("[watchdog] resume run %s (was %s): %v", newRunID, oldRunID, err)
-				failResume := &agrunwrite.MutableRunView{}
-				failResume.SetId(newRunID)
-				failResume.SetStatus("failed")
-				failResume.SetErrorMessage(fmt.Sprintf("resume failed: %v", err))
-				failResume.SetCompletedAt(time.Now())
-				if _, patchErr := w.data.PatchRuns(context.Background(), []*agrunwrite.MutableRunView{failResume}); patchErr != nil {
-					log.Printf("[watchdog] mark resumed run failed %s: %v", newRunID, patchErr)
-				}
-				if w.agent != nil && strings.TrimSpace(input.ConversationID) != "" {
-					if convErr := w.agent.patchConversationStatus(context.Background(), strings.TrimSpace(input.ConversationID), "failed"); convErr != nil {
-						log.Printf("[watchdog] mark resumed conversation failed %s: %v", input.ConversationID, convErr)
-					}
-					w.agent.triggerQueueDrain(strings.TrimSpace(input.ConversationID))
-				}
+		go func(resumeCtx context.Context, req resumeTurnRequest) {
+			defer w.releaseRecoverySlot()
+			if err := w.agent.resumeTurn(resumeCtx, req); err != nil {
+				log.Printf("[watchdog] resume run %s: %v", req.TurnID, err)
+				w.failClaimedRun(context.Background(), req, err)
 			}
-		}(resumeAsyncCtx, run.Id, newRunID, input)
+		}(resumeAsyncCtx, req)
 		return nil
 	}
 
@@ -707,7 +649,7 @@ func (w *Watchdog) failSupersededRunArtifacts(ctx context.Context, conversationI
 	if w == nil || w.data == nil {
 		return nil
 	}
-	now := time.Now()
+	now := runLeaseTimestamp(time.Now())
 	patchedToolCallIDs, err := w.failSupersededRunSteps(ctx, runID, reason, now)
 	if err != nil {
 		return err
@@ -814,7 +756,7 @@ func (w *Watchdog) failSupersededToolMessages(ctx context.Context, conversationI
 	if len(messageRows) == 0 && len(runningToolCalls) == 0 {
 		return nil
 	}
-	now := time.Now()
+	now := runLeaseTimestamp(time.Now())
 	rows := make([]*agmessagewrite.MutableMessageView, 0)
 	toolRows := make([]*agtoolcallwrite.MutableToolCallView, 0)
 	for _, msg := range messageRows {
@@ -873,5 +815,100 @@ func isTerminalArtifactStatus(status string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+func (w *Watchdog) newLeaseOwner() string {
+	if w != nil && w.agent != nil {
+		return w.agent.newRunLeaseOwner()
+	}
+	return strings.TrimSpace(w.workerHost) + ":" + uuid.NewString()
+}
+
+// claimRun submits the existing run sparse PATCH conditioned on the observed
+// status, lease owner and attempt, then reads the run once and continues only
+// when its exact proposed token is present. It never issues an unconditional
+// second claim.
+func (w *Watchdog) claimRun(ctx context.Context, run *agrunstale.StaleRunsView, leaseOwner string, observedAttempt int) (bool, error) {
+	if run == nil || run.LeaseOwner == nil || strings.TrimSpace(*run.LeaseOwner) == "" || run.LeaseUntil == nil {
+		// Only executions admitted with the lease contract are auto-resumable.
+		// A claim without both observed values cannot defeat a concurrent renewal.
+		return false, nil
+	}
+	now := runLeaseTimestamp(time.Now())
+	leaseSeconds := recoveryDefaultLeaseSeconds
+	if w.agent != nil && w.agent.runHeartbeatIntervalSec > 0 {
+		leaseSeconds = 2 * w.agent.runHeartbeatIntervalSec
+	}
+	upd := &agrunwrite.MutableRunView{}
+	upd.SetId(run.Id)
+	upd.SetLeaseOwner(leaseOwner)
+	upd.SetLeaseUntil(now.Add(time.Duration(leaseSeconds) * time.Second))
+	upd.SetLastHeartbeatAt(now)
+	upd.SetAttempt(observedAttempt + 1)
+	if strings.TrimSpace(w.workerHost) != "" {
+		upd.SetWorkerHost(strings.TrimSpace(w.workerHost))
+	}
+	observed := observedAttempt
+	if run.Attempt < 1 {
+		observed = run.Attempt
+	}
+	owner := strings.TrimSpace(*run.LeaseOwner)
+	cond := agrunwrite.RunPatchCondition{Status: "running", Attempt: &observed, LeaseOwner: &owner}
+	upd.SetCondition(cond)
+	if _, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{upd}); err != nil {
+		return false, fmt.Errorf("claim stale run: %w", err)
+	}
+	row, err := w.data.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+		TurnId: run.Id,
+		Has:    &agrunactive.ActiveRunsInputHas{TurnId: true},
+	})
+	if err != nil {
+		return false, fmt.Errorf("verify stale run claim: %w", err)
+	}
+	if row == nil || row.LeaseOwner == nil {
+		return false, nil
+	}
+	return strings.TrimSpace(*row.LeaseOwner) == leaseOwner, nil
+}
+
+// failClaimedRun terminalizes a claimed run whose resume failed, using the
+// lease token so a later owner is never overwritten.
+func (w *Watchdog) failClaimedRun(ctx context.Context, req resumeTurnRequest, cause error) {
+	owned, err := w.data.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+		TurnId: req.TurnID,
+		Has:    &agrunactive.ActiveRunsInputHas{TurnId: true},
+	})
+	if err != nil || owned == nil || owned.LeaseOwner == nil || strings.TrimSpace(*owned.LeaseOwner) != strings.TrimSpace(req.LeaseOwner) {
+		return
+	}
+	failed := &agrunwrite.MutableRunView{}
+	failed.SetId(req.TurnID)
+	failed.SetStatus("failed")
+	failed.SetErrorMessage(fmt.Sprintf("resume failed: %v", cause))
+	failed.SetCompletedAt(time.Now())
+	owner := req.LeaseOwner
+	failed.SetCondition(agrunwrite.RunPatchCondition{LeaseOwner: &owner})
+	if _, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{failed}); err != nil {
+		log.Printf("[watchdog] mark resumed run failed %s: %v", req.TurnID, err)
+		return
+	}
+	if err := w.failSupersededRunArtifacts(ctx, req.ConversationID, req.TurnID, req.TurnID, fmt.Sprintf("resume failed: %v", cause)); err != nil {
+		log.Printf("[watchdog] cleanup resumed run artifacts %s: %v", req.TurnID, err)
+	}
+	if w.agent != nil && w.agent.conversation != nil {
+		upd := apiconv.NewTurn()
+		upd.SetId(req.TurnID)
+		upd.SetStatus("failed")
+		upd.SetErrorMessage(fmt.Sprintf("resume failed: %v", cause))
+		if err := w.agent.conversation.PatchTurn(ctx, upd); err != nil {
+			log.Printf("[watchdog] mark resumed turn failed %s: %v", req.TurnID, err)
+		}
+	}
+	if w.agent != nil && strings.TrimSpace(req.ConversationID) != "" {
+		if convErr := w.agent.patchConversationStatus(ctx, strings.TrimSpace(req.ConversationID), "failed"); convErr != nil {
+			log.Printf("[watchdog] mark resumed conversation failed %s: %v", req.ConversationID, convErr)
+		}
+		w.agent.triggerQueueDrain(strings.TrimSpace(req.ConversationID))
 	}
 }

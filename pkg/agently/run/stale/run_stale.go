@@ -27,14 +27,22 @@ func init() {
 var StaleRunsFS embed.FS
 
 type StaleRunsInput struct {
-	HeartbeatBefore time.Time          `parameter:",kind=query,in=heartbeatBefore" predicate:"expr,group=0,(t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < ?)"`
-	WorkerHost      string             `parameter:",kind=query,in=workerHost" predicate:"expr,group=0,(t.worker_host IS NULL OR t.worker_host = ?)"`
-	Has             *StaleRunsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	HeartbeatBefore    time.Time          `parameter:",kind=query,in=heartbeatBefore" predicate:"expr,group=0,(t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < ?)"`
+	WorkerHost         string             `parameter:",kind=query,in=workerHost" predicate:"expr,group=0,(t.worker_host IS NULL OR t.worker_host = ?)"`
+	LeaseExpiredBefore time.Time          `parameter:",kind=query,in=leaseExpiredBefore" predicate:"expr,group=0,(t.lease_until IS NOT NULL AND t.lease_until < ?)"`
+	ActivityAfter      time.Time          `parameter:",kind=query,in=activityAfter" predicate:"expr,group=0,((CASE WHEN t.last_heartbeat_at IS NOT NULL THEN t.last_heartbeat_at WHEN t.started_at IS NOT NULL THEN t.started_at ELSE t.created_at END) >= ?)"`
+	ConversationKind   string             `parameter:",kind=query,in=conversationKind" predicate:"equal,group=0,t,conversation_kind"`
+	RootInteractive    bool               `parameter:",kind=query,in=rootInteractive" predicate:"expr,group=0,(? AND t.schedule_id IS NULL AND NOT EXISTS (SELECT 1 FROM conversation c WHERE c.id = t.conversation_id AND c.conversation_parent_id IS NOT NULL AND c.conversation_parent_id <> ''))"`
+	Has                *StaleRunsInputHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
 }
 
 type StaleRunsInputHas struct {
-	HeartbeatBefore bool
-	WorkerHost      bool
+	HeartbeatBefore    bool
+	WorkerHost         bool
+	LeaseExpiredBefore bool
+	ActivityAfter      bool
+	ConversationKind   bool
+	RootInteractive    bool
 }
 
 type StaleRunsOutput struct {

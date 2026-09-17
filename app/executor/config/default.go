@@ -24,6 +24,7 @@ type Defaults struct {
 	Agent      string
 	Skills     SkillsDefaults    `yaml:"skills,omitempty" json:"skills,omitempty"`
 	Reporting  ReportingDefaults `yaml:"reporting,omitempty" json:"reporting,omitempty"`
+	Recovery   RecoveryDefaults  `yaml:"recovery,omitempty" json:"recovery,omitempty"`
 	// RuntimeRoot allows separating runtime state (db, snapshots, indexes) from the workspace.
 	// Supports ${workspaceRoot}. When empty, defaults to ${workspaceRoot}.
 	RuntimeRoot string `yaml:"runtimeRoot,omitempty" json:"runtimeRoot,omitempty"`
@@ -113,6 +114,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		Agent       string            `yaml:"agent"`
 		Skills      SkillsDefaults    `yaml:"skills,omitempty"`
 		Reporting   ReportingDefaults `yaml:"reporting,omitempty"`
+		Recovery    RecoveryDefaults  `yaml:"recovery,omitempty"`
 		RuntimeRoot string            `yaml:"runtimeRoot,omitempty"`
 		StatePath   string            `yaml:"statePath,omitempty"`
 		DBPath      string            `yaml:"dbPath,omitempty"`
@@ -159,6 +161,7 @@ func (d *Defaults) UnmarshalYAML(value *yaml.Node) error {
 		Agent:       tmp.Agent,
 		Skills:      tmp.Skills,
 		Reporting:   tmp.Reporting,
+		Recovery:    tmp.Recovery,
 		RuntimeRoot: tmp.RuntimeRoot,
 		StatePath:   tmp.StatePath,
 		DBPath:      tmp.DBPath,
@@ -211,6 +214,14 @@ func (d *Defaults) HasToolExecutionProtection() bool {
 type SkillsDefaults struct {
 	Roots []string `yaml:"roots,omitempty" json:"roots,omitempty"`
 	Model string   `yaml:"model,omitempty" json:"model,omitempty"`
+}
+
+// RecoveryDefaults controls recovery of root turns interrupted by an abnormal
+// instance restart.
+type RecoveryDefaults struct {
+	// LookbackHours limits recovery to turns with recent activity. Values less
+	// than one use the runtime default of 24 hours.
+	LookbackHours int `yaml:"lookbackHours,omitempty" json:"lookbackHours,omitempty"`
 }
 
 type ReportingStoreDefaults struct {

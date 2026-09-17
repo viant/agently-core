@@ -45,7 +45,18 @@ func (h *Handler) exec(ctx context.Context, sess handler.Session, out *Output) e
 	}
 	for _, rec := range in.Runs {
 		if _, ok := in.CurByID[rec.Id]; !ok {
+			if rec.Condition != nil {
+				return fmt.Errorf("conditional run patch %q requires an existing run", rec.Id)
+			}
 			if err = sql.Insert("run", rec); err != nil {
+				return err
+			}
+		} else if rec.Condition != nil {
+			conditional, cErr := conditionalRecord(rec)
+			if cErr != nil {
+				return cErr
+			}
+			if err = sql.Update("run", conditional); err != nil {
 				return err
 			}
 		} else {
