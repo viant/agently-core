@@ -14,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	authctx "github.com/viant/agently-core/internal/auth"
+	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
 	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 )
 
@@ -58,4 +59,59 @@ func TestAuthenticatedPreConversationUpload(t *testing.T) {
 	_, r, err := scratchpadsvc.New().OpenArtifact(req.Context(), out.URI)
 	require.NoError(t, err)
 	r.Close()
+}
+
+func TestAttachArtifactToConversationDoesNotRepublishIt(t *testing.T) {
+	t.Setenv(scratchpadsvc.EnvScratchpadURI, "file://"+filepath.ToSlash(filepath.Join(t.TempDir(), "${userID}")))
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	scratchpad := scratchpadsvc.New()
+	descriptor, err := scratchpad.PublishArtifact(ctx, "artifact-1", "customers.csv", "text/csv", "browser", bytes.NewReader([]byte("id\n1\n")))
+	require.NoError(t, err)
+
+	store := convmem.New()
+	client := &backendClient{conv: store}
+	out, err := client.UploadFile(ctx, &UploadFileInput{ConversationID: "conv", ResourceURI: descriptor.URI})
+	require.NoError(t, err)
+	require.NotEqual(t, descriptor.ID, out.ID)
+	require.Equal(t, descriptor, out.Resource)
+	require.Equal(t, descriptor.Name, out.Name)
+	require.Equal(t, descriptor.MimeType, out.MimeType)
+
+	artifacts, _, err := scratchpad.ListArtifacts(ctx, "", 100)
+	require.NoError(t, err)
+	require.Len(t, artifacts, 1)
+	require.Equal(t, descriptor.ID, artifacts[0].ID)
+
+	files, err := store.GetGeneratedFiles(ctx, &gfread.Input{ConversationID: "conv"})
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	file := files[0]
+	require.Equal(t, out.ID, file.ID)
+	require.Equal(t, "scratchpad", file.Provider)
+	require.NotNil(t, file.ProviderFileID)
+	require.Equal(t, descriptor.ID, *file.ProviderFileID)
+	require.NotNil(t, file.Checksum)
+	require.Equal(t, descriptor.SHA256, *file.Checksum)
+	require.NotNil(t, file.PayloadID)
+
+	payload, err := store.GetPayload(ctx, *file.PayloadID)
+	require.NoError(t, err)
+	require.NotNil(t, payload)
+	require.NotNil(t, payload.InlineBody)
+	require.Equal(t, []byte("id\n1\n"), *payload.InlineBody)
+}
+
+func TestAttachArtifactRejectsOtherUsersArtifact(t *testing.T) {
+	t.Setenv(scratchpadsvc.EnvScratchpadURI, "file://"+filepath.ToSlash(filepath.Join(t.TempDir(), "${userID}")))
+	alice := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	descriptor, err := scratchpadsvc.New().PublishArtifact(alice, "artifact-1", "private.txt", "text/plain", "", bytes.NewReader([]byte("private")))
+	require.NoError(t, err)
+
+	bob := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "bob"})
+	store := convmem.New()
+	_, err = (&backendClient{conv: store}).UploadFile(bob, &UploadFileInput{ConversationID: "conv", ResourceURI: descriptor.URI})
+	require.ErrorContains(t, err, "artifact unavailable")
+	files, listErr := store.GetGeneratedFiles(bob, &gfread.Input{ConversationID: "conv"})
+	require.NoError(t, listErr)
+	require.Empty(t, files)
 }

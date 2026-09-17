@@ -764,9 +764,12 @@ export interface UploadFileInput {
 }
 
 export interface UploadFileOutput {
-  resource?: { uri: string; id: string; name: string; mimeType: string; sizeBytes: number; sha256?: string };
+    resource?: { uri: string; id: string; name: string; mimeType: string; sizeBytes: number; sha256?: string; sourceURI?: string };
     id: string;
     uri: string;
+    name: string;
+    size: number;
+    mimeType?: string;
 }
 
 // ─── Workspace Resources ───────────────────────────────────────────────────────

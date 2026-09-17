@@ -5,10 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	authctx "github.com/viant/agently-core/internal/auth"
-	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
+	"io"
 	"strings"
 	"time"
+
+	authctx "github.com/viant/agently-core/internal/auth"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 
 	"github.com/google/uuid"
 	"github.com/viant/agently-core/app/store/conversation"
@@ -22,6 +24,69 @@ func (c *backendClient) UploadFile(ctx context.Context, input *UploadFileInput) 
 	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, errors.New("conversation ID is required")
 	}
+	resourceURI := strings.TrimSpace(input.ResourceURI)
+	hasData := len(input.Data) > 0
+	if hasData == (resourceURI != "") {
+		return nil, errors.New("exactly one of file data or resource URI is required")
+	}
+	if resourceURI != "" {
+		artifactID, err := scratchpadsvc.ArtifactID(resourceURI)
+		if err != nil {
+			return nil, err
+		}
+		descriptor, reader, err := scratchpadsvc.New().OpenArtifact(ctx, resourceURI)
+		if err != nil {
+			return nil, fmt.Errorf("opening scratchpad artifact: %w", err)
+		}
+		data, readErr := io.ReadAll(io.LimitReader(reader, scratchpadsvc.MaxArtifactBytes+1))
+		closeErr := reader.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("reading scratchpad artifact: %w", readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("closing scratchpad artifact: %w", closeErr)
+		}
+		if int64(len(data)) > scratchpadsvc.MaxArtifactBytes {
+			return nil, fmt.Errorf("artifact exceeds %d bytes", scratchpadsvc.MaxArtifactBytes)
+		}
+		if int64(len(data)) != descriptor.SizeBytes {
+			return nil, fmt.Errorf("artifact size mismatch")
+		}
+		return c.storeConversationFile(ctx, conversationFileInput{
+			ConversationID: strings.TrimSpace(input.ConversationID),
+			Name:           descriptor.Name,
+			ContentType:    descriptor.MimeType,
+			Data:           data,
+			Provider:       "scratchpad",
+			ProviderFileID: artifactID,
+			Checksum:       descriptor.SHA256,
+			Resource:       descriptor,
+		})
+	}
+
+	return c.storeConversationFile(ctx, conversationFileInput{
+		ConversationID: strings.TrimSpace(input.ConversationID),
+		Name:           input.Name,
+		ContentType:    input.ContentType,
+		Data:           input.Data,
+		Provider:       "upload",
+		Publish:        authctx.EffectiveUserID(ctx) != "",
+	})
+}
+
+type conversationFileInput struct {
+	ConversationID string
+	Name           string
+	ContentType    string
+	Data           []byte
+	Provider       string
+	ProviderFileID string
+	Checksum       string
+	Resource       *scratchpadsvc.ArtifactDescriptor
+	Publish        bool
+}
+
+func (c *backendClient) storeConversationFile(ctx context.Context, input conversationFileInput) (*UploadFileOutput, error) {
 	if len(input.Data) == 0 {
 		return nil, errors.New("file data is required")
 	}
@@ -51,17 +116,23 @@ func (c *backendClient) UploadFile(ctx context.Context, input *UploadFileInput) 
 		now := time.Now().UTC()
 		gf := conversation.NewGeneratedFile()
 		gf.SetID(fileID)
-		gf.SetConversationID(strings.TrimSpace(input.ConversationID))
+		gf.SetConversationID(input.ConversationID)
 		gf.SetPayloadID(payloadID)
 		gf.SetMode("inline")
 		gf.SetCopyMode("eager")
 		gf.SetStatus("ready")
-		gf.SetProvider("upload")
+		gf.SetProvider(input.Provider)
+		if providerFileID := strings.TrimSpace(input.ProviderFileID); providerFileID != "" {
+			gf.SetProviderFileID(providerFileID)
+		}
 		if name := strings.TrimSpace(input.Name); name != "" {
 			gf.SetFilename(name)
 		}
 		gf.SetMimeType(contentType)
 		gf.SetSizeBytes(len(input.Data))
+		if checksum := strings.TrimSpace(input.Checksum); checksum != "" {
+			gf.SetChecksum(checksum)
+		}
 		gf.SetCreatedAt(now)
 		gf.SetUpdatedAt(now)
 		if err := gfc.PatchGeneratedFile(ctx, gf); err != nil {
@@ -69,10 +140,10 @@ func (c *backendClient) UploadFile(ctx context.Context, input *UploadFileInput) 
 		}
 	}
 
-	out := &UploadFileOutput{ID: fileID, Name: input.Name, Size: int64(len(input.Data)), MimeType: contentType}
+	out := &UploadFileOutput{Resource: input.Resource, ID: fileID, Name: input.Name, Size: int64(len(input.Data)), MimeType: contentType}
 	// Anonymous legacy clients retain their old contract; user-scoped resource
 	// publication requires authenticated identity, never an invented shared user.
-	if authctx.EffectiveUserID(ctx) != "" {
+	if input.Publish {
 		d, err := scratchpadsvc.New().PublishArtifact(ctx, fileID, input.Name, contentType, "", bytes.NewReader(input.Data))
 		if err != nil {
 			return nil, err

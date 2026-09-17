@@ -655,6 +655,28 @@ export class AgentlyClient {
         return (await resp.json()) as UploadFileOutput;
     }
 
+    /** Associate an existing user-scoped scratchpad artifact with a conversation. */
+    async attachArtifact(conversationId: string, resourceURI: string): Promise<UploadFileOutput> {
+        if (!conversationId.trim()) throw new Error('conversationId is required');
+        if (!resourceURI.trim()) throw new Error('resourceURI is required');
+
+        const headers = await this.authHeaders();
+        delete headers['Content-Type'];
+
+        const form = new FormData();
+        form.set('conversationId', conversationId);
+        form.set('resourceURI', resourceURI);
+
+        const resp = await this.fetchImpl(`${this.baseURL}/files`, {
+            method: 'POST',
+            headers,
+            body: form,
+            credentials: this.useCookies ? 'include' : 'same-origin',
+        });
+        if (!resp.ok) throw await this.toHttpError(resp);
+        return (await resp.json()) as UploadFileOutput;
+    }
+
     /** List files for a conversation. */
     async listFiles(conversationId: string): Promise<FileEntry[]> {
         const q = new URLSearchParams({ conversationId });

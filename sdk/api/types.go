@@ -520,6 +520,7 @@ const ApprovalTimeoutErrorMessage = "approval request timed out"
 
 type UploadFileInput struct {
 	ConversationID string
+	ResourceURI    string
 	Path           string
 	Name           string
 	ContentType    string
