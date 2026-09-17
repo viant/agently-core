@@ -97,6 +97,16 @@ reporting:
 	require.Equal(t, "agently", got.Reporting.Store.ConnectorRef)
 }
 
+func TestDefaultsUnmarshalYAMLRecovery(t *testing.T) {
+	input := `
+recovery:
+  lookbackHours: 6
+`
+	var got Defaults
+	require.NoError(t, yaml.Unmarshal([]byte(input), &got))
+	require.Equal(t, 6, got.Recovery.LookbackHours)
+}
+
 func TestReportingBrowserRunPersistence_DefaultClosedAndExplicitlyEnabled(t *testing.T) {
 	var defaults Defaults
 	require.False(t, defaults.Reporting.BrowserRunPersistenceEnabled())

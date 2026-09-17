@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/protocol/tool"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 	"github.com/viant/agently-core/genai/llm"
@@ -269,4 +272,56 @@ func (s *Service) synthesizeFinalResponse(genOutput *core2.GenerateOutput) {
 			FinishReason: "stop",
 		}},
 	}
+}
+
+// PlanFromResponse reconstructs the exact tool plan a completed model response
+// requested, using the same response-to-plan parsing as Run. It never calls
+// the model.
+func (s *Service) PlanFromResponse(resp *llm.GenerateResponse) *execution.Plan {
+	aPlan := execution.New()
+	if resp == nil {
+		return aPlan
+	}
+	for j := range resp.Choices {
+		s.extendPlanWithToolCalls(resp.ResponseID, &resp.Choices[j], aPlan)
+	}
+	return aPlan
+}
+
+// ResumePlan is the restart-recovery adapter over the existing pending-step
+// launcher. It reuses durable results for operations already in `completed`
+// (matched by op ID), executes only the never-started tool steps through the
+// same toolexec.ExecuteToolStep path as Run, and returns the full plan. It
+// never invokes the model.
+func (s *Service) ResumePlan(ctx context.Context, aPlan *execution.Plan, completed map[string]llm.ToolCall) (*execution.Plan, error) {
+	if aPlan == nil {
+		aPlan = execution.New()
+	}
+	turnID := ""
+	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
+		turnID = strings.TrimSpace(tm.TurnID)
+	}
+	for _, call := range completed {
+		s.rememberTurnToolResult(turnID, call)
+	}
+	pending := &execution.Plan{ID: aPlan.ID, Intention: aPlan.Intention}
+	for _, step := range aPlan.Steps {
+		if step.Type != "tool" {
+			continue
+		}
+		if _, done := completed[strings.TrimSpace(step.ID)]; done {
+			continue
+		}
+		pending.Steps = append(pending.Steps, step)
+	}
+	if len(pending.Steps) > 0 {
+		reg := tool.WithConversation(s.registry, runtimerequestctx.ConversationIDFromContext(ctx))
+		var wg sync.WaitGroup
+		nextStepIdx := 0
+		assistantMsgID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
+		s.launchPendingSteps(ctx, pending, &nextStepIdx, &wg, reg, assistantMsgID)
+		wg.Wait()
+	}
+	RefinePlan(aPlan)
+	return aPlan, nil
 }

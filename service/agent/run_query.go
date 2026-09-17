@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/protocol/agent/execution"
 	"path"
 	"regexp"
 	"sort"
@@ -502,6 +503,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	var cancel func()
 	ctx, cancel = s.registerTurnCancel(ctx, turn)
 	defer cancel()
+	if strings.TrimSpace(input.ScheduleId) == "" {
+		var leaseCancel context.CancelFunc
+		ctx, leaseCancel = context.WithCancel(ctx)
+		defer leaseCancel()
+		ctx = withRunLease(ctx, s.newRunLease("", leaseCancel))
+	}
 	var turnStatus string
 	var turnRunErr error
 	turnFinalized := false
@@ -573,6 +580,14 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	}
 	defer func() {
 		if turnFinalized {
+			return
+		}
+		if lease := runLeaseFromContext(ctx); lease != nil && !lease.Active() {
+			// A replacement owner now controls the same logical turn. The stale
+			// executor must not publish terminal run/turn/conversation state.
+			if retErr == nil {
+				retErr = errRunLeaseLost
+			}
 			return
 		}
 		finalStatus := strings.TrimSpace(turnStatus)
@@ -856,7 +871,15 @@ func (s *Service) addAttachment(ctx context.Context, turn runtimerequestctx.Turn
 }
 
 func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutput *QueryOutput) error {
-	iter := 0
+	return s.runPlanLoopFrom(ctx, input, queryOutput, planLoopStart{})
+}
+
+// runPlanLoopFrom is the ReAct loop. The zero start is ordinary execution;
+// restart recovery supplies a restored iteration and phase and otherwise runs
+// the very same loop, binding and finalization code.
+func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryOutput *QueryOutput, start planLoopStart) error {
+	iter := start.firstIteration() - 1
+	resumePending := start.Phase == planLoopPhaseTools
 	var resolvedModel string
 	var loopHistoryMsgs []*bindpkg.Message
 	var activeInlineSkillNames []string
@@ -936,6 +959,9 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 		}
 		iterStart := time.Now()
+		if lease := runLeaseFromContext(ctx); lease != nil && !lease.Active() {
+			return errRunLeaseLost
+		}
 		s.updateRunIteration(ctx, turn, iter, input.ScheduleId)
 
 		checkpoint, ckErr := s.latestTurnTaskCheckpoint(ctx, turn)
@@ -1285,7 +1311,20 @@ func (s *Service) runPlanLoop(ctx context.Context, input *QueryInput, queryOutpu
 			}
 		}
 
-		aPlan, pErr := s.orchestrator.Run(ctx, genInput, genOutput)
+		if lease := runLeaseFromContext(ctx); lease != nil && !lease.Active() {
+			return errRunLeaseLost
+		}
+		var aPlan *execution.Plan
+		var pErr error
+		if resumePending && iter == start.firstIteration() {
+			// Completed model attempt: execute only never-started planned tools.
+			resumePending = false
+			genOutput.Content = start.Content
+			genOutput.MessageID = start.MessageID
+			aPlan, pErr = s.orchestrator.ResumePlan(ctx, start.Plan, start.Completed)
+		} else {
+			aPlan, pErr = s.orchestrator.Run(ctx, genInput, genOutput)
+		}
 		stepCount := 0
 		if aPlan != nil {
 			stepCount = len(aPlan.Steps)

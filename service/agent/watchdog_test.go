@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	agrun "github.com/viant/agently-core/pkg/agently/run"
 	"log"
 	"strings"
 	"sync"
@@ -12,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	execconfig "github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	token "github.com/viant/agently-core/internal/auth/token"
@@ -128,8 +130,9 @@ func TestNormalizedRecoveryAttempt(t *testing.T) {
 type resumeAttemptDataService struct {
 	data.Service
 
-	activeRun  *agrunactive.ActiveRunsView
-	patchCalls [][]*agrunwrite.MutableRunView
+	activeRun   *agrunactive.ActiveRunsView
+	patchCalls  [][]*agrunwrite.MutableRunView
+	storedOwner string
 }
 
 func (s *resumeAttemptDataService) GetActiveRun(_ context.Context, _ *agrunactive.ActiveRunsInput, _ ...data.Option) (*agrunactive.ActiveRunsView, error) {
@@ -138,13 +141,15 @@ func (s *resumeAttemptDataService) GetActiveRun(_ context.Context, _ *agrunactiv
 
 func (s *resumeAttemptDataService) PatchRuns(_ context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error) {
 	s.patchCalls = append(s.patchCalls, rows)
-	if len(s.patchCalls) == 2 {
-		return nil, errors.New("stop after resumed run creation")
-	}
 	return rows, nil
 }
 
-func TestWatchdogHandleStaleRun_IncrementsRecoveryAttempt(t *testing.T) {
+func (s *resumeAttemptDataService) GetRun(_ context.Context, id string, _ *agrun.RunRowsInput, _ ...data.Option) (*agrun.RunRowsView, error) {
+	owner := s.storedOwner
+	return &agrun.RunRowsView{Id: id, Status: "running", LeaseOwner: &owner}, nil
+}
+
+func TestWatchdogHandleStaleRun_ClaimsSameRunConditionally(t *testing.T) {
 	tests := []struct {
 		name          string
 		sourceAttempt int
@@ -156,31 +161,86 @@ func TestWatchdogHandleStaleRun_IncrementsRecoveryAttempt(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			store := &resumeAttemptDataService{}
+			leaseUntil := time.Now().Add(-time.Minute)
+			store := &resumeAttemptDataService{storedOwner: "another-pod"}
 			watchdog := NewWatchdog(store, nil)
 			run := &agrunstale.StaleRunsView{
 				Id:               "source-run",
 				Attempt:          test.sourceAttempt,
 				ConversationId:   strptr("conversation-1"),
 				ConversationKind: "interactive",
-				TurnId:           strptr("turn-1"),
+				TurnId:           strptr("source-run"),
+				LeaseOwner:       strptr("dead-owner"),
+				LeaseUntil:       &leaseUntil,
 			}
-			err := watchdog.handleStaleRun(context.Background(), run)
-			if err == nil || !strings.Contains(err.Error(), "mark stale run failed") {
-				t.Fatalf("handleStaleRun() error=%v, want forced old-run patch failure", err)
+			// Another pod won: the claim read-back shows a foreign token, so the
+			// watchdog must stop without any further mutation or resume.
+			if err := watchdog.handleStaleRun(context.Background(), run); err != nil {
+				t.Fatalf("handleStaleRun() error=%v", err)
 			}
-			if len(store.patchCalls) != 2 || len(store.patchCalls[0]) != 1 {
-				t.Fatalf("PatchRuns calls=%d, want resumed-run creation followed by old-run patch", len(store.patchCalls))
+			if len(store.patchCalls) != 1 || len(store.patchCalls[0]) != 1 {
+				t.Fatalf("PatchRuns calls=%d, want exactly one conditional claim", len(store.patchCalls))
 			}
-			created := store.patchCalls[0][0]
-			if created.Attempt == nil || *created.Attempt != test.wantAttempt {
-				t.Fatalf("created attempt=%v, want %d", created.Attempt, test.wantAttempt)
+			claim := store.patchCalls[0][0]
+			if claim.Id != run.Id {
+				t.Fatalf("claim id=%q, want same run %q (no successor run)", claim.Id, run.Id)
 			}
-			if created.ResumedFromRunID == nil || *created.ResumedFromRunID != run.Id {
-				t.Fatalf("resumed_from_run_id=%v, want %s", created.ResumedFromRunID, run.Id)
+			if claim.Attempt == nil || *claim.Attempt != test.wantAttempt {
+				t.Fatalf("claim attempt=%v, want %d", claim.Attempt, test.wantAttempt)
+			}
+			if claim.ResumedFromRunID != nil {
+				t.Fatalf("claim must not create a resumed successor run")
+			}
+			if claim.Condition == nil || claim.Condition.Status != "running" || claim.Condition.Attempt == nil || claim.Condition.LeaseOwner == nil || *claim.Condition.LeaseOwner != "dead-owner" {
+				t.Fatalf("claim condition=%+v, want observed running/attempt/lease owner", claim.Condition)
+			}
+			if claim.LeaseOwner == nil || *claim.LeaseOwner == "dead-owner" || *claim.LeaseOwner == "" {
+				t.Fatalf("claim must propose a new unique lease owner, got %v", claim.LeaseOwner)
+			}
+			if claim.LeaseUntil == nil || claim.LastHeartbeatAt == nil {
+				t.Fatalf("claim must set lease expiry and heartbeat")
 			}
 		})
 	}
+}
+
+func TestWatchdogHandleStaleRun_WinningClaimWithoutAgentReportsError(t *testing.T) {
+	store := &resumeAttemptDataService{}
+	watchdog := NewWatchdog(store, nil)
+	// Simulate winning: read-back returns whatever token the claim proposed.
+	store.Service = nil
+	leaseUntil := time.Now().Add(-time.Minute)
+	run := &agrunstale.StaleRunsView{Id: "run-1", Attempt: 1, ConversationId: strptr("c-1"), ConversationKind: "interactive", TurnId: strptr("run-1"), LeaseOwner: strptr("dead-owner"), LeaseUntil: &leaseUntil}
+	watchdogStore := &winningClaimDataService{resumeAttemptDataService: store}
+	watchdog.data = watchdogStore
+	err := watchdog.handleStaleRun(context.Background(), run)
+	if err == nil || !strings.Contains(err.Error(), "agent service not configured") {
+		t.Fatalf("handleStaleRun() error=%v, want resume refusal without agent after a won claim", err)
+	}
+	if len(store.patchCalls) != 1 {
+		t.Fatalf("PatchRuns calls=%d, want one claim only", len(store.patchCalls))
+	}
+}
+
+type winningClaimDataService struct {
+	*resumeAttemptDataService
+}
+
+func (s *winningClaimDataService) GetRun(_ context.Context, id string, _ *agrun.RunRowsInput, _ ...data.Option) (*agrun.RunRowsView, error) {
+	last := s.patchCalls[len(s.patchCalls)-1][0]
+	return &agrun.RunRowsView{Id: id, Status: "running", LeaseOwner: last.LeaseOwner}, nil
+}
+
+func (s *winningClaimDataService) GetActiveRun(_ context.Context, input *agrunactive.ActiveRunsInput, _ ...data.Option) (*agrunactive.ActiveRunsView, error) {
+	turnID := ""
+	if input != nil {
+		turnID = input.TurnId
+	}
+	if len(s.patchCalls) == 0 {
+		return &agrunactive.ActiveRunsView{Id: turnID, Status: "running"}, nil
+	}
+	last := s.patchCalls[len(s.patchCalls)-1][0]
+	return &agrunactive.ActiveRunsView{Id: turnID, Status: "running", LeaseOwner: last.LeaseOwner}, nil
 }
 
 type recoveryLimitDataService struct {
@@ -796,6 +856,31 @@ func TestTerminalArtifactSnapshot_LogsTotalsAndDiscardsIncompleteCapture(t *test
 	if snapshots != 1 || len(cleanupCalls) != 0 {
 		t.Fatalf("incomplete snapshot retried: snapshots=%d cleanup=%d", snapshots, len(cleanupCalls))
 	}
+}
+
+func TestWatchdogRecoveryLookbackConfig(t *testing.T) {
+	t.Run("defaults to 24 hours", func(t *testing.T) {
+		w := NewWatchdog(nil, nil)
+		if w.recoveryLookback != 24*time.Hour {
+			t.Fatalf("recovery lookback = %v, want %v", w.recoveryLookback, 24*time.Hour)
+		}
+	})
+
+	t.Run("uses workspace configuration", func(t *testing.T) {
+		svc := &Service{defaults: &execconfig.Defaults{Recovery: execconfig.RecoveryDefaults{LookbackHours: 6}}}
+		w := NewWatchdog(nil, svc)
+		if w.recoveryLookback != 6*time.Hour {
+			t.Fatalf("recovery lookback = %v, want %v", w.recoveryLookback, 6*time.Hour)
+		}
+	})
+
+	t.Run("explicit option takes precedence", func(t *testing.T) {
+		svc := &Service{defaults: &execconfig.Defaults{Recovery: execconfig.RecoveryDefaults{LookbackHours: 6}}}
+		w := NewWatchdog(nil, svc, WithWatchdogRecoveryLookback(2*time.Hour))
+		if w.recoveryLookback != 2*time.Hour {
+			t.Fatalf("recovery lookback = %v, want %v", w.recoveryLookback, 2*time.Hour)
+		}
+	})
 }
 
 func captureWatchdogLogs(buffer *bytes.Buffer) func() {

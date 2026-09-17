@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,6 +23,7 @@ import (
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
 	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
+	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	"github.com/viant/agently-core/protocol/binding"
@@ -248,7 +250,13 @@ func parseUploadedAttachmentURI(raw string) (string, string) {
 }
 
 func (s *Service) runPlanAndStatus(ctx context.Context, input *QueryInput, output *QueryOutput) (string, error) {
-	if err := s.runPlanLoop(ctx, input, output); err != nil {
+	return s.runPlanAndStatusFrom(ctx, input, output, planLoopStart{})
+}
+
+// runPlanAndStatusFrom is runPlanAndStatus with an optional restored loop
+// position; the zero start is the ordinary path.
+func (s *Service) runPlanAndStatusFrom(ctx context.Context, input *QueryInput, output *QueryOutput, start planLoopStart) (string, error) {
+	if err := s.runPlanLoopFrom(ctx, input, output, start); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return "canceled", err
 		}
@@ -468,7 +476,7 @@ func (s *Service) ensureRunRecord(ctx context.Context, turn runtimerequestctx.Tu
 	if s == nil || s.dataService == nil {
 		return nil
 	}
-	now := time.Now()
+	now := runLeaseTimestamp(time.Now())
 	run := &agrunwrite.MutableRunView{}
 	run.SetId(turn.TurnID)
 	run.SetTurnID(turn.TurnID)
@@ -484,6 +492,10 @@ func (s *Service) ensureRunRecord(ctx context.Context, turn runtimerequestctx.Tu
 	run.SetStatus(status)
 	run.SetIteration(1)
 	run.SetStartedAt(now)
+	if lease := runLeaseFromContext(ctx); lease != nil && scheduleID == "" {
+		// Admission writes the unique per-turn lease token in the same PATCH.
+		run.SetLeaseOwner(lease.Owner())
+	}
 	_, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
 	return err
 }
@@ -496,9 +508,12 @@ func (s *Service) updateRunIteration(ctx context.Context, turn runtimerequestctx
 	run.SetId(turn.TurnID)
 	run.SetIteration(iteration)
 	run.SetStatus("running")
-	// Scheduled runs keep their lease under scheduler ownership.
+	// Scheduled runs keep their lease under scheduler ownership. This existing
+	// iteration PATCH remains a best-effort activity touch; the background
+	// heartbeat performs fencing-token rotation and authoritative verification.
 	if strings.TrimSpace(scheduleID) == "" {
 		s.touchInteractiveRunHeartbeat(run, time.Now())
+		s.applyRunLease(ctx, run)
 	}
 	if _, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
 		logx.Warnf("conversation", "agent.updateRunIteration failed convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iteration, err)
@@ -522,6 +537,7 @@ func (s *Service) startRunHeartbeat(ctx context.Context, turn runtimerequestctx.
 		interval = time.Second
 	}
 	heartbeatCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+	lease := runLeaseFromContext(ctx)
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -532,11 +548,25 @@ func (s *Service) startRunHeartbeat(ctx context.Context, turn runtimerequestctx.
 			case <-heartbeatCtx.Done():
 				return
 			case <-ticker.C:
+				if lease != nil && !lease.Active() {
+					return
+				}
 				run := &agrunwrite.MutableRunView{}
 				run.SetId(turn.TurnID)
 				s.touchInteractiveRunHeartbeat(run, time.Now())
+				proposedOwner := ""
+				if lease != nil {
+					expectedOwner := lease.Owner()
+					proposedOwner = s.newRunLeaseOwner()
+					run.SetLeaseOwner(proposedOwner)
+					run.SetCondition(agrunwrite.RunPatchCondition{LeaseOwner: &expectedOwner})
+				}
 				if _, err := s.dataService.PatchRuns(heartbeatCtx, []*agrunwrite.MutableRunView{run}); err != nil {
 					logx.Warnf("conversation", "agent.runHeartbeat failed convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), err)
+					continue
+				}
+				if lease != nil {
+					s.verifyRunLease(heartbeatCtx, turn, lease, proposedOwner)
 				}
 			}
 		}
@@ -544,6 +574,9 @@ func (s *Service) startRunHeartbeat(ctx context.Context, turn runtimerequestctx.
 	return func() {
 		cancel()
 		<-done
+		if lease != nil {
+			lease.close()
+		}
 	}
 }
 
@@ -551,6 +584,7 @@ func (s *Service) populateInteractiveRunRuntime(run *agrunwrite.MutableRunView, 
 	if s == nil || run == nil {
 		return
 	}
+	now = runLeaseTimestamp(now)
 	if strings.TrimSpace(s.runWorkerHost) != "" {
 		run.SetWorkerHost(strings.TrimSpace(s.runWorkerHost))
 	}
@@ -568,6 +602,7 @@ func (s *Service) touchInteractiveRunHeartbeat(run *agrunwrite.MutableRunView, n
 	if s == nil || run == nil {
 		return
 	}
+	now = runLeaseTimestamp(now)
 	if strings.TrimSpace(s.runLeaseOwner) != "" {
 		run.SetLeaseOwner(strings.TrimSpace(s.runLeaseOwner))
 	}
@@ -826,8 +861,201 @@ func (s *Service) patchRunTerminalState(ctx context.Context, turn runtimerequest
 	if strings.TrimSpace(errorMessage) != "" {
 		run.SetErrorMessage(errorMessage)
 	}
+	// Finalization only lands when this execution still owns the run.
+	s.applyRunLease(ctx, run)
 	_, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
 	return err
+}
+
+// runLease is the in-memory ownership guard for one turn execution. The
+// heartbeat goroutine is the only writer; dispatch checks it without I/O.
+type runLease struct {
+	owner    string
+	mu       sync.Mutex
+	lost     bool
+	closed   bool
+	deadline time.Time
+	timer    *time.Timer
+	onLost   func()
+}
+
+func (l *runLease) Owner() string {
+	if l == nil {
+		return ""
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.owner
+}
+
+// Active reports whether the last conditional renewal still matched this token.
+func (l *runLease) Active() bool {
+	if l == nil {
+		return true
+	}
+	l.mu.Lock()
+	lost := l.lost
+	expired := !l.deadline.IsZero() && !time.Now().Before(l.deadline)
+	l.mu.Unlock()
+	if !lost && expired {
+		l.markLost()
+		return false
+	}
+	return !lost
+}
+
+func (l *runLease) renew(owner string, deadline time.Time) {
+	if l == nil || strings.TrimSpace(owner) == "" || deadline.IsZero() {
+		return
+	}
+	l.arm(strings.TrimSpace(owner), deadline.Add(-time.Second))
+}
+
+func (l *runLease) markLost() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	already := l.lost || l.closed
+	if l.timer != nil {
+		l.timer.Stop()
+		l.timer = nil
+	}
+	l.lost = true
+	onLost := l.onLost
+	l.mu.Unlock()
+	if !already && onLost != nil {
+		onLost()
+	}
+}
+
+func (l *runLease) arm(owner string, deadline time.Time) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	if l.lost || l.closed {
+		l.mu.Unlock()
+		return
+	}
+	if strings.TrimSpace(owner) != "" {
+		l.owner = strings.TrimSpace(owner)
+	}
+	l.deadline = deadline
+	if l.timer != nil {
+		l.timer.Stop()
+	}
+	delay := time.Until(deadline)
+	if delay < 0 {
+		delay = 0
+	}
+	l.timer = time.AfterFunc(delay, l.markLost)
+	l.mu.Unlock()
+}
+
+func (l *runLease) close() {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.closed = true
+	if l.timer != nil {
+		l.timer.Stop()
+		l.timer = nil
+	}
+	l.mu.Unlock()
+}
+
+type runLeaseKeyT struct{}
+
+func withRunLease(ctx context.Context, lease *runLease) context.Context {
+	if lease == nil {
+		return ctx
+	}
+	return context.WithValue(ctx, runLeaseKeyT{}, lease)
+}
+
+func runLeaseFromContext(ctx context.Context) *runLease {
+	if ctx == nil {
+		return nil
+	}
+	lease, _ := ctx.Value(runLeaseKeyT{}).(*runLease)
+	return lease
+}
+
+// newRunLeaseOwner returns an opaque token unique per admission or claim. The
+// process identity prefix is diagnostic only; the uuid makes it unique.
+func (s *Service) newRunLeaseOwner() string {
+	prefix := ""
+	if s != nil {
+		prefix = strings.TrimSpace(s.runLeaseOwner)
+	}
+	if prefix == "" {
+		prefix = "run"
+	}
+	return prefix + ":" + uuid.NewString()
+}
+
+func (s *Service) newRunLease(owner string, onLost func()) *runLease {
+	owner = strings.TrimSpace(owner)
+	if owner == "" {
+		owner = s.newRunLeaseOwner()
+	}
+	lease := &runLease{owner: owner, onLost: onLost}
+	lease.arm(owner, time.Now().Add(s.runLeaseDuration()-time.Second))
+	return lease
+}
+
+func (s *Service) runLeaseDuration() time.Duration {
+	if s != nil && s.runHeartbeatIntervalSec > 0 {
+		return 2 * time.Duration(s.runHeartbeatIntervalSec) * time.Second
+	}
+	return 2 * time.Minute
+}
+
+// runLeaseTimestamp is the persistence representation for lease/activity
+// timestamps. MySQL DATETIME has no timezone, so all writers use UTC; whole
+// seconds avoid driver-specific fractional precision differences across
+// MySQL and SQLite without changing either schema.
+func runLeaseTimestamp(value time.Time) time.Time {
+	return value.UTC().Truncate(time.Second)
+}
+
+// applyRunLease carries the execution's lease token in an existing run PATCH
+// and makes that PATCH conditional on still owning the run.
+func (s *Service) applyRunLease(ctx context.Context, run *agrunwrite.MutableRunView) {
+	lease := runLeaseFromContext(ctx)
+	if lease == nil || run == nil {
+		return
+	}
+	owner := lease.Owner()
+	if run.Has != nil && run.Has.LeaseOwner {
+		run.SetLeaseOwner(owner)
+	}
+	run.SetCondition(agrunwrite.RunPatchCondition{LeaseOwner: &owner})
+}
+
+// verifyRunLease is the heartbeat's authoritative ownership check: the
+// conditional renewal cannot report affected rows through the Datly handler
+// contract, so the heartbeat reads the run once and compares the stored token.
+func (s *Service) verifyRunLease(ctx context.Context, turn runtimerequestctx.TurnMeta, lease *runLease, proposedOwner string) {
+	if s == nil || s.dataService == nil || lease == nil {
+		return
+	}
+	row, err := s.dataService.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+		TurnId: strings.TrimSpace(turn.TurnID),
+		Has:    &agrunactive.ActiveRunsInputHas{TurnId: true},
+	})
+	if err != nil || row == nil {
+		return
+	}
+	owner := strings.TrimSpace(valueOrEmpty(row.LeaseOwner))
+	if owner != strings.TrimSpace(proposedOwner) || !strings.EqualFold(strings.TrimSpace(row.Status), "running") || row.LeaseUntil == nil || !runLeaseTimestamp(time.Now()).Before(runLeaseTimestamp(*row.LeaseUntil)) {
+		logx.Warnf("conversation", "agent.runHeartbeat lease lost convo=%q turn_id=%q owner=%q status=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), owner, strings.TrimSpace(row.Status))
+		lease.markLost()
+		return
+	}
+	lease.renew(owner, *row.LeaseUntil)
 }
 
 func (s *Service) turnAwaitingUserAction(ctx context.Context, turn runtimerequestctx.TurnMeta) (bool, error) {

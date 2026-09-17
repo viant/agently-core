@@ -5,7 +5,11 @@
 #define($_ = $Metrics<?>(output/metrics))
 
 #define($_ = $HeartbeatBefore<time.Time>(query/heartbeatBefore).WithPredicate(0, 'expr', '(t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < ?)'))
-#define($_ = $WorkerHost<string>(query/workerHost).WithPredicate(0, 'equal','t', 'worker_host'))
+#define($_ = $WorkerHost<string>(query/workerHost).WithPredicate(0, 'expr', '(t.worker_host IS NULL OR t.worker_host = ?)'))
+#define($_ = $LeaseExpiredBefore<time.Time>(query/leaseExpiredBefore).WithPredicate(0, 'expr', '(t.lease_until IS NOT NULL AND t.lease_until < ?)'))
+#define($_ = $ActivityAfter<time.Time>(query/activityAfter).WithPredicate(0, 'expr', '((CASE WHEN t.last_heartbeat_at IS NOT NULL THEN t.last_heartbeat_at WHEN t.started_at IS NOT NULL THEN t.started_at ELSE t.created_at END) >= ?)'))
+#define($_ = $ConversationKind<string>(query/conversationKind).WithPredicate(0, 'equal', 't', 'conversation_kind'))
+#define($_ = $RootInteractive<bool>(query/rootInteractive).WithPredicate(0, 'expr', '(? AND t.schedule_id IS NULL AND NOT EXISTS (SELECT 1 FROM conversation c WHERE c.id = t.conversation_id AND c.conversation_parent_id IS NOT NULL AND c.conversation_parent_id <> ''''))'))
 
 SELECT stale_runs.*
 FROM (
@@ -13,5 +17,5 @@ FROM (
     FROM run t
     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
       AND t.status = 'running'
-    ORDER BY COALESCE(t.last_heartbeat_at, t.created_at) DESC, t.created_at DESC
+    ORDER BY COALESCE(t.last_heartbeat_at, t.started_at, t.created_at) DESC, t.created_at DESC, t.id DESC
 ) stale_runs

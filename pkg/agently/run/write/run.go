@@ -46,6 +46,9 @@ type MutableRunView struct {
 	StartedAt             *time.Time `sqlx:"started_at" json:",omitempty"`
 	CompletedAt           *time.Time `sqlx:"completed_at" json:",omitempty"`
 	Has                   *RunHas    `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-"`
+	// Condition, when set, turns this sparse update into an atomic
+	// compare-and-set (see RunPatchCondition). It is not a column.
+	Condition *RunPatchCondition `sqlx:"-" diff:"-" json:",omitempty"`
 }
 
 type MutableRunViews struct {
@@ -101,8 +104,12 @@ func (r *MutableRunView) ensureHas() {
 	}
 }
 
-func (r *MutableRunView) SetId(v string)     { r.Id = v; r.ensureHas(); r.Has.Id = true }
-func (r *MutableRunView) SetTurnID(v string) { r.TurnID = &v; r.ensureHas(); r.Has.TurnID = true }
+func (r *MutableRunView) SetId(v string) { r.Id = v; r.ensureHas(); r.Has.Id = true }
+
+// SetCondition attaches expected-value criteria so the PATCH only applies
+// when the stored run still matches them.
+func (r *MutableRunView) SetCondition(v RunPatchCondition) { r.Condition = &v }
+func (r *MutableRunView) SetTurnID(v string)               { r.TurnID = &v; r.ensureHas(); r.Has.TurnID = true }
 func (r *MutableRunView) SetScheduleID(v string) {
 	r.ScheduleID = &v
 	r.ensureHas()
