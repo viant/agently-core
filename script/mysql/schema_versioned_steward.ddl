@@ -2282,7 +2282,7 @@ BEGIN
             job_id VARCHAR(255) PRIMARY KEY,
             artifact_ref TEXT NOT NULL,
             owner_id VARCHAR(255) NOT NULL,
-            conversation_id VARCHAR(255) NULL,
+            conversation_id VARCHAR(255) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NULL,
             workspace_id VARCHAR(255) NULL,
             auth_context_ref TEXT NULL,
             format VARCHAR(64) NOT NULL,
@@ -2832,5 +2832,30 @@ END $$
 
 CALL schema_upgrade_38() $$
 DROP PROCEDURE schema_upgrade_38 $$
+
+DROP PROCEDURE IF EXISTS schema_upgrade_39 $$
+CREATE PROCEDURE schema_upgrade_39()
+BEGIN
+    IF get_schema_version() = 39 THEN
+        IF NOT EXISTS (
+            SELECT 1 FROM INFORMATION_SCHEMA.COLUMNS
+            WHERE TABLE_SCHEMA = DATABASE()
+              AND TABLE_NAME = 'report_export_job'
+              AND COLUMN_NAME = 'conversation_id'
+              AND CHARACTER_SET_NAME = 'utf8mb4'
+              AND COLLATION_NAME = 'utf8mb4_0900_ai_ci'
+        ) THEN
+            ALTER TABLE report_export_job
+                MODIFY COLUMN conversation_id VARCHAR(255)
+                    CHARACTER SET utf8mb4
+                    COLLATE utf8mb4_0900_ai_ci NULL;
+        END IF;
+
+        CALL set_schema_version(40);
+    END IF;
+END $$
+
+CALL schema_upgrade_39() $$
+DROP PROCEDURE schema_upgrade_39 $$
 
 DELIMITER ;
