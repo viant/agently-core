@@ -156,7 +156,7 @@ func TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses(t *tes
 	want := map[string]OrphanMaintenanceAction{
 		"call_payload.unused\x1e" + ids.payloadOld:                                                OrphanMaintenanceSafeDelete,
 		"conversation_report_context.missing_active_report_run\x1eowner-1\x1f" + ids.conversation: OrphanMaintenanceSafeDelete,
-		"investigation.missing_conversation\x1e" + ids.investigation:                              OrphanMaintenanceSafeDetach,
+		"investigation.missing_conversation\x1e" + ids.investigation:                              OrphanMaintenanceSafeDelete,
 		"message.missing_linked_conversation\x1e" + ids.message:                                   OrphanMaintenanceSafeDetach,
 		"schedule.missing_conversation\x1e" + ids.schedule:                                        OrphanMaintenanceSafeDetach,
 		"schedule_run.missing_conversation\x1e" + ids.scheduleRun:                                 OrphanMaintenanceSafeDetach,
@@ -211,8 +211,8 @@ func TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses(t *tes
 		results[result.Reason]++
 	}
 	wantResults := map[OrphanMaintenanceReason]int{
-		OrphanMaintenanceDeletedReason:          4,
-		OrphanMaintenanceDetachedReason:         3,
+		OrphanMaintenanceDeletedReason:          5,
+		OrphanMaintenanceDetachedReason:         2,
 		OrphanMaintenanceNoLongerEligibleReason: 1,
 	}
 	if !reflect.DeepEqual(results, wantResults) {
@@ -221,7 +221,7 @@ func TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses(t *tes
 	t.Logf("MySQL orphan maintenance: results=%v", results)
 	wantAfter := map[string]int{
 		"conversation": 1, "message": 1, "payload": 1, "claim": 0, "schedule": 1,
-		"schedule_run": 0, "investigation": 1, "report_context": 0, "audit": 1, "shared": 1,
+		"schedule_run": 0, "investigation": 0, "report_context": 0, "audit": 1, "shared": 1,
 	}
 	if after := mysqlOrphanFixtureCounts(t, db, ids); !reflect.DeepEqual(after, wantAfter) {
 		t.Fatalf("MySQL maintenance effects = %v, want %v", after, wantAfter)
@@ -236,6 +236,140 @@ func TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses(t *tes
 	}
 	if result.Reason != OrphanMaintenanceNoLongerEligibleReason || result.Mutated {
 		t.Fatalf("idempotent MySQL result = %#v", result)
+	}
+}
+
+func TestMaintainOrphanCandidate_MySQLInvestigationEligibilityAndRecheck(t *testing.T) {
+	dsn := os.Getenv("AGENTLY_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("AGENTLY_TEST_MYSQL_DSN is not set")
+	}
+	db, err := sql.Open("mysql", dsn)
+	if err != nil {
+		t.Fatalf("sql.Open(mysql): %v", err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	if err = db.PingContext(context.Background()); err != nil {
+		t.Fatalf("ping MySQL: %v", err)
+	}
+	if _, err = db.Exec(`SET FOREIGN_KEY_CHECKS = 0`); err != nil {
+		t.Fatalf("disable MySQL foreign-key checks: %v", err)
+	}
+
+	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
+	validConversationID := "investigation-valid-conversation-" + suffix
+	restoredConversationID := "investigation-restored-conversation-" + suffix
+	investigationIDs := map[string]string{
+		"missing":  "investigation-missing-" + suffix,
+		"null":     "investigation-null-" + suffix,
+		"empty":    "investigation-empty-" + suffix,
+		"recent":   "investigation-recent-" + suffix,
+		"valid":    "investigation-valid-" + suffix,
+		"restored": "investigation-restored-" + suffix,
+	}
+	t.Cleanup(func() {
+		for _, id := range investigationIDs {
+			_, _ = db.Exec(`DELETE FROM investigation WHERE id = ?`, id)
+		}
+		_, _ = db.Exec(`DELETE FROM conversation WHERE id IN (?, ?)`, validConversationID, restoredConversationID)
+		_, _ = db.Exec(`SET FOREIGN_KEY_CHECKS = 1`)
+	})
+
+	old := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	recent := time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)
+	cutoff := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
+	if _, err = db.Exec(`INSERT INTO conversation (id, created_at, updated_at, status) VALUES (?, ?, ?, ?)`, validConversationID, old, old, "succeeded"); err != nil {
+		t.Fatalf("seed valid investigation conversation: %v", err)
+	}
+	for _, item := range []struct {
+		id             string
+		conversationID interface{}
+		created        time.Time
+	}{
+		{investigationIDs["missing"], "missing-investigation-conversation-" + suffix, old},
+		{investigationIDs["null"], nil, old},
+		{investigationIDs["empty"], "", old},
+		{investigationIDs["recent"], "missing-recent-investigation-conversation-" + suffix, recent},
+		{investigationIDs["valid"], validConversationID, old},
+		{investigationIDs["restored"], restoredConversationID, old},
+	} {
+		if _, err = db.Exec(`INSERT INTO investigation (id, title, created_by, conversation_id, created) VALUES (?, ?, ?, ?, ?)`, item.id, item.id, "owner-1", item.conversationID, item.created); err != nil {
+			t.Fatalf("seed investigation %q: %v", item.id, err)
+		}
+	}
+
+	ctx := context.Background()
+	dao, err := datly.New(ctx)
+	if err != nil {
+		t.Fatalf("datly.New(): %v", err)
+	}
+	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
+		t.Fatalf("AddConnectors(): %v", err)
+	}
+	if err = registerReadComponents(ctx, dao); err != nil {
+		t.Fatalf("registerReadComponents(): %v", err)
+	}
+	svc := NewService(dao)
+	leaseKey := "test-investigation-orphan-maintenance-" + suffix
+	lease := acquireTestMaintenanceLease(t, svc, leaseKey, "test-worker-"+suffix)
+	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM maintenance_lease WHERE lease_key = ?`, leaseKey) })
+
+	candidates, err := svc.ListOrphanMaintenanceCandidates(ctx, OrphanMaintenanceCandidateRequest{OlderThan: cutoff, Limit: 10000})
+	if err != nil {
+		t.Fatalf("ListOrphanMaintenanceCandidates(MySQL): %v", err)
+	}
+	wantCandidates := map[string]bool{
+		investigationIDs["missing"]:  true,
+		investigationIDs["null"]:     true,
+		investigationIDs["empty"]:    true,
+		investigationIDs["restored"]: true,
+	}
+	foundCandidates := map[string]bool{}
+	for _, candidate := range candidates {
+		if candidate.RuleID != "investigation.missing_conversation" {
+			continue
+		}
+		if wantCandidates[candidate.RecordID] {
+			if candidate.Action != OrphanMaintenanceSafeDelete {
+				t.Fatalf("investigation candidate action = %q, want safe-delete: %#v", candidate.Action, candidate)
+			}
+			foundCandidates[candidate.RecordID] = true
+		}
+		if candidate.RecordID == investigationIDs["recent"] || candidate.RecordID == investigationIDs["valid"] {
+			t.Fatalf("ineligible investigation was reported: %#v", candidate)
+		}
+	}
+	if !reflect.DeepEqual(foundCandidates, wantCandidates) {
+		t.Fatalf("investigation candidates = %v, want %v", foundCandidates, wantCandidates)
+	}
+
+	// A parent created after listing must make the candidate ineligible when the
+	// destructive operation rechecks the exact rule in its transaction.
+	if _, err = db.Exec(`INSERT INTO conversation (id, created_at, updated_at, status) VALUES (?, ?, ?, ?)`, restoredConversationID, old, old, "succeeded"); err != nil {
+		t.Fatalf("restore investigation conversation before mutation: %v", err)
+	}
+	for id := range wantCandidates {
+		result, maintainErr := svc.MaintainOrphanCandidate(ctx, OrphanMaintenanceRequest{
+			RuleID: "investigation.missing_conversation", RecordID: id, OlderThan: cutoff, Lease: lease,
+		})
+		if maintainErr != nil {
+			t.Fatalf("MaintainOrphanCandidate(MySQL, %q): %v", id, maintainErr)
+		}
+		wantReason := OrphanMaintenanceDeletedReason
+		if id == investigationIDs["restored"] {
+			wantReason = OrphanMaintenanceNoLongerEligibleReason
+		}
+		if result.Reason != wantReason {
+			t.Fatalf("investigation %q result = %#v, want reason %q", id, result, wantReason)
+		}
+	}
+
+	for _, kind := range []string{"missing", "null", "empty"} {
+		assertStage1RowCount(t, db, "investigation", "id", investigationIDs[kind], 0)
+	}
+	for _, kind := range []string{"recent", "valid", "restored"} {
+		assertStage1RowCount(t, db, "investigation", "id", investigationIDs[kind], 1)
 	}
 }
 
@@ -300,7 +434,6 @@ func assertMySQLOrphanMaintenanceReferences(t *testing.T, db *sql.DB, ids mysqlO
 	}{
 		{`SELECT linked_conversation_id FROM message WHERE id = ?`, ids.message, sql.NullString{String: ids.restoredConversation, Valid: true}},
 		{`SELECT conversation_id FROM schedule WHERE id = ?`, ids.schedule, sql.NullString{}},
-		{`SELECT conversation_id FROM investigation WHERE id = ?`, ids.investigation, sql.NullString{}},
 	} {
 		var got sql.NullString
 		if err := db.QueryRow(item.query, item.id).Scan(&got); err != nil || got != item.want {

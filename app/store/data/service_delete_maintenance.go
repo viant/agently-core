@@ -57,10 +57,9 @@ const (
 	ConversationMaintenanceGraphTooLarge        ConversationMaintenanceReason = "graph_too_large"
 )
 
-// ConversationMaintenanceRequest describes one root-graph evaluation. The
-// expected owner comes from the candidate row selected by maintenance code;
-// it is verified across the complete graph and is never injected as request
-// authentication.
+// ConversationMaintenanceRequest describes one root-graph evaluation.
+// ExpectedOwnerID is retained as candidate diagnostics; system maintenance
+// does not use historical owner metadata as an authorization boundary.
 type ConversationMaintenanceRequest struct {
 	RootID          string
 	ExpectedOwnerID string
@@ -107,8 +106,6 @@ func validateConversationMaintenanceRequest(request ConversationMaintenanceReque
 	switch {
 	case request.RootID == "":
 		return fmt.Errorf("%w: root id is required", ErrInvalidConversationMaintenanceRequest)
-	case request.ExpectedOwnerID == "" && request.Kind != ConversationMaintenanceScheduledFallback:
-		return fmt.Errorf("%w: expected owner id is required", ErrInvalidConversationMaintenanceRequest)
 	case request.InactiveBefore.IsZero():
 		return fmt.Errorf("%w: inactivity cutoff is required", ErrInvalidConversationMaintenanceRequest)
 	case request.Kind != ConversationMaintenanceInteractive && request.Kind != ConversationMaintenanceScheduled && request.Kind != ConversationMaintenanceScheduledFallback:
@@ -183,13 +180,6 @@ func (s *datlyService) maintainConversationTreeDirect(ctx context.Context, reque
 			return err
 		}
 	}
-	if request.Kind != ConversationMaintenanceScheduledFallback {
-		if reason := conversationMaintenanceOwnerReason(graph.Rows, request.ExpectedOwnerID); reason != "" {
-			result.Reason = reason
-			return nil
-		}
-	}
-
 	actualKind, err := conversationMaintenanceGraphKind(ctx, tx, graph)
 	if err != nil {
 		return err
@@ -228,13 +218,7 @@ func (s *datlyService) maintainConversationTreeDirect(ctx context.Context, reque
 		}
 	}
 
-	prepareGraph := func() error {
-		if request.Kind == ConversationMaintenanceScheduledFallback {
-			return prepareConversationDeleteGraphForSystemMaintenance(ctx, tx, graph, now)
-		}
-		return prepareConversationDeleteGraph(ctx, tx, graph, request.ExpectedOwnerID, now)
-	}
-	if err := prepareGraph(); err != nil {
+	if err := prepareConversationDeleteGraphForSystemMaintenance(ctx, tx, graph, now); err != nil {
 		switch {
 		case errors.Is(err, ErrPermissionDenied):
 			result.Reason = ConversationMaintenanceRelatedOwnerMismatch
@@ -348,18 +332,6 @@ func conversationMaintenanceRootState(ctx context.Context, tx *sql.Tx, rootID st
 		return false, false, err
 	}
 	return strings.TrimSpace(parentID.String) == "" && strings.TrimSpace(parentTurnID.String) == "", true, nil
-}
-
-func conversationMaintenanceOwnerReason(rows map[string]*conversationTreeRow, expectedOwnerID string) ConversationMaintenanceReason {
-	for _, row := range rows {
-		if row == nil || strings.TrimSpace(row.OwnerID) == "" {
-			return ConversationMaintenanceOwnerMissing
-		}
-		if strings.TrimSpace(row.OwnerID) != expectedOwnerID {
-			return ConversationMaintenanceOwnerMismatch
-		}
-	}
-	return ""
 }
 
 func conversationMaintenanceGraphKind(ctx context.Context, tx *sql.Tx, graph *conversationDeleteGraph) (ConversationMaintenanceKind, error) {

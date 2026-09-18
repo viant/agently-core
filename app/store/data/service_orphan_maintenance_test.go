@@ -213,7 +213,7 @@ func TestOrphanMaintenanceRulesUseStaticDriverContractAndStableOrder(t *testing.
 	if orphanRuleByID(sqliteRules, "investigation.missing_conversation") != nil || orphanRuleByID(sqliteRules, "schedule_run.missing_schedule") != nil {
 		t.Fatalf("SQLite rules include unavailable tables")
 	}
-	if rule := orphanRuleByID(mysqlRules, "investigation.missing_conversation"); rule == nil || rule.Action != OrphanMaintenanceSafeDetach {
+	if rule := orphanRuleByID(mysqlRules, "investigation.missing_conversation"); rule == nil || rule.Action != OrphanMaintenanceSafeDelete || rule.DetachColumn != "" {
 		t.Fatalf("MySQL investigation rule = %#v", rule)
 	}
 	if rule := orphanRuleByID(mysqlRules, "report_audit_event.missing_job"); rule != nil {

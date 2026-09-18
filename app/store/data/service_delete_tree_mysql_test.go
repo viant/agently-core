@@ -75,7 +75,7 @@ func TestDeleteConversationTree_MySQLStage1(t *testing.T) {
 		{query: `INSERT INTO schedule (id, name, created_by_user_id, internal, conversation_id, goal_id, agent_ref, schedule_type, timezone) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, args: []interface{}{scheduleID, "autonomous::goal-wakeup::" + goalID, "u1", 1, conversationID, goalID, "agent", "adhoc", "UTC"}},
 		{query: `INSERT INTO run (id, turn_id, schedule_id, conversation_id, conversation_kind, status, completed_at) VALUES (?, ?, ?, ?, ?, ?, UTC_TIMESTAMP())`, args: []interface{}{runID, turnID, scheduleID, conversationID, "interactive", "succeeded"}},
 		{query: `UPDATE turn SET run_id = ? WHERE id = ?`, args: []interface{}{runID, turnID}},
-		{query: `INSERT INTO investigation (id, title, created_by, conversation_id) VALUES (?, ?, ?, ?)`, args: []interface{}{investigationID, "retained", "u1", conversationID}},
+		{query: `INSERT INTO investigation (id, title, created_by, conversation_id) VALUES (?, ?, ?, ?)`, args: []interface{}{investigationID, "deleted with conversation", "u1", conversationID}},
 		{query: `INSERT INTO report_run (report_run_id, owner_id, conversation_id, materializer, status, started_at, completed_at, revision, ui_run_request_id) VALUES (?, ?, ?, ?, ?, UTC_TIMESTAMP(), UTC_TIMESTAMP(), ?, ?)`, args: []interface{}{reportRunID, "u1", conversationID, "test", "completed", 1, "request-" + reportRunID}},
 		{query: `INSERT INTO conversation_report_context (owner_id, conversation_id, active_report_run_id, revision) VALUES (?, ?, ?, ?)`, args: []interface{}{"u1", conversationID, reportRunID, 1}},
 		{query: `INSERT INTO report_export_job (job_id, artifact_ref, owner_id, conversation_id, format, scope, status, report_run_id, report_run_revision, export_request_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, args: []interface{}{reportJobID, "external://report", "u1", conversationID, "pdf", "draft", "succeeded", reportRunID, 1, "export-" + reportJobID}},
@@ -117,14 +117,7 @@ func TestDeleteConversationTree_MySQLStage1(t *testing.T) {
 	assertStage1RowCount(t, db, "report_audit_event", "event_id", reportAuditID, 0)
 	assertStage1RowCount(t, db, "report_shared_artifact", "artifact_id", sharedReportID, 1)
 	assertStage1RowCount(t, db, "report_audit_event", "event_id", sharedAuditID, 1)
-
-	var investigationConversationID sql.NullString
-	if err := db.QueryRow(`SELECT conversation_id FROM investigation WHERE id = ?`, investigationID).Scan(&investigationConversationID); err != nil {
-		t.Fatalf("query retained MySQL investigation: %v", err)
-	}
-	if investigationConversationID.Valid {
-		t.Fatalf("MySQL investigation conversation_id should be detached, got %q", investigationConversationID.String)
-	}
+	assertStage1RowCount(t, db, "investigation", "id", investigationID, 0)
 }
 
 func TestDeleteConversationTree_MySQLLegacyNullStatusWithStaleRun(t *testing.T) {
@@ -437,7 +430,7 @@ VALUES (?, ?, ?, ?, ?)`, conversationID, activityAt, activityAt, "unknown_legacy
 		t.Fatalf("query MySQL investigation after rollback: %v", err)
 	}
 	if !investigationConversationID.Valid || investigationConversationID.String != rollbackConversationID {
-		t.Fatalf("MySQL investigation detach should be rolled back, got %#v", investigationConversationID)
+		t.Fatalf("MySQL investigation delete should be rolled back, got %#v", investigationConversationID)
 	}
 }
 

@@ -88,7 +88,7 @@ func TestMaintainConversationTree_RollsBackDeleteOnFailure(t *testing.T) {
 		t.Fatalf("query investigation after rollback: %v", err)
 	}
 	if !conversationID.Valid || conversationID.String != "maintenance-rollback" {
-		t.Fatalf("investigation detach should be rolled back, got %#v", conversationID)
+		t.Fatalf("investigation mutation should be rolled back, got %#v", conversationID)
 	}
 }
 
@@ -144,7 +144,7 @@ func TestMaintainConversationTree_SkipsGraphWithRecentChild(t *testing.T) {
 	assertStage1RowCount(t, db, "conversation", "id", "recent-child", 1)
 }
 
-func TestMaintainConversationTree_SkipsMixedOwnerGraph(t *testing.T) {
+func TestMaintainConversationTree_DeletesMixedOwnerGraph(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
@@ -156,10 +156,31 @@ func TestMaintainConversationTree_SkipsMixedOwnerGraph(t *testing.T) {
 	request := maintenanceRequest("owner-root", "owner-1", old.Add(time.Hour))
 	request.Mode = ConversationMaintenanceDelete
 	result := maintainConversationForTest(t, svc, request)
-	if result.Reason != ConversationMaintenanceOwnerMismatch || result.Eligible || result.Deleted {
+	if result.Reason != ConversationMaintenanceDeleted || !result.Eligible || !result.Deleted {
 		t.Fatalf("result = %#v", result)
 	}
-	assertStage1RowCount(t, db, "conversation", "id", "owner-root", 1)
+	assertStage1RowCount(t, db, "conversation", "id", "owner-root", 0)
+	assertStage1RowCount(t, db, "conversation", "id", "other-owner-child", 0)
+}
+
+func TestMaintainConversationTree_DeletesOwnerlessGraphWithoutExpectedOwner(t *testing.T) {
+	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"ownerless-root", old, old, "succeeded"}},
+		})
+	})
+
+	result := maintainConversationForTest(t, svc, ConversationMaintenanceRequest{
+		RootID:         "ownerless-root",
+		Kind:           ConversationMaintenanceInteractive,
+		InactiveBefore: old.Add(time.Hour),
+		Mode:           ConversationMaintenanceDelete,
+	})
+	if result.Reason != ConversationMaintenanceDeleted || !result.Eligible || !result.Deleted {
+		t.Fatalf("result = %#v", result)
+	}
+	assertStage1RowCount(t, db, "conversation", "id", "ownerless-root", 0)
 }
 
 func TestMaintainConversationTree_SkipsLiveRun(t *testing.T) {

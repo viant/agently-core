@@ -55,7 +55,9 @@ func (s *datlyService) ListConversationMaintenanceCandidates(ctx context.Context
        AND LOWER(TRIM(COALESCE(maintenance_run.conversation_kind, ''))) = 'scheduled'
  ))`
 	kindPredicate := "NOT " + scheduledExpr
-	ownerPredicate := "TRIM(COALESCE(c.created_by_user_id, '')) <> ''"
+	// System retention must also discover ownerless legacy roots. The selected
+	// owner value remains diagnostic metadata only.
+	ownerPredicate := "1 = 1"
 	if request.Kind == ConversationMaintenanceScheduled {
 		kindPredicate = scheduledExpr
 	} else if request.Kind == ConversationMaintenanceScheduledFallback {
@@ -72,9 +74,6 @@ func (s *datlyService) ListConversationMaintenanceCandidates(ctx context.Context
          OR maintenance_legacy_run.id = TRIM(COALESCE(c.schedule_run_id, ''))
   )`
 		}
-		// System retention does not use historical owner metadata as an
-		// authorization boundary. This also lets it clean legacy ownerless shells.
-		ownerPredicate = "1 = 1"
 	}
 
 	args := []interface{}{request.InactiveBefore}
