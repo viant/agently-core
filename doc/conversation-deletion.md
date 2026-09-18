@@ -69,7 +69,8 @@ The data service performs the DB cleanup in a single SQL transaction:
 3. Check owner permissions for every conversation.
 4. Collect goals, internal goal-wakeup schedules, report runs, export jobs, and export artifacts associated with the graph.
 5. Reject inbound graph references, user schedules, cross-owner report data, active report exports, live schedules, live runs, and unknown nonterminal conversation states.
-6. Set `investigation.conversation_id = NULL` when the table exists.
+6. Delete `investigation` rows whose `conversation_id` belongs to the graph when
+   the table exists.
 7. Delete conversation-owned report audit events, export artifacts, export jobs, report contexts, and report runs. Durable shared reports are not included.
 8. Delete deprecated `schedule_run`, tool approval, execution claim, and current `run` rows.
 9. Delete `turn_queue`, `model_call`, `tool_call`, `generated_file`, `message`, and `turn` rows for the graph.
@@ -104,9 +105,11 @@ rechecks that no supported consumer references the payload. See
 
 Object-backed payloads currently delete only the DB row when it is unreferenced. Physical object deletion is intentionally deferred until Agently-owned storage can be distinguished from user/external paths.
 
-## Retained Rows
+## Related and Retained Rows
 
-`investigation` rows are retained. When present, their `conversation_id` is set to `NULL` before the conversation tree is removed.
+`investigation` rows attached to the graph are deleted in the same transaction,
+before the conversation rows. SQLite's schema does not contain this table, so
+that driver skips the step through its static schema contract.
 
 `report_shared_artifact` rows are also retained. They are durable saved-report
 definitions and are not owned by the lifecycle of a single conversation.

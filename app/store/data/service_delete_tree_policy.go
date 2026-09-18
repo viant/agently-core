@@ -13,14 +13,13 @@ import (
 type investigationDeletePolicy uint8
 
 const (
-	// Investigations are retained in stage 1. Only their database reference to a
-	// deleted conversation is detached. The second value intentionally keeps the
-	// deletion path ready for a later, explicit product decision.
+	// Both modes remain available for focused tests and compatibility with older
+	// callers. Conversation deletion owns investigations attached to its graph.
 	investigationRetainAndDetach investigationDeletePolicy = iota
 	investigationDelete
 )
 
-const conversationInvestigationPolicy = investigationRetainAndDetach
+const conversationInvestigationPolicy = investigationDelete
 
 var conversationDeleteSchemaTables = []string{
 	"conversation",

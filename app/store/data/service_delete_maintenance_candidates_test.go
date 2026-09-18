@@ -57,7 +57,18 @@ func TestListConversationMaintenanceCandidates_InteractiveKeysetAndFilters(t *te
 	if err != nil {
 		t.Fatalf("ListConversationMaintenanceCandidates(third) error: %v", err)
 	}
-	assertMaintenanceCandidateIDs(t, third)
+	assertMaintenanceCandidateIDs(t, third, "ownerless")
+	if third[0].ExpectedOwnerID != "" {
+		t.Fatalf("ownerless candidate = %#v", third[0])
+	}
+
+	request.AfterActivity = third[0].ActivityAt
+	request.AfterRootID = third[0].RootID
+	fourth, err := svc.ListConversationMaintenanceCandidates(context.Background(), request)
+	if err != nil {
+		t.Fatalf("ListConversationMaintenanceCandidates(fourth) error: %v", err)
+	}
+	assertMaintenanceCandidateIDs(t, fourth)
 }
 
 func TestListConversationMaintenanceCandidates_ScheduledMarkers(t *testing.T) {

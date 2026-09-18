@@ -44,11 +44,15 @@ recursively. The graph is capped at 10,000 conversations.
 
 The complete graph must:
 
-- have a non-empty, consistent owner;
 - classify as interactive rather than scheduled;
 - have known latest activity at or before the cutoff;
 - have no protected inbound graph reference or user schedule;
 - have no live run, live internal goal-wakeup schedule, or active report export.
+
+This is system retention, not user-authorized deletion. It includes ownerless
+legacy roots and does not require historical owner values to agree across the
+graph. Owner metadata returned with a candidate is diagnostic only. Manual
+conversation deletion continues to require ownership of every graph node.
 
 Delete mode locks the graph, rechecks these conditions, and uses the ordinary
 conversation deletion order. Empty legacy conversation statuses and known
@@ -118,8 +122,9 @@ Required-parent cleanup covers conversation runtime rows such as goals, turns,
 queues, messages, calls, generated files, execution claims, export artifacts,
 and report contexts. Optional references across conversations, messages, turns,
 runs, schedules, payloads, report runtime rows, and generated files are
-detached. `investigation.missing_conversation` is also safe-detach: the
-investigation remains and only `conversation_id` becomes NULL.
+detached. An old `investigation` is safe-deleted when `conversation_id` is NULL,
+empty, or references a missing conversation. Its age is determined by
+`investigation.created`, and the configured orphan grace period applies.
 
 The report-only rules for `report_export_job.missing_report_run` and
 `report_export_job.missing_artifact` provide diagnostics because those

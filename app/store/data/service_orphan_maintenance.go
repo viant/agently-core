@@ -389,10 +389,10 @@ AND NOT EXISTS (SELECT 1 FROM generated_file gf WHERE gf.payload_id = cp.id)`,
 
 	if capabilities.hasTable("investigation") {
 		rules = append(rules, orphanMaintenanceRule{
-			ID: "investigation.missing_conversation", Action: OrphanMaintenanceSafeDetach,
-			Table: "investigation", Alias: "i", RecordExpr: "i.id", KeyColumns: []string{"id"}, DetachColumn: "conversation_id",
+			ID: "investigation.missing_conversation", Action: OrphanMaintenanceSafeDelete,
+			Table: "investigation", Alias: "i", RecordExpr: "i.id", KeyColumns: []string{"id"},
 			ReferenceTable: "conversation", ReferenceExpr: "i.conversation_id", AgeExpr: "i.created",
-			Predicate:      "TRIM(COALESCE(i.conversation_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM conversation orphan_parent WHERE orphan_parent.id = i.conversation_id)",
+			Predicate:      "TRIM(COALESCE(i.conversation_id, '')) = '' OR NOT EXISTS (SELECT 1 FROM conversation orphan_parent WHERE orphan_parent.id = i.conversation_id)",
 			RequiredTables: []string{"investigation", "conversation"},
 		})
 	}

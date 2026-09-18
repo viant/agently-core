@@ -540,11 +540,11 @@ func TestDeleteConversationTree_RollsBackEarlierDeletesWhenLaterDeleteFails(t *t
 		t.Fatalf("query investigation after rollback: %v", err)
 	}
 	if !conversationID.Valid || conversationID.String != "conv-rollback" {
-		t.Fatalf("investigation detach should be rolled back, got %#v", conversationID)
+		t.Fatalf("investigation mutation should be rolled back, got %#v", conversationID)
 	}
 }
 
-func TestApplyInvestigationDeletePolicy_DeleteModeIsReadyForFutureUse(t *testing.T) {
+func TestApplyInvestigationDeletePolicy_DeleteModeDeletesInvestigation(t *testing.T) {
 	_, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `CREATE TABLE investigation (id TEXT PRIMARY KEY, conversation_id TEXT)`},
