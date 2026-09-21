@@ -1,12 +1,14 @@
-# MCP Skills Feature Description
+# MCP Skills
 
-Updated 2026-09-21. This supersedes the earlier resource-list-only proposal.
+MCP Skills lets Agently discover, inspect, and activate reusable skills served
+by configured MCP servers. It combines those skills with the workspace’s local
+skill catalog while keeping each server and user boundary intact.
 
-## Official contract
+## How it works
 
-The source of truth is the stable SEP-2640 / `io.modelcontextprotocol/skills`
-extension against MCP 2026-07-28:
-[stable specification](https://github.com/modelcontextprotocol/ext-skills/blob/0e85d4db8860a305c857f26fdede64f416675b92/specification/stable/skills.mdx).
+Agently connects to servers that implement the stable
+[`io.modelcontextprotocol/skills`](https://github.com/modelcontextprotocol/ext-skills/blob/0e85d4db8860a305c857f26fdede64f416675b92/specification/stable/skills.mdx)
+extension.
 
 Servers declare the extension through `server/discover`. Native
 `skills/list` and `skills/get` return complete frontmatter and file manifests.
