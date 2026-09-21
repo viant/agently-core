@@ -76,6 +76,8 @@ func DeriveBundles(defs []llm.ToolDefinition) []*Bundle {
 
 func defaultBundleMatch(service string) []llm.Tool {
 	switch strings.TrimSpace(service) {
+	case "scratchpad":
+		return []llm.Tool{{Name: "scratchpad/*", Exclude: []string{"scratchpad:list"}}}
 	case "system/patch":
 		return []llm.Tool{
 			{Name: "system/patch:apply"},

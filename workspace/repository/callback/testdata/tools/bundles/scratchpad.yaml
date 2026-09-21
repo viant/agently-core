@@ -6,5 +6,5 @@ priority: 80
 match:
   - name: "scratchpad:memorize"
   - name: "scratchpad:append"
-  - name: "scratchpad:list"
+  # - name: "scratchpad:list"
   - name: "scratchpad:fetch"
