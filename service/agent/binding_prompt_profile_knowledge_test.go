@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/protocol/binding"
 	intent "github.com/viant/agently-core/protocol/intent"
 )
@@ -23,6 +24,18 @@ func TestAppendKnowledgeMatchesUsesOriginalQueryAndGenericMapper(t *testing.T) {
 	require.Equal(t, "Document", item.Title)
 	require.Equal(t, "https://example.test/document", item.Metadata["source.url"])
 	require.Equal(t, "profile-a", item.Metadata["intent.profile"])
+}
+
+func TestApplyProfileExecutionRestrictions_DisableToolsClearsSurface(t *testing.T) {
+	b := &binding.Binding{}
+	b.Tools.Signatures = []*llm.ToolDefinition{
+		{Name: "resources-match"},
+		{Name: "steward-SpoParentOrgCube"},
+	}
+	applyProfileExecutionRestrictions(b, &intent.Profile{
+		Execution: &intent.Execution{DisableTools: true},
+	})
+	require.Empty(t, b.Tools.Signatures)
 }
 
 func TestAppendKnowledgeMatchesRequiredFailure(t *testing.T) {
