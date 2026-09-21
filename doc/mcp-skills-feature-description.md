@@ -1,4 +1,4 @@
-# MCP skills bridge
+# MCP Skills Feature Description
 
 Updated 2026-09-21. This supersedes the earlier resource-list-only proposal.
 
