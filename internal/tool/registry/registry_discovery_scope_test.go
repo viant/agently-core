@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	authctx "github.com/viant/agently-core/internal/auth"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +16,10 @@ import (
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
+
+func discoveryUserContext() context.Context {
+	return authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "test-user"})
+}
 
 func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
 	stub := &discoveryManagerStub{
@@ -31,7 +36,7 @@ func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
 	}
 	reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}}
 
-	tools1, err := reg.listServerTools(memory.WithConversationID(context.Background(), "conv-1"), "helper")
+	tools1, err := reg.listServerTools(memory.WithConversationID(discoveryUserContext(), "conv-1"), "helper")
 	if err != nil {
 		t.Fatalf("listServerTools(conv-1) error: %v", err)
 	}
@@ -39,7 +44,7 @@ func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
 		t.Fatalf("unexpected tools for conv-1: %+v", tools1)
 	}
 
-	tools2, err := reg.listServerTools(memory.WithConversationID(context.Background(), "conv-2"), "helper")
+	tools2, err := reg.listServerTools(memory.WithConversationID(discoveryUserContext(), "conv-2"), "helper")
 	if err != nil {
 		t.Fatalf("listServerTools(conv-2) error: %v", err)
 	}
@@ -64,7 +69,7 @@ func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
 	}
 }
 
-func TestListServerTools_UsesStableBackgroundScopeWithoutConversationID(t *testing.T) {
+func TestListServerTools_ProtectedBackgroundDoesNotDiscover(t *testing.T) {
 	stub := &discoveryManagerStub{
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
 			if convID != "mcp-discovery:helper:background" {
@@ -86,14 +91,8 @@ func TestListServerTools_UsesStableBackgroundScopeWithoutConversationID(t *testi
 	}
 
 	getCalls := stub.getCallsSnapshot()
-	if len(getCalls) != 2 {
-		t.Fatalf("expected 2 manager Get calls, got %d", len(getCalls))
-	}
-	if getCalls[0].convID != "mcp-discovery:helper:background" || getCalls[1].convID != getCalls[0].convID {
-		t.Fatalf("expected stable background discovery scope, got %+v", getCalls)
-	}
-	if first[0].Name != getCalls[0].convID || second[0].Name != getCalls[0].convID {
-		t.Fatalf("unexpected tool mapping for background scope: tools1=%+v tools2=%+v calls=%+v", first, second, getCalls)
+	if len(getCalls) != 0 || len(first) != 0 || len(second) != 0 {
+		t.Fatal("protected background discovery contacted MCP")
 	}
 }
 
@@ -116,7 +115,9 @@ func TestDefinitions_UsesStableBackgroundScopeWithoutConversationID(t *testing.T
 	_ = reg.Definitions()
 	_ = reg.Definitions()
 
-	assertDiscoveryCallScope(t, stub.getCallsSnapshot(), "helper", backgroundScope)
+	if len(stub.getCallsSnapshot()) != 0 {
+		t.Fatal("context-free definitions contacted MCP")
+	}
 }
 
 func TestMatchDefinition_UsesStableBackgroundScopeWithoutConversationID(t *testing.T) {
@@ -134,7 +135,9 @@ func TestMatchDefinition_UsesStableBackgroundScopeWithoutConversationID(t *testi
 	_ = reg.MatchDefinition("helper:*")
 	_ = reg.MatchDefinition("helper:*")
 
-	assertDiscoveryCallScope(t, stub.getCallsSnapshot(), "helper", backgroundScope)
+	if len(stub.getCallsSnapshot()) != 0 {
+		t.Fatal("context-free matcher contacted MCP")
+	}
 }
 
 func TestGetDefinition_UsesStableBackgroundScopeWithoutConversationID(t *testing.T) {
@@ -152,7 +155,9 @@ func TestGetDefinition_UsesStableBackgroundScopeWithoutConversationID(t *testing
 	_, _ = reg.GetDefinition("helper/alpha")
 	_, _ = reg.GetDefinition("helper/alpha")
 
-	assertDiscoveryCallScope(t, stub.getCallsSnapshot(), "helper", backgroundScope)
+	if len(stub.getCallsSnapshot()) != 0 {
+		t.Fatal("context-free getter contacted MCP")
+	}
 }
 
 func TestListServerTools_UsesFreshSyntheticScopeWithoutConversationID(t *testing.T) {
@@ -169,11 +174,11 @@ func TestListServerTools_UsesFreshSyntheticScopeWithoutConversationID(t *testing
 	}
 	reg := &Registry{mgr: stub}
 
-	first, err := reg.listServerTools(context.Background(), "helper")
+	first, err := reg.listServerTools(discoveryUserContext(), "helper")
 	if err != nil {
 		t.Fatalf("first listServerTools() error: %v", err)
 	}
-	second, err := reg.listServerTools(context.Background(), "helper")
+	second, err := reg.listServerTools(discoveryUserContext(), "helper")
 	if err != nil {
 		t.Fatalf("second listServerTools() error: %v", err)
 	}
@@ -228,7 +233,7 @@ func TestListServerTools_RetryReusesSyntheticDiscoveryScope(t *testing.T) {
 	}
 	reg := &Registry{mgr: stub}
 
-	tools, err := reg.listServerTools(context.Background(), "helper")
+	tools, err := reg.listServerTools(discoveryUserContext(), "helper")
 	if err != nil {
 		t.Fatalf("listServerTools() error: %v", err)
 	}
@@ -255,7 +260,7 @@ func TestListServerTools_RetryReusesSyntheticDiscoveryScope(t *testing.T) {
 	}
 }
 
-func TestListServerTools_RetryReusesStableBackgroundScope(t *testing.T) {
+func TestListServerTools_ProtectedBackgroundDoesNotRetry(t *testing.T) {
 	var (
 		getCount       int
 		reconnectCount int
@@ -286,23 +291,8 @@ func TestListServerTools_RetryReusesStableBackgroundScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listServerTools() error: %v", err)
 	}
-	if len(tools) != 1 || tools[0].Name != "recovered" {
-		t.Fatalf("unexpected tools after retry: %+v", tools)
-	}
-	if reconnectCount != 1 {
-		t.Fatalf("expected 1 reconnect, got %d", reconnectCount)
-	}
-
-	getCalls := stub.getCallsSnapshot()
-	reconnectCalls := stub.reconnectCallsSnapshot()
-	if len(getCalls) != 2 {
-		t.Fatalf("expected 2 manager Get calls, got %d", len(getCalls))
-	}
-	if len(reconnectCalls) != 1 {
-		t.Fatalf("expected 1 manager Reconnect call, got %d", len(reconnectCalls))
-	}
-	if getCalls[0].convID != backgroundScope || getCalls[1].convID != backgroundScope || reconnectCalls[0].convID != backgroundScope {
-		t.Fatalf("expected retry to reuse background scope %q, got gets=%+v reconnects=%+v", backgroundScope, getCalls, reconnectCalls)
+	if len(tools) != 0 || getCount != 0 || reconnectCount != 0 {
+		t.Fatal("protected background discovery ran")
 	}
 }
 
@@ -318,7 +308,7 @@ func TestListServerTools_CachesTransportFailureForCooldown(t *testing.T) {
 		discoveryFailUntil: map[string]time.Time{},
 		discoveryFailErr:   map[string]string{},
 	}
-	ctx := memory.WithConversationID(context.Background(), "conv-shared")
+	ctx := memory.WithConversationID(discoveryUserContext(), "conv-shared")
 
 	_, err := reg.listServerTools(ctx, "helper")
 	if err == nil {
@@ -353,7 +343,7 @@ func TestListServerTools_ToolSurfaceSkipsCooldownWithoutManagerCall(t *testing.T
 	reg.discoveryFailUntil[reg.discoveryFailureKey("helper", scope)] = time.Now().Add(5 * time.Minute)
 	reg.discoveryFailErr[reg.discoveryFailureKey("helper", scope)] = "dial tcp 10.55.132.138:5000: i/o timeout"
 
-	ctx := memory.WithConversationID(context.Background(), scope)
+	ctx := memory.WithConversationID(discoveryUserContext(), scope)
 	ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true})
 	tools, err := reg.listServerTools(ctx, "helper")
 	if err != nil {
@@ -382,7 +372,7 @@ func TestListServerTools_ToolSurfaceTransportFailureReturnsEmptyAndCachesCooldow
 		discoveryFailUntil: map[string]time.Time{},
 		discoveryFailErr:   map[string]string{},
 	}
-	ctx := memory.WithConversationID(context.Background(), "conv-shared")
+	ctx := memory.WithConversationID(discoveryUserContext(), "conv-shared")
 	ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true})
 
 	tools, err := reg.listServerTools(ctx, "creative")
@@ -424,7 +414,7 @@ func TestListServerTools_StrictToolSurfaceReturnsCooldown(t *testing.T) {
 	reg.discoveryFailUntil[reg.discoveryFailureKey("helper", scope)] = time.Now().Add(5 * time.Minute)
 	reg.discoveryFailErr[reg.discoveryFailureKey("helper", scope)] = "dial tcp 10.55.132.138:5000: i/o timeout"
 
-	ctx := memory.WithConversationID(context.Background(), scope)
+	ctx := memory.WithConversationID(discoveryUserContext(), scope)
 	ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Strict: true})
 	_, err := reg.listServerTools(ctx, "helper")
 	if err == nil {

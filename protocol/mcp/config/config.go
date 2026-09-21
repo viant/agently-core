@@ -19,6 +19,7 @@ type Group[T any] struct {
 // MCPClient augments mcp.ClientOptions with optional discovery descriptions and metadata.
 type MCPClient struct {
 	*mcp.ClientOptions `yaml:",inline" json:",inline"`
+	SkillDiscovery     *SkillDiscovery        `yaml:"skillDiscovery,omitempty" json:"skillDiscovery,omitempty"`
 	Async              []*asynccfg.Config     `yaml:"async,omitempty" json:"async,omitempty"`
 	Descriptions       map[string]string      `yaml:"descriptions,omitempty" json:"descriptions,omitempty"`
 	Metadata           map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`

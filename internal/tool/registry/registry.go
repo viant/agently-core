@@ -562,7 +562,7 @@ func (r *Registry) DefinitionsWithContext(ctx context.Context) []llm.ToolDefinit
 				seen[disp] = struct{}{}
 				// Update cache for lookup by display name
 				r.mu.Lock()
-				if entry := newToolCacheEntry(def, t, injectTimeoutMs); entry != nil {
+				if entry := newToolCacheEntry(def, t, injectTimeoutMs); entry != nil && r.internal[s] != nil {
 					r.cache[disp] = entry
 				}
 				r.mu.Unlock()
@@ -676,7 +676,7 @@ func (r *Registry) MatchDefinitionWithContextResult(ctx context.Context, pattern
 					seen[key] = struct{}{}
 				}
 				r.mu.Lock()
-				if _, ok := r.cache[def.Name]; !ok {
+				if _, ok := r.cache[def.Name]; !ok && r.internal[svc] != nil {
 					cacheToolAliases(r.cache, entry, def.Name)
 				}
 				r.mu.Unlock()
@@ -746,7 +746,7 @@ func (r *Registry) GetDefinitionWithContext(ctx context.Context, name string) (*
 				r.applyCacheableOverrideWithMethods(tool, svc, methods)
 				entry := newToolCacheEntry(tool, t, injectTimeoutMs)
 				// cache both aliases and the exact name used
-				if entry != nil {
+				if entry != nil && r.internal[svc] != nil {
 					cacheToolAliases(r.cache, entry, fullSlash)
 					r.cache[strings.TrimSpace(name)] = entry
 				}
@@ -766,6 +766,9 @@ func (r *Registry) discoveryLookupContext(ctx context.Context) context.Context {
 		return ctx
 	}
 	if runtimediscovery.BackgroundFromContext(ctx) {
+		return ctx
+	}
+	if authctx.EffectiveUserID(ctx) != "" {
 		return ctx
 	}
 	return runtimediscovery.WithBackground(ctx)
@@ -1299,6 +1302,22 @@ func (r *Registry) applyTimeoutMs(ctx context.Context, name string, args map[str
 		return ctx, nil, args
 	}
 	support, ok := r.timeoutSupportFor(name)
+	// Remote definitions are deliberately not retained globally. Resolve native
+	// timeout support under this caller rather than dropping a server's genuine
+	// timeoutMs argument because the context-free cache is empty.
+	if !ok && authctx.EffectiveUserID(ctx) != "" {
+		server, method := splitToolName(name)
+		if tools, err := r.listServerTools(ctx, server); err == nil {
+			for _, item := range tools {
+				if item.Name == method {
+					_, native := item.InputSchema.Properties[timeoutMsField]
+					support = timeoutSupport{native: native, injected: !native}
+					ok = true
+					break
+				}
+			}
+		}
+	}
 	if !valid || timeoutMs <= 0 {
 		return ctx, nil, stripTimeoutMs(args)
 	}
@@ -1724,10 +1743,9 @@ func (r *Registry) shouldWarmServer(ctx context.Context, server string) bool {
 	if isInternal {
 		return true
 	}
-	if r.hasCachedServerTools(server) {
-		return true
-	}
-	return r.isLoopbackMCPServer(server)
+	// External catalogs are request-scoped. Loopback and a previous cache hit
+	// do not establish that a server's metadata is public.
+	return false
 }
 
 func (r *Registry) hasCachedServerTools(server string) bool {
@@ -2008,6 +2026,9 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	}
 	if r.mgr == nil {
 		return nil, errors.New("mcp manager not configured")
+	}
+	if runtimediscovery.BackgroundFromContext(ctx) || authctx.EffectiveUserID(ctx) == "" {
+		return nil, nil
 	}
 	ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	useID := r.mgr.UseIDToken(ctx, server)

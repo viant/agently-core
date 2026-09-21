@@ -5,6 +5,7 @@ import mcpname "github.com/viant/agently-core/pkg/mcpname"
 const (
 	ServiceName      = "llm/skills"
 	ListToolName     = ServiceName + ":list"
+	GetToolName      = ServiceName + ":get"
 	ActivateToolName = ServiceName + ":activate"
 )
 

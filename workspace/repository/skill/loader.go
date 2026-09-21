@@ -10,16 +10,20 @@ import (
 )
 
 type Loader struct {
-	defaults *execconfig.Defaults
+	roots []string
 }
 
 func New(defaults *execconfig.Defaults) *Loader {
-	return &Loader{defaults: defaults}
+	return &Loader{roots: ResolveRoots(defaults)}
 }
+
+// Roots is a snapshot owned by this runtime. Watcher reloads must not resolve
+// another runtime's mutable process-wide workspace root.
+func (l *Loader) Roots() []string { return append([]string(nil), l.roots...) }
 
 func (l *Loader) LoadAll() (*skillproto.Registry, error) {
 	reg := skillproto.NewRegistry()
-	for _, root := range ResolveRoots(l.defaults) {
+	for _, root := range l.roots {
 		entries, err := os.ReadDir(root)
 		if err != nil {
 			if os.IsNotExist(err) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"testing"
 	"time"
+	authctx "github.com/viant/agently-core/internal/auth"
 
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
@@ -100,6 +101,7 @@ func TestMatchDefinitionWithContextResult_MapsDiscoveryLinkRequired(t *testing.T
 		discoveryFailErr:   map[string]string{},
 	}
 	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	ctx = authctx.WithUserInfo(ctx, &authctx.UserInfo{Subject: "user"})
 	definitions, err := reg.MatchDefinitionWithContextResult(ctx, "helper/*")
 	if len(definitions) != 0 {
 		t.Fatalf("definitions = %d, want 0", len(definitions))

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -96,7 +97,10 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 }
 
 func NewExposedMCPServer(ctx context.Context, rt *executor.Runtime, cfg *mcpexpose.ServerConfig, authRuntime *svcauth.Runtime) (*http.Server, error) {
-	server, err := mcpexpose.NewHTTPServer(ctx, &runtimeExecutorAdapter{rt: rt}, cfg)
+	if cfg == nil {
+		return nil, fmt.Errorf("MCP server config required")
+	}
+	server, err := mcpexpose.NewHTTPServer(ctx, &runtimeExecutorAdapter{rt: rt, skillItems: cfg.SkillItems}, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +155,8 @@ func DiscoverWorkspaceAgentIDs(workspaceRoot string) []string {
 }
 
 type runtimeExecutorAdapter struct {
-	rt *executor.Runtime
+	rt         *executor.Runtime
+	skillItems []string
 }
 
 type registryLLMCore struct {
@@ -171,6 +176,22 @@ func (a *runtimeExecutorAdapter) ListResources(ctx context.Context) ([]mcpschema
 }
 
 func (a *runtimeExecutorAdapter) ReadResource(ctx context.Context, uri string) (*mcpschema.ReadResourceResult, error) {
+	if strings.HasPrefix(uri, "skill://") {
+		skills, err := a.localSkills(ctx)
+		if err != nil {
+			return nil, err
+		}
+		for _, s := range skills {
+			if s.Contains(uri) {
+				result, jerr := s.ReadResource(ctx, &mcpschema.ReadResourceRequest{Params: mcpschema.ReadResourceRequestParams{Uri: uri}})
+				if jerr != nil {
+					return nil, jerr
+				}
+				return result, nil
+			}
+		}
+		return nil, fmt.Errorf("skill unavailable")
+	}
 	return uiresource.ReadWorkspaceResource(ctx, uri)
 }
 

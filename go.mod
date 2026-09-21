@@ -1,5 +1,10 @@
 module github.com/viant/agently-core
 
+// Local SEP-2640 cache-contract corrections, pending upstream release.
+replace github.com/viant/mcp => ../mcp
+
+replace github.com/viant/mcp-protocol => ../mcp-protocol
+
 go 1.25.5
 
 require (
@@ -29,8 +34,8 @@ require (
 	github.com/viant/gosh v0.3.0
 	github.com/viant/jsonrpc v0.24.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.22.0
-	github.com/viant/mcp-protocol v0.17.0
+	github.com/viant/mcp v0.24.0
+	github.com/viant/mcp-protocol v0.19.0
 	github.com/viant/mcp-ui v0.2.0
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.30.0
@@ -161,7 +166,7 @@ require (
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.0 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
-	github.com/viant/x v0.4.1-0.20260306005005-975ded1e1bef // indirect
+	github.com/viant/x v0.4.1-0.20260914174450-0e043f24aec5 // indirect
 	github.com/viant/xdatly/extension v0.0.0-20231013204918-ecf3c2edf259 // indirect
 	github.com/viant/xlsy v0.3.1 // indirect
 	github.com/viant/xmlify v0.1.1 // indirect

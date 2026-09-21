@@ -197,6 +197,12 @@ func (h *ToolHandler) OnNotification(_ context.Context, _ *jsonrpc.Notification)
 
 func (h *ToolHandler) Implements(method string) bool {
 	switch method {
+	case mcpschema.MethodSkillsList, mcpschema.MethodSkillsGet:
+		_, ok := h.exec.(SkillProvider)
+		return ok
+	case mcpschema.MethodResourcesList, mcpschema.MethodResourcesRead:
+		_, ok := h.exec.(ResourceProvider)
+		return ok
 	case mcpschema.MethodToolsList, mcpschema.MethodToolsCall:
 		return true
 	case mcpschema.MethodPromptsList, mcpschema.MethodPromptsGet:

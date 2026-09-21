@@ -566,7 +566,7 @@ func TestResolveToolControl_MergesAgentProfileAndRuntimeSelections(t *testing.T)
 		actual.Bundles,
 	)
 	assert.EqualValues(t,
-		[]string{mcpname.Canonical("system/os:getEnv"), mcpname.Canonical("llm/skills:list"), mcpname.Canonical("llm/skills:activate")},
+		[]string{mcpname.Canonical("system/os:getEnv"), mcpname.Canonical("llm/skills:list"), mcpname.Canonical("llm/skills:get"), mcpname.Canonical("llm/skills:activate")},
 		actual.Tools,
 	)
 }
@@ -592,7 +592,7 @@ func TestResolveToolControl_AutoSelectedRuntimeBundlesNarrowAgentDefaults(t *tes
 	require.NoError(t, err)
 	assert.EqualValues(t, []string{"workspace-ui"}, actual.Bundles)
 	assert.EqualValues(t,
-		[]string{mcpname.Canonical("system/os:getEnv"), mcpname.Canonical("llm/skills:list"), mcpname.Canonical("llm/skills:activate")},
+		[]string{mcpname.Canonical("system/os:getEnv"), mcpname.Canonical("llm/skills:list"), mcpname.Canonical("llm/skills:get"), mcpname.Canonical("llm/skills:activate")},
 		actual.Tools,
 	)
 }

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/mcp-protocol/schema"
 )
 
 type Frontmatter struct {
@@ -31,14 +32,22 @@ type AgentlyMetadata struct {
 }
 
 type Skill struct {
-	Frontmatter Frontmatter
-	Body        string
-	Root        string
-	Path        string
-	Source      string
+	Manifest       *schema.Skill
+	RequestedTools string
+	CatalogURI     string
+	ServerID       string
+	RemoteURI      string
+	Frontmatter    Frontmatter
+	Body           string
+	Root           string
+	Path           string
+	Source         string
 }
 
 type Metadata struct {
+	URI           string `json:"uri,omitempty"`
+	QualifiedName string `json:"qualifiedName,omitempty"`
+	ServerID      string `json:"serverId,omitempty"`
 	Name          string `json:"name,omitempty"`
 	Description   string `json:"description,omitempty"`
 	ExecutionMode string `json:"executionMode,omitempty"`

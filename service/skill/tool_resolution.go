@@ -53,6 +53,9 @@ func matchSkillTool(ctx context.Context, reg tool.Registry, pattern string) []*l
 }
 
 func matchKnownSkillTool(ctx context.Context, reg tool.Registry, pattern string) []*llm.ToolDefinition {
+	if reg == nil {
+		return nil
+	}
 	if matcher, ok := reg.(tool.ContextMatcher); ok {
 		return matcher.MatchDefinitionWithContext(ctx, pattern)
 	}
@@ -65,6 +68,9 @@ func (s *Service) SetToolRegistry(reg tool.Registry) { s.toolRegistry = reg }
 // resolvedToolSkill returns a private copy: resolving one caller's registry
 // must never mutate the shared skill catalog or another caller's permissions.
 func (s *Service) resolvedToolSkill(ctx context.Context, item *skillproto.Skill) *skillproto.Skill {
+	if item != nil && item.CatalogURI != "" {
+		return item
+	}
 	if item == nil || s.toolRegistry == nil || strings.TrimSpace(item.Body) == "" {
 		return item
 	}

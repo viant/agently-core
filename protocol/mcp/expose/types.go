@@ -35,9 +35,10 @@ type ResourceProvider interface {
 
 // ServerConfig defines MCP server exposure options.
 type ServerConfig struct {
-	Addr      string   `yaml:"addr"`
-	Port      int      `yaml:"port"`
-	ToolItems []string `yaml:"toolItems"`
+	SkillItems []string `yaml:"skillItems,omitempty"`
+	Addr       string   `yaml:"addr"`
+	Port       int      `yaml:"port"`
+	ToolItems  []string `yaml:"toolItems"`
 }
 
 const DefaultPort = 5000
@@ -49,7 +50,13 @@ func (c *ServerConfig) Enabled() bool {
 	if c == nil {
 		return false
 	}
-	return strings.TrimSpace(c.Addr) != "" || c.Port != 0 || len(c.ToolPatterns()) > 0
+	return strings.TrimSpace(c.Addr) != "" || c.Port != 0 || len(c.ToolPatterns()) > 0 || len(c.SkillItems) > 0
+}
+
+// SkillProvider exposes SEP-2640 independently of the model's global tools.
+type SkillProvider interface {
+	ListSkills(context.Context, *string) (*mcpschema.ListSkillsResult, error)
+	GetSkill(context.Context, string) (*mcpschema.GetSkillResult, error)
 }
 
 // EffectivePort returns the configured MCP port or the default port when the

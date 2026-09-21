@@ -432,6 +432,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	skillsvc.ExecFn = out.Registry.Execute
 	out.Skills = skillsvc.New(out.Defaults, out.Conversation, b.agentFinder)
 	out.Skills.SetToolRegistry(out.Registry)
+	out.Skills.SetMCPSource(out.MCPManager)
 	if err := out.Skills.Load(ctx); err != nil {
 		return nil, err
 	}
