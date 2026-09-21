@@ -67,7 +67,7 @@ func TestRegistryLoopbackDiscoveryFailureUsesServerScopedCooldown(t *testing.T) 
 	}
 }
 
-func TestRegistryRefreshServerTools_IgnoresLoopbackCooldown(t *testing.T) {
+func TestRegistryRefreshServerTools_DoesNotDiscoverProtectedLoopback(t *testing.T) {
 	stub := &loopbackRefreshDiscoveryManagerStub{}
 	r := &Registry{
 		mgr:                stub,
@@ -82,11 +82,11 @@ func TestRegistryRefreshServerTools_IgnoresLoopbackCooldown(t *testing.T) {
 	if err := r.refreshServerTools(context.Background(), "analyst"); err != nil {
 		t.Fatalf("refreshServerTools() error = %v", err)
 	}
-	if _, ok := r.cache["analyst/alpha"]; !ok {
-		t.Fatalf("expected refreshed loopback tool to be cached")
+	if _, ok := r.cache["analyst/alpha"]; ok {
+		t.Fatalf("protected loopback discovery must not populate cache")
 	}
-	if _, ok := r.discoveryFailUntil["analyst"]; ok {
-		t.Fatalf("expected loopback cooldown to clear after successful refresh")
+	if _, ok := r.discoveryFailUntil["analyst"]; !ok {
+		t.Fatalf("skipped discovery must not clear cooldown")
 	}
 }
 
@@ -158,7 +158,7 @@ func TestRegistryShouldWarmServer_SkipsRemoteWithoutCachedTools(t *testing.T) {
 	}
 }
 
-func TestRegistryShouldWarmServer_WarmsCachedRemoteTools(t *testing.T) {
+func TestRegistryShouldWarmServer_SkipsCachedProtectedTools(t *testing.T) {
 	r := &Registry{
 		mgr: &remoteDiscoveryManagerStub{},
 		cache: map[string]*toolCacheEntry{
@@ -166,7 +166,7 @@ func TestRegistryShouldWarmServer_WarmsCachedRemoteTools(t *testing.T) {
 		},
 	}
 
-	if !r.shouldWarmServer(context.Background(), "workspace") {
-		t.Fatalf("expected cached remote server to keep background warming")
+	if r.shouldWarmServer(context.Background(), "workspace") {
+		t.Fatalf("cached protected metadata must not enable background discovery")
 	}
 }

@@ -56,8 +56,8 @@ func runtimeActivatedSkillEmbedded(input *QueryInput) bool {
 	return input.Runtime.SkillActivation.Embedded
 }
 
-func resolveActiveSkillNames(history *binding.History, input *QueryInput, svc *skillsvc.Service, agent *agentmdl.Agent, overrideName, overrideMode string) []string {
-	names := skillsvc.InlineActiveSkillsFromHistory(history, svc, agent, overrideName, overrideMode)
+func resolveActiveSkillNames(history *binding.History, input *QueryInput, svc *skillsvc.Service, agent *agentmdl.Agent, overrideName, overrideMode string, contexts ...context.Context) []string {
+	names := skillsvc.InlineActiveSkillsFromHistory(history, svc, agent, overrideName, overrideMode, contexts...)
 	if len(names) > 0 {
 		return names
 	}
@@ -68,18 +68,22 @@ func resolveActiveSkillNames(history *binding.History, input *QueryInput, svc *s
 	return []string{name}
 }
 
-func resolveActiveInlineSkillState(history *binding.History, input *QueryInput, svc *skillsvc.Service, agent *agentmdl.Agent) activeInlineSkillState {
+func resolveActiveInlineSkillState(history *binding.History, input *QueryInput, svc *skillsvc.Service, agent *agentmdl.Agent, contexts ...context.Context) activeInlineSkillState {
 	if svc == nil || agent == nil {
 		return activeInlineSkillState{
 			Names: resolveActiveSkillNames(history, input, svc, agent, "", ""),
 		}
 	}
 	overrideName, overrideMode := skillActivationOverridePair(input)
-	names := resolveActiveSkillNames(history, input, svc, agent, overrideName, overrideMode)
+	names := resolveActiveSkillNames(history, input, svc, agent, overrideName, overrideMode, contexts...)
 	if len(names) == 0 {
 		return activeInlineSkillState{}
 	}
-	skills := svc.VisibleSkillsByName(agent, names)
+	ctx := context.Background()
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
+	skills := svc.VisibleSkillsWithContext(ctx, agent, names)
 	state := activeInlineSkillState{
 		Names:  names,
 		Skills: skills,

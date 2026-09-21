@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	skillrepo "github.com/viant/agently-core/workspace/repository/skill"
 )
 
 type Watcher struct {
@@ -29,7 +28,7 @@ func (w *Watcher) Start(ctx context.Context) error {
 		return err
 	}
 	w.watcher = fsw
-	for _, root := range skillrepo.ResolveRoots(w.service.defaults) {
+	for _, root := range w.service.loader.Roots() {
 		_ = addRecursiveWatch(fsw, root)
 	}
 	go w.loop(ctx)

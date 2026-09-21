@@ -36,7 +36,7 @@ func FromAgent(agent *agentmdl.Agent) Selection {
 	}
 	out := FromAgentTool(agent.Tool)
 	if len(agent.Skills) > 0 {
-		out.Tools = append(out.Tools, skillproto.ListToolName, skillproto.ActivateToolName)
+		out.Tools = append(out.Tools, skillproto.ListToolName, skillproto.GetToolName, skillproto.ActivateToolName)
 	}
 	return Normalize(out)
 }

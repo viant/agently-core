@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
@@ -253,6 +254,9 @@ func (m *Manager) poolKey(ctx context.Context, convID string) string {
 		if uid := strings.TrimSpace(m.userIDFn(ctx)); uid != "" {
 			return uid + ":" + convID
 		}
+	}
+	if uid := authctx.EffectiveUserID(ctx); uid != "" {
+		return fmt.Sprintf("principal:%d:%s:%s", len(uid), uid, convID)
 	}
 	return convID
 }

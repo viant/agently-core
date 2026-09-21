@@ -400,7 +400,14 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		logx.WarnCtxf(ctx, "conversation", "tool execute error convo=%q turn=%q op_id=%q tool=%q cause=%q err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(formatContextErr(ctx)))
 	} else if isSkillActivateTool(step.Name) {
 		if state, ok := skillsvc.RuntimeStateFromContext(ctx); ok && state != nil {
-			if name, _ := step.Args["name"].(string); strings.TrimSpace(name) != "" {
+			name, _ := step.Args["name"].(string)
+			var activated struct {
+				Name string `json:"name"`
+			}
+			if json.Unmarshal([]byte(toolResult), &activated) == nil && activated.Name != "" {
+				name = activated.Name
+			}
+			if strings.TrimSpace(name) != "" {
 				state.Activate(name)
 			}
 		}

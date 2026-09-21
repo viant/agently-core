@@ -28,6 +28,7 @@ func TestFromAgent_IncludesSkillControlToolsWhenSkillsVisible(t *testing.T) {
 	assert.Equal(t, []string{
 		mcpname.Canonical("system/os:getEnv"),
 		skillproto.ListToolNameCanonical,
+		mcpname.Canonical(skillproto.GetToolName),
 		skillproto.ActivateToolNameCanonical,
 	}, actual.Tools)
 }

@@ -160,7 +160,7 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 	hasVisibleSkills := s.hasVisibleSkills(qi.Agent)
 	agentSelection := agenttool.FromAgentTool(agentmdlTool(qi.Agent))
 	if hasVisibleSkills {
-		agentSelection.Tools = append(agentSelection.Tools, skillproto.ListToolName, skillproto.ActivateToolName)
+		agentSelection.Tools = append(agentSelection.Tools, skillproto.ListToolName, skillproto.GetToolName, skillproto.ActivateToolName)
 		agentSelection = agenttool.Normalize(agentSelection)
 	}
 	selections := agenttool.Selections{
@@ -193,6 +193,9 @@ func (s *Service) hasVisibleSkills(agent *agentmdl.Agent) bool {
 	if s == nil || s.skillSvc == nil {
 		return false
 	}
+	if agent != nil && len(agent.Skills) > 0 && s.skillSvc.HasMCPSource() {
+		return true
+	}
 	return len(s.skillSvc.VisibleSkillsByName(agent, configuredAgentSkills(agent))) > 0
 }
 
@@ -207,7 +210,7 @@ func withoutSkillControlSelection(in agenttool.Selection) agenttool.Selection {
 	var tools []string
 	for _, tool := range in.Tools {
 		name := strings.TrimSpace(tool)
-		if strings.EqualFold(name, skillproto.ListToolName) || strings.EqualFold(name, skillproto.ActivateToolName) {
+		if strings.EqualFold(name, skillproto.ListToolName) || strings.EqualFold(name, skillproto.GetToolName) || strings.EqualFold(name, skillproto.ActivateToolName) {
 			continue
 		}
 		tools = append(tools, tool)

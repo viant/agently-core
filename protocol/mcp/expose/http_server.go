@@ -25,7 +25,7 @@ func NewHTTPServer(ctx context.Context, exec Executor, cfg *ServerConfig) (*http
 		return nil, fmt.Errorf("mcp server: invalid port %d", cfg.Port)
 	}
 	patterns := cfg.ToolPatterns()
-	if cfg.Enabled() && len(patterns) == 0 {
+	if cfg.Enabled() && len(patterns) == 0 && len(cfg.SkillItems) == 0 {
 		return nil, fmt.Errorf("mcp server: tool.items patterns required when MCP server is enabled")
 	}
 

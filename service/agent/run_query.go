@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/viant/agently-core/protocol/agent/execution"
+	skillproto "github.com/viant/agently-core/protocol/skill"
 	"path"
 	"regexp"
 	"sort"
@@ -985,7 +986,7 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 		activeState := activeInlineSkillState{}
 		activeNames := []string(nil)
 		if s.skillSvc != nil {
-			activeState = resolveActiveInlineSkillState(&binding.History, input, s.skillSvc, input.Agent)
+			activeState = resolveActiveInlineSkillState(&binding.History, input, s.skillSvc, input.Agent, ctx)
 			activeNames = mergeActiveSkillNames(activeState.Names, activeInlineSkillNames)
 		}
 		if s.skillSvc != nil && input.Agent != nil {
@@ -1811,6 +1812,12 @@ func parseExplicitSkillInvocation(query string) (string, string, bool) {
 		return "", "", false
 	}
 	name := head[1:]
+	if strings.Contains(name, "/") {
+		if ref, err := skillproto.ParseRef(name); err == nil {
+			return ref.URI(), strings.TrimSpace(strings.TrimPrefix(query, head)), true
+		}
+		return "", "", false
+	}
 	switch strings.ToLower(name) {
 	case "help", "clear":
 		return "", "", false

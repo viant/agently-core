@@ -14,6 +14,8 @@ import (
 )
 
 type Constraints struct {
+	Denied              bool
+	RemoteServers       []string
 	ToolPatterns        []string
 	ExecFirstTokenAllow []string
 }
@@ -43,6 +45,7 @@ type constraintsKey struct{}
 type runtimeKey struct{}
 
 type RuntimeState struct {
+	ctx     context.Context
 	service *Service
 	agent   *agentmdl.Agent
 	mu      sync.RWMutex
@@ -70,12 +73,13 @@ func WithRuntimeState(ctx context.Context, svc *Service, agent *agentmdl.Agent, 
 		return ctx
 	}
 	state := &RuntimeState{
+		ctx:     ctx,
 		service: svc,
 		agent:   agent,
 		active:  map[string]struct{}{},
 	}
 	for _, name := range activeNames {
-		if v := strings.TrimSpace(strings.ToLower(name)); v != "" {
+		if v := skillStateKey(name); v != "" {
 			state.active[v] = struct{}{}
 		}
 	}
@@ -95,7 +99,7 @@ func (s *RuntimeState) Activate(name string) {
 	if s == nil {
 		return
 	}
-	name = strings.TrimSpace(strings.ToLower(name))
+	name = skillStateKey(name)
 	if name == "" {
 		return
 	}
@@ -114,7 +118,17 @@ func (s *RuntimeState) Constraints() *Constraints {
 		names = append(names, name)
 	}
 	s.mu.RUnlock()
-	return BuildConstraints(s.service.VisibleSkillsByName(s.agent, names))
+	var items []*skillproto.Skill
+	for _, name := range names {
+		item, err := s.service.GetVisible(s.ctx, s.agent, name)
+		if err != nil && strings.Contains(name, "/") {
+			return &Constraints{Denied: true}
+		}
+		if err == nil {
+			items = append(items, item)
+		}
+	}
+	return BuildConstraints(items)
 }
 
 func BuildConstraints(skills []*skillproto.Skill) *Constraints {
@@ -127,6 +141,9 @@ func BuildConstraints(skills []*skillproto.Skill) *Constraints {
 	for _, item := range skills {
 		if item == nil {
 			continue
+		}
+		if item.CatalogURI != "" {
+			out.RemoteServers = append(out.RemoteServers, item.ServerID)
 		}
 		for _, token := range skillproto.ParseAllowedTools(item.Frontmatter.AllowedTools) {
 			if token.Raw == "" {
@@ -157,7 +174,7 @@ func BuildConstraints(skills []*skillproto.Skill) *Constraints {
 			}
 		}
 	}
-	if len(out.ToolPatterns) == 0 && len(out.ExecFirstTokenAllow) == 0 {
+	if len(out.ToolPatterns) == 0 && len(out.ExecFirstTokenAllow) == 0 && len(out.RemoteServers) == 0 {
 		return nil
 	}
 	return out
@@ -196,6 +213,18 @@ func ExpandDefinitionsForConstraintsWithDiag(defs []*llm.ToolDefinition, reg too
 
 // ExpandDefinitionsForConstraintsWithContext preserves caller-scoped discovery.
 func ExpandDefinitionsForConstraintsWithContext(ctx context.Context, defs []*llm.ToolDefinition, reg tool.Registry, c *Constraints) (out []*llm.ToolDefinition, unmatched []string) {
+	if c != nil && c.Denied {
+		return nil, nil
+	}
+	if c != nil && len(c.RemoteServers) > 0 {
+		filtered := make([]*llm.ToolDefinition, 0, len(defs))
+		for _, def := range defs {
+			if def != nil && remoteToolAllowed(def.Name, c.RemoteServers) {
+				filtered = append(filtered, def)
+			}
+		}
+		defs = filtered
+	}
 
 	if c == nil || reg == nil || len(c.ToolPatterns) == 0 {
 		return defs, nil
@@ -253,7 +282,15 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 	if c == nil {
 		return nil
 	}
+	if c.Denied {
+		return fmt.Errorf("active skill authorization is no longer available")
+	}
 	toolName = strings.TrimSpace(mcpname.Canonical(toolName))
+	if len(c.RemoteServers) > 0 {
+		if !remoteToolAllowed(toolName, c.RemoteServers) {
+			return fmt.Errorf("MCP skill does not grant local execution or cross-origin tool access")
+		}
+	}
 	if len(c.ToolPatterns) > 0 {
 		if constrained := constrainedServiceFamilies(c.ToolPatterns); len(constrained) > 0 {
 			if belongsToConstrainedService(&llm.ToolDefinition{Name: toolName}, constrained) {
@@ -300,6 +337,20 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 		}
 	}
 	return nil
+}
+
+func remoteToolAllowed(name string, servers []string) bool {
+	canonical := mcpname.Canonical(name)
+	if canonical == mcpname.Canonical("llm/skills:list") || canonical == mcpname.Canonical("llm/skills:get") {
+		return true
+	}
+	service := mcpname.Name(canonical).Service()
+	for _, server := range servers {
+		if service == mcpname.Name(mcpname.Canonical(server+":placeholder")).Service() {
+			return true
+		}
+	}
+	return false
 }
 
 func toolPatternMatch(name, pattern string) bool {

@@ -358,7 +358,7 @@ func (s *Service) applyActiveSkillToolSurface(ctx context.Context, input *QueryI
 	if s == nil || s.skillSvc == nil || input == nil || input.Agent == nil || b == nil {
 		return nil
 	}
-	state := resolveActiveInlineSkillState(&b.History, input, s.skillSvc, input.Agent)
+	state := resolveActiveInlineSkillState(&b.History, input, s.skillSvc, input.Agent, ctx)
 	if len(state.Skills) == 0 {
 		return nil
 	}
