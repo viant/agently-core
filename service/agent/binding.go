@@ -28,6 +28,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		input.normalizeIntentProfileID()
 	}
 	start := time.Now()
+	stageTimings := map[string]int64{}
 	convoID := ""
 	if input != nil {
 		convoID = strings.TrimSpace(input.ConversationID)
@@ -53,6 +54,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		return nil, err
 	}
 	logx.Infof("conversation", "agent.BuildBinding fetchConversation ok convo=%q elapsed=%s", convoID, time.Since(fetchStart).String())
+	stageTimings["fetchConversationMs"] = time.Since(fetchStart).Milliseconds()
 	if conv == nil {
 		logx.Infof("conversation", "agent.BuildBinding error convo=%q elapsed=%s err=%v", convoID, time.Since(start).String(), "conversation not found")
 		return nil, fmt.Errorf("conversation not found: %s", strings.TrimSpace(input.ConversationID))
@@ -68,6 +70,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		return nil, err
 	}
 	logx.Infof("conversation", "agent.BuildBinding buildHistory ok convo=%q elapsed=%s overflow=%t elicitation=%d", convoID, time.Since(histStart).String(), histResult.Overflow, len(histResult.Elicitation))
+	stageTimings["historyMs"] = time.Since(histStart).Milliseconds()
 	b.History = histResult.History
 	// Align History.CurrentTurnID with the in-flight turn when available
 	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
@@ -110,30 +113,40 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	b.Task = s.buildTaskBinding(input)
 	// Execution defaults (model, parallel tool calls) belong to the selected
 	// profile even when the agent disables profile message injection.
+	profileDisablesTools := false
+	profileResolveStart := time.Now()
 	if profile, err := s.selectedPromptProfileAny(ctx, input); err != nil {
 		logx.Infof("conversation", "agent.BuildBinding selectedPromptProfile error convo=%q elapsed=%s err=%v", convoID, time.Since(start).String(), err)
 		return nil, err
 	} else if profile != nil {
 		ApplyPromptProfileExecutionDefaults(input, profile)
 		ctx = withSelectedPromptProfile(ctx, profile)
+		profileDisablesTools = profile.Execution != nil && profile.Execution.DisableTools
 	}
+	stageTimings["profileResolveMs"] = time.Since(profileResolveStart).Milliseconds()
 
 	toolsStart := time.Now()
-	logx.Infof("conversation", "agent.BuildBinding buildToolSignatures start convo=%q", convoID)
-	b.Tools.Signatures, err = s.buildToolSignatures(ctx, input)
-	if err != nil {
-		logx.Infof("conversation", "agent.BuildBinding buildToolSignatures error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
-		return nil, err
+	if profileDisablesTools {
+		b.Tools.Signatures = nil
+		logx.Infof("conversation", "agent.BuildBinding buildToolSignatures skipped convo=%q reason=%q", convoID, "intent_profile_disable_tools")
+	} else {
+		logx.Infof("conversation", "agent.BuildBinding buildToolSignatures start convo=%q", convoID)
+		b.Tools.Signatures, err = s.buildToolSignatures(ctx, input)
+		if err != nil {
+			logx.Infof("conversation", "agent.BuildBinding buildToolSignatures error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
+			return nil, err
+		}
+		logx.Infof("conversation", "agent.BuildBinding buildToolSignatures ok convo=%q elapsed=%s tools=%d", convoID, time.Since(toolsStart).String(), len(b.Tools.Signatures))
+		if err := s.applyActiveSkillToolSurface(ctx, input, b); err != nil {
+			logx.Infof("conversation", "agent.BuildBinding applyActiveSkillToolSurface error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
+			return nil, err
+		}
+		if err := s.reapplyPromptApprovalReviewToolSurface(ctx, input, b); err != nil {
+			logx.Infof("conversation", "agent.BuildBinding reapplyPromptApprovalReviewToolSurface error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
+			return nil, err
+		}
 	}
-	logx.Infof("conversation", "agent.BuildBinding buildToolSignatures ok convo=%q elapsed=%s tools=%d", convoID, time.Since(toolsStart).String(), len(b.Tools.Signatures))
-	if err := s.applyActiveSkillToolSurface(ctx, input, b); err != nil {
-		logx.Infof("conversation", "agent.BuildBinding applyActiveSkillToolSurface error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
-		return nil, err
-	}
-	if err := s.reapplyPromptApprovalReviewToolSurface(ctx, input, b); err != nil {
-		logx.Infof("conversation", "agent.BuildBinding reapplyPromptApprovalReviewToolSurface error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
-		return nil, err
-	}
+	stageTimings["toolsMs"] = time.Since(toolsStart).Milliseconds()
 
 	// Tool executions exposure: default "turn"; allow QueryInput override; then agent setting.
 	exposure := resolveToolCallExposure(input)
@@ -148,6 +161,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		return nil, err
 	}
 	logx.Infof("conversation", "agent.BuildBinding buildToolExecutions ok convo=%q elapsed=%s overflow=%t", convoID, time.Since(execStart).String(), execResult.Overflow)
+	stageTimings["toolExecutionsMs"] = time.Since(execStart).Milliseconds()
 
 	// Drive overflow-based helper exposure via binding flag
 	if execResult.Overflow {
@@ -185,6 +199,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	}
 
 	logx.Infof("conversation", "agent.BuildBinding buildDocuments ok convo=%q elapsed=%s docs=%d", convoID, time.Since(docsStart).String(), len(docs.Items))
+	stageTimings["documentsMs"] = time.Since(docsStart).Milliseconds()
 	b.Documents = docs
 	// Normalize user doc URIs by trimming workspace root for stable display
 	s.normalizeDocURIs(&b.Documents, workspace.Root())
@@ -199,6 +214,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		return nil, err
 	}
 	logx.Infof("conversation", "agent.BuildBinding buildSystemDocuments ok convo=%q elapsed=%s docs=%d", convoID, time.Since(sysDocsStart).String(), len(b.SystemDocuments.Items))
+	stageTimings["systemDocumentsMs"] = time.Since(sysDocsStart).Milliseconds()
 	s.appendTranscriptSystemDocs(conv.GetTranscript(), b)
 	templateStageStart := time.Now()
 	if err := s.applySelectedTemplate(ctx, input, b); err != nil {
@@ -206,30 +222,35 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		return nil, err
 	}
 	logx.Infof("conversation", "agent.BuildBinding applySelectedTemplate ok convo=%q elapsed=%s", convoID, time.Since(templateStageStart).String())
+	stageTimings["templateMs"] = time.Since(templateStageStart).Milliseconds()
 	profileStageStart := time.Now()
 	if err := s.applySelectedPromptProfile(ctx, input, b); err != nil {
 		logx.Infof("conversation", "agent.BuildBinding applySelectedPromptProfile error convo=%q elapsed=%s err=%v", convoID, time.Since(profileStageStart).String(), err)
 		return nil, err
 	}
 	logx.Infof("conversation", "agent.BuildBinding applySelectedPromptProfile ok convo=%q elapsed=%s", convoID, time.Since(profileStageStart).String())
+	stageTimings["profileKnowledgeMs"] = time.Since(profileStageStart).Milliseconds()
 	playbooksStageStart := time.Now()
 	if err := s.appendToolPlaybooks(ctx, b.Tools.Signatures, &b.SystemDocuments); err != nil {
 		logx.Infof("conversation", "agent.BuildBinding appendToolPlaybooks error convo=%q elapsed=%s err=%v", convoID, time.Since(playbooksStageStart).String(), err)
 		return nil, err
 	}
 	logx.Infof("conversation", "agent.BuildBinding appendToolPlaybooks ok convo=%q elapsed=%s", convoID, time.Since(playbooksStageStart).String())
+	stageTimings["toolPlaybooksMs"] = time.Since(playbooksStageStart).Milliseconds()
 	bootstrapDocsStageStart := time.Now()
 	if err := s.appendBootstrapSystemDocuments(ctx, input, b); err != nil {
 		logx.Infof("conversation", "agent.BuildBinding appendBootstrapSystemDocuments error convo=%q elapsed=%s err=%v", convoID, time.Since(bootstrapDocsStageStart).String(), err)
 		return nil, err
 	}
 	logx.Infof("conversation", "agent.BuildBinding appendBootstrapSystemDocuments ok convo=%q elapsed=%s", convoID, time.Since(bootstrapDocsStageStart).String())
+	stageTimings["bootstrapDocumentsMs"] = time.Since(bootstrapDocsStageStart).Milliseconds()
 	if strings.TrimSpace(input.TemplateId) != "" {
 		b.Tools.Signatures = filterToolSignaturesByServicePrefix(b.Tools.Signatures, "template-")
 	}
 	agentDirectoryStageStart := time.Now()
 	s.appendAgentDirectoryDoc(ctx, input, &b.SystemDocuments)
 	logx.Infof("conversation", "agent.BuildBinding appendAgentDirectoryDoc ok convo=%q elapsed=%s", convoID, time.Since(agentDirectoryStageStart).String())
+	stageTimings["agentDirectoryMs"] = time.Since(agentDirectoryStageStart).Milliseconds()
 	b.Tools.Signatures = filterDelegationDiscoveryTools(b.Tools.Signatures, &b.SystemDocuments)
 	// Normalize system doc URIs similarly (even if not rendered now)
 	s.normalizeDocURIs(&b.SystemDocuments, workspace.Root())
@@ -238,6 +259,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		b.Skills, b.SkillsPrompt = s.skillSvc.Visible(input.Agent)
 	}
 	logx.Infof("conversation", "agent.BuildBinding visibleSkills ok convo=%q elapsed=%s skills=%d", convoID, time.Since(visibleSkillsStageStart).String(), len(b.Skills))
+	stageTimings["visibleSkillsMs"] = time.Since(visibleSkillsStageStart).Milliseconds()
 
 	if name, body, ok := runtimeActivatedSkill(input); ok && !runtimeActivatedSkillEmbedded(input) {
 		uri := "internal://active-skill/" + strings.TrimSpace(name)
@@ -267,6 +289,10 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	applyProjectionContext(ctx, &b.Context)
 	s.applyWorkdirContext(input, b)
 	s.applyDelegationContext(input, b)
+	stageTimings["totalMs"] = time.Since(start).Milliseconds()
+	b.Context["RuntimeTiming"] = map[string]interface{}{
+		"binding": cloneInt64Map(stageTimings),
+	}
 
 	logx.Infof("conversation", "agent.BuildBinding ok convo=%q elapsed=%s history_msgs=%d sys_docs=%d docs=%d tools=%d", convoID, time.Since(start).String(), len(b.History.Messages), len(b.SystemDocuments.Items), len(b.Documents.Items), len(b.Tools.Signatures))
 	if debugtrace.Enabled() {
@@ -284,9 +310,21 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 			"historyMessages": debugtrace.SummarizeMessages(b.History.LLMMessages()),
 			"toolNames":       bindingToolNames(b.Tools.Signatures),
 			"contextJSON":     b.ContextJSON(),
+			"timings":         cloneInt64Map(stageTimings),
 		})
 	}
 	return b, nil
+}
+
+func cloneInt64Map(input map[string]int64) map[string]int64 {
+	if len(input) == 0 {
+		return map[string]int64{}
+	}
+	result := make(map[string]int64, len(input))
+	for key, value := range input {
+		result[key] = value
+	}
+	return result
 }
 
 type activeGoalReader interface {

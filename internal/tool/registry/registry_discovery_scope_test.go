@@ -21,7 +21,7 @@ func discoveryUserContext() context.Context {
 	return authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "test-user"})
 }
 
-func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
+func TestListServerTools_ReusesPrincipalCatalogAcrossConversations(t *testing.T) {
 	stub := &discoveryManagerStub{
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
 			switch convID {
@@ -48,16 +48,16 @@ func TestListServerTools_UsesConversationIDAsDiscoveryScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("listServerTools(conv-2) error: %v", err)
 	}
-	if len(tools2) != 1 || tools2[0].Name != "beta" {
+	if len(tools2) != 1 || tools2[0].Name != "alpha" {
 		t.Fatalf("unexpected tools for conv-2: %+v", tools2)
 	}
 
 	getCalls := stub.getCallsSnapshot()
-	if len(getCalls) != 2 {
-		t.Fatalf("expected 2 manager Get calls, got %d", len(getCalls))
+	if len(getCalls) != 1 {
+		t.Fatalf("expected one manager Get call reused for the principal, got %d", len(getCalls))
 	}
-	if getCalls[0].convID != "conv-1" || getCalls[1].convID != "conv-2" {
-		t.Fatalf("expected conversation scopes [conv-1 conv-2], got %+v", getCalls)
+	if getCalls[0].convID != "conv-1" {
+		t.Fatalf("expected initial conversation scope conv-1, got %+v", getCalls)
 	}
 	for _, call := range getCalls {
 		if call.server != "helper" {
@@ -160,7 +160,7 @@ func TestGetDefinition_UsesStableBackgroundScopeWithoutConversationID(t *testing
 	}
 }
 
-func TestListServerTools_UsesFreshSyntheticScopeWithoutConversationID(t *testing.T) {
+func TestListServerTools_ReusesPrincipalCatalogWithoutConversationID(t *testing.T) {
 	stub := &discoveryManagerStub{
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
 			if convID == "" {
@@ -184,17 +184,81 @@ func TestListServerTools_UsesFreshSyntheticScopeWithoutConversationID(t *testing
 	}
 
 	getCalls := stub.getCallsSnapshot()
-	if len(getCalls) != 2 {
-		t.Fatalf("expected 2 manager Get calls, got %d", len(getCalls))
+	if len(getCalls) != 1 {
+		t.Fatalf("expected one manager Get call reused for the principal, got %d", len(getCalls))
 	}
-	if getCalls[0].convID == "" || getCalls[1].convID == "" {
+	if getCalls[0].convID == "" {
 		t.Fatalf("expected synthetic discovery scopes, got %+v", getCalls)
 	}
-	if getCalls[0].convID == getCalls[1].convID {
-		t.Fatalf("expected a fresh synthetic scope per discovery call, got %+v", getCalls)
-	}
-	if first[0].Name != getCalls[0].convID || second[0].Name != getCalls[1].convID {
+	if first[0].Name != getCalls[0].convID || second[0].Name != getCalls[0].convID {
 		t.Fatalf("unexpected tool mapping for synthetic scopes: tools1=%+v tools2=%+v calls=%+v", first, second, getCalls)
+	}
+}
+
+func TestListServerTools_AutoClassifiesPublicCatalogAndUsesSharedCache(t *testing.T) {
+	stub := &discoveryManagerStub{
+		options: &config.MCPClient{},
+		getFunc: func(convID, server string) (mcpclient.Interface, error) {
+			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "alpha"}}}, nil
+		},
+	}
+	reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}}
+	ctx := runtimediscovery.WithBackground(context.Background())
+
+	tools, err := reg.listServerTools(ctx, "helper")
+	if err != nil {
+		t.Fatalf("anonymous tools/list probe failed: %v", err)
+	}
+	if len(tools) != 1 || tools[0].Name != "alpha" {
+		t.Fatalf("unexpected public tools: %+v", tools)
+	}
+	if got := reg.toolCatalogVisibility(ctx, "helper"); got != config.ToolsListVisibilityPublic {
+		t.Fatalf("visibility = %q, want public", got)
+	}
+	reg.cacheDiscoveredServerTools(ctx, "helper", tools)
+	matched, err := reg.MatchDefinitionWithContextResult(discoveryUserContext(), "helper:*")
+	if err != nil || len(matched) != 1 {
+		t.Fatalf("foreground public cache lookup = %+v, %v", matched, err)
+	}
+	if calls := stub.getCallsSnapshot(); len(calls) != 1 {
+		t.Fatalf("public foreground lookup repeated tools/list: %+v", calls)
+	}
+}
+
+func TestListServerTools_AutoClassifiesPrivateAndCachesPerPrincipal(t *testing.T) {
+	var calls int
+	stub := &discoveryManagerStub{
+		options: &config.MCPClient{},
+		getFunc: func(convID, server string) (mcpclient.Interface, error) {
+			calls++
+			if calls == 1 {
+				return &discoveryListClient{listErr: errors.New("401 Unauthorized")}, nil
+			}
+			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "secret"}}}, nil
+		},
+	}
+	reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}, discoveryToolsTTL: time.Minute}
+	background := runtimediscovery.WithBackground(context.Background())
+
+	tools, err := reg.listServerTools(background, "helper")
+	if err != nil || len(tools) != 0 {
+		t.Fatalf("private anonymous probe = %+v, %v", tools, err)
+	}
+	if got := reg.toolCatalogVisibility(background, "helper"); got != config.ToolsListVisibilityPrivate {
+		t.Fatalf("visibility = %q, want private", got)
+	}
+
+	principal := memory.WithConversationID(discoveryUserContext(), "conv-private")
+	first, err := reg.listServerTools(principal, "helper")
+	if err != nil || len(first) != 1 || first[0].Name != "secret" {
+		t.Fatalf("private principal discovery = %+v, %v", first, err)
+	}
+	second, err := reg.listServerTools(principal, "helper")
+	if err != nil || len(second) != 1 || second[0].Name != "secret" {
+		t.Fatalf("private principal cache = %+v, %v", second, err)
+	}
+	if calls != 2 {
+		t.Fatalf("private principal cache repeated tools/list: calls=%d", calls)
 	}
 }
 
@@ -495,6 +559,7 @@ type discoveryManagerStub struct {
 	reconnectCalls []discoveryManagerCall
 	getFunc        func(convID, server string) (mcpclient.Interface, error)
 	reconnectFunc  func(convID, server string) (mcpclient.Interface, error)
+	options        *config.MCPClient
 }
 
 type discoveryManagerCall struct {
@@ -527,7 +592,7 @@ func (m *discoveryManagerStub) Reconnect(_ context.Context, convID, serverName s
 func (m *discoveryManagerStub) Touch(convID, serverName string) {}
 
 func (m *discoveryManagerStub) Options(ctx context.Context, serverName string) (*config.MCPClient, error) {
-	return nil, nil
+	return m.options, nil
 }
 
 func (m *discoveryManagerStub) UseIDToken(ctx context.Context, serverName string) bool {
