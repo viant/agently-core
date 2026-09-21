@@ -26,7 +26,7 @@ func (f *legacySkillFixture) CallTool(ctx context.Context, p *schema.CallToolReq
 	f.names = append(f.names, p.Name)
 	f.subjects = append(f.subjects, authctx.EffectiveUserID(ctx))
 	var value interface{} = map[string]interface{}{"skill": f.entry}
-	if p.Name == "legacy_list" {
+	if p.Name == "legacy_list" || p.Name == defaultSkillListTool {
 		value = map[string]interface{}{"skills": []schema.Skill{f.entry}}
 	}
 	data, _ := json.Marshal(value)
