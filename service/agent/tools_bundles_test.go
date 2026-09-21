@@ -299,7 +299,7 @@ func TestResolveTools_WithBundles(t *testing.T) {
 				{Name: "scratchpad:fetch"},
 				{Name: "system/patch:apply"},
 			},
-			expectNames: []string{canon("scratchpad:append"), canon("scratchpad:fetch"), canon("scratchpad:list"), canon("scratchpad:memorize")},
+			expectNames: []string{canon("scratchpad:append"), canon("scratchpad:fetch"), canon("scratchpad:memorize")},
 		},
 		{
 			name: "orchestrator_bundle_exposes_generic_view_open_tool",

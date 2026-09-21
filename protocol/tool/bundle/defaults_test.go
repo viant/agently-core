@@ -53,6 +53,6 @@ func TestDeriveBundles_ScratchpadUsesDefaultIcon(t *testing.T) {
 	}
 	if assert.NotNil(t, scratchpadBundle) {
 		assert.Equal(t, "builtin:scratchpad", scratchpadBundle.IconRef)
-		assert.EqualValues(t, []llm.Tool{{Name: "scratchpad/*"}}, scratchpadBundle.Match)
+		assert.EqualValues(t, []llm.Tool{{Name: "scratchpad/*", Exclude: []string{"scratchpad:list"}}}, scratchpadBundle.Match)
 	}
 }
