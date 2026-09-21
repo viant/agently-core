@@ -58,7 +58,7 @@ func TestEnsureDefaultAt_SeedsDefaultAssets(t *testing.T) {
 	require.NoError(t, err)
 	require.Contains(t, string(data), "scratchpad:memorize")
 	require.Contains(t, string(data), "scratchpad:append")
-	require.Contains(t, string(data), "scratchpad:list")
+	require.Contains(t, string(data), "# - name: \"scratchpad:list\"")
 	require.Contains(t, string(data), "scratchpad:fetch")
 
 	info, err := os.Stat(filepath.Join(root, "bin", "playwright-cli"))
