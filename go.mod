@@ -1,10 +1,5 @@
 module github.com/viant/agently-core
 
-// Local SEP-2640 cache-contract corrections, pending upstream release.
-replace github.com/viant/mcp => ../mcp
-
-replace github.com/viant/mcp-protocol => ../mcp-protocol
-
 go 1.25.5
 
 require (
@@ -29,7 +24,7 @@ require (
 	github.com/viant/afsc v1.16.0
 	github.com/viant/datly v0.37.1-0.20260314193138-14bdea91fe4e
 	github.com/viant/embedius v0.5.6
-	github.com/viant/forge v0.3.37
+	github.com/viant/forge v0.3.40-0.20260918225638-e53002b12147
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
 	github.com/viant/jsonrpc v0.24.0

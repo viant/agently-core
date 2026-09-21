@@ -191,46 +191,54 @@ func (c *backendClient) DownloadFile(ctx context.Context, input *DownloadFileInp
 	return nil, nil
 }
 
-func (c *backendClient) ListFiles(ctx context.Context, input *ListFilesInput) (*ListFilesOutput, error) {
-	if c.data == nil {
-		return nil, errors.New("data service not configured")
-	}
-	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
-		return nil, errors.New("conversation ID is required")
-	}
-	rows, err := c.data.ListGeneratedFiles(ctx, input.ConversationID)
-	if err != nil {
-		return nil, err
-	}
-	out := &ListFilesOutput{}
-	for _, r := range rows {
-		entry := &FileEntry{ID: r.ID}
-		if r.Filename != nil {
-			entry.Name = *r.Filename
-		}
-		if r.MimeType != nil {
-			entry.ContentType = *r.MimeType
-		}
-		if r.SizeBytes != nil {
-			entry.Size = int64(*r.SizeBytes)
-		}
-		out.Files = append(out.Files, entry)
-	}
-	return out, nil
+//func (c *backendClient) ListFiles(ctx context.Context, input *ListFilesInput) (*ListFilesOutput, error) {
+//	if c.data == nil {
+//		return nil, errors.New("data service not configured")
+//	}
+//	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+//		return nil, errors.New("conversation ID is required")
+//	}
+//	rows, err := c.data.ListGeneratedFiles(ctx, input.ConversationID)
+//	if err != nil {
+//		return nil, err
+//	}
+//	out := &ListFilesOutput{}
+//	for _, r := range rows {
+//		entry := &FileEntry{ID: r.ID}
+//		if r.Filename != nil {
+//			entry.Name = *r.Filename
+//		}
+//		if r.MimeType != nil {
+//			entry.ContentType = *r.MimeType
+//		}
+//		if r.SizeBytes != nil {
+//			entry.Size = int64(*r.SizeBytes)
+//		}
+//		out.Files = append(out.Files, entry)
+//	}
+//	return out, nil
+//}
+//
+//func (c *backendClient) ListResources(ctx context.Context, input *ListResourcesInput) (*ListResourcesOutput, error) {
+//	if c.store == nil {
+//		return nil, errors.New("workspace store not configured")
+//	}
+//	if input == nil || strings.TrimSpace(input.Kind) == "" {
+//		return nil, errors.New("resource kind is required")
+//	}
+//	names, err := c.store.List(ctx, input.Kind)
+//	if err != nil {
+//		return nil, err
+//	}
+//	return &ListResourcesOutput{Names: names}, nil
+//}
+
+func (c *backendClient) ListFiles(context.Context, *ListFilesInput) (*ListFilesOutput, error) {
+	return nil, errors.New("file listing is disabled")
 }
 
-func (c *backendClient) ListResources(ctx context.Context, input *ListResourcesInput) (*ListResourcesOutput, error) {
-	if c.store == nil {
-		return nil, errors.New("workspace store not configured")
-	}
-	if input == nil || strings.TrimSpace(input.Kind) == "" {
-		return nil, errors.New("resource kind is required")
-	}
-	names, err := c.store.List(ctx, input.Kind)
-	if err != nil {
-		return nil, err
-	}
-	return &ListResourcesOutput{Names: names}, nil
+func (c *backendClient) ListResources(context.Context, *ListResourcesInput) (*ListResourcesOutput, error) {
+	return nil, errors.New("resource listing is disabled")
 }
 
 func (c *backendClient) GetResource(ctx context.Context, input *ResourceRef) (*GetResourceOutput, error) {
