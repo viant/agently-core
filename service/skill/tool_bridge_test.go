@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"github.com/stretchr/testify/require"
 	authctx "github.com/viant/agently-core/internal/auth"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
+	proto "github.com/viant/agently-core/protocol/skill"
 	schema "github.com/viant/mcp-protocol/schema"
 	client "github.com/viant/mcp/client"
 	"testing"
@@ -61,5 +63,41 @@ func TestLegacyToolBridgeAutoDiscoversConventionalTools(t *testing.T) {
 	listed, err := bridge.ListSkills(context.Background(), nil)
 	require.NoError(t, err)
 	require.Len(t, listed.Skills, 1)
+	require.Equal(t, []string{defaultSkillListTool}, legacy.names)
+}
+
+type fallbackCapabilityClient struct{ *legacySkillFixture }
+
+func (c *fallbackCapabilityClient) Initialize(context.Context, ...client.RequestOption) (*schema.InitializeResult, error) {
+	return &schema.InitializeResult{ProtocolVersion: "2026-07-28"}, nil
+}
+func (c *fallbackCapabilityClient) Discover(context.Context, ...client.RequestOption) (*schema.DiscoverResult, error) {
+	return &schema.DiscoverResult{Capabilities: schema.ServerCapabilities{Resources: &schema.ServerCapabilitiesResources{}}}, nil
+}
+
+type fallbackCapabilitySource struct{ cli client.Interface }
+
+func (s *fallbackCapabilitySource) Names(context.Context) ([]string, error) {
+	return []string{"datly"}, nil
+}
+func (s *fallbackCapabilitySource) Options(context.Context, string) (*cfg.MCPClient, error) {
+	return &cfg.MCPClient{SkillDiscovery: &cfg.SkillDiscovery{Enabled: true}}, nil
+}
+func (s *fallbackCapabilitySource) Get(context.Context, string, string) (client.Interface, error) {
+	return s.cli, nil
+}
+func (s *fallbackCapabilitySource) WithAuthTokenContext(ctx context.Context, _ string) context.Context {
+	return ctx
+}
+func (s *fallbackCapabilitySource) UseIDToken(context.Context, string) bool { return false }
+
+func TestCapabilityNegotiationUsesToolFallbackWhenExtensionIsAbsent(t *testing.T) {
+	entry := (&skillMCPFixture{body: "---\nname: review\ndescription: Review\n---\nBody"}).entry()
+	legacy := &legacySkillFixture{entry: entry}
+	service := &Service{mcpSource: &fallbackCapabilitySource{cli: &fallbackCapabilityClient{legacySkillFixture: legacy}}, registry: proto.NewRegistry()}
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	listed, err := service.ListVisible(ctx, &agentmdl.Agent{Skills: []string{"*"}})
+	require.NoError(t, err)
+	require.Len(t, listed, 1)
 	require.Equal(t, []string{defaultSkillListTool}, legacy.names)
 }
