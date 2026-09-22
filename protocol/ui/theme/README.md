@@ -25,4 +25,14 @@ go test ./...
 
 The Swift and Kotlin theme tests read the same JSON in the sibling checkout. Forge's `npm run test:workspace-theme` uses the generated CSS and actual widget runtime in a browser. It expects sibling `forge`, `agently`, and `agently-core` directories. This is an integration fixture, not a runtime filesystem dependency for native clients.
 
-Version 1 uses literal hex colors, `system` typography, and logical numeric dimensions. Bounds: font size 8–72; minimum control height 16–128; radius and inline padding 0–64. Native adapters retain platform touch-target minimums and text scaling. Changing these rules or default palettes requires updating the versioned shared contract and cross-client fixtures/tests together.
+Version 1 uses literal hex colors, the `system` or semantic `product-primary`
+typography family, and logical numeric dimensions. The semantic name identifies
+the primary product typeface without constraining it to sans-serif, serif, or
+another classification. Web hosts own the product family registry and load its
+font assets once; the generated application and Forge variables share the same
+host-defined family stack. Bounds: font size 8–72; minimum control
+height 16–128; radius and inline padding 0–64. Native adapters retain platform
+touch-target minimums and text scaling and fall back to their system family when
+a product family asset is unavailable. Changing these rules or default palettes
+requires updating the versioned shared contract and cross-client fixtures/tests
+together.

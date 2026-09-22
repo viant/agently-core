@@ -157,8 +157,9 @@ func validateTokens(tokens Tokens) error {
 				return fmt.Errorf("token %s requires a hex color", key)
 			}
 		case "font":
-			if v, ok := value.(string); !ok || v != "system" {
-				return fmt.Errorf("token %s supports only system", key)
+			v, ok := value.(string)
+			if _, supported := fontFamilies[v]; !ok || !supported {
+				return fmt.Errorf("token %s requires a supported font family", key)
 			}
 		default:
 			n, ok := number(value)

@@ -60,6 +60,7 @@ func TestInvalidManifest(t *testing.T) {
 		strings.ReplaceAll(example, "branded", "forge-default"),
 		strings.Replace(example, "control.radius: 8", "control.radius: 8px", 1),
 		strings.Replace(example, "control.radius: 8", "control.radius: -1", 1),
+		strings.Replace(example, "control.radius: 8", "control.radius: 8\n      typography.family: comic-sans", 1),
 		strings.Replace(example, "control.radius: 8", "unknown.token: 8", 1),
 		strings.Replace(example, "'#123456'", "'red; } body { display:none'", 1),
 	} {
@@ -121,6 +122,31 @@ func TestCSSAndJSON(t *testing.T) {
 		t.Fatal("accepted selector injection")
 	}
 }
+
+func TestNamedFontFamily(t *testing.T) {
+	input := strings.Replace(example, "control.radius: 8", "control.radius: 8\n      typography.family: product-primary", 1)
+	m, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Resolve(*m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	css, err := CSS(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range []string{
+		`--agently-theme-font-family: var(--agently-font-product-primary, system-ui, sans-serif);`,
+		`--forge-font-family: var(--agently-font-product-primary, system-ui, sans-serif);`,
+	} {
+		if !strings.Contains(css, declaration) {
+			t.Fatalf("missing shared font declaration %q in:\n%s", declaration, css)
+		}
+	}
+}
+
 func TestCSSOnlyManifest(t *testing.T) {
 	m, err := Parse([]byte("version: 1\nfiles: [forms.css]\n"))
 	if err != nil {
