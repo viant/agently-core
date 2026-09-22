@@ -30,6 +30,11 @@ var tokenSpecs = map[string]tokenSpec{
 	"validation.border":     {variable: "--forge-invalid-border", applicationVariable: "--agently-theme-validation-border", kind: "color"},
 }
 
+var fontFamilies = map[string]string{
+	"system":          "system-ui, sans-serif",
+	"product-primary": "var(--agently-font-product-primary, system-ui, sans-serif)",
+}
+
 // Defaults returns a fresh palette. Dimensions are logical units, not CSS strings.
 func Defaults(mode string) Tokens {
 	values := Tokens{
@@ -93,7 +98,7 @@ func CSS(c *Catalog) (string, error) {
 				value := values[k]
 				switch spec.kind {
 				case "font":
-					rendered[k] = "system-ui, sans-serif"
+					rendered[k] = fontFamilies[value.(string)]
 				case "color":
 					rendered[k] = value.(string)
 				default:
