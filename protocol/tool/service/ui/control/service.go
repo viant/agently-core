@@ -15,14 +15,15 @@ import (
 const Name = "ui/control"
 
 type SetValueInput struct {
-	ClientID    string      `json:"clientId,omitempty"`
-	WindowID    string      `json:"windowId,omitempty"`
-	WindowKey   string      `json:"windowKey,omitempty"`
-	ControlID   string      `json:"controlId"`
-	Scope       string      `json:"scope,omitempty"`
-	Value       interface{} `json:"value"`
-	BindingPath string      `json:"bindingPath,omitempty"`
-	DataField   string      `json:"dataField,omitempty"`
+	ClientID      string      `json:"clientId,omitempty"`
+	WindowID      string      `json:"windowId,omitempty"`
+	WindowKey     string      `json:"windowKey,omitempty"`
+	ControlID     string      `json:"controlId"`
+	DataSourceRef string      `json:"dataSourceRef,omitempty"`
+	Scope         string      `json:"scope,omitempty"`
+	Value         interface{} `json:"value"`
+	BindingPath   string      `json:"bindingPath,omitempty"`
+	DataField     string      `json:"dataField,omitempty"`
 }
 
 type CommandOutput struct {
@@ -93,12 +94,13 @@ func (s *Service) setValue(ctx context.Context, in, out interface{}) error {
 		Namespace: namespace,
 		Method:    "ui.control.setValue",
 		Params: map[string]interface{}{
-			"windowId":    targetWindowID,
-			"controlId":   controlID,
-			"scope":       strings.TrimSpace(input.Scope),
-			"value":       input.Value,
-			"bindingPath": strings.TrimSpace(input.BindingPath),
-			"dataField":   strings.TrimSpace(input.DataField),
+			"windowId":      targetWindowID,
+			"controlId":     controlID,
+			"dataSourceRef": strings.TrimSpace(input.DataSourceRef),
+			"scope":         strings.TrimSpace(input.Scope),
+			"value":         input.Value,
+			"bindingPath":   strings.TrimSpace(input.BindingPath),
+			"dataField":     strings.TrimSpace(input.DataField),
 		},
 	})
 	if err != nil {
@@ -107,6 +109,9 @@ func (s *Service) setValue(ctx context.Context, in, out interface{}) error {
 	output.ClientID = clientID
 	output.OK = resp.OK
 	output.Error = resp.Error
+	if !resp.OK {
+		return fmt.Errorf("UI control change rejected: %s", resp.Error)
+	}
 	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
 		ConversationID: strings.TrimSpace(win.ConversationID),
 		ClientID:       clientID,

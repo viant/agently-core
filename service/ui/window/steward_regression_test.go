@@ -113,14 +113,15 @@ func TestStewardWindowsLoadWithExplicitAssignments(t *testing.T) {
 		dialogs     []string
 		excluded    []string // dialogs that belong to other windows
 	}{
-		"advertiser":     {dataSources: []string{"advertiser_properties", "resource_authorization", "advertiser_custom_rates"}, dialogs: []string{"advertiserCampaignCreate", "advertiserLegacyPixelArchive", "advertiserRetargetingAudienceSource", "advertiserConversionPixelDraft"}, excluded: []string{"lineHistoryFilters", "campaignArchiveConfirm"}},
-		"advertiserList": {dataSources: []string{"advertiser_list_performance", "advertiser_starred_list", "advertiser_watch_patch"}, dialogs: []string{"advertiserCreateDraft"}, excluded: []string{"advertiserCampaignCreate", "orderLineDraft"}},
-		"campaign":       {dataSources: []string{"campaign_properties", "campaign_watch_add", "campaign_bid_browser_values"}, dialogs: []string{"campaignCreativeDraft", "campaignBidMultiplierDraft", "campaignBidMultiplierRemoveDraft", "associatedOrders"}, excluded: []string{"advertiserCreateDraft", "lineHistoryFilters"}},
-		"campaignList":   {dataSources: []string{"campaign_list_watch_add"}, dialogs: []string{"advertiserCampaignCreate"}, excluded: []string{"orderLineDraft", "lineHistoryFilters"}},
-		"order":          {dataSources: []string{"order_line_draft", "order_owned_flight_draft", "order_advanced_third_party_fee_draft"}, dialogs: []string{"orderLineDraft", "orderBidMultiplierDraft", "orderBidMultiplierRemoveConfirm", "associatedOrders"}, excluded: []string{"advertiserCreateDraft", "lineHistoryFilters"}},
-		"line":           {dataSources: []string{"line_performance_period_today", "line_forecast_detail_overview", "line_history_user_values"}, dialogs: []string{"lineHistoryFilters", "lineCreativeDetail", "lineRecommendationDetail"}, excluded: []string{"advertiserCreateDraft", "campaignArchiveConfirm"}},
-		"recommendation": {dataSources: []string{"recommendation_list", "recommendation_status"}, excluded: []string{"advertiserCreateDraft", "orderLineDraft", "targetingTreePicker"}},
-		"reportBuilder":  {dataSources: []string{"forecasting_cube_report", "metrics_ad_cube_report"}, dialogs: []string{"targetingTreePicker"}, excluded: []string{"advertiserCreateDraft", "orderLineDraft"}},
+		"spoReportBuilder": {dataSources: []string{"spo_parent_org_report", "spo_client_deal_publisher_split_report", "spo_iris_coverage_report"}, excluded: []string{"advertiserCreateDraft", "orderLineDraft"}},
+		"advertiser":       {dataSources: []string{"advertiser_properties", "resource_authorization", "advertiser_custom_rates"}, dialogs: []string{"advertiserCampaignCreate", "advertiserLegacyPixelArchive", "advertiserRetargetingAudienceSource", "advertiserConversionPixelDraft"}, excluded: []string{"lineHistoryFilters", "campaignArchiveConfirm"}},
+		"advertiserList":   {dataSources: []string{"advertiser_list_performance", "advertiser_starred_list", "advertiser_watch_patch"}, dialogs: []string{"advertiserCreateDraft"}, excluded: []string{"advertiserCampaignCreate", "orderLineDraft"}},
+		"campaign":         {dataSources: []string{"campaign_properties", "campaign_watch_add", "campaign_bid_browser_values"}, dialogs: []string{"campaignCreativeDraft", "campaignBidMultiplierDraft", "campaignBidMultiplierRemoveDraft", "associatedOrders"}, excluded: []string{"advertiserCreateDraft", "lineHistoryFilters"}},
+		"campaignList":     {dataSources: []string{"campaign_list_watch_add"}, dialogs: []string{"advertiserCampaignCreate"}, excluded: []string{"orderLineDraft", "lineHistoryFilters"}},
+		"order":            {dataSources: []string{"order_line_draft", "order_owned_flight_draft", "order_advanced_third_party_fee_draft"}, dialogs: []string{"orderLineDraft", "orderBidMultiplierDraft", "orderBidMultiplierRemoveConfirm", "associatedOrders"}, excluded: []string{"advertiserCreateDraft", "lineHistoryFilters"}},
+		"line":             {dataSources: []string{"line_performance_period_today", "line_forecast_detail_overview", "line_history_user_values"}, dialogs: []string{"lineHistoryFilters", "lineCreativeDetail", "lineRecommendationDetail"}, excluded: []string{"advertiserCreateDraft", "campaignArchiveConfirm"}},
+		"recommendation":   {dataSources: []string{"recommendation_list", "recommendation_status"}, excluded: []string{"advertiserCreateDraft", "orderLineDraft", "targetingTreePicker"}},
+		"reportBuilder":    {dataSources: []string{"forecasting_cube_report", "metrics_ad_cube_report"}, dialogs: []string{"targetingTreePicker"}, excluded: []string{"advertiserCreateDraft", "orderLineDraft"}},
 	}
 	windows, err := filepath.Glob(filepath.Join(workspace.Root(), workspace.KindForgeWindow, "*.yaml"))
 	if err != nil || len(windows) == 0 {

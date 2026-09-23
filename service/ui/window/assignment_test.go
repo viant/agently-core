@@ -1,7 +1,9 @@
 package window
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +11,40 @@ import (
 	"github.com/viant/agently-core/workspace"
 	forgeTypes "github.com/viant/forge/backend/types"
 )
+
+func TestEnrichedWindowMissingDatasourceWarnsWithoutWideningAssignment(t *testing.T) {
+	withLoaderWorkspaceRoot(t, func(root string) {
+		writeStewardLikeWorkspace(t, root)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "report.yaml"), `
+windowKey: report
+resources:
+  dataSources: [advertiser_properties]
+view:
+  content: {id: report, kind: dashboard.reportBuilder}
+`)
+		cleanup := SetWorkspaceWindowEnricher(func(_ context.Context, window *forgeTypes.Window) error {
+			window.View.Content.Dashboard = &forgeTypes.Dashboard{ReportBuilder: map[string]interface{}{
+				"sources": []interface{}{map[string]interface{}{"dataSourceRef": "order_properties"}},
+			}}
+			return nil
+		})
+		defer cleanup()
+		var output bytes.Buffer
+		previous := log.Writer()
+		log.SetOutput(&output)
+		defer log.SetOutput(previous)
+		got, err := LoadWorkspaceWindow(context.Background(), "report", nil)
+		if err != nil {
+			t.Fatalf("missing enriched datasource must not halt window: %v", err)
+		}
+		if !strings.Contains(output.String(), `references datasource "order_properties" that is not attached`) {
+			t.Fatalf("enriched references were not checked: %s", output.String())
+		}
+		if _, leaked := got.DataSource["order_properties"]; leaked {
+			t.Fatal("validation must not attach unassigned datasources")
+		}
+	})
+}
 
 // writeStewardLikeWorkspace seeds a workspace shaped like the Steward
 // deployment: advertiser/campaign/order assets that must never leak into an

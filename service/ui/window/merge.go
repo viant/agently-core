@@ -38,11 +38,12 @@ func MergeWorkspaceForgeAssets(ctx context.Context, window *forgeTypes.Window, a
 	if err := resolver.attach(); err != nil {
 		return err
 	}
-	_, err = validateWindowReferences(window, catalog)
-	if err != nil {
+	if err := enrichWorkspaceWindow(ctx, window); err != nil {
 		return err
 	}
-	if err := enrichWorkspaceWindow(ctx, window); err != nil {
+	// Host extensions (including report builders) add datasource references.
+	// Validate the complete window, while keeping missing datasources non-fatal.
+	if _, err := validateWindowReferences(window, catalog); err != nil {
 		return err
 	}
 	return forgeTypes.ValidateResourceModels(window)
