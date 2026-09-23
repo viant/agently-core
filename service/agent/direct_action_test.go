@@ -32,6 +32,35 @@ func TestDirectActionFromContext(t *testing.T) {
 	}
 }
 
+func TestAllowSemanticUIOpen_RejectsUnsafeOrUncertainActions(t *testing.T) {
+	base := func() *intakesvc.Context {
+		return &intakesvc.Context{
+			Classification: intakesvc.ClassificationContext{Intent: "workspace_ui_open", Confidence: 0.99},
+			DirectAction: intakesvc.DirectActionContext{
+				ToolName: "ui/view:open", AssistantText: "Opened.",
+				Input: map[string]interface{}{"id": "advertiserList", "openMode": "replace"},
+			},
+		}
+	}
+	for name, mutate := range map[string]func(*intakesvc.Context){
+		"low confidence": func(tc *intakesvc.Context) { tc.Classification.Confidence = 0.4 },
+		"wrong intent":   func(tc *intakesvc.Context) { tc.Classification.Intent = "summary" },
+		"other tool":     func(tc *intakesvc.Context) { tc.DirectAction.ToolName = "steward/MetaAdvertiser" },
+		"parameters": func(tc *intakesvc.Context) {
+			tc.DirectAction.Input["parameters"] = map[string]interface{}{"AdvertiserId": 1}
+		},
+		"multiple views": func(tc *intakesvc.Context) { tc.DirectAction.Input["items"] = []interface{}{"advertiserList"} },
+		"append mode":    func(tc *intakesvc.Context) { tc.DirectAction.Input["openMode"] = "append" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			tc := base()
+			mutate(tc)
+			require.False(t, allowSemanticUIOpen(tc, &agentmdl.Intake{AllowSemanticUIOpen: true, ConfidenceThreshold: 0.8}))
+		})
+	}
+	require.False(t, allowSemanticUIOpen(base(), &agentmdl.Intake{}), "the fast path must be opt-in")
+}
+
 func TestValidateDirectAction(t *testing.T) {
 	ok := &intakesvc.DirectActionContext{
 		ToolName:      "ui/view:open",

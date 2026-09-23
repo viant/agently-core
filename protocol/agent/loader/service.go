@@ -637,6 +637,10 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 							agent.Intake.ConfidenceThreshold = f
 						}
 					}
+				case "allowsemanticuiopen":
+					if v.Kind == yaml.ScalarNode {
+						agent.Intake.AllowSemanticUIOpen = toBool(v.Value)
+					}
 				case "plannerenabled":
 					if v.Kind == yaml.ScalarNode {
 						agent.Intake.PlannerEnabled = toBool(v.Value)
