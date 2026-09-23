@@ -432,6 +432,7 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 	descriptor := s.workspaceDescriptor(ctx, windowID, conversationID, item, windowParameters)
 	options := buildOpenWindowOptions(item, conversationID, prepared.openMode)
 	options["workspaceObject"] = descriptor
+	options["waitForReady"] = item.RefreshOnOpen != nil && *item.RefreshOnOpen
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
@@ -456,6 +457,17 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		return nil, fmt.Errorf("ui.window.open rejected for view %q: %s", strings.TrimSpace(item.ID), rejection)
 	}
 	descriptor.Lifecycle.State = "ready"
+	// A modern browser acknowledges navigation before protected metadata loads.
+	// Keep the server-owned identity and origin; only adopt its lifecycle state.
+	var acknowledgement struct {
+		WorkspaceObject *workspaceproto.Object `json:"workspaceObject"`
+	}
+	if json.Unmarshal(resp.Result, &acknowledgement) == nil && acknowledgement.WorkspaceObject != nil {
+		switch acknowledgement.WorkspaceObject.Lifecycle.State {
+		case "opening", "ready", "failed":
+			descriptor.Lifecycle.State = acknowledgement.WorkspaceObject.Lifecycle.State
+		}
+	}
 	output := &OpenOutput{
 		WorkspaceObject:        descriptor,
 		ClientID:               clientID,
@@ -482,7 +494,7 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 	if output.WindowID == "" {
 		output.WindowID = windowID
 	}
-	if shouldRefreshOpenedWindow(item, output.WindowID) {
+	if descriptor.Lifecycle.State == "ready" && shouldRefreshOpenedWindow(item, output.WindowID) {
 		if _, refreshErr := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 			ClientID:  clientID,
 			Namespace: namespace,

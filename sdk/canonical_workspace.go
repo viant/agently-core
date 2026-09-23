@@ -65,7 +65,7 @@ func projectWorkspaceAttachments(state *ConversationState) {
 					}
 				}
 				for _, object := range objects {
-					if object == nil || object.ObjectID == "" || object.Lifecycle.State != "ready" || seen[object.ObjectID] {
+					if object == nil || object.ObjectID == "" || (object.Lifecycle.State != "ready" && object.Lifecycle.State != "opening") || seen[object.ObjectID] {
 						continue
 					}
 					if object.Origin.TurnID != "" && object.Origin.TurnID != turn.TurnID {
