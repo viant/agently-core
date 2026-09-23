@@ -120,6 +120,11 @@ type Intake struct {
 	// auto-populate PromptProfileId in the turn context. Default: 0.85.
 	ConfidenceThreshold float64 `yaml:"confidenceThreshold,omitempty" json:"confidenceThreshold,omitempty"`
 
+	// AllowSemanticUIOpen lets a high-confidence intake model open a simple
+	// workspace view directly. Parameterized and non-UI actions still require
+	// the normal agent or a deterministic activation rule.
+	AllowSemanticUIOpen bool `yaml:"allowSemanticUIOpen,omitempty" json:"allowSemanticUIOpen,omitempty"`
+
 	// PlannerEnabled allows the workspace router / planner path to activate
 	// planner mode for turns targeting this agent. Default: false.
 	PlannerEnabled bool `yaml:"plannerEnabled,omitempty" json:"plannerEnabled,omitempty"`

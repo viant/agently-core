@@ -841,6 +841,43 @@ func TestNormalizeIntakeTurnContext_SuppressesAgentSidecarDirectAction(t *testin
 	require.Equal(t, "audience_forecast_dashboard", tc.Prompting.TemplateID)
 }
 
+func TestNormalizeIntakeTurnContext_AllowsOptedInSemanticUIOpen(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{AllowSemanticUIOpen: true, ConfidenceThreshold: 0.8}
+	input := &QueryInput{ConversationID: "conv-advertisers", Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward"}}}
+	tc := &intakesvc.Context{
+		Routing:        intakesvc.RoutingContext{Source: intakesvc.SourceAgent},
+		Classification: intakesvc.ClassificationContext{Intent: "workspace_ui_open", Confidence: 0.99},
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName: "ui/view:open", AssistantText: "Advertisers are open.",
+			Input: map[string]interface{}{"id": "advertiserList", "openMode": "replace", "timeoutMs": 600000},
+		},
+	}
+
+	svc.normalizeIntakeTurnContext(context.Background(), input, tc, cfg)
+
+	require.Equal(t, "ui/view:open", tc.DirectAction.ToolName)
+	require.Equal(t, 30000, tc.DirectAction.Input["timeoutMs"])
+}
+
+func TestNormalizeIntakeTurnContext_RejectsParameterizedSemanticUIOpen(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{AllowSemanticUIOpen: true, ConfidenceThreshold: 0.8}
+	input := &QueryInput{ConversationID: "conv-advertiser", Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward"}}}
+	tc := &intakesvc.Context{
+		Routing:        intakesvc.RoutingContext{Source: intakesvc.SourceAgent},
+		Classification: intakesvc.ClassificationContext{Intent: "workspace_ui_open", Confidence: 0.99},
+		DirectAction: intakesvc.DirectActionContext{
+			ToolName: "ui/view:open", AssistantText: "Advertiser is open.",
+			Input: map[string]interface{}{"id": "advertiser", "parameters": map[string]interface{}{"AdvertiserId": []interface{}{85141}}},
+		},
+	}
+
+	svc.normalizeIntakeTurnContext(context.Background(), input, tc, cfg)
+
+	require.Empty(t, tc.DirectAction.ToolName)
+}
+
 func TestApplyTurnContext_PromptProfileDoesNotOverrideCaller(t *testing.T) {
 	cfg := &agentmdl.Intake{
 		Enabled:             true,

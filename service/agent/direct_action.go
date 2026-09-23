@@ -16,6 +16,36 @@ import (
 
 const directActionToolResultAssistantText = "$toolResult"
 
+// allowSemanticUIOpen is the opt-in fast path for unparameterized workspace
+// navigation. A model may choose the view, but it cannot supply data filters,
+// execute-on-open parameters, or a different tool through this path.
+func allowSemanticUIOpen(tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
+	if tc == nil || cfg == nil || !cfg.AllowSemanticUIOpen ||
+		tc.Classification.Confidence < cfg.EffectiveConfidenceThreshold() ||
+		!strings.EqualFold(strings.TrimSpace(tc.Classification.Intent), "workspace_ui_open") ||
+		!strings.EqualFold(strings.TrimSpace(mcpname.Display(tc.DirectAction.ToolName)), "ui/view/open") {
+		return false
+	}
+	input := tc.DirectAction.Input
+	if strings.TrimSpace(stringValue(input["id"])) == "" || strings.TrimSpace(tc.DirectAction.AssistantText) == "" {
+		return false
+	}
+	for key := range input {
+		switch key {
+		case "id", "openMode", "timeoutMs":
+		default:
+			return false
+		}
+	}
+	if mode := strings.TrimSpace(stringValue(input["openMode"])); mode != "" && mode != "replace" {
+		return false
+	}
+	// An open is a navigation operation; a slow or unavailable UI client must
+	// return control promptly instead of holding the turn for minutes.
+	input["timeoutMs"] = 30000
+	return true
+}
+
 func validateDirectAction(action *intakesvc.DirectActionContext) error {
 	if action == nil {
 		return fmt.Errorf("direct action is nil")
