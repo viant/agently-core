@@ -894,6 +894,9 @@ func normalizeOptionalClientID(raw string) string {
 
 func effectiveOpenTimeout(timeoutMs int) int {
 	if timeoutMs > 0 {
+		if timeoutMs > 30_000 {
+			return 30_000
+		}
 		return timeoutMs
 	}
 	return 15_000
