@@ -12,6 +12,7 @@ import (
 func (s *Service) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /v1/workspace/ui/styles/{asset}", func(w http.ResponseWriter, r *http.Request) { s.serve(w, r, ".css") })
 	mux.HandleFunc("GET /v1/workspace/ui/themes/{asset}", func(w http.ResponseWriter, r *http.Request) { s.serve(w, r, ".json") })
+	mux.HandleFunc("GET /v1/workspace/ui/fonts/{asset}", s.serveFont)
 }
 func (s *Service) serve(w http.ResponseWriter, r *http.Request, extension string) {
 	asset := r.PathValue("asset")
@@ -51,5 +52,40 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, extension string
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cache-Control", "private, no-cache")
 	w.Header().Set("ETag", `"`+revision+extension+`"`)
+	http.ServeContent(w, r, asset, time.Time{}, bytes.NewReader(data))
+}
+
+func (s *Service) serveFont(w http.ResponseWriter, r *http.Request) {
+	asset := r.PathValue("asset")
+	digest := strings.TrimSuffix(asset, ".woff2")
+	if !strings.HasSuffix(asset, ".woff2") || len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
+		http.NotFound(w, r)
+		return
+	}
+	lookup := func() []byte {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		s.selectRoot()
+		for _, cached := range s.snapshots {
+			if data := cached.fonts[asset]; len(data) > 0 {
+				return data
+			}
+		}
+		return nil
+	}
+	data := lookup()
+	if len(data) == 0 {
+		s.Current(r.Context())
+		data = lookup()
+	}
+	if len(data) == 0 {
+		http.NotFound(w, r)
+		return
+	}
+	w.Header().Set("Content-Type", "font/woff2")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
+	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	w.Header().Set("ETag", `"`+digest+`"`)
 	http.ServeContent(w, r, asset, time.Time{}, bytes.NewReader(data))
 }

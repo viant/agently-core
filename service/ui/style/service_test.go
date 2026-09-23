@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -37,13 +38,22 @@ func request(s *Service, url, etag string) *httptest.ResponseRecorder {
 }
 
 const manifest = `version: 1
+fonts:
+  - role: workspace-primary
+    name: Example Serif Variable
+    fallback: serif
+    faces:
+      - file: fonts/example.woff2
+        style: normal
+        weight: '100 700'
+        unicodeRange: U+0000-00FF
 files: [shared.css]
 defaultTheme: branded
 themes:
   - id: branded
     label: Branded
     fallbackMode: light
-    tokens: {control.radius: 8}
+    tokens: {control.radius: 8, typography.family: workspace-primary}
     files: [brand.css]
     modes:
       light: {}
@@ -56,6 +66,7 @@ func seed(t *testing.T, root string) {
 	write(t, root, "shared.css", `.agently-workspace .shared {color: red}`)
 	write(t, root, "brand.css", `.agently-workspace[data-forge-theme="branded"] .brand {color: blue}`)
 	write(t, root, "dark.css", `.agently-workspace[data-forge-theme="branded"][data-forge-color-mode="dark"] .dark {color: white}`)
+	write(t, root, "fonts/example.woff2", "wOF2example-font")
 }
 func TestSnapshotLifecycle(t *testing.T) {
 	ctx := context.Background()
@@ -72,6 +83,15 @@ func TestSnapshotLifecycle(t *testing.T) {
 	css := request(s, first.Styles.Href, "")
 	if css.Code != 200 || !strings.Contains(css.Body.String(), "--forge-control-radius: 8px") {
 		t.Fatalf("CSS: %d %s", css.Code, css.Body)
+	}
+	fontURL := regexp.MustCompile(`/v1/workspace/ui/fonts/[a-f0-9]{64}\.woff2`).FindString(css.Body.String())
+	if fontURL == "" || !strings.Contains(css.Body.String(), `--agently-font-workspace-primary: "Example Serif Variable", serif`) {
+		t.Fatalf("font publication missing from CSS: %s", css.Body)
+	}
+	font := request(s, fontURL, "")
+	if font.Code != 200 || font.Body.String() != "wOF2example-font" || font.Header().Get("Content-Type") != "font/woff2" ||
+		font.Header().Get("Cross-Origin-Resource-Policy") != "same-origin" || !strings.Contains(font.Header().Get("Cache-Control"), "immutable") {
+		t.Fatalf("font asset: %d %s %#v", font.Code, font.Body, font.Header())
 	}
 	if css.Header().Get("Content-Type") != "text/css; charset=utf-8" || css.Header().Get("Cache-Control") != "private, no-cache" || css.Header().Get("X-Content-Type-Options") != "nosniff" {
 		t.Fatal(css.Header())
@@ -111,6 +131,9 @@ func TestSnapshotLifecycle(t *testing.T) {
 	if w := request(s, first.Styles.Href, ""); w.Code != 404 {
 		t.Fatal("workspace switch leaked cached revision")
 	}
+	if w := request(s, fontURL, ""); w.Code != 404 {
+		t.Fatal("workspace switch leaked cached font")
+	}
 	seed(t, root)
 	third := s.Current(ctx)
 	if third.WorkspaceID == first.WorkspaceID {
@@ -125,6 +148,58 @@ func TestSnapshotLifecycle(t *testing.T) {
 	if w := request(s, third.Styles.Href, ""); w.Code != 404 {
 		t.Fatal("deletion retained asset")
 	}
+}
+
+func TestInvalidFontAssets(t *testing.T) {
+	fontManifest := func(file string) string {
+		return fmt.Sprintf(`version: 1
+fonts:
+  - role: workspace-primary
+    name: Example
+    faces: [{file: %q, style: normal, weight: '400'}]
+defaultTheme: branded
+themes:
+  - id: branded
+    label: Branded
+    fallbackMode: light
+    tokens: {typography.family: workspace-primary}
+    modes: {light: {}}
+`, file)
+	}
+	for _, name := range []string{"../escape.woff2", "/tmp/x.woff2", "https://example.com/x.woff2", "nested/../x.woff2", "font.ttf", "x%2e.woff2", "x\\y.woff2"} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			write(t, root, "manifest.yaml", fontManifest(name))
+			if p := New(func() string { return root }).Current(context.Background()); p.Styles != nil || len(p.Diagnostics) == 0 {
+				t.Fatalf("accepted %q", name)
+			}
+		})
+	}
+	t.Run("invalid signature", func(t *testing.T) {
+		root := t.TempDir()
+		write(t, root, "manifest.yaml", fontManifest("font.woff2"))
+		write(t, root, "font.woff2", "not-a-font")
+		if p := New(func() string { return root }).Current(context.Background()); p.Styles != nil || len(p.Diagnostics) == 0 {
+			t.Fatal("accepted invalid WOFF2 signature")
+		}
+	})
+	t.Run("symlink escape", func(t *testing.T) {
+		root := t.TempDir()
+		outside := filepath.Join(t.TempDir(), "outside.woff2")
+		if err := os.WriteFile(outside, []byte("wOF2outside"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		write(t, root, "manifest.yaml", fontManifest("font.woff2"))
+		if err := os.MkdirAll(filepath.Join(root, Directory), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Symlink(outside, filepath.Join(root, Directory, "font.woff2")); err != nil {
+			t.Fatal(err)
+		}
+		if p := New(func() string { return root }).Current(context.Background()); p.Styles != nil || len(p.Diagnostics) == 0 {
+			t.Fatal("accepted escaping font symlink")
+		}
+	})
 }
 func TestInvalidAssets(t *testing.T) {
 	for _, name := range []string{"../escape.css", "/tmp/x.css", "https://example.com/x.css", "nested/../x.css", "x.js", "x%2e.css", "x\\y.css"} {

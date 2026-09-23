@@ -31,8 +31,8 @@ var tokenSpecs = map[string]tokenSpec{
 }
 
 var fontFamilies = map[string]string{
-	"system":          "system-ui, sans-serif",
-	"product-primary": "var(--agently-font-product-primary, system-ui, sans-serif)",
+	"system":            "system-ui, sans-serif",
+	"workspace-primary": "var(--agently-font-workspace-primary, system-ui, sans-serif)",
 }
 
 // Defaults returns a fresh palette. Dimensions are logical units, not CSS strings.
