@@ -291,6 +291,12 @@ export function deriveHostedWorkspaceRestoreStateFromTranscriptTurns(turns: Turn
             if (focused) selectedWindowId = focused;
             continue;
         }
+        if (toolName === 'ui/window/get') {
+            const response = firstParsedPayload(step?.responsePayload, step?.content);
+            const window = normalizeHostedWorkspaceWindow(response?.window);
+            if (window) upsertWindows([window]);
+            continue;
+        }
         if (toolName === 'ui/view/open' || toolName === 'ui/window/open') {
             const opened = hostedWorkspaceWindowsFromViewOpenStep(step);
             upsertWindows(opened);
