@@ -62,3 +62,16 @@ func TestSelectWorkspaceUIBootstrapClientUsesFirstAvailableWithoutPreferredClien
 		t.Fatalf("expected first available client without preference, got %#v", got)
 	}
 }
+
+func TestSummarizeWorkspaceControlIncludesStableIDAndOptions(t *testing.T) {
+	got := summarizeWorkspaceControl(uireg.SurfaceControl{
+		ID: "advertiserListMode", Label: "View", Scope: "windowForm",
+		Options: []uireg.SurfaceControlOption{
+			{Value: "all", Label: "All advertisers"},
+			{Value: "starred", Label: "Starred only"},
+		},
+	})
+	if got != "advertiserListMode(View):windowForm[all:All advertisers|starred:Starred only]" {
+		t.Fatalf("unexpected control summary: %q", got)
+	}
+}

@@ -93,9 +93,10 @@ type ActivateInput struct {
 }
 
 type SelectTabInput struct {
-	ClientID string `json:"clientId,omitempty"`
-	WindowID string `json:"windowId,omitempty"`
-	TabID    string `json:"tabId,omitempty"`
+	ClientID    string `json:"clientId,omitempty"`
+	WindowID    string `json:"windowId,omitempty"`
+	TabID       string `json:"tabId,omitempty"`
+	ContainerID string `json:"containerId,omitempty"`
 }
 
 type HideInput struct {
@@ -524,13 +525,18 @@ func (s *Service) selectTab(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	containerID, err := resolveTabContainer(target.Window, tabID, strings.TrimSpace(input.ContainerID))
+	if err != nil {
+		return err
+	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  target.ClientID,
 		Namespace: target.Namespace,
 		Method:    "ui.window.selectTab",
 		Params: map[string]interface{}{
-			"windowId": windowID,
-			"tabId":    tabID,
+			"windowId":    windowID,
+			"tabId":       tabID,
+			"containerId": containerID,
 		},
 	})
 	if err != nil {
@@ -539,6 +545,9 @@ func (s *Service) selectTab(ctx context.Context, in, out interface{}) error {
 	output.ClientID = target.ClientID
 	output.OK = resp.OK
 	output.Error = resp.Error
+	if !resp.OK {
+		return fmt.Errorf("UI tab selection rejected: %s", resp.Error)
+	}
 	s.reg.RecordEvent(target.Namespace, target.ClientID, uireg.UIEvent{
 		ConversationID: conversationID,
 		ClientID:       target.ClientID,
@@ -550,6 +559,25 @@ func (s *Service) selectTab(ctx context.Context, in, out interface{}) error {
 		},
 	})
 	return nil
+}
+
+func resolveTabContainer(win *uireg.WindowSnapshot, tabID, containerID string) (string, error) {
+	surface := uireg.BuildWindowSurface(win)
+	var matches []uireg.SurfaceTab
+	if surface != nil {
+		for _, tab := range surface.Tabs {
+			if tab.TabID == tabID && (containerID == "" || tab.ContainerID == containerID) {
+				matches = append(matches, tab)
+			}
+		}
+	}
+	if len(matches) == 0 {
+		return "", fmt.Errorf("tab %q is not available in the current window snapshot", tabID)
+	}
+	if len(matches) > 1 {
+		return "", fmt.Errorf("tab %q is ambiguous; specify containerId", tabID)
+	}
+	return matches[0].ContainerID, nil
 }
 
 func normalizeOptionalClientID(raw string) string {

@@ -24,6 +24,8 @@ func TestWindowHandler_MergesWorkspaceForgeAssets(t *testing.T) {
 
 	mustWriteWorkspaceUIFile(t, filepath.Join(metaRoot, "window", "chat", "new", "main.yaml"), `
 namespace: Chat
+resources:
+  dialogs: [workItemPicker]
 dialogs:
   - id: settings
     title: Settings
@@ -108,6 +110,8 @@ id: order
 title: Details
 windowKey: order
 namespace: Details
+resources:
+  dataSources: [order_performance_period_today]
 view:
   content:
     id: orderRoot
@@ -505,6 +509,8 @@ id: reportBuilder
 title: Metric Report Builder
 windowKey: reportBuilder
 namespace: Metric Report Builder
+resources:
+  dataSources: [metrics_ad_cube_report]
 view:
   content:
     $import('../../../shared/metric_report_builder.yaml')
@@ -694,6 +700,8 @@ id: forecastingCubeBuilder
 title: Forecasting Cube
 windowKey: forecastingCubeBuilder
 namespace: Forecasting Cube
+resources:
+  dataSources: [forecasting_cube_report]
 view:
   content:
     $import('../../../shared/forecasting_report_builder.yaml')

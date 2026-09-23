@@ -45,12 +45,16 @@ func postUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params m
 }
 
 func seedActiveWindow(t *testing.T, bridge *forgeuisvc.Service) {
+	seedClientWindow(t, bridge, "active-client")
+}
+
+func seedClientWindow(t *testing.T, bridge *forgeuisvc.Service, clientID string) {
 	t.Helper()
-	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": "active-client"})
+	postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": clientID})
 	postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
-		"clientId": "active-client",
+		"clientId": clientID,
 		"data": map[string]interface{}{
-			"clientId":       "active-client",
+			"clientId":       clientID,
 			"conversationId": "conv-1",
 			"selected": map[string]interface{}{
 				"windowId": "genericBuilder__conv-1",
@@ -76,6 +80,36 @@ func seedActiveWindow(t *testing.T, bridge *forgeuisvc.Service) {
 			},
 		},
 	})
+}
+
+func TestRefreshUsesRequestClientWithDuplicateConversationWindows(t *testing.T) {
+	for _, requested := range []string{"client-a", "client-b"} {
+		t.Run(requested, func(t *testing.T) {
+			bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+			seedClientWindow(t, bridge, "client-a")
+			seedClientWindow(t, bridge, "client-b")
+			ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+			ctx = runtimerequestctx.WithPreferredUIClientID(ctx, requested)
+			done := make(chan error, 1)
+			go func() {
+				out := &CommandOutput{}
+				err := New(bridge).refresh(ctx, &RefreshInput{WindowID: "genericBuilder__conv-1", DataSourceRef: "forecast_rows"}, out)
+				if err == nil && (!out.OK || out.ClientID != requested) {
+					err = fmt.Errorf("wrong client: %+v", out)
+				}
+				done <- err
+			}()
+			result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": requested, "timeoutMs": 1000})
+			command, ok := result["params"].(map[string]interface{})
+			if !ok || command["method"] != "ui.data.fetch" {
+				t.Fatalf("refresh not delivered to requesting client: %#v", result)
+			}
+			postUIRPC(t, bridge, "ui.response", map[string]interface{}{"id": command["id"], "ok": true})
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }
 
 func TestListAndPeekFallBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {

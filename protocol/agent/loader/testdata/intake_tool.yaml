@@ -4,6 +4,11 @@ modelRef: gpt-4o
 intake:
   enabled: true
   model: haiku
+  modelDirectAction:
+    allowedTools: [resources/read]
+    requiredProfileId: workspace_ui
+    minConfidence: 0.9
+    timeoutSec: 30
   tool:
     bundles:
       - system/exec

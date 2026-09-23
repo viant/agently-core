@@ -137,7 +137,7 @@ func (s *Service) setSelection(ctx context.Context, in, out interface{}) error {
 	clientID, namespace, _, win, err := s.reg.FindWindow(
 		ctx,
 		conversationID,
-		normalizeOptionalClientID(input.ClientID),
+		requestedClientID(ctx, input.ClientID),
 		input.WindowID,
 		input.WindowKey,
 	)
@@ -212,7 +212,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, _, _, win, err := s.reg.FindReadableWindow(ctx, conversationID, normalizeOptionalClientID(input.ClientID), input.WindowID, input.WindowKey)
+	clientID, _, _, win, err := s.reg.FindReadableWindow(ctx, conversationID, requestedClientID(ctx, input.ClientID), input.WindowID, input.WindowKey)
 	if err != nil {
 		return err
 	}
@@ -233,7 +233,7 @@ func (s *Service) peek(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, _, _, win, err := s.reg.FindReadableWindow(ctx, conversationID, normalizeOptionalClientID(input.ClientID), input.WindowID, input.WindowKey)
+	clientID, _, _, win, err := s.reg.FindReadableWindow(ctx, conversationID, requestedClientID(ctx, input.ClientID), input.WindowID, input.WindowKey)
 	if err != nil {
 		return err
 	}
@@ -266,7 +266,7 @@ func (s *Service) refresh(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("ui bridge not configured")
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, namespace, _, win, err := s.reg.FindWindow(ctx, conversationID, normalizeOptionalClientID(input.ClientID), input.WindowID, input.WindowKey)
+	clientID, namespace, _, win, err := s.reg.FindWindow(ctx, conversationID, requestedClientID(ctx, input.ClientID), input.WindowID, input.WindowKey)
 	if err != nil {
 		return err
 	}
@@ -306,6 +306,13 @@ func (s *Service) refresh(ctx context.Context, in, out interface{}) error {
 	output.OK = resp.OK
 	output.Error = resp.Error
 	return nil
+}
+
+func requestedClientID(ctx context.Context, raw string) string {
+	if id := normalizeOptionalClientID(raw); id != "" {
+		return id
+	}
+	return normalizeOptionalClientID(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
 }
 
 func normalizeOptionalClientID(raw string) string {

@@ -45,6 +45,8 @@ func TestLoadWorkspaceWindowLoadsDatasourceFromDomainSubfolderByExplicitID(t *te
 	withLoaderWorkspaceRoot(t, func(root string) {
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.yaml"), `
 namespace: Advertiser
+resources:
+  dataSources: [advertiser_lookup]
 view:
   content:
     id: advertiser
@@ -113,6 +115,8 @@ func TestLoadWorkspaceWindowMergesGlobalModelsForWorkspaceDialogs(t *testing.T) 
 	withLoaderWorkspaceRoot(t, func(root string) {
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "line.yaml"), `
 namespace: Line
+resources:
+  dialogs: [campaignFlightDelete]
 view:
   content: {id: line}
 `)
@@ -192,6 +196,9 @@ view:
 `)
 		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "advertiser.yaml"), `
 namespace: Advertiser
+resources:
+  dataSources: [advertiser_patch]
+  resourceModels: [advertiserMutation]
 view:
   content:
     id: advertiser

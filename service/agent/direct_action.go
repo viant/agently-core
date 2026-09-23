@@ -5,16 +5,58 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/viant/agently-core/internal/logx"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	agenttool "github.com/viant/agently-core/service/agent/tool"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
 const directActionToolResultAssistantText = "$toolResult"
+
+// allowModelDirectAction applies the workspace's explicit model-action policy.
+// The intake tool selection and the tool implementation remain the authority
+// for tool access and argument validation; this only decides whether the
+// model's proposal can skip the main agent loop.
+func allowModelDirectAction(tc *intakesvc.Context, cfg *agentmdl.Intake) bool {
+	if tc == nil || cfg == nil || cfg.ModelDirectAction == nil ||
+		tc.Classification.Confidence < modelDirectActionThreshold(cfg) ||
+		strings.EqualFold(strings.TrimSpace(tc.Routing.Mode), intakesvc.ModeClarify) ||
+		strings.EqualFold(strings.TrimSpace(tc.Routing.Mode), intakesvc.ModePlanner) ||
+		validateDirectAction(&tc.DirectAction) != nil {
+		return false
+	}
+	if required := strings.TrimSpace(cfg.ModelDirectAction.RequiredProfileID); required != "" &&
+		!strings.EqualFold(strings.TrimSpace(tc.Prompting.SuggestedProfileID), required) {
+		return false
+	}
+	return modelDirectActionToolAllowed(tc.DirectAction.ToolName, cfg.ModelDirectAction)
+}
+
+func modelDirectActionToolAllowed(toolName string, policy *agentmdl.ModelDirectActionPolicy) bool {
+	if policy == nil {
+		return false
+	}
+	name := strings.ToLower(strings.TrimSpace(mcpname.Canonical(toolName)))
+	for _, allowed := range policy.AllowedTools {
+		if name == strings.ToLower(strings.TrimSpace(mcpname.Canonical(allowed))) {
+			return true
+		}
+	}
+	return false
+}
+
+func modelDirectActionThreshold(cfg *agentmdl.Intake) float64 {
+	threshold := cfg.EffectiveConfidenceThreshold()
+	if cfg.ModelDirectAction != nil && cfg.ModelDirectAction.MinConfidence > threshold {
+		threshold = cfg.ModelDirectAction.MinConfidence
+	}
+	return threshold
+}
 
 func validateDirectAction(action *intakesvc.DirectActionContext) error {
 	if action == nil {
@@ -124,12 +166,37 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 		clearDirectActionInContext(input.Context)
 		return false, nil
 	}
+	modelProposed := false
+	if tc := intakesvc.FromContext(input.Context); tc != nil {
+		modelProposed = strings.EqualFold(strings.TrimSpace(tc.Routing.Source), intakesvc.SourceAgent)
+	}
+	if input.Agent != nil && modelDirectActionToolAllowed(action.ToolName, input.Agent.Intake.ModelDirectAction) {
+		policy := input.Agent.Intake.ModelDirectAction
+		if policy.RequireLiveClient && !s.hasRequestedUIClient(ctx, input.ConversationID) {
+			message := strings.TrimSpace(policy.UnavailableText)
+			if message == "" {
+				message = "This action needs an active client. Open the appropriate app and try again."
+			}
+			output.TurnID = input.MessageID
+			output.MessageID = input.MessageID
+			output.Content = message
+			return true, s.publishDirectActionAssistantMessage(ctx, input, message)
+		}
+	}
 	if err := s.authorizeDirectAction(ctx, input, action); err != nil {
 		logx.Warnf("conversation", "agent.Query directAction unauthorized convo=%q turn_id=%q tool=%q reason=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), strings.TrimSpace(action.ToolName), err)
 		clearDirectActionInContext(input.Context)
 		return false, nil
 	}
 	toolName := strings.TrimSpace(action.ToolName)
+	publicationCtx := ctx
+	if modelProposed && input.Agent != nil && input.Agent.Intake.ModelDirectAction != nil {
+		if seconds := input.Agent.Intake.ModelDirectAction.TimeoutSec; seconds > 0 {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithTimeout(ctx, time.Duration(seconds)*time.Second)
+			defer cancel()
+		}
+	}
 	logx.Infof("conversation", "agent.Query directAction start convo=%q turn_id=%q tool=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName)
 	toolCall, _, err := toolexec.ExecuteToolStep(ctx, s.registry, toolexec.StepInfo{
 		Name:       toolName,
@@ -137,6 +204,23 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 		ResponseID: "intake_direct_action",
 	}, s.conversation)
 	if err != nil {
+		if modelProposed {
+			var policy *agentmdl.ModelDirectActionPolicy
+			if input.Agent != nil {
+				policy = input.Agent.Intake.ModelDirectAction
+			}
+			if policy != nil && strings.TrimSpace(policy.FailureText) != "" {
+				message := strings.TrimSpace(policy.FailureText)
+				logx.Warnf("conversation", "agent.Query model directAction failed convo=%q turn_id=%q tool=%q reason=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName, err)
+				output.TurnID = input.MessageID
+				output.MessageID = input.MessageID
+				output.Content = message
+				return true, s.publishDirectActionAssistantMessage(publicationCtx, input, message)
+			}
+			logx.Warnf("conversation", "agent.Query model directAction fell through convo=%q turn_id=%q tool=%q reason=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName, err)
+			clearDirectActionInContext(input.Context)
+			return false, nil
+		}
 		return true, err
 	}
 	s.annotateDirectActionExecution(input, action, &toolCall.Result)
@@ -149,6 +233,37 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 	}
 	logx.Infof("conversation", "agent.Query directAction ok convo=%q turn_id=%q tool=%q", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName)
 	return true, nil
+}
+
+func directActionClientKind(inputContext map[string]any) string {
+	if inputContext == nil {
+		return ""
+	}
+	switch client := inputContext["client"].(type) {
+	case map[string]any:
+		return strings.TrimSpace(stringValue(client["kind"]))
+	case map[string]string:
+		return strings.TrimSpace(client["kind"])
+	default:
+		return ""
+	}
+}
+
+func (s *Service) hasRequestedUIClient(ctx context.Context, conversationID string) bool {
+	clientID := strings.TrimSpace(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
+	if clientID == "" || s == nil || s.uiRegistry == nil {
+		return false
+	}
+	clients, err := s.uiRegistry.ListAttachedByConversation(ctx, conversationID)
+	if err != nil {
+		return false
+	}
+	for _, client := range clients {
+		if strings.TrimSpace(client.ClientID) == clientID {
+			return true
+		}
+	}
+	return false
 }
 
 func directActionAssistantText(action *intakesvc.DirectActionContext, result string) string {

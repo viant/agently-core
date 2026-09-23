@@ -523,6 +523,11 @@ func TestService_Load_Intake_ToolConfig(t *testing.T) {
 	assert.Equal(t, []string{"system/exec"}, got.Intake.Tool.Bundles)
 	require.Len(t, got.Intake.Tool.Items, 1)
 	assert.Equal(t, "resources/read", got.Intake.Tool.Items[0].Name)
+	require.NotNil(t, got.Intake.ModelDirectAction)
+	assert.Equal(t, []string{"resources/read"}, got.Intake.ModelDirectAction.AllowedTools)
+	assert.Equal(t, "workspace_ui", got.Intake.ModelDirectAction.RequiredProfileID)
+	assert.InDelta(t, 0.9, got.Intake.ModelDirectAction.MinConfidence, 0.001)
+	assert.Equal(t, 30, got.Intake.ModelDirectAction.TimeoutSec)
 }
 
 func TestService_Load_PromptBundles(t *testing.T) {
