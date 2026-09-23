@@ -19,6 +19,13 @@ import (
 
 type fixedAuthorizationResolver struct{}
 
+type waitingAuthorizationResolver struct{}
+
+func (waitingAuthorizationResolver) Resolve(ctx context.Context, _ *permittedview.Request) (*permittedview.Snapshot, error) {
+	<-ctx.Done()
+	return nil, ctx.Err()
+}
+
 func (fixedAuthorizationResolver) Resolve(context.Context, *permittedview.Request) (*permittedview.Snapshot, error) {
 	return &permittedview.Snapshot{
 		AuthorizationVersion: "v1", ExpiresAt: time.Now().Add(time.Minute),
@@ -57,6 +64,31 @@ func TestWindowHandlerAppliesWholeWindowPolicyAndKeepsLegacyPermissionOptional(t
 	newHandler("file://"+metaRoot, nil).ServeHTTP(denied, httptest.NewRequest(http.MethodGet, "/window/denied", nil))
 	if denied.Code != http.StatusNotFound {
 		t.Fatalf("denied status = %d: %s", denied.Code, denied.Body.String())
+	}
+}
+
+func TestWindowHandlerBoundsPermissionPreflightWithoutGrantingAccess(t *testing.T) {
+	metaRoot := t.TempDir()
+	workspaceRoot := t.TempDir()
+	previous := workspace.Root()
+	workspace.SetRoot(workspaceRoot)
+	t.Cleanup(func() { workspace.SetRoot(previous) })
+	mustWriteWorkspaceUIFile(t, filepath.Join(workspaceRoot, "extension", "forge", "windows", "advertiserList.yaml"), `
+authorization:
+  scope: principal
+  resourceType: advertiser
+  requestedGlobalCapabilities: [create]
+view: {content: {id: root}}
+`)
+	cleanup := permittedview.SetDefaultRuntime(permittedview.NewRuntime(waitingAuthorizationResolver{}))
+	t.Cleanup(cleanup)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Millisecond)
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/window/advertiserList?applyPermission=true", nil).WithContext(ctx)
+	recorder := httptest.NewRecorder()
+	newHandler("file://"+metaRoot, nil).ServeHTTP(recorder, req)
+	if recorder.Code != http.StatusGatewayTimeout {
+		t.Fatalf("expected 504 for unavailable permission service, got %d: %s", recorder.Code, recorder.Body.String())
 	}
 }
 

@@ -1,12 +1,14 @@
 package ui
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
@@ -18,6 +20,8 @@ import (
 	metaSvc "github.com/viant/forge/backend/service/meta"
 	forgeTypes "github.com/viant/forge/backend/types"
 )
+
+const permissionApplyTimeout = 12 * time.Second
 
 // NewEmbeddedHandler builds a UI http.Handler backed by an embedded filesystem.
 // root should use the "embed:///" scheme (e.g. "embed:///metadata").
@@ -126,8 +130,14 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			compiled, err := runtime.Apply(applyContext, bound)
+			permissionContext, cancel := context.WithTimeout(applyContext, permissionApplyTimeout)
+			compiled, err := runtime.Apply(permissionContext, bound)
+			cancel()
 			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) || errors.Is(permissionContext.Err(), context.DeadlineExceeded) {
+					http.Error(w, "permission service timed out", http.StatusGatewayTimeout)
+					return
+				}
 				http.Error(w, err.Error(), http.StatusForbidden)
 				return
 			}
