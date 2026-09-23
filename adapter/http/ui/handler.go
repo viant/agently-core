@@ -79,16 +79,24 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 			return
 		}
 		if aWindow == nil {
+			// Built-in windows are loaded from the application metadata root and
+			// receive only the workspace assets their own resources block
+			// assigns. Workspace windows are already merged by LoadWorkspaceWindow.
 			var err error
 			aWindow, err = forgeHandlers.LoadWindow(r.Context(), windowMSvc, windowRoot, windowKey, subPath, target)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-		}
-		if err := windowloader.MergeWorkspaceForgeAssets(r.Context(), aWindow); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			assignment, err := windowloader.LoadResourceAssignment(r.Context(), windowMSvc, windowRoot, windowKey, subPath, target)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if err := windowloader.MergeWorkspaceForgeAssets(r.Context(), aWindow, assignment); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 		var authorization *permittedview.Snapshot
 		if aWindow.Authorization != nil && applyPermissionRequested(r) {
