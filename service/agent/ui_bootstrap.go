@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -132,6 +133,11 @@ func (s *Service) workspaceUILiveSummaries(ctx context.Context, conversationID s
 		if refs := uireg.ListDataSourceRefs(&win); len(refs) > 0 {
 			summary += " datasources=" + strings.Join(refs, ",")
 		}
+		if win.WindowID == client.Snapshot.Selected.WindowID {
+			if targets := summarizeWorkspaceSelectionTargets(&win); targets != "" {
+				summary += " selectionTargets=" + targets
+			}
+		}
 		summaries = append(summaries, summary)
 	}
 	if events := s.uiRegistry.ListEvents(strings.TrimSpace(conversationID), strings.TrimSpace(client.ClientID), "", "", 10, 0); len(events) > 0 {
@@ -145,6 +151,60 @@ func (s *Service) workspaceUILiveSummaries(ctx context.Context, conversationID s
 		}
 	}
 	return summaries
+}
+
+// A bounded set of live row identities lets intake handle a uniquely named
+// selection in one tool call. The snapshot is already scoped to this client and
+// conversation; do not forward complete rows or unrelated datasource fields.
+func summarizeWorkspaceSelectionTargets(win *uireg.WindowSnapshot) string {
+	if win == nil {
+		return ""
+	}
+	refs := make([]string, 0, len(win.DataSources))
+	for ref := range win.DataSources {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	targets := make([]map[string]interface{}, 0, 12)
+	for _, ref := range refs {
+		rows, ok := win.DataSources[ref].Collection.([]interface{})
+		if !ok {
+			continue
+		}
+		added := 0
+		for _, raw := range rows {
+			row, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			name, ok := row["name"].(string)
+			if !ok || strings.TrimSpace(name) == "" || row["id"] == nil {
+				continue
+			}
+			if len(name) > 80 {
+				name = name[:80]
+			}
+			targets = append(targets, map[string]interface{}{
+				"dataSourceRef": ref, "identityFields": []string{"id"},
+				"id": row["id"], "name": name,
+			})
+			added++
+			if added == 3 || len(targets) == 12 {
+				break
+			}
+		}
+		if len(targets) == 12 {
+			break
+		}
+	}
+	if len(targets) == 0 {
+		return ""
+	}
+	encoded, err := json.Marshal(targets)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }
 
 func summarizeWorkspaceControl(control uireg.SurfaceControl) string {
