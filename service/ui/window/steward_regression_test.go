@@ -137,6 +137,12 @@ func TestStewardWindowsLoadWithExplicitAssignments(t *testing.T) {
 				if got == nil {
 					t.Fatalf("steward window %s resolved to nil", key)
 				}
+				if key == "advertiserList" {
+					t.Logf("advertiserList/%s has %d assigned datasources", name, len(got.DataSource))
+					if len(got.DataSource) > 12 {
+						t.Fatalf("advertiser list received unrelated workspace datasources: %d", len(got.DataSource))
+					}
+				}
 				expected, ok := expectations[key]
 				if !ok {
 					return

@@ -24,6 +24,14 @@ func TestWorkspaceAttachmentsRequireAcknowledgedResultAndFinalOwner(t *testing.T
 		t.Fatalf("wrong owner: %+v", attachment)
 	}
 	turn.Messages[0].Attachments = nil
+	object.Lifecycle.State = "opening"
+	payload, _ = json.Marshal(map[string]interface{}{"ok": true, "workspaceObject": object})
+	turn.Execution.Pages[0].ToolSteps[0].ResponsePayload = payload
+	projectWorkspaceAttachments(state)
+	if len(turn.Messages[0].Attachments) != 1 || turn.Messages[0].Attachments[0].WorkspaceObject.Lifecycle.State != "opening" {
+		t.Fatal("accepted navigation must retain a reference while content loads")
+	}
+	turn.Messages[0].Attachments = nil
 	payload, _ = json.Marshal(map[string]interface{}{"ok": false, "workspaceObject": object})
 	turn.Execution.Pages[0].ToolSteps[0].ResponsePayload = payload
 	projectWorkspaceAttachments(state)
