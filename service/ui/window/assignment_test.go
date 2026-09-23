@@ -541,6 +541,38 @@ func TestCollectWindowReferencesCoversForgeVocabulary(t *testing.T) {
 	}
 }
 
+func TestAssignedDialogIncludesOptionsDatasource(t *testing.T) {
+	withLoaderWorkspaceRoot(t, func(root string) {
+		writeStewardLikeWorkspace(t, root)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeDialog, "categoryPicker.yaml"), `
+id: categoryPicker
+title: Category
+content:
+  id: categoryForm
+  items:
+    - {id: category, type: select, optionsDataSourceRef: advertiser_user_pools}
+`)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeWindow, "details.yaml"), `
+windowKey: details
+resources:
+  dataSources: [advertiser_properties]
+  dialogs: [categoryPicker]
+view:
+  content: {id: details, dataSourceRef: advertiser_properties}
+`)
+		got, err := LoadWorkspaceWindow(context.Background(), "details", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := got.DataSource["advertiser_user_pools"]; !ok {
+			t.Fatal("assigned dialog lost its options datasource")
+		}
+		if _, leaked := got.DataSource["order_properties"]; leaked {
+			t.Fatal("unrelated datasource leaked into window")
+		}
+	})
+}
+
 func containsDialog(window *forgeTypes.Window, id string) bool {
 	for _, dialog := range window.Dialogs {
 		if dialog.Id == id {
