@@ -120,6 +120,11 @@ type Intake struct {
 	// auto-populate PromptProfileId in the turn context. Default: 0.85.
 	ConfidenceThreshold float64 `yaml:"confidenceThreshold,omitempty" json:"confidenceThreshold,omitempty"`
 
+	// ModelDirectAction opts selected tools into execution directly from a
+	// high-confidence intake model result. The tools must also be authorized by
+	// Intake.Tool; absent policy keeps model-sourced actions suppressed.
+	ModelDirectAction *ModelDirectActionPolicy `yaml:"modelDirectAction,omitempty" json:"modelDirectAction,omitempty"`
+
 	// PlannerEnabled allows the workspace router / planner path to activate
 	// planner mode for turns targeting this agent. Default: false.
 	PlannerEnabled bool `yaml:"plannerEnabled,omitempty" json:"plannerEnabled,omitempty"`
@@ -162,6 +167,16 @@ type Intake struct {
 
 	// TimeoutSec caps the sidecar call. Default: 15.
 	TimeoutSec int `yaml:"timeoutSec,omitempty" json:"timeoutSec,omitempty"`
+}
+
+type ModelDirectActionPolicy struct {
+	AllowedTools      []string `yaml:"allowedTools,omitempty" json:"allowedTools,omitempty"`
+	RequiredProfileID string   `yaml:"requiredProfileId,omitempty" json:"requiredProfileId,omitempty"`
+	RequireLiveClient bool     `yaml:"requireLiveClient,omitempty" json:"requireLiveClient,omitempty"`
+	UnavailableText   string   `yaml:"unavailableText,omitempty" json:"unavailableText,omitempty"`
+	FailureText       string   `yaml:"failureText,omitempty" json:"failureText,omitempty"`
+	MinConfidence     float64  `yaml:"minConfidence,omitempty" json:"minConfidence,omitempty"`
+	TimeoutSec        int      `yaml:"timeoutSec,omitempty" json:"timeoutSec,omitempty"`
 }
 
 // Intake scope constants.

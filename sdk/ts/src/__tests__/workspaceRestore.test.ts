@@ -3,6 +3,49 @@ import { describe, expect, it } from 'vitest';
 import { deriveHostedWorkspaceRestoreStateFromTranscriptTurns } from '../workspaceRestore';
 
 describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
+    it('uses a later window/get snapshot to restore a window that finished opening', () => {
+        const restored = deriveHostedWorkspaceRestoreStateFromTranscriptTurns([{
+            turnId: 'turn-browser-open',
+            execution: { pages: [{ toolSteps: [
+                {
+                    toolName: 'ui/window/list',
+                    status: 'completed',
+                    responsePayload: {
+                        focusedWindowId: 'advertiserList__conv-1',
+                        items: [{
+                            windowId: 'advertiserList__conv-1',
+                            windowKey: 'advertiserList',
+                            conversationId: 'conv-1',
+                            parentKey: 'chat/new',
+                            presentation: 'hosted',
+                            region: 'chat.top',
+                            workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1', lifecycle: { state: 'opening' } },
+                        }],
+                    },
+                },
+                {
+                    toolName: 'ui/window/get',
+                    status: 'completed',
+                    responsePayload: { window: {
+                        windowId: 'advertiserList__conv-1',
+                        windowKey: 'advertiserList',
+                        conversationId: 'conv-1',
+                        parentKey: 'chat/new',
+                        presentation: 'hosted',
+                        region: 'chat.top',
+                        workspaceObject: { version: 1, objectId: 'workspace:advertiserList__conv-1', lifecycle: { state: 'ready' } },
+                        windowForm: { advertiserListMode: 'starred' },
+                    } },
+                },
+            ] }] },
+        } as any]);
+
+        expect(restored?.selectedWindowId).toBe('advertiserList__conv-1');
+        expect(restored?.windows).toHaveLength(1);
+        expect(restored?.windows[0]?.workspaceObject?.lifecycle?.state).toBe('ready');
+        expect(restored?.windows[0]?.windowForm).toEqual({ advertiserListMode: 'starred' });
+    });
+
     it('restores compare windows from the last turn ui/window/list and ui/window/show steps', () => {
         expect(deriveHostedWorkspaceRestoreStateFromTranscriptTurns([
             {

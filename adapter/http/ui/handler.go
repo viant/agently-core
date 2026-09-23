@@ -1,12 +1,14 @@
 package ui
 
 import (
+	"context"
 	"embed"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/viant/afs"
 	"github.com/viant/afs/url"
@@ -18,6 +20,8 @@ import (
 	metaSvc "github.com/viant/forge/backend/service/meta"
 	forgeTypes "github.com/viant/forge/backend/types"
 )
+
+const permissionApplyTimeout = 12 * time.Second
 
 // NewEmbeddedHandler builds a UI http.Handler backed by an embedded filesystem.
 // root should use the "embed:///" scheme (e.g. "embed:///metadata").
@@ -79,16 +83,24 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 			return
 		}
 		if aWindow == nil {
+			// Built-in windows are loaded from the application metadata root and
+			// receive only the workspace assets their own resources block
+			// assigns. Workspace windows are already merged by LoadWorkspaceWindow.
 			var err error
 			aWindow, err = forgeHandlers.LoadWindow(r.Context(), windowMSvc, windowRoot, windowKey, subPath, target)
 			if err != nil {
 				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-		}
-		if err := windowloader.MergeWorkspaceForgeAssets(r.Context(), aWindow); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			assignment, err := windowloader.LoadResourceAssignment(r.Context(), windowMSvc, windowRoot, windowKey, subPath, target)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if err := windowloader.MergeWorkspaceForgeAssets(r.Context(), aWindow, assignment); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
 		}
 		var authorization *permittedview.Snapshot
 		if aWindow.Authorization != nil && applyPermissionRequested(r) {
@@ -118,8 +130,14 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			compiled, err := runtime.Apply(applyContext, bound)
+			permissionContext, cancel := context.WithTimeout(applyContext, permissionApplyTimeout)
+			compiled, err := runtime.Apply(permissionContext, bound)
+			cancel()
 			if err != nil {
+				if errors.Is(err, context.DeadlineExceeded) || errors.Is(permissionContext.Err(), context.DeadlineExceeded) {
+					http.Error(w, "permission service timed out", http.StatusGatewayTimeout)
+					return
+				}
 				http.Error(w, err.Error(), http.StatusForbidden)
 				return
 			}
