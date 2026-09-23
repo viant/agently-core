@@ -841,13 +841,27 @@ func TestNormalizeIntakeTurnContext_SuppressesAgentSidecarDirectAction(t *testin
 	require.Equal(t, "audience_forecast_dashboard", tc.Prompting.TemplateID)
 }
 
-func TestNormalizeIntakeTurnContext_AllowsOptedInSemanticUIOpen(t *testing.T) {
+func TestIntakeClientSummaryUsesStructuredContext(t *testing.T) {
 	svc := &Service{}
-	cfg := &agentmdl.Intake{AllowSemanticUIOpen: true, ConfidenceThreshold: 0.8}
+	input := &QueryInput{ConversationID: "conv-1", Context: map[string]any{
+		"client": map[string]any{"kind": "web", "platform": "web", "formFactor": "desktop", "surface": "browser"},
+	}}
+	got := svc.intakeClientSummary(context.Background(), input)
+	require.Contains(t, got, `"kind":"web"`)
+	require.Contains(t, got, `"formFactor":"desktop"`)
+	require.Contains(t, got, `"liveUI":false`)
+}
+
+func TestNormalizeIntakeTurnContext_AllowsConfiguredModelDirectAction(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{ConfidenceThreshold: 0.8, ModelDirectAction: &agentmdl.ModelDirectActionPolicy{
+		AllowedTools: []string{"ui/view:open"}, RequiredProfileID: "workspace_ui", MinConfidence: 0.9,
+	}}
 	input := &QueryInput{ConversationID: "conv-advertisers", Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward"}}}
 	tc := &intakesvc.Context{
 		Routing:        intakesvc.RoutingContext{Source: intakesvc.SourceAgent},
 		Classification: intakesvc.ClassificationContext{Intent: "workspace_ui_open", Confidence: 0.99},
+		Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "workspace_ui"},
 		DirectAction: intakesvc.DirectActionContext{
 			ToolName: "ui/view:open", AssistantText: "Advertisers are open.",
 			Input: map[string]interface{}{"id": "advertiserList", "openMode": "replace", "timeoutMs": 600000},
@@ -857,16 +871,19 @@ func TestNormalizeIntakeTurnContext_AllowsOptedInSemanticUIOpen(t *testing.T) {
 	svc.normalizeIntakeTurnContext(context.Background(), input, tc, cfg)
 
 	require.Equal(t, "ui/view:open", tc.DirectAction.ToolName)
-	require.Equal(t, 30000, tc.DirectAction.Input["timeoutMs"])
+	require.Equal(t, 600000, tc.DirectAction.Input["timeoutMs"], "execution timeout must not mutate model arguments")
 }
 
-func TestNormalizeIntakeTurnContext_RejectsParameterizedSemanticUIOpen(t *testing.T) {
+func TestNormalizeIntakeTurnContext_AllowsParameterizedModelDirectAction(t *testing.T) {
 	svc := &Service{}
-	cfg := &agentmdl.Intake{AllowSemanticUIOpen: true, ConfidenceThreshold: 0.8}
+	cfg := &agentmdl.Intake{ConfidenceThreshold: 0.8, ModelDirectAction: &agentmdl.ModelDirectActionPolicy{
+		AllowedTools: []string{"ui/view:open"}, RequiredProfileID: "workspace_ui", MinConfidence: 0.9,
+	}}
 	input := &QueryInput{ConversationID: "conv-advertiser", Agent: &agentmdl.Agent{Identity: agentmdl.Identity{ID: "steward"}}}
 	tc := &intakesvc.Context{
 		Routing:        intakesvc.RoutingContext{Source: intakesvc.SourceAgent},
 		Classification: intakesvc.ClassificationContext{Intent: "workspace_ui_open", Confidence: 0.99},
+		Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "workspace_ui"},
 		DirectAction: intakesvc.DirectActionContext{
 			ToolName: "ui/view:open", AssistantText: "Advertiser is open.",
 			Input: map[string]interface{}{"id": "advertiser", "parameters": map[string]interface{}{"AdvertiserId": []interface{}{85141}}},
@@ -875,7 +892,7 @@ func TestNormalizeIntakeTurnContext_RejectsParameterizedSemanticUIOpen(t *testin
 
 	svc.normalizeIntakeTurnContext(context.Background(), input, tc, cfg)
 
-	require.Empty(t, tc.DirectAction.ToolName)
+	require.Equal(t, "ui/view:open", tc.DirectAction.ToolName)
 }
 
 func TestApplyTurnContext_PromptProfileDoesNotOverrideCaller(t *testing.T) {

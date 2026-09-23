@@ -48,6 +48,9 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 			runCfg.Prompt.Text = "Workspace UI bootstrap:\n" + bootstrap
 		}
 	}
+	if client := s.intakeClientSummary(ctx, input); client != "" {
+		runCfg.Prompt.Text += "\n\nCurrent client context (transport facts, not user intent): " + client
+	}
 
 	if s.maybeInjectWorkspaceUIOverride(ctx, input, &runCfg) {
 		return
@@ -117,6 +120,30 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	}
 	applyTurnContext(input, tc, &runCfg)
 	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Classification.Title)
+}
+
+func (s *Service) intakeClientSummary(ctx context.Context, input *QueryInput) string {
+	if input == nil {
+		return ""
+	}
+	client := map[string]any{"kind": directActionClientKind(input.Context), "liveUI": s.hasRequestedUIClient(ctx, input.ConversationID)}
+	if input.Context != nil {
+		switch raw := input.Context["client"].(type) {
+		case map[string]any:
+			for _, key := range []string{"platform", "formFactor", "surface"} {
+				client[key] = strings.TrimSpace(stringValue(raw[key]))
+			}
+		case map[string]string:
+			for _, key := range []string{"platform", "formFactor", "surface"} {
+				client[key] = strings.TrimSpace(raw[key])
+			}
+		}
+	}
+	encoded, err := json.Marshal(client)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }
 
 func (s *Service) recentVisibleTranscriptForIntake(ctx context.Context, input *QueryInput) []intakesvc.TranscriptMessage {
@@ -1342,7 +1369,7 @@ func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryIn
 	if s == nil || input == nil || tc == nil || cfg == nil {
 		return
 	}
-	if strings.EqualFold(strings.TrimSpace(tc.Routing.Source), intakesvc.SourceAgent) && strings.TrimSpace(tc.DirectAction.ToolName) != "" && !allowSemanticUIOpen(tc, cfg) {
+	if strings.EqualFold(strings.TrimSpace(tc.Routing.Source), intakesvc.SourceAgent) && strings.TrimSpace(tc.DirectAction.ToolName) != "" && !allowModelDirectAction(tc, cfg) {
 		logx.Infof("conversation", "intake.agent_direct_action_suppressed convo=%q agent=%q tool=%q",
 			strings.TrimSpace(input.ConversationID),
 			strings.TrimSpace(input.Agent.ID),

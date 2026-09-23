@@ -316,12 +316,19 @@ func (s *Service) allowedDirectActionToolNames(ctx context.Context, cfg *agentmd
 	if cfg == nil {
 		return nil
 	}
+	var modelAllow map[string]bool
+	if cfg.ModelDirectAction != nil {
+		modelAllow = map[string]bool{}
+		for _, name := range cfg.ModelDirectAction.AllowedTools {
+			modelAllow[strings.ToLower(strings.TrimSpace(mcpname.Canonical(name)))] = true
+		}
+	}
 	seen := map[string]bool{}
 	names := make([]string, 0)
 	add := func(name string) {
 		raw := strings.TrimSpace(name)
 		canon := strings.TrimSpace(mcpname.Canonical(raw))
-		if raw == "" || canon == "" || seen[canon] {
+		if raw == "" || canon == "" || seen[canon] || (modelAllow != nil && !modelAllow[strings.ToLower(canon)]) {
 			return
 		}
 		seen[canon] = true

@@ -32,33 +32,41 @@ func TestDirectActionFromContext(t *testing.T) {
 	}
 }
 
-func TestAllowSemanticUIOpen_RejectsUnsafeOrUncertainActions(t *testing.T) {
+func TestAllowModelDirectAction_UsesDeclarativePolicy(t *testing.T) {
 	base := func() *intakesvc.Context {
 		return &intakesvc.Context{
 			Classification: intakesvc.ClassificationContext{Intent: "workspace_ui_open", Confidence: 0.99},
+			Prompting:      intakesvc.PromptingContext{SuggestedProfileID: "workspace_ui"},
 			DirectAction: intakesvc.DirectActionContext{
 				ToolName: "ui/view:open", AssistantText: "Opened.",
-				Input: map[string]interface{}{"id": "advertiserList", "openMode": "replace"},
+				Input: map[string]interface{}{"id": "advertiser", "parameters": map[string]interface{}{"AdvertiserId": []interface{}{85141}}},
 			},
 		}
 	}
+	policy := &agentmdl.Intake{ConfidenceThreshold: 0.8, ModelDirectAction: &agentmdl.ModelDirectActionPolicy{
+		AllowedTools: []string{"ui/view:open", "ui/control:setValue"}, RequiredProfileID: "workspace_ui", MinConfidence: 0.9,
+	}}
+	require.True(t, allowModelDirectAction(base(), policy), "parameterized opens are validated by the UI tool")
+	control := base()
+	control.DirectAction = intakesvc.DirectActionContext{
+		ToolName: "ui/control:setValue", AssistantText: "Filter updated.",
+		Input: map[string]interface{}{"windowId": "advertiserList__c1", "controlId": "scope", "value": "active"},
+	}
+	require.True(t, allowModelDirectAction(control, policy), "other configured UI interactions use the same policy")
 	for name, mutate := range map[string]func(*intakesvc.Context){
-		"low confidence": func(tc *intakesvc.Context) { tc.Classification.Confidence = 0.4 },
-		"wrong intent":   func(tc *intakesvc.Context) { tc.Classification.Intent = "summary" },
+		"low confidence": func(tc *intakesvc.Context) { tc.Classification.Confidence = 0.89 },
+		"wrong profile":  func(tc *intakesvc.Context) { tc.Prompting.SuggestedProfileID = "performance_analysis" },
 		"other tool":     func(tc *intakesvc.Context) { tc.DirectAction.ToolName = "steward/MetaAdvertiser" },
-		"parameters": func(tc *intakesvc.Context) {
-			tc.DirectAction.Input["parameters"] = map[string]interface{}{"AdvertiserId": 1}
-		},
-		"multiple views": func(tc *intakesvc.Context) { tc.DirectAction.Input["items"] = []interface{}{"advertiserList"} },
-		"append mode":    func(tc *intakesvc.Context) { tc.DirectAction.Input["openMode"] = "append" },
+		"planner mode":   func(tc *intakesvc.Context) { tc.Routing.Mode = intakesvc.ModePlanner },
+		"missing input":  func(tc *intakesvc.Context) { tc.DirectAction.Input = nil },
 	} {
 		t.Run(name, func(t *testing.T) {
 			tc := base()
 			mutate(tc)
-			require.False(t, allowSemanticUIOpen(tc, &agentmdl.Intake{AllowSemanticUIOpen: true, ConfidenceThreshold: 0.8}))
+			require.False(t, allowModelDirectAction(tc, policy))
 		})
 	}
-	require.False(t, allowSemanticUIOpen(base(), &agentmdl.Intake{}), "the fast path must be opt-in")
+	require.False(t, allowModelDirectAction(base(), &agentmdl.Intake{}), "the fast path must be opt-in")
 }
 
 func TestValidateDirectAction(t *testing.T) {
@@ -273,4 +281,32 @@ func TestMaybeRunDirectAction_InvalidActionFallsThrough(t *testing.T) {
 	require.NotNil(t, tc)
 	require.Empty(t, tc.DirectAction.ToolName)
 	require.Equal(t, "workspace_console", tc.Prompting.SuggestedProfileID)
+}
+
+func TestMaybeRunDirectAction_CLIUIRequestDoesNotCallTool(t *testing.T) {
+	recorder := &intakeRecordingConvClient{}
+	svc := &Service{conversation: recorder}
+	input := &QueryInput{
+		ConversationID: "conv-cli", MessageID: "turn-cli",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{ModelDirectAction: &agentmdl.ModelDirectActionPolicy{
+			AllowedTools: []string{"ui/view:open"}, RequireLiveClient: true,
+			UnavailableText: "Open this conversation in the web app to control its workspace UI.",
+		}}},
+		Context: map[string]any{intakesvc.ContextKey: &intakesvc.Context{
+			Routing: intakesvc.RoutingContext{Source: intakesvc.SourceWorkspace},
+			DirectAction: intakesvc.DirectActionContext{
+				ToolName: "ui/view:open", AssistantText: "Advertisers are open.",
+				Input: map[string]any{"id": "advertiserList"},
+			},
+		}},
+	}
+	output := &QueryOutput{}
+
+	handled, err := svc.maybeRunDirectAction(context.Background(), input, output)
+
+	require.NoError(t, err)
+	require.True(t, handled)
+	require.Contains(t, output.Content, "web app")
+	require.NotNil(t, recorder.lastMessage)
+	require.Equal(t, output.Content, *recorder.lastMessage.Content)
 }
