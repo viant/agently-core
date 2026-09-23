@@ -189,6 +189,7 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 		return false, nil
 	}
 	toolName := strings.TrimSpace(action.ToolName)
+	publicationCtx := ctx
 	if modelProposed && input.Agent != nil && input.Agent.Intake.ModelDirectAction != nil {
 		if seconds := input.Agent.Intake.ModelDirectAction.TimeoutSec; seconds > 0 {
 			var cancel context.CancelFunc
@@ -214,7 +215,7 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 				output.TurnID = input.MessageID
 				output.MessageID = input.MessageID
 				output.Content = message
-				return true, s.publishDirectActionAssistantMessage(ctx, input, message)
+				return true, s.publishDirectActionAssistantMessage(publicationCtx, input, message)
 			}
 			logx.Warnf("conversation", "agent.Query model directAction fell through convo=%q turn_id=%q tool=%q reason=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName, err)
 			clearDirectActionInContext(input.Context)
