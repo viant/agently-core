@@ -111,7 +111,7 @@ func (s *Service) workspaceUILiveSummaries(ctx context.Context, conversationID s
 			for _, tab := range surface.Tabs {
 				label := firstNonEmpty(strings.TrimSpace(tab.Title), strings.TrimSpace(tab.TabID))
 				if label != "" {
-					tabs = append(tabs, label)
+					tabs = append(tabs, fmt.Sprintf("{tabId:%q,containerId:%q,title:%q}", tab.TabID, tab.ContainerID, label))
 				}
 			}
 			sort.Strings(tabs)
