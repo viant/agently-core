@@ -85,6 +85,8 @@ authorization:
     type: advertiser
     id: {source: resource, selector: advertiserId}
   requestedCapabilities: [read, write]
+resources:
+  dataSources: [identity, edit]
 view:
   content:
     id: root
