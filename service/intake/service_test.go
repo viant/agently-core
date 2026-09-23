@@ -290,6 +290,14 @@ match:
 	toolNameProp, _ := directActionProps["toolName"].(map[string]interface{})
 	require.NotNil(t, toolNameProp)
 	assert.Equal(t, []string{"message:askUser", "ui/view:open", "ui/window:show"}, toolNameProp["enum"])
+
+	cfg.ModelDirectAction = &agentmdl.ModelDirectActionPolicy{AllowedTools: []string{"ui/window:show"}}
+	schema = svc.buildOutputJSONSchema(context.Background(), cfg)
+	props, _ = schema["properties"].(map[string]interface{})
+	directAction, _ = props["directAction"].(map[string]interface{})
+	directActionProps, _ = directAction["properties"].(map[string]interface{})
+	toolNameProp, _ = directActionProps["toolName"].(map[string]interface{})
+	assert.Equal(t, []string{"ui/window:show"}, toolNameProp["enum"])
 }
 
 func TestBuildOutputSchema_ClassBIncluded(t *testing.T) {

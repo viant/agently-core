@@ -120,9 +120,8 @@ func (s *Service) workspaceUILiveSummaries(ctx context.Context, conversationID s
 			}
 			var controls []string
 			for _, control := range surface.Controls {
-				label := firstNonEmpty(strings.TrimSpace(control.Label), strings.TrimSpace(control.ID))
-				if label != "" {
-					controls = append(controls, label)
+				if summary := summarizeWorkspaceControl(control); summary != "" {
+					controls = append(controls, summary)
 				}
 			}
 			sort.Strings(controls)
@@ -146,6 +145,40 @@ func (s *Service) workspaceUILiveSummaries(ctx context.Context, conversationID s
 		}
 	}
 	return summaries
+}
+
+func summarizeWorkspaceControl(control uireg.SurfaceControl) string {
+	id := strings.TrimSpace(control.ID)
+	if id == "" {
+		return ""
+	}
+	summary := id
+	if label := strings.TrimSpace(control.Label); label != "" && !strings.EqualFold(label, id) {
+		summary += "(" + label + ")"
+	}
+	if scope := strings.TrimSpace(control.Scope); scope != "" {
+		summary += ":" + scope
+	}
+	if len(control.Options) > 0 {
+		options := make([]string, 0, len(control.Options))
+		for _, option := range control.Options {
+			value := strings.TrimSpace(fmt.Sprint(option.Value))
+			if value == "" || value == "<nil>" {
+				continue
+			}
+			if label := strings.TrimSpace(option.Label); label != "" && !strings.EqualFold(label, value) {
+				value += ":" + label
+			}
+			options = append(options, value)
+			if len(options) == 12 {
+				break
+			}
+		}
+		if len(options) > 0 {
+			summary += "[" + strings.Join(options, "|") + "]"
+		}
+	}
+	return summary
 }
 
 func selectWorkspaceUIBootstrapClient(items []uireg.ClientSnapshot, preferredClientID string) *uireg.ClientSnapshot {
