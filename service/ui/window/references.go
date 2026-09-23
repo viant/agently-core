@@ -133,7 +133,7 @@ func walkAssetReferences(node interface{}, parentKey string, refs *AssetReferenc
 					continue
 				}
 				switch key {
-				case "dataSourceRef", "catalogDataSourceRef", "definitionDataSourceRef":
+				case "dataSourceRef", "optionsDataSourceRef", "fallbackOptionsDataSourceRef", "catalogDataSourceRef", "definitionDataSourceRef":
 					refs.DataSources[text] = true
 				case "dataSource":
 					if parentKey == "lookup" {

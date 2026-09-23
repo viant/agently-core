@@ -138,6 +138,11 @@ func TestStewardWindowsLoadWithExplicitAssignments(t *testing.T) {
 				if got == nil {
 					t.Fatalf("steward window %s resolved to nil", key)
 				}
+				for id := range CollectWindowReferences(got).YAML.DataSources {
+					if _, attached := got.DataSource[id]; !attached {
+						t.Errorf("window %s references unattached datasource %s", key, id)
+					}
+				}
 				if key == "advertiserList" {
 					t.Logf("advertiserList/%s has %d assigned datasources", name, len(got.DataSource))
 					if len(got.DataSource) > 12 {
