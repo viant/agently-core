@@ -368,6 +368,20 @@ func TestBuildGenerateInputWithTranscriptIncludesCurrentMessageContext(t *testin
 	assert.Contains(t, userText, "show me the top audiences")
 }
 
+func TestBuildGenerateInputWithLiveContextKeepsSystemPromptStable(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "context", "profile"}}
+	first := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "switch to starred advertisers", "", cfg,
+		WithLiveContext(`{"kind":"web","liveUI":true} advertiserListMode[all|starred]`))
+	second := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "show advertisers", "", cfg,
+		WithLiveContext(`{"kind":"web","liveUI":true} another window`))
+
+	assert.Equal(t, llm.MessageText(first.Message[0]), llm.MessageText(second.Message[0]))
+	assert.Equal(t, "shared routing rules", llm.MessageText(first.Message[0]))
+	assert.Contains(t, llm.MessageText(first.Message[1]), "advertiserListMode[all|starred]")
+	assert.NotContains(t, llm.MessageText(first.Message[0]), "advertiserListMode")
+}
+
 func TestBuildGenerateInputWithContext_ConstrainsTemplateAndProfileEnums(t *testing.T) {
 	tmpDir := t.TempDir()
 	promptDir := filepath.Join(tmpDir, "prompts")

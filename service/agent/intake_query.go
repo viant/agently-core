@@ -41,15 +41,12 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	}
 	cfg := &input.Agent.Intake
 	runCfg := *cfg
+	var liveContext []string
 	if bootstrap := s.workspaceUIBootstrap(ctx, input.ConversationID); strings.TrimSpace(bootstrap) != "" {
-		if extra := strings.TrimSpace(runCfg.Prompt.Text); extra != "" {
-			runCfg.Prompt.Text = extra + "\n\nWorkspace UI bootstrap:\n" + bootstrap
-		} else {
-			runCfg.Prompt.Text = "Workspace UI bootstrap:\n" + bootstrap
-		}
+		liveContext = append(liveContext, "Workspace UI bootstrap:\n"+bootstrap)
 	}
 	if client := s.intakeClientSummary(ctx, input); client != "" {
-		runCfg.Prompt.Text += "\n\nCurrent client context (transport facts, not user intent): " + client
+		liveContext = append(liveContext, "Client context (transport facts, not user intent): "+client)
 	}
 
 	if s.maybeInjectWorkspaceUIOverride(ctx, input, &runCfg) {
@@ -97,7 +94,8 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	}
 	runCtx := s.intakeTrackedContext(ctx, input)
 	tc := s.intakeSvc.Run(runCtx, userMessage, &runCfg, strings.TrimSpace(input.UserId),
-		intakesvc.WithTranscript(s.recentVisibleTranscriptForIntake(ctx, input)))
+		intakesvc.WithTranscript(s.recentVisibleTranscriptForIntake(ctx, input)),
+		intakesvc.WithLiveContext(strings.Join(liveContext, "\n\n")))
 	if tc == nil {
 		return
 	}
