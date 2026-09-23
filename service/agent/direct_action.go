@@ -204,6 +204,18 @@ func (s *Service) maybeRunDirectAction(ctx context.Context, input *QueryInput, o
 	}, s.conversation)
 	if err != nil {
 		if modelProposed {
+			var policy *agentmdl.ModelDirectActionPolicy
+			if input.Agent != nil {
+				policy = input.Agent.Intake.ModelDirectAction
+			}
+			if policy != nil && strings.TrimSpace(policy.FailureText) != "" {
+				message := strings.TrimSpace(policy.FailureText)
+				logx.Warnf("conversation", "agent.Query model directAction failed convo=%q turn_id=%q tool=%q reason=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName, err)
+				output.TurnID = input.MessageID
+				output.MessageID = input.MessageID
+				output.Content = message
+				return true, s.publishDirectActionAssistantMessage(ctx, input, message)
+			}
 			logx.Warnf("conversation", "agent.Query model directAction fell through convo=%q turn_id=%q tool=%q reason=%v", strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.MessageID), toolName, err)
 			clearDirectActionInContext(input.Context)
 			return false, nil

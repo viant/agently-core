@@ -310,3 +310,37 @@ func TestMaybeRunDirectAction_CLIUIRequestDoesNotCallTool(t *testing.T) {
 	require.NotNil(t, recorder.lastMessage)
 	require.Equal(t, output.Content, *recorder.lastMessage.Content)
 }
+
+func TestMaybeRunDirectAction_ModelToolFailureUsesConfiguredText(t *testing.T) {
+	recorder := &intakeRecordingConvClient{}
+	svc := &Service{
+		conversation: recorder,
+		registry:     &fakeRegistry{defs: []llm.ToolDefinition{{Name: "ui/view:open"}}},
+	}
+	input := &QueryInput{
+		ConversationID: "conv-ui-failure", MessageID: "turn-ui-failure",
+		Agent: &agentmdl.Agent{Intake: agentmdl.Intake{
+			Tool: agentmdl.Tool{Items: []*llm.Tool{{Name: "ui/view:open"}}},
+			ModelDirectAction: &agentmdl.ModelDirectActionPolicy{
+				AllowedTools: []string{"ui/view:open"},
+				FailureText:  "I couldn't confirm that the workspace opened. Please try again.",
+			},
+		}},
+		Context: map[string]any{intakesvc.ContextKey: &intakesvc.Context{
+			Routing: intakesvc.RoutingContext{Source: intakesvc.SourceAgent},
+			DirectAction: intakesvc.DirectActionContext{
+				ToolName: "ui/view:open", AssistantText: "Advertisers are open.",
+				Input: map[string]any{"id": "advertiserList"},
+			},
+		}},
+	}
+	output := &QueryOutput{}
+
+	handled, err := svc.maybeRunDirectAction(context.Background(), input, output)
+	require.NoError(t, err)
+	require.True(t, handled)
+	require.Equal(t, "I couldn't confirm that the workspace opened. Please try again.", output.Content)
+	require.NotNil(t, recorder.lastMessage)
+	require.Equal(t, output.Content, *recorder.lastMessage.Content)
+	require.NotEqual(t, "Advertisers are open.", output.Content)
+}

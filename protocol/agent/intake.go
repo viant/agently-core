@@ -174,6 +174,7 @@ type ModelDirectActionPolicy struct {
 	RequiredProfileID string   `yaml:"requiredProfileId,omitempty" json:"requiredProfileId,omitempty"`
 	RequireLiveClient bool     `yaml:"requireLiveClient,omitempty" json:"requireLiveClient,omitempty"`
 	UnavailableText   string   `yaml:"unavailableText,omitempty" json:"unavailableText,omitempty"`
+	FailureText       string   `yaml:"failureText,omitempty" json:"failureText,omitempty"`
 	MinConfidence     float64  `yaml:"minConfidence,omitempty" json:"minConfidence,omitempty"`
 	TimeoutSec        int      `yaml:"timeoutSec,omitempty" json:"timeoutSec,omitempty"`
 }
