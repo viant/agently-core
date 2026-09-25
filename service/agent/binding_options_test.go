@@ -243,7 +243,7 @@ func TestService_BuildBinding_InjectsSelectedPromptProfile(t *testing.T) {
 		if doc == nil {
 			continue
 		}
-		if doc.SourceURI == "prompt://repo_analysis/message/0" && strings.Contains(doc.PageContent, "Delegate repository analysis first.") {
+		if doc.SourceURI == "intent://repo_analysis/message/0" && strings.Contains(doc.PageContent, "Delegate repository analysis first.") {
 			found = true
 			break
 		}
@@ -304,7 +304,7 @@ func TestService_BuildBinding_SelectedPromptProfileCanBeDisabledPerAgent(t *test
 	require.NoError(t, err)
 	require.Equal(t, []string{"system/os"}, input.ToolBundles)
 	for _, doc := range binding.SystemDocuments.Items {
-		require.NotEqual(t, "prompt://repo_analysis/message/0", doc.SourceURI)
+		require.NotEqual(t, "intent://repo_analysis/message/0", doc.SourceURI)
 	}
 }
 
