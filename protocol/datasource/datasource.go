@@ -64,11 +64,15 @@ type Backend struct {
 	Kind BackendKind `json:"kind" yaml:"kind"`
 
 	// mcp_tool
-	Service string      `json:"service,omitempty" yaml:"service,omitempty"`
-	Method  string      `json:"method,omitempty" yaml:"method,omitempty"`
-	Calls   []MCPCall   `json:"calls,omitempty" yaml:"calls,omitempty"`
-	Fanout  *MCPFanout  `json:"fanout,omitempty" yaml:"fanout,omitempty"`
-	Sort    []SortField `json:"sort,omitempty" yaml:"sort,omitempty"`
+	Service string `json:"service,omitempty" yaml:"service,omitempty"`
+	Method  string `json:"method,omitempty" yaml:"method,omitempty"`
+	// MCPRequest declares where an authored report query is placed in tool
+	// arguments. It is optional for ordinary datasource Fetch calls, but report
+	// compilers require an explicit mapping rather than guessing tool schemas.
+	MCPRequest *MCPRequestBinding `json:"mcpRequest,omitempty" yaml:"mcpRequest,omitempty"`
+	Calls      []MCPCall          `json:"calls,omitempty" yaml:"calls,omitempty"`
+	Fanout     *MCPFanout         `json:"fanout,omitempty" yaml:"fanout,omitempty"`
+	Sort       []SortField        `json:"sort,omitempty" yaml:"sort,omitempty"`
 
 	// mcp_resource
 	URI string `json:"uri,omitempty" yaml:"uri,omitempty"`
@@ -84,6 +88,24 @@ type Backend struct {
 	// Pinned args — fixed inputs the workspace author sets. On merge with
 	// caller-supplied inputs, Pinned wins on conflict.
 	Pinned map[string]interface{} `json:"pinned,omitempty" yaml:"pinned,omitempty"`
+}
+
+// MCPRequestBinding names exact argument paths consumed by an MCP tool.
+// Dotted paths are expanded by the datasource service's existing input mapper.
+type MCPRequestBinding struct {
+	QueryPath      string `json:"queryPath" yaml:"queryPath"`
+	DataSourcePath string `json:"dataSourcePath,omitempty" yaml:"dataSourcePath,omitempty"`
+	// AuthContextPath receives a server-verified auth.Context value, including
+	// the current narrowed allowedEntities. Never populate it from authored
+	// report input or caller-provided datasource arguments.
+	AuthContextPath string `json:"authContextPath,omitempty" yaml:"authContextPath,omitempty"`
+	// HasMorePath is the exact path in the projected DataInfo object used by
+	// report callers to determine whether another offset page exists.
+	HasMorePath string `json:"hasMorePath,omitempty" yaml:"hasMorePath,omitempty"`
+	// CompleteResult is a server-owned assertion that the tool returns the
+	// entire result in one call. When false, report callers require an explicit
+	// hasMore signal and an offset page to prove completeness.
+	CompleteResult bool `json:"completeResult,omitempty" yaml:"completeResult,omitempty"`
 }
 
 // MCPCall describes one call in a fixed MCP composite or a fanout stage.
