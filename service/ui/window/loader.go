@@ -23,6 +23,9 @@ func LoadWorkspaceWindow(ctx context.Context, windowKey string, target *metaSvc.
 	if windowKey == "" {
 		return nil, nil
 	}
+	if providerID, remoteKey, ok := ParseRemoteWindowKey(windowKey); ok {
+		return LoadRemoteWindow(ctx, providerID, remoteKey)
+	}
 	workspaceWindowRoot := "file://" + filepath.ToSlash(filepath.Join(workspace.Root(), workspace.KindForgeWindow))
 	loader := metaSvc.New(afs.New(), workspaceWindowRoot)
 	if resolvedBase, err := loader.ResolveWindowBase(ctx, metaURL.Join(workspaceWindowRoot, windowKey, "main"), target); err == nil {

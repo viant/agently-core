@@ -21,12 +21,14 @@ import (
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
+	windowloader "github.com/viant/agently-core/service/ui/window"
 	svcworkspace "github.com/viant/agently-core/service/workspace"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
 type APIOptions struct {
 	Version          string
+	LayoutDefault    []byte
 	Runtime          *executor.Runtime
 	Client           sdk.Backend
 	AgentFinder      agentmodel.Finder
@@ -43,6 +45,20 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		metadataVersion = "agently-core"
 	}
 	metadataHandler := svcworkspace.NewMetadataHandler(opts.Runtime.Defaults, opts.Runtime.Store, metadataVersion)
+	metadataHandler.SetLayoutDefault(opts.LayoutDefault)
+	metadataHandler.SetToolDefinitionsLoader(func(ctx context.Context) ([]svcworkspace.ToolDefinition, error) {
+		defs, err := opts.Client.ListToolDefinitions(ctx)
+		if err != nil {
+			return nil, err
+		}
+		result := make([]svcworkspace.ToolDefinition, 0, len(defs))
+		for _, definition := range defs {
+			result = append(result, svcworkspace.ToolDefinition{Name: definition.Name, Description: definition.Description, Parameters: definition.Parameters, Required: definition.Required, OutputSchema: definition.OutputSchema, Cacheable: definition.Cacheable})
+		}
+		return result, nil
+	})
+	windowloader.ConfigureRemoteWindowProvider(opts.Runtime.Registry, opts.LayoutDefault)
+	windowloader.ConfigureRemoteWindowAuthorization(metadataHandler.AuthorizeRemoteWindow)
 	metadataHandler.SetReportingCapabilityEnabled(opts.Runtime.Reporting != nil)
 	metadataHandler.SetAuthorizationPolicy(opts.Runtime.AuthorizationPolicy)
 	fileBrowserHandler := svcworkspace.NewFileBrowserHandler()

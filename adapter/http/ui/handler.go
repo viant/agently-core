@@ -79,6 +79,10 @@ func newHandler(root string, efs *embed.FS) http.Handler {
 		target := targetContextFromRequest(r)
 		aWindow, workspaceErr := windowloader.LoadWorkspaceWindow(r.Context(), windowKey, target)
 		if workspaceErr != nil {
+			if errors.Is(workspaceErr, policy.ErrDenied) {
+				http.Error(w, "window not found", http.StatusNotFound)
+				return
+			}
 			http.Error(w, workspaceErr.Error(), http.StatusInternalServerError)
 			return
 		}
