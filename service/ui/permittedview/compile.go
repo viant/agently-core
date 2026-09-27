@@ -15,6 +15,17 @@ type reducedCondition struct {
 	dynamic  any
 }
 
+// EvaluateAuthorizationCondition evaluates a condition against the same
+// snapshot scope and operators used when compiling a protected Forge window.
+// Callers must validate authored condition syntax before invoking it.
+func EvaluateAuthorizationCondition(condition any, snapshot *Snapshot, resource *Resource) (bool, error) {
+	reduced := reduceCondition(condition, authorizationScope(snapshot, resource))
+	if reduced.constant == nil {
+		return false, fmt.Errorf("condition is not an authorization condition")
+	}
+	return *reduced.constant, nil
+}
+
 func Compile(bound *BoundView, snapshot *Snapshot) (*Result, error) {
 	if bound == nil || bound.Window == nil {
 		return nil, fmt.Errorf("permitted view: bound window is required")
