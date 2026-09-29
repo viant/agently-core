@@ -597,3 +597,28 @@ func sortedDataSourceKeys(window *forgeTypes.Window) []string {
 	}
 	return sortedKeys(keys)
 }
+
+func TestChatAttachesNamedLookupDialogClosure(t *testing.T) {
+	withLoaderWorkspaceRoot(t, func(root string) {
+		writeStewardLikeWorkspace(t, root)
+		mustWriteLoaderFile(t, filepath.Join(root, workspace.KindForgeLookup, "order.yaml"), `
+id: order_lookup
+bindings:
+  - named: {name: order}
+    lookup: {dataSource: order_lookup, dialogId: adOrderPicker}
+`)
+		chat := &forgeTypes.Window{WindowKey: "chat/new", View: forgeTypes.View{Content: &forgeTypes.Container{Chat: &forgeTypes.Chat{}}}}
+		if err := MergeWorkspaceForgeAssets(context.Background(), chat, nil); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := chat.DataSource["order_lookup"]; !ok {
+			t.Fatal("named lookup datasource missing")
+		}
+		if len(chat.Dialogs) != 1 || chat.Dialogs[0].Id != "adOrderPicker" {
+			t.Fatalf("picker missing: %v", dialogIDs(chat))
+		}
+		if _, leaked := chat.DataSource["order_properties"]; leaked {
+			t.Fatal("unrelated order window leaked into chat")
+		}
+	})
+}
