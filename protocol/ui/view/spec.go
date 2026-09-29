@@ -12,6 +12,7 @@ type Spec struct {
 	Region             string         `json:"region,omitempty" yaml:"region,omitempty"`
 	OpenMode           string         `json:"openMode,omitempty" yaml:"openMode,omitempty"`
 	IdentityScope      string         `json:"identityScope,omitempty" yaml:"identityScope,omitempty"`
+	QuickSearch        *QuickSearch   `json:"quickSearch,omitempty" yaml:"quickSearch,omitempty"`
 	IdentityParameters []string       `json:"identityParameters,omitempty" yaml:"identityParameters,omitempty"`
 	WorkspaceSharePct  int            `json:"workspaceSharePct,omitempty" yaml:"workspaceSharePct,omitempty"`
 	WorkspaceMinHeight int            `json:"workspaceMinHeight,omitempty" yaml:"workspaceMinHeight,omitempty"`
@@ -21,6 +22,13 @@ type Spec struct {
 	ReportPresets      []ReportPreset `json:"reportPresets,omitempty" yaml:"reportPresets,omitempty"`
 	Capabilities       Capabilities   `json:"capabilities,omitempty" yaml:"capabilities,omitempty"`
 	Navigation         *Navigation    `json:"navigation,omitempty" yaml:"navigation,omitempty"`
+}
+
+// QuickSearch declares the one datasource filter a name-based browse may seed
+// while opening the view. The agent supplies only the search text.
+type QuickSearch struct {
+	DataSourceRef string `json:"dataSourceRef" yaml:"dataSourceRef"`
+	Field         string `json:"field" yaml:"field"`
 }
 
 type Navigation struct {
