@@ -1363,3 +1363,33 @@ func mustWriteFile(t *testing.T, path, contents string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
+
+func TestPrepareOpenItemUsesDeclaredQuickSearch(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "advertiserList.yaml"), `
+id: advertiserList
+title: Advertisers
+windowKey: advertiserList
+identityScope: conversation
+quickSearch: {dataSourceRef: advertiser_list_performance, field: Name}
+parameters:
+  - {name: AgencyId, bindTo: advertiser_list_performance.parameters.AgencyId}
+`)
+		viewSvc := New(repo.New(afs.New()), nil)
+		prepared, err := viewSvc.prepareOpenItem(context.Background(), OpenItem{ID: "advertiserList", SearchText: "Whoop", Parameters: map[string]interface{}{"AgencyId": 12}})
+		if err != nil {
+			t.Fatalf("prepare search: %v", err)
+		}
+		if prepared.searchText != "Whoop" || prepared.item.QuickSearch == nil || prepared.item.QuickSearch.Field != "Name" {
+			t.Fatalf("quick search was not bound from the view: %#v", prepared)
+		}
+		assertNestedValue(t, prepared.windowParameters, "Whoop", "advertiser_list_performance", "filter", "Name")
+		assertNestedValue(t, prepared.windowParameters, 12, "advertiser_list_performance", "parameters", "AgencyId")
+		if got := computeWindowID("advertiserList", prepared.windowParameters, "conversation-1", prepared.item); got != "advertiserList__conversation-1" {
+			t.Fatalf("search should reuse the conversation list window, got %q", got)
+		}
+		if _, err = viewSvc.prepareOpenItem(context.Background(), OpenItem{ID: "advertiserList", SearchText: "  "}); err == nil {
+			t.Fatal("blank quick search should fail")
+		}
+	})
+}

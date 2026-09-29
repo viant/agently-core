@@ -34,6 +34,7 @@ type ListItem struct {
 	Region             string                   `json:"region,omitempty"`
 	OpenMode           string                   `json:"openMode,omitempty"`
 	IdentityScope      string                   `json:"identityScope,omitempty"`
+	QuickSearch        *viewproto.QuickSearch   `json:"quickSearch,omitempty"`
 	IdentityParameters []string                 `json:"identityParameters,omitempty"`
 	WorkspaceSharePct  int                      `json:"workspaceSharePct,omitempty"`
 	WorkspaceMinHeight int                      `json:"workspaceMinHeight,omitempty"`
@@ -60,6 +61,7 @@ type GetOutput struct {
 type OpenInput struct {
 	ID         string                 `json:"id,omitempty"`
 	Parameters map[string]interface{} `json:"parameters,omitempty"`
+	SearchText string                 `json:"searchText,omitempty"`
 	OpenMode   string                 `json:"openMode,omitempty"`
 	Items      []OpenItem             `json:"items,omitempty"`
 	ClientID   string                 `json:"clientId,omitempty"`
@@ -69,6 +71,7 @@ type OpenInput struct {
 type OpenItem struct {
 	ID         string                 `json:"id"`
 	Parameters map[string]interface{} `json:"parameters"`
+	SearchText string                 `json:"searchText,omitempty"`
 	OpenMode   string                 `json:"openMode,omitempty"`
 }
 
@@ -112,6 +115,7 @@ type OpenResultItem struct {
 type preparedOpenItem struct {
 	item                   *ListItem
 	openMode               string
+	searchText             string
 	windowParameters       map[string]interface{}
 	reportPresetResolution *viewproto.ReportPresetResolution
 }
@@ -165,7 +169,7 @@ func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "list", Description: "List workspace-defined dynamic UI views that can be opened for the user.", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "get", Description: "Get a workspace-defined dynamic UI view by id.", Input: reflect.TypeOf(&GetInput{}), Output: reflect.TypeOf(&GetOutput{})},
-		{Name: "open", Description: "Open one or more workspace-defined dynamic UI views for the active conversation and wait for the UI to acknowledge the request. For a single open, provide id plus parameters. For ordered multi-open, provide items[] where each item includes id, parameters, and optional openMode. parameters.reportStarterId may be a canonical ReportPresets id, a unique human label, or the reserved __blank__ value.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
+		{Name: "open", Description: "Open one or more workspace-defined dynamic UI views for the active conversation and wait for the UI to acknowledge the request. For a single open, provide id plus parameters. A list view with declared quickSearch also accepts searchText to seed its name filter before loading. For ordered multi-open, provide items[] where each item includes id, parameters, and optional openMode. parameters.reportStarterId may be a canonical ReportPresets id, a unique human label, or the reserved __blank__ value.", Input: reflect.TypeOf(&OpenInput{}), Output: reflect.TypeOf(&OpenOutput{})},
 	}
 }
 
@@ -236,6 +240,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 		items = append(items, OpenItem{
 			ID:         input.ID,
 			Parameters: input.Parameters,
+			SearchText: input.SearchText,
 			OpenMode:   input.OpenMode,
 		})
 	}
@@ -375,6 +380,24 @@ func (s *Service) prepareOpenItem(ctx context.Context, input OpenItem) (*prepare
 		return nil, fmt.Errorf("missing required view parameter(s) for %q: %s; retry ui/view:open with a parameters object that includes those keys", item.ID, strings.Join(missing, ", "))
 	}
 	windowParameters := expandOpenParameters(item.Parameters, rawParameters)
+	if input.SearchText != "" {
+		if strings.TrimSpace(input.SearchText) == "" || item.QuickSearch == nil ||
+			strings.TrimSpace(item.QuickSearch.DataSourceRef) == "" || strings.TrimSpace(item.QuickSearch.Field) == "" {
+			return nil, fmt.Errorf("view %q does not support name quick search", item.ID)
+		}
+		ref := item.QuickSearch.DataSourceRef
+		seed, _ := windowParameters[ref].(map[string]interface{})
+		if seed == nil {
+			seed = map[string]interface{}{}
+		}
+		filter, _ := seed["filter"].(map[string]interface{})
+		if filter == nil {
+			filter = map[string]interface{}{}
+		}
+		filter[item.QuickSearch.Field] = input.SearchText
+		seed["filter"] = filter
+		windowParameters[ref] = seed
+	}
 	if reportPresetResolution != nil {
 		// Forge consumes reportStarterId as a top-level window parameter even
 		// when a workspace parameter declaration also binds it elsewhere.
@@ -388,6 +411,7 @@ func (s *Service) prepareOpenItem(ctx context.Context, input OpenItem) (*prepare
 	return &preparedOpenItem{
 		item:                   item,
 		openMode:               input.OpenMode,
+		searchText:             input.SearchText,
 		windowParameters:       windowParameters,
 		reportPresetResolution: reportPresetResolution,
 	}, nil
@@ -433,17 +457,21 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 	options := buildOpenWindowOptions(item, conversationID, prepared.openMode)
 	options["workspaceObject"] = descriptor
 	options["waitForReady"] = item.RefreshOnOpen != nil && *item.RefreshOnOpen
+	params := map[string]interface{}{
+		"windowId": windowID, "windowKey": item.WindowKey,
+		"windowTitle": item.Title, "parameters": windowParameters,
+		"options": options,
+	}
+	if prepared.searchText != "" && item.QuickSearch != nil {
+		params["initialFilters"] = map[string]interface{}{
+			item.QuickSearch.DataSourceRef: map[string]interface{}{item.QuickSearch.Field: prepared.searchText},
+		}
+	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
 		Method:    "ui.window.open",
-		Params: map[string]interface{}{
-			"windowId":    windowID,
-			"windowKey":   item.WindowKey,
-			"windowTitle": item.Title,
-			"parameters":  windowParameters,
-			"options":     options,
-		},
+		Params:    params,
 		TimeoutMs: timeout,
 	})
 	if err != nil {
@@ -810,6 +838,7 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 			Region:             strings.TrimSpace(spec.Region),
 			OpenMode:           strings.TrimSpace(spec.OpenMode),
 			IdentityScope:      strings.TrimSpace(spec.IdentityScope),
+			QuickSearch:        spec.QuickSearch,
 			IdentityParameters: append([]string(nil), spec.IdentityParameters...),
 			WorkspaceSharePct:  spec.WorkspaceSharePct,
 			WorkspaceMinHeight: spec.WorkspaceMinHeight,
