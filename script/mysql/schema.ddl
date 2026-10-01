@@ -4,6 +4,7 @@ SET NAMES utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS sqlx_scoped_sequences;
 DROP TABLE IF EXISTS maintenance_lease;
 DROP TABLE IF EXISTS tool_execution_claim;
 DROP TABLE IF EXISTS conversation_report_context;
