@@ -1,5 +1,5 @@
 {
-  "objective_complete": true,
+  "objective_complete": false,
   "published_datly": "v1.1.1-0.20260930202444-a59b17988b72",
   "requirements": [
     {
@@ -101,5 +101,14 @@
   "user_scope_update": "Live IdP secret testing deferred; commit all migration changes on v1 and remove unused code.",
   "deferred_followups": [
     "Live scheduler IdP token exchange/authorization with secret references, explicitly deferred by user."
+  ],
+  "current_verification_date": "2026-10-01",
+  "historical_evidence_scope": "Requirement results below record the September 30 checkpoint. They do not prove the October 1 simplification/public type changes.",
+  "current_blockers": [
+    "Generated message CurrentWriter SQL references Go alias Narration rather than physical preamble; fix and regeneration pending.",
+    "Current full Core tests fail; cube source/filter and output casing failures require resolution.",
+    "Original versus v1 plain/tool/attachment transcript and database comparison pending.",
+    "Live UI/CLI query/transcript verification on SQLite and MySQL pending.",
+    "New Datly compiler commits require published revision pin and reproducible final generation."
   ]
 }

@@ -1,7 +1,7 @@
 # Datly migration checkpoint
 
 Migration work is in `agently-core-v1`, branch `v1`. The user authorized
-Core and Agently migration/cleanup commits are on `v1`; live IdP secret testing is deferred.
+Core and Agently migration/cleanup commits are on `v1`. October 1 live verification is active; completion remains unproven.
 The original checkout remains separate.
 
 ## Current root layout
@@ -20,7 +20,11 @@ One Core module contains 62 explicitly typed DQL contracts:
 Table ownership comes from emitted root view tags; nested joins and computed
 snapshots do not establish another physical-table component.
 
-## Validation scope
+## Current verification status (October 1)
+
+Core `ecdd1962` and Agently `b70ab461` are committed. All 62 contracts transcribe and regenerate 827 artifacts unchanged. The current full Core suite fails, including a generated message writer alias error and reporting cube failures. Live UI/CLI conversations and original-version transcript/database comparisons are pending. See [current acceptance](final-acceptance-audit.json).
+
+## Historical validation scope (September 30)
 
 Core and Agently full Go suites and builds pass against published Datly
 `a59b17988b72`, unified xdatly v1 and published SQLX, without local framework
