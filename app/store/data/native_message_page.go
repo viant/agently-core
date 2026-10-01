@@ -2,8 +2,6 @@ package data
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	read "github.com/viant/agently-core/internal/datly/message/read"
@@ -92,24 +90,9 @@ func (s *datlyService) queryMessageRowsNative(ctx context.Context, input *messag
 		}})
 	}
 	component := &store.MessageStore{Invoker: s.native, OwnerID: authctx.EffectiveUserID}
-	rows, err := component.ListRows(ctx, nativeMessagePageInput(input), selectors)
+	rows, err := component.ListBaseRows(ctx, nativeMessagePageInput(input), selectors)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*messagemodel.MessageRowsView, 0, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		encoded, err := json.Marshal(row)
-		if err != nil {
-			return nil, fmt.Errorf("encode native message row: %w", err)
-		}
-		var mapped messagemodel.MessageRowsView
-		if err := json.Unmarshal(encoded, &mapped); err != nil {
-			return nil, fmt.Errorf("decode message row contract: %w", err)
-		}
-		result = append(result, &mapped)
-	}
-	return result, nil
+	return rows, nil
 }
