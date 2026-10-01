@@ -104,9 +104,16 @@ func TestLinkStateCanonicalReader(t *testing.T) {
 		must(t, err)
 		var rows []map[string]any
 		must(t, json.Unmarshal(raw, &rows))
-		if len(rows) != 1 || rows[0]["StateHash"] != "s" {
-			t.Fatal("HTTP state lookup failed")
-		}
+			if len(rows) != 1 {
+				t.Fatalf("HTTP state lookup returned %d rows, want 1", len(rows))
+			}
+			stateHash, present := rows[0]["stateHash"]
+			if !present || stateHash != "s" {
+				t.Fatalf("HTTP state lookup requires lowerCamel stateHash=s, got %s", raw)
+			}
+			if _, legacyName := rows[0]["StateHash"]; legacyName {
+				t.Fatal("HTTP state lookup exposed PascalCase StateHash")
+			}
 	})
 }
 func linkStateReaderRuntime(t *testing.T, db *sql.DB) (*druntime.Runtime, spec.Key) {
