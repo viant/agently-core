@@ -1,9 +1,8 @@
 package run
 
 import (
+	read "github.com/viant/agently-core/internal/datly/runsteps/read"
 	"github.com/viant/xdatly/response"
-
-	"time"
 )
 
 // Public data shapes retained for Go caller and JSON compatibility.
@@ -31,18 +30,6 @@ type RunStepsOutput struct {
 	Metrics         response.Metrics
 }
 
-type RunStepsView struct {
-	StepType       string     `sqlx:"step_type"`
-	RunId          *string    `sqlx:"run_id"`
-	ConversationId *string    `sqlx:"conversation_id"`
-	Iteration      *int       `sqlx:"iteration"`
-	MessageId      string     `sqlx:"message_id"`
-	Name           string     `sqlx:"name"`
-	Status         string     `sqlx:"status"`
-	StartedAt      *time.Time `sqlx:"started_at"`
-	CompletedAt    *time.Time `sqlx:"completed_at"`
-	LatencyMs      *int       `sqlx:"latency_ms"`
-	ErrorMessage   *string    `sqlx:"error_message"`
-}
+type RunStepsView = read.RunStepsView
 
 var RunStepsPathURI = "/v1/api/agently/run/steps/steps"
