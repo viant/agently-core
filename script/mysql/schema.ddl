@@ -4,7 +4,6 @@ SET NAMES utf8mb4;
 
 SET FOREIGN_KEY_CHECKS = 0;
 
-DROP TABLE IF EXISTS sqlx_scoped_sequences;
 DROP TABLE IF EXISTS maintenance_lease;
 DROP TABLE IF EXISTS tool_execution_claim;
 DROP TABLE IF EXISTS conversation_report_context;
@@ -800,10 +799,3 @@ CREATE TABLE IF NOT EXISTS tool_execution_claim (
     KEY idx_tool_execution_claim_rule_tool_state_updated
         (rule_id, canonical_tool_name, state, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
-
--- SQLX scoped allocation is provisioned before business transactions.
--- MySQL DDL must not run while a caller's managed transaction is active.
-CREATE TABLE IF NOT EXISTS sqlx_scoped_sequences (
-    scope_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
-    value BIGINT NOT NULL
-) ENGINE=InnoDB;
