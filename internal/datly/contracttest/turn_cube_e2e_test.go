@@ -123,7 +123,15 @@ func TestTurnFactCube(t *testing.T) {
 			for _, row := range rows {
 				item := map[string]any{}
 				for key := range tc.expect.rows[0] {
-					item[key] = row[key]
+					wireName := strings.ToLower(key[:1]) + key[1:]
+					value, present := row[wireName]
+					if !present {
+						t.Fatalf("missing lowerCamel report field %q in %s", wireName, pretty(row))
+					}
+					if _, legacyName := row[key]; legacyName {
+						t.Fatalf("unexpected PascalCase report field %q", key)
+					}
+					item[key] = value
 				}
 				selected = append(selected, item)
 			}
