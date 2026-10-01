@@ -793,10 +793,10 @@ func shouldContinueAfterAsyncChange(planEmpty bool, hasActiveWaitOps bool, chang
 }
 
 func (s *Service) currentGoalAsyncPolicy(ctx context.Context, conversationID string) goalsys.AsyncPolicy {
-	if s == nil || s.dataService == nil || strings.TrimSpace(conversationID) == "" {
+	if s == nil || s.goalRuntime == nil || strings.TrimSpace(conversationID) == "" {
 		return goalsys.AsyncPolicyEvaluate
 	}
-	current, err := goalsys.NewStore(s.dataService).Current(ctx, strings.TrimSpace(conversationID))
+	current, err := s.goalRuntime.Current(ctx, strings.TrimSpace(conversationID))
 	if err != nil || current == nil || current.Controller == nil {
 		return goalsys.AsyncPolicyEvaluate
 	}

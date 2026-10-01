@@ -1,0 +1,62 @@
+#package('github.com/viant/agently-core/internal/datly/goal/write')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/goal','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Status<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $Goals<[]*Goal>(body/data))
+#define($_ = $Data<[]*Goal>(output/body))
+
+SELECT data_rows.id, data_rows.should_delete,
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:",omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
+       data_rows.conversation_id,
+       data_rows.objective,
+       data_rows.status,
+       data_rows.status_reason,
+       data_rows.pause_reason,
+       data_rows.controller_spec,
+       data_rows.token_budget,
+       data_rows.tokens_used,
+       data_rows.time_used_seconds,
+       data_rows.autonomous_turns_used,
+       data_rows.consecutive_no_progress,
+       data_rows.last_continuation_fingerprint,
+       data_rows.created_at,
+       data_rows.updated_at,
+       type(data_rows,'Goal'),
+       lifecycle_type(data_rows,'Lifecycle'),
+       CAST(data_rows.id AS string),
+       tag(data_rows.id,'validate:"required" sqlx:"id,primaryKey"'),
+       CAST(data_rows.conversation_id AS *string),
+       tag(data_rows.conversation_id,'json:",omitempty" sqlx:"conversation_id"'),
+       CAST(data_rows.objective AS *string),
+       tag(data_rows.objective,'json:",omitempty" sqlx:"objective"'),
+       CAST(data_rows.status AS *string),
+       tag(data_rows.status,'json:",omitempty" sqlx:"status"'),
+       CAST(data_rows.status_reason AS *string),
+       tag(data_rows.status_reason,'json:",omitempty" sqlx:"status_reason"'),
+       CAST(data_rows.pause_reason AS *string),
+       tag(data_rows.pause_reason,'json:",omitempty" sqlx:"pause_reason"'),
+       CAST(data_rows.controller_spec AS *string),
+       tag(data_rows.controller_spec,'json:",omitempty" sqlx:"controller_spec"'),
+       CAST(data_rows.token_budget AS *int64),
+       tag(data_rows.token_budget,'json:",omitempty" sqlx:"token_budget"'),
+       CAST(data_rows.tokens_used AS *int64),
+       tag(data_rows.tokens_used,'json:",omitempty" sqlx:"tokens_used"'),
+       CAST(data_rows.time_used_seconds AS *int64),
+       tag(data_rows.time_used_seconds,'json:",omitempty" sqlx:"time_used_seconds"'),
+       CAST(data_rows.autonomous_turns_used AS *int64),
+       tag(data_rows.autonomous_turns_used,'json:",omitempty" sqlx:"autonomous_turns_used"'),
+       CAST(data_rows.consecutive_no_progress AS *int64),
+       tag(data_rows.consecutive_no_progress,'json:",omitempty" sqlx:"consecutive_no_progress"'),
+       CAST(data_rows.last_continuation_fingerprint AS *string),
+       tag(data_rows.last_continuation_fingerprint,'json:",omitempty" sqlx:"last_continuation_fingerprint"'),
+       CAST(data_rows.created_at AS *time.Time),
+       tag(data_rows.created_at,'json:",omitempty" sqlx:"created_at"'),
+       CAST(data_rows.updated_at AS *time.Time),
+       tag(data_rows.updated_at,'json:",omitempty" sqlx:"updated_at"')
+FROM (SELECT 0 AS should_delete, `id`, `conversation_id`, `objective`, `status`, `status_reason`, `pause_reason`, `controller_spec`, `token_budget`, `tokens_used`, `time_used_seconds`, `autonomous_turns_used`, `consecutive_no_progress`, `last_continuation_fingerprint`, `created_at`, `updated_at` FROM goal) data_rows

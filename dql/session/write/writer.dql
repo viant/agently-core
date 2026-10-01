@@ -1,0 +1,35 @@
+#package('github.com/viant/agently-core/internal/datly/session/write')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/user/session','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Session<[]*Session>(body/data))
+#define($_ = $Data<[]*Session>(output/body))
+
+SELECT data_rows.id, data_rows.should_delete,
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:",omitempty"'),
+       delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
+       data_rows.user_id,
+       data_rows.provider,
+       data_rows.created_at,
+       data_rows.updated_at,
+       data_rows.expires_at,
+       type(data_rows,'Session'),
+       lifecycle_type(data_rows,'Lifecycle'),
+       CAST(data_rows.id AS string),
+       tag(data_rows.id,'json:"id,omitempty" sqlx:"id,primaryKey"'),
+       CAST(data_rows.user_id AS string),
+       tag(data_rows.user_id,'json:"userId,omitempty" sqlx:"user_id"'),
+       CAST(data_rows.provider AS string),
+       tag(data_rows.provider,'json:"provider,omitempty" sqlx:"provider"'),
+       CAST(data_rows.created_at AS time.Time),
+       tag(data_rows.created_at,'json:"createdAt,omitempty" sqlx:"created_at" format:"2006-01-02 15:04:05"'),
+       CAST(data_rows.updated_at AS *time.Time),
+       tag(data_rows.updated_at,'json:"updatedAt,omitempty" sqlx:"updated_at" format:"2006-01-02 15:04:05"'),
+       CAST(data_rows.expires_at AS time.Time),
+       tag(data_rows.expires_at,'json:"expiresAt,omitempty" sqlx:"expires_at" format:"2006-01-02 15:04:05"')
+FROM (SELECT 0 AS should_delete, `id`, `user_id`, `provider`, `created_at`, `updated_at`, `expires_at` FROM session) data_rows

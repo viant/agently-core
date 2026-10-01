@@ -1,0 +1,46 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/audit/read')
+#import('time','time')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/audit','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(reportAuditAccess/internal).Required())
+#define($_ = $EventID<string>(query/eventId).Optional().WithPredicate(0,'equal','a','event_id'))
+#define($_ = $JobID<string>(query/jobId).Optional().WithPredicate(0,'equal','a','job_id'))
+#define($_ = $ArtifactID<string>(query/artifactId).Optional().WithPredicate(0,'equal','a','artifact_id'))
+#define($_ = $ActorID<string>(query/actorId).Optional().WithPredicate(0,'equal','a','actor_id'))
+#define($_ = $JobIDs<[]string>(query/jobIds).Optional().WithPredicate(0,'in','a','job_id'))
+#define($_ = $ArtifactIDs<[]string>(query/artifactIds).Optional().WithPredicate(0,'in','a','artifact_id'))
+#define($_ = $TechnicalRetention<*predicate.TechnicalRetention>(technicalMaintenance/policy).Optional().WithPredicate(0,'handler','predicate.TechnicalReportAuditRetention'))
+#define($_ = $LockRows<bool>(reportAuditAccess/lock).Optional())
+#define($_ = $Data<[]*AuditEvent>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOrderBy=true"'))
+
+SELECT data_rows.maintenance_observed_at,
+       CAST(data_rows.maintenance_observed_at AS string), internal(data_rows.maintenance_observed_at), tag(data_rows.maintenance_observed_at,'json:"-"'),
+       data_rows.event_id, data_rows.event_type, data_rows.artifact_ref, data_rows.version,
+       data_rows.job_id, data_rows.artifact_id, data_rows.actor_id, data_rows.actor_ref,
+       data_rows.occurred_at, data_rows.metadata_json,
+       type(data_rows,'AuditEvent'),
+       CAST(data_rows.event_id AS string),
+       CAST(data_rows.event_type AS string),
+       CAST(data_rows.artifact_ref AS string),
+       CAST(data_rows.version AS int64),
+       CAST(data_rows.job_id AS *string),
+       CAST(data_rows.artifact_id AS *string),
+       CAST(data_rows.actor_id AS string),
+       CAST(data_rows.actor_ref AS *string),
+       CAST(data_rows.occurred_at AS time.Time),
+       CAST(data_rows.metadata_json AS []byte)
+FROM (
+    SELECT CAST(a.occurred_at AS CHAR) AS maintenance_observed_at, a.event_id, a.event_type, a.artifact_ref, a.version,
+           a.job_id, a.artifact_id, a.actor_id, a.actor_ref,
+           a.occurred_at, a.metadata_json
+    FROM report_audit_event a
+    WHERE $Trusted
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
+    ORDER BY a.occurred_at, a.event_id
+ #if($LockRows) ${View.ForUpdate()} #end
+) data_rows

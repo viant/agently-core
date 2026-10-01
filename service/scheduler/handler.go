@@ -119,6 +119,10 @@ func (h *Handler) handleListRuns() http.HandlerFunc {
 			return
 		}
 		input := &schrun.RunListInput{Has: &schrun.RunListInputHas{}}
+		if query.Has("since") {
+			input.Since = query.Get("since")
+			input.Has.Since = true
+		}
 		if userID := strings.TrimSpace(svcauth.EffectiveUserID(r.Context())); userID != "" {
 			input.EffectiveUserID = userID
 			input.Has.EffectiveUserID = true

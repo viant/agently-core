@@ -12,7 +12,6 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/runtime/streaming"
 	goalsys "github.com/viant/agently-core/service/goal"
@@ -45,8 +44,14 @@ func (c *captureGoalEventPublisher) HasEvent(eventType streaming.EventType) bool
 
 func TestObserveDetachedAsyncGoalCompletion_QueuesContinuationWhenIdle(t *testing.T) {
 	ctx := context.Background()
-	dataSvc, err := data.NewThinServiceInMemory(ctx)
+	for _, name := range []string{"AGENTLY_DB_DRIVER", "AGENTLY_DB_DSN", "AGENTLY_DB_PATH", "AGENTLY_DB_SECRETS"} {
+		t.Setenv(name, "")
+	}
+	server, err := data.NewRuntimeFromWorkspace(ctx, t.TempDir())
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
+	dataSvc := data.NewService(server)
+
 	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{
 		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
 	})
@@ -58,16 +63,7 @@ func TestObserveDetachedAsyncGoalCompletion_QueuesContinuationWhenIdle(t *testin
 		OnAsyncCompleted: goalsys.AsyncPolicyEvaluate,
 	}).Encode()
 	require.NoError(t, err)
-	_, err = dataSvc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{
-		aggoalwrite.NewMutableGoalView(
-			aggoalwrite.WithGoalID("goal-conv-goal"),
-			aggoalwrite.WithGoalConversationID("conv-goal"),
-			aggoalwrite.WithGoalObjective("finish parser cleanup"),
-			aggoalwrite.WithGoalStatus("active"),
-			aggoalwrite.WithGoalControllerSpec(spec),
-		),
-	})
-	require.NoError(t, err)
+	goalStore := newLinkedGoalStore(t, "goal-conv-goal", "conv-goal", "finish parser cleanup", spec)
 
 	convClient := convmem.New()
 	conv := convcli.NewConversation()
@@ -81,7 +77,7 @@ func TestObserveDetachedAsyncGoalCompletion_QueuesContinuationWhenIdle(t *testin
 		dataService:  dataSvc,
 		conversation: convClient,
 		asyncManager: manager,
-		goalRuntime:  goalsys.NewRuntime(goalsys.NewStore(dataSvc)),
+		goalRuntime:  goalsys.NewRuntime(goalStore),
 		streamPub:    pub,
 	}
 
@@ -143,16 +139,7 @@ func TestObserveDetachedAsyncGoalCompletion_RespectsAsyncPolicyWait(t *testing.T
 		OnAsyncCompleted: goalsys.AsyncPolicyWait,
 	}).Encode()
 	require.NoError(t, err)
-	_, err = dataSvc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{
-		aggoalwrite.NewMutableGoalView(
-			aggoalwrite.WithGoalID("goal-conv-goal"),
-			aggoalwrite.WithGoalConversationID("conv-goal"),
-			aggoalwrite.WithGoalObjective("finish parser cleanup"),
-			aggoalwrite.WithGoalStatus("active"),
-			aggoalwrite.WithGoalControllerSpec(spec),
-		),
-	})
-	require.NoError(t, err)
+	goalStore := newLinkedGoalStore(t, "goal-conv-goal", "conv-goal", "finish parser cleanup", spec)
 
 	convClient := convmem.New()
 	conv := convcli.NewConversation()
@@ -165,7 +152,7 @@ func TestObserveDetachedAsyncGoalCompletion_RespectsAsyncPolicyWait(t *testing.T
 		dataService:  dataSvc,
 		conversation: convClient,
 		asyncManager: manager,
-		goalRuntime:  goalsys.NewRuntime(goalsys.NewStore(dataSvc)),
+		goalRuntime:  goalsys.NewRuntime(goalStore),
 	}
 
 	rec, _ := manager.Register(ctx, asynccfg.RegisterInput{
@@ -210,16 +197,7 @@ func TestObserveDetachedAsyncGoalCompletion_SuppressesDuplicateQueueingAcrossCon
 		OnAsyncCompleted: goalsys.AsyncPolicyEvaluate,
 	}).Encode()
 	require.NoError(t, err)
-	_, err = dataSvc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{
-		aggoalwrite.NewMutableGoalView(
-			aggoalwrite.WithGoalID("goal-conv-goal"),
-			aggoalwrite.WithGoalConversationID("conv-goal"),
-			aggoalwrite.WithGoalObjective("finish parser cleanup"),
-			aggoalwrite.WithGoalStatus("active"),
-			aggoalwrite.WithGoalControllerSpec(spec),
-		),
-	})
-	require.NoError(t, err)
+	goalStore := newLinkedGoalStore(t, "goal-conv-goal", "conv-goal", "finish parser cleanup", spec)
 
 	convClient := convmem.New()
 	conv := convcli.NewConversation()
@@ -232,7 +210,7 @@ func TestObserveDetachedAsyncGoalCompletion_SuppressesDuplicateQueueingAcrossCon
 		dataService:  dataSvc,
 		conversation: convClient,
 		asyncManager: manager,
-		goalRuntime:  goalsys.NewRuntime(goalsys.NewStore(dataSvc)),
+		goalRuntime:  goalsys.NewRuntime(goalStore),
 	}
 
 	rec1, _ := manager.Register(ctx, asynccfg.RegisterInput{
@@ -313,16 +291,7 @@ func TestObserveDetachedAsyncGoalCompletion_DoesNotQueueWhenGoalAlreadyHasQueued
 		OnAsyncCompleted: goalsys.AsyncPolicyEvaluate,
 	}).Encode()
 	require.NoError(t, err)
-	_, err = dataSvc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{
-		aggoalwrite.NewMutableGoalView(
-			aggoalwrite.WithGoalID("goal-conv-goal"),
-			aggoalwrite.WithGoalConversationID("conv-goal"),
-			aggoalwrite.WithGoalObjective("finish parser cleanup"),
-			aggoalwrite.WithGoalStatus("active"),
-			aggoalwrite.WithGoalControllerSpec(spec),
-		),
-	})
-	require.NoError(t, err)
+	goalStore := newLinkedGoalStore(t, "goal-conv-goal", "conv-goal", "finish parser cleanup", spec)
 
 	convClient := convmem.New()
 	conv := convcli.NewConversation()
@@ -355,7 +324,7 @@ func TestObserveDetachedAsyncGoalCompletion_DoesNotQueueWhenGoalAlreadyHasQueued
 		dataService:  dataSvc,
 		conversation: convClient,
 		asyncManager: manager,
-		goalRuntime:  goalsys.NewRuntime(goalsys.NewStore(dataSvc)),
+		goalRuntime:  goalsys.NewRuntime(goalStore),
 	}
 
 	rec, _ := manager.Register(ctx, asynccfg.RegisterInput{

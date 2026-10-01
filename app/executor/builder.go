@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/viant/afs"
@@ -41,6 +42,7 @@ import (
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
+	goalsys "github.com/viant/agently-core/service/goal"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	policy "github.com/viant/agently-core/service/policy"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
@@ -56,18 +58,28 @@ import (
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
-	"github.com/viant/datly"
+	"github.com/viant/datly/standalone"
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 	protoclient "github.com/viant/mcp-protocol/client"
 )
 
 type Runtime struct {
-	Defaults *config.Defaults
+	registryWarmupMu     sync.Mutex
+	registryWarmupCancel context.CancelFunc
+	registryWarmupDone   chan struct{}
+	closed               bool
+	ownedNative          *standalone.Server
+	ownedAugmenter       *augmenter.Service
+	ownedReportingCancel context.CancelFunc
+	ownedReportingWorker *reportingsvc.Worker
+	closeOnce            sync.Once
+	closeError           error
+	Defaults             *config.Defaults
 	// AuthorizationTool is the workspace-configured MCP adapter for permitted
 	// Forge views.
 	AuthorizationTool   string
 	AuthorizationPolicy *policy.Runtime
-	DAO                 *datly.Service
+	Native              *standalone.Server
 	Conversation        conversation.Client
 	Data                data.Service
 	Registry            tool.Registry
@@ -85,10 +97,12 @@ type Runtime struct {
 	CallbackDispatch    *callbacksvc.Service
 	Reporting           *reportingsvc.Service
 	ReportRuns          *reportingrunsvc.Service
-	ReportingWorker     *reportingsvc.Worker
-	Store               workspace.Store
-	KnowledgeStore      workspace.KnowledgeStore
-	StateStore          workspace.StateStore
+	// GoalStore retains the resolved injected or native store for agent/tool sharing.
+	GoalStore       goalsys.Store
+	ReportingWorker *reportingsvc.Worker
+	Store           workspace.Store
+	KnowledgeStore  workspace.KnowledgeStore
+	StateStore      workspace.StateStore
 	// UIBridge is the single Forge UI service shared by browser RPC, agents,
 	// and all UI-facing internal tools for this runtime.
 	UIBridge *forgeuisvc.Service
@@ -115,35 +129,37 @@ func resolveScratchpadTemplate() string {
 }
 
 type Builder struct {
-	defaults          *config.Defaults
-	dao               *datly.Service
-	conversation      conversation.Client
-	data              data.Service
-	registry          tool.Registry
-	core              *core.Service
-	agentSvc          *agentsvc.Service
-	agentFinder       agentmodel.Finder
-	agentLoader       agentmodel.Loader
-	modelFinder       llm.Finder
-	modelLoader       *modelloader.Service
-	embedderFinder    embedder.Finder
-	embedderLoader    *embedderloader.Service
-	augmenter         *augmenter.Service
-	mcpManager        *mcpmgr.Manager
-	mcpAuthRTProvider mcpmgr.AuthRTProvider
-	mcpJarProvider    mcpmgr.JarProvider
-	mcpUserIDFn       mcpmgr.UserIDExtractor
-	cancelRegistry    cancels.Registry
-	elicRouter        elicrouter.ElicitationRouter
-	streamPub         modelcallctx.StreamPublisher
-	streamBus         streaming.Bus
-	hotSwapEnabled    bool
-	store             workspace.Store
-	knowledgeStore    workspace.KnowledgeStore
-	stateStore        workspace.StateStore
-	tokenProvider     token.Provider
-	reportingService  *reportingsvc.Service
-	mcpDelegatedAuth  *svcauth.DelegatedMCPAuth
+	defaults               *config.Defaults
+	conversation           conversation.Client
+	data                   data.Service
+	goalStore              goalsys.Store
+	skipRegistryInitialize bool
+	native                 *standalone.Server
+	registry               tool.Registry
+	core                   *core.Service
+	agentSvc               *agentsvc.Service
+	agentFinder            agentmodel.Finder
+	agentLoader            agentmodel.Loader
+	modelFinder            llm.Finder
+	modelLoader            *modelloader.Service
+	embedderFinder         embedder.Finder
+	embedderLoader         *embedderloader.Service
+	augmenter              *augmenter.Service
+	mcpManager             *mcpmgr.Manager
+	mcpAuthRTProvider      mcpmgr.AuthRTProvider
+	mcpJarProvider         mcpmgr.JarProvider
+	mcpUserIDFn            mcpmgr.UserIDExtractor
+	cancelRegistry         cancels.Registry
+	elicRouter             elicrouter.ElicitationRouter
+	streamPub              modelcallctx.StreamPublisher
+	streamBus              streaming.Bus
+	hotSwapEnabled         bool
+	store                  workspace.Store
+	knowledgeStore         workspace.KnowledgeStore
+	stateStore             workspace.StateStore
+	tokenProvider          token.Provider
+	reportingService       *reportingsvc.Service
+	mcpDelegatedAuth       *svcauth.DelegatedMCPAuth
 }
 
 func resolveReportingStoreDefaults(defaults *config.Defaults) config.ReportingStoreDefaults {
@@ -191,8 +207,28 @@ func hasReportingDBConfigEnv() bool {
 
 func NewBuilder() *Builder { return &Builder{} }
 
-func (b *Builder) WithDefaults(v *config.Defaults) *Builder        { b.defaults = v; return b }
-func (b *Builder) WithDAO(v *datly.Service) *Builder               { b.dao = v; return b }
+func (b *Builder) WithDefaults(v *config.Defaults) *Builder { b.defaults = v; return b }
+
+// WithSkipRegistryInitialize lets a host own asynchronous registry warmup.
+// Default builders retain synchronous initialization and the environment override.
+func (b *Builder) WithSkipRegistryInitialize(skip bool) *Builder {
+	b.skipRegistryInitialize = skip
+	return b
+}
+
+// WithGoalStore supplies a domain store using the shared Datly 1.0 invoker.
+func (b *Builder) WithGoalStore(store goalsys.Store) *Builder {
+	b.goalStore = store
+	return b
+}
+
+// WithNativeRuntime supplies the one linked Datly runtime shared by migrated
+// application callers. Its connector pools and shutdown belong to the caller.
+func (b *Builder) WithNativeRuntime(server *standalone.Server) *Builder {
+	b.native = server
+	return b
+}
+
 func (b *Builder) WithConversation(v conversation.Client) *Builder { b.conversation = v; return b }
 func (b *Builder) WithData(v data.Service) *Builder                { b.data = v; return b }
 func (b *Builder) WithRegistry(v tool.Registry) *Builder           { b.registry = v; return b }
@@ -280,7 +316,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 
 	out := &Runtime{
 		Defaults:       b.defaults,
-		DAO:            b.dao,
+		Native:         b.native,
 		MCPManager:     b.mcpManager,
 		Store:          b.store,
 		KnowledgeStore: b.knowledgeStore,
@@ -294,22 +330,28 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		return nil, err
 	}
 
-	needsDAO := b.conversation == nil || b.data == nil || reportingSQLStoreEnabled(out.Defaults)
-	if out.DAO == nil && needsDAO {
-		var (
-			dao *datly.Service
-			err error
-		)
+	var ownedNative *standalone.Server
+	buildSucceeded := false
+	defer func() {
+		if !buildSucceeded {
+			_ = out.Close(context.Background())
+		}
+	}()
+	needsSQLReporting := b.reportingService == nil && out.Defaults.Reporting.Enabled && strings.EqualFold(strings.TrimSpace(resolveReportingStoreDefaults(out.Defaults).Backend), "sql")
+	if out.Native == nil && (b.conversation == nil || b.data == nil || needsSQLReporting) {
+		var err error
 		if strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN")) == "" && strings.TrimSpace(os.Getenv("AGENTLY_DB_PATH")) == "" {
-			dao, err = data.NewDatlyFromWorkspace(ctx, workspace.RuntimeRoot())
+			ownedNative, err = data.NewRuntimeFromWorkspace(ctx, workspace.RuntimeRoot())
 		} else {
-			dao, err = data.NewDatly(ctx)
+			ownedNative, err = data.NewRuntime(ctx)
 		}
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("open linked Datly runtime: %w", err)
 		}
-		out.DAO = dao
+		out.Native = ownedNative
+		out.ownedNative = ownedNative
 	}
+
 	if out.AuthConfig == nil {
 		authCfg, err := svcauth.LoadConfig(workspace.Root())
 		if err != nil {
@@ -318,24 +360,24 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.AuthConfig = authCfg
 	}
 	if b.tokenProvider == nil {
-		b.tokenProvider = svcauth.NewCreatedByUserTokenProvider(out.AuthConfig, out.DAO)
+		b.tokenProvider = svcauth.NewCreatedByUserTokenProvider(out.AuthConfig, out.Native)
 	}
 	// Delegated MCP OAuth (auth.mode=oauth with providerRef/inlineProvider):
 	// build the workspace provider registry and credential resolver so the MCP
 	// manager can install them for delegated configs only. Legacy MCP auth is
 	// untouched when this stays nil.
 	if b.mcpDelegatedAuth == nil {
-		b.mcpDelegatedAuth = svcauth.NewDelegatedMCPAuth(out.AuthConfig, out.DAO)
-		if b.mcpDelegatedAuth != nil && out.DAO != nil {
+		b.mcpDelegatedAuth = svcauth.NewDelegatedMCPAuth(out.AuthConfig, out.Native)
+		if b.mcpDelegatedAuth != nil && out.Native != nil {
 			// Gate delegated resolution and background refresh on the canonical
 			// user's active status: disabled/deleted users fail closed.
-			b.mcpDelegatedAuth.SetUserLookup(svcauth.NewDatlyUserService(out.DAO))
+			b.mcpDelegatedAuth.SetUserLookup(svcauth.NewDatlyUserService(out.Native))
 		}
 	}
 
 	out.Conversation = b.conversation
 	if out.Conversation == nil {
-		cli, err := convsvc.New(ctx, out.DAO)
+		cli, err := convsvc.New(ctx, out.Native)
 		if err != nil {
 			return nil, err
 		}
@@ -344,7 +386,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 
 	out.Data = b.data
 	if out.Data == nil {
-		out.Data = data.NewService(out.DAO)
+		out.Data = data.NewService(out.Native)
 	}
 
 	out.ElicitationRouter = b.elicRouter
@@ -392,7 +434,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if out.Defaults.ToolExecutionProtection.Enabled {
 		guard, err := executionprotection.New(
 			out.Defaults.ToolExecutionProtection,
-			executionprotection.NewDAORepository(out.DAO),
+			executionprotection.NewComponentRepository(out.Native),
 		)
 		if err != nil {
 			return nil, err
@@ -401,7 +443,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			log.Printf("[warn] tool execution protection is enabled but the configured custom registry does not support the standard concrete registry guard")
 		}
 	}
-	if !shouldSkipRegistryInitialize() {
+	if !b.skipRegistryInitialize && !shouldSkipRegistryInitialize() {
 		out.Registry.Initialize(ctx)
 	}
 	workspaceConfig, err := wscfg.Load(workspace.Root())
@@ -468,6 +510,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			opts = append(opts, augmenter.WithMCPManager(out.MCPManager))
 		}
 		aug = augmenter.New(b.embedderFinder, opts...)
+		out.ownedAugmenter = aug
 	}
 
 	out.CancelRegistry = b.cancelRegistry
@@ -495,11 +538,16 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.Elicitation.SetStreamPublisher(out.Streaming)
 	}
 
+	out.GoalStore = b.goalStore
+	if out.GoalStore == nil && out.Native != nil {
+		out.GoalStore = goalsys.NewStore(out.Native)
+	}
 	out.Agent = b.agentSvc
 	if out.Agent == nil {
 		agentOpts := []agentsvc.Option{
 			agentsvc.WithCancelRegistry(out.CancelRegistry),
 			agentsvc.WithAuthorizationPolicy(out.AuthorizationPolicy),
+			agentsvc.WithGoalStore(out.GoalStore),
 		}
 		if out.ElicitationRouter != nil {
 			agentOpts = append(agentOpts, agentsvc.WithElicitationRouter(out.ElicitationRouter))
@@ -562,10 +610,10 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		reportAudit := reportfs.NewAuditSink(b.stateStore)
 		reportStoreDefaults := resolveReportingStoreDefaults(out.Defaults)
 		if strings.EqualFold(strings.TrimSpace(reportStoreDefaults.Backend), "sql") {
-			if out.DAO == nil {
-				return nil, fmt.Errorf("reporting sql store requires a datly service")
+			if out.Native == nil {
+				return nil, fmt.Errorf("reporting sql store requires a native Datly runtime")
 			}
-			sqlClient, err := reportsql.New(ctx, out.DAO, reportStoreDefaults.ConnectorRef, b.stateStore, reportfs.New(b.stateStore))
+			sqlClient, err := reportsql.New(ctx, out.Native, b.stateStore, reportfs.New(b.stateStore))
 			if err != nil {
 				return nil, err
 			}
@@ -610,7 +658,8 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		if queueIntervalMs <= 0 {
 			queueIntervalMs = defaultReportingQueueIntervalMs
 		}
-		workerCtx := ctx
+		workerCtx, stopReporting := context.WithCancel(ctx)
+		out.ownedReportingCancel = stopReporting
 		if strings.EqualFold(strings.TrimSpace(resolveReportingStoreDefaults(out.Defaults).Backend), "sql") {
 			workerCtx = reportsql.WithInternalAccess(workerCtx)
 		}
@@ -618,6 +667,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			Interval:   time.Duration(queueIntervalMs) * time.Millisecond,
 			BatchLimit: out.Defaults.Reporting.QueueBatchLimit,
 		})
+		out.ownedReportingWorker = out.ReportingWorker
 		if err := out.ReportingWorker.Start(workerCtx); err != nil {
 			return nil, err
 		}
@@ -684,6 +734,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 		out.HotSwap = mgr
 	}
+	buildSucceeded = true
 	return out, nil
 }
 
@@ -754,4 +805,69 @@ func (r *Runtime) DefaultModel() string {
 		return ""
 	}
 	return strings.TrimSpace(r.Defaults.Model)
+}
+
+// Close releases resources created by this builder.
+func (r *Runtime) Close(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if r == nil {
+		return nil
+	}
+	r.closeOnce.Do(func() {
+		r.registryWarmupMu.Lock()
+		r.closed = true
+		cancelWarmup, warmupDone := r.registryWarmupCancel, r.registryWarmupDone
+		r.registryWarmupMu.Unlock()
+		if cancelWarmup != nil {
+			cancelWarmup()
+		}
+		if warmupDone != nil {
+			select {
+			case <-warmupDone:
+			case <-ctx.Done():
+				r.closeError = errors.Join(r.closeError, ctx.Err())
+			}
+		}
+		if r.ownedReportingCancel != nil {
+			r.ownedReportingCancel()
+		}
+		if r.ownedReportingWorker != nil {
+			r.closeError = errors.Join(r.closeError, r.ownedReportingWorker.Wait(ctx))
+		}
+		if r.ownedAugmenter != nil {
+			r.closeError = errors.Join(r.closeError, r.ownedAugmenter.Close())
+		}
+		if r.ownedNative != nil {
+			r.closeError = errors.Join(r.closeError, r.ownedNative.Shutdown(ctx))
+		}
+	})
+	return r.closeError
+}
+
+// InitializeRegistryAsync owns one background warmup without closing a borrowed registry.
+// Close cancels and joins this work before shutting down runtime resources.
+func (r *Runtime) InitializeRegistryAsync(ctx context.Context, timeout time.Duration) <-chan struct{} {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	r.registryWarmupMu.Lock()
+	defer r.registryWarmupMu.Unlock()
+	if r.registryWarmupDone != nil {
+		return r.registryWarmupDone
+	}
+	done := make(chan struct{})
+	r.registryWarmupDone = done
+	if r.closed || r.Registry == nil {
+		close(done)
+		return done
+	}
+	if timeout <= 0 {
+		timeout = 15 * time.Second
+	}
+	warmupCtx, cancel := context.WithTimeout(ctx, timeout)
+	r.registryWarmupCancel = cancel
+	go func() { defer close(done); defer cancel(); r.Registry.Initialize(warmupCtx) }()
+	return done
 }

@@ -1,0 +1,59 @@
+#package('github.com/viant/agently-core/internal/datly/modelcall/cube')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/model-call/report','GET'))
+#setting($_ = $input_type('ModelCallReportInput'))
+#setting($_ = $output_type('ModelCallReportOutput'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $cube())
+#define($_ = $Internal<bool>(modelCallAccess/internal).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','f','conversation_id'))
+#define($_ = $Provider<string>(query/provider).Optional().WithPredicate(0,'equal','f','provider'))
+#define($_ = $Model<string>(query/model).Optional().WithPredicate(0,'equal','f','model'))
+#define($_ = $Statuses<[]string>(query/statuses).Optional().WithPredicate(0,'in','f','status'))
+#define($_ = $ExecutionRole<string>(query/executionRole).Optional().WithPredicate(0,'equal','f','execution_role'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*ModelCallReportView>(output/view))
+SELECT groupable(f), f.conversation_id,f.provider,f.model,f.model_kind,f.status,f.execution_role,
+ COUNT(*) AS record_count,
+ CASE WHEN COUNT(f.cost)=COUNT(*) THEN SUM(f.cost) ELSE NULL END AS cost,
+ SUM(COALESCE(f.prompt_tokens,0)) AS prompt_tokens,
+ SUM(COALESCE(f.prompt_cached_tokens,0)) AS prompt_cached_tokens,
+ SUM(COALESCE(f.prompt_audio_tokens,0)) AS prompt_audio_tokens,
+ SUM(COALESCE(f.completion_tokens,0)) AS completion_tokens,
+ SUM(COALESCE(f.completion_reasoning_tokens,0)) AS completion_reasoning_tokens,
+ SUM(COALESCE(f.completion_audio_tokens,0)) AS completion_audio_tokens,
+ SUM(COALESCE(f.completion_accepted_prediction_tokens,0)) AS completion_accepted_prediction_tokens,
+ SUM(COALESCE(f.completion_rejected_prediction_tokens,0)) AS completion_rejected_prediction_tokens,
+ SUM(COALESCE(f.total_tokens,0)) AS total_tokens,
+ type(f,'ModelCallReportView'),
+ CAST(f.conversation_id AS string),tag(f.conversation_id,'groupable:"true"'),
+ CAST(f.provider AS string),tag(f.provider,'groupable:"true"'),
+ CAST(f.model AS string),tag(f.model,'groupable:"true"'),
+ CAST(f.model_kind AS string),tag(f.model_kind,'groupable:"true"'),
+ CAST(f.status AS string),tag(f.status,'groupable:"true"'),
+ CAST(f.execution_role AS string),tag(f.execution_role,'groupable:"true"'),
+ CAST(f.record_count AS int),tag(f.record_count,'groupable:"false"'),
+ CAST(f.cost AS *float64),tag(f.cost,'groupable:"false"'),
+ CAST(f.prompt_tokens AS *int),tag(f.prompt_tokens,'groupable:"false"'),
+ CAST(f.prompt_cached_tokens AS *int),tag(f.prompt_cached_tokens,'groupable:"false"'),
+ CAST(f.prompt_audio_tokens AS *int),tag(f.prompt_audio_tokens,'groupable:"false"'),
+ CAST(f.completion_tokens AS *int),tag(f.completion_tokens,'groupable:"false"'),
+ CAST(f.completion_reasoning_tokens AS *int),tag(f.completion_reasoning_tokens,'groupable:"false"'),
+ CAST(f.completion_audio_tokens AS *int),tag(f.completion_audio_tokens,'groupable:"false"'),
+ CAST(f.completion_accepted_prediction_tokens AS *int),tag(f.completion_accepted_prediction_tokens,'groupable:"false"'),
+ CAST(f.completion_rejected_prediction_tokens AS *int),tag(f.completion_rejected_prediction_tokens,'groupable:"false"'),
+ CAST(f.total_tokens AS *int),tag(f.total_tokens,'groupable:"false"')
+FROM (SELECT mc.*,m.conversation_id,
+ CASE
+  WHEN LOWER(COALESCE(m.mode,''))='router' THEN 'intake'
+  WHEN LOWER(COALESCE(m.mode,'')) IN ('intake','sidecar','summary','narrator','worker') THEN LOWER(m.mode)
+  WHEN LOWER(COALESCE(t.agent_id_used,'')) IN ('intake_sidecar','agent_selector','agent-selector','tool_router','planner_pass') THEN 'sidecar'
+  ELSE 'react' END AS execution_role
+ FROM model_call mc JOIN message m ON m.id=mc.message_id LEFT JOIN turn t ON t.id=m.turn_id) f
+WHERE 1=1
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+ AND ($Internal OR EXISTS(SELECT 1 FROM conversation c WHERE c.id=f.conversation_id
+  AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,''))))
+GROUP BY f.conversation_id,f.provider,f.model,f.model_kind,f.status,f.execution_role

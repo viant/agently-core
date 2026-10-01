@@ -1,0 +1,479 @@
+#package('github.com/viant/agently-core/internal/datly/message/read')
+#import('time','time')
+#import('codec','github.com/viant/agently-core/internal/datly/codec')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/message','GET'))
+#setting($_ = $input_type('MessagesInput'))
+#setting($_ = $output_type('MessagesOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(4,'equal','m','conversation_id'))
+#define($_ = $ConversationIds<[]string>(query/conversationIds).Optional().WithPredicate(4,'in','m','conversation_id'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(4,'equal','m','turn_id'))
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(4,'equal','m','id'))
+#define($_ = $Roles<[]string>(query/roles).Optional().WithPredicate(4,'in','m','role'))
+#define($_ = $Types<[]string>(query/types).Optional().WithPredicate(4,'in','m','type'))
+#define($_ = $Interim<int>(query/interim).Optional().WithPredicate(4,'equal','m','interim'))
+#define($_ = $Phase<string>(query/phase).Optional().WithPredicate(4,'equal','m','phase'))
+#define($_ = $Iteration<int>(query/iteration).Optional().WithPredicate(4,'equal','m','iteration'))
+#define($_ = $CreatedSince<time.Time>(query/createdSince).Optional().WithPredicate(4,'greater_or_equal','m','created_at'))
+#define($_ = $CreatedBefore<time.Time>(query/createdBefore).Optional().WithPredicate(4,'less_or_equal','m','created_at'))
+#define($_ = $CursorBefore<string>(query/cursorBefore).Optional().WithPredicate(4,'expr','EXISTS (SELECT 1 FROM message x WHERE x.id = ? AND (m.created_at < x.created_at OR (m.created_at = x.created_at AND m.id < x.id)))'))
+#define($_ = $CursorAfter<string>(query/cursorAfter).Optional().WithPredicate(4,'expr','EXISTS (SELECT 1 FROM message x WHERE x.id = ? AND (m.created_at > x.created_at OR (m.created_at = x.created_at AND m.id > x.id)))'))
+#define($_ = $TurnTask<bool>(query/turnTask).Optional().WithPredicate(4,'handler','predicate.MessageTurnTask'))
+#define($_ = $AssistantFinal<bool>(query/assistantFinal).Optional().WithPredicate(4,'handler','predicate.MessageAssistantFinal'))
+#define($_ = $AssistantStatus<bool>(query/assistantStatus).Optional().WithPredicate(4,'handler','predicate.MessageAssistantStatus'))
+#define($_ = $IncludeModelCal<bool>(query/includeModelCall).Optional().Value('false').WithPredicate(2,'expr','?'))
+#define($_ = $IncludeToolCall<bool>(query/includeToolCall).Optional().Value('false').WithPredicate(3,'expr','?'))
+#define($_ = $Internal<bool>(messageAccess/internal).Required())
+#define($_ = $ReadMode<string>(messageAccess/mode).Required())
+#define($_ = $LockRows<bool>(messageAccess/lock).Optional())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $ElicitationId<string>(query/elicitationId).Optional().WithPredicate(4,'equal','m','elicitation_id'))
+#define($_ = $LinkedConversationId<string>(query/linkedConversationId).Optional().WithPredicate(4,'equal','m','linked_conversation_id'))
+#define($_ = $LinkedConversationIds<[]string>(query/linkedConversationIds).Optional().WithPredicate(4,'in','m','linked_conversation_id'))
+#define($_ = $ParentMessageId<string>(query/parentMessageId).Optional().WithPredicate(4,'equal','m','parent_message_id'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $OrderBy<string>(query/orderBy).Optional().QuerySelector('reader'))
+#define($_ = $ParentMessageIds<[]string>(query/parentMessageIds).Optional().WithPredicate(4,'in','m','parent_message_id'))
+#define($_ = $SupersededByIds<[]string>(query/supersededByIds).Optional().WithPredicate(4,'in','m','superseded_by'))
+#define($_ = $Data<[]*MessageView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true,selectorOrderBy=true"'))
+
+SELECT data_rows.cleanup_status,
+       CAST(data_rows.cleanup_status AS string), internal(data_rows.cleanup_status), tag(data_rows.cleanup_status,'json:"-"'),
+       data_rows.archived,
+       data_rows.attachment_payload_id,
+       data_rows.content,
+       data_rows.context_summary,
+       data_rows.conversation_id,
+       data_rows.created_at,
+       data_rows.created_by_user_id,
+       data_rows.elicitation_id,
+       data_rows.elicitation_payload_id,
+       data_rows.embedding_index,
+       data_rows.id,
+       data_rows.interim,
+       data_rows.iteration,
+       data_rows.linked_conversation_id,
+       data_rows.mode,
+       data_rows.parent_message_id,
+       data_rows.phase,
+       data_rows.preamble AS Narration,
+       data_rows.raw_content,
+       data_rows.role,
+       data_rows.sequence,
+       data_rows.status,
+       data_rows.summary,
+       data_rows.superseded_by,
+       data_rows.tags,
+       data_rows.tool_name,
+       data_rows.turn_id,
+       data_rows.type,
+       data_rows.updated_at,
+       data_rows.read_mode, CAST(data_rows.read_mode AS string), tag(data_rows.read_mode,'json:"-"'),
+       data_rows.elicitation_body, data_rows.elicitation_compression, data_rows.elicitation,
+       CAST(data_rows.elicitation_body AS []byte), tag(data_rows.elicitation_body,'json:"-"'),
+       CAST(data_rows.elicitation_compression AS string), tag(data_rows.elicitation_compression,'json:"-"'),
+       CAST(data_rows.elicitation AS codec.JSON),
+       type(data_rows,'MessageView'),
+       CAST(data_rows.archived AS *int),
+       CAST(data_rows.attachment_payload_id AS *string),
+       CAST(data_rows.content AS *string),
+       CAST(data_rows.context_summary AS *string),
+       CAST(data_rows.conversation_id AS string),
+       CAST(data_rows.created_at AS time.Time),
+       CAST(data_rows.created_by_user_id AS *string),
+       CAST(data_rows.elicitation_id AS *string),
+       CAST(data_rows.elicitation_payload_id AS *string),
+       CAST(data_rows.embedding_index AS *string),
+       CAST(data_rows.id AS string),
+       CAST(data_rows.interim AS int),
+       CAST(data_rows.iteration AS *int),
+       CAST(data_rows.linked_conversation_id AS *string),
+       CAST(data_rows.mode AS *string),
+       CAST(data_rows.parent_message_id AS *string),
+       CAST(data_rows.phase AS *string),
+       CAST(data_rows.Narration AS *string),
+       CAST(data_rows.raw_content AS *string),
+       CAST(data_rows.role AS string),
+       CAST(data_rows.sequence AS *int),
+       CAST(data_rows.status AS *string),
+       CAST(data_rows.summary AS *string),
+       CAST(data_rows.superseded_by AS *string),
+       CAST(data_rows.tags AS *string),
+       CAST(data_rows.tool_name AS *string),
+       CAST(data_rows.turn_id AS *string),
+       CAST(data_rows.type AS string),
+       CAST(data_rows.updated_at AS *time.Time),
+       messageToolCall.message_sequence,
+       messageToolCall.message_id,
+       messageToolCall.turn_id,
+       messageToolCall.op_id,
+       messageToolCall.attempt,
+       messageToolCall.tool_name,
+       messageToolCall.tool_kind,
+       messageToolCall.status,
+       messageToolCall.request_hash,
+       messageToolCall.error_code,
+       messageToolCall.error_message,
+       messageToolCall.retriable,
+       messageToolCall.started_at,
+       messageToolCall.completed_at,
+       messageToolCall.latency_ms,
+       messageToolCall.cost,
+       messageToolCall.trace_id,
+       messageToolCall.span_id,
+       messageToolCall.request_payload_id,
+       messageToolCall.response_payload_id,
+       messageToolCall.run_id,
+       messageToolCall.iteration,
+       type(messageToolCall,'MessageToolCallView'),
+       CAST(messageToolCall.message_sequence AS *int),
+       CAST(messageToolCall.message_id AS string),
+       CAST(messageToolCall.turn_id AS *string),
+       CAST(messageToolCall.op_id AS string),
+       CAST(messageToolCall.attempt AS int),
+       CAST(messageToolCall.tool_name AS string),
+       CAST(messageToolCall.tool_kind AS string),
+       CAST(messageToolCall.status AS string),
+       CAST(messageToolCall.request_hash AS *string),
+       CAST(messageToolCall.error_code AS *string),
+       CAST(messageToolCall.error_message AS *string),
+       CAST(messageToolCall.retriable AS *int),
+       CAST(messageToolCall.started_at AS *time.Time),
+       CAST(messageToolCall.completed_at AS *time.Time),
+       CAST(messageToolCall.latency_ms AS *int),
+       CAST(messageToolCall.cost AS *float64),
+       CAST(messageToolCall.trace_id AS *string),
+       CAST(messageToolCall.span_id AS *string),
+       CAST(messageToolCall.request_payload_id AS *string),
+       CAST(messageToolCall.response_payload_id AS *string),
+       CAST(messageToolCall.run_id AS *string),
+       CAST(messageToolCall.iteration AS *int),
+       messageRequestPayload.id,
+       messageRequestPayload.inline_body,
+       messageRequestPayload.compression,
+       type(messageRequestPayload,'MessageRequestPayloadView'),
+       CAST(messageRequestPayload.id AS string),
+       CAST(messageRequestPayload.inline_body AS *string),
+       CAST(messageRequestPayload.compression AS string),
+       messageResponsePayload.id,
+       messageResponsePayload.inline_body,
+       messageResponsePayload.compression,
+       type(messageResponsePayload,'MessageResponsePayloadView'),
+       CAST(messageResponsePayload.id AS string),
+       CAST(messageResponsePayload.inline_body AS *string),
+       CAST(messageResponsePayload.compression AS string),
+       toolMessage.id,
+       toolMessage.parent_message_id,
+       toolMessage.created_at,
+       toolMessage.sequence,
+       toolMessage.type,
+       toolMessage.content,
+       toolMessage.tool_name,
+       toolMessage.iteration,
+       toolMessage.linked_conversation_id,
+       type(toolMessage,'ToolMessageView'),
+       CAST(toolMessage.id AS string),
+       CAST(toolMessage.parent_message_id AS *string),
+       CAST(toolMessage.created_at AS time.Time),
+       CAST(toolMessage.sequence AS *int),
+       CAST(toolMessage.type AS string),
+       CAST(toolMessage.content AS *string),
+       CAST(toolMessage.tool_name AS *string),
+       CAST(toolMessage.iteration AS *int),
+       CAST(toolMessage.linked_conversation_id AS *string),
+       toolCall.message_sequence,
+       toolCall.message_id,
+       toolCall.turn_id,
+       toolCall.op_id,
+       toolCall.attempt,
+       toolCall.tool_name,
+       toolCall.tool_kind,
+       toolCall.status,
+       toolCall.request_hash,
+       toolCall.error_code,
+       toolCall.error_message,
+       toolCall.retriable,
+       toolCall.started_at,
+       toolCall.completed_at,
+       toolCall.latency_ms,
+       toolCall.cost,
+       toolCall.trace_id,
+       toolCall.span_id,
+       toolCall.request_payload_id,
+       toolCall.response_payload_id,
+       toolCall.run_id,
+       toolCall.iteration,
+       type(toolCall,'ToolCallView'),
+       CAST(toolCall.message_sequence AS *int),
+       CAST(toolCall.message_id AS string),
+       CAST(toolCall.turn_id AS *string),
+       CAST(toolCall.op_id AS string),
+       CAST(toolCall.attempt AS int),
+       CAST(toolCall.tool_name AS string),
+       CAST(toolCall.tool_kind AS string),
+       CAST(toolCall.status AS string),
+       CAST(toolCall.request_hash AS *string),
+       CAST(toolCall.error_code AS *string),
+       CAST(toolCall.error_message AS *string),
+       CAST(toolCall.retriable AS *int),
+       CAST(toolCall.started_at AS *time.Time),
+       CAST(toolCall.completed_at AS *time.Time),
+       CAST(toolCall.latency_ms AS *int),
+       CAST(toolCall.cost AS *float64),
+       CAST(toolCall.trace_id AS *string),
+       CAST(toolCall.span_id AS *string),
+       CAST(toolCall.request_payload_id AS *string),
+       CAST(toolCall.response_payload_id AS *string),
+       CAST(toolCall.run_id AS *string),
+       CAST(toolCall.iteration AS *int),
+       requestPayload.id,
+       requestPayload.inline_body,
+       requestPayload.compression,
+       type(requestPayload,'RequestPayloadView'),
+       CAST(requestPayload.id AS string),
+       CAST(requestPayload.inline_body AS *string),
+       CAST(requestPayload.compression AS string),
+       responsePayload.id,
+       responsePayload.inline_body,
+       responsePayload.compression,
+       type(responsePayload,'ResponsePayloadView'),
+       CAST(responsePayload.id AS string),
+       CAST(responsePayload.inline_body AS *string),
+       CAST(responsePayload.compression AS string),
+       userElicitationData.inline_body,
+       userElicitationData.compression,
+       userElicitationData.message_id,
+       type(userElicitationData,'UserElicitationDataView'),
+       CAST(userElicitationData.inline_body AS *string),
+       CAST(userElicitationData.compression AS string),
+       CAST(userElicitationData.message_id AS string),
+       linkedConversation.id,
+       linkedConversation.status,
+       linkedConversation.created_at,
+       linkedConversation.updated_at,
+       type(linkedConversation,'LinkedConversationView'),
+       CAST(linkedConversation.id AS string),
+       CAST(linkedConversation.status AS *string),
+       CAST(linkedConversation.created_at AS time.Time),
+       CAST(linkedConversation.updated_at AS *time.Time),
+       attachment.inline_body,
+       attachment.compression,
+       attachment.uri,
+       attachment.mime_type,
+       attachment.parent_message_id,
+       type(attachment,'AttachmentView'),
+       CAST(attachment.inline_body AS *[]uint8),
+       CAST(attachment.compression AS string),
+       CAST(attachment.uri AS *string),
+       CAST(attachment.mime_type AS string),
+       CAST(attachment.parent_message_id AS *string),
+       modelCall.completed_at,
+       modelCall.completion_accepted_prediction_tokens,
+       modelCall.completion_audio_tokens,
+       modelCall.completion_reasoning_tokens,
+       modelCall.completion_rejected_prediction_tokens,
+       modelCall.completion_tokens,
+       modelCall.cost,
+       modelCall.error_code,
+       modelCall.error_message,
+       modelCall.finish_reason,
+       modelCall.iteration,
+       modelCall.latency_ms,
+       modelCall.message_id,
+       modelCall.model,
+       modelCall.model_kind,
+       modelCall.prompt_audio_tokens,
+       modelCall.prompt_cached_tokens,
+       modelCall.prompt_tokens,
+       modelCall.provider,
+       modelCall.provider_request_payload_id,
+       modelCall.provider_response_payload_id,
+       modelCall.request_payload_id,
+       modelCall.response_payload_id,
+       modelCall.run_id,
+       modelCall.span_id,
+       modelCall.started_at,
+       modelCall.status,
+       modelCall.stream_payload_id,
+       modelCall.total_tokens,
+       modelCall.trace_id,
+       modelCall.turn_id,
+       type(modelCall,'ModelCallView'),
+       CAST(modelCall.completed_at AS *time.Time),
+       CAST(modelCall.completion_accepted_prediction_tokens AS *int),
+       CAST(modelCall.completion_audio_tokens AS *int),
+       CAST(modelCall.completion_reasoning_tokens AS *int),
+       CAST(modelCall.completion_rejected_prediction_tokens AS *int),
+       CAST(modelCall.completion_tokens AS *int),
+       CAST(modelCall.cost AS *float64),
+       CAST(modelCall.error_code AS *string),
+       CAST(modelCall.error_message AS *string),
+       CAST(modelCall.finish_reason AS *string),
+       CAST(modelCall.iteration AS *int),
+       CAST(modelCall.latency_ms AS *int),
+       CAST(modelCall.message_id AS string),
+       CAST(modelCall.model AS string),
+       CAST(modelCall.model_kind AS string),
+       CAST(modelCall.prompt_audio_tokens AS *int),
+       CAST(modelCall.prompt_cached_tokens AS *int),
+       CAST(modelCall.prompt_tokens AS *int),
+       CAST(modelCall.provider AS string),
+       CAST(modelCall.provider_request_payload_id AS *string),
+       CAST(modelCall.provider_response_payload_id AS *string),
+       CAST(modelCall.request_payload_id AS *string),
+       CAST(modelCall.response_payload_id AS *string),
+       CAST(modelCall.run_id AS *string),
+       CAST(modelCall.span_id AS *string),
+       CAST(modelCall.started_at AS *time.Time),
+       CAST(modelCall.status AS string),
+       CAST(modelCall.stream_payload_id AS *string),
+       CAST(modelCall.total_tokens AS *int),
+       CAST(modelCall.trace_id AS *string),
+       CAST(modelCall.turn_id AS *string),
+       modelCallRequestPayload.id,
+       modelCallRequestPayload.inline_body,
+       modelCallRequestPayload.compression,
+       type(modelCallRequestPayload,'ModelCallRequestPayloadView'),
+       CAST(modelCallRequestPayload.id AS string),
+       CAST(modelCallRequestPayload.inline_body AS *string),
+       CAST(modelCallRequestPayload.compression AS string),
+       modelCallProviderRequestPayload.id,
+       modelCallProviderRequestPayload.inline_body,
+       modelCallProviderRequestPayload.compression,
+       type(modelCallProviderRequestPayload,'ModelCallProviderRequestPayloadView'),
+       CAST(modelCallProviderRequestPayload.id AS string),
+       CAST(modelCallProviderRequestPayload.inline_body AS *string),
+       CAST(modelCallProviderRequestPayload.compression AS string),
+       modelCallResponsePayload.id,
+       modelCallResponsePayload.inline_body,
+       modelCallResponsePayload.compression,
+       type(modelCallResponsePayload,'ModelCallResponsePayloadView'),
+       CAST(modelCallResponsePayload.id AS string),
+       CAST(modelCallResponsePayload.inline_body AS *string),
+       CAST(modelCallResponsePayload.compression AS string),
+       modelCallProviderResponsePayload.id,
+       modelCallProviderResponsePayload.inline_body,
+       modelCallProviderResponsePayload.compression,
+       type(modelCallProviderResponsePayload,'ModelCallProviderResponsePayloadView'),
+       CAST(modelCallProviderResponsePayload.id AS string),
+       CAST(modelCallProviderResponsePayload.inline_body AS *string),
+       CAST(modelCallProviderResponsePayload.compression AS string),
+       toolCallLinks.message_id,
+       toolCallLinks.op_id,
+       toolCallLinks.trace_id,
+       type(toolCallLinks,'ToolCallLinksView'),
+       CAST(toolCallLinks.message_id AS string),
+       CAST(toolCallLinks.op_id AS string),
+       CAST(toolCallLinks.trace_id AS *string),
+       modelCallStreamPayload.id,
+       modelCallStreamPayload.inline_body,
+       modelCallStreamPayload.compression,
+       type(modelCallStreamPayload,'ModelCallStreamPayloadView'),
+       CAST(modelCallStreamPayload.id AS string),
+       CAST(modelCallStreamPayload.inline_body AS *string),
+       CAST(modelCallStreamPayload.compression AS string)
+FROM (
+ SELECT $ReadMode AS read_mode, m.*, LOWER(TRIM(COALESCE(m.status,''))) AS cleanup_status, COALESCE(p.inline_body,'') AS elicitation_body,
+ COALESCE(p.compression,'none') AS elicitation_compression, '' AS elicitation
+ FROM message m LEFT JOIN call_payload p ON p.id=m.elicitation_payload_id
+ WHERE 1=1
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(4,"AND")).Build("AND")}
+ AND ($Internal OR EXISTS(SELECT 1 FROM conversation c WHERE c.id=m.conversation_id
+   AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,''))))
+ AND ($ReadMode NOT IN ('byId','transcript') OR m.id=$Id)
+ AND ($ReadMode<>'elicitation' OR (m.conversation_id=$ConversationId AND m.elicitation_id=$ElicitationId AND m.type<>'elicitation_response'))
+ AND ($ReadMode<>'linkedElicitation' OR (m.linked_conversation_id=$LinkedConversationId AND m.elicitation_id=$ElicitationId))
+ AND ($ReadMode<>'parentElicitation' OR (m.parent_message_id=$ParentMessageId AND m.elicitation_id=$ElicitationId))
+ ORDER BY CASE WHEN $LockRows THEN m.id END ASC, CASE WHEN $ReadMode='elicitation' THEN m.created_at END DESC
+ #if($LockRows) ${View.ForUpdate()} #end
+) data_rows
+
+LEFT JOIN (
+SELECT t.*,
+          m.sequence AS message_sequence
+ FROM tool_call t
+ JOIN message m ON m.id = t.message_id
+ WHERE ($Internal OR EXISTS(SELECT 1 FROM conversation scope_c WHERE scope_c.id=m.conversation_id AND (COALESCE(scope_c.visibility,'')<>'private' OR scope_c.created_by_user_id=NULLIF($VisibilitySubject,'')))) AND (m.type = 'tool_op' OR m.role = 'tool')
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("AND")}
+) messageToolCall ON messageToolCall.message_id = data_rows.id AND 1=1
+LEFT JOIN (
+SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
+) messageRequestPayload ON messageRequestPayload.id = messageToolCall.request_payload_id AND 1=1
+LEFT JOIN (
+SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
+) messageResponsePayload ON messageResponsePayload.id = messageToolCall.response_payload_id AND 1=1
+LEFT JOIN (
+SELECT
+    m.id,
+    m.parent_message_id,
+    m.created_at,
+    m.sequence,
+    m.type,
+    m.content,
+    m.tool_name,
+    m.iteration,
+    NULLIF(m.linked_conversation_id, '') AS linked_conversation_id
+ FROM message m
+ WHERE ($Internal OR EXISTS(SELECT 1 FROM conversation scope_c WHERE scope_c.id=m.conversation_id AND (COALESCE(scope_c.visibility,'')<>'private' OR scope_c.created_by_user_id=NULLIF($VisibilitySubject,'')))) AND m.parent_message_id IS NOT NULL
+   AND (m.type = 'tool_op' OR m.role = 'tool')
+ ORDER BY m.sequence, m.created_at
+) toolMessage ON toolMessage.parent_message_id = data_rows.id
+LEFT JOIN (
+SELECT t.*,
+          m.sequence AS message_sequence
+ FROM tool_call t
+ JOIN message m ON m.id = t.message_id
+ WHERE ($Internal OR EXISTS(SELECT 1 FROM conversation scope_c WHERE scope_c.id=m.conversation_id AND (COALESCE(scope_c.visibility,'')<>'private' OR scope_c.created_by_user_id=NULLIF($VisibilitySubject,'')))) AND (m.type = 'tool_op' OR m.role = 'tool')
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("AND")}
+) toolCall ON toolCall.message_id = toolMessage.id AND 1=1
+LEFT JOIN (
+SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
+) requestPayload ON requestPayload.id = toolCall.request_payload_id AND 1=1
+LEFT JOIN (
+SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
+) responsePayload ON responsePayload.id = toolCall.response_payload_id AND 1=1
+LEFT JOIN (
+SELECT inline_body, compression, m.id as message_id FROM message m
+ JOIN call_payload p ON m.elicitation_payload_id = p.id
+ WHERE ($Internal OR EXISTS(SELECT 1 FROM conversation scope_c WHERE scope_c.id=m.conversation_id AND (COALESCE(scope_c.visibility,'')<>'private' OR scope_c.created_by_user_id=NULLIF($VisibilitySubject,'')))) AND m.elicitation_payload_id IS NOT NULL
+) userElicitationData ON userElicitationData.message_id = data_rows.id AND 1=1
+LEFT JOIN (
+SELECT id, status, created_at, updated_at
+FROM conversation t
+WHERE t.id <> '' AND ($Internal OR COALESCE(t.visibility,'')<>'private' OR t.created_by_user_id=NULLIF($VisibilitySubject,''))
+) linkedConversation ON linkedConversation.id = data_rows.linked_conversation_id AND 1=1
+LEFT JOIN (
+SELECT inline_body, compression, uri,mime_type, m.parent_message_id FROM message m
+ JOIN call_payload p ON m.attachment_payload_id = p.id
+ WHERE ($Internal OR EXISTS(SELECT 1 FROM conversation scope_c WHERE scope_c.id=m.conversation_id AND (COALESCE(scope_c.visibility,'')<>'private' OR scope_c.created_by_user_id=NULLIF($VisibilitySubject,'')))) AND m.attachment_payload_id IS NOT NULL
+) attachment ON attachment.parent_message_id = data_rows.id
+LEFT JOIN (
+SELECT t.*
+ FROM model_call t
+ JOIN message m ON m.id = t.message_id
+ WHERE ($Internal OR EXISTS(SELECT 1 FROM conversation scope_c WHERE scope_c.id=m.conversation_id AND (COALESCE(scope_c.visibility,'')<>'private' OR scope_c.created_by_user_id=NULLIF($VisibilitySubject,'')))) AND m.role = 'assistant'
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("AND")}
+) modelCall ON modelCall.message_id = data_rows.id AND 1=1
+LEFT JOIN (
+SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+) modelCallRequestPayload ON modelCallRequestPayload.id = modelCall.request_payload_id AND 1=1
+LEFT JOIN (
+SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+) modelCallProviderRequestPayload ON modelCallProviderRequestPayload.id = modelCall.provider_request_payload_id AND 1=1
+LEFT JOIN (
+SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+) modelCallResponsePayload ON modelCallResponsePayload.id = modelCall.response_payload_id AND 1=1
+LEFT JOIN (
+SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+) modelCallProviderResponsePayload ON modelCallProviderResponsePayload.id = modelCall.provider_response_payload_id AND 1=1
+LEFT JOIN (
+SELECT message_id, op_id, trace_id FROM tool_call t WHERE ($Internal OR EXISTS(SELECT 1 FROM message scope_m JOIN conversation scope_c ON scope_c.id=scope_m.conversation_id WHERE scope_m.id=t.message_id AND (COALESCE(scope_c.visibility,'')<>'private' OR scope_c.created_by_user_id=NULLIF($VisibilitySubject,''))))
+) toolCallLinks ON toolCallLinks.trace_id = modelCall.trace_id
+LEFT JOIN (
+SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
+) modelCallStreamPayload ON modelCallStreamPayload.id = modelCall.stream_payload_id AND 1=1

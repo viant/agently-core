@@ -23,7 +23,7 @@ import (
 	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	toolw "github.com/viant/agently-core/pkg/agently/toolcall/write"
 	turnw "github.com/viant/agently-core/pkg/agently/turn/write"
-	hstate "github.com/viant/xdatly/handler/state"
+	hstate "github.com/viant/xdatly/state"
 )
 
 // Client is an in-memory implementation of conversation.Client.
@@ -1579,7 +1579,7 @@ func (c *Client) ListToolApprovalOutcomes(ctx context.Context, in *queueoutcome.
 	return out, nil
 }
 
-func (c *Client) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *queueread.QueueRowsInput, selectors ...*hstate.NamedQuerySelector) ([]*queueread.QueueRowView, error) {
+func (c *Client) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *queueread.QueueRowsInput, selectors ...*hstate.NamedSelector) ([]*queueread.QueueRowView, error) {
 	if err := enforceMemoryToolApprovalQueueUserScope(ctx, in); err != nil {
 		return nil, err
 	}
@@ -1648,11 +1648,11 @@ func (c *Client) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *qu
 	return out, nil
 }
 
-func applyQueueSelector(rows []*queueread.QueueRowView, selectors ...*hstate.NamedQuerySelector) []*queueread.QueueRowView {
+func applyQueueSelector(rows []*queueread.QueueRowView, selectors ...*hstate.NamedSelector) []*queueread.QueueRowView {
 	if len(rows) == 0 || len(selectors) == 0 {
 		return rows
 	}
-	var selector *hstate.NamedQuerySelector
+	var selector *hstate.NamedSelector
 	for _, item := range selectors {
 		if item != nil && strings.EqualFold(strings.TrimSpace(item.Name), "queue_rows") {
 			selector = item

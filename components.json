@@ -1,0 +1,958 @@
+{
+  "module": "github.com/viant/agently-core",
+  "datly_commit": "8ffc43d3f264bd2573ecf29fe2be083b8eb5d468",
+  "components": [
+    {
+      "operation": "get",
+      "source": "dql/conversation/read",
+      "destination": "internal/datly/conversation/read",
+      "legacy": "pkg/agently/conversation/conversation.go",
+      "route": "/v1/api/agently/conversation/{id}",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Creation/private visibility and activity defaults; sparse fields generated. Reader business OnRelation stage/status sorting and elicitation hydration. Boolean list filters bind true/false explicitly. List cursor and order use the activity/updated/created key with identity tie-break; latest-turn status and trusted visibility mode match root list semantics. Trusted graph mode and batch identity/parent predicates support deletion discovery without list visibility or orphan filtering. Legacy graph parity and linked-host owner/list/page/discovery tests pass; remaining root callers still pending.",
+      "input_type": "ConversationInput",
+      "output_type": "ConversationOutput",
+      "root_tables": [
+        "conversation"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/generatedfile/read",
+      "destination": "internal/datly/generatedfile/read",
+      "legacy": "pkg/agently/generatedfile/read/generated_file.go",
+      "route": "/v2/api/agently/generated-file",
+      "status": "sqlite-legacy-parity-with-documented-status-filter-fix",
+      "hooks": "Writer ready/timestamp defaults only; generated validators and sparse DML. Reader native Status binding avoids legacy input/output collision. Host batch conversation-ID predicate supports tree payload candidate collection.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "generated_file"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/goal/read",
+      "destination": "internal/datly/goal/read",
+      "legacy": "pkg/agently/goal/goal.go",
+      "route": "/v1/api/agently/goal/{conversationId}",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Ordinary exact conversation lookup remains required by an authored input hook. Host-only graph mode and batched conversation IDs support goal-wakeup schedule validation without per-row queries.",
+      "input_type": "GoalInput",
+      "output_type": "GoalOutput",
+      "root_tables": [
+        "goal"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/modelcall/cube",
+      "destination": "internal/datly/modelcall/cube",
+      "legacy": "pkg/agently/conversation/conversation/usage.sql",
+      "legacy_replaces": [
+        "pkg/agently/conversation/conversation/usage.sql",
+        "pkg/agently/conversation/conversation/model.sql"
+      ],
+      "route": "/v1/internal/agently/model-call/report",
+      "status": "sqlite-legacy-parity",
+      "hooks": "No application hooks. Native grouped fact cube preserves nullable cost completeness, nine token sums and legacy execution-role derivation. Nine real legacy usage/group comparisons and twelve native scope/filter/empty cases passed. Existing conversation composition and root callers have not been redirected. Full Endly passed.",
+      "input_type": "ModelCallReportInput",
+      "output_type": "ModelCallReportOutput",
+      "root_tables": [
+        "model_call"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/modelcall/read",
+      "destination": "internal/datly/modelcall/read",
+      "legacy": "pkg/agently/conversation/conversation/model_call.sql",
+      "route": "/v1/internal/agently/model-call",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Host mode validation only. All 31 physical fields compare with the original assistant-only transcript projection. Four real legacy comparisons, 17 scope/predicate/selector cases and two HTTP host-override cases passed, including legacy timestamp text. Batch turn-ID and message-ID predicates support deletion run evidence and payload collection. Payload enrichment remains in conversation composition. Full Endly passed.",
+      "input_type": "ModelCallsInput",
+      "output_type": "ModelCallsOutput",
+      "root_tables": [
+        "model_call"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/payload/read",
+      "destination": "internal/datly/payload/read",
+      "legacy": "pkg/agently/payload/payload.go",
+      "route": "/v1/api/agently/payload",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Business lifecycle defaults/gzip/storage; reader OnFetch decompression/trim. Selector forwarding verified against legacy. Legacy fixed SQL overfetches on Fields; v1 native projection reads requested fields only. Selected values and order match.",
+      "input_type": "PayloadRowsInput",
+      "output_type": "PayloadRowsOutput",
+      "root_tables": [
+        "call_payload"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/payload/reference",
+      "destination": "internal/datly/payload/reference",
+      "legacy": "pkg/agently/payload/read/payload.go",
+      "route": "/v2/api/agently/payload",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Business lifecycle defaults/gzip/storage; reader OnFetch decompression/trim. Selector forwarding verified against legacy. Host-only reference check computes ten inbound pointers; its field is internal and omitted from public JSON. Linked-host retention and late-reference conflict tests pass.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "call_payload"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/run/cube",
+      "destination": "internal/datly/run/cube",
+      "legacy": "pkg/agently/scheduler/run/total.go",
+      "route": "/v1/internal/agently/run/report",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Run fact cube: count, token and cost measures with selectable dimensions. Eight real legacy scheduler-total cases; nullable aggregate and grouping fixtures; trusted host scope cannot be overridden by request filters.",
+      "input_type": "RunReportInput",
+      "output_type": "RunReportOutput",
+      "root_tables": [
+        "run"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/run/read",
+      "destination": "internal/datly/run/read",
+      "legacy": "pkg/agently/run/run.go",
+      "route": "/v1/api/agently/run/{id}",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Canonical rows/active/stale/schedulerList/schedulerRuns/schedulerDue host modes. Verified subject, run/schedule scopes, ordinary/pattern/time predicates, selector projection and pagination. Batch identity, conversation and turn predicates support deletion liveness evidence. Legacy ordered comparisons and public/private scope checks pass.",
+      "input_type": "RunRowsInput",
+      "output_type": "RunRowsOutput",
+      "root_tables": [
+        "run"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/schedule/read",
+      "destination": "internal/datly/schedule/read",
+      "legacy": "pkg/agently/scheduler/schedule/schedule.go",
+      "route": "/v1/api/agently/scheduler/schedule/{id}",
+      "status": "sqlite-legacy-parity",
+      "hooks": "One reader for public get/list and trusted scheduler internal listing. Required host mode and verified visibility subject; batched conversation and goal IDs support deletion reference checks. Eight real legacy cases and two missing-provider checks.",
+      "input_type": "ScheduleInput",
+      "output_type": "ScheduleOutput",
+      "root_tables": [
+        "schedule"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/toolcall/cube",
+      "destination": "internal/datly/toolcall/cube",
+      "legacy": "pkg/agently/toolcall/read/sql/tool_call_by_op.sql",
+      "legacy_replaces": [
+        "pkg/agently/toolcall/read/sql/tool_call_by_op.sql",
+        "pkg/agently/toolcall/byTurn/tool_call_rows/tool_call_rows.sql"
+      ],
+      "route": "/v1/internal/agently/tool-call/report",
+      "status": "sqlite-legacy-parity",
+      "hooks": "No application Go. One fact cube provides record/retry counts, latency total/average and nullable complete cost. Seven real legacy row-count comparisons, ten native scope/filter/empty cases and two grouped/known-cost cases pass. ConsistentTurn opt-in preserves by-turn relationship requirements; all-fact scope retains broader grain. Full Endly passed.",
+      "input_type": "ToolCallReportInput",
+      "output_type": "ToolCallReportOutput",
+      "root_tables": [
+        "tool_call"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/toolcall/read",
+      "destination": "internal/datly/toolcall/read",
+      "legacy": "pkg/agently/toolcall/byOp/toolcall_by_op.go",
+      "legacy_replaces": [
+        "pkg/agently/toolcall/byOp/toolcall_by_op.go",
+        "pkg/agently/toolcall/byTurn/toolcall_by_turn.go",
+        "pkg/agently/toolcall/read/toolcall_by_op.go"
+      ],
+      "route": "/v1/internal/agently/tool-call",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Required host rows/byOp/scopedByOp/byTurn/transcript mode. Native predicates preserve optional vs always-scoped operation lookup and consistent turn/message joins. Batch turn-ID and message-ID predicates support deletion run evidence and payload collection. Lookup modes force legacy-sized projection; 12 real legacy comparisons, 18 scope/predicate/selector checks, two HTTP scope cases and historical timestamp pass. Optional by-op empty conversation matches legacy omission; public/owner protection is independent. Full Endly passed.",
+      "input_type": "ToolCallsInput",
+      "output_type": "ToolCallsOutput",
+      "root_tables": [
+        "tool_call"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/turn/cube",
+      "destination": "internal/datly/turn/cube",
+      "legacy": "pkg/agently/turn/controllerCount/controller_count.go",
+      "legacy_replaces": [
+        "pkg/agently/turn/controllerCount/controller_count.go",
+        "pkg/agently/turn/queuedCount/queued_count.go"
+      ],
+      "route": "/v1/internal/agently/turn/report",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Trusted host permission required. One Turn fact cube provides record, queued and controller counts plus conversation/status/nullable-origin dimensions. Eight real legacy count comparisons and seven native cube cases passed. Full Endly gate passed.",
+      "input_type": "TurnReportInput",
+      "output_type": "TurnReportOutput",
+      "root_tables": [
+        "turn"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/turn/read",
+      "destination": "internal/datly/turn/read",
+      "legacy": "pkg/agently/turn/list/list.go",
+      "route": "/v1/api/agently/turn/list/list",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Canonical list/byId/active/queued/nextQueued reader. Required trusted host mode and batched conversation/goal-ID predicates; the latter detects turns outside a deletion graph that reference its goals. Sixteen real legacy ordered row comparisons and four required-scope/projection/pagination checks passed. Queued discovery forces physical ID/sequence projection.",
+      "legacy_replaces": [
+        "pkg/agently/turn/active/active.go",
+        "pkg/agently/turn/byId/by_id.go",
+        "pkg/agently/turn/nextQueued/next_queued.go",
+        "pkg/agently/turn/queuedList/queued_list.go"
+      ],
+      "input_type": "TurnRowsInput",
+      "output_type": "TurnRowsOutput",
+      "root_tables": [
+        "turn"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/turnqueue/read",
+      "destination": "internal/datly/turnqueue/read",
+      "legacy": "pkg/agently/turnqueue/read/list.go",
+      "route": "/v1/api/agently/turnqueue/list",
+      "status": "sqlite-legacy-parity-with-documented-rollback-fix",
+      "hooks": "Canonical turn-queue reader now has a batched conversation-ID predicate for deletion activity checks. Legacy UTC/default status and timestamp rules; 15 real legacy/new cases and caller-owned commit/rollback. Mixed failing legacy batch leaves raw update committed; generated writer rolls back whole batch. No authored DML.",
+      "input_type": "QueueRowsInput",
+      "output_type": "QueueRowsOutput",
+      "root_tables": [
+        "turn_queue"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/oauth/linkstate/read",
+      "destination": "internal/datly/oauth/linkstate/read",
+      "legacy": "pkg/agently/user/oauth/linkstate/write/handler.go",
+      "route": "/v1/internal/agently/user/oauth/linkstate/current",
+      "status": "sqlite-legacy-pending-parity-and-native-state-lookup",
+      "hooks": "Exact-one flow/state hash validation; generated view preserves pending-flow legacy semantics and supports atomic-consume classification by state hash.",
+      "input_type": "LinkStateInput",
+      "output_type": "LinkStateOutput",
+      "root_tables": [
+        "oauth_link_state"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/oauth/token/read",
+      "destination": "internal/datly/oauth/token/read",
+      "legacy": "pkg/agently/user/oauth/token.go",
+      "route": "/v1/api/agently/user/oauth",
+      "status": "sqlite-legacy-parity",
+      "hooks": "UTC creation-time replacement, forced token update marker and update timestamp; composite identity and schema validation generated.",
+      "input_type": "TokenInput",
+      "output_type": "TokenOutput",
+      "root_tables": [
+        "user_oauth_token"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/session/read",
+      "destination": "internal/datly/session/read",
+      "legacy": "pkg/agently/user/session/session.go",
+      "route": "/v1/api/agently/user/session",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Creation timestamp replacement, forced update markers and update timestamp; date format tags preserved from legacy.",
+      "input_type": "SessionInput",
+      "output_type": "SessionOutput",
+      "root_tables": [
+        "session"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/user/read",
+      "destination": "internal/datly/user/read",
+      "legacy": "pkg/agently/user/user.go",
+      "route": "/v1/api/agently/user",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Writer UTC creation/disabled defaults and update timestamp. Reader ID/username predicates; no custom codec.",
+      "input_type": "UserInput",
+      "output_type": "UserOutput",
+      "root_tables": [
+        "users"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/conversation/write",
+      "destination": "internal/datly/conversation/write",
+      "legacy": "pkg/agently/conversation/write/input.go",
+      "route": "/v1/api/agently/conversation",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Creation/private visibility and activity defaults; sparse fields generated. Explicit delete marker with idempotent missing-row policy. Reader business OnRelation stage/status sorting and elicitation hydration. 18 real legacy graph cases plus caller commit/rollback and linked-host delete rollback.",
+      "table": "conversation",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "conversation"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/generatedfile/write",
+      "destination": "internal/datly/generatedfile/write",
+      "legacy": "pkg/agently/generatedfile/write/input.go",
+      "route": "/v1/api/agently/generated-file",
+      "status": "sqlite-legacy-parity-with-documented-status-filter-fix",
+      "hooks": "Writer ready/timestamp defaults only; generated validators and sparse DML. Reader native Status binding avoids legacy input/output collision.",
+      "table": "generated_file",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "generated_file"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/goal/write",
+      "destination": "internal/datly/goal/write",
+      "legacy": "pkg/agently/goal/write/input.go",
+      "route": "/v1/api/agently/goal",
+      "status": "sqlite-legacy-parity",
+      "hooks": "ported to generated create-once lifecycle",
+      "table": "goal",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "goal"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/message/write",
+      "destination": "internal/datly/message/write",
+      "legacy": "pkg/agently/message/write/input.go",
+      "route": "/v1/api/agently/message",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Legacy defaults and update context, shared creation timestamp, UTC update timestamp and UTF8 MEDIUMTEXT truncation. Native sequence_scope with sequenceOnNull allocate; native idempotent delete marker. 34 checks: 21 PATCH comparisons, 2 caller transactions, 2 large-content comparisons, 7 deletion comparisons and 2 cascade comparisons.",
+      "table": "message",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "message"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/modelcall/write",
+      "destination": "internal/datly/modelcall/write",
+      "legacy": "pkg/agently/modelcall/write/input.go",
+      "route": "/v1/api/agently/modelcall",
+      "status": "sqlite-legacy-parity-with-documented-rollback-fix",
+      "hooks": "Blank deletion identity acknowledgment only; current reads, sparse DML, validation and transaction ownership generated. 20 legacy write comparisons, seven delete comparisons, two caller transaction cases, two legacy/native batch failure cases and four mixed mutation transactions passed. Legacy partial commits are corrected by native rollback; parents survive deletion. Full Endly passed.",
+      "table": "model_call",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "model_call"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/payload/write",
+      "destination": "internal/datly/payload/write",
+      "legacy": "pkg/agently/payload/write/input.go",
+      "route": "/v1/api/agently/payload",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Business lifecycle defaults/gzip/storage; reader OnFetch decompression/trim. Generated writer has an explicit idempotent delete marker and a host-only ten-reference guard. Linked-host shared-payload and late-reference conflict tests pass; a future tree orchestrator must invoke it within one managed transaction.",
+      "table": "call_payload",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "call_payload"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/run/write",
+      "destination": "internal/datly/run/write",
+      "legacy": "pkg/agently/run/write/input.go",
+      "route": "/v1/api/agently/run",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Canonical run writer: insertion defaults, Condition validation, shared per-row predicates, atomic lease claim/release, explicit idempotent delete marker and native single-row loss recovery. Basic/conditional/lease comparisons, mixed-batch rollback, independent connection races and linked-host delete rollback pass. Root service/API compilation remains pending.",
+      "table": "run",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "run"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/schedule/write",
+      "destination": "internal/datly/schedule/write",
+      "legacy": "pkg/agently/scheduler/schedule/write/input.go",
+      "route": "/v1/api/agently/scheduler/",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Canonical writer: creation/update defaults, explicit idempotent deletion, and atomic claim/release through the shared business predicate. 27 write and seven delete comparisons, 11 legacy lease comparisons, four competing-connection cases and caller transaction checks pass. Actual service caller cutover remains pending.",
+      "table": "schedule",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "schedule"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/toolapprovalqueue/write",
+      "destination": "internal/datly/toolapprovalqueue/write",
+      "legacy": "pkg/agently/toolapprovalqueue/write/input.go",
+      "route": "/v1/api/agently/toolapprovalqueue",
+      "status": "sqlite-legacy-parity",
+      "hooks": "UTC timestamp and pending-status defaults; sparse required context and binary arguments; native idempotent deletion. 24 legacy writer comparisons and 6 native transaction/deletion cases.",
+      "table": "tool_approval_queue",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "tool_approval_queue"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/toolcall/write",
+      "destination": "internal/datly/toolcall/write",
+      "legacy": "pkg/agently/toolcall/write/input.go",
+      "route": "/v1/api/agently/toolcall",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Insert attempt=1 when absent; UTF-8-safe bounded error sanitation; blank deletion identity acknowledgment. responseOverflow remains transient through DQL; nullable payload response fields preserve legacy JSON. 24 legacy write comparisons, two caller transaction checks, seven legacy deletions and four mixed mutation transactions passed. Full Endly passed.",
+      "table": "tool_call",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "tool_call"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/turn/write",
+      "destination": "internal/datly/turn/write",
+      "legacy": "pkg/agently/turn/write/input.go",
+      "route": "/v1/api/agently/turn",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Insert-only creation timestamp reset matches legacy. Fourteen legacy writer cases compare complete stored rows and responses; seven deletion comparisons use native idempotent markers; four mixed delete/update/insert transaction cases and caller update commit/rollback passed. Full canonical Turn Endly gate passed.",
+      "table": "turn",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "turn"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/turnqueue/write",
+      "destination": "internal/datly/turnqueue/write",
+      "legacy": "pkg/agently/turnqueue/write/input.go",
+      "route": "/v1/api/agently/turnqueue",
+      "status": "sqlite-legacy-parity-with-documented-rollback-fix",
+      "hooks": "Legacy UTC/default status and timestamp rules; 15 real legacy/new cases and caller-owned commit/rollback. Mixed failing legacy batch leaves raw update committed; generated writer rolls back whole batch. No authored DML.",
+      "table": "turn_queue",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "turn_queue"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/oauth/linkstate/write",
+      "destination": "internal/datly/oauth/linkstate/write",
+      "legacy": "pkg/agently/user/oauth/linkstate/write/handler.go",
+      "route": "/v1/internal/agently/user/oauth/linkstate/write",
+      "status": "sqlite-legacy-parity-with-atomic-consume-and-cleanup",
+      "hooks": "Single managed writer for create/adopt, guarded replacement, single-use consume and strict transactional cleanup; business classification, timestamps and confirmed-commit metrics.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": []
+    },
+    {
+      "operation": "patch",
+      "source": "dql/oauth/token/write",
+      "destination": "internal/datly/oauth/token/write",
+      "legacy": "pkg/agently/user/oauth/write/input.go",
+      "route": "/v1/api/agently/user/oauth",
+      "status": "sqlite-legacy-parity",
+      "hooks": "UTC creation-time replacement, forced token update marker and update timestamp; composite identity and schema validation generated.",
+      "table": "user_oauth_token",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "user_oauth_token"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/session/write",
+      "destination": "internal/datly/session/write",
+      "legacy": "pkg/agently/user/session/write/input.go",
+      "route": "/v1/api/agently/user/session",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Canonical batch session writer, singleton caller adaptation required; creation/update defaults and native explicit deletion with onDeleteNotFound=ignore. Legacy write and six deletion comparisons pass.",
+      "table": "session",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "session"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/user/write",
+      "destination": "internal/datly/user/write",
+      "legacy": "pkg/agently/user/write/input.go",
+      "route": "/v1/api/agently/user",
+      "status": "sqlite-legacy-parity",
+      "hooks": "Writer UTC creation/disabled defaults and update timestamp. Reader ID/username predicates; no custom codec.",
+      "table": "users",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "users"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/reporting/sharedartifact/write",
+      "destination": "internal/datly/reporting/sharedartifact/write",
+      "legacy": "pkg/forge/reporting/write/input.go",
+      "route": "/v1/api/forge/reporting/shared-artifact",
+      "status": "sqlite-legacy-parity-with-sparse-and-ownership-corrections",
+      "hooks": "Required ID/owner, UTC timestamps, inserted legacy string defaults, owner scope and binary response clone. Strict generated delete marker. 22 writer checks.",
+      "table": "report_shared_artifact",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "report_shared_artifact"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/message/read",
+      "destination": "internal/datly/message/read",
+      "legacy": "pkg/agently/message plus read/list/elicitation/elicitationCount",
+      "route": "/v1/internal/agently/message",
+      "status": "sqlite-legacy-parity",
+      "table": "message",
+      "hooks": "Presence-gated business filters and JSON/gzip hydration; native graph, binding and selectors. Batched conversation and linked-conversation ID predicates support graph discovery and inbound-reference validation.",
+      "input_type": "MessagesInput",
+      "output_type": "MessagesOutput",
+      "root_tables": [
+        "message"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/message/cube",
+      "destination": "internal/datly/message/cube",
+      "legacy": "pkg/agently/message plus read/list/elicitation/elicitationCount",
+      "route": "/v1/internal/agently/message/report",
+      "status": "sqlite-legacy-parity",
+      "table": "message",
+      "hooks": "None; native fact aggregate with count/pending/user/assistant measures and scoped dimensions",
+      "input_type": "MessageReportInput",
+      "output_type": "MessageReportOutput",
+      "root_tables": [
+        "message"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/toolapprovalqueue/read",
+      "destination": "internal/datly/toolapprovalqueue/read",
+      "legacy": "pkg/agently/toolapprovalqueue/read,outcome,count,pendingCount",
+      "route": "/v1/internal/agently/tool-approval",
+      "status": "sqlite-legacy-parity",
+      "table": "tool_approval_queue",
+      "hooks": "Read mode validation only; 24 checks for list/outcome storage, transition order, private owner scope and selectors. Batch conversation, turn and message predicates support tree deletion approval collection; linked-host collector excludes unrelated approvals",
+      "input_type": "ApprovalRowsInput",
+      "output_type": "ApprovalRowsOutput",
+      "root_tables": [
+        "tool_approval_queue"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/toolapprovalqueue/cube",
+      "destination": "internal/datly/toolapprovalqueue/cube",
+      "legacy": "pkg/agently/toolapprovalqueue/read,outcome,count,pendingCount",
+      "route": "/v1/internal/agently/tool-approval/report",
+      "status": "sqlite-legacy-parity",
+      "table": "tool_approval_queue",
+      "hooks": "None; 18 checks for native total/pending/outcome/timed-out measures, owner scope and nullable dimensions",
+      "input_type": "ApprovalReportInput",
+      "output_type": "ApprovalReportOutput",
+      "root_tables": [
+        "tool_approval_queue"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/runsteps/read",
+      "destination": "internal/datly/runsteps/read",
+      "legacy": "pkg/agently/run/steps",
+      "route": "/v1/internal/agently/run/steps",
+      "status": "sqlite-legacy-parity-with-documented-step-type-filter-fix",
+      "table": "run-steps-derived",
+      "hooks": "None; native UNION reader, scoped owner/visibility and selector forwarding. 20 E2E checks.",
+      "input_type": "RunStepsInput",
+      "output_type": "RunStepsOutput",
+      "root_tables": [
+        "model_call"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/reporting/sharedartifact/read",
+      "destination": "internal/datly/reporting/sharedartifact/read",
+      "legacy": "pkg/forge/reporting/read.go; pkg/forge/reporting/list/list.go",
+      "route": "/v1/internal/forge/reporting/shared-artifact",
+      "status": "sqlite-legacy-parity-with-owner-scope",
+      "table": "report_shared_artifact",
+      "hooks": "Mode and identity validation only; DQL COALESCE normalizes nullable legacy string columns. 20 reader checks.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "report_shared_artifact"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/toolexecutionclaim/read",
+      "destination": "internal/datly/toolexecutionclaim/read",
+      "legacy": "app/store/data/service_delete_tree.go direct claim deletion lookup",
+      "route": "/v1/internal/agently/tool-execution-claim",
+      "status": "sqlite-legacy-delete-parity-and-native-predicates",
+      "table": "tool_execution_claim",
+      "hooks": "Private host-bound trust; claim key, turn, rule and state predicates.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "tool_execution_claim"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/toolexecutionclaim/write",
+      "destination": "internal/datly/toolexecutionclaim/write",
+      "legacy": "app/store/data/service_delete_tree.go direct DELETE by turn_id",
+      "route": "/v1/internal/agently/tool-execution-claim",
+      "status": "sqlite-legacy-delete-parity-and-native-crud",
+      "table": "tool_execution_claim",
+      "hooks": "Trusted access, claim state/timestamp defaults and required expected-turn delete guard; native mutation_predicate prevents deleting a claim moved to another turn. Host-only claim/finish modes prevent duplicate claims from overwriting prior state and make missing finishes no-ops.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "tool_execution_claim"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/reporting/context/read",
+      "destination": "internal/datly/reporting/context/read",
+      "legacy": "app/store/reporting/sql/store.go GetConversationReportContext and deletion lookups",
+      "route": "/v1/internal/forge/reporting/conversation-context",
+      "status": "sqlite-legacy-parity-and-owner-scope",
+      "table": "conversation_report_context",
+      "hooks": "Private host-bound owner subject and internal access; owner, conversation and active run predicates plus batched conversation/active-run IDs for deletion reference checks.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "conversation_report_context"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/reporting/context/write",
+      "destination": "internal/datly/reporting/context/write",
+      "legacy": "app/store/reporting/sql/store.go PutConversationReportContextCAS and adoption update",
+      "route": "/v1/internal/forge/reporting/conversation-context",
+      "status": "sqlite-legacy-cas-parity",
+      "table": "conversation_report_context",
+      "hooks": "Native concurrency_token captures expected revision and guards the physical mutation; business hook advances the desired revision and enforces owner scope.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "conversation_report_context"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/reporting/run/read",
+      "destination": "internal/datly/reporting/run/read",
+      "legacy": "app/store/reporting/sql/store.go GetReportRun and GetReportRunByRequestID",
+      "route": "/v1/internal/forge/reporting/run",
+      "status": "sqlite-full-field-legacy-parity-and-owner-scope",
+      "table": "report_run",
+      "hooks": "Private host-bound owner subject with exact run ID and UI request ID predicates plus batched conversation/report-run IDs for deletion reference checks; all 26 physical fields compared.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "report_run"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/reporting/run/write",
+      "destination": "internal/datly/reporting/run/write",
+      "legacy": "app/store/reporting/sql/store.go CreateReportRun, UpdateReportRunCAS and AdoptReportRunAndContextCAS",
+      "route": "/v1/internal/forge/reporting/run",
+      "status": "sqlite-legacy-create-update-cas-parity",
+      "table": "report_run",
+      "hooks": "Native concurrency_token plus owner/request mutation predicate; business lifecycle enforces create-only, ordinary update CAS, completed snapshot immutability and narrow manual adoption.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "report_run"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/reporting/job/read",
+      "destination": "internal/datly/reporting/job/read",
+      "legacy": "app/store/reporting/sql/store.go GetJob and ListJobs",
+      "route": "/v1/internal/forge/reporting/job",
+      "status": "sqlite-full-field-legacy-parity-and-owner-scope",
+      "table": "report_export_job",
+      "hooks": "Private owner scope and native predicates for job ID, run link, export request, artifact reference and status. Batched job, conversation and report-run IDs support deletion dependency checks; all physical fields compared.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "report_export_job"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/reporting/job/write",
+      "destination": "internal/datly/reporting/job/write",
+      "legacy": "app/store/reporting/sql/store.go CreateJob, UpdateJob, ClaimJob, FailJob, SubmitJobFromRun and CompleteJobWithArtifact",
+      "route": "/v1/internal/forge/reporting/job",
+      "status": "sqlite-legacy-basic-transition-parity",
+      "table": "report_export_job",
+      "hooks": "One writer with create, update, submit, claim, complete, fail and delete modes. Native owner/status mutation predicate guards transitions; business hook validates mode and clones output bytes. Run-linked submit and artifact completion still need orchestration.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "report_export_job"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/reporting/artifact/read",
+      "destination": "internal/datly/reporting/artifact/read",
+      "legacy": "app/store/reporting/sql/store.go GetArtifact and ListArtifacts",
+      "route": "/v1/internal/forge/reporting/artifact",
+      "status": "sqlite-full-field-legacy-parity-and-owner-scope",
+      "table": "report_export_artifact",
+      "hooks": "Private owner scope, artifact/job/reference predicates and batched job IDs for deletion dependency checks. All physical fields including opaque bytes and retention seconds compared.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "report_export_artifact"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/reporting/artifact/write",
+      "destination": "internal/datly/reporting/artifact/write",
+      "legacy": "app/store/reporting/sql/store.go PutArtifact and conversation-tree artifact deletion",
+      "route": "/v1/internal/forge/reporting/artifact",
+      "status": "sqlite-legacy-put-parity-and-guarded-delete",
+      "table": "report_export_artifact",
+      "hooks": "Create-only writer hook reads the generated job component in the same managed transaction to enforce job/owner/ref/format; native expected-job mutation predicate guards deletion.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "report_export_artifact"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/legacyrun/read",
+      "destination": "internal/datly/legacyrun/read",
+      "legacy": "app/store/data/service_delete_tree.go schedule_run lookup and deletion",
+      "route": "/v1/internal/agently/scheduler/legacy-run",
+      "status": "sqlite-legacy-delete-parity-and-native-scope",
+      "table": "schedule_run",
+      "hooks": "Private trusted reader; schedule, conversation, status, exact ID and batched ID/conversation predicates. The linked host checks optional table presence through Datly SQLX metadata before invoking this component. Disposable SQLite schema mirrors Platform/Steward Skeema.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "schedule_run"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/legacyrun/write",
+      "destination": "internal/datly/legacyrun/write",
+      "legacy": "app/store/data/service_delete_tree.go DELETE schedule_run by conversation and ID",
+      "route": "/v1/internal/agently/scheduler/legacy-run",
+      "status": "sqlite-legacy-delete-parity-and-native-crud",
+      "table": "schedule_run",
+      "hooks": "Trusted mutation access, expected-schedule delete guard, insertion status/kind/timestamp defaults; native predicate and marker own DML.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "schedule_run"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/investigation/read",
+      "destination": "internal/datly/investigation/read",
+      "legacy": "app/store/data/service_delete_tree.go investigation lookup and deletion",
+      "route": "/v1/internal/agently/investigation",
+      "status": "sqlite-legacy-delete-parity-and-native-scope",
+      "table": "investigation",
+      "hooks": "Private trusted reader with ID, conversation and created-by predicates; disposable SQLite fixture mirrors the separate internal Skeema table.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "investigation"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/investigation/write",
+      "destination": "internal/datly/investigation/write",
+      "legacy": "app/store/data/service_delete_tree.go investigation deletion by conversation",
+      "route": "/v1/internal/agently/investigation",
+      "status": "sqlite-legacy-delete-parity-and-native-crud",
+      "table": "investigation",
+      "hooks": "Trusted access, expected-conversation delete guard and insert timestamp default. Native predicate and delete marker own DML.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "investigation"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/reporting/audit/read",
+      "destination": "internal/datly/reporting/audit/read",
+      "legacy": "app/store/reporting/sql/store.go audit event lookup and app/store/data/service_delete_tree.go deletion",
+      "route": "/v1/internal/forge/reporting/audit",
+      "status": "sqlite-legacy-delete-parity-and-native-scope",
+      "table": "report_audit_event",
+      "hooks": "Private trusted reader with event, job, artifact and actor predicates; no new schema definition.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "report_audit_event"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/reporting/audit/write",
+      "destination": "internal/datly/reporting/audit/write",
+      "legacy": "app/store/reporting/sql/store.go append audit event and app/store/data/service_delete_tree.go deletion",
+      "route": "/v1/internal/forge/reporting/audit",
+      "status": "sqlite-legacy-delete-parity-and-native-crud",
+      "table": "report_audit_event",
+      "hooks": "Trusted access, guarded deletion by job or artifact, append-only event fields and occurrence timestamp; native predicates and delete marker own DML. Duplicate append caller policy remains to be wired.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "report_audit_event"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/maintenancelease/read",
+      "destination": "internal/datly/maintenancelease/read",
+      "legacy": "app/store/data/service_maintenance_lease.go",
+      "route": "/v1/internal/agently/maintenance-lease",
+      "status": "sqlite-native-lease-lifecycle",
+      "table": "maintenance_lease",
+      "hooks": "Private clock-bearing reader returns a row even when the lease is absent; owner/token/expiry are nullable in that case. Database UTC clock is dialect rendered.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "maintenance_lease"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/maintenancelease/write",
+      "destination": "internal/datly/maintenancelease/write",
+      "legacy": "app/store/data/service_maintenance_lease.go",
+      "route": "/v1/internal/agently/maintenance-lease",
+      "status": "sqlite-native-lease-lifecycle",
+      "table": "maintenance_lease",
+      "hooks": "Generated writer owns create, expired-token CAS claim, live owner/token renewal, release, guarded purge deletion and a live-owner guard update. Lifecycle validates trusted mode and required compare predicates; a private custom purge parent owns the cleanup transaction.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "maintenance_lease"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/terminalartifact/snapshot/read",
+      "destination": "internal/datly/terminalartifact/snapshot/read",
+      "route": "/v1/internal/agently/terminal-artifacts/snapshot",
+      "legacy": "app/store/data/service_terminal_artifact_cleanup.go",
+      "status": "sqlite-native-terminal-cleanup",
+      "hooks": "Aggregate identifier snapshot preserves cutoff and ranked turn limit before artifact linkage; private cleanup uses canonical writers and managed rollback. Linked native tests pass; application/MySQL gates remain.",
+      "input_type": "SnapshotInput",
+      "output_type": "SnapshotOutput",
+      "root_tables": [
+        "candidate_rows"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/orphanmaintenance/read",
+      "destination": "internal/datly/orphanmaintenance/read",
+      "route": "/v1/internal/agently/orphan-maintenance/report",
+      "legacy": "app/store/data/service_orphan_maintenance.go",
+      "status": "generated-runtime-validation-pending",
+      "hooks": "Aggregate configured-dialect rule report preserves binary cursors, references and observed timestamps. Canonical readers and writers perform fenced repair; complete runtime rule validation remains pending.",
+      "input_type": "ReportInput",
+      "output_type": "ReportOutput",
+      "root_tables": []
+    }
+  ],
+  "blocked": [
+    {
+      "legacy": "pkg/agently/user/oauth/linkstate/write/input.go",
+      "operation": "patch",
+      "reason": "Native affected-row recovery is implemented and ten evidence cases pass. Full application caller/transport/consumption integration remains pending; this item is not a remaining framework blocker."
+    }
+  ],
+  "legacy_commit": "44b8887846c22dfd47f7d788c34ea12ceaa5c5ae",
+  "integration": "Single Core module; relocated Core and Agently production builds pass. Fresh full GoSDK/server/reporting callers, actual TypeScript413/Swift91/Android97 client suites and MySQL reporting contention/caller transactions pass; see root-layout-caller-validation.json. Whole-Core final gates remain separately tracked.",
+  "datly_local_replace": null,
+  "sqlx_version": "v0.26.1-0.20260929151803-0df7f08c4926",
+  "datly_framework_backfill_source": "772d31ea",
+  "table_component_policy": "Canonical physical table ownership is enumerated from emitted root view tags. Computed snapshots/facts are classified separately; coverage does not by itself prove caller compatibility.",
+  "sqlx_local_replace": null,
+  "datly_version": "v1.1.1-0.20260930170220-8ffc43d3f264",
+  "datly_verification_head": "18944e76",
+  "layout": {
+    "module": "github.com/viant/agently-core",
+    "source": "dql/",
+    "generated": "internal/datly/",
+    "composition": "internal/store/",
+    "host_support": "internal/datly/{host,link,queryselectors,codec,predicate,dbtime,invariant}",
+    "contracts": 62
+  },
+  "historical_component_notes_scope": "Per-component status/hooks retain earlier component parity checkpoints; current root caller/layout results are recorded by integration/evidence fields."
+}

@@ -1000,8 +1000,8 @@ func TestRuntimeQuery_QueryModelOverride_WinsOverSkillFrontmatterAndSkillsModel(
 	if payload.Model != "openai_gpt-5.2" {
 		t.Fatalf("expected query model override to win, got %q", payload.Model)
 	}
-	if payload.Options.Metadata["modelSource"] != "query.modelOverride" {
-		t.Fatalf("expected modelSource query.modelOverride, got %#v", payload.Options.Metadata)
+	if payload.Options.Metadata["modelSource"] != "caller" {
+		t.Fatalf("expected explicit model override source caller, got %#v", payload.Options.Metadata)
 	}
 }
 

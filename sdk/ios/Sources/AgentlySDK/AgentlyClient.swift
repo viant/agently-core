@@ -945,6 +945,7 @@ public final class AgentlyClient: Sendable {
         }
         storeSessionCookies(from: response, requestURL: request.url)
         try validate(response: response, data: data)
+        if data.isEmpty, let empty = EmptyResponse() as? T { return empty }
         return try decoder.decode(T.self, from: data)
     }
 

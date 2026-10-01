@@ -1,0 +1,43 @@
+init:
+  - name: projectRoot
+    value: $WorkingDirectory(../..)
+  - name: testPackages
+    when: $params.testPackages
+    value: $params.testPackages
+    else: ./internal/datly/contracttest ./internal/store/... ./app/store/native
+  - name: testRun
+    when: $params.testRun
+    value: $params.testRun
+    else: .
+
+pipeline:
+  transcribe:
+    action: exec:run
+    TimeoutMs: 1800000
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - env GOWORK=off python3 scripts/datly/build_transcriber.py
+      - env GOWORK=off python3 scripts/datly/transcribe.py
+  regeneration:
+    action: exec:run
+    TimeoutMs: 1800000
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - python3 scripts/datly/verify_regeneration.py
+  verify:
+    action: exec:run
+    TimeoutMs: 600000
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - python3 scripts/datly/check_contracts.py
+      - env GOWORK=off go test -count=1 $testPackages -run '$testRun'
+  build:
+    action: exec:run
+    TimeoutMs: 600000
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - env GOWORK=off go build -o bin/agently-datly ./cmd/datly

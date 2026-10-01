@@ -1,0 +1,84 @@
+{
+  "status": "linked-sqlite-full-mutation-and-rollback-passed-framework-scratch",
+  "source": "datlyv1/application/conversationtree/mutations.go",
+  "contract": "Apply a validated DeletePlan only under the calling component managed transaction; mutation phase invokes canonical typed writer components and owns no SQL, transaction start, or completion.",
+  "ordered_operations": [
+    "investigation delete or explicit retain-and-detach",
+    "report audit event deletes scoped by job/artifact snapshot",
+    "export artifact and job deletes with owner and expected job guards",
+    "composite conversation report context deletes",
+    "report run deletes",
+    "legacy schedule run deletes with expected schedule guards",
+    "approval deletes",
+    "tool execution claim deletes with expected turn guard",
+    "run resumed-from links detached",
+    "current runs deleted",
+    "turn queue deleted",
+    "model/tool calls deleted by message/composite identity",
+    "generated files deleted",
+    "message parent/superseded and turn starter/retry links detached for graph-local and external rows",
+    "messages and turns deleted",
+    "owned schedules and goals deleted",
+    "conversations deleted by descending discovered depth",
+    "payload candidates deleted through guarded NOT EXISTS writer"
+  ],
+  "schema_parity": "Uses explicit DeletePlan.Tables metadata to retain legacy behavior for absent optional tables.",
+  "authoring_changes": [
+    "canonical generated-file and turn-queue writer delete markers with idempotent not-found policy; authored lifecycle skips defaults on delete",
+    "canonical message writer protected host provider detach mode and trusted target message IDs; rejects extra fields/non-null replacements/outside targets while preserving timestamps"
+  ],
+  "verification": [
+    {
+      "command": "(cd datlyv1 && go test ./application/conversationtree)",
+      "result": "pass",
+      "note": "compiled after root sole regeneration"
+    },
+    {
+      "command": "(cd datlyv1 && go test ./tests -run ^(TestMessageWriterTrustedGraphDetach|TestMessageApplicationMutationResult)$ -count=1)",
+      "result": "pass",
+      "duration_seconds": 1.362,
+      "coverage": [
+        "message link clear preserves all other stored fields/timestamps and sparse output timestamp presence",
+        "invalid additional fields, non-null replacements and outside target IDs reject without changing stored rows",
+        "successful typed mutation output preserves defaults/sequence/context presence; failed output absent"
+      ]
+    },
+    {
+      "command": "(cd datlyv1 && go test ./tests -run ^(TestGeneratedFileTreeDeleteBatch|TestTurnQueueTreeDeleteBatch)$ -count=1)",
+      "result": "pass",
+      "duration_seconds": 1.531,
+      "coverage": [
+        "new canonical child writer delete markers",
+        "missing/repeated idempotent deletion",
+        "unrelated generated file retention",
+        "late trigger-induced batch failure rolls earlier deletes back"
+      ]
+    },
+    {
+      "command": "go test -mod=mod -modfile=/tmp/conv-framework/go.mod ./app/store/native -run ^TestWorkspaceRuntimeFullConversationTree -count=1",
+      "result": "pass",
+      "duration_seconds": 47.709,
+      "dependency_scope": "private scratch copied from /tmp/agently-v1-framework-root-modfile-path; local Datly framework fixes only in scratch, official module declarations retain published d1e724/sqlx 0df7",
+      "coverage": [
+        "complete ordered graph with all dependent tables and optional legacy run table present/absent",
+        "unrelated rows in every dependent table retained",
+        "graph-local/external resume/parent/superseded/starter/retry links cleared without outside timestamp changes",
+        "shared and unrelated payloads retained; private payload removed",
+        "snapshot-equal rollback of all tables after root conversation or final payload trigger failure",
+        "all-node owner and external inbound link protection",
+        "live lease/fresh heartbeat/unknown nonterminal status protection",
+        "report owner/external context/running export protection"
+      ],
+      "limitation": "SQLite functional transaction fidelity; not MySQL lock/contention evidence"
+    }
+  ],
+  "remaining": [
+    "root conversation mutable DTO/public event parity suite once root data factory compiles",
+    "final published Datly integration verification after framework fixes released",
+    "MySQL contention and full Endly regeneration/native boundary/build gates",
+    "all root/application/public caller completion requirements remain active"
+  ],
+  "changes_from_actual_full_test": [
+    "report_run delete supplies captured Revision token required by canonical generated writer"
+  ]
+}

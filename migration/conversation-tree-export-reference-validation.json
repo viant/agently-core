@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-30",
+  "scope": "Export-job and artifact dependencies for conversation-tree deletion",
+  "changes": [
+    "Canonical report-export-job and artifact readers gained batch predicates for conversation, report-run or job IDs",
+    "The graph validator gathers jobs through graph conversations and report-run links, rejects queued/running jobs and foreign ownership, and returns sorted job and artifact IDs for later generated deletion"
+  ],
+  "verified": [
+    "Linked-host test passed owned job/artifact collection, collection through a report-run link outside the graph conversation, queued-job denial, foreign-artifact denial and foreign-job denial",
+    "Focused job/artifact reader legacy parity, full app/store/native and service/reporting suites passed with the v1 scratch modfile",
+    "Full nested Endly passed 60/60 transcription, stable regeneration, boundary audit, nested tests (176.761s) and linked-host build"
+  ],
+  "remaining": [
+    "Nonterminal graph activity checks, payload retention, graph locks, ordered generated writes and one managed transaction remain",
+    "Root deletion callers still use direct SQL; MySQL and rebuilt application-route deletion remain unverified"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-export-refs.log"
+}

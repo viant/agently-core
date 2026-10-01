@@ -1,0 +1,23 @@
+{
+  "date": "2026-09-30",
+  "source_checkout": "/Users/awitas/go/src/github.com/viant/agently-core",
+  "source_branch": "main",
+  "source_head": "e9958d1a4b0175b6214153ee4d57153151fd4ae6",
+  "shared_base": "9903be31a48db283f45a0220c14df8ae008abbba",
+  "commits_ahead": [
+    "73f3c6c0 Add MCP-backed report definitions and activated report contract",
+    "e9958d1a Expose typed delegated MCP link outcome to hosts"
+  ],
+  "backfill": [
+    "Applied the typed MCP re-link outcome and its test",
+    "Applied the MCP request binding datasource contract and the complete reportdefinition package",
+    "The intent URI expectations in service/agent/binding_options_test.go already matched main"
+  ],
+  "verification": [
+    "All 19 files changed by the two commits matched the source main commit byte for byte after backfill",
+    "service/reportdefinition, protocol/datasource and protocol/mcp/manager package tests passed with the v1 scratch modfile",
+    "The source checkout had zero tracked changes after backfill; 25 pre-existing untracked entries were left untouched",
+    "The reportdefinition Go package has no direct product SQL or SDK0 Datly/xdatly imports"
+  ],
+  "remaining": "Rescan main again at final migration completion because its HEAD can advance; this checkpoint does not establish root/application or SDK1 end-to-end readiness."
+}

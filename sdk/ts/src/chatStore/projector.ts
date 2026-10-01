@@ -40,7 +40,7 @@ import type { ModelUsageState, PlannedToolCall } from '../types';
 
 import { compareTemporalEntries } from '../ordering';
 import { getFieldProvenance } from './reducer';
-import type { JSONObject } from '../types';
+import type { JSONValue } from '../types';
 
 // ─── Public render-row types ──────────────────────────────────────────────────
 
@@ -79,7 +79,7 @@ export interface MCPUIRenderRow {
     toolCallId?: string;
     toolName?: string;
     uri: string;
-    toolInput?: JSONObject | null;
+    toolInput?: JSONValue;
     createdAt?: string;
     sequence?: number;
 }

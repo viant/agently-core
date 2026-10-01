@@ -1264,11 +1264,11 @@ func TestBuildTranscriptSelectors(t *testing.T) {
 	})
 	require.Len(t, selectors, 3)
 	require.Equal(t, TranscriptSelectorTurn, selectors[0].Name)
-	require.Equal(t, 1, selectors[0].QuerySelector.Limit)
+	require.Equal(t, 1, selectors[0].Selector.Limit)
 	require.Equal(t, TranscriptSelectorMessage, selectors[1].Name)
-	require.Equal(t, 2, selectors[1].QuerySelector.Offset)
+	require.Equal(t, 2, selectors[1].Selector.Offset)
 	require.Equal(t, TranscriptSelectorToolMessage, selectors[2].Name)
-	require.Equal(t, "created_at ASC,id ASC", selectors[2].QuerySelector.OrderBy)
+	require.Equal(t, "created_at ASC,id ASC", selectors[2].Selector.OrderBy)
 }
 
 func strPtr(value string) *string {

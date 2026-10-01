@@ -1,0 +1,1 @@
+SELECT ClaimKey AS ClaimKey FROM `/`

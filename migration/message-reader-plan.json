@@ -1,0 +1,30 @@
+{
+  "status": "Implemented and verified; see message-reader-cube-validation.json",
+  "target": "One canonical Message reader; one Message fact cube replaces pending-count draft",
+  "required_parity": [
+    "Public narration name for stored preamble, including assistant progress previews",
+    "Message list predicates: role, type, turn, phase, iteration, time, cursor and presence-gated boolean filters",
+    "Proxy selectors, stable pagination order and caller authorization",
+    "ID, elicitation, linked-conversation plus elicitation and parent-message plus elicitation lookup modes",
+    "Nested transcript model/tool/payload relations and elicitation JSON/gzip business hydration",
+    "Fact cube pending-elicitation count; count scope must not be widened by selectors"
+  ],
+  "caller_evidence": [
+    "app/store/data/service_page.go: GetMessagesPage authorizes/filter rows for non-admin principals",
+    "app/store/data/assistant_preview.go: final/status filters, newest-window selector and Narration projection"
+  ],
+  "remaining": "Root/application SDK1 caller cutover remains; generated Message reader/writer/cube are linked.",
+  "retired_sources": [
+    "dql/agently/message/elicitation/message_by_elicitation/reader/reader.dql",
+    "dql/agently/message/elicitationcount/elicitation_count/reader/reader.dql",
+    "dql/agently/message/list/list/reader/reader.dql",
+    "dql/agently/message/message/reader/reader.dql",
+    "dql/agently/message/read/message/reader/reader.dql",
+    "dql/agently/message/read/message_by_linked_elicitation/reader/reader.dql",
+    "dql/agently/message/read/message_by_parent_elicitation/reader/reader.dql"
+  ],
+  "sources": [
+    "dql/agently/message/read/reader.dql",
+    "dql/agently/message/cube/reader.dql"
+  ]
+}

@@ -1,0 +1,50 @@
+#package('github.com/viant/agently-core/internal/datly/legacyrun/write')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/scheduler/legacy-run','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $OrphanDelete<bool>(orphanDelete/enabledDelete).Optional())
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $Trusted<bool>(scheduleRunAccess/internal).Required())
+#define($_ = $ExpectedScheduleID<string>(query/expectedScheduleId).Optional().WithPredicate(7,'equal','schedule_run','schedule_id'))
+#define($_ = $Runs<[]*LegacyRun>(body/data))
+#define($_ = $Data<[]*LegacyRun>(output/body))
+
+SELECT data_rows.id, data_rows.should_delete,
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:"shouldDelete,omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
+       data_rows.schedule_id, data_rows.created_at, data_rows.updated_at,
+       data_rows.status, data_rows.error_message, data_rows.lease_owner,
+       data_rows.lease_until, data_rows.precondition_ran_at,
+       data_rows.precondition_passed, data_rows.precondition_result,
+       data_rows.conversation_id, data_rows.conversation_kind,
+       data_rows.scheduled_for, data_rows.started_at, data_rows.completed_at,
+       type(data_rows,'LegacyRun'), lifecycle_type(data_rows,'Lifecycle'), mutation_predicate(data_rows,7),
+       CAST(data_rows.id AS string), tag(data_rows.id,'sqlx:"id,primaryKey=true,required=true"'),
+       CAST(data_rows.schedule_id AS string), tag(data_rows.schedule_id,'sqlx:"schedule_id,required=true"'),
+       CAST(data_rows.created_at AS *time.Time), tag(data_rows.created_at,'sqlx:"created_at,required=true"'),
+       CAST(data_rows.updated_at AS *time.Time), tag(data_rows.updated_at,'sqlx:"updated_at"'),
+       CAST(data_rows.status AS string), tag(data_rows.status,'sqlx:"status,required=true"'),
+       CAST(data_rows.error_message AS *string), tag(data_rows.error_message,'sqlx:"error_message"'),
+       CAST(data_rows.lease_owner AS *string), tag(data_rows.lease_owner,'sqlx:"lease_owner"'),
+       CAST(data_rows.lease_until AS *time.Time), tag(data_rows.lease_until,'sqlx:"lease_until"'),
+       CAST(data_rows.precondition_ran_at AS *time.Time), tag(data_rows.precondition_ran_at,'sqlx:"precondition_ran_at"'),
+       CAST(data_rows.precondition_passed AS *int), tag(data_rows.precondition_passed,'sqlx:"precondition_passed"'),
+       CAST(data_rows.precondition_result AS *string), tag(data_rows.precondition_result,'sqlx:"precondition_result"'),
+       CAST(data_rows.conversation_id AS *string), tag(data_rows.conversation_id,'sqlx:"conversation_id"'),
+       CAST(data_rows.conversation_kind AS string), tag(data_rows.conversation_kind,'sqlx:"conversation_kind,required=true"'),
+       CAST(data_rows.scheduled_for AS *time.Time), tag(data_rows.scheduled_for,'sqlx:"scheduled_for"'),
+       CAST(data_rows.started_at AS *time.Time), tag(data_rows.started_at,'sqlx:"started_at"'),
+       CAST(data_rows.completed_at AS *time.Time), tag(data_rows.completed_at,'sqlx:"completed_at"')
+FROM (
+    SELECT 0 AS should_delete, id, schedule_id, created_at, updated_at,
+           status, error_message, lease_owner, lease_until,
+           precondition_ran_at, precondition_passed, precondition_result,
+           conversation_id, conversation_kind, scheduled_for,
+           started_at, completed_at
+    FROM schedule_run
+) data_rows

@@ -11,7 +11,7 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	"github.com/viant/agently-core/protocol/agent/execution"
-	hstate "github.com/viant/xdatly/handler/state"
+	hstate "github.com/viant/xdatly/state"
 )
 
 func (c *backendClient) latestAssistantPreviewText(ctx context.Context, conversationID string) string {
@@ -284,20 +284,20 @@ func (c *backendClient) getTranscriptConversation(ctx context.Context, conversat
 	return c.conv.GetConversation(ctx, conversationID, opts...)
 }
 
-func buildTranscriptQuerySelectors(selectors map[string]*QuerySelector) []*hstate.NamedQuerySelector {
+func buildTranscriptQuerySelectors(selectors map[string]*QuerySelector) []*hstate.NamedSelector {
 	if len(selectors) == 0 {
 		return nil
 	}
 	names := []string{TranscriptSelectorTurn, TranscriptSelectorMessage, TranscriptSelectorToolMessage}
-	result := make([]*hstate.NamedQuerySelector, 0, len(selectors))
+	result := make([]*hstate.NamedSelector, 0, len(selectors))
 	for _, name := range names {
 		selector := selectors[name]
 		if selector == nil {
 			continue
 		}
-		result = append(result, &hstate.NamedQuerySelector{
+		result = append(result, &hstate.NamedSelector{
 			Name: name,
-			QuerySelector: hstate.QuerySelector{
+			Selector: hstate.Selector{
 				Limit: selector.Limit, Offset: selector.Offset, OrderBy: selector.OrderBy,
 			},
 		})

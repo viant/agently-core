@@ -1,0 +1,20 @@
+ok  	github.com/viant/agently	1.587s
+?   	github.com/viant/agently/agently	[no test files]
+ok  	github.com/viant/agently/bootstrap	0.505s
+ok  	github.com/viant/agently/cmd/agently	3.451s
+?   	github.com/viant/agently/deployment/ui	[no test files]
+?   	github.com/viant/agently/e2e/internal/harness	[no test files]
+ok  	github.com/viant/agently/e2e/query	26.915s
+?   	github.com/viant/agently/metadata	[no test files]
+?   	github.com/viant/agently/preview/cmd/mock-mcp	[no test files]
+?   	github.com/viant/agently/preview/cmd/report-preview	[no test files]
+?   	github.com/viant/agently/preview/cmd/window-preview	[no test files]
+?   	github.com/viant/agently/preview/datasource	[no test files]
+ok  	github.com/viant/agently/preview/mcp/mock	3.749s
+ok  	github.com/viant/agently/preview/report	3.060s
+ok  	github.com/viant/agently/preview/report/provider	6.368s
+ok  	github.com/viant/agently/preview/window	2.114s
+ok  	github.com/viant/agently/runtime	8.623s
+ok  	github.com/viant/agently/server	5.530s
+ok  	github.com/viant/agently/tools/system/platform	4.678s
+?   	github.com/viant/agently/ui/scripts/theme-proof-server	[no test files]

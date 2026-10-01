@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-30",
+  "scope": "Data-facade active and stale run reads",
+  "changes": [
+    "The typed agentrun store invokes canonical reader modes rows, active and stale through the linked v1 host",
+    "GetActiveRun and ListStaleRuns now have native branches that map their legacy input and output DTOs",
+    "The data facade keeps its existing conversation-level authorization after these reads"
+  ],
+  "verified": [
+    "Focused v1 active/stale legacy parity passed",
+    "Linked-host active and stale mode reads returned the expected run",
+    "Full app/store/native package passed with the scratch v1 modfile",
+    "Full nested Endly passed 60/60 transcription, stable regeneration, boundary audit, nested tests (168.767s) and linked-host build",
+    "The legacy run DTO's 40 presence markers all have corresponding v1 writer markers; the writer additionally exposes auth authority and audience fields"
+  ],
+  "remaining": [
+    "The root app/store/data package still fails setup on SDK0 DTO/registration imports, so these caller branches have not compiled through that package or application routes",
+    "PatchRuns, DeleteRuns and other run mutations still need native conversion, including sparse presence and compare-and-set behavior",
+    "MySQL and live application parity are unverified"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-active-stale-runs.log"
+}

@@ -6,21 +6,20 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 	"unsafe"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/data"
+	"github.com/viant/agently-core/app/store/native"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	goalsys "github.com/viant/agently-core/service/goal"
 	"github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
+	"github.com/viant/datly/bootstrap/connector"
 	_ "modernc.org/sqlite"
 )
 
@@ -42,22 +41,14 @@ features:
 	require.NoError(t, err)
 
 	ctx := context.Background()
-	dataSvc, err := data.NewThinServiceInMemory(ctx)
-	require.NoError(t, err)
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{
-		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
-	})
-	require.NoError(t, err)
-	_, err = dataSvc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{
-		aggoalwrite.NewMutableGoalView(
-			aggoalwrite.WithGoalID("goal-conv-goal"),
-			aggoalwrite.WithGoalConversationID("conv-goal"),
-			aggoalwrite.WithGoalObjective("finish parser cleanup"),
-			aggoalwrite.WithGoalStatus("active"),
-		),
-	})
-	require.NoError(t, err)
-
+	server, repo := linkedGoalRepoForSDK(t, "conv-goal")
+	convID, objective, status := "conv-goal", "finish parser cleanup", "active"
+	require.NoError(t, repo.Apply(ctx, goalsys.Mutation{
+		ID:             "goal-conv-goal",
+		ConversationID: goalsys.Field[*string]{Present: true, Value: &convID},
+		Objective:      goalsys.Field[*string]{Present: true, Value: &objective},
+		Status:         goalsys.Field[*string]{Present: true, Value: &status},
+	}))
 	schedulerSvc, db := newHTTPGoalAutonomousScheduler(t)
 	defer db.Close()
 
@@ -76,7 +67,7 @@ features:
 		return nil
 	})
 
-	backend := &backendClient{data: dataSvc}
+	backend := &backendClient{goalRepo: repo, goalInvoker: server}
 	backend.SetScheduler(schedulerSvc)
 
 	client := newHandlerBackedHTTP(t, NewHandler(backend))
@@ -136,13 +127,15 @@ func newHTTPGoalAutonomousScheduler(t *testing.T) (*scheduler.Service, *sql.DB) 
 	dbtest.LoadSQLiteSchema(t, db)
 
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
+	_, file, _, _ := runtime.Caller(0)
+	sourceRoot := filepath.Join(filepath.Dir(file), "..")
+	server, err := native.New(ctx, native.Options{SourceRoot: sourceRoot, Connectors: []connector.Config{
+		{Name: "agently", Driver: "sqlite3", DSN: dbPath},
+	}})
 	require.NoError(t, err)
-	require.NoError(t, dao.AddConnectors(ctx, view.NewConnector("agently", "sqlite", dbPath)))
+	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
 
-	store, err := scheduler.NewDatlyStore(ctx, dao, nil)
-	require.NoError(t, err)
-	_, err = agrunwrite.DefineComponent(ctx, dao)
+	store, err := scheduler.NewDatlyStore(ctx, server, data.NewService(server))
 	require.NoError(t, err)
 
 	return scheduler.New(store, &agentsvc.Service{}, scheduler.WithMaxConcurrentRuns(1)), db

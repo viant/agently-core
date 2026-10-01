@@ -12,9 +12,8 @@ import (
 	"testing"
 	"time"
 
-	oauthwrite "github.com/viant/agently-core/pkg/agently/user/oauth/write"
+	"database/sql"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
-	"github.com/viant/datly"
 	mcp "github.com/viant/mcp"
 	authcfg "github.com/viant/mcp/client/auth/config"
 	"golang.org/x/oauth2"
@@ -89,7 +88,7 @@ type mcpLinkFixture struct {
 	ext       *authExtension
 	service   *mcpLinkService
 	delegated *DelegatedMCPAuth
-	dao       *datly.Service
+	db        *sql.DB
 	canonical string
 	session   *Session
 	accessJWT string
@@ -103,19 +102,14 @@ func newMCPLinkFixture(t *testing.T) *mcpLinkFixture {
 func newMCPLinkFixtureWithConfig(t *testing.T, mcpConfig *mcpcfg.MCPClient) *mcpLinkFixture {
 	t.Helper()
 	ctx := context.Background()
-	dao := newMCPLinkTestDAO(t)
-	if err := DefineOAuthLinkStateComponents(ctx, dao); err != nil {
-		t.Fatalf("DefineOAuthLinkStateComponents() error = %v", err)
-	}
-	if _, err := oauthwrite.DefineComponent(ctx, dao); err != nil {
-		t.Fatalf("oauth write DefineComponent() error = %v", err)
-	}
+	db, dbPath := newMCPLinkTestDBWithPath(t)
+	nativeServer := newMCPLinkTestNative(t, dbPath)
 	cfg := &Config{
 		Enabled:            true,
 		CookieName:         "agently_session",
 		TokenEncryptionKey: "unit-test-encryption-key",
 	}
-	users := NewDatlyUserService(dao)
+	users := NewDatlyUserService(nativeServer)
 	// The in-memory schema is shared process-wide; a per-test identity keeps
 	// credentials from leaking between fixtures.
 	unique := strings.ToLower(strings.ReplaceAll(t.Name(), "/", "-"))
@@ -123,12 +117,12 @@ func newMCPLinkFixtureWithConfig(t *testing.T, mcpConfig *mcpcfg.MCPClient) *mcp
 	if err != nil || canonical == "" {
 		t.Fatalf("UpsertWithProvider() = %q, %v", canonical, err)
 	}
-	delegated := NewDelegatedMCPAuth(cfg, dao)
+	delegated := NewDelegatedMCPAuth(cfg, nativeServer)
 	if delegated == nil {
 		t.Fatalf("NewDelegatedMCPAuth() = nil")
 	}
 	delegated.SetUserLookup(users)
-	states := NewOAuthStateStoreDatly(dao)
+	states := NewOAuthStateStoreNative(nativeServer)
 	configs := &fakeMCPConfigProvider{configs: map[string]*mcpcfg.MCPClient{testMCPServer: mcpConfig}}
 	service := newMCPLinkService(cfg, delegated, states, configs, users)
 	if service == nil {
@@ -199,7 +193,7 @@ func newMCPLinkFixtureWithConfig(t *testing.T, mcpConfig *mcpcfg.MCPClient) *mcp
 		ExpiresAt: time.Now().Add(time.Hour),
 	}
 	sessions.Put(ctx, sess)
-	return &mcpLinkFixture{ext: ext, service: service, delegated: delegated, dao: dao, canonical: canonical, session: sess, accessJWT: accessToken, idJWT: idToken}
+	return &mcpLinkFixture{ext: ext, service: service, delegated: delegated, db: db, canonical: canonical, session: sess, accessJWT: accessToken, idJWT: idToken}
 }
 
 func (f *mcpLinkFixture) mux() *http.ServeMux {
@@ -743,15 +737,7 @@ func TestMCPLinkEndpoints_RateLimited(t *testing.T) {
 func TestMCPLinkEndpoints_DisabledUserCannotLink(t *testing.T) {
 	fixture := newMCPLinkFixture(t)
 	// Disable the canonical user directly in the store.
-	conn, err := fixture.dao.Resource().Connector("agently")
-	if err != nil {
-		t.Fatalf("Connector() error = %v", err)
-	}
-	db, err := conn.DB()
-	if err != nil {
-		t.Fatalf("DB() error = %v", err)
-	}
-	if _, err := db.ExecContext(context.Background(), `UPDATE users SET disabled = 1 WHERE id = ?`, fixture.canonical); err != nil {
+	if _, err := fixture.db.ExecContext(context.Background(), `UPDATE users SET disabled = 1 WHERE id = ?`, fixture.canonical); err != nil {
 		t.Fatalf("disable user error = %v", err)
 	}
 	mux := fixture.mux()

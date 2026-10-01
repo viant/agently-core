@@ -9,8 +9,6 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
 )
 
 func TestMaintainScheduledRun_MySQLDryRunCurrentAndLegacyThenDelete(t *testing.T) {
@@ -83,16 +81,7 @@ func TestMaintainScheduledRun_MySQLDryRunCurrentAndLegacyThenDelete(t *testing.T
 	}
 
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
-	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents() error: %v", err)
-	}
+	dao := newNativeMySQLRuntime(t, dsn)
 	service := NewService(dao)
 
 	candidates, err := service.ListScheduledRunMaintenanceCandidates(ctx, ScheduledRunMaintenanceCandidateRequest{
@@ -243,16 +232,7 @@ func TestMaintainConversationTree_ScheduledFallbackMySQL(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
-	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents() error: %v", err)
-	}
+	dao := newNativeMySQLRuntime(t, dsn)
 	service := NewService(dao)
 
 	candidates, err := service.ListConversationMaintenanceCandidates(ctx, ConversationMaintenanceCandidateRequest{

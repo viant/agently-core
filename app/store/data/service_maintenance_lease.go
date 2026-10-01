@@ -2,17 +2,14 @@ package data
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/viant/agently-core/internal/sqlitewrite"
+	maintenance "github.com/viant/agently-core/internal/store/maintenancelease"
 )
-
-const maintenanceLeaseExpiredRetention = 7 * 24 * time.Hour
 
 // MaintenanceLease identifies one acquisition of a distributed maintenance
 // lease. Token changes on every acquisition so a former owner cannot mutate
@@ -48,81 +45,17 @@ func (s *datlyService) AcquireMaintenanceLease(ctx context.Context, request Main
 	if request.Key == "" || request.OwnerID == "" || request.TTL <= 0 {
 		return nil, fmt.Errorf("%w: key, owner id and positive TTL are required", ErrInvalidMaintenanceLease)
 	}
-	db, driver, err := s.dbWithDriver()
+	if s.native == nil {
+		return nil, fmt.Errorf("native maintenance lease runtime is required")
+	}
+	result, err := (&maintenance.Store{Invoker: s.native}).Acquire(ctx, request.Key, request.OwnerID, request.TTL)
 	if err != nil {
 		return nil, err
 	}
-	return maintenanceLeaseWrite(ctx, s.writeGate, driver, func() (*MaintenanceLeaseAcquireResult, error) {
-		tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-		if err != nil {
-			return nil, err
-		}
-		committed := false
-		defer func() {
-			if !committed {
-				_ = tx.Rollback()
-			}
-		}()
-
-		now, err := maintenanceLeaseDatabaseNow(ctx, tx, driver)
-		if err != nil {
-			return nil, err
-		}
-		lease := MaintenanceLease{
-			Key:        request.Key,
-			OwnerID:    request.OwnerID,
-			Token:      uuid.NewString(),
-			LeaseUntil: now.Add(request.TTL),
-		}
-		updated, err := tx.ExecContext(ctx, `UPDATE maintenance_lease
-SET owner_id = ?, lease_token = ?, lease_until = ?, updated_at = ?
-WHERE lease_key = ? AND lease_until <= ?`,
-			lease.OwnerID, lease.Token, lease.LeaseUntil, now, lease.Key, now)
-		if err != nil {
-			return nil, err
-		}
-		affected, err := updated.RowsAffected()
-		if err != nil {
-			return nil, err
-		}
-		if affected == 0 {
-			insertSQL := `INSERT OR IGNORE INTO maintenance_lease
-(lease_key, owner_id, lease_token, lease_until, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)`
-			if isMaintenanceMySQLDriver(driver) {
-				insertSQL = `INSERT IGNORE INTO maintenance_lease
-(lease_key, owner_id, lease_token, lease_until, created_at, updated_at)
-VALUES (?, ?, ?, ?, ?, ?)`
-			}
-			inserted, insertErr := tx.ExecContext(ctx, insertSQL,
-				lease.Key, lease.OwnerID, lease.Token, lease.LeaseUntil, now, now)
-			if insertErr != nil {
-				return nil, insertErr
-			}
-			affected, err = inserted.RowsAffected()
-			if err != nil {
-				return nil, err
-			}
-		}
-
-		result := &MaintenanceLeaseAcquireResult{Acquired: affected > 0, Lease: lease}
-		if !result.Acquired {
-			current, found, loadErr := loadMaintenanceLease(ctx, tx, driver, request.Key, false)
-			if loadErr != nil {
-				return nil, loadErr
-			}
-			if !found {
-				return nil, fmt.Errorf("acquire maintenance lease %q: lease row disappeared", request.Key)
-			}
-			current.Token = ""
-			result.Lease = current
-		}
-		if err = tx.Commit(); err != nil {
-			return nil, err
-		}
-		committed = true
-		return result, nil
-	})
+	return &MaintenanceLeaseAcquireResult{Acquired: result.Acquired, Lease: MaintenanceLease{
+		Key: result.Lease.Key, OwnerID: result.Lease.OwnerID,
+		Token: result.Lease.Token, LeaseUntil: result.Lease.LeaseUntil,
+	}}, nil
 }
 
 func (s *datlyService) RenewMaintenanceLease(ctx context.Context, lease MaintenanceLease, ttl time.Duration) (*MaintenanceLeaseRenewResult, error) {
@@ -133,38 +66,16 @@ func (s *datlyService) RenewMaintenanceLease(ctx context.Context, lease Maintena
 		}
 		return nil, fmt.Errorf("%w: %v", ErrInvalidMaintenanceLease, err)
 	}
-	db, driver, err := s.dbWithDriver()
+	if s.native == nil {
+		return nil, fmt.Errorf("native maintenance lease runtime is required")
+	}
+	renewed, until, err := (&maintenance.Store{Invoker: s.native}).Renew(ctx, maintenance.Lease{
+		Key: lease.Key, OwnerID: lease.OwnerID, Token: lease.Token, LeaseUntil: lease.LeaseUntil,
+	}, ttl)
 	if err != nil {
 		return nil, err
 	}
-	return maintenanceLeaseWrite(ctx, s.writeGate, driver, func() (*MaintenanceLeaseRenewResult, error) {
-		tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-		if err != nil {
-			return nil, err
-		}
-		defer func() { _ = tx.Rollback() }()
-		now, err := maintenanceLeaseDatabaseNow(ctx, tx, driver)
-		if err != nil {
-			return nil, err
-		}
-		leaseUntil := now.Add(ttl)
-		res, err := tx.ExecContext(ctx, `UPDATE maintenance_lease
-SET lease_until = ?, updated_at = ?
-WHERE lease_key = ? AND owner_id = ? AND lease_token = ? AND lease_until > ?`,
-			leaseUntil, now, lease.Key, lease.OwnerID, lease.Token, now)
-		if err != nil {
-			return nil, err
-		}
-		affected, err := res.RowsAffected()
-		if err != nil {
-			return nil, err
-		}
-		result := &MaintenanceLeaseRenewResult{Renewed: affected == 1, LeaseUntil: leaseUntil}
-		if err = tx.Commit(); err != nil {
-			return nil, err
-		}
-		return result, nil
-	})
+	return &MaintenanceLeaseRenewResult{Renewed: renewed, LeaseUntil: until}, nil
 }
 
 func (s *datlyService) ReleaseMaintenanceLease(ctx context.Context, lease MaintenanceLease) (bool, error) {
@@ -172,35 +83,11 @@ func (s *datlyService) ReleaseMaintenanceLease(ctx context.Context, lease Mainte
 	if err := validateMaintenanceLease(lease); err != nil {
 		return false, fmt.Errorf("%w: %v", ErrInvalidMaintenanceLease, err)
 	}
-	db, driver, err := s.dbWithDriver()
-	if err != nil {
-		return false, err
+	if s.native == nil {
+		return false, fmt.Errorf("native maintenance lease runtime is required")
 	}
-	return maintenanceLeaseWrite(ctx, s.writeGate, driver, func() (bool, error) {
-		tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-		if err != nil {
-			return false, err
-		}
-		defer func() { _ = tx.Rollback() }()
-		now, err := maintenanceLeaseDatabaseNow(ctx, tx, driver)
-		if err != nil {
-			return false, err
-		}
-		res, err := tx.ExecContext(ctx, `UPDATE maintenance_lease
-SET lease_until = ?, updated_at = ?
-WHERE lease_key = ? AND owner_id = ? AND lease_token = ?`,
-			now, now, lease.Key, lease.OwnerID, lease.Token)
-		if err != nil {
-			return false, err
-		}
-		affected, err := res.RowsAffected()
-		if err != nil {
-			return false, err
-		}
-		if err = tx.Commit(); err != nil {
-			return false, err
-		}
-		return affected == 1, nil
+	return (&maintenance.Store{Invoker: s.native}).Release(ctx, maintenance.Lease{
+		Key: lease.Key, OwnerID: lease.OwnerID, Token: lease.Token, LeaseUntil: lease.LeaseUntil,
 	})
 }
 
@@ -211,121 +98,16 @@ func (s *datlyService) DeleteExpiredMaintenanceLeases(ctx context.Context, lease
 	if err := validateMaintenanceLease(lease); err != nil {
 		return 0, fmt.Errorf("%w: %v", ErrInvalidMaintenanceLease, err)
 	}
-	db, driver, err := s.dbWithDriver()
-	if err != nil {
-		return 0, err
+	if s.native == nil {
+		return 0, fmt.Errorf("native maintenance lease runtime is required")
 	}
-	return maintenanceLeaseWrite(ctx, s.writeGate, driver, func() (int64, error) {
-		tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelSerializable})
-		if err != nil {
-			return 0, err
-		}
-		defer func() { _ = tx.Rollback() }()
-		now, err := lockMaintenanceLeaseTx(ctx, tx, driver, lease)
-		if err != nil {
-			return 0, err
-		}
-		res, err := tx.ExecContext(ctx, `DELETE FROM maintenance_lease
-WHERE lease_until <= ? AND NOT (lease_key = ? AND owner_id = ? AND lease_token = ?)`,
-			now.Add(-maintenanceLeaseExpiredRetention), lease.Key, lease.OwnerID, lease.Token)
-		if err != nil {
-			return 0, err
-		}
-		affected, err := res.RowsAffected()
-		if err != nil {
-			return 0, err
-		}
-		if err = tx.Commit(); err != nil {
-			return 0, err
-		}
-		return affected, nil
+	deleted, err := (&maintenance.Store{Invoker: s.native}).DeleteExpired(ctx, maintenance.Lease{
+		Key: lease.Key, OwnerID: lease.OwnerID, Token: lease.Token, LeaseUntil: lease.LeaseUntil,
 	})
-}
-
-func lockMaintenanceLeaseTx(ctx context.Context, tx *sql.Tx, driver string, lease MaintenanceLease) (time.Time, error) {
-	lease = normalizeMaintenanceLease(lease)
-	if err := validateMaintenanceLease(lease); err != nil {
-		return time.Time{}, fmt.Errorf("%w: %v", ErrInvalidMaintenanceLease, err)
+	if errors.Is(err, maintenance.ErrLeaseLost) {
+		return 0, ErrMaintenanceLeaseLost
 	}
-	now, err := maintenanceLeaseDatabaseNow(ctx, tx, driver)
-	if err != nil {
-		return time.Time{}, err
-	}
-	if isMaintenanceMySQLDriver(driver) {
-		var marker int
-		err = tx.QueryRowContext(ctx, `SELECT 1 FROM maintenance_lease
-WHERE lease_key = ? AND owner_id = ? AND lease_token = ? AND lease_until > ?
-FOR UPDATE`, lease.Key, lease.OwnerID, lease.Token, now).Scan(&marker)
-		if errors.Is(err, sql.ErrNoRows) {
-			return time.Time{}, ErrMaintenanceLeaseLost
-		}
-		if err != nil {
-			return time.Time{}, err
-		}
-		return now, nil
-	}
-	if !isMaintenanceSQLiteDriver(driver) {
-		return time.Time{}, fmt.Errorf("unsupported maintenance lease database driver %q", driver)
-	}
-	res, err := tx.ExecContext(ctx, `UPDATE maintenance_lease SET lease_token = lease_token
-WHERE lease_key = ? AND owner_id = ? AND lease_token = ? AND lease_until > ?`,
-		lease.Key, lease.OwnerID, lease.Token, now)
-	if err != nil {
-		return time.Time{}, err
-	}
-	affected, err := res.RowsAffected()
-	if err != nil {
-		return time.Time{}, err
-	}
-	if affected != 1 {
-		return time.Time{}, ErrMaintenanceLeaseLost
-	}
-	return now, nil
-}
-
-func loadMaintenanceLease(ctx context.Context, tx *sql.Tx, driver, key string, lock bool) (MaintenanceLease, bool, error) {
-	query := `SELECT lease_key, owner_id, lease_token, CAST(lease_until AS CHAR)
-FROM maintenance_lease WHERE lease_key = ?`
-	if lock && isMaintenanceMySQLDriver(driver) {
-		query += " FOR UPDATE"
-	}
-	var result MaintenanceLease
-	var rawUntil sql.NullString
-	err := tx.QueryRowContext(ctx, query, key).Scan(&result.Key, &result.OwnerID, &result.Token, &rawUntil)
-	if errors.Is(err, sql.ErrNoRows) {
-		return MaintenanceLease{}, false, nil
-	}
-	if err != nil {
-		return MaintenanceLease{}, false, err
-	}
-	until, ok := parseDBTime(rawUntil.String)
-	if !rawUntil.Valid || !ok {
-		return MaintenanceLease{}, false, fmt.Errorf("maintenance lease %q has invalid lease_until %q", key, rawUntil.String)
-	}
-	result.LeaseUntil = until
-	return normalizeMaintenanceLease(result), true, nil
-}
-
-type maintenanceLeaseQueryer interface {
-	QueryRowContext(context.Context, string, ...interface{}) *sql.Row
-}
-
-func maintenanceLeaseDatabaseNow(ctx context.Context, queryer maintenanceLeaseQueryer, driver string) (time.Time, error) {
-	query := "SELECT CAST(CURRENT_TIMESTAMP AS TEXT)"
-	if isMaintenanceMySQLDriver(driver) {
-		query = "SELECT CAST(UTC_TIMESTAMP(6) AS CHAR)"
-	} else if !isMaintenanceSQLiteDriver(driver) {
-		return time.Time{}, fmt.Errorf("unsupported maintenance lease database driver %q", driver)
-	}
-	var raw string
-	if err := queryer.QueryRowContext(ctx, query).Scan(&raw); err != nil {
-		return time.Time{}, err
-	}
-	now, ok := parseDBTime(raw)
-	if !ok {
-		return time.Time{}, fmt.Errorf("database returned invalid current time %q", raw)
-	}
-	return now, nil
+	return deleted, err
 }
 
 func normalizeMaintenanceLease(lease MaintenanceLease) MaintenanceLease {

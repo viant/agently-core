@@ -5,7 +5,11 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/viant/agently-core/app/store/native"
+	"github.com/viant/datly/bootstrap/connector"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
@@ -15,7 +19,6 @@ import (
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	agmessage "github.com/viant/agently-core/pkg/agently/message"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agmessagewrite "github.com/viant/agently-core/pkg/agently/message/write"
@@ -36,10 +39,7 @@ import (
 	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	agturnlist "github.com/viant/agently-core/pkg/agently/turn/queuedList"
 	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
-	"github.com/viant/datly"
-	"github.com/viant/datly/repository/contract"
-	"github.com/viant/datly/view"
-	hstate "github.com/viant/xdatly/handler/state"
+	hstate "github.com/viant/xdatly/state"
 	_ "modernc.org/sqlite"
 )
 
@@ -405,21 +405,6 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	})
 }
 
-func TestDataService_GoalPredicates(t *testing.T) {
-	svc := newSeededService(t, seedForPatchBaseline)
-	ctx := context.Background()
-
-	t.Run("current goal by conversation", func(t *testing.T) {
-		got, err := svc.GetGoal(ctx, "c-base", nil)
-		if err != nil {
-			t.Fatalf("GetGoal() error: %v", err)
-		}
-		if got == nil || got.Id != "g-base" {
-			t.Fatalf("expected g-base, got %#v", got)
-		}
-	})
-}
-
 func TestDataService_MessageAndElicitation(t *testing.T) {
 	svc := newSeededService(t, seedForMessageAndElicitation)
 	ctx := context.Background()
@@ -650,7 +635,7 @@ func TestDataService_RunPredicates(t *testing.T) {
 	t.Run("query selector pagination for run rows", func(t *testing.T) {
 		type testCase struct {
 			name          string
-			selector      *hstate.NamedQuerySelector
+			selector      *hstate.NamedSelector
 			expectNil     bool
 			expectRunID   string
 			expectedError string
@@ -658,9 +643,9 @@ func TestDataService_RunPredicates(t *testing.T) {
 		cases := []testCase{
 			{
 				name: "limit one offset zero returns run",
-				selector: &hstate.NamedQuerySelector{
+				selector: &hstate.NamedSelector{
 					Name: "RunRows",
-					QuerySelector: hstate.QuerySelector{
+					Selector: hstate.Selector{
 						Limit:  1,
 						Offset: 0,
 					},
@@ -669,9 +654,9 @@ func TestDataService_RunPredicates(t *testing.T) {
 			},
 			{
 				name: "limit one offset one returns nil",
-				selector: &hstate.NamedQuerySelector{
+				selector: &hstate.NamedSelector{
 					Name: "RunRows",
-					QuerySelector: hstate.QuerySelector{
+					Selector: hstate.Selector{
 						Limit:  1,
 						Offset: 1,
 					},
@@ -1050,9 +1035,9 @@ func TestDataService_QuerySelectorPagination(t *testing.T) {
 				ConversationID: "c-main",
 				Has:            &agturnlist.QueuedTurnsInputHas{ConversationID: true},
 			},
-			WithQuerySelector(&hstate.NamedQuerySelector{
+			WithQuerySelector(&hstate.NamedSelector{
 				Name: "QueuedTurns",
-				QuerySelector: hstate.QuerySelector{
+				Selector: hstate.Selector{
 					Limit:  1,
 					Offset: 1,
 				},
@@ -1071,9 +1056,9 @@ func TestDataService_QuerySelectorPagination(t *testing.T) {
 				TenantID: "tenant-1",
 				Has:      &agpayload.PayloadRowsInputHas{TenantID: true},
 			},
-			WithQuerySelector(&hstate.NamedQuerySelector{
+			WithQuerySelector(&hstate.NamedSelector{
 				Name: "PayloadRows",
-				QuerySelector: hstate.QuerySelector{
+				Selector: hstate.Selector{
 					Limit: 1,
 				},
 			}),
@@ -1100,9 +1085,9 @@ func TestDataService_QuerySelectorPagination(t *testing.T) {
 			"c-main",
 			in,
 			WithQuerySelector(
-				&hstate.NamedQuerySelector{Name: "Transcript", QuerySelector: hstate.QuerySelector{Limit: 1}},
-				&hstate.NamedQuerySelector{Name: "Message", QuerySelector: hstate.QuerySelector{Limit: 1}},
-				&hstate.NamedQuerySelector{Name: "ToolMessage", QuerySelector: hstate.QuerySelector{Limit: 1}},
+				&hstate.NamedSelector{Name: "Transcript", Selector: hstate.Selector{Limit: 1}},
+				&hstate.NamedSelector{Name: "Message", Selector: hstate.Selector{Limit: 1}},
+				&hstate.NamedSelector{Name: "ToolMessage", Selector: hstate.Selector{Limit: 1}},
 			),
 		)
 		if err != nil {
@@ -1162,9 +1147,9 @@ func TestDataService_QuerySelectorPagination(t *testing.T) {
 						Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true},
 					},
 					&PageInput{Limit: 10, Direction: DirectionLatest},
-					WithQuerySelector(&hstate.NamedQuerySelector{
+					WithQuerySelector(&hstate.NamedSelector{
 						Name: "message_rows",
-						QuerySelector: hstate.QuerySelector{
+						Selector: hstate.Selector{
 							Limit:   tc.limit,
 							Offset:  tc.offset,
 							OrderBy: tc.orderBy,
@@ -1481,169 +1466,6 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 
 func TestDataService_Patch_DataDriven(t *testing.T) {
 	ctx := context.Background()
-
-	t.Run("goal patch", func(t *testing.T) {
-		svc := newSeededService(t, seedForPatchBaseline)
-		cases := []struct {
-			name    string
-			rows    []*aggoalwrite.MutableGoalView
-			wantErr bool
-		}{
-			{
-				name: "insert",
-				rows: []*aggoalwrite.MutableGoalView{
-					aggoalwrite.NewMutableGoalView(
-						aggoalwrite.WithGoalID("g-patch"),
-						aggoalwrite.WithGoalConversationID("c-goal-insert"),
-						aggoalwrite.WithGoalObjective("reduce p95"),
-						aggoalwrite.WithGoalStatus("active"),
-					),
-				},
-			},
-			{
-				name: "update",
-				rows: []*aggoalwrite.MutableGoalView{
-					aggoalwrite.NewMutableGoalView(
-						aggoalwrite.WithGoalID("g-base"),
-						aggoalwrite.WithGoalStatus("paused"),
-					),
-				},
-			},
-			{
-				name: "missing conversation for insert",
-				rows: []*aggoalwrite.MutableGoalView{
-					aggoalwrite.NewMutableGoalView(
-						aggoalwrite.WithGoalID("g-bad"),
-						aggoalwrite.WithGoalObjective("broken"),
-						aggoalwrite.WithGoalStatus("active"),
-					),
-				},
-				wantErr: true,
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				_, err := svc.PatchGoals(ctx, tc.rows)
-				if tc.wantErr {
-					if err == nil {
-						t.Fatalf("expected error")
-					}
-					return
-				}
-				if err != nil {
-					t.Fatalf("PatchGoals() error: %v", err)
-				}
-			})
-		}
-		inserted, err := svc.GetGoal(ctx, "c-goal-insert", nil)
-		if err != nil {
-			t.Fatalf("GetGoal(inserted) error: %v", err)
-		}
-		if inserted == nil || inserted.Id != "g-patch" || inserted.Objective != "reduce p95" {
-			t.Fatalf("expected inserted goal, got %#v", inserted)
-		}
-		updated, err := svc.GetGoal(ctx, "c-base", nil)
-		if err != nil {
-			t.Fatalf("GetGoal() error: %v", err)
-		}
-		if updated == nil || updated.Status != "paused" {
-			t.Fatalf("expected paused goal, got %#v", updated)
-		}
-	})
-
-	t.Run("goal patch honors Has markers on update", func(t *testing.T) {
-		svc := newSeededService(t, seedForPatchBaseline)
-
-		t.Run("unmarked fields are ignored", func(t *testing.T) {
-			row := aggoalwrite.NewMutableGoalView(
-				aggoalwrite.WithGoalID("g-base"),
-			)
-			status := "paused"
-			objective := "should-not-apply"
-			row.Status = &status
-			row.Objective = &objective
-
-			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
-				t.Fatalf("PatchGoals(unmarked) error: %v", err)
-			}
-			got, err := svc.GetGoal(ctx, "c-base", nil)
-			if err != nil {
-				t.Fatalf("GetGoal() error: %v", err)
-			}
-			if got == nil {
-				t.Fatalf("expected goal row")
-			}
-			if got.Status != "active" {
-				t.Fatalf("expected status to remain active, got %#v", got)
-			}
-			if got.Objective != "seed-goal" {
-				t.Fatalf("expected objective to remain seed-goal, got %#v", got)
-			}
-		})
-
-		t.Run("marked fields update while unmarked fields are ignored", func(t *testing.T) {
-			row := aggoalwrite.NewMutableGoalView(
-				aggoalwrite.WithGoalID("g-base"),
-				aggoalwrite.WithGoalStatus("paused"),
-			)
-			objective := "should-not-apply"
-			row.Objective = &objective
-
-			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
-				t.Fatalf("PatchGoals(marked+unmarked) error: %v", err)
-			}
-			got, err := svc.GetGoal(ctx, "c-base", nil)
-			if err != nil {
-				t.Fatalf("GetGoal() error: %v", err)
-			}
-			if got == nil {
-				t.Fatalf("expected goal row")
-			}
-			if got.Status != "paused" {
-				t.Fatalf("expected status to update to paused, got %#v", got)
-			}
-			if got.Objective != "seed-goal" {
-				t.Fatalf("expected objective to remain seed-goal, got %#v", got)
-			}
-		})
-
-		t.Run("status reason persists when marked", func(t *testing.T) {
-			row := aggoalwrite.NewMutableGoalView(
-				aggoalwrite.WithGoalID("g-base"),
-				aggoalwrite.WithGoalStatus("blocked"),
-				aggoalwrite.WithGoalStatusReason("waiting for credentials"),
-			)
-
-			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
-				t.Fatalf("PatchGoals(statusReason) error: %v", err)
-			}
-			got, err := svc.GetGoal(ctx, "c-base", nil)
-			if err != nil {
-				t.Fatalf("GetGoal() error: %v", err)
-			}
-			if got == nil {
-				t.Fatalf("expected goal row")
-			}
-			if got.Status != "blocked" {
-				t.Fatalf("expected status to update to blocked, got %#v", got)
-			}
-			if got.StatusReason == nil || *got.StatusReason != "waiting for credentials" {
-				t.Fatalf("expected status reason to persist, got %#v", got)
-			}
-		})
-
-		t.Run("second goal for same conversation is rejected by unique constraint", func(t *testing.T) {
-			row := aggoalwrite.NewMutableGoalView(
-				aggoalwrite.WithGoalID("g-duplicate"),
-				aggoalwrite.WithGoalConversationID("c-base"),
-				aggoalwrite.WithGoalObjective("duplicate"),
-				aggoalwrite.WithGoalStatus("active"),
-			)
-			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err == nil {
-				t.Fatalf("expected unique conversation goal insert to fail")
-			}
-		})
-	})
 
 	t.Run("conversation patch", func(t *testing.T) {
 		svc := newSeededService(t, seedForPatchBaseline)
@@ -2695,85 +2517,92 @@ func TestDataService_RunStepsPage(t *testing.T) {
 	}
 }
 
-func TestPatchDeleteHandlerContracts(t *testing.T) {
+func TestDataService_NativeBatchRollbackAndSparseNull(t *testing.T) {
 	ctx := context.Background()
 	svc := newSeededService(t, seedForPatchBaseline)
-	dao := svc.Raw()
-
-	t.Run("patch wrong method", func(t *testing.T) {
-		in := &agmessagewrite.Input{Messages: []*agmessagewrite.MutableMessageView{
-			agmessagewrite.NewMutableMessageView(
-				agmessagewrite.WithMessageID("m-contract"),
-				agmessagewrite.WithMessageConversationID("c-base"),
-				agmessagewrite.WithMessageTurnID("t-base"),
-				agmessagewrite.WithMessageRole("assistant"),
-				agmessagewrite.WithMessageType("text"),
-				agmessagewrite.WithMessageContent("x"),
-			),
-		}}
-		out := &agmessagewrite.Output{}
-		_, err := dao.Operate(ctx,
-			datly.WithPath(contract.NewPath("GET", agmessagewrite.PathURI)),
-			datly.WithInput(in),
-			datly.WithOutput(out),
-		)
-		if err == nil {
-			t.Fatalf("expected method/path mismatch error")
-		}
-	})
-
-	t.Run("patch invalid body", func(t *testing.T) {
-		in := &agmessagewrite.Input{Messages: []*agmessagewrite.MutableMessageView{
-			agmessagewrite.NewMutableMessageView(
-				agmessagewrite.WithMessageID("m-contract-invalid"),
-				agmessagewrite.WithMessageConversationID("c-base"),
-				agmessagewrite.WithMessageType("text"),
-			),
-		}}
-		out := &agmessagewrite.Output{}
-		_, err := dao.Operate(ctx,
-			datly.WithPath(contract.NewPath("PATCH", agmessagewrite.PathURI)),
-			datly.WithInput(in),
-			datly.WithOutput(out),
-		)
-		if err == nil {
-			t.Fatalf("expected validation error for invalid patch body")
-		}
-	})
-
-	t.Run("delete wrong method", func(t *testing.T) {
-		in := &agmessagewrite.DeleteInput{Rows: []*agmessagewrite.MutableMessageView{
-			agmessagewrite.NewMutableMessageView(agmessagewrite.WithMessageID("m-base")),
-		}}
-		out := &agmessagewrite.DeleteOutput{}
-		_, err := dao.Operate(ctx,
-			datly.WithPath(contract.NewPath("GET", agmessagewrite.PathURI)),
-			datly.WithInput(in),
-			datly.WithOutput(out),
-		)
-		if err == nil {
-			t.Fatalf("expected method mismatch for delete contract")
-		}
-	})
+	before, err := svc.GetMessage(ctx, "m-base", nil)
+	if err != nil || before == nil {
+		t.Fatalf("read baseline: %v %#v", err, before)
+	}
+	changed := agmessagewrite.NewMutableMessageView(agmessagewrite.WithMessageID("m-base"), agmessagewrite.WithMessageContent("must roll back"))
+	invalid := agmessagewrite.NewMutableMessageView(agmessagewrite.WithMessageID("late-invalid"))
+	if _, err = svc.PatchMessages(ctx, []*agmessagewrite.MutableMessageView{changed, invalid}); err == nil {
+		t.Fatal("expected late validation failure")
+	}
+	after, err := svc.GetMessage(ctx, "m-base", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("failed batch changed existing message: before %#v after %#v", before, after)
+	}
+	cleared := agmessagewrite.NewMutableMessageView(agmessagewrite.WithMessageID("m-base"))
+	cleared.Content = nil
+	cleared.Has.Content = true
+	if _, err = svc.PatchMessages(ctx, []*agmessagewrite.MutableMessageView{cleared}); err != nil {
+		t.Fatal(err)
+	}
+	after, err = svc.GetMessage(ctx, "m-base", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Content != nil {
+		t.Fatalf("explicit null was lost: %#v", after.Content)
+	}
+	before.Content = nil
+	before.UpdatedAt = after.UpdatedAt
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("sparse clear changed omitted columns: before %#v after %#v", before, after)
+	}
 }
 
-func TestMutableViews_SettersMarkHas(t *testing.T) {
-	cases := []struct {
-		name string
-		dst  interface{}
-	}{
-		{name: "conversation", dst: agconvwrite.NewMutableConversationView()},
-		{name: "message", dst: agmessagewrite.NewMutableMessageView()},
-		{name: "turn", dst: agturnwrite.NewMutableTurnView()},
-		{name: "model_call", dst: agmodelcallwrite.NewMutableModelCallView()},
-		{name: "tool_call", dst: agtoolcallwrite.NewMutableToolCallView()},
-		{name: "payload", dst: agpayloadwrite.NewMutablePayloadView()},
-		{name: "run", dst: agrunwrite.NewMutableRunView()},
+func TestDataService_NativeMutationCallerDefaults(t *testing.T) {
+	ctx := context.Background()
+	svc := newSeededService(t, seedForPatchBaseline)
+	row := agmessagewrite.NewMutableMessageView(agmessagewrite.WithMessageID("m-default"), agmessagewrite.WithMessageConversationID("c-base"), agmessagewrite.WithMessageTurnID("t-base"), agmessagewrite.WithMessageRole("assistant"), agmessagewrite.WithMessageType("text"))
+	result, err := svc.PatchMessages(ctx, []*agmessagewrite.MutableMessageView{row})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, tc := range cases {
+	if len(result) != 1 || result[0] != row || row.CreatedAt == nil || row.Sequence == nil || row.Interim == nil || row.Has == nil || !row.Has.CreatedAt || !row.Has.Sequence || !row.Has.Interim {
+		t.Fatalf("successful defaults/identity were not published: %#v %#v", row, result)
+	}
+	stored, err := svc.GetMessage(ctx, row.Id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored == nil || stored.Sequence == nil || *stored.Sequence != *row.Sequence {
+		t.Fatalf("allocated caller sequence differs from storage: %#v %#v", row, stored)
+	}
+}
+func TestDataService_NativeGuardCounts(t *testing.T) {
+	svc := newSeededService(t, func(t *testing.T, db *sql.DB) {
+		seedForPatchBaseline(t, db)
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO users(id,username) VALUES('owner','owner')`},
+			{SQL: `UPDATE conversation SET created_by_user_id='owner' WHERE id='c-base'`},
+			{SQL: `UPDATE turn SET origin='controller' WHERE id='t-base'`},
+			{SQL: `UPDATE message SET elicitation_id='e',status='pending' WHERE id='m-base'`},
+			{SQL: `INSERT INTO tool_approval_queue(id,user_id,conversation_id,tool_name,title,arguments,status,created_at) VALUES('approval','owner','c-base','tool','title','{}','pending','2026-01-01')`},
+		})
+	}).(*datlyService)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		call func(...Option) (int, error)
+	}{
+		{"controller", func(opts ...Option) (int, error) { return svc.CountControllerTurns(ctx, "c-base", opts...) }},
+		{"approval", func(opts ...Option) (int, error) { return svc.CountPendingApprovals(ctx, "c-base", opts...) }},
+		{"elicitation", func(opts ...Option) (int, error) { return svc.CountPendingElicitations(ctx, "c-base", opts...) }},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assertSettersMarkHas(t, tc.dst)
+			count, err := tc.call(WithPrincipal("owner"))
+			if err != nil || count != 1 {
+				t.Fatalf("guard count: %d %v", count, err)
+			}
+			if _, err = tc.call(WithPrincipal("other")); !errors.Is(err, ErrPermissionDenied) {
+				t.Fatalf("guard owner scope: %v", err)
+			}
 		})
 	}
 }
@@ -2790,18 +2619,14 @@ func newSeededService(t *testing.T, seeds ...seedFn) Service {
 	}
 
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
+	_, file, _, _ := runtime.Caller(0)
+	server, err := native.New(ctx, native.Options{SourceRoot: filepath.Join(filepath.Dir(file), "..", "..", ".."), Connectors: []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: dbPath}}})
 	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
+		t.Fatalf("native.New: %v", err)
 	}
-	connector := view.NewConnector("agently", "sqlite", dbPath)
-	if err = dao.AddConnectors(ctx, connector); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents() error: %v", err)
-	}
-	return NewService(dao)
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	return &datlyService{native: server}
+
 }
 
 func seedForConversationPredicates(t *testing.T, db *sql.DB) {

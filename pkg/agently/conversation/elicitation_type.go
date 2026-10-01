@@ -4,11 +4,8 @@ import (
 	"database/sql/driver"
 	"encoding/json"
 	"fmt"
-	"reflect"
-	"strings"
 
-	"github.com/viant/xdatly/types/core"
-	"github.com/viant/xdatly/types/custom/dependency/checksum"
+	"strings"
 )
 
 // Elicitation holds hydrated elicitation payload data attached to a message.
@@ -53,8 +50,4 @@ func (e Elicitation) Value() (driver.Value, error) {
 		return nil, err
 	}
 	return string(data), nil
-}
-
-func init() {
-	core.RegisterType("conversation", "Elicitation", reflect.TypeOf(Elicitation{}), checksum.GeneratedTime)
 }

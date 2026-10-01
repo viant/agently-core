@@ -18,10 +18,7 @@ func TestGetMessage_IncludeToolCall_PreservesMessageToolCall(t *testing.T) {
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)

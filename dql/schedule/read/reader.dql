@@ -1,0 +1,86 @@
+#package('github.com/viant/agently-core/internal/datly/schedule/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/scheduler/schedule/{id}','GET'))
+#setting($_ = $input_type('ScheduleInput'))
+#setting($_ = $output_type('ScheduleOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Id<string>(path/id).Optional().WithPredicate(0,'equal','t','id'))
+#define($_ = $ConversationIds<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','t','conversation_id'))
+#define($_ = $GoalIds<[]string>(query/goalIds).Optional().WithPredicate(0,'in','t','goal_id'))
+#define($_ = $InternalMode<bool>(scheduleAccess/internal).Required())
+#define($_ = $LockRows<bool>(scheduleAccess/lock).Optional())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $Ids<[]string>(query/ids).Optional().WithPredicate(0,'in','t','id'))
+#define($_ = $Data<[]*ScheduleView>(output/view).WithTag('view:"reader,selectorProjection=true"'))
+
+SELECT schedule.agent_ref,
+       schedule.created_at,
+       schedule.created_by_user_id,
+       schedule.visibility,
+       schedule.cron_expr,
+       schedule.description,
+       schedule.enabled,
+       schedule.end_at,
+       schedule.goal_id,
+       schedule.id,
+       schedule.internal,
+       schedule.interval_seconds,
+       schedule.last_error,
+       schedule.last_run_at,
+       schedule.last_status,
+       schedule.lease_owner,
+       schedule.lease_until,
+       schedule.lease_until_raw, CAST(schedule.lease_until_raw AS *string),
+       internal(schedule.lease_until_raw), tag(schedule.lease_until_raw,'json:"-"'),
+       schedule.model_override,
+       schedule.conversation_id,
+       schedule.user_cred_url,
+       schedule.name,
+       schedule.next_run_at,
+       schedule.schedule_type,
+       schedule.start_at,
+       schedule.task_prompt,
+       schedule.task_prompt_uri,
+       schedule.timeout_seconds,
+       schedule.timezone,
+       schedule.updated_at,
+       type(schedule,'ScheduleView'),
+       CAST(schedule.agent_ref AS string),
+       CAST(schedule.created_at AS time.Time),
+       CAST(schedule.created_by_user_id AS *string),
+       CAST(schedule.visibility AS string),
+       CAST(schedule.cron_expr AS *string),
+       CAST(schedule.description AS *string),
+       CAST(schedule.enabled AS bool),
+       CAST(schedule.end_at AS *time.Time),
+       CAST(schedule.goal_id AS *string),
+       CAST(schedule.id AS string),
+       CAST(schedule.internal AS bool),
+       CAST(schedule.interval_seconds AS *int),
+       CAST(schedule.last_error AS *string),
+       CAST(schedule.last_run_at AS *time.Time),
+       CAST(schedule.last_status AS *string),
+       CAST(schedule.lease_owner AS *string),
+       CAST(schedule.lease_until AS *time.Time),
+       CAST(schedule.model_override AS *string),
+       CAST(schedule.conversation_id AS *string),
+       CAST(schedule.user_cred_url AS *string),
+       CAST(schedule.name AS string),
+       CAST(schedule.next_run_at AS *time.Time),
+       CAST(schedule.schedule_type AS string),
+       CAST(schedule.start_at AS *time.Time),
+       CAST(schedule.task_prompt AS *string),
+       CAST(schedule.task_prompt_uri AS *string),
+       CAST(schedule.timeout_seconds AS int),
+       CAST(schedule.timezone AS string),
+       CAST(schedule.updated_at AS *time.Time)
+FROM (
+SELECT t.*, CAST(t.lease_until AS CHAR) AS lease_until_raw FROM schedule t WHERE 1=1
+     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
+     AND ($InternalMode OR (COALESCE(t.internal,0)=0 AND
+         (COALESCE(t.visibility,'') <> 'private' OR t.created_by_user_id=NULLIF($VisibilitySubject,''))))
+     #if($LockRows) ORDER BY t.id ${View.ForUpdate()} #end
+) schedule

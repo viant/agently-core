@@ -1,0 +1,60 @@
+#package('github.com/viant/agently-core/internal/datly/user/write')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/user','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Users<[]*User>(body/data))
+#define($_ = $Data<[]*User>(output/body))
+
+SELECT data_rows.id,
+       data_rows.username,
+       data_rows.display_name,
+       data_rows.email,
+       data_rows.provider,
+       data_rows.subject,
+       data_rows.hash_ip,
+       data_rows.timezone,
+       data_rows.default_agent_ref,
+       data_rows.default_model_ref,
+       data_rows.default_embedder_ref,
+       data_rows.settings,
+       data_rows.disabled,
+       data_rows.created_at,
+       data_rows.updated_at,
+       type(data_rows,'User'),
+       lifecycle_type(data_rows,'Lifecycle'),
+       CAST(data_rows.id AS string),
+       tag(data_rows.id,'validate:"required" sqlx:"id,primaryKey"'),
+       CAST(data_rows.username AS string),
+       tag(data_rows.username,'validate:"required" sqlx:"username"'),
+       CAST(data_rows.display_name AS *string),
+       tag(data_rows.display_name,'json:",omitempty" sqlx:"display_name"'),
+       CAST(data_rows.email AS *string),
+       tag(data_rows.email,'json:",omitempty" sqlx:"email"'),
+       CAST(data_rows.provider AS string),
+       tag(data_rows.provider,'validate:"required" sqlx:"provider"'),
+       CAST(data_rows.subject AS *string),
+       tag(data_rows.subject,'json:",omitempty" sqlx:"subject"'),
+       CAST(data_rows.hash_ip AS *string),
+       tag(data_rows.hash_ip,'json:"-" sqlx:"hash_ip"'),
+       CAST(data_rows.timezone AS string),
+       tag(data_rows.timezone,'validate:"required" sqlx:"timezone"'),
+       CAST(data_rows.default_agent_ref AS *string),
+       tag(data_rows.default_agent_ref,'json:",omitempty" sqlx:"default_agent_ref"'),
+       CAST(data_rows.default_model_ref AS *string),
+       tag(data_rows.default_model_ref,'json:",omitempty" sqlx:"default_model_ref"'),
+       CAST(data_rows.default_embedder_ref AS *string),
+       tag(data_rows.default_embedder_ref,'json:",omitempty" sqlx:"default_embedder_ref"'),
+       CAST(data_rows.settings AS *string),
+       tag(data_rows.settings,'json:",omitempty" sqlx:"settings"'),
+       CAST(data_rows.disabled AS *int),
+       tag(data_rows.disabled,'json:",omitempty" sqlx:"disabled"'),
+       CAST(data_rows.created_at AS *time.Time),
+       tag(data_rows.created_at,'json:",omitempty" sqlx:"created_at"'),
+       CAST(data_rows.updated_at AS *time.Time),
+       tag(data_rows.updated_at,'json:",omitempty" sqlx:"updated_at"')
+FROM (SELECT `id`, `username`, `display_name`, `email`, `provider`, `subject`, `hash_ip`, `timezone`, `default_agent_ref`, `default_model_ref`, `default_embedder_ref`, `settings`, `disabled`, `created_at`, `updated_at` FROM users) data_rows

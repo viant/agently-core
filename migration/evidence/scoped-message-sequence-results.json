@@ -1,0 +1,32 @@
+{
+  "datly_commit": "6507cebbc1d3bd71c9a01d1d9ea1eb624923b462",
+  "actual_message_shape": {
+    "primary_key": "id TEXT",
+    "unique_key": [
+      "turn_id",
+      "sequence"
+    ],
+    "seed": {
+      "t1": 2,
+      "t2": 100
+    },
+    "requested_turn": "t1",
+    "expected_next": 3,
+    "result": "turn=t1 allocated=0 expected_per_turn=3 error=failed to allocate messages sequence due to: sequence selection for messages matched 0 numeric columns; specify SequenceField or SequenceColumn"
+  },
+  "composite_numeric_identity_probe": {
+    "primary_key": [
+      "turn_id",
+      "sequence"
+    ],
+    "seed": {
+      "t1": 2,
+      "t2": 100
+    },
+    "requested_turn": "t1",
+    "expected_next": 3,
+    "actual_next": 101,
+    "result": "turn=t1 allocated=101 expected_per_turn=3 error=<nil>"
+  },
+  "command": "GOWORK=off go run migration/evidence/scoped-message-sequence-probe.go (run with Datly v1 module/dependencies)"
+}

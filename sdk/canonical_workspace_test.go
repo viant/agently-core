@@ -56,3 +56,20 @@ func TestWorkspaceToolResponsePreservesCompressedJSON(t *testing.T) {
 		t.Fatalf("compressed attachment was lost: %s", encoded)
 	}
 }
+
+func TestWorkspaceShowAttachesToLatestFinalResponse(t *testing.T) {
+	object := &workspaceproto.Object{Version: 1, ObjectID: "workspace:advertisers", Origin: workspaceproto.Origin{TurnID: "first"}, Lifecycle: workspaceproto.Lifecycle{State: "ready"}}
+	firstPayload, _ := json.Marshal(map[string]interface{}{"ok": true, "workspaceObject": object})
+	first := &TurnState{TurnID: "first", Messages: []*TurnMessageState{{MessageID: "answer-1", Role: "assistant", Content: "Opened."}}, Execution: &ExecutionState{Pages: []*ExecutionPageState{{ToolSteps: []*ToolStepState{{ToolName: "ui/view/open", Status: "completed", ResponsePayload: firstPayload}}}}}}
+	object.LastActivatedBy = workspaceproto.Origin{TurnID: "second", ToolName: "ui/window/show"}
+	showPayload, _ := json.Marshal(map[string]interface{}{"ok": true, "workspaceObject": object})
+	second := &TurnState{TurnID: "second", Messages: []*TurnMessageState{{MessageID: "answer-2", Role: "assistant", Content: "Filtered to Whoop."}}, Execution: &ExecutionState{Pages: []*ExecutionPageState{{ToolSteps: []*ToolStepState{{ToolName: "ui/window/show", Status: "completed", ResponsePayload: showPayload}}}}}}
+	projectWorkspaceAttachments(&ConversationState{Turns: []*TurnState{first, second}})
+	if len(first.Messages[0].Attachments) != 1 || len(second.Messages[0].Attachments) != 1 {
+		t.Fatal("each acknowledged reference needs its own final-message attachment")
+	}
+	got := second.Messages[0].Attachments[0].WorkspaceObject
+	if got.Origin.TurnID != "first" || got.LastActivatedBy.TurnID != "second" || got.LastActivatedBy.MessageID != "answer-2" {
+		t.Fatalf("incorrect activation owner: %+v", got)
+	}
+}

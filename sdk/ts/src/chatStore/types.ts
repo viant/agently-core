@@ -237,6 +237,7 @@ export interface ClientLinkedConversation extends EntityIdentity {
  * the execution-details card. (ui-improvement.md §6 terminology bridge.)
  */
 export interface ClientExecutionPage extends EntityIdentity {
+    sequence?: number;
     iteration?: number;
     executionRole?: string;
     phase?: ClientExecutionPhase;
@@ -547,6 +548,8 @@ export interface CanonicalModelStepState {
 }
 
 export interface CanonicalToolStepState {
+    requestPayload?: JSONValue | null;
+    responsePayload?: JSONValue | null;
     toolCallId: string;
     toolMessageId?: string;
     toolName?: string;
@@ -573,7 +576,8 @@ export interface CanonicalToolStepState {
 
 export interface CanonicalElicitationState {
     elicitationId?: string;
-    status?: ClientElicitationStatus;
+    // Historical wire aliases are normalized before becoming client state.
+    status?: ClientElicitationStatus | 'cancel' | 'cancelled';
     message?: string;
     requestedSchema?: JSONObject | null;
     callbackUrl?: string;

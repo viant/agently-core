@@ -6,17 +6,12 @@ import (
 	"testing"
 
 	"github.com/google/uuid"
-	"github.com/viant/agently-core/app/store/data"
+	"github.com/viant/agently-core/internal/testutil/dbtest"
 )
 
 func TestDatlyUserService_UpsertWithProvider_ReusesExistingSubjectIdentity(t *testing.T) {
 	ctx := context.Background()
-	dao, err := data.NewDatlyInMemory(ctx)
-	if err != nil {
-		t.Fatalf("NewDatlyInMemory() error = %v", err)
-	}
-
-	svc := NewDatlyUserService(dao)
+	svc := newNativeUserServiceFixture(t)
 	if svc == nil {
 		t.Fatalf("NewDatlyUserService() = nil")
 	}
@@ -114,12 +109,7 @@ func TestSubjectIdentityReusable_IgnoresAliasUsernameDrift(t *testing.T) {
 
 func TestDatlyUserService_UpsertWithProvider_PreservesExactDisplayIdentity(t *testing.T) {
 	ctx := context.Background()
-	dao, err := data.NewDatlyInMemory(ctx)
-	if err != nil {
-		t.Fatalf("NewDatlyInMemory() error = %v", err)
-	}
-
-	svc := NewDatlyUserService(dao)
+	svc := newNativeUserServiceFixture(t)
 	if svc == nil {
 		t.Fatalf("NewDatlyUserService() = nil")
 	}
@@ -161,4 +151,12 @@ func uniqueDatlyUserIdentity(t *testing.T, prefix string) (username, email, subj
 	token := strings.ReplaceAll(uuid.NewString(), "-", "")
 	name := prefix + "_" + token
 	return name, name + "@example.test", "oauth_" + name
+}
+
+func newNativeUserServiceFixture(t *testing.T) *DatlyUserService {
+	t.Helper()
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "auth-user-v1")
+	t.Cleanup(cleanup)
+	dbtest.LoadSQLiteSchema(t, db)
+	return NewDatlyUserService(newMCPLinkTestNative(t, dbPath))
 }

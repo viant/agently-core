@@ -384,3 +384,17 @@ client/session without requiring `AGENTLY_DEBUG` for the whole process.
 ## License
 
 Apache License 2.0 — see [LICENSE](./LICENSE) and [NOTICE](./NOTICE).
+
+## Datly persistence
+
+The migration checkout uses branch `datly_1` and one Core Go module. Its 62
+canonical contracts live in `dql/`; stock-generated readers, writers, and cubes
+live in `internal/datly/`. Managed business compositions live in
+`internal/store/`. Public DTO packages and HTTP/JSON/SSE contracts retain their
+existing paths and behavior.
+
+Core and Agently production builds pass. Generated component, public SDK,
+MySQL contention, rollback, and caller-transaction evidence are linked from
+[the current migration checkpoint](migration/README.md). Namespace relocation
+validation is recorded separately from earlier successful caller gates.
+Core changes remain uncommitted for review.

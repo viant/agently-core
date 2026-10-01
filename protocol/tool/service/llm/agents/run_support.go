@@ -26,7 +26,7 @@ import (
 	"github.com/viant/agently-core/service/shared/convterm"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	skillsvc "github.com/viant/agently-core/service/skill"
-	hstate "github.com/viant/xdatly/handler/state"
+	hstate "github.com/viant/xdatly/state"
 )
 
 type linkedRun struct {
@@ -651,8 +651,8 @@ func (s *Service) getConversationForStatus(ctx context.Context, conversationID s
 				IncludeTranscript: true,
 			},
 		}
-		selectors := []*hstate.NamedQuerySelector{
-			{Name: "Transcript", QuerySelector: hstate.QuerySelector{Limit: 1, OrderBy: "created_at DESC,id DESC"}},
+		selectors := []*hstate.NamedSelector{
+			{Name: "Transcript", Selector: hstate.Selector{Limit: 1, OrderBy: "created_at DESC,id DESC"}},
 		}
 		conv, err := s.data.GetConversation(ctx, conversationID, in, store.WithQuerySelector(selectors...))
 		if err == nil || conv != nil {

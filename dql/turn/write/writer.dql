@@ -1,0 +1,69 @@
+#package('github.com/viant/agently-core/internal/datly/turn/write')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/turn','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $Turns<[]*Turn>(body/data))
+#define($_ = $Data<[]*Turn>(output/body))
+
+SELECT data_rows.id, data_rows.should_delete,
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:",omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
+       data_rows.conversation_id,
+       data_rows.created_at,
+       data_rows.queue_seq,
+       data_rows.origin,
+       data_rows.goal_id,
+       data_rows.status_reason,
+       data_rows.status,
+       data_rows.started_by_message_id,
+       data_rows.retry_of,
+       data_rows.agent_id_used,
+       data_rows.agent_config_used_id,
+       data_rows.model_override_provider,
+       data_rows.model_override,
+       data_rows.model_params_override,
+       data_rows.run_id,
+       data_rows.error_message,
+       type(data_rows,'Turn'),
+       lifecycle_type(data_rows,'Lifecycle'),
+       CAST(data_rows.id AS string),
+       tag(data_rows.id,'validate:"required" sqlx:"id,primaryKey"'),
+       CAST(data_rows.conversation_id AS string),
+       tag(data_rows.conversation_id,'validate:"required" sqlx:"conversation_id"'),
+       CAST(data_rows.created_at AS *time.Time),
+       tag(data_rows.created_at,'json:",omitempty" sqlx:"created_at"'),
+       CAST(data_rows.queue_seq AS *int64),
+       tag(data_rows.queue_seq,'json:",omitempty" sqlx:"queue_seq"'),
+       CAST(data_rows.origin AS *string),
+       tag(data_rows.origin,'json:",omitempty" sqlx:"origin"'),
+       CAST(data_rows.goal_id AS *string),
+       tag(data_rows.goal_id,'json:",omitempty" sqlx:"goal_id"'),
+       CAST(data_rows.status_reason AS *string),
+       tag(data_rows.status_reason,'json:",omitempty" sqlx:"status_reason"'),
+       CAST(data_rows.status AS string),
+       tag(data_rows.status,'validate:"required" sqlx:"status"'),
+       CAST(data_rows.started_by_message_id AS *string),
+       tag(data_rows.started_by_message_id,'json:",omitempty" sqlx:"started_by_message_id"'),
+       CAST(data_rows.retry_of AS *string),
+       tag(data_rows.retry_of,'json:",omitempty" sqlx:"retry_of"'),
+       CAST(data_rows.agent_id_used AS *string),
+       tag(data_rows.agent_id_used,'json:",omitempty" sqlx:"agent_id_used"'),
+       CAST(data_rows.agent_config_used_id AS *string),
+       tag(data_rows.agent_config_used_id,'json:",omitempty" sqlx:"agent_config_used_id"'),
+       CAST(data_rows.model_override_provider AS *string),
+       tag(data_rows.model_override_provider,'json:",omitempty" sqlx:"model_override_provider"'),
+       CAST(data_rows.model_override AS *string),
+       tag(data_rows.model_override,'json:",omitempty" sqlx:"model_override"'),
+       CAST(data_rows.model_params_override AS *string),
+       tag(data_rows.model_params_override,'json:",omitempty" sqlx:"model_params_override"'),
+       CAST(data_rows.run_id AS *string),
+       tag(data_rows.run_id,'json:",omitempty" sqlx:"run_id"'),
+       CAST(data_rows.error_message AS *string),
+       tag(data_rows.error_message,'json:",omitempty" sqlx:"error_message"')
+FROM (SELECT 0 AS should_delete, `id`, `conversation_id`, `created_at`, `queue_seq`, `origin`, `goal_id`, `status_reason`, `status`, `started_by_message_id`, `retry_of`, `agent_id_used`, `agent_config_used_id`, `model_override_provider`, `model_override`, `model_params_override`, `run_id`, `error_message` FROM turn) data_rows

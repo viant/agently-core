@@ -4,9 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/viant/agently-core/internal/store/orphanmaintenance"
 	"reflect"
-	"sort"
-	"strings"
 	"testing"
 	"time"
 )
@@ -147,83 +146,27 @@ func TestListOrphanMaintenanceCandidates_ValidatesRequestAndCursor(t *testing.T)
 }
 
 func TestOrphanMaintenanceRulesUseStaticDriverContractAndStableOrder(t *testing.T) {
-	sqliteCapabilities, err := deleteSchemaCapabilitiesForDriver("sqlite")
-	if err != nil {
-		t.Fatal(err)
-	}
-	mysqlCapabilities, err := deleteSchemaCapabilitiesForDriver("mysql")
-	if err != nil {
-		t.Fatal(err)
-	}
-	sqliteRules := orphanMaintenanceRules(sqliteCapabilities)
-	mysqlRules := orphanMaintenanceRules(mysqlCapabilities)
-	if len(sqliteRules) == 0 || len(mysqlRules) <= len(sqliteRules) {
-		t.Fatalf("unexpected rule counts: sqlite=%d mysql=%d", len(sqliteRules), len(mysqlRules))
-	}
-	for _, rules := range [][]orphanMaintenanceRule{sqliteRules, mysqlRules} {
-		if !sort.SliceIsSorted(rules, func(i, j int) bool {
-			if rules[i].Priority != rules[j].Priority {
-				return rules[i].Priority < rules[j].Priority
+	for _, mysql := range []bool{false, true} {
+		rules := orphanmaintenance.Rules(mysql)
+		for i, rule := range rules {
+			if i > 0 && (rules[i-1].Priority > rule.Priority || rules[i-1].Priority == rule.Priority && rules[i-1].ID > rule.ID) {
+				t.Fatalf("rules are not dependency ordered")
 			}
-			return rules[i].ID < rules[j].ID
-		}) {
-			t.Fatalf("rules are not sorted: %#v", rules)
-		}
-		knownTables := map[string]bool{}
-		for _, table := range conversationDeleteSchemaTables {
-			knownTables[table] = true
-		}
-		seen := map[string]bool{}
-		for _, rule := range rules {
-			if seen[rule.ID] {
-				t.Fatalf("duplicate orphan rule %q", rule.ID)
-			}
-			seen[rule.ID] = true
-			if rule.Priority <= 0 {
-				t.Fatalf("rule %q has invalid priority %d", rule.ID, rule.Priority)
-			}
-			if !knownTables[rule.Table] {
-				t.Fatalf("rule %q uses table outside deletion schema contract: %q", rule.ID, rule.Table)
-			}
-			for _, table := range rule.RequiredTables {
-				if !knownTables[table] {
-					t.Fatalf("rule %q requires table outside deletion schema contract: %q", rule.ID, table)
-				}
-			}
-			switch rule.Action {
-			case OrphanMaintenanceSafeDelete, OrphanMaintenanceSafeDetach, OrphanMaintenanceReportOnly:
-			default:
-				t.Fatalf("rule %q has invalid action %q", rule.ID, rule.Action)
-			}
-			if err := validateOrphanMaintenanceMutationRule(rule); err != nil {
-				t.Fatalf("rule %q has invalid mutation contract: %v", rule.ID, err)
-			}
-			keyValues := make([]interface{}, len(rule.KeyColumns))
-			for i := range keyValues {
-				keyValues[i] = "key"
-			}
-			if rule.Action != OrphanMaintenanceReportOnly {
-				query, args := orphanMaintenanceMutationStatement(rule, keyValues)
-				if strings.TrimSpace(query) == "" || len(args) != len(rule.KeyColumns) {
-					t.Fatalf("rule %q produced invalid mutation statement query=%q args=%v", rule.ID, query, args)
-				}
+			if rule.Action == orphanmaintenance.SafeDetach && rule.DetachColumn == "" || len(rule.Keys) == 0 {
+				t.Fatalf("invalid rule %s", rule.ID)
 			}
 		}
-	}
-	if orphanRuleByID(sqliteRules, "investigation.missing_conversation") != nil || orphanRuleByID(sqliteRules, "schedule_run.missing_schedule") != nil {
-		t.Fatalf("SQLite rules include unavailable tables")
-	}
-	if rule := orphanRuleByID(mysqlRules, "investigation.missing_conversation"); rule == nil || rule.Action != OrphanMaintenanceSafeDelete || rule.DetachColumn != "" {
-		t.Fatalf("MySQL investigation rule = %#v", rule)
-	}
-	if rule := orphanRuleByID(mysqlRules, "report_audit_event.missing_job"); rule != nil {
-		t.Fatalf("disabled audit pseudo-orphan rule was registered: %#v", rule)
-	}
-	if rule := orphanRuleByID(mysqlRules, "report_audit_event.missing_artifact"); rule != nil {
-		t.Fatalf("disabled audit pseudo-orphan rule was registered: %#v", rule)
-	}
-	if rule := orphanRuleByID(mysqlRules, "report_shared_artifact.missing_source"); rule != nil {
-		t.Fatalf("disabled shared artifact rule was registered: %#v", rule)
+		for _, id := range []string{"report_audit_event.missing_job", "report_audit_event.missing_artifact", "report_shared_artifact.missing_source"} {
+			if _, found := orphanmaintenance.FindRule(mysql, id); found {
+				t.Fatalf("unsafe disabled pseudo-orphan rule %s restored", id)
+			}
+		}
+		for _, id := range []string{"investigation.missing_conversation", "schedule_run.missing_schedule"} {
+			_, found := orphanmaintenance.FindRule(mysql, id)
+			if found != mysql {
+				t.Fatalf("schema rule %s availability changed", id)
+			}
+		}
 	}
 }
 

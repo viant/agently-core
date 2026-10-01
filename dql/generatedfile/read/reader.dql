@@ -1,0 +1,88 @@
+#package('github.com/viant/agently-core/internal/datly/generatedfile/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v2/api/agently/generated-file','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $LockRows<bool>(generatedfileaccess/lock).Optional())
+#define($_ = $StatusInfo<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $Metrics<?>(output/metrics))
+#define($_ = $ConversationID<string>(query/conversationId).Optional().WithPredicate(0,'equal','gf','conversation_id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','gf','conversation_id'))
+#define($_ = $TurnID<string>(query/turnId).Optional().WithPredicate(0,'equal','gf','turn_id'))
+#define($_ = $MessageID<string>(query/messageId).Optional().WithPredicate(0,'equal','gf','message_id'))
+#define($_ = $ID<string>(query/id).Optional().WithPredicate(0,'equal','gf','id'))
+#define($_ = $Provider<string>(query/provider).Optional().WithPredicate(0,'equal','gf','provider'))
+#define($_ = $Status<string>(query/status).Optional().WithPredicate(0,'equal','gf','status'))
+#define($_ = $Since<*time.Time>(query/since).Optional().WithPredicate(0,'greater_or_equal','gf','created_at'))
+#define($_ = $Data<[]*GeneratedFileView>(output/view))
+
+SELECT generated_file.id,
+       generated_file.conversation_id,
+       generated_file.turn_id,
+       generated_file.message_id,
+       generated_file.provider,
+       generated_file.mode,
+       generated_file.copy_mode,
+       generated_file.status,
+       generated_file.payload_id,
+       generated_file.container_id,
+       generated_file.provider_file_id,
+       generated_file.filename,
+       generated_file.mime_type,
+       generated_file.size_bytes,
+       generated_file.checksum,
+       generated_file.error_message,
+       generated_file.expires_at,
+       generated_file.created_at,
+       generated_file.updated_at,
+       type(generated_file,'GeneratedFileView'),
+       CAST(generated_file.id AS string),
+       CAST(generated_file.conversation_id AS string),
+       CAST(generated_file.turn_id AS *string),
+       CAST(generated_file.message_id AS *string),
+       CAST(generated_file.provider AS string),
+       CAST(generated_file.mode AS string),
+       CAST(generated_file.copy_mode AS string),
+       CAST(generated_file.status AS string),
+       CAST(generated_file.payload_id AS *string),
+       CAST(generated_file.container_id AS *string),
+       CAST(generated_file.provider_file_id AS *string),
+       CAST(generated_file.filename AS *string),
+       CAST(generated_file.mime_type AS *string),
+       CAST(generated_file.size_bytes AS *int),
+       CAST(generated_file.checksum AS *string),
+       CAST(generated_file.error_message AS *string),
+       CAST(generated_file.expires_at AS *time.Time),
+       CAST(generated_file.created_at AS *time.Time),
+       CAST(generated_file.updated_at AS *time.Time)
+FROM (
+SELECT
+  gf.id,
+  gf.conversation_id,
+  gf.turn_id,
+  gf.message_id,
+  gf.provider,
+  gf.mode,
+  gf.copy_mode,
+  gf.status,
+  gf.payload_id,
+  gf.container_id,
+  gf.provider_file_id,
+  gf.filename,
+  gf.mime_type,
+  gf.size_bytes,
+  gf.checksum,
+  gf.error_message,
+  gf.expires_at,
+  gf.created_at,
+  gf.updated_at
+FROM generated_file gf
+${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+ORDER BY gf.created_at ASC
+
+#if($LockRows) ${View.ForUpdate()} #end
+) generated_file

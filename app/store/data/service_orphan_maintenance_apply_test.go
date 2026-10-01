@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/viant/agently-core/internal/store/orphanmaintenance"
 	"testing"
 	"time"
 )
@@ -144,12 +145,8 @@ func assertOrphanCandidateDependencyOrder(t *testing.T, candidates []OrphanMaint
 	t.Helper()
 	lastPriority := 0
 	for _, candidate := range candidates {
-		capabilities, err := deleteSchemaCapabilitiesForDriver("sqlite")
-		if err != nil {
-			t.Fatal(err)
-		}
-		rule := orphanRuleByID(orphanMaintenanceRules(capabilities), candidate.RuleID)
-		if rule == nil || rule.Priority < lastPriority {
+		rule, found := orphanmaintenance.FindRule(false, candidate.RuleID)
+		if !found || rule.Priority < lastPriority {
 			t.Fatalf("candidates are not dependency ordered: %#v", candidates)
 		}
 		lastPriority = rule.Priority

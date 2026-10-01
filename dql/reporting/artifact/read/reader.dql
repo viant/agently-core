@@ -1,0 +1,41 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/artifact/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/artifact','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(reportAccess/internal).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required())
+#define($_ = $ArtifactID<string>(query/artifactId).Optional().WithPredicate(0,'equal','a','artifact_id'))
+#define($_ = $JobID<string>(query/jobId).Optional().WithPredicate(0,'equal','a','job_id'))
+#define($_ = $JobIDs<[]string>(query/jobIds).Optional().WithPredicate(0,'in','a','job_id'))
+#define($_ = $ArtifactRef<string>(query/artifactRef).Optional().WithPredicate(0,'equal','a','artifact_ref'))
+#define($_ = $OwnerID<string>(query/ownerId).Optional().WithPredicate(0,'equal','a','owner_id'))
+#define($_ = $LockRows<bool>(reportAccess/lock).Optional())
+#define($_ = $Data<[]*Artifact>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOrderBy=true"'))
+
+SELECT data_rows.artifact_id, data_rows.job_id, data_rows.artifact_ref, data_rows.owner_id,
+       data_rows.format, data_rows.content_type, data_rows.inline_data, data_rows.created_at,
+       data_rows.retention_ttl_sec,
+       type(data_rows,'Artifact'),
+       CAST(data_rows.artifact_id AS string),
+       CAST(data_rows.job_id AS string),
+       CAST(data_rows.artifact_ref AS string),
+       CAST(data_rows.owner_id AS string),
+       CAST(data_rows.format AS string),
+       CAST(data_rows.content_type AS string),
+       CAST(data_rows.inline_data AS []byte),
+       CAST(data_rows.created_at AS time.Time),
+       CAST(data_rows.retention_ttl_sec AS int64)
+FROM (
+    SELECT a.artifact_id, a.job_id, a.artifact_ref, a.owner_id,
+           a.format, a.content_type, a.inline_data, a.created_at,
+           a.retention_ttl_sec
+    FROM report_export_artifact a
+    WHERE ($Internal OR a.owner_id = $OwnerSubject)
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
+    ORDER BY a.created_at DESC, a.artifact_id DESC
+ #if($LockRows) ${View.ForUpdate()} #end
+) data_rows

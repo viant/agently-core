@@ -8,11 +8,16 @@ type LegacyModelStep = Partial<ModelStepState> & {
 };
 
 type LegacyToolStep = Partial<ToolStepState> & {
+    kind?: 'tool';
     ToolName?: string;
     Status?: string;
 };
 
-type LegacyExecutionPage = Partial<ExecutionPage> & {
+type LegacyExecutionPage = Omit<Partial<ExecutionPage>, 'toolSteps' | 'modelSteps'> & {
+    toolSteps?: LegacyToolStep[];
+    modelSteps?: LegacyModelStep[];
+    completedAt?: string;
+    createdAt?: string;
     AssistantMessageId?: string;
     PageId?: string;
     Narration?: string;
@@ -25,17 +30,22 @@ type LegacyExecutionPage = Partial<ExecutionPage> & {
     CreatedAt?: string;
 };
 
-type LegacyTurn = Partial<Turn> & {
+type LegacyTurn = Omit<Partial<Turn>, 'execution'> & {
+    execution?: { pages?: LegacyExecutionPage[]; Pages?: LegacyExecutionPage[] };
+    response?: { content?: string };
+    updatedAt?: string;
+    agentId?: string;
     Status?: string;
     AgentIdUsed?: string;
     AgentId?: string;
     UpdatedAt?: string;
     CreatedAt?: string;
     Response?: { Content?: string };
-    Execution?: { Pages?: LegacyExecutionPage[] };
+    Execution?: { Pages?: LegacyExecutionPage[]; pages?: LegacyExecutionPage[] };
 };
 
-type TranscriptLike = TranscriptOutput & {
+type TranscriptLike = {
+    turns?: LegacyTurn[];
     Turns?: LegacyTurn[];
 };
 
@@ -64,7 +74,7 @@ export interface LinkedConversationPreviewSummary {
     previewGroups: LinkedConversationPreviewGroup[];
 }
 
-function stepTitle(step: LinkedConversationPreviewStep | LegacyModelStep | LegacyToolStep | null = null): string {
+function stepTitle(step: { kind?: string; provider?: string; Provider?: string; model?: string; Model?: string; toolName?: string; ToolName?: string } | null = null): string {
     const kind = String(step?.kind || '').toLowerCase();
     if (kind === 'model') {
         const provider = String(step?.provider || step?.Provider || '').trim();
@@ -180,7 +190,7 @@ export function reduceLinkedConversationPreviewEvent(current: Partial<LinkedConv
         const previewGroups = Array.isArray(next.previewGroups) ? [...next.previewGroups] : [];
         const groupKey = assistantMessageId || `model:${previewGroups.length}`;
         const existingIndex = previewGroups.findIndex((item) => String(item?.id || '').trim() === groupKey);
-        const merged = {
+        const merged: LinkedConversationPreviewGroup = {
             id: groupKey,
             title: content,
             status: status || (type === 'model_started' ? 'running' : 'completed'),
@@ -212,7 +222,7 @@ export function reduceLinkedConversationPreviewEvent(current: Partial<LinkedConv
     if (type === 'tool_call_started' || type === 'tool_call_waiting' || type === 'tool_call_completed' || type === 'tool_call_failed' || type === 'tool_call_canceled') {
         const previewGroups = Array.isArray(next.previewGroups) ? [...next.previewGroups] : [];
         const groupKey = String(event?.toolCallId || event?.toolMessageId || toolName || `tool:${previewGroups.length}`).trim();
-        const merged = {
+        const merged: LinkedConversationPreviewGroup = {
             id: groupKey,
             title: content,
             status: status || (type === 'tool_call_started' || type === 'tool_call_waiting' ? 'running' : (type === 'tool_call_failed' ? 'failed' : (type === 'tool_call_canceled' ? 'canceled' : 'completed'))),

@@ -1,0 +1,66 @@
+#package('github.com/viant/agently-core/internal/datly/payload/write')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/payload','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Status<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $DeleteUnreferenced<bool>(payloadAccess/deleteUnreferenced).Optional().WithPredicate(7,'expr','(NOT ? OR (NOT EXISTS (SELECT 1 FROM message WHERE attachment_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM message WHERE elicitation_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM model_call WHERE request_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM model_call WHERE response_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM model_call WHERE provider_request_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM model_call WHERE provider_response_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM model_call WHERE stream_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM tool_call WHERE request_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM tool_call WHERE response_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM generated_file WHERE payload_id=call_payload.id)))'))
+#define($_ = $Payloads<[]*Payload>(body/data))
+#define($_ = $Data<[]*Payload>(output/body))
+
+SELECT data_rows.id, data_rows.should_delete,
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:",omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
+       data_rows.tenant_id,
+       data_rows.kind,
+       data_rows.subtype,
+       data_rows.mime_type,
+       data_rows.size_bytes,
+       data_rows.digest,
+       data_rows.storage,
+       data_rows.inline_body,
+       data_rows.uri,
+       data_rows.compression,
+       data_rows.encryption_kms_key_id,
+       data_rows.redaction_policy_version,
+       data_rows.redacted,
+       data_rows.created_at,
+       data_rows.schema_ref,
+       type(data_rows,'Payload'), mutation_predicate(data_rows,7),
+       lifecycle_type(data_rows,'Lifecycle'),
+       CAST(data_rows.id AS string),
+       tag(data_rows.id,'validate:"required" sqlx:"id,primaryKey"'),
+       CAST(data_rows.tenant_id AS *string),
+       tag(data_rows.tenant_id,'json:",omitempty" sqlx:"tenant_id"'),
+       CAST(data_rows.kind AS string),
+       tag(data_rows.kind,'validate:"required" sqlx:"kind"'),
+       CAST(data_rows.subtype AS *string),
+       tag(data_rows.subtype,'json:",omitempty" sqlx:"subtype"'),
+       CAST(data_rows.mime_type AS string),
+       tag(data_rows.mime_type,'validate:"required" sqlx:"mime_type"'),
+       CAST(data_rows.size_bytes AS int),
+       tag(data_rows.size_bytes,'validate:"required" sqlx:"size_bytes"'),
+       CAST(data_rows.digest AS *string),
+       tag(data_rows.digest,'json:",omitempty" sqlx:"digest"'),
+       CAST(data_rows.storage AS string),
+       tag(data_rows.storage,'validate:"required" sqlx:"storage"'),
+       CAST(data_rows.inline_body AS *[]byte),
+       tag(data_rows.inline_body,'json:",omitempty" sqlx:"inline_body"'),
+       CAST(data_rows.uri AS *string),
+       tag(data_rows.uri,'json:",omitempty" sqlx:"uri"'),
+       CAST(data_rows.compression AS string),
+       tag(data_rows.compression,'sqlx:"compression"'),
+       CAST(data_rows.encryption_kms_key_id AS *string),
+       tag(data_rows.encryption_kms_key_id,'json:",omitempty" sqlx:"encryption_kms_key_id"'),
+       CAST(data_rows.redaction_policy_version AS *string),
+       tag(data_rows.redaction_policy_version,'json:",omitempty" sqlx:"redaction_policy_version"'),
+       CAST(data_rows.redacted AS *int),
+       tag(data_rows.redacted,'json:",omitempty" sqlx:"redacted"'),
+       CAST(data_rows.created_at AS *time.Time),
+       tag(data_rows.created_at,'json:",omitempty" sqlx:"created_at"'),
+       CAST(data_rows.schema_ref AS *string),
+       tag(data_rows.schema_ref,'json:",omitempty" sqlx:"schema_ref"')
+FROM (SELECT 0 AS should_delete, `id`, `tenant_id`, `kind`, `subtype`, `mime_type`, `size_bytes`, `digest`, `storage`, `inline_body`, `uri`, `compression`, `encryption_kms_key_id`, `redaction_policy_version`, `redacted`, `created_at`, `schema_ref` FROM call_payload) data_rows

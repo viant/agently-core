@@ -4,8 +4,9 @@ import (
 	"context"
 
 	old "github.com/viant/agently-core/app/store/data"
-	"github.com/viant/datly"
-	hstate "github.com/viant/xdatly/handler/state"
+	dexec "github.com/viant/datly/exec"
+	"github.com/viant/datly/standalone"
+	hstate "github.com/viant/xdatly/state"
 )
 
 var ErrPermissionDenied = old.ErrPermissionDenied
@@ -31,22 +32,24 @@ const (
 	DirectionLatest = old.DirectionLatest
 )
 
-func WithQuerySelector(selectors ...*hstate.NamedQuerySelector) Option {
+func WithQuerySelector(selectors ...*hstate.NamedSelector) Option {
 	return old.WithQuerySelector(selectors...)
 }
 func WithPrincipal(userID string) Option      { return old.WithPrincipal(userID) }
 func WithAdminPrincipal(userID string) Option { return old.WithAdminPrincipal(userID) }
 
-func NewService(dao *datly.Service) Service { return old.NewService(dao) }
-func NewDatly(ctx context.Context) (*datly.Service, error) {
-	return old.NewDatly(ctx)
+type ServiceOption = old.ServiceOption
+
+func WithWriteGate(key string) ServiceOption { return old.WithWriteGate(key) }
+func NewService(invoker dexec.ComponentInvoker, opts ...ServiceOption) Service {
+	return old.NewService(invoker, opts...)
 }
-func NewDatlyServiceFromEnv(ctx context.Context) (*datly.Service, error) {
-	return old.NewDatlyServiceFromEnv(ctx)
+func NewRuntime(ctx context.Context) (*standalone.Server, error) { return old.NewRuntime(ctx) }
+func NewRuntimeFromWorkspace(ctx context.Context, root string) (*standalone.Server, error) {
+	return old.NewRuntimeFromWorkspace(ctx, root)
 }
-func NewDatlyInMemory(ctx context.Context) (*datly.Service, error) { return old.NewDatlyInMemory(ctx) }
-func NewDatlyFromWorkspace(ctx context.Context, root string) (*datly.Service, error) {
-	return old.NewDatlyFromWorkspace(ctx, root)
+func NewRuntimeInMemory(ctx context.Context) (*standalone.Server, error) {
+	return old.NewRuntimeInMemory(ctx)
 }
 func NewThinServiceFromEnv(ctx context.Context) (Service, error) {
 	return old.NewThinServiceFromEnv(ctx)
@@ -54,3 +57,5 @@ func NewThinServiceFromEnv(ctx context.Context) (Service, error) {
 func NewThinServiceInMemory(ctx context.Context) (Service, error) {
 	return old.NewThinServiceInMemory(ctx)
 }
+
+func CloseService(ctx context.Context, service Service) error { return old.CloseService(ctx, service) }

@@ -1,0 +1,32 @@
+#package('github.com/viant/agently-core/internal/datly/maintenancelease/write')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/maintenance-lease','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(maintenanceAccess/internal).Required())
+#define($_ = $Mode<string>(query/mode).Required())
+#define($_ = $ExpectedOwner<string>(query/expectedOwner).Optional().WithPredicate(7,'equal','maintenance_lease','owner_id'))
+#define($_ = $ExpectedToken<string>(query/expectedToken).Optional().WithPredicate(7,'equal','maintenance_lease','lease_token'))
+#define($_ = $ExpiresBefore<time.Time>(query/expiresBefore).Optional().WithPredicate(7,'less_or_equal','maintenance_lease','lease_until'))
+#define($_ = $LiveAfter<time.Time>(query/liveAfter).Optional().WithPredicate(7,'expr','maintenance_lease.lease_until > ?'))
+#define($_ = $Leases<[]*Lease>(body/data))
+#define($_ = $Data<[]*Lease>(output/body))
+
+SELECT data_rows.lease_key, data_rows.should_delete, data_rows.owner_id, data_rows.lease_token,
+       data_rows.lease_until, data_rows.created_at, data_rows.updated_at,
+       type(data_rows,'Lease'), lifecycle_type(data_rows,'Lifecycle'), mutation_predicate(data_rows,7),
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:"shouldDelete,omitempty"'), delete_marker(data_rows.should_delete),
+       CAST(data_rows.lease_key AS string), tag(data_rows.lease_key,'sqlx:"lease_key,primaryKey=true,required=true"'),
+       CAST(data_rows.owner_id AS string), tag(data_rows.owner_id,'sqlx:"owner_id,required=true"'),
+       CAST(data_rows.lease_token AS string), tag(data_rows.lease_token,'sqlx:"lease_token,required=true"'),
+       CAST(data_rows.lease_until AS time.Time), tag(data_rows.lease_until,'sqlx:"lease_until,required=true"'),
+       CAST(data_rows.created_at AS time.Time), tag(data_rows.created_at,'sqlx:"created_at,required=true"'),
+       CAST(data_rows.updated_at AS time.Time), tag(data_rows.updated_at,'sqlx:"updated_at,required=true"')
+FROM (
+    SELECT 0 AS should_delete, lease_key, owner_id, lease_token,
+           lease_until, created_at, updated_at
+    FROM maintenance_lease
+) data_rows

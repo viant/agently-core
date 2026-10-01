@@ -1166,12 +1166,13 @@ func buildSetControlAction(clientID string, win *uireg.WindowSnapshot, control u
 	}
 	assistantText := fmt.Sprintf("Updated %s to %s on the open %s workspace.", firstNonEmpty(strings.TrimSpace(control.Label), strings.TrimSpace(control.ID), "control"), firstNonEmpty(strings.TrimSpace(valueLabel), fmt.Sprint(value)), firstNonEmpty(strings.TrimSpace(win.WindowTitle), strings.TrimSpace(win.WindowKey), "workspace"))
 	input := map[string]interface{}{
-		"windowId":    strings.TrimSpace(win.WindowID),
-		"controlId":   strings.TrimSpace(control.ID),
-		"scope":       strings.TrimSpace(control.Scope),
-		"value":       value,
-		"bindingPath": strings.TrimSpace(control.BindingPath),
-		"dataField":   strings.TrimSpace(control.DataField),
+		"windowId":      strings.TrimSpace(win.WindowID),
+		"controlId":     strings.TrimSpace(control.ID),
+		"scope":         strings.TrimSpace(control.Scope),
+		"value":         value,
+		"bindingPath":   strings.TrimSpace(control.BindingPath),
+		"dataField":     strings.TrimSpace(control.DataField),
+		"dataSourceRef": strings.TrimSpace(control.DataSourceRef),
 	}
 	if clientID = strings.TrimSpace(clientID); clientID != "" {
 		input["clientId"] = clientID

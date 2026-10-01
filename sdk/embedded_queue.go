@@ -2,21 +2,20 @@ package sdk
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/app/store/native"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
+	queuereorder "github.com/viant/agently-core/internal/store/queuereorder"
 	"github.com/viant/agently-core/internal/toolvalidate"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
@@ -27,10 +26,6 @@ import (
 	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
 	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
-	agturnlist "github.com/viant/agently-core/pkg/agently/turn/queuedList"
-	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
-	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
-	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
 	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/tool"
@@ -40,130 +35,31 @@ import (
 	agentsvc "github.com/viant/agently-core/service/agent"
 	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
-	"github.com/viant/agently-core/workspace"
 	"github.com/viant/mcp-protocol/schema"
-	hstate "github.com/viant/xdatly/handler/state"
-	_ "modernc.org/sqlite"
+	hstate "github.com/viant/xdatly/state"
 )
 
 func moveQueuedTurn(c *backendClient, ctx context.Context, input *MoveQueuedTurnInput) error {
 	if input == nil {
 		return errors.New("input is required")
 	}
-	if c.data == nil {
-		return errors.New("data service not configured")
+	if c == nil || c.goalInvoker == nil {
+		return errors.New("native queue components are not configured")
 	}
-	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
-		ID:             strings.TrimSpace(input.TurnID),
-		ConversationID: strings.TrimSpace(input.ConversationID),
-		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
-	}, principalDataOpts(ctx)...)
-	if err != nil {
-		if isTurnLookupUnavailable(err) {
-			return newConflictError("queued turn not found")
-		}
+	if err := native.RequireVisibleConversation(ctx, c.goalInvoker, input.ConversationID); err != nil {
 		return err
 	}
-	if turn == nil {
+	err := queuereorder.Move(ctx, c.goalInvoker, input.ConversationID, input.TurnID, input.Direction)
+	switch {
+	case errors.Is(err, queuereorder.ErrTurnNotQueued):
 		return newConflictError("queued turn not found")
-	}
-	if !strings.EqualFold(strings.TrimSpace(turn.Status), "queued") {
-		return newConflictError(fmt.Sprintf("turn is not queued: %s", turn.Status))
-	}
-	type queueRow struct {
-		ID       string
-		QueueSeq int64
-	}
-	rows := make([]queueRow, 0)
-	if lister, ok := c.data.(turnQueueLister); ok {
-		qRows, err := lister.ListTurnQueueRows(ctx, &turnqueueread.QueueRowsInput{
-			ConversationId: strings.TrimSpace(input.ConversationID),
-			QueueStatus:    "queued",
-			Has:            &turnqueueread.QueueRowsInputHas{ConversationId: true, QueueStatus: true},
-		})
-		if err != nil {
-			return err
-		}
-		for _, row := range qRows {
-			if row != nil {
-				rows = append(rows, queueRow{ID: strings.TrimSpace(row.Id), QueueSeq: row.QueueSeq})
-			}
-		}
-	} else {
-		fallbackRows, err := c.data.ListQueuedTurns(ctx, &agturnlist.QueuedTurnsInput{
-			ConversationID: strings.TrimSpace(input.ConversationID),
-			Has:            &agturnlist.QueuedTurnsInputHas{ConversationID: true},
-		})
-		if err != nil {
-			return err
-		}
-		for i, row := range fallbackRows {
-			if row == nil {
-				continue
-			}
-			// Use the list position as a stable fallback so that rows without a
-			// QueueSeq always have unique, ordered sequence numbers. Using
-			// time.Now().UnixNano() inside the loop risks identical values when
-			// two turns were queued within the same nanosecond, which would make
-			// a move operation swap identical seq values and produce no change.
-			seq := int64(i)
-			if row.QueueSeq != nil {
-				seq = int64(*row.QueueSeq)
-			}
-			rows = append(rows, queueRow{ID: strings.TrimSpace(row.Id), QueueSeq: seq})
-		}
-	}
-	if len(rows) < 2 {
-		return nil
-	}
-	idx := -1
-	for i, row := range rows {
-		if strings.TrimSpace(row.ID) == strings.TrimSpace(input.TurnID) {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		return newConflictError("queued turn not found in queue list")
-	}
-	target := idx
-	switch strings.ToLower(strings.TrimSpace(input.Direction)) {
-	case "up":
-		target = idx - 1
-	case "down":
-		target = idx + 1
-	default:
-		return errors.New("direction must be up or down")
-	}
-	if target < 0 || target >= len(rows) {
+	case errors.Is(err, queuereorder.ErrMoveOutsideQueue):
 		return newConflictError("turn cannot be moved in requested direction")
-	}
-	a := rows[idx]
-	b := rows[target]
-	updA := &agturnwrite.MutableTurnView{Has: &agturnwrite.TurnHas{}}
-	updA.SetId(strings.TrimSpace(a.ID))
-	updA.SetQueueSeq(b.QueueSeq)
-	updB := &agturnwrite.MutableTurnView{Has: &agturnwrite.TurnHas{}}
-	updB.SetId(strings.TrimSpace(b.ID))
-	updB.SetQueueSeq(a.QueueSeq)
-	if _, err := c.data.PatchTurns(ctx, []*agturnwrite.MutableTurnView{updA, updB}); err != nil {
+	case errors.Is(err, queuereorder.ErrConflict):
+		return newConflictError("queued turn order changed")
+	default:
 		return err
 	}
-	if patcher, ok := c.data.(turnQueuePatcher); ok {
-		qa := &turnqueuewrite.TurnQueue{Has: &turnqueuewrite.TurnQueueHas{}}
-		qa.SetId(strings.TrimSpace(a.ID))
-		qa.SetQueueSeq(b.QueueSeq)
-		qa.SetUpdatedAt(time.Now())
-		if err := patcher.PatchTurnQueue(ctx, qa); err != nil {
-			return err
-		}
-		qb := &turnqueuewrite.TurnQueue{Has: &turnqueuewrite.TurnQueueHas{}}
-		qb.SetId(strings.TrimSpace(b.ID))
-		qb.SetQueueSeq(a.QueueSeq)
-		qb.SetUpdatedAt(time.Now())
-		return patcher.PatchTurnQueue(ctx, qb)
-	}
-	return nil
 }
 
 func editQueuedTurn(c *backendClient, ctx context.Context, input *EditQueuedTurnInput) error {
@@ -398,7 +294,7 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 	}
 	patcher, _ := c.conv.(toolApprovalQueuePatcher)
 	in := &queueRead.QueueRowsInput{}
-	var selectors []*hstate.NamedQuerySelector
+	var selectors []*hstate.NamedSelector
 	effectiveUserID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if input != nil {
 		if strings.TrimSpace(input.UserID) != "" {
@@ -423,9 +319,9 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 			in.Has.QueueStatus = true
 		}
 		if input.Limit > 0 || input.Offset > 0 {
-			selector := &hstate.NamedQuerySelector{
+			selector := &hstate.NamedSelector{
 				Name: "queue_rows",
-				QuerySelector: hstate.QuerySelector{
+				Selector: hstate.Selector{
 					Offset: input.Offset,
 				},
 			}
@@ -543,7 +439,7 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 	}, nil
 }
 
-func listToolApprovalRows(ctx context.Context, lister toolApprovalQueueLister, selectors []*hstate.NamedQuerySelector, in *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error) {
+func listToolApprovalRows(ctx context.Context, lister toolApprovalQueueLister, selectors []*hstate.NamedSelector, in *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error) {
 	if selectorLister, ok := lister.(toolApprovalQueueSelectorLister); ok && len(selectors) > 0 {
 		return selectorLister.ListToolApprovalQueuesWithSelectors(ctx, in, selectors...)
 	}
@@ -590,7 +486,7 @@ func pendingToolApprovalFromRow(row *queueRead.QueueRowView) *PendingToolApprova
 	return item
 }
 
-func expireTimedOutToolApprovals(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, selectors []*hstate.NamedQuerySelector, in *queueRead.QueueRowsInput, rows []*queueRead.QueueRowView) ([]*api.DecideToolApprovalOutcome, []*queueRead.QueueRowView, error) {
+func expireTimedOutToolApprovals(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, selectors []*hstate.NamedSelector, in *queueRead.QueueRowsInput, rows []*queueRead.QueueRowView) ([]*api.DecideToolApprovalOutcome, []*queueRead.QueueRowView, error) {
 	if patcher == nil || lister == nil || len(rows) == 0 {
 		return nil, rows, nil
 	}
@@ -886,7 +782,7 @@ func timeoutToolApproval(ctx context.Context, c *backendClient, patcher toolAppr
 		return nil, err
 	}
 	if err := ensureToolApprovalStatus(ctx, lister, row.Id, api.ApprovalTimeoutOutcomeStatus, func() error {
-		return fallbackToolApprovalUpdate(row.Id, map[string]interface{}{
+		return fallbackToolApprovalUpdate(ctx, patcher, row.Id, map[string]interface{}{
 			"status":        api.ApprovalTimeoutOutcomeStatus,
 			"decision":      api.ApprovalTimeoutOutcomeDecision,
 			"timed_out_at":  now,
@@ -990,7 +886,7 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 			return nil, err
 		}
 		if err := ensureToolApprovalStatus(ctx, lister, row.Id, "approved", func() error {
-			return fallbackToolApprovalUpdate(row.Id, map[string]interface{}{
+			return fallbackToolApprovalUpdate(ctx, patcher, row.Id, map[string]interface{}{
 				"status":              "approved",
 				"decision":            "approve",
 				"approved_by_user_id": strings.TrimSpace(input.UserID),
@@ -1092,7 +988,7 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 			delete(fallbackFields, "executed_at")
 		}
 		if err := ensureToolApprovalStatus(ctx, lister, row.Id, finalStatus, func() error {
-			return fallbackToolApprovalUpdate(row.Id, fallbackFields)
+			return fallbackToolApprovalUpdate(ctx, patcher, row.Id, fallbackFields)
 		}); err != nil {
 			return nil, err
 		}
@@ -1128,7 +1024,7 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 			return nil, err
 		}
 		if err := ensureToolApprovalStatus(ctx, lister, row.Id, "rejected", func() error {
-			return fallbackToolApprovalUpdate(row.Id, map[string]interface{}{
+			return fallbackToolApprovalUpdate(ctx, patcher, row.Id, map[string]interface{}{
 				"status":              "rejected",
 				"decision":            "reject",
 				"approved_by_user_id": strings.TrimSpace(input.UserID),
@@ -1168,7 +1064,7 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 			return nil, err
 		}
 		if err := ensureToolApprovalStatus(ctx, lister, row.Id, "canceled", func() error {
-			return fallbackToolApprovalUpdate(row.Id, map[string]interface{}{
+			return fallbackToolApprovalUpdate(ctx, patcher, row.Id, map[string]interface{}{
 				"status":              "canceled",
 				"decision":            "cancel",
 				"approved_by_user_id": strings.TrimSpace(input.UserID),
@@ -1320,7 +1216,7 @@ func continueQueueConversation(ctx context.Context, c *backendClient, row *queue
 	if turnID == "" || conversationID == "" {
 		return nil
 	}
-	agentID, err := lookupQueueTurnAgentID(turnID)
+	agentID, err := lookupQueueTurnAgentID(ctx, c, turnID)
 	if err != nil {
 		return err
 	}
@@ -1560,21 +1456,18 @@ func completeResolvedQueueTurn(ctx context.Context, c *backendClient, conversati
 	return c.conv.PatchTurn(ctx, upd)
 }
 
-func lookupQueueTurnAgentID(turnID string) (string, error) {
-	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
-	if dsn == "" {
-		dsn = filepath.Join(workspace.RuntimeRoot(), "db", "agently-core.db")
+func lookupQueueTurnAgentID(ctx context.Context, c *backendClient, turnID string) (string, error) {
+	if c == nil || c.data == nil {
+		return "", errors.New("data service not configured")
 	}
-	db, err := sql.Open("sqlite", dsn)
+	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{ID: strings.TrimSpace(turnID), Has: &agturnbyid.TurnLookupInputHas{ID: true}}, principalDataOpts(ctx)...)
 	if err != nil {
 		return "", err
 	}
-	defer db.Close()
-	var agentID sql.NullString
-	if err := db.QueryRow("SELECT agent_id_used FROM turn WHERE id = ?", strings.TrimSpace(turnID)).Scan(&agentID); err != nil {
-		return "", err
+	if turn == nil {
+		return "", newConflictError("turn not found")
 	}
-	return strings.TrimSpace(agentID.String), nil
+	return strings.TrimSpace(valueOrEmpty(turn.AgentIdUsed)), nil
 }
 
 func ensureToolApprovalStatus(ctx context.Context, lister toolApprovalQueueLister, id, want string, fallback func() error) error {
@@ -1607,70 +1500,85 @@ func toolApprovalHasStatus(ctx context.Context, lister toolApprovalQueueLister, 
 	return strings.EqualFold(strings.TrimSpace(rows[0].Status), strings.TrimSpace(want))
 }
 
-func fallbackToolApprovalUpdate(id string, fields map[string]interface{}) error {
-	if strings.TrimSpace(id) == "" || len(fields) == 0 {
+func fallbackToolApprovalUpdate(ctx context.Context, patcher toolApprovalQueuePatcher, id string, fields map[string]interface{}) error {
+	id = strings.TrimSpace(id)
+	if id == "" || len(fields) == 0 {
 		return nil
 	}
-	driver := strings.ToLower(strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER")))
-	if driver != "" && driver != "sqlite" {
-		return nil
+	if patcher == nil {
+		return errors.New("tool approval store not configured")
 	}
-	dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
-	if dsn == "" {
-		dsn = filepath.Join(workspace.RuntimeRoot(), "db", "agently-core.db")
-	}
-	db, err := sql.Open("sqlite", dsn)
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	sets := make([]string, 0, len(fields))
-	args := make([]interface{}, 0, len(fields)+1)
-	add := func(name string, value interface{}) {
-		sets = append(sets, name+" = ?")
-		args = append(args, value)
-	}
+	update := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+	update.SetId(id)
+	supplied := 0
 	if value, ok := fields["status"]; ok {
-		add("status", value)
+		if value == nil {
+			return errors.New("tool approval status cannot be nil")
+		}
+		update.SetStatus(fmt.Sprint(value))
+		supplied++
 	}
 	if value, ok := fields["decision"]; ok {
-		add("decision", nullableString(value))
+		update.Decision = nullableApprovalString(value)
+		update.Has.Decision = true
+		supplied++
 	}
 	if value, ok := fields["approved_by_user_id"]; ok {
-		add("approved_by_user_id", nullableString(value))
-	}
-	if value, ok := fields["approved_at"]; ok {
-		add("approved_at", value)
-	}
-	if value, ok := fields["executed_at"]; ok {
-		add("executed_at", value)
-	}
-	if value, ok := fields["expires_at"]; ok {
-		add("expires_at", value)
-	}
-	if value, ok := fields["timed_out_at"]; ok {
-		add("timed_out_at", value)
+		update.ApprovedByUserId = nullableApprovalString(value)
+		update.Has.ApprovedByUserId = true
+		supplied++
 	}
 	if value, ok := fields["error_message"]; ok {
-		add("error_message", nullableString(value))
+		update.ErrorMessage = nullableApprovalString(value)
+		update.Has.ErrorMessage = true
+		supplied++
 	}
-	if value, ok := fields["updated_at"]; ok {
-		add("updated_at", value)
+	for _, field := range []struct {
+		name    string
+		value   **time.Time
+		present *bool
+	}{
+		{"approved_at", &update.ApprovedAt, &update.Has.ApprovedAt}, {"executed_at", &update.ExecutedAt, &update.Has.ExecutedAt}, {"expires_at", &update.ExpiresAt, &update.Has.ExpiresAt}, {"timed_out_at", &update.TimedOutAt, &update.Has.TimedOutAt}, {"updated_at", &update.UpdatedAt, &update.Has.UpdatedAt},
+	} {
+		value, ok := fields[field.name]
+		if !ok {
+			continue
+		}
+		timestamp, err := approvalUpdateTime(value)
+		if err != nil {
+			return fmt.Errorf("tool approval %s: %w", field.name, err)
+		}
+		*field.value = timestamp
+		*field.present = true
+		supplied++
 	}
-	if len(sets) == 0 {
+	if supplied == 0 {
 		return nil
 	}
-	args = append(args, strings.TrimSpace(id))
-	_, err = db.Exec("UPDATE tool_approval_queue SET "+strings.Join(sets, ", ")+" WHERE id = ?", args...)
-	return err
+	return patcher.PatchToolApprovalQueue(ctx, update)
 }
-
-func nullableString(value interface{}) interface{} {
+func nullableApprovalString(value interface{}) *string {
 	text := strings.TrimSpace(fmt.Sprint(value))
 	if text == "" || text == "<nil>" {
 		return nil
 	}
-	return text
+	return &text
+}
+func approvalUpdateTime(value interface{}) (*time.Time, error) {
+	switch actual := value.(type) {
+	case nil:
+		return nil, nil
+	case time.Time:
+		return &actual, nil
+	case *time.Time:
+		if actual == nil {
+			return nil, nil
+		}
+		clone := *actual
+		return &clone, nil
+	default:
+		return nil, fmt.Errorf("unsupported timestamp type %T", value)
+	}
 }
 
 func listToolDefinitions(c *backendClient, ctx context.Context) ([]ToolDefinitionInfo, error) {

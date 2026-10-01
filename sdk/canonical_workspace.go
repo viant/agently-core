@@ -13,8 +13,8 @@ import (
 // projectWorkspaceAttachments derives durable message attachments from structured,
 // acknowledged tool results. It neither parses prose nor executes restored actions.
 func projectWorkspaceAttachments(state *ConversationState) {
-	seen := map[string]bool{}
 	for _, turn := range state.Turns {
+		seen := map[string]bool{}
 		if turn == nil || turn.Execution == nil {
 			continue
 		}
@@ -43,7 +43,7 @@ func projectWorkspaceAttachments(state *ConversationState) {
 					continue
 				}
 				name := strings.ReplaceAll(strings.ToLower(step.ToolName), ":", "/")
-				if name != "ui/view/open" && name != "ui/window/open" {
+				if name != "ui/view/open" && name != "ui/window/open" && name != "ui/window/show" {
 					continue
 				}
 				payload := workspaceResponseBody(step.ResponsePayload)
@@ -68,13 +68,21 @@ func projectWorkspaceAttachments(state *ConversationState) {
 					if object == nil || object.ObjectID == "" || (object.Lifecycle.State != "ready" && object.Lifecycle.State != "opening") || seen[object.ObjectID] {
 						continue
 					}
-					if object.Origin.TurnID != "" && object.Origin.TurnID != turn.TurnID {
+					activationTurnID := object.LastActivatedBy.TurnID
+					if activationTurnID == "" {
+						activationTurnID = object.Origin.TurnID
+					}
+					if activationTurnID != "" && activationTurnID != turn.TurnID {
 						continue
 					}
 					seen[object.ObjectID] = true
 					cloned := *object
-					cloned.Origin.TurnID = turn.TurnID
-					cloned.Origin.MessageID = ownerID
+					if cloned.Origin.TurnID == "" || cloned.Origin.TurnID == turn.TurnID {
+						cloned.Origin.TurnID = turn.TurnID
+						cloned.Origin.MessageID = ownerID
+					}
+					cloned.LastActivatedBy.TurnID = turn.TurnID
+					cloned.LastActivatedBy.MessageID = ownerID
 					label := object.Navigation["label"]
 					if label == "" {
 						label = object.Content.WindowKey

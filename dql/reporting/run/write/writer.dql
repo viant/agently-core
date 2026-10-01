@@ -1,0 +1,66 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/run/write')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/run','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(reportAccess/internal).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required().WithPredicate(8,'equal','report_run','owner_id'))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $Mode<string>(query/mode).Required())
+#define($_ = $DesiredRevision<int64>(query/desiredRevision).Optional())
+#define($_ = $ExpectedRequestID<string>(query/expectedRequestId).Optional().WithPredicate(8,'equal','report_run','ui_run_request_id'))
+#define($_ = $Runs<[]*Run>(body/data))
+#define($_ = $Data<[]*Run>(output/body))
+
+SELECT data_rows.report_run_id, data_rows.should_delete,
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:"shouldDelete,omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'error'),
+       data_rows.owner_id, data_rows.conversation_id, data_rows.materializer, data_rows.origin,
+       data_rows.builder_ref, data_rows.preset_id, data_rows.source_kind, data_rows.source_id,
+       data_rows.requested_params_json, data_rows.effective_params_json, data_rows.status,
+       data_rows.failure_code, data_rows.failure_text, data_rows.started_at,
+       data_rows.completed_at, data_rows.revision, data_rows.ui_run_request_id,
+       data_rows.report_spec_json, data_rows.report_fill_json, data_rows.report_print_json,
+       data_rows.activation_source, data_rows.adoption_source, data_rows.actor_id,
+       data_rows.created_at, data_rows.updated_at,
+       type(data_rows,'Run'), lifecycle_type(data_rows,'Lifecycle'),
+       concurrency_token(data_rows.revision), mutation_predicate(data_rows,8),
+       CAST(data_rows.report_run_id AS string), tag(data_rows.report_run_id,'sqlx:"report_run_id,primaryKey=true,required=true"'),
+       CAST(data_rows.owner_id AS string), tag(data_rows.owner_id,'sqlx:"owner_id,required=true"'),
+       CAST(data_rows.conversation_id AS *string), tag(data_rows.conversation_id,'sqlx:"conversation_id"'),
+       CAST(data_rows.materializer AS string), tag(data_rows.materializer,'sqlx:"materializer,required=true"'),
+       CAST(data_rows.origin AS *string), tag(data_rows.origin,'sqlx:"origin"'),
+       CAST(data_rows.builder_ref AS *string), tag(data_rows.builder_ref,'sqlx:"builder_ref"'),
+       CAST(data_rows.preset_id AS *string), tag(data_rows.preset_id,'sqlx:"preset_id"'),
+       CAST(data_rows.source_kind AS *string), tag(data_rows.source_kind,'sqlx:"source_kind"'),
+       CAST(data_rows.source_id AS *string), tag(data_rows.source_id,'sqlx:"source_id"'),
+       CAST(data_rows.requested_params_json AS []byte), tag(data_rows.requested_params_json,'sqlx:"requested_params_json"'),
+       CAST(data_rows.effective_params_json AS []byte), tag(data_rows.effective_params_json,'sqlx:"effective_params_json"'),
+       CAST(data_rows.status AS string), tag(data_rows.status,'sqlx:"status,required=true"'),
+       CAST(data_rows.failure_code AS *string), tag(data_rows.failure_code,'sqlx:"failure_code"'),
+       CAST(data_rows.failure_text AS *string), tag(data_rows.failure_text,'sqlx:"failure_text"'),
+       CAST(data_rows.started_at AS time.Time), tag(data_rows.started_at,'sqlx:"started_at,required=true"'),
+       CAST(data_rows.completed_at AS *time.Time), tag(data_rows.completed_at,'sqlx:"completed_at"'),
+       CAST(data_rows.revision AS int64), tag(data_rows.revision,'sqlx:"revision,required=true"'),
+       CAST(data_rows.ui_run_request_id AS string), tag(data_rows.ui_run_request_id,'sqlx:"ui_run_request_id,required=true"'),
+       CAST(data_rows.report_spec_json AS []byte), tag(data_rows.report_spec_json,'sqlx:"report_spec_json"'),
+       CAST(data_rows.report_fill_json AS []byte), tag(data_rows.report_fill_json,'sqlx:"report_fill_json"'),
+       CAST(data_rows.report_print_json AS []byte), tag(data_rows.report_print_json,'sqlx:"report_print_json"'),
+       CAST(data_rows.activation_source AS *string), tag(data_rows.activation_source,'sqlx:"activation_source"'),
+       CAST(data_rows.adoption_source AS *string), tag(data_rows.adoption_source,'sqlx:"adoption_source"'),
+       CAST(data_rows.actor_id AS *string), tag(data_rows.actor_id,'sqlx:"actor_id"'),
+       CAST(data_rows.created_at AS time.Time), tag(data_rows.created_at,'sqlx:"created_at,required=true"'),
+       CAST(data_rows.updated_at AS time.Time), tag(data_rows.updated_at,'sqlx:"updated_at,required=true"')
+FROM (
+    SELECT 0 AS should_delete, report_run_id, owner_id, conversation_id,
+           materializer, origin, builder_ref, preset_id, source_kind, source_id,
+           requested_params_json, effective_params_json, status, failure_code,
+           failure_text, started_at, completed_at, revision, ui_run_request_id,
+           report_spec_json, report_fill_json, report_print_json,
+           activation_source, adoption_source, actor_id, created_at, updated_at
+    FROM report_run
+) data_rows

@@ -1,17 +1,22 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
-	_ "github.com/viant/agently-core/pkg/dependency"
-	"github.com/viant/datly"
-	datlycmd "github.com/viant/datly/cmd"
+	"github.com/viant/agently-core/internal/datly/host"
 )
 
 func main() {
-	if err := datlycmd.RunApp(datly.Version, os.Args[1:]); err != nil {
-		fmt.Printf("ERROR: %v\n", err)
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	command, err := host.Command()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	os.Exit(command.Run(ctx, os.Args[1:], os.Stdout, os.Stderr))
 }

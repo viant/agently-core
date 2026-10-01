@@ -540,3 +540,20 @@ func postUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params m
 		t.Fatalf("post %s status: %s", method, resp.Status)
 	}
 }
+
+func TestBuildWindowSurface_PreservesQuickSearchDatasource(t *testing.T) {
+	win := &WindowSnapshot{Metadata: map[string]interface{}{"view": map[string]interface{}{
+		"controls": []interface{}{map[string]interface{}{
+			"id": "nameSearch", "type": "quickSearch", "scope": "filter",
+			"dataField": "Name", "dataSourceRef": "advertiser_list_performance",
+		}},
+	}}}
+	surface := BuildWindowSurface(win)
+	if surface == nil || len(surface.Controls) != 1 {
+		t.Fatal("expected one exposed quick-search control")
+	}
+	control := surface.Controls[0]
+	if control.DataSourceRef != "advertiser_list_performance" || control.DataField != "Name" || control.Scope != "filter" {
+		t.Fatalf("quick-search binding was lost: %+v", control)
+	}
+}

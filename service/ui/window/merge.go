@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/afs"
+	lookupProto "github.com/viant/agently-core/protocol/lookup/overlay"
 	"github.com/viant/agently-core/workspace"
 	wsmeta "github.com/viant/agently-core/workspace/service/meta"
 	forgeTypes "github.com/viant/forge/backend/types"
@@ -33,7 +34,13 @@ func MergeWorkspaceForgeAssets(ctx context.Context, window *forgeTypes.Window, a
 		return err
 	}
 	resolver := newAssignmentResolver(window, catalog)
-	resolver.applyAssignment(assignment.Normalized())
+	normalized := assignment.Normalized()
+	if containsChat(window.View.Content) {
+		if err := attachNamedLookupReferences(ctx, svc, normalized); err != nil {
+			return err
+		}
+	}
+	resolver.applyAssignment(normalized)
 	resolver.resolve()
 	if err := resolver.attach(); err != nil {
 		return err
@@ -398,4 +405,53 @@ func windowIdentity(window *forgeTypes.Window) string {
 		return ns
 	}
 	return "<unnamed>"
+}
+
+// A chat composer declares its lookup dependencies dynamically through the named
+// registry. Attach only those lookup dialogs and their datasource closure.
+func containsChat(container *forgeTypes.Container) bool {
+	if container == nil {
+		return false
+	}
+	if container.Chat != nil {
+		return true
+	}
+	for _, child := range container.Containers {
+		if containsChat(&child) {
+			return true
+		}
+	}
+	return false
+}
+
+func attachNamedLookupReferences(ctx context.Context, svc *wsmeta.Service, assignment *ResourceAssignment) error {
+	paths, err := svc.ListRecursive(ctx, workspace.KindForgeLookup)
+	if err != nil {
+		return nil
+	} // Workspaces need not provide named lookups.
+	for _, source := range paths {
+		var definition lookupProto.Overlay
+		if err := svc.Load(ctx, source, &definition); err != nil {
+			return fmt.Errorf("load chat lookup %s: %w", source, err)
+		}
+		if definition.Target.Kind != "" && definition.Target.Kind != "chat-composer" {
+			continue
+		}
+		// Agent-specific overlays require an explicit owning-window assignment.
+		if definition.Target.ID != "" || definition.Target.IDGlob != "" {
+			continue
+		}
+		for _, binding := range definition.Bindings {
+			if binding.Named == nil || binding.Named.Name == "" {
+				continue
+			}
+			if binding.Lookup.DialogId != "" {
+				assignment.Dialogs = append(assignment.Dialogs, binding.Lookup.DialogId)
+			}
+			if binding.Lookup.DataSource != "" {
+				assignment.DataSources = append(assignment.DataSources, binding.Lookup.DataSource)
+			}
+		}
+	}
+	return nil
 }

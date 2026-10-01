@@ -1,0 +1,50 @@
+#package('github.com/viant/agently-core/internal/datly/oauth/linkstate/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/user/oauth/linkstate/current','GET'))
+#setting($_ = $input_type('LinkStateInput'))
+#setting($_ = $output_type('LinkStateOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(linkStateAccess/internal).Required())
+#define($_ = $Mode<string>(query/mode).Optional().Value('lookup'))
+#define($_ = $Before<string>(query/before).Optional())
+#define($_ = $FlowHash<string>(query/flowHash).Optional())
+#define($_ = $StateHash<string>(query/stateHash).Optional())
+#define($_ = $Pending<bool>(query/pending).Optional().Value('false'))
+#define($_ = $Data<[]*LinkStateView>(output/view))
+
+SELECT link_state.state_hash,
+       link_state.flow_hash,
+       link_state.user_id,
+       link_state.session_hash,
+       link_state.provider,
+       link_state.expires_at,
+       link_state.consumed_at,
+       link_state.created_at,
+       type(link_state,'LinkStateView'),
+       CAST(link_state.state_hash AS string),
+       CAST(link_state.flow_hash AS string),
+       CAST(link_state.user_id AS string),
+       CAST(link_state.session_hash AS string),
+       CAST(link_state.provider AS string),
+       CAST(link_state.expires_at AS string),
+       CAST(link_state.consumed_at AS *string),
+       CAST(link_state.created_at AS string)
+FROM (
+SELECT t.state_hash,
+           t.flow_hash,
+           t.user_id,
+           t.session_hash,
+           t.provider,
+           t.expires_at,
+           t.consumed_at,
+           t.created_at
+    FROM oauth_link_state t
+    WHERE $Trusted AND (
+      ($Mode<>'expired' AND (($FlowHash<>'' AND t.flow_hash=$FlowHash) OR ($StateHash<>'' AND t.state_hash=$StateHash))
+        AND (NOT $Pending OR t.consumed_at IS NULL))
+      OR ($Mode='expired' AND $Before<>'' AND t.expires_at <= $Before))
+    ORDER BY t.expires_at, t.flow_hash
+) link_state

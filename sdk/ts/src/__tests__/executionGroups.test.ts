@@ -122,11 +122,11 @@ describe('executionGroups', () => {
             status: 'running',
             narration: 'Calling updatePlan.',
         });
-        expect(merged[0].toolSteps[0]).toMatchObject({
+        expect(merged[0].toolSteps?.[0]).toMatchObject({
             toolName: 'llm/agents/run',
             status: 'running',
         });
-        expect(merged[0].toolCallsPlanned[0]).toMatchObject({
+        expect(merged[0].toolCallsPlanned?.[0]).toMatchObject({
             toolName: 'resources/read',
         });
     });
@@ -202,7 +202,7 @@ describe('executionGroups', () => {
                 assistantMessageId: 'a1',
                 status: 'running',
                 content: 'live content',
-                toolSteps: [{ toolName: 'system/exec', status: 'running' }],
+                toolSteps: [{ toolCallId: 'fixture-tool-exec', toolName: 'system/exec', status: 'running' }],
             },
         });
 
@@ -213,7 +213,7 @@ describe('executionGroups', () => {
             status: 'running',
             content: 'live content',
         });
-        expect(merged[0].toolSteps[0]).toMatchObject({ toolName: 'system/exec' });
+        expect(merged[0].toolSteps?.[0]).toMatchObject({ toolName: 'system/exec' });
     });
 
     it('describes timeline events with planned tool names', () => {
@@ -256,11 +256,11 @@ describe('executionGroups', () => {
             status: 'failed',
             errorMessage: 'boom',
         });
-        expect(live3.a1.modelSteps[0]).toMatchObject({
+        expect(live3.a1.modelSteps?.[0]).toMatchObject({
             status: 'failed',
             errorMessage: 'boom',
         });
-        expect(live3.a1.toolSteps[0]).toMatchObject({
+        expect(live3.a1.toolSteps?.[0]).toMatchObject({
             status: 'failed',
             errorMessage: 'boom',
         });
@@ -300,13 +300,13 @@ describe('executionGroups', () => {
             status: 'failed',
             errorMessage: 'boom',
         });
-        expect(live3.a1.toolSteps[0]).toMatchObject({
+        expect(live3.a1.toolSteps?.[0]).toMatchObject({
             toolName: 'llm/agents:start',
             operationId: 'child-1',
             status: 'failed',
             errorMessage: 'boom',
         });
-        expect(live3.a1.toolSteps[0].asyncOperation).toMatchObject({
+        expect(live3.a1.toolSteps?.[0].asyncOperation).toMatchObject({
             operationId: 'child-1',
             status: 'failed',
             error: 'boom',
@@ -341,7 +341,7 @@ describe('executionGroups', () => {
             linkedConversationTitle: 'Analytics Child',
         }));
 
-        expect(live3.a1.toolSteps[0]).toMatchObject({
+        expect(live3.a1.toolSteps?.[0]).toMatchObject({
             toolCallId: 'call-agent-1',
             linkedConversationId: 'child-conv-1',
             linkedConversationAgentId: 'analytics-agent',
@@ -429,7 +429,7 @@ describe('executionGroups', () => {
             status: 'streaming',
             content: 'Hello',
         });
-        expect(live2.a1.modelSteps[0]).toMatchObject({
+        expect(live2.a1.modelSteps?.[0]).toMatchObject({
             status: 'streaming',
         });
     });
@@ -481,7 +481,7 @@ describe('executionGroups', () => {
             status: 'completed',
         }));
 
-        expect(live2.a10.toolSteps[0]).toMatchObject({
+        expect(live2.a10.toolSteps?.[0]).toMatchObject({
             requestPayload: 'window-1',
             responsePayload: ['ok', true],
             status: 'completed',

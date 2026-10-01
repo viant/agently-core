@@ -1,0 +1,2398 @@
+diff --git a/bootstrap/component.go b/bootstrap/component.go
+index 24f4b4ec..68134114 100644
+--- a/bootstrap/component.go
++++ b/bootstrap/component.go
+@@ -325,6 +325,19 @@ func (r *packageComponentResolver) resolveParamType(role contractRole, field xsh
+ 
+ func (r *packageComponentResolver) applyInput(resolved *resolvedContractField) error {
+ 	param := resolved.param
++	if param != nil && strings.EqualFold(param.Source.Kind, "body") && resolved.metadata.View != nil && resolved.metadata.View.OnDeleteNotFound != "" {
++		if r.component.RootView == nil {
++			return fmt.Errorf("onDeleteNotFound body requires a root view")
++		}
++		r.component.RootView.OnDeleteNotFound = resolved.metadata.View.OnDeleteNotFound
++	}
++	if param != nil && strings.EqualFold(strings.TrimSpace(param.Source.Kind), "body") && resolved.metadata.View != nil && resolved.metadata.View.MutationPredicateGroup != nil {
++		if r.component.RootView == nil {
++			return fmt.Errorf("mutation predicate body requires a root view")
++		}
++		group := *resolved.metadata.View.MutationPredicateGroup
++		r.component.RootView.MutationPredicateGroup = &group
++	}
+ 	if param == nil || !strings.EqualFold(strings.TrimSpace(param.Source.Kind), "view") {
+ 		return nil
+ 	}
+@@ -623,6 +636,8 @@ func (r *packageComponentResolver) view(field xshape.Field, name string, metadat
+ 		view.TypeName = strings.TrimSpace(metadata.View.TypeName)
+ 		view.Dest = strings.TrimSpace(metadata.View.Dest)
+ 		view.EntityHooks = strings.TrimSpace(metadata.View.EntityHooks)
++		view.OnDeleteNotFound = metadata.View.OnDeleteNotFound
++		view.MutationPredicateGroup = metadata.View.MutationPredicateGroup
+ 		view.Source.URI = strings.TrimSpace(metadata.View.URI)
+ 		view.Source.Table = strings.TrimSpace(metadata.View.Table)
+ 		view.Partitioning = metadata.View.Partitioning.Clone()
+diff --git a/doc/delete-not-found.md b/doc/delete-not-found.md
+new file mode 100644
+index 00000000..59a61ce2
+--- /dev/null
++++ b/doc/delete-not-found.md
+@@ -0,0 +1,34 @@
++# Opt-in idempotent deletion
++
++Generated PATCH/PUT leaf views with an explicit delete marker may opt into
++ignoring complete identities that have no matched authorized Previous row:
++
++```sql
++SELECT sessions.id, sessions.should_delete,
++       type(sessions,'SessionDelete'),
++       delete_marker(sessions.should_delete),
++       delete_not_found(sessions,'ignore')
++FROM (SELECT id, 0 AS should_delete FROM session) sessions
++```
++
++This fragment belongs in ordinary writer DQL with package, connector, route,
++input/output holders and CAST declarations. Transcription emits the view option
++`onDeleteNotFound=ignore`. Omission or `error` keeps strict matching.
++
++Missing rows are no-ops: no insert, DML, entity hooks, or transaction solely for
++the skipped row. Their request entries remain in the transformed body. Known
++rows retain native delete ordering, transactions and database constraints.
++Incomplete identity still fails. Parent/link and authorization checks are not
++relaxed; a row excluded by authored read scope is never deleted through an
++unscoped fallback. Only leaf roles may use `ignore`; missing parents cannot
++silently suppress descendants. Readers, POST, auxiliary roles and marker-free
++views reject this policy.
++
++A role declaring a concurrency token or mutation predicate remains strict even
++with `ignore`: expected-state failures must not become success. Execution-time
++guard misses continue returning Conflict. This is a deletion policy, not a
++second predicate language or an SQLX condition option.
++
++Generated SQLite tests cover metadata roundtrip, missing/mixed deletion,
++incomplete identity, scope exclusion and retained mutation guards. Agently's
++legacy comparison additionally covers empty/repeated IDs and atomic rollback.
+diff --git a/doc/mutation-predicates.md b/doc/mutation-predicates.md
+new file mode 100644
+index 00000000..d82d3592
+--- /dev/null
++++ b/doc/mutation-predicates.md
+@@ -0,0 +1,50 @@
++# Atomic predicates for generated mutations
++
++Generated PATCH/PUT views may select an existing input predicate group for the
++UPDATE/DELETE condition. This uses the reader's predicate compiler, built-ins,
++custom `predicate.Handler`, Has activation and ordered bind arguments.
++
++```sql
++#define($_ = $ExpectedOwner<string>(query/expectedOwner).Required().WithPredicate(7,'equal','records','owner'))
++#define($_ = $MaxAttempt<int>(query/maxAttempt).Optional().WithPredicate(7,'less_or_equal','records','attempt'))
++SELECT r.*, type(r,'Record'), mutation_predicate(r,7)
++FROM (SELECT id,title,owner,attempt FROM records) r
++```
++
++This is an annotation fragment for an ordinary writer DQL with explicit package,
++route, connector, input/output and body holder. Transcribe with `patch` or `put`.
++The generated body-view tag carries `mutationPredicate=7`; application Go does
++not construct mutation plumbing. An absent group, an auxiliary view or a
++GET/POST component is rejected before emitting artifacts.
++
++Use the physical table as the predicate qualifier (`records` above); a local
++read alias (`r`) is not an UPDATE/DELETE alias. Operators remain existing named
++predicates such as `equal`, `less_or_equal`, `greater_or_equal` and `is_null`.
++Custom business predicates still return trusted expression text and bound data.
++Never accept arbitrary client SQL as a mutation condition.
++
++`.Required()` retains normal input binding validation. `.Optional()` skips a
++predicate when its value is absent; explicit zero and empty string remain
++supplied. An empty group adds no mutation condition. Security conditions must
++use required input or a custom predicate that fails when authorization is denied.
++Generated Previous reads retain their own authored authorization scope; mutation
++predicates add an execution guard and do not replace those read filters.
++
++The writer evaluates the selected group against its canonical invocation input
++at Queue and copies the result into the managed operation. SQLX owns
++`Criteria{Expression, Placeholders}` and accepts it as an update/delete service
++option. Datly bridges the existing SDK predicate result; xdatly gains no SQLX
++dependency. Criteria compose with full identity and any existing IfMatch token.
++INSERT is unaffected. Sparse SET fields and caller-owned transactions retain
++native behavior. A guarded update/delete that affects no matching row returns
++`*handler.Conflict` (409), and managed completion rolls back earlier actions.
++
++Existing `concurrency_token` also supplies an atomic IfMatch guard in the
++current v1 runtime. Older writer documentation describing it as validation-only
++is stale. General mutation predicates extend that existing capability to
++compound/range/custom conditions without a second predicate language.
++
++SQLite acceptance covers generated optional/required inputs, equality and range,
++explicit empty/zero, matching/stale deletion, metadata regeneration, queue-to-
++execution races, sparse updates, criteria snapshots, IfMatch composition,
++rollback of earlier writes and caller-owned transaction rollback.
+diff --git a/go.mod b/go.mod
+index bf7340dc..60739904 100644
+--- a/go.mod
++++ b/go.mod
+@@ -17,7 +17,7 @@ require (
+ 	github.com/viant/mcp-protocol v0.19.0
+ 	github.com/viant/parsly v0.3.3
+ 	github.com/viant/sqlparser v0.13.1-0.20260921232033-929f6f50ccce
+-	github.com/viant/sqlx v0.26.1-0.20260927121633-cbe6dd70f752
++	github.com/viant/sqlx v0.26.1-0.20260928224516-716a37c8ca40
+ 	github.com/viant/structology v0.10.1-0.20260925145657-42c5a7e1d1d7
+ 	github.com/viant/structql v0.5.4
+ 	github.com/viant/tagly v0.3.1-0.20260914020630-eadee36c3630
+diff --git a/go.sum b/go.sum
+index c5c61532..b211924f 100644
+--- a/go.sum
++++ b/go.sum
+@@ -1113,6 +1113,8 @@ github.com/viant/sqlx v0.26.1-0.20260927120403-a4d5721493a8 h1:69c4ow3tKdF2TtQ4m
+ github.com/viant/sqlx v0.26.1-0.20260927120403-a4d5721493a8/go.mod h1:PXZ1DiObEbAevJZhSvouOAwH5oQV7+lRlLkSVlaWfVc=
+ github.com/viant/sqlx v0.26.1-0.20260927121633-cbe6dd70f752 h1:GLcCB+4GH8Dht6R1dShPLeApHAOF6Dm7qERKUm6ubJk=
+ github.com/viant/sqlx v0.26.1-0.20260927121633-cbe6dd70f752/go.mod h1:PF2N+v9OR8EIAkYy2brhAjFX8GJDelZoqzrs5KTTY3k=
++github.com/viant/sqlx v0.26.1-0.20260928224516-716a37c8ca40 h1:2BHkpLLVZSjomvLq/ol9zYCaG/nWoA7wNf4i4+0Ubr8=
++github.com/viant/sqlx v0.26.1-0.20260928224516-716a37c8ca40/go.mod h1:PF2N+v9OR8EIAkYy2brhAjFX8GJDelZoqzrs5KTTY3k=
+ github.com/viant/structology v0.10.1-0.20260925145657-42c5a7e1d1d7 h1:QZspu4WMT/zagjFcakoCExFjF+N4VV+p0KuaEpxeykw=
+ github.com/viant/structology v0.10.1-0.20260925145657-42c5a7e1d1d7/go.mod h1:sNNuCH9Zt+QUNeV1slf/QKBdOdUIj0AVdhDFR09+8Ig=
+ github.com/viant/structql v0.5.4 h1:bMdcOpzU8UMoe5OBcyJVRxLAndvU1oj3ysvPUgBckCI=
+diff --git a/llm/datly-writer/SKILL.md b/llm/datly-writer/SKILL.md
+index 5eb6f8bb..c4a09fb3 100644
+--- a/llm/datly-writer/SKILL.md
++++ b/llm/datly-writer/SKILL.md
+@@ -37,13 +37,15 @@ substitute `translate`, lower-level transcription, or manual writer plumbing.
+ - Use [tags-and-interfaces.md](references/tags-and-interfaces.md) for Go shapes, binding tags, SQL mapping, predicates, validation, and public APIs.
+ - For JWT-based authorization, use the [explicit input and predicate pattern](references/tags-and-interfaces.md#jwt-input-and-authorization-predicates); preserve original certificate/public-key verification and do not inject ambient claims.
+ - For a typed remote authorization context, read the [auth-context contract](references/product/datly/doc/auth-context.md). Keep verification, dependency binding, outbound headers and SQL predicates explicit; confirm generic provider API availability before naming its syntax.
+-- For explicit row deletion and validation-only tokens, read [the mutation marker contract](references/writer-contract.md#explicit-deletion-and-token-validation). Omitted rows never imply deletion; token checks do not make writes atomic.
++- For explicit row deletion and concurrency tokens, read [the mutation marker contract](references/writer-contract.md#explicit-deletion-and-token-validation). Omitted rows never imply deletion. Current v1 token writes use atomic IfMatch; see [mutation predicates](references/product/datly/doc/mutation-predicates.md) for general execution conditions.
+ - Read [writer-contract.md](references/writer-contract.md) for this component's behavior and decisions.
+ - Adapt [writer-examples.md](references/writer-examples.md); examples are patterns, not authorization to access a live database.
+ - For hook-injected message buses, commit-dependent publication or async job requests, read [mutation-messages.md](references/mutation-messages.md).
+ - For stable-ID/FK gaps, async, telemetry, YAML docs, static/MCP resources and standalone status, read [availability-and-operations.md](references/availability-and-operations.md). Separate current APIs from pending authoring/integration contracts.
+ - Use [acceptance.md](references/acceptance.md) to verify observable application behavior. Framework maintenance is outside this skill.
+ 
++For opt-in idempotent leaf deletion, read [delete-not-found](references/product/datly/doc/delete-not-found.md). Strict deletion remains the default.
++
+ ## Authoring workflow
+ 
+ The standard workflow is **reader-like declarative DQL graph + explicit `transcribe`
+diff --git a/llm/datly-writer/references/writer-contract.md b/llm/datly-writer/references/writer-contract.md
+index dcd8052f..e52f39b5 100644
+--- a/llm/datly-writer/references/writer-contract.md
++++ b/llm/datly-writer/references/writer-contract.md
+@@ -553,13 +553,14 @@ unflagged child below a marked parent fails. Database constraints still apply.
+ All actions use the invocation's buffered DML and existing transaction owner;
+ a supplied transaction remains caller-owned.
+ 
+-`concurrency_token` is **validation-only**. For updates, its check runs first in
++`concurrency_token` validates captured expectations and supplies an atomic
++IfMatch condition at execution. For updates, its check runs first in
+ the validation phase, before framework constraints and application Validate
+ callbacks. It compares the captured, client-supplied expected token with the
+ loaded authorized Previous token. Missing Has presence, a null token, missing
+ Previous evidence, or a mismatch returns `*handler.Conflict` (status 409) before
+-sequencing or queuing mutations. Inserts and explicitly marked deletes do not
+-perform the update-token check.
++sequencing or queuing mutations. Inserts do not
++perform the token check; marked deletes also require valid expected-token evidence.
+ 
+ Numeric tokens compare in their canonical Go numeric type. `time.Time` tokens
+ compare instants with `Time.Equal`, including equal instants expressed in
+@@ -571,10 +572,13 @@ explicitly prepare the next working token using a setter; that does not change
+ the captured expected value. Token advancement is an application or database
+ concern. The framework never increments or rewrites a version automatically.
+ 
+-There is a race window between loading Previous, validating it, and executing
+-DML. Another writer can change the row during that window. This annotation adds
+-no token predicate to UPDATE/DELETE WHERE clauses, no vendor locks, and no
+-row-count conflict machinery. It does **not** provide atomic race prevention.
++For UPDATE and DELETE, queued DML carries the persisted Previous token as an
++IfMatch guard in the native mutation condition. A row changed between the
++Previous read and execution returns `*handler.Conflict` instead of a successful
++write. Managed completion rolls back earlier actions. No vendor-specific lock
++or automatic token advancement is added. General compound/range/custom guards
++reuse existing predicate groups through `mutation_predicate(view,group)`; see
++[mutation predicates](product/datly/doc/mutation-predicates.md).
+ 
+ Regenerate through the same high-level command and preserve create-once lifecycle
+ edits. Verify mixed mutations, identity-only deletes, omissions/false flags,
+diff --git a/llm/packaging.json b/llm/packaging.json
+index c9794758..91cc2797 100644
+--- a/llm/packaging.json
++++ b/llm/packaging.json
+@@ -5,11 +5,13 @@
+     "datly/THIRD_PARTY_NOTICES.md",
+     "datly/doc/api-documentation.md",
+     "datly/doc/auth-context.md",
+-    "datly/doc/remote-handlers.md",
+     "datly/doc/cache-and-warmup.md",
++    "datly/doc/delete-not-found.md",
+     "datly/doc/legacy-to-v1-migration.md",
++    "datly/doc/mutation-predicates.md",
+     "datly/doc/observability.md",
+     "datly/doc/reader-predicates.md",
++    "datly/doc/remote-handlers.md",
+     "datly/doc/reports.md",
+     "datly/doc/selectors-and-formats.md",
+     "datly/doc/shaping-contract.md",
+diff --git a/mcp/developer/skills/assets/datly-custom-component/references/product/datly/doc/delete-not-found.md b/mcp/developer/skills/assets/datly-custom-component/references/product/datly/doc/delete-not-found.md
+new file mode 100644
+index 00000000..59a61ce2
+--- /dev/null
++++ b/mcp/developer/skills/assets/datly-custom-component/references/product/datly/doc/delete-not-found.md
+@@ -0,0 +1,34 @@
++# Opt-in idempotent deletion
++
++Generated PATCH/PUT leaf views with an explicit delete marker may opt into
++ignoring complete identities that have no matched authorized Previous row:
++
++```sql
++SELECT sessions.id, sessions.should_delete,
++       type(sessions,'SessionDelete'),
++       delete_marker(sessions.should_delete),
++       delete_not_found(sessions,'ignore')
++FROM (SELECT id, 0 AS should_delete FROM session) sessions
++```
++
++This fragment belongs in ordinary writer DQL with package, connector, route,
++input/output holders and CAST declarations. Transcription emits the view option
++`onDeleteNotFound=ignore`. Omission or `error` keeps strict matching.
++
++Missing rows are no-ops: no insert, DML, entity hooks, or transaction solely for
++the skipped row. Their request entries remain in the transformed body. Known
++rows retain native delete ordering, transactions and database constraints.
++Incomplete identity still fails. Parent/link and authorization checks are not
++relaxed; a row excluded by authored read scope is never deleted through an
++unscoped fallback. Only leaf roles may use `ignore`; missing parents cannot
++silently suppress descendants. Readers, POST, auxiliary roles and marker-free
++views reject this policy.
++
++A role declaring a concurrency token or mutation predicate remains strict even
++with `ignore`: expected-state failures must not become success. Execution-time
++guard misses continue returning Conflict. This is a deletion policy, not a
++second predicate language or an SQLX condition option.
++
++Generated SQLite tests cover metadata roundtrip, missing/mixed deletion,
++incomplete identity, scope exclusion and retained mutation guards. Agently's
++legacy comparison additionally covers empty/repeated IDs and atomic rollback.
+diff --git a/mcp/developer/skills/assets/datly-custom-component/references/product/datly/doc/mutation-predicates.md b/mcp/developer/skills/assets/datly-custom-component/references/product/datly/doc/mutation-predicates.md
+new file mode 100644
+index 00000000..d82d3592
+--- /dev/null
++++ b/mcp/developer/skills/assets/datly-custom-component/references/product/datly/doc/mutation-predicates.md
+@@ -0,0 +1,50 @@
++# Atomic predicates for generated mutations
++
++Generated PATCH/PUT views may select an existing input predicate group for the
++UPDATE/DELETE condition. This uses the reader's predicate compiler, built-ins,
++custom `predicate.Handler`, Has activation and ordered bind arguments.
++
++```sql
++#define($_ = $ExpectedOwner<string>(query/expectedOwner).Required().WithPredicate(7,'equal','records','owner'))
++#define($_ = $MaxAttempt<int>(query/maxAttempt).Optional().WithPredicate(7,'less_or_equal','records','attempt'))
++SELECT r.*, type(r,'Record'), mutation_predicate(r,7)
++FROM (SELECT id,title,owner,attempt FROM records) r
++```
++
++This is an annotation fragment for an ordinary writer DQL with explicit package,
++route, connector, input/output and body holder. Transcribe with `patch` or `put`.
++The generated body-view tag carries `mutationPredicate=7`; application Go does
++not construct mutation plumbing. An absent group, an auxiliary view or a
++GET/POST component is rejected before emitting artifacts.
++
++Use the physical table as the predicate qualifier (`records` above); a local
++read alias (`r`) is not an UPDATE/DELETE alias. Operators remain existing named
++predicates such as `equal`, `less_or_equal`, `greater_or_equal` and `is_null`.
++Custom business predicates still return trusted expression text and bound data.
++Never accept arbitrary client SQL as a mutation condition.
++
++`.Required()` retains normal input binding validation. `.Optional()` skips a
++predicate when its value is absent; explicit zero and empty string remain
++supplied. An empty group adds no mutation condition. Security conditions must
++use required input or a custom predicate that fails when authorization is denied.
++Generated Previous reads retain their own authored authorization scope; mutation
++predicates add an execution guard and do not replace those read filters.
++
++The writer evaluates the selected group against its canonical invocation input
++at Queue and copies the result into the managed operation. SQLX owns
++`Criteria{Expression, Placeholders}` and accepts it as an update/delete service
++option. Datly bridges the existing SDK predicate result; xdatly gains no SQLX
++dependency. Criteria compose with full identity and any existing IfMatch token.
++INSERT is unaffected. Sparse SET fields and caller-owned transactions retain
++native behavior. A guarded update/delete that affects no matching row returns
++`*handler.Conflict` (409), and managed completion rolls back earlier actions.
++
++Existing `concurrency_token` also supplies an atomic IfMatch guard in the
++current v1 runtime. Older writer documentation describing it as validation-only
++is stale. General mutation predicates extend that existing capability to
++compound/range/custom conditions without a second predicate language.
++
++SQLite acceptance covers generated optional/required inputs, equality and range,
++explicit empty/zero, matching/stale deletion, metadata regeneration, queue-to-
++execution races, sparse updates, criteria snapshots, IfMatch composition,
++rollback of earlier writes and caller-owned transaction rollback.
+diff --git a/mcp/developer/skills/assets/datly-custom-component/references/product/llm/datly-writer/references/writer-contract.md b/mcp/developer/skills/assets/datly-custom-component/references/product/llm/datly-writer/references/writer-contract.md
+index 7579f207..6959a0c5 100644
+--- a/mcp/developer/skills/assets/datly-custom-component/references/product/llm/datly-writer/references/writer-contract.md
++++ b/mcp/developer/skills/assets/datly-custom-component/references/product/llm/datly-writer/references/writer-contract.md
+@@ -553,13 +553,14 @@ unflagged child below a marked parent fails. Database constraints still apply.
+ All actions use the invocation's buffered DML and existing transaction owner;
+ a supplied transaction remains caller-owned.
+ 
+-`concurrency_token` is **validation-only**. For updates, its check runs first in
++`concurrency_token` validates captured expectations and supplies an atomic
++IfMatch condition at execution. For updates, its check runs first in
+ the validation phase, before framework constraints and application Validate
+ callbacks. It compares the captured, client-supplied expected token with the
+ loaded authorized Previous token. Missing Has presence, a null token, missing
+ Previous evidence, or a mismatch returns `*handler.Conflict` (status 409) before
+-sequencing or queuing mutations. Inserts and explicitly marked deletes do not
+-perform the update-token check.
++sequencing or queuing mutations. Inserts do not
++perform the token check; marked deletes also require valid expected-token evidence.
+ 
+ Numeric tokens compare in their canonical Go numeric type. `time.Time` tokens
+ compare instants with `Time.Equal`, including equal instants expressed in
+@@ -571,10 +572,13 @@ explicitly prepare the next working token using a setter; that does not change
+ the captured expected value. Token advancement is an application or database
+ concern. The framework never increments or rewrites a version automatically.
+ 
+-There is a race window between loading Previous, validating it, and executing
+-DML. Another writer can change the row during that window. This annotation adds
+-no token predicate to UPDATE/DELETE WHERE clauses, no vendor locks, and no
+-row-count conflict machinery. It does **not** provide atomic race prevention.
++For UPDATE and DELETE, queued DML carries the persisted Previous token as an
++IfMatch guard in the native mutation condition. A row changed between the
++Previous read and execution returns `*handler.Conflict` instead of a successful
++write. Managed completion rolls back earlier actions. No vendor-specific lock
++or automatic token advancement is added. General compound/range/custom guards
++reuse existing predicate groups through `mutation_predicate(view,group)`; see
++[mutation predicates](../../../datly/doc/mutation-predicates.md).
+ 
+ Regenerate through the same high-level command and preserve create-once lifecycle
+ edits. Verify mixed mutations, identity-only deletes, omissions/false flags,
+diff --git a/mcp/developer/skills/assets/datly-reader/references/product/datly/doc/delete-not-found.md b/mcp/developer/skills/assets/datly-reader/references/product/datly/doc/delete-not-found.md
+new file mode 100644
+index 00000000..59a61ce2
+--- /dev/null
++++ b/mcp/developer/skills/assets/datly-reader/references/product/datly/doc/delete-not-found.md
+@@ -0,0 +1,34 @@
++# Opt-in idempotent deletion
++
++Generated PATCH/PUT leaf views with an explicit delete marker may opt into
++ignoring complete identities that have no matched authorized Previous row:
++
++```sql
++SELECT sessions.id, sessions.should_delete,
++       type(sessions,'SessionDelete'),
++       delete_marker(sessions.should_delete),
++       delete_not_found(sessions,'ignore')
++FROM (SELECT id, 0 AS should_delete FROM session) sessions
++```
++
++This fragment belongs in ordinary writer DQL with package, connector, route,
++input/output holders and CAST declarations. Transcription emits the view option
++`onDeleteNotFound=ignore`. Omission or `error` keeps strict matching.
++
++Missing rows are no-ops: no insert, DML, entity hooks, or transaction solely for
++the skipped row. Their request entries remain in the transformed body. Known
++rows retain native delete ordering, transactions and database constraints.
++Incomplete identity still fails. Parent/link and authorization checks are not
++relaxed; a row excluded by authored read scope is never deleted through an
++unscoped fallback. Only leaf roles may use `ignore`; missing parents cannot
++silently suppress descendants. Readers, POST, auxiliary roles and marker-free
++views reject this policy.
++
++A role declaring a concurrency token or mutation predicate remains strict even
++with `ignore`: expected-state failures must not become success. Execution-time
++guard misses continue returning Conflict. This is a deletion policy, not a
++second predicate language or an SQLX condition option.
++
++Generated SQLite tests cover metadata roundtrip, missing/mixed deletion,
++incomplete identity, scope exclusion and retained mutation guards. Agently's
++legacy comparison additionally covers empty/repeated IDs and atomic rollback.
+diff --git a/mcp/developer/skills/assets/datly-reader/references/product/datly/doc/mutation-predicates.md b/mcp/developer/skills/assets/datly-reader/references/product/datly/doc/mutation-predicates.md
+new file mode 100644
+index 00000000..d82d3592
+--- /dev/null
++++ b/mcp/developer/skills/assets/datly-reader/references/product/datly/doc/mutation-predicates.md
+@@ -0,0 +1,50 @@
++# Atomic predicates for generated mutations
++
++Generated PATCH/PUT views may select an existing input predicate group for the
++UPDATE/DELETE condition. This uses the reader's predicate compiler, built-ins,
++custom `predicate.Handler`, Has activation and ordered bind arguments.
++
++```sql
++#define($_ = $ExpectedOwner<string>(query/expectedOwner).Required().WithPredicate(7,'equal','records','owner'))
++#define($_ = $MaxAttempt<int>(query/maxAttempt).Optional().WithPredicate(7,'less_or_equal','records','attempt'))
++SELECT r.*, type(r,'Record'), mutation_predicate(r,7)
++FROM (SELECT id,title,owner,attempt FROM records) r
++```
++
++This is an annotation fragment for an ordinary writer DQL with explicit package,
++route, connector, input/output and body holder. Transcribe with `patch` or `put`.
++The generated body-view tag carries `mutationPredicate=7`; application Go does
++not construct mutation plumbing. An absent group, an auxiliary view or a
++GET/POST component is rejected before emitting artifacts.
++
++Use the physical table as the predicate qualifier (`records` above); a local
++read alias (`r`) is not an UPDATE/DELETE alias. Operators remain existing named
++predicates such as `equal`, `less_or_equal`, `greater_or_equal` and `is_null`.
++Custom business predicates still return trusted expression text and bound data.
++Never accept arbitrary client SQL as a mutation condition.
++
++`.Required()` retains normal input binding validation. `.Optional()` skips a
++predicate when its value is absent; explicit zero and empty string remain
++supplied. An empty group adds no mutation condition. Security conditions must
++use required input or a custom predicate that fails when authorization is denied.
++Generated Previous reads retain their own authored authorization scope; mutation
++predicates add an execution guard and do not replace those read filters.
++
++The writer evaluates the selected group against its canonical invocation input
++at Queue and copies the result into the managed operation. SQLX owns
++`Criteria{Expression, Placeholders}` and accepts it as an update/delete service
++option. Datly bridges the existing SDK predicate result; xdatly gains no SQLX
++dependency. Criteria compose with full identity and any existing IfMatch token.
++INSERT is unaffected. Sparse SET fields and caller-owned transactions retain
++native behavior. A guarded update/delete that affects no matching row returns
++`*handler.Conflict` (409), and managed completion rolls back earlier actions.
++
++Existing `concurrency_token` also supplies an atomic IfMatch guard in the
++current v1 runtime. Older writer documentation describing it as validation-only
++is stale. General mutation predicates extend that existing capability to
++compound/range/custom conditions without a second predicate language.
++
++SQLite acceptance covers generated optional/required inputs, equality and range,
++explicit empty/zero, matching/stale deletion, metadata regeneration, queue-to-
++execution races, sparse updates, criteria snapshots, IfMatch composition,
++rollback of earlier writes and caller-owned transaction rollback.
+diff --git a/mcp/developer/skills/assets/datly-reader/references/product/llm/datly-writer/references/writer-contract.md b/mcp/developer/skills/assets/datly-reader/references/product/llm/datly-writer/references/writer-contract.md
+index 7579f207..6959a0c5 100644
+--- a/mcp/developer/skills/assets/datly-reader/references/product/llm/datly-writer/references/writer-contract.md
++++ b/mcp/developer/skills/assets/datly-reader/references/product/llm/datly-writer/references/writer-contract.md
+@@ -553,13 +553,14 @@ unflagged child below a marked parent fails. Database constraints still apply.
+ All actions use the invocation's buffered DML and existing transaction owner;
+ a supplied transaction remains caller-owned.
+ 
+-`concurrency_token` is **validation-only**. For updates, its check runs first in
++`concurrency_token` validates captured expectations and supplies an atomic
++IfMatch condition at execution. For updates, its check runs first in
+ the validation phase, before framework constraints and application Validate
+ callbacks. It compares the captured, client-supplied expected token with the
+ loaded authorized Previous token. Missing Has presence, a null token, missing
+ Previous evidence, or a mismatch returns `*handler.Conflict` (status 409) before
+-sequencing or queuing mutations. Inserts and explicitly marked deletes do not
+-perform the update-token check.
++sequencing or queuing mutations. Inserts do not
++perform the token check; marked deletes also require valid expected-token evidence.
+ 
+ Numeric tokens compare in their canonical Go numeric type. `time.Time` tokens
+ compare instants with `Time.Equal`, including equal instants expressed in
+@@ -571,10 +572,13 @@ explicitly prepare the next working token using a setter; that does not change
+ the captured expected value. Token advancement is an application or database
+ concern. The framework never increments or rewrites a version automatically.
+ 
+-There is a race window between loading Previous, validating it, and executing
+-DML. Another writer can change the row during that window. This annotation adds
+-no token predicate to UPDATE/DELETE WHERE clauses, no vendor locks, and no
+-row-count conflict machinery. It does **not** provide atomic race prevention.
++For UPDATE and DELETE, queued DML carries the persisted Previous token as an
++IfMatch guard in the native mutation condition. A row changed between the
++Previous read and execution returns `*handler.Conflict` instead of a successful
++write. Managed completion rolls back earlier actions. No vendor-specific lock
++or automatic token advancement is added. General compound/range/custom guards
++reuse existing predicate groups through `mutation_predicate(view,group)`; see
++[mutation predicates](../../../datly/doc/mutation-predicates.md).
+ 
+ Regenerate through the same high-level command and preserve create-once lifecycle
+ edits. Verify mixed mutations, identity-only deletes, omissions/false flags,
+diff --git a/mcp/developer/skills/assets/datly-writer/SKILL.md b/mcp/developer/skills/assets/datly-writer/SKILL.md
+index 5eb6f8bb..c4a09fb3 100644
+--- a/mcp/developer/skills/assets/datly-writer/SKILL.md
++++ b/mcp/developer/skills/assets/datly-writer/SKILL.md
+@@ -37,13 +37,15 @@ substitute `translate`, lower-level transcription, or manual writer plumbing.
+ - Use [tags-and-interfaces.md](references/tags-and-interfaces.md) for Go shapes, binding tags, SQL mapping, predicates, validation, and public APIs.
+ - For JWT-based authorization, use the [explicit input and predicate pattern](references/tags-and-interfaces.md#jwt-input-and-authorization-predicates); preserve original certificate/public-key verification and do not inject ambient claims.
+ - For a typed remote authorization context, read the [auth-context contract](references/product/datly/doc/auth-context.md). Keep verification, dependency binding, outbound headers and SQL predicates explicit; confirm generic provider API availability before naming its syntax.
+-- For explicit row deletion and validation-only tokens, read [the mutation marker contract](references/writer-contract.md#explicit-deletion-and-token-validation). Omitted rows never imply deletion; token checks do not make writes atomic.
++- For explicit row deletion and concurrency tokens, read [the mutation marker contract](references/writer-contract.md#explicit-deletion-and-token-validation). Omitted rows never imply deletion. Current v1 token writes use atomic IfMatch; see [mutation predicates](references/product/datly/doc/mutation-predicates.md) for general execution conditions.
+ - Read [writer-contract.md](references/writer-contract.md) for this component's behavior and decisions.
+ - Adapt [writer-examples.md](references/writer-examples.md); examples are patterns, not authorization to access a live database.
+ - For hook-injected message buses, commit-dependent publication or async job requests, read [mutation-messages.md](references/mutation-messages.md).
+ - For stable-ID/FK gaps, async, telemetry, YAML docs, static/MCP resources and standalone status, read [availability-and-operations.md](references/availability-and-operations.md). Separate current APIs from pending authoring/integration contracts.
+ - Use [acceptance.md](references/acceptance.md) to verify observable application behavior. Framework maintenance is outside this skill.
+ 
++For opt-in idempotent leaf deletion, read [delete-not-found](references/product/datly/doc/delete-not-found.md). Strict deletion remains the default.
++
+ ## Authoring workflow
+ 
+ The standard workflow is **reader-like declarative DQL graph + explicit `transcribe`
+diff --git a/mcp/developer/skills/assets/datly-writer/references/product/datly/doc/delete-not-found.md b/mcp/developer/skills/assets/datly-writer/references/product/datly/doc/delete-not-found.md
+new file mode 100644
+index 00000000..59a61ce2
+--- /dev/null
++++ b/mcp/developer/skills/assets/datly-writer/references/product/datly/doc/delete-not-found.md
+@@ -0,0 +1,34 @@
++# Opt-in idempotent deletion
++
++Generated PATCH/PUT leaf views with an explicit delete marker may opt into
++ignoring complete identities that have no matched authorized Previous row:
++
++```sql
++SELECT sessions.id, sessions.should_delete,
++       type(sessions,'SessionDelete'),
++       delete_marker(sessions.should_delete),
++       delete_not_found(sessions,'ignore')
++FROM (SELECT id, 0 AS should_delete FROM session) sessions
++```
++
++This fragment belongs in ordinary writer DQL with package, connector, route,
++input/output holders and CAST declarations. Transcription emits the view option
++`onDeleteNotFound=ignore`. Omission or `error` keeps strict matching.
++
++Missing rows are no-ops: no insert, DML, entity hooks, or transaction solely for
++the skipped row. Their request entries remain in the transformed body. Known
++rows retain native delete ordering, transactions and database constraints.
++Incomplete identity still fails. Parent/link and authorization checks are not
++relaxed; a row excluded by authored read scope is never deleted through an
++unscoped fallback. Only leaf roles may use `ignore`; missing parents cannot
++silently suppress descendants. Readers, POST, auxiliary roles and marker-free
++views reject this policy.
++
++A role declaring a concurrency token or mutation predicate remains strict even
++with `ignore`: expected-state failures must not become success. Execution-time
++guard misses continue returning Conflict. This is a deletion policy, not a
++second predicate language or an SQLX condition option.
++
++Generated SQLite tests cover metadata roundtrip, missing/mixed deletion,
++incomplete identity, scope exclusion and retained mutation guards. Agently's
++legacy comparison additionally covers empty/repeated IDs and atomic rollback.
+diff --git a/mcp/developer/skills/assets/datly-writer/references/product/datly/doc/mutation-predicates.md b/mcp/developer/skills/assets/datly-writer/references/product/datly/doc/mutation-predicates.md
+new file mode 100644
+index 00000000..d82d3592
+--- /dev/null
++++ b/mcp/developer/skills/assets/datly-writer/references/product/datly/doc/mutation-predicates.md
+@@ -0,0 +1,50 @@
++# Atomic predicates for generated mutations
++
++Generated PATCH/PUT views may select an existing input predicate group for the
++UPDATE/DELETE condition. This uses the reader's predicate compiler, built-ins,
++custom `predicate.Handler`, Has activation and ordered bind arguments.
++
++```sql
++#define($_ = $ExpectedOwner<string>(query/expectedOwner).Required().WithPredicate(7,'equal','records','owner'))
++#define($_ = $MaxAttempt<int>(query/maxAttempt).Optional().WithPredicate(7,'less_or_equal','records','attempt'))
++SELECT r.*, type(r,'Record'), mutation_predicate(r,7)
++FROM (SELECT id,title,owner,attempt FROM records) r
++```
++
++This is an annotation fragment for an ordinary writer DQL with explicit package,
++route, connector, input/output and body holder. Transcribe with `patch` or `put`.
++The generated body-view tag carries `mutationPredicate=7`; application Go does
++not construct mutation plumbing. An absent group, an auxiliary view or a
++GET/POST component is rejected before emitting artifacts.
++
++Use the physical table as the predicate qualifier (`records` above); a local
++read alias (`r`) is not an UPDATE/DELETE alias. Operators remain existing named
++predicates such as `equal`, `less_or_equal`, `greater_or_equal` and `is_null`.
++Custom business predicates still return trusted expression text and bound data.
++Never accept arbitrary client SQL as a mutation condition.
++
++`.Required()` retains normal input binding validation. `.Optional()` skips a
++predicate when its value is absent; explicit zero and empty string remain
++supplied. An empty group adds no mutation condition. Security conditions must
++use required input or a custom predicate that fails when authorization is denied.
++Generated Previous reads retain their own authored authorization scope; mutation
++predicates add an execution guard and do not replace those read filters.
++
++The writer evaluates the selected group against its canonical invocation input
++at Queue and copies the result into the managed operation. SQLX owns
++`Criteria{Expression, Placeholders}` and accepts it as an update/delete service
++option. Datly bridges the existing SDK predicate result; xdatly gains no SQLX
++dependency. Criteria compose with full identity and any existing IfMatch token.
++INSERT is unaffected. Sparse SET fields and caller-owned transactions retain
++native behavior. A guarded update/delete that affects no matching row returns
++`*handler.Conflict` (409), and managed completion rolls back earlier actions.
++
++Existing `concurrency_token` also supplies an atomic IfMatch guard in the
++current v1 runtime. Older writer documentation describing it as validation-only
++is stale. General mutation predicates extend that existing capability to
++compound/range/custom conditions without a second predicate language.
++
++SQLite acceptance covers generated optional/required inputs, equality and range,
++explicit empty/zero, matching/stale deletion, metadata regeneration, queue-to-
++execution races, sparse updates, criteria snapshots, IfMatch composition,
++rollback of earlier writes and caller-owned transaction rollback.
+diff --git a/mcp/developer/skills/assets/datly-writer/references/product/llm/datly-writer/references/writer-contract.md b/mcp/developer/skills/assets/datly-writer/references/product/llm/datly-writer/references/writer-contract.md
+index 6e7ba5a7..821dff91 100644
+--- a/mcp/developer/skills/assets/datly-writer/references/product/llm/datly-writer/references/writer-contract.md
++++ b/mcp/developer/skills/assets/datly-writer/references/product/llm/datly-writer/references/writer-contract.md
+@@ -553,13 +553,14 @@ unflagged child below a marked parent fails. Database constraints still apply.
+ All actions use the invocation's buffered DML and existing transaction owner;
+ a supplied transaction remains caller-owned.
+ 
+-`concurrency_token` is **validation-only**. For updates, its check runs first in
++`concurrency_token` validates captured expectations and supplies an atomic
++IfMatch condition at execution. For updates, its check runs first in
+ the validation phase, before framework constraints and application Validate
+ callbacks. It compares the captured, client-supplied expected token with the
+ loaded authorized Previous token. Missing Has presence, a null token, missing
+ Previous evidence, or a mismatch returns `*handler.Conflict` (status 409) before
+-sequencing or queuing mutations. Inserts and explicitly marked deletes do not
+-perform the update-token check.
++sequencing or queuing mutations. Inserts do not
++perform the token check; marked deletes also require valid expected-token evidence.
+ 
+ Numeric tokens compare in their canonical Go numeric type. `time.Time` tokens
+ compare instants with `Time.Equal`, including equal instants expressed in
+@@ -571,10 +572,13 @@ explicitly prepare the next working token using a setter; that does not change
+ the captured expected value. Token advancement is an application or database
+ concern. The framework never increments or rewrites a version automatically.
+ 
+-There is a race window between loading Previous, validating it, and executing
+-DML. Another writer can change the row during that window. This annotation adds
+-no token predicate to UPDATE/DELETE WHERE clauses, no vendor locks, and no
+-row-count conflict machinery. It does **not** provide atomic race prevention.
++For UPDATE and DELETE, queued DML carries the persisted Previous token as an
++IfMatch guard in the native mutation condition. A row changed between the
++Previous read and execution returns `*handler.Conflict` instead of a successful
++write. Managed completion rolls back earlier actions. No vendor-specific lock
++or automatic token advancement is added. General compound/range/custom guards
++reuse existing predicate groups through `mutation_predicate(view,group)`; see
++[mutation predicates](../../../datly/doc/mutation-predicates.md).
+ 
+ Regenerate through the same high-level command and preserve create-once lifecycle
+ edits. Verify mixed mutations, identity-only deletes, omissions/false flags,
+diff --git a/mcp/developer/skills/assets/datly-writer/references/writer-contract.md b/mcp/developer/skills/assets/datly-writer/references/writer-contract.md
+index dcd8052f..e52f39b5 100644
+--- a/mcp/developer/skills/assets/datly-writer/references/writer-contract.md
++++ b/mcp/developer/skills/assets/datly-writer/references/writer-contract.md
+@@ -553,13 +553,14 @@ unflagged child below a marked parent fails. Database constraints still apply.
+ All actions use the invocation's buffered DML and existing transaction owner;
+ a supplied transaction remains caller-owned.
+ 
+-`concurrency_token` is **validation-only**. For updates, its check runs first in
++`concurrency_token` validates captured expectations and supplies an atomic
++IfMatch condition at execution. For updates, its check runs first in
+ the validation phase, before framework constraints and application Validate
+ callbacks. It compares the captured, client-supplied expected token with the
+ loaded authorized Previous token. Missing Has presence, a null token, missing
+ Previous evidence, or a mismatch returns `*handler.Conflict` (status 409) before
+-sequencing or queuing mutations. Inserts and explicitly marked deletes do not
+-perform the update-token check.
++sequencing or queuing mutations. Inserts do not
++perform the token check; marked deletes also require valid expected-token evidence.
+ 
+ Numeric tokens compare in their canonical Go numeric type. `time.Time` tokens
+ compare instants with `Time.Equal`, including equal instants expressed in
+@@ -571,10 +572,13 @@ explicitly prepare the next working token using a setter; that does not change
+ the captured expected value. Token advancement is an application or database
+ concern. The framework never increments or rewrites a version automatically.
+ 
+-There is a race window between loading Previous, validating it, and executing
+-DML. Another writer can change the row during that window. This annotation adds
+-no token predicate to UPDATE/DELETE WHERE clauses, no vendor locks, and no
+-row-count conflict machinery. It does **not** provide atomic race prevention.
++For UPDATE and DELETE, queued DML carries the persisted Previous token as an
++IfMatch guard in the native mutation condition. A row changed between the
++Previous read and execution returns `*handler.Conflict` instead of a successful
++write. Managed completion rolls back earlier actions. No vendor-specific lock
++or automatic token advancement is added. General compound/range/custom guards
++reuse existing predicate groups through `mutation_predicate(view,group)`; see
++[mutation predicates](product/datly/doc/mutation-predicates.md).
+ 
+ Regenerate through the same high-level command and preserve create-once lifecycle
+ edits. Verify mixed mutations, identity-only deletes, omissions/false flags,
+diff --git a/mcp/developer/skills/assets/manifest.json b/mcp/developer/skills/assets/manifest.json
+index eca7c8f0..b7cc057d 100644
+--- a/mcp/developer/skills/assets/manifest.json
++++ b/mcp/developer/skills/assets/manifest.json
+@@ -18,7 +18,9 @@
+     "datly-custom-component/references/product/datly/doc/api-documentation.md": "b83481988c2e5a0c97a558d2b150afcf089bf2793f4bc12f30d106a95d016295",
+     "datly-custom-component/references/product/datly/doc/auth-context.md": "90ee64bddc782706483a9d03311b701dd360182f79af3a5189d14b702ca15b64",
+     "datly-custom-component/references/product/datly/doc/cache-and-warmup.md": "9ea39bd5299bc3e649f39ac5051e1ad7da51179d0ea87c13cfb10ab1f5bcaa27",
++    "datly-custom-component/references/product/datly/doc/delete-not-found.md": "702270fd175aa7afa5d265f158ec31ca4bbf4c7619ccb6e6a2a23a9b0e2ea32b",
+     "datly-custom-component/references/product/datly/doc/legacy-to-v1-migration.md": "8eca56e64a26d205c1dafed8a123630b3bb800cd080bd6177a1f01708c5c261f",
++    "datly-custom-component/references/product/datly/doc/mutation-predicates.md": "a268c2ee1ba4eab0db909f8c3b212be13bdcec5058492f6e958163fb83e36d85",
+     "datly-custom-component/references/product/datly/doc/observability.md": "0164f31accbaf260265cf1a5ac71c4aa74c872ef78adbd3353ede1a313f63441",
+     "datly-custom-component/references/product/datly/doc/reader-predicates.md": "ea36ff850462b80dfb02754f744a571641756bfe10f5721a0a476647b021850e",
+     "datly-custom-component/references/product/datly/doc/remote-handlers.md": "028b81e20b0c5990ac227896516d40cb4777f201863f0af69da54e221cc48935",
+@@ -45,7 +47,7 @@
+     "datly-custom-component/references/product/llm/datly-writer/references/mutation-messages.md": "bc187eb106ddd76121b7de706d634ca9e0e7ba88ebc60c0539863def6150a1e6",
+     "datly-custom-component/references/product/llm/datly-writer/references/project-build.md": "9a0ec3c9b275b8834e5c1d9ec5095a424cbab813706da79d4bd94d4342f54447",
+     "datly-custom-component/references/product/llm/datly-writer/references/tags-and-interfaces.md": "5832344040f709eaf03f36b8ec9619a2cf6520e9631ad81e2f0111c35ab523a7",
+-    "datly-custom-component/references/product/llm/datly-writer/references/writer-contract.md": "c57f3a9fda2e11686829755aff90eeb9e94d81596ec2e37cf31f0a0b2dad3a76",
++    "datly-custom-component/references/product/llm/datly-writer/references/writer-contract.md": "1f63f7ff3ad18d30943b94352d2ad47114f9b39070ec0805b65d8bda84546497",
+     "datly-custom-component/references/product/llm/datly-writer/references/writer-examples.md": "68f8c0e5baa0d6052e484bcf259b18c0bc976b96ef4dc13c789a5a9d88208b30",
+     "datly-custom-component/references/product/xdatly/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+     "datly-custom-component/references/product/xdatly/handler/injector_finalizer.md": "d00ea7fdf6cc32f8e48ce05b9705a4ff6a5200ded6876ac4cb01dcef5a1a695f",
+@@ -66,7 +68,9 @@
+     "datly-reader/references/product/datly/doc/api-documentation.md": "a638664b6c6a53c3d35aed4302ffa5ed5cb35a17135f7295186b24f7049addab",
+     "datly-reader/references/product/datly/doc/auth-context.md": "90ee64bddc782706483a9d03311b701dd360182f79af3a5189d14b702ca15b64",
+     "datly-reader/references/product/datly/doc/cache-and-warmup.md": "412f7dd4c0730d082587534e2d3ab66e80a74eda62816a025dcb6e8d7a9c3016",
++    "datly-reader/references/product/datly/doc/delete-not-found.md": "702270fd175aa7afa5d265f158ec31ca4bbf4c7619ccb6e6a2a23a9b0e2ea32b",
+     "datly-reader/references/product/datly/doc/legacy-to-v1-migration.md": "8eca56e64a26d205c1dafed8a123630b3bb800cd080bd6177a1f01708c5c261f",
++    "datly-reader/references/product/datly/doc/mutation-predicates.md": "a268c2ee1ba4eab0db909f8c3b212be13bdcec5058492f6e958163fb83e36d85",
+     "datly-reader/references/product/datly/doc/observability.md": "0164f31accbaf260265cf1a5ac71c4aa74c872ef78adbd3353ede1a313f63441",
+     "datly-reader/references/product/datly/doc/reader-predicates.md": "ea36ff850462b80dfb02754f744a571641756bfe10f5721a0a476647b021850e",
+     "datly-reader/references/product/datly/doc/remote-handlers.md": "028b81e20b0c5990ac227896516d40cb4777f201863f0af69da54e221cc48935",
+@@ -93,7 +97,7 @@
+     "datly-reader/references/product/llm/datly-writer/references/mutation-messages.md": "bc187eb106ddd76121b7de706d634ca9e0e7ba88ebc60c0539863def6150a1e6",
+     "datly-reader/references/product/llm/datly-writer/references/project-build.md": "9a0ec3c9b275b8834e5c1d9ec5095a424cbab813706da79d4bd94d4342f54447",
+     "datly-reader/references/product/llm/datly-writer/references/tags-and-interfaces.md": "5832344040f709eaf03f36b8ec9619a2cf6520e9631ad81e2f0111c35ab523a7",
+-    "datly-reader/references/product/llm/datly-writer/references/writer-contract.md": "c57f3a9fda2e11686829755aff90eeb9e94d81596ec2e37cf31f0a0b2dad3a76",
++    "datly-reader/references/product/llm/datly-writer/references/writer-contract.md": "1f63f7ff3ad18d30943b94352d2ad47114f9b39070ec0805b65d8bda84546497",
+     "datly-reader/references/product/llm/datly-writer/references/writer-examples.md": "68f8c0e5baa0d6052e484bcf259b18c0bc976b96ef4dc13c789a5a9d88208b30",
+     "datly-reader/references/product/xdatly/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+     "datly-reader/references/product/xdatly/handler/injector_finalizer.md": "d00ea7fdf6cc32f8e48ce05b9705a4ff6a5200ded6876ac4cb01dcef5a1a695f",
+@@ -102,7 +106,7 @@
+     "datly-reader/references/reader-examples.md": "d1c8b926a957d0ba48ff5e642f32139213a11b2703ecf54e629e0f22ca5e7c2d",
+     "datly-reader/references/reader-predicates.md": "ff6e1a92f6ffd644049823ae133584735b559c7c376a7917233107a8a45cd5f3",
+     "datly-reader/references/tags-and-interfaces.md": "e5bea75dc1fe04f28537e0b43a02d6c8d692e9bfd33653d1110085892b86b32e",
+-    "datly-writer/SKILL.md": "04f2180e1505daf05dd0659c13ca54d1a63ba8b846c49c9e298b975245f0f0d3",
++    "datly-writer/SKILL.md": "418feb9c91ec0ecf0544039fa744deb01d7e8abeae9f34545b9cfb5b29023db1",
+     "datly-writer/agents/openai.yaml": "892fb514fbef94f779be77b15554cd700da1cd2eb1a7530d8af59970520a31cb",
+     "datly-writer/references/acceptance.md": "424e46abb1f5e0eb8da449d9dd8d55b3050a3a5fcdd6af908aa53bf855ad9a2e",
+     "datly-writer/references/availability-and-operations.md": "64ce4296d7c426c955c7e972e6af6f1c153f4de4725a23da619bb365551c1f7b",
+@@ -118,7 +122,9 @@
+     "datly-writer/references/product/datly/doc/api-documentation.md": "b83481988c2e5a0c97a558d2b150afcf089bf2793f4bc12f30d106a95d016295",
+     "datly-writer/references/product/datly/doc/auth-context.md": "90ee64bddc782706483a9d03311b701dd360182f79af3a5189d14b702ca15b64",
+     "datly-writer/references/product/datly/doc/cache-and-warmup.md": "9ea39bd5299bc3e649f39ac5051e1ad7da51179d0ea87c13cfb10ab1f5bcaa27",
++    "datly-writer/references/product/datly/doc/delete-not-found.md": "702270fd175aa7afa5d265f158ec31ca4bbf4c7619ccb6e6a2a23a9b0e2ea32b",
+     "datly-writer/references/product/datly/doc/legacy-to-v1-migration.md": "8eca56e64a26d205c1dafed8a123630b3bb800cd080bd6177a1f01708c5c261f",
++    "datly-writer/references/product/datly/doc/mutation-predicates.md": "a268c2ee1ba4eab0db909f8c3b212be13bdcec5058492f6e958163fb83e36d85",
+     "datly-writer/references/product/datly/doc/observability.md": "0164f31accbaf260265cf1a5ac71c4aa74c872ef78adbd3353ede1a313f63441",
+     "datly-writer/references/product/datly/doc/reader-predicates.md": "ea36ff850462b80dfb02754f744a571641756bfe10f5721a0a476647b021850e",
+     "datly-writer/references/product/datly/doc/remote-handlers.md": "028b81e20b0c5990ac227896516d40cb4777f201863f0af69da54e221cc48935",
+@@ -145,13 +151,13 @@
+     "datly-writer/references/product/llm/datly-writer/references/mutation-messages.md": "bc187eb106ddd76121b7de706d634ca9e0e7ba88ebc60c0539863def6150a1e6",
+     "datly-writer/references/product/llm/datly-writer/references/project-build.md": "c95551abbb9fed45bcff91ebb3e86a453278065d44925abc9890dae3ff2c5f1e",
+     "datly-writer/references/product/llm/datly-writer/references/tags-and-interfaces.md": "5832344040f709eaf03f36b8ec9619a2cf6520e9631ad81e2f0111c35ab523a7",
+-    "datly-writer/references/product/llm/datly-writer/references/writer-contract.md": "3a9f0b6a9e727f8219e83938cac27ec05ed5f561ebb30a70e9db9492abb0929e",
++    "datly-writer/references/product/llm/datly-writer/references/writer-contract.md": "883bf5347abe19fe96b0bd123fe93ee90f011feaf55c92da775dbb2ce4d07f84",
+     "datly-writer/references/product/llm/datly-writer/references/writer-examples.md": "ea1b51cda8117c28d22a3eb366b4fe706453ae26419e1f8dea019c2fce871485",
+     "datly-writer/references/product/xdatly/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+     "datly-writer/references/product/xdatly/handler/injector_finalizer.md": "d00ea7fdf6cc32f8e48ce05b9705a4ff6a5200ded6876ac4cb01dcef5a1a695f",
+     "datly-writer/references/project-build.md": "9a0ec3c9b275b8834e5c1d9ec5095a424cbab813706da79d4bd94d4342f54447",
+     "datly-writer/references/tags-and-interfaces.md": "e5bea75dc1fe04f28537e0b43a02d6c8d692e9bfd33653d1110085892b86b32e",
+-    "datly-writer/references/writer-contract.md": "88064898c03c960de6d2ce5ff7c80c1109b6af6fc2b75427a502bfe0c79ef860",
++    "datly-writer/references/writer-contract.md": "eb503c6e51a68f52dfa4a1ea20f2542d435fa270878b4ce8c4cfa1d5d953363a",
+     "datly-writer/references/writer-examples.md": "68f8c0e5baa0d6052e484bcf259b18c0bc976b96ef4dc13c789a5a9d88208b30"
+   },
+   "ProductSources": {
+@@ -161,7 +167,9 @@
+     "datly/doc/api-documentation.md": "5b66900b54d29aec129bbebc52c2a5e939c320956327d73fb6e3e32eabd6ad93",
+     "datly/doc/auth-context.md": "90ee64bddc782706483a9d03311b701dd360182f79af3a5189d14b702ca15b64",
+     "datly/doc/cache-and-warmup.md": "6ac7c2885a565f1532ed612e63d7609a6749e6a1bdcd34411f08ab00c08d847f",
++    "datly/doc/delete-not-found.md": "702270fd175aa7afa5d265f158ec31ca4bbf4c7619ccb6e6a2a23a9b0e2ea32b",
+     "datly/doc/legacy-to-v1-migration.md": "8eca56e64a26d205c1dafed8a123630b3bb800cd080bd6177a1f01708c5c261f",
++    "datly/doc/mutation-predicates.md": "a268c2ee1ba4eab0db909f8c3b212be13bdcec5058492f6e958163fb83e36d85",
+     "datly/doc/observability.md": "f9e38947d301b4d2bc3693a6a50d7117bd8747ab0052ae75a9116d8341553b93",
+     "datly/doc/reader-predicates.md": "55ecbb85ea9309df4c6fa02497cdcbcf6ef547d033ce235de500407eaef4f90b",
+     "datly/doc/remote-handlers.md": "028b81e20b0c5990ac227896516d40cb4777f201863f0af69da54e221cc48935",
+@@ -188,7 +196,7 @@
+     "llm/datly-writer/references/mutation-messages.md": "bc187eb106ddd76121b7de706d634ca9e0e7ba88ebc60c0539863def6150a1e6",
+     "llm/datly-writer/references/project-build.md": "9a0ec3c9b275b8834e5c1d9ec5095a424cbab813706da79d4bd94d4342f54447",
+     "llm/datly-writer/references/tags-and-interfaces.md": "e5bea75dc1fe04f28537e0b43a02d6c8d692e9bfd33653d1110085892b86b32e",
+-    "llm/datly-writer/references/writer-contract.md": "88064898c03c960de6d2ce5ff7c80c1109b6af6fc2b75427a502bfe0c79ef860",
++    "llm/datly-writer/references/writer-contract.md": "eb503c6e51a68f52dfa4a1ea20f2542d435fa270878b4ce8c4cfa1d5d953363a",
+     "llm/datly-writer/references/writer-examples.md": "68f8c0e5baa0d6052e484bcf259b18c0bc976b96ef4dc13c789a5a9d88208b30",
+     "xdatly/LICENSE": "c71d239df91726fc519c6eb72d318ec65820627232b2f796219e87dcf35d0ab4",
+     "xdatly/handler/injector_finalizer.md": "d00ea7fdf6cc32f8e48ce05b9705a4ff6a5200ded6876ac4cb01dcef5a1a695f"
+diff --git a/runtime/handler/criteria.go b/runtime/handler/criteria.go
+new file mode 100644
+index 00000000..7c13b0dc
+--- /dev/null
++++ b/runtime/handler/criteria.go
+@@ -0,0 +1,13 @@
++package handler
++
++import (
++	"github.com/viant/sqlx"
++	xhandler "github.com/viant/xdatly/handler"
++)
++
++// CriteriaDML is a Datly-owned optional data capability. The public SDK does not
++// depend on SQLX; predicate evaluation remains in the existing Datly compiler.
++type CriteriaDML interface {
++	UpdateWithCriteria(string, any, *sqlx.Criteria, ...xhandler.Option) error
++	DeleteWithCriteria(string, any, *sqlx.Criteria, ...xhandler.Option) error
++}
+diff --git a/runtime/handler/engine/data_scope.go b/runtime/handler/engine/data_scope.go
+index 736dbd57..66beeb5a 100644
+--- a/runtime/handler/engine/data_scope.go
++++ b/runtime/handler/engine/data_scope.go
+@@ -12,6 +12,7 @@ import (
+ 	dexec "github.com/viant/datly/exec"
+ 	rhandler "github.com/viant/datly/runtime/handler"
+ 	handlerprovider "github.com/viant/datly/runtime/handler/provider"
++	"github.com/viant/sqlx"
+ 	"github.com/viant/xdatly/connector"
+ 	xhandler "github.com/viant/xdatly/handler"
+ )
+@@ -164,6 +165,22 @@ func (c dmlCapability) DeleteWithOptions(tableName string, data any, options ...
+ 	return service.DeleteWithOptions(tableName, data, options...)
+ }
+ 
++func (c dmlCapability) UpdateWithCriteria(tableName string, data any, criteria *sqlx.Criteria, options ...xhandler.Option) error {
++	service, ok := c.service.(rhandler.CriteriaDML)
++	if !ok {
++		return fmt.Errorf("native update criteria unavailable for %s", tableName)
++	}
++	return service.UpdateWithCriteria(tableName, data, criteria, options...)
++}
++
++func (c dmlCapability) DeleteWithCriteria(tableName string, data any, criteria *sqlx.Criteria, options ...xhandler.Option) error {
++	service, ok := c.service.(rhandler.CriteriaDML)
++	if !ok {
++		return fmt.Errorf("native delete criteria unavailable for %s", tableName)
++	}
++	return service.DeleteWithCriteria(tableName, data, criteria, options...)
++}
++
+ func (c dmlCapability) Execute(dml string, args ...any) error {
+ 	return c.service.Execute(dml, args...)
+ }
+diff --git a/runtime/handler/writer/handler.go b/runtime/handler/writer/handler.go
+index 9c746d0b..6dc15198 100644
+--- a/runtime/handler/writer/handler.go
++++ b/runtime/handler/writer/handler.go
+@@ -14,7 +14,10 @@ import (
+ 
+ 	rhandler "github.com/viant/datly/runtime/handler"
+ 	handlerengine "github.com/viant/datly/runtime/handler/engine"
++	predicate "github.com/viant/datly/runtime/predicate/velty"
+ 	"github.com/viant/datly/spec"
++	"github.com/viant/datly/typecatalog"
++	"github.com/viant/sqlx"
+ 	"github.com/viant/structology"
+ 	xhandler "github.com/viant/xdatly/handler"
+ 	"github.com/viant/xunsafe"
+@@ -23,6 +26,7 @@ import (
+ // Metadata is the immutable, component-specific plan interpreted by Handler.
+ // It contains no generated executable phase code.
+ type Metadata struct {
++	Predicates       *predicate.Program
+ 	Component        *spec.Component
+ 	Operation        string
+ 	InputField       int
+@@ -85,21 +89,23 @@ func entityMarker(entityType reflect.Type) *structology.Marker {
+ 
+ // Record is one writable role in a component graph.
+ type Record struct {
+-	Name             string
+-	Path             string
+-	Auxiliary        bool
+-	Selector         string
+-	EntityType       reflect.Type
+-	CurrentField     int
+-	Table            string
+-	Keys             []Field
+-	Fields           []Field
+-	Sequence         *Field
+-	DeleteMarker     *Field
+-	ConcurrencyToken *Field
+-	Invariants       map[string][]Field
+-	HookType         reflect.Type
+-	Relations        []*Relation
++	OnDeleteNotFound       string
++	MutationPredicateGroup *int
++	Name                   string
++	Path                   string
++	Auxiliary              bool
++	Selector               string
++	EntityType             reflect.Type
++	CurrentField           int
++	Table                  string
++	Keys                   []Field
++	Fields                 []Field
++	Sequence               *Field
++	DeleteMarker           *Field
++	ConcurrencyToken       *Field
++	Invariants             map[string][]Field
++	HookType               reflect.Type
++	Relations              []*Relation
+ 	// positions maps field names to their index in Fields; compiled once.
+ 	positions map[string]int
+ }
+@@ -476,6 +482,7 @@ type Frame struct {
+ 	Entity, Previous reflect.Value
+ 	ExpectedToken    reflect.Value
+ 	Fields           *presence
++	SkippedDelete    bool
+ 	Action           xhandler.WriteAction
+ 	Record           *Record
+ 	Parent           *Frame
+@@ -504,7 +511,7 @@ func (p *Program) allocate(ctx context.Context, sequencer xhandler.Sequencer, re
+ 
+ func (p *Program) reconcileLinks(requireResolved bool) error {
+ 	for _, frame := range p.frames.Rows {
+-		if frame == nil || frame.Parent == nil || frame.Record == nil {
++		if frame == nil || frame.SkippedDelete || frame.Parent == nil || frame.Record == nil {
+ 			continue
+ 		}
+ 		relation := relationFor(frame.Parent.Record, frame.Record)
+@@ -835,7 +842,7 @@ func (p *Program) prepare(ctx context.Context, binder xhandler.Binder) error {
+ 		if err = p.callEntityHook(ctx, "Validate", frame); err != nil {
+ 			return err
+ 		}
+-		if frame.Record.Auxiliary {
++		if frame.Record.Auxiliary || frame.SkippedDelete {
+ 			continue
+ 		}
+ 		if frame.Action == xhandler.WriteUpdate && !hasMutableFields(frame) {
+@@ -885,51 +892,54 @@ func (p *Program) prepare(ctx context.Context, binder xhandler.Binder) error {
+ 		frame := p.frameFor(action.Entity)
+ 		value := action.Entity.Interface()
+ 		table := frame.Record.Table
++		var options []xhandler.Option
++		if token := frame.Record.ConcurrencyToken; token != nil && (action.Kind == xhandler.WriteUpdate || action.Kind == xhandler.WriteDelete) {
++			persisted := frame.Previous
++			if persisted.IsValid() && persisted.Kind() == reflect.Pointer {
++				persisted = persisted.Elem()
++			}
++			if !frame.ExpectedToken.IsValid() || !persisted.IsValid() || persisted.Kind() != reflect.Struct {
++				return &xhandler.Conflict{Entity: frame.Record.Path, Field: token.Name, Reason: "persisted concurrency token is unavailable"}
++			}
++			previousToken := persisted.FieldByName(token.Name)
++			if !previousToken.IsValid() {
++				return &xhandler.Conflict{Entity: frame.Record.Path, Field: token.Name, Reason: "persisted concurrency token is unavailable"}
++			}
++			options = append(options, xhandler.WithIfMatch(token.Column, previousToken.Interface()))
++		}
++		var criteria *sqlx.Criteria
++		if frame.Record.MutationPredicateGroup != nil && (action.Kind == xhandler.WriteUpdate || action.Kind == xhandler.WriteDelete) {
++			criteria, err = p.metadata.Predicates.Criteria(ctx, binder, *frame.Record.MutationPredicateGroup)
++			if err != nil {
++				return fmt.Errorf("mutation predicate %s: %w", frame.Record.Path, err)
++			}
++		}
+ 		switch action.Kind {
+ 		case xhandler.WriteInsert:
+ 			err = dml.Insert(table, value)
+-		case xhandler.WriteUpdate:
+-			if token := frame.Record.ConcurrencyToken; token != nil {
+-				matched, ok := dml.(xhandler.MatchedDML)
++		case xhandler.WriteUpdate, xhandler.WriteDelete:
++			if criteria != nil {
++				native, ok := dml.(rhandler.CriteriaDML)
+ 				if !ok {
+-					return &xhandler.Conflict{Entity: frame.Record.Path, Field: token.Name, Reason: "atomic matched update is unavailable"}
+-				}
+-				persisted := frame.Previous
+-				if persisted.IsValid() && persisted.Kind() == reflect.Pointer {
+-					persisted = persisted.Elem()
++					return fmt.Errorf("mutation predicate requires native CriteriaDML")
+ 				}
+-				if !frame.ExpectedToken.IsValid() || !persisted.IsValid() || persisted.Kind() != reflect.Struct {
+-					return &xhandler.Conflict{Entity: frame.Record.Path, Field: token.Name, Reason: "persisted concurrency token is unavailable"}
++				if action.Kind == xhandler.WriteUpdate {
++					err = native.UpdateWithCriteria(table, value, criteria, options...)
++				} else {
++					err = native.DeleteWithCriteria(table, value, criteria, options...)
+ 				}
+-				previousToken := persisted.FieldByName(token.Name)
+-				if !previousToken.IsValid() {
+-					return &xhandler.Conflict{Entity: frame.Record.Path, Field: token.Name, Reason: "persisted concurrency token is unavailable"}
+-				}
+-				// The earlier check proves client expectation and Previous are
+-				// equivalent. Bind the database-decoded Previous representation so
+-				// equal instants in different time zones still compare correctly.
+-				err = matched.UpdateWithOptions(table, value, xhandler.WithIfMatch(token.Column, previousToken.Interface()))
+-			} else {
+-				err = dml.Update(table, value)
+-			}
+-		case xhandler.WriteDelete:
+-			if token := frame.Record.ConcurrencyToken; token != nil {
+-				matched, ok := dml.(xhandler.MatchedDML)
++			} else if len(options) != 0 {
++				native, ok := dml.(xhandler.MatchedDML)
+ 				if !ok {
+-					return &xhandler.Conflict{Entity: frame.Record.Path, Field: token.Name, Reason: "atomic matched delete is unavailable"}
+-				}
+-				persisted := frame.Previous
+-				if persisted.IsValid() && persisted.Kind() == reflect.Pointer {
+-					persisted = persisted.Elem()
++					return &xhandler.Conflict{Entity: frame.Record.Path, Reason: "atomic matched DML is unavailable"}
+ 				}
+-				if !frame.ExpectedToken.IsValid() || !persisted.IsValid() || persisted.Kind() != reflect.Struct {
+-					return &xhandler.Conflict{Entity: frame.Record.Path, Field: token.Name, Reason: "persisted concurrency token is unavailable"}
++				if action.Kind == xhandler.WriteUpdate {
++					err = native.UpdateWithOptions(table, value, options...)
++				} else {
++					err = native.DeleteWithOptions(table, value, options...)
+ 				}
+-				previousToken := persisted.FieldByName(token.Name)
+-				if !previousToken.IsValid() {
+-					return &xhandler.Conflict{Entity: frame.Record.Path, Field: token.Name, Reason: "persisted concurrency token is unavailable"}
+-				}
+-				err = matched.DeleteWithOptions(table, value, xhandler.WithIfMatch(token.Column, previousToken.Interface()))
++			} else if action.Kind == xhandler.WriteUpdate {
++				err = dml.Update(table, value)
+ 			} else {
+ 				err = dml.Delete(table, value)
+ 			}
+@@ -1206,7 +1216,7 @@ func (p *Program) validateFrames(ctx context.Context, validator xhandler.Validat
+ }
+ 
+ func (p *Program) callEntityHook(ctx context.Context, name string, frame *Frame) error {
+-	if frame == nil || !frame.Hook.IsValid() {
++	if frame == nil || frame.SkippedDelete || !frame.Hook.IsValid() {
+ 		return nil
+ 	}
+ 	method := frame.Hook.MethodByName(name)
+@@ -1456,12 +1466,14 @@ func (p *Program) buildEntityFrame(record *Record, entity reflect.Value, parent
+ 				}
+ 			}
+ 		}
++		deleteRequested := record.DeleteMarker != nil && supplied(entity.Elem(), *record.DeleteMarker) && boolValue(entity.Elem().FieldByIndex(record.DeleteMarker.Index))
++		skipDelete := deleteRequested && complete && !previous.IsValid() && record.OnDeleteNotFound == "ignore" && record.ConcurrencyToken == nil && record.MutationPredicateGroup == nil
+ 		action := xhandler.WriteInsert
+ 		switch p.metadata.Operation {
+ 		case "post":
+ 			action = xhandler.WriteInsert
+ 		case "put":
+-			if !previous.IsValid() {
++			if !previous.IsValid() && !skipDelete {
+ 				return fmt.Errorf("put requires a matched complete identity")
+ 			}
+ 			action = xhandler.WriteUpdate
+@@ -1473,14 +1485,14 @@ func (p *Program) buildEntityFrame(record *Record, entity reflect.Value, parent
+ 			return fmt.Errorf("unsupported writer operation %q", p.metadata.Operation)
+ 		}
+ 		fields := livePresence(record, entity.Elem())
+-		if record.DeleteMarker != nil && supplied(entity.Elem(), *record.DeleteMarker) && boolValue(entity.Elem().FieldByIndex(record.DeleteMarker.Index)) {
+-			if !previous.IsValid() || !complete {
++		if deleteRequested {
++			if !complete || (!previous.IsValid() && !skipDelete) {
+ 				return fmt.Errorf("delete requires a matched complete identity")
+ 			}
+ 			action = xhandler.WriteDelete
+ 		}
+ 		original := p.captureEntityOriginal(record, entity)
+-		frame := &Frame{Entity: entity, Previous: previous, ExpectedToken: original.token, Fields: fields, Action: action, Record: record, Parent: parent, Original: original, Hook: p.hooksByRecord[record]}
++		frame := &Frame{Entity: entity, Previous: previous, ExpectedToken: original.token, Fields: fields, SkippedDelete: skipDelete, Action: action, Record: record, Parent: parent, Original: original, Hook: p.hooksByRecord[record]}
+ 		p.frames.Rows = append(p.frames.Rows, frame)
+ 		for _, relation := range record.Relations {
+ 			children := entity.Elem().FieldByIndex(relation.Field)
+@@ -1727,7 +1739,7 @@ func Compile(component *spec.Component, inputType, outputType reflect.Type, oper
+ 			}
+ 		}
+ 		metadata.Fields = append(metadata.Fields, compiled)
+-		if column != nil && column.PrimaryKey || strings.Contains(strings.ToLower(sqlx), "primarykey") {
++		if typecatalog.SQLXPrimaryKey(field.Tag, column != nil && column.PrimaryKey) {
+ 			metadata.Keys = append(metadata.Keys, compiled)
+ 		}
+ 		if column != nil && column.AutoIncrement || strings.Contains(strings.ToLower(sqlx), "autoincrement") {
+@@ -1766,7 +1778,7 @@ func Compile(component *spec.Component, inputType, outputType reflect.Type, oper
+ 		Auxiliary:    component.RootView.Auxiliary || strings.EqualFold(tagOption(rootViewTag, "auxiliary"), "true"),
+ 		CurrentField: metadata.CurrentField, Table: metadata.Table, Keys: metadata.Keys, Fields: metadata.Fields,
+ 		Sequence: metadata.Sequence, DeleteMarker: metadata.DeleteMarker, ConcurrencyToken: metadata.ConcurrencyToken,
+-		Invariants: metadata.Invariants, HookType: metadata.HookType,
++		Invariants: metadata.Invariants, OnDeleteNotFound: component.RootView.OnDeleteNotFound, MutationPredicateGroup: component.RootView.MutationPredicateGroup, HookType: metadata.HookType,
+ 	}
+ 	if root.Name == "" {
+ 		root.Name = metadata.EntityType.Name()
+@@ -1779,6 +1791,28 @@ func Compile(component *spec.Component, inputType, outputType reflect.Type, oper
+ 		return nil, err
+ 	}
+ 	metadata.Root = root
++	if err := validateMutationGroups(component, root); err != nil {
++		return nil, err
++	}
++	if operation == "post" && hasOnDeleteNotFoundPolicy(root) {
++		return nil, fmt.Errorf("onDeleteNotFound requires PATCH/PUT")
++	}
++	if hasMutationPredicate(root) {
++		if operation == "post" {
++			return nil, fmt.Errorf("mutation_predicate requires PATCH/PUT")
++		}
++		predicates, err := predicate.Compile(predicate.CompileInput{Component: component, InputType: inputType, Lookup: func(name string) (reflect.Type, error) {
++			typ := resolveHookType(component, name)
++			if typ == nil {
++				return nil, fmt.Errorf("predicate type %s is not linked", name)
++			}
++			return typ, nil
++		}})
++		if err != nil {
++			return nil, err
++		}
++		metadata.Predicates = predicates
++	}
+ 	return metadata, nil
+ }
+ 
+@@ -1838,6 +1872,8 @@ func compileRecord(component *spec.Component, inputType reflect.Type, name, path
+ 	record := &Record{Name: name, Path: path, EntityType: entityType, CurrentField: -1, Table: tagOption(viewTag, "table"), Auxiliary: strings.EqualFold(tagOption(viewTag, "auxiliary"), "true"), Invariants: map[string][]Field{}}
+ 	if view != nil {
+ 		record.Auxiliary = record.Auxiliary || view.Auxiliary
++		record.OnDeleteNotFound = view.OnDeleteNotFound
++		record.MutationPredicateGroup = view.MutationPredicateGroup
+ 		if view.Source != nil && strings.TrimSpace(view.Source.Table) != "" {
+ 			record.Table = strings.TrimSpace(view.Source.Table)
+ 		}
+@@ -1880,7 +1916,7 @@ func compileRecord(component *spec.Component, inputType reflect.Type, name, path
+ 			}
+ 		}
+ 		record.Fields = append(record.Fields, compiled)
+-		if column != nil && column.PrimaryKey || strings.Contains(strings.ToLower(sqlx), "primarykey") {
++		if typecatalog.SQLXPrimaryKey(field.Tag, column != nil && column.PrimaryKey) {
+ 			record.Keys = append(record.Keys, compiled)
+ 		}
+ 		if column != nil && column.AutoIncrement || strings.Contains(strings.ToLower(sqlx), "autoincrement") {
+@@ -2179,3 +2215,71 @@ func lookup[T any](ctx context.Context, binder xhandler.Binder, key xhandler.Val
+ 	}
+ 	return result, nil
+ }
++
++func hasMutationPredicate(record *Record) bool {
++	if record == nil {
++		return false
++	}
++	if record.MutationPredicateGroup != nil {
++		return true
++	}
++	for _, relation := range record.Relations {
++		if hasMutationPredicate(relation.Child) {
++			return true
++		}
++	}
++	return false
++}
++
++func validateMutationGroups(component *spec.Component, record *Record) error {
++	if record == nil {
++		return nil
++	}
++	if record.OnDeleteNotFound != "" {
++		if record.OnDeleteNotFound != "error" && record.OnDeleteNotFound != "ignore" {
++			return fmt.Errorf("onDeleteNotFound must be error or ignore")
++		}
++		if record.Auxiliary || record.DeleteMarker == nil {
++			return fmt.Errorf("onDeleteNotFound requires a writable delete marker")
++		}
++		if record.OnDeleteNotFound == "ignore" && len(record.Relations) > 0 {
++			return fmt.Errorf("onDeleteNotFound ignore requires a leaf role")
++		}
++	}
++	if record.MutationPredicateGroup != nil {
++		if record.Auxiliary {
++			return fmt.Errorf("mutation_predicate requires a writable role")
++		}
++		found := false
++		for _, parameter := range component.Parameters {
++			if parameter != nil {
++				for _, definition := range parameter.Predicates {
++					if definition != nil && definition.Group == *record.MutationPredicateGroup {
++						found = true
++					}
++				}
++			}
++		}
++		if !found {
++			return fmt.Errorf("mutation_predicate group %d has no predicate inputs", *record.MutationPredicateGroup)
++		}
++	}
++	for _, relation := range record.Relations {
++		if err := validateMutationGroups(component, relation.Child); err != nil {
++			return err
++		}
++	}
++	return nil
++}
++
++func hasOnDeleteNotFoundPolicy(record *Record) bool {
++	if record.OnDeleteNotFound != "" {
++		return true
++	}
++	for _, relation := range record.Relations {
++		if hasOnDeleteNotFoundPolicy(relation.Child) {
++			return true
++		}
++	}
++	return false
++}
+diff --git a/runtime/predicate/velty/program.go b/runtime/predicate/velty/program.go
+index c79502d5..760553f4 100644
+--- a/runtime/predicate/velty/program.go
++++ b/runtime/predicate/velty/program.go
+@@ -9,6 +9,7 @@ import (
+ 	"github.com/viant/bindly"
+ 	"github.com/viant/datly/spec"
+ 	"github.com/viant/datly/typecatalog"
++	"github.com/viant/sqlx"
+ 	xhandler "github.com/viant/xdatly/handler"
+ 	xpredicate "github.com/viant/xdatly/predicate"
+ )
+@@ -181,3 +182,22 @@ func resolveHandlerType(lookup LookupType, args []string) (reflect.Type, error)
+ 	}
+ 	return rType, nil
+ }
++
++// Criteria evaluates an existing predicate group for a database mutation.
++// It uses exactly the reader's marker-aware activation, custom handler binding,
++// templates, and ordered placeholders; SQLX owns the shared output fragment.
++func (p *Program) Criteria(ctx context.Context, binder xhandler.Binder, group int) (*sqlx.Criteria, error) {
++	result := &sqlx.Criteria{}
++	value, err := p.NewContext(ctx, binder, func(args ...any) { result.Placeholders = append(result.Placeholders, args...) })
++	if err != nil {
++		return nil, err
++	}
++	result.Expression, err = value.(*Context).Expand(group)
++	if err != nil {
++		return nil, err
++	}
++	if strings.TrimSpace(result.Expression) == "" {
++		return nil, nil
++	}
++	return result, nil
++}
+diff --git a/runtime/predicate/velty/program_test.go b/runtime/predicate/velty/program_test.go
+index a90c63bd..b6e589aa 100644
+--- a/runtime/predicate/velty/program_test.go
++++ b/runtime/predicate/velty/program_test.go
+@@ -473,3 +473,55 @@ func TestCompileUsesCompiledBindingPathForLogicalAlias(t *testing.T) {
+ 		t.Fatalf("predicates = %+v", program.predicates)
+ 	}
+ }
++
++func TestMutationCriteriaReusesCustomPredicateAndPresence(t *testing.T) {
++	type presence struct{ Status, Attempt bool }
++	type input struct {
++		Status  string
++		Attempt int
++		Has     *presence `setMarker:"true"`
++	}
++	component := &spec.Component{Parameters: []*spec.Parameter{
++		{Name: "Status", Predicates: []*spec.Predicate{{Group: 7, Name: "handler", Args: []string{"business.Status"}}}},
++		{Name: "Attempt", Predicates: []*spec.Predicate{{Group: 7, Name: "less_or_equal", Args: []string{"u", "attempt"}}}},
++	}}
++	program, err := Compile(CompileInput{Component: component, InputType: reflect.TypeFor[input](), Lookup: func(name string) (reflect.Type, error) { return reflect.TypeFor[statusPredicate](), nil }})
++	if err != nil {
++		t.Fatal(err)
++	}
++	type expect struct {
++		empty bool
++		args  []any
++	}
++	type useCase struct {
++		desc   string
++		input  input
++		expect expect
++	}
++	for _, tc := range []useCase{
++		{"absent custom predicate and range", input{Has: &presence{}}, expect{empty: true}},
++		{"provided empty custom trigger and zero range", input{Has: &presence{Status: true, Attempt: true}}, expect{args: []any{"", 0}}},
++		{"provided business status", input{Status: "open", Has: &presence{Status: true}}, expect{args: []any{"open"}}},
++	} {
++		t.Run(tc.desc, func(t *testing.T) {
++			observedPredicateContext = nil
++			ctx := context.WithValue(context.Background(), predicateContextKey{}, "mutation")
++			criteria, err := program.Criteria(ctx, predicateBinder{input: &tc.input}, 7)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if tc.expect.empty {
++				if criteria != nil || observedPredicateContext != nil {
++					t.Fatal("absent custom predicate was evaluated")
++				}
++				return
++			}
++			if criteria == nil || !reflect.DeepEqual(criteria.Placeholders, tc.expect.args) || !strings.Contains(criteria.Expression, "u.status = ?") {
++				t.Fatalf("criteria=%+v", criteria)
++			}
++			if observedPredicateContext != "mutation" {
++				t.Fatal("custom business predicate lost invocation context")
++			}
++		})
++	}
++}
+diff --git a/spec/view.go b/spec/view.go
+index 6cdf4b9b..09f74db0 100644
+--- a/spec/view.go
++++ b/spec/view.go
+@@ -20,20 +20,22 @@ type View struct {
+ 	TypeName string `json:"typeName,omitempty"`
+ 	Dest     string `json:"dest,omitempty"`
+ 	// EntityHooks is generation-only metadata for the authored entity hook reference.
+-	EntityHooks           string         `json:"entityHooks,omitempty"`
+-	Cardinality           Cardinality    `json:"cardinality,omitempty"`
+-	AllowNulls            *bool          `json:"allowNulls,omitempty"`
+-	Groupable             *bool          `json:"groupable,omitempty"`
+-	Columns               []*Column      `json:"columns,omitempty"`
+-	Source                *ViewSource    `json:"source,omitempty"`
+-	Selector              *Selector      `json:"selector,omitempty"`
+-	Partitioning          *Partitioning  `json:"partitioning,omitempty"`
+-	SelfReference         *SelfReference `json:"selfReference,omitempty"`
+-	BatchSize             int            `json:"batchSize,omitempty"`
+-	BatchConcurrency      int            `json:"batchConcurrency,omitempty"`
+-	PublishParent         bool           `json:"publishParent,omitempty"`
+-	RelationalConcurrency int            `json:"relationalConcurrency,omitempty"`
+-	Relations             []*Relation    `json:"relations,omitempty"`
++	OnDeleteNotFound       string         `json:"onDeleteNotFound,omitempty"`
++	MutationPredicateGroup *int           `json:"mutationPredicateGroup,omitempty"`
++	EntityHooks            string         `json:"entityHooks,omitempty"`
++	Cardinality            Cardinality    `json:"cardinality,omitempty"`
++	AllowNulls             *bool          `json:"allowNulls,omitempty"`
++	Groupable              *bool          `json:"groupable,omitempty"`
++	Columns                []*Column      `json:"columns,omitempty"`
++	Source                 *ViewSource    `json:"source,omitempty"`
++	Selector               *Selector      `json:"selector,omitempty"`
++	Partitioning           *Partitioning  `json:"partitioning,omitempty"`
++	SelfReference          *SelfReference `json:"selfReference,omitempty"`
++	BatchSize              int            `json:"batchSize,omitempty"`
++	BatchConcurrency       int            `json:"batchConcurrency,omitempty"`
++	PublishParent          bool           `json:"publishParent,omitempty"`
++	RelationalConcurrency  int            `json:"relationalConcurrency,omitempty"`
++	Relations              []*Relation    `json:"relations,omitempty"`
+ }
+ 
+ func (v *View) CanonicalName() string {
+diff --git a/spec/view_clone.go b/spec/view_clone.go
+index a21d84df..e244e815 100644
+--- a/spec/view_clone.go
++++ b/spec/view_clone.go
+@@ -12,7 +12,7 @@ func cloneView(source *View, cloned map[*View]*View) *View {
+ 		return existing
+ 	}
+ 	result := &View{
+-		Key: source.Key, Name: source.Name, Namespace: source.Namespace, TypeName: source.TypeName, Dest: source.Dest, EntityHooks: source.EntityHooks,
++		Key: source.Key, Name: source.Name, Namespace: source.Namespace, TypeName: source.TypeName, Dest: source.Dest, EntityHooks: source.EntityHooks, OnDeleteNotFound: source.OnDeleteNotFound,
+ 		Cardinality: source.Cardinality,
+ 		InMemory:    source.InMemory,
+ 		AllowNulls:  cloneBool(source.AllowNulls), Groupable: cloneBool(source.Groupable), Auxiliary: source.Auxiliary,
+@@ -21,6 +21,10 @@ func cloneView(source *View, cloned map[*View]*View) *View {
+ 		Partitioning: source.Partitioning.Clone(), SelfReference: cloneSelfReference(source.SelfReference),
+ 		BatchSize: source.BatchSize, BatchConcurrency: source.BatchConcurrency, PublishParent: source.PublishParent, RelationalConcurrency: source.RelationalConcurrency,
+ 	}
++	if source.MutationPredicateGroup != nil {
++		group := *source.MutationPredicateGroup
++		result.MutationPredicateGroup = &group
++	}
+ 	cloned[source] = result
+ 	for _, relation := range source.Relations {
+ 		if relation == nil {
+diff --git a/spec/view_controls.go b/spec/view_controls.go
+index 2f05c106..8bb93212 100644
+--- a/spec/view_controls.go
++++ b/spec/view_controls.go
+@@ -1,6 +1,8 @@
+ package spec
+ 
+ const (
++	ViewControlOnDeleteNotFound     = "delete_not_found"
++	ViewControlMutationPredicate    = "mutation_predicate"
+ 	ViewControlUseConnector         = "use_connector"
+ 	ViewControlSetLimit             = "set_limit"
+ 	ViewControlOrderBy              = "order_by"
+diff --git a/sql/dml/data_queue.go b/sql/dml/data_queue.go
+index da14c7e7..8dd77c0f 100644
+--- a/sql/dml/data_queue.go
++++ b/sql/dml/data_queue.go
+@@ -4,6 +4,7 @@ import (
+ 	"errors"
+ 	"strings"
+ 
++	"github.com/viant/sqlx"
+ 	xhandler "github.com/viant/xdatly/handler"
+ )
+ 
+@@ -25,6 +26,7 @@ type dataOperation struct {
+ 	dml      string
+ 	args     []any
+ 	match    *xhandler.Match
++	criteria *sqlx.Criteria
+ 	executed bool
+ 	reserved bool
+ }
+@@ -51,6 +53,16 @@ func (d *Data) DeleteWithOptions(tableName string, data any, options ...xhandler
+ 	return d.append(dataOperation{kind: dataOpDelete, table: tableName, data: data, match: condition})
+ }
+ 
++// UpdateWithCriteria queues an existing predicate result in the managed unit.
++func (d *Data) UpdateWithCriteria(tableName string, data any, criteria *sqlx.Criteria, options ...xhandler.Option) error {
++	return d.append(dataOperation{kind: dataOpUpdate, table: tableName, data: data, match: writeMatch(options), criteria: criteria.Clone()})
++}
++
++// DeleteWithCriteria queues an existing predicate result in the managed unit.
++func (d *Data) DeleteWithCriteria(tableName string, data any, criteria *sqlx.Criteria, options ...xhandler.Option) error {
++	return d.append(dataOperation{kind: dataOpDelete, table: tableName, data: data, match: writeMatch(options), criteria: criteria.Clone()})
++}
++
+ func writeMatch(options []xhandler.Option) *xhandler.Match {
+ 	settings := &xhandler.Options{}
+ 	for _, apply := range options {
+diff --git a/sql/dml/dml_criteria_test.go b/sql/dml/dml_criteria_test.go
+new file mode 100644
+index 00000000..c8c766bf
+--- /dev/null
++++ b/sql/dml/dml_criteria_test.go
+@@ -0,0 +1,110 @@
++package dml
++
++import (
++	"context"
++	"errors"
++	"github.com/viant/datly/internal/testharness/sqlite"
++	"github.com/viant/sqlx"
++	xhandler "github.com/viant/xdatly/handler"
++	"testing"
++)
++
++func TestCriteriaMutationExecutionSQLite(t *testing.T) {
++	type input struct{ delete, race, caller, staleToken, rollback bool }
++	type expect struct {
++		conflict bool
++		title    string
++		count    int
++	}
++	type useCase struct {
++		desc   string
++		input  input
++		expect expect
++	}
++	for _, tc := range []useCase{
++		{"matching update", input{}, expect{title: "next", count: 1}},
++		{"changed after update queued", input{race: true}, expect{conflict: true, title: "other", count: 1}},
++		{"matching delete", input{delete: true}, expect{}},
++		{"changed after delete queued", input{delete: true, race: true}, expect{conflict: true, title: "other", count: 1}},
++		{"criteria combines with stale IfMatch", input{staleToken: true}, expect{conflict: true, title: "keep", count: 1}},
++		{"caller rollback update", input{caller: true}, expect{title: "keep", count: 1}},
++		{"caller rollback delete", input{caller: true, delete: true}, expect{title: "keep", count: 1}},
++		{"late conflict rolls back earlier update", input{rollback: true}, expect{conflict: true, title: "keep", count: 1}},
++	} {
++		t.Run(tc.desc, func(t *testing.T) {
++			ctx := context.Background()
++			h := sqlite.New(t)
++			if err := h.ExecStatements(ctx, "CREATE TABLE records(name TEXT PRIMARY KEY,title TEXT NOT NULL,etag INTEGER NOT NULL)", "INSERT INTO records VALUES('one','keep',1)"); err != nil {
++				t.Fatal(err)
++			}
++			var opts []Option
++			if tc.input.caller {
++				tx, err := h.DB.BeginTx(ctx, nil)
++				if err != nil {
++					t.Fatal(err)
++				}
++				defer tx.Rollback()
++				opts = append(opts, WithTx(tx))
++			}
++			data := NewData(h.DB, opts...)
++			if err := data.BeginInvocation(); err != nil {
++				t.Fatal(err)
++			}
++			criteria := &sqlx.Criteria{Expression: "records.title = ? AND records.etag <= ?", Placeholders: []any{"keep", 1}}
++			var writeOptions []xhandler.Option
++			if tc.input.staleToken {
++				writeOptions = append(writeOptions, xhandler.WithIfMatch("etag", 0))
++			}
++			if tc.input.rollback {
++				if err := data.Update("records", &casRecord{Name: "one", Title: "earlier", Etag: 1}); err != nil {
++					t.Fatal(err)
++				}
++			}
++			row := &casSparseRecord{Name: "one", Title: "next", Has: &casSparseRecordHas{Name: true, Title: true}}
++			var err error
++			if tc.input.delete {
++				err = data.DeleteWithCriteria("records", row, criteria, writeOptions...)
++			} else {
++				err = data.UpdateWithCriteria("records", row, criteria, writeOptions...)
++			}
++			if err != nil {
++				t.Fatal(err)
++			}
++			// Neither mutation of the fragment nor reuse of its argument slice changes a queued guard.
++			criteria.Expression = "1=1"
++			criteria.Placeholders[0] = "other"
++			if tc.input.race {
++				if _, err = h.DB.ExecContext(ctx, "UPDATE records SET title='other',etag=2"); err != nil {
++					t.Fatal(err)
++				}
++			}
++			err = data.Complete(ctx, nil)
++			var conflict *xhandler.Conflict
++			if tc.expect.conflict {
++				if !errors.As(err, &conflict) {
++					t.Fatalf("expected conflict, got %v", err)
++				}
++			} else if err != nil {
++				t.Fatal(err)
++			}
++			if tc.input.caller {
++				if data.TransactionOutcome().State != xhandler.TransactionCallerPending {
++					t.Fatalf("caller ownership lost: %+v", data.TransactionOutcome())
++				}
++				if err = data.tx.Rollback(); err != nil {
++					t.Fatal(err)
++				}
++			}
++			var count int
++			if err = h.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM records").Scan(&count); err != nil || count != tc.expect.count {
++				t.Fatalf("count=%d error=%v", count, err)
++			}
++			if count > 0 {
++				var title string
++				if err = h.DB.QueryRowContext(ctx, "SELECT title FROM records").Scan(&title); err != nil || title != tc.expect.title {
++					t.Fatalf("title=%q error=%v", title, err)
++				}
++			}
++		})
++	}
++}
+diff --git a/sql/dml/dml_execute.go b/sql/dml/dml_execute.go
+index 955c4223..dfc842cb 100644
+--- a/sql/dml/dml_execute.go
++++ b/sql/dml/dml_execute.go
+@@ -73,12 +73,15 @@ func (d *Data) executeUpdateStep(ctx context.Context, db *sql.DB, tx *sql.Tx, st
+ 		if operation.match != nil {
+ 			writeOptions = append(append([]option.Option(nil), options...), option.IfMatch{Column: operation.match.Column, Value: operation.match.Value})
+ 		}
++		if operation.criteria != nil {
++			writeOptions = append(append([]option.Option(nil), writeOptions...), operation.criteria)
++		}
+ 		count, err := service.Exec(ctx, operation.data, writeOptions...)
+-		if operation.match != nil && errors.Is(err, option.ErrNoMatch) {
+-			err = &xhandler.Conflict{Entity: step.table, Field: operation.match.Column, Reason: "expected token no longer matches persisted row"}
++		if (operation.match != nil || operation.criteria != nil) && errors.Is(err, option.ErrNoMatch) {
++			err = &xhandler.Conflict{Entity: step.table, Field: operationConflictField(operation), Reason: "mutation predicate no longer matches persisted row"}
+ 		}
+-		if err == nil && operation.match != nil && count != 1 {
+-			err = &xhandler.Conflict{Entity: step.table, Field: operation.match.Column, Reason: "expected token no longer matches persisted row"}
++		if err == nil && (operation.match != nil || operation.criteria != nil) && count != 1 {
++			err = &xhandler.Conflict{Entity: step.table, Field: operationConflictField(operation), Reason: "mutation predicate no longer matches persisted row"}
+ 		}
+ 		metric.complete(count, err)
+ 		if err != nil {
+@@ -103,12 +106,15 @@ func (d *Data) executeDeleteStep(ctx context.Context, db *sql.DB, tx *sql.Tx, st
+ 		if operation.match != nil {
+ 			writeOptions = append(append([]option.Option(nil), options...), option.IfMatch{Column: operation.match.Column, Value: operation.match.Value})
+ 		}
++		if operation.criteria != nil {
++			writeOptions = append(append([]option.Option(nil), writeOptions...), operation.criteria)
++		}
+ 		count, err := service.Exec(ctx, operation.data, writeOptions...)
+-		if operation.match != nil && errors.Is(err, option.ErrNoMatch) {
+-			err = &xhandler.Conflict{Entity: step.table, Field: operation.match.Column, Reason: "expected token no longer matches persisted row"}
++		if (operation.match != nil || operation.criteria != nil) && errors.Is(err, option.ErrNoMatch) {
++			err = &xhandler.Conflict{Entity: step.table, Field: operationConflictField(operation), Reason: "mutation predicate no longer matches persisted row"}
+ 		}
+-		if err == nil && operation.match != nil && count != 1 {
+-			err = &xhandler.Conflict{Entity: step.table, Field: operation.match.Column, Reason: "expected token no longer matches persisted row"}
++		if err == nil && (operation.match != nil || operation.criteria != nil) && count != 1 {
++			err = &xhandler.Conflict{Entity: step.table, Field: operationConflictField(operation), Reason: "mutation predicate no longer matches persisted row"}
+ 		}
+ 		metric.complete(count, err)
+ 		if err != nil {
+@@ -134,3 +140,10 @@ func buildExecutionOptions(tx *sql.Tx, db *sql.DB, batchSize int) []option.Optio
+ 	}
+ 	return options
+ }
++
++func operationConflictField(operation *dataOperation) string {
++	if operation.match != nil {
++		return operation.match.Column
++	}
++	return "predicate"
++}
+diff --git a/tag/delete_missing_test.go b/tag/delete_missing_test.go
+new file mode 100644
+index 00000000..7d79a3ac
+--- /dev/null
++++ b/tag/delete_missing_test.go
+@@ -0,0 +1,28 @@
++package tag
++
++import "testing"
++
++func TestOnDeleteNotFoundRoundTrip(t *testing.T) {
++	for _, policy := range []string{"ignore", "error"} {
++		v, err := ParseView("rows,onDeleteNotFound=" + policy)
++		if err != nil {
++			t.Fatal(err)
++		}
++		text, err := v.Value()
++		if err != nil {
++			t.Fatal(err)
++		}
++		copy, err := ParseView(text)
++		if err != nil || copy.OnDeleteNotFound != policy {
++			t.Fatalf("round trip=%+v error=%v", copy, err)
++		}
++	}
++	for _, value := range []string{"rows,onDeleteNotFound=unknown", "rows,onDeleteNotFound=ignore,onDeleteNotFound=error"} {
++		if _, err := ParseView(value); err == nil {
++			t.Fatalf("accepted %s", value)
++		}
++	}
++	if _, err := (View{OnDeleteNotFound: "unknown"}).Value(); err == nil {
++		t.Fatal("formatter accepted unknown policy")
++	}
++}
+diff --git a/tag/mutation_predicate_test.go b/tag/mutation_predicate_test.go
+new file mode 100644
+index 00000000..ef089f28
+--- /dev/null
++++ b/tag/mutation_predicate_test.go
+@@ -0,0 +1,32 @@
++package tag
++
++import (
++	"fmt"
++	"testing"
++)
++
++func TestMutationPredicateRoundTrip(t *testing.T) {
++	for _, group := range []int{0, 7} {
++		original, err := ParseView(fmt.Sprintf("records,mutationPredicate=%d", group))
++		if err != nil {
++			t.Fatal(err)
++		}
++		encoded, err := original.Value()
++		if err != nil {
++			t.Fatal(err)
++		}
++		actual, err := ParseView(encoded)
++		if err != nil || actual.MutationPredicateGroup == nil || *actual.MutationPredicateGroup != group {
++			t.Fatalf("round trip=%+v error=%v", actual, err)
++		}
++	}
++	for _, input := range []string{"records,mutationPredicate=-1", "records,mutationPredicate=1.5", "records,mutationPredicate=7,mutationPredicate=8"} {
++		if _, err := ParseView(input); err == nil {
++			t.Fatalf("accepted %s", input)
++		}
++	}
++	negative := -1
++	if _, err := (View{MutationPredicateGroup: &negative}).Value(); err == nil {
++		t.Fatal("formatted negative group")
++	}
++}
+diff --git a/tag/view.go b/tag/view.go
+index eb002c4e..982a0492 100644
+--- a/tag/view.go
++++ b/tag/view.go
+@@ -12,28 +12,30 @@ import (
+ const ViewName = "view"
+ 
+ type View struct {
+-	Name                  string
+-	TypeName              string
+-	Dest                  string
+-	EntityHooks           string
+-	URI                   string
+-	Connector             string
+-	Table                 string
+-	Cache                 string
+-	CacheWarmup           string
+-	OrderBy               string
+-	Limit                 *int
+-	Offset                *int
+-	Batch                 int
+-	BatchConcurrency      int
+-	Match                 string
+-	PublishParent         bool
+-	RelationalConcurrency int
+-	AllowNulls            *bool
+-	Groupable             *bool
+-	Auxiliary             bool
+-	Partitioning          *spec.Partitioning
+-	Selector              *spec.Selector
++	Name                   string
++	TypeName               string
++	Dest                   string
++	OnDeleteNotFound       string
++	MutationPredicateGroup *int
++	EntityHooks            string
++	URI                    string
++	Connector              string
++	Table                  string
++	Cache                  string
++	CacheWarmup            string
++	OrderBy                string
++	Limit                  *int
++	Offset                 *int
++	Batch                  int
++	BatchConcurrency       int
++	Match                  string
++	PublishParent          bool
++	RelationalConcurrency  int
++	AllowNulls             *bool
++	Groupable              *bool
++	Auxiliary              bool
++	Partitioning           *spec.Partitioning
++	Selector               *spec.Selector
+ }
+ 
+ func ParseView(value string) (*View, error) {
+@@ -64,6 +66,23 @@ func ParseView(value string) (*View, error) {
+ 			result.TypeName = value
+ 		case "dest":
+ 			result.Dest = value
++		case "ondeletenotfound":
++			if result.OnDeleteNotFound != "" {
++				return fmt.Errorf("onDeleteNotFound is duplicated")
++			}
++			if value != "error" && value != "ignore" {
++				return fmt.Errorf("onDeleteNotFound must be error or ignore")
++			}
++			result.OnDeleteNotFound = value
++		case "mutationpredicate":
++			group, err := strconv.Atoi(value)
++			if err != nil || group < 0 {
++				return fmt.Errorf("mutationPredicate requires a non-negative group")
++			}
++			if result.MutationPredicateGroup != nil {
++				return fmt.Errorf("mutationPredicate is duplicated")
++			}
++			result.MutationPredicateGroup = &group
+ 		case "entityhooks":
+ 			if entityHooksSeen {
+ 				return fmt.Errorf("view option %s is declared more than once", key)
+diff --git a/tag/view_format.go b/tag/view_format.go
+index 9e8de2a5..18c68ca7 100644
+--- a/tag/view_format.go
++++ b/tag/view_format.go
+@@ -14,6 +14,12 @@ func (v View) Value() (string, error) {
+ 	if v.BatchConcurrency < 0 {
+ 		return "", fmt.Errorf("view option batchConcurrency must be a non-negative integer")
+ 	}
++	if v.MutationPredicateGroup != nil && *v.MutationPredicateGroup < 0 {
++		return "", fmt.Errorf("mutationPredicate must be a non-negative group")
++	}
++	if v.OnDeleteNotFound != "" && v.OnDeleteNotFound != "error" && v.OnDeleteNotFound != "ignore" {
++		return "", fmt.Errorf("onDeleteNotFound must be error or ignore")
++	}
+ 	var values []string
+ 	if name := strings.TrimSpace(v.Name); name != "" {
+ 		if err := validateTagToken("view name", name); err != nil {
+@@ -39,7 +45,7 @@ func (v View) Value() (string, error) {
+ 		return nil
+ 	}
+ 	for _, item := range []struct{ name, value string }{
+-		{"type", v.TypeName}, {"dest", v.Dest}, {"entityHooks", v.EntityHooks}, {"uri", v.URI}, {"connector", v.Connector}, {"table", v.Table},
++		{"onDeleteNotFound", v.OnDeleteNotFound}, {"type", v.TypeName}, {"dest", v.Dest}, {"entityHooks", v.EntityHooks}, {"uri", v.URI}, {"connector", v.Connector}, {"table", v.Table},
+ 		{"cache", v.Cache}, {"cacheWarmup", v.CacheWarmup},
+ 		{"orderBy", v.OrderBy}, {"match", v.Match},
+ 	} {
+@@ -62,6 +68,9 @@ func (v View) Value() (string, error) {
+ 	if v.PublishParent {
+ 		values = append(values, "publishParent=true")
+ 	}
++	if v.MutationPredicateGroup != nil {
++		values = append(values, "mutationPredicate="+strconv.Itoa(*v.MutationPredicateGroup))
++	}
+ 	if v.Auxiliary {
+ 		values = append(values, "auxiliary=true")
+ 	}
+diff --git a/transcribe/compile/mutation_predicate_test.go b/transcribe/compile/mutation_predicate_test.go
+new file mode 100644
+index 00000000..9ddb54da
+--- /dev/null
++++ b/transcribe/compile/mutation_predicate_test.go
+@@ -0,0 +1,44 @@
++package compile
++
++import (
++	"github.com/viant/datly/spec"
++	"strings"
++	"testing"
++)
++
++func TestMutationPredicateAnnotation(t *testing.T) {
++	type useCase struct {
++		desc, input string
++		expect      bool
++	}
++	for _, tc := range []useCase{
++		{"group zero", "r.*,mutation_predicate(r,0)", true},
++		{"group seven", "r.*,mutation_predicate(r,7)", true},
++		{"missing view", "r.*,mutation_predicate(other,7)", false},
++		{"negative", "r.*,mutation_predicate(r,-1)", false},
++		{"fraction", "r.*,mutation_predicate(r,1.5)", false},
++		{"string", "r.*,mutation_predicate(r,'7')", false},
++		{"alias", "r.*,mutation_predicate(r,7) AS alias", false},
++		{"nested", "r.*,COALESCE(mutation_predicate(r,7),0)", false},
++		{"duplicate", "r.*,mutation_predicate(r,7),mutation_predicate(r,8)", false},
++	} {
++		t.Run(tc.desc, func(t *testing.T) {
++			sql := "SELECT " + tc.input + " FROM (SELECT id FROM records) r"
++			got, err := NewReader().Compile(ReadInput{View: &spec.View{Name: "Rows", Source: &spec.ViewSource{SQL: sql}}, SQL: sql})
++			if (err == nil) != tc.expect {
++				t.Fatalf("error=%v", err)
++			}
++			if err != nil {
++				return
++			}
++			if got.MutationPredicateGroup == nil || strings.Contains(got.Source.SQL, "mutation_predicate(") {
++				t.Fatalf("metadata or SQL=%+v", got)
++			}
++			clone := got.Clone()
++			*clone.MutationPredicateGroup = 99
++			if *got.MutationPredicateGroup == 99 {
++				t.Fatal("clone aliases group metadata")
++			}
++		})
++	}
++}
+diff --git a/transcribe/compile/view_directives.go b/transcribe/compile/view_directives.go
+index a384c13d..ecd8c4e7 100644
+--- a/transcribe/compile/view_directives.go
++++ b/transcribe/compile/view_directives.go
+@@ -63,7 +63,7 @@ func parseViewDirective(item *query.Item) (viewDirective, bool, error) {
+ 	}
+ 	name := normalizeViewDirectiveName(sqlparser.Stringify(call.X))
+ 	switch name {
+-	case spec.ViewControlOrderBy, spec.ViewControlSetLimit, spec.ViewControlUseConnector,
++	case spec.ViewControlOnDeleteNotFound, spec.ViewControlMutationPredicate, spec.ViewControlOrderBy, spec.ViewControlSetLimit, spec.ViewControlUseConnector,
+ 		spec.ViewControlUseCache, spec.ViewControlCacheWarmup,
+ 		spec.ViewControlAllowNulls, spec.ViewControlGroupable, spec.ViewControlGrouping,
+ 		spec.ViewControlAllowedOrder, spec.ViewControlCardinality, spec.ViewControlSelfRef,
+@@ -77,6 +77,9 @@ func parseViewDirective(item *query.Item) (viewDirective, bool, error) {
+ 	default:
+ 		return viewDirective{}, false, nil
+ 	}
++	if (name == spec.ViewControlMutationPredicate || name == spec.ViewControlOnDeleteNotFound) && item.Alias != "" {
++		return viewDirective{}, true, &Error{Code: CodeViewDirective, Cause: fmt.Errorf("%s must be a standalone annotation without an alias", name)}
++	}
+ 	minimum, maximum := 2, 2
+ 	switch name {
+ 	case spec.ViewControlAllowNulls, spec.ViewControlGroupable, spec.ViewControlGrouping, spec.ViewControlPublish, spec.ViewControlInMemory:
+@@ -107,10 +110,10 @@ func parseViewDirective(item *query.Item) (viewDirective, bool, error) {
+ 	if target == "" || minimum > 1 && directive.value == "" {
+ 		return viewDirective{}, true, &Error{Code: CodeViewDirective, Cause: fmt.Errorf("%s requires non-empty arguments", name)}
+ 	}
+-	if name == spec.ViewControlSetLimit {
++	if name == spec.ViewControlSetLimit || name == spec.ViewControlMutationPredicate {
+ 		limit, err := strconv.Atoi(directive.value)
+ 		if err != nil || limit < 0 {
+-			return viewDirective{}, true, &Error{Code: CodeViewDirective, Cause: fmt.Errorf("set_limit value %q must be a non-negative integer", directive.value)}
++			return viewDirective{}, true, &Error{Code: CodeViewDirective, Cause: fmt.Errorf("%s value %q must be a non-negative integer", name, directive.value)}
+ 		}
+ 	}
+ 	if selectorBooleanDirective(name) {
+@@ -165,7 +168,7 @@ func parseViewDirective(item *query.Item) (viewDirective, bool, error) {
+ func containsViewDirective(source node.Node) bool {
+ 	return containsSQLCall(source, func(name string) bool {
+ 		switch name {
+-		case spec.ViewControlOrderBy, spec.ViewControlSetLimit, spec.ViewControlUseConnector,
++		case spec.ViewControlOnDeleteNotFound, spec.ViewControlMutationPredicate, spec.ViewControlOrderBy, spec.ViewControlSetLimit, spec.ViewControlUseConnector,
+ 			spec.ViewControlUseCache, spec.ViewControlCacheWarmup,
+ 			spec.ViewControlAllowNulls, spec.ViewControlGroupable, spec.ViewControlGrouping,
+ 			spec.ViewControlAllowedOrder, spec.ViewControlCardinality, spec.ViewControlSelfRef,
+@@ -285,7 +288,7 @@ func viewDirectiveTarget(source node.Node) (string, bool) {
+ func viewDirectiveValue(name string, argument int, source node.Node) (string, bool) {
+ 	switch actual := source.(type) {
+ 	case *expr.Literal:
+-		numeric := name == spec.ViewControlSetLimit || name == spec.ViewControlBatchSize || name == spec.ViewControlConcurrency || name == spec.ViewControlBatchConcurrency || name == spec.ViewControlSelectorDefaultLimit ||
++		numeric := name == spec.ViewControlMutationPredicate || name == spec.ViewControlSetLimit || name == spec.ViewControlBatchSize || name == spec.ViewControlConcurrency || name == spec.ViewControlBatchConcurrency || name == spec.ViewControlSelectorDefaultLimit ||
+ 			name == spec.ViewControlPartitioner && argument == 2
+ 		if numeric && actual.Kind != "int" {
+ 			return "", false
+@@ -341,6 +344,14 @@ func applyViewDirectives(root *spec.View, directives []viewDirective) error {
+ 			target.Source = &spec.ViewSource{}
+ 		}
+ 		switch directive.name {
++		case spec.ViewControlOnDeleteNotFound:
++			if directive.value != "error" && directive.value != "ignore" {
++				return &Error{Code: CodeViewDirective, Cause: fmt.Errorf("delete_not_found must be error or ignore")}
++			}
++			target.OnDeleteNotFound = directive.value
++		case spec.ViewControlMutationPredicate:
++			group, _ := strconv.Atoi(directive.value)
++			target.MutationPredicateGroup = &group
+ 		case spec.ViewControlInMemory:
+ 			if findDirectiveRelation(root, target) == nil {
+ 				return &Error{Code: CodeViewDirective, Cause: fmt.Errorf("in_memory target %q must be a related view", directive.target)}
+diff --git a/transcribe/delete_missing_sqlite_test.go b/transcribe/delete_missing_sqlite_test.go
+new file mode 100644
+index 00000000..05ab6042
+--- /dev/null
++++ b/transcribe/delete_missing_sqlite_test.go
+@@ -0,0 +1,84 @@
++package transcribe
++
++import (
++	"context"
++	"github.com/viant/datly/internal/testharness"
++	"github.com/viant/datly/transcribe/column"
++	"os/exec"
++	"strings"
++	"testing"
++)
++
++func TestGeneratedOnDeleteNotFoundSQLite(t *testing.T) {
++	ctx := context.Background()
++	db := testharness.NewSQLiteHarness(t)
++	if err := db.ExecStatements(ctx, "CREATE TABLE records(id TEXT PRIMARY KEY,title TEXT,owner TEXT,attempt INTEGER)"); err != nil {
++		t.Fatal(err)
++	}
++	root := t.TempDir()
++	(testharness.GeneratedModule{Path: "github.com/viant/datly/predicatefixture"}).Write(t, root)
++	source := strings.Replace(mutationPredicateDQL, "mutation_predicate(r,7)", "delete_not_found(r,'ignore')", 1)
++	request := GenerationRequest{Destination: root, Source: &Source{Name: "records", Scope: "github.com/viant/datly/predicatefixture/source", Text: source, Connector: "main", ColumnRefiner: column.New(column.Connections{"main": db.DB})}}
++	if _, err := (Generator{Operation: "patch"}).Generate(ctx, request); err != nil {
++		t.Fatal(err)
++	}
++	runtimeSource := mutationPredicateRuntime
++	runtimeSource = strings.Replace(runtimeSource, "if component.RootView.MutationPredicateGroup==nil{t.Fatal(\"generated mutation predicate metadata was lost in bootstrap\")}", "if component.RootView.OnDeleteNotFound!=\"ignore\"{t.Fatal(\"generated onDeleteNotFound metadata was lost in bootstrap\")}", 1)
++	start := strings.Index(runtimeSource, " for _,test:=range []useCase{")
++	end := strings.Index(runtimeSource[start:], " }{\n") + start
++	cases := ` for _,test:=range []useCase{
++ {desc:"known delete",input:input{body:"{\"Data\":[{\"id\":\"one\",\"shouldDelete\":true}]}"},expect:expect{remaining:0}},
++ {desc:"missing delete no-op",input:input{body:"{\"Data\":[{\"id\":\"missing\",\"shouldDelete\":true}]}"},expect:expect{title:"keep",remaining:1}},
++ {desc:"mixed known and missing deletes",input:input{body:"{\"Data\":[{\"id\":\"one\",\"shouldDelete\":true},{\"id\":\"missing\",\"shouldDelete\":true}]}"},expect:expect{remaining:0}},
++ {desc:"incomplete identity still fails",input:input{body:"{\"Data\":[{\"shouldDelete\":true}]}"},expect:expect{bindingFailure:true,title:"keep",remaining:1}},
++`
++	runtimeSource = runtimeSource[:start] + cases + runtimeSource[end:]
++	writeSourceFile(t, root, "generated/predicate_test.go", runtimeSource)
++	run := func() ([]byte, error) {
++		command := exec.Command("go", "test", "-mod=mod", "-count=1", "./generated")
++		command.Dir = root
++		return command.CombinedOutput()
++	}
++	if output, err := run(); err != nil {
++		t.Fatalf("generated deletion runtime: %v\n%s", err, output)
++	}
++	// An excluded existing row must be a no-op, never an unscoped deletion.
++	scoped := request
++	scopedSource := *request.Source
++	scoped.Source = &scopedSource
++	scoped.Source.Text = strings.Replace(source, "FROM records) r", "FROM records WHERE owner='other') r", 1)
++	if _, err := (Generator{Operation: "patch"}).Generate(ctx, scoped); err != nil {
++		t.Fatal(err)
++	}
++	scopedRuntime := strings.ReplaceAll(runtimeSource, "expect:expect{remaining:0}", `expect:expect{title:"keep",remaining:1}`)
++	writeSourceFile(t, root, "generated/predicate_test.go", scopedRuntime)
++	if output, err := run(); err != nil {
++		t.Fatalf("scoped no-op: %v\n%s", err, output)
++	}
++	// A declared mutation guard retains strict matching and execution conflicts.
++	guarded := request
++	guardedSource := *request.Source
++	guarded.Source = &guardedSource
++	guarded.Source.Text = strings.Replace(mutationPredicateDQL, "mutation_predicate(r,7)", "mutation_predicate(r,7),delete_not_found(r,'ignore')", 1)
++	if _, err := (Generator{Operation: "patch"}).Generate(ctx, guarded); err != nil {
++		t.Fatal(err)
++	}
++	writeSourceFile(t, root, "generated/predicate_test.go", mutationPredicateRuntime)
++	if output, err := run(); err != nil {
++		t.Fatalf("guarded deletion: %v\n%s", err, output)
++	}
++	for _, policy := range []string{"invalid", "ignore"} {
++		invalid := request
++		copy := *request.Source
++		invalid.Source = &copy
++		invalid.Destination = t.TempDir()
++		if policy == "invalid" {
++			invalid.Source.Text = strings.Replace(source, "'ignore'", "'invalid'", 1)
++		} else {
++			invalid.Source.Text = strings.Replace(source, "delete_marker(r.should_delete)", "CAST(r.should_delete AS bool)", 1)
++		}
++		if _, err := (Generator{Operation: "patch"}).Generate(ctx, invalid); err == nil {
++			t.Fatal("invalid policy or marker-free policy was accepted")
++		}
++	}
++}
+diff --git a/transcribe/generate/lifecycle.go b/transcribe/generate/lifecycle.go
+index ce30ea5e..1986d73c 100644
+--- a/transcribe/generate/lifecycle.go
++++ b/transcribe/generate/lifecycle.go
+@@ -20,8 +20,11 @@ func (input *Input) ValidateLifecycleTarget(mutation bool) error {
+ 			supported = false
+ 		}
+ 	}
+-	if supported {
+-		return nil
++	predicateSupported := mutation
++	for _, route := range input.Component.Routes {
++		if route != nil && !strings.EqualFold(route.Method, "PATCH") && !strings.EqualFold(route.Method, "PUT") {
++			predicateSupported = false
++		}
+ 	}
+ 	visited := map[*spec.View]bool{}
+ 	var check func(*spec.View) error
+@@ -30,12 +33,53 @@ func (input *Input) ValidateLifecycleTarget(mutation bool) error {
+ 			return nil
+ 		}
+ 		visited[view] = true
++		if view.OnDeleteNotFound != "" {
++			if !predicateSupported || view.Auxiliary {
++				return fmt.Errorf("delete_not_found requires a generated PATCH/PUT writable view")
++			}
++			if view.OnDeleteNotFound != "error" && view.OnDeleteNotFound != "ignore" {
++				return fmt.Errorf("delete_not_found must be error or ignore")
++			}
++			if view.OnDeleteNotFound == "ignore" && len(view.Relations) > 0 {
++				return fmt.Errorf("delete_not_found(ignore) requires a leaf view; missing parents cannot suppress descendant checks")
++			}
++			found := false
++			for _, column := range view.Columns {
++				if column != nil && column.DeleteMarker {
++					found = true
++				}
++			}
++			if !found {
++				return fmt.Errorf("delete_not_found requires delete_marker")
++			}
++		}
++		if view.MutationPredicateGroup != nil {
++			if !predicateSupported {
++				return fmt.Errorf("view %s: mutation_predicate requires a generated PATCH/PUT writer", view.Name)
++			}
++			if view.Auxiliary || *view.MutationPredicateGroup < 0 {
++				return fmt.Errorf("view %s: mutation_predicate requires a writable view and non-negative group", view.Name)
++			}
++			found := false
++			for _, param := range input.Component.Parameters {
++				if param != nil {
++					for _, predicate := range param.Predicates {
++						if predicate != nil && predicate.Group == *view.MutationPredicateGroup {
++							found = true
++						}
++					}
++				}
++			}
++			if !found {
++				return fmt.Errorf("view %s: mutation_predicate group %d has no predicate inputs", view.Name, *view.MutationPredicateGroup)
++			}
++		}
+ 		for _, column := range view.Columns {
+-			if column != nil && (column.DeleteMarker || column.ConcurrencyToken) {
++			if !supported && column != nil && (column.DeleteMarker || column.ConcurrencyToken) {
+ 				return fmt.Errorf("view %s: mutation markers require the generated Go mutation lifecycle", view.Name)
+ 			}
+ 		}
+-		if strings.TrimSpace(view.EntityHooks) != "" {
++		if !supported && strings.TrimSpace(view.EntityHooks) != "" {
+ 			return fmt.Errorf("view %s: lifecycle_type(%s, %q) requires the generated Go mutation lifecycle; readers use input_type OrdersInput.Init and output_type OrdersOutput.Finalize, with row OnFetch separate", view.Name, view.Name, view.EntityHooks)
+ 		}
+ 		for _, relation := range view.Relations {
+diff --git a/transcribe/generate/plan_views.go b/transcribe/generate/plan_views.go
+index 09570dc5..75f403dc 100644
+--- a/transcribe/generate/plan_views.go
++++ b/transcribe/generate/plan_views.go
+@@ -622,7 +622,7 @@ func appendViewTagsWithMatch(fieldTag string, view *spec.View, match string) (st
+ 		return fieldTag, nil
+ 	}
+ 	fieldTag = withoutStructTags(fieldTag, tag.ViewName, tag.SQLName)
+-	metadata := tag.View{Name: view.CanonicalName(), TypeName: view.TypeName, Dest: view.Dest, EntityHooks: view.EntityHooks, Batch: view.BatchSize,
++	metadata := tag.View{Name: view.CanonicalName(), TypeName: view.TypeName, Dest: view.Dest, EntityHooks: view.EntityHooks, OnDeleteNotFound: view.OnDeleteNotFound, MutationPredicateGroup: view.MutationPredicateGroup, Batch: view.BatchSize,
+ 		BatchConcurrency: view.BatchConcurrency,
+ 		Auxiliary:        view.Auxiliary,
+ 		Match:            match,
+diff --git a/transcribe/handler/compiler/compiler.go b/transcribe/handler/compiler/compiler.go
+index a5fce77a..4a6c881f 100644
+--- a/transcribe/handler/compiler/compiler.go
++++ b/transcribe/handler/compiler/compiler.go
+@@ -6,6 +6,7 @@ import (
+ 	"fmt"
+ 	goast "go/ast"
+ 	"go/parser"
++	"reflect"
+ 	"strings"
+ 
+ 	"github.com/viant/datly/spec"
+@@ -389,7 +390,7 @@ func cardinalityOf(param *spec.Parameter) spec.Cardinality {
+ func canonicalKeys(view *spec.View) ([]plan.KeyPart, error) {
+ 	var result []plan.KeyPart
+ 	for _, column := range view.Columns {
+-		if column == nil || !column.PrimaryKey {
++		if column == nil || !effectivePrimaryKey(column) {
+ 			continue
+ 		}
+ 		field := typecatalog.FieldName(column.Name)
+@@ -431,7 +432,7 @@ func sequencePlan(view *spec.View, explicit string, operation plan.Operation, de
+ 			}
+ 			continue
+ 		}
+-		if column.PrimaryKey {
++		if effectivePrimaryKey(column) {
+ 			candidates = append(candidates, column)
+ 		}
+ 	}
+@@ -479,3 +480,13 @@ func (c *compiler) nextWriteOrder() int {
+ 	c.nextOrder++
+ 	return order
+ }
++
++// effectivePrimaryKey follows the same authored SQLX identity mapping emitted
++// into the Go contract. Database discovery remains evidence, not an override
++// of an explicitly declared true/false mapping.
++func effectivePrimaryKey(column *spec.Column) bool {
++	if column == nil {
++		return false
++	}
++	return typecatalog.SQLXPrimaryKey(reflect.StructTag(column.Tag), column.PrimaryKey)
++}
+diff --git a/transcribe/handler/compiler/generation_current.go b/transcribe/handler/compiler/generation_current.go
+index c1bff797..dfbec190 100644
+--- a/transcribe/handler/compiler/generation_current.go
++++ b/transcribe/handler/compiler/generation_current.go
+@@ -60,7 +60,7 @@ func (b *inputGeneration) addCurrent(view *spec.View, body string, path []string
+ 		}
+ 		alias := ""
+ 		for _, col := range view.Columns {
+-			if col != nil && col.PrimaryKey && typecatalog.FieldName(col.Name) == key.Field {
++			if col != nil && effectivePrimaryKey(col) && typecatalog.FieldName(col.Name) == key.Field {
+ 				// StructQL helper projections are Go shapes. Keep the physical
+ 				// database name in SQLX metadata and use the canonical exported
+ 				// field name for the generated helper contract.
+@@ -119,6 +119,8 @@ func (b *inputGeneration) appendCurrent(view *spec.View, currentName, predicate
+ 	current.TypeName = ""
+ 	current.Dest = ""
+ 	current.EntityHooks = ""
++	current.OnDeleteNotFound = ""
++	current.MutationPredicateGroup = nil
+ 	current.Columns = nil
+ 	for _, column := range view.Columns {
+ 		if column == nil || column.DeleteMarker {
+diff --git a/transcribe/handler/compiler/identity_mapping_test.go b/transcribe/handler/compiler/identity_mapping_test.go
+new file mode 100644
+index 00000000..2b4d28c0
+--- /dev/null
++++ b/transcribe/handler/compiler/identity_mapping_test.go
+@@ -0,0 +1,23 @@
++package compiler
++
++import (
++	"github.com/viant/datly/spec"
++	"testing"
++)
++
++func TestCanonicalKeysRespectAuthoredSQLXIdentity(t *testing.T) {
++	view := &spec.View{Name: "States", Columns: []*spec.Column{
++		{Name: "state_hash", Source: "state_hash", PrimaryKey: true, Type: spec.TypeRef{Name: "string"}, Tag: `sqlx:"state_hash,primaryKey=false"`},
++		{Name: "flow_hash", Source: "flow_hash", Type: spec.TypeRef{Name: "string"}, Tag: `sqlx:"flow_hash,primaryKey=true"`},
++	}}
++	keys, err := canonicalKeys(view)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(keys) != 1 || keys[0].Source != "flow_hash" {
++		t.Fatalf("keys=%+v", keys)
++	}
++	if !view.Columns[0].PrimaryKey {
++		t.Fatal("database schema evidence was overwritten")
++	}
++}
+diff --git a/transcribe/mutation_predicate_sqlite_test.go b/transcribe/mutation_predicate_sqlite_test.go
+new file mode 100644
+index 00000000..4c183291
+--- /dev/null
++++ b/transcribe/mutation_predicate_sqlite_test.go
+@@ -0,0 +1,148 @@
++package transcribe
++
++import (
++	"context"
++	"os/exec"
++	"strings"
++	"testing"
++
++	"github.com/viant/datly/internal/testharness"
++	"github.com/viant/datly/transcribe/column"
++)
++
++func TestGeneratedMutationPredicatesSQLite(t *testing.T) {
++	ctx := context.Background()
++	db := testharness.NewSQLiteHarness(t)
++	if err := db.ExecStatements(ctx, "CREATE TABLE records(id TEXT PRIMARY KEY,title TEXT,owner TEXT,attempt INTEGER)"); err != nil {
++		t.Fatal(err)
++	}
++	root := t.TempDir()
++	(testharness.GeneratedModule{Path: "github.com/viant/datly/predicatefixture"}).Write(t, root)
++	source := mutationPredicateDQL
++	request := GenerationRequest{Destination: root, Source: &Source{Name: "records", Scope: "github.com/viant/datly/predicatefixture/source", Text: source, Connector: "main", ColumnRefiner: column.New(column.Connections{"main": db.DB})}}
++	if _, err := (Generator{Operation: "patch"}).Generate(ctx, request); err != nil {
++		t.Fatal(err)
++	}
++	for _, operation := range []string{"get", "post"} {
++		invalid := request
++		copy := *request.Source
++		invalid.Source = &copy
++		invalid.Source.Text = strings.Replace(source, "'/records','PATCH'", "'/records','"+strings.ToUpper(operation)+"'", 1)
++		invalid.Destination = t.TempDir()
++		if _, err := (Generator{Operation: operation}).Generate(ctx, invalid); err == nil || !strings.Contains(err.Error(), "mutation_predicate") {
++			t.Fatalf("unsupported operation %s error=%v", operation, err)
++		}
++	}
++	invalid := request
++	copy := *request.Source
++	invalid.Source = &copy
++	invalid.Source.Text = strings.Replace(source, "mutation_predicate(r,7)", "mutation_predicate(r,8)", 1)
++	invalid.Destination = t.TempDir()
++	if _, err := (Generator{Operation: "patch"}).Generate(ctx, invalid); err == nil || !strings.Contains(err.Error(), "no predicate inputs") {
++		t.Fatalf("missing group error=%v", err)
++	}
++	writeSourceFile(t, root, "generated/predicate_test.go", mutationPredicateRuntime)
++	for _, required := range []bool{false, true} {
++		if required {
++			request.Source.Text = strings.Replace(source, "(query/expectedOwner).Optional()", "(query/expectedOwner).Required()", 1)
++		}
++		if _, err := (Generator{Operation: "patch"}).Generate(ctx, request); err != nil {
++			t.Fatalf("regeneration required=%v: %v", required, err)
++		}
++		testSource := mutationPredicateRuntime
++		if required {
++			testSource = strings.ReplaceAll(testSource, `{desc:"optional omission updates by identity",input:input{body:`, `{desc:"required omission fails before writing",input:input{body:`)
++			testSource = strings.Replace(testSource, `expect:expect{title:"changed",remaining:1}},`, `expect:expect{bindingFailure:true,title:"keep",remaining:1}},`, 1)
++			testSource = strings.ReplaceAll(testSource, `query:"?maxAttempt=0"`, `query:"?expectedOwner=old&maxAttempt=0"`)
++		}
++		writeSourceFile(t, root, "generated/predicate_test.go", testSource)
++		command := exec.Command("go", "test", "-mod=mod", "-count=1", "./generated")
++		command.Dir = root
++		if output, err := command.CombinedOutput(); err != nil {
++			t.Fatalf("generated runtime required=%v: %v\n%s", required, err, output)
++		}
++	}
++}
++
++const mutationPredicateDQL = `#package('github.com/viant/datly/predicatefixture/generated')
++#setting($_ = $connector('main'))
++#setting($_ = $route('/records','PATCH'))
++#setting($_ = $input_type('Input'))
++#setting($_ = $output_type('Output'))
++#setting($_ = $case_format('lc'))
++#define($_ = $ExpectedOwner<string>(query/expectedOwner).Optional().WithPredicate(7,'equal','records','owner'))
++#define($_ = $MaxAttempt<int>(query/maxAttempt).Optional().WithPredicate(7,'less_or_equal','records','attempt'))
++#define($_ = $Data<[]*Record>(output/body))
++SELECT r.id, r.title, r.owner, r.attempt, r.should_delete,
++       type(r,'Record'), mutation_predicate(r,7),
++       CAST(r.id AS string), CAST(r.title AS string),
++       CAST(r.owner AS *string), CAST(r.attempt AS int),
++       CAST(r.should_delete AS bool),
++       tag(r.id,'sqlx:"id,primaryKey"'), delete_marker(r.should_delete)
++FROM (SELECT id,title,owner,attempt,0 AS should_delete FROM records) r
++`
++
++const mutationPredicateRuntime = `package generated
++
++import (
++ "context"
++ "database/sql"
++ "encoding/json"
++ "errors"
++ "net/http/httptest"
++ "reflect"
++ "strings"
++ "testing"
++
++ _ "github.com/mattn/go-sqlite3"
++ "github.com/viant/bindly/locator"
++ requestprovider "github.com/viant/bindly/provider/request"
++ "github.com/viant/bindly/resource"
++ "github.com/viant/datly/bootstrap"
++ druntime "github.com/viant/datly/runtime"
++ "github.com/viant/datly/runtime/registry"
++ writer "github.com/viant/datly/runtime/handler/writer"
++ dsql "github.com/viant/datly/sql"
++ "github.com/viant/datly/sql/dml"
++ viewprovider "github.com/viant/datly/sql/reader/provider"
++ dtag "github.com/viant/datly/tag"
++ xhandler "github.com/viant/xdatly/handler"
++ _ "github.com/viant/sqlx/metadata/product/sqlite"
++)
++
++func TestMutationPredicateGenerated(t *testing.T){
++ type input struct{query,body string}
++ type expect struct{conflict,bindingFailure bool;title string;remaining int}
++ type useCase struct{desc string;input input;expect expect}
++ for _,test:=range []useCase{
++  {desc:"optional omission updates by identity",input:input{body:` + "`" + `{"Data":[{"id":"one","title":"changed"}]}` + "`" + `},expect:expect{title:"changed",remaining:1}},
++  {desc:"provided compound equality and range",input:input{query:"?expectedOwner=old&maxAttempt=0",body:` + "`" + `{"Data":[{"id":"one","title":"changed"}]}` + "`" + `},expect:expect{title:"changed",remaining:1}},
++  {desc:"mismatched owner cannot update",input:input{query:"?expectedOwner=other",body:` + "`" + `{"Data":[{"id":"one","title":"changed"}]}` + "`" + `},expect:expect{conflict:true,title:"keep",remaining:1}},
++  {desc:"explicit empty owner activates predicate",input:input{query:"?expectedOwner=",body:` + "`" + `{"Data":[{"id":"one","title":"changed"}]}` + "`" + `},expect:expect{conflict:true,title:"keep",remaining:1}},
++  {desc:"provided zero range permits matching zero",input:input{query:"?maxAttempt=0",body:` + "`" + `{"Data":[{"id":"one","title":"changed"}]}` + "`" + `},expect:expect{title:"changed",remaining:1}},
++  {desc:"stale delete cannot remove row",input:input{query:"?expectedOwner=other",body:` + "`" + `{"Data":[{"id":"one","shouldDelete":true}]}` + "`" + `},expect:expect{conflict:true,title:"keep",remaining:1}},
++  {desc:"matching delete removes row",input:input{query:"?expectedOwner=old",body:` + "`" + `{"Data":[{"id":"one","shouldDelete":true}]}` + "`" + `},expect:expect{remaining:0}},
++ }{
++  t.Run(test.desc,func(t *testing.T){
++   ctx:=context.Background();db,err:=sql.Open("sqlite3",":memory:");if err!=nil{t.Fatal(err)};defer db.Close();db.SetMaxOpenConns(1)
++   if _,err=db.Exec("CREATE TABLE records(id TEXT PRIMARY KEY,title TEXT,owner TEXT,attempt INTEGER);INSERT INTO records VALUES('one','keep','old',0)");err!=nil{t.Fatal(err)}
++   holder:=reflect.TypeFor[RecordsComponent]();field,_:=holder.FieldByName("Contract");tag,present,err:=dtag.ParseComponent(field.Tag);if err!=nil||!present{t.Fatalf("holder: %v",err)}
++   source:=&bootstrap.RouteSource{HolderType:holder.Name(),FieldName:field.Name,PackageName:"generated",PackagePath:holder.PkgPath(),Tag:tag,InputType:"Input",OutputType:"Output"}
++   component,err:=source.Resolve(reflect.TypeFor[Input](),reflect.TypeFor[Output]());if err!=nil{t.Fatal(err)}
++   if component.RootView.MutationPredicateGroup==nil{t.Fatal("generated mutation predicate metadata was lost in bootstrap")}
++ resources:=resource.New();if err=resources.Register(RecordsDatlyResourceNamespace,RecordsDatlyResources);err!=nil{t.Fatal(err)}
++   artifact,err:=bootstrap.BuildArtifact(bootstrap.ArtifactInput{Component:component,InputType:reflect.TypeFor[Input](),OutputType:reflect.TypeFor[Output](),Resources:resources});if err!=nil{t.Fatal(err)}
++   views,err:=viewprovider.New(viewprovider.Config{Dependencies:artifact.ViewDependencies,Input:artifact.Input,SQL:&dsql.SQLComponent{DB:db}});if err!=nil{t.Fatal(err)}
++   handler,err:=writer.New(artifact.Component,reflect.TypeFor[Input](),reflect.TypeFor[Output](),"patch");if err!=nil{t.Fatal(err)}
++   rt,err:=druntime.NewRuntime([]*registry.RegisteredComponent{{Component:artifact.Component,Input:artifact.Input,Output:artifact.Output,OutputType:reflect.TypeFor[Output](),Handler:handler,Providers:[]locator.Provider{views},DataSource:dml.Source{DB:db}}},druntime.WithResources(resources));if err!=nil{t.Fatal(err)}
++   request:=httptest.NewRequest("PATCH","/records"+test.input.query,strings.NewReader(test.input.body));request.Header.Set("Content-Type","application/json")
++   scope,err:=requestprovider.New(request);if err!=nil{t.Fatal(err)};defer scope.Close()
++   output,err:=rt.ExecuteRoute(ctx,"PATCH","/records",scope)
++   if test.expect.bindingFailure{if err==nil{t.Fatal("required omission unexpectedly succeeded")}}else if test.expect.conflict{var conflict *xhandler.Conflict;if !errors.As(err,&conflict){t.Fatalf("expected atomic conflict, got %v",err)}}else if err!=nil{t.Fatal(err)}
++   var count int;if err=db.QueryRow("SELECT COUNT(*) FROM records").Scan(&count);err!=nil||count!=test.expect.remaining{t.Fatalf("count=%d err=%v",count,err)}
++   if count!=0{var title string;if err=db.QueryRow("SELECT title FROM records").Scan(&title);err!=nil||title!=test.expect.title{t.Fatalf("title=%q err=%v",title,err)}}
++   if !test.expect.conflict && !test.expect.bindingFailure{if _,err=json.Marshal(output);err!=nil{t.Fatal(err)}}
++  })
++ }
++}
++`
+diff --git a/typecatalog/sqlx_identity.go b/typecatalog/sqlx_identity.go
+new file mode 100644
+index 00000000..96fb487e
+--- /dev/null
++++ b/typecatalog/sqlx_identity.go
+@@ -0,0 +1,30 @@
++package typecatalog
++
++import (
++	sqlxio "github.com/viant/sqlx/io"
++	tagvalues "github.com/viant/tagly/tags"
++	"reflect"
++	"strings"
++)
++
++// SQLXPrimaryKey resolves the generated contract's identity using the native
++// SQLX parser. An explicit mapping overrides discovery in both planning and
++// runtime; discovery is retained when the option is absent.
++func SQLXPrimaryKey(tag reflect.StructTag, inferred bool) bool {
++	value := tag.Get("sqlx")
++	if value == "-" {
++		return false
++	}
++	_, options := tagvalues.Values(value).Name()
++	declared := false
++	_ = options.MatchRawPairs(func(key, value string) error {
++		if strings.EqualFold(strings.TrimSpace(key), "primaryKey") {
++			declared = true
++		}
++		return nil
++	})
++	if declared {
++		return sqlxio.ParseTag(tag).PrimaryKey
++	}
++	return inferred
++}
+diff --git a/typecatalog/sqlx_identity_test.go b/typecatalog/sqlx_identity_test.go
+new file mode 100644
+index 00000000..6655992f
+--- /dev/null
++++ b/typecatalog/sqlx_identity_test.go
+@@ -0,0 +1,28 @@
++package typecatalog
++
++import (
++	"reflect"
++	"testing"
++)
++
++func TestSQLXPrimaryKeyMappingAuthority(t *testing.T) {
++	type useCase struct {
++		desc             string
++		tag              reflect.StructTag
++		inferred, expect bool
++	}
++	for _, tc := range []useCase{
++		{"discovery fallback", `sqlx:"id"`, true, true},
++		{"bare declared identity", `sqlx:"id,primaryKey"`, false, true},
++		{"declared true", `sqlx:"id,primaryKey=true"`, false, true},
++		{"declared false overrides physical discovery", `sqlx:"id,primaryKey=false"`, true, false},
++		{"column name is not an option", `sqlx:"primarykey_note"`, false, false},
++		{"transient fields cannot identify DML", `sqlx:"-"`, true, false},
++	} {
++		t.Run(tc.desc, func(t *testing.T) {
++			if got := SQLXPrimaryKey(tc.tag, tc.inferred); got != tc.expect {
++				t.Fatalf("got=%v expected=%v", got, tc.expect)
++			}
++		})
++	}
++}

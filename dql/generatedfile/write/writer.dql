@@ -1,0 +1,76 @@
+#package('github.com/viant/agently-core/internal/datly/generatedfile/write')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/generated-file','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $GeneratedFiles<[]*GeneratedFile>(body/data))
+#define($_ = $Data<[]*GeneratedFile>(output/body))
+
+SELECT data_rows.id, data_rows.should_delete,
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:",omitempty"'),
+       delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
+       data_rows.conversation_id,
+       data_rows.turn_id,
+       data_rows.message_id,
+       data_rows.provider,
+       data_rows.mode,
+       data_rows.copy_mode,
+       data_rows.status,
+       data_rows.payload_id,
+       data_rows.container_id,
+       data_rows.provider_file_id,
+       data_rows.filename,
+       data_rows.mime_type,
+       data_rows.size_bytes,
+       data_rows.checksum,
+       data_rows.error_message,
+       data_rows.expires_at,
+       data_rows.created_at,
+       data_rows.updated_at,
+       type(data_rows,'GeneratedFile'),
+       lifecycle_type(data_rows,'Lifecycle'),
+       CAST(data_rows.id AS string),
+       tag(data_rows.id,'validate:"required" sqlx:"id,primaryKey"'),
+       CAST(data_rows.conversation_id AS string),
+       tag(data_rows.conversation_id,'validate:"required" sqlx:"conversation_id"'),
+       CAST(data_rows.turn_id AS *string),
+       tag(data_rows.turn_id,'json:",omitempty" sqlx:"turn_id"'),
+       CAST(data_rows.message_id AS *string),
+       tag(data_rows.message_id,'json:",omitempty" sqlx:"message_id"'),
+       CAST(data_rows.provider AS string),
+       tag(data_rows.provider,'validate:"required" sqlx:"provider"'),
+       CAST(data_rows.mode AS string),
+       tag(data_rows.mode,'validate:"required" sqlx:"mode"'),
+       CAST(data_rows.copy_mode AS string),
+       tag(data_rows.copy_mode,'validate:"required" sqlx:"copy_mode"'),
+       CAST(data_rows.status AS string),
+       tag(data_rows.status,'validate:"required" sqlx:"status"'),
+       CAST(data_rows.payload_id AS *string),
+       tag(data_rows.payload_id,'json:",omitempty" sqlx:"payload_id"'),
+       CAST(data_rows.container_id AS *string),
+       tag(data_rows.container_id,'json:",omitempty" sqlx:"container_id"'),
+       CAST(data_rows.provider_file_id AS *string),
+       tag(data_rows.provider_file_id,'json:",omitempty" sqlx:"provider_file_id"'),
+       CAST(data_rows.filename AS *string),
+       tag(data_rows.filename,'json:",omitempty" sqlx:"filename"'),
+       CAST(data_rows.mime_type AS *string),
+       tag(data_rows.mime_type,'json:",omitempty" sqlx:"mime_type"'),
+       CAST(data_rows.size_bytes AS *int),
+       tag(data_rows.size_bytes,'json:",omitempty" sqlx:"size_bytes"'),
+       CAST(data_rows.checksum AS *string),
+       tag(data_rows.checksum,'json:",omitempty" sqlx:"checksum"'),
+       CAST(data_rows.error_message AS *string),
+       tag(data_rows.error_message,'json:",omitempty" sqlx:"error_message"'),
+       CAST(data_rows.expires_at AS *time.Time),
+       tag(data_rows.expires_at,'json:",omitempty" sqlx:"expires_at"'),
+       CAST(data_rows.created_at AS *time.Time),
+       tag(data_rows.created_at,'json:",omitempty" sqlx:"created_at"'),
+       CAST(data_rows.updated_at AS *time.Time),
+       tag(data_rows.updated_at,'json:",omitempty" sqlx:"updated_at"')
+FROM (SELECT 0 AS should_delete, `id`, `conversation_id`, `turn_id`, `message_id`, `provider`, `mode`, `copy_mode`, `status`, `payload_id`, `container_id`, `provider_file_id`, `filename`, `mime_type`, `size_bytes`, `checksum`, `error_message`, `expires_at`, `created_at`, `updated_at` FROM generated_file) data_rows

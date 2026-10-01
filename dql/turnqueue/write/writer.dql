@@ -1,0 +1,41 @@
+#package('github.com/viant/agently-core/internal/datly/turnqueue/write')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/turnqueue','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Queues<[]*TurnQueue>(body/data))
+#define($_ = $Data<[]*TurnQueue>(output/body))
+
+SELECT data_rows.id, data_rows.should_delete,
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:",omitempty"'),
+       delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
+       data_rows.conversation_id,
+       data_rows.turn_id,
+       data_rows.message_id,
+       data_rows.queue_seq,
+       data_rows.status,
+       data_rows.created_at,
+       data_rows.updated_at,
+       type(data_rows,'TurnQueue'),
+       lifecycle_type(data_rows,'Lifecycle'),
+       CAST(data_rows.id AS string),
+       tag(data_rows.id,'validate:"required" sqlx:"id,primaryKey"'),
+       CAST(data_rows.conversation_id AS string),
+       tag(data_rows.conversation_id,'sqlx:"conversation_id"'),
+       CAST(data_rows.turn_id AS string),
+       tag(data_rows.turn_id,'sqlx:"turn_id"'),
+       CAST(data_rows.message_id AS string),
+       tag(data_rows.message_id,'sqlx:"message_id"'),
+       CAST(data_rows.queue_seq AS *int64),
+       tag(data_rows.queue_seq,'json:",omitempty" sqlx:"queue_seq"'),
+       CAST(data_rows.status AS string),
+       tag(data_rows.status,'sqlx:"status"'),
+       CAST(data_rows.created_at AS *time.Time),
+       tag(data_rows.created_at,'json:",omitempty" sqlx:"created_at"'),
+       CAST(data_rows.updated_at AS *time.Time),
+       tag(data_rows.updated_at,'json:",omitempty" sqlx:"updated_at"')
+FROM (SELECT 0 AS should_delete, `id`, `conversation_id`, `turn_id`, `message_id`, `queue_seq`, `status`, `created_at`, `updated_at` FROM turn_queue) data_rows

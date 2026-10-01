@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/viant/agently-core/app/store/data"
 )
 
 const (
@@ -22,16 +20,13 @@ const (
 // - the token must not be readable by subject
 func TestAuthExtensionPersistOAuthToken_StoresUnderCanonicalUserID_WithDatly(t *testing.T) {
 	ctx := context.Background()
-	dao, err := data.NewDatlyInMemory(ctx)
-	if err != nil {
-		t.Fatalf("NewDatlyInMemory() error = %v", err)
-	}
-
-	users := NewDatlyUserService(dao)
+	_, dbPath := newMCPLinkTestDBWithPath(t)
+	nativeServer := newMCPLinkTestNative(t, dbPath)
+	users := NewDatlyUserService(nativeServer)
 	if users == nil {
 		t.Fatalf("NewDatlyUserService() = nil")
 	}
-	store := NewTokenStoreDAO(dao, "oauth-persist-datly-test")
+	store := NewTokenStoreDAO(nativeServer, "oauth-persist-datly-test")
 	if store == nil {
 		t.Fatalf("NewTokenStoreDAO() = nil")
 	}
@@ -58,10 +53,7 @@ func TestAuthExtensionPersistOAuthToken_StoresUnderCanonicalUserID_WithDatly(t *
 		t.Fatalf("user.ID was empty")
 	}
 
-	db, err := store.db()
-	if err != nil {
-		t.Fatalf("store.db() error = %v", err)
-	}
+	db := authTokenTestDB(t, dbPath)
 
 	var tokenUserID string
 	if err := db.QueryRowContext(ctx, `SELECT user_id FROM user_oauth_token WHERE provider = ?`, "oauth").Scan(&tokenUserID); err != nil {
@@ -89,16 +81,14 @@ func TestAuthExtensionPersistOAuthToken_StoresUnderCanonicalUserID_WithDatly(t *
 
 func TestTokenStoreDAODelete_ClearsCredentialAndResetsAuditLeaseState(t *testing.T) {
 	ctx := context.Background()
-	dao, err := data.NewDatlyInMemory(ctx)
-	if err != nil {
-		t.Fatalf("NewDatlyInMemory() error = %v", err)
-	}
-	users := NewDatlyUserService(dao)
+	_, dbPath := newMCPLinkTestDBWithPath(t)
+	nativeServer := newMCPLinkTestNative(t, dbPath)
+	users := NewDatlyUserService(nativeServer)
 	userID, err := users.UpsertWithProvider(ctx, "delete-user", "delete-user", "delete@example.test", "oauth", "delete-subject")
 	if err != nil {
 		t.Fatalf("UpsertWithProvider() error = %v", err)
 	}
-	store := NewTokenStoreDAO(dao, "oauth-delete-audit-test")
+	store := NewTokenStoreDAO(nativeServer, "oauth-delete-audit-test")
 	if err := store.Put(ctx, &OAuthToken{
 		Username:     userID,
 		Provider:     "oauth",
@@ -108,10 +98,7 @@ func TestTokenStoreDAODelete_ClearsCredentialAndResetsAuditLeaseState(t *testing
 	}); err != nil {
 		t.Fatalf("Put() error = %v", err)
 	}
-	db, err := store.db()
-	if err != nil {
-		t.Fatalf("store.db() error = %v", err)
-	}
+	db := authTokenTestDB(t, dbPath)
 	if _, err := db.ExecContext(ctx, `UPDATE user_oauth_token
 SET lease_owner = 'worker', lease_until = DATETIME('now', '+1 hour'),
     refresh_status = 'refreshing', updated_at = DATETIME('2000-01-01')
@@ -165,16 +152,13 @@ FROM user_oauth_token WHERE user_id = ? AND provider = ?`, userID, "oauth").
 // - no token row should ever be created under subject instead of users.id
 func TestAuthExtensionEnsureSessionOAuthTokens_RehydratesUsingCanonicalUserID_WithDatly(t *testing.T) {
 	ctx := context.Background()
-	dao, err := data.NewDatlyInMemory(ctx)
-	if err != nil {
-		t.Fatalf("NewDatlyInMemory() error = %v", err)
-	}
-
-	users := NewDatlyUserService(dao)
+	_, dbPath := newMCPLinkTestDBWithPath(t)
+	nativeServer := newMCPLinkTestNative(t, dbPath)
+	users := NewDatlyUserService(nativeServer)
 	if users == nil {
 		t.Fatalf("NewDatlyUserService() = nil")
 	}
-	store := NewTokenStoreDAO(dao, "oauth-ensure-datly-test")
+	store := NewTokenStoreDAO(nativeServer, "oauth-ensure-datly-test")
 	if store == nil {
 		t.Fatalf("NewTokenStoreDAO() = nil")
 	}
@@ -216,10 +200,7 @@ func TestAuthExtensionEnsureSessionOAuthTokens_RehydratesUsingCanonicalUserID_Wi
 		t.Fatalf("GetBySubjectAndProvider() returned empty user")
 	}
 
-	db, err := store.db()
-	if err != nil {
-		t.Fatalf("store.db() error = %v", err)
-	}
+	db := authTokenTestDB(t, dbPath)
 	var count int
 	if err := db.QueryRowContext(ctx, `SELECT COUNT(1) FROM user_oauth_token WHERE user_id = ? AND provider = ?`, user.ID, "oauth").Scan(&count); err != nil {
 		t.Fatalf("QueryRowContext(count canonical token row) error = %v", err)
