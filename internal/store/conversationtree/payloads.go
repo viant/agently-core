@@ -40,7 +40,7 @@ func (d *Discoverer) CollectPayloadIDs(ctx context.Context, graph *Graph) ([]str
 	payloadIDs, messageIDs := []string{}, []string{}
 	query := &msgread.MessagesInput{}
 	query.SetConversationIds(conversationIDs)
-	selector := state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: conversation.BaseMessageFields()}}}
+	var selector state.Selectors
 	messages, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, query, selector)
 	if err != nil {
 		return nil, err

@@ -8,7 +8,6 @@ import (
 	approvalread "github.com/viant/agently-core/internal/datly/toolapprovalqueue/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
 	conversation "github.com/viant/agently-core/internal/store/conversation"
-	"github.com/viant/xdatly/state"
 )
 
 // CollectApprovalIDs finds every approval linked to the graph before child
@@ -40,7 +39,7 @@ func (d *Discoverer) CollectApprovalIDs(ctx context.Context, graph *Graph) ([]st
 	messageQuery := &msgread.MessagesInput{}
 	messageQuery.SetConversationIds(conversationIDs)
 	messages, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery,
-		state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: conversation.BaseMessageFields()}}})
+		nil)
 	if err != nil {
 		return nil, err
 	}

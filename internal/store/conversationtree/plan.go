@@ -126,7 +126,7 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 		plan.TurnIDs = normalizeIDs(plan.TurnIDs)
 		messageQuery := &msgread.MessagesInput{}
 		messageQuery.SetConversationIds(plan.ConversationIDs)
-		plan.Messages, err = (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: conversation.BaseMessageFields()}}})
+		plan.Messages, err = (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -438,7 +438,7 @@ func (d *Discoverer) collectPlanDetachRows(ctx context.Context, plan *DeletePlan
 		bySuperseded.SetSupersededByIds(plan.MessageIDs)
 		queries = append(queries, bySuperseded)
 		for _, query := range queries {
-			rows, err := planReaderRows[msgread.MessageView](ctx, d, query, "/v1/internal/agently/message", d.planDetachProviders("messageaccess", conversation.BaseMessageFields()), d.LockDetachRows)
+			rows, err := planReaderRows[msgread.MessageView](ctx, d, query, "/v1/internal/agently/message", d.planDetachProviders("messageaccess", nil), d.LockDetachRows)
 			if err != nil {
 				return err
 			}
@@ -494,7 +494,13 @@ func planProviders(kind, owner string) []locator.Provider {
 }
 func planReaderRows[T any](ctx context.Context, d *Discoverer, input any, path string, providers []locator.Provider, lock ...bool) ([]*T, error) {
 	target := dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeOf(input).Elem().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: path}}
-	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, len(lock) > 0 && lock[0]), Target: target, Input: input, Providers: providers})
+	options := queryselectors.ForUpdateOptions(ctx, len(lock) > 0 && lock[0])
+	if path == "/v1/internal/agently/message" {
+		base := conversation.BaseMessageReaderOptions(ctx)
+		base.ForUpdate = options.ForUpdate
+		options = base
+	}
+	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: options, Target: target, Input: input, Providers: providers})
 	if err != nil {
 		return nil, err
 	}

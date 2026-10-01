@@ -1262,7 +1262,7 @@ INSERT INTO message(id,conversation_id,turn_id,role,type,content,status,created_
 	pageQuery := &msgread.MessagesInput{}
 	pageQuery.SetConversationId(row.Id)
 	pageSelector := state.Selectors{&state.NamedSelector{Name: "message_rows", Selector: state.Selector{
-		Fields: convstore.BaseMessageFields(), OrderBy: "created_at DESC,id DESC", Limit: 2,
+		OrderBy: "created_at DESC,id DESC", Limit: 2,
 	}}}
 	messageRows, err := messages.ListRows(owner, pageQuery, pageSelector)
 	require.NoError(t, err)

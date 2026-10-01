@@ -89,7 +89,8 @@ func (s *MessageStore) ListRows(ctx context.Context, input *read.MessagesInput, 
 	if len(selectors) > 0 {
 		providers = append(providers, queryselectors.ProviderMapped(selectors, map[string]string{"message_rows": "reader", "MessageRows": "reader"}))
 	}
-	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: messageReaderTarget, Input: input, Providers: providers})
+	options := *BaseMessageReaderOptions(ctx)
+	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: messageReaderTarget, Input: input, Providers: providers, ReaderOptions: &options})
 	if err != nil {
 		return nil, err
 	}
@@ -100,21 +101,12 @@ func (s *MessageStore) ListRows(ctx context.Context, input *read.MessagesInput, 
 	return out.Data, nil
 }
 
-// BaseMessageFields excludes the reader's relation graph from page projection.
-func BaseMessageFields() []string {
-	view := reflect.TypeFor[read.MessageView]()
-	fields := make([]string, 0, view.NumField())
-	for i := 0; i < view.NumField(); i++ {
-		field := view.Field(i)
-		if field.Name == "Elicitation" || field.Tag.Get("json") == "-" {
-			continue
-		}
-		column := strings.Split(field.Tag.Get("sqlx"), ",")[0]
-		if column != "" && column != "-" {
-			fields = append(fields, column)
-		}
-	}
-	return fields
+// BaseMessageReaderOptions requests public message scalars without relation reads.
+func BaseMessageReaderOptions(ctx context.Context) *dexec.ReaderOptions {
+	options := dexec.ReaderOptionsFromContext(ctx)
+	options.RootOnly = true
+	options.ExcludeFields = []string{"Elicitation", "CleanupStatus", "ReadMode", "ElicitationBody", "ElicitationCompression"}
+	return &options
 }
 
 func (s *MessageStore) Get(ctx context.Context, id string, modelCalls, toolCalls bool) (*read.MessageView, error) {
