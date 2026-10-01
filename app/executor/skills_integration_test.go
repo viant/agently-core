@@ -1720,20 +1720,67 @@ func TestRuntimeQuery_SkillActivationModes_TransientWorkspace(t *testing.T) {
 			}
 			files := waitForPayloadFiles(t, payloadDir, minPayloads)
 			foundChild := false
+			parentToolsPresent := false
 			for _, path := range files {
 				data, err := os.ReadFile(path)
 				if err != nil {
 					t.Fatalf("read payload %s: %v", path, err)
 				}
-				if payloadContains(data, "# Demo Skill") && payloadContains(data, tc.childSkillText) {
-					if tc.expectChildPayload {
-						if payloadContains(data, "llm_skills-list") || payloadContains(data, "llm/skills:list") || payloadContains(data, "llm_skills-activate") || payloadContains(data, "llm/skills:activate") {
-							t.Fatalf("expected child llm-request to avoid recursive skill tools: %s", string(data))
-						}
+				var request struct {
+					DebugContext struct {
+						ConversationID string `json:"conversationId"`
+					} `json:"debugContext"`
+					Options struct {
+						Tools []struct {
+							Definition struct {
+								Name string `json:"name"`
+							} `json:"definition"`
+						} `json:"tools"`
+					} `json:"options"`
+					Messages []struct {
+						Role    string `json:"role"`
+						Content string `json:"content"`
+					} `json:"messages"`
+				}
+				if err = json.Unmarshal(data, &request); err != nil {
+					t.Fatalf("decode payload %s: %v", path, err)
+				}
+				recursive := false
+				for _, tool := range request.Options.Tools {
+					if tool.Definition.Name == "llm_skills-list" || tool.Definition.Name == "llm/skills:list" || tool.Definition.Name == "llm_skills-activate" || tool.Definition.Name == "llm/skills:activate" {
+						recursive = true
+					}
+				}
+				if request.DebugContext.ConversationID == tc.conversationID {
+					parentToolsPresent = parentToolsPresent || recursive
+					if !tc.expectChildPayload && payloadContains(data, "# Demo Skill") && payloadContains(data, tc.childSkillText) {
+						foundChild = true
+					}
+					continue
+				}
+				if !tc.expectChildPayload {
+					continue
+				}
+				instructionContainsBody := false
+				for _, message := range request.Messages {
+					if message.Role == "system" && strings.Contains(message.Content, "# Demo Skill") && strings.Contains(message.Content, tc.childSkillText) {
+						instructionContainsBody = true
+					}
+				}
+				if instructionContainsBody {
+					if request.DebugContext.ConversationID == "" {
+						t.Fatalf("child payload lacks conversation identity: %s", path)
+					}
+					if recursive {
+						t.Fatalf("child request advertises recursive skill tools: %s", path)
 					}
 					foundChild = true
 				}
 			}
+			if tc.expectChildPayload && !parentToolsPresent {
+				t.Fatal("parent request lost permitted skill tools")
+			}
+
 			if !foundChild {
 				t.Fatalf("expected llm-request payload to contain loaded %s skill body", tc.mode)
 			}

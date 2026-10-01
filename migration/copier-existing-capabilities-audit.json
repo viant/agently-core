@@ -1,0 +1,161 @@
+{
+  "scope": "read-only existing-capability audit; no Datly or SQLx changes",
+  "writer_result_identity": {
+    "MutationReport": "aggregate operation/table/count/affected/error/contention; no row identity API",
+    "existing_pointer_contract": "writer handler sets Output.Data to prepared input entities; action ordering does not replace collection",
+    "actual_runtime_proof": "PASS 5.327s /tmp/agently-writer-pointer-identity.log",
+    "applied_commit": "cf6877ea",
+    "boundary_tests": [
+      "foreign output pointer rejected",
+      "omitted output rejected",
+      "equal-ID reordered occurrences preserve caller correspondence",
+      "successful defaults and scoped sequences publish to original callers"
+    ]
+  },
+  "existing_shapes": {
+    "conversationMutation": {
+      "canonical_fields": 29,
+      "canonical_file": "internal/datly/conversation/write/views.go",
+      "different_types": {
+        "has": [
+          "*ConversationHas",
+          "*MutableConversationViewHas"
+        ]
+      },
+      "extra": {
+        "shoulddelete": "bool"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 28,
+      "old_file": "model/conversation/write_conversation.go"
+    },
+    "generatedfile": {
+      "canonical_fields": 19,
+      "canonical_file": "internal/datly/generatedfile/read/views.go",
+      "different_types": {},
+      "extra": {},
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 19,
+      "old_file": "model/generatedfile/read_generated_file.go"
+    },
+    "messageMutation": {
+      "canonical_fields": 31,
+      "canonical_file": "internal/datly/message/write/views.go",
+      "different_types": {},
+      "extra": {
+        "shoulddelete": "bool"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 30,
+      "old_file": "model/message/write_message.go"
+    },
+    "messageRows": {
+      "canonical_fields": 29,
+      "canonical_file": "internal/datly/message/base/views.go",
+      "different_types": {},
+      "extra": {},
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 29,
+      "old_file": "model/message/list_list.go"
+    },
+    "modelCallMutation": {
+      "canonical_fields": 33,
+      "canonical_file": "internal/datly/modelcall/write/views.go",
+      "different_types": {},
+      "extra": {
+        "shoulddelete": "bool"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 32,
+      "old_file": "model/modelcall/write_model_call.go"
+    },
+    "payloadMutation": {
+      "canonical_fields": 18,
+      "canonical_file": "internal/datly/payload/write/views.go",
+      "different_types": {},
+      "extra": {
+        "shoulddelete": "bool"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 17,
+      "old_file": "model/payload/write_payload.go"
+    },
+    "queueMutation": {
+      "canonical_fields": 10,
+      "canonical_file": "internal/datly/turnqueue/write/views.go",
+      "different_types": {},
+      "extra": {
+        "shoulddelete": "bool"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 9,
+      "old_file": "model/turnqueue/write_turn_queue.go"
+    },
+    "queueRows": {
+      "canonical_fields": 8,
+      "canonical_file": "internal/datly/turnqueue/read/views.go",
+      "different_types": {},
+      "extra": {},
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 8,
+      "old_file": "model/turnqueue/read_list.go"
+    },
+    "toolCallMutation": {
+      "canonical_fields": 24,
+      "canonical_file": "internal/datly/toolcall/write/views.go",
+      "different_types": {},
+      "extra": {
+        "shoulddelete": "bool"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 23,
+      "old_file": "model/toolcall/write_tool_call.go"
+    },
+    "turnMutation": {
+      "canonical_fields": 19,
+      "canonical_file": "internal/datly/turn/write/views.go",
+      "different_types": {},
+      "extra": {
+        "shoulddelete": "bool"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 18,
+      "old_file": "model/turn/write_turn.go"
+    }
+  },
+  "small_cutovers": {
+    "MessageRowsView": "completed alias to MessageBaseView;29 scalar fields/types, no new component; direct base page return removes JSON roundtrip",
+    "GeneratedFileView": "19 fields/types equivalent after ID acronym caller migration; current canonical reader sufficient",
+    "QueueRowView": "8 fields/types equivalent after ID acronym caller migration; current canonical reader sufficient",
+    "PayloadRowsView": "already canonical alias; result mapper can return same rows directly",
+    "RunStepsView": "already canonical alias"
+  },
+  "mutation_alias_caution": "Seven native writers add ShouldDelete; all non-control field types match case-insensitively, but canonical Has includes new marker and methods use normalized acronym names. Do not alias without caller/marker/JSON validation. No new base components required for those writers.",
+  "remaining_native_dto_sqlx_reads": [
+    106,
+    107,
+    128
+  ],
+  "skill_test_counterfactual": {
+    "original_unmodified_assertions": "PASS7.823s",
+    "failure_cause": "parent iteration2 contains child skill body in persisted nested-agent tool-call arguments; body substring misclassified parent as child",
+    "strengthened_criteria": "explicit child conversation identity; skill body in actual system instruction; no recursive advertised skills; at least one selected child; parent permitted skill tools retained",
+    "original_same_criteria": "PASS7.729s",
+    "v1_same_criteria": "PASS13.405s",
+    "logs": [
+      "/tmp/agently-original-skill-activation-baseline.log",
+      "/tmp/agently-original-skill-semantic-baseline.log",
+      "/tmp/agently-v1-skill-semantic-focused.log"
+    ]
+  }
+}
