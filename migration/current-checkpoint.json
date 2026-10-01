@@ -4,12 +4,14 @@
   "status": "Review checkpoint; not release acceptance",
   "schema": "MySQL schema files restored to pre-change bytes; no migration DDL required",
   "allocation": "New SQLx scoped allocator reverted. Preserve original behavior through existing capabilities; implementation review pending. Message DQL regenerated artifacts are not yet synchronized.",
-  "projection": "Core scalar projection intent replaces tag introspection; Datly RootOnly prototype remains uncommitted and subject to user consultation. Published dependencies do not yet supply this prototype API.",
+  "projection": "Completed with three Core base DQL components using existing Datly PackageCompilation, canonical inputs and shared SQL assets. RootOnly prototype removed.",
   "verification": "Original/V1 live plain, shell, and attachment comparisons passed on both databases. Gzip hook unit/native integration checks pass; rebuilt live HTTP proof pending.",
   "remaining": [
-    "Finish existing-capability allocation and projection review",
-    "Synchronize generated artifacts after approved design",
-    "Pass full Go suites and live checks using published dependencies"
+    "Restore original per-turn allocation through existing Core behavior and Datly components",
+    "Resolve existing maintenance SQL parser limitation after user review",
+    "Finish copier audit and final full Go suites",
+    "Rebuild and verify live HTTP gzip, multi-turn/queue/conversation deletion and tool UI",
+    "Run complete Endly transcription/regeneration and update published revisions"
   ],
   "runtime_cleanup": {
     "status": "completed",
@@ -21,5 +23,12 @@
     "scoped_original_behavior": "Original Core memory counter and unique-conflict retry identified",
     "projection": "Existing positive Fields/Columns prune relations; wildcard selector is unsupported; base DQL component alternative under isolated verification",
     "framework_changes": "No further Datly changes without user-reviewed proposal and alternative checks"
+  },
+  "verification_updates": {
+    "message_page": "Real SDK HTTP pagination and 29 field/null/zero/UTF8 checks pass",
+    "writer_row_identity": "Native input/output pointer preservation verified; SQL tag identity inspection removed",
+    "skill_modes": "Parent/child request identity and advertised tool assertions pass on original and V1",
+    "scheduler_rate_limit": "Individual and five repeated runs pass; no production or timeout changes",
+    "schema": "All three MySQL schema files byte-identical to original Core"
   }
 }
