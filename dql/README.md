@@ -9,6 +9,6 @@ This is the authoritative DQL tree for Core. Each operation declares its generat
 
 Use `#import` aliases for shared types and predicate/codec references. The actual module is `github.com/viant/agently-core`; dot-only legacy `com.viant.*` names are not package identities.
 
-From the Core root, run `python3 scripts/datly/build_transcriber.py`, then `python3 scripts/datly/transcribe.py`. Regeneration and source-boundary checks are `scripts/datly/verify_regeneration.py` and `scripts/datly/check_contracts.py`. Endly runs `e2e/datly/run.yaml`; full Core tests use `e2e/datly/core.yaml`.
+Use the native Datly CLI through Endly: from `e2e/datly`, run `endly -r=build`, `endly -r=transcribe`, `endly -r=regeneration`, and `endly -r=run`. Full Core tests use `endly -r=core`. See [authoring instructions](../scripts/datly/README.md) for the three base-reader resource bindings.
 
 Generated support is recreated by stock operation transcription. Keep custom methods in authored `hooks.go`/`lifecycle.go` sidecars where Go receiver rules require colocation. Reverse-engineering evidence lives under `migration/`; neither generated Go nor historical source copies replace these DQL contracts.

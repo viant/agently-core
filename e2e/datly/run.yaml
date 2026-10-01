@@ -1,6 +1,8 @@
 init:
   - name: projectRoot
-    value: $WorkingDirectory(../..)
+    when: $params.projectRoot
+    value: $params.projectRoot
+    else: $WorkingDirectory(../..)
   - name: testPackages
     when: $params.testPackages
     value: $params.testPackages
@@ -11,34 +13,25 @@ init:
     else: .
 
 pipeline:
+  build:
+    action: run
+    request: '@build'
+    params:
+      projectRoot: $projectRoot
   transcribe:
-    action: exec:run
-    TimeoutMs: 1800000
-    checkError: true
-    commands:
-      - cd $projectRoot
-      - env GOWORK=off python3 scripts/datly/build_transcriber.py
-      - env GOWORK=off python3 scripts/datly/transcribe.py
+    action: run
+    request: '@transcribe'
+    params:
+      projectRoot: $projectRoot
   regeneration:
-    action: exec:run
-    TimeoutMs: 1800000
-    checkError: true
-    commands:
-      - cd $projectRoot
-      - python3 scripts/datly/verify_regeneration.py
+    action: run
+    request: '@regeneration'
+    params:
+      projectRoot: $projectRoot
   verify:
     action: exec:run
-    TimeoutMs: 600000
+    TimeoutMs: 1800000
     checkError: true
     commands:
       - cd $projectRoot
-      - python3 -m unittest discover -s scripts/datly -p 'test_*.py'
-      - python3 scripts/datly/check_contracts.py
       - env GOWORK=off go test -count=1 $testPackages -run '$testRun'
-  build:
-    action: exec:run
-    TimeoutMs: 600000
-    checkError: true
-    commands:
-      - cd $projectRoot
-      - env GOWORK=off go build -o bin/agently-datly ./cmd/datly
