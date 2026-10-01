@@ -2858,22 +2858,4 @@ END $$
 CALL schema_upgrade_39() $$
 DROP PROCEDURE schema_upgrade_39 $$
 
-
-DROP PROCEDURE IF EXISTS schema_upgrade_40 $$
-CREATE PROCEDURE schema_upgrade_40()
-BEGIN
-    IF get_schema_version() = 40 THEN
-        -- Provision outside business transactions: MySQL DDL commits implicitly.
-        CREATE TABLE IF NOT EXISTS sqlx_scoped_sequences (
-            scope_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin PRIMARY KEY,
-            value BIGINT NOT NULL
-        ) ENGINE=InnoDB;
-
-        CALL set_schema_version(41);
-    END IF;
-END $$
-
-CALL schema_upgrade_40() $$
-DROP PROCEDURE schema_upgrade_40 $$
-
 DELIMITER ;
