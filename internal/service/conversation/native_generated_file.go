@@ -41,23 +41,7 @@ func (s *Service) getGeneratedFilesNative(ctx context.Context, input *generatedf
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*generatedfilemodel.GeneratedFileView, 0, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		result = append(result, &generatedfilemodel.GeneratedFileView{
-			ID: row.Id, ConversationID: row.ConversationId,
-			TurnID: row.TurnId, MessageID: row.MessageId,
-			Provider: row.Provider, Mode: row.Mode, CopyMode: row.CopyMode,
-			Status: row.Status, PayloadID: row.PayloadId,
-			ContainerID: row.ContainerId, ProviderFileID: row.ProviderFileId,
-			Filename: row.Filename, MimeType: row.MimeType, SizeBytes: row.SizeBytes,
-			Checksum: row.Checksum, ErrorMessage: row.ErrorMessage,
-			ExpiresAt: row.ExpiresAt, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
-		})
-	}
-	return result, nil
+	return rows, nil
 }
 
 func (s *Service) patchGeneratedFileNative(ctx context.Context, file *generatedfilemodel.GeneratedFile) error {

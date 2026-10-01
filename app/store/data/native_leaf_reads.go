@@ -89,7 +89,14 @@ func (s *datlyService) getMessageByElicitationNative(ctx context.Context, conver
 	if err != nil {
 		return nil, err
 	}
-	return mapDataDTO[messagemodel.ElicitationMessageView](row)
+	result, err := mapDataDTO[messagemodel.ElicitationMessageView](row)
+	if err != nil {
+		return nil, err
+	}
+	if result != nil && row != nil {
+		result.Preamble = row.Narration
+	}
+	return result, nil
 }
 func (s *datlyService) readTurnNative(ctx context.Context, mode string, input any, opts *options) ([]*turnread.TurnRowsView, error) {
 	query, err := mapDataDTO[turnread.TurnRowsInput](input)
@@ -200,7 +207,7 @@ func (s *datlyService) listGeneratedFilesNative(ctx context.Context, conversatio
 	if err != nil {
 		return nil, err
 	}
-	return mapDataDTOs[generatedfilemodel.GeneratedFileView](rows)
+	return rows, nil
 }
 func (s *datlyService) listTurnQueueNative(ctx context.Context, input *turnqueuemodel.QueueRowsInput, opts *options) ([]*turnqueuemodel.QueueRowView, error) {
 	query, err := mapDataDTO[queueread.QueueRowsInput](input)
@@ -221,7 +228,7 @@ func (s *datlyService) listTurnQueueNative(ctx context.Context, input *turnqueue
 			}
 		}
 	}
-	return mapDataDTOs[turnqueuemodel.QueueRowView](rows)
+	return rows, nil
 }
 
 // dataSelectorsProvider maps the legacy facade's named selectors to the stock

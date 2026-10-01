@@ -193,10 +193,10 @@ func (s *Service) resolveUploadedAttachment(ctx context.Context, turn runtimereq
 		return fmt.Errorf("resolve uploaded attachment %s: %w", fileID, err)
 	}
 	for _, file := range files {
-		if file == nil || strings.TrimSpace(file.ID) != fileID || file.PayloadID == nil {
+		if file == nil || strings.TrimSpace(file.Id) != fileID || file.PayloadId == nil {
 			continue
 		}
-		payloadID := strings.TrimSpace(*file.PayloadID)
+		payloadID := strings.TrimSpace(*file.PayloadId)
 		if payloadID == "" {
 			continue
 		}

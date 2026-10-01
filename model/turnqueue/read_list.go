@@ -1,7 +1,7 @@
 package turnqueue
 
 import (
-	"time"
+	read "github.com/viant/agently-core/internal/datly/turnqueue/read"
 
 	"github.com/viant/xdatly/response"
 )
@@ -29,15 +29,6 @@ type QueueRowsOutput struct {
 	Metrics         response.Metrics
 }
 
-type QueueRowView struct {
-	Id             string     `sqlx:"id"`
-	ConversationId string     `sqlx:"conversation_id"`
-	TurnId         string     `sqlx:"turn_id"`
-	MessageId      string     `sqlx:"message_id"`
-	QueueSeq       int64      `sqlx:"queue_seq"`
-	Status         string     `sqlx:"status"`
-	CreatedAt      time.Time  `sqlx:"created_at"`
-	UpdatedAt      *time.Time `sqlx:"updated_at"`
-}
+type QueueRowView = read.QueueRowView
 
 var QueueRowsPathURI = "/v1/api/agently/turnqueue/list"

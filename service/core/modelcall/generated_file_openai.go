@@ -62,7 +62,7 @@ func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgI
 		if item == nil {
 			continue
 		}
-		key := generatedFileDedupKey(item.Mode, ptrValueString(item.ContainerID), ptrValueString(item.ProviderFileID), ptrValueString(item.Checksum), ptrValueString(item.Filename))
+		key := generatedFileDedupKey(item.Mode, ptrValueString(item.ContainerId), ptrValueString(item.ProviderFileId), ptrValueString(item.Checksum), ptrValueString(item.Filename))
 		if key == "" {
 			continue
 		}
@@ -144,7 +144,7 @@ func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgI
 		key := generatedFileDedupKey(mode, ref.ContainerID, ref.ProviderFileID, checksum, filename)
 		if existingFile, ok := existingByKey[key]; ok && existingFile != nil {
 			upd := apiconv.NewGeneratedFile()
-			upd.SetID(existingFile.ID)
+			upd.SetID(existingFile.Id)
 			upd.SetCopyMode(copyMode)
 			upd.SetStatus(status)
 			if payloadID != "" {
@@ -208,7 +208,7 @@ func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgI
 		if err := store.PatchGeneratedFile(ctx, rec); err != nil {
 			return err
 		}
-		existingByKey[key] = &generatedfilemodel.GeneratedFileView{ID: rec.ID}
+		existingByKey[key] = &generatedfilemodel.GeneratedFileView{Id: rec.ID}
 	}
 	return nil
 }

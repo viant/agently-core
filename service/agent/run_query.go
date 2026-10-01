@@ -1873,7 +1873,7 @@ func resolveGeneratedFileDownloadHref(sandboxURL string, files []*generatedfilem
 		if file == nil {
 			continue
 		}
-		id := strings.TrimSpace(file.ID)
+		id := strings.TrimSpace(file.Id)
 		name := strings.ToLower(strings.TrimSpace(optionalString(file.Filename)))
 		if id == "" || name == "" || name != want {
 			continue
