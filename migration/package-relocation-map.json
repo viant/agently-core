@@ -495,6 +495,30 @@
       "new_package": "github.com/viant/agently-core/internal/datly/reporting/sharedartifact/write",
       "old_generated": "datlyv1/generated/forge/reporting/write",
       "new_generated": "internal/datly/reporting/sharedartifact/write"
+    },
+    {
+      "new_dql": "dql/conversation/base/reader.dql",
+      "new_generated": "internal/datly/conversation/base",
+      "new_package": "github.com/viant/agently-core/internal/datly/conversation/base",
+      "canonical_input": "ConversationInput",
+      "canonical_source": "dql/conversation/read",
+      "purpose": "scalar projection reusing canonical input and SQL resource authority"
+    },
+    {
+      "new_dql": "dql/message/base/reader.dql",
+      "new_generated": "internal/datly/message/base",
+      "new_package": "github.com/viant/agently-core/internal/datly/message/base",
+      "canonical_input": "MessagesInput",
+      "canonical_source": "dql/message/read",
+      "purpose": "scalar projection reusing canonical input and SQL resource authority"
+    },
+    {
+      "new_dql": "dql/schedule/base/reader.dql",
+      "new_generated": "internal/datly/schedule/base",
+      "new_package": "github.com/viant/agently-core/internal/datly/schedule/base",
+      "canonical_input": "ScheduleInput",
+      "canonical_source": "dql/schedule/read",
+      "purpose": "scalar projection reusing canonical input and SQL resource authority"
     }
   ],
   "module": "github.com/viant/agently-core",

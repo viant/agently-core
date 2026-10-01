@@ -12,6 +12,7 @@ import (
 	convread "github.com/viant/agently-core/internal/datly/conversation/read"
 	legacyread "github.com/viant/agently-core/internal/datly/legacyrun/read"
 	runread "github.com/viant/agently-core/internal/datly/run/read"
+	schedbase "github.com/viant/agently-core/internal/datly/schedule/base"
 	schedread "github.com/viant/agently-core/internal/datly/schedule/read"
 	conversation "github.com/viant/agently-core/internal/store/conversation"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
@@ -21,7 +22,7 @@ import (
 	"github.com/viant/datly/spec"
 )
 
-var scheduleTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[schedread.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/scheduler/schedule/{id}"}}
+var scheduleTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[schedbase.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/schedule/base"}}
 var runTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[runread.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/run/{id}"}}
 var legacyTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[legacyread.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/scheduler/legacy-run"}}
 
@@ -37,18 +38,16 @@ func trustedProviders(kind, owner string) []locator.Provider {
 	}), provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil })}
 }
 
-func readSchedule(ctx context.Context, invoker dexec.ComponentInvoker, id, owner string) (*schedread.ScheduleView, error) {
+func readSchedule(ctx context.Context, invoker dexec.ComponentInvoker, id, owner string) (*schedbase.ScheduleBaseView, error) {
 	input := &schedread.ScheduleInput{}
 	input.SetId(id)
 	providers := trustedProviders("scheduleaccess", owner)
 	options := queryselectors.ForUpdateOptions(ctx, true)
-	options.RootOnly = true
-	options.ExcludeFields = []string{"LeaseUntil"}
 	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: options, Target: scheduleTarget, Input: input, Providers: providers})
 	if err != nil {
 		return nil, err
 	}
-	output, ok := value.(*schedread.ScheduleOutput)
+	output, ok := value.(*schedbase.ScheduleOutput)
 	if !ok || output == nil {
 		return nil, fmt.Errorf("schedule reader returned %T", value)
 	}
