@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	base "github.com/viant/agently-core/internal/datly/message/base"
 	read "github.com/viant/agently-core/internal/datly/message/read"
 	write "github.com/viant/agently-core/internal/datly/message/write"
 	"github.com/viant/agently-core/internal/datly/queryselectors"
@@ -25,6 +26,7 @@ var messageReaderTarget = dexec.ComponentTarget{
 	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[read.ReaderComponent]().PkgPath(), Name: "reader"},
 	Route:     spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/message"},
 }
+var messageBaseReaderTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[base.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/message/base"}}
 var messageWriterTarget = dexec.ComponentTarget{
 	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[write.WriterComponent]().PkgPath(), Name: "writer"},
 	Route:     spec.RouteRef{Method: "PATCH", Path: "/v1/api/agently/message"},
@@ -89,24 +91,20 @@ func (s *MessageStore) ListRows(ctx context.Context, input *read.MessagesInput, 
 	if len(selectors) > 0 {
 		providers = append(providers, queryselectors.ProviderMapped(selectors, map[string]string{"message_rows": "reader", "MessageRows": "reader"}))
 	}
-	options := *BaseMessageReaderOptions(ctx)
-	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: messageReaderTarget, Input: input, Providers: providers, ReaderOptions: &options})
+	options := dexec.ReaderOptionsFromContext(ctx)
+	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: messageBaseReaderTarget, Input: input, Providers: providers, ReaderOptions: &options})
 	if err != nil {
 		return nil, err
 	}
-	out, ok := value.(*read.MessagesOutput)
+	out, ok := value.(*base.MessagesOutput)
 	if !ok || out == nil {
 		return nil, fmt.Errorf("message reader returned %T", value)
 	}
-	return out.Data, nil
-}
-
-// BaseMessageReaderOptions requests public message scalars without relation reads.
-func BaseMessageReaderOptions(ctx context.Context) *dexec.ReaderOptions {
-	options := dexec.ReaderOptionsFromContext(ctx)
-	options.RootOnly = true
-	options.ExcludeFields = []string{"Elicitation", "CleanupStatus", "ReadMode", "ElicitationBody", "ElicitationCompression"}
-	return &options
+	rows := make([]*read.MessageView, 0, len(out.Data))
+	for _, row := range out.Data {
+		rows = append(rows, messageFromBase(row))
+	}
+	return rows, nil
 }
 
 func (s *MessageStore) Get(ctx context.Context, id string, modelCalls, toolCalls bool) (*read.MessageView, error) {

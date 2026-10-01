@@ -1,0 +1,55 @@
+#package('github.com/viant/agently-core/internal/datly/schedule/base')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/schedule/base','GET'))
+#setting($_ = $output_type('ScheduleOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Data<[]*ScheduleBaseView>(output/view).WithTag('view:"reader,selectorProjection=true"'))
+
+SELECT schedule.id,
+       schedule.name,
+       schedule.description,
+       schedule.created_by_user_id,
+       schedule.visibility,
+       schedule.internal,
+       schedule.conversation_id,
+       schedule.goal_id,
+       schedule.agent_ref,
+       schedule.model_override,
+       schedule.user_cred_url,
+       schedule.enabled,
+       schedule.start_at,
+       schedule.end_at,
+       schedule.schedule_type,
+       schedule.cron_expr,
+       schedule.interval_seconds,
+       schedule.timezone,
+       schedule.timeout_seconds,
+       schedule.task_prompt_uri,
+       schedule.task_prompt,
+       schedule.next_run_at,
+       schedule.last_run_at,
+       schedule.last_status,
+       schedule.last_error,
+       schedule.lease_owner,
+       schedule.created_at,
+       schedule.updated_at,
+       schedule.lease_until_raw,
+       row_lock(schedule,'schedule t','t.id'),
+       CAST(schedule.lease_until_raw AS *string),
+       internal(schedule.lease_until_raw),
+       tag(schedule.lease_until_raw,'json:"-"'),
+       type(schedule,'ScheduleBaseView'),
+       required(schedule.agent_ref),
+       required(schedule.created_at),
+       required(schedule.visibility),
+       CAST(schedule.enabled AS bool),
+       required(schedule.id),
+       CAST(schedule.internal AS bool),
+       required(schedule.name),
+       required(schedule.schedule_type),
+       required(schedule.timeout_seconds),
+       required(schedule.timezone)
+FROM (${embed:canonical:sql/schedule.sql}) schedule

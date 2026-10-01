@@ -1,0 +1,28 @@
+#package('github.com/viant/agently-core/internal/datly/conversation/base')
+#import('time','time')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#import('codec','github.com/viant/agently-core/internal/datly/codec')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/conversation/base','GET'))
+#setting($_ = $output_type('ConversationOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Data<[]*ConversationBaseView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true"'))
+
+SELECT conversation.*,
+       row_lock(conversation,'conversation t','t.id'),
+       CAST(conversation.created_at_raw AS *string),
+       tag(conversation.created_at_raw,'internal:"true" json:"-"'),
+       CAST(conversation.activity_raw AS *string),
+       tag(conversation.activity_raw,'internal:"true" json:"-"'),
+       CAST(conversation.list_mode AS bool),
+       tag(conversation.list_mode,'json:"-"'),
+       CAST(conversation.last_turn_id AS *string),
+       CAST(conversation.status AS *string),
+       type(conversation,'ConversationBaseView'),
+       CAST(conversation.stage AS string),
+       required(conversation.id),
+       required(conversation.created_at),
+       required(conversation.visibility),
+       required(conversation.shareable)
+FROM (${embed:canonical:sql/conversation.sql}) conversation

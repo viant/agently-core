@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 
+	base "github.com/viant/agently-core/internal/datly/conversation/base"
 	read "github.com/viant/agently-core/internal/datly/conversation/read"
 	write "github.com/viant/agently-core/internal/datly/conversation/write"
 	"github.com/viant/agently-core/internal/datly/queryselectors"
@@ -30,6 +31,7 @@ var readerTarget = dexec.ComponentTarget{
 	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[read.ReaderComponent]().PkgPath(), Name: "reader"},
 	Route:     spec.RouteRef{Method: "GET", Path: "/v1/api/agently/conversation/{id}"},
 }
+var baseReaderTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[base.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/conversation/base"}}
 var writerTarget = dexec.ComponentTarget{
 	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[write.WriterComponent]().PkgPath(), Name: "writer"},
 	Route:     spec.RouteRef{Method: "PATCH", Path: "/v1/api/agently/conversation"},
@@ -76,14 +78,27 @@ func (s *Store) readPage(ctx context.Context, input *read.ConversationInput, lis
 		}
 	}
 	options := dexec.ReaderOptionsFromContext(ctx)
-	options.RootOnly = baseOnly
-	options.ExcludeFields = nil
+	target := readerTarget
+	if baseOnly {
+		target = baseReaderTarget
+	}
 	if baseOnly && limit > 0 {
 		providers = append(providers, queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Limit: limit}}}))
 	}
-	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: readerTarget, Input: input, Providers: providers, ReaderOptions: &options})
+	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: input, Providers: providers, ReaderOptions: &options})
 	if err != nil {
 		return nil, err
+	}
+	if baseOnly {
+		out, ok := value.(*base.ConversationOutput)
+		if !ok || out == nil {
+			return nil, fmt.Errorf("conversation base reader returned %T", value)
+		}
+		result := make([]*read.ConversationView, 0, len(out.Data))
+		for _, row := range out.Data {
+			result = append(result, conversationFromBase(ctx, row))
+		}
+		return result, nil
 	}
 	out, ok := value.(*read.ConversationOutput)
 	if !ok || out == nil {
@@ -187,7 +202,7 @@ var conversationSelectorViews = map[string]string{
 	"Conversation": "reader", "conversation": "reader",
 	"Transcript": "transcript", "Message": "message", "ToolMessage": "toolMessage",
 	"ToolCall": "toolCall", "MessageToolCall": "messageToolCall", "ModelCall": "modelCall",
-	"Model": "model", "Usage": "usage", "Attachment": "attachment",
+	"Model": "model", "Usage": "u", "usage": "u", "Attachment": "attachment",
 	"LinkedConversation": "linkedConversation", "UserElicitationData": "userElicitationData",
 	"RequestPayload": "requestPayload", "ResponsePayload": "responsePayload",
 	"MessageRequestPayload": "messageRequestPayload", "MessageResponsePayload": "messageResponsePayload",
