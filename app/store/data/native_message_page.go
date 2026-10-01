@@ -84,14 +84,11 @@ func (s *datlyService) queryMessageRowsNative(ctx context.Context, input *messag
 		}
 		if selector.Name == "message_rows" || selector.Name == "MessageRows" || selector.Name == "reader" {
 			hasPageSelector = true
-			if len(selector.Fields) == 0 {
-				selector.Fields = store.BaseMessageFields()
-			}
 		}
 	}
 	if !hasPageSelector {
 		selectors = append(selectors, &state.NamedSelector{Name: "reader", Selector: state.Selector{
-			Fields: store.BaseMessageFields(), OrderBy: "created_at DESC,id DESC", Limit: limit + 1,
+			OrderBy: "created_at DESC,id DESC", Limit: limit + 1,
 		}})
 	}
 	component := &store.MessageStore{Invoker: s.native, OwnerID: authctx.EffectiveUserID}

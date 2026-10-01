@@ -32,7 +32,7 @@ func runConversationUsageAlias(t *testing.T, invoker dexec.ComponentInvoker, db 
 	require.NoError(t, err)
 	_, err = db.Exec("INSERT INTO message(id,conversation_id,role,type,created_at) VALUES(?,?,'assistant','text',?)", prefix+"message", prefix+"conversation", now)
 	require.NoError(t, err)
-	_, err = db.Exec("INSERT INTO model_call(message_id,provider,model,model_kind,status,prompt_tokens,completion_tokens,total_tokens,cost) VALUES(?,'fixture','usage-model','chat','succeeded',11,7,18,0.25)", prefix+"message")
+	_, err = db.Exec("INSERT INTO model_call(message_id,provider,model,model_kind,status,prompt_tokens,completion_tokens,total_tokens,cost) VALUES(?,'fixture','usage-model','chat','completed',11,7,18,0.25)", prefix+"message")
 	require.NoError(t, err)
 	store := &convstore.Store{Invoker: invoker, OwnerID: authctx.EffectiveUserID}
 	row, err := store.GetInternal(ctx, prefix+"conversation", nil)

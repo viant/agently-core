@@ -1,0 +1,15 @@
+{
+  "date": "2026-10-01",
+  "objective_complete": false,
+  "status": "Review checkpoint; not release acceptance",
+  "schema": "MySQL schema files restored to pre-change bytes; no migration DDL required",
+  "allocation": "New SQLx scoped allocator reverted. Preserve original behavior through existing capabilities; implementation review pending. Message DQL regenerated artifacts are not yet synchronized.",
+  "projection": "Core scalar projection intent replaces tag introspection; Datly RootOnly prototype remains uncommitted and subject to user consultation. Published dependencies do not yet supply this prototype API.",
+  "verification": "Original/V1 live plain, shell, and attachment comparisons passed on both databases. Gzip hook unit/native integration checks pass; rebuilt live HTTP proof pending.",
+  "remaining": [
+    "Finish existing-capability allocation and projection review",
+    "Synchronize generated artifacts after approved design",
+    "Pass full Go suites and live checks using published dependencies",
+    "Clean up local test runtime files"
+  ]
+}

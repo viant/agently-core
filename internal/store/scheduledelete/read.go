@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/viant/agently-core/internal/datly/queryselectors"
-	"github.com/viant/xdatly/state"
 	"reflect"
 	"sort"
 	"strings"
@@ -42,16 +41,10 @@ func readSchedule(ctx context.Context, invoker dexec.ComponentInvoker, id, owner
 	input := &schedread.ScheduleInput{}
 	input.SetId(id)
 	providers := trustedProviders("scheduleaccess", owner)
-	fields := []string{}
-	view := reflect.TypeFor[schedread.ScheduleView]()
-	for i := 0; i < view.NumField(); i++ {
-		name := strings.Split(view.Field(i).Tag.Get("sqlx"), ",")[0]
-		if name != "" && name != "-" && name != "lease_until" {
-			fields = append(fields, name)
-		}
-	}
-	providers = append(providers, queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: fields}}}))
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: scheduleTarget, Input: input, Providers: providers})
+	options := queryselectors.ForUpdateOptions(ctx, true)
+	options.RootOnly = true
+	options.ExcludeFields = []string{"LeaseUntil"}
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: options, Target: scheduleTarget, Input: input, Providers: providers})
 	if err != nil {
 		return nil, err
 	}

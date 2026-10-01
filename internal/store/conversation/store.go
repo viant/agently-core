@@ -75,18 +75,13 @@ func (s *Store) readPage(ctx context.Context, input *read.ConversationInput, lis
 			providers = append(providers, queryselectors.ProviderMapped(supplied, conversationSelectorViews))
 		}
 	}
-	if baseOnly {
-		fields := make([]string, 0)
-		view := reflect.TypeFor[read.ConversationView]()
-		for i := 0; i < view.NumField(); i++ {
-			column := strings.Split(view.Field(i).Tag.Get("sqlx"), ",")[0]
-			if column != "" && column != "-" {
-				fields = append(fields, column)
-			}
-		}
-		providers = append(providers, queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: fields, Limit: limit}}}))
+	options := dexec.ReaderOptionsFromContext(ctx)
+	options.RootOnly = baseOnly
+	options.ExcludeFields = nil
+	if baseOnly && limit > 0 {
+		providers = append(providers, queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Limit: limit}}}))
 	}
-	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: readerTarget, Input: input, Providers: providers})
+	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: readerTarget, Input: input, Providers: providers, ReaderOptions: &options})
 	if err != nil {
 		return nil, err
 	}
