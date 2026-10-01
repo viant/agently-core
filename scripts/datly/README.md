@@ -13,7 +13,7 @@ endly -r=core
 `build` compiles the pinned native Datly CLI, the linked Core host, and the base
 reader authoring task. CLI-only dependency resolution uses an ignored private
 modfile in `bin/`; it does not change the application module manifest. Endly
-stages the selected stock CLI sources in ignored `bin/datly-cli` and adds only
+stages the selected stock CLI sources in ignored `bin/_datly_cli` and adds only
 imports for Core predicate/codec types. The authoring CLI implementation remains
 stock; no framework sources or duplicate CLI parser are committed.
 
