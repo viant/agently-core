@@ -26,16 +26,6 @@ func (entity *ModelCall) SetMessageId(value string) {
 	}
 	entity.Has.MessageId = true
 }
-func (entity *ModelCall) GetTurnId() *string {
-	return entity.TurnId
-}
-func (entity *ModelCall) SetTurnId(value *string) {
-	entity.TurnId = value
-	if entity.Has == nil {
-		entity.Has = &ModelCallHas{}
-	}
-	entity.Has.TurnId = true
-}
 func (entity *ModelCall) GetProvider() string {
 	return entity.Provider
 }
@@ -76,6 +66,26 @@ func (entity *ModelCall) SetStatus(value string) {
 	}
 	entity.Has.Status = true
 }
+func (entity *ModelCall) GetCost() *float64 {
+	return entity.Cost
+}
+func (entity *ModelCall) SetCost(value *float64) {
+	entity.Cost = value
+	if entity.Has == nil {
+		entity.Has = &ModelCallHas{}
+	}
+	entity.Has.Cost = true
+}
+func (entity *ModelCall) GetTurnId() *string {
+	return entity.TurnId
+}
+func (entity *ModelCall) SetTurnId(value *string) {
+	entity.TurnId = value
+	if entity.Has == nil {
+		entity.Has = &ModelCallHas{}
+	}
+	entity.Has.TurnId = true
+}
 func (entity *ModelCall) GetErrorCode() *string {
 	return entity.ErrorCode
 }
@@ -95,6 +105,16 @@ func (entity *ModelCall) SetErrorMessage(value *string) {
 		entity.Has = &ModelCallHas{}
 	}
 	entity.Has.ErrorMessage = true
+}
+func (entity *ModelCall) GetFinishReason() *string {
+	return entity.FinishReason
+}
+func (entity *ModelCall) SetFinishReason(value *string) {
+	entity.FinishReason = value
+	if entity.Has == nil {
+		entity.Has = &ModelCallHas{}
+	}
+	entity.Has.FinishReason = true
 }
 func (entity *ModelCall) GetPromptTokens() *int {
 	return entity.PromptTokens
@@ -186,16 +206,6 @@ func (entity *ModelCall) SetCompletionRejectedPredictionTokens(value *int) {
 	}
 	entity.Has.CompletionRejectedPredictionTokens = true
 }
-func (entity *ModelCall) GetFinishReason() *string {
-	return entity.FinishReason
-}
-func (entity *ModelCall) SetFinishReason(value *string) {
-	entity.FinishReason = value
-	if entity.Has == nil {
-		entity.Has = &ModelCallHas{}
-	}
-	entity.Has.FinishReason = true
-}
 func (entity *ModelCall) GetStartedAt() *time.Time {
 	return entity.StartedAt
 }
@@ -225,16 +235,6 @@ func (entity *ModelCall) SetLatencyMs(value *int) {
 		entity.Has = &ModelCallHas{}
 	}
 	entity.Has.LatencyMs = true
-}
-func (entity *ModelCall) GetCost() *float64 {
-	return entity.Cost
-}
-func (entity *ModelCall) SetCost(value *float64) {
-	entity.Cost = value
-	if entity.Has == nil {
-		entity.Has = &ModelCallHas{}
-	}
-	entity.Has.Cost = true
 }
 func (entity *ModelCall) GetTraceId() *string {
 	return entity.TraceId

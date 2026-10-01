@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Claim `parameter:"Data,kind=output,in=view,dataType=[]*Claim" view:"reader,type=Claim,table=tool_execution_claim" sql:"uri=datly_toolexecutionclaim_read_reader:sql/reader.sql"`
+	Data []*Claim `parameter:"Data,kind=output,in=view,dataType=[]*Claim" view:"reader,type=Claim,rowLock=tool_execution_claim c,table=tool_execution_claim" sql:"uri=datly_toolexecutionclaim_read_reader:sql/reader.sql"`
 }

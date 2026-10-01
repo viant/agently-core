@@ -8,7 +8,6 @@ type ScheduleInput struct {
 	ConversationIds   []string          `parameter:"ConversationIds,kind=query,in=conversationIds,dataType=[]string,required=false" predicate:"in,t,conversation_id"`
 	GoalIds           []string          `parameter:"GoalIds,kind=query,in=goalIds,dataType=[]string,required=false" predicate:"in,t,goal_id"`
 	InternalMode      bool              `parameter:"InternalMode,kind=scheduleaccess,in=internal,dataType=bool,required=true"`
-	LockRows          bool              `parameter:"LockRows,kind=scheduleaccess,in=lock,dataType=bool,required=false"`
 	VisibilitySubject *string           `parameter:"VisibilitySubject,kind=visibility,in=subject,dataType=*string,required=true"`
 	Ids               []string          `parameter:"Ids,kind=query,in=ids,dataType=[]string,required=false" predicate:"in,t,id"`
 	Has               *ScheduleInputHas `setMarker:"true" typeName:"ScheduleInputHas" json:"-" sqlx:"-"`
@@ -19,7 +18,6 @@ type ScheduleInputHas struct {
 	ConversationIds   bool
 	GoalIds           bool
 	InternalMode      bool
-	LockRows          bool
 	VisibilitySubject bool
 	Ids               bool
 }

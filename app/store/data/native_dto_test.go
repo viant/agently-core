@@ -7,11 +7,11 @@ import (
 	payloadwrite "github.com/viant/agently-core/internal/datly/payload/write"
 	turnwrite "github.com/viant/agently-core/internal/datly/turn/write"
 	queuewrite "github.com/viant/agently-core/internal/datly/turnqueue/write"
-	legacyconv "github.com/viant/agently-core/pkg/agently/conversation/write"
-	legacymodel "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	legacypayloadwrite "github.com/viant/agently-core/pkg/agently/payload/write"
-	legacyturn "github.com/viant/agently-core/pkg/agently/turn/write"
-	legacyqueue "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	modelcallmodel "github.com/viant/agently-core/model/modelcall"
+	payloadmodel "github.com/viant/agently-core/model/payload"
+	turnmodel "github.com/viant/agently-core/model/turn"
+	turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
 	"reflect"
 	"strings"
 	"testing"
@@ -19,13 +19,12 @@ import (
 	msgwrite "github.com/viant/agently-core/internal/datly/message/write"
 	payloadread "github.com/viant/agently-core/internal/datly/payload/reference"
 	toolwrite "github.com/viant/agently-core/internal/datly/toolcall/write"
-	legacymsg "github.com/viant/agently-core/pkg/agently/message/write"
-	legacypayload "github.com/viant/agently-core/pkg/agently/payload"
-	legacytool "github.com/viant/agently-core/pkg/agently/toolcall/write"
+	messagemodel "github.com/viant/agently-core/model/message"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
 )
 
 func TestDataDTO_SparseNullAndZeroPresence(t *testing.T) {
-	row := &legacymsg.MutableMessageView{}
+	row := &messagemodel.MutableMessageView{}
 	row.SetId("m")
 	row.SetConversationID("c")
 	row.Content = nil
@@ -41,7 +40,7 @@ func TestDataDTO_SparseNullAndZeroPresence(t *testing.T) {
 	if native.ConversationId != "c" || native.Content != nil || native.Interim == nil || *native.Interim != 0 {
 		t.Fatalf("null/zero mutation changed: %#v", native)
 	}
-	back, err := mapDataDTO[legacymsg.MutableMessageView](native)
+	back, err := mapDataDTO[messagemodel.MutableMessageView](native)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +51,7 @@ func TestDataDTO_SparseNullAndZeroPresence(t *testing.T) {
 func TestDataDTO_PayloadBytesRemainText(t *testing.T) {
 	raw := []byte("{\"content\":\"héllo\"}\x00")
 	source := &payloadread.PayloadView{Id: "p", InlineBody: &raw}
-	result, err := mapDataDTO[legacypayload.PayloadRowsView](source)
+	result, err := mapDataDTO[payloadmodel.PayloadRowsView](source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,7 +60,7 @@ func TestDataDTO_PayloadBytesRemainText(t *testing.T) {
 	}
 }
 func TestDataDTO_ToolCallAcronymPresence(t *testing.T) {
-	row := &legacytool.MutableToolCallView{}
+	row := &toolcallmodel.MutableToolCallView{}
 	row.SetMessageID("m")
 	trace := "trace"
 	row.TraceID = &trace
@@ -84,13 +83,13 @@ func TestDataDTO_AllPublicMutationPresenceFields(t *testing.T) {
 		name           string
 		source, target any
 	}{
-		{"conversation", &legacyconv.MutableConversationView{}, &convwrite.MutableConversationView{}},
-		{"message", &legacymsg.Message{}, &msgwrite.Message{}},
-		{"turn", &legacyturn.Turn{}, &turnwrite.Turn{}},
-		{"modelcall", &legacymodel.ModelCall{}, &modelwrite.ModelCall{}},
-		{"toolcall", &legacytool.ToolCall{}, &toolwrite.ToolCall{}},
-		{"payload", &legacypayloadwrite.Payload{}, &payloadwrite.Payload{}},
-		{"queue", &legacyqueue.TurnQueue{}, &queuewrite.TurnQueue{}},
+		{"conversation", &conversationmodel.MutableConversationView{}, &convwrite.MutableConversationView{}},
+		{"message", &messagemodel.Message{}, &msgwrite.Message{}},
+		{"turn", &turnmodel.Turn{}, &turnwrite.Turn{}},
+		{"modelcall", &modelcallmodel.ModelCall{}, &modelwrite.ModelCall{}},
+		{"toolcall", &toolcallmodel.ToolCall{}, &toolwrite.ToolCall{}},
+		{"payload", &payloadmodel.Payload{}, &payloadwrite.Payload{}},
+		{"queue", &turnqueuemodel.TurnQueue{}, &queuewrite.TurnQueue{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -122,13 +121,13 @@ func TestDataDTO_AllPublicMutationPresenceFields(t *testing.T) {
 }
 
 func TestDataDTO_ApplyCanonicalResultPreservesLogicalFields(t *testing.T) {
-	public := &legacytool.ToolCall{}
+	public := &toolcallmodel.ToolCall{}
 	public.SetMessageID("m")
 	public.SetResponseOverflow(true)
 	canonical := &toolwrite.ToolCall{}
 	canonical.SetMessageId("m")
 	canonical.SetAttempt(1)
-	result, err := mapDataDTO[legacytool.ToolCall](public)
+	result, err := mapDataDTO[toolcallmodel.ToolCall](public)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,0 +1,1 @@
+SELECT c.* , 0 AS should_delete FROM model_call c

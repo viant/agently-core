@@ -9,10 +9,8 @@ import (
 	read "github.com/viant/agently-core/internal/datly/toolapprovalqueue/read"
 	write "github.com/viant/agently-core/internal/datly/toolapprovalqueue/write"
 	store "github.com/viant/agently-core/internal/store/conversation"
-	legacycount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
-	legacyoutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
-	legacyread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	legacywrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+
 	"github.com/viant/xdatly/state"
 )
 
@@ -20,7 +18,7 @@ func (s *Service) approvalStore() *store.ApprovalStore {
 	return &store.ApprovalStore{Invoker: s.native, OwnerID: authctx.EffectiveUserID}
 }
 
-func (s *Service) patchApprovalNative(ctx context.Context, queue *legacywrite.ToolApprovalQueue) error {
+func (s *Service) patchApprovalNative(ctx context.Context, queue *toolapprovalqueuemodel.ToolApprovalQueue) error {
 	if queue == nil {
 		return fmt.Errorf("approval mutation is required")
 	}
@@ -53,7 +51,7 @@ func (s *Service) patchApprovalNative(ctx context.Context, queue *legacywrite.To
 	return applyNativeMutation(queue, output.Data, initial)
 }
 
-func approvalReadInput(in *legacyread.QueueRowsInput) *read.ApprovalRowsInput {
+func approvalReadInput(in *toolapprovalqueuemodel.QueueRowsInput) *read.ApprovalRowsInput {
 	query := &read.ApprovalRowsInput{}
 	if in == nil {
 		return query
@@ -82,8 +80,8 @@ func approvalSelectors(selectors []*state.NamedSelector) state.Selectors {
 	return result
 }
 
-func approvalBaseRow(row *read.ApprovalView) legacyread.QueueRowView {
-	return legacyread.QueueRowView{
+func approvalBaseRow(row *read.ApprovalView) toolapprovalqueuemodel.QueueRowView {
+	return toolapprovalqueuemodel.QueueRowView{
 		Id: row.Id, UserId: row.UserId, ConversationId: row.ConversationId,
 		TurnId: row.TurnId, MessageId: row.MessageId, ToolName: row.ToolName,
 		Title: row.Title, Arguments: row.Arguments, Metadata: row.Metadata,
@@ -94,12 +92,12 @@ func approvalBaseRow(row *read.ApprovalView) legacyread.QueueRowView {
 	}
 }
 
-func (s *Service) listApprovalNative(ctx context.Context, in *legacyread.QueueRowsInput, selectors []*state.NamedSelector) ([]*legacyread.QueueRowView, error) {
+func (s *Service) listApprovalNative(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput, selectors []*state.NamedSelector) ([]*toolapprovalqueuemodel.QueueRowView, error) {
 	rows, err := s.approvalStore().List(ctx, "rows", approvalReadInput(in), approvalSelectors(selectors))
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*legacyread.QueueRowView, 0, len(rows))
+	result := make([]*toolapprovalqueuemodel.QueueRowView, 0, len(rows))
 	for _, row := range rows {
 		if row != nil {
 			mapped := approvalBaseRow(row)
@@ -109,7 +107,7 @@ func (s *Service) listApprovalNative(ctx context.Context, in *legacyread.QueueRo
 	return result, nil
 }
 
-func (s *Service) countApprovalNative(ctx context.Context, in *legacycount.QueueTotalInput) (int, error) {
+func (s *Service) countApprovalNative(ctx context.Context, in *toolapprovalqueuemodel.QueueTotalInput) (int, error) {
 	query := &cube.ApprovalReportInput{}
 	if in != nil {
 		query.Id, query.UserId, query.ConversationId = in.Id, in.UserId, in.ConversationId
@@ -126,7 +124,7 @@ func (s *Service) countApprovalNative(ctx context.Context, in *legacycount.Queue
 	return s.approvalStore().Count(ctx, query)
 }
 
-func (s *Service) listApprovalOutcomesNative(ctx context.Context, in *legacyoutcome.OutcomeRowsInput) ([]*legacyoutcome.OutcomeRowView, error) {
+func (s *Service) listApprovalOutcomesNative(ctx context.Context, in *toolapprovalqueuemodel.OutcomeRowsInput) ([]*toolapprovalqueuemodel.OutcomeRowView, error) {
 	query := &read.ApprovalRowsInput{}
 	if in != nil {
 		query.UserId, query.ConversationId, query.Since, query.Until = in.UserId, in.ConversationId, in.Since, in.Until
@@ -141,12 +139,12 @@ func (s *Service) listApprovalOutcomesNative(ctx context.Context, in *legacyoutc
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*legacyoutcome.OutcomeRowView, 0, len(rows))
+	result := make([]*toolapprovalqueuemodel.OutcomeRowView, 0, len(rows))
 	for _, row := range rows {
 		if row == nil {
 			continue
 		}
-		result = append(result, &legacyoutcome.OutcomeRowView{
+		result = append(result, &toolapprovalqueuemodel.OutcomeRowView{
 			Id: row.Id, UserId: row.UserId, ConversationId: row.ConversationId,
 			TurnId: row.TurnId, MessageId: row.MessageId, ToolName: row.ToolName,
 			Title: row.Title, Arguments: row.Arguments, Metadata: row.Metadata,

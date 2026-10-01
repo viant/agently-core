@@ -4,5 +4,5 @@ package read
 
 // ScheduleOutput is the generated output scaffold for reader.
 type ScheduleOutput struct {
-	Data []*ScheduleView `parameter:"Data,kind=output,in=view,dataType=[]*ScheduleView" view:"reader,type=ScheduleView,table=schedule" sql:"uri=datly_schedule_read_reader:sql/reader.sql"`
+	Data []*ScheduleView `parameter:"Data,kind=output,in=view,dataType=[]*ScheduleView" view:"reader,type=ScheduleView,rowLock=schedule t,rowLockOrder=t.id,table=schedule" sql:"uri=datly_schedule_read_reader:sql/reader.sql"`
 }

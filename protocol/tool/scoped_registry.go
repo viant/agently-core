@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
-	mcpnames "github.com/viant/agently-core/pkg/mcpname"
 	asynccfg "github.com/viant/agently-core/protocol/async"
+	mcpname "github.com/viant/agently-core/protocol/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -130,8 +130,8 @@ func (s *scopedRegistry) ToolTimeout(name string) (time.Duration, bool) {
 		}
 	}
 	// Best-effort fallback for known internal services with static timeouts
-	can := mcpnames.Canonical(name)
-	svc := mcpnames.Name(can).Service()
+	can := mcpname.Canonical(name)
+	svc := mcpname.Name(can).Service()
 	switch svc {
 	case "llm/agents":
 		return 5 * time.Minute, true

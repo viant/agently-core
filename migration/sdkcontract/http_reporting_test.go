@@ -13,8 +13,8 @@ import (
 	"github.com/stretchr/testify/require"
 	auditread "github.com/viant/agently-core/internal/datly/reporting/audit/read"
 	"github.com/viant/agently-core/migration/sdkcontract"
-	"github.com/viant/agently-core/pkg/agently/exportrequest"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	auth "github.com/viant/agently-core/service/auth"
 	reporting "github.com/viant/agently-core/service/reporting"
 	reportingrun "github.com/viant/agently-core/service/reportingrun"
@@ -91,7 +91,7 @@ func TestActualApplicationReportingAdoptionExportAndAudit(t *testing.T) {
 	complete := reportingrun.CompleteInput{ExpectedRevision: 0, ReportSpec: json.RawMessage(routeReportSpec), ReportFill: json.RawMessage(routeReportFill), ReportPrint: json.RawMessage(routeReportPrint)}
 	request("POST", path+"/complete", fixture.Token, complete, 409, nil, nil)
 	complete.ExpectedRevision = 1
-	var completed reportrun.Record
+	var completed reportrunmodel.Record
 	request("POST", path+"/complete", fixture.Token, complete, 200, &completed, nil)
 	require.Equal(t, int64(2), completed.Revision)
 	adoption := reportingrun.AdoptInput{ConversationID: sdkcontract.ConversationID, ExpectedRunRevision: 1, ExpectedContextRevision: 0, Source: "adopt"}
@@ -108,7 +108,7 @@ func TestActualApplicationReportingAdoptionExportAndAudit(t *testing.T) {
 	require.Equal(t, adopted.Run.Revision, duplicate.Run.Revision)
 	require.Equal(t, adopted.Context.Revision, duplicate.Context.Revision)
 	var job, retry reporting.ExportJob
-	headers := map[string]string{exportrequest.Header: "http-export-operation"}
+	headers := map[string]string{exportrequestmodel.Header: "http-export-operation"}
 	args := map[string]any{"reportRunId": begun.Run.ReportRunID, "format": "pdf"}
 	tool("reporting:submit_export", fixture.Token, args, &job, headers, 200)
 	tool("reporting:submit_export", fixture.Token, args, &retry, headers, 200)

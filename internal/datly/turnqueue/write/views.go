@@ -8,15 +8,15 @@ import (
 
 // TurnQueue is generated canonical view metadata for writer.
 type TurnQueue struct {
-	ShouldDelete   bool          `json:",omitempty" sqlx:"-" writer:"delete"`
-	Id             string        `validate:"required" sqlx:"id,primaryKey"`
-	ConversationId string        `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	TurnId         string        `sqlx:"turn_id,refTable=turn,refColumn=id,required=true"`
-	MessageId      string        `sqlx:"message_id,refTable=message,refColumn=id,required=true"`
-	QueueSeq       *int64        `json:",omitempty" sqlx:"queue_seq,required=true"`
-	Status         string        `sqlx:"status,required=true"`
-	CreatedAt      *time.Time    `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt      *time.Time    `json:",omitempty" sqlx:"updated_at"`
+	ShouldDelete   bool          `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
+	Id             string        `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	ConversationId string        `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId"`
+	TurnId         string        `sqlx:"turn_id,refTable=turn,refColumn=id,required=true" json:"turnId"`
+	MessageId      string        `sqlx:"message_id,refTable=message,refColumn=id,required=true" json:"messageId"`
+	QueueSeq       *int64        `json:"queueSeq,omitempty" sqlx:"queue_seq,required=true"`
+	Status         string        `sqlx:"status,required=true" json:"status"`
+	CreatedAt      *time.Time    `json:"createdAt,omitempty" sqlx:"created_at,required=true"`
+	UpdatedAt      *time.Time    `json:"updatedAt,omitempty" sqlx:"updated_at"`
 	Has            *TurnQueueHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"TurnQueueHas"`
 }
 
@@ -34,14 +34,14 @@ type TurnQueueHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id             string     `validate:"required" sqlx:"id,primaryKey"`
-	ConversationId string     `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	TurnId         string     `sqlx:"turn_id,refTable=turn,refColumn=id,required=true"`
-	MessageId      string     `sqlx:"message_id,refTable=message,refColumn=id,required=true"`
-	QueueSeq       *int64     `json:",omitempty" sqlx:"queue_seq,required=true"`
-	Status         string     `sqlx:"status,required=true"`
-	CreatedAt      *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt      *time.Time `json:",omitempty" sqlx:"updated_at"`
+	Id             string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	ConversationId string     `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId"`
+	TurnId         string     `sqlx:"turn_id,refTable=turn,refColumn=id,required=true" json:"turnId"`
+	MessageId      string     `sqlx:"message_id,refTable=message,refColumn=id,required=true" json:"messageId"`
+	QueueSeq       *int64     `json:"queueSeq,omitempty" sqlx:"queue_seq,required=true"`
+	Status         string     `sqlx:"status,required=true" json:"status"`
+	CreatedAt      *time.Time `json:"createdAt,omitempty" sqlx:"created_at,required=true"`
+	UpdatedAt      *time.Time `json:"updatedAt,omitempty" sqlx:"updated_at"`
 }
 
 type WriterKeysRow struct {

@@ -11,7 +11,7 @@ import (
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/runtime/streaming"
 	goalsys "github.com/viant/agently-core/service/goal"
@@ -52,8 +52,8 @@ func TestObserveDetachedAsyncGoalCompletion_QueuesContinuationWhenIdle(t *testin
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
 	dataSvc := data.NewService(server)
 
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{
-		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{
+		conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-goal")),
 	})
 	require.NoError(t, err)
 
@@ -128,8 +128,8 @@ func TestObserveDetachedAsyncGoalCompletion_RespectsAsyncPolicyWait(t *testing.T
 	ctx := context.Background()
 	dataSvc, err := data.NewThinServiceInMemory(ctx)
 	require.NoError(t, err)
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{
-		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{
+		conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-goal")),
 	})
 	require.NoError(t, err)
 
@@ -186,8 +186,8 @@ func TestObserveDetachedAsyncGoalCompletion_SuppressesDuplicateQueueingAcrossCon
 	ctx := context.Background()
 	dataSvc, err := data.NewThinServiceInMemory(ctx)
 	require.NoError(t, err)
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{
-		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{
+		conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-goal")),
 	})
 	require.NoError(t, err)
 
@@ -280,8 +280,8 @@ func TestObserveDetachedAsyncGoalCompletion_DoesNotQueueWhenGoalAlreadyHasQueued
 	ctx := context.Background()
 	dataSvc, err := data.NewThinServiceInMemory(ctx)
 	require.NoError(t, err)
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{
-		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{
+		conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-goal")),
 	})
 	require.NoError(t, err)
 
@@ -357,7 +357,7 @@ func TestObserveDetachedAsyncGoalCompletion_DoesNotQueueWhenGoalAlreadyHasQueued
 			continue
 		}
 		if strings.EqualFold(strings.TrimSpace(valueOrEmpty(turn.Origin)), "controller") &&
-			strings.TrimSpace(valueOrEmpty(turn.GoalID)) == "goal-conv-goal" {
+			strings.TrimSpace(valueOrEmpty(turn.GoalId)) == "goal-conv-goal" {
 			count++
 		}
 	}

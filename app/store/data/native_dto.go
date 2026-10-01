@@ -63,6 +63,10 @@ func copyDataValue(target, source reflect.Value) error {
 		return nil
 	}
 	if target.Kind() == reflect.Slice && source.Kind() == reflect.Slice {
+		if source.IsNil() {
+			target.Set(reflect.Zero(target.Type()))
+			return nil
+		}
 		target.Set(reflect.MakeSlice(target.Type(), source.Len(), source.Len()))
 		for i := 0; i < source.Len(); i++ {
 			if err := copyDataValue(target.Index(i), source.Index(i)); err != nil {

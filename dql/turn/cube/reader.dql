@@ -12,17 +12,18 @@
 #define($_ = $Origin<string>(query/origin).Optional().WithPredicate(0,'equal','t','origin'))
 #define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
 #define($_ = $Data<[]*TurnReportView>(output/view))
-SELECT groupable(t), t.conversation_id,t.status,t.origin,
- COUNT(*) AS record_count,
- COUNT(CASE WHEN t.status='queued' THEN 1 END) AS queued_count,
- COUNT(CASE WHEN t.origin='controller' THEN 1 END) AS controller_count,
- type(t,'TurnReportView'),
- CAST(t.conversation_id AS string),tag(t.conversation_id,'groupable:"true"'),
- CAST(t.status AS string),tag(t.status,'groupable:"true"'),
- CAST(t.origin AS *string),tag(t.origin,'groupable:"true"'),
- CAST(t.record_count AS int),tag(t.record_count,'groupable:"false"'),
- CAST(t.queued_count AS int),tag(t.queued_count,'groupable:"false"'),
- CAST(t.controller_count AS int),tag(t.controller_count,'groupable:"false"')
-FROM turn t WHERE $Trusted
- ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
-GROUP BY t.conversation_id,t.status,t.origin
+SELECT t.*,
+       groupable(t),
+       type(t,'TurnReportView'),
+       required(t.conversation_id),
+       tag(t.conversation_id,'groupable:"true"'),
+       required(t.status),
+       tag(t.status,'groupable:"true"'),
+       tag(t.origin,'groupable:"true"'),
+       CAST(t.record_count AS int),
+       tag(t.record_count,'groupable:"false"'),
+       CAST(t.queued_count AS int),
+       tag(t.queued_count,'groupable:"false"'),
+       CAST(t.controller_count AS int),
+       tag(t.controller_count,'groupable:"false"')
+FROM (${embed:sql/turn.sql}) t

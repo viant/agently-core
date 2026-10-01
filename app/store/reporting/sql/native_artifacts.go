@@ -12,8 +12,8 @@ import (
 	reportstore "github.com/viant/agently-core/app/store/reporting"
 	artifactread "github.com/viant/agently-core/internal/datly/reporting/artifact/read"
 	artifactwrite "github.com/viant/agently-core/internal/datly/reporting/artifact/write"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
 )
@@ -42,7 +42,7 @@ func (s *Store) readArtifactsNative(ctx context.Context, input *artifactread.Inp
 	return out.Data, nil
 }
 
-func (s *Store) getArtifactNative(ctx context.Context, artifactID string) (*reportartifact.Record, error) {
+func (s *Store) getArtifactNative(ctx context.Context, artifactID string) (*reportartifactmodel.Record, error) {
 	if strings.TrimSpace(artifactID) == "" || effectiveOwnerID(ctx) == "" && !hasInternalAccess(ctx) {
 		return nil, errNotFound
 	}
@@ -61,15 +61,15 @@ func (s *Store) getArtifactNative(ctx context.Context, artifactID string) (*repo
 	return artifactFromNative(rows[0]), nil
 }
 
-func (s *Store) listArtifactsNative(ctx context.Context) ([]*reportartifact.Record, error) {
+func (s *Store) listArtifactsNative(ctx context.Context) ([]*reportartifactmodel.Record, error) {
 	if effectiveOwnerID(ctx) == "" && !hasInternalAccess(ctx) {
-		return []*reportartifact.Record{}, nil
+		return []*reportartifactmodel.Record{}, nil
 	}
 	rows, err := s.readArtifactsNative(ctx, &artifactread.Input{})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*reportartifact.Record, 0, len(rows))
+	result := make([]*reportartifactmodel.Record, 0, len(rows))
 	for _, row := range rows {
 		if row != nil {
 			result = append(result, artifactFromNative(row))
@@ -78,7 +78,7 @@ func (s *Store) listArtifactsNative(ctx context.Context) ([]*reportartifact.Reco
 	return result, nil
 }
 
-func (s *Store) putArtifactNative(ctx context.Context, artifact *reportartifact.Record) error {
+func (s *Store) putArtifactNative(ctx context.Context, artifact *reportartifactmodel.Record) error {
 	if artifact == nil {
 		return errNotFound
 	}
@@ -133,11 +133,11 @@ func (s *Store) putArtifactNative(ctx context.Context, artifact *reportartifact.
 	return nil
 }
 
-func artifactFromNative(row *artifactread.Artifact) *reportartifact.Record {
+func artifactFromNative(row *artifactread.Artifact) *reportartifactmodel.Record {
 	if row == nil {
 		return nil
 	}
-	return &reportartifact.Record{
+	return &reportartifactmodel.Record{
 		ArtifactID: row.ArtifactId, JobID: row.JobId, ArtifactRef: row.ArtifactRef,
 		OwnerID: row.OwnerId, Format: row.Format, ContentType: row.ContentType,
 		Data: append([]byte(nil), row.InlineData...), CreatedAt: row.CreatedAt,
@@ -145,7 +145,7 @@ func artifactFromNative(row *artifactread.Artifact) *reportartifact.Record {
 	}
 }
 
-func sameArtifactJob(artifact *reportartifact.Record, job *reportjob.Record) bool {
+func sameArtifactJob(artifact *reportartifactmodel.Record, job *reportjobmodel.Record) bool {
 	return artifact != nil && job != nil &&
 		strings.TrimSpace(artifact.JobID) == strings.TrimSpace(job.JobID) &&
 		strings.TrimSpace(artifact.OwnerID) == strings.TrimSpace(job.OwnerID) &&

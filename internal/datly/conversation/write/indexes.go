@@ -59,6 +59,52 @@ func (index WriterHandlerCurrentWriterGroupedById) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
+func WriterHandlerCurrentWriterIndexByShareableKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	return value.Shareable, true
+}
+
+type WriterHandlerCurrentWriterIndexedByShareable map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByShareable() (WriterHandlerCurrentWriterIndexedByShareable, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByShareable)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByShareableKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByShareable")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByShareable) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByShareable map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByShareable() WriterHandlerCurrentWriterGroupedByShareable {
+	result := make(WriterHandlerCurrentWriterGroupedByShareable)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByShareableKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByShareable) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
 func WriterHandlerCurrentWriterIndexBySummaryKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -892,52 +938,6 @@ func (index WriterHandlerCurrentWriterGroupedByVisibility) Has(key string) bool 
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByShareableKey(value *CurrentWriterView) (int, bool) {
-	var zero int
-	if value == nil {
-		return zero, false
-	}
-	return value.Shareable, true
-}
-
-type WriterHandlerCurrentWriterIndexedByShareable map[int]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByShareable() (WriterHandlerCurrentWriterIndexedByShareable, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByShareable)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByShareableKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByShareable")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByShareable) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByShareable map[int][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByShareable() WriterHandlerCurrentWriterGroupedByShareable {
-	result := make(WriterHandlerCurrentWriterGroupedByShareable)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByShareableKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByShareable) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
 func WriterHandlerCurrentWriterIndexByStatusKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -1402,6 +1402,9 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Id") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Id")
 			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Shareable") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Shareable")
+			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Summary") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Summary")
 			}
@@ -1452,9 +1455,6 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Visibility") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Visibility")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Shareable") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Shareable")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Status") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Status")

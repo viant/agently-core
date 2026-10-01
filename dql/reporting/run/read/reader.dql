@@ -18,24 +18,18 @@
 #define($_ = $Status<string>(query/status).Optional().WithPredicate(0,'equal','r','status'))
 #define($_ = $Origin<string>(query/origin).Optional().WithPredicate(0,'equal','r','origin'))
 #define($_ = $TechnicalRetention<*predicate.TechnicalRetention>(technicalMaintenance/policy).Optional().WithPredicate(0,'handler','predicate.TechnicalReportRunRetention'))
-#define($_ = $LockRows<bool>(reportAccess/lock).Optional())
 #define($_ = $Data<[]*Run>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOrderBy=true"'))
 
-SELECT data_rows.maintenance_observed_at,
-       CAST(data_rows.maintenance_observed_at AS string), internal(data_rows.maintenance_observed_at), tag(data_rows.maintenance_observed_at,'json:"-"'),
-       data_rows.report_run_id, data_rows.owner_id, data_rows.conversation_id,
-       data_rows.materializer, data_rows.origin, data_rows.builder_ref, data_rows.preset_id,
-       data_rows.source_kind, data_rows.source_id, data_rows.requested_params_json,
-       data_rows.effective_params_json, data_rows.status, data_rows.failure_code,
-       data_rows.failure_text, data_rows.started_at, data_rows.completed_at, data_rows.revision,
-       data_rows.ui_run_request_id, data_rows.report_spec_json, data_rows.report_fill_json,
-       data_rows.report_print_json, data_rows.activation_source, data_rows.adoption_source,
-       data_rows.actor_id, data_rows.created_at, data_rows.updated_at,
+SELECT data_rows.*,
+       row_lock(data_rows,'report_run r'),
+       CAST(data_rows.maintenance_observed_at AS string),
+       internal(data_rows.maintenance_observed_at),
+       tag(data_rows.maintenance_observed_at,'json:"-"'),
        type(data_rows,'Run'),
-       CAST(data_rows.report_run_id AS string),
-       CAST(data_rows.owner_id AS string),
+       required(data_rows.report_run_id),
+       required(data_rows.owner_id),
        CAST(data_rows.conversation_id AS string),
-       CAST(data_rows.materializer AS string),
+       required(data_rows.materializer),
        CAST(data_rows.origin AS string),
        CAST(data_rows.builder_ref AS string),
        CAST(data_rows.preset_id AS string),
@@ -43,40 +37,18 @@ SELECT data_rows.maintenance_observed_at,
        CAST(data_rows.source_id AS string),
        CAST(data_rows.requested_params_json AS []byte),
        CAST(data_rows.effective_params_json AS []byte),
-       CAST(data_rows.status AS string),
+       required(data_rows.status),
        CAST(data_rows.failure_code AS string),
        CAST(data_rows.failure_text AS string),
-       CAST(data_rows.started_at AS time.Time),
-       CAST(data_rows.completed_at AS *time.Time),
+       required(data_rows.started_at),
        CAST(data_rows.revision AS int64),
-       CAST(data_rows.ui_run_request_id AS string),
+       required(data_rows.ui_run_request_id),
        CAST(data_rows.report_spec_json AS []byte),
        CAST(data_rows.report_fill_json AS []byte),
        CAST(data_rows.report_print_json AS []byte),
        CAST(data_rows.activation_source AS string),
        CAST(data_rows.adoption_source AS string),
        CAST(data_rows.actor_id AS string),
-       CAST(data_rows.created_at AS time.Time),
-       CAST(data_rows.updated_at AS time.Time)
-FROM (
-    SELECT CAST(r.updated_at AS CHAR) AS maintenance_observed_at, r.report_run_id, r.owner_id,
-           COALESCE(r.conversation_id, '') AS conversation_id,
-           r.materializer, COALESCE(r.origin, '') AS origin,
-           COALESCE(r.builder_ref, '') AS builder_ref,
-           COALESCE(r.preset_id, '') AS preset_id,
-           COALESCE(r.source_kind, '') AS source_kind,
-           COALESCE(r.source_id, '') AS source_id,
-           r.requested_params_json, r.effective_params_json, r.status,
-           COALESCE(r.failure_code, '') AS failure_code,
-           COALESCE(r.failure_text, '') AS failure_text,
-           r.started_at, r.completed_at, r.revision, r.ui_run_request_id,
-           r.report_spec_json, r.report_fill_json, r.report_print_json,
-           COALESCE(r.activation_source, '') AS activation_source,
-           COALESCE(r.adoption_source, '') AS adoption_source,
-           COALESCE(r.actor_id, '') AS actor_id, r.created_at, r.updated_at
-    FROM report_run r
-    WHERE ($Internal OR r.owner_id = $OwnerSubject)
-    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
-    ORDER BY r.updated_at DESC, r.report_run_id DESC
- #if($LockRows) ${View.ForUpdate()} #end
-) data_rows
+       required(data_rows.created_at),
+       required(data_rows.updated_at)
+FROM (${embed:sql/run.sql}) data_rows

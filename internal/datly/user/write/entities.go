@@ -26,26 +26,6 @@ func (entity *User) SetUsername(value string) {
 	}
 	entity.Has.Username = true
 }
-func (entity *User) GetDisplayName() *string {
-	return entity.DisplayName
-}
-func (entity *User) SetDisplayName(value *string) {
-	entity.DisplayName = value
-	if entity.Has == nil {
-		entity.Has = &UserHas{}
-	}
-	entity.Has.DisplayName = true
-}
-func (entity *User) GetEmail() *string {
-	return entity.Email
-}
-func (entity *User) SetEmail(value *string) {
-	entity.Email = value
-	if entity.Has == nil {
-		entity.Has = &UserHas{}
-	}
-	entity.Has.Email = true
-}
 func (entity *User) GetProvider() string {
 	return entity.Provider
 }
@@ -55,16 +35,6 @@ func (entity *User) SetProvider(value string) {
 		entity.Has = &UserHas{}
 	}
 	entity.Has.Provider = true
-}
-func (entity *User) GetSubject() *string {
-	return entity.Subject
-}
-func (entity *User) SetSubject(value *string) {
-	entity.Subject = value
-	if entity.Has == nil {
-		entity.Has = &UserHas{}
-	}
-	entity.Has.Subject = true
 }
 func (entity *User) GetHashIp() *string {
 	return entity.HashIp
@@ -85,6 +55,36 @@ func (entity *User) SetTimezone(value string) {
 		entity.Has = &UserHas{}
 	}
 	entity.Has.Timezone = true
+}
+func (entity *User) GetDisplayName() *string {
+	return entity.DisplayName
+}
+func (entity *User) SetDisplayName(value *string) {
+	entity.DisplayName = value
+	if entity.Has == nil {
+		entity.Has = &UserHas{}
+	}
+	entity.Has.DisplayName = true
+}
+func (entity *User) GetEmail() *string {
+	return entity.Email
+}
+func (entity *User) SetEmail(value *string) {
+	entity.Email = value
+	if entity.Has == nil {
+		entity.Has = &UserHas{}
+	}
+	entity.Has.Email = true
+}
+func (entity *User) GetSubject() *string {
+	return entity.Subject
+}
+func (entity *User) SetSubject(value *string) {
+	entity.Subject = value
+	if entity.Has == nil {
+		entity.Has = &UserHas{}
+	}
+	entity.Has.Subject = true
 }
 func (entity *User) GetDefaultAgentRef() *string {
 	return entity.DefaultAgentRef

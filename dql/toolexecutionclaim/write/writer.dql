@@ -1,5 +1,4 @@
 #package('github.com/viant/agently-core/internal/datly/toolexecutionclaim/write')
-#import('time','time')
 
 #setting($_ = $connector('agently'))
 #setting($_ = $internal(true))
@@ -14,28 +13,19 @@
 #define($_ = $Claims<[]*Claim>(body/data))
 #define($_ = $Data<[]*Claim>(output/body))
 
-SELECT data_rows.claim_key, data_rows.should_delete,
-       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:"shouldDelete,omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
-       data_rows.rule_id,
-       data_rows.canonical_tool_name,
-       data_rows.turn_id,
-       data_rows.semantic_request_hash,
-       data_rows.state,
-       data_rows.created_at,
-       data_rows.updated_at,
-       data_rows.finished_at,
-       type(data_rows,'Claim'), lifecycle_type(data_rows,'Lifecycle'), mutation_predicate(data_rows,7),
-       CAST(data_rows.claim_key AS string), tag(data_rows.claim_key,'sqlx:"claim_key,primaryKey,required=true"'),
-       CAST(data_rows.rule_id AS string), tag(data_rows.rule_id,'sqlx:"rule_id,required=true"'),
-       CAST(data_rows.canonical_tool_name AS string), tag(data_rows.canonical_tool_name,'sqlx:"canonical_tool_name,required=true"'),
-       CAST(data_rows.turn_id AS string), tag(data_rows.turn_id,'sqlx:"turn_id,required=true"'),
-       CAST(data_rows.semantic_request_hash AS string), tag(data_rows.semantic_request_hash,'sqlx:"semantic_request_hash,required=true"'),
-       CAST(data_rows.state AS string), tag(data_rows.state,'sqlx:"state,required=true"'),
-       CAST(data_rows.created_at AS *time.Time), tag(data_rows.created_at,'sqlx:"created_at,required=true"'),
-       CAST(data_rows.updated_at AS *time.Time), tag(data_rows.updated_at,'sqlx:"updated_at,required=true"'),
-       CAST(data_rows.finished_at AS *time.Time), tag(data_rows.finished_at,'sqlx:"finished_at"')
-FROM (
-    SELECT 0 AS should_delete, claim_key, rule_id, canonical_tool_name,
-           turn_id, semantic_request_hash, state, created_at, updated_at, finished_at
-    FROM tool_execution_claim
-) data_rows
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'Claim'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,7),
+       required(t.claim_key),
+       tag(t.claim_key,'sqlx:"claim_key,primaryKey,required=true"'),
+       required(t.rule_id),
+       required(t.canonical_tool_name),
+       required(t.turn_id),
+       required(t.semantic_request_hash),
+       required(t.state)
+FROM (${embed:sql/toolexecutionclaim.sql}) t

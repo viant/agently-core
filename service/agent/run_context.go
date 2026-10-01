@@ -14,7 +14,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
+	messagemodel "github.com/viant/agently-core/model/message"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/agently-core/workspace"
@@ -316,11 +316,11 @@ func (s *Service) latestTurnTaskCheckpoint(ctx context.Context, turn runtimerequ
 		return checkpoint, nil
 	}
 	if s.dataService != nil {
-		page, err := s.dataService.GetMessagesPage(ctx, &agmessagelist.MessageRowsInput{
+		page, err := s.dataService.GetMessagesPage(ctx, &messagemodel.MessageRowsInput{
 			ConversationId: conversationID,
 			TurnId:         turnID,
 			TurnTask:       true,
-			Has: &agmessagelist.MessageRowsInputHas{
+			Has: &messagemodel.MessageRowsInputHas{
 				ConversationId: true,
 				TurnId:         true,
 				TurnTask:       true,

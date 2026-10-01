@@ -152,7 +152,7 @@ func deleteSchedule(ctx context.Context, deps dependencies, id, owner string, no
 	record.SetShouldDelete(true)
 	mutation := &schedwrite.Input{}
 	mutation.SetSchedules([]*schedwrite.Schedule{record})
-	value, err := deps.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: scheduleWriterTarget, Input: mutation, Providers: trustedProviders("scheduleaccess", owner, true)})
+	value, err := deps.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: scheduleWriterTarget, Input: mutation, Providers: trustedProviders("scheduleaccess", owner)})
 	if err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-SELECT link_state.state_hash, link_state.flow_hash, link_state.user_id, link_state.session_hash, link_state.provider, link_state.expires_at, link_state.consumed_at, link_state.created_at FROM  (
+SELECT link_state.* FROM  (
 SELECT t.state_hash,
            t.flow_hash,
            t.user_id,

@@ -46,17 +46,6 @@ func (input *ScheduleInput) SetInternalMode(value bool) {
 	input.Has.InternalMode = true
 }
 
-func (input *ScheduleInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &ScheduleInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *ScheduleInput) SetVisibilitySubject(value *string) {
 	if input == nil {
 		return

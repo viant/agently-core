@@ -7,9 +7,8 @@ import (
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *testing.T) {
@@ -28,7 +27,7 @@ func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *test
 
 	convID := "conv_status_projection"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
@@ -37,7 +36,7 @@ func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *test
 	}
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn_status_projection")
 	turn.SetConversationID(convID)
 	turn.SetStatus("succeeded")
@@ -74,7 +73,7 @@ func TestConversationOutput_NativeReturnsRelationAppliedStage_SQLite(t *testing.
 
 	convID := "conv_manual_on_relation"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
@@ -83,7 +82,7 @@ func TestConversationOutput_NativeReturnsRelationAppliedStage_SQLite(t *testing.
 	}
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn_manual_on_relation")
 	turn.SetConversationID(convID)
 	turn.SetStatus("succeeded")
@@ -96,7 +95,7 @@ func TestConversationOutput_NativeReturnsRelationAppliedStage_SQLite(t *testing.
 	if err != nil {
 		t.Fatal(err)
 	}
-	out := &agconv.ConversationOutput{Data: []*agconv.ConversationView{(*agconv.ConversationView)(row)}}
+	out := &conversationmodel.ConversationOutput{Data: []*conversationmodel.ConversationView{(*conversationmodel.ConversationView)(row)}}
 
 	if len(out.Data) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(out.Data))
@@ -135,7 +134,7 @@ func TestGetConversation_PrunesBlankAssistantPlaceholderMessages(t *testing.T) {
 
 	convID := "conv_blank_placeholder"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
@@ -144,7 +143,7 @@ func TestGetConversation_PrunesBlankAssistantPlaceholderMessages(t *testing.T) {
 	}
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn_blank_placeholder")
 	turn.SetConversationID(convID)
 	turn.SetStatus("running")
@@ -192,7 +191,7 @@ func TestGetConversation_PreservesWhitespaceOnlyAssistantChunks(t *testing.T) {
 
 	convID := "conv_whitespace_chunk"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
@@ -201,7 +200,7 @@ func TestGetConversation_PreservesWhitespaceOnlyAssistantChunks(t *testing.T) {
 	}
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn_whitespace_chunk")
 	turn.SetConversationID(convID)
 	turn.SetStatus("running")
@@ -250,7 +249,7 @@ func TestGetConversation_PreservesParentedAssistantAndToolMessages(t *testing.T)
 
 	convID := "conv_parented_rows"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
@@ -259,7 +258,7 @@ func TestGetConversation_PreservesParentedAssistantAndToolMessages(t *testing.T)
 	}
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn_parented_rows")
 	turn.SetConversationID(convID)
 	turn.SetStatus("succeeded")

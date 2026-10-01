@@ -197,6 +197,52 @@ func (index WriterHandlerCurrentWriterGroupedByVersion) Has(key int64) bool {
 	_, ok := index[key]
 	return ok
 }
+func WriterHandlerCurrentWriterIndexByActorIdKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	return value.ActorId, true
+}
+
+type WriterHandlerCurrentWriterIndexedByActorId map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByActorId() (WriterHandlerCurrentWriterIndexedByActorId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByActorId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByActorIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByActorId")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByActorId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByActorId map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByActorId() WriterHandlerCurrentWriterGroupedByActorId {
+	result := make(WriterHandlerCurrentWriterGroupedByActorId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByActorIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByActorId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
 func WriterHandlerCurrentWriterIndexByJobIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -292,52 +338,6 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByArtifactId() WriterHandlerCur
 	return result
 }
 func (index WriterHandlerCurrentWriterGroupedByArtifactId) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByActorIdKey(value *CurrentWriterView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	return value.ActorId, true
-}
-
-type WriterHandlerCurrentWriterIndexedByActorId map[string]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByActorId() (WriterHandlerCurrentWriterIndexedByActorId, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByActorId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByActorIdKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByActorId")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByActorId) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByActorId map[string][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByActorId() WriterHandlerCurrentWriterGroupedByActorId {
-	result := make(WriterHandlerCurrentWriterGroupedByActorId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByActorIdKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByActorId) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
@@ -520,23 +520,23 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Version") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Version")
 			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ActorId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ActorId")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("MetadataJson") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.MetadataJson")
+			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("JobId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.JobId")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ArtifactId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ArtifactId")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ActorId") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ActorId")
-			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ActorRef") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ActorRef")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("OccurredAt") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.OccurredAt")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("MetadataJson") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.MetadataJson")
 			}
 		}
 		cloned, err := (xshape.Runtime{}).CloneValue(rows, xshape.CloneOptions{})

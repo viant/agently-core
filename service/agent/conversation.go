@@ -9,7 +9,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agruntime "github.com/viant/agently-core/runtime"
 )
 
@@ -186,7 +186,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 	}
 
 	// Prepare a single patch with all required changes
-	patch := &convw.Conversation{Has: &convw.ConversationHas{}}
+	patch := &conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 	patch.SetId(convID)
 	needsPatch := false
 	if strings.TrimSpace(chosenAgentID) != "" {
@@ -198,7 +198,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 
 	if !exists {
 		// Default new agent-created conversations to private for privacy.
-		patch.SetVisibility(convw.VisibilityPrivate)
+		patch.SetVisibility(conversationmodel.VisibilityPrivate)
 		owner := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 		if owner == "" {
 			owner = strings.TrimSpace(input.UserId)
@@ -254,7 +254,7 @@ func (s *Service) ensureConversation(ctx context.Context, input *QueryInput) err
 		if s.conversation == nil {
 			return fmt.Errorf("conversation client not configured")
 		}
-		mc := convw.Conversation(*patch)
+		mc := conversationmodel.Conversation(*patch)
 		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mc)); err != nil {
 			if !exists {
 				return fmt.Errorf("failed to create conversation: %w", err)
@@ -292,10 +292,10 @@ func (s *Service) updateAttachmentUsageMetadata(ctx context.Context, convID stri
 	if err != nil {
 		return err
 	}
-	w := &convw.Conversation{Has: &convw.ConversationHas{}}
+	w := &conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 	w.SetId(convID)
 	w.SetMetadata(string(mb))
-	mw := convw.Conversation(*w)
+	mw := conversationmodel.Conversation(*w)
 	return s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw))
 }
 
@@ -326,13 +326,13 @@ func (s *Service) updatedConversationContext(ctx context.Context, convID string,
 	}
 	meta.Context = ctxCopy
 	if b, err := json.Marshal(meta); err == nil {
-		w := &convw.Conversation{Has: &convw.ConversationHas{}}
+		w := &conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 		w.SetId(convID)
 		w.SetMetadata(string(b))
 		if s.conversation == nil {
 			return fmt.Errorf("conversation client not configured")
 		}
-		mw := convw.Conversation(*w)
+		mw := conversationmodel.Conversation(*w)
 		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw)); err != nil {
 			return fmt.Errorf("failed to persist conversation context: %w", err)
 		}

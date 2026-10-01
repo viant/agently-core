@@ -59,55 +59,6 @@ func (index WriterHandlerCurrentWriterGroupedById) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByTenantIdKey(value *CurrentWriterView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	if value.TenantId == nil {
-		return zero, false
-	}
-	return *value.TenantId, true
-}
-
-type WriterHandlerCurrentWriterIndexedByTenantId map[string]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByTenantId() (WriterHandlerCurrentWriterIndexedByTenantId, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByTenantId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByTenantIdKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByTenantId")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByTenantId) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByTenantId map[string][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByTenantId() WriterHandlerCurrentWriterGroupedByTenantId {
-	result := make(WriterHandlerCurrentWriterGroupedByTenantId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByTenantIdKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByTenantId) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
 func WriterHandlerCurrentWriterIndexByKindKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -151,55 +102,6 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByKind() WriterHandlerCurrentWr
 	return result
 }
 func (index WriterHandlerCurrentWriterGroupedByKind) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexBySubtypeKey(value *CurrentWriterView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	if value.Subtype == nil {
-		return zero, false
-	}
-	return *value.Subtype, true
-}
-
-type WriterHandlerCurrentWriterIndexedBySubtype map[string]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexBySubtype() (WriterHandlerCurrentWriterIndexedBySubtype, error) {
-	result := make(WriterHandlerCurrentWriterIndexedBySubtype)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexBySubtypeKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySubtype")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedBySubtype) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedBySubtype map[string][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupBySubtype() WriterHandlerCurrentWriterGroupedBySubtype {
-	result := make(WriterHandlerCurrentWriterGroupedBySubtype)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexBySubtypeKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedBySubtype) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
@@ -295,6 +197,196 @@ func (index WriterHandlerCurrentWriterGroupedBySizeBytes) Has(key int) bool {
 	_, ok := index[key]
 	return ok
 }
+func WriterHandlerCurrentWriterIndexByStorageKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	return value.Storage, true
+}
+
+type WriterHandlerCurrentWriterIndexedByStorage map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByStorage() (WriterHandlerCurrentWriterIndexedByStorage, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByStorage)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByStorageKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByStorage")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByStorage) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByStorage map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByStorage() WriterHandlerCurrentWriterGroupedByStorage {
+	result := make(WriterHandlerCurrentWriterGroupedByStorage)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByStorageKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByStorage) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByCompressionKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	return value.Compression, true
+}
+
+type WriterHandlerCurrentWriterIndexedByCompression map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByCompression() (WriterHandlerCurrentWriterIndexedByCompression, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByCompression)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByCompressionKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByCompression")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByCompression) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByCompression map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByCompression() WriterHandlerCurrentWriterGroupedByCompression {
+	result := make(WriterHandlerCurrentWriterGroupedByCompression)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByCompressionKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByCompression) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByTenantIdKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.TenantId == nil {
+		return zero, false
+	}
+	return *value.TenantId, true
+}
+
+type WriterHandlerCurrentWriterIndexedByTenantId map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByTenantId() (WriterHandlerCurrentWriterIndexedByTenantId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByTenantId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByTenantIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByTenantId")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByTenantId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByTenantId map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByTenantId() WriterHandlerCurrentWriterGroupedByTenantId {
+	result := make(WriterHandlerCurrentWriterGroupedByTenantId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByTenantIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByTenantId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySubtypeKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.Subtype == nil {
+		return zero, false
+	}
+	return *value.Subtype, true
+}
+
+type WriterHandlerCurrentWriterIndexedBySubtype map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexBySubtype() (WriterHandlerCurrentWriterIndexedBySubtype, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySubtype)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySubtypeKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySubtype")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedBySubtype) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedBySubtype map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupBySubtype() WriterHandlerCurrentWriterGroupedBySubtype {
+	result := make(WriterHandlerCurrentWriterGroupedBySubtype)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySubtypeKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedBySubtype) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
 func WriterHandlerCurrentWriterIndexByDigestKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -344,52 +436,6 @@ func (index WriterHandlerCurrentWriterGroupedByDigest) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByStorageKey(value *CurrentWriterView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	return value.Storage, true
-}
-
-type WriterHandlerCurrentWriterIndexedByStorage map[string]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByStorage() (WriterHandlerCurrentWriterIndexedByStorage, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByStorage)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByStorageKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByStorage")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByStorage) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByStorage map[string][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByStorage() WriterHandlerCurrentWriterGroupedByStorage {
-	result := make(WriterHandlerCurrentWriterGroupedByStorage)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByStorageKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByStorage) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
 func WriterHandlerCurrentWriterIndexByUriKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -436,52 +482,6 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByUri() WriterHandlerCurrentWri
 	return result
 }
 func (index WriterHandlerCurrentWriterGroupedByUri) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByCompressionKey(value *CurrentWriterView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	return value.Compression, true
-}
-
-type WriterHandlerCurrentWriterIndexedByCompression map[string]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByCompression() (WriterHandlerCurrentWriterIndexedByCompression, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByCompression)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByCompressionKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByCompression")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByCompression) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByCompression map[string][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByCompression() WriterHandlerCurrentWriterGroupedByCompression {
-	result := make(WriterHandlerCurrentWriterGroupedByCompression)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByCompressionKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByCompression) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
@@ -802,14 +802,8 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Id") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Id")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TenantId") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TenantId")
-			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Kind") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Kind")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Subtype") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Subtype")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("MimeType") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.MimeType")
@@ -817,20 +811,26 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SizeBytes") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SizeBytes")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Digest") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Digest")
-			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Storage") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Storage")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("InlineBody") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.InlineBody")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Uri") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Uri")
-			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Compression") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Compression")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TenantId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TenantId")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Subtype") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Subtype")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Digest") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Digest")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Uri") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Uri")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("EncryptionKmsKeyId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.EncryptionKmsKeyId")

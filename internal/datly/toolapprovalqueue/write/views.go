@@ -8,26 +8,26 @@ import (
 
 // ToolApprovalQueue is generated canonical view metadata for writer.
 type ToolApprovalQueue struct {
-	ShouldDelete     bool                  `json:",omitempty" sqlx:"-" writer:"delete"`
-	Id               string                `validate:"required" sqlx:"id,primaryKey"`
-	UserId           string                `validate:"required" sqlx:"user_id,required=true"`
-	ConversationId   *string               `json:",omitempty" sqlx:"conversation_id,refTable=conversation,refColumn=id"`
-	TurnId           *string               `json:",omitempty" sqlx:"turn_id,refTable=turn,refColumn=id"`
-	MessageId        *string               `json:",omitempty" sqlx:"message_id,refTable=message,refColumn=id"`
-	ToolName         string                `validate:"required" sqlx:"tool_name,required=true"`
-	Title            *string               `json:",omitempty" sqlx:"title"`
-	Arguments        []byte                `validate:"required" sqlx:"arguments,required=true"`
-	Metadata         *[]byte               `json:",omitempty" sqlx:"metadata"`
-	Status           string                `validate:"required" sqlx:"status,required=true"`
-	Decision         *string               `json:",omitempty" sqlx:"decision"`
-	ExpiresAt        *time.Time            `json:",omitempty" sqlx:"expires_at"`
-	TimedOutAt       *time.Time            `json:",omitempty" sqlx:"timed_out_at"`
-	ApprovedByUserId *string               `json:",omitempty" sqlx:"approved_by_user_id"`
-	ApprovedAt       *time.Time            `json:",omitempty" sqlx:"approved_at"`
-	ExecutedAt       *time.Time            `json:",omitempty" sqlx:"executed_at"`
-	ErrorMessage     *string               `json:",omitempty" sqlx:"error_message"`
-	CreatedAt        *time.Time            `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt        *time.Time            `json:",omitempty" sqlx:"updated_at"`
+	ShouldDelete     bool                  `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	Id               string                `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	UserId           string                `validate:"required" json:"userId" sqlx:"user_id,required=true"`
+	ToolName         string                `validate:"required" json:"toolName" sqlx:"tool_name,required=true"`
+	Arguments        []byte                `validate:"required" json:"arguments" sqlx:"arguments,required=true"`
+	Metadata         *[]byte               `sqlx:"metadata" json:"metadata,omitempty"`
+	Status           string                `validate:"required" json:"status" sqlx:"status,required=true"`
+	ConversationId   *string               `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
+	TurnId           *string               `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
+	MessageId        *string               `sqlx:"message_id,refTable=message,refColumn=id" json:"messageId,omitempty"`
+	Title            *string               `sqlx:"title" json:"title,omitempty"`
+	Decision         *string               `sqlx:"decision" json:"decision,omitempty"`
+	ExpiresAt        *time.Time            `sqlx:"expires_at" json:"expiresAt,omitempty"`
+	TimedOutAt       *time.Time            `sqlx:"timed_out_at" json:"timedOutAt,omitempty"`
+	ApprovedByUserId *string               `sqlx:"approved_by_user_id" json:"approvedByUserId,omitempty"`
+	ApprovedAt       *time.Time            `sqlx:"approved_at" json:"approvedAt,omitempty"`
+	ExecutedAt       *time.Time            `sqlx:"executed_at" json:"executedAt,omitempty"`
+	ErrorMessage     *string               `sqlx:"error_message" json:"errorMessage,omitempty"`
+	CreatedAt        *time.Time            `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt        *time.Time            `sqlx:"updated_at" json:"updatedAt,omitempty"`
 	Has              *ToolApprovalQueueHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"ToolApprovalQueueHas"`
 }
 
@@ -35,14 +35,14 @@ type ToolApprovalQueueHas struct {
 	ShouldDelete     bool
 	Id               bool
 	UserId           bool
-	ConversationId   bool
-	TurnId           bool
-	MessageId        bool
 	ToolName         bool
-	Title            bool
 	Arguments        bool
 	Metadata         bool
 	Status           bool
+	ConversationId   bool
+	TurnId           bool
+	MessageId        bool
+	Title            bool
 	Decision         bool
 	ExpiresAt        bool
 	TimedOutAt       bool
@@ -56,25 +56,25 @@ type ToolApprovalQueueHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id               string     `validate:"required" sqlx:"id,primaryKey"`
-	UserId           string     `validate:"required" sqlx:"user_id,required=true"`
-	ConversationId   *string    `json:",omitempty" sqlx:"conversation_id,refTable=conversation,refColumn=id"`
-	TurnId           *string    `json:",omitempty" sqlx:"turn_id,refTable=turn,refColumn=id"`
-	MessageId        *string    `json:",omitempty" sqlx:"message_id,refTable=message,refColumn=id"`
-	ToolName         string     `validate:"required" sqlx:"tool_name,required=true"`
-	Title            *string    `json:",omitempty" sqlx:"title"`
-	Arguments        []byte     `validate:"required" sqlx:"arguments,required=true"`
-	Metadata         *[]byte    `json:",omitempty" sqlx:"metadata"`
-	Status           string     `validate:"required" sqlx:"status,required=true"`
-	Decision         *string    `json:",omitempty" sqlx:"decision"`
-	ExpiresAt        *time.Time `json:",omitempty" sqlx:"expires_at"`
-	TimedOutAt       *time.Time `json:",omitempty" sqlx:"timed_out_at"`
-	ApprovedByUserId *string    `json:",omitempty" sqlx:"approved_by_user_id"`
-	ApprovedAt       *time.Time `json:",omitempty" sqlx:"approved_at"`
-	ExecutedAt       *time.Time `json:",omitempty" sqlx:"executed_at"`
-	ErrorMessage     *string    `json:",omitempty" sqlx:"error_message"`
-	CreatedAt        *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt        *time.Time `json:",omitempty" sqlx:"updated_at"`
+	Id               string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	UserId           string     `validate:"required" json:"userId" sqlx:"user_id,required=true"`
+	ToolName         string     `validate:"required" json:"toolName" sqlx:"tool_name,required=true"`
+	Arguments        []byte     `validate:"required" json:"arguments" sqlx:"arguments,required=true"`
+	Metadata         *[]byte    `sqlx:"metadata" json:"metadata,omitempty"`
+	Status           string     `validate:"required" json:"status" sqlx:"status,required=true"`
+	ConversationId   *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
+	TurnId           *string    `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
+	MessageId        *string    `sqlx:"message_id,refTable=message,refColumn=id" json:"messageId,omitempty"`
+	Title            *string    `sqlx:"title" json:"title,omitempty"`
+	Decision         *string    `sqlx:"decision" json:"decision,omitempty"`
+	ExpiresAt        *time.Time `sqlx:"expires_at" json:"expiresAt,omitempty"`
+	TimedOutAt       *time.Time `sqlx:"timed_out_at" json:"timedOutAt,omitempty"`
+	ApprovedByUserId *string    `sqlx:"approved_by_user_id" json:"approvedByUserId,omitempty"`
+	ApprovedAt       *time.Time `sqlx:"approved_at" json:"approvedAt,omitempty"`
+	ExecutedAt       *time.Time `sqlx:"executed_at" json:"executedAt,omitempty"`
+	ErrorMessage     *string    `sqlx:"error_message" json:"errorMessage,omitempty"`
+	CreatedAt        *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt        *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
 }
 
 type WriterKeysRow struct {

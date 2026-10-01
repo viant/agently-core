@@ -24,7 +24,7 @@ require (
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
 	github.com/viant/bindly v0.2.1-0.20260915164201-7cf35da5bd9a
-	github.com/viant/datly v1.1.1-0.20260930202444-a59b17988b72
+	github.com/viant/datly v1.1.1-0.20261001182651-fedaf20d2a5e
 	github.com/viant/embedius v0.5.6
 	github.com/viant/forge v0.3.40-0.20260918225638-e53002b12147
 	github.com/viant/gds v0.6.0
@@ -38,7 +38,7 @@ require (
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
 	github.com/viant/toolbox v0.39.0
 	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8
-	github.com/viant/xdatly v1.0.1-0.20260927175016-ff38d5bca9b6
+	github.com/viant/xdatly v1.0.1-0.20261001162605-e2b68d4babd9
 	github.com/xeipuuv/gojsonschema v1.2.0
 	github.com/xuri/excelize/v2 v2.10.0
 	golang.org/x/crypto v0.53.0
@@ -140,7 +140,7 @@ require (
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/sqlite-vec v0.3.0 // indirect
 	github.com/viant/sqlparser v0.13.1-0.20260921232033-929f6f50ccce // indirect
-	github.com/viant/sqlx v0.26.1-0.20260929151803-0df7f08c4926
+	github.com/viant/sqlx v0.26.1-0.20261001153633-c707e294db3b
 	github.com/viant/structology v0.10.1-0.20260925145657-42c5a7e1d1d7
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.1-0.20260914020630-eadee36c3630 // indirect

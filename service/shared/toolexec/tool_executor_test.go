@@ -18,7 +18,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
-	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -993,7 +993,7 @@ func (s *scriptedRegistry) Execute(ctx context.Context, name string, args map[st
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastName = name
-	s.requestIDs = append(s.requestIDs, exportrequest.ID(ctx))
+	s.requestIDs = append(s.requestIDs, exportrequestmodel.ID(ctx))
 	if args != nil {
 		cloned := make(map[string]interface{}, len(args))
 		for k, v := range args {

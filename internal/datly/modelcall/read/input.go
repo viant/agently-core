@@ -10,7 +10,6 @@ import (
 type ModelCallsInput struct {
 	Internal          bool                `parameter:"Internal,kind=modelcallaccess,in=internal,dataType=bool,required=true"`
 	ReadMode          string              `parameter:"ReadMode,kind=modelcallaccess,in=mode,dataType=string,required=true"`
-	LockRows          bool                `parameter:"LockRows,kind=modelcallaccess,in=lock,dataType=bool,required=false"`
 	VisibilitySubject *string             `parameter:"VisibilitySubject,kind=visibility,in=subject,dataType=*string,required=true"`
 	MessageId         string              `parameter:"MessageId,kind=query,in=messageId,dataType=string,required=false" predicate:"equal,data_rows,message_id"`
 	MessageIds        []string            `parameter:"MessageIds,kind=query,in=messageIds,dataType=[]string,required=false" predicate:"in,data_rows,message_id"`
@@ -32,7 +31,6 @@ type ModelCallsInput struct {
 type ModelCallsInputHas struct {
 	Internal          bool
 	ReadMode          bool
-	LockRows          bool
 	VisibilitySubject bool
 	MessageId         bool
 	MessageIds        bool

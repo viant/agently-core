@@ -15,8 +15,8 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
-	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	toolreg "github.com/viant/agently-core/protocol/tool"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -296,10 +296,10 @@ func TestHandler_MCPUI_ToolCall_HTTPIntegration_QueuedApprovalPath(t *testing.T)
 	require.Equal(t, "system/os/getEnv", got.Approval.ToolName)
 	require.False(t, registry.executed, "approval-gated tool must not execute registry")
 
-	rows, err := convClient.ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+	rows, err := convClient.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		ConversationId: "conv-http-mcpui",
 		QueueStatus:    "pending",
-		Has: &queueRead.QueueRowsInputHas{
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{
 			ConversationId: true,
 			QueueStatus:    true,
 		},
@@ -359,11 +359,11 @@ func mcpuiHTTPTestMatchPattern(pattern, name string) bool {
 	switch {
 	case strings.HasSuffix(raw, "/*"):
 		root := strings.TrimSuffix(raw, "/*")
-		service := mcpname.Name(mcpname.Canonical(name)).Service()
+		service := mcpname2.Name(mcpname2.Canonical(name)).Service()
 		return service == root || strings.HasPrefix(service, root+"/")
 	case strings.HasSuffix(raw, ":*"):
 		root := strings.TrimSuffix(raw, ":*")
-		service := mcpname.Name(mcpname.Canonical(name)).Service()
+		service := mcpname2.Name(mcpname2.Canonical(name)).Service()
 		return service == root
 	}
 	pcanon := mcpuiHTTPTestCanon(pattern)
@@ -389,5 +389,5 @@ func mcpuiHTTPTestCanon(value string) string {
 	if value == "" {
 		return ""
 	}
-	return mcpname.Canonical(value)
+	return mcpname2.Canonical(value)
 }

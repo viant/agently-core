@@ -10,5 +10,5 @@ import (
 type Output struct {
 	response.Status `parameter:",kind=output,in=status"`
 	Metrics         response.Metrics     `parameter:",kind=output,in=metrics"`
-	Data            []*GeneratedFileView `parameter:"Data,kind=output,in=view,dataType=[]*GeneratedFileView" view:"reader,type=GeneratedFileView,table=generated_file" sql:"uri=datly_generatedfile_read_reader:sql/reader.sql"`
+	Data            []*GeneratedFileView `parameter:"Data,kind=output,in=view,dataType=[]*GeneratedFileView" view:"reader,type=GeneratedFileView,rowLock=generated_file gf,table=generated_file" sql:"uri=datly_generatedfile_read_reader:sql/reader.sql"`
 }

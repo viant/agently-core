@@ -27,14 +27,3 @@ func (input *SessionInput) SetTechnicalRetention(value *predicate.TechnicalReten
 	}
 	input.Has.TechnicalRetention = true
 }
-
-func (input *SessionInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &SessionInputHas{}
-	}
-	input.Has.LockRows = true
-}

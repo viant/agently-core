@@ -12,10 +12,10 @@ import (
 	"github.com/stretchr/testify/require"
 	reportstore "github.com/viant/agently-core/app/store/reporting"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
-	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	authsvc "github.com/viant/agently-core/service/auth"
 )
@@ -169,7 +169,7 @@ func TestRunReferenceExportRejectsUntrustedAndMixedInputs(t *testing.T) {
 	_, err := service.SubmitExport(ctx, &SubmitExportRequest{ReportRunID: "run-complete", Format: ExportFormatXLSX})
 	require.ErrorContains(t, err, "pdf only")
 	_, err = service.SubmitExport(
-		exportrequest.WithID(authsvc.InjectUser(context.Background(), "owner-1"), "missing-conversation"),
+		exportrequestmodel.WithID(authsvc.InjectUser(context.Background(), "owner-1"), "missing-conversation"),
 		&SubmitExportRequest{ReportRunID: "run-complete", Format: ExportFormatPDF},
 	)
 	require.ErrorContains(t, err, "trusted current conversation is required")
@@ -193,7 +193,7 @@ func TestRunReferenceExportRejectsUntrustedAndMixedInputs(t *testing.T) {
 	require.Error(t, err)
 
 	running := completedRun("run-running", "owner-1", "conversation-1", 2, now)
-	running.Status = reportrun.StatusRunning
+	running.Status = reportrunmodel.StatusRunning
 	running.CompletedAt = nil
 	require.NoError(t, runClient.CreateReportRun(ctx, running))
 	_, err = service.SubmitExport(
@@ -348,7 +348,7 @@ func TestRunReferenceExportArtifactFailureAndOrphanRecovery(t *testing.T) {
 		require.NoError(t, err)
 		_, err = service.StartExport(ctx, job.JobID)
 		require.NoError(t, err)
-		require.NoError(t, client.CreateJob(ctx, &reportjob.Record{
+		require.NoError(t, client.CreateJob(ctx, &reportjobmodel.Record{
 			JobID:       "other-job",
 			ArtifactRef: "legacy://other",
 			OwnerID:     "owner-1",
@@ -357,7 +357,7 @@ func TestRunReferenceExportArtifactFailureAndOrphanRecovery(t *testing.T) {
 			Status:      "succeeded",
 			SubmittedAt: now,
 		}))
-		require.NoError(t, client.PutArtifact(ctx, &reportartifact.Record{
+		require.NoError(t, client.PutArtifact(ctx, &reportartifactmodel.Record{
 			ArtifactID:  "artifact-collision",
 			JobID:       "other-job",
 			ArtifactRef: "legacy://other",
@@ -392,7 +392,7 @@ func TestRunReferenceExportArtifactFailureAndOrphanRecovery(t *testing.T) {
 		require.NoError(t, err)
 		running, err := service.StartExport(ctx, job.JobID)
 		require.NoError(t, err)
-		require.NoError(t, client.PutArtifact(ctx, &reportartifact.Record{
+		require.NoError(t, client.PutArtifact(ctx, &reportartifactmodel.Record{
 			ArtifactID:  "persisted-orphan",
 			JobID:       running.JobID,
 			ArtifactRef: running.ArtifactRef,
@@ -435,7 +435,7 @@ func TestRunReferenceSubmitSchemaHidesTrustedIdentityAndRevision(t *testing.T) {
 	require.NotContains(t, string(jobPayload), "exportRequestId")
 	require.NotContains(t, string(jobPayload), "reportRunRevision")
 
-	jobRecordType := reflect.TypeOf(reportjob.Record{})
+	jobRecordType := reflect.TypeOf(reportjobmodel.Record{})
 	_, hasJobRevision := jobRecordType.FieldByName("Revision")
 	require.False(t, hasJobRevision, "report_export_job must not grow a fourth revision column")
 }
@@ -454,15 +454,15 @@ func TestRunReferenceExportAddsNoEmailOrPublicToolSurface(t *testing.T) {
 	require.Equal(t, 1, submitCount)
 }
 
-func completedRun(id, ownerID, conversationID string, revision int64, now time.Time) *reportrun.Record {
+func completedRun(id, ownerID, conversationID string, revision int64, now time.Time) *reportrunmodel.Record {
 	completedAt := now.UTC()
-	return &reportrun.Record{
+	return &reportrunmodel.Record{
 		ReportRunID:    id,
 		OwnerID:        ownerID,
 		ConversationID: conversationID,
-		Materializer:   reportrun.MaterializerLegacyBrowser,
+		Materializer:   reportrunmodel.MaterializerLegacyBrowser,
 		Origin:         "manual",
-		Status:         reportrun.StatusCompleted,
+		Status:         reportrunmodel.StatusCompleted,
 		StartedAt:      now.Add(-time.Minute).UTC(),
 		CompletedAt:    &completedAt,
 		Revision:       revision,
@@ -478,7 +478,7 @@ func completedRun(id, ownerID, conversationID string, revision int64, now time.T
 func runExportContext(ownerID, conversationID, requestID string) context.Context {
 	ctx := authsvc.InjectUser(context.Background(), ownerID)
 	ctx = runtimerequestctx.WithConversationID(ctx, conversationID)
-	return exportrequest.WithID(ctx, requestID)
+	return exportrequestmodel.WithID(ctx, requestID)
 }
 
 func sequentialRunExportID(prefix string) func() string {

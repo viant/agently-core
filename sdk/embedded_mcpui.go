@@ -4,11 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strings"
-
-	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	"github.com/viant/agently-core/pkg/mcpname"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	agentsvc "github.com/viant/agently-core/service/agent"
+	"strings"
 )
 
 // ExecuteMCPUIToolCall runs an MCP UI host-mediated tool call through the
@@ -74,11 +73,11 @@ func (c *backendClient) pendingApprovalForGuestToolCall(ctx context.Context, con
 	if !ok || lister == nil {
 		return nil
 	}
-	rows, err := lister.ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+	rows, err := lister.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		ConversationId: strings.TrimSpace(conversationID),
 		TurnId:         strings.TrimSpace(turnID),
 		QueueStatus:    "pending",
-		Has: &queueRead.QueueRowsInputHas{
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{
 			ConversationId: true,
 			TurnId:         true,
 			QueueStatus:    true,
@@ -87,12 +86,12 @@ func (c *backendClient) pendingApprovalForGuestToolCall(ctx context.Context, con
 	if err != nil {
 		return nil
 	}
-	wanted := strings.ToLower(strings.TrimSpace(mcpname.Canonical(toolName)))
+	wanted := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(toolName)))
 	for _, row := range rows {
 		if row == nil {
 			continue
 		}
-		if wanted != "" && strings.ToLower(strings.TrimSpace(mcpname.Canonical(row.ToolName))) != wanted {
+		if wanted != "" && strings.ToLower(strings.TrimSpace(mcpname2.Canonical(row.ToolName))) != wanted {
 			continue
 		}
 		return pendingToolApprovalFromRow(row)

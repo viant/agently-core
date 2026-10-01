@@ -13,24 +13,24 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/sqlitewrite"
 	schedulerlease "github.com/viant/agently-core/internal/store/schedulerlease"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
-	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
+	runmodel "github.com/viant/agently-core/model/run"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
+
 	dexec "github.com/viant/datly/exec"
 )
 
 // Store provides persisted scheduler reads/writes backed by Datly components.
 type Store interface {
-	Get(ctx context.Context, id string) (*schedulepkg.ScheduleView, error)
-	List(ctx context.Context) ([]*schedulepkg.ScheduleView, error)
-	ListRuns(ctx context.Context, in *schrun.RunListInput, page, size int) (*RunListPage, error)
-	ListForRunDue(ctx context.Context) ([]*schedulepkg.ScheduleView, error)
+	Get(ctx context.Context, id string) (*schedulemodel.ScheduleView, error)
+	List(ctx context.Context) ([]*schedulemodel.ScheduleView, error)
+	ListRuns(ctx context.Context, in *scheduledrunmodel.RunListInput, page, size int) (*RunListPage, error)
+	ListForRunDue(ctx context.Context) ([]*schedulemodel.ScheduleView, error)
 	DeleteScheduledRun(ctx context.Context, id string) error
 	DeleteSchedule(ctx context.Context, id string) error
-	PatchSchedule(ctx context.Context, schedule *schedwrite.Schedule) error
-	PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) error
-	ListRunsForDue(ctx context.Context, scheduleID string, scheduledFor *time.Time, excludeStatuses []string) ([]*schrun.RunView, error)
+	PatchSchedule(ctx context.Context, schedule *schedulemodel.Schedule) error
+	PatchRuns(ctx context.Context, rows []*runmodel.MutableRunView) error
+	ListRunsForDue(ctx context.Context, scheduleID string, scheduledFor *time.Time, excludeStatuses []string) ([]*scheduledrunmodel.RunView, error)
 	TryClaimSchedule(ctx context.Context, scheduleID, leaseOwner string, leaseUntil time.Time) (bool, error)
 	ReleaseScheduleLease(ctx context.Context, scheduleID, leaseOwner string) (bool, error)
 	TryClaimRun(ctx context.Context, runID, leaseOwner string, leaseUntil time.Time) (bool, error)
@@ -44,7 +44,7 @@ type datlyStore struct {
 }
 
 type RunListPage struct {
-	Rows       []*schrun.RunView
+	Rows       []*scheduledrunmodel.RunView
 	PageCount  int
 	TotalCount int
 }
@@ -74,23 +74,23 @@ func NewDatlyStore(ctx context.Context, invoker dexec.ComponentInvoker, dataSvc 
 	return store, nil
 }
 
-func (s *datlyStore) Get(ctx context.Context, id string) (*schedulepkg.ScheduleView, error) {
+func (s *datlyStore) Get(ctx context.Context, id string) (*schedulemodel.ScheduleView, error) {
 	rows, err := s.listSchedulesNative(ctx, id, false)
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
 	return rows[0], nil
 }
-func (s *datlyStore) List(ctx context.Context) ([]*schedulepkg.ScheduleView, error) {
+func (s *datlyStore) List(ctx context.Context) ([]*schedulemodel.ScheduleView, error) {
 	return s.listSchedulesNative(ctx, "", false)
 }
-func (s *datlyStore) ListRuns(ctx context.Context, in *schrun.RunListInput, page, size int) (*RunListPage, error) {
+func (s *datlyStore) ListRuns(ctx context.Context, in *scheduledrunmodel.RunListInput, page, size int) (*RunListPage, error) {
 	return s.listRunsNative(ctx, in, page, size)
 }
 
-func cloneRunInputs(ctx context.Context, in *schrun.RunListInput, page, size int) (*schrun.RunListInput, *schrun.RunTotalInput) {
-	listInput := &schrun.RunListInput{Has: &schrun.RunListInputHas{}}
-	totalInput := &schrun.RunTotalInput{Has: &schrun.RunTotalInputHas{}}
+func cloneRunInputs(ctx context.Context, in *scheduledrunmodel.RunListInput, page, size int) (*scheduledrunmodel.RunListInput, *scheduledrunmodel.RunTotalInput) {
+	listInput := &scheduledrunmodel.RunListInput{Has: &scheduledrunmodel.RunListInputHas{}}
+	totalInput := &scheduledrunmodel.RunTotalInput{Has: &scheduledrunmodel.RunTotalInputHas{}}
 	if in != nil && in.Has != nil && in.Has.Since {
 		listInput.Since = in.Since
 		listInput.Has.Since = true
@@ -154,10 +154,10 @@ func computePageCount(totalCount, size int) int {
 	return int(math.Max(1, math.Ceil(float64(totalCount)/float64(size))))
 }
 
-func (s *datlyStore) ListForRunDue(ctx context.Context) ([]*schedulepkg.ScheduleView, error) {
+func (s *datlyStore) ListForRunDue(ctx context.Context) ([]*schedulemodel.ScheduleView, error) {
 	return s.listSchedulesNative(ctx, "", true)
 }
-func (s *datlyStore) PatchSchedule(ctx context.Context, schedule *schedwrite.Schedule) error {
+func (s *datlyStore) PatchSchedule(ctx context.Context, schedule *schedulemodel.Schedule) error {
 	if s == nil || schedule == nil {
 		return nil
 	}
@@ -181,7 +181,7 @@ func (s *datlyStore) DeleteScheduledRun(ctx context.Context, id string) error {
 	return s.data.DeleteScheduledRun(ctx, id)
 }
 
-func (s *datlyStore) PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) error {
+func (s *datlyStore) PatchRuns(ctx context.Context, rows []*runmodel.MutableRunView) error {
 	if s == nil || s.data == nil || len(rows) == 0 {
 		return nil
 	}
@@ -189,7 +189,7 @@ func (s *datlyStore) PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRu
 	return err
 }
 
-func (s *datlyStore) ListRunsForDue(ctx context.Context, scheduleID string, scheduledFor *time.Time, excludeStatuses []string) ([]*schrun.RunView, error) {
+func (s *datlyStore) ListRunsForDue(ctx context.Context, scheduleID string, scheduledFor *time.Time, excludeStatuses []string) ([]*scheduledrunmodel.RunView, error) {
 	if s == nil || strings.TrimSpace(scheduleID) == "" {
 		return nil, nil
 	}

@@ -36,26 +36,6 @@ func (entity *Schedule) SetName(value string) {
 	}
 	entity.Has.Name = true
 }
-func (entity *Schedule) GetDescription() *string {
-	return entity.Description
-}
-func (entity *Schedule) SetDescription(value *string) {
-	entity.Description = value
-	if entity.Has == nil {
-		entity.Has = &ScheduleHas{}
-	}
-	entity.Has.Description = true
-}
-func (entity *Schedule) GetCreatedByUserId() *string {
-	return entity.CreatedByUserId
-}
-func (entity *Schedule) SetCreatedByUserId(value *string) {
-	entity.CreatedByUserId = value
-	if entity.Has == nil {
-		entity.Has = &ScheduleHas{}
-	}
-	entity.Has.CreatedByUserId = true
-}
 func (entity *Schedule) GetVisibility() string {
 	return entity.Visibility
 }
@@ -75,6 +55,76 @@ func (entity *Schedule) SetInternal(value *bool) {
 		entity.Has = &ScheduleHas{}
 	}
 	entity.Has.Internal = true
+}
+func (entity *Schedule) GetAgentRef() string {
+	return entity.AgentRef
+}
+func (entity *Schedule) SetAgentRef(value string) {
+	entity.AgentRef = value
+	if entity.Has == nil {
+		entity.Has = &ScheduleHas{}
+	}
+	entity.Has.AgentRef = true
+}
+func (entity *Schedule) GetEnabled() bool {
+	return entity.Enabled
+}
+func (entity *Schedule) SetEnabled(value bool) {
+	entity.Enabled = value
+	if entity.Has == nil {
+		entity.Has = &ScheduleHas{}
+	}
+	entity.Has.Enabled = true
+}
+func (entity *Schedule) GetScheduleType() string {
+	return entity.ScheduleType
+}
+func (entity *Schedule) SetScheduleType(value string) {
+	entity.ScheduleType = value
+	if entity.Has == nil {
+		entity.Has = &ScheduleHas{}
+	}
+	entity.Has.ScheduleType = true
+}
+func (entity *Schedule) GetTimezone() string {
+	return entity.Timezone
+}
+func (entity *Schedule) SetTimezone(value string) {
+	entity.Timezone = value
+	if entity.Has == nil {
+		entity.Has = &ScheduleHas{}
+	}
+	entity.Has.Timezone = true
+}
+func (entity *Schedule) GetTimeoutSeconds() int {
+	return entity.TimeoutSeconds
+}
+func (entity *Schedule) SetTimeoutSeconds(value int) {
+	entity.TimeoutSeconds = value
+	if entity.Has == nil {
+		entity.Has = &ScheduleHas{}
+	}
+	entity.Has.TimeoutSeconds = true
+}
+func (entity *Schedule) GetDescription() *string {
+	return entity.Description
+}
+func (entity *Schedule) SetDescription(value *string) {
+	entity.Description = value
+	if entity.Has == nil {
+		entity.Has = &ScheduleHas{}
+	}
+	entity.Has.Description = true
+}
+func (entity *Schedule) GetCreatedByUserId() *string {
+	return entity.CreatedByUserId
+}
+func (entity *Schedule) SetCreatedByUserId(value *string) {
+	entity.CreatedByUserId = value
+	if entity.Has == nil {
+		entity.Has = &ScheduleHas{}
+	}
+	entity.Has.CreatedByUserId = true
 }
 func (entity *Schedule) GetConversationId() *string {
 	return entity.ConversationId
@@ -96,16 +146,6 @@ func (entity *Schedule) SetGoalId(value *string) {
 	}
 	entity.Has.GoalId = true
 }
-func (entity *Schedule) GetAgentRef() string {
-	return entity.AgentRef
-}
-func (entity *Schedule) SetAgentRef(value string) {
-	entity.AgentRef = value
-	if entity.Has == nil {
-		entity.Has = &ScheduleHas{}
-	}
-	entity.Has.AgentRef = true
-}
 func (entity *Schedule) GetModelOverride() *string {
 	return entity.ModelOverride
 }
@@ -125,16 +165,6 @@ func (entity *Schedule) SetUserCredUrl(value *string) {
 		entity.Has = &ScheduleHas{}
 	}
 	entity.Has.UserCredUrl = true
-}
-func (entity *Schedule) GetEnabled() bool {
-	return entity.Enabled
-}
-func (entity *Schedule) SetEnabled(value bool) {
-	entity.Enabled = value
-	if entity.Has == nil {
-		entity.Has = &ScheduleHas{}
-	}
-	entity.Has.Enabled = true
 }
 func (entity *Schedule) GetStartAt() *time.Time {
 	return entity.StartAt
@@ -156,16 +186,6 @@ func (entity *Schedule) SetEndAt(value *time.Time) {
 	}
 	entity.Has.EndAt = true
 }
-func (entity *Schedule) GetScheduleType() string {
-	return entity.ScheduleType
-}
-func (entity *Schedule) SetScheduleType(value string) {
-	entity.ScheduleType = value
-	if entity.Has == nil {
-		entity.Has = &ScheduleHas{}
-	}
-	entity.Has.ScheduleType = true
-}
 func (entity *Schedule) GetCronExpr() *string {
 	return entity.CronExpr
 }
@@ -185,26 +205,6 @@ func (entity *Schedule) SetIntervalSeconds(value *int) {
 		entity.Has = &ScheduleHas{}
 	}
 	entity.Has.IntervalSeconds = true
-}
-func (entity *Schedule) GetTimezone() string {
-	return entity.Timezone
-}
-func (entity *Schedule) SetTimezone(value string) {
-	entity.Timezone = value
-	if entity.Has == nil {
-		entity.Has = &ScheduleHas{}
-	}
-	entity.Has.Timezone = true
-}
-func (entity *Schedule) GetTimeoutSeconds() int {
-	return entity.TimeoutSeconds
-}
-func (entity *Schedule) SetTimeoutSeconds(value int) {
-	entity.TimeoutSeconds = value
-	if entity.Has == nil {
-		entity.Has = &ScheduleHas{}
-	}
-	entity.Has.TimeoutSeconds = true
 }
 func (entity *Schedule) GetTaskPromptUri() *string {
 	return entity.TaskPromptUri

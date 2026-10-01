@@ -18,9 +18,9 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
+	runmodel "github.com/viant/agently-core/model/run"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	toolpol "github.com/viant/agently-core/protocol/tool"
@@ -39,10 +39,10 @@ import (
 
 type capturePatchRunsService struct {
 	data.Service
-	rows []*agrunwrite.MutableRunView
+	rows []*runmodel.MutableRunView
 }
 
-func (s *capturePatchRunsService) PatchRuns(_ context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error) {
+func (s *capturePatchRunsService) PatchRuns(_ context.Context, rows []*runmodel.MutableRunView) ([]*runmodel.MutableRunView, error) {
 	s.rows = append(s.rows, rows...)
 	return rows, nil
 }
@@ -53,15 +53,15 @@ func ptrStr(v string) *string        { return &v }
 type statusDataOnlyService struct {
 	data.Service
 	getCalls int
-	conv     *agconv.ConversationView
+	conv     *conversationmodel.ConversationView
 }
 
-func (s *statusDataOnlyService) GetConversation(_ context.Context, _ string, _ *agconv.ConversationInput, _ ...data.Option) (*agconv.ConversationView, error) {
+func (s *statusDataOnlyService) GetConversation(_ context.Context, _ string, _ *conversationmodel.ConversationInput, _ ...data.Option) (*conversationmodel.ConversationView, error) {
 	s.getCalls++
 	return s.conv, nil
 }
 
-func (s *statusDataOnlyService) GetMessagesPage(_ context.Context, input *agmessagelist.MessageRowsInput, _ *data.PageInput, _ ...data.Option) (*data.MessagePage, error) {
+func (s *statusDataOnlyService) GetMessagesPage(_ context.Context, input *messagemodel.MessageRowsInput, _ *data.PageInput, _ ...data.Option) (*data.MessagePage, error) {
 	if s == nil || s.conv == nil || input == nil {
 		return &data.MessagePage{}, nil
 	}
@@ -74,7 +74,7 @@ func (s *statusDataOnlyService) GetMessagesPage(_ context.Context, input *agmess
 				continue
 			}
 			if input.Has != nil && input.Has.AssistantStatus {
-				return &data.MessagePage{Rows: []*agmessagelist.MessageRowsView{{
+				return &data.MessagePage{Rows: []*messagemodel.MessageRowsView{{
 					Id:             msg.Id,
 					ConversationId: s.conv.Id,
 					TurnId:         msg.TurnId,
@@ -160,7 +160,7 @@ func TestAssistantPreviewState_UsesLatestAssistantTextByTimestamp(t *testing.T) 
 		&convcli.Turn{
 			Status:    "running",
 			CreatedAt: t2,
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{Role: "assistant", Interim: 0, Content: &finalNew, CreatedAt: t2},
 				{Role: "assistant", Interim: 1, Narration: &narrationNew, CreatedAt: t2},
 				{Role: "assistant", Interim: 0, Content: &finalOld, CreatedAt: t1},
@@ -178,17 +178,17 @@ func TestAssistantPreviewState_UsesLatestAssistantTextByTimestamp(t *testing.T) 
 func TestChildConversationState_PrefersSlimDataConversationFetch(t *testing.T) {
 	narration := "child still running"
 	createdAt := time.Now().UTC()
-	conv := &agconv.ConversationView{
+	conv := &conversationmodel.ConversationView{
 		Id:        "child-1",
 		Status:    ptrStr("running"),
 		CreatedAt: createdAt,
 		UpdatedAt: ptrTime(createdAt),
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:        "turn-1",
 				Status:    "running",
 				CreatedAt: createdAt,
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:        "msg-1",
 						Role:      "assistant",
@@ -2563,7 +2563,7 @@ func TestService_Start_InvalidPromptProfileDoesNotCreateChildShell(t *testing.T)
 
 	items, getErr := conv.GetConversations(ctx, &convcli.Input{
 		ParentId: "parent-conv",
-		Has:      &agconv.ConversationInputHas{ParentId: true},
+		Has:      &conversationmodel.ConversationInputHas{ParentId: true},
 	})
 	require.NoError(t, getErr)
 	assert.Empty(t, items)

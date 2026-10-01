@@ -8,39 +8,39 @@ import (
 
 // Goal is generated canonical view metadata for writer.
 type Goal struct {
-	ShouldDelete                bool       `json:",omitempty" sqlx:"-" writer:"delete"`
-	Id                          string     `validate:"required" sqlx:"id,primaryKey"`
-	ConversationId              *string    `json:",omitempty" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	Objective                   *string    `json:",omitempty" sqlx:"objective,required=true"`
-	Status                      *string    `json:",omitempty" sqlx:"status,required=true"`
-	StatusReason                *string    `json:",omitempty" sqlx:"status_reason"`
-	PauseReason                 *string    `json:",omitempty" sqlx:"pause_reason"`
-	ControllerSpec              *string    `json:",omitempty" sqlx:"controller_spec"`
-	TokenBudget                 *int64     `json:",omitempty" sqlx:"token_budget"`
-	TokensUsed                  *int64     `json:",omitempty" sqlx:"tokens_used,required=true"`
-	TimeUsedSeconds             *int64     `json:",omitempty" sqlx:"time_used_seconds,required=true"`
-	AutonomousTurnsUsed         *int64     `json:",omitempty" sqlx:"autonomous_turns_used,required=true"`
-	ConsecutiveNoProgress       *int64     `json:",omitempty" sqlx:"consecutive_no_progress,required=true"`
-	LastContinuationFingerprint *string    `json:",omitempty" sqlx:"last_continuation_fingerprint"`
-	CreatedAt                   *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt                   *time.Time `json:",omitempty" sqlx:"updated_at"`
+	ShouldDelete                bool       `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	Id                          string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	TokenBudget                 *int64     `sqlx:"token_budget" json:"tokenBudget,omitempty"`
+	TokensUsed                  *int64     `sqlx:"tokens_used,required=true" json:"tokensUsed,omitempty"`
+	TimeUsedSeconds             *int64     `sqlx:"time_used_seconds,required=true" json:"timeUsedSeconds,omitempty"`
+	AutonomousTurnsUsed         *int64     `sqlx:"autonomous_turns_used,required=true" json:"autonomousTurnsUsed,omitempty"`
+	ConsecutiveNoProgress       *int64     `sqlx:"consecutive_no_progress,required=true" json:"consecutiveNoProgress,omitempty"`
+	ConversationId              *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId,omitempty"`
+	Objective                   *string    `sqlx:"objective,required=true" json:"objective,omitempty"`
+	Status                      *string    `sqlx:"status,required=true" json:"status,omitempty"`
+	StatusReason                *string    `sqlx:"status_reason" json:"statusReason,omitempty"`
+	PauseReason                 *string    `sqlx:"pause_reason" json:"pauseReason,omitempty"`
+	ControllerSpec              *string    `sqlx:"controller_spec" json:"controllerSpec,omitempty"`
+	LastContinuationFingerprint *string    `sqlx:"last_continuation_fingerprint" json:"lastContinuationFingerprint,omitempty"`
+	CreatedAt                   *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt                   *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
 	Has                         *GoalHas   `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"GoalHas"`
 }
 
 type GoalHas struct {
 	ShouldDelete                bool
 	Id                          bool
+	TokenBudget                 bool
+	TokensUsed                  bool
+	TimeUsedSeconds             bool
+	AutonomousTurnsUsed         bool
+	ConsecutiveNoProgress       bool
 	ConversationId              bool
 	Objective                   bool
 	Status                      bool
 	StatusReason                bool
 	PauseReason                 bool
 	ControllerSpec              bool
-	TokenBudget                 bool
-	TokensUsed                  bool
-	TimeUsedSeconds             bool
-	AutonomousTurnsUsed         bool
-	ConsecutiveNoProgress       bool
 	LastContinuationFingerprint bool
 	CreatedAt                   bool
 	UpdatedAt                   bool
@@ -48,21 +48,21 @@ type GoalHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id                          string     `validate:"required" sqlx:"id,primaryKey"`
-	ConversationId              *string    `json:",omitempty" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	Objective                   *string    `json:",omitempty" sqlx:"objective,required=true"`
-	Status                      *string    `json:",omitempty" sqlx:"status,required=true"`
-	StatusReason                *string    `json:",omitempty" sqlx:"status_reason"`
-	PauseReason                 *string    `json:",omitempty" sqlx:"pause_reason"`
-	ControllerSpec              *string    `json:",omitempty" sqlx:"controller_spec"`
-	TokenBudget                 *int64     `json:",omitempty" sqlx:"token_budget"`
-	TokensUsed                  *int64     `json:",omitempty" sqlx:"tokens_used,required=true"`
-	TimeUsedSeconds             *int64     `json:",omitempty" sqlx:"time_used_seconds,required=true"`
-	AutonomousTurnsUsed         *int64     `json:",omitempty" sqlx:"autonomous_turns_used,required=true"`
-	ConsecutiveNoProgress       *int64     `json:",omitempty" sqlx:"consecutive_no_progress,required=true"`
-	LastContinuationFingerprint *string    `json:",omitempty" sqlx:"last_continuation_fingerprint"`
-	CreatedAt                   *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt                   *time.Time `json:",omitempty" sqlx:"updated_at"`
+	Id                          string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	TokenBudget                 *int64     `sqlx:"token_budget" json:"tokenBudget,omitempty"`
+	TokensUsed                  *int64     `sqlx:"tokens_used,required=true" json:"tokensUsed,omitempty"`
+	TimeUsedSeconds             *int64     `sqlx:"time_used_seconds,required=true" json:"timeUsedSeconds,omitempty"`
+	AutonomousTurnsUsed         *int64     `sqlx:"autonomous_turns_used,required=true" json:"autonomousTurnsUsed,omitempty"`
+	ConsecutiveNoProgress       *int64     `sqlx:"consecutive_no_progress,required=true" json:"consecutiveNoProgress,omitempty"`
+	ConversationId              *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId,omitempty"`
+	Objective                   *string    `sqlx:"objective,required=true" json:"objective,omitempty"`
+	Status                      *string    `sqlx:"status,required=true" json:"status,omitempty"`
+	StatusReason                *string    `sqlx:"status_reason" json:"statusReason,omitempty"`
+	PauseReason                 *string    `sqlx:"pause_reason" json:"pauseReason,omitempty"`
+	ControllerSpec              *string    `sqlx:"controller_spec" json:"controllerSpec,omitempty"`
+	LastContinuationFingerprint *string    `sqlx:"last_continuation_fingerprint" json:"lastContinuationFingerprint,omitempty"`
+	CreatedAt                   *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt                   *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
 }
 
 type WriterKeysRow struct {

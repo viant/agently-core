@@ -8,15 +8,15 @@ import (
 
 // RunStepsView is generated canonical view metadata for reader.
 type RunStepsView struct {
-	StepType       string     `sqlx:"step_type"`
-	RunId          *string    `sqlx:"run_id"`
-	ConversationId *string    `sqlx:"conversation_id"`
-	Iteration      *int       `sqlx:"iteration"`
-	MessageId      string     `sqlx:"message_id"`
-	Name           string     `sqlx:"name"`
-	Status         string     `sqlx:"status"`
-	StartedAt      *time.Time `sqlx:"started_at"`
-	CompletedAt    *time.Time `sqlx:"completed_at"`
-	LatencyMs      *int       `sqlx:"latency_ms"`
-	ErrorMessage   *string    `sqlx:"error_message"`
+	StepType       string     `sqlx:"step_type" json:"stepType"`
+	MessageId      string     `sqlx:"message_id" json:"messageId"`
+	Name           string     `sqlx:"name" json:"name"`
+	Status         string     `sqlx:"status" json:"status"`
+	RunId          *string    `sqlx:"run_id" json:"runId"`
+	ConversationId *string    `sqlx:"conversation_id" json:"conversationId"`
+	Iteration      *int       `sqlx:"iteration" json:"iteration"`
+	StartedAt      *time.Time `sqlx:"started_at" json:"startedAt"`
+	CompletedAt    *time.Time `sqlx:"completed_at" json:"completedAt"`
+	LatencyMs      *int       `sqlx:"latency_ms" json:"latencyMs"`
+	ErrorMessage   *string    `sqlx:"error_message" json:"errorMessage"`
 }

@@ -55,8 +55,8 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	datlypredicate "github.com/viant/agently-core/internal/datly/predicate"
 	executionprotection "github.com/viant/agently-core/internal/tool/executionprotection"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	toolprotection "github.com/viant/agently-core/protocol/tool/protection"
 	goalsys "github.com/viant/agently-core/service/goal"
 	dexec "github.com/viant/datly/exec"
@@ -866,7 +866,7 @@ func TestWorkspaceRuntimeReportRunAndContextStores(t *testing.T) {
 	got, err := runs.GetByRequestID(owner, "request-1")
 	require.NoError(t, err)
 	require.Equal(t, record.ReportRunID, got.ReportRunID)
-	rootRun := reportrun.Record(*got)
+	rootRun := reportrunmodel.Record(*got)
 	require.Equal(t, record.ReportRunID, rootRun.ReportRunID)
 	_, err = runs.Get(other, record.ReportRunID)
 	require.ErrorIs(t, err, runstore.ErrNotFound)
@@ -882,7 +882,7 @@ func TestWorkspaceRuntimeReportRunAndContextStores(t *testing.T) {
 	readPointer, err := contexts.Get(owner, "c1")
 	require.NoError(t, err)
 	require.Equal(t, int64(1), readPointer.Revision)
-	rootPointer := reportcontext.Record(*readPointer)
+	rootPointer := reportcontextmodel.Record(*readPointer)
 	require.Equal(t, pointer.ConversationID, rootPointer.ConversationID)
 	pointer.Revision = 2
 	pointer.ActivationSource = "refresh"

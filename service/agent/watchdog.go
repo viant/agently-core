@@ -15,16 +15,12 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	iauth "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	agmessagewrite "github.com/viant/agently-core/pkg/agently/message/write"
-	agmodelcallwrite "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
-	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
-	agrunsteps "github.com/viant/agently-core/pkg/agently/run/steps"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	agtoolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
-	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
+	modelcallmodel "github.com/viant/agently-core/model/modelcall"
+	runmodel "github.com/viant/agently-core/model/run"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 // Watchdog periodically detects stale runs and either marks them failed
@@ -39,7 +35,7 @@ type Watchdog struct {
 	workerHost              string
 	recoverySem             chan struct{}
 	handleSem               chan struct{}
-	handleFn                func(context.Context, *agrunstale.StaleRunsView) error
+	handleFn                func(context.Context, *runmodel.StaleRunsView) error
 	cleanupOnce             sync.Once
 	cleanupMu               sync.Mutex
 	cleanupStore            data.TerminalArtifactCleanupStore
@@ -164,13 +160,13 @@ func (w *Watchdog) sweep(ctx context.Context) {
 	now := runLeaseTimestamp(time.Now())
 	// Any pod sharing the store may recover an expired root interactive run;
 	// the conditional claim, not the host, decides ownership.
-	input := &agrunstale.StaleRunsInput{
+	input := &runmodel.StaleRunsInput{
 		HeartbeatBefore:    now.Add(-2 * w.interval),
 		LeaseExpiredBefore: now.Add(-recoveryExpiryGrace),
 		ActivityAfter:      now.Add(-w.recoveryLookback),
 		ConversationKind:   "interactive",
 		RootInteractive:    true,
-		Has: &agrunstale.StaleRunsInputHas{
+		Has: &runmodel.StaleRunsInputHas{
 			HeartbeatBefore: true, LeaseExpiredBefore: true, ActivityAfter: true, ConversationKind: true, RootInteractive: true,
 		},
 	}
@@ -362,7 +358,7 @@ func terminalArtifactCandidateKey(row data.TerminalArtifactCandidate) string {
 	return string(row.Kind) + "\x00" + row.ID
 }
 
-func (w *Watchdog) sweepRuns(ctx context.Context, runs []*agrunstale.StaleRunsView) {
+func (w *Watchdog) sweepRuns(ctx context.Context, runs []*runmodel.StaleRunsView) {
 	if len(runs) == 0 {
 		return
 	}
@@ -378,7 +374,7 @@ func (w *Watchdog) sweepRuns(ctx context.Context, runs []*agrunstale.StaleRunsVi
 		}
 		wg.Add(1)
 		sem <- struct{}{}
-		go func(run *agrunstale.StaleRunsView) {
+		go func(run *runmodel.StaleRunsView) {
 			defer wg.Done()
 			defer func() { <-sem }()
 			if err := w.handleRun(ctx, run); err != nil {
@@ -389,7 +385,7 @@ func (w *Watchdog) sweepRuns(ctx context.Context, runs []*agrunstale.StaleRunsVi
 	wg.Wait()
 }
 
-func (w *Watchdog) handleRun(ctx context.Context, run *agrunstale.StaleRunsView) error {
+func (w *Watchdog) handleRun(ctx context.Context, run *runmodel.StaleRunsView) error {
 	runCtx := context.WithoutCancel(ctx)
 	cancel := func() {}
 	if w.handleTimeout > 0 {
@@ -402,7 +398,7 @@ func (w *Watchdog) handleRun(ctx context.Context, run *agrunstale.StaleRunsView)
 	return w.handleStaleRun(runCtx, run)
 }
 
-func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRunsView) error {
+func (w *Watchdog) handleStaleRun(ctx context.Context, run *runmodel.StaleRunsView) error {
 	if shouldSkipStaleRun(run) {
 		return nil
 	}
@@ -410,15 +406,15 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 	// matches the run id, but never linked run.turn_id. Repair that linkage and
 	// explicitly drain the queued turn instead of spawning another resumed run.
 	if run.ConversationId != nil && strings.TrimSpace(*run.ConversationId) != "" && strings.TrimSpace(valueOrEmpty(run.TurnId)) == "" {
-		queuedTurn, err := w.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+		queuedTurn, err := w.data.GetTurnByID(ctx, &turnmodel.TurnLookupInput{
 			ID:  run.Id,
-			Has: &agturnbyid.TurnLookupInputHas{ID: true},
+			Has: &turnmodel.TurnLookupInputHas{ID: true},
 		})
 		if err != nil {
 			return fmt.Errorf("lookup queued recovery turn: %w", err)
 		}
 		if queuedTurn != nil && strings.EqualFold(strings.TrimSpace(queuedTurn.Status), "queued") {
-			upd := &agrunwrite.MutableRunView{}
+			upd := &runmodel.MutableRunView{}
 			upd.SetId(run.Id)
 			upd.SetTurnID(run.Id)
 			now := time.Now()
@@ -428,7 +424,7 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 				upd.SetWorkerHost(strings.TrimSpace(w.workerHost))
 				upd.SetLastHeartbeatAt(now)
 			}
-			if _, patchErr := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{upd}); patchErr != nil {
+			if _, patchErr := w.data.PatchRuns(ctx, []*runmodel.MutableRunView{upd}); patchErr != nil {
 				return fmt.Errorf("repair queued recovery run linkage: %w", patchErr)
 			}
 			if w.agent != nil {
@@ -440,19 +436,19 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 	// Try to resume if we have auth context and a conversation to continue.
 	if run.ConversationId != nil && strings.TrimSpace(*run.ConversationId) != "" {
 		conversationID := strings.TrimSpace(*run.ConversationId)
-		if activeRun, err := w.data.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+		if activeRun, err := w.data.GetActiveRun(ctx, &runmodel.ActiveRunsInput{
 			ConversationId: conversationID,
-			Has:            &agrunactive.ActiveRunsInputHas{ConversationId: true},
+			Has:            &runmodel.ActiveRunsInputHas{ConversationId: true},
 		}); err != nil {
 			return fmt.Errorf("load active run for stale conversation: %w", err)
 		} else if activeRunSupersedesStale(run.Id, activeRun) {
 			now := time.Now()
-			oldRun := &agrunwrite.MutableRunView{}
+			oldRun := &runmodel.MutableRunView{}
 			oldRun.SetId(run.Id)
 			oldRun.SetStatus("failed")
 			oldRun.SetErrorMessage(fmt.Sprintf("worker died, superseded by active run %s", strings.TrimSpace(activeRun.Id)))
 			oldRun.SetCompletedAt(now)
-			if _, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{oldRun}); err != nil {
+			if _, err := w.data.PatchRuns(ctx, []*runmodel.MutableRunView{oldRun}); err != nil {
 				return fmt.Errorf("mark stale run superseded: %w", err)
 			}
 			if err := w.failSupersededRunArtifacts(ctx, conversationID, strings.TrimSpace(valueOrEmpty(run.TurnId)), run.Id, fmt.Sprintf("stale turn superseded by active run %s", strings.TrimSpace(activeRun.Id))); err != nil {
@@ -532,12 +528,12 @@ func (w *Watchdog) handleStaleRun(ctx context.Context, run *agrunstale.StaleRuns
 	}
 
 	// No conversation to resume — just mark as failed.
-	failRun := &agrunwrite.MutableRunView{}
+	failRun := &runmodel.MutableRunView{}
 	failRun.SetId(run.Id)
 	failRun.SetStatus("failed")
 	failRun.SetErrorMessage("worker died, no conversation to resume")
 	failRun.SetCompletedAt(time.Now())
-	_, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{failRun})
+	_, err := w.data.PatchRuns(ctx, []*runmodel.MutableRunView{failRun})
 	return err
 }
 
@@ -545,7 +541,7 @@ func detachResumeContext(ctx context.Context) context.Context {
 	return context.WithoutCancel(ctx)
 }
 
-func resolveResumeUserID(run *agrunstale.StaleRunsView, sd *token.SecurityData) string {
+func resolveResumeUserID(run *runmodel.StaleRunsView, sd *token.SecurityData) string {
 	if sd != nil {
 		if subject := strings.TrimSpace(sd.Subject); subject != "" {
 			return subject
@@ -557,7 +553,7 @@ func resolveResumeUserID(run *agrunstale.StaleRunsView, sd *token.SecurityData) 
 	return strings.TrimSpace(*run.EffectiveUserId)
 }
 
-func shouldSkipStaleRun(run *agrunstale.StaleRunsView) bool {
+func shouldSkipStaleRun(run *runmodel.StaleRunsView) bool {
 	if run == nil {
 		return true
 	}
@@ -567,7 +563,7 @@ func shouldSkipStaleRun(run *agrunstale.StaleRunsView) bool {
 	return false
 }
 
-func activeRunSupersedesStale(staleRunID string, activeRun *agrunactive.ActiveRunsView) bool {
+func activeRunSupersedesStale(staleRunID string, activeRun *runmodel.ActiveRunsView) bool {
 	if activeRun == nil {
 		return false
 	}
@@ -585,7 +581,7 @@ func normalizedRecoveryAttempt(attempt int) int {
 	return attempt
 }
 
-func (w *Watchdog) failRecoveryAttemptLimit(ctx context.Context, run *agrunstale.StaleRunsView, conversationID string, attempt int) error {
+func (w *Watchdog) failRecoveryAttemptLimit(ctx context.Context, run *runmodel.StaleRunsView, conversationID string, attempt int) error {
 	if w == nil || run == nil || w.data == nil {
 		return nil
 	}
@@ -601,9 +597,9 @@ func (w *Watchdog) failRecoveryAttemptLimit(ctx context.Context, run *agrunstale
 	var terminalizationErrs []error
 	turnID := strings.TrimSpace(valueOrEmpty(run.TurnId))
 	if w.agent != nil && w.agent.conversation != nil && conversationID != "" {
-		activeTurn, err := w.data.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
+		activeTurn, err := w.data.GetActiveTurn(ctx, &turnmodel.ActiveTurnsInput{
 			ConversationID: conversationID,
-			Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+			Has:            &turnmodel.ActiveTurnsInputHas{ConversationID: true},
 		})
 		if err != nil {
 			terminalizationErrs = append(terminalizationErrs, fmt.Errorf("load active turn at recovery limit: %w", err))
@@ -633,13 +629,13 @@ func (w *Watchdog) failRecoveryAttemptLimit(ctx context.Context, run *agrunstale
 		w.agent.triggerQueueDrain(conversationID)
 	}
 
-	failedRun := &agrunwrite.MutableRunView{}
+	failedRun := &runmodel.MutableRunView{}
 	failedRun.SetId(run.Id)
 	failedRun.SetStatus("failed")
 	failedRun.SetErrorCode(recoveryAttemptLimitErrorCode)
 	failedRun.SetErrorMessage(reason)
 	failedRun.SetCompletedAt(time.Now())
-	if _, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{failedRun}); err != nil {
+	if _, err := w.data.PatchRuns(ctx, []*runmodel.MutableRunView{failedRun}); err != nil {
 		terminalizationErrs = append(terminalizationErrs, fmt.Errorf("terminalize run at recovery limit: %w", err))
 	}
 	return errors.Join(terminalizationErrs...)
@@ -665,9 +661,9 @@ func (w *Watchdog) failSupersededRunSteps(ctx context.Context, runID, reason str
 	if strings.TrimSpace(runID) == "" {
 		return patchedToolCallIDs, nil
 	}
-	page, err := w.data.GetRunStepsPage(ctx, &agrunsteps.RunStepsInput{
+	page, err := w.data.GetRunStepsPage(ctx, &runmodel.RunStepsInput{
 		RunID: runID,
-		Has:   &agrunsteps.RunStepsInputHas{RunID: true},
+		Has:   &runmodel.RunStepsInputHas{RunID: true},
 	}, &data.PageInput{Limit: 1000})
 	if err != nil {
 		return nil, fmt.Errorf("load run steps: %w", err)
@@ -675,22 +671,22 @@ func (w *Watchdog) failSupersededRunSteps(ctx context.Context, runID, reason str
 	if page == nil || len(page.Rows) == 0 {
 		return patchedToolCallIDs, nil
 	}
-	modelRows := make([]*agmodelcallwrite.MutableModelCallView, 0)
-	toolRows := make([]*agtoolcallwrite.MutableToolCallView, 0)
+	modelRows := make([]*modelcallmodel.MutableModelCallView, 0)
+	toolRows := make([]*toolcallmodel.MutableToolCallView, 0)
 	for _, step := range page.Rows {
 		if step == nil || isTerminalArtifactStatus(step.Status) || strings.TrimSpace(step.MessageId) == "" {
 			continue
 		}
 		switch strings.TrimSpace(step.StepType) {
 		case "model_call":
-			row := &agmodelcallwrite.MutableModelCallView{}
+			row := &modelcallmodel.MutableModelCallView{}
 			row.SetMessageID(step.MessageId)
 			row.SetStatus("failed")
 			row.SetErrorMessage(reason)
 			row.SetCompletedAt(now)
 			modelRows = append(modelRows, row)
 		case "tool_call":
-			row := &agtoolcallwrite.MutableToolCallView{}
+			row := &toolcallmodel.MutableToolCallView{}
 			row.SetMessageID(step.MessageId)
 			row.SetStatus("failed")
 			row.SetErrorMessage(reason)
@@ -713,10 +709,10 @@ func (w *Watchdog) failSupersededRunSteps(ctx context.Context, runID, reason str
 }
 
 func (w *Watchdog) failSupersededToolMessages(ctx context.Context, conversationID, turnID string, skipToolCallIDs map[string]struct{}) error {
-	conv, err := w.data.GetConversation(ctx, conversationID, &agconv.ConversationInput{
+	conv, err := w.data.GetConversation(ctx, conversationID, &conversationmodel.ConversationInput{
 		IncludeTranscript: true,
 		IncludeToolCall:   true,
-		Has: &agconv.ConversationInputHas{
+		Has: &conversationmodel.ConversationInputHas{
 			IncludeTranscript: true,
 			IncludeToolCall:   true,
 		},
@@ -728,7 +724,7 @@ func (w *Watchdog) failSupersededToolMessages(ctx context.Context, conversationI
 		return nil
 	}
 	runningToolCalls := map[string]struct{}{}
-	messageRows := map[string]*agconv.MessageView{}
+	messageRows := map[string]*conversationmodel.MessageView{}
 	for _, turn := range conv.Transcript {
 		if turn == nil || strings.TrimSpace(turn.Id) != turnID {
 			continue
@@ -757,8 +753,8 @@ func (w *Watchdog) failSupersededToolMessages(ctx context.Context, conversationI
 		return nil
 	}
 	now := runLeaseTimestamp(time.Now())
-	rows := make([]*agmessagewrite.MutableMessageView, 0)
-	toolRows := make([]*agtoolcallwrite.MutableToolCallView, 0)
+	rows := make([]*messagemodel.MutableMessageView, 0)
+	toolRows := make([]*toolcallmodel.MutableToolCallView, 0)
 	for _, msg := range messageRows {
 		_, toolCallRunning := runningToolCalls[msg.Id]
 		messageTerminal := isTerminalArtifactStatus(valueOrEmpty(msg.Status))
@@ -766,7 +762,7 @@ func (w *Watchdog) failSupersededToolMessages(ctx context.Context, conversationI
 			continue
 		}
 		if !messageTerminal {
-			row := &agmessagewrite.MutableMessageView{}
+			row := &messagemodel.MutableMessageView{}
 			row.SetId(msg.Id)
 			row.SetConversationID(conversationID)
 			row.SetStatus("failed")
@@ -779,7 +775,7 @@ func (w *Watchdog) failSupersededToolMessages(ctx context.Context, conversationI
 		if !toolCallRunning {
 			continue
 		}
-		toolRow := &agtoolcallwrite.MutableToolCallView{}
+		toolRow := &toolcallmodel.MutableToolCallView{}
 		toolRow.SetMessageID(msg.Id)
 		toolRow.SetStatus("failed")
 		toolRow.SetErrorMessage("tool message terminalized after turn ended")
@@ -802,7 +798,7 @@ func (w *Watchdog) failSupersededToolMessages(ctx context.Context, conversationI
 	return nil
 }
 
-func isToolOpMessage(msg *agconv.MessageView) bool {
+func isToolOpMessage(msg *conversationmodel.MessageView) bool {
 	if msg == nil {
 		return false
 	}
@@ -829,7 +825,7 @@ func (w *Watchdog) newLeaseOwner() string {
 // status, lease owner and attempt, then reads the run once and continues only
 // when its exact proposed token is present. It never issues an unconditional
 // second claim.
-func (w *Watchdog) claimRun(ctx context.Context, run *agrunstale.StaleRunsView, leaseOwner string, observedAttempt int) (bool, error) {
+func (w *Watchdog) claimRun(ctx context.Context, run *runmodel.StaleRunsView, leaseOwner string, observedAttempt int) (bool, error) {
 	if run == nil || run.LeaseOwner == nil || strings.TrimSpace(*run.LeaseOwner) == "" || run.LeaseUntil == nil {
 		// Only executions admitted with the lease contract are auto-resumable.
 		// A claim without both observed values cannot defeat a concurrent renewal.
@@ -840,7 +836,7 @@ func (w *Watchdog) claimRun(ctx context.Context, run *agrunstale.StaleRunsView, 
 	if w.agent != nil && w.agent.runHeartbeatIntervalSec > 0 {
 		leaseSeconds = 2 * w.agent.runHeartbeatIntervalSec
 	}
-	upd := &agrunwrite.MutableRunView{}
+	upd := &runmodel.MutableRunView{}
 	upd.SetId(run.Id)
 	upd.SetLeaseOwner(leaseOwner)
 	upd.SetLeaseUntil(now.Add(time.Duration(leaseSeconds) * time.Second))
@@ -854,14 +850,14 @@ func (w *Watchdog) claimRun(ctx context.Context, run *agrunstale.StaleRunsView, 
 		observed = run.Attempt
 	}
 	owner := strings.TrimSpace(*run.LeaseOwner)
-	cond := agrunwrite.RunPatchCondition{Status: "running", Attempt: &observed, LeaseOwner: &owner}
+	cond := runmodel.RunPatchCondition{Status: "running", Attempt: &observed, LeaseOwner: &owner}
 	upd.SetCondition(cond)
-	if _, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{upd}); err != nil {
+	if _, err := w.data.PatchRuns(ctx, []*runmodel.MutableRunView{upd}); err != nil {
 		return false, fmt.Errorf("claim stale run: %w", err)
 	}
-	row, err := w.data.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+	row, err := w.data.GetActiveRun(ctx, &runmodel.ActiveRunsInput{
 		TurnId: run.Id,
-		Has:    &agrunactive.ActiveRunsInputHas{TurnId: true},
+		Has:    &runmodel.ActiveRunsInputHas{TurnId: true},
 	})
 	if err != nil {
 		return false, fmt.Errorf("verify stale run claim: %w", err)
@@ -875,21 +871,21 @@ func (w *Watchdog) claimRun(ctx context.Context, run *agrunstale.StaleRunsView, 
 // failClaimedRun terminalizes a claimed run whose resume failed, using the
 // lease token so a later owner is never overwritten.
 func (w *Watchdog) failClaimedRun(ctx context.Context, req resumeTurnRequest, cause error) {
-	owned, err := w.data.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+	owned, err := w.data.GetActiveRun(ctx, &runmodel.ActiveRunsInput{
 		TurnId: req.TurnID,
-		Has:    &agrunactive.ActiveRunsInputHas{TurnId: true},
+		Has:    &runmodel.ActiveRunsInputHas{TurnId: true},
 	})
 	if err != nil || owned == nil || owned.LeaseOwner == nil || strings.TrimSpace(*owned.LeaseOwner) != strings.TrimSpace(req.LeaseOwner) {
 		return
 	}
-	failed := &agrunwrite.MutableRunView{}
+	failed := &runmodel.MutableRunView{}
 	failed.SetId(req.TurnID)
 	failed.SetStatus("failed")
 	failed.SetErrorMessage(fmt.Sprintf("resume failed: %v", cause))
 	failed.SetCompletedAt(time.Now())
 	owner := req.LeaseOwner
-	failed.SetCondition(agrunwrite.RunPatchCondition{LeaseOwner: &owner})
-	if _, err := w.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{failed}); err != nil {
+	failed.SetCondition(runmodel.RunPatchCondition{LeaseOwner: &owner})
+	if _, err := w.data.PatchRuns(ctx, []*runmodel.MutableRunView{failed}); err != nil {
 		log.Printf("[watchdog] mark resumed run failed %s: %v", req.TurnID, err)
 		return
 	}

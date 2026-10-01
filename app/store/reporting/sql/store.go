@@ -17,11 +17,11 @@ import (
 	contextstore "github.com/viant/agently-core/internal/store/reporting/context"
 	runstore "github.com/viant/agently-core/internal/store/reporting/run"
 	sharedartifact "github.com/viant/agently-core/internal/store/reporting/sharedartifact"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
-	reportshareartifact "github.com/viant/agently-core/pkg/agently/reportshareartifact"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
+	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
 	"github.com/viant/agently-core/workspace"
 	dexec "github.com/viant/datly/exec"
 )
@@ -75,7 +75,7 @@ func (s *Store) init(ctx context.Context) error {
 }
 
 // CreateReportRun persists a new owner-scoped browser materialization.
-func (s *Store) CreateReportRun(ctx context.Context, run *reportrun.Record) error {
+func (s *Store) CreateReportRun(ctx context.Context, run *reportrunmodel.Record) error {
 	if run == nil {
 		return reportstore.ErrNotFound
 	}
@@ -85,27 +85,27 @@ func (s *Store) CreateReportRun(ctx context.Context, run *reportrun.Record) erro
 }
 
 // GetReportRun loads a browser run in the authenticated owner scope.
-func (s *Store) GetReportRun(ctx context.Context, reportRunID string) (*reportrun.Record, error) {
+func (s *Store) GetReportRun(ctx context.Context, reportRunID string) (*reportrunmodel.Record, error) {
 	record, err := s.nativeRunStore().Get(ctx, reportRunID)
 	if err != nil {
 		return nil, mapNativeRunError(err)
 	}
-	result := reportrun.Record(*record)
+	result := reportrunmodel.Record(*record)
 	return &result, nil
 }
 
 // GetReportRunByRequestID resolves a transport retry in owner scope.
-func (s *Store) GetReportRunByRequestID(ctx context.Context, uiRunRequestID string) (*reportrun.Record, error) {
+func (s *Store) GetReportRunByRequestID(ctx context.Context, uiRunRequestID string) (*reportrunmodel.Record, error) {
 	record, err := s.nativeRunStore().GetByRequestID(ctx, uiRunRequestID)
 	if err != nil {
 		return nil, mapNativeRunError(err)
 	}
-	result := reportrun.Record(*record)
+	result := reportrunmodel.Record(*record)
 	return &result, nil
 }
 
 // UpdateReportRunCAS replaces a run only when its owner and revision match.
-func (s *Store) UpdateReportRunCAS(ctx context.Context, run *reportrun.Record, expectedRevision int64) error {
+func (s *Store) UpdateReportRunCAS(ctx context.Context, run *reportrunmodel.Record, expectedRevision int64) error {
 	if run == nil {
 		return reportstore.ErrNotFound
 	}
@@ -115,7 +115,7 @@ func (s *Store) UpdateReportRunCAS(ctx context.Context, run *reportrun.Record, e
 
 // AdoptReportRunAndContextCAS binds the completed manual run and advances the
 // conversation pointer in one SQL transaction.
-func (s *Store) AdoptReportRunAndContextCAS(ctx context.Context, run *reportrun.Record, expectedRunRevision int64, record *reportcontext.Record, expectedContextRevision int64) error {
+func (s *Store) AdoptReportRunAndContextCAS(ctx context.Context, run *reportrunmodel.Record, expectedRunRevision int64, record *reportcontextmodel.Record, expectedContextRevision int64) error {
 	if run == nil || record == nil {
 		return reportstore.ErrNotFound
 	}
@@ -130,18 +130,18 @@ func (s *Store) AdoptReportRunAndContextCAS(ctx context.Context, run *reportrun.
 
 // GetConversationReportContext loads the active run pointer for an exact
 // owner+conversation pair.
-func (s *Store) GetConversationReportContext(ctx context.Context, conversationID string) (*reportcontext.Record, error) {
+func (s *Store) GetConversationReportContext(ctx context.Context, conversationID string) (*reportcontextmodel.Record, error) {
 	record, err := s.nativeContextStore().Get(ctx, conversationID)
 	if err != nil {
 		return nil, mapNativeContextError(err)
 	}
-	result := reportcontext.Record(*record)
+	result := reportcontextmodel.Record(*record)
 	return &result, nil
 }
 
 // PutConversationReportContextCAS creates revision one from expected zero or
 // updates an exact existing revision.
-func (s *Store) PutConversationReportContextCAS(ctx context.Context, record *reportcontext.Record, expectedRevision int64) error {
+func (s *Store) PutConversationReportContextCAS(ctx context.Context, record *reportcontextmodel.Record, expectedRevision int64) error {
 	if record == nil {
 		return reportstore.ErrNotFound
 	}
@@ -149,19 +149,19 @@ func (s *Store) PutConversationReportContextCAS(ctx context.Context, record *rep
 	return mapNativeContextError(s.nativeContextStore().PutCAS(ctx, &nativeRecord, expectedRevision))
 }
 
-func (s *Store) CreateJob(ctx context.Context, job *reportjob.Record) error {
+func (s *Store) CreateJob(ctx context.Context, job *reportjobmodel.Record) error {
 	return s.createJobNative(ctx, job)
 }
 
-func (s *Store) GetJob(ctx context.Context, jobID string) (*reportjob.Record, error) {
+func (s *Store) GetJob(ctx context.Context, jobID string) (*reportjobmodel.Record, error) {
 	return s.getJobNative(ctx, jobID)
 }
 
-func (s *Store) ListJobs(ctx context.Context) ([]*reportjob.Record, error) {
+func (s *Store) ListJobs(ctx context.Context) ([]*reportjobmodel.Record, error) {
 	return s.listJobsNative(ctx)
 }
 
-func (s *Store) SubmitJobFromRun(ctx context.Context, candidate *reportjob.Record) (*reportjob.Record, bool, error) {
+func (s *Store) SubmitJobFromRun(ctx context.Context, candidate *reportjobmodel.Record) (*reportjobmodel.Record, bool, error) {
 	ownerID := effectiveOwnerID(ctx)
 	if candidate == nil || ownerID == "" || ownerID != strings.TrimSpace(candidate.OwnerID) {
 		return nil, false, reportstore.ErrNotFound
@@ -172,11 +172,11 @@ func (s *Store) SubmitJobFromRun(ctx context.Context, candidate *reportjob.Recor
 	return s.submitJobNative(ctx, candidate)
 }
 
-func (s *Store) ClaimJob(ctx context.Context, jobID string, startedAt time.Time) (*reportjob.Record, error) {
+func (s *Store) ClaimJob(ctx context.Context, jobID string, startedAt time.Time) (*reportjobmodel.Record, error) {
 	return s.claimJobNative(ctx, jobID, startedAt)
 }
 
-func (s *Store) CompleteJobWithArtifact(ctx context.Context, jobID string, artifact *reportartifact.Record, diagnostics []byte, completedAt time.Time, retentionTTL time.Duration) (*reportjob.Record, error) {
+func (s *Store) CompleteJobWithArtifact(ctx context.Context, jobID string, artifact *reportartifactmodel.Record, diagnostics []byte, completedAt time.Time, retentionTTL time.Duration) (*reportjobmodel.Record, error) {
 	ownerID := effectiveOwnerID(ctx)
 	internal := hasInternalAccess(ctx)
 	if artifact == nil || (ownerID == "" && !internal) {
@@ -188,11 +188,11 @@ func (s *Store) CompleteJobWithArtifact(ctx context.Context, jobID string, artif
 	return s.completeJobNative(ctx, jobID, artifact, diagnostics, completedAt, retentionTTL, internal)
 }
 
-func (s *Store) FailJob(ctx context.Context, jobID, errorText string, diagnostics []byte, completedAt time.Time) (*reportjob.Record, error) {
+func (s *Store) FailJob(ctx context.Context, jobID, errorText string, diagnostics []byte, completedAt time.Time) (*reportjobmodel.Record, error) {
 	return s.failJobNative(ctx, jobID, errorText, diagnostics, completedAt)
 }
 
-func (s *Store) ReconcileRunningJobs(ctx context.Context, staleBefore, reconciledAt time.Time, errorText string) ([]*reportjob.Record, error) {
+func (s *Store) ReconcileRunningJobs(ctx context.Context, staleBefore, reconciledAt time.Time, errorText string) ([]*reportjobmodel.Record, error) {
 	jobs, err := s.ListJobs(ctx)
 	if err != nil {
 		return nil, err
@@ -201,7 +201,7 @@ func (s *Store) ReconcileRunningJobs(ctx context.Context, staleBefore, reconcile
 	if err != nil {
 		return nil, err
 	}
-	artifactByJob := make(map[string]*reportartifact.Record, len(artifacts))
+	artifactByJob := make(map[string]*reportartifactmodel.Record, len(artifacts))
 	for _, artifact := range artifacts {
 		if artifact == nil {
 			continue
@@ -213,7 +213,7 @@ func (s *Store) ReconcileRunningJobs(ctx context.Context, staleBefore, reconcile
 		}
 		artifactByJob[jobID] = artifact
 	}
-	result := []*reportjob.Record{}
+	result := []*reportjobmodel.Record{}
 	for _, job := range jobs {
 		if job == nil || job.Status != "running" ||
 			(job.StartedAt != nil && job.StartedAt.After(staleBefore)) {
@@ -244,23 +244,23 @@ func (s *Store) ReconcileRunningJobs(ctx context.Context, staleBefore, reconcile
 	return result, nil
 }
 
-func (s *Store) UpdateJob(ctx context.Context, job *reportjob.Record) error {
+func (s *Store) UpdateJob(ctx context.Context, job *reportjobmodel.Record) error {
 	return s.updateJobNative(ctx, job)
 }
 
-func (s *Store) PutArtifact(ctx context.Context, artifact *reportartifact.Record) error {
+func (s *Store) PutArtifact(ctx context.Context, artifact *reportartifactmodel.Record) error {
 	return s.putArtifactNative(ctx, artifact)
 }
 
-func (s *Store) GetArtifact(ctx context.Context, artifactID string) (*reportartifact.Record, error) {
+func (s *Store) GetArtifact(ctx context.Context, artifactID string) (*reportartifactmodel.Record, error) {
 	return s.getArtifactNative(ctx, artifactID)
 }
 
-func (s *Store) ListArtifacts(ctx context.Context) ([]*reportartifact.Record, error) {
+func (s *Store) ListArtifacts(ctx context.Context) ([]*reportartifactmodel.Record, error) {
 	return s.listArtifactsNative(ctx)
 }
 
-func (s *Store) CreateSharedArtifact(ctx context.Context, artifact *reportshareartifact.Record) error {
+func (s *Store) CreateSharedArtifact(ctx context.Context, artifact *reportshareartifactmodel.Record) error {
 	if artifact == nil {
 		return errNotFound
 	}
@@ -278,7 +278,7 @@ func (s *Store) CreateSharedArtifact(ctx context.Context, artifact *reportsharea
 	return s.sharedArtifactStore().Create(ctx, toNativeSharedArtifact(artifact))
 }
 
-func (s *Store) GetSharedArtifact(ctx context.Context, artifactID string) (*reportshareartifact.Record, error) {
+func (s *Store) GetSharedArtifact(ctx context.Context, artifactID string) (*reportshareartifactmodel.Record, error) {
 	record, err := s.sharedArtifactStore().Get(ctx, artifactID)
 	if errors.Is(err, sharedartifact.ErrNotFound) {
 		return nil, errNotFound
@@ -289,19 +289,19 @@ func (s *Store) GetSharedArtifact(ctx context.Context, artifactID string) (*repo
 	return fromNativeSharedArtifact(record), nil
 }
 
-func (s *Store) ListSharedArtifacts(ctx context.Context) ([]*reportshareartifact.Record, error) {
+func (s *Store) ListSharedArtifacts(ctx context.Context) ([]*reportshareartifactmodel.Record, error) {
 	records, err := s.sharedArtifactStore().List(ctx)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*reportshareartifact.Record, 0, len(records))
+	result := make([]*reportshareartifactmodel.Record, 0, len(records))
 	for _, record := range records {
 		result = append(result, fromNativeSharedArtifact(record))
 	}
 	return result, nil
 }
 
-func (s *Store) UpdateSharedArtifact(ctx context.Context, artifact *reportshareartifact.Record) error {
+func (s *Store) UpdateSharedArtifact(ctx context.Context, artifact *reportshareartifactmodel.Record) error {
 	if artifact == nil {
 		return errNotFound
 	}
@@ -336,7 +336,7 @@ func (s *Store) sharedArtifactStore() *sharedartifact.Store {
 	return &sharedartifact.Store{Invoker: s.native, OwnerID: effectiveOwnerID}
 }
 
-func toNativeSharedArtifact(input *reportshareartifact.Record) *sharedartifact.Record {
+func toNativeSharedArtifact(input *reportshareartifactmodel.Record) *sharedartifact.Record {
 	if input == nil {
 		return nil
 	}
@@ -344,11 +344,11 @@ func toNativeSharedArtifact(input *reportshareartifact.Record) *sharedartifact.R
 	return &record
 }
 
-func fromNativeSharedArtifact(input *sharedartifact.Record) *reportshareartifact.Record {
+func fromNativeSharedArtifact(input *sharedartifact.Record) *reportshareartifactmodel.Record {
 	if input == nil {
 		return nil
 	}
-	record := reportshareartifact.Record(*input)
+	record := reportshareartifactmodel.Record(*input)
 	return &record
 }
 

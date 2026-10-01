@@ -1,0 +1,1 @@
+SELECT c.* , 0 AS should_delete FROM tool_approval_queue c

@@ -7,15 +7,15 @@ import (
 
 	"github.com/stretchr/testify/require"
 	reportstore "github.com/viant/agently-core/app/store/reporting"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
 	fsstate "github.com/viant/agently-core/workspace/store/fs"
 )
 
 func TestStore_ReconcileRunningJobRejectsMismatchedArtifact(t *testing.T) {
 	store := New(fsstate.NewStateStore(t.TempDir())).(*Store)
 	now := time.Date(2026, 7, 29, 20, 0, 0, 0, time.UTC)
-	job := &reportjob.Record{
+	job := &reportjobmodel.Record{
 		JobID:       "job-reconcile-mismatch",
 		ArtifactRef: "report://draft/exact",
 		OwnerID:     "owner-1",
@@ -30,7 +30,7 @@ func TestStore_ReconcileRunningJobRejectsMismatchedArtifact(t *testing.T) {
 
 	artifactPath, err := store.recordPath(context.Background(), "artifacts", "artifact-mismatch")
 	require.NoError(t, err)
-	require.NoError(t, writeJSONCreateOnly(artifactPath, &reportartifact.Record{
+	require.NoError(t, writeJSONCreateOnly(artifactPath, &reportartifactmodel.Record{
 		ArtifactID:  "artifact-mismatch",
 		JobID:       job.JobID,
 		ArtifactRef: "report://draft/other",

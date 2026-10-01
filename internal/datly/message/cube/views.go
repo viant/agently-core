@@ -4,14 +4,14 @@ package cube
 
 // MessageReportView is generated canonical view metadata for reader.
 type MessageReportView struct {
-	ConversationId string  `groupable:"true" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	Role           string  `groupable:"true" sqlx:"role,required=true"`
-	Type           string  `groupable:"true" sqlx:"type,required=true"`
-	Status         *string `groupable:"true" sqlx:"status"`
-	Phase          *string `groupable:"true" sqlx:"phase"`
-	Iteration      *int    `groupable:"true" sqlx:"iteration"`
-	RecordCount    int     `groupable:"false" sqlx:"record_count"`
-	PendingCount   int     `groupable:"false" sqlx:"pending_count"`
-	UserCount      int     `groupable:"false" sqlx:"user_count"`
-	AssistantCount int     `groupable:"false" sqlx:"assistant_count"`
+	ConversationId string  `groupable:"true" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId"`
+	Role           string  `groupable:"true" sqlx:"role,required=true" json:"role"`
+	Type           string  `groupable:"true" sqlx:"type,required=true" json:"type"`
+	Status         *string `groupable:"true" sqlx:"status" json:"status"`
+	Phase          *string `groupable:"true" sqlx:"phase" json:"phase"`
+	Iteration      *int    `groupable:"true" sqlx:"iteration" json:"iteration"`
+	RecordCount    int     `groupable:"false" sqlx:"record_count" json:"recordCount"`
+	PendingCount   int     `groupable:"false" sqlx:"pending_count" json:"pendingCount"`
+	UserCount      int     `groupable:"false" sqlx:"user_count" json:"userCount"`
+	AssistantCount int     `groupable:"false" sqlx:"assistant_count" json:"assistantCount"`
 }

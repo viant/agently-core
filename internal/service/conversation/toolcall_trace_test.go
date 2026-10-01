@@ -12,7 +12,7 @@ import (
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
-	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
 // TestToolCallTraceByOp_SQLite verifies that the Datly view for reading
@@ -39,7 +39,7 @@ func TestToolCallTraceByOp_SQLite(t *testing.T) {
 	convID := "conv_trace_test"
 	conv := &convcli.MutableConversation{}
 	// initialize Has marker for setters
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetVisibility("private")
 	if err := svc.PatchConversations(ctx, conv); err != nil {

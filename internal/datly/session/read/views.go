@@ -9,14 +9,14 @@ import (
 // SessionView is generated canonical view metadata for reader.
 type SessionView struct {
 	MaintenanceObservedAt string     `internal:"true" json:"-" sqlx:"maintenance_observed_at"`
-	Id                    string     `sqlx:"id,primaryKey=true"`
-	UserId                string     `sqlx:"user_id,required=true"`
-	Provider              string     `sqlx:"provider,required=true"`
-	CreatedAt             time.Time  `sqlx:"created_at,required=true"`
-	UpdatedAt             *time.Time `sqlx:"updated_at"`
-	ExpiresAt             time.Time  `sqlx:"expires_at,required=true"`
-	Username              *string    `sqlx:"username"`
-	DisplayName           *string    `sqlx:"display_name"`
-	Email                 *string    `sqlx:"email"`
-	Subject               *string    `sqlx:"subject"`
+	Id                    string     `sqlx:"id,primaryKey=true" json:"id"`
+	UserId                string     `sqlx:"user_id,required=true" json:"userId"`
+	Provider              string     `sqlx:"provider,required=true" json:"provider"`
+	CreatedAt             time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	ExpiresAt             time.Time  `sqlx:"expires_at,required=true" json:"expiresAt"`
+	UpdatedAt             *time.Time `sqlx:"updated_at" json:"updatedAt"`
+	Username              *string    `sqlx:"username" json:"username"`
+	DisplayName           *string    `sqlx:"display_name" json:"displayName"`
+	Email                 *string    `sqlx:"email" json:"email"`
+	Subject               *string    `sqlx:"subject" json:"subject"`
 }

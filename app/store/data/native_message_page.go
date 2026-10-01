@@ -8,11 +8,11 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	read "github.com/viant/agently-core/internal/datly/message/read"
 	store "github.com/viant/agently-core/internal/store/conversation"
-	legacy "github.com/viant/agently-core/pkg/agently/message/list"
+	messagemodel "github.com/viant/agently-core/model/message"
 	"github.com/viant/xdatly/state"
 )
 
-func nativeMessagePageInput(input *legacy.MessageRowsInput) *read.MessagesInput {
+func nativeMessagePageInput(input *messagemodel.MessageRowsInput) *read.MessagesInput {
 	query := &read.MessagesInput{}
 	if input == nil || input.Has == nil {
 		return query
@@ -72,7 +72,7 @@ func nativeMessagePageInput(input *legacy.MessageRowsInput) *read.MessagesInput 
 	return query
 }
 
-func (s *datlyService) queryMessageRowsNative(ctx context.Context, input *legacy.MessageRowsInput, limit int, callOpts *options) ([]*legacy.MessageRowsView, error) {
+func (s *datlyService) queryMessageRowsNative(ctx context.Context, input *messagemodel.MessageRowsInput, limit int, callOpts *options) ([]*messagemodel.MessageRowsView, error) {
 	selectors := state.Selectors(nil)
 	if callOpts != nil {
 		selectors = nativeSelectors(callOpts.selectors)
@@ -99,7 +99,7 @@ func (s *datlyService) queryMessageRowsNative(ctx context.Context, input *legacy
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*legacy.MessageRowsView, 0, len(rows))
+	result := make([]*messagemodel.MessageRowsView, 0, len(rows))
 	for _, row := range rows {
 		if row == nil {
 			continue
@@ -108,7 +108,7 @@ func (s *datlyService) queryMessageRowsNative(ctx context.Context, input *legacy
 		if err != nil {
 			return nil, fmt.Errorf("encode native message row: %w", err)
 		}
-		var mapped legacy.MessageRowsView
+		var mapped messagemodel.MessageRowsView
 		if err := json.Unmarshal(encoded, &mapped); err != nil {
 			return nil, fmt.Errorf("decode message row contract: %w", err)
 		}

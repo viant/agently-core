@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 )
 
 type ResolveResult struct {
@@ -97,7 +97,7 @@ func ResolveDefinitionsWithOptions(b *Bundle, matchFn func(pattern string) []*ll
 }
 
 func canonicalKey(name string) string {
-	return mcpname.Canonical(strings.TrimSpace(name))
+	return mcpname2.Canonical(strings.TrimSpace(name))
 }
 
 func normalizedApprovalKey(name string) string {
@@ -115,7 +115,7 @@ func patternVariants(name string) []string {
 	canonical := canonicalKey(raw)
 	if canonical != "" {
 		variants[canonical] = struct{}{}
-		n := mcpname.Name(canonical)
+		n := mcpname2.Name(canonical)
 		service := strings.TrimSpace(n.Service())
 		method := strings.TrimSpace(n.Method())
 		if service != "" && method != "" {

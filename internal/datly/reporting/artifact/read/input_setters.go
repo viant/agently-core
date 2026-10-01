@@ -78,14 +78,3 @@ func (input *Input) SetOwnerID(value string) {
 	}
 	input.Has.OwnerID = true
 }
-
-func (input *Input) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &InputHas{}
-	}
-	input.Has.LockRows = true
-}

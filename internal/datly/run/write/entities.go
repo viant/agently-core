@@ -26,6 +26,26 @@ func (entity *MutableRunView) SetId(value string) {
 	}
 	entity.Has.Id = true
 }
+func (entity *MutableRunView) GetStatus() string {
+	return entity.Status
+}
+func (entity *MutableRunView) SetStatus(value string) {
+	entity.Status = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.Status = true
+}
+func (entity *MutableRunView) GetUsageCost() *float64 {
+	return entity.UsageCost
+}
+func (entity *MutableRunView) SetUsageCost(value *float64) {
+	entity.UsageCost = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.UsageCost = true
+}
 func (entity *MutableRunView) GetTurnId() *string {
 	return entity.TurnId
 }
@@ -85,16 +105,6 @@ func (entity *MutableRunView) SetResumedFromRunId(value *string) {
 		entity.Has = &MutableRunViewHas{}
 	}
 	entity.Has.ResumedFromRunId = true
-}
-func (entity *MutableRunView) GetStatus() string {
-	return entity.Status
-}
-func (entity *MutableRunView) SetStatus(value string) {
-	entity.Status = value
-	if entity.Has == nil {
-		entity.Has = &MutableRunViewHas{}
-	}
-	entity.Has.Status = true
 }
 func (entity *MutableRunView) GetErrorCode() *string {
 	return entity.ErrorCode
@@ -266,16 +276,6 @@ func (entity *MutableRunView) SetSecurityContext(value *string) {
 	}
 	entity.Has.SecurityContext = true
 }
-func (entity *MutableRunView) GetUserCredUrl() *string {
-	return entity.UserCredUrl
-}
-func (entity *MutableRunView) SetUserCredUrl(value *string) {
-	entity.UserCredUrl = value
-	if entity.Has == nil {
-		entity.Has = &MutableRunViewHas{}
-	}
-	entity.Has.UserCredUrl = true
-}
 func (entity *MutableRunView) GetEffectiveUserId() *string {
 	return entity.EffectiveUserId
 }
@@ -305,6 +305,16 @@ func (entity *MutableRunView) SetAuthAudience(value *string) {
 		entity.Has = &MutableRunViewHas{}
 	}
 	entity.Has.AuthAudience = true
+}
+func (entity *MutableRunView) GetUserCredUrl() *string {
+	return entity.UserCredUrl
+}
+func (entity *MutableRunView) SetUserCredUrl(value *string) {
+	entity.UserCredUrl = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.UserCredUrl = true
 }
 func (entity *MutableRunView) GetHeartbeatIntervalSec() *int {
 	return entity.HeartbeatIntervalSec
@@ -385,16 +395,6 @@ func (entity *MutableRunView) SetUsageTotalTokens(value *int) {
 		entity.Has = &MutableRunViewHas{}
 	}
 	entity.Has.UsageTotalTokens = true
-}
-func (entity *MutableRunView) GetUsageCost() *float64 {
-	return entity.UsageCost
-}
-func (entity *MutableRunView) SetUsageCost(value *float64) {
-	entity.UsageCost = value
-	if entity.Has == nil {
-		entity.Has = &MutableRunViewHas{}
-	}
-	entity.Has.UsageCost = true
 }
 func (entity *MutableRunView) GetCreatedAt() *time.Time {
 	return entity.CreatedAt

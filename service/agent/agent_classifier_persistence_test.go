@@ -10,7 +10,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
@@ -261,10 +261,10 @@ func TestEnsureAgent_AutoSelectionIncludesRecentTranscript(t *testing.T) {
 
 func TestRecentNonInterimTurnsTextSkipsNonFinalAssistantPhases(t *testing.T) {
 	conv := &apiconv.Conversation{
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id: "turn-prior",
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{Role: "user", Type: "text", Content: strPtr("visible user")},
 					{Role: "assistant", Type: "text", Phase: strPtr("intake"), Content: strPtr(`{"internal":"hidden"}`)},
 					{Role: "assistant", Type: "text", Content: strPtr("visible assistant")},

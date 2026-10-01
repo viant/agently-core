@@ -4,12 +4,12 @@ package read
 
 // OrphanRow is generated canonical view metadata for reader.
 type OrphanRow struct {
-	RuleId         string `sqlx:"rule_id"`
-	Action         string `sqlx:"action"`
-	Priority       int    `sqlx:"priority"`
-	TableName      string `sqlx:"table_name"`
-	RecordId       string `sqlx:"record_id"`
-	ReferenceTable string `sqlx:"reference_table"`
-	ReferenceId    string `sqlx:"reference_id"`
-	ObservedAtRaw  string `sqlx:"observed_at_raw"`
+	RuleId         string `sqlx:"rule_id" json:"ruleId"`
+	Action         string `sqlx:"action" json:"action"`
+	Priority       int    `sqlx:"priority" json:"priority"`
+	TableName      string `sqlx:"table_name" json:"tableName"`
+	RecordId       string `sqlx:"record_id" json:"recordId"`
+	ReferenceTable string `sqlx:"reference_table" json:"referenceTable"`
+	ReferenceId    string `sqlx:"reference_id" json:"referenceId"`
+	ObservedAtRaw  string `sqlx:"observed_at_raw" json:"observedAtRaw"`
 }

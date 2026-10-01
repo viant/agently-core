@@ -8,7 +8,6 @@ import (
 
 // ApprovalRowsInput is the generated input scaffold for reader.
 type ApprovalRowsInput struct {
-	LockRows          bool                  `parameter:"LockRows,kind=approvalaccess,in=lock,dataType=bool,required=false"`
 	Id                string                `parameter:"Id,kind=query,in=id,dataType=string,required=false" predicate:"equal,q,id"`
 	UserId            string                `parameter:"UserId,kind=query,in=userId,dataType=string,required=false" predicate:"equal,q,user_id"`
 	ConversationId    string                `parameter:"ConversationId,kind=query,in=conversationId,dataType=string,required=false" predicate:"equal,q,conversation_id"`
@@ -32,7 +31,6 @@ type ApprovalRowsInput struct {
 }
 
 type ApprovalRowsInputHas struct {
-	LockRows          bool
 	Id                bool
 	UserId            bool
 	ConversationId    bool

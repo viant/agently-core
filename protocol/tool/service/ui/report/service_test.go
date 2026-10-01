@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	registry "github.com/viant/agently-core/internal/tool/registry"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
@@ -109,11 +109,11 @@ func TestServiceSaveDispatchesCanonicalBrowserAction(t *testing.T) {
 type fakeTerminalRunWaiter struct {
 	reportRunID    string
 	conversationID string
-	run            *reportrun.Record
+	run            *reportrunmodel.Record
 	err            error
 }
 
-func (f *fakeTerminalRunWaiter) WaitTerminal(_ context.Context, reportRunID, conversationID string) (*reportrun.Record, error) {
+func (f *fakeTerminalRunWaiter) WaitTerminal(_ context.Context, reportRunID, conversationID string) (*reportrunmodel.Record, error) {
 	f.reportRunID = reportRunID
 	f.conversationID = conversationID
 	return f.run, f.err
@@ -138,10 +138,10 @@ func TestServiceRunOrchestrationDisabledPreservesDispatchBehavior(t *testing.T) 
 
 func TestServiceRunOrchestrationWaitsForExactDurableRun(t *testing.T) {
 	bridge := prepareReportWindow(t)
-	waiter := &fakeTerminalRunWaiter{run: &reportrun.Record{
+	waiter := &fakeTerminalRunWaiter{run: &reportrunmodel.Record{
 		ReportRunID:    "run-1",
 		ConversationID: "conv-1",
-		Status:         reportrun.StatusCompleted,
+		Status:         reportrunmodel.StatusCompleted,
 		Revision:       7,
 	}}
 	service := New(bridge, WithOrchestration(waiter))
@@ -163,7 +163,7 @@ func TestServiceRunOrchestrationWaitsForExactDurableRun(t *testing.T) {
 	require.True(t, output.OK)
 	require.Equal(t, true, output.Result["durable"])
 	require.Equal(t, "run-1", output.Result["reportRunId"])
-	require.Equal(t, reportrun.StatusCompleted, output.Result["status"])
+	require.Equal(t, reportrunmodel.StatusCompleted, output.Result["status"])
 	require.Equal(t, int64(7), output.Result["revision"])
 }
 
@@ -256,10 +256,10 @@ func TestServiceRunOrchestrationRejectsNonDurableAndFailedRuns(t *testing.T) {
 	}
 
 	bridge := prepareReportWindow(t)
-	waiter := &fakeTerminalRunWaiter{run: &reportrun.Record{
+	waiter := &fakeTerminalRunWaiter{run: &reportrunmodel.Record{
 		ReportRunID:    "run-failed",
 		ConversationID: "conv-1",
-		Status:         reportrun.StatusFailed,
+		Status:         reportrunmodel.StatusFailed,
 		FailureText:    "datasource unavailable",
 		Revision:       2,
 	}}
@@ -277,7 +277,7 @@ func TestServiceRunOrchestrationRejectsNonDurableAndFailedRuns(t *testing.T) {
 	})
 	require.ErrorContains(t, <-done, "datasource unavailable")
 	require.False(t, output.OK)
-	require.Equal(t, reportrun.StatusFailed, output.Result["status"])
+	require.Equal(t, reportrunmodel.StatusFailed, output.Result["status"])
 	require.Equal(t, int64(2), output.Result["revision"])
 }
 

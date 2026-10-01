@@ -13,10 +13,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/native"
 	authctx "github.com/viant/agently-core/internal/auth"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
-	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
+	runmodel "github.com/viant/agently-core/model/run"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
+
 	goalsys "github.com/viant/agently-core/service/goal"
 	"github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
@@ -75,7 +75,7 @@ features:
 	}))
 	wakeAt := time.Now().UTC().Add(15 * time.Minute).Truncate(time.Second)
 	schedulerSvc := scheduler.New(&goalWakeupStoreStub{
-		dueRows: []*schedulepkg.ScheduleView{
+		dueRows: []*schedulemodel.ScheduleView{
 			{
 				Id:             "goal-wakeup-goal-conv-goal",
 				Internal:       true,
@@ -101,22 +101,22 @@ features:
 }
 
 type goalWakeupStoreStub struct {
-	dueRows []*schedulepkg.ScheduleView
+	dueRows []*schedulemodel.ScheduleView
 }
 
-func (s *goalWakeupStoreStub) Get(context.Context, string) (*schedulepkg.ScheduleView, error) {
+func (s *goalWakeupStoreStub) Get(context.Context, string) (*schedulemodel.ScheduleView, error) {
 	return nil, nil
 }
 
-func (s *goalWakeupStoreStub) List(context.Context) ([]*schedulepkg.ScheduleView, error) {
+func (s *goalWakeupStoreStub) List(context.Context) ([]*schedulemodel.ScheduleView, error) {
 	return nil, nil
 }
 
-func (s *goalWakeupStoreStub) ListRuns(context.Context, *schrun.RunListInput, int, int) (*scheduler.RunListPage, error) {
+func (s *goalWakeupStoreStub) ListRuns(context.Context, *scheduledrunmodel.RunListInput, int, int) (*scheduler.RunListPage, error) {
 	return nil, nil
 }
 
-func (s *goalWakeupStoreStub) ListForRunDue(context.Context) ([]*schedulepkg.ScheduleView, error) {
+func (s *goalWakeupStoreStub) ListForRunDue(context.Context) ([]*schedulemodel.ScheduleView, error) {
 	return s.dueRows, nil
 }
 
@@ -128,15 +128,15 @@ func (s *goalWakeupStoreStub) DeleteScheduledRun(context.Context, string) error 
 	return nil
 }
 
-func (s *goalWakeupStoreStub) PatchSchedule(context.Context, *schedwrite.Schedule) error {
+func (s *goalWakeupStoreStub) PatchSchedule(context.Context, *schedulemodel.Schedule) error {
 	return nil
 }
 
-func (s *goalWakeupStoreStub) PatchRuns(context.Context, []*agrunwrite.MutableRunView) error {
+func (s *goalWakeupStoreStub) PatchRuns(context.Context, []*runmodel.MutableRunView) error {
 	return nil
 }
 
-func (s *goalWakeupStoreStub) ListRunsForDue(context.Context, string, *time.Time, []string) ([]*schrun.RunView, error) {
+func (s *goalWakeupStoreStub) ListRunsForDue(context.Context, string, *time.Time, []string) ([]*scheduledrunmodel.RunView, error) {
 	return nil, nil
 }
 

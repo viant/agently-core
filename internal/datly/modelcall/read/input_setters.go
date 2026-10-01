@@ -28,17 +28,6 @@ func (input *ModelCallsInput) SetReadMode(value string) {
 	input.Has.ReadMode = true
 }
 
-func (input *ModelCallsInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &ModelCallsInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *ModelCallsInput) SetVisibilitySubject(value *string) {
 	if input == nil {
 		return

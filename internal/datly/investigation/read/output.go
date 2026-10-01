@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Investigation `parameter:"Data,kind=output,in=view,dataType=[]*Investigation" view:"reader,type=Investigation,table=investigation" sql:"uri=datly_investigation_read_reader:sql/reader.sql"`
+	Data []*Investigation `parameter:"Data,kind=output,in=view,dataType=[]*Investigation" view:"reader,type=Investigation,rowLock=investigation i,table=investigation" sql:"uri=datly_investigation_read_reader:sql/reader.sql"`
 }

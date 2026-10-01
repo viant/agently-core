@@ -78,7 +78,7 @@ func (s *Store) Candidates(ctx context.Context, request CandidateRequest) ([]Can
 			return request.Kind, true, nil
 		case "legacyRuns":
 			return legacy, true, nil
-		case "list", "ascending", "enforceVisibility", "lock":
+		case "list", "ascending", "enforceVisibility":
 			return false, true, nil
 		case "graph":
 			return true, true, nil

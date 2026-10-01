@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -71,14 +71,14 @@ func TestProjectExpandsTurnIDsToMessageIDs(t *testing.T) {
 	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{ConversationID: "conv-1"})
 	svc := New(&stubProjectConversationClient{
 		conversation: &apiconv.Conversation{
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id: "turn-1",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:     "msg-1",
 							TurnId: strPtrProject("turn-1"),
-							ToolMessage: []*agconv.ToolMessageView{
+							ToolMessage: []*conversationmodel.ToolMessageView{
 								{Id: "tool-msg-1"},
 							},
 						},

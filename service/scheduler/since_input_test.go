@@ -18,7 +18,7 @@ import (
 	"github.com/stretchr/testify/require"
 	storedata "github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/app/store/native"
-	legacy "github.com/viant/agently-core/pkg/agently/scheduler/run"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/datly/bootstrap/connector"
 )
@@ -92,7 +92,7 @@ func runSinceTurnCases(t *testing.T, store Store, db *sql.DB, prefix string) {
 			defer response.Body.Close()
 			require.Equal(t, http.StatusOK, response.StatusCode)
 			var body struct {
-				Data []*legacy.RunView `json:"data"`
+				Data []*scheduledrunmodel.RunView `json:"data"`
 				Info struct {
 					TotalCount int `json:"totalCount"`
 					PageCount  int `json:"pageCount"`
@@ -104,7 +104,7 @@ func runSinceTurnCases(t *testing.T, store Store, db *sql.DB, prefix string) {
 		})
 	}
 	ctx := svcauth.InjectUser(context.Background(), owner)
-	input := &legacy.RunListInput{ScheduleId: owned, Since: anchor, Has: &legacy.RunListInputHas{ScheduleId: true}}
+	input := &scheduledrunmodel.RunListInput{ScheduleId: owned, Since: anchor, Has: &scheduledrunmodel.RunListInputHas{ScheduleId: true}}
 	page, err := store.ListRuns(ctx, input, 1, 1)
 	require.NoError(t, err)
 	require.Equal(t, 3, page.TotalCount, "unmarked Since must be absent")

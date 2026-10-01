@@ -46,16 +46,6 @@ func (entity *Run) SetOwnerId(value string) {
 	}
 	entity.Has.OwnerId = true
 }
-func (entity *Run) GetConversationId() *string {
-	return entity.ConversationId
-}
-func (entity *Run) SetConversationId(value *string) {
-	entity.ConversationId = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.ConversationId = true
-}
 func (entity *Run) GetMaterializer() string {
 	return entity.Materializer
 }
@@ -65,6 +55,116 @@ func (entity *Run) SetMaterializer(value string) {
 		entity.Has = &RunHas{}
 	}
 	entity.Has.Materializer = true
+}
+func (entity *Run) GetRequestedParamsJson() []byte {
+	return entity.RequestedParamsJson
+}
+func (entity *Run) SetRequestedParamsJson(value []byte) {
+	entity.RequestedParamsJson = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.RequestedParamsJson = true
+}
+func (entity *Run) GetEffectiveParamsJson() []byte {
+	return entity.EffectiveParamsJson
+}
+func (entity *Run) SetEffectiveParamsJson(value []byte) {
+	entity.EffectiveParamsJson = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.EffectiveParamsJson = true
+}
+func (entity *Run) GetStatus() string {
+	return entity.Status
+}
+func (entity *Run) SetStatus(value string) {
+	entity.Status = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.Status = true
+}
+func (entity *Run) GetStartedAt() time.Time {
+	return entity.StartedAt
+}
+func (entity *Run) SetStartedAt(value time.Time) {
+	entity.StartedAt = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.StartedAt = true
+}
+func (entity *Run) GetUiRunRequestId() string {
+	return entity.UiRunRequestId
+}
+func (entity *Run) SetUiRunRequestId(value string) {
+	entity.UiRunRequestId = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.UiRunRequestId = true
+}
+func (entity *Run) GetReportSpecJson() []byte {
+	return entity.ReportSpecJson
+}
+func (entity *Run) SetReportSpecJson(value []byte) {
+	entity.ReportSpecJson = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.ReportSpecJson = true
+}
+func (entity *Run) GetReportFillJson() []byte {
+	return entity.ReportFillJson
+}
+func (entity *Run) SetReportFillJson(value []byte) {
+	entity.ReportFillJson = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.ReportFillJson = true
+}
+func (entity *Run) GetReportPrintJson() []byte {
+	return entity.ReportPrintJson
+}
+func (entity *Run) SetReportPrintJson(value []byte) {
+	entity.ReportPrintJson = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.ReportPrintJson = true
+}
+func (entity *Run) GetCreatedAt() time.Time {
+	return entity.CreatedAt
+}
+func (entity *Run) SetCreatedAt(value time.Time) {
+	entity.CreatedAt = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.CreatedAt = true
+}
+func (entity *Run) GetUpdatedAt() time.Time {
+	return entity.UpdatedAt
+}
+func (entity *Run) SetUpdatedAt(value time.Time) {
+	entity.UpdatedAt = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.UpdatedAt = true
+}
+func (entity *Run) GetConversationId() *string {
+	return entity.ConversationId
+}
+func (entity *Run) SetConversationId(value *string) {
+	entity.ConversationId = value
+	if entity.Has == nil {
+		entity.Has = &RunHas{}
+	}
+	entity.Has.ConversationId = true
 }
 func (entity *Run) GetOrigin() *string {
 	return entity.Origin
@@ -116,36 +216,6 @@ func (entity *Run) SetSourceId(value *string) {
 	}
 	entity.Has.SourceId = true
 }
-func (entity *Run) GetRequestedParamsJson() []byte {
-	return entity.RequestedParamsJson
-}
-func (entity *Run) SetRequestedParamsJson(value []byte) {
-	entity.RequestedParamsJson = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.RequestedParamsJson = true
-}
-func (entity *Run) GetEffectiveParamsJson() []byte {
-	return entity.EffectiveParamsJson
-}
-func (entity *Run) SetEffectiveParamsJson(value []byte) {
-	entity.EffectiveParamsJson = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.EffectiveParamsJson = true
-}
-func (entity *Run) GetStatus() string {
-	return entity.Status
-}
-func (entity *Run) SetStatus(value string) {
-	entity.Status = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.Status = true
-}
 func (entity *Run) GetFailureCode() *string {
 	return entity.FailureCode
 }
@@ -166,16 +236,6 @@ func (entity *Run) SetFailureText(value *string) {
 	}
 	entity.Has.FailureText = true
 }
-func (entity *Run) GetStartedAt() time.Time {
-	return entity.StartedAt
-}
-func (entity *Run) SetStartedAt(value time.Time) {
-	entity.StartedAt = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.StartedAt = true
-}
 func (entity *Run) GetCompletedAt() *time.Time {
 	return entity.CompletedAt
 }
@@ -185,46 +245,6 @@ func (entity *Run) SetCompletedAt(value *time.Time) {
 		entity.Has = &RunHas{}
 	}
 	entity.Has.CompletedAt = true
-}
-func (entity *Run) GetUiRunRequestId() string {
-	return entity.UiRunRequestId
-}
-func (entity *Run) SetUiRunRequestId(value string) {
-	entity.UiRunRequestId = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.UiRunRequestId = true
-}
-func (entity *Run) GetReportSpecJson() []byte {
-	return entity.ReportSpecJson
-}
-func (entity *Run) SetReportSpecJson(value []byte) {
-	entity.ReportSpecJson = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.ReportSpecJson = true
-}
-func (entity *Run) GetReportFillJson() []byte {
-	return entity.ReportFillJson
-}
-func (entity *Run) SetReportFillJson(value []byte) {
-	entity.ReportFillJson = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.ReportFillJson = true
-}
-func (entity *Run) GetReportPrintJson() []byte {
-	return entity.ReportPrintJson
-}
-func (entity *Run) SetReportPrintJson(value []byte) {
-	entity.ReportPrintJson = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.ReportPrintJson = true
 }
 func (entity *Run) GetActivationSource() *string {
 	return entity.ActivationSource
@@ -255,24 +275,4 @@ func (entity *Run) SetActorId(value *string) {
 		entity.Has = &RunHas{}
 	}
 	entity.Has.ActorId = true
-}
-func (entity *Run) GetCreatedAt() time.Time {
-	return entity.CreatedAt
-}
-func (entity *Run) SetCreatedAt(value time.Time) {
-	entity.CreatedAt = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.CreatedAt = true
-}
-func (entity *Run) GetUpdatedAt() time.Time {
-	return entity.UpdatedAt
-}
-func (entity *Run) SetUpdatedAt(value time.Time) {
-	entity.UpdatedAt = value
-	if entity.Has == nil {
-		entity.Has = &RunHas{}
-	}
-	entity.Has.UpdatedAt = true
 }

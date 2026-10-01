@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/internal/datly/queryselectors"
 	"reflect"
 	"strings"
 	"time"
@@ -194,7 +195,7 @@ func sameArtifactJob(artifact *artifactread.Artifact, job *jobread.Job) bool {
 }
 
 func invokeJobs(ctx context.Context, invoker dexec.ComponentInvoker, input *jobread.Input) ([]*jobread.Job, error) {
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: jobReaderTarget, Input: input, Providers: lockedReportingReads()})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: jobReaderTarget, Input: input, Providers: lockedReportingReads()})
 	if err != nil {
 		return nil, err
 	}
@@ -206,7 +207,7 @@ func invokeJobs(ctx context.Context, invoker dexec.ComponentInvoker, input *jobr
 }
 
 func invokeArtifacts(ctx context.Context, invoker dexec.ComponentInvoker, input *artifactread.Input) ([]*artifactread.Artifact, error) {
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: artifactReaderTarget, Input: input, Providers: lockedReportingReads()})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: artifactReaderTarget, Input: input, Providers: lockedReportingReads()})
 	if err != nil {
 		return nil, err
 	}
@@ -223,8 +224,6 @@ func lockedReportingReads() []locator.Provider {
 		switch name {
 		case "internal":
 			return false, true, nil
-		case "lock":
-			return true, true, nil
 		}
 		return nil, false, nil
 	})}

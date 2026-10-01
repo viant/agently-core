@@ -26,6 +26,56 @@ func (entity *Goal) SetId(value string) {
 	}
 	entity.Has.Id = true
 }
+func (entity *Goal) GetTokenBudget() *int64 {
+	return entity.TokenBudget
+}
+func (entity *Goal) SetTokenBudget(value *int64) {
+	entity.TokenBudget = value
+	if entity.Has == nil {
+		entity.Has = &GoalHas{}
+	}
+	entity.Has.TokenBudget = true
+}
+func (entity *Goal) GetTokensUsed() *int64 {
+	return entity.TokensUsed
+}
+func (entity *Goal) SetTokensUsed(value *int64) {
+	entity.TokensUsed = value
+	if entity.Has == nil {
+		entity.Has = &GoalHas{}
+	}
+	entity.Has.TokensUsed = true
+}
+func (entity *Goal) GetTimeUsedSeconds() *int64 {
+	return entity.TimeUsedSeconds
+}
+func (entity *Goal) SetTimeUsedSeconds(value *int64) {
+	entity.TimeUsedSeconds = value
+	if entity.Has == nil {
+		entity.Has = &GoalHas{}
+	}
+	entity.Has.TimeUsedSeconds = true
+}
+func (entity *Goal) GetAutonomousTurnsUsed() *int64 {
+	return entity.AutonomousTurnsUsed
+}
+func (entity *Goal) SetAutonomousTurnsUsed(value *int64) {
+	entity.AutonomousTurnsUsed = value
+	if entity.Has == nil {
+		entity.Has = &GoalHas{}
+	}
+	entity.Has.AutonomousTurnsUsed = true
+}
+func (entity *Goal) GetConsecutiveNoProgress() *int64 {
+	return entity.ConsecutiveNoProgress
+}
+func (entity *Goal) SetConsecutiveNoProgress(value *int64) {
+	entity.ConsecutiveNoProgress = value
+	if entity.Has == nil {
+		entity.Has = &GoalHas{}
+	}
+	entity.Has.ConsecutiveNoProgress = true
+}
 func (entity *Goal) GetConversationId() *string {
 	return entity.ConversationId
 }
@@ -85,56 +135,6 @@ func (entity *Goal) SetControllerSpec(value *string) {
 		entity.Has = &GoalHas{}
 	}
 	entity.Has.ControllerSpec = true
-}
-func (entity *Goal) GetTokenBudget() *int64 {
-	return entity.TokenBudget
-}
-func (entity *Goal) SetTokenBudget(value *int64) {
-	entity.TokenBudget = value
-	if entity.Has == nil {
-		entity.Has = &GoalHas{}
-	}
-	entity.Has.TokenBudget = true
-}
-func (entity *Goal) GetTokensUsed() *int64 {
-	return entity.TokensUsed
-}
-func (entity *Goal) SetTokensUsed(value *int64) {
-	entity.TokensUsed = value
-	if entity.Has == nil {
-		entity.Has = &GoalHas{}
-	}
-	entity.Has.TokensUsed = true
-}
-func (entity *Goal) GetTimeUsedSeconds() *int64 {
-	return entity.TimeUsedSeconds
-}
-func (entity *Goal) SetTimeUsedSeconds(value *int64) {
-	entity.TimeUsedSeconds = value
-	if entity.Has == nil {
-		entity.Has = &GoalHas{}
-	}
-	entity.Has.TimeUsedSeconds = true
-}
-func (entity *Goal) GetAutonomousTurnsUsed() *int64 {
-	return entity.AutonomousTurnsUsed
-}
-func (entity *Goal) SetAutonomousTurnsUsed(value *int64) {
-	entity.AutonomousTurnsUsed = value
-	if entity.Has == nil {
-		entity.Has = &GoalHas{}
-	}
-	entity.Has.AutonomousTurnsUsed = true
-}
-func (entity *Goal) GetConsecutiveNoProgress() *int64 {
-	return entity.ConsecutiveNoProgress
-}
-func (entity *Goal) SetConsecutiveNoProgress(value *int64) {
-	entity.ConsecutiveNoProgress = value
-	if entity.Has == nil {
-		entity.Has = &GoalHas{}
-	}
-	entity.Has.ConsecutiveNoProgress = true
 }
 func (entity *Goal) GetLastContinuationFingerprint() *string {
 	return entity.LastContinuationFingerprint

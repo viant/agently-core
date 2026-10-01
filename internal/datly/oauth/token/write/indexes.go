@@ -292,6 +292,52 @@ func (index WriterHandlerCurrentWriterGroupedByVersion) Has(key int64) bool {
 	_, ok := index[key]
 	return ok
 }
+func WriterHandlerCurrentWriterIndexByRefreshStatusKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	return value.RefreshStatus, true
+}
+
+type WriterHandlerCurrentWriterIndexedByRefreshStatus map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByRefreshStatus() (WriterHandlerCurrentWriterIndexedByRefreshStatus, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByRefreshStatus)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByRefreshStatusKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByRefreshStatus")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByRefreshStatus) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByRefreshStatus map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByRefreshStatus() WriterHandlerCurrentWriterGroupedByRefreshStatus {
+	result := make(WriterHandlerCurrentWriterGroupedByRefreshStatus)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByRefreshStatusKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByRefreshStatus) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
 func WriterHandlerCurrentWriterIndexByLeaseOwnerKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -387,52 +433,6 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByLeaseUntil() WriterHandlerCur
 	return result
 }
 func (index WriterHandlerCurrentWriterGroupedByLeaseUntil) Has(key time.Time) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByRefreshStatusKey(value *CurrentWriterView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	return value.RefreshStatus, true
-}
-
-type WriterHandlerCurrentWriterIndexedByRefreshStatus map[string]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByRefreshStatus() (WriterHandlerCurrentWriterIndexedByRefreshStatus, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByRefreshStatus)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRefreshStatusKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByRefreshStatus")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByRefreshStatus) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByRefreshStatus map[string][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByRefreshStatus() WriterHandlerCurrentWriterGroupedByRefreshStatus {
-	result := make(WriterHandlerCurrentWriterGroupedByRefreshStatus)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRefreshStatusKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByRefreshStatus) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
@@ -575,14 +575,14 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Version") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Version")
 			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("RefreshStatus") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.RefreshStatus")
+			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("LeaseOwner") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.LeaseOwner")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("LeaseUntil") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.LeaseUntil")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("RefreshStatus") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.RefreshStatus")
 			}
 		}
 		cloned, err := (xshape.Runtime{}).CloneValue(rows, xshape.CloneOptions{})

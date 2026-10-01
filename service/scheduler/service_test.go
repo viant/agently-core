@@ -17,8 +17,8 @@ import (
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	mem "github.com/viant/agently-core/app/store/data/memory"
 	iauth "github.com/viant/agently-core/internal/auth"
-	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/workspace"
@@ -190,7 +190,7 @@ func TestService_staleActiveRunReason_UsesLeaseCause(t *testing.T) {
 	now := time.Now().UTC()
 	startedAt := now.Add(-5 * time.Minute)
 	leaseUntil := now.Add(-20 * time.Second)
-	run := &schrun.RunView{
+	run := &scheduledrunmodel.RunView{
 		Status:     "running",
 		CreatedAt:  startedAt.Add(-5 * time.Second),
 		StartedAt:  &startedAt,
@@ -954,7 +954,7 @@ func TestService_executeRun_UserCredAuthFailureContinuesWithoutTokens(t *testing
 	fakeAuthz := &fakeOAuthAuthorizer{err: errors.New("authorization failed")}
 	svc.oauthAuthz = fakeAuthz
 	credRef := "scheduler-user-credential"
-	row := &schedulepkg.ScheduleView{
+	row := &schedulemodel.ScheduleView{
 		Id:           scheduleID,
 		Name:         "User credential auth failure",
 		UserCredURL:  &credRef,
@@ -1518,7 +1518,7 @@ features:
 }
 
 func TestScheduleQueryInput_InternalGoalWakeupTargetsSameConversation(t *testing.T) {
-	row := &schedulepkg.ScheduleView{
+	row := &schedulemodel.ScheduleView{
 		Id:             "goal-wakeup-goal-1",
 		AgentRef:       "coder",
 		Internal:       true,
@@ -1684,7 +1684,7 @@ func TestService_ExecuteRun_InternalGoalWakeupResumesSameConversation(t *testing
 		return nil
 	}
 
-	row := &schedulepkg.ScheduleView{
+	row := &schedulemodel.ScheduleView{
 		Id:             "goal-wakeup-goal-1",
 		Name:           "autonomous::goal-wakeup::goal-1",
 		Visibility:     "private",
@@ -1745,7 +1745,7 @@ func TestService_executeRun_SkipsExecutionWhenRunWasDeletedBeforeClaim(t *testin
 		queryCalled = true
 		return nil
 	}
-	row := &schedulepkg.ScheduleView{
+	row := &schedulemodel.ScheduleView{
 		Id:           "sched-deleted-before-claim",
 		AgentRef:     "steward",
 		ScheduleType: "adhoc",

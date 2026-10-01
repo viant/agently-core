@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/internal/datly/queryselectors"
 	"reflect"
 	"strings"
 	"time"
@@ -115,7 +116,7 @@ func (*Submit) Exec(ctx context.Context, session handler.Session, input *Input, 
 	// cannot hide a job committed while this invocation waited for the run.
 	runLookup := &runread.Input{}
 	runLookup.SetReportRunID(strings.TrimSpace(input.ReportRunID))
-	value, err := deps.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: runReaderTarget, Input: runLookup, Providers: lockedReportingReads()})
+	value, err := deps.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: runReaderTarget, Input: runLookup, Providers: lockedReportingReads()})
 	if err != nil {
 		return err
 	}
@@ -217,7 +218,7 @@ func sameRequest(existing *jobread.Job, input *Input) bool {
 }
 
 func readJobs(ctx context.Context, invoker dexec.ComponentInvoker, input *jobread.Input) ([]*jobread.Job, error) {
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: jobReaderTarget, Input: input, Providers: lockedReportingReads()})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: jobReaderTarget, Input: input, Providers: lockedReportingReads()})
 	if err != nil {
 		return nil, err
 	}
@@ -234,8 +235,6 @@ func lockedReportingReads() []locator.Provider {
 		switch name {
 		case "internal":
 			return false, true, nil
-		case "lock":
-			return true, true, nil
 		}
 		return nil, false, nil
 	})}

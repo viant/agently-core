@@ -8,40 +8,41 @@ import (
 
 // MutableConversationView is generated canonical view metadata for writer.
 type MutableConversationView struct {
-	ShouldDelete             bool                        `json:",omitempty" sqlx:"-" writer:"delete"`
-	Id                       string                      `validate:"required" sqlx:"id,primaryKey"`
-	Summary                  *string                     `json:",omitempty" sqlx:"summary"`
-	LastActivity             *time.Time                  `json:",omitempty" sqlx:"last_activity"`
-	UsageInputTokens         *int                        `json:",omitempty" sqlx:"usage_input_tokens"`
-	UsageOutputTokens        *int                        `json:",omitempty" sqlx:"usage_output_tokens"`
-	UsageEmbeddingTokens     *int                        `json:",omitempty" sqlx:"usage_embedding_tokens"`
-	CreatedAt                *time.Time                  `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt                *time.Time                  `json:",omitempty" sqlx:"updated_at"`
-	CreatedByUserId          *string                     `json:",omitempty" sqlx:"created_by_user_id"`
-	AgentId                  *string                     `json:",omitempty" sqlx:"agent_id"`
-	DefaultModelProvider     *string                     `json:",omitempty" sqlx:"default_model_provider"`
-	DefaultModel             *string                     `json:",omitempty" sqlx:"default_model"`
-	DefaultModelParams       *string                     `json:",omitempty" sqlx:"default_model_params"`
-	Title                    *string                     `json:",omitempty" sqlx:"title"`
-	ConversationParentId     *string                     `json:",omitempty" sqlx:"conversation_parent_id"`
-	ConversationParentTurnId *string                     `json:",omitempty" sqlx:"conversation_parent_turn_id"`
-	Metadata                 *string                     `json:",omitempty" sqlx:"metadata"`
-	Visibility               *string                     `json:",omitempty" sqlx:"visibility,required=true"`
-	Shareable                int                         `json:",omitempty" sqlx:"shareable,required=true"`
-	Status                   *string                     `json:",omitempty" sqlx:"status"`
-	Scheduled                *int                        `json:",omitempty" sqlx:"scheduled"`
-	ScheduleId               *string                     `json:",omitempty" sqlx:"schedule_id"`
-	ScheduleRunId            *string                     `json:",omitempty" sqlx:"schedule_run_id"`
-	ScheduleKind             *string                     `json:",omitempty" sqlx:"schedule_kind"`
-	ScheduleTimezone         *string                     `json:",omitempty" sqlx:"schedule_timezone"`
-	ScheduleCronExpr         *string                     `json:",omitempty" sqlx:"schedule_cron_expr"`
-	ExternalTaskRef          *string                     `json:",omitempty" sqlx:"external_task_ref"`
+	ShouldDelete             bool                        `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	Id                       string                      `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	Shareable                int                         `sqlx:"shareable,required=true" json:"shareable,omitempty"`
+	Summary                  *string                     `sqlx:"summary" json:"summary,omitempty"`
+	LastActivity             *time.Time                  `sqlx:"last_activity" json:"lastActivity,omitempty"`
+	UsageInputTokens         *int                        `sqlx:"usage_input_tokens" json:"usageInputTokens,omitempty"`
+	UsageOutputTokens        *int                        `sqlx:"usage_output_tokens" json:"usageOutputTokens,omitempty"`
+	UsageEmbeddingTokens     *int                        `sqlx:"usage_embedding_tokens" json:"usageEmbeddingTokens,omitempty"`
+	CreatedAt                *time.Time                  `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt                *time.Time                  `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	CreatedByUserId          *string                     `sqlx:"created_by_user_id" json:"createdByUserId,omitempty"`
+	AgentId                  *string                     `sqlx:"agent_id" json:"agentId,omitempty"`
+	DefaultModelProvider     *string                     `sqlx:"default_model_provider" json:"defaultModelProvider,omitempty"`
+	DefaultModel             *string                     `sqlx:"default_model" json:"defaultModel,omitempty"`
+	DefaultModelParams       *string                     `sqlx:"default_model_params" json:"defaultModelParams,omitempty"`
+	Title                    *string                     `sqlx:"title" json:"title,omitempty"`
+	ConversationParentId     *string                     `sqlx:"conversation_parent_id" json:"conversationParentId,omitempty"`
+	ConversationParentTurnId *string                     `sqlx:"conversation_parent_turn_id" json:"conversationParentTurnId,omitempty"`
+	Metadata                 *string                     `sqlx:"metadata" json:"metadata,omitempty"`
+	Visibility               *string                     `sqlx:"visibility,required=true" json:"visibility,omitempty"`
+	Status                   *string                     `sqlx:"status" json:"status,omitempty"`
+	Scheduled                *int                        `sqlx:"scheduled" json:"scheduled,omitempty"`
+	ScheduleId               *string                     `sqlx:"schedule_id" json:"scheduleId,omitempty"`
+	ScheduleRunId            *string                     `sqlx:"schedule_run_id" json:"scheduleRunId,omitempty"`
+	ScheduleKind             *string                     `sqlx:"schedule_kind" json:"scheduleKind,omitempty"`
+	ScheduleTimezone         *string                     `sqlx:"schedule_timezone" json:"scheduleTimezone,omitempty"`
+	ScheduleCronExpr         *string                     `sqlx:"schedule_cron_expr" json:"scheduleCronExpr,omitempty"`
+	ExternalTaskRef          *string                     `sqlx:"external_task_ref" json:"externalTaskRef,omitempty"`
 	Has                      *MutableConversationViewHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"MutableConversationViewHas"`
 }
 
 type MutableConversationViewHas struct {
 	ShouldDelete             bool
 	Id                       bool
+	Shareable                bool
 	Summary                  bool
 	LastActivity             bool
 	UsageInputTokens         bool
@@ -59,7 +60,6 @@ type MutableConversationViewHas struct {
 	ConversationParentTurnId bool
 	Metadata                 bool
 	Visibility               bool
-	Shareable                bool
 	Status                   bool
 	Scheduled                bool
 	ScheduleId               bool
@@ -72,33 +72,33 @@ type MutableConversationViewHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id                       string     `validate:"required" sqlx:"id,primaryKey"`
-	Summary                  *string    `json:",omitempty" sqlx:"summary"`
-	LastActivity             *time.Time `json:",omitempty" sqlx:"last_activity"`
-	UsageInputTokens         *int       `json:",omitempty" sqlx:"usage_input_tokens"`
-	UsageOutputTokens        *int       `json:",omitempty" sqlx:"usage_output_tokens"`
-	UsageEmbeddingTokens     *int       `json:",omitempty" sqlx:"usage_embedding_tokens"`
-	CreatedAt                *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt                *time.Time `json:",omitempty" sqlx:"updated_at"`
-	CreatedByUserId          *string    `json:",omitempty" sqlx:"created_by_user_id"`
-	AgentId                  *string    `json:",omitempty" sqlx:"agent_id"`
-	DefaultModelProvider     *string    `json:",omitempty" sqlx:"default_model_provider"`
-	DefaultModel             *string    `json:",omitempty" sqlx:"default_model"`
-	DefaultModelParams       *string    `json:",omitempty" sqlx:"default_model_params"`
-	Title                    *string    `json:",omitempty" sqlx:"title"`
-	ConversationParentId     *string    `json:",omitempty" sqlx:"conversation_parent_id"`
-	ConversationParentTurnId *string    `json:",omitempty" sqlx:"conversation_parent_turn_id"`
-	Metadata                 *string    `json:",omitempty" sqlx:"metadata"`
-	Visibility               *string    `json:",omitempty" sqlx:"visibility,required=true"`
-	Shareable                int        `json:",omitempty" sqlx:"shareable,required=true"`
-	Status                   *string    `json:",omitempty" sqlx:"status"`
-	Scheduled                *int       `json:",omitempty" sqlx:"scheduled"`
-	ScheduleId               *string    `json:",omitempty" sqlx:"schedule_id"`
-	ScheduleRunId            *string    `json:",omitempty" sqlx:"schedule_run_id"`
-	ScheduleKind             *string    `json:",omitempty" sqlx:"schedule_kind"`
-	ScheduleTimezone         *string    `json:",omitempty" sqlx:"schedule_timezone"`
-	ScheduleCronExpr         *string    `json:",omitempty" sqlx:"schedule_cron_expr"`
-	ExternalTaskRef          *string    `json:",omitempty" sqlx:"external_task_ref"`
+	Id                       string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	Shareable                int        `sqlx:"shareable,required=true" json:"shareable,omitempty"`
+	Summary                  *string    `sqlx:"summary" json:"summary,omitempty"`
+	LastActivity             *time.Time `sqlx:"last_activity" json:"lastActivity,omitempty"`
+	UsageInputTokens         *int       `sqlx:"usage_input_tokens" json:"usageInputTokens,omitempty"`
+	UsageOutputTokens        *int       `sqlx:"usage_output_tokens" json:"usageOutputTokens,omitempty"`
+	UsageEmbeddingTokens     *int       `sqlx:"usage_embedding_tokens" json:"usageEmbeddingTokens,omitempty"`
+	CreatedAt                *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt                *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	CreatedByUserId          *string    `sqlx:"created_by_user_id" json:"createdByUserId,omitempty"`
+	AgentId                  *string    `sqlx:"agent_id" json:"agentId,omitempty"`
+	DefaultModelProvider     *string    `sqlx:"default_model_provider" json:"defaultModelProvider,omitempty"`
+	DefaultModel             *string    `sqlx:"default_model" json:"defaultModel,omitempty"`
+	DefaultModelParams       *string    `sqlx:"default_model_params" json:"defaultModelParams,omitempty"`
+	Title                    *string    `sqlx:"title" json:"title,omitempty"`
+	ConversationParentId     *string    `sqlx:"conversation_parent_id" json:"conversationParentId,omitempty"`
+	ConversationParentTurnId *string    `sqlx:"conversation_parent_turn_id" json:"conversationParentTurnId,omitempty"`
+	Metadata                 *string    `sqlx:"metadata" json:"metadata,omitempty"`
+	Visibility               *string    `sqlx:"visibility,required=true" json:"visibility,omitempty"`
+	Status                   *string    `sqlx:"status" json:"status,omitempty"`
+	Scheduled                *int       `sqlx:"scheduled" json:"scheduled,omitempty"`
+	ScheduleId               *string    `sqlx:"schedule_id" json:"scheduleId,omitempty"`
+	ScheduleRunId            *string    `sqlx:"schedule_run_id" json:"scheduleRunId,omitempty"`
+	ScheduleKind             *string    `sqlx:"schedule_kind" json:"scheduleKind,omitempty"`
+	ScheduleTimezone         *string    `sqlx:"schedule_timezone" json:"scheduleTimezone,omitempty"`
+	ScheduleCronExpr         *string    `sqlx:"schedule_cron_expr" json:"scheduleCronExpr,omitempty"`
+	ExternalTaskRef          *string    `sqlx:"external_task_ref" json:"externalTaskRef,omitempty"`
 }
 
 type WriterKeysRow struct {

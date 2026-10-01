@@ -1,4 +1,4 @@
-SELECT queue_rows.id, queue_rows.user_id, queue_rows.conversation_id, queue_rows.turn_id, queue_rows.message_id, queue_rows.tool_name, queue_rows.title, queue_rows.arguments, queue_rows.metadata, queue_rows.status, queue_rows.decision, queue_rows.expires_at, queue_rows.timed_out_at, queue_rows.approved_by_user_id, queue_rows.approved_at, queue_rows.executed_at, queue_rows.error_message, queue_rows.created_at, queue_rows.updated_at, queue_rows.transition_at FROM  (
+SELECT queue_rows.* FROM  (
  SELECT q.* FROM (
  SELECT q.*, CASE
  WHEN LOWER(COALESCE(q.status,''))='timed_out' THEN q.timed_out_at
@@ -14,5 +14,4 @@ SELECT queue_rows.id, queue_rows.user_id, queue_rows.conversation_id, queue_rows
  CASE WHEN $ReadMode='rows' THEN q.created_at END DESC,
  CASE WHEN $ReadMode='rows' THEN q.id END DESC
 
-#if($LockRows) ${View.ForUpdate()} #end  
 )  queue_rows

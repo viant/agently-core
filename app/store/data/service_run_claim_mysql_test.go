@@ -8,10 +8,9 @@ import (
 	"time"
 
 	mysql "github.com/go-sql-driver/mysql"
-	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	runmodel "github.com/viant/agently-core/model/run"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 func TestDataService_RunRecoveryClaimMySQLSmoke(t *testing.T) {
@@ -40,30 +39,30 @@ func TestDataService_RunRecoveryClaimMySQLSmoke(t *testing.T) {
 		_ = svc.DeleteTurns(context.Background(), turnID)
 		_ = svc.DeleteConversations(context.Background(), conversationID)
 	})
-	conversation := agconvwrite.NewMutableConversationView(agconvwrite.WithConversationID(conversationID), agconvwrite.WithConversationStatus("running"))
+	conversation := conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID(conversationID), conversationmodel.WithConversationStatus("running"))
 	conversation.SetCreatedAt(now.Add(-2 * time.Minute))
-	if _, err = svc.PatchConversations(ctx, []*agconvwrite.MutableConversationView{conversation}); err != nil {
+	if _, err = svc.PatchConversations(ctx, []*conversationmodel.MutableConversationView{conversation}); err != nil {
 		t.Fatalf("patch MySQL conversation: %v", err)
 	}
-	turn := agturnwrite.NewMutableTurnView(agturnwrite.WithTurnID(turnID), agturnwrite.WithTurnConversationID(conversationID), agturnwrite.WithTurnStatus("running"), agturnwrite.WithTurnRunID(turnID))
+	turn := turnmodel.NewMutableTurnView(turnmodel.WithTurnID(turnID), turnmodel.WithTurnConversationID(conversationID), turnmodel.WithTurnStatus("running"), turnmodel.WithTurnRunID(turnID))
 	turn.SetCreatedAt(now.Add(-2 * time.Minute))
-	if _, err = svc.PatchTurns(ctx, []*agturnwrite.MutableTurnView{turn}); err != nil {
+	if _, err = svc.PatchTurns(ctx, []*turnmodel.MutableTurnView{turn}); err != nil {
 		t.Fatalf("patch MySQL turn: %v", err)
 	}
-	run := agrunwrite.NewMutableRunView(agrunwrite.WithRunID(turnID), agrunwrite.WithRunTurnID(turnID), agrunwrite.WithRunConversationID(conversationID), agrunwrite.WithRunStatus("running"), agrunwrite.WithRunIteration(1))
+	run := runmodel.NewMutableRunView(runmodel.WithRunID(turnID), runmodel.WithRunTurnID(turnID), runmodel.WithRunConversationID(conversationID), runmodel.WithRunStatus("running"), runmodel.WithRunIteration(1))
 	run.SetConversationKind("interactive")
 	run.SetAttempt(1)
 	run.SetLeaseOwner(owner)
 	run.SetLeaseUntil(leaseUntil)
 	run.SetLastHeartbeatAt(now.Add(-90 * time.Second))
 	run.SetCreatedAt(now.Add(-2 * time.Minute))
-	if _, err = svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
+	if _, err = svc.PatchRuns(ctx, []*runmodel.MutableRunView{run}); err != nil {
 		t.Fatalf("patch MySQL run: %v", err)
 	}
-	rows, err := svc.ListStaleRuns(ctx, &agrunstale.StaleRunsInput{
+	rows, err := svc.ListStaleRuns(ctx, &runmodel.StaleRunsInput{
 		HeartbeatBefore: now.Add(-time.Minute), LeaseExpiredBefore: now, ActivityAfter: now.Add(-24 * time.Hour),
 		ConversationKind: "interactive", RootInteractive: true,
-		Has: &agrunstale.StaleRunsInputHas{HeartbeatBefore: true, LeaseExpiredBefore: true, ActivityAfter: true, ConversationKind: true, RootInteractive: true},
+		Has: &runmodel.StaleRunsInputHas{HeartbeatBefore: true, LeaseExpiredBefore: true, ActivityAfter: true, ConversationKind: true, RootInteractive: true},
 	})
 	if err != nil {
 		t.Fatalf("list MySQL recovery candidates: %v", err)
@@ -79,11 +78,11 @@ func TestDataService_RunRecoveryClaimMySQLSmoke(t *testing.T) {
 	}
 
 	claimA := claimRow(turnID, owner, "pod-a-"+suffix, 1, now)
-	if _, err = svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{claimA}); err != nil {
+	if _, err = svc.PatchRuns(ctx, []*runmodel.MutableRunView{claimA}); err != nil {
 		t.Fatalf("MySQL claim A: %v", err)
 	}
 	claimB := claimRow(turnID, owner, "pod-b-"+suffix, 1, now)
-	if _, err = svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{claimB}); err != nil {
+	if _, err = svc.PatchRuns(ctx, []*runmodel.MutableRunView{claimB}); err != nil {
 		t.Fatalf("MySQL claim B: %v", err)
 	}
 	got, err := svc.GetRun(ctx, turnID, nil)

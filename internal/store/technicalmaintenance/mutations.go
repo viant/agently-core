@@ -31,22 +31,22 @@ func (s *Store) lockRecord(ctx context.Context, kind, id string) (bool, error) {
 	case ReportRun:
 		input := &runread.Input{}
 		input.SetReportRunID(id)
-		out, err := retentionRead[runread.Output](ctx, s, input, "/v1/internal/forge/reporting/run", providers("reportaccess", nil, true), []string{"report_run_id"}, "", 0)
+		out, err := retentionRead[runread.Output](ctx, s, input, "/v1/internal/forge/reporting/run", providers("reportaccess", nil), []string{"report_run_id"}, "", 0, true)
 		return out != nil && len(out.Data) > 0, err
 	case ExportJob:
 		input := &jobread.Input{}
 		input.SetJobID(id)
-		out, err := retentionRead[jobread.Output](ctx, s, input, "/v1/internal/forge/reporting/job", providers("reportaccess", nil, true), []string{"job_id"}, "", 0)
+		out, err := retentionRead[jobread.Output](ctx, s, input, "/v1/internal/forge/reporting/job", providers("reportaccess", nil), []string{"job_id"}, "", 0, true)
 		return out != nil && len(out.Data) > 0, err
 	case Audit:
 		input := &auditread.Input{}
 		input.SetEventID(id)
-		out, err := retentionRead[auditread.Output](ctx, s, input, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", nil, true), []string{"event_id"}, "", 0)
+		out, err := retentionRead[auditread.Output](ctx, s, input, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", nil), []string{"event_id"}, "", 0, true)
 		return out != nil && len(out.Data) > 0, err
 	case Session:
 		input := &sessionread.SessionInput{}
 		input.SetId(id)
-		out, err := retentionRead[sessionread.SessionOutput](ctx, s, input, "/v1/api/agently/user/session", providers("sessionmaintenance", nil, true), []string{"id"}, "", 0)
+		out, err := retentionRead[sessionread.SessionOutput](ctx, s, input, "/v1/api/agently/user/session", providers("sessionmaintenance", nil), []string{"id"}, "", 0, true)
 		return out != nil && len(out.Data) > 0, err
 	default:
 		return false, fmt.Errorf("%w: unsupported technical maintenance kind", ErrInvalidRequest)
@@ -58,13 +58,13 @@ func (s *Store) deleteRecord(ctx context.Context, request Request) (int64, error
 	case ReportRun:
 		query := &runread.Input{}
 		query.SetReportRunID(request.RecordID)
-		runs, err := retentionRead[runread.Output](ctx, s, query, "/v1/internal/forge/reporting/run", providers("reportaccess", nil, true), []string{"report_run_id", "owner_id", "revision"}, "", 0)
+		runs, err := retentionRead[runread.Output](ctx, s, query, "/v1/internal/forge/reporting/run", providers("reportaccess", nil), []string{"report_run_id", "owner_id", "revision"}, "", 0, true)
 		if err != nil {
 			return 0, err
 		}
 		jobsQuery := &jobread.Input{}
 		jobsQuery.SetReportRunID(request.RecordID)
-		jobs, err := retentionRead[jobread.Output](ctx, s, jobsQuery, "/v1/internal/forge/reporting/job", providers("reportaccess", nil, true), []string{"job_id", "owner_id"}, "", 0)
+		jobs, err := retentionRead[jobread.Output](ctx, s, jobsQuery, "/v1/internal/forge/reporting/job", providers("reportaccess", nil), []string{"job_id", "owner_id"}, "", 0, true)
 		if err != nil {
 			return 0, err
 		}
@@ -74,7 +74,7 @@ func (s *Store) deleteRecord(ctx context.Context, request Request) (int64, error
 		}
 		contextsQuery := &contextread.Input{}
 		contextsQuery.SetActiveReportRunID(request.RecordID)
-		contexts, err := retentionRead[contextread.Output](ctx, s, contextsQuery, "/v1/internal/forge/reporting/conversation-context", providers("reportaccess", nil, true), []string{"owner_id", "conversation_id", "revision"}, "", 0)
+		contexts, err := retentionRead[contextread.Output](ctx, s, contextsQuery, "/v1/internal/forge/reporting/conversation-context", providers("reportaccess", nil), []string{"owner_id", "conversation_id", "revision"}, "", 0, true)
 		if err != nil {
 			return 0, err
 		}
@@ -115,7 +115,7 @@ func (s *Store) deleteRecord(ctx context.Context, request Request) (int64, error
 	case ExportJob:
 		query := &jobread.Input{}
 		query.SetJobID(request.RecordID)
-		jobs, err := retentionRead[jobread.Output](ctx, s, query, "/v1/internal/forge/reporting/job", providers("reportaccess", nil, true), []string{"job_id", "owner_id"}, "", 0)
+		jobs, err := retentionRead[jobread.Output](ctx, s, query, "/v1/internal/forge/reporting/job", providers("reportaccess", nil), []string{"job_id", "owner_id"}, "", 0, true)
 		if err != nil {
 			return 0, err
 		}
@@ -126,7 +126,7 @@ func (s *Store) deleteRecord(ctx context.Context, request Request) (int64, error
 		row.SetShouldDelete(true)
 		input := &auditwrite.Input{}
 		input.SetEvents([]*auditwrite.AuditEvent{row})
-		if err := retentionWrite[auditwrite.Output](ctx, s, input, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", policy, false)...); err != nil {
+		if err := retentionWrite[auditwrite.Output](ctx, s, input, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", policy)...); err != nil {
 			return 0, err
 		}
 		return 1, nil
@@ -157,14 +157,14 @@ func (s *Store) deleteJobs(ctx context.Context, jobs []*jobread.Job, policy *dat
 	}
 	artifactQuery := &artifactread.Input{}
 	artifactQuery.SetJobIDs(ids)
-	artifacts, err := retentionRead[artifactread.Output](ctx, s, artifactQuery, "/v1/internal/forge/reporting/artifact", providers("reportaccess", nil, true), []string{"artifact_id", "job_id", "owner_id"}, "", 0)
+	artifacts, err := retentionRead[artifactread.Output](ctx, s, artifactQuery, "/v1/internal/forge/reporting/artifact", providers("reportaccess", nil), []string{"artifact_id", "job_id", "owner_id"}, "", 0, true)
 	if err != nil {
 		return 0, err
 	}
 	auditByID := map[string]*auditread.AuditEvent{}
 	auditQuery := &auditread.Input{}
 	auditQuery.SetJobIDs(ids)
-	audits, err := retentionRead[auditread.Output](ctx, s, auditQuery, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", nil, true), []string{"event_id"}, "", 0)
+	audits, err := retentionRead[auditread.Output](ctx, s, auditQuery, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", nil), []string{"event_id"}, "", 0, true)
 	if err != nil {
 		return 0, err
 	}
@@ -183,7 +183,7 @@ func (s *Store) deleteJobs(ctx context.Context, jobs []*jobread.Job, policy *dat
 	if len(artifactIDs) > 0 {
 		query := &auditread.Input{}
 		query.SetArtifactIDs(artifactIDs)
-		rows, err := retentionRead[auditread.Output](ctx, s, query, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", nil, true), []string{"event_id"}, "", 0)
+		rows, err := retentionRead[auditread.Output](ctx, s, query, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", nil), []string{"event_id"}, "", 0, true)
 		if err != nil {
 			return 0, err
 		}
@@ -205,7 +205,7 @@ func (s *Store) deleteJobs(ctx context.Context, jobs []*jobread.Job, policy *dat
 		row.SetShouldDelete(true)
 		input := &auditwrite.Input{}
 		input.SetEvents([]*auditwrite.AuditEvent{row})
-		if err := retentionWrite[auditwrite.Output](ctx, s, input, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", policy, false)...); err != nil {
+		if err := retentionWrite[auditwrite.Output](ctx, s, input, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", policy)...); err != nil {
 			return 0, err
 		}
 		deleted++

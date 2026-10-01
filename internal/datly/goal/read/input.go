@@ -4,7 +4,6 @@ package read
 
 // GoalInput is the generated input scaffold for reader.
 type GoalInput struct {
-	LockRows        bool          `parameter:"LockRows,kind=goalaccess,in=lock,dataType=bool,required=false"`
 	ConversationID  string        `parameter:"ConversationID,kind=path,in=conversationId,dataType=string,required=false" predicate:"equal,t,conversation_id"`
 	ConversationIDs []string      `parameter:"ConversationIDs,kind=query,in=conversationIds,dataType=[]string,required=false" predicate:"in,t,conversation_id"`
 	GraphMode       bool          `parameter:"GraphMode,kind=goalaccess,in=graph,dataType=bool,required=false"`
@@ -13,7 +12,6 @@ type GoalInput struct {
 }
 
 type GoalInputHas struct {
-	LockRows        bool
 	ConversationID  bool
 	ConversationIDs bool
 	GraphMode       bool

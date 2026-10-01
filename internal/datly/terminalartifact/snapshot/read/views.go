@@ -8,15 +8,15 @@ import (
 
 // CandidateRow is generated canonical view metadata for reader.
 type CandidateRow struct {
-	ArtifactKind      string    `sqlx:"artifact_kind"`
-	ArtifactId        string    `sqlx:"artifact_id"`
-	ConversationId    string    `sqlx:"conversation_id"`
-	TurnId            string    `sqlx:"turn_id"`
-	LinkMode          string    `sqlx:"link_mode"`
-	ExpectedLink      string    `sqlx:"expected_link"`
-	ExpectedRun       string    `sqlx:"expected_run"`
-	TerminalStatus    string    `sqlx:"terminal_status"`
-	TerminalError     string    `sqlx:"terminal_error"`
-	LinkRank          int       `sqlx:"link_rank"`
+	ArtifactKind      string    `sqlx:"artifact_kind" json:"artifactKind"`
+	ArtifactId        string    `sqlx:"artifact_id" json:"artifactId"`
+	ConversationId    string    `sqlx:"conversation_id" json:"conversationId"`
+	TurnId            string    `sqlx:"turn_id" json:"turnId"`
+	LinkMode          string    `sqlx:"link_mode" json:"linkMode"`
+	ExpectedLink      string    `sqlx:"expected_link" json:"expectedLink"`
+	ExpectedRun       string    `sqlx:"expected_run" json:"expectedRun"`
+	TerminalStatus    string    `sqlx:"terminal_status" json:"terminalStatus"`
+	TerminalError     string    `sqlx:"terminal_error" json:"terminalError"`
+	LinkRank          int       `sqlx:"link_rank" json:"linkRank"`
 	TerminalCreatedAt time.Time `internal:"true" json:"-" sqlx:"terminal_created_at"`
 }

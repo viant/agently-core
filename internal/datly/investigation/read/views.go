@@ -8,12 +8,12 @@ import (
 
 // Investigation is generated canonical view metadata for reader.
 type Investigation struct {
-	Id             string    `sqlx:"id,primaryKey=true"`
-	Title          *string   `sqlx:"title"`
-	CreatedBy      *string   `sqlx:"created_by"`
-	ConversationId *string   `sqlx:"conversation_id,refTable=conversation,refColumn=id"`
-	Summary        *string   `sqlx:"summary"`
-	AdOrderId      *int      `sqlx:"ad_order_id"`
-	Verdict        *string   `sqlx:"verdict"`
-	Created        time.Time `sqlx:"created,required=true"`
+	Id             string    `sqlx:"id,primaryKey=true" json:"id"`
+	Created        time.Time `sqlx:"created,required=true" json:"created"`
+	Title          *string   `sqlx:"title" json:"title"`
+	CreatedBy      *string   `sqlx:"created_by" json:"createdBy"`
+	ConversationId *string   `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
+	Summary        *string   `sqlx:"summary" json:"summary"`
+	AdOrderId      *int      `sqlx:"ad_order_id" json:"adOrderId"`
+	Verdict        *string   `sqlx:"verdict" json:"verdict"`
 }

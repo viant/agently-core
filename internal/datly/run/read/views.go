@@ -12,46 +12,46 @@ type RunRowsView struct {
 	HeartbeatRaw          *string    `internal:"true" json:"-" sqlx:"heartbeat_raw"`
 	ActivityRaw           *string    `internal:"true" json:"-" sqlx:"activity_raw"`
 	MaintenanceOwnerId    string     `internal:"true" json:"-" sqlx:"maintenance_owner_id"`
-	AgentId               *string    `sqlx:"agent_id"`
-	Attempt               int        `sqlx:"attempt,required=true"`
-	AuthAudience          *string    `sqlx:"auth_audience"`
-	AuthAuthority         *string    `sqlx:"auth_authority"`
-	CheckpointData        *string    `sqlx:"checkpoint_data"`
-	CheckpointMessageId   *string    `sqlx:"checkpoint_message_id"`
-	CheckpointResponseId  *string    `sqlx:"checkpoint_response_id"`
-	CompletedAt           *time.Time `sqlx:"completed_at"`
-	ConversationId        *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id"`
-	ConversationKind      string     `sqlx:"conversation_kind,required=true"`
-	CreatedAt             time.Time  `sqlx:"created_at,required=true"`
-	EffectiveUserId       *string    `sqlx:"effective_user_id"`
-	ErrorCode             *string    `sqlx:"error_code"`
-	ErrorMessage          *string    `sqlx:"error_message"`
-	HeartbeatIntervalSec  *int       `sqlx:"heartbeat_interval_sec"`
-	Id                    string     `sqlx:"id,primaryKey=true"`
-	Iteration             int        `sqlx:"iteration,required=true"`
-	LastHeartbeatAt       *time.Time `sqlx:"last_heartbeat_at"`
-	LeaseOwner            *string    `sqlx:"lease_owner"`
-	LeaseUntil            *time.Time `sqlx:"lease_until"`
-	MaxIterations         *int       `sqlx:"max_iterations"`
-	Model                 *string    `sqlx:"model"`
-	ModelProvider         *string    `sqlx:"model_provider"`
-	PreconditionPassed    *int       `sqlx:"precondition_passed"`
-	PreconditionRanAt     *time.Time `sqlx:"precondition_ran_at"`
-	PreconditionResult    *string    `sqlx:"precondition_result"`
-	ResumedFromRunId      *string    `sqlx:"resumed_from_run_id"`
-	ScheduleId            *string    `sqlx:"schedule_id,refTable=schedule,refColumn=id"`
-	ScheduledFor          *time.Time `sqlx:"scheduled_for"`
-	SecurityContext       *string    `sqlx:"security_context"`
-	StartedAt             *time.Time `sqlx:"started_at"`
-	Status                string     `sqlx:"status,required=true"`
-	TurnId                *string    `sqlx:"turn_id,refTable=turn,refColumn=id"`
-	UpdatedAt             *time.Time `sqlx:"updated_at"`
-	UsageCompletionTokens *int       `sqlx:"usage_completion_tokens"`
-	UsageCost             *float64   `sqlx:"usage_cost"`
-	UsagePromptTokens     *int       `sqlx:"usage_prompt_tokens"`
-	UsageTotalTokens      *int       `sqlx:"usage_total_tokens"`
-	UserCredUrl           *string    `sqlx:"user_cred_url"`
-	WorkerHost            *string    `sqlx:"worker_host"`
-	WorkerId              *string    `sqlx:"worker_id"`
-	WorkerPid             *int       `sqlx:"worker_pid"`
+	Attempt               int        `sqlx:"attempt,required=true" json:"attempt"`
+	ConversationKind      string     `sqlx:"conversation_kind,required=true" json:"conversationKind"`
+	CreatedAt             time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	Id                    string     `sqlx:"id,primaryKey=true" json:"id"`
+	Iteration             int        `sqlx:"iteration,required=true" json:"iteration"`
+	Status                string     `sqlx:"status,required=true" json:"status"`
+	TurnId                *string    `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId"`
+	ScheduleId            *string    `sqlx:"schedule_id,refTable=schedule,refColumn=id" json:"scheduleId"`
+	ConversationId        *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
+	ResumedFromRunId      *string    `sqlx:"resumed_from_run_id" json:"resumedFromRunId"`
+	ErrorCode             *string    `sqlx:"error_code" json:"errorCode"`
+	ErrorMessage          *string    `sqlx:"error_message" json:"errorMessage"`
+	MaxIterations         *int       `sqlx:"max_iterations" json:"maxIterations"`
+	CheckpointResponseId  *string    `sqlx:"checkpoint_response_id" json:"checkpointResponseId"`
+	CheckpointMessageId   *string    `sqlx:"checkpoint_message_id" json:"checkpointMessageId"`
+	CheckpointData        *string    `sqlx:"checkpoint_data" json:"checkpointData"`
+	AgentId               *string    `sqlx:"agent_id" json:"agentId"`
+	ModelProvider         *string    `sqlx:"model_provider" json:"modelProvider"`
+	Model                 *string    `sqlx:"model" json:"model"`
+	WorkerId              *string    `sqlx:"worker_id" json:"workerId"`
+	WorkerPid             *int       `sqlx:"worker_pid" json:"workerPid"`
+	WorkerHost            *string    `sqlx:"worker_host" json:"workerHost"`
+	LeaseOwner            *string    `sqlx:"lease_owner" json:"leaseOwner"`
+	LeaseUntil            *time.Time `sqlx:"lease_until" json:"leaseUntil"`
+	LastHeartbeatAt       *time.Time `sqlx:"last_heartbeat_at" json:"lastHeartbeatAt"`
+	SecurityContext       *string    `sqlx:"security_context" json:"securityContext"`
+	EffectiveUserId       *string    `sqlx:"effective_user_id" json:"effectiveUserId"`
+	AuthAuthority         *string    `sqlx:"auth_authority" json:"authAuthority"`
+	AuthAudience          *string    `sqlx:"auth_audience" json:"authAudience"`
+	UserCredUrl           *string    `sqlx:"user_cred_url" json:"userCredUrl"`
+	HeartbeatIntervalSec  *int       `sqlx:"heartbeat_interval_sec" json:"heartbeatIntervalSec"`
+	ScheduledFor          *time.Time `sqlx:"scheduled_for" json:"scheduledFor"`
+	PreconditionRanAt     *time.Time `sqlx:"precondition_ran_at" json:"preconditionRanAt"`
+	PreconditionPassed    *int       `sqlx:"precondition_passed" json:"preconditionPassed"`
+	PreconditionResult    *string    `sqlx:"precondition_result" json:"preconditionResult"`
+	UsagePromptTokens     *int       `sqlx:"usage_prompt_tokens" json:"usagePromptTokens"`
+	UsageCompletionTokens *int       `sqlx:"usage_completion_tokens" json:"usageCompletionTokens"`
+	UsageTotalTokens      *int       `sqlx:"usage_total_tokens" json:"usageTotalTokens"`
+	UsageCost             *float64   `sqlx:"usage_cost" json:"usageCost"`
+	UpdatedAt             *time.Time `sqlx:"updated_at" json:"updatedAt"`
+	StartedAt             *time.Time `sqlx:"started_at" json:"startedAt"`
+	CompletedAt           *time.Time `sqlx:"completed_at" json:"completedAt"`
 }

@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/agent/execution"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -102,7 +102,7 @@ func (f *seqRecordingConv) PatchTurn(ctx context.Context, turn *apiconv.MutableT
 		}
 		return nil
 	}
-	conv.Transcript = append(conv.Transcript, &agconv.TranscriptView{Id: turn.Id, Status: turn.Status})
+	conv.Transcript = append(conv.Transcript, &conversationmodel.TranscriptView{Id: turn.Id, Status: turn.Status})
 	return nil
 }
 
@@ -454,10 +454,10 @@ func TestResolve_ChildSubmissionClearsWaitingRootProxyTurn(t *testing.T) {
 		return
 	}
 	fake.conversations[rootID].Status = strPtr("waiting_for_user")
-	fake.conversations[rootID].Transcript = []*agconv.TranscriptView{{
+	fake.conversations[rootID].Transcript = []*conversationmodel.TranscriptView{{
 		Id:      rootTurnID,
 		Status:  "waiting_for_user",
-		Message: []*agconv.MessageView{(*agconv.MessageView)(proxy)},
+		Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(proxy)},
 	}}
 
 	err = srv.Resolve(context.Background(), childID, elicID, "accept", map[string]interface{}{"answer": "ok"}, "")

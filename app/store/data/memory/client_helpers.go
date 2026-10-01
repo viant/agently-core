@@ -6,11 +6,11 @@ import (
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
-func buildInput(id string, options []convcli.Option) agconv.ConversationInput {
-	in := agconv.ConversationInput{Id: id, Has: &agconv.ConversationInputHas{Id: true}}
+func buildInput(id string, options []convcli.Option) conversationmodel.ConversationInput {
+	in := conversationmodel.ConversationInput{Id: id, Has: &conversationmodel.ConversationInputHas{Id: true}}
 	for _, opt := range options {
 		if opt != nil {
 			opt((*convcli.Input)(&in))
@@ -19,20 +19,20 @@ func buildInput(id string, options []convcli.Option) agconv.ConversationInput {
 	return in
 }
 
-func cloneConversationView(src *agconv.ConversationView) *agconv.ConversationView {
+func cloneConversationView(src *conversationmodel.ConversationView) *conversationmodel.ConversationView {
 	if src == nil {
 		return nil
 	}
 	out := *src
 	if src.Transcript != nil {
-		out.Transcript = make([]*agconv.TranscriptView, 0, len(src.Transcript))
+		out.Transcript = make([]*conversationmodel.TranscriptView, 0, len(src.Transcript))
 		for _, t := range src.Transcript {
 			if t == nil {
 				continue
 			}
 			tt := *t
 			if t.Message != nil {
-				tt.Message = make([]*agconv.MessageView, 0, len(t.Message))
+				tt.Message = make([]*conversationmodel.MessageView, 0, len(t.Message))
 				for _, m := range t.Message {
 					tt.Message = append(tt.Message, copyMessage(m))
 				}
@@ -43,13 +43,13 @@ func cloneConversationView(src *agconv.ConversationView) *agconv.ConversationVie
 	return &out
 }
 
-func copyMessage(m *agconv.MessageView) *agconv.MessageView {
+func copyMessage(m *conversationmodel.MessageView) *conversationmodel.MessageView {
 	if m == nil {
 		return nil
 	}
 	cp := *m
 	if m.Attachment != nil {
-		cp.Attachment = make([]*agconv.AttachmentView, len(m.Attachment))
+		cp.Attachment = make([]*conversationmodel.AttachmentView, len(m.Attachment))
 		copy(cp.Attachment, m.Attachment)
 	}
 	if m.ModelCall != nil {
@@ -57,7 +57,7 @@ func copyMessage(m *agconv.MessageView) *agconv.MessageView {
 		cp.ModelCall = &tmp
 	}
 	if m.ToolMessage != nil {
-		cp.ToolMessage = make([]*agconv.ToolMessageView, 0, len(m.ToolMessage))
+		cp.ToolMessage = make([]*conversationmodel.ToolMessageView, 0, len(m.ToolMessage))
 		for _, tm := range m.ToolMessage {
 			if tm == nil {
 				continue
@@ -86,22 +86,22 @@ func copyPayload(p *convcli.Payload) *convcli.Payload {
 	return &cp
 }
 
-func findOrCreateTurn(conv *agconv.ConversationView, turnID string) *agconv.TranscriptView {
+func findOrCreateTurn(conv *conversationmodel.ConversationView, turnID string) *conversationmodel.TranscriptView {
 	if conv.Transcript == nil {
-		conv.Transcript = []*agconv.TranscriptView{}
+		conv.Transcript = []*conversationmodel.TranscriptView{}
 	}
 	for _, t := range conv.Transcript {
 		if t != nil && t.Id == turnID {
 			return t
 		}
 	}
-	t := &agconv.TranscriptView{Id: turnID, ConversationId: conv.Id, Status: "active", CreatedAt: time.Now()}
+	t := &conversationmodel.TranscriptView{Id: turnID, ConversationId: conv.Id, Status: "active", CreatedAt: time.Now()}
 	conv.Transcript = append(conv.Transcript, t)
 	sort.SliceStable(conv.Transcript, func(i, j int) bool { return conv.Transcript[i].CreatedAt.Before(conv.Transcript[j].CreatedAt) })
 	return t
 }
 
-func messageInTurn(t *agconv.TranscriptView, id string) bool {
+func messageInTurn(t *conversationmodel.TranscriptView, id string) bool {
 	for _, m := range t.Message {
 		if m != nil && m.Id == id {
 			return true
@@ -110,7 +110,7 @@ func messageInTurn(t *agconv.TranscriptView, id string) bool {
 	return false
 }
 
-func toClientConversation(v *agconv.ConversationView) *convcli.Conversation {
+func toClientConversation(v *conversationmodel.ConversationView) *convcli.Conversation {
 	if v == nil {
 		return nil
 	}
@@ -118,7 +118,7 @@ func toClientConversation(v *agconv.ConversationView) *convcli.Conversation {
 	return &c
 }
 
-func toClientMessage(v *agconv.MessageView) *convcli.Message {
+func toClientMessage(v *conversationmodel.MessageView) *convcli.Message {
 	if v == nil {
 		return nil
 	}
@@ -126,7 +126,7 @@ func toClientMessage(v *agconv.MessageView) *convcli.Message {
 	return &m
 }
 
-func applySinceFilter(conv *agconv.ConversationView, in *agconv.ConversationInput) {
+func applySinceFilter(conv *conversationmodel.ConversationView, in *conversationmodel.ConversationInput) {
 	if conv == nil || in == nil || in.Has == nil || !in.Has.Since || strings.TrimSpace(in.Since) == "" || conv.Transcript == nil {
 		return
 	}
@@ -142,7 +142,7 @@ func applySinceFilter(conv *agconv.ConversationView, in *agconv.ConversationInpu
 	if sinceTime == nil {
 		return
 	}
-	filtered := make([]*agconv.TranscriptView, 0, len(conv.Transcript))
+	filtered := make([]*conversationmodel.TranscriptView, 0, len(conv.Transcript))
 	for _, t := range conv.Transcript {
 		if t != nil && (t.CreatedAt.Equal(*sinceTime) || t.CreatedAt.After(*sinceTime)) {
 			filtered = append(filtered, t)
@@ -151,7 +151,7 @@ func applySinceFilter(conv *agconv.ConversationView, in *agconv.ConversationInpu
 	conv.Transcript = filtered
 }
 
-func applyIncludeFlags(conv *agconv.ConversationView, in *agconv.ConversationInput) {
+func applyIncludeFlags(conv *conversationmodel.ConversationView, in *conversationmodel.ConversationInput) {
 	if conv == nil || conv.Transcript == nil {
 		return
 	}

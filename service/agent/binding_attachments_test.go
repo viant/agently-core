@@ -9,15 +9,15 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
 	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 type stubConversationClient struct {
 	payloads       map[string]*apiconv.Payload
-	generatedFiles []*gfread.GeneratedFileView
+	generatedFiles []*generatedfilemodel.GeneratedFileView
 	payloadWrites  []*apiconv.MutablePayload
 	messageWrites  []*apiconv.MutableMessage
 }
@@ -67,8 +67,8 @@ func (s *stubConversationClient) DeleteConversation(ctx context.Context, id stri
 func (s *stubConversationClient) DeleteMessage(ctx context.Context, conversationID, messageID string) error {
 	return fmt.Errorf("not implemented")
 }
-func (s *stubConversationClient) GetGeneratedFiles(ctx context.Context, input *gfread.Input) ([]*gfread.GeneratedFileView, error) {
-	var out []*gfread.GeneratedFileView
+func (s *stubConversationClient) GetGeneratedFiles(ctx context.Context, input *generatedfilemodel.Input) ([]*generatedfilemodel.GeneratedFileView, error) {
+	var out []*generatedfilemodel.GeneratedFileView
 	for _, file := range s.generatedFiles {
 		if file == nil {
 			continue
@@ -115,7 +115,7 @@ func TestResolveUploadedAttachmentLoadsGeneratedFilePayload(t *testing.T) {
 					InlineBody: &payloadBytes,
 				},
 			},
-			generatedFiles: []*gfread.GeneratedFileView{{
+			generatedFiles: []*generatedfilemodel.GeneratedFileView{{
 				ID:             "file-upload",
 				ConversationID: "conv-upload",
 				PayloadID:      strPtr(payloadID),
@@ -242,9 +242,9 @@ func TestHistoryAttachmentCarriers_DataDriven(t *testing.T) {
 				AttachmentPayloadId: strPtr(payloadID),
 			}
 
-			turnMsgs := []*agconv.MessageView{(*agconv.MessageView)(parent), (*agconv.MessageView)(carrier)}
+			turnMsgs := []*conversationmodel.MessageView{(*conversationmodel.MessageView)(parent), (*conversationmodel.MessageView)(carrier)}
 			if tc.carrierFirst {
-				turnMsgs = []*agconv.MessageView{(*agconv.MessageView)(carrier), (*agconv.MessageView)(parent)}
+				turnMsgs = []*conversationmodel.MessageView{(*conversationmodel.MessageView)(carrier), (*conversationmodel.MessageView)(parent)}
 			}
 			turn := &apiconv.Turn{
 				Id:      "turn-1",
@@ -293,7 +293,7 @@ func TestHistoryAttachmentCarrierDoesNotDuplicateExpandedParentView(t *testing.T
 		Type:      "text",
 		Content:   strPtr("what's in this file?"),
 		CreatedAt: now,
-		Attachment: []*agconv.AttachmentView{
+		Attachment: []*conversationmodel.AttachmentView{
 			{
 				InlineBody:      &viewBytes,
 				MimeType:        "application/pdf",
@@ -312,7 +312,7 @@ func TestHistoryAttachmentCarrierDoesNotDuplicateExpandedParentView(t *testing.T
 	}
 	turn := &apiconv.Turn{
 		Id:      "turn-1",
-		Message: []*agconv.MessageView{(*agconv.MessageView)(parent), (*agconv.MessageView)(carrier)},
+		Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(parent), (*conversationmodel.MessageView)(carrier)},
 	}
 
 	hist, err := svc.buildHistory(context.Background(), apiconv.Transcript{turn})
@@ -338,7 +338,7 @@ func TestHistoryAttachmentViewOnlyParentStillWorks(t *testing.T) {
 		Type:      "text",
 		Content:   strPtr("analyze this"),
 		CreatedAt: now,
-		Attachment: []*agconv.AttachmentView{
+		Attachment: []*conversationmodel.AttachmentView{
 			{
 				InlineBody:      &viewBytes,
 				Uri:             strPtr("file:///tmp/view-only.png"),
@@ -349,7 +349,7 @@ func TestHistoryAttachmentViewOnlyParentStillWorks(t *testing.T) {
 	}
 	turn := &apiconv.Turn{
 		Id:      "turn-1",
-		Message: []*agconv.MessageView{(*agconv.MessageView)(parent)},
+		Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(parent)},
 	}
 
 	hist, err := (&Service{}).buildHistory(context.Background(), apiconv.Transcript{turn})
@@ -397,7 +397,7 @@ func TestHistoryMultipleAttachmentCarriersDoNotDuplicateExpandedParentView(t *te
 		Type:      "text",
 		Content:   strPtr("compare these"),
 		CreatedAt: now,
-		Attachment: []*agconv.AttachmentView{
+		Attachment: []*conversationmodel.AttachmentView{
 			{InlineBody: &firstView, MimeType: "image/png", ParentMessageId: strPtr("msg-user")},
 			{InlineBody: &secondView, MimeType: "image/png", ParentMessageId: strPtr("msg-user")},
 		},
@@ -422,7 +422,7 @@ func TestHistoryMultipleAttachmentCarriersDoNotDuplicateExpandedParentView(t *te
 	}
 	turn := &apiconv.Turn{
 		Id:      "turn-1",
-		Message: []*agconv.MessageView{(*agconv.MessageView)(parent), (*agconv.MessageView)(firstCarrier), (*agconv.MessageView)(secondCarrier)},
+		Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(parent), (*conversationmodel.MessageView)(firstCarrier), (*conversationmodel.MessageView)(secondCarrier)},
 	}
 
 	hist, err := svc.buildHistory(context.Background(), apiconv.Transcript{turn})

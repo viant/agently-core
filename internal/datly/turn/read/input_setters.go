@@ -17,17 +17,6 @@ func (input *TurnRowsInput) SetReadMode(value string) {
 	input.Has.ReadMode = true
 }
 
-func (input *TurnRowsInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &TurnRowsInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *TurnRowsInput) SetConversationID(value string) {
 	if input == nil {
 		return

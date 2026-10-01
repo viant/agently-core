@@ -9,18 +9,18 @@ import (
 // TurnRowsView is generated canonical view metadata for reader.
 type TurnRowsView struct {
 	CleanupStatus         string    `internal:"true" json:"-" sqlx:"cleanup_status"`
-	Id                    string    `sqlx:"id,primaryKey=true"`
-	ConversationId        string    `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	CreatedAt             time.Time `sqlx:"created_at,required=true"`
-	QueueSeq              *int      `sqlx:"queue_seq"`
-	Status                string    `sqlx:"status,required=true"`
-	ErrorMessage          *string   `sqlx:"error_message"`
-	StartedByMessageId    *string   `sqlx:"started_by_message_id"`
-	RetryOf               *string   `sqlx:"retry_of"`
-	AgentIdUsed           *string   `sqlx:"agent_id_used"`
-	AgentConfigUsedId     *string   `sqlx:"agent_config_used_id"`
-	ModelOverrideProvider *string   `sqlx:"model_override_provider"`
-	ModelOverride         *string   `sqlx:"model_override"`
-	ModelParamsOverride   *string   `sqlx:"model_params_override"`
-	RunId                 *string   `sqlx:"run_id"`
+	Id                    string    `sqlx:"id,primaryKey=true" json:"id"`
+	ConversationId        string    `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId"`
+	CreatedAt             time.Time `sqlx:"created_at,required=true" json:"createdAt"`
+	Status                string    `sqlx:"status,required=true" json:"status"`
+	QueueSeq              *int      `sqlx:"queue_seq" json:"queueSeq"`
+	ErrorMessage          *string   `sqlx:"error_message" json:"errorMessage"`
+	StartedByMessageId    *string   `sqlx:"started_by_message_id" json:"startedByMessageId"`
+	RetryOf               *string   `sqlx:"retry_of" json:"retryOf"`
+	AgentIdUsed           *string   `sqlx:"agent_id_used" json:"agentIdUsed"`
+	AgentConfigUsedId     *string   `sqlx:"agent_config_used_id" json:"agentConfigUsedId"`
+	ModelOverrideProvider *string   `sqlx:"model_override_provider" json:"modelOverrideProvider"`
+	ModelOverride         *string   `sqlx:"model_override" json:"modelOverride"`
+	ModelParamsOverride   *string   `sqlx:"model_params_override" json:"modelParamsOverride"`
+	RunId                 *string   `sqlx:"run_id" json:"runId"`
 }

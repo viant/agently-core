@@ -10,7 +10,6 @@ import (
 type ToolCallsInput struct {
 	Internal          bool               `parameter:"Internal,kind=toolcallaccess,in=internal,dataType=bool,required=true"`
 	ReadMode          string             `parameter:"ReadMode,kind=toolcallaccess,in=mode,dataType=string,required=true"`
-	LockRows          bool               `parameter:"LockRows,kind=toolcallaccess,in=lock,dataType=bool,required=false"`
 	VisibilitySubject *string            `parameter:"VisibilitySubject,kind=visibility,in=subject,dataType=*string,required=true"`
 	MessageId         string             `parameter:"MessageId,kind=query,in=messageId,dataType=string,required=false" predicate:"equal,data_rows,message_id"`
 	MessageIds        []string           `parameter:"MessageIds,kind=query,in=messageIds,dataType=[]string,required=false" predicate:"in,data_rows,message_id"`
@@ -34,7 +33,6 @@ type ToolCallsInput struct {
 type ToolCallsInputHas struct {
 	Internal          bool
 	ReadMode          bool
-	LockRows          bool
 	VisibilitySubject bool
 	MessageId         bool
 	MessageIds        bool

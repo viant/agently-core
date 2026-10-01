@@ -1,4 +1,4 @@
-SELECT model.conversation_id, model.provider, model.model, model.execution_role, model.prompt_tokens, model.prompt_cached_tokens, model.prompt_audio_tokens, model.completion_tokens, model.completion_reasoning_tokens, model.completion_audio_tokens, model.completion_accepted_prediction_tokens, model.completion_rejected_prediction_tokens, model.total_tokens, model.cost FROM (
+SELECT * FROM (
 SELECT
     m.conversation_id AS conversation_id,
     mc.provider,

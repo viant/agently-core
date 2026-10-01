@@ -8,7 +8,6 @@ import (
 
 // Input is the generated input scaffold for reader.
 type Input struct {
-	LockRows        bool       `parameter:"LockRows,kind=generatedfileaccess,in=lock,dataType=bool,required=false"`
 	ConversationID  string     `parameter:"ConversationID,kind=query,in=conversationId,dataType=string,required=false" predicate:"equal,gf,conversation_id"`
 	ConversationIDs []string   `parameter:"ConversationIDs,kind=query,in=conversationIds,dataType=[]string,required=false" predicate:"in,gf,conversation_id"`
 	TurnID          string     `parameter:"TurnID,kind=query,in=turnId,dataType=string,required=false" predicate:"equal,gf,turn_id"`
@@ -21,7 +20,6 @@ type Input struct {
 }
 
 type InputHas struct {
-	LockRows        bool
 	ConversationID  bool
 	ConversationIDs bool
 	TurnID          bool

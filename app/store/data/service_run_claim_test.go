@@ -7,8 +7,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/internal/testutil/dbtest"
-	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	runmodel "github.com/viant/agently-core/model/run"
 )
 
 func seedForRunClaim(t *testing.T, db *sql.DB) {
@@ -26,14 +25,14 @@ func seedForRunClaim(t *testing.T, db *sql.DB) {
 	dbtest.ExecAll(t, db, items)
 }
 
-func claimRow(runID, observedOwner, newOwner string, observedAttempt int, now time.Time) *agrunwrite.MutableRunView {
-	row := &agrunwrite.MutableRunView{}
+func claimRow(runID, observedOwner, newOwner string, observedAttempt int, now time.Time) *runmodel.MutableRunView {
+	row := &runmodel.MutableRunView{}
 	row.SetId(runID)
 	row.SetLeaseOwner(newOwner)
 	row.SetLeaseUntil(now.Add(2 * time.Minute))
 	row.SetLastHeartbeatAt(now)
 	row.SetAttempt(observedAttempt + 1)
-	cond := agrunwrite.RunPatchCondition{Status: "running", Attempt: &observedAttempt, LeaseOwner: &observedOwner}
+	cond := runmodel.RunPatchCondition{Status: "running", Attempt: &observedAttempt, LeaseOwner: &observedOwner}
 	row.SetCondition(cond)
 	return row
 }
@@ -43,7 +42,7 @@ func TestDataService_ConditionalRunPatch_OneClaimWinner(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 1, 1, 9, 30, 0, 0, time.UTC)
 
-	if _, err := svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{claimRow("run-claim", "dead-owner", "pod-a", 1, now)}); err != nil {
+	if _, err := svc.PatchRuns(ctx, []*runmodel.MutableRunView{claimRow("run-claim", "dead-owner", "pod-a", 1, now)}); err != nil {
 		t.Fatalf("claim A error: %v", err)
 	}
 	run, err := svc.GetRun(ctx, "run-claim", nil)
@@ -55,7 +54,7 @@ func TestDataService_ConditionalRunPatch_OneClaimWinner(t *testing.T) {
 	}
 
 	// Pod B observed the same stale state and races with the same criteria.
-	if _, err := svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{claimRow("run-claim", "dead-owner", "pod-b", 1, now)}); err != nil {
+	if _, err := svc.PatchRuns(ctx, []*runmodel.MutableRunView{claimRow("run-claim", "dead-owner", "pod-b", 1, now)}); err != nil {
 		t.Fatalf("claim B error: %v", err)
 	}
 	run, err = svc.GetRun(ctx, "run-claim", nil)
@@ -68,12 +67,12 @@ func TestDataService_ConditionalRunPatch_OneClaimWinner(t *testing.T) {
 
 	// Owner-conditioned renewal by the loser is a no-op; by the winner it applies.
 	loser := "pod-b"
-	renew := &agrunwrite.MutableRunView{}
+	renew := &runmodel.MutableRunView{}
 	renew.SetId("run-claim")
 	renew.SetLastHeartbeatAt(now.Add(time.Minute))
 	renew.SetLeaseUntil(now.Add(3 * time.Minute))
-	renew.SetCondition(agrunwrite.RunPatchCondition{LeaseOwner: &loser})
-	if _, err := svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{renew}); err != nil {
+	renew.SetCondition(runmodel.RunPatchCondition{LeaseOwner: &loser})
+	if _, err := svc.PatchRuns(ctx, []*runmodel.MutableRunView{renew}); err != nil {
 		t.Fatalf("loser renew error: %v", err)
 	}
 	run, _ = svc.GetRun(ctx, "run-claim", nil)
@@ -81,12 +80,12 @@ func TestDataService_ConditionalRunPatch_OneClaimWinner(t *testing.T) {
 		t.Fatalf("loser renewal must not apply: heartbeat=%v", run.LastHeartbeatAt)
 	}
 	winner := "pod-a"
-	finalize := &agrunwrite.MutableRunView{}
+	finalize := &runmodel.MutableRunView{}
 	finalize.SetId("run-claim")
 	finalize.SetStatus("completed")
 	finalize.SetCompletedAt(now.Add(2 * time.Minute))
-	finalize.SetCondition(agrunwrite.RunPatchCondition{LeaseOwner: &winner})
-	if _, err := svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{finalize}); err != nil {
+	finalize.SetCondition(runmodel.RunPatchCondition{LeaseOwner: &winner})
+	if _, err := svc.PatchRuns(ctx, []*runmodel.MutableRunView{finalize}); err != nil {
 		t.Fatalf("winner finalize error: %v", err)
 	}
 	run, _ = svc.GetRun(ctx, "run-claim", nil)
@@ -102,16 +101,16 @@ func TestDataService_ConditionalRunPatch_HeartbeatRenewalDefeatsStaleClaim(t *te
 	renewedLeaseUntil := time.Date(2026, 1, 1, 9, 40, 0, 0, time.UTC)
 	owner := "dead-owner"
 	renewedOwner := "renewed-owner"
-	renew := &agrunwrite.MutableRunView{}
+	renew := &runmodel.MutableRunView{}
 	renew.SetId("run-claim")
 	renew.SetLeaseOwner(renewedOwner)
 	renew.SetLeaseUntil(renewedLeaseUntil)
 	renew.SetLastHeartbeatAt(time.Date(2026, 1, 1, 9, 20, 0, 0, time.UTC))
-	renew.SetCondition(agrunwrite.RunPatchCondition{LeaseOwner: &owner})
-	if _, err := svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{renew}); err != nil {
+	renew.SetCondition(runmodel.RunPatchCondition{LeaseOwner: &owner})
+	if _, err := svc.PatchRuns(ctx, []*runmodel.MutableRunView{renew}); err != nil {
 		t.Fatalf("renew error: %v", err)
 	}
-	if _, err := svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{claimRow("run-claim", owner, "pod-a", 1, time.Date(2026, 1, 1, 9, 30, 0, 0, time.UTC))}); err != nil {
+	if _, err := svc.PatchRuns(ctx, []*runmodel.MutableRunView{claimRow("run-claim", owner, "pod-a", 1, time.Date(2026, 1, 1, 9, 30, 0, 0, time.UTC))}); err != nil {
 		t.Fatalf("stale claim error: %v", err)
 	}
 	run, err := svc.GetRun(ctx, "run-claim", nil)
@@ -147,13 +146,13 @@ func seedForRootStaleView(t *testing.T, db *sql.DB) {
 func TestDataService_StaleRuns_RootInteractiveExpiredWithinLookback(t *testing.T) {
 	svc := newSeededService(t, seedForRootStaleView)
 	now := time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)
-	rows, err := svc.ListStaleRuns(context.Background(), &agrunstale.StaleRunsInput{
+	rows, err := svc.ListStaleRuns(context.Background(), &runmodel.StaleRunsInput{
 		HeartbeatBefore:    now.Add(-2 * time.Minute),
 		LeaseExpiredBefore: now,
 		ActivityAfter:      now.Add(-24 * time.Hour),
 		ConversationKind:   "interactive",
 		RootInteractive:    true,
-		Has:                &agrunstale.StaleRunsInputHas{HeartbeatBefore: true, LeaseExpiredBefore: true, ActivityAfter: true, ConversationKind: true, RootInteractive: true},
+		Has:                &runmodel.StaleRunsInputHas{HeartbeatBefore: true, LeaseExpiredBefore: true, ActivityAfter: true, ConversationKind: true, RootInteractive: true},
 	})
 	if err != nil {
 		t.Fatalf("ListStaleRuns() error: %v", err)

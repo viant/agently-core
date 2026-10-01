@@ -1,4 +1,4 @@
-SELECT message.ELICITATION, message.id, message.conversation_id, message.turn_id, message.archived, message.sequence, message.created_at, message.updated_at, message.created_by_user_id, message.status, message.mode, message.role, message.type, message.content, message.raw_content, message.summary, message.context_summary, message.tags, message.interim, message.elicitation_id, message.parent_message_id, message.superseded_by, message.linked_conversation_id, message.attachment_payload_id, message.elicitation_payload_id, message.tool_name, message.embedding_index, message.preamble, message.iteration, message.phase FROM (
+SELECT * FROM (
 SELECT
     m.id,
     m.conversation_id,

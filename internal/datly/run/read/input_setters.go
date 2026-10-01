@@ -149,17 +149,6 @@ func (input *RunRowsInput) SetInternalMode(value bool) {
 	input.Has.InternalMode = true
 }
 
-func (input *RunRowsInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &RunRowsInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *RunRowsInput) SetVisibilitySubject(value *string) {
 	if input == nil {
 		return

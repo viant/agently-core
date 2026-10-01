@@ -9,7 +9,6 @@ import (
 // TurnRowsInput is the generated input scaffold for reader.
 type TurnRowsInput struct {
 	ReadMode            string            `parameter:"ReadMode,kind=turnaccess,in=mode,dataType=string,required=true"`
-	LockRows            bool              `parameter:"LockRows,kind=turnaccess,in=lock,dataType=bool,required=false"`
 	ConversationID      string            `parameter:"ConversationID,kind=query,in=conversationId,dataType=string,required=false" predicate:"equal,t,conversation_id"`
 	ConversationIDs     []string          `parameter:"ConversationIDs,kind=query,in=conversationIds,dataType=[]string,required=false" predicate:"in,t,conversation_id"`
 	GoalIDs             []string          `parameter:"GoalIDs,kind=query,in=goalIds,dataType=[]string,required=false" predicate:"in,t,goal_id"`
@@ -29,7 +28,6 @@ type TurnRowsInput struct {
 
 type TurnRowsInputHas struct {
 	ReadMode            bool
-	LockRows            bool
 	ConversationID      bool
 	ConversationIDs     bool
 	GoalIDs             bool

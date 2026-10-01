@@ -10,8 +10,8 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/binding"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -827,7 +827,7 @@ func collectMessageAddCreatedMessageIDs(messages []*apiconv.Message) map[string]
 			continue
 		}
 		tc := messageToolCall(msg)
-		if tc == nil || !strings.EqualFold(strings.TrimSpace(mcpname.Canonical(tc.ToolName)), "message-add") {
+		if tc == nil || !strings.EqualFold(strings.TrimSpace(mcpname2.Canonical(tc.ToolName)), "message-add") {
 			continue
 		}
 		var payload map[string]interface{}

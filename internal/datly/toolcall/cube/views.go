@@ -4,14 +4,14 @@ package cube
 
 // ToolCallReportView is generated canonical view metadata for reader.
 type ToolCallReportView struct {
-	ConversationId   string   `groupable:"true" sqlx:"conversation_id"`
-	ToolName         string   `groupable:"true" sqlx:"tool_name,required=true"`
-	ToolKind         string   `groupable:"true" sqlx:"tool_kind,required=true"`
-	Status           string   `groupable:"true" sqlx:"status,required=true"`
-	OpId             string   `groupable:"true" sqlx:"op_id,required=true"`
-	RecordCount      int      `groupable:"false" sqlx:"record_count"`
-	RetryCount       int      `groupable:"false" sqlx:"retry_count"`
-	TotalLatencyMs   *int     `groupable:"false" sqlx:"total_latency_ms"`
-	AverageLatencyMs *float64 `groupable:"false" sqlx:"average_latency_ms"`
-	Cost             *float64 `groupable:"false" sqlx:"cost"`
+	ConversationId   string   `groupable:"true" sqlx:"conversation_id" json:"conversationId"`
+	ToolName         string   `groupable:"true" sqlx:"tool_name,required=true" json:"toolName"`
+	ToolKind         string   `groupable:"true" sqlx:"tool_kind,required=true" json:"toolKind"`
+	Status           string   `groupable:"true" sqlx:"status,required=true" json:"status"`
+	OpId             string   `groupable:"true" sqlx:"op_id,required=true" json:"opId"`
+	RecordCount      int      `groupable:"false" sqlx:"record_count" json:"recordCount"`
+	RetryCount       int      `groupable:"false" sqlx:"retry_count" json:"retryCount"`
+	TotalLatencyMs   *int     `groupable:"false" sqlx:"total_latency_ms" json:"totalLatencyMs"`
+	AverageLatencyMs *float64 `groupable:"false" sqlx:"average_latency_ms" json:"averageLatencyMs"`
+	Cost             *float64 `groupable:"false" sqlx:"cost" json:"cost"`
 }

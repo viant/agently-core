@@ -4,12 +4,12 @@ package read
 
 // LinkStateView is generated canonical view metadata for reader.
 type LinkStateView struct {
-	StateHash   string  `sqlx:"state_hash,required=true,primaryKey=true"`
-	FlowHash    string  `sqlx:"flow_hash,required=true"`
-	UserId      string  `sqlx:"user_id,required=true"`
-	SessionHash string  `sqlx:"session_hash,required=true"`
-	Provider    string  `sqlx:"provider,required=true"`
-	ExpiresAt   string  `sqlx:"expires_at,required=true"`
-	ConsumedAt  *string `sqlx:"consumed_at"`
-	CreatedAt   string  `sqlx:"created_at,required=true"`
+	StateHash   string  `sqlx:"state_hash,required=true,primaryKey=true" json:"stateHash"`
+	FlowHash    string  `sqlx:"flow_hash,required=true" json:"flowHash"`
+	UserId      string  `sqlx:"user_id,required=true" json:"userId"`
+	SessionHash string  `sqlx:"session_hash,required=true" json:"sessionHash"`
+	Provider    string  `sqlx:"provider,required=true" json:"provider"`
+	ExpiresAt   string  `sqlx:"expires_at,required=true" json:"expiresAt"`
+	ConsumedAt  *string `sqlx:"consumed_at" json:"consumedAt"`
+	CreatedAt   string  `sqlx:"created_at,required=true" json:"createdAt"`
 }

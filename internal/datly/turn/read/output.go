@@ -4,5 +4,5 @@ package read
 
 // TurnRowsOutput is the generated output scaffold for reader.
 type TurnRowsOutput struct {
-	Data []*TurnRowsView `parameter:"Data,kind=output,in=view,dataType=[]*TurnRowsView" view:"reader,type=TurnRowsView,table=turn,selectorProjection=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_turn_read_reader:sql/reader.sql"`
+	Data []*TurnRowsView `parameter:"Data,kind=output,in=view,dataType=[]*TurnRowsView" view:"reader,type=TurnRowsView,rowLock=turn t,rowLockOrder=t.id,table=turn,selectorProjection=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_turn_read_reader:sql/reader.sql"`
 }

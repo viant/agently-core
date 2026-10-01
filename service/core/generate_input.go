@@ -10,8 +10,8 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/binding"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
@@ -178,7 +178,7 @@ func hasActiveSkillHistory(b *binding.Binding) bool {
 			if msg == nil {
 				continue
 			}
-			if strings.EqualFold(strings.TrimSpace(mcpname.Canonical(msg.ToolName)), skillproto.ActivateToolNameCanonical) {
+			if strings.EqualFold(strings.TrimSpace(mcpname2.Canonical(msg.ToolName)), skillproto.ActivateToolNameCanonical) {
 				return true
 			}
 		}

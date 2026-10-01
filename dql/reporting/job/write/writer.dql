@@ -1,5 +1,4 @@
 #package('github.com/viant/agently-core/internal/datly/reporting/job/write')
-#import('time','time')
 
 #setting($_ = $connector('agently'))
 #setting($_ = $internal(true))
@@ -16,45 +15,27 @@
 #define($_ = $Jobs<[]*Job>(body/data))
 #define($_ = $Data<[]*Job>(output/body))
 
-SELECT data_rows.job_id, data_rows.should_delete,
-       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:"shouldDelete,omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'error'),
-       data_rows.artifact_ref, data_rows.owner_id, data_rows.conversation_id, data_rows.workspace_id,
-       data_rows.auth_context_ref, data_rows.format, data_rows.scope, data_rows.status,
-       data_rows.report_spec_json, data_rows.report_fill_json, data_rows.report_print_json,
-       data_rows.metadata_json, data_rows.artifact_id, data_rows.error_text,
-       data_rows.diagnostics_json, data_rows.submitted_at, data_rows.started_at,
-       data_rows.completed_at, data_rows.retention_ttl_sec, data_rows.report_run_id,
-       data_rows.report_run_revision, data_rows.export_request_id,
-       type(data_rows,'Job'), lifecycle_type(data_rows,'Lifecycle'), mutation_predicate(data_rows,8),
-       CAST(data_rows.job_id AS string), tag(data_rows.job_id,'sqlx:"job_id,primaryKey=true,required=true"'),
-       CAST(data_rows.artifact_ref AS string), tag(data_rows.artifact_ref,'sqlx:"artifact_ref,required=true"'),
-       CAST(data_rows.owner_id AS string), tag(data_rows.owner_id,'sqlx:"owner_id,required=true"'),
-       CAST(data_rows.conversation_id AS *string), tag(data_rows.conversation_id,'sqlx:"conversation_id"'),
-       CAST(data_rows.workspace_id AS *string), tag(data_rows.workspace_id,'sqlx:"workspace_id"'),
-       CAST(data_rows.auth_context_ref AS *string), tag(data_rows.auth_context_ref,'sqlx:"auth_context_ref"'),
-       CAST(data_rows.format AS string), tag(data_rows.format,'sqlx:"format,required=true"'),
-       CAST(data_rows.scope AS string), tag(data_rows.scope,'sqlx:"scope,required=true"'),
-       CAST(data_rows.status AS string), tag(data_rows.status,'sqlx:"status,required=true"'),
-       CAST(data_rows.report_spec_json AS []byte), tag(data_rows.report_spec_json,'sqlx:"report_spec_json"'),
-       CAST(data_rows.report_fill_json AS []byte), tag(data_rows.report_fill_json,'sqlx:"report_fill_json"'),
-       CAST(data_rows.report_print_json AS []byte), tag(data_rows.report_print_json,'sqlx:"report_print_json"'),
-       CAST(data_rows.metadata_json AS []byte), tag(data_rows.metadata_json,'sqlx:"metadata_json"'),
-       CAST(data_rows.artifact_id AS *string), tag(data_rows.artifact_id,'sqlx:"artifact_id"'),
-       CAST(data_rows.error_text AS *string), tag(data_rows.error_text,'sqlx:"error_text"'),
-       CAST(data_rows.diagnostics_json AS []byte), tag(data_rows.diagnostics_json,'sqlx:"diagnostics_json"'),
-       CAST(data_rows.submitted_at AS time.Time), tag(data_rows.submitted_at,'sqlx:"submitted_at,required=true"'),
-       CAST(data_rows.started_at AS *time.Time), tag(data_rows.started_at,'sqlx:"started_at"'),
-       CAST(data_rows.completed_at AS *time.Time), tag(data_rows.completed_at,'sqlx:"completed_at"'),
-       CAST(data_rows.retention_ttl_sec AS int64), tag(data_rows.retention_ttl_sec,'sqlx:"retention_ttl_sec,required=true"'),
-       CAST(data_rows.report_run_id AS *string), tag(data_rows.report_run_id,'sqlx:"report_run_id"'),
-       CAST(data_rows.report_run_revision AS *int64), tag(data_rows.report_run_revision,'sqlx:"report_run_revision"'),
-       CAST(data_rows.export_request_id AS *string), tag(data_rows.export_request_id,'sqlx:"export_request_id"')
-FROM (
-    SELECT 0 AS should_delete, job_id, artifact_ref, owner_id, conversation_id,
-           workspace_id, auth_context_ref, format, scope, status,
-           report_spec_json, report_fill_json, report_print_json, metadata_json,
-           artifact_id, error_text, diagnostics_json, submitted_at, started_at,
-           completed_at, retention_ttl_sec, report_run_id,
-           report_run_revision, export_request_id
-    FROM report_export_job
-) data_rows
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'error'),
+       type(t,'Job'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,8),
+       required(t.job_id),
+       tag(t.job_id,'sqlx:"job_id,primaryKey=true,required=true"'),
+       required(t.artifact_ref),
+       required(t.owner_id),
+       required(t.format),
+       required(t.scope),
+       required(t.status),
+       CAST(t.report_spec_json AS []byte),
+       CAST(t.report_fill_json AS []byte),
+       CAST(t.report_print_json AS []byte),
+       CAST(t.metadata_json AS []byte),
+       CAST(t.diagnostics_json AS []byte),
+       required(t.submitted_at),
+       CAST(t.retention_ttl_sec AS int64),
+       CAST(t.report_run_revision AS *int64)
+FROM (${embed:sql/job.sql}) t

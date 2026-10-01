@@ -15,9 +15,8 @@ import (
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
 	internalconv "github.com/viant/agently-core/internal/service/conversation"
-	"github.com/viant/agently-core/pkg/agently/conversation"
-	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	turnmodel "github.com/viant/agently-core/model/turn"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"github.com/viant/agently-core/runtime/requestctx"
@@ -326,14 +325,14 @@ func TestService_BuildBinding_SQLiteConversationPreservesParentedAssistantHistor
 
 	convID := "conv-sql-history"
 	conv := &apiconv.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
 	require.NoError(t, convSvc.PatchConversations(ctx, conv))
 
 	turn := apiconv.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn-sql-history")
 	turn.SetConversationID(convID)
 	turn.SetStatus("succeeded")
@@ -444,10 +443,10 @@ func TestService_BuildBinding_ExposesMessageShowWhenCurrentTurnToolResultOverflo
 	turnID := "turn-overflow"
 	conv := &apiconv.Conversation{
 		Id: "conv-overflow",
-		Transcript: []*conversation.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id: turnID,
-				Message: []*conversation.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "tool-parent-1",
 						ConversationId: "conv-overflow",
@@ -455,15 +454,15 @@ func TestService_BuildBinding_ExposesMessageShowWhenCurrentTurnToolResultOverflo
 						Role:           "assistant",
 						Type:           "tool_op",
 						CreatedAt:      now,
-						ToolMessage: []*conversation.ToolMessageView{
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{
 								Id:        "tool-msg-1",
 								CreatedAt: now,
-								ToolCall: &conversation.ToolCallView{
+								ToolCall: &conversationmodel.ToolCallView{
 									OpId:            "op-1",
 									ToolName:        "template-get",
-									RequestPayload:  &conversation.ModelCallStreamPayloadView{InlineBody: strPtr("{}")},
-									ResponsePayload: &conversation.ModelCallStreamPayloadView{InlineBody: strPtr(strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 512))},
+									RequestPayload:  &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr("{}")},
+									ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(strings.Repeat("CHUNK-0000 LARGE_RESULT_SENTINEL\n", 512))},
 								},
 							},
 						},

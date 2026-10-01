@@ -3,7 +3,7 @@ package sdk
 import (
 	"encoding/json"
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"strings"
 
 	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
@@ -116,7 +116,7 @@ func workspaceResponseBody(raw json.RawMessage) json.RawMessage {
 }
 
 // Decode binary gzip before JSON serialization can replace non-UTF8 bytes.
-func workspaceToolResponsePayload(payload *agconv.ModelCallStreamPayloadView) json.RawMessage {
+func workspaceToolResponsePayload(payload *conversationmodel.ModelCallStreamPayloadView) json.RawMessage {
 	if payload == nil {
 		return nil
 	}

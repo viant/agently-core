@@ -8,20 +8,19 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	write "github.com/viant/agently-core/internal/datly/schedule/write"
 	store "github.com/viant/agently-core/internal/store/schedulerstore"
-	legacy "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
-	legacywrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
 )
 
 func (s *datlyStore) nativeScheduleStore() *store.Store {
 	return &store.Store{Invoker: s.native, OwnerID: authctx.EffectiveUserID}
 }
 
-func (s *datlyStore) listSchedulesNative(ctx context.Context, id string, internal bool) ([]*legacy.ScheduleView, error) {
+func (s *datlyStore) listSchedulesNative(ctx context.Context, id string, internal bool) ([]*schedulemodel.ScheduleView, error) {
 	rows, err := s.nativeScheduleStore().List(ctx, id, internal)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*legacy.ScheduleView, 0, len(rows))
+	result := make([]*schedulemodel.ScheduleView, 0, len(rows))
 	for _, row := range rows {
 		if row == nil {
 			continue
@@ -30,7 +29,7 @@ func (s *datlyStore) listSchedulesNative(ctx context.Context, id string, interna
 		if err != nil {
 			return nil, fmt.Errorf("encode native schedule: %w", err)
 		}
-		var mapped legacy.ScheduleView
+		var mapped schedulemodel.ScheduleView
 		if err := json.Unmarshal(encoded, &mapped); err != nil {
 			return nil, fmt.Errorf("decode schedule contract: %w", err)
 		}
@@ -39,7 +38,7 @@ func (s *datlyStore) listSchedulesNative(ctx context.Context, id string, interna
 	return result, nil
 }
 
-func (s *datlyStore) patchScheduleNative(ctx context.Context, schedule *legacywrite.Schedule) error {
+func (s *datlyStore) patchScheduleNative(ctx context.Context, schedule *schedulemodel.Schedule) error {
 	encoded, err := json.Marshal(schedule)
 	if err != nil {
 		return fmt.Errorf("encode schedule mutation: %w", err)

@@ -6,17 +6,6 @@ import (
 	time "time"
 )
 
-func (input *ApprovalRowsInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &ApprovalRowsInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *ApprovalRowsInput) SetId(value string) {
 	if input == nil {
 		return

@@ -438,7 +438,7 @@ func (d *Discoverer) collectPlanDetachRows(ctx context.Context, plan *DeletePlan
 		bySuperseded.SetSupersededByIds(plan.MessageIDs)
 		queries = append(queries, bySuperseded)
 		for _, query := range queries {
-			rows, err := planReaderRows[msgread.MessageView](ctx, d, query, "/v1/internal/agently/message", d.planDetachProviders("messageaccess", conversation.BaseMessageFields()))
+			rows, err := planReaderRows[msgread.MessageView](ctx, d, query, "/v1/internal/agently/message", d.planDetachProviders("messageaccess", conversation.BaseMessageFields()), d.LockDetachRows)
 			if err != nil {
 				return err
 			}
@@ -465,7 +465,7 @@ func (d *Discoverer) collectPlanDetachRows(ctx context.Context, plan *DeletePlan
 		turnQueries = append(turnQueries, query)
 	}
 	for _, query := range turnQueries {
-		rows, err := planReaderRows[turnread.TurnRowsView](ctx, d, query, "/v1/api/agently/turn/list/list", d.planDetachProviders("turnaccess", nil))
+		rows, err := planReaderRows[turnread.TurnRowsView](ctx, d, query, "/v1/api/agently/turn/list/list", d.planDetachProviders("turnaccess", nil), d.LockDetachRows)
 		if err != nil {
 			return err
 		}
@@ -492,9 +492,9 @@ func planProviders(kind, owner string) []locator.Provider {
 		return nil, false, nil
 	}), provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil })}
 }
-func planReaderRows[T any](ctx context.Context, d *Discoverer, input any, path string, providers []locator.Provider) ([]*T, error) {
+func planReaderRows[T any](ctx context.Context, d *Discoverer, input any, path string, providers []locator.Provider, lock ...bool) ([]*T, error) {
 	target := dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeOf(input).Elem().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: path}}
-	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: input, Providers: providers})
+	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, len(lock) > 0 && lock[0]), Target: target, Input: input, Providers: providers})
 	if err != nil {
 		return nil, err
 	}
@@ -515,16 +515,14 @@ func planReaderRows[T any](ctx context.Context, d *Discoverer, input any, path s
 
 func (d *Discoverer) planDetachProviders(kind string, fields []string) []locator.Provider {
 
-	// Owner is rebound per invocation by the caller context; lock is a protected
-	// provider capability set by the managed transaction, never an input flag.
+	// Owner is rebound per invocation by the caller context. Row locking is
+	// supplied separately through trusted invocation options.
 	providers := []locator.Provider{provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 		switch name {
 		case "internal":
 			return true, true, nil
 		case "mode":
 			return "rows", true, nil
-		case "lock":
-			return d.LockDetachRows, true, nil
 		}
 		return nil, false, nil
 	}), provider.Named("visibility", func(ctx context.Context, _ reflect.Type, _ string) (any, bool, error) {

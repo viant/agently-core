@@ -9,7 +9,6 @@ import (
 // Input is the generated input scaffold for reader.
 type Input struct {
 	Trusted                  bool      `parameter:"Trusted,kind=schedulerunaccess,in=internal,dataType=bool,required=true"`
-	LockRows                 bool      `parameter:"LockRows,kind=schedulerunaccess,in=lock,dataType=bool,required=false"`
 	ID                       string    `parameter:"ID,kind=query,in=id,dataType=string,required=false" predicate:"equal,r,id"`
 	IDs                      []string  `parameter:"IDs,kind=query,in=ids,dataType=[]string,required=false" predicate:"in,r,id"`
 	ScheduleID               string    `parameter:"ScheduleID,kind=query,in=scheduleId,dataType=string,required=false" predicate:"equal,r,schedule_id"`
@@ -31,7 +30,6 @@ type Input struct {
 
 type InputHas struct {
 	Trusted                  bool
-	LockRows                 bool
 	ID                       bool
 	IDs                      bool
 	ScheduleID               bool

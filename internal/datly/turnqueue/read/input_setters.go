@@ -2,17 +2,6 @@
 
 package read
 
-func (input *QueueRowsInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &QueueRowsInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *QueueRowsInput) SetId(value string) {
 	if input == nil {
 		return

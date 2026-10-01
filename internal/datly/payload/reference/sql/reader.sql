@@ -1,4 +1,4 @@
-SELECT payload.id, payload.referenced, payload.tenant_id, payload.kind, payload.subtype, payload.mime_type, payload.size_bytes, payload.digest, payload.storage, payload.inline_body, payload.uri, payload.compression, payload.encryption_kms_key_id, payload.redaction_policy_version, payload.redacted, payload.created_at, payload.schema_ref FROM  (
+SELECT payload.* FROM  (
 SELECT
   p.id,
   CASE WHEN $CheckReferences AND (

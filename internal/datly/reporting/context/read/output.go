@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Context `parameter:"Data,kind=output,in=view,dataType=[]*Context" view:"reader,type=Context,table=conversation_report_context" sql:"uri=reporting_context_read_reader:sql/reader.sql"`
+	Data []*Context `parameter:"Data,kind=output,in=view,dataType=[]*Context" view:"reader,type=Context,rowLock=conversation_report_context c,table=conversation_report_context" sql:"uri=reporting_context_read_reader:sql/reader.sql"`
 }

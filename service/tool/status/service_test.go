@@ -8,7 +8,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -44,7 +44,7 @@ func (r *recordingConv) PatchMessage(_ context.Context, message *apiconv.Mutable
 	if turnID == "" {
 		return nil
 	}
-	var turn *agconv.TranscriptView
+	var turn *conversationmodel.TranscriptView
 	for _, candidate := range r.conversation.Transcript {
 		if candidate != nil && strings.TrimSpace(candidate.Id) == turnID {
 			turn = candidate
@@ -52,7 +52,7 @@ func (r *recordingConv) PatchMessage(_ context.Context, message *apiconv.Mutable
 		}
 	}
 	if turn == nil {
-		turn = &agconv.TranscriptView{Id: turnID}
+		turn = &conversationmodel.TranscriptView{Id: turnID}
 		r.conversation.Transcript = append(r.conversation.Transcript, turn)
 	}
 	msgID := strings.TrimSpace(message.Id)
@@ -79,7 +79,7 @@ func (r *recordingConv) PatchMessage(_ context.Context, message *apiconv.Mutable
 	role := message.Role
 	msgType := message.Type
 	turnRef := turnID
-	created := &agconv.MessageView{
+	created := &conversationmodel.MessageView{
 		Id:             msgID,
 		ConversationId: strings.TrimSpace(message.ConversationID),
 		TurnId:         &turnRef,
@@ -147,10 +147,10 @@ func TestStartNarration_ReusesExistingInterimAssistantMessage(t *testing.T) {
 	turnRef := turnID
 	conv := &recordingConv{
 		conversation: &apiconv.Conversation{
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id: turnID,
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:             msgID,
 							ConversationId: "conv-1",
@@ -190,10 +190,10 @@ func TestStartNarration_DoesNotReuseExistingTaskInterimMessage(t *testing.T) {
 	turnRef := turnID
 	conv := &recordingConv{
 		conversation: &apiconv.Conversation{
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id: turnID,
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:             msgID,
 							ConversationId: "conv-1",
@@ -263,7 +263,7 @@ func TestNarrationPairing_UpsertReusesMessageIDAndReleaseClearsMapping(t *testin
 func TestNarrationPairing_DifferentParkedCallsReuseSameTurnNarrationSlot(t *testing.T) {
 	conv := &recordingConv{
 		conversation: &apiconv.Conversation{
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{Id: "turn-1"},
 			},
 		},

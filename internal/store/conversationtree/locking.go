@@ -38,7 +38,7 @@ func (d *Discoverer) LockConversationGraph(ctx context.Context, graph *Graph) er
 	return eachDeleteBatch(sortedMapKeys(graph.Nodes), func(ids []string) error {
 		input := &convread.ConversationInput{}
 		input.SetIds(ids)
-		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: conversationReaderTarget, Input: input, Providers: lockProviders("conversationaccess", d.OwnerID(ctx))})
+		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: conversationReaderTarget, Input: input, Providers: lockProviders("conversationaccess", d.OwnerID(ctx))})
 		if err != nil {
 			return err
 		}
@@ -66,7 +66,7 @@ func (d *Discoverer) LockDeletePlanRuns(ctx context.Context, plan *DeletePlan) e
 	if err := eachDeleteBatch(ids, func(ids []string) error {
 		input := &runread.RunRowsInput{}
 		input.SetIds(ids)
-		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: runReaderTarget, Input: input, Providers: lockProviders("runaccess", d.OwnerID(ctx))})
+		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: runReaderTarget, Input: input, Providers: lockProviders("runaccess", d.OwnerID(ctx))})
 		if err != nil {
 			return err
 		}
@@ -83,7 +83,7 @@ func (d *Discoverer) LockDeletePlanRuns(ctx context.Context, plan *DeletePlan) e
 	return eachDeleteBatch(plan.ScheduleRunIDs, func(ids []string) error {
 		input := &legacyread.Input{}
 		input.SetIDs(ids)
-		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: legacyReaderTarget, Input: input, Providers: lockProviders("schedulerunaccess", d.OwnerID(ctx))})
+		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: legacyReaderTarget, Input: input, Providers: lockProviders("schedulerunaccess", d.OwnerID(ctx))})
 		if err != nil {
 			return err
 		}
@@ -99,7 +99,7 @@ func lockProviders(kind, owner string) []locator.Provider {
 	return []locator.Provider{
 		provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 			switch name {
-			case "lock", "internal", "graph":
+			case "internal", "graph":
 				return true, true, nil
 			case "list", "ascending", "enforceVisibility":
 				return false, true, nil

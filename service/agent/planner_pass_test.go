@@ -15,9 +15,9 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/core"
@@ -97,13 +97,13 @@ func (r *plannerControlRegistry) MatchDefinition(pattern string) []*llm.ToolDefi
 	for i := range defs {
 		def := defs[i]
 		name := strings.TrimSpace(def.Name)
-		canonical := mcpname.Canonical(name)
+		canonical := mcpname2.Canonical(name)
 		switch {
 		case pattern == "":
 			copy := def
 			out = append(out, &copy)
 		case strings.EqualFold(pattern, name),
-			strings.EqualFold(mcpname.Canonical(pattern), canonical),
+			strings.EqualFold(mcpname2.Canonical(pattern), canonical),
 			strings.EqualFold(pattern, "system/exec"),
 			strings.EqualFold(pattern, "system/exec:*"):
 			copy := def
@@ -118,7 +118,7 @@ func (r *plannerControlRegistry) GetDefinition(name string) (*llm.ToolDefinition
 		if candidate == "" {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(def.Name), candidate) || strings.EqualFold(mcpname.Canonical(strings.TrimSpace(def.Name)), mcpname.Canonical(candidate)) {
+		if strings.EqualFold(strings.TrimSpace(def.Name), candidate) || strings.EqualFold(mcpname2.Canonical(strings.TrimSpace(def.Name)), mcpname2.Canonical(candidate)) {
 			copy := def
 			return &copy, true
 		}

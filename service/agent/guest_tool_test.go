@@ -11,7 +11,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
-	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 )
@@ -188,9 +188,9 @@ func TestRunGuestToolCall_TableDriven(t *testing.T) {
 				require.Equal(t, tc.expectResult, out.Result, "result text")
 			}
 			if tc.expectQueueRow {
-				rows, listErr := convClient.ListToolApprovalQueues(context.Background(), &queueread.QueueRowsInput{
+				rows, listErr := convClient.ListToolApprovalQueues(context.Background(), &toolapprovalqueuemodel.QueueRowsInput{
 					ConversationId: conversationID,
-					Has:            &queueread.QueueRowsInputHas{ConversationId: true},
+					Has:            &toolapprovalqueuemodel.QueueRowsInputHas{ConversationId: true},
 				})
 				require.NoError(t, listErr)
 				require.Len(t, rows, 1, "queue row must be written through real approval queue path")

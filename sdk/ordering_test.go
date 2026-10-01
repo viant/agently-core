@@ -1,10 +1,9 @@
 package sdk
 
 import (
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"testing"
 	"time"
-
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 )
 
 func TestLessTimeAndID(t *testing.T) {
@@ -21,12 +20,12 @@ func TestLessTimeAndID(t *testing.T) {
 func TestLessToolMessage(t *testing.T) {
 	firstSeq := 1
 	secondSeq := 2
-	first := &agconv.ToolMessageView{
+	first := &conversationmodel.ToolMessageView{
 		Id:        "a",
 		CreatedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
 		Sequence:  &firstSeq,
 	}
-	second := &agconv.ToolMessageView{
+	second := &conversationmodel.ToolMessageView{
 		Id:        "b",
 		CreatedAt: first.CreatedAt,
 		Sequence:  &secondSeq,

@@ -17,10 +17,10 @@ import (
 	exportcomplete "github.com/viant/agently-core/internal/store/reporting/exportcomplete"
 	exportsubmit "github.com/viant/agently-core/internal/store/reporting/exportsubmit"
 	runstore "github.com/viant/agently-core/internal/store/reporting/run"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
 )
@@ -79,7 +79,7 @@ func mapNativeContextError(err error) error {
 	}
 }
 
-func (s *Store) adoptReportRunNative(ctx context.Context, run *reportrun.Record, expectedRunRevision int64, pointer *reportcontext.Record, expectedContextRevision int64) error {
+func (s *Store) adoptReportRunNative(ctx context.Context, run *reportrunmodel.Record, expectedRunRevision int64, pointer *reportcontextmodel.Record, expectedContextRevision int64) error {
 	// These records have the same fields; the conversion keeps all snapshot and
 	// CAS fields while the private component owns reads, writers and the unit.
 	nativeRun := runstore.Record(*run)
@@ -106,7 +106,7 @@ func (s *Store) adoptReportRunNative(ctx context.Context, run *reportrun.Record,
 	return nil
 }
 
-func (s *Store) submitJobNative(ctx context.Context, candidate *reportjob.Record) (*reportjob.Record, bool, error) {
+func (s *Store) submitJobNative(ctx context.Context, candidate *reportjobmodel.Record) (*reportjobmodel.Record, bool, error) {
 	value, err := s.native.InvokeComponent(native.WithAccess(ctx, native.Access{Internal: false}), dexec.ComponentRequest{
 		Target: exportSubmitTarget,
 		Input: &exportsubmit.Input{
@@ -142,11 +142,11 @@ func (s *Store) submitJobNative(ctx context.Context, candidate *reportjob.Record
 	return reportJobFromNative(out.Job), out.Replay, nil
 }
 
-func reportJobFromNative(job *jobread.Job) *reportjob.Record {
+func reportJobFromNative(job *jobread.Job) *reportjobmodel.Record {
 	if job == nil {
 		return nil
 	}
-	return &reportjob.Record{
+	return &reportjobmodel.Record{
 		JobID: job.JobId, ArtifactRef: job.ArtifactRef, OwnerID: job.OwnerId,
 		ConversationID: job.ConversationId, WorkspaceID: job.WorkspaceId,
 		AuthContextRef: job.AuthContextRef, Format: job.Format, Scope: job.Scope,
@@ -162,7 +162,7 @@ func reportJobFromNative(job *jobread.Job) *reportjob.Record {
 	}
 }
 
-func (s *Store) completeJobNative(ctx context.Context, jobID string, artifact *reportartifact.Record, diagnostics []byte, completedAt time.Time, retentionTTL time.Duration, internal bool) (*reportjob.Record, error) {
+func (s *Store) completeJobNative(ctx context.Context, jobID string, artifact *reportartifactmodel.Record, diagnostics []byte, completedAt time.Time, retentionTTL time.Duration, internal bool) (*reportjobmodel.Record, error) {
 	callCtx := native.WithAccess(ctx, native.Access{Internal: false})
 	if internal {
 		query := &jobread.Input{}

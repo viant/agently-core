@@ -1,1 +1,1 @@
-SELECT data_rows.id, data_rows.should_delete, data_rows.conversation_id, data_rows.turn_id, data_rows.message_id, data_rows.queue_seq, data_rows.status, data_rows.created_at, data_rows.updated_at FROM  (SELECT 0 AS should_delete, `id`, `conversation_id`, `turn_id`, `message_id`, `queue_seq`, `status`, `created_at`, `updated_at` FROM turn_queue)  data_rows
+SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM turn_queue c)  t

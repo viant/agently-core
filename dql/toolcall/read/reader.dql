@@ -8,7 +8,6 @@
 #setting($_ = $case_format('lc'))
 #define($_ = $Internal<bool>(toolCallAccess/internal).Required())
 #define($_ = $ReadMode<string>(toolCallAccess/mode).Required())
-#define($_ = $LockRows<bool>(toolCallAccess/lock).Optional())
 #define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
 #define($_ = $MessageId<string>(query/messageId).Optional().WithPredicate(0,'equal','data_rows','message_id'))
 #define($_ = $MessageIds<[]string>(query/messageIds).Optional().WithPredicate(0,'in','data_rows','message_id'))
@@ -27,87 +26,42 @@
 #define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
 #define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
 #define($_ = $Data<[]*ToolCallView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true"'))
-SELECT data_rows.cleanup_status,
-       CAST(data_rows.cleanup_status AS string), internal(data_rows.cleanup_status), tag(data_rows.cleanup_status,'json:"-"'),
-       data_rows.message_id,
-       data_rows.turn_id,
-       data_rows.op_id,
-       data_rows.attempt,
-       data_rows.tool_name,
-       data_rows.tool_kind,
-       data_rows.status,
-       data_rows.request_hash,
-       data_rows.error_code,
-       data_rows.error_message,
-       data_rows.retriable,
-       data_rows.started_at,
-       data_rows.completed_at,
-       data_rows.latency_ms,
-       data_rows.cost,
-       data_rows.trace_id,
-       data_rows.span_id,
-       data_rows.request_payload_id,
-       data_rows.response_payload_id,
-       data_rows.run_id,
-       data_rows.iteration,
+SELECT data_rows.*,
+       row_lock(data_rows,'tool_call data_rows'),
+       CAST(data_rows.cleanup_status AS string),
+       internal(data_rows.cleanup_status),
+       tag(data_rows.cleanup_status,'json:"-"'),
        type(data_rows,'ToolCallView'),
-       CAST(data_rows.message_id AS string),
+       required(data_rows.message_id),
        tag(data_rows.message_id,'validate:"required" sqlx:"message_id,primaryKey"'),
-       CAST(data_rows.turn_id AS *string),
        tag(data_rows.turn_id,'sqlx:"turn_id"'),
-       CAST(data_rows.op_id AS string),
+       required(data_rows.op_id),
        tag(data_rows.op_id,'validate:"required" sqlx:"op_id"'),
-       CAST(data_rows.attempt AS int),
+       required(data_rows.attempt),
        tag(data_rows.attempt,'sqlx:"attempt"'),
-       CAST(data_rows.tool_name AS string),
+       required(data_rows.tool_name),
        tag(data_rows.tool_name,'validate:"required" sqlx:"tool_name"'),
-       CAST(data_rows.tool_kind AS string),
+       required(data_rows.tool_kind),
        tag(data_rows.tool_kind,'validate:"required" sqlx:"tool_kind"'),
-       CAST(data_rows.status AS string),
+       required(data_rows.status),
        tag(data_rows.status,'validate:"required" sqlx:"status"'),
-       CAST(data_rows.request_hash AS *string),
        tag(data_rows.request_hash,'sqlx:"request_hash"'),
-       CAST(data_rows.error_code AS *string),
        tag(data_rows.error_code,'sqlx:"error_code"'),
-       CAST(data_rows.error_message AS *string),
        tag(data_rows.error_message,'sqlx:"error_message"'),
-       CAST(data_rows.retriable AS *int),
        tag(data_rows.retriable,'sqlx:"retriable"'),
-       CAST(data_rows.started_at AS *time.Time),
        tag(data_rows.started_at,'sqlx:"started_at"'),
-       CAST(data_rows.completed_at AS *time.Time),
        tag(data_rows.completed_at,'sqlx:"completed_at"'),
-       CAST(data_rows.latency_ms AS *int),
        tag(data_rows.latency_ms,'sqlx:"latency_ms"'),
-       CAST(data_rows.cost AS *float64),
        tag(data_rows.cost,'sqlx:"cost"'),
-       CAST(data_rows.trace_id AS *string),
        tag(data_rows.trace_id,'sqlx:"trace_id"'),
-       CAST(data_rows.span_id AS *string),
        tag(data_rows.span_id,'sqlx:"span_id"'),
-       CAST(data_rows.request_payload_id AS *string),
        tag(data_rows.request_payload_id,'sqlx:"request_payload_id"'),
-       CAST(data_rows.response_payload_id AS *string),
        tag(data_rows.response_payload_id,'sqlx:"response_payload_id"'),
-       CAST(data_rows.run_id AS *string),
        tag(data_rows.run_id,'sqlx:"run_id"'),
-       CAST(data_rows.iteration AS *int),
        tag(data_rows.iteration,'sqlx:"iteration"')
-FROM (SELECT `message_id`, `turn_id`, `op_id`, `attempt`, `tool_name`, `tool_kind`, `status`, `request_hash`, `error_code`, `error_message`, `retriable`, `started_at`, `completed_at`, `latency_ms`, `cost`, `trace_id`, `span_id`, `request_payload_id`, `response_payload_id`, `run_id`, `iteration`, LOWER(TRIM(COALESCE(status,''))) AS cleanup_status FROM tool_call) data_rows
-WHERE 1=1
- ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
- AND ($Internal OR EXISTS(SELECT 1 FROM message m JOIN conversation c ON c.id=m.conversation_id WHERE m.id=data_rows.message_id
-  AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,''))))
- AND ($ReadMode<>'byOp' OR EXISTS(SELECT 1 FROM message m WHERE m.id=data_rows.message_id))
- AND ($ReadMode<>'scopedByOp' OR EXISTS(SELECT 1 FROM message m WHERE m.id=data_rows.message_id AND m.conversation_id=$ConversationId))
- AND ($ReadMode<>'byTurn' OR EXISTS(SELECT 1 FROM turn tr JOIN message m ON m.id=data_rows.message_id
-  AND m.turn_id=tr.id AND m.conversation_id=tr.conversation_id
-  WHERE tr.id=data_rows.turn_id AND tr.id=$TurnId AND tr.conversation_id=$ConversationId))
- AND ($ReadMode<>'transcript' OR EXISTS(SELECT 1 FROM message m WHERE m.id=data_rows.message_id AND (m.type='tool_op' OR m.role='tool')))
+FROM (${embed:sql/toolcall.sql}) data_rows
 ORDER BY CASE WHEN $ReadMode='byTurn' THEN data_rows.op_id END ASC,
  CASE WHEN $ReadMode='byTurn' THEN data_rows.attempt END DESC,
  CASE WHEN $ReadMode='byTurn' THEN data_rows.message_id END DESC,
  CASE WHEN $ReadMode NOT IN ('byOp','scopedByOp','byTurn') THEN data_rows.started_at END DESC,
  CASE WHEN $ReadMode NOT IN ('byOp','scopedByOp','byTurn') THEN data_rows.message_id END ASC
-
-#if($LockRows) ${View.ForUpdate()} #end

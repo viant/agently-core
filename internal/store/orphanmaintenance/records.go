@@ -55,7 +55,7 @@ func lockedProviders(kind string, fields []string) []locator.Provider {
 	owner := ""
 	return []locator.Provider{provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 		switch name {
-		case "internal", "lock", "graph":
+		case "internal", "graph":
 			return true, true, nil
 		case "mode":
 			return "rows", true, nil
@@ -66,7 +66,7 @@ func lockedProviders(kind string, fields []string) []locator.Provider {
 	}), provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil }), queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: fields}}})}
 }
 func invokeRead[O any](ctx context.Context, invoker dexec.ComponentInvoker, typ reflect.Type, path, kind string, input any, fields ...string) (*O, error) {
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: componentTarget(typ, "GET", path), Input: input, Providers: lockedProviders(kind, fields)})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: componentTarget(typ, "GET", path), Input: input, Providers: lockedProviders(kind, fields)})
 	if err != nil {
 		return nil, err
 	}

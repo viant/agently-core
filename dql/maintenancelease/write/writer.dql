@@ -15,18 +15,18 @@
 #define($_ = $Leases<[]*Lease>(body/data))
 #define($_ = $Data<[]*Lease>(output/body))
 
-SELECT data_rows.lease_key, data_rows.should_delete, data_rows.owner_id, data_rows.lease_token,
-       data_rows.lease_until, data_rows.created_at, data_rows.updated_at,
-       type(data_rows,'Lease'), lifecycle_type(data_rows,'Lifecycle'), mutation_predicate(data_rows,7),
-       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:"shouldDelete,omitempty"'), delete_marker(data_rows.should_delete),
-       CAST(data_rows.lease_key AS string), tag(data_rows.lease_key,'sqlx:"lease_key,primaryKey=true,required=true"'),
-       CAST(data_rows.owner_id AS string), tag(data_rows.owner_id,'sqlx:"owner_id,required=true"'),
-       CAST(data_rows.lease_token AS string), tag(data_rows.lease_token,'sqlx:"lease_token,required=true"'),
-       CAST(data_rows.lease_until AS time.Time), tag(data_rows.lease_until,'sqlx:"lease_until,required=true"'),
-       CAST(data_rows.created_at AS time.Time), tag(data_rows.created_at,'sqlx:"created_at,required=true"'),
-       CAST(data_rows.updated_at AS time.Time), tag(data_rows.updated_at,'sqlx:"updated_at,required=true"')
-FROM (
-    SELECT 0 AS should_delete, lease_key, owner_id, lease_token,
-           lease_until, created_at, updated_at
-    FROM maintenance_lease
-) data_rows
+SELECT t.*,
+       type(t,'Lease'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,7),
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       required(t.lease_key),
+       tag(t.lease_key,'sqlx:"lease_key,primaryKey=true,required=true"'),
+       required(t.owner_id),
+       required(t.lease_token),
+       required(t.lease_until),
+       required(t.created_at),
+       required(t.updated_at)
+FROM (${embed:sql/maintenancelease.sql}) t

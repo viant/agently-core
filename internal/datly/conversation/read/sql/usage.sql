@@ -1,4 +1,4 @@
-SELECT usage.conversation_id, usage.cost, usage.prompt_tokens, usage.prompt_cached_tokens, usage.prompt_audio_tokens, usage.completion_tokens, usage.completion_reasoning_tokens, usage.completion_audio_tokens, usage.completion_accepted_prediction_tokens, usage.completion_rejected_prediction_tokens, usage.total_tokens FROM (
+SELECT * FROM (
 SELECT
     m.conversation_id AS conversation_id,
     CASE WHEN COUNT(mc.cost) = COUNT(*) THEN SUM(mc.cost) ELSE NULL END                                           AS cost,
@@ -15,4 +15,4 @@ SELECT
   JOIN message m ON m.id = mc.message_id
   $View.ParentJoinOn("WHERE","m.conversation_id")
   GROUP BY m.conversation_id
-) usage
+) u

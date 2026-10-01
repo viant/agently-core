@@ -26,71 +26,17 @@
 #define($_ = $Criteria<string>(query/_criteria).Optional().QuerySelector('reader'))
 #define($_ = $Data<[]*PayloadView>(output/view))
 
-SELECT payload.id, payload.referenced,
-       CAST(payload.referenced AS bool), internal(payload.referenced), tag(payload.referenced,'json:"-"'),
-       payload.tenant_id,
-       payload.kind,
-       payload.subtype,
-       payload.mime_type,
-       payload.size_bytes,
-       payload.digest,
-       payload.storage,
-       payload.inline_body,
-       payload.uri,
-       payload.compression,
-       payload.encryption_kms_key_id,
-       payload.redaction_policy_version,
-       payload.redacted,
-       payload.created_at,
-       payload.schema_ref,
+SELECT payload.*,
+       CAST(payload.referenced AS bool),
+       internal(payload.referenced),
+       tag(payload.referenced,'json:"-"'),
        type(payload,'PayloadView'),
        allowed_order_by_columns(payload,'id,created_at,size_bytes'),
-       CAST(payload.id AS string),
-       CAST(payload.tenant_id AS *string),
-       CAST(payload.kind AS string),
-       CAST(payload.subtype AS *string),
-       CAST(payload.mime_type AS string),
-       CAST(payload.size_bytes AS int),
-       CAST(payload.digest AS *string),
-       CAST(payload.storage AS string),
+       required(payload.id),
+       required(payload.kind),
+       required(payload.mime_type),
+       required(payload.size_bytes),
+       required(payload.storage),
        CAST(payload.inline_body AS *[]byte),
-       CAST(payload.uri AS *string),
-       CAST(payload.compression AS string),
-       CAST(payload.encryption_kms_key_id AS *string),
-       CAST(payload.redaction_policy_version AS *string),
-       CAST(payload.redacted AS *int),
-       CAST(payload.created_at AS *time.Time),
-       CAST(payload.schema_ref AS *string)
-FROM (
-SELECT
-  p.id,
-  CASE WHEN $CheckReferences AND (
-    EXISTS (SELECT 1 FROM message WHERE attachment_payload_id=p.id) OR
-    EXISTS (SELECT 1 FROM message WHERE elicitation_payload_id=p.id) OR
-    EXISTS (SELECT 1 FROM model_call WHERE request_payload_id=p.id) OR
-    EXISTS (SELECT 1 FROM model_call WHERE response_payload_id=p.id) OR
-    EXISTS (SELECT 1 FROM model_call WHERE provider_request_payload_id=p.id) OR
-    EXISTS (SELECT 1 FROM model_call WHERE provider_response_payload_id=p.id) OR
-    EXISTS (SELECT 1 FROM model_call WHERE stream_payload_id=p.id) OR
-    EXISTS (SELECT 1 FROM tool_call WHERE request_payload_id=p.id) OR
-    EXISTS (SELECT 1 FROM tool_call WHERE response_payload_id=p.id) OR
-    EXISTS (SELECT 1 FROM generated_file WHERE payload_id=p.id)
-  ) THEN 1 ELSE 0 END AS referenced,
-  p.tenant_id,
-  p.kind,
-  p.subtype,
-  p.mime_type,
-  p.size_bytes,
-  p.digest,
-  p.storage,
-  p.inline_body,
-  p.uri,
-  p.compression,
-  p.encryption_kms_key_id,
-  p.redaction_policy_version,
-  p.redacted,
-  p.created_at,
-  p.schema_ref
-FROM call_payload p
-${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
-) payload
+       required(payload.compression)
+FROM (${embed:sql/payload.sql}) payload

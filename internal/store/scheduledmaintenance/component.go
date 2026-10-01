@@ -264,7 +264,7 @@ func selectRun(ctx context.Context, deps dependencies, id string, lock bool) (*s
 	fields := []string{"id", "schedule_id", "conversation_id", "activity_raw"}
 	query := &runread.RunRowsInput{}
 	query.SetId(id)
-	current, err := readRows[runread.RunRowsOutput](ctx, deps.Invoker, runTarget, query, providers("runaccess", "rows", lock, false, fields))
+	current, err := readRows[runread.RunRowsOutput](ctx, deps.Invoker, runTarget, query, providers("runaccess", "rows", false, fields), lock)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +285,7 @@ func selectRun(ctx context.Context, deps dependencies, id string, lock bool) (*s
 	}
 	oldQuery := &legacyread.Input{}
 	oldQuery.SetID(id)
-	legacy, err := readRows[legacyread.Output](ctx, deps.Invoker, legacyTarget, oldQuery, providers("schedulerunaccess", "rows", lock, false, fields))
+	legacy, err := readRows[legacyread.Output](ctx, deps.Invoker, legacyTarget, oldQuery, providers("schedulerunaccess", "rows", false, fields), lock)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +308,7 @@ func selectSchedule(ctx context.Context, deps dependencies, id string, lock bool
 	}
 	query := &schedread.ScheduleInput{}
 	query.SetId(id)
-	out, err := readRows[schedread.ScheduleOutput](ctx, deps.Invoker, scheduleTarget, query, providers("scheduleaccess", "rows", lock, false, []string{"id", "internal"}))
+	out, err := readRows[schedread.ScheduleOutput](ctx, deps.Invoker, scheduleTarget, query, providers("scheduleaccess", "rows", false, []string{"id", "internal"}), lock)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +327,7 @@ func graphActivity(ctx context.Context, deps dependencies, graph *tree.Graph) (t
 	}
 	query := &convread.ConversationInput{}
 	query.SetIds(ids)
-	rows, err := readRows[convread.ConversationOutput](ctx, deps.Invoker, conversationTarget, query, providers("conversationaccess", "rows", false, false, []string{"id", "activity_raw"}))
+	rows, err := readRows[convread.ConversationOutput](ctx, deps.Invoker, conversationTarget, query, providers("conversationaccess", "rows", false, []string{"id", "activity_raw"}), false)
 	if err != nil {
 		return time.Time{}, false, err
 	}
@@ -353,7 +353,7 @@ func relatedActivity(ctx context.Context, deps dependencies, plan *tree.DeletePl
 	if len(plan.RunIDs) > 0 {
 		query := &runread.RunRowsInput{}
 		query.SetIds(plan.RunIDs)
-		out, err := readRows[runread.RunRowsOutput](ctx, deps.Invoker, runTarget, query, providers("runaccess", "rows", false, false, fields))
+		out, err := readRows[runread.RunRowsOutput](ctx, deps.Invoker, runTarget, query, providers("runaccess", "rows", false, fields), false)
 		if err != nil {
 			return time.Time{}, false, err
 		}
@@ -371,7 +371,7 @@ func relatedActivity(ctx context.Context, deps dependencies, plan *tree.DeletePl
 	if plan.Tables["schedule_run"] && len(plan.ScheduleRunIDs) > 0 {
 		query := &legacyread.Input{}
 		query.SetIDs(plan.ScheduleRunIDs)
-		out, err := readRows[legacyread.Output](ctx, deps.Invoker, legacyTarget, query, providers("schedulerunaccess", "rows", false, false, fields))
+		out, err := readRows[legacyread.Output](ctx, deps.Invoker, legacyTarget, query, providers("schedulerunaccess", "rows", false, fields), false)
 		if err != nil {
 			return time.Time{}, false, err
 		}
@@ -401,7 +401,7 @@ func validateScope(ctx context.Context, deps dependencies, graph *tree.Graph, ev
 			ids = append(ids, id)
 		}
 		query.SetIds(ids)
-		out, err := readRows[convread.ConversationOutput](ctx, deps.Invoker, conversationTarget, query, providers("conversationaccess", "rows", false, false, []string{"id", "schedule_id"}))
+		out, err := readRows[convread.ConversationOutput](ctx, deps.Invoker, conversationTarget, query, providers("conversationaccess", "rows", false, []string{"id", "schedule_id"}), false)
 		if err != nil {
 			return err
 		}
@@ -496,21 +496,21 @@ func conversationRoots(ctx context.Context, invoker dexec.ComponentInvoker, ids 
 // ReadConversations forwards a bounded request/projection to the one canonical
 // conversation reader; maintenance policies retain control over classification.
 func ReadConversations(ctx context.Context, invoker dexec.ComponentInvoker, input *convread.ConversationInput, fields []string, lock bool) ([]*convread.ConversationView, error) {
-	out, err := readRows[convread.ConversationOutput](ctx, invoker, conversationTarget, input, providers("conversationaccess", "rows", lock, false, fields))
+	out, err := readRows[convread.ConversationOutput](ctx, invoker, conversationTarget, input, providers("conversationaccess", "rows", false, fields), lock)
 	if err != nil {
 		return nil, err
 	}
 	return out.Data, nil
 }
 func ReadCurrentRuns(ctx context.Context, invoker dexec.ComponentInvoker, input *runread.RunRowsInput, fields []string, lock bool) ([]*runread.RunRowsView, error) {
-	out, err := readRows[runread.RunRowsOutput](ctx, invoker, runTarget, input, providers("runaccess", "rows", lock, false, fields))
+	out, err := readRows[runread.RunRowsOutput](ctx, invoker, runTarget, input, providers("runaccess", "rows", false, fields), lock)
 	if err != nil {
 		return nil, err
 	}
 	return out.Data, nil
 }
 func ReadLegacyRuns(ctx context.Context, invoker dexec.ComponentInvoker, input *legacyread.Input, fields []string, lock bool) ([]*legacyread.LegacyRun, error) {
-	out, err := readRows[legacyread.Output](ctx, invoker, legacyTarget, input, providers("schedulerunaccess", "rows", lock, false, fields))
+	out, err := readRows[legacyread.Output](ctx, invoker, legacyTarget, input, providers("schedulerunaccess", "rows", false, fields), lock)
 	if err != nil {
 		return nil, err
 	}

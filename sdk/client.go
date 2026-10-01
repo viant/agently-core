@@ -4,7 +4,7 @@ import (
 	"context"
 
 	"github.com/viant/agently-core/app/store/conversation"
-	agrun "github.com/viant/agently-core/pkg/agently/run"
+	runmodel "github.com/viant/agently-core/model/run"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/sdk/api"
 	"github.com/viant/agently-core/service/a2a"
@@ -64,7 +64,7 @@ type Client interface {
 	ClearGoal(ctx context.Context, conversationID string) error
 
 	// GetRun returns the current state of a run.
-	GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error)
+	GetRun(ctx context.Context, id string) (*runmodel.RunRowsView, error)
 
 	// CancelTurn aborts the active turn. Returns true if a running turn was found.
 	CancelTurn(ctx context.Context, turnID string) (bool, error)

@@ -8,11 +8,8 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
-	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
-	agturnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
-	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
-	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	turnmodel "github.com/viant/agently-core/model/turn"
+	turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -31,9 +28,9 @@ func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, er
 	if mode, ok := runtimerecovery.ModeFromContext(ctx); ok && strings.EqualFold(strings.TrimSpace(mode), runtimerecovery.ModeResume) {
 		return false, nil
 	}
-	active, err := s.dataService.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
+	active, err := s.dataService.GetActiveTurn(ctx, &turnmodel.ActiveTurnsInput{
 		ConversationID: conversationID,
-		Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+		Has:            &turnmodel.ActiveTurnsInputHas{ConversationID: true},
 	})
 	if err != nil {
 		return false, fmt.Errorf("failed to check active turn: %w", err)
@@ -41,9 +38,9 @@ func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, er
 	if active == nil || strings.TrimSpace(active.Id) == "" || strings.TrimSpace(active.Id) == turnID {
 		return false, nil
 	}
-	queuedCount, err := s.dataService.CountQueuedTurns(ctx, &agturncount.QueuedTotalInput{
+	queuedCount, err := s.dataService.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{
 		ConversationID: conversationID,
-		Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
+		Has:            &turnmodel.QueuedTotalInputHas{ConversationID: true},
 	})
 	if err != nil {
 		return false, fmt.Errorf("failed to count queued turns: %w", err)
@@ -79,9 +76,9 @@ func (s *Service) tryQueueTurn(ctx context.Context, input *QueryInput) (bool, er
 		return false, fmt.Errorf("failed to persist queued message: %w", err)
 	}
 	if patcher, ok := s.dataService.(interface {
-		PatchTurnQueue(ctx context.Context, in *turnqueuewrite.TurnQueue) error
+		PatchTurnQueue(ctx context.Context, in *turnqueuemodel.TurnQueue) error
 	}); ok {
-		q := &turnqueuewrite.TurnQueue{Has: &turnqueuewrite.TurnQueueHas{}}
+		q := &turnqueuemodel.TurnQueue{Has: &turnqueuemodel.TurnQueueHas{}}
 		q.SetId(turnID)
 		q.SetConversationId(conversationID)
 		q.SetTurnId(turnID)
@@ -191,9 +188,9 @@ func (s *Service) triggerQueueDrain(conversationID string) {
 
 func (s *Service) drainQueuedTurns(conversationID string) error {
 	for {
-		next, err := s.dataService.GetNextQueuedTurn(context.Background(), &agturnnext.QueuedTurnInput{
+		next, err := s.dataService.GetNextQueuedTurn(context.Background(), &turnmodel.QueuedTurnInput{
 			ConversationID: conversationID,
-			Has:            &agturnnext.QueuedTurnInputHas{ConversationID: true},
+			Has:            &turnmodel.QueuedTurnInputHas{ConversationID: true},
 		})
 		if err != nil {
 			return fmt.Errorf("failed to load next queued turn: %w", err)
@@ -251,10 +248,10 @@ func (s *Service) drainQueuedTurns(conversationID string) error {
 			logx.Warnf("conversation", "agent.queueDrain query failed convo=%q turn_id=%q err=%v", conversationID, turnID, err)
 		}
 
-		refreshed, rErr := s.dataService.GetTurnByID(context.Background(), &agturnbyid.TurnLookupInput{
+		refreshed, rErr := s.dataService.GetTurnByID(context.Background(), &turnmodel.TurnLookupInput{
 			ID:             turnID,
 			ConversationID: conversationID,
-			Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+			Has:            &turnmodel.TurnLookupInputHas{ID: true, ConversationID: true},
 		})
 		if rErr == nil && refreshed != nil && strings.EqualFold(strings.TrimSpace(refreshed.Status), "queued") {
 			return nil

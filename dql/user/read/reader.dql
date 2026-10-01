@@ -15,38 +15,12 @@
 #define($_ = $Provider<string>(query/provider).Optional().WithPredicate(0,'equal','t','provider'))
 #define($_ = $Data<[]*UserView>(output/view))
 
-SELECT user.created_at,
-       user.default_agent_ref,
-       user.default_embedder_ref,
-       user.default_model_ref,
-       user.disabled,
-       user.display_name,
-       user.email,
-       user.hash_ip,
-       user.id,
-       user.provider,
-       user.settings,
-       user.subject,
-       user.timezone,
-       user.updated_at,
-       user.username,
+SELECT user.*,
        type(user,'UserView'),
-       CAST(user.created_at AS time.Time),
-       CAST(user.default_agent_ref AS *string),
-       CAST(user.default_embedder_ref AS *string),
-       CAST(user.default_model_ref AS *string),
-       CAST(user.disabled AS int),
-       CAST(user.display_name AS *string),
-       CAST(user.email AS *string),
-       CAST(user.hash_ip AS *string),
-       CAST(user.id AS string),
-       CAST(user.provider AS string),
-       CAST(user.settings AS *string),
-       CAST(user.subject AS *string),
-       CAST(user.timezone AS string),
-       CAST(user.updated_at AS *time.Time),
-       CAST(user.username AS string)
-FROM (
-SELECT t.*  FROM users t
-     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
-) user
+       required(user.created_at),
+       required(user.disabled),
+       required(user.id),
+       required(user.provider),
+       required(user.timezone),
+       required(user.username)
+FROM (${embed:sql/user.sql}) user

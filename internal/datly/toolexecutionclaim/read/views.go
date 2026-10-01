@@ -8,13 +8,13 @@ import (
 
 // Claim is generated canonical view metadata for reader.
 type Claim struct {
-	ClaimKey            string     `sqlx:"claim_key,required=true,primaryKey=true"`
-	RuleId              string     `sqlx:"rule_id,required=true"`
-	CanonicalToolName   string     `sqlx:"canonical_tool_name,required=true"`
-	TurnId              string     `sqlx:"turn_id,required=true"`
-	SemanticRequestHash string     `sqlx:"semantic_request_hash,required=true"`
-	State               string     `sqlx:"state,required=true"`
-	CreatedAt           time.Time  `sqlx:"created_at,required=true"`
-	UpdatedAt           time.Time  `sqlx:"updated_at,required=true"`
-	FinishedAt          *time.Time `sqlx:"finished_at"`
+	ClaimKey            string     `sqlx:"claim_key,required=true,primaryKey=true" json:"claimKey"`
+	RuleId              string     `sqlx:"rule_id,required=true" json:"ruleId"`
+	CanonicalToolName   string     `sqlx:"canonical_tool_name,required=true" json:"canonicalToolName"`
+	TurnId              string     `sqlx:"turn_id,required=true" json:"turnId"`
+	SemanticRequestHash string     `sqlx:"semantic_request_hash,required=true" json:"semanticRequestHash"`
+	State               string     `sqlx:"state,required=true" json:"state"`
+	CreatedAt           time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	UpdatedAt           time.Time  `sqlx:"updated_at,required=true" json:"updatedAt"`
+	FinishedAt          *time.Time `sqlx:"finished_at" json:"finishedAt"`
 }

@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*LegacyRun `parameter:"Data,kind=output,in=view,dataType=[]*LegacyRun" view:"reader,type=LegacyRun,table=schedule_run,selectorProjection=true,selectorLimit=true" sql:"uri=datly_legacyrun_read_reader:sql/reader.sql"`
+	Data []*LegacyRun `parameter:"Data,kind=output,in=view,dataType=[]*LegacyRun" view:"reader,type=LegacyRun,rowLock=schedule_run r,rowLockOrder=r.id,table=schedule_run,selectorProjection=true,selectorLimit=true" sql:"uri=datly_legacyrun_read_reader:sql/reader.sql"`
 }

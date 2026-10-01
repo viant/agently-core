@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"github.com/viant/agently-core/internal/sqlitewrite"
-	"github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
 func TestNativeInMemoryFactoryGeneratedReadWriteAndOwnership(t *testing.T) {
@@ -30,8 +30,8 @@ func TestNativeInMemoryFactoryGeneratedReadWriteAndOwnership(t *testing.T) {
 	if service.writeGate != sqlitewrite.KeyForConnector(driver, identity, "agently") || service.writeGate == "" {
 		t.Fatal("native SQLite facade lost coordinated write gate")
 	}
-	row := write.NewMutableConversationView(write.WithConversationID("factory-native-memory"), write.WithConversationStatus("active"))
-	if _, err = service.PatchConversations(ctx, []*write.MutableConversationView{row}); err != nil {
+	row := conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("factory-native-memory"), conversationmodel.WithConversationStatus("active"))
+	if _, err = service.PatchConversations(ctx, []*conversationmodel.MutableConversationView{row}); err != nil {
 		t.Fatal(err)
 	}
 	stored, err := service.GetConversation(ctx, row.Id, nil)

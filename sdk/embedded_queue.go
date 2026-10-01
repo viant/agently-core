@@ -17,17 +17,13 @@ import (
 	"github.com/viant/agently-core/internal/logx"
 	queuereorder "github.com/viant/agently-core/internal/store/queuereorder"
 	"github.com/viant/agently-core/internal/toolvalidate"
-	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	queueCount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
-	queueOutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
-	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
-	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
-	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
+	runmodel "github.com/viant/agently-core/model/run"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+	turnmodel "github.com/viant/agently-core/model/turn"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	"github.com/viant/agently-core/protocol/tool"
 	approvalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -69,10 +65,10 @@ func editQueuedTurn(c *backendClient, ctx context.Context, input *EditQueuedTurn
 	if c.data == nil || c.conv == nil {
 		return errors.New("data service not configured")
 	}
-	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+	turn, err := c.data.GetTurnByID(ctx, &turnmodel.TurnLookupInput{
 		ID:             strings.TrimSpace(input.TurnID),
 		ConversationID: strings.TrimSpace(input.ConversationID),
-		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+		Has:            &turnmodel.TurnLookupInputHas{ID: true, ConversationID: true},
 	}, principalDataOpts(ctx)...)
 	if err != nil {
 		if isTurnLookupUnavailable(err) {
@@ -108,10 +104,10 @@ func forceSteerQueuedTurn(c *backendClient, ctx context.Context, conversationID,
 	}
 	conversationID = strings.TrimSpace(conversationID)
 	turnID = strings.TrimSpace(turnID)
-	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+	turn, err := c.data.GetTurnByID(ctx, &turnmodel.TurnLookupInput{
 		ID:             turnID,
 		ConversationID: conversationID,
-		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+		Has:            &turnmodel.TurnLookupInputHas{ID: true, ConversationID: true},
 	}, principalDataOpts(ctx)...)
 	if err != nil {
 		if isTurnLookupUnavailable(err) {
@@ -125,9 +121,9 @@ func forceSteerQueuedTurn(c *backendClient, ctx context.Context, conversationID,
 	if !strings.EqualFold(strings.TrimSpace(turn.Status), "queued") {
 		return nil, newConflictError(fmt.Sprintf("turn is not queued: %s", turn.Status))
 	}
-	active, err := c.data.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
+	active, err := c.data.GetActiveTurn(ctx, &turnmodel.ActiveTurnsInput{
 		ConversationID: conversationID,
-		Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+		Has:            &turnmodel.ActiveTurnsInputHas{ConversationID: true},
 	})
 	if err != nil {
 		return nil, err
@@ -188,10 +184,10 @@ func listPendingElicitations(c *backendClient, ctx context.Context, input *ListP
 	}
 	byElicitation := map[string]*PendingElicitation{}
 	if c.data != nil {
-		in := &agmessagelist.MessageRowsInput{
+		in := &messagemodel.MessageRowsInput{
 			ConversationId: input.ConversationID,
 			Roles:          []string{"assistant", "tool"},
-			Has: &agmessagelist.MessageRowsInputHas{
+			Has: &messagemodel.MessageRowsInputHas{
 				ConversationId: true,
 				Roles:          true,
 			},
@@ -293,7 +289,7 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 		return nil, errors.New("tool approval queue not configured")
 	}
 	patcher, _ := c.conv.(toolApprovalQueuePatcher)
-	in := &queueRead.QueueRowsInput{}
+	in := &toolapprovalqueuemodel.QueueRowsInput{}
 	var selectors []*hstate.NamedSelector
 	effectiveUserID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if input != nil {
@@ -302,18 +298,18 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 				return nil, errors.New("permission denied")
 			}
 			in.UserId = strings.TrimSpace(input.UserID)
-			in.Has = &queueRead.QueueRowsInputHas{UserId: true}
+			in.Has = &toolapprovalqueuemodel.QueueRowsInputHas{UserId: true}
 		}
 		if strings.TrimSpace(input.ConversationID) != "" {
 			if in.Has == nil {
-				in.Has = &queueRead.QueueRowsInputHas{}
+				in.Has = &toolapprovalqueuemodel.QueueRowsInputHas{}
 			}
 			in.ConversationId = strings.TrimSpace(input.ConversationID)
 			in.Has.ConversationId = true
 		}
 		if strings.TrimSpace(input.Status) != "" {
 			if in.Has == nil {
-				in.Has = &queueRead.QueueRowsInputHas{}
+				in.Has = &toolapprovalqueuemodel.QueueRowsInputHas{}
 			}
 			in.QueueStatus = strings.TrimSpace(input.Status)
 			in.Has.QueueStatus = true
@@ -334,7 +330,7 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 	if effectiveUserID != "" {
 		in.UserId = effectiveUserID
 		if in.Has == nil {
-			in.Has = &queueRead.QueueRowsInputHas{}
+			in.Has = &toolapprovalqueuemodel.QueueRowsInputHas{}
 		}
 		in.Has.UserId = true
 	}
@@ -394,7 +390,7 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 				rowsPage = rowsPage[:limit]
 			}
 			if counter, ok := c.conv.(toolApprovalQueueCounter); ok {
-				countInput := &queueCount.QueueTotalInput{
+				countInput := &toolapprovalqueuemodel.QueueTotalInput{
 					Id:             in.Id,
 					UserId:         in.UserId,
 					ConversationId: in.ConversationId,
@@ -402,7 +398,7 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 					MessageId:      in.MessageId,
 					ToolName:       in.ToolName,
 					QueueStatus:    in.QueueStatus,
-					Has: &queueCount.QueueTotalInputHas{
+					Has: &toolapprovalqueuemodel.QueueTotalInputHas{
 						Id:             in.Has != nil && in.Has.Id,
 						UserId:         in.Has != nil && in.Has.UserId,
 						ConversationId: in.Has != nil && in.Has.ConversationId,
@@ -439,7 +435,7 @@ func listPendingToolApprovals(c *backendClient, ctx context.Context, input *List
 	}, nil
 }
 
-func listToolApprovalRows(ctx context.Context, lister toolApprovalQueueLister, selectors []*hstate.NamedSelector, in *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error) {
+func listToolApprovalRows(ctx context.Context, lister toolApprovalQueueLister, selectors []*hstate.NamedSelector, in *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error) {
 	if selectorLister, ok := lister.(toolApprovalQueueSelectorLister); ok && len(selectors) > 0 {
 		return selectorLister.ListToolApprovalQueuesWithSelectors(ctx, in, selectors...)
 	}
@@ -453,7 +449,7 @@ func valueOrEmptyOutcomeSince(input *ListPendingToolApprovalsInput) string {
 	return input.OutcomeSince
 }
 
-func pendingToolApprovalFromRow(row *queueRead.QueueRowView) *PendingToolApproval {
+func pendingToolApprovalFromRow(row *toolapprovalqueuemodel.QueueRowView) *PendingToolApproval {
 	if row == nil {
 		return nil
 	}
@@ -486,7 +482,7 @@ func pendingToolApprovalFromRow(row *queueRead.QueueRowView) *PendingToolApprova
 	return item
 }
 
-func expireTimedOutToolApprovals(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, selectors []*hstate.NamedSelector, in *queueRead.QueueRowsInput, rows []*queueRead.QueueRowView) ([]*api.DecideToolApprovalOutcome, []*queueRead.QueueRowView, error) {
+func expireTimedOutToolApprovals(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, selectors []*hstate.NamedSelector, in *toolapprovalqueuemodel.QueueRowsInput, rows []*toolapprovalqueuemodel.QueueRowView) ([]*api.DecideToolApprovalOutcome, []*toolapprovalqueuemodel.QueueRowView, error) {
 	if patcher == nil || lister == nil || len(rows) == 0 {
 		return nil, rows, nil
 	}
@@ -531,7 +527,7 @@ func collectApprovalOutcomesSince(ctx context.Context, lister toolApprovalOutcom
 	if err != nil {
 		return nil, fmt.Errorf("invalid outcomeSince cursor: %w", err)
 	}
-	in := &queueOutcome.OutcomeRowsInput{Has: &queueOutcome.OutcomeRowsInputHas{}}
+	in := &toolapprovalqueuemodel.OutcomeRowsInput{Has: &toolapprovalqueuemodel.OutcomeRowsInputHas{}}
 	if strings.TrimSpace(query.UserID) != "" {
 		in.UserId = strings.TrimSpace(query.UserID)
 		in.Has.UserId = true
@@ -599,7 +595,7 @@ func mergeApprovalOutcomes(primary, extra []*api.DecideToolApprovalOutcome) []*a
 	return out
 }
 
-func approvalOutcomeFromOutcomeRow(row *queueOutcome.OutcomeRowView) *api.DecideToolApprovalOutcome {
+func approvalOutcomeFromOutcomeRow(row *toolapprovalqueuemodel.OutcomeRowView) *api.DecideToolApprovalOutcome {
 	if row == nil {
 		return nil
 	}
@@ -680,7 +676,7 @@ func approvalOutcomeSortKey(outcome *api.DecideToolApprovalOutcome) time.Time {
 	return time.Time{}
 }
 
-func timeoutToolApproval(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, row *queueRead.QueueRowView, now time.Time) (*api.DecideToolApprovalOutcome, error) {
+func timeoutToolApproval(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, row *toolapprovalqueuemodel.QueueRowView, now time.Time) (*api.DecideToolApprovalOutcome, error) {
 	upd := approvalqueue.NewTimedOutPatch(row, now)
 	if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 		return nil, err
@@ -725,7 +721,7 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 	if effectiveUserID != "" && strings.TrimSpace(input.UserID) != "" && !strings.EqualFold(strings.TrimSpace(input.UserID), effectiveUserID) {
 		return nil, errors.New("permission denied")
 	}
-	in := &queueRead.QueueRowsInput{Id: strings.TrimSpace(input.ID), Has: &queueRead.QueueRowsInputHas{Id: true}}
+	in := &toolapprovalqueuemodel.QueueRowsInput{Id: strings.TrimSpace(input.ID), Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true}}
 	if effectiveUserID != "" {
 		in.UserId = effectiveUserID
 		in.Has.UserId = true
@@ -758,7 +754,7 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 		}
 		return &DecideToolApprovalOutput{Status: "ok", Outcome: timeoutOutcome}, nil
 	}
-	upd := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+	upd := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	upd.SetId(row.Id)
 	upd.SetUserId(row.UserId)
 	upd.SetToolName(row.ToolName)
@@ -849,7 +845,7 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 				ResponseID: meta.ResponseID,
 			}, resolvedQueueToolResult(toolResult, execErr))
 		}
-		done := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+		done := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 		done.SetId(row.Id)
 		done.SetUserId(row.UserId)
 		done.SetToolName(row.ToolName)
@@ -1031,7 +1027,7 @@ func parseToolApprovalMetadata(raw *[]byte) toolApprovalMetadata {
 	return result
 }
 
-func persistToolApprovalOutcomeMetadata(ctx context.Context, patcher toolApprovalQueuePatcher, row *queueRead.QueueRowView, outcome *api.DecideToolApprovalOutcome, now time.Time) error {
+func persistToolApprovalOutcomeMetadata(ctx context.Context, patcher toolApprovalQueuePatcher, row *toolapprovalqueuemodel.QueueRowView, outcome *api.DecideToolApprovalOutcome, now time.Time) error {
 	if patcher == nil || row == nil || outcome == nil {
 		return nil
 	}
@@ -1041,7 +1037,7 @@ func persistToolApprovalOutcomeMetadata(ctx context.Context, patcher toolApprova
 	if err != nil {
 		return err
 	}
-	upd := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+	upd := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	upd.SetId(row.Id)
 	upd.SetUserId(row.UserId)
 	upd.SetToolName(row.ToolName)
@@ -1090,7 +1086,7 @@ func resolvedQueueToolResult(result string, err error) string {
 	return ""
 }
 
-func synthesizeQueueDecisionResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView, result string) error {
+func synthesizeQueueDecisionResult(ctx context.Context, c *backendClient, row *toolapprovalqueuemodel.QueueRowView, result string) error {
 	if c == nil || c.conv == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
 		return nil
 	}
@@ -1111,7 +1107,7 @@ func synthesizeQueueDecisionResult(ctx context.Context, c *backendClient, row *q
 	}, result)
 }
 
-func continueQueueConversation(ctx context.Context, c *backendClient, row *queueRead.QueueRowView, instruction string) error {
+func continueQueueConversation(ctx context.Context, c *backendClient, row *toolapprovalqueuemodel.QueueRowView, instruction string) error {
 	if c == nil || c.agent == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
 		return nil
 	}
@@ -1178,10 +1174,10 @@ func buildQueueTimeoutInstruction(toolName string) string {
 }
 
 func isSystemOSEnvTool(name string) bool {
-	return mcpname.Canonical(strings.TrimSpace(name)) == mcpname.Canonical("system/os/getEnv")
+	return mcpname2.Canonical(strings.TrimSpace(name)) == mcpname2.Canonical("system/os/getEnv")
 }
 
-func persistSystemOSEnvAssistantResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView, toolResult string) error {
+func persistSystemOSEnvAssistantResult(ctx context.Context, c *backendClient, row *toolapprovalqueuemodel.QueueRowView, toolResult string) error {
 	if c == nil || c.conv == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
 		return nil
 	}
@@ -1192,15 +1188,15 @@ func persistSystemOSEnvAssistantResult(ctx context.Context, c *backendClient, ro
 	return persistQueueAssistantResult(ctx, c, row, content)
 }
 
-func persistSystemOSEnvDeniedAssistantResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView) error {
+func persistSystemOSEnvDeniedAssistantResult(ctx context.Context, c *backendClient, row *toolapprovalqueuemodel.QueueRowView) error {
 	return persistQueueAssistantResult(ctx, c, row, formatSystemOSEnvDeniedResult(row))
 }
 
-func persistSystemOSEnvTimedOutAssistantResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView) error {
+func persistSystemOSEnvTimedOutAssistantResult(ctx context.Context, c *backendClient, row *toolapprovalqueuemodel.QueueRowView) error {
 	return persistQueueAssistantResult(ctx, c, row, formatSystemOSEnvTimedOutResult(row))
 }
 
-func persistQueueAssistantResult(ctx context.Context, c *backendClient, row *queueRead.QueueRowView, content string) error {
+func persistQueueAssistantResult(ctx context.Context, c *backendClient, row *toolapprovalqueuemodel.QueueRowView, content string) error {
 	if c == nil || c.conv == nil || row == nil || row.ConversationId == nil || row.TurnId == nil {
 		return nil
 	}
@@ -1297,7 +1293,7 @@ func formatSystemOSEnvResult(result string) string {
 	return "```json\n" + result + "\n```"
 }
 
-func formatSystemOSEnvDeniedResult(row *queueRead.QueueRowView) string {
+func formatSystemOSEnvDeniedResult(row *toolapprovalqueuemodel.QueueRowView) string {
 	if row == nil {
 		return "I couldn't retrieve the requested environment variable because approval was not granted."
 	}
@@ -1316,7 +1312,7 @@ func formatSystemOSEnvDeniedResult(row *queueRead.QueueRowView) string {
 	return "I couldn't retrieve the requested environment variable because approval was not granted."
 }
 
-func formatSystemOSEnvTimedOutResult(row *queueRead.QueueRowView) string {
+func formatSystemOSEnvTimedOutResult(row *toolapprovalqueuemodel.QueueRowView) string {
 	if row == nil {
 		return "I couldn't retrieve the requested environment variable because approval timed out."
 	}
@@ -1343,14 +1339,14 @@ func completeResolvedQueueTurn(ctx context.Context, c *backendClient, conversati
 	}
 	now := time.Now()
 	if c.data != nil {
-		run := agrunwrite.NewMutableRunView(agrunwrite.WithRunID(turnID))
+		run := runmodel.NewMutableRunView(runmodel.WithRunID(turnID))
 		run.SetStatus("succeeded")
 		run.SetCompletedAt(now)
-		if _, err := c.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
+		if _, err := c.data.PatchRuns(ctx, []*runmodel.MutableRunView{run}); err != nil {
 			return err
 		}
 	}
-	if err := c.conv.PatchConversations(ctx, agconvwrite.NewConversationStatus(conversationID, "succeeded")); err != nil {
+	if err := c.conv.PatchConversations(ctx, conversationmodel.NewConversationStatus(conversationID, "succeeded")); err != nil {
 		return err
 	}
 	upd := conversation.NewTurn()
@@ -1364,7 +1360,7 @@ func lookupQueueTurnAgentID(ctx context.Context, c *backendClient, turnID string
 	if c == nil || c.data == nil {
 		return "", errors.New("data service not configured")
 	}
-	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{ID: strings.TrimSpace(turnID), Has: &agturnbyid.TurnLookupInputHas{ID: true}}, principalDataOpts(ctx)...)
+	turn, err := c.data.GetTurnByID(ctx, &turnmodel.TurnLookupInput{ID: strings.TrimSpace(turnID), Has: &turnmodel.TurnLookupInputHas{ID: true}}, principalDataOpts(ctx)...)
 	if err != nil {
 		return "", err
 	}
@@ -1394,9 +1390,9 @@ func ensureToolApprovalStatus(ctx context.Context, lister toolApprovalQueueListe
 }
 
 func toolApprovalHasStatus(ctx context.Context, lister toolApprovalQueueLister, id, want string) bool {
-	rows, err := lister.ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+	rows, err := lister.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  strings.TrimSpace(id),
-		Has: &queueRead.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	if err != nil || len(rows) == 0 || rows[0] == nil {
 		return false
@@ -1412,7 +1408,7 @@ func fallbackToolApprovalUpdate(ctx context.Context, patcher toolApprovalQueuePa
 	if patcher == nil {
 		return errors.New("tool approval store not configured")
 	}
-	update := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+	update := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	update.SetId(id)
 	supplied := 0
 	if value, ok := fields["status"]; ok {

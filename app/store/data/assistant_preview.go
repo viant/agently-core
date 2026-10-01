@@ -2,10 +2,9 @@ package data
 
 import (
 	"context"
+	messagemodel "github.com/viant/agently-core/model/message"
 	"strings"
 	"time"
-
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 )
 
 type AssistantPreview struct {
@@ -69,10 +68,10 @@ func LatestAssistantPreview(ctx context.Context, svc Service, conversationID str
 	return preview, nil
 }
 
-func latestAssistantPreviewRow(ctx context.Context, svc Service, conversationID string, final bool) (*agmessagelist.MessageRowsView, error) {
-	input := &agmessagelist.MessageRowsInput{
+func latestAssistantPreviewRow(ctx context.Context, svc Service, conversationID string, final bool) (*messagemodel.MessageRowsView, error) {
+	input := &messagemodel.MessageRowsInput{
 		ConversationId: conversationID,
-		Has: &agmessagelist.MessageRowsInputHas{
+		Has: &messagemodel.MessageRowsInputHas{
 			ConversationId: true,
 		},
 	}

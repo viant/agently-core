@@ -17,26 +17,27 @@
 #define($_ = $Statuses<[]string>(query/statuses).Optional().WithPredicate(0,'in','f','status'))
 #define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
 #define($_ = $Data<[]*ToolCallReportView>(output/view))
-SELECT groupable(f),f.conversation_id,f.tool_name,f.tool_kind,f.status,f.op_id,
- COUNT(*) AS record_count,COUNT(CASE WHEN f.attempt>1 THEN 1 END) AS retry_count,
- SUM(f.latency_ms) AS total_latency_ms,AVG(f.latency_ms) AS average_latency_ms,
- CASE WHEN COUNT(f.cost)=COUNT(*) THEN SUM(f.cost) ELSE NULL END AS cost,
- type(f,'ToolCallReportView'),
- CAST(f.conversation_id AS string),tag(f.conversation_id,'groupable:"true"'),
- CAST(f.tool_name AS string),tag(f.tool_name,'groupable:"true"'),
- CAST(f.tool_kind AS string),tag(f.tool_kind,'groupable:"true"'),
- CAST(f.status AS string),tag(f.status,'groupable:"true"'),
- CAST(f.op_id AS string),tag(f.op_id,'groupable:"true"'),
- CAST(f.record_count AS int),tag(f.record_count,'groupable:"false"'),
- CAST(f.retry_count AS int),tag(f.retry_count,'groupable:"false"'),
- CAST(f.total_latency_ms AS *int),tag(f.total_latency_ms,'groupable:"false"'),
- CAST(f.average_latency_ms AS *float64),tag(f.average_latency_ms,'groupable:"false"'),
- CAST(f.cost AS *float64),tag(f.cost,'groupable:"false"')
-FROM (SELECT tc.*,m.conversation_id,
- CASE WHEN m.turn_id=tc.turn_id AND tr.conversation_id=m.conversation_id THEN 1 ELSE 0 END AS consistent_turn
- FROM tool_call tc JOIN message m ON m.id=tc.message_id LEFT JOIN turn tr ON tr.id=tc.turn_id) f
-WHERE 1=1
- ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
- AND ($Internal OR EXISTS(SELECT 1 FROM conversation c WHERE c.id=f.conversation_id
-  AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,''))))
-GROUP BY f.conversation_id,f.tool_name,f.tool_kind,f.status,f.op_id
+SELECT f.*,
+       groupable(f),
+       type(f,'ToolCallReportView'),
+       required(f.conversation_id),
+       tag(f.conversation_id,'groupable:"true"'),
+       required(f.tool_name),
+       tag(f.tool_name,'groupable:"true"'),
+       required(f.tool_kind),
+       tag(f.tool_kind,'groupable:"true"'),
+       required(f.status),
+       tag(f.status,'groupable:"true"'),
+       required(f.op_id),
+       tag(f.op_id,'groupable:"true"'),
+       CAST(f.record_count AS int),
+       tag(f.record_count,'groupable:"false"'),
+       CAST(f.retry_count AS int),
+       tag(f.retry_count,'groupable:"false"'),
+       CAST(f.total_latency_ms AS *int),
+       tag(f.total_latency_ms,'groupable:"false"'),
+       CAST(f.average_latency_ms AS *float64),
+       tag(f.average_latency_ms,'groupable:"false"'),
+       CAST(f.cost AS *float64),
+       tag(f.cost,'groupable:"false"')
+FROM (${embed:sql/toolcall.sql}) f

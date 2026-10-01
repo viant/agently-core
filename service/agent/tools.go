@@ -9,9 +9,9 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	toolctx "github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
@@ -56,7 +56,7 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool,
 			}
 			if def, ok := s.getDefinition(ctx, name); ok && def != nil {
 				canonical := *def
-				canonical.Name = mcpname.Canonical(canonical.Name)
+				canonical.Name = mcpname2.Canonical(canonical.Name)
 				out = append(out, llm.Tool{Type: "function", Definition: canonical})
 				continue
 			}
@@ -529,7 +529,7 @@ func dedupeDefinitions(in []llm.ToolDefinition) []llm.ToolDefinition {
 	seen := map[string]struct{}{}
 	out := make([]llm.ToolDefinition, 0, len(in))
 	for _, d := range in {
-		key := strings.ToLower(mcpname.Canonical(strings.TrimSpace(d.Name)))
+		key := strings.ToLower(mcpname2.Canonical(strings.TrimSpace(d.Name)))
 		if key == "" {
 			continue
 		}
@@ -537,7 +537,7 @@ func dedupeDefinitions(in []llm.ToolDefinition) []llm.ToolDefinition {
 			continue
 		}
 		seen[key] = struct{}{}
-		d.Name = mcpname.Canonical(d.Name)
+		d.Name = mcpname2.Canonical(d.Name)
 		out = append(out, d)
 	}
 	return out
@@ -548,7 +548,7 @@ func (s *Service) applyResolvedToolSurfaceMetadata(ctx context.Context, entry *r
 		return
 	}
 	for _, d := range entry.Definitions {
-		key := strings.ToLower(mcpname.Canonical(strings.TrimSpace(d.Name)))
+		key := strings.ToLower(mcpname2.Canonical(strings.TrimSpace(d.Name)))
 		cfg := entry.ApprovalByID[key]
 		if cfg != nil && (cfg.IsQueue() || cfg.IsPrompt()) {
 			toolapprovalqueue.MarkTool(ctx, d.Name, cfg)
@@ -612,7 +612,7 @@ func augmentPromptApprovalReviewDefinitions(defs []llm.ToolDefinition, approvalB
 	}
 	out := make([]llm.ToolDefinition, 0, len(defs))
 	for _, def := range defs {
-		cfg := approvalByID[strings.ToLower(mcpname.Canonical(strings.TrimSpace(def.Name)))]
+		cfg := approvalByID[strings.ToLower(mcpname2.Canonical(strings.TrimSpace(def.Name)))]
 		if cfg == nil || (!cfg.IsPrompt() && !cfg.IsQueue()) || cfg.Review == nil || len(cfg.Review.RequestedSchema) == 0 {
 			out = append(out, def)
 			continue

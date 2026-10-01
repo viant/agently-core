@@ -2,7 +2,7 @@ package adapter
 
 import (
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	"strings"
 )
 
@@ -14,7 +14,7 @@ func ToToolDefinition(t llm.Tool) *llm.ToolDefinition {
 		return nil
 	}
 	// Canonicalize tool names to provider-safe form (service_path-method)
-	name = mcpname.Canonical(name)
+	name = mcpname2.Canonical(name)
 	def := &llm.ToolDefinition{
 		Name:         name,
 		Description:  t.Definition.Description,

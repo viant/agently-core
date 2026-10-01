@@ -1,4 +1,20 @@
-SELECT f.conversation_id, f.tool_name, f.tool_kind, f.status, f.op_id, COUNT(*) AS record_count, COUNT(CASE WHEN f.attempt>1 THEN 1 END) AS retry_count, SUM(f.latency_ms) AS total_latency_ms, AVG(f.latency_ms) AS average_latency_ms, CASE WHEN COUNT(f.cost)=COUNT(*) THEN SUM(f.cost) ELSE NULL END AS cost FROM  (SELECT tc.*,m.conversation_id,
+SELECT f.* FROM  (
+SELECT f.conversation_id,
+       f.tool_name,
+       f.tool_kind,
+       f.status,
+       f.op_id,
+       COUNT(*) AS record_count,
+       COUNT(CASE WHEN f.attempt>1 THEN 1 END) AS retry_count,
+       SUM(f.latency_ms) AS total_latency_ms,
+       AVG(f.latency_ms) AS average_latency_ms,
+       CASE WHEN COUNT(f.cost)=COUNT(*) THEN SUM(f.cost) ELSE NULL END AS cost
+FROM (SELECT tc.*,m.conversation_id,
  CASE WHEN m.turn_id=tc.turn_id AND tr.conversation_id=m.conversation_id THEN 1 ELSE 0 END AS consistent_turn
- FROM tool_call tc JOIN message m ON m.id=tc.message_id LEFT JOIN turn tr ON tr.id=tc.turn_id)  f WHERE 1 = 1 ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")} AND ($Internal OR EXISTS(SELECT 1 FROM conversation c WHERE c.id=f.conversation_id
-  AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,'')))) GROUP BY f.conversation_id, f.tool_name, f.tool_kind, f.status, f.op_id
+ FROM tool_call tc JOIN message m ON m.id=tc.message_id LEFT JOIN turn tr ON tr.id=tc.turn_id) f
+WHERE 1=1
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+ AND ($Internal OR EXISTS(SELECT 1 FROM conversation c WHERE c.id=f.conversation_id
+  AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,''))))
+GROUP BY f.conversation_id,f.tool_name,f.tool_kind,f.status,f.op_id
+)  f

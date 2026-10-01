@@ -2,13 +2,12 @@ package data
 
 import (
 	"context"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"strings"
 	"sync"
-
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 )
 
-func authorizeConversation(item *agconv.ConversationView, opts *options) error {
+func authorizeConversation(item *conversationmodel.ConversationView, opts *options) error {
 	if item == nil || opts == nil || opts.principal == "" || opts.isAdmin {
 		return nil
 	}
@@ -77,6 +76,6 @@ func (s *datlyService) authorizeConversationID(ctx context.Context, conversation
 	return err
 }
 
-func (s *datlyService) loadConversationForAuth(ctx context.Context, id string) (*agconv.ConversationView, error) {
+func (s *datlyService) loadConversationForAuth(ctx context.Context, id string) (*conversationmodel.ConversationView, error) {
 	return s.loadConversationForAuthNative(ctx, id)
 }

@@ -1,13 +1,12 @@
 package agent
 
 import (
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
 	"testing"
-
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
 )
 
 func TestRewriteSandboxMarkdownLinks(t *testing.T) {
-	files := []*gfread.GeneratedFileView{
+	files := []*generatedfilemodel.GeneratedFileView{
 		{ID: "gf-123", Filename: generatedFileStringPtr("mouse_story.pdf")},
 	}
 	input := `Created [mouse_story.pdf](sandbox:/mnt/data/mouse_story.pdf).`
@@ -19,7 +18,7 @@ func TestRewriteSandboxMarkdownLinks(t *testing.T) {
 }
 
 func TestRewriteSandboxMarkdownLinks_LeavesUnmatchedLinkUntouched(t *testing.T) {
-	files := []*gfread.GeneratedFileView{
+	files := []*generatedfilemodel.GeneratedFileView{
 		{ID: "gf-123", Filename: generatedFileStringPtr("fish_story.pdf")},
 	}
 	input := `Created [mouse_story.pdf](sandbox:/mnt/data/mouse_story.pdf).`

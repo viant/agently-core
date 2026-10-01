@@ -2,17 +2,6 @@
 
 package read
 
-func (input *Input) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &InputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *Input) SetTrusted(value bool) {
 	if input == nil {
 		return

@@ -1,4 +1,4 @@
-SELECT snapshot.db_now, snapshot.lease_key, snapshot.owner_id, snapshot.lease_token, snapshot.lease_until, snapshot.created_at, snapshot.updated_at FROM  (
+SELECT snapshot.* FROM  (
     SELECT clock.db_now, lease.lease_key, lease.owner_id, lease.lease_token,
            lease.lease_until, lease.created_at, lease.updated_at
     FROM (SELECT ${criteria.UTCNow()} AS db_now) clock

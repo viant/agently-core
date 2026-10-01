@@ -9,13 +9,13 @@ import (
 // Context is generated canonical view metadata for writer.
 type Context struct {
 	ShouldDelete      bool        `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
-	Revision          int64       `sqlx:"revision,required=true" writer:"concurrency"`
-	OwnerId           string      `sqlx:"owner_id,primaryKey=true,required=true,refTable=report_run,refColumn=owner_id"`
-	ConversationId    string      `sqlx:"conversation_id,primaryKey=true,required=true,refTable=conversation,refColumn=id"`
-	ActiveReportRunId string      `sqlx:"active_report_run_id,required=true,refTable=report_run,refColumn=report_run_id"`
-	ActivationSource  string      `sqlx:"activation_source,required=true"`
-	ActorId           string      `sqlx:"actor_id,required=true"`
-	UpdatedAt         time.Time   `sqlx:"updated_at,required=true"`
+	Revision          int64       `writer:"concurrency" sqlx:"revision,required=true" json:"revision"`
+	OwnerId           string      `sqlx:"owner_id,primaryKey=true,required=true,refTable=report_run,refColumn=owner_id" json:"ownerId"`
+	ConversationId    string      `sqlx:"conversation_id,primaryKey=true,required=true,refTable=conversation,refColumn=id" json:"conversationId"`
+	ActiveReportRunId string      `sqlx:"active_report_run_id,refTable=report_run,refColumn=report_run_id,required=true" json:"activeReportRunId"`
+	ActivationSource  string      `sqlx:"activation_source,required=true" json:"activationSource"`
+	ActorId           string      `sqlx:"actor_id,required=true" json:"actorId"`
+	UpdatedAt         time.Time   `sqlx:"updated_at,required=true" json:"updatedAt"`
 	Has               *ContextHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"ContextHas"`
 }
 
@@ -32,13 +32,13 @@ type ContextHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Revision          int64     `sqlx:"revision,required=true"`
-	OwnerId           string    `sqlx:"owner_id,primaryKey=true,required=true,refTable=report_run,refColumn=owner_id"`
-	ConversationId    string    `sqlx:"conversation_id,primaryKey=true,required=true,refTable=conversation,refColumn=id"`
-	ActiveReportRunId string    `sqlx:"active_report_run_id,required=true,refTable=report_run,refColumn=report_run_id"`
-	ActivationSource  string    `sqlx:"activation_source,required=true"`
-	ActorId           string    `sqlx:"actor_id,required=true"`
-	UpdatedAt         time.Time `sqlx:"updated_at,required=true"`
+	Revision          int64     `sqlx:"revision,required=true" json:"revision"`
+	OwnerId           string    `sqlx:"owner_id,primaryKey=true,required=true,refTable=report_run,refColumn=owner_id" json:"ownerId"`
+	ConversationId    string    `sqlx:"conversation_id,primaryKey=true,required=true,refTable=conversation,refColumn=id" json:"conversationId"`
+	ActiveReportRunId string    `sqlx:"active_report_run_id,refTable=report_run,refColumn=report_run_id,required=true" json:"activeReportRunId"`
+	ActivationSource  string    `sqlx:"activation_source,required=true" json:"activationSource"`
+	ActorId           string    `sqlx:"actor_id,required=true" json:"actorId"`
+	UpdatedAt         time.Time `sqlx:"updated_at,required=true" json:"updatedAt"`
 }
 
 type WriterKeysRow struct {

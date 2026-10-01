@@ -4,17 +4,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
 	"time"
-
-	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
 )
 
 const runNowRateLimitWindow = time.Minute
 
 var ErrRunNowRateLimited = errors.New("You can't run this schedule more than once per minute. Please wait before using Run Now again.")
 
-func (s *Service) runNowOnDemand(ctx context.Context, row *schedulepkg.ScheduleView) error {
+func (s *Service) runNowOnDemand(ctx context.Context, row *schedulemodel.ScheduleView) error {
 	if s == nil || s.store == nil || row == nil {
 		return fmt.Errorf("scheduler service not initialized")
 	}
@@ -33,13 +32,13 @@ func (s *Service) runNowOnDemand(ctx context.Context, row *schedulepkg.ScheduleV
 	return nil
 }
 
-func (s *Service) enforceRunNowRateLimit(ctx context.Context, row *schedulepkg.ScheduleView, now time.Time) error {
+func (s *Service) enforceRunNowRateLimit(ctx context.Context, row *schedulemodel.ScheduleView, now time.Time) error {
 	if s.hasRecentRunNowReservation(row.Id, now) {
 		return ErrRunNowRateLimited
 	}
-	page, err := s.store.ListRuns(ctx, &schrun.RunListInput{
+	page, err := s.store.ListRuns(ctx, &scheduledrunmodel.RunListInput{
 		ScheduleId: row.Id,
-		Has:        &schrun.RunListInputHas{ScheduleId: true},
+		Has:        &scheduledrunmodel.RunListInputHas{ScheduleId: true},
 	}, 1, 100)
 	if err != nil {
 		return err
@@ -101,7 +100,7 @@ func (s *Service) hasRecentRunNowReservation(scheduleID string, now time.Time) b
 	return ok && !reserved.UTC().Before(cutoff)
 }
 
-func isRecentRunForSchedule(run *schrun.RunView, cutoff time.Time) bool {
+func isRecentRunForSchedule(run *scheduledrunmodel.RunView, cutoff time.Time) bool {
 	if run == nil {
 		return false
 	}

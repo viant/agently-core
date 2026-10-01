@@ -1,0 +1,166 @@
+{
+  "before_lines": 451,
+  "after_lines": 220,
+  "views": 22,
+  "assets": [
+    "attachment.sql",
+    "conversation.sql",
+    "elicitation.sql",
+    "linked_conversation.sql",
+    "message.sql",
+    "model.sql",
+    "model_call.sql",
+    "model_payload.sql",
+    "tool_call.sql",
+    "tool_call_links.sql",
+    "tool_message.sql",
+    "tool_payload.sql",
+    "transcript.sql",
+    "usage.sql"
+  ],
+  "graph": [
+    {
+      "view": "conversation",
+      "asset": "sql/conversation.sql",
+      "lines": 78
+    },
+    {
+      "view": "transcript",
+      "asset": "sql/transcript.sql",
+      "lines": 7
+    },
+    {
+      "view": "message",
+      "asset": "sql/message.sql",
+      "lines": 34
+    },
+    {
+      "view": "messageToolCall",
+      "asset": "sql/tool_call.sql",
+      "lines": 7
+    },
+    {
+      "view": "messageRequestPayload",
+      "asset": "sql/tool_payload.sql",
+      "lines": 2
+    },
+    {
+      "view": "messageResponsePayload",
+      "asset": "sql/tool_payload.sql",
+      "lines": 2
+    },
+    {
+      "view": "toolMessage",
+      "asset": "sql/tool_message.sql",
+      "lines": 15
+    },
+    {
+      "view": "toolCall",
+      "asset": "sql/tool_call.sql",
+      "lines": 7
+    },
+    {
+      "view": "requestPayload",
+      "asset": "sql/tool_payload.sql",
+      "lines": 2
+    },
+    {
+      "view": "responsePayload",
+      "asset": "sql/tool_payload.sql",
+      "lines": 2
+    },
+    {
+      "view": "userElicitationData",
+      "asset": "sql/elicitation.sql",
+      "lines": 4
+    },
+    {
+      "view": "linkedConversation",
+      "asset": "sql/linked_conversation.sql",
+      "lines": 4
+    },
+    {
+      "view": "attachment",
+      "asset": "sql/attachment.sql",
+      "lines": 4
+    },
+    {
+      "view": "modelCall",
+      "asset": "sql/model_call.sql",
+      "lines": 6
+    },
+    {
+      "view": "modelCallRequestPayload",
+      "asset": "sql/model_payload.sql",
+      "lines": 2
+    },
+    {
+      "view": "modelCallProviderRequestPayload",
+      "asset": "sql/model_payload.sql",
+      "lines": 2
+    },
+    {
+      "view": "modelCallResponsePayload",
+      "asset": "sql/model_payload.sql",
+      "lines": 2
+    },
+    {
+      "view": "modelCallProviderResponsePayload",
+      "asset": "sql/model_payload.sql",
+      "lines": 2
+    },
+    {
+      "view": "toolCallLinks",
+      "asset": "sql/tool_call_links.sql",
+      "lines": 2
+    },
+    {
+      "view": "modelCallStreamPayload",
+      "asset": "sql/model_payload.sql",
+      "lines": 2
+    },
+    {
+      "view": "u",
+      "asset": "sql/usage.sql",
+      "lines": 17
+    },
+    {
+      "view": "model",
+      "asset": "sql/model.sql",
+      "lines": 28
+    }
+  ],
+  "exact_expansion": true,
+  "stock_baseline": true,
+  "stock_candidate": true,
+  "artifact_files": 31,
+  "artifact_differences": [],
+  "unresolved_embeds": [],
+  "applied": true,
+  "source": "dql/conversation/read/reader.dql",
+  "asset_directory": "dql/conversation/read/sql",
+  "source_before_sha256": "98fba0781cb5fbc6704d6cc8c18215a48d9e4e4bc6bc33fab3f9b29dc953c7a1",
+  "source_after_sha256": "b3e2958013282efb806eabbb4b367ef397cb1c3e7194a67559ae9aaaeea382ea",
+  "discovery_fix": {
+    "file": "transcribe/column/refiner.go",
+    "reason": "Inspect resolved authored SQL before deciding whether an opaque projection needs materialization; embedded known outputs retain portable wildcards.",
+    "test": "Full transcribe/column suite passed 0.852s."
+  },
+  "runtime_proof": {
+    "passed": true,
+    "seconds": 1.464,
+    "test_source": "/var/folders/ls/826gfzj54blcn50nycp3zjq80000gn/T/agently-reader-simplify-zcqs165h/migration/embedproof/embedproof_test.go",
+    "log": "/var/folders/ls/826gfzj54blcn50nycp3zjq80000gn/T/agently-reader-simplify-zcqs165h/conversation-embed-runtime.log",
+    "cases": [
+      "actual generated Conversation reader over SQLite",
+      "actual generated Conversation reader over MySQL",
+      "existing list-mode owner and anonymous scope",
+      "ordinary order preserved",
+      "row-lock physical target and single FOR UPDATE",
+      "same-row contention blocks until commit",
+      "unrelated row remains independently lockable"
+    ],
+    "database_scope": "Owned disposable MySQL database created/dropped; live Core tables untouched."
+  },
+  "generation": "Scratch only. Active generated artifacts untouched; sole generation owner must rebuild CLI with refiner fix and run combined generation."
+}

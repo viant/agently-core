@@ -10,5 +10,5 @@ import (
 type GoalOutput struct {
 	response.Status `parameter:",kind=output,in=status"`
 	Metrics         response.Metrics `parameter:",kind=output,in=metrics"`
-	Data            []*GoalView      `parameter:"Data,kind=output,in=view,dataType=[]*GoalView" view:"reader,type=GoalView,table=goal" sql:"uri=datly_goal_read_reader:sql/reader.sql"`
+	Data            []*GoalView      `parameter:"Data,kind=output,in=view,dataType=[]*GoalView" view:"reader,type=GoalView,rowLock=goal t,table=goal" sql:"uri=datly_goal_read_reader:sql/reader.sql"`
 }
