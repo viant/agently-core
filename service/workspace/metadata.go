@@ -67,6 +67,7 @@ type Defaults struct {
 // Capabilities advertises optional backend contracts so the UI can avoid
 // inventing client-only sentinels and endpoint probes.
 type Capabilities struct {
+	WorkspaceLayout       bool `json:"workspaceLayout,omitempty"`
 	AgentAutoSelection    bool `json:"agentAutoSelection,omitempty"`
 	ModelAutoSelection    bool `json:"modelAutoSelection,omitempty"`
 	ToolAutoSelection     bool `json:"toolAutoSelection,omitempty"`
@@ -120,6 +121,8 @@ type MetadataHandler struct {
 	version             string
 	reportingOverride   *bool
 	authorizationPolicy *policy.Runtime
+	layoutDefault       []byte
+	toolDefinitions     func(context.Context) ([]ToolDefinition, error)
 }
 
 func (h *MetadataHandler) SetAuthorizationPolicy(runtime *policy.Runtime) {
@@ -153,6 +156,12 @@ func (h *MetadataHandler) Register(mux *http.ServeMux) {
 	h.styles.Register(mux)
 	mux.HandleFunc("GET /v1/workspace/metadata", h.handleMetadata())
 	mux.HandleFunc("GET /v1/workspace/metadata/publicagents", h.handlePublicAgents())
+	mux.HandleFunc("GET /v1/workspace/layout", h.handleLayout())
+	mux.HandleFunc("GET /v1/workspace/tool", h.handleWorkspaceTools())
+	mux.HandleFunc("GET /v1/workspace/models", h.handleWorkspaceModels())
+	mux.HandleFunc("GET /v1/workspace/models/{id}", h.handleGetWorkspaceModel())
+	mux.HandleFunc("PUT /v1/workspace/models/{id}", h.handleSaveWorkspaceModel())
+	mux.HandleFunc("POST /v1/workspace/ui/providers/{provider}/windows/{key}/datasources/{id}/fetch", h.handleRemoteDatasource())
 }
 
 func (h *MetadataHandler) handlePublicAgents() http.HandlerFunc {
@@ -186,6 +195,7 @@ func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 			WorkspaceVersion: resolveWorkspaceVersion(ws.Root()),
 			Version:          h.version,
 			Capabilities: Capabilities{
+				WorkspaceLayout:       true,
 				AgentAutoSelection:    true,
 				ModelAutoSelection:    false,
 				ToolAutoSelection:     h.defaults != nil && h.defaults.ToolAutoSelection.Enabled,

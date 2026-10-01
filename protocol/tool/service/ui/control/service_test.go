@@ -95,13 +95,14 @@ func TestSetValueFallsBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {
 	go func() {
 		out := &CommandOutput{}
 		err := svc.setValue(ctx, &SetValueInput{
-			ClientID:    "stale-client",
-			WindowID:    "genericBuilder__conv-1",
-			WindowKey:   "genericBuilder",
-			ControlID:   "country",
-			Scope:       "windowForm",
-			BindingPath: "prefill.includeCountry",
-			Value:       []interface{}{"US"},
+			ClientID:      "stale-client",
+			WindowID:      "genericBuilder__conv-1",
+			WindowKey:     "genericBuilder",
+			ControlID:     "country",
+			DataSourceRef: "forecast_rows",
+			Scope:         "windowForm",
+			BindingPath:   "prefill.includeCountry",
+			Value:         []interface{}{"US"},
 		}, out)
 		if err != nil {
 			done <- err
@@ -134,6 +135,9 @@ func TestSetValueFallsBackToExactWindowIDWhenClientIDIsStale(t *testing.T) {
 	}
 	if got := commandParams["controlId"]; got != "country" {
 		t.Fatalf("expected country control id, got %#v", got)
+	}
+	if got := commandParams["dataSourceRef"]; got != "forecast_rows" {
+		t.Fatalf("lost datasource target: %#v", got)
 	}
 
 	postUIRPC(t, bridge, "ui.response", map[string]interface{}{

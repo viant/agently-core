@@ -67,6 +67,11 @@ type KnowledgeMatch struct {
 type Execution struct {
 	DisablePlanner    bool `yaml:"disablePlanner,omitempty" json:"disablePlanner,omitempty"`
 	DisableDelegation bool `yaml:"disableDelegation,omitempty" json:"disableDelegation,omitempty"`
+	// DisableTools removes the callable tool surface for a profile whose
+	// evidence is injected before the model call. BuildBinding uses this flag
+	// to skip tool discovery entirely rather than constructing and then
+	// discarding an expensive workspace-wide tool catalog.
+	DisableTools bool `yaml:"disableTools,omitempty" json:"disableTools,omitempty"`
 }
 
 // Message is a single role+content instruction, aligned with MCP PromptMessage.

@@ -24,6 +24,14 @@ func TestWorkspaceAttachmentsRequireAcknowledgedResultAndFinalOwner(t *testing.T
 		t.Fatalf("wrong owner: %+v", attachment)
 	}
 	turn.Messages[0].Attachments = nil
+	object.Lifecycle.State = "opening"
+	payload, _ = json.Marshal(map[string]interface{}{"ok": true, "workspaceObject": object})
+	turn.Execution.Pages[0].ToolSteps[0].ResponsePayload = payload
+	projectWorkspaceAttachments(state)
+	if len(turn.Messages[0].Attachments) != 1 || turn.Messages[0].Attachments[0].WorkspaceObject.Lifecycle.State != "opening" {
+		t.Fatal("accepted navigation must retain a reference while content loads")
+	}
+	turn.Messages[0].Attachments = nil
 	payload, _ = json.Marshal(map[string]interface{}{"ok": false, "workspaceObject": object})
 	turn.Execution.Pages[0].ToolSteps[0].ResponsePayload = payload
 	projectWorkspaceAttachments(state)
@@ -46,5 +54,22 @@ func TestWorkspaceToolResponsePreservesCompressedJSON(t *testing.T) {
 	encoded := workspaceToolResponsePayload(&agconv.ModelCallStreamPayloadView{InlineBody: &inline, Compression: "gzip"})
 	if string(workspaceResponseBody(encoded)) != body {
 		t.Fatalf("compressed attachment was lost: %s", encoded)
+	}
+}
+
+func TestWorkspaceShowAttachesToLatestFinalResponse(t *testing.T) {
+	object := &workspaceproto.Object{Version: 1, ObjectID: "workspace:advertisers", Origin: workspaceproto.Origin{TurnID: "first"}, Lifecycle: workspaceproto.Lifecycle{State: "ready"}}
+	firstPayload, _ := json.Marshal(map[string]interface{}{"ok": true, "workspaceObject": object})
+	first := &TurnState{TurnID: "first", Messages: []*TurnMessageState{{MessageID: "answer-1", Role: "assistant", Content: "Opened."}}, Execution: &ExecutionState{Pages: []*ExecutionPageState{{ToolSteps: []*ToolStepState{{ToolName: "ui/view/open", Status: "completed", ResponsePayload: firstPayload}}}}}}
+	object.LastActivatedBy = workspaceproto.Origin{TurnID: "second", ToolName: "ui/window/show"}
+	showPayload, _ := json.Marshal(map[string]interface{}{"ok": true, "workspaceObject": object})
+	second := &TurnState{TurnID: "second", Messages: []*TurnMessageState{{MessageID: "answer-2", Role: "assistant", Content: "Filtered to Whoop."}}, Execution: &ExecutionState{Pages: []*ExecutionPageState{{ToolSteps: []*ToolStepState{{ToolName: "ui/window/show", Status: "completed", ResponsePayload: showPayload}}}}}}
+	projectWorkspaceAttachments(&ConversationState{Turns: []*TurnState{first, second}})
+	if len(first.Messages[0].Attachments) != 1 || len(second.Messages[0].Attachments) != 1 {
+		t.Fatal("each acknowledged reference needs its own final-message attachment")
+	}
+	got := second.Messages[0].Attachments[0].WorkspaceObject
+	if got.Origin.TurnID != "first" || got.LastActivatedBy.TurnID != "second" || got.LastActivatedBy.MessageID != "answer-2" {
+		t.Fatalf("incorrect activation owner: %+v", got)
 	}
 }

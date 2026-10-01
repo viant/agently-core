@@ -39,6 +39,21 @@ type MCPClient struct {
 	// when this MCP server is first selected for use, before calling it remotely.
 	// Discovery and workspace startup must not initiate the authorization flow.
 	EagerLink bool `yaml:"eagerLink,omitempty" json:"eagerLink,omitempty"`
+	// ToolsListVisibility declares whether tools/list is public workspace
+	// metadata or private principal-scoped metadata. Remote servers default to
+	// private when omitted. Public catalogs are warmed in the background and
+	// reused from the shared registry; private catalogs are discovered lazily
+	// and cached under the authenticated principal identity.
+	ToolsListVisibility string `yaml:"toolsListVisibility,omitempty" json:"toolsListVisibility,omitempty"`
+}
+
+const (
+	ToolsListVisibilityPublic  = "public"
+	ToolsListVisibilityPrivate = "private"
+)
+
+func (c *MCPClient) IsToolsListPublic() bool {
+	return c != nil && strings.EqualFold(strings.TrimSpace(c.ToolsListVisibility), ToolsListVisibilityPublic)
 }
 
 // IsDelegatedAuth reports whether this MCP definition selects the delegated

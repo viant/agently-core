@@ -25,6 +25,18 @@ import (
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
 
+func TestEffectiveOpenTimeoutCapsOversizedWorkspaceRequests(t *testing.T) {
+	if got := effectiveOpenTimeout(600_000); got != 30_000 {
+		t.Fatalf("oversized timeout = %d, want 30000", got)
+	}
+	if got := effectiveOpenTimeout(2_000); got != 2_000 {
+		t.Fatalf("explicit short timeout = %d, want 2000", got)
+	}
+	if got := effectiveOpenTimeout(0); got != 15_000 {
+		t.Fatalf("default timeout = %d, want 15000", got)
+	}
+}
+
 func TestExpandOpenParametersBindsOneInputToMultipleTargets(t *testing.T) {
 	specParams := []viewproto.Parameter{
 		{Name: "RecordId", BindTo: "order_performance_profile.parameters.RecordId"},
@@ -729,6 +741,7 @@ title: Report
 windowKey: reportBuilder
 presentation: hosted
 reportBuilderRef: performance
+capabilities: {datasource: true}
 parameters:
   - name: reportStarterId
     bindTo: prefill.reportStarterId
@@ -776,9 +789,11 @@ reportPresets:
 				return
 			}
 			postUIRPC(t, bridge, "ui.response", map[string]interface{}{
-				"id":     request["id"],
-				"ok":     true,
-				"result": map[string]interface{}{"windowId": params["windowId"]},
+				"id": request["id"],
+				"ok": true,
+				"result": map[string]interface{}{"windowId": params["windowId"], "workspaceObject": map[string]interface{}{
+					"lifecycle": map[string]interface{}{"state": "opening"},
+				}},
 			})
 			commandDone <- nil
 		}()
@@ -801,6 +816,9 @@ reportPresets:
 		}
 		if err := <-commandDone; err != nil {
 			t.Fatalf("bridge command handling failed: %v", err)
+		}
+		if output.WorkspaceObject == nil || output.WorkspaceObject.Lifecycle.State != "opening" {
+			t.Fatalf("navigation acknowledgement must preserve pending content state: %#v", output.WorkspaceObject)
 		}
 		if !reflect.DeepEqual(parameters, snapshot) {
 			t.Fatalf("open mutated caller parameters: got=%#v want=%#v", parameters, snapshot)

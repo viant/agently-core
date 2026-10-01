@@ -155,6 +155,31 @@ func TestServiceMethod_SelectTabRegistered(t *testing.T) {
 	}
 }
 
+func TestResolveTabContainerRequiresExactLiveIdentity(t *testing.T) {
+	win := &uireg.WindowSnapshot{Metadata: map[string]interface{}{"view": map[string]interface{}{"tabs": []interface{}{
+		map[string]interface{}{"tabId": "market", "containerId": "report", "title": "Open Market"},
+	}}}}
+	if got, err := resolveTabContainer(win, "market", ""); err != nil || got != "report" {
+		t.Fatalf("exact ID: %q %v", got, err)
+	}
+	if _, err := resolveTabContainer(win, "Open Market", ""); err == nil {
+		t.Fatal("labels must not be silently interpreted as IDs")
+	}
+	if _, err := resolveTabContainer(win, "market", "wrong"); err == nil {
+		t.Fatal("wrong container must be rejected")
+	}
+	win.Metadata["view"].(map[string]interface{})["tabs"] = []interface{}{
+		map[string]interface{}{"tabId": "market", "containerId": "report"},
+		map[string]interface{}{"tabId": "market", "containerId": "other"},
+	}
+	if _, err := resolveTabContainer(win, "market", ""); err == nil {
+		t.Fatal("ambiguous tab must be rejected")
+	}
+	if got, err := resolveTabContainer(win, "market", "other"); err != nil || got != "other" {
+		t.Fatalf("scoped ID: %q %v", got, err)
+	}
+}
+
 func TestServiceMethod_SetFormDataRegistered(t *testing.T) {
 	svc := &Service{}
 	method, err := svc.Method("setFormData")

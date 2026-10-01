@@ -44,6 +44,7 @@ type snapshot struct {
 	revision string
 	css      []byte
 	catalog  []byte
+	fonts    map[string][]byte
 	warnings []string
 }
 type Service struct {
@@ -167,6 +168,12 @@ func compile(ctx context.Context, root string) (*snapshot, error) {
 	hashPart(h, canonical)
 	var output bytes.Buffer
 	result := &snapshot{}
+	fontCSS, fontAssets, err := compileFonts(assets, manifest.Fonts, h)
+	if err != nil {
+		return nil, err
+	}
+	result.fonts = fontAssets
+	output.Write(fontCSS)
 	files := map[string][]byte{}
 	appendFiles := func(names []string, ancestors map[string]bool, themeID, mode string) (map[string]bool, error) {
 		seen := make(map[string]bool, len(ancestors)+len(names))

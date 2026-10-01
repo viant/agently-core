@@ -637,6 +637,12 @@ func (s *Service) parseAgent(node *yml.Node, agent *agentmdl.Agent) error {
 							agent.Intake.ConfidenceThreshold = f
 						}
 					}
+				case "modeldirectaction":
+					var policy agentmdl.ModelDirectActionPolicy
+					if err := (*yaml.Node)(v).Decode(&policy); err != nil {
+						return fmt.Errorf("invalid intake.modelDirectAction: %w", err)
+					}
+					agent.Intake.ModelDirectAction = &policy
 				case "plannerenabled":
 					if v.Kind == yaml.ScalarNode {
 						agent.Intake.PlannerEnabled = toBool(v.Value)

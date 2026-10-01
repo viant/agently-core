@@ -981,6 +981,7 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 		}
 		logx.Infof("conversation", "agent.runPlan iter binding ready convo=%q turn_id=%q iter=%d binding_elapsed=%s total_elapsed=%s",
 			strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iter, time.Since(bindingStart), time.Since(iterStart))
+		bindingElapsed := time.Since(bindingStart)
 		appendRuntimeClockSystemDocument(binding, time.Now())
 		appendMissingReplayMessages(&binding.History, iterHistoryMsgs)
 		activeState := activeInlineSkillState{}
@@ -1333,6 +1334,18 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 		logx.Infof("conversation", "agent.runPlan orchestrator done convo=%q turn_id=%q iter=%d steps=%d duration=%s",
 			strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID),
 			iter, stepCount, time.Since(planStart))
+		orchestratorElapsed := time.Since(planStart)
+		if debugtrace.Enabled() {
+			debugtrace.Write("agent", "react_iteration_timing", map[string]any{
+				"conversationID": strings.TrimSpace(turn.ConversationID),
+				"turnID":         strings.TrimSpace(turn.TurnID),
+				"iteration":      iter,
+				"bindingMs":      bindingElapsed.Milliseconds(),
+				"orchestratorMs": orchestratorElapsed.Milliseconds(),
+				"elapsedMs":      time.Since(iterStart).Milliseconds(),
+				"stepCount":      stepCount,
+			})
+		}
 		if pErr != nil {
 			return pErr
 		}
