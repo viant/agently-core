@@ -125,10 +125,3 @@ func validateScheduledRunMaintenanceRequest(request ScheduledRunMaintenanceReque
 	}
 	return nil
 }
-
-func laterTime(left, right time.Time) time.Time {
-	if right.After(left) {
-		return right
-	}
-	return left
-}

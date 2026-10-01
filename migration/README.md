@@ -1,7 +1,7 @@
 # Datly migration checkpoint
 
 Migration work is in `agently-core-v1`, branch `v1`. The user authorized
-Core and Agently commits after cleanup; live IdP secret testing is deferred.
+Core and Agently migration/cleanup commits are on `v1`; live IdP secret testing is deferred.
 The original checkout remains separate.
 
 ## Current root layout

@@ -88,30 +88,6 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...con
 	return s.getConversationNative(ctx, id, options...)
 }
 
-func latestTranscriptStatus(transcript []*agconv.TranscriptView) string {
-	for i := len(transcript) - 1; i >= 0; i-- {
-		if transcript[i] == nil {
-			continue
-		}
-		if status := strings.TrimSpace(transcript[i].Status); status != "" {
-			return status
-		}
-	}
-	return ""
-}
-
-func latestTranscriptStage(transcript []*agconv.TranscriptView) string {
-	for i := len(transcript) - 1; i >= 0; i-- {
-		if transcript[i] == nil {
-			continue
-		}
-		if stage := strings.TrimSpace(transcript[i].Stage); stage != "" {
-			return stage
-		}
-	}
-	return ""
-}
-
 func pruneBlankAssistantPlaceholders(turns []*agconv.TranscriptView) {
 	for _, turn := range turns {
 		if turn == nil || len(turn.Message) == 0 {
@@ -415,20 +391,6 @@ func intValuePtr(v *int) int {
 	return *v
 }
 
-func shouldSuppressMessagePatchEvent(ctx context.Context, message *convcli.MutableMessage) bool {
-	if message == nil {
-		return false
-	}
-	if isToolStatusMessage(message) {
-		return true
-	}
-	if isToolMessage(message) {
-		return true
-	}
-	toolMessageID := strings.TrimSpace(runtimerequestctx.ToolMessageIDFromContext(ctx))
-	return toolMessageID != "" && toolMessageID == strings.TrimSpace(message.Id)
-}
-
 func isToolMessage(message *convcli.MutableMessage) bool {
 	if message == nil {
 		return false
@@ -523,13 +485,6 @@ func turnEventCreatedAt(turn *convcli.MutableTurn) time.Time {
 		return *turn.CreatedAt
 	}
 	return time.Now()
-}
-
-func valueOrZeroInt(p *int) int {
-	if p == nil {
-		return 0
-	}
-	return *p
 }
 
 func applyIterationPage(event *streaming.Event, iteration *int) {

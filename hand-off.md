@@ -1,6 +1,6 @@
 # Agently Core → Datly 1.0 handoff
 
-As of 2026-09-30. Migration checkout: `/Users/awitas/go/src/github.com/viant/agently-core-v1`, branch `v1`, HEAD `44b8887846c22dfd47f7d788c34ea12ceaa5c5ae`. All migration acceptance gates pass. The user authorized committing Core and Agently changes on `v1` after unused-code cleanup. Live IdP testing with secrets is explicitly deferred to later; public discovery and production JWKS verification pass. Commits are being prepared.
+As of 2026-09-30. Migration checkout: `/Users/awitas/go/src/github.com/viant/agently-core-v1`, branch `v1`, HEAD `44b8887846c22dfd47f7d788c34ea12ceaa5c5ae`. All migration acceptance gates pass. The user authorized committing Core and Agently changes on `v1` after unused-code cleanup. Live IdP testing with secrets is explicitly deferred to later; public discovery and production JWKS verification pass. The migration and unused-code cleanup are committed on `v1`. See the final acceptance and cleanup records.
 
 ## Latest verified checkpoint (2026-09-30)
 

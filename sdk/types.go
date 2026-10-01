@@ -112,19 +112,6 @@ const (
 	TranscriptSelectorToolMessage = "ToolMessage"
 )
 
-func ensureTranscriptSelector(o *transcriptOptions, name string) *QuerySelector {
-	if o == nil || name == "" {
-		return nil
-	}
-	if o.selectors == nil {
-		o.selectors = map[string]*QuerySelector{}
-	}
-	if o.selectors[name] == nil {
-		o.selectors[name] = &QuerySelector{}
-	}
-	return o.selectors[name]
-}
-
 func WithTranscriptSelector(name string, selector *QuerySelector) TranscriptOption {
 	return func(o *transcriptOptions) {
 		if selector == nil {
