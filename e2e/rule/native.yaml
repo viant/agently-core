@@ -1,11 +1,6 @@
 pipeline:
-  translate:
-    action: exec:run
-    TimeoutMs: 1800000
-    checkError: true
-    commands:
-      - cd ${repoPath}/datlyv1
-      - env GOWORK=off python3 scripts/build_transcriber.py
-      - env GOWORK=off python3 scripts/transcribe.py
-      - python3 scripts/verify_regeneration.py
-      - python3 scripts/check_contracts.py
+  native:
+    action: run
+    request: '@../datly/run'
+    params:
+      projectRoot: $repoPath

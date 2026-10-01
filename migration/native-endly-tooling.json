@@ -1,0 +1,16 @@
+{
+  "removed": ["build_transcriber.py", "transcribe.py", "verify_regeneration.py", "check_contracts.py", "contracts.py", "sql_aliases.py", "test_contracts.py", "test_sql_aliases.py", "mysql_reserved_words.json"],
+  "archive": "/tmp/agently-removed-python-datly-20261001",
+  "orchestration": "Endly",
+  "ordinary_authority": "Pinned stock Datly CLI; temporary build adds imports for Core predicate and codec types only",
+  "base_reader_authority": "e2e/datly/authoring uses existing public PackageCompilation and named Bindly resources for three base readers",
+  "regeneration": "Endly snapshots internal/datly and invokes native transcription again; diff -ru compares all generated and authored files",
+  "checks_run": {
+    "endly_build": "PASS (11.563 seconds)",
+    "endly_focused_verify": "PASS (5.594 seconds): model/run, model/payload and app/store/data alias/DTO tests",
+    "native_source_validate": "FAIL: stock validator plans conversation/write without the operation context required by delete_not_found",
+    "native_generated_validate": "FAIL: stock validator reports delete_not_found requires delete_marker on generated writer contracts"
+  },
+  "generation_rerun": "Not run during this tooling change; sole generation ownership remains coordinated separately",
+  "framework_changes": false
+}

@@ -6,7 +6,7 @@ The original checkout remains separate.
 
 ## Current root layout
 
-One Core module contains 62 explicitly typed DQL contracts:
+One Core module contains 65 explicitly typed DQL contracts (62 ordinary contracts and three base readers):
 
 - `dql/`: canonical contract sources.
 - `internal/datly/<entity>/{read,write,cube}`: stock-generated artifacts and authored lifecycle hooks.
@@ -61,18 +61,19 @@ Generated component coverage alone is not a public caller compatibility claim.
 ## Tooling
 
 ```sh
-python3 scripts/datly/build_transcriber.py
-python3 scripts/datly/transcribe.py
-python3 scripts/datly/check_contracts.py
-python3 scripts/datly/verify_regeneration.py
+(cd e2e/datly && endly -r=build)
+(cd e2e/datly && endly -r=transcribe)
+(cd e2e/datly && endly -r=regeneration)
 (cd e2e/datly && endly -r=run)
 (cd e2e/datly && endly -r=core)
 ```
 
-The native workflow focuses on contract/store/native tests. The separate Core
-workflow runs `go test -count=1 ./...`. Stock CLI sources are staged temporarily
-inside ignored root `bin/` to permit Core internal imports; a private modfile
-keeps tool-only dependency changes out of the application manifest. See
+Endly acceptance builds, invokes operation-specific transcription through the
+pinned native Datly CLI, compares regeneration bytes, and runs native Go tests.
+The separate `endly -r=validate` diagnostic currently fails on native writer
+planning for `delete_not_found`; it is not reported as a passing acceptance gate. The three base readers use the narrow existing-public-API
+Go task under `e2e/datly/authoring` for canonical input and named resource authority.
+There are no committed Python authoring or verification wrappers. See
 [tooling instructions](../scripts/datly/README.md).
 
 ## Historical milestones
@@ -157,7 +158,7 @@ upgrade can be called complete.
 
 #### Verification
 
-Run from `datlyv1/e2e`:
+Historical commands below used the former layout. Current verification runs from `e2e/datly`:
 
 ```sh
 endly
