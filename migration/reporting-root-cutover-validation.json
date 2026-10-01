@@ -1,0 +1,31 @@
+{
+  "scope": "Root app/store/reporting/sql production package now uses Datly v1 generated components and typed application adapters for run, context, job, artifact, shared artifact, audit, adoption, export submission/completion, and filesystem import.",
+  "source": [
+    "app/store/reporting/sql/store.go",
+    "app/store/reporting/sql/native_transactions.go",
+    "app/store/reporting/sql/native_jobs.go",
+    "app/store/reporting/sql/native_artifacts.go",
+    "app/store/reporting/sql/audit_sink.go",
+    "app/executor/builder.go"
+  ],
+  "removed": [
+    "SDK0 datly.Service from reporting Store and constructor",
+    "reporting connector DB handle and direct product SQL/DML",
+    "11 obsolete SDK0 Forge generated files and their registrations",
+    "995-line SDK0 reporting test file, replaced by linked-host reporting-store tests"
+  ],
+  "verification": {
+    "root_reporting_build": "go build -mod=readonly with scratch modfile ./app/store/reporting/sql: pass",
+    "root_reporting_tests": "go test -mod=readonly with scratch modfile -count=1 ./app/store/reporting/sql: pass (6.229s); new tests cover owner-scoped CRUD/CAS, job claim/fail, artifact and shared-artifact data, audit append, export submit/replay, internal-worker claim and completion/replay, and repeat filesystem import.",
+    "adjacent_services": "go test -mod=readonly with scratch modfile -count=1 ./service/reporting ./service/reportingrun ./app/store/native: pass after updating a stale scratchpad failure wording assertion; combined run passed with reporting package.",
+    "source_audit": "rg over production app/store/reporting/sql found no SDK0 Datly/xdatly imports and no ExecContext, QueryContext, QueryRowContext, BeginTx or product SQL statements.",
+    "executor_build": "go build -mod=readonly with scratch modfile ./app/executor still fails at SDK0 conversation/data facade imports and missing dependency sums."
+  },
+  "limits": [
+    "Root executor/server and public reporting routes have not built or run against SDK1.",
+    "MySQL contention and application-level retry behavior remain unverified.",
+    "The reporting package test migration preserves key integration cases; nested Datly legacy-comparison suites retain the detailed 58-contract parity cases.",
+    "Other root packages still contain SDK0 imports and direct product SQL."
+  ],
+  "status": "reporting package complete at source/build/test boundary; overall migration incomplete"
+}

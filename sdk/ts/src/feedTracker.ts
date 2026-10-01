@@ -111,7 +111,7 @@ export class FeedTracker {
                 turnId: resolveEventTurnId(event),
                 updatedAt: Date.now(),
                 data: {
-                    goal: existing?.data?.goal ?? existing?.data ?? null,
+                    goal: (existing?.data && typeof existing.data === 'object' && 'goal' in existing.data ? existing.data.goal : existing?.data) ?? null,
                     controllerSchedule: {
                         mode: String(event.patch?.mode || '').trim() || 'queue',
                         reason: String(event.patch?.reason || '').trim(),

@@ -15,13 +15,13 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	"github.com/viant/agently-core/app/store/data"
+	"github.com/viant/agently-core/app/store/native"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
 	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrun "github.com/viant/agently-core/pkg/agently/run"
 	queueCount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
@@ -45,6 +45,7 @@ import (
 	dssvc "github.com/viant/agently-core/service/datasource"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
+	goalsys "github.com/viant/agently-core/service/goal"
 	oversvc "github.com/viant/agently-core/service/lookup/overlay"
 	"github.com/viant/agently-core/service/scheduler"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
@@ -54,9 +55,10 @@ import (
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
+	dexec "github.com/viant/datly/exec"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpuiresource "github.com/viant/mcp-ui/resource"
-	hstate "github.com/viant/xdatly/handler/state"
+	hstate "github.com/viant/xdatly/state"
 )
 
 type toolApprovalQueueLister interface {
@@ -64,7 +66,7 @@ type toolApprovalQueueLister interface {
 }
 
 type toolApprovalQueueSelectorLister interface {
-	ListToolApprovalQueuesWithSelectors(ctx context.Context, in *queueRead.QueueRowsInput, selectors ...*hstate.NamedQuerySelector) ([]*queueRead.QueueRowView, error)
+	ListToolApprovalQueuesWithSelectors(ctx context.Context, in *queueRead.QueueRowsInput, selectors ...*hstate.NamedSelector) ([]*queueRead.QueueRowView, error)
 }
 
 type toolApprovalQueueCounter interface {
@@ -91,6 +93,8 @@ type backendClient struct {
 	agent          *agentsvc.Service
 	conv           conversation.Client
 	data           data.Service
+	goalRepo       goalsys.Repository
+	goalInvoker    dexec.ComponentInvoker
 	registry       tool.Registry
 	mcpMgr         *mcpmgr.Manager
 	toolPolicy     *tool.Policy
@@ -161,6 +165,13 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 		return nil, err
 	}
 	c.data = rt.Data
+	c.goalInvoker = rt.Native
+	if rt.GoalStore != nil {
+		// Preserve injected storage; a controller-only Store has no CRUD surface.
+		c.goalRepo, _ = rt.GoalStore.(goalsys.Repository)
+	} else if rt.Native != nil {
+		c.goalRepo = goalsys.NewStore(rt.Native)
+	}
 	c.registry = rt.Registry
 	c.mcpMgr = rt.MCPManager
 	c.cancelRegistry = rt.CancelRegistry
@@ -193,8 +204,8 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 	if err := c.bootstrapDatasourceStack(rt); err != nil {
 		return nil, fmt.Errorf("datasource stack bootstrap: %w", err)
 	}
-	if rt.DAO != nil && rt.Agent != nil {
-		store, err := scheduler.NewDatlyStore(context.Background(), rt.DAO, rt.Data)
+	if rt.Native != nil && rt.Agent != nil {
+		store, err := scheduler.NewDatlyStore(context.Background(), rt.Native, rt.Data)
 		if err != nil {
 			return nil, err
 		}
@@ -299,10 +310,13 @@ func (c *backendClient) GetGoal(ctx context.Context, conversationID string) (*Go
 	if err := ensureGoalsFeatureEnabled(); err != nil {
 		return nil, err
 	}
-	if c.data == nil {
-		return nil, errors.New("data service not configured")
+	if c.goalRepo == nil {
+		return nil, errors.New("goal repository not configured")
 	}
-	view, err := c.data.GetGoal(ctx, strings.TrimSpace(conversationID), nil)
+	if err := c.requireGoalAccess(ctx, conversationID); err != nil {
+		return nil, err
+	}
+	view, err := c.goalRepo.Get(ctx, strings.TrimSpace(conversationID))
 	if err != nil {
 		return nil, err
 	}
@@ -349,8 +363,8 @@ func (c *backendClient) CreateGoal(ctx context.Context, input *CreateGoalInput) 
 	if err := ensureGoalsFeatureEnabled(); err != nil {
 		return nil, err
 	}
-	if c.data == nil {
-		return nil, errors.New("data service not configured")
+	if c.goalRepo == nil {
+		return nil, errors.New("goal repository not configured")
 	}
 	if input == nil {
 		return nil, errors.New("input is required")
@@ -362,29 +376,32 @@ func (c *backendClient) CreateGoal(ctx context.Context, input *CreateGoalInput) 
 	if strings.TrimSpace(input.Objective) == "" {
 		return nil, errors.New("objective is required")
 	}
-	current, err := c.data.GetGoal(ctx, conversationID, nil)
+	if err := c.requireGoalAccess(ctx, conversationID); err != nil {
+		return nil, err
+	}
+	current, err := c.goalRepo.Get(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
 	if current != nil {
 		return nil, fmt.Errorf("goal already exists for current conversation")
 	}
-	row := aggoalwrite.NewMutableGoalView(
-		aggoalwrite.WithGoalID("goal-"+conversationID),
-		aggoalwrite.WithGoalConversationID(conversationID),
-		aggoalwrite.WithGoalObjective(strings.TrimSpace(input.Objective)),
-		aggoalwrite.WithGoalStatus("active"),
-	)
+	mutation := goalsys.Mutation{
+		ID:             "goal-" + conversationID,
+		ConversationID: goalTextField(conversationID),
+		Objective:      goalTextField(strings.TrimSpace(input.Objective)),
+		Status:         goalTextField("active"),
+	}
 	if input.TokenBudget != nil {
-		row.SetTokenBudget(*input.TokenBudget)
+		mutation.TokenBudget = goalsys.Field[*int64]{Present: true, Value: input.TokenBudget}
 	}
 	if spec := strings.TrimSpace(input.ControllerSpec); spec != "" {
-		row.SetControllerSpec(spec)
+		mutation.ControllerSpec = goalTextField(spec)
 	}
-	if _, err := c.data.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+	if err := c.goalRepo.Apply(ctx, mutation); err != nil {
 		return nil, err
 	}
-	view, err := c.data.GetGoal(ctx, conversationID, nil)
+	view, err := c.goalRepo.Get(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -395,8 +412,8 @@ func (c *backendClient) UpdateGoal(ctx context.Context, input *UpdateGoalInput) 
 	if err := ensureGoalsFeatureEnabled(); err != nil {
 		return nil, err
 	}
-	if c.data == nil {
-		return nil, errors.New("data service not configured")
+	if c.goalRepo == nil {
+		return nil, errors.New("goal repository not configured")
 	}
 	if input == nil {
 		return nil, errors.New("input is required")
@@ -405,42 +422,46 @@ func (c *backendClient) UpdateGoal(ctx context.Context, input *UpdateGoalInput) 
 	if conversationID == "" {
 		return nil, errors.New("conversation ID is required")
 	}
-	current, err := c.data.GetGoal(ctx, conversationID, nil)
+	if err := c.requireGoalAccess(ctx, conversationID); err != nil {
+		return nil, err
+	}
+	current, err := c.goalRepo.Get(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
 	if current == nil {
 		return nil, fmt.Errorf("goal does not exist for current conversation")
 	}
-	row := aggoalwrite.NewMutableGoalView(aggoalwrite.WithGoalID(current.Id))
+	mutation := goalsys.Mutation{ID: current.ID}
 	hasChange := false
 	if objective := strings.TrimSpace(input.Objective); objective != "" {
-		row.SetObjective(objective)
-		row.SetAutonomousTurnsUsed(0)
-		row.SetConsecutiveNoProgress(0)
-		row.SetLastContinuationFingerprint("")
+		mutation.Objective = goalTextField(objective)
+		zero := int64(0)
+		mutation.AutonomousTurnsUsed = goalsys.Field[*int64]{Present: true, Value: &zero}
+		mutation.ConsecutiveNoProgress = goalsys.Field[*int64]{Present: true, Value: &zero}
+		mutation.LastContinuationFingerprint = goalTextField("")
 		hasChange = true
 	}
 	if status := strings.TrimSpace(input.Status); status != "" {
-		row.SetStatus(status)
+		mutation.Status = goalTextField(status)
 		hasChange = true
 	}
 	if reason := strings.TrimSpace(input.StatusReason); reason != "" {
-		row.SetStatusReason(reason)
+		mutation.StatusReason = goalTextField(reason)
 		hasChange = true
 	}
 	if input.TokenBudget != nil {
-		row.SetTokenBudget(*input.TokenBudget)
+		mutation.TokenBudget = goalsys.Field[*int64]{Present: true, Value: input.TokenBudget}
 		hasChange = true
 	}
 	if !hasChange {
 		return nil, errors.New("at least one goal field is required")
 	}
-	c.cancelGoalWakeups(ctx, conversationID, current.Id)
-	if _, err := c.data.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+	c.cancelGoalWakeups(ctx, conversationID, current.ID)
+	if err := c.goalRepo.Apply(ctx, mutation); err != nil {
 		return nil, err
 	}
-	view, err := c.data.GetGoal(ctx, conversationID, nil)
+	view, err := c.goalRepo.Get(ctx, conversationID)
 	if err != nil {
 		return nil, err
 	}
@@ -451,18 +472,35 @@ func (c *backendClient) ClearGoal(ctx context.Context, conversationID string) er
 	if err := ensureGoalsFeatureEnabled(); err != nil {
 		return err
 	}
-	if c.data == nil {
-		return errors.New("data service not configured")
+	if c.goalRepo == nil {
+		return errors.New("goal repository not configured")
 	}
-	view, err := c.data.GetGoal(ctx, strings.TrimSpace(conversationID), nil)
+	if strings.TrimSpace(conversationID) == "" {
+		return nil
+	}
+	if err := c.requireGoalAccess(ctx, conversationID); err != nil {
+		return err
+	}
+	view, err := c.goalRepo.Get(ctx, strings.TrimSpace(conversationID))
 	if err != nil {
 		return err
 	}
 	if view == nil {
 		return nil
 	}
-	c.cancelGoalWakeups(ctx, strings.TrimSpace(conversationID), view.Id)
-	return c.data.DeleteGoals(ctx, view.Id)
+	c.cancelGoalWakeups(ctx, strings.TrimSpace(conversationID), view.ID)
+	return c.goalRepo.Apply(ctx, goalsys.Mutation{ID: view.ID, Delete: true})
+}
+
+func (c *backendClient) requireGoalAccess(ctx context.Context, conversationID string) error {
+	if c == nil || c.goalInvoker == nil {
+		return errors.New("goal access verifier not configured")
+	}
+	return native.RequireVisibleConversation(ctx, c.goalInvoker, conversationID)
+}
+
+func goalTextField(value string) goalsys.Field[*string] {
+	return goalsys.Field[*string]{Present: true, Value: &value}
 }
 
 func (c *backendClient) cancelGoalWakeups(ctx context.Context, conversationID, goalID string) {
@@ -957,7 +995,7 @@ func (c *backendClient) CancelTurn(ctx context.Context, turnID string) (bool, er
 	// they can guess or observe. The check only runs when there is an
 	// authenticated subject on ctx — scheduler/background/local paths that
 	// legitimately operate without a principal (or embedded tests with no
-	// DAO) fall through to the original best-effort cancel.
+	// persistence) fall through to the original best-effort cancel.
 	if c.data != nil && len(principalDataOpts(ctx)) > 0 {
 		if _, err := c.authorizeTurnAccess(ctx, turnID); err != nil {
 			return false, err

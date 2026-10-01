@@ -5,7 +5,6 @@ import (
 	"strings"
 	"time"
 
-	aggoal "github.com/viant/agently-core/pkg/agently/goal"
 	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
 	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -75,14 +74,11 @@ func (s *Service) shouldSkipAutonomousGoalWakeup(ctx context.Context, input *Que
 	if goalID == "" || conversationID == "" {
 		return false
 	}
-	current, err := s.dataService.GetGoal(ctx, conversationID, &aggoal.GoalInput{
-		ConversationID: conversationID,
-		Has:            &aggoal.GoalInputHas{ConversationID: true},
-	})
+	current, err := s.goalRuntime.Current(ctx, conversationID)
 	if err != nil || current == nil {
 		return true
 	}
-	if strings.TrimSpace(current.Id) != goalID || !strings.EqualFold(strings.TrimSpace(current.Status), "active") {
+	if strings.TrimSpace(current.ID) != goalID || current.Status != goalruntime.StatusActive {
 		return true
 	}
 	activeTurn, err := s.dataService.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{

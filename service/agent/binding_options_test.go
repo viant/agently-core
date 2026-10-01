@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/app/store/data"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
 	internalconv "github.com/viant/agently-core/internal/service/conversation"
@@ -315,10 +316,12 @@ func TestService_BuildBinding_SQLiteConversationPreservesParentedAssistantHistor
 	t.Setenv("AGENTLY_WORKSPACE", tmp)
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
+	t.Setenv("AGENTLY_DB_PATH", "")
 
-	dao, err := internalconv.NewDatly(ctx)
+	native, err := data.NewRuntimeFromWorkspace(ctx, tmp)
 	require.NoError(t, err)
-	convSvc, err := internalconv.New(ctx, dao)
+	t.Cleanup(func() { require.NoError(t, native.Shutdown(context.Background())) })
+	convSvc, err := internalconv.New(ctx, native)
 	require.NoError(t, err)
 
 	convID := "conv-sql-history"

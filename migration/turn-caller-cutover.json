@@ -1,0 +1,34 @@
+{
+  "status": "Caller cutover pending; evidence from current root sources",
+  "factory": "app/store/data/factory.go:258 still registers seven legacy Turn readers",
+  "types": "app/store/conversation/mutable.go and types.go still use legacy Turn writer DTOs",
+  "read_modes": {
+    "GetActiveTurn": "active",
+    "GetTurnByID": "byId",
+    "GetNextQueuedTurn": "nextQueued",
+    "ListQueuedTurns": "queued",
+    "ListTurns": "rows"
+  },
+  "counts": {
+    "CountQueuedTurns": "future Turn fact cube QueuedCount measure",
+    "CountControllerTurns": "future Turn fact cube ControllerCount measure"
+  },
+  "authorization": {
+    "active_by_id_next": "service.go explicitly calls authorizeConversationID after retrieving a row",
+    "queued_and_counts": "service.go checks nonempty conversation scope for a non-admin principal; does not call authorizeConversationID in these methods",
+    "options": "service_options.go toOperateOptions forwards selectors only; principal is applied in store business logic, not in these legacy inputs"
+  },
+  "required_cutover_evidence": [
+    "Preserve principal/admin and private-conversation behavior with real store-level data-driven tests",
+    "Proxy native selectors with canonical physical field names",
+    "Adapt writer DTO setter/presence names without an authored persistence adapter",
+    "Invoke transcribed writer deletion in conversation-tree transactions; prove rollback and caller ownership",
+    "Replace seven factory registrations with canonical Turn reader, writer and one fact cube"
+  ],
+  "existing_tests": [
+    "TestDataService_ReadPermissions_MessageTurnRun",
+    "TestDataService_TurnPredicates",
+    "TestDataService_ControllerSnapshotCounts",
+    "TestDeleteConversationTree_FollowsParentTurnRelationship"
+  ]
+}

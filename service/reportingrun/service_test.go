@@ -544,22 +544,22 @@ func TestService_AdoptCASReloadErrors(t *testing.T) {
 func validAdoptionState() (*reportrun.Record, *reportcontext.Record) {
 	completedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	return &reportrun.Record{
-			ReportRunID:    "run-1",
-			OwnerID:        "owner-1",
-			ConversationID: "conv-1",
-			Origin:         "manual",
-			Status:         reportrun.StatusCompleted,
-			CompletedAt:    &completedAt,
-			Revision:       3,
-			ReportSpec:     testSpec,
-			ReportFill:     testFill,
-			ReportPrint:    testPrint,
-		}, &reportcontext.Record{
-			OwnerID:           "owner-1",
-			ConversationID:    "conv-1",
-			ActiveReportRunID: "run-1",
-			Revision:          1,
-		}
+		ReportRunID:    "run-1",
+		OwnerID:        "owner-1",
+		ConversationID: "conv-1",
+		Origin:         "manual",
+		Status:         reportrun.StatusCompleted,
+		CompletedAt:    &completedAt,
+		Revision:       3,
+		ReportSpec:     testSpec,
+		ReportFill:     testFill,
+		ReportPrint:    testPrint,
+	}, &reportcontext.Record{
+		OwnerID:           "owner-1",
+		ConversationID:    "conv-1",
+		ActiveReportRunID: "run-1",
+		Revision:          1,
+	}
 }
 
 type adoptionRunClient struct {

@@ -1,0 +1,42 @@
+{
+  "changes": [
+    "remote MCP fixture creates configured mcp directory before writing server config",
+    "test server binary is prepared before measured startup; unchanged10s assertion covers actualboot",
+    "explicit SkipRegistryInitialize defaultsfalse; Agentlyserve selects it because host warms registry asynchronously",
+    "Runtime.InitializeRegistryAsync owns cancellation/completion and Close joins before owned resources; borrowed registry remains retained",
+    "Runtime.GoalStore records resolved WithGoalStore/native store; agent, toolfactory and SDK share repository precedence; controller-only injection has no native CRUD override",
+    "systemgoal fixture uses one explicit native memory runtime/Data service and owned shutdown",
+    "terminal form prompts sort map properties alphabetically, retaining color/shade input expectations"
+  ],
+  "validation": {
+    "agently_affected_packages": "PASS runtime7.211s/query20.511s",
+    "core_focused_goal_repository_and_owned_warmup": "PASS sdk5.037s/executor2.778s",
+    "elicitation_accept_repeat20": "PASS1.573s",
+    "full_agently": "PASS go test ./... -count=1; cmd2.695s/query20.087s/runtime8.535s; all other packages passed",
+    "external_llm": "Existing API-key integration tests skipped with key intentionally cleared; no new skips or external jobs"
+  },
+  "dependencies": {
+    "official_manifests": "Unchanged by closinglane",
+    "verification": "Private Core modfile/current local Datly; private Agently modfile normalized local consumer replaces +localDatly only. New TimestampSecondsUTC framework function requires pending publication/pin for official runtime acceptance."
+  },
+  "scope": "No new authorization policy/aliases or direct SQL; all changes uncommitted",
+  "logs": [
+    "migration/sdk-evidence/agently-closing-affected.log",
+    "migration/sdk-evidence/agently-closing-full-suite.log"
+  ],
+  "published_acceptance": {
+    "result": "PASS",
+    "datly": "v1.1.1-0.20260930202444-a59b17988b72",
+    "sqlx": "v0.26.1-0.20260929151803-0df7f08c4926",
+    "datly_sqlx_replace": false,
+    "module_tidy": "PASS GOWORK=off GOFLAGS= go mod tidy",
+    "readonly_build": "PASS GOWORK=off GOFLAGS= go build -mod=readonly ./...",
+    "full_suite": "PASS GOWORK=off GOFLAGS= OPENAI_API_KEY= go test -mod=readonly ./... -count=1",
+    "fresh_cli_boot": "PASS6.030s; forced rebuild from published deps; unchanged10s startup assertion",
+    "logs": [
+      "migration/sdk-evidence/agently-published-full-suite.log",
+      "migration/sdk-evidence/agently-published-readonly-build.log",
+      "migration/sdk-evidence/agently-published-fresh-cli.log"
+    ]
+  }
+}

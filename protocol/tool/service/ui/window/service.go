@@ -334,13 +334,7 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	descriptor := target.Window.WorkspaceObject
-	if descriptor != nil {
-		copied := *descriptor
-		meta, _ := runtimerequestctx.TurnMetaFromContext(ctx)
-		copied.LastActivatedBy = workspaceproto.Origin{TurnID: meta.TurnID, ToolCallID: runtimerequestctx.ToolMessageIDFromContext(ctx), ToolName: "ui/window/show"}
-		descriptor = &copied
-	}
+	descriptor := workspaceForShow(ctx, target.Window)
 	if windowAlreadyFocused(target.Snapshot, target.Window) && (descriptor == nil || descriptor.LastActivatedBy.TurnID == "") {
 		output.ClientID = target.ClientID
 		output.OK = true
@@ -374,6 +368,38 @@ func (s *Service) show(ctx context.Context, in, out interface{}) error {
 		Actor:          "agent",
 	})
 	return nil
+}
+
+func workspaceForShow(ctx context.Context, window *uireg.WindowSnapshot) *workspaceproto.Object {
+	if window == nil {
+		return nil
+	}
+	descriptor := window.WorkspaceObject
+	if descriptor == nil {
+		if window.Presentation != "hosted" || window.Region != "chat.top" || window.WindowKey == "" {
+			return nil
+		}
+		conversationID := window.ConversationID
+		if conversationID == "" {
+			conversationID = runtimerequestctx.ConversationIDFromContext(ctx)
+		}
+		descriptor = workspaceproto.New(ctx, window.WindowID, conversationID)
+		descriptor.Content.WindowID = window.WindowID
+		descriptor.Content.WindowKey = window.WindowKey
+		descriptor.Content.Parameters = window.Parameters
+		label := window.WindowTitle
+		if label == "" {
+			label = window.WindowKey
+		}
+		descriptor.Navigation = map[string]string{"label": label, "icon": window.Navigation["icon"]}
+	}
+	copied := *descriptor
+	meta, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+	copied.LastActivatedBy = workspaceproto.Origin{TurnID: meta.TurnID, ToolCallID: runtimerequestctx.ToolMessageIDFromContext(ctx), ToolName: "ui/window/show"}
+	if copied.Origin.TurnID == "" {
+		copied.Origin = copied.LastActivatedBy
+	}
+	return &copied
 }
 
 func (s *Service) setFormData(ctx context.Context, in, out interface{}) error {

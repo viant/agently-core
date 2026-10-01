@@ -7,13 +7,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/viant/agently-core/app/store/data"
-	aggoal "github.com/viant/agently-core/pkg/agently/goal"
-	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
+	goalsys "github.com/viant/agently-core/service/goal"
 	"github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
@@ -27,9 +25,8 @@ const (
 )
 
 type Store interface {
-	GetGoal(ctx context.Context, conversationID string, in *aggoal.GoalInput, opts ...data.Option) (*aggoal.GoalView, error)
-	PatchGoals(ctx context.Context, rows []*aggoalwrite.MutableGoalView) ([]*aggoalwrite.MutableGoalView, error)
-	DeleteGoals(ctx context.Context, ids ...string) error
+	Get(ctx context.Context, conversationID string) (*goalsys.Record, error)
+	Apply(ctx context.Context, mutation goalsys.Mutation) error
 }
 
 type Service struct {
@@ -209,7 +206,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	current, err := s.store.GetGoal(ctx, convID, nil)
+	current, err := s.store.Get(ctx, convID)
 	if err != nil {
 		return err
 	}
@@ -237,29 +234,29 @@ func (s *Service) create(ctx context.Context, in, out interface{}) error {
 	if objective == "" {
 		return fmt.Errorf("objective is required")
 	}
-	current, err := s.store.GetGoal(ctx, convID, nil)
+	current, err := s.store.Get(ctx, convID)
 	if err != nil {
 		return err
 	}
 	if current != nil {
 		return fmt.Errorf("goal already exists for current conversation")
 	}
-	row := aggoalwrite.NewMutableGoalView(
-		aggoalwrite.WithGoalID(defaultGoalID(convID)),
-		aggoalwrite.WithGoalConversationID(convID),
-		aggoalwrite.WithGoalObjective(objective),
-		aggoalwrite.WithGoalStatus(StatusActive),
-	)
+	mutation := goalsys.Mutation{
+		ID:             defaultGoalID(convID),
+		ConversationID: textField(convID),
+		Objective:      textField(objective),
+		Status:         textField(StatusActive),
+	}
 	if input.TokenBudget != nil {
-		row.SetTokenBudget(*input.TokenBudget)
+		mutation.TokenBudget = goalsys.Field[*int64]{Present: true, Value: input.TokenBudget}
 	}
 	if input.ControllerSpec != nil && strings.TrimSpace(*input.ControllerSpec) != "" {
-		row.SetControllerSpec(strings.TrimSpace(*input.ControllerSpec))
+		mutation.ControllerSpec = textField(strings.TrimSpace(*input.ControllerSpec))
 	}
-	if _, err := s.store.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+	if err := s.store.Apply(ctx, mutation); err != nil {
 		return err
 	}
-	created, err := s.store.GetGoal(ctx, convID, nil)
+	created, err := s.store.Get(ctx, convID)
 	if err != nil {
 		return err
 	}
@@ -294,23 +291,22 @@ func (s *Service) update(ctx context.Context, in, out interface{}) error {
 	if reason == "" {
 		return fmt.Errorf("reason is required")
 	}
-	current, err := s.store.GetGoal(ctx, convID, nil)
+	current, err := s.store.Get(ctx, convID)
 	if err != nil {
 		return err
 	}
 	if current == nil {
 		return fmt.Errorf("goal does not exist for current conversation")
 	}
-	s.cancelGoalWakeups(ctx, convID, current.Id)
-	row := aggoalwrite.NewMutableGoalView(
-		aggoalwrite.WithGoalID(current.Id),
-		aggoalwrite.WithGoalStatus(status),
-		aggoalwrite.WithGoalStatusReason(reason),
-	)
-	if _, err := s.store.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+	s.cancelGoalWakeups(ctx, convID, current.ID)
+	if err := s.store.Apply(ctx, goalsys.Mutation{
+		ID:           current.ID,
+		Status:       textField(status),
+		StatusReason: textField(reason),
+	}); err != nil {
 		return err
 	}
-	updated, err := s.store.GetGoal(ctx, convID, nil)
+	updated, err := s.store.Get(ctx, convID)
 	if err != nil {
 		return err
 	}
@@ -335,20 +331,19 @@ func (s *Service) pause(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	s.cancelGoalWakeups(ctx, convID, current.Id)
-	row := aggoalwrite.NewMutableGoalView(
-		aggoalwrite.WithGoalID(current.Id),
-		aggoalwrite.WithGoalStatus("paused"),
-	)
-	row.StatusReason = nil
-	row.Has.StatusReason = true
-	if reason := strings.TrimSpace(input.Reason); reason != "" {
-		row.SetPauseReason(reason)
+	s.cancelGoalWakeups(ctx, convID, current.ID)
+	mutation := goalsys.Mutation{
+		ID:           current.ID,
+		Status:       textField("paused"),
+		StatusReason: goalsys.Field[*string]{Present: true},
 	}
-	if _, err := s.store.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+	if reason := strings.TrimSpace(input.Reason); reason != "" {
+		mutation.PauseReason = textField(reason)
+	}
+	if err := s.store.Apply(ctx, mutation); err != nil {
 		return err
 	}
-	updated, err := s.store.GetGoal(ctx, convID, nil)
+	updated, err := s.store.Get(ctx, convID)
 	if err != nil {
 		return err
 	}
@@ -372,19 +367,16 @@ func (s *Service) resume(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	s.cancelGoalWakeups(ctx, convID, current.Id)
-	row := aggoalwrite.NewMutableGoalView(
-		aggoalwrite.WithGoalID(current.Id),
-		aggoalwrite.WithGoalStatus(StatusActive),
-	)
-	row.StatusReason = nil
-	row.Has.StatusReason = true
-	row.PauseReason = nil
-	row.Has.PauseReason = true
-	if _, err := s.store.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
+	s.cancelGoalWakeups(ctx, convID, current.ID)
+	if err := s.store.Apply(ctx, goalsys.Mutation{
+		ID:           current.ID,
+		Status:       textField(StatusActive),
+		StatusReason: goalsys.Field[*string]{Present: true},
+		PauseReason:  goalsys.Field[*string]{Present: true},
+	}); err != nil {
 		return err
 	}
-	updated, err := s.store.GetGoal(ctx, convID, nil)
+	updated, err := s.store.Get(ctx, convID)
 	if err != nil {
 		return err
 	}
@@ -408,10 +400,10 @@ func (s *Service) clear(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	if err := s.store.DeleteGoals(ctx, current.Id); err != nil {
+	if err := s.store.Apply(ctx, goalsys.Mutation{ID: current.ID, Delete: true}); err != nil {
 		return err
 	}
-	s.cancelGoalWakeups(ctx, current.ConversationID, current.Id)
+	s.cancelGoalWakeups(ctx, current.ConversationID, current.ID)
 	output.Cleared = true
 	s.publishGoalClearedEvent(ctx, current)
 	return nil
@@ -436,12 +428,12 @@ func conversationIDFromContext(ctx context.Context) (string, error) {
 	return "", fmt.Errorf("conversation context is required")
 }
 
-func (s *Service) currentGoal(ctx context.Context) (*aggoal.GoalView, string, error) {
+func (s *Service) currentGoal(ctx context.Context) (*goalsys.Record, string, error) {
 	convID, err := conversationIDFromContext(ctx)
 	if err != nil {
 		return nil, "", err
 	}
-	current, err := s.store.GetGoal(ctx, convID, nil)
+	current, err := s.store.Get(ctx, convID)
 	if err != nil {
 		return nil, "", err
 	}
@@ -466,7 +458,7 @@ func defaultGoalID(conversationID string) string {
 	return "goal-" + strings.TrimSpace(conversationID)
 }
 
-func (s *Service) projectGoal(conversationID string, in *aggoal.GoalView) *Goal {
+func (s *Service) projectGoal(conversationID string, in *goalsys.Record) *Goal {
 	goal := projectGoal(in)
 	if s == nil || s.schedules == nil || goal == nil {
 		return goal
@@ -488,6 +480,10 @@ func (s *Service) projectGoal(conversationID string, in *aggoal.GoalView) *Goal 
 	}
 	goal.ControllerSchedule = controllerSchedule
 	return goal
+}
+
+func textField(value string) goalsys.Field[*string] {
+	return goalsys.Field[*string]{Present: true, Value: &value}
 }
 
 func normalizeStatus(value string) string {
@@ -532,7 +528,7 @@ func (s *Service) publishGoalEvent(ctx context.Context, eventType streaming.Even
 	})
 }
 
-func (s *Service) publishGoalClearedEvent(ctx context.Context, current *aggoal.GoalView) {
+func (s *Service) publishGoalClearedEvent(ctx context.Context, current *goalsys.Record) {
 	pub, ok := modelcallctx.StreamPublisherFromContext(ctx)
 	if !ok || pub == nil {
 		return
@@ -544,7 +540,7 @@ func (s *Service) publishGoalClearedEvent(ctx context.Context, current *aggoal.G
 	}
 	goalID := ""
 	if current != nil {
-		goalID = strings.TrimSpace(current.Id)
+		goalID = strings.TrimSpace(current.ID)
 	}
 	ev := &streaming.Event{
 		Type:           streaming.EventTypeGoalCleared,
@@ -563,12 +559,12 @@ func (s *Service) publishGoalClearedEvent(ctx context.Context, current *aggoal.G
 	})
 }
 
-func projectGoal(in *aggoal.GoalView) *Goal {
+func projectGoal(in *goalsys.Record) *Goal {
 	if in == nil {
 		return nil
 	}
 	return &Goal{
-		ID:              in.Id,
+		ID:              in.ID,
 		Objective:       in.Objective,
 		Status:          in.Status,
 		StatusReason:    in.StatusReason,

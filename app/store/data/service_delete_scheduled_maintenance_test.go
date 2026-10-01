@@ -4,6 +4,10 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"github.com/viant/agently-core/app/store/native"
+	"github.com/viant/datly/bootstrap/connector"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -13,7 +17,7 @@ import (
 func TestListScheduledRunMaintenanceCandidates_UsesStructuralRelationsAndKeyset(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	cutoff := old.Add(24 * time.Hour)
-	svc, _ := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, _ := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO schedule (id, name, created_by_user_id, agent_ref) VALUES (?, ?, ?, ?)`, Params: []interface{}{"retention-schedule", "retention-schedule", "owner-1", "agent"}},
 			{SQL: `INSERT INTO run (id, schedule_id, conversation_kind, status, created_at, completed_at) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"old-failed", "retention-schedule", "scheduled", "failed", old, old}},
@@ -55,7 +59,7 @@ func TestMaintainScheduledRun_DryRunCoversGraphEmptyLegacyAndLiveness(t *testing
 	old := now.Add(-60 * 24 * time.Hour)
 	cutoff := now.Add(-30 * 24 * time.Hour)
 	recent := now.Add(-24 * time.Hour)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO schedule (id, name, created_by_user_id, agent_ref) VALUES (?, ?, ?, ?)`, Params: []interface{}{"scheduled-retention", "scheduled-retention", "owner-1", "agent"}},
 			{SQL: `INSERT INTO schedule (id, name, created_by_user_id, internal, agent_ref) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"internal-retention", "internal-retention", "owner-1", 1, "agent"}},
@@ -141,7 +145,7 @@ func TestMaintainScheduledRun_DeleteIsFencedAndKeepsSchedule(t *testing.T) {
 	}
 
 	t.Run("current lease deletes run and graph", func(t *testing.T) {
-		svc, db := newSeededServiceWithDB(t, seed)
+		svc, db := newScheduledMaintenanceServiceWithDB(t, seed)
 		result, err := svc.MaintainScheduledRun(context.Background(), ScheduledRunMaintenanceRequest{
 			RunID:           "scheduled-delete-run",
 			ExpectedOwnerID: "owner-1",
@@ -162,7 +166,7 @@ func TestMaintainScheduledRun_DeleteIsFencedAndKeepsSchedule(t *testing.T) {
 	})
 
 	t.Run("superseded lease cannot delete", func(t *testing.T) {
-		svc, db := newSeededServiceWithDB(t, seed)
+		svc, db := newScheduledMaintenanceServiceWithDB(t, seed)
 		stale := acquireTestMaintenanceLease(t, svc, "scheduled-delete-lease", "worker-a")
 		released, err := svc.ReleaseMaintenanceLease(context.Background(), stale)
 		if err != nil || !released {
@@ -187,7 +191,7 @@ func TestMaintainScheduledRun_DeleteIsFencedAndKeepsSchedule(t *testing.T) {
 
 func TestMaintainScheduledRun_ExpectedOwnerDoesNotGateSystemRetentionAndValidation(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc, _ := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, _ := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO schedule (id, name, created_by_user_id, agent_ref) VALUES (?, ?, ?, ?)`, Params: []interface{}{"scheduled-owner", "scheduled-owner", "owner-1", "agent"}},
 			{SQL: `INSERT INTO run (id, schedule_id, conversation_kind, status, created_at) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"scheduled-owner-run", "scheduled-owner", "scheduled", "failed", old}},
@@ -219,7 +223,7 @@ func TestMaintainScheduledRun_ExpectedOwnerDoesNotGateSystemRetentionAndValidati
 func TestMaintainScheduledRun_SystemRetentionDeletesGraphRegardlessOfHistoricalOwners(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	cutoff := old.Add(24 * time.Hour)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO schedule (id, name, created_by_user_id, agent_ref) VALUES (?, ?, ?, ?)`, Params: []interface{}{"system-owner-schedule", "system-owner-schedule", "schedule-owner", "agent"}},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"system-owner-root", old, old, "succeeded", nil}},
@@ -261,7 +265,7 @@ func TestMaintainScheduledRun_SystemRetentionDeletesGraphRegardlessOfHistoricalO
 func TestMaintainScheduledRun_BlocksGraphExplicitlyAssignedToAnotherScheduledRun(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	cutoff := old.Add(24 * time.Hour)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO schedule (id, name, created_by_user_id, agent_ref) VALUES (?, ?, ?, ?)`, Params: []interface{}{"scope-target-schedule", "scope-target-schedule", "owner-1", "agent"}},
 			{SQL: `INSERT INTO schedule (id, name, created_by_user_id, agent_ref) VALUES (?, ?, ?, ?)`, Params: []interface{}{"scope-other-schedule", "scope-other-schedule", "owner-2", "agent"}},
@@ -289,7 +293,7 @@ func TestMaintainScheduledRun_BlocksGraphExplicitlyAssignedToAnotherScheduledRun
 func TestMaintainScheduledRun_BlocksConversationMarkedForAnotherScheduledRun(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	cutoff := old.Add(24 * time.Hour)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO schedule (id, name, created_by_user_id, agent_ref) VALUES (?, ?, ?, ?)`, Params: []interface{}{"scope-marker-schedule", "scope-marker-schedule", "owner-1", "agent"}},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id, schedule_run_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"scope-marker-conversation", old, old, "failed", "owner-1", "different-run"}},
@@ -334,4 +338,21 @@ func tableRowCount(t *testing.T, db *sql.DB, table string) int {
 		t.Fatalf("count %s: %v", table, err)
 	}
 	return count
+}
+
+func newScheduledMaintenanceServiceWithDB(t *testing.T, seeds ...seedFn) (Service, *sql.DB) {
+	t.Helper()
+	db, path, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-scheduled-maintenance-native")
+	t.Cleanup(cleanup)
+	dbtest.LoadSQLiteSchema(t, db)
+	for _, seed := range seeds {
+		seed(t, db)
+	}
+	_, file, _, _ := runtime.Caller(0)
+	server, err := native.New(context.Background(), native.Options{SourceRoot: filepath.Join(filepath.Dir(file), "..", "..", ".."), Connectors: []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: path}}})
+	if err != nil {
+		t.Fatalf("native.New: %v", err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	return NewService(server), db
 }

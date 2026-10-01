@@ -1,3 +1,4 @@
+import type { ReportRun, ReportContext, ReportRunResult, BeginReportRunInput, CompleteReportRunInput, AdoptReportRunInput, ReportExportJob, ReportArtifact, ReportAuditEvent } from "./types";
 import type {ListSkillsInput, ListSkillsOutput, ActivateSkillInput, ActivateSkillOutput} from './types';
 /**
  * AgentlyClient — TypeScript HTTP client for agently-core SDK.
@@ -21,7 +22,7 @@ import type {
     SteerTurnInput, SteerTurnOutput, MoveQueuedTurnInput, EditQueuedTurnInput,
     SSEEvent, StreamEventsInput,
     PendingElicitation, ResolveElicitationInput,
-    PendingToolApproval, DecideToolApprovalInput, DecideToolApprovalOutput,
+    PendingToolApproval, PendingToolApprovalPage, DecideToolApprovalInput, DecideToolApprovalOutput,
     FileEntry, UploadFileOutput,
     Resource, ResourceRef, RunView,
     Schedule, ScheduleListOutput,
@@ -39,6 +40,8 @@ import type {
     ListUIEventsInput, ListUIEventsOutput,
 } from './types';
 import { HttpError } from './errors';
+import { FetchEventSource } from './fetchEventSource';
+import { conversationDTO, messageDTO, transcriptDTO } from './wireDTO';
 import { normalizeStreamEventIdentity } from './streamIdentity';
 
 // ─── Options ───────────────────────────────────────────────────────────────────
@@ -78,7 +81,8 @@ export interface ClientOptions {
     sessionDebug?: SessionDebugOptions;
 }
 
-type RequestBody = JSONValue | undefined;
+// DTO interfaces need not declare a string index signature to be JSON encoded.
+type RequestBody = JSONValue | object | undefined;
 type APIResponse = JSONValue | undefined;
 
 // ─── Client ────────────────────────────────────────────────────────────────────
@@ -142,9 +146,9 @@ export class AgentlyClient {
         if (input?.status) q.set('status', input.status);
         this.applyPage(q, input?.page);
         const out = await this.get<ConversationPage | { Rows?: Conversation[]; NextCursor?: string; PrevCursor?: string; HasMore?: boolean }>('/conversations', q);
-        if (Array.isArray(out?.Rows)) {
+        if (out && 'Rows' in out && Array.isArray(out.Rows)) {
             return {
-                data: out.Rows,
+                data: out.Rows.map(conversationDTO),
                 page: {
                     cursor: out.NextCursor,
                     prevCursor: out.PrevCursor,
@@ -154,12 +158,13 @@ export class AgentlyClient {
                 },
             };
         }
-        return out;
+        const page = out as ConversationPage;
+        return { ...page, data: page.data.map(conversationDTO) };
     }
 
     /** Get a single conversation by ID. */
     async getConversation(id: string): Promise<Conversation> {
-        return this.get<Conversation>(`/conversations/${enc(id)}`);
+        return conversationDTO(await this.get<Conversation>(`/conversations/${enc(id)}`));
     }
 
     /** Update mutable conversation fields such as visibility and shareability. */
@@ -217,16 +222,17 @@ export class AgentlyClient {
         if (input.types?.length) q.set('types', input.types.join(','));
         this.applyPage(q, input.page);
         const out = await this.get<MessagePage | { Rows?: Message[]; NextCursor?: string; HasMore?: boolean }>('/messages', q);
-        if (Array.isArray(out?.Rows)) {
+        if (out && 'Rows' in out && Array.isArray(out.Rows)) {
             return {
-                data: out.Rows,
+                data: out.Rows.map(messageDTO),
                 page: {
                     cursor: out.NextCursor,
                     hasMore: out.HasMore,
                 },
             };
         }
-        return out;
+        const page = out as MessagePage;
+        return { ...page, data: page.data.map(messageDTO) };
     }
 
     // ── Transcript ───────────────────────────────────────────────────────────
@@ -260,7 +266,7 @@ export class AgentlyClient {
         if (Object.keys(selectors).length > 0) {
             q.set('selectors', JSON.stringify(selectors));
         }
-        return this.get<TranscriptOutput>(`/conversations/${enc(input.conversationId)}/transcript`, q);
+        return transcriptDTO(await this.get<TranscriptOutput>(`/conversations/${enc(input.conversationId)}/transcript`, q));
     }
 
     /** Get the compact authoritative live snapshot and event cursor before joining SSE. */
@@ -272,7 +278,7 @@ export class AgentlyClient {
         if (options?.selectors && Object.keys(options.selectors).length > 0) {
             q.set('selectors', JSON.stringify(options.selectors));
         }
-        return this.get<TranscriptOutput>(`/conversations/${enc(input.conversationId)}/live-state`, q);
+        return transcriptDTO(await this.get<TranscriptOutput>(`/conversations/${enc(input.conversationId)}/live-state`, q));
     }
 
     // ── Query ────────────────────────────────────────────────────────────────
@@ -383,10 +389,12 @@ export class AgentlyClient {
         },
     ): { close: () => void } {
         const url = `${this.baseURL}/stream?conversationId=${enc(conversationId)}`;
-        const es = new EventSource(url, { withCredentials: this.useCookies });
+        const es = this.tokenProvider || Object.keys(this.staticHeaders).length > 0
+            ? new FetchEventSource(url, this.fetchImpl, () => this.authHeaders(), this.useCookies ? 'include' : 'same-origin')
+            : new EventSource(url, { withCredentials: this.useCookies });
         let closed = false;
 
-        es.onmessage = (ev) => {
+        es.onmessage = (ev: { data: string }) => {
             if (closed) return;
             try {
                 const parsed: SSEEvent = JSON.parse(ev.data);
@@ -477,7 +485,7 @@ export class AgentlyClient {
     async listPendingElicitations(conversationId: string): Promise<PendingElicitation[]> {
         const q = new URLSearchParams({ conversationId });
         const out = await this.get<PendingElicitation[] | { rows?: PendingElicitation[] }>('/elicitations', q);
-        if (Array.isArray(out?.rows)) return out.rows;
+        if (out && !Array.isArray(out) && 'rows' in out && Array.isArray(out.rows)) return out.rows;
         if (Array.isArray(out)) return out;
         return [];
     }
@@ -521,10 +529,10 @@ export class AgentlyClient {
         if (input?.userId) q.set('userId', input.userId);
         if (input?.conversationId) q.set('conversationId', input.conversationId);
         if (input?.status) q.set('status', input.status);
-        if (Number.isFinite(input?.limit) && Number(input.limit) > 0) q.set('limit', String(Math.floor(Number(input.limit))));
-        if (Number.isFinite(input?.offset) && Number(input.offset) >= 0) q.set('offset', String(Math.floor(Number(input.offset))));
+        if (Number.isFinite(input?.limit) && Number(input?.limit) > 0) q.set('limit', String(Math.floor(Number(input?.limit))));
+        if (Number.isFinite(input?.offset) && Number(input?.offset) >= 0) q.set('offset', String(Math.floor(Number(input?.offset))));
         if (input?.outcomeSince) q.set('outcomeSince', input.outcomeSince);
-        const out = await this.get<PendingToolApprovalPage | PendingToolApproval[] | { data?: PendingToolApproval[]; rows?: PendingToolApproval[]; total?: number; offset?: number; limit?: number; hasMore?: boolean }>('/tool-approvals/pending', q);
+        const out = await this.get<PendingToolApprovalPage | PendingToolApproval[] | { data?: PendingToolApproval[]; rows?: PendingToolApproval[]; total?: number; offset?: number; limit?: number; hasMore?: boolean; outcomes?: NonNullable<DecideToolApprovalOutput['outcome']>[]; outcomeCursor?: string }>('/tool-approvals/pending', q);
         if (Array.isArray(out)) {
             return {
                 rows: out,
@@ -535,7 +543,7 @@ export class AgentlyClient {
                 outcomeCursor: '',
             };
         }
-        const rows = Array.isArray(out?.rows) ? out.rows : (Array.isArray(out?.data) ? out.data : []);
+        const rows = out && !Array.isArray(out) && 'rows' in out && Array.isArray(out.rows) ? out.rows : ('data' in out && Array.isArray(out.data) ? out.data : []);
         return {
             rows,
             total: Number(out?.total || rows.length) || 0,
@@ -566,6 +574,38 @@ export class AgentlyClient {
         return this.post<DecideToolApprovalOutput>(`/tool-approvals/${enc(id)}/decision`, input);
     }
 
+    // Browser report lifecycle and reporting tools.
+    async beginReportRun(input: BeginReportRunInput): Promise<ReportRunResult> {
+        return this.post('/api/report-runs/begin', input);
+    }
+    async getReportRun(id: string, conversationId?: string): Promise<ReportRun> {
+        const query = new URLSearchParams(); if (conversationId) query.set('conversationId', conversationId);
+        return this.get(`/api/report-runs/${enc(id)}`, query);
+    }
+    async getReportContext(conversationId: string): Promise<ReportContext> {
+        return this.get(`/api/report-runs/context/${enc(conversationId)}`);
+    }
+    async completeReportRun(id: string, input: CompleteReportRunInput): Promise<ReportRun> {
+        return this.post(`/api/report-runs/${enc(id)}/complete`, input);
+    }
+    async adoptReportRun(id: string, input: AdoptReportRunInput): Promise<ReportRunResult> {
+        return this.post(`/api/report-runs/${enc(id)}/adopt`, input);
+    }
+    async submitReportRunExport(reportRunId: string, options: { conversationId: string; exportRequestId: string }): Promise<ReportExportJob> {
+        const query = new URLSearchParams({ conversationId: options.conversationId });
+        const result = await this.request<{ result: string }>('POST', `${this.baseURL}/tools/reporting:submit_export/execute?${query}`, { reportRunId, format: 'pdf' }, { 'X-Agently-Export-Request-ID': options.exportRequestId });
+        return JSON.parse(result.result) as ReportExportJob;
+    }
+    async getReportExportStatus(jobId: string, conversationId?: string): Promise<ReportExportJob> {
+        return JSON.parse(await this.executeTool('reporting:get_export_status', { jobId }, { conversationId })) as ReportExportJob;
+    }
+    async getReportArtifact(artifactId: string, conversationId?: string): Promise<ReportArtifact> {
+        return JSON.parse(await this.executeTool('reporting:get_artifact', { artifactId }, { conversationId })) as ReportArtifact;
+    }
+    async recordReportAuditEvent(event: ReportAuditEvent, conversationId?: string): Promise<ReportAuditEvent> {
+        return JSON.parse(await this.executeTool('reporting:record_audit_event', { event: event as unknown as JSONObject }, { conversationId })) as ReportAuditEvent;
+    }
+
     // ── Tools ────────────────────────────────────────────────────────────────
 
     /** Execute a registered tool by name. */
@@ -574,7 +614,9 @@ export class AgentlyClient {
         if (options?.conversationId) q.set('conversationId', options.conversationId);
         const url = q.toString() ? `/tools/${enc(name)}/execute?${q.toString()}` : `/tools/${enc(name)}/execute`;
         const res = await this.post<JSONValue | undefined>(url, args ?? {});
-        return typeof res === 'string' ? res : (res?.result ?? JSON.stringify(res));
+        if (typeof res === 'string') return res;
+        const result = res && isJSONObject(res) ? res.result : undefined;
+        return typeof result === 'string' ? result : JSON.stringify(result ?? res);
     }
 
     /** List recent structured UI events for a conversation/client/window scope. */
@@ -589,7 +631,7 @@ export class AgentlyClient {
         return {
             conversationId: String(output.conversationId || conversationId),
             clientId: typeof output.clientId === 'string' ? output.clientId : filters.clientId,
-            events: Array.isArray(output.events) ? output.events as ListUIEventsOutput['events'] : [],
+            events: Array.isArray(output.events) ? output.events.filter(isJSONObject) as unknown as ListUIEventsOutput['events'] : [],
         };
     }
 
@@ -681,8 +723,8 @@ export class AgentlyClient {
     async listFiles(conversationId: string): Promise<FileEntry[]> {
         const q = new URLSearchParams({ conversationId });
         const out = await this.get<FileEntry[] | { files?: FileEntry[]; Files?: FileEntry[] }>('/files', q);
-        if (Array.isArray(out?.files)) return out.files;
-        if (Array.isArray(out?.Files)) return out.Files;
+        if (out && !Array.isArray(out) && 'files' in out && Array.isArray(out.files)) return out.files;
+        if (out && !Array.isArray(out) && 'Files' in out && Array.isArray(out.Files)) return out.Files;
         if (Array.isArray(out)) return out;
         return [];
     }
@@ -791,7 +833,7 @@ export class AgentlyClient {
         const q = new URLSearchParams();
         if (agentIds?.length) q.set('ids', agentIds.join(','));
         const out = await this.get<string[] | { agents?: string[] }>('/api/a2a/agents', q);
-        if (Array.isArray(out?.agents)) return out.agents;
+        if (out && !Array.isArray(out) && 'agents' in out && Array.isArray(out.agents)) return out.agents;
         if (Array.isArray(out)) return out;
         return [];
     }
@@ -973,7 +1015,7 @@ export class AgentlyClient {
         if (input.parentTurnId) q.set('parentTurnId', input.parentTurnId);
         this.applyPage(q, input.page);
         const out = await this.get<LinkedConversationPage | { Rows?: LinkedConversationPage['data']; NextCursor?: string; PrevCursor?: string; HasMore?: boolean } | { rows?: LinkedConversationPage['data']; nextCursor?: string; prevCursor?: string; cursor?: string; hasMore?: boolean }>('/conversations/linked', q);
-        if (Array.isArray(out?.Rows)) {
+        if (out && 'Rows' in out && Array.isArray(out.Rows)) {
             return {
                 data: out.Rows,
                 page: {
@@ -983,7 +1025,7 @@ export class AgentlyClient {
                 },
             };
         }
-        if (Array.isArray(out?.rows)) {
+        if (out && !Array.isArray(out) && 'rows' in out && Array.isArray(out.rows)) {
             return {
                 data: out.rows,
                 page: {
@@ -993,7 +1035,7 @@ export class AgentlyClient {
                 },
             };
         }
-        return out;
+        return out as LinkedConversationPage;
     }
 
     // ── Auth ─────────────────────────────────────────────────────────────────
@@ -1001,7 +1043,7 @@ export class AgentlyClient {
     /** List available auth providers (local, bff, oidc, jwt). */
     async getAuthProviders(): Promise<AuthProvider[]> {
         const out = await this.get<AuthProvider[] | { providers?: AuthProvider[] }>('/api/auth/providers');
-        if (Array.isArray(out?.providers)) return out.providers;
+        if (out && !Array.isArray(out) && 'providers' in out && Array.isArray(out.providers)) return out.providers;
         if (Array.isArray(out)) return out;
         return [];
     }
@@ -1263,15 +1305,16 @@ export class AgentlyClient {
                 });
 
                 if (!resp.ok) {
-                    lastErr = await this.toHttpError(resp);
+                    const httpError = await this.toHttpError(resp);
+                    lastErr = httpError;
                     if (this.shouldRetry(method, resp.status) && attempt < maxAttempts) {
                         await sleep(this.retryDelayMs);
                         continue;
                     }
-                    if (lastErr.status === 401) {
-                        this.onUnauthorizedHook?.(lastErr);
+                    if (httpError.status === 401) {
+                        this.onUnauthorizedHook?.(httpError);
                     } else {
-                        this.onErrorHook?.(lastErr);
+                        this.onErrorHook?.(httpError);
                     }
                     throw lastErr;
                 }

@@ -1,0 +1,84 @@
+{
+  "status": "ROOT AUTH TOKEN STORE + NATIVE OAUTH STATE MYSQL ACCEPTANCE PASS ON PUBLISHED DEPENDENCIES",
+  "components": {
+    "reader": "dql/oauth/token/read/reader.dql",
+    "writer": "dql/oauth/token/write/writer.dql",
+    "hook": "internal/datly/oauth/token/write/lifecycle.go"
+  },
+  "current_mysql_acceptance": {
+    "result": "PASS",
+    "seconds": 5.999,
+    "evidence": "oauth-mysql-acceptance-validation.json",
+    "scope": "Root encrypted token/provider metadata and native state consume/replay with real independent connector pools"
+  },
+  "published_datly": "v1.1.1-0.20260930202444-a59b17988b72",
+  "root_app_acceptance": "Current root Core and Agently published builds/suites pass; SDK actual route/client results tracked in client-sdk-cutover-validation.json and agently-closing-validation.json.",
+  "verified_behavior": [
+    "Provider-filtered canonical read exposes version, lease owner/until and refresh status while marking ciphertext internal.",
+    "Native writer clear preserves the audit row, increments version and resets lease state.",
+    "Native writer ciphertext migration compares old ciphertext atomically and conflicts on stale input.",
+    "Native release checks owner and clears the lease without changing version.",
+    "Native CAS put compares version and owner, advances version and resets lease; stale version conflicts.",
+    "Clear joins a caller-owned transaction; rollback restores ciphertext/version.",
+    "Original SDK0 insert/update parity remains for the ordinary upsert mode.",
+    "Native claim uses a dialect-aware database UTC clock predicate; idle and expired leases succeed, live leases conflict.",
+    "Generated reader carries a database UTC clock string, avoiding the application clock for lease expiry derivation."
+  ],
+  "remaining_mysql_gap": [],
+  "historical_checkpoint": {
+    "status": "ROOT AUTH TOKEN STORE SOURCE CUT OVER; ROOT AUTH SUITE PASSES; APP/MYSQL PENDING",
+    "components": {
+      "reader": "datlyv1/dql/agently/user/oauth/token/reader/reader.dql",
+      "writer": "datlyv1/dql/agently/user/oauth/write/writer.dql",
+      "hook": "datlyv1/generated/agently/user/oauth/write/lifecycle.go"
+    },
+    "verified_behavior": [
+      "Provider-filtered canonical read exposes version, lease owner/until and refresh status while marking ciphertext internal.",
+      "Native writer clear preserves the audit row, increments version and resets lease state.",
+      "Native writer ciphertext migration compares old ciphertext atomically and conflicts on stale input.",
+      "Native release checks owner and clears the lease without changing version.",
+      "Native CAS put compares version and owner, advances version and resets lease; stale version conflicts.",
+      "Clear joins a caller-owned transaction; rollback restores ciphertext/version.",
+      "Original SDK0 insert/update parity remains for the ordinary upsert mode.",
+      "Native claim uses a dialect-aware database UTC clock predicate; idle and expired leases succeed, live leases conflict.",
+      "Generated reader carries a database UTC clock string, avoiding the application clock for lease expiry derivation."
+    ],
+    "validation": {
+      "focused": {
+        "command": "GOWORK=off go test -mod=readonly -count=1 ./tests -run ^(TestOAuthTokenNativeMutationModes|TestOAuthTokenReaderProviderAndLeaseState)$",
+        "status": "passed after dialect propagation and clock string mapping",
+        "scope": "Native claim, guarded clear/migrate/release/CAS, database clock read, and unchanged audit state on conflicts."
+      },
+      "endly": {
+        "status": "passed",
+        "elapsed_ms": 232930,
+        "nested_test_seconds": 174.949,
+        "log": "/tmp/agently-v1-endly-auth-native.log",
+        "scope": "58/58 transcription, byte-stable regeneration, boundary audit, nested package suite and linked host build after explicit MySQL/SQLite dialect registration."
+      },
+      "framework": {
+        "command": "go test -mod=readonly ./sql/fragment ./sql/template ./sql/dml ./runtime/handler/writer ./runtime/handler/engine ./runtime/predicate/velty",
+        "status": "passed"
+      },
+      "root_auth": {
+        "command": "go test -mod=readonly -modfile=<scratch root module> -count=1 ./service/auth",
+        "status": "passed",
+        "seconds": 35.104,
+        "scope": "Full root auth package including native token encryption, provider fallback, prior-salt migration, lease, CAS, link state, session and user fixture paths."
+      },
+      "provider_width": {
+        "status": "SQLite passed through Datly standalone.InspectColumn and SQLX metadata; MySQL live width still unverified",
+        "source": "datly/standalone/schema.go"
+      }
+    },
+    "remaining": [
+      "Run MySQL provider-width, lease contention and CAS tests against an isolated database.",
+      "Build root Core and Agently app after remaining SDK0 imports/direct product SQL are removed.",
+      "Verify public Go/TypeScript/Kotlin/Swift auth/error contracts and root application routes against SDK1."
+    ],
+    "root_token_store_direct_sql_removed": true,
+    "datly_framework_commit": "78d369b9",
+    "pushed": false,
+    "datly_schema_metadata_commit": "876dee97"
+  }
+}

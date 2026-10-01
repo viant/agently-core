@@ -1,0 +1,11 @@
+id: resources
+title: Resources
+description: Inspect, read, present, and export uploaded assets or absolute resource URIs
+priority: 80
+match:
+  - name: "resources:inspect"
+  - name: "resources:read"
+  - name: "resources:readImage"
+  - name: "resources:export"
+  - name: "resources:list"
+  - name: "resources:roots"

@@ -1,0 +1,45 @@
+{
+  "layout": "Single Core module; dql/internal-datly/internal-store; public DTO/SDK paths retained",
+  "go_callers": {
+    "result": "PASS",
+    "sdk_seconds": 33.162,
+    "app_server_seconds": 45.603,
+    "reporting_store_seconds": 29.991,
+    "reporting_service_seconds": 3.958,
+    "actual_application_fixture_seconds": 46.002
+  },
+  "actual_clients": {
+    "typescript": {
+      "result": "PASS",
+      "files": 34,
+      "tests": 413,
+      "seconds": 4.12,
+      "note": "First parallel run exceeded default5s in2 HTTP cases under concurrent compilation; unchanged assertions/timeouts passed full isolated rerun"
+    },
+    "swift": {
+      "result": "PASS",
+      "tests": 91,
+      "test_seconds": 8.073
+    },
+    "android": {
+      "result": "PASS",
+      "tests": 97,
+      "skipped": 0,
+      "build_seconds": 74
+    },
+    "scope": "Fresh actual native application server, isolated root workspace, per-client report/queue fixtures; JSON/auth/SSE/report/adopt/export/audit/artifact/queue SDK methods"
+  },
+  "mysql": {
+    "result": "PASS",
+    "independent_reporting_store_seconds": 27.552,
+    "caller_snapshot_commit_rollback_seconds": 2.309
+  },
+  "credentials": "Private fixture token/config files loaded without logging; omitted from evidence",
+  "logs": [
+    "migration/sdk-evidence/root-layout-go-callers.log",
+    "migration/sdk-evidence/root-layout-typescript.log",
+    "migration/sdk-evidence/root-layout-swift.log",
+    "migration/sdk-evidence/root-layout-android.log",
+    "migration/sdk-evidence/root-layout-mysql-report.log"
+  ]
+}

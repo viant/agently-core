@@ -1,0 +1,34 @@
+{
+  "layout": "Root dql/, internal/datly contract leaves, internal/store compositions, root cmd/tools/scripts/e2e",
+  "stock_cli_build": {
+    "result": "PASS",
+    "selected_modfile": "/tmp/agently-single-module-framework/go.mod",
+    "staging": "ignored root bin temporary sources +private cli.mod/sum; no framework source retained, no application go.mod mutation",
+    "business_imports": [
+      "internal/datly/predicate",
+      "internal/datly/codec"
+    ]
+  },
+  "inventory": {
+    "contracts": 62,
+    "artifacts": 823,
+    "source": "migration/package-relocation-map.json",
+    "scope": "exact mapped generated leaves; authored lifecycle/hooks included; authored host/support/store excluded"
+  },
+  "checks": {
+    "python_compile": "PASS",
+    "inventory_safety_tests": "3 PASS",
+    "boundary_check": "PASS",
+    "root_cmd_build": "PASS",
+    "endly_build": "PASS10.024s",
+    "regeneration": "PASS62/62; preserved823 mapped artifacts including authored hooks",
+    "stock_transcription": "PASS62/62 by root sole generator",
+    "endly_full": "First full native workflow failed isolated legacy probe because inherited GOFLAGS selected SDK1 modfile; root corrected harness to clear GOFLAGS and is rerunning. Tooling transcribe/regeneration/boundary stages passed."
+  },
+  "workflows": {
+    "native": "e2e/datly/run.yaml; focused internal/datly/contracttest, internal/store/... and app/store/native",
+    "core": "e2e/datly/core.yaml; separate full Core suite",
+    "entry": "e2e/datly.yaml"
+  },
+  "contract_shapes": "PASS62 explicit DQL input/output settings and matching emitted structs; detailed input semantics separate SDK audit"
+}

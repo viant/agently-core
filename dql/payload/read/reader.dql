@@ -1,0 +1,85 @@
+#package('github.com/viant/agently-core/internal/datly/payload/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/payload','GET'))
+#setting($_ = $input_type('PayloadRowsInput'))
+#setting($_ = $output_type('PayloadRowsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $LockRows<bool>(payloadaccess/lock).Optional())
+#define($_ = $Status<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $Metrics<?>(output/metrics))
+#define($_ = $TenantID<string>(path/tenantId).Optional().WithPredicate(0,'in','p','tenant_id'))
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'in','p','id'))
+#define($_ = $Ids<[]string>(query/ids).Optional().WithPredicate(0,'in','p','id'))
+#define($_ = $Kind<string>(query/kind).Optional().WithPredicate(0,'in','p','kind'))
+#define($_ = $Digest<string>(query/digest).Optional().WithPredicate(0,'in','p','digest'))
+#define($_ = $Storage<string>(query/storage).Optional().WithPredicate(0,'in','p','storage'))
+#define($_ = $MimeType<string>(query/mime_type).Optional().WithPredicate(0,'in','p','mime_type'))
+#define($_ = $Since<time.Time>(query/since).Optional().WithPredicate(0,'greater_or_equal','p','created_at'))
+#define($_ = $Fields<[]string>(query/_fields).Optional().QuerySelector('reader'))
+#define($_ = $OrderBy<string>(query/_orderBy).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/_limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/_offset).Optional().QuerySelector('reader'))
+#define($_ = $Page<int>(query/_page).Optional().QuerySelector('reader'))
+#define($_ = $Criteria<string>(query/_criteria).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*PayloadRowsView>(output/view))
+
+SELECT payload_rows.id,
+       payload_rows.tenant_id,
+       payload_rows.kind,
+       payload_rows.subtype,
+       payload_rows.mime_type,
+       payload_rows.size_bytes,
+       payload_rows.digest,
+       payload_rows.storage,
+       payload_rows.inline_body,
+       payload_rows.uri,
+       payload_rows.compression,
+       payload_rows.encryption_kms_key_id,
+       payload_rows.redaction_policy_version,
+       payload_rows.redacted,
+       payload_rows.created_at,
+       payload_rows.schema_ref,
+       type(payload_rows,'PayloadRowsView'),
+       allowed_order_by_columns(payload_rows,'id,created_at,size_bytes'),
+       CAST(payload_rows.id AS string),
+       CAST(payload_rows.tenant_id AS *string),
+       CAST(payload_rows.kind AS string),
+       CAST(payload_rows.subtype AS *string),
+       CAST(payload_rows.mime_type AS string),
+       CAST(payload_rows.size_bytes AS int),
+       CAST(payload_rows.digest AS *string),
+       CAST(payload_rows.storage AS string),
+       CAST(payload_rows.inline_body AS *string),
+       CAST(payload_rows.uri AS *string),
+       CAST(payload_rows.compression AS string),
+       CAST(payload_rows.encryption_kms_key_id AS *string),
+       CAST(payload_rows.redaction_policy_version AS *string),
+       CAST(payload_rows.redacted AS int),
+       CAST(payload_rows.created_at AS time.Time),
+       CAST(payload_rows.schema_ref AS *string)
+FROM (
+SELECT
+    p.id,
+    p.tenant_id,
+    p.kind,
+    p.subtype,
+    p.mime_type,
+    p.size_bytes,
+    p.digest,
+    p.storage,
+    p.inline_body,
+    p.uri,
+    p.compression,
+    p.encryption_kms_key_id,
+    p.redaction_policy_version,
+    p.redacted,
+    p.created_at,
+    p.schema_ref
+  FROM call_payload p
+  ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+) payload_rows
+
+#if($LockRows) ${View.ForUpdate()} #end

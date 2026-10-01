@@ -1,0 +1,1 @@
+SELECT ArtifactId AS ArtifactId FROM `/`

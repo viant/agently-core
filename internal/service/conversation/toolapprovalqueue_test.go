@@ -3,7 +3,10 @@ package conversation
 import (
 	"context"
 	"database/sql"
+	queueoutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
+	"github.com/viant/xdatly/state"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	authctx "github.com/viant/agently-core/internal/auth"
@@ -11,8 +14,7 @@ import (
 	queuecount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
 	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
 	queuewrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -174,9 +176,7 @@ func newQueueService(t *testing.T, seeds ...queueSeedFn) *Service {
 	}
 
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	require.NoError(t, err)
-	require.NoError(t, dao.AddConnectors(ctx, view.NewConnector("agently", "sqlite", dbPath)))
+	dao := testNativeInvoker(t, dbPath)
 
 	svc, err := New(ctx, dao)
 	require.NoError(t, err)
@@ -187,4 +187,29 @@ func seedQueueUser(t *testing.T, db *sql.DB, userID string) {
 	t.Helper()
 	_, err := db.Exec(`INSERT INTO users (id, username) VALUES (?, ?)`, userID, userID)
 	require.NoError(t, err)
+}
+
+func TestService_ToolApprovalQueue_NativeSelectorsAndOutcomes(t *testing.T) {
+	svc := newQueueService(t, func(t *testing.T, db *sql.DB) {
+		seedQueueUser(t, db, "u1")
+		seedQueueUser(t, db, "u2")
+		for _, row := range []struct{ id, owner, status string }{{"own-a", "u1", "approved"}, {"own-b", "u1", "pending"}, {"other", "u2", "approved"}} {
+			_, err := db.Exec(`INSERT INTO tool_approval_queue (id, user_id, tool_name, title, arguments, status, created_at, approved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, row.id, row.owner, "system/exec", "Title", []byte(`{"cmd":"echo ok"}`), row.status, "2026-01-01T10:00:00Z", "2026-01-02T10:00:00Z")
+			require.NoError(t, err)
+		}
+	})
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})
+	selector := &state.NamedSelector{Name: "queue_rows", Selector: state.Selector{OrderBy: "id ASC", Limit: 1, Fields: []string{"id"}}}
+	rows, err := svc.ListToolApprovalQueuesWithSelectors(ctx, nil, selector)
+	require.NoError(t, err)
+	require.Len(t, rows, 1)
+	require.Equal(t, "own-a", rows[0].Id)
+	require.Nil(t, rows[0].Arguments)
+	require.Equal(t, "queue_rows", selector.Name)
+	require.Equal(t, []string{"id"}, selector.Fields)
+	outcomes, err := svc.ListToolApprovalOutcomes(ctx, &queueoutcome.OutcomeRowsInput{Since: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), Has: &queueoutcome.OutcomeRowsInputHas{Since: true}})
+	require.NoError(t, err)
+	require.Len(t, outcomes, 1)
+	require.Equal(t, "own-a", outcomes[0].Id)
+	require.NotNil(t, outcomes[0].TransitionAt)
 }

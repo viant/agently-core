@@ -1,0 +1,98 @@
+#package('github.com/viant/agently-core/internal/datly/turn/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/turn/list/list','GET'))
+#setting($_ = $input_type('TurnRowsInput'))
+#setting($_ = $output_type('TurnRowsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $ReadMode<string>(turnAccess/mode).Required())
+#define($_ = $LockRows<bool>(turnAccess/lock).Optional())
+#define($_ = $ConversationID<string>(query/conversationId).Optional().WithPredicate(0,'equal','t','conversation_id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','t','conversation_id'))
+#define($_ = $GoalIDs<[]string>(query/goalIds).Optional().WithPredicate(0,'in','t','goal_id'))
+#define($_ = $TurnId<string>(query/id).Optional().WithPredicate(0,'equal','t','id'))
+#define($_ = $Statuses<[]string>(query/statuses).Optional().WithPredicate(0,'in','t','status'))
+#define($_ = $CreatedSince<time.Time>(query/createdSince).Optional().WithPredicate(0,'greater_or_equal','t','created_at'))
+#define($_ = $CreatedBefore<time.Time>(query/createdBefore).Optional().WithPredicate(0,'less_or_equal','t','created_at'))
+#define($_ = $CursorBefore<string>(query/cursorBefore).Optional().WithPredicate(0,'expr','EXISTS (SELECT 1 FROM turn x WHERE x.id = ? AND (t.created_at < x.created_at OR (t.created_at = x.created_at AND t.id < x.id)))'))
+#define($_ = $CursorAfter<string>(query/cursorAfter).Optional().WithPredicate(0,'expr','EXISTS (SELECT 1 FROM turn x WHERE x.id = ? AND (t.created_at > x.created_at OR (t.created_at = x.created_at AND t.id > x.id)))'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $StartedByMessageIDs<[]string>(query/startedByMessageIds).Optional().WithPredicate(0,'in','t','started_by_message_id'))
+#define($_ = $RetryOfIDs<[]string>(query/retryOfIds).Optional().WithPredicate(0,'in','t','retry_of'))
+#define($_ = $Data<[]*TurnRowsView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true"'))
+
+SELECT turn_rows.cleanup_status,
+       CAST(turn_rows.cleanup_status AS string), internal(turn_rows.cleanup_status), tag(turn_rows.cleanup_status,'json:"-"'),
+       turn_rows.id,
+       turn_rows.conversation_id,
+       turn_rows.created_at,
+       turn_rows.queue_seq,
+       turn_rows.status,
+       turn_rows.error_message,
+       turn_rows.started_by_message_id,
+       turn_rows.retry_of,
+       turn_rows.agent_id_used,
+       turn_rows.agent_config_used_id,
+       turn_rows.model_override_provider,
+       turn_rows.model_override,
+       turn_rows.model_params_override,
+       turn_rows.run_id,
+       type(turn_rows,'TurnRowsView'),
+       CAST(turn_rows.id AS string),
+       CAST(turn_rows.conversation_id AS string),
+       CAST(turn_rows.created_at AS time.Time),
+       CAST(turn_rows.queue_seq AS *int),
+       CAST(turn_rows.status AS string),
+       CAST(turn_rows.error_message AS *string),
+       CAST(turn_rows.started_by_message_id AS *string),
+       CAST(turn_rows.retry_of AS *string),
+       CAST(turn_rows.agent_id_used AS *string),
+       CAST(turn_rows.agent_config_used_id AS *string),
+       CAST(turn_rows.model_override_provider AS *string),
+       CAST(turn_rows.model_override AS *string),
+       CAST(turn_rows.model_params_override AS *string),
+       CAST(turn_rows.run_id AS *string)
+FROM (
+SELECT
+        t.id,
+        t.conversation_id,
+        t.created_at,
+        t.queue_seq,
+        t.status,
+        LOWER(TRIM(COALESCE(t.status,''))) AS cleanup_status,
+        t.error_message,
+        t.started_by_message_id,
+        t.retry_of,
+        t.agent_id_used,
+        t.agent_config_used_id,
+        t.model_override_provider,
+        t.model_override,
+        t.model_params_override,
+        t.run_id
+    FROM turn t
+    WHERE 1=1
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
+    AND ($ReadMode <> 'queued' OR t.status='queued')
+    AND ($ReadMode <> 'active' OR t.id=(
+      SELECT t.id FROM turn t WHERE t.status IN ('running','waiting_for_user')
+      ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+      ORDER BY t.created_at DESC,t.id DESC LIMIT 1))
+    AND ($ReadMode <> 'nextQueued' OR t.id=(
+      SELECT t.id FROM turn t WHERE t.status='queued'
+      ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+      ORDER BY COALESCE(t.queue_seq,-1),t.created_at,t.id LIMIT 1))
+    AND ($ReadMode <> 'byId' OR t.id=(
+      SELECT t.id FROM turn t WHERE 1=1
+      ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+      LIMIT 1))
+    ORDER BY CASE WHEN $LockRows THEN t.id END ASC, CASE WHEN $ReadMode IN ('queued','nextQueued') THEN COALESCE(t.queue_seq,-1) END ASC,
+      CASE WHEN $ReadMode IN ('queued','nextQueued') THEN t.created_at END ASC,
+      CASE WHEN $ReadMode IN ('queued','nextQueued') THEN t.id END ASC,
+      CASE WHEN $ReadMode NOT IN ('queued','nextQueued') THEN t.created_at END DESC,
+      CASE WHEN $ReadMode NOT IN ('queued','nextQueued') THEN t.id END DESC
+    #if($LockRows) ${View.ForUpdate()} #end
+) turn_rows

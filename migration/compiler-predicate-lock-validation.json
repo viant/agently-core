@@ -1,0 +1,26 @@
+{
+  "local_datly_commit": "18944e76",
+  "package": "github.com/viant/datly/transcribe/compile",
+  "command": "go test ./transcribe/compile -count=1",
+  "passed": true,
+  "duration_seconds": 4.32,
+  "coverage": [
+    "dynamic WHERE predicate followed by conditional lock with and without ordering",
+    "retained original executable source after projection rewrites",
+    "existing compiler package regression suite"
+  ],
+  "combined_generation": {
+    "passed": 62,
+    "total": 62,
+    "log": "/tmp/agently-v1-combined-62-final.log"
+  },
+  "session_source": "Filter and lock inner session-only physical source before joining user projections. SQLParser join post-clause has no template suffix extension recovery; no raw SQL fallback or generated support edit.",
+  "published_datly": "v1.1.1-0.20260930170220-8ffc43d3f264",
+  "local_framework_only": [
+    "27b30088",
+    "18944e76"
+  ],
+  "limitations": [
+    "No real-server or MySQL contention conclusion from compiler/generation evidence."
+  ]
+}

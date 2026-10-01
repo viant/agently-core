@@ -1,0 +1,42 @@
+#package('github.com/viant/agently-core/internal/datly/oauth/token/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/user/oauth','GET'))
+#setting($_ = $input_type('TokenInput'))
+#setting($_ = $output_type('TokenOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $StatusInfo<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $Metrics<?>(output/metrics))
+#define($_ = $Id<string>(query/user_id).Optional().WithPredicate(0,'equal','t','user_id'))
+#define($_ = $Provider<string>(query/provider).Optional().WithPredicate(0,'equal','t','provider'))
+#define($_ = $Data<[]*TokenView>(output/view))
+
+SELECT token.created_at,
+       token.enc_token,
+       internal(token.enc_token),
+       token.provider,
+       token.updated_at,
+       token.user_id,
+       token.version,
+       token.lease_owner,
+       token.lease_until,
+       token.refresh_status,
+       token.db_now,
+       internal(token.db_now),
+       type(token,'TokenView'),
+       CAST(token.created_at AS time.Time),
+       CAST(token.enc_token AS string),
+       CAST(token.provider AS string),
+       CAST(token.updated_at AS *time.Time),
+       CAST(token.user_id AS string),
+       CAST(token.version AS int64),
+       CAST(token.lease_owner AS *string),
+       CAST(token.lease_until AS *time.Time),
+       CAST(token.refresh_status AS string),
+       CAST(token.db_now AS string)
+FROM (
+SELECT t.*, ${criteria.UTCNow()} AS db_now FROM user_oauth_token t
+     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+) token

@@ -1,0 +1,32 @@
+{
+  "status": "verified-and-linked",
+  "writer_checks": 30,
+  "reader_checks": 24,
+  "cube_checks": 18,
+  "retired_drafts": [
+    "dql/agently/toolapprovalqueue/count/count/reader",
+    "dql/agently/toolapprovalqueue/outcome/outcome/reader",
+    "dql/agently/toolapprovalqueue/pendingcount/pending_count/reader",
+    "dql/agently/toolapprovalqueue/read/list/reader"
+  ],
+  "business_hooks": "Legacy UTC default timestamps, pending insert default and sparse required-value context; read mode validation only",
+  "native": "All DTOs/bindings/Has/indexes/Previous/validation/DML/transactions/deletion/read SQL/reporting come from datly transcribe",
+  "wire": "Legacy arguments/metadata numeric byte arrays accepted; binary values preserved. Outcome transition_at remains nullable string.",
+  "reader": "One reader for rows/outcome; preserves list descending and outcome transition ascending with ID tie-break; status transition-specific NULL semantics retained. Personal queue scope requires host subject outside optional filters.",
+  "cube": "One fact cube for total/pending/outcome/timed-out measures; scoped owner/conversation/tool/status/decision dimensions",
+  "endly_focused": {
+    "status": "SUCCESS",
+    "tests_seconds": 23.156,
+    "workflow_ms": 26029,
+    "log": "/tmp/agently-approval-endly-verify.log"
+  },
+  "remaining": "Root/application SDK1 caller cutover and maintenance/deletion adaptation remain",
+  "endly_full": {
+    "status": "SUCCESS",
+    "tests_seconds": 132.075,
+    "workflow_ms": 171095,
+    "contracts": 45,
+    "regenerated_artifacts": 596,
+    "log": "/tmp/agently-approval-endly-full.log"
+  }
+}

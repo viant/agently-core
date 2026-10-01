@@ -10,8 +10,6 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
 )
 
 func TestDeleteConversationTree_MySQLStage1(t *testing.T) {
@@ -90,18 +88,7 @@ func TestDeleteConversationTree_MySQLStage1(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
-	}
-	connector := view.NewConnector("agently", "mysql", dsn)
-	if err = dao.AddConnectors(ctx, connector); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents() error: %v", err)
-	}
+	dao := newNativeMySQLRuntime(t, dsn)
 
 	if err := NewService(dao).DeleteConversationTree(deleteTestContext(), conversationID); err != nil {
 		t.Fatalf("DeleteConversationTree() on MySQL: %v", err)
@@ -165,18 +152,7 @@ func TestDeleteConversationTree_MySQLLegacyNullStatusWithStaleRun(t *testing.T) 
 		}
 	}
 
-	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
-	}
-	connector := view.NewConnector("agently", "mysql", dsn)
-	if err = dao.AddConnectors(ctx, connector); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents() error: %v", err)
-	}
+	dao := newNativeMySQLRuntime(t, dsn)
 
 	if err := NewService(dao).DeleteConversationTree(deleteTestContext(), conversationID); err != nil {
 		t.Fatalf("DeleteConversationTree() on MySQL: %v", err)
@@ -234,17 +210,7 @@ func TestDeleteScheduledRun_MySQL(t *testing.T) {
 		}
 	}
 
-	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
-	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents() error: %v", err)
-	}
+	dao := newNativeMySQLRuntime(t, dsn)
 	service := NewService(dao)
 	deleteCtx := deleteTestContext()
 
@@ -312,24 +278,13 @@ VALUES (?, ?, ?, ?, ?)`, conversationID, activityAt, activityAt, "unknown_legacy
 		t.Fatalf("seed MySQL maintenance test: %v", err)
 	}
 
-	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
-	}
-	connector := view.NewConnector("agently", "mysql", dsn)
-	if err = dao.AddConnectors(ctx, connector); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents() error: %v", err)
-	}
+	dao := newNativeMySQLRuntime(t, dsn)
 
 	service := NewService(dao)
 	leaseKey := "test-conversation-maintenance-" + suffix
 	requestLease := acquireTestMaintenanceLease(t, service, leaseKey, "test-worker-"+suffix)
 	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM maintenance_lease WHERE lease_key = ?`, leaseKey) })
-	candidates, err := service.ListConversationMaintenanceCandidates(ctx, ConversationMaintenanceCandidateRequest{
+	candidates, err := service.ListConversationMaintenanceCandidates(context.Background(), ConversationMaintenanceCandidateRequest{
 		Kind:           ConversationMaintenanceInteractive,
 		InactiveBefore: activityAt.Add(time.Second),
 		AfterActivity:  activityAt.Add(-time.Second),

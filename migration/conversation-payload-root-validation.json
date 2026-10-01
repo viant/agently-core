@@ -1,0 +1,17 @@
+{
+  "scope": "Root conversation GetPayload and PatchPayload native branches using canonical v1 payload reader/writer",
+  "adapter": "datlyv1/application/conversation/payload_store.go",
+  "root_caller": "internal/service/conversation/native_payload.go; GetPayload and PatchPayload route to v1 when the shared native host is present.",
+  "semantics": "All 15 non-identity SDK0 PayloadHas markers map to v1 generated setters, including explicit nil URI and inline bytes. The reader hook decompresses gzip and trims returned inline bytes; the writer hook owns compression and defaults.",
+  "verification": {
+    "source_map": "15/15 non-identity presence markers and all public payload read fields checked against generated v1 names.",
+    "linked_host": "go test -mod=readonly with scratch modfile -count=1 ./app/store/native: pass (17.283s), including compressed inline payload round trip and explicit URI clearing.",
+    "focused_parity": "go test -count=1 ./tests -run ^TestPayload(LegacyV1Parity|SelectorProxyLegacyParity)$: pass (20.718s).",
+    "full_endly": "endly from datlyv1/e2e: SUCCESS; 60/60 transcribed, byte-stable regeneration, native boundary audit, nested tests 180.149s, linked host build, workflow 226238ms."
+  },
+  "limits": [
+    "Root internal/service/conversation still imports SDK0 DTOs and cannot compile under the v1-only module graph; native payload caller and public route remain unverified.",
+    "Model/tool calls, approval queue, generated-file and deletion callers remain on SDK0.",
+    "MySQL and public SDK routes remain unverified."
+  ]
+}

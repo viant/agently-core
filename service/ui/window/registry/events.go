@@ -22,14 +22,15 @@ type SurfaceControlOption struct {
 }
 
 type SurfaceControl struct {
-	ID          string                 `json:"id,omitempty"`
-	Label       string                 `json:"label,omitempty"`
-	Type        string                 `json:"type,omitempty"`
-	Scope       string                 `json:"scope,omitempty"`
-	BindingPath string                 `json:"bindingPath,omitempty"`
-	DataField   string                 `json:"dataField,omitempty"`
-	Value       interface{}            `json:"value,omitempty"`
-	Options     []SurfaceControlOption `json:"options,omitempty"`
+	ID            string                 `json:"id,omitempty"`
+	Label         string                 `json:"label,omitempty"`
+	Type          string                 `json:"type,omitempty"`
+	Scope         string                 `json:"scope,omitempty"`
+	BindingPath   string                 `json:"bindingPath,omitempty"`
+	DataField     string                 `json:"dataField,omitempty"`
+	DataSourceRef string                 `json:"dataSourceRef,omitempty"`
+	Value         interface{}            `json:"value,omitempty"`
+	Options       []SurfaceControlOption `json:"options,omitempty"`
 }
 
 type WindowSurface struct {
@@ -461,14 +462,15 @@ func BuildWindowSurface(win *WindowSnapshot) *WindowSurface {
 		bindingPath := strings.TrimSpace(stringValue(entry["bindingPath"]))
 		dataField := strings.TrimSpace(stringValue(entry["dataField"]))
 		surface.Controls = append(surface.Controls, SurfaceControl{
-			ID:          id,
-			Label:       strings.TrimSpace(stringValue(entry["label"])),
-			Type:        strings.TrimSpace(stringValue(entry["type"])),
-			Scope:       scope,
-			BindingPath: bindingPath,
-			DataField:   dataField,
-			Value:       controlValue(win.WindowForm, scope, bindingPath, dataField, id),
-			Options:     controlOptions(entry["options"]),
+			ID:            id,
+			Label:         strings.TrimSpace(stringValue(entry["label"])),
+			Type:          strings.TrimSpace(stringValue(entry["type"])),
+			Scope:         scope,
+			BindingPath:   bindingPath,
+			DataField:     dataField,
+			DataSourceRef: strings.TrimSpace(stringValue(entry["dataSourceRef"])),
+			Value:         controlValue(win.WindowForm, scope, bindingPath, dataField, id),
+			Options:       controlOptions(entry["options"]),
 		})
 	}
 	sort.SliceStable(surface.Controls, func(i, j int) bool {

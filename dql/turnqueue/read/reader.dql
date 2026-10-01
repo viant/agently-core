@@ -1,0 +1,54 @@
+#package('github.com/viant/agently-core/internal/datly/turnqueue/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/turnqueue/list','GET'))
+#setting($_ = $input_type('QueueRowsInput'))
+#setting($_ = $output_type('QueueRowsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $LockRows<bool>(turnqueueaccess/lock).Optional())
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'equal','q','id'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','q','conversation_id'))
+#define($_ = $ConversationIds<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','q','conversation_id'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','q','turn_id'))
+#define($_ = $MessageId<string>(query/messageId).Optional().WithPredicate(0,'equal','q','message_id'))
+#define($_ = $QueueStatus<string>(query/status).Optional().WithPredicate(0,'equal','q','status'))
+#define($_ = $Data<[]*QueueRowView>(output/view))
+
+SELECT queue_rows.id,
+       queue_rows.conversation_id,
+       queue_rows.turn_id,
+       queue_rows.message_id,
+       queue_rows.queue_seq,
+       queue_rows.status,
+       queue_rows.created_at,
+       queue_rows.updated_at,
+       type(queue_rows,'QueueRowView'),
+       CAST(queue_rows.id AS string),
+       CAST(queue_rows.conversation_id AS string),
+       CAST(queue_rows.turn_id AS string),
+       CAST(queue_rows.message_id AS string),
+       CAST(queue_rows.queue_seq AS int64),
+       CAST(queue_rows.status AS string),
+       CAST(queue_rows.created_at AS time.Time),
+       CAST(queue_rows.updated_at AS *time.Time)
+FROM (
+SELECT queue_rows.*
+FROM (
+    SELECT
+        q.id,
+        q.conversation_id,
+        q.turn_id,
+        q.message_id,
+        q.queue_seq,
+        q.status,
+        q.created_at,
+        q.updated_at
+    FROM turn_queue q
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+    ORDER BY q.queue_seq ASC, q.created_at ASC, q.id ASC
+
+#if($LockRows) ${View.ForUpdate()} #end
+) queue_rows
+) queue_rows

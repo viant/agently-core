@@ -1,0 +1,37 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/artifact/write')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/artifact','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(reportAccess/internal).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required().WithPredicate(8,'equal','report_export_artifact','owner_id'))
+#define($_ = $OrphanDelete<bool>(orphanDelete/enabledDelete).Optional())
+#define($_ = $Mode<string>(query/mode).Required())
+#define($_ = $ExpectedJobID<string>(query/expectedJobId).Optional().WithPredicate(8,'equal','report_export_artifact','job_id'))
+#define($_ = $Artifacts<[]*Artifact>(body/data))
+#define($_ = $Data<[]*Artifact>(output/body))
+
+SELECT data_rows.artifact_id, data_rows.should_delete,
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:"shouldDelete,omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'error'),
+       data_rows.job_id, data_rows.artifact_ref, data_rows.owner_id, data_rows.format,
+       data_rows.content_type, data_rows.inline_data, data_rows.created_at,
+       data_rows.retention_ttl_sec,
+       type(data_rows,'Artifact'), lifecycle_type(data_rows,'Lifecycle'), mutation_predicate(data_rows,8),
+       CAST(data_rows.artifact_id AS string), tag(data_rows.artifact_id,'sqlx:"artifact_id,primaryKey=true,required=true"'),
+       CAST(data_rows.job_id AS string), tag(data_rows.job_id,'sqlx:"job_id,required=true"'),
+       CAST(data_rows.artifact_ref AS string), tag(data_rows.artifact_ref,'sqlx:"artifact_ref,required=true"'),
+       CAST(data_rows.owner_id AS string), tag(data_rows.owner_id,'sqlx:"owner_id,required=true"'),
+       CAST(data_rows.format AS string), tag(data_rows.format,'sqlx:"format,required=true"'),
+       CAST(data_rows.content_type AS string), tag(data_rows.content_type,'sqlx:"content_type,required=true"'),
+       CAST(data_rows.inline_data AS []byte), tag(data_rows.inline_data,'sqlx:"inline_data"'),
+       CAST(data_rows.created_at AS time.Time), tag(data_rows.created_at,'sqlx:"created_at,required=true"'),
+       CAST(data_rows.retention_ttl_sec AS int64), tag(data_rows.retention_ttl_sec,'sqlx:"retention_ttl_sec,required=true"')
+FROM (
+    SELECT 0 AS should_delete, artifact_id, job_id, artifact_ref,
+           owner_id, format, content_type, inline_data, created_at,
+           retention_ttl_sec
+    FROM report_export_artifact
+) data_rows

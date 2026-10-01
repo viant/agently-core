@@ -1,0 +1,111 @@
+#package('github.com/viant/agently-core/internal/datly/schedule/write')
+#import('time','time')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/scheduler/','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $LeaseMode<string>(query/leaseMode).Optional().WithPredicate(7,'handler','predicate.LeasePredicate'))
+#define($_ = $LeaseOwner<string>(query/leaseOwner).Optional())
+#define($_ = $LeaseNow<time.Time>(query/leaseNow).Optional())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $Schedules<[]*Schedule>(body/data))
+#define($_ = $Data<[]*Schedule>(output/body))
+#define($_ = $LeaseResult<bool>(output/leaseResult))
+
+SELECT data_rows.id, data_rows.should_delete,
+       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:",omitempty"'),
+       delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
+       data_rows.name,
+       data_rows.description,
+       data_rows.created_by_user_id,
+       data_rows.visibility,
+       data_rows.internal,
+       data_rows.conversation_id,
+       data_rows.goal_id,
+       data_rows.agent_ref,
+       data_rows.model_override,
+       data_rows.user_cred_url,
+       data_rows.enabled,
+       data_rows.start_at,
+       data_rows.end_at,
+       data_rows.schedule_type,
+       data_rows.cron_expr,
+       data_rows.interval_seconds,
+       data_rows.timezone,
+       data_rows.timeout_seconds,
+       data_rows.task_prompt_uri,
+       data_rows.task_prompt,
+       data_rows.next_run_at,
+       data_rows.last_run_at,
+       data_rows.last_status,
+       data_rows.last_error,
+       data_rows.lease_owner,
+       data_rows.lease_until,
+       data_rows.created_at,
+       data_rows.updated_at,
+       type(data_rows,'Schedule'), mutation_predicate(data_rows,7),
+       lifecycle_type(data_rows,'Lifecycle'),
+       CAST(data_rows.id AS string),
+       tag(data_rows.id,'validate:"required" sqlx:"id,primaryKey"'),
+       CAST(data_rows.name AS string),
+       tag(data_rows.name,'validate:"required" sqlx:"name"'),
+       CAST(data_rows.description AS *string),
+       tag(data_rows.description,'json:",omitempty" sqlx:"description"'),
+       CAST(data_rows.created_by_user_id AS *string),
+       tag(data_rows.created_by_user_id,'json:",omitempty" sqlx:"created_by_user_id"'),
+       CAST(data_rows.visibility AS string),
+       tag(data_rows.visibility,'sqlx:"visibility"'),
+       CAST(data_rows.internal AS *bool),
+       tag(data_rows.internal,'json:",omitempty" sqlx:"internal"'),
+       CAST(data_rows.conversation_id AS *string),
+       tag(data_rows.conversation_id,'json:",omitempty" sqlx:"conversation_id"'),
+       CAST(data_rows.goal_id AS *string),
+       tag(data_rows.goal_id,'json:",omitempty" sqlx:"goal_id"'),
+       CAST(data_rows.agent_ref AS string),
+       tag(data_rows.agent_ref,'validate:"required" sqlx:"agent_ref"'),
+       CAST(data_rows.model_override AS *string),
+       tag(data_rows.model_override,'json:",omitempty" sqlx:"model_override"'),
+       CAST(data_rows.user_cred_url AS *string),
+       tag(data_rows.user_cred_url,'json:",omitempty" sqlx:"user_cred_url"'),
+       CAST(data_rows.enabled AS bool),
+       tag(data_rows.enabled,'sqlx:"enabled"'),
+       CAST(data_rows.start_at AS *time.Time),
+       tag(data_rows.start_at,'json:",omitempty" sqlx:"start_at"'),
+       CAST(data_rows.end_at AS *time.Time),
+       tag(data_rows.end_at,'json:",omitempty" sqlx:"end_at"'),
+       CAST(data_rows.schedule_type AS string),
+       tag(data_rows.schedule_type,'validate:"required" sqlx:"schedule_type"'),
+       CAST(data_rows.cron_expr AS *string),
+       tag(data_rows.cron_expr,'json:",omitempty" sqlx:"cron_expr"'),
+       CAST(data_rows.interval_seconds AS *int),
+       tag(data_rows.interval_seconds,'json:",omitempty" sqlx:"interval_seconds"'),
+       CAST(data_rows.timezone AS string),
+       tag(data_rows.timezone,'validate:"required" sqlx:"timezone"'),
+       CAST(data_rows.timeout_seconds AS int),
+       tag(data_rows.timeout_seconds,'sqlx:"timeout_seconds"'),
+       CAST(data_rows.task_prompt_uri AS *string),
+       tag(data_rows.task_prompt_uri,'json:",omitempty" sqlx:"task_prompt_uri"'),
+       CAST(data_rows.task_prompt AS *string),
+       tag(data_rows.task_prompt,'json:",omitempty" sqlx:"task_prompt"'),
+       CAST(data_rows.next_run_at AS *time.Time),
+       tag(data_rows.next_run_at,'json:",omitempty" sqlx:"next_run_at"'),
+       CAST(data_rows.last_run_at AS *time.Time),
+       tag(data_rows.last_run_at,'json:",omitempty" sqlx:"last_run_at"'),
+       CAST(data_rows.last_status AS *string),
+       tag(data_rows.last_status,'json:",omitempty" sqlx:"last_status"'),
+       CAST(data_rows.last_error AS *string),
+       tag(data_rows.last_error,'json:",omitempty" sqlx:"last_error"'),
+       CAST(data_rows.lease_owner AS *string),
+       tag(data_rows.lease_owner,'json:",omitempty" sqlx:"lease_owner"'),
+       CAST(data_rows.lease_until AS *time.Time),
+       tag(data_rows.lease_until,'json:",omitempty" sqlx:"lease_until"'),
+       CAST(data_rows.created_at AS *time.Time),
+       tag(data_rows.created_at,'json:",omitempty" sqlx:"created_at"'),
+       CAST(data_rows.updated_at AS *time.Time),
+       tag(data_rows.updated_at,'json:",omitempty" sqlx:"updated_at"')
+FROM (SELECT 0 AS should_delete, `id`, `name`, `description`, `created_by_user_id`, `visibility`, `internal`, `conversation_id`, `goal_id`, `agent_ref`, `model_override`, `user_cred_url`, `enabled`, `start_at`, `end_at`, `schedule_type`, `cron_expr`, `interval_seconds`, `timezone`, `timeout_seconds`, `task_prompt_uri`, `task_prompt`, `next_run_at`, `last_run_at`, `last_status`, `last_error`, `lease_owner`, `lease_until`, `created_at`, `updated_at` FROM schedule) data_rows

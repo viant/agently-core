@@ -6,10 +6,14 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/viant/agently-core/app/store/native"
+	read "github.com/viant/agently-core/internal/datly/turnqueue/read"
+	"github.com/viant/agently-core/internal/store/turnqueue"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
-	"github.com/viant/datly"
-	"github.com/viant/datly/repository/contract"
-	"github.com/viant/datly/view"
+	"github.com/viant/datly/bootstrap/connector"
+	"path/filepath"
+	"runtime"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -66,35 +70,23 @@ func TestQueueRowsRead_SQLite(t *testing.T) {
 			tc.seed(t, db)
 
 			ctx := context.Background()
-			svc, err := newReadDatlyService(ctx, dbPath)
+			_, source, _, _ := runtime.Caller(0)
+			server, err := native.New(ctx, native.Options{SourceRoot: filepath.Join(filepath.Dir(source), "../../../.."), Connectors: []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: dbPath}}})
 			require.NoError(t, err)
-			require.NoError(t, DefineQueueRowsComponent(ctx, svc))
+			t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
+			input := &read.QueueRowsInput{Id: tc.input.Id, ConversationId: tc.input.ConversationId, TurnId: tc.input.TurnId, MessageId: tc.input.MessageId, QueueStatus: tc.input.QueueStatus}
+			if h := tc.input.Has; h != nil {
+				input.Has = &read.QueueRowsInputHas{Id: h.Id, ConversationId: h.ConversationId, TurnId: h.TurnId, MessageId: h.MessageId, QueueStatus: h.QueueStatus}
+			}
+			rows, err := (&turnqueue.Store{Invoker: server}).List(ctx, input)
 
-			out := &QueueRowsOutput{}
-			_, err = svc.Operate(ctx,
-				datly.WithPath(contract.NewPath("GET", QueueRowsPathURI)),
-				datly.WithInput(tc.input),
-				datly.WithOutput(out),
-			)
 			require.NoError(t, err)
-			require.Len(t, out.Data, len(tc.expectIDs))
+			require.Len(t, rows, len(tc.expectIDs))
 			for i, id := range tc.expectIDs {
-				require.Equal(t, id, out.Data[i].Id)
+				require.Equal(t, id, rows[i].Id)
 			}
 		})
 	}
-}
-
-func newReadDatlyService(ctx context.Context, dbPath string) (*datly.Service, error) {
-	svc, err := datly.New(ctx)
-	if err != nil {
-		return nil, err
-	}
-	conn := view.NewConnector("agently", "sqlite", dbPath)
-	if err := svc.AddConnectors(ctx, conn); err != nil {
-		return nil, err
-	}
-	return svc, nil
 }
 
 func seedConversation(t *testing.T, db *sql.DB, conversationID string) {

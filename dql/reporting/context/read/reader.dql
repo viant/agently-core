@@ -1,0 +1,42 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/context/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/conversation-context','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(reportAccess/internal).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required())
+#define($_ = $OwnerID<string>(query/ownerId).Optional().WithPredicate(0,'equal','c','owner_id'))
+#define($_ = $ConversationID<string>(query/conversationId).Optional().WithPredicate(0,'equal','c','conversation_id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','c','conversation_id'))
+#define($_ = $ActiveReportRunID<string>(query/activeReportRunId).Optional().WithPredicate(0,'equal','c','active_report_run_id'))
+#define($_ = $ActiveReportRunIDs<[]string>(query/activeReportRunIds).Optional().WithPredicate(0,'in','c','active_report_run_id'))
+#define($_ = $LockRows<bool>(reportAccess/lock).Optional())
+#define($_ = $Data<[]*Context>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOrderBy=true"'))
+
+SELECT contexts.owner_id,
+       contexts.conversation_id,
+       contexts.active_report_run_id,
+       contexts.revision,
+       contexts.activation_source,
+       contexts.actor_id,
+       contexts.updated_at,
+       type(contexts,'Context'),
+       CAST(contexts.owner_id AS string),
+       CAST(contexts.conversation_id AS string),
+       CAST(contexts.active_report_run_id AS string),
+       CAST(contexts.revision AS int64),
+       CAST(contexts.activation_source AS string),
+       CAST(contexts.actor_id AS string),
+       CAST(contexts.updated_at AS time.Time)
+FROM (
+    SELECT c.owner_id, c.conversation_id, c.active_report_run_id,
+           c.revision, c.activation_source, c.actor_id, c.updated_at
+    FROM conversation_report_context c
+    WHERE ($Internal OR c.owner_id = $OwnerSubject)
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
+    ORDER BY c.owner_id, c.conversation_id
+ #if($LockRows) ${View.ForUpdate()} #end
+) contexts

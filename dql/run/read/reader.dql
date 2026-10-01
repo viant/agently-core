@@ -1,0 +1,173 @@
+#package('github.com/viant/agently-core/internal/datly/run/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/run/{id}','GET'))
+#setting($_ = $input_type('RunRowsInput'))
+#setting($_ = $output_type('RunRowsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Id<string>(path/id).Optional().WithPredicate(0,'equal','t','id'))
+#define($_ = $Ids<[]string>(query/ids).Optional().WithPredicate(0,'in','t','id'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','t','turn_id'))
+#define($_ = $TurnIds<[]string>(query/turnIds).Optional().WithPredicate(0,'in','t','turn_id'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','t','conversation_id'))
+#define($_ = $ConversationIds<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','t','conversation_id'))
+#define($_ = $ScheduleId<string>(query/scheduleId).Optional().WithPredicate(0,'equal','t','schedule_id'))
+#define($_ = $ScheduleIds<[]string>(query/scheduleIds).Optional().WithPredicate(0,'in','t','schedule_id'))
+#define($_ = $ResumedFromRunIds<[]string>(query/resumedFromRunIds).Optional().WithPredicate(0,'in','t','resumed_from_run_id'))
+#define($_ = $WorkerId<string>(query/workerId).Optional().WithPredicate(0,'equal','t','worker_id'))
+#define($_ = $RunStatus<string>(query/status).Optional().WithPredicate(0,'equal','t','status'))
+#define($_ = $ExcludeStatuses<[]string>(query/excludeStatuses).Optional().WithPredicate(0,'not_in','t','status'))
+#define($_ = $InternalMode<bool>(runAccess/internal).Required())
+#define($_ = $LockRows<bool>(runAccess/lock).Optional())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $ReadMode<string>(runAccess/mode).Required())
+#define($_ = $HeartbeatBefore<time.Time>(query/heartbeatBefore).Optional().WithPredicate(0,'expr','(t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < ?)'))
+#define($_ = $WorkerHost<string>(query/workerHost).Optional().WithPredicate(0,'expr','(t.worker_host IS NULL OR t.worker_host = ?)'))
+#define($_ = $LeaseExpiredBefore<time.Time>(query/leaseExpiredBefore).Optional().WithPredicate(0,'expr','(t.lease_until IS NOT NULL AND t.lease_until < ?)'))
+#define($_ = $ActivityAfter<time.Time>(query/activityAfter).Optional().WithPredicate(0,'expr','((CASE WHEN t.last_heartbeat_at IS NOT NULL THEN t.last_heartbeat_at WHEN t.started_at IS NOT NULL THEN t.started_at ELSE t.created_at END) >= ?)'))
+#define($_ = $ConversationKind<string>(query/conversationKind).Optional().WithPredicate(0,'equal','t','conversation_kind'))
+#define($_ = $RootInteractive<bool>(query/rootInteractive).Optional().WithPredicate(0,'expr',"(? AND t.schedule_id IS NULL AND NOT EXISTS (SELECT 1 FROM conversation c WHERE c.id = t.conversation_id AND c.conversation_parent_id IS NOT NULL AND c.conversation_parent_id <> ''))"))
+#define($_ = $ScheduledFor<time.Time>(query/scheduledFor).Optional().WithPredicate(0,'equal','t','scheduled_for'))
+#define($_ = $SinceTurn<string>(query/sinceTurn).Optional().WithPredicate(0,'expr','t.created_at >= (SELECT created_at FROM turn WHERE id=?)'))
+#define($_ = $StatusPattern<string>(query/statusPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.status,'')) LIKE LOWER(?)"))
+#define($_ = $ConversationPattern<string>(query/conversationPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.conversation_id,'')) LIKE LOWER(?)"))
+#define($_ = $ErrorPattern<string>(query/errorPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.error_message,'')) LIKE LOWER(?)"))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $MaintenanceBefore<time.Time>(query/maintenanceBefore).Optional())
+#define($_ = $MaintenanceBeforeSecond<string>(query/maintenanceBeforeSecond).Optional())
+#define($_ = $MaintenanceBeforeNano<int64>(query/maintenanceBeforeNano).Optional())
+#define($_ = $MaintenanceAfterNano<int64>(query/maintenanceAfterNano).Optional())
+#define($_ = $MaintenanceAfterActivity<string>(query/maintenanceAfterActivity).Optional())
+#define($_ = $MaintenanceAfterId<string>(query/maintenanceAfterId).Optional())
+#define($_ = $Data<[]*RunRowsView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true"'))
+
+SELECT run_rows.lease_until_raw,run_rows.heartbeat_raw,
+       CAST(run_rows.lease_until_raw AS *string),internal(run_rows.lease_until_raw),tag(run_rows.lease_until_raw,'json:"-"'),
+       CAST(run_rows.heartbeat_raw AS *string),internal(run_rows.heartbeat_raw),tag(run_rows.heartbeat_raw,'json:"-"'),
+       run_rows.activity_raw,run_rows.maintenance_owner_id,
+       CAST(run_rows.activity_raw AS *string),tag(run_rows.activity_raw,'internal:"true" json:"-"'),
+       CAST(run_rows.maintenance_owner_id AS string),tag(run_rows.maintenance_owner_id,'internal:"true" json:"-"'),
+       run_rows.agent_id,
+       run_rows.attempt,
+       run_rows.auth_audience,
+       run_rows.auth_authority,
+       run_rows.checkpoint_data,
+       run_rows.checkpoint_message_id,
+       run_rows.checkpoint_response_id,
+       run_rows.completed_at,
+       run_rows.conversation_id,
+       run_rows.conversation_kind,
+       run_rows.created_at,
+       run_rows.effective_user_id,
+       run_rows.error_code,
+       run_rows.error_message,
+       run_rows.heartbeat_interval_sec,
+       run_rows.id,
+       run_rows.iteration,
+       run_rows.last_heartbeat_at,
+       run_rows.lease_owner,
+       run_rows.lease_until,
+       run_rows.max_iterations,
+       run_rows.model,
+       run_rows.model_provider,
+       run_rows.precondition_passed,
+       run_rows.precondition_ran_at,
+       run_rows.precondition_result,
+       run_rows.resumed_from_run_id,
+       run_rows.schedule_id,
+       run_rows.scheduled_for,
+       run_rows.security_context,
+       run_rows.started_at,
+       run_rows.status,
+       run_rows.turn_id,
+       run_rows.updated_at,
+       run_rows.usage_completion_tokens,
+       run_rows.usage_cost,
+       run_rows.usage_prompt_tokens,
+       run_rows.usage_total_tokens,
+       run_rows.user_cred_url,
+       run_rows.worker_host,
+       run_rows.worker_id,
+       run_rows.worker_pid,
+       type(run_rows,'RunRowsView'),
+       CAST(run_rows.agent_id AS *string),
+       CAST(run_rows.attempt AS int),
+       CAST(run_rows.auth_audience AS *string),
+       CAST(run_rows.auth_authority AS *string),
+       CAST(run_rows.checkpoint_data AS *string),
+       CAST(run_rows.checkpoint_message_id AS *string),
+       CAST(run_rows.checkpoint_response_id AS *string),
+       CAST(run_rows.completed_at AS *time.Time),
+       CAST(run_rows.conversation_id AS *string),
+       CAST(run_rows.conversation_kind AS string),
+       CAST(run_rows.created_at AS time.Time),
+       CAST(run_rows.effective_user_id AS *string),
+       CAST(run_rows.error_code AS *string),
+       CAST(run_rows.error_message AS *string),
+       CAST(run_rows.heartbeat_interval_sec AS *int),
+       CAST(run_rows.id AS string),
+       CAST(run_rows.iteration AS int),
+       CAST(run_rows.last_heartbeat_at AS *time.Time),
+       CAST(run_rows.lease_owner AS *string),
+       CAST(run_rows.lease_until AS *time.Time),
+       CAST(run_rows.max_iterations AS *int),
+       CAST(run_rows.model AS *string),
+       CAST(run_rows.model_provider AS *string),
+       CAST(run_rows.precondition_passed AS *int),
+       CAST(run_rows.precondition_ran_at AS *time.Time),
+       CAST(run_rows.precondition_result AS *string),
+       CAST(run_rows.resumed_from_run_id AS *string),
+       CAST(run_rows.schedule_id AS *string),
+       CAST(run_rows.scheduled_for AS *time.Time),
+       CAST(run_rows.security_context AS *string),
+       CAST(run_rows.started_at AS *time.Time),
+       CAST(run_rows.status AS string),
+       CAST(run_rows.turn_id AS *string),
+       CAST(run_rows.updated_at AS *time.Time),
+       CAST(run_rows.usage_completion_tokens AS *int),
+       CAST(run_rows.usage_cost AS *float64),
+       CAST(run_rows.usage_prompt_tokens AS *int),
+       CAST(run_rows.usage_total_tokens AS *int),
+       CAST(run_rows.user_cred_url AS *string),
+       CAST(run_rows.worker_host AS *string),
+       CAST(run_rows.worker_id AS *string),
+       CAST(run_rows.worker_pid AS *int)
+FROM (
+SELECT t.*,CAST(t.lease_until AS CHAR) AS lease_until_raw,CAST(t.last_heartbeat_at AS CHAR) AS heartbeat_raw,CAST(COALESCE(t.completed_at,t.updated_at,t.created_at) AS CHAR) AS activity_raw,
+ TRIM(COALESCE((SELECT NULLIF(TRIM(s.created_by_user_id),'') FROM schedule s WHERE s.id=t.schedule_id),t.effective_user_id,'')) AS maintenance_owner_id
+    FROM run t WHERE 1=1
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
+    AND ($InternalMode OR COALESCE(t.effective_user_id,'')='' OR t.effective_user_id=NULLIF($VisibilitySubject,''))
+    AND ($ReadMode <> 'schedulerList' OR (t.schedule_id IS NOT NULL AND EXISTS (
+      SELECT 1 FROM schedule s WHERE s.id=t.schedule_id AND COALESCE(s.internal,0)=0
+      AND (s.visibility IS NULL OR s.visibility<>'private' OR s.created_by_user_id=NULLIF($VisibilitySubject,'')))))
+    AND ($ReadMode <> 'schedulerRuns' OR EXISTS (
+      SELECT 1 FROM schedule s WHERE s.id=t.schedule_id
+      AND (s.visibility IS NULL OR s.visibility<>'private' OR s.created_by_user_id=NULLIF($VisibilitySubject,''))))
+    AND ($ReadMode <> 'scheduledMaintenance' OR (TRIM(COALESCE(t.schedule_id,''))<>'' AND EXISTS(SELECT 1 FROM schedule s WHERE s.id=t.schedule_id)))
+    #if($ReadMode == "scheduledMaintenance")
+    AND (${View.TimestampSecondsUTC("COALESCE(t.completed_at,t.updated_at,t.created_at)")} < $MaintenanceBeforeSecond OR (${View.TimestampSecondsUTC("COALESCE(t.completed_at,t.updated_at,t.created_at)")} = $MaintenanceBeforeSecond AND ${View.TimestampNanoseconds("COALESCE(t.completed_at,t.updated_at,t.created_at)")} <= $MaintenanceBeforeNano))
+    #if($Has.MaintenanceAfterId)
+    AND (${View.TimestampSecondsUTC("COALESCE(t.completed_at,t.updated_at,t.created_at)")} > $MaintenanceAfterActivity OR (${View.TimestampSecondsUTC("COALESCE(t.completed_at,t.updated_at,t.created_at)")} = $MaintenanceAfterActivity AND (${View.TimestampNanoseconds("COALESCE(t.completed_at,t.updated_at,t.created_at)")} > $MaintenanceAfterNano OR (${View.TimestampNanoseconds("COALESCE(t.completed_at,t.updated_at,t.created_at)")} = $MaintenanceAfterNano AND HEX(t.id)>HEX($MaintenanceAfterId)))))
+    #end
+    #end
+    AND ($ReadMode <> 'stale'   OR t.status='running')
+    AND ($ReadMode <> 'active' OR t.id=(
+       SELECT t.id FROM run t WHERE t.status IN ('running','queued','pending')
+       ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
+       ORDER BY t.created_at DESC LIMIT 1))
+    ORDER BY CASE WHEN $LockRows THEN t.id END ASC,
+       
+    #if($ReadMode == "scheduledMaintenance")
+       ${View.TimestampSecondsUTC("COALESCE(t.completed_at,t.updated_at,t.created_at)")} ASC,${View.TimestampNanoseconds("COALESCE(t.completed_at,t.updated_at,t.created_at)")} ASC,
+    #end
+       
+       CASE WHEN $ReadMode='scheduledMaintenance' THEN HEX(t.id) END ASC, CASE WHEN $ReadMode IN ('schedulerList','schedulerRuns','schedulerDue') THEN t.started_at END DESC,
+       CASE WHEN $ReadMode='stale' THEN COALESCE(t.last_heartbeat_at,t.started_at,t.created_at) END DESC,
+       CASE WHEN $ReadMode NOT IN ('schedulerList','schedulerRuns','schedulerDue','scheduledMaintenance') THEN t.created_at END DESC, CASE WHEN $ReadMode IN ('stale','schedulerList','schedulerRuns','schedulerDue') THEN t.id END DESC
+    #if($LockRows) ${View.ForUpdate()} #end
+) run_rows

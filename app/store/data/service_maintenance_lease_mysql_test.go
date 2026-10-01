@@ -6,12 +6,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
+	"github.com/viant/agently-core/app/store/native"
+	"github.com/viant/datly/bootstrap/connector"
 )
 
 func TestMaintenanceLease_MySQLAcquireRenewReleaseAndFence(t *testing.T) {
@@ -29,14 +31,14 @@ func TestMaintenanceLease_MySQLAcquireRenewReleaseAndFence(t *testing.T) {
 		t.Fatalf("ping MySQL: %v", err)
 	}
 
-	dao, err := datly.New(ctx)
+	_, file, _, _ := runtime.Caller(0)
+	sourceRoot := filepath.Join(filepath.Dir(file), "..", "..", "..")
+	server, err := native.New(ctx, native.Options{SourceRoot: sourceRoot, Connectors: []connector.Config{{Name: "agently", Driver: "mysql", DSN: dsn}}})
 	if err != nil {
-		t.Fatalf("datly.New(): %v", err)
+		t.Fatalf("native.New(): %v", err)
 	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
-		t.Fatalf("AddConnectors(): %v", err)
-	}
-	service := NewService(dao)
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	service := &datlyService{native: server}
 	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	leaseKey := "test-maintenance-lease-" + suffix
 	t.Cleanup(func() { _, _ = db.Exec(`DELETE FROM maintenance_lease WHERE lease_key = ?`, leaseKey) })

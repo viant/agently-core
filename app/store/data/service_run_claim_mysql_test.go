@@ -12,8 +12,6 @@ import (
 	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
 	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
 )
 
 func TestDataService_RunRecoveryClaimMySQLSmoke(t *testing.T) {
@@ -29,16 +27,7 @@ func TestDataService_RunRecoveryClaimMySQLSmoke(t *testing.T) {
 	cfg.Loc = time.UTC
 	dsn := cfg.FormatDSN()
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New: %v", err)
-	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
-		t.Fatalf("add MySQL connector: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("register Datly components: %v", err)
-	}
+	dao := newNativeMySQLRuntime(t, dsn)
 	svc := NewService(dao)
 	suffix := fmt.Sprintf("%d", time.Now().UTC().UnixNano())
 	conversationID := "run-recovery-mysql-conv-" + suffix

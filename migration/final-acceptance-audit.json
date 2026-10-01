@@ -1,0 +1,99 @@
+{
+  "objective_complete": false,
+  "published_datly": "v1.1.1-0.20260930202444-a59b17988b72",
+  "requirements": [
+    {
+      "id": "goal_store_and_agent_wiring",
+      "requirement": "service/goal, SDK, agent and injected store ownership",
+      "evidence": "migration/published-core-final-validation.json",
+      "status": "PASS goal/SDK/agent runtime and full Core/application tests"
+    },
+    {
+      "id": "stock_runtime_shared_pools",
+      "requirement": "Stock native bootstrap, scoped discovery, owned shutdown, borrowed resource retention",
+      "evidence": "migration/published-core-final-validation.json",
+      "status": "PASS focused lifetime/ownership and whole Core/Endly runtime gates"
+    },
+    {
+      "id": "transactional_product_operations",
+      "requirement": "Conversation deletion, maintenance, queues, OAuth CAS, scheduler leases, reporting/export/audit",
+      "evidence": [
+        "migration/root-layout-caller-validation.json",
+        "migration/published-core-final-validation.json",
+        "migration/scheduler-lease-mysql-validation.json",
+        "migration/oauth-mysql-acceptance-validation.json",
+        "migration/mysql-local-validation.json"
+      ],
+      "status": "PASS SQLite and actual callers; MySQL Data, reporting, scheduler and OAuth contention gates pass"
+    },
+    {
+      "id": "dql_inputs_and_shapes",
+      "requirement": "62 explicit input/output contracts;543 input fields and original parameter/predicate/default/codec mapping",
+      "evidence": "migration/dql-input-contract-audit.json",
+      "status": "PASS source audit, targeted runtime and full Endly"
+    },
+    {
+      "id": "public_sdk_contracts",
+      "requirement": "Go/TS/Kotlin/Swift actual application JSON/SSE/error/auth/report/export/queue",
+      "evidence": "migration/root-layout-caller-validation.json",
+      "status": "PASS actual server fixture; 413 TS,91 Swift,97 Android"
+    },
+    {
+      "id": "ui_android_baselines",
+      "requirement": "UI and Forge baseline reconciliation and client build/test checks",
+      "evidence": "migration/client-sdk-cutover-validation.json",
+      "status": "PASS reconciled client checks; historical failures retained separately"
+    },
+    {
+      "id": "root_full_tests",
+      "requirement": "All Core packages with published Datly/unified xdatly",
+      "evidence": "migration/published-core-final-validation.json",
+      "status": "PASS whole Core Go suite"
+    },
+    {
+      "id": "agently_full_tests_build",
+      "requirement": "Official published application Go tests/build and forced fresh CLI boot",
+      "evidence": "migration/agently-closing-validation.json",
+      "status": "PASS full published tests/build and fresh CLI startup"
+    },
+    {
+      "id": "full_endly",
+      "requirement": "Transcription/regeneration/boundary/native tests/linked command build",
+      "evidence": "migration/published-endly-final-validation.json",
+      "status": "PASS full workflow"
+    },
+    {
+      "id": "sql_dependencies",
+      "requirement": "Final classified product SQL/DML and legacy import/module audits",
+      "evidence": [
+        "migration/sql-dml-audit.json",
+        "migration/caller-cutover-audit.json"
+      ],
+      "status": "PASS classified source/import audit and official module graph"
+    },
+    {
+      "id": "main_backfill",
+      "requirement": "Latest original remote main changes accounted for without checkout modifications",
+      "evidence": "migration/latest-main-rescan.json",
+      "status": "PASS fresh main and two unique local feature commits accounted for; original checkout files preserved"
+    },
+    {
+      "id": "live_scheduler_idp",
+      "requirement": "Run only with authorized available credentials, no production jobs",
+      "evidence": [
+        "migration/idp-discovery-validation.json",
+        "migration/scheduler-auth-validation.json"
+      ],
+      "status": "DEFERRED by explicit user instruction: secret testing later. Public discovery/JWKS production verifier test PASS."
+    },
+    {
+      "id": "review_preservation",
+      "requirement": "Commit authorized Core/Agently migration changes on v1; preserve unrelated work; no push",
+      "evidence": "migration/final-review-state.json",
+      "status": "Commit preparation in progress on v1; source and local workspace files preserved"
+    }
+  ],
+  "rules": "Source audits prove source properties; compilation proves compilation; runtime claims require corresponding executed checks. Historical scratch runs remain explicitly scoped.",
+  "sole_remaining_requirement": "Authorized cleanup and v1 commits",
+  "user_scope_update": "Live IdP secret testing deferred; commit all migration changes on v1 and remove unused code."
+}

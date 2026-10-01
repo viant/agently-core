@@ -1,0 +1,89 @@
+#package('github.com/viant/agently-core/internal/datly/toolapprovalqueue/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/tool-approval','GET'))
+#setting($_ = $input_type('ApprovalRowsInput'))
+#setting($_ = $output_type('ApprovalRowsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $LockRows<bool>(approvalaccess/lock).Optional())
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'equal','q','id'))
+#define($_ = $UserId<string>(query/userId).Optional().WithPredicate(0,'equal','q','user_id'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','q','conversation_id'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','q','turn_id'))
+#define($_ = $MessageId<string>(query/messageId).Optional().WithPredicate(0,'equal','q','message_id'))
+#define($_ = $ConversationIds<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','q','conversation_id'))
+#define($_ = $TurnIds<[]string>(query/turnIds).Optional().WithPredicate(0,'in','q','turn_id'))
+#define($_ = $MessageIds<[]string>(query/messageIds).Optional().WithPredicate(0,'in','q','message_id'))
+#define($_ = $ToolName<string>(query/toolName).Optional().WithPredicate(0,'equal','q','tool_name'))
+#define($_ = $QueueStatus<string>(query/status).Optional().WithPredicate(0,'equal','q','status'))
+#define($_ = $Internal<bool>(approvalAccess/internal).Required())
+#define($_ = $ReadMode<string>(approvalAccess/mode).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $Since<time.Time>(query/since).Optional().WithPredicate(0,'expr','q.transition_at > ?'))
+#define($_ = $Until<time.Time>(query/until).Optional().WithPredicate(0,'expr','q.transition_at <= ?'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $OrderBy<string>(query/orderBy).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*ApprovalView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true,selectorOrderBy=true"'))
+
+SELECT queue_rows.id,
+       queue_rows.user_id,
+       queue_rows.conversation_id,
+       queue_rows.turn_id,
+       queue_rows.message_id,
+       queue_rows.tool_name,
+       queue_rows.title,
+       queue_rows.arguments,
+       queue_rows.metadata,
+       queue_rows.status,
+       queue_rows.decision,
+       queue_rows.expires_at,
+       queue_rows.timed_out_at,
+       queue_rows.approved_by_user_id,
+       queue_rows.approved_at,
+       queue_rows.executed_at,
+       queue_rows.error_message,
+       queue_rows.created_at,
+       queue_rows.updated_at,
+       queue_rows.transition_at, CAST(queue_rows.transition_at AS *string),
+       type(queue_rows,'ApprovalView'),
+       CAST(queue_rows.id AS string),
+       CAST(queue_rows.user_id AS string),
+       CAST(queue_rows.conversation_id AS *string),
+       CAST(queue_rows.turn_id AS *string),
+       CAST(queue_rows.message_id AS *string),
+       CAST(queue_rows.tool_name AS string),
+       CAST(queue_rows.title AS *string),
+       CAST(queue_rows.arguments AS []byte),
+       CAST(queue_rows.metadata AS *[]byte),
+       CAST(queue_rows.status AS string),
+       CAST(queue_rows.decision AS *string),
+       CAST(queue_rows.expires_at AS *time.Time),
+       CAST(queue_rows.timed_out_at AS *time.Time),
+       CAST(queue_rows.approved_by_user_id AS *string),
+       CAST(queue_rows.approved_at AS *time.Time),
+       CAST(queue_rows.executed_at AS *time.Time),
+       CAST(queue_rows.error_message AS *string),
+       CAST(queue_rows.created_at AS time.Time),
+       CAST(queue_rows.updated_at AS *time.Time)
+FROM (
+ SELECT q.* FROM (
+ SELECT q.*, CASE
+ WHEN LOWER(COALESCE(q.status,''))='timed_out' THEN q.timed_out_at
+ WHEN LOWER(COALESCE(q.status,''))='executed' THEN q.executed_at
+ WHEN LOWER(COALESCE(q.status,'')) IN ('approved','rejected','canceled') THEN q.approved_at
+ WHEN q.updated_at IS NOT NULL THEN q.updated_at ELSE q.created_at END AS transition_at
+ FROM tool_approval_queue q
+ ) q WHERE ($Internal OR q.user_id=NULLIF($VisibilitySubject,''))
+ AND ($ReadMode<>'outcome' OR LOWER(COALESCE(q.status,'')) IN ('approved','rejected','canceled','executed','failed','timed_out'))
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+ ORDER BY CASE WHEN $ReadMode='outcome' THEN q.transition_at END ASC,
+ CASE WHEN $ReadMode='outcome' THEN q.id END ASC,
+ CASE WHEN $ReadMode='rows' THEN q.created_at END DESC,
+ CASE WHEN $ReadMode='rows' THEN q.id END DESC
+
+#if($LockRows) ${View.ForUpdate()} #end
+) queue_rows

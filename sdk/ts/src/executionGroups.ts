@@ -81,6 +81,9 @@ export function selectExecutionPages(turns: Turn[] = []): ExecutionPage[] {
 export type ExecutionStepLike = (ModelStepState | ToolStepState) & {
     id?: string;
     kind: 'model' | 'tool';
+    providerRequestPayloadId?: string;
+    providerResponsePayloadId?: string;
+    streamPayloadId?: string;
     toolName?: string;
     provider?: string;
     model?: string;

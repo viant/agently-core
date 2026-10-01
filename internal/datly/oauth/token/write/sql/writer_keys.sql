@@ -1,0 +1,1 @@
+SELECT UserId AS UserId, Provider AS Provider FROM `/`

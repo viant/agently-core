@@ -1,0 +1,28 @@
+#package('github.com/viant/agently-core/internal/datly/turn/cube')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/turn/report','GET'))
+#setting($_ = $input_type('TurnReportInput'))
+#setting($_ = $output_type('TurnReportOutput'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $cube())
+#define($_ = $Trusted<bool>(turnAccess/internal).Required())
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','t','conversation_id'))
+#define($_ = $Statuses<[]string>(query/statuses).Optional().WithPredicate(0,'in','t','status'))
+#define($_ = $Origin<string>(query/origin).Optional().WithPredicate(0,'equal','t','origin'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*TurnReportView>(output/view))
+SELECT groupable(t), t.conversation_id,t.status,t.origin,
+ COUNT(*) AS record_count,
+ COUNT(CASE WHEN t.status='queued' THEN 1 END) AS queued_count,
+ COUNT(CASE WHEN t.origin='controller' THEN 1 END) AS controller_count,
+ type(t,'TurnReportView'),
+ CAST(t.conversation_id AS string),tag(t.conversation_id,'groupable:"true"'),
+ CAST(t.status AS string),tag(t.status,'groupable:"true"'),
+ CAST(t.origin AS *string),tag(t.origin,'groupable:"true"'),
+ CAST(t.record_count AS int),tag(t.record_count,'groupable:"false"'),
+ CAST(t.queued_count AS int),tag(t.queued_count,'groupable:"false"'),
+ CAST(t.controller_count AS int),tag(t.controller_count,'groupable:"false"')
+FROM turn t WHERE $Trusted
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+GROUP BY t.conversation_id,t.status,t.origin

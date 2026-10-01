@@ -237,8 +237,18 @@ func (c *backendClient) ListFiles(context.Context, *ListFilesInput) (*ListFilesO
 	return nil, errors.New("file listing is disabled")
 }
 
-func (c *backendClient) ListResources(context.Context, *ListResourcesInput) (*ListResourcesOutput, error) {
-	return nil, errors.New("resource listing is disabled")
+func (c *backendClient) ListResources(ctx context.Context, input *ListResourcesInput) (*ListResourcesOutput, error) {
+	if c.store == nil {
+		return nil, errors.New("workspace store not configured")
+	}
+	if input == nil || strings.TrimSpace(input.Kind) == "" {
+		return nil, errors.New("resource kind is required")
+	}
+	names, err := c.store.List(ctx, input.Kind)
+	if err != nil {
+		return nil, err
+	}
+	return &ListResourcesOutput{Names: names}, nil
 }
 
 func (c *backendClient) GetResource(ctx context.Context, input *ResourceRef) (*GetResourceOutput, error) {

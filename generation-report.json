@@ -1,0 +1,312 @@
+[
+  {
+    "source": "dql/conversation/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/conversation/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/generatedfile/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/generatedfile/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/goal/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/goal/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/investigation/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/investigation/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/legacyrun/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/legacyrun/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/maintenancelease/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/maintenancelease/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/message/cube/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/message/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/message/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/modelcall/cube/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/modelcall/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/modelcall/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/oauth/linkstate/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/oauth/linkstate/write/write.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/oauth/token/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/oauth/token/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/orphanmaintenance/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/payload/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/payload/reference/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/payload/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/artifact/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/artifact/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/audit/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/audit/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/context/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/context/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/job/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/job/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/run/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/run/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/sharedartifact/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/reporting/sharedartifact/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/run/cube/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/run/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/run/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/runsteps/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/schedule/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/schedule/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/session/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/session/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/terminalartifact/snapshot/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/toolapprovalqueue/cube/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/toolapprovalqueue/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/toolapprovalqueue/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/toolcall/cube/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/toolcall/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/toolcall/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/toolexecutionclaim/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/toolexecutionclaim/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/turn/cube/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/turn/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/turn/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/turnqueue/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/turnqueue/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  },
+  {
+    "source": "dql/user/read/reader.dql",
+    "operation": "get",
+    "success": true
+  },
+  {
+    "source": "dql/user/write/writer.dql",
+    "operation": "patch",
+    "success": true
+  }
+]

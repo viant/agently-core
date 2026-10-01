@@ -1,13 +1,13 @@
 package sdk
 
-import aggoal "github.com/viant/agently-core/pkg/agently/goal"
+import goalsys "github.com/viant/agently-core/service/goal"
 
-func mapGoalView(view *aggoal.GoalView) *Goal {
+func mapGoalView(view *goalsys.Record) *Goal {
 	if view == nil {
 		return nil
 	}
 	out := &Goal{
-		ID:              view.Id,
+		ID:              view.ID,
 		ConversationID:  view.ConversationID,
 		Objective:       view.Objective,
 		Status:          view.Status,

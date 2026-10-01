@@ -1,0 +1,16 @@
+SELECT toolMessage.id, toolMessage.parent_message_id, toolMessage.created_at, toolMessage.sequence, toolMessage.type, toolMessage.content, toolMessage.tool_name, toolMessage.iteration, toolMessage.linked_conversation_id FROM (
+SELECT
+    m.id,
+    m.parent_message_id,
+    m.created_at,
+    m.sequence,
+    m.type,
+    m.content,
+    m.tool_name,
+    m.iteration,
+    NULLIF(m.linked_conversation_id, '') AS linked_conversation_id
+ FROM message m
+ WHERE m.parent_message_id IS NOT NULL
+   AND (m.type = 'tool_op' OR m.role = 'tool')
+ ORDER BY m.sequence, m.created_at
+) toolMessage

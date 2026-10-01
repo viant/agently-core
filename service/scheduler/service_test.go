@@ -17,7 +17,6 @@ import (
 	cancels "github.com/viant/agently-core/app/store/conversation/cancel"
 	mem "github.com/viant/agently-core/app/store/data/memory"
 	iauth "github.com/viant/agently-core/internal/auth"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -1072,12 +1071,9 @@ func seedRunningConversation(t *testing.T, client convcli.Client, conversationID
 
 func ensureRunWriteComponent(t *testing.T, store Store) {
 	t.Helper()
-	datlyStore, ok := store.(*datlyStore)
-	if !ok || datlyStore == nil || datlyStore.dao == nil {
-		t.Fatalf("expected datlyStore with dao, got %#v", store)
-	}
-	if _, err := agrunwrite.DefineComponent(context.Background(), datlyStore.dao); err != nil {
-		t.Fatalf("DefineComponent(run write) error: %v", err)
+	nativeStore, ok := store.(*datlyStore)
+	if !ok || nativeStore == nil || nativeStore.native == nil {
+		t.Fatalf("expected native scheduler store, got %#v", store)
 	}
 }
 
@@ -1345,7 +1341,7 @@ func TestService_RunNowAllowsSecondManualRunAfterRateLimitWindow(t *testing.T) {
 	}, 3*time.Second, 20*time.Millisecond)
 	close(release)
 	require.Eventually(t, func() bool {
-		return scheduleLastRunSet(t, db, "sched-run-now-repeat")
+		return scheduleLastRunSet(t, db, "sched-run-now-repeat") && schedulerRunLeasesReleased(t, db, "sched-run-now-repeat")
 	}, 3*time.Second, 20*time.Millisecond)
 
 	oldCreatedAt := time.Now().UTC().Add(-2 * time.Minute)
@@ -1362,7 +1358,7 @@ func TestService_RunNowAllowsSecondManualRunAfterRateLimitWindow(t *testing.T) {
 			scheduledForRunCount(t, db, "sched-run-now-repeat") == 2
 	}, 3*time.Second, 20*time.Millisecond)
 	require.Eventually(t, func() bool {
-		return scheduleLastRunSet(t, db, "sched-run-now-repeat")
+		return scheduleLastRunSet(t, db, "sched-run-now-repeat") && schedulerRunLeasesReleased(t, db, "sched-run-now-repeat")
 	}, 3*time.Second, 20*time.Millisecond)
 }
 
@@ -1665,6 +1661,9 @@ func TestService_RunDue_ExecutesScheduledGoalWakeupInSameConversation(t *testing
 
 func TestService_ExecuteRun_InternalGoalWakeupResumesSameConversation(t *testing.T) {
 	store, db := newTestStore(t)
+	if _, err := db.Exec(`INSERT INTO conversation(id,status,created_by_user_id) VALUES('conv-goal','running','system')`); err != nil {
+		t.Fatal(err)
+	}
 	ensureRunWriteComponent(t, store)
 	insertScheduleRow(t, db, "goal-wakeup-goal-1", "Goal wakeup")
 	insertPendingSchedulerRun(t, db, "run-1", "goal-wakeup-goal-1")
@@ -1770,4 +1769,15 @@ func insertPendingSchedulerRun(t *testing.T, db *sql.DB, runID, scheduleID strin
 	`, runID, scheduleID, "scheduled", "pending", now, now); err != nil {
 		t.Fatalf("insert pending scheduler run %s: %v", runID, err)
 	}
+}
+
+// A recorded schedule result precedes the execution goroutine's deferred lease
+// release. Await the lease cleanup before aging its run or closing its runtime.
+func schedulerRunLeasesReleased(t *testing.T, db *sql.DB, scheduleID string) bool {
+	t.Helper()
+	var held int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM run WHERE schedule_id=? AND lease_owner IS NOT NULL`, scheduleID).Scan(&held); err != nil {
+		t.Fatal(err)
+	}
+	return held == 0
 }

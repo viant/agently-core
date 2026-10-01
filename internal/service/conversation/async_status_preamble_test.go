@@ -61,8 +61,7 @@ func TestExecuteToolStep_ActivatedStatusPollerPublishesNarrationEvents(t *testin
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	require.NoError(t, err)
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	require.NoError(t, err)
 

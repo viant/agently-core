@@ -1,0 +1,30 @@
+{
+  "table": "report_export_artifact",
+  "reader": "datlyv1/dql/forge/reporting/artifact/read/reader.dql",
+  "writer": "datlyv1/dql/forge/reporting/artifact/write/writer.dql",
+  "generated_destinations": [
+    "datlyv1/generated/forge/reporting/artifact/read",
+    "datlyv1/generated/forge/reporting/artifact/write"
+  ],
+  "legacy_source": "app/store/reporting/sql/store.go PutArtifact, GetArtifact, ListArtifacts and conversation-tree artifact deletion",
+  "coverage": "One private owner-scoped reader and one create/delete writer for report_export_artifact. The writer hook invokes the canonical job reader inside the managed transaction to verify job, owner, artifact reference and case-insensitive format; no authored SQL is used.",
+  "data_driven_cases": 23,
+  "case_groups": {
+    "legacy_put_parent_match": 10,
+    "legacy_reader_fields": 5,
+    "native_guarded_delete": 4,
+    "caller_transactions": 2,
+    "binary_output_ownership": 1,
+    "http_owner_override": 1
+  },
+  "legacy_comparison": "Ten PutArtifact outcomes and four readable old-store cases compare against independent SDK0 reporting SQL store fixtures, including parent mismatch, duplicate job/ID, byte payload and retention duration.",
+  "verification": {
+    "focused": "go test ./tests -run '^TestReportArtifact' -count=1: pass",
+    "full_endly": "endly from datlyv1/e2e: success; 52/52 transcribed, 700 artifacts byte-stable, native boundary audit, nested tests 181.680s, host build, workflow 229704ms"
+  },
+  "limits": [
+    "CompleteJobWithArtifact still needs one managed transaction across artifact insertion and job completion.",
+    "Root reporting callers still use SDK0 and direct SQL."
+  ],
+  "current_root_reporting_status": "Superseded by migration/reporting-root-cutover-validation.json: root reporting production package now builds and its linked-host tests pass with v1 only; application/public routes and MySQL remain."
+}

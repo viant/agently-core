@@ -224,14 +224,21 @@ default:
 			Agent:    "coder",
 		})
 
+		buildCtx, stopWorkers := context.WithCancel(context.Background())
 		rt, err := executor.NewBuilder().
 			WithAgentFinder(apiTestAgentFinder{}).
 			WithModelFinder(apiTestModelFinder{}).
 			WithDefaults(defaults).
-			Build(context.Background())
+			Build(buildCtx)
+		stopWorkers()
 		if err != nil {
 			t.Fatalf("build runtime: %v", err)
 		}
+		t.Cleanup(func() {
+			if err := rt.Close(context.Background()); err != nil {
+				t.Errorf("runtime close: %v", err)
+			}
+		})
 		if rt.Reporting == nil {
 			t.Fatal("expected reporting service to be registered from workspace defaults")
 		}
@@ -278,6 +285,7 @@ func TestNewAPIHandler_MetadataReportingCapabilityUsesRuntimeOverrideWhenDefault
 		reportingSvc := reportingsvc.New(reportingsvc.Options{
 			Store: reportingsvc.NewStoreAdapter(reportmemory.New()),
 		})
+		buildCtx, stopWorkers := context.WithCancel(context.Background())
 		rt, err := executor.NewBuilder().
 			WithAgentFinder(apiTestAgentFinder{}).
 			WithModelFinder(apiTestModelFinder{}).
@@ -290,10 +298,16 @@ func TestNewAPIHandler_MetadataReportingCapabilityUsesRuntimeOverrideWhenDefault
 				},
 			}).
 			WithReportingService(reportingSvc).
-			Build(context.Background())
+			Build(buildCtx)
+		stopWorkers()
 		if err != nil {
 			t.Fatalf("build runtime: %v", err)
 		}
+		t.Cleanup(func() {
+			if err := rt.Close(context.Background()); err != nil {
+				t.Errorf("runtime close: %v", err)
+			}
+		})
 		if rt.Reporting == nil {
 			t.Fatal("expected explicitly injected reporting service")
 		}
@@ -342,7 +356,8 @@ default:
   reporting:
     enabled: true
 `)
-		rt, client, finder, err := BuildWorkspaceRuntime(context.Background(), RuntimeOptions{
+		buildCtx, stopWorkers := context.WithCancel(context.Background())
+		rt, client, finder, err := BuildWorkspaceRuntime(buildCtx, RuntimeOptions{
 			WorkspaceRoot: root,
 			Defaults: &execconfig.Defaults{
 				Model:    "test-model",
@@ -350,9 +365,15 @@ default:
 				Agent:    "coder",
 			},
 		})
+		stopWorkers()
 		if err != nil {
 			t.Fatalf("BuildWorkspaceRuntime failed: %v", err)
 		}
+		t.Cleanup(func() {
+			if err := rt.Close(context.Background()); err != nil {
+				t.Errorf("runtime close: %v", err)
+			}
+		})
 		if rt.Reporting == nil {
 			t.Fatal("expected reporting runtime to be enabled from workspace defaults")
 		}
@@ -477,7 +498,8 @@ default:
   reporting:
     enabled: true
 `)
-		rt, client, finder, err := BuildWorkspaceRuntime(context.Background(), RuntimeOptions{
+		buildCtx, stopWorkers := context.WithCancel(context.Background())
+		rt, client, finder, err := BuildWorkspaceRuntime(buildCtx, RuntimeOptions{
 			WorkspaceRoot: root,
 			Defaults: &execconfig.Defaults{
 				Model:    "test-model",
@@ -485,9 +507,15 @@ default:
 				Agent:    "coder",
 			},
 		})
+		stopWorkers()
 		if err != nil {
 			t.Fatalf("BuildWorkspaceRuntime failed: %v", err)
 		}
+		t.Cleanup(func() {
+			if err := rt.Close(context.Background()); err != nil {
+				t.Errorf("runtime close: %v", err)
+			}
+		})
 
 		handler, err := NewAPIHandler(context.Background(), APIOptions{
 			Version:     "test-version",
@@ -546,7 +574,8 @@ default:
     enabled: true
 `)
 
-		rt, client, finder, err := BuildWorkspaceRuntime(context.Background(), RuntimeOptions{
+		buildCtx, stopWorkers := context.WithCancel(context.Background())
+		rt, client, finder, err := BuildWorkspaceRuntime(buildCtx, RuntimeOptions{
 			WorkspaceRoot: root,
 			Defaults: &execconfig.Defaults{
 				Model:    "test-model",
@@ -554,9 +583,15 @@ default:
 				Agent:    "coder",
 			},
 		})
+		stopWorkers()
 		if err != nil {
 			t.Fatalf("BuildWorkspaceRuntime failed: %v", err)
 		}
+		t.Cleanup(func() {
+			if err := rt.Close(context.Background()); err != nil {
+				t.Errorf("runtime close: %v", err)
+			}
+		})
 		if rt.Reporting == nil {
 			t.Fatal("expected reporting runtime to be enabled from workspace defaults")
 		}
@@ -608,7 +643,8 @@ default:
     enabled: true
 `)
 
-		rt, client, finder, err := BuildWorkspaceRuntime(context.Background(), RuntimeOptions{
+		buildCtx, stopWorkers := context.WithCancel(context.Background())
+		rt, client, finder, err := BuildWorkspaceRuntime(buildCtx, RuntimeOptions{
 			WorkspaceRoot: root,
 			Defaults: &execconfig.Defaults{
 				Model:    "test-model",
@@ -616,9 +652,15 @@ default:
 				Agent:    "coder",
 			},
 		})
+		stopWorkers()
 		if err != nil {
 			t.Fatalf("BuildWorkspaceRuntime failed: %v", err)
 		}
+		t.Cleanup(func() {
+			if err := rt.Close(context.Background()); err != nil {
+				t.Errorf("runtime close: %v", err)
+			}
+		})
 		if rt.Reporting == nil {
 			t.Fatal("expected reporting runtime to be enabled from workspace defaults")
 		}
@@ -655,7 +697,8 @@ default:
     enabled: true
 `)
 
-		rt, client, finder, err := BuildWorkspaceRuntime(context.Background(), RuntimeOptions{
+		buildCtx, stopWorkers := context.WithCancel(context.Background())
+		rt, client, finder, err := BuildWorkspaceRuntime(buildCtx, RuntimeOptions{
 			WorkspaceRoot: root,
 			Defaults: &execconfig.Defaults{
 				Model:    "test-model",
@@ -663,9 +706,15 @@ default:
 				Agent:    "coder",
 			},
 		})
+		stopWorkers()
 		if err != nil {
 			t.Fatalf("BuildWorkspaceRuntime failed: %v", err)
 		}
+		t.Cleanup(func() {
+			if err := rt.Close(context.Background()); err != nil {
+				t.Errorf("runtime close: %v", err)
+			}
+		})
 		if rt.Reporting == nil {
 			t.Fatal("expected reporting runtime to be enabled from workspace defaults")
 		}
@@ -793,7 +842,8 @@ default:
     enabled: true
 `)
 
-		rt, client, finder, err := BuildWorkspaceRuntime(context.Background(), RuntimeOptions{
+		buildCtx, stopWorkers := context.WithCancel(context.Background())
+		rt, client, finder, err := BuildWorkspaceRuntime(buildCtx, RuntimeOptions{
 			WorkspaceRoot: root,
 			Defaults: &execconfig.Defaults{
 				Model:    "test-model",
@@ -801,9 +851,15 @@ default:
 				Agent:    "coder",
 			},
 		})
+		stopWorkers()
 		if err != nil {
 			t.Fatalf("BuildWorkspaceRuntime failed: %v", err)
 		}
+		t.Cleanup(func() {
+			if err := rt.Close(context.Background()); err != nil {
+				t.Errorf("runtime close: %v", err)
+			}
+		})
 		if rt.Reporting == nil {
 			t.Fatal("expected reporting runtime to be enabled from workspace defaults")
 		}

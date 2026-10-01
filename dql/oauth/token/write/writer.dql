@@ -1,0 +1,44 @@
+#package('github.com/viant/agently-core/internal/datly/oauth/token/write')
+#import('time','time')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/user/oauth','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Token<*Token>(body/data))
+#define($_ = $Mode<string>(query/mode).Optional())
+#define($_ = $ExpectedVersion<int64>(query/expectedVersion).Optional().WithPredicate(7,'equal','user_oauth_token','version'))
+#define($_ = $ExpectedLeaseOwner<string>(query/expectedLeaseOwner).Optional().WithPredicate(7,'equal','user_oauth_token','lease_owner'))
+#define($_ = $ExpectedEncToken<string>(query/expectedEncToken).Optional().WithPredicate(7,'equal','user_oauth_token','enc_token'))
+#define($_ = $LeaseMode<string>(query/leaseMode).Optional().WithPredicate(7,'handler','predicate.TokenLeasePredicate'))
+#define($_ = $Data<*Token>(output/body))
+
+SELECT data_rows.user_id,
+       data_rows.provider,
+       data_rows.enc_token,
+       internal(data_rows.enc_token),
+       data_rows.created_at,
+       data_rows.updated_at,
+       data_rows.version,
+       data_rows.lease_owner,
+       data_rows.lease_until,
+       data_rows.refresh_status,
+       type(data_rows,'Token'), mutation_predicate(data_rows,7),
+       lifecycle_type(data_rows,'Lifecycle'),
+       CAST(data_rows.user_id AS string),
+       tag(data_rows.user_id,'json:"userId,omitempty" sqlx:"user_id,primaryKey"'),
+       CAST(data_rows.provider AS string),
+       tag(data_rows.provider,'json:"provider,omitempty" sqlx:"provider,primaryKey"'),
+       CAST(data_rows.enc_token AS string),
+       tag(data_rows.enc_token,'json:"encToken,omitempty" sqlx:"enc_token"'),
+       CAST(data_rows.created_at AS time.Time),
+       tag(data_rows.created_at,'json:"createdAt,omitempty" sqlx:"created_at" format:"2006-01-02 15:04:05"'),
+       CAST(data_rows.updated_at AS *time.Time),
+       tag(data_rows.updated_at,'json:"updatedAt,omitempty" sqlx:"updated_at" format:"2006-01-02 15:04:05"'),
+       CAST(data_rows.version AS int64), tag(data_rows.version,'sqlx:"version"'),
+       CAST(data_rows.lease_owner AS *string), tag(data_rows.lease_owner,'sqlx:"lease_owner"'),
+       CAST(data_rows.lease_until AS *time.Time), tag(data_rows.lease_until,'sqlx:"lease_until"'),
+       CAST(data_rows.refresh_status AS string), tag(data_rows.refresh_status,'sqlx:"refresh_status"')
+FROM (SELECT `user_id`, `provider`, `enc_token`, `created_at`, `updated_at`, `version`, `lease_owner`, `lease_until`, `refresh_status` FROM user_oauth_token) data_rows

@@ -1,0 +1,35 @@
+{
+  "status": "ROOT USER SOURCE CUT OVER AND AUTH PACKAGE PASSES; APP/MYSQL PENDING",
+  "source": {
+    "reader": "datlyv1/dql/agently/user/user/reader/reader.dql",
+    "writer": "datlyv1/dql/agently/user/write/writer.dql",
+    "root_service": "service/auth/user_datly.go",
+    "retired_sdk0_files": 10,
+    "behavior": "Generated reader now has subject/provider equality predicates; generated writer owns user upsert and sparse profile updates. Root user service holds no direct product SQL."
+  },
+  "validation": {
+    "focused_nested": {
+      "command": "GOWORK=off go test -mod=readonly -count=1 ./tests -run ^(TestUserLegacyV1Parity|TestUserReaderSubjectProviderLookup)$",
+      "status": "passed after retiring SDK0 files",
+      "seconds": 15.909
+    },
+    "endly": {
+      "command": "endly in datlyv1/e2e",
+      "status": "passed",
+      "log": "/tmp/agently-v1-endly-user-reader.log",
+      "elapsed_ms": 205270,
+      "nested_test_seconds": 161.244
+    },
+    "root_auth": {
+      "command": "go test -mod=readonly -modfile=<scratch root module> -count=1 ./service/auth",
+      "status": "passed",
+      "seconds": 35.104,
+      "scope": "Full service/auth package with linked Datly v1 host; root module itself still cannot compile due unrelated SDK0 imports."
+    }
+  },
+  "remaining": [
+    "Migrate root OAuth token storage and other SDK0 auth dependencies.",
+    "Run root auth, scheduler and Agently application identity/auth tests against v1.",
+    "Validate MySQL races and user status scope after all root callers compile."
+  ]
+}

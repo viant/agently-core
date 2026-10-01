@@ -10,7 +10,6 @@ import (
 	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
 	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
-	"github.com/viant/datly"
 )
 
 func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *testing.T) {
@@ -21,10 +20,7 @@ func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *test
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -62,7 +58,7 @@ func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *test
 	}
 }
 
-func TestConversationOutput_DatlyAlreadyReturnsRelationAppliedStage_SQLite(t *testing.T) {
+func TestConversationOutput_NativeReturnsRelationAppliedStage_SQLite(t *testing.T) {
 	ctx := context.Background()
 
 	tmp := t.TempDir()
@@ -70,10 +66,7 @@ func TestConversationOutput_DatlyAlreadyReturnsRelationAppliedStage_SQLite(t *te
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -99,21 +92,20 @@ func TestConversationOutput_DatlyAlreadyReturnsRelationAppliedStage_SQLite(t *te
 		t.Fatalf("PatchTurn: %v", err)
 	}
 
-	in := agconv.ConversationInput{Id: convID, Has: &agconv.ConversationInputHas{Id: true, IncludeTranscript: true}}
-	in.IncludeTranscript = true
-	out := &agconv.ConversationOutput{}
-	uri := strings.ReplaceAll(agconv.ConversationPathURI, "{id}", convID)
-	if _, err := dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(&in)); err != nil {
-		t.Fatalf("dao.Operate: %v", err)
+	row, err := svc.GetConversation(ctx, convID, convcli.WithIncludeTranscript(true))
+	if err != nil {
+		t.Fatal(err)
 	}
+	out := &agconv.ConversationOutput{Data: []*agconv.ConversationView{(*agconv.ConversationView)(row)}}
+
 	if len(out.Data) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(out.Data))
 	}
 	if got := strings.TrimSpace(out.Data[0].Stage); got != "done" {
-		t.Fatalf("expected raw datly output stage to already be done, got %q", got)
+		t.Fatalf("expected native conversation output stage to already be done, got %q", got)
 	}
 	if out.Data[0].Status == nil || *out.Data[0].Status != "succeeded" {
-		t.Fatalf("expected raw datly output status to already be succeeded, got %#v", out.Data[0].Status)
+		t.Fatalf("expected native conversation output status to already be succeeded, got %#v", out.Data[0].Status)
 	}
 
 	beforeStage := out.Data[0].Stage
@@ -135,10 +127,7 @@ func TestGetConversation_PrunesBlankAssistantPlaceholderMessages(t *testing.T) {
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -195,10 +184,7 @@ func TestGetConversation_PreservesWhitespaceOnlyAssistantChunks(t *testing.T) {
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -256,10 +242,7 @@ func TestGetConversation_PreservesParentedAssistantAndToolMessages(t *testing.T)
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)

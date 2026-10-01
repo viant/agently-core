@@ -9,18 +9,20 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	storedata "github.com/viant/agently-core/app/store/data"
+	"github.com/viant/agently-core/app/store/native"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
 	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
 	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
+	"github.com/viant/datly/bootstrap/connector"
 	_ "modernc.org/sqlite"
 )
 
@@ -905,15 +907,15 @@ func newTestStore(t *testing.T) (Store, *sql.DB) {
 	dbtest.LoadSQLiteSchema(t, db)
 
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
-	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "sqlite", dbPath)); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
 
-	store, err := NewDatlyStore(ctx, dao, nil)
+	_, file, _, _ := runtime.Caller(0)
+	sourceRoot := filepath.Join(filepath.Dir(file), "..", "..")
+	server, err := native.New(ctx, native.Options{SourceRoot: sourceRoot, Connectors: []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: dbPath}}})
+	if err != nil {
+		t.Fatalf("native.New() error: %v", err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	store, err := NewDatlyStore(ctx, server, storedata.NewService(server))
 	if err != nil {
 		t.Fatalf("NewDatlyStore() error: %v", err)
 	}

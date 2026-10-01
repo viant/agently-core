@@ -2,12 +2,17 @@ package conversation
 
 import (
 	"context"
+	toolread "github.com/viant/agently-core/internal/datly/toolcall/read"
+	"github.com/viant/bindly/locator"
+	dexec "github.com/viant/datly/exec"
+	"github.com/viant/datly/runtime/handler/provider"
+	"github.com/viant/datly/spec"
+	"reflect"
 	"testing"
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	toolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
 )
 
 // TestToolCallTraceByOp_SQLite verifies that the Datly view for reading
@@ -17,17 +22,14 @@ func TestToolCallTraceByOp_SQLite(t *testing.T) {
 
 	// Use an isolated workspace with a temp SQLite DB.
 	tmp := t.TempDir()
-	// Ensure path exists; set AGENTLY_WORKSPACE so NewDatly picks sqlite.
+	// Each native host uses the test SQLite workspace.
 	t.Setenv("AGENTLY_WORKSPACE", tmp)
 	// Ensure no external DB overrides.
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
 	// Create Datly service and conversation API.
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -67,7 +69,7 @@ func TestToolCallTraceByOp_SQLite(t *testing.T) {
 	tc.SetStatus("completed")
 	// Persist the trace (anchor)
 	tc.TraceID = &trace
-	tc.Has = &toolcallwrite.ToolCallHas{TraceID: true}
+	tc.Has.TraceID = true
 	if err := svc.PatchToolCall(ctx, tc); err != nil {
 		t.Fatalf("PatchToolCall: %v", err)
 	}
@@ -81,4 +83,46 @@ func TestToolCallTraceByOp_SQLite(t *testing.T) {
 		t.Fatalf("expected trace %q, got %q", trace, got)
 	}
 
+	// A sparse update must identify the existing row and refresh the submitted trace
+	// snapshot without treating omitted required creation fields as replacements.
+	updatedTrace := "resp_test_anchor_002"
+	patch := convcli.NewToolCall()
+	patch.SetMessageID(msgID)
+	patch.TraceID = &updatedTrace
+	patch.Has.TraceID = true
+	if err := svc.PatchToolCall(ctx, patch); err != nil {
+		t.Fatalf("sparse trace update: %v", err)
+	}
+	if patch.MessageID != msgID || patch.TraceID == nil || *patch.TraceID != updatedTrace {
+		t.Fatalf("sparse result lost identity/trace: %#v", patch)
+	}
+	input := &toolread.ToolCallsInput{}
+	input.SetConversationId(convID)
+	input.SetOpId(opID)
+	value, readErr := dao.InvokeComponent(ctx, dexec.ComponentRequest{
+		Target: dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[toolread.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/tool-call"}},
+		Input:  input, Providers: []locator.Provider{provider.Named("toolcallaccess", func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
+			switch name {
+			case "internal":
+				return true, true, nil
+			case "mode":
+				return "rows", true, nil
+			}
+			return nil, false, nil
+		})},
+	})
+	if readErr != nil {
+		t.Fatalf("canonical tool resnapshot: %v", readErr)
+	}
+	snapshot := value.(*toolread.ToolCallsOutput)
+	if len(snapshot.Data) != 1 {
+		t.Fatalf("canonical row count = %d", len(snapshot.Data))
+	}
+	if snapshot.Data[0].MessageId != msgID || snapshot.Data[0].ToolName != "test/tool" || snapshot.Data[0].Status != "completed" || snapshot.Data[0].Attempt != 1 {
+		t.Fatalf("sparse update changed existing row: %+v", *snapshot.Data[0])
+	}
+	got, err = svc.ToolCallTraceByOp(ctx, convID, opID)
+	if err != nil || got != updatedTrace {
+		t.Fatalf("updated trace = %q, error=%v", got, err)
+	}
 }

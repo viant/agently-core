@@ -1,0 +1,35 @@
+#package('github.com/viant/agently-core/internal/datly/run/cube')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/run/report','GET'))
+#setting($_ = $input_type('RunReportInput'))
+#setting($_ = $output_type('RunReportOutput'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $cube())
+#define($_ = $InternalMode<bool>(runAccess/internal).Required())
+#define($_ = $ReportMode<string>(runAccess/reportMode).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $ScheduleId<string>(query/scheduleId).Optional().WithPredicate(0,'equal','t','schedule_id'))
+#define($_ = $StatusPattern<string>(query/statusPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.status,'')) LIKE LOWER(?)"))
+#define($_ = $ConversationPattern<string>(query/conversationPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.conversation_id,'')) LIKE LOWER(?)"))
+#define($_ = $ErrorPattern<string>(query/errorPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.error_message,'')) LIKE LOWER(?)"))
+#define($_ = $SinceTurn<string>(query/sinceTurn).Optional().WithPredicate(0,'expr','t.created_at >= (SELECT created_at FROM turn WHERE id=?)'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*RunReportView>(output/view))
+SELECT groupable(t),
+ t.schedule_id,t.status,t.conversation_kind,t.effective_user_id,
+ COUNT(*) AS record_count,SUM(t.usage_total_tokens) AS total_tokens,SUM(t.usage_cost) AS total_cost,
+ type(t,'RunReportView'),
+ CAST(t.schedule_id AS *string),tag(t.schedule_id,'groupable:"true"'),
+ CAST(t.status AS string),tag(t.status,'groupable:"true"'),
+ CAST(t.conversation_kind AS string),tag(t.conversation_kind,'groupable:"true"'),
+ CAST(t.effective_user_id AS *string),tag(t.effective_user_id,'groupable:"true"'),
+ CAST(t.record_count AS int),tag(t.record_count,'groupable:"false"'),CAST(t.total_tokens AS *int),tag(t.total_tokens,'groupable:"false"'),CAST(t.total_cost AS *float64),tag(t.total_cost,'groupable:"false"')
+FROM run t WHERE 1=1
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+ AND ($InternalMode OR COALESCE(t.effective_user_id,'')='' OR t.effective_user_id=NULLIF($VisibilitySubject,''))
+ AND ($ReportMode<>'scheduler' OR (t.schedule_id IS NOT NULL AND EXISTS(
+  SELECT 1 FROM schedule s WHERE s.id=t.schedule_id AND COALESCE(s.internal,0)=0
+  AND (s.visibility IS NULL OR s.visibility<>'private' OR s.created_by_user_id=NULLIF($VisibilitySubject,'')))))
+GROUP BY t.schedule_id,t.status,t.conversation_kind,t.effective_user_id

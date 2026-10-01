@@ -10,7 +10,6 @@ import (
 
 	"github.com/viant/afs/url"
 	"github.com/viant/agently-core/workspace"
-	"github.com/viant/datly/view"
 	"github.com/viant/embedius/metadata"
 )
 
@@ -232,8 +231,7 @@ func (s *Service) resolveLocalUpstream(ctx context.Context, location string) (*l
 }
 
 func (s *Service) upstreamDBLocal(ctx context.Context, upstream *LocalUpstream) (*sql.DB, error) {
-	conn := view.NewConnector("embedius_upstream", upstream.Driver, upstream.DSN)
-	db, err := conn.DB()
+	db, err := s.openUpstream(ctx, upstream.Driver, upstream.DSN)
 	if err != nil {
 		return nil, err
 	}

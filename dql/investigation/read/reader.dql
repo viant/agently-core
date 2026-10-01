@@ -1,0 +1,37 @@
+#package('github.com/viant/agently-core/internal/datly/investigation/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/investigation','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $LockRows<bool>(investigationaccess/lock).Optional())
+#define($_ = $Trusted<bool>(investigationAccess/internal).Required())
+#define($_ = $ID<string>(query/id).Optional().WithPredicate(0,'equal','i','id'))
+#define($_ = $ConversationID<string>(query/conversationId).Optional().WithPredicate(0,'equal','i','conversation_id'))
+#define($_ = $CreatedBy<string>(query/createdBy).Optional().WithPredicate(0,'equal','i','created_by'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','i','conversation_id'))
+#define($_ = $Data<[]*Investigation>(output/view))
+
+SELECT data_rows.id, data_rows.title, data_rows.created_by, data_rows.conversation_id,
+       data_rows.summary, data_rows.ad_order_id, data_rows.verdict, data_rows.created,
+       type(data_rows,'Investigation'),
+       CAST(data_rows.id AS string),
+       CAST(data_rows.title AS *string),
+       CAST(data_rows.created_by AS *string),
+       CAST(data_rows.conversation_id AS *string),
+       CAST(data_rows.summary AS *string),
+       CAST(data_rows.ad_order_id AS *int),
+       CAST(data_rows.verdict AS *string),
+       CAST(data_rows.created AS time.Time)
+FROM (
+    SELECT i.id, i.title, i.created_by, i.conversation_id,
+           i.summary, i.ad_order_id, i.verdict, i.created
+    FROM investigation i
+    WHERE $Trusted
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
+    ORDER BY i.created, i.id
+) data_rows
+
+#if($LockRows) ${View.ForUpdate()} #end

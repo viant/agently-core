@@ -1,0 +1,19 @@
+{
+  "date": "2026-09-30",
+  "scope": "Report-run and conversation-report-context references for tree deletion",
+  "changes": [
+    "Canonical report-run and conversation-context readers gained batch predicates for conversation, report-run and active-report-run IDs",
+    "The graph validator collects report-run IDs from graph conversations and active contexts, checks owner identity, and rejects an outside context referencing a graph report run",
+    "The validator uses linked SQLX table metadata to skip optional report tables without application SQL"
+  ],
+  "verified": [
+    "Linked-host test passed owned report context/run lookup, outside-context denial and foreign-run owner denial",
+    "Focused report-run/context reader parity, full app/store/native and service/reporting package suites passed with the v1 scratch modfile",
+    "Full nested Endly passed 60/60 transcription, stable regeneration, boundary audit, nested tests (176.041s) and linked-host build"
+  ],
+  "remaining": [
+    "Export-job activity and artifact ownership/reference checks, payload retention, graph locks, ordered generated writes and one managed transaction remain",
+    "Root conversation/schedule/scheduled-run deletion still uses direct SQL; MySQL and rebuilt application-route deletion remain unverified"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-report-refs.log"
+}

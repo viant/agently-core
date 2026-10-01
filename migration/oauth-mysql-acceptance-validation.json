@@ -1,0 +1,36 @@
+{
+  "result": "PASS",
+  "seconds": 5.999,
+  "date": "2026-09-30",
+  "command": "GOWORK=off GOFLAGS= AGENTLY_TEST_MYSQL_DSN=<protected disposable config> go test -mod=readonly ./service/auth -run ^(TestTokenStoreMySQLProviderMetadataLeaseAndCASIndependentPools|TestOAuthStateMySQLCompetingCreateConsumeReplayIndependentPools)$ -count=1",
+  "dependency_scope": {
+    "datly": "v1.1.1-0.20260930202444-a59b17988b72",
+    "sqlx": "v0.26.1-0.20260929151803-0df7f08c4926",
+    "local_datly_sqlx_replaces": false
+  },
+  "database": "Root-owned disposable MySQL fixture; credentials loaded in parent process only, never recorded",
+  "runtime": "Two separately constructed stock native runtime/connector pools for each test; caller-owned runtime shutdown and unique row cleanup",
+  "token_provider_metadata": [
+    "information_schema reports128 character provider column",
+    "full128 character exact provider identity roundtrips",
+    "hashed delegated storagekey fitswidth while original long ProviderRef/ClientRef roundtrip inside encrypted metadata",
+    "scopes/token subject/resource and ID-token expiry preserved"
+  ],
+  "token_contention": [
+    "two competing leaseowners produce exactlyone winner",
+    "wrongowner release cannot enable takeover",
+    "wrongowner and staleVersionCAS rejected",
+    "two sameversion CAS contenders produce exactlyone successfulwrite and version increments once",
+    "winner token retains delegated metadata"
+  ],
+  "state_contention": [
+    "sameflow competing state creation produces exactlyone created result and identical returned winner",
+    "crossuser and crosssession consume rejected",
+    "two independent contenders consume exactlyonce",
+    "replayed and absent state return same ErrOAuthStateInvalid",
+    "consumed pending excludesrow; sameflow latercreation replaces consumed state",
+    "expired consume rejected"
+  ],
+  "source_scope": "New test-only service/auth/oauth_mysql_acceptance_test.go; no product/generated changes or new external OAuth/IdP interaction",
+  "log": "migration/sdk-evidence/oauth-mysql-published.log"
+}

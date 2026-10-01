@@ -1,0 +1,18 @@
+=== RUN   TestWorkspaceRuntimeConversationSearchMySQL
+=== RUN   TestWorkspaceRuntimeConversationSearchMySQL/trim_and_lower
+=== RUN   TestWorkspaceRuntimeConversationSearchMySQL/no_cross-column_match
+=== RUN   TestWorkspaceRuntimeConversationSearchMySQL/literal_bound_text
+=== RUN   TestWorkspaceRuntimeConversationSearchMySQL/wildcard_preserves_owner_scope
+=== RUN   TestWorkspaceRuntimeConversationSearchMySQL/empty_presence
+=== RUN   TestWorkspaceRuntimeConversationSearchMySQL/whitespace_presence
+=== RUN   TestWorkspaceRuntimeConversationSearchMySQL/query_absent
+--- PASS: TestWorkspaceRuntimeConversationSearchMySQL (1.69s)
+    --- PASS: TestWorkspaceRuntimeConversationSearchMySQL/trim_and_lower (0.36s)
+    --- PASS: TestWorkspaceRuntimeConversationSearchMySQL/no_cross-column_match (0.01s)
+    --- PASS: TestWorkspaceRuntimeConversationSearchMySQL/literal_bound_text (0.01s)
+    --- PASS: TestWorkspaceRuntimeConversationSearchMySQL/wildcard_preserves_owner_scope (0.01s)
+    --- PASS: TestWorkspaceRuntimeConversationSearchMySQL/empty_presence (0.01s)
+    --- PASS: TestWorkspaceRuntimeConversationSearchMySQL/whitespace_presence (0.01s)
+    --- PASS: TestWorkspaceRuntimeConversationSearchMySQL/query_absent (0.01s)
+PASS
+ok  	github.com/viant/agently-core/app/store/native	2.865s

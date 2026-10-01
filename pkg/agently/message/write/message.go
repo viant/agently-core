@@ -15,7 +15,7 @@ type Message struct {
 	CreatedByUserID *string    `sqlx:"created_by_user_id" json:",omitempty"`
 	Mode            *string    `sqlx:"mode" json:",omitempty"`
 	Role            string     `sqlx:"role" validate:"required"`
-	Status          *string    `sqlx:"status" `
+	Status          *string    `sqlx:"status"`
 	Type            string     `sqlx:"type" validate:"required"`
 	Content         *string    `sqlx:"content"`
 	RawContent      *string    `sqlx:"raw_content" json:",omitempty"`
@@ -31,7 +31,7 @@ type Message struct {
 	SupersededBy         *string `sqlx:"superseded_by" json:",omitempty"`
 	LinkedConversationID *string `sqlx:"linked_conversation_id" json:",omitempty"`
 	ToolName             *string `sqlx:"tool_name" json:",omitempty"`
-	Narration             *string `sqlx:"preamble" json:",omitempty"`
+	Narration            *string `sqlx:"preamble" json:",omitempty"`
 	Iteration            *int    `sqlx:"iteration" json:",omitempty"`
 	Phase                *string `sqlx:"phase" json:",omitempty"`
 	// AttachmentPayloadID links a message to an uploaded/staged attachment payload.
@@ -71,7 +71,7 @@ type MessageHas struct {
 	SupersededBy         bool
 	LinkedConversationID bool
 	ToolName             bool
-	Narration             bool
+	Narration            bool
 	Iteration            bool
 	Phase                bool
 	AttachmentPayloadID  bool
@@ -120,11 +120,11 @@ func (m *Message) SetEmbeddingIndex(v []byte) {
 	m.ensureHas()
 	m.Has.EmbeddingIndex = true
 }
-func (m *Message) SetToolName(v string) { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
+func (m *Message) SetToolName(v string)  { m.ToolName = &v; m.ensureHas(); m.Has.ToolName = true }
 func (m *Message) SetNarration(v string) { m.Narration = &v; m.ensureHas(); m.Has.Narration = true }
-func (m *Message) SetIteration(v int)   { m.Iteration = &v; m.ensureHas(); m.Has.Iteration = true }
-func (m *Message) SetPhase(v string)    { m.Phase = &v; m.ensureHas(); m.Has.Phase = true }
-func (m *Message) SetInterim(v int)     { m.Interim = &v; m.ensureHas(); m.Has.Interim = true }
+func (m *Message) SetIteration(v int)    { m.Iteration = &v; m.ensureHas(); m.Has.Iteration = true }
+func (m *Message) SetPhase(v string)     { m.Phase = &v; m.ensureHas(); m.Has.Phase = true }
+func (m *Message) SetInterim(v int)      { m.Interim = &v; m.ensureHas(); m.Has.Interim = true }
 func (m *Message) SetLinkedConversationID(v string) {
 	m.LinkedConversationID = &v
 	m.ensureHas()

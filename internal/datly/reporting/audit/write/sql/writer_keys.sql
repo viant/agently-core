@@ -1,0 +1,1 @@
+SELECT EventId AS EventId FROM `/`

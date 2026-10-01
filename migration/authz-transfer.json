@@ -1,0 +1,11 @@
+{
+  "service/policy/authz_resolver.go": "12c36d9cca5dab15d2496ab15d807a9beadf4c65d4078a64a29a16c3c789de70",
+  "service/policy/authz_resolver_test.go": "2a814f1f7063143246a72f7ebad30e320bcb39916755223a760c32a9fd9ed622",
+  "go.mod": [
+    "\tgithub.com/viant/authz v0.0.0-20260928224026-ae44aa9ad366"
+  ],
+  "go.sum": [
+    "github.com/viant/authz v0.0.0-20260928224026-ae44aa9ad366 h1:5qojXDsQP0XSvLiGGHmXaxwHlh5fqc9VlWckdP9XB4c=",
+    "github.com/viant/authz v0.0.0-20260928224026-ae44aa9ad366/go.mod h1:iazfsC9LZkGsbZY2o/9Aq3p8eHaD09tWudyRN5vQ9eI="
+  ]
+}

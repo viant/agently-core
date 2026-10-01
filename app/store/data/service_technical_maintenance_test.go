@@ -3,7 +3,11 @@ package data
 import (
 	"context"
 	"database/sql"
+	"github.com/viant/agently-core/app/store/native"
+	"github.com/viant/agently-core/internal/sqlitewrite"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -12,7 +16,7 @@ func TestTechnicalMaintenance_SQLiteDeletesOldTechnicalStateAndPreservesSavedRep
 	evaluatedAt := time.Date(2026, 9, 15, 12, 0, 0, 0, time.UTC)
 	cutoff := evaluatedAt.Add(-30 * 24 * time.Hour)
 	old := evaluatedAt.Add(-60 * 24 * time.Hour).Format(time.RFC3339)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newSeededTechnicalServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		seedTechnicalConversation(t, db, "technical-interactive", false, old)
 		seedTechnicalReportRun(t, db, "technical-run", "technical-interactive", "running", old)
 		seedTechnicalExportJob(t, db, "technical-job", "technical-interactive", "technical-run", "queued", old, 0)
@@ -78,7 +82,7 @@ func TestTechnicalMaintenance_SQLiteScopesTTLSessionAndTransactionalRecheck(t *t
 	old := oldTime.Format(time.RFC3339)
 	recent := evaluatedAt.Add(-time.Hour).Format(time.RFC3339)
 	recentlyExpired := evaluatedAt.Add(-10 * 24 * time.Hour).Format(time.RFC3339)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newSeededTechnicalServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		seedTechnicalConversation(t, db, "technical-scheduled", true, old)
 		seedTechnicalReportRun(t, db, "scheduled-run", "technical-scheduled", "completed", old)
 		seedTechnicalReportRun(t, db, "unclassified-run", "", "failed", old)
@@ -270,4 +274,36 @@ func assertTechnicalRowCount(t *testing.T, db *sql.DB, table, key, id string, wa
 	if err := db.QueryRow("SELECT COUNT(*) FROM "+table+" WHERE "+key+" = ?", id).Scan(&got); err != nil || got != want {
 		t.Fatalf("%s.%s=%q count=%d want=%d err=%v", table, key, id, got, want, err)
 	}
+}
+
+func newSeededTechnicalServiceWithDB(t *testing.T, seeds ...func(*testing.T, *sql.DB)) (Service, *sql.DB) {
+	t.Helper()
+	for _, key := range []string{"AGENTLY_DB_DRIVER", "AGENTLY_DB_DSN", "AGENTLY_DB_PATH", "AGENTLY_DB_SECRETS"} {
+		t.Setenv(key, "")
+	}
+	_, source, _, _ := runtime.Caller(0)
+	root := t.TempDir()
+	server, err := native.New(context.Background(), native.Options{SourceRoot: filepath.Join(filepath.Dir(source), "../../.."), WorkspaceRoot: root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := server.Shutdown(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	dbPath := filepath.Join(root, "db/agently-core.db")
+	db, err := sql.Open("sqlite3", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	for _, seed := range seeds {
+		seed(t, db)
+	}
+	return &datlyService{native: server, writeGate: sqlitewrite.KeyForConnector("sqlite3", dbPath, "agently")}, db
 }

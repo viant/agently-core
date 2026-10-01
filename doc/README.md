@@ -18,6 +18,7 @@ If you're new, read in this order:
 | Doc | Topic |
 |---|---|
 | [architecture.md](architecture.md) | End-to-end diagram (clients → SDK → services → persistence) + turn lifecycle |
+| [datly-sdk-contract.md](datly-sdk-contract.md) | Datly 1.0 persistence boundary and Go/TypeScript/Swift/Kotlin SDK compatibility gate |
 
 ## Runtime orchestration
 
