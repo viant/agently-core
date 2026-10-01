@@ -69,6 +69,18 @@ func (s *MessageStore) read(ctx context.Context, mode string, input *read.Messag
 // ListRows reads the base message page with Datly-owned filters, projection,
 // ordering and limit. The caller applies its conversation authorization rule.
 func (s *MessageStore) ListRows(ctx context.Context, input *read.MessagesInput, selectors state.Selectors) ([]*read.MessageView, error) {
+	baseRows, err := s.ListBaseRows(ctx, input, selectors)
+	if err != nil {
+		return nil, err
+	}
+	rows := make([]*read.MessageView, 0, len(baseRows))
+	for _, row := range baseRows {
+		rows = append(rows, messageFromBase(row))
+	}
+	return rows, nil
+}
+
+func (s *MessageStore) ListBaseRows(ctx context.Context, input *read.MessagesInput, selectors state.Selectors) ([]*base.MessageBaseView, error) {
 	if s == nil || s.Invoker == nil || s.OwnerID == nil {
 		return nil, fmt.Errorf("message component store is not configured")
 	}
@@ -100,11 +112,7 @@ func (s *MessageStore) ListRows(ctx context.Context, input *read.MessagesInput, 
 	if !ok || out == nil {
 		return nil, fmt.Errorf("message reader returned %T", value)
 	}
-	rows := make([]*read.MessageView, 0, len(out.Data))
-	for _, row := range out.Data {
-		rows = append(rows, messageFromBase(row))
-	}
-	return rows, nil
+	return out.Data, nil
 }
 
 func (s *MessageStore) Get(ctx context.Context, id string, modelCalls, toolCalls bool) (*read.MessageView, error) {

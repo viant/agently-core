@@ -71,38 +71,34 @@ func invokeDataBatch[T any, W any](ctx context.Context, s *datlyService, input a
 		return nil, fmt.Errorf("data writer returned %T without rows", value)
 	}
 
-	// Stock writer output is the same input entity collection (writer/handler.go:
-	// program.exec sets OutputField to entities); identity queues additionally
-	// retain correspondence if a runtime changes output order.
-	destinations := make(map[string][]*T, len(rows))
-	for _, row := range rows {
-		if row != nil {
-			key, err := dataMutationIdentity(row)
-			if err != nil {
-				return nil, err
-			}
-			destinations[key] = append(destinations[key], row)
+	// Stock writer output retains the prepared input row objects, even when
+	// execution frames are reordered. Pointer queues preserve each occurrence.
+	destinations := make(map[*W][]*T, len(rows))
+	for i, native := range mapped {
+		if rows[i] != nil {
+			destinations[native] = append(destinations[native], rows[i])
 		}
 	}
+
 	result := make([]*T, 0, data.Len())
 	selected := make([]*T, 0, data.Len())
 	for i := 0; i < data.Len(); i++ {
-		native := data.Index(i).Interface()
-		if data.Index(i).Kind() == reflect.Pointer && data.Index(i).IsNil() {
+		native, ok := data.Index(i).Interface().(*W)
+		if !ok {
+			return nil, fmt.Errorf("data writer returned incompatible row %T", data.Index(i).Interface())
+		}
+		if native == nil {
 			result = append(result, nil)
 			selected = append(selected, nil)
 			continue
 		}
-		key, err := dataMutationIdentity(native)
-		if err != nil {
-			return nil, err
-		}
-		queue := destinations[key]
+
+		queue := destinations[native]
 		if len(queue) == 0 {
-			return nil, fmt.Errorf("data writer returned an unmatched identity %q", key)
+			return nil, fmt.Errorf("data writer returned a foreign mutation row")
 		}
 		destination := queue[0]
-		destinations[key] = queue[1:]
+		destinations[native] = queue[1:]
 		mapped, err := mapDataDTO[T](destination)
 		if err != nil {
 			return nil, err
@@ -219,29 +215,4 @@ func (s *datlyService) patchTurnQueueNative(ctx context.Context, row *turnqueuem
 	}
 	_, err := invokeDataBatch[turnqueuemodel.TurnQueue, queuewrite.TurnQueue](ctx, s, &queuewrite.Input{}, "Queues", "/v1/api/agently/turnqueue", []*turnqueuemodel.TurnQueue{row})
 	return err
-}
-
-func dataMutationIdentity(row any) (string, error) {
-	value := reflect.ValueOf(row)
-	for value.Kind() == reflect.Pointer {
-		if value.IsNil() {
-			return "", fmt.Errorf("nil data mutation output")
-		}
-		value = value.Elem()
-	}
-	if value.Kind() != reflect.Struct {
-		return "", fmt.Errorf("data mutation has type %T", row)
-	}
-	parts := []string{}
-	for i := 0; i < value.NumField(); i++ {
-		field := value.Type().Field(i)
-		tag := field.Tag.Get("sqlx")
-		if strings.Contains(strings.ToLower(tag), "primarykey") {
-			parts = append(parts, fmt.Sprint(value.Field(i).Interface()))
-		}
-	}
-	if len(parts) == 0 {
-		return "", fmt.Errorf("data mutation %T has no canonical identity", row)
-	}
-	return strings.Join(parts, "\x00"), nil
 }

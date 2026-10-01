@@ -1,6 +1,7 @@
 package message
 
 import (
+	base "github.com/viant/agently-core/internal/datly/message/base"
 	"github.com/viant/xdatly/response"
 
 	"time"
@@ -55,36 +56,6 @@ type MessageRowsOutput struct {
 	Metrics         response.Metrics
 }
 
-type MessageRowsView struct {
-	Archived             *int       `sqlx:"archived"`
-	AttachmentPayloadId  *string    `sqlx:"attachment_payload_id"`
-	Content              *string    `sqlx:"content"`
-	ContextSummary       *string    `sqlx:"context_summary"`
-	ConversationId       string     `sqlx:"conversation_id"`
-	CreatedAt            time.Time  `sqlx:"created_at"`
-	CreatedByUserId      *string    `sqlx:"created_by_user_id"`
-	ElicitationId        *string    `sqlx:"elicitation_id"`
-	ElicitationPayloadId *string    `sqlx:"elicitation_payload_id"`
-	EmbeddingIndex       *string    `sqlx:"embedding_index"`
-	Id                   string     `sqlx:"id"`
-	Interim              int        `sqlx:"interim"`
-	Iteration            *int       `sqlx:"iteration"`
-	LinkedConversationId *string    `sqlx:"linked_conversation_id"`
-	Mode                 *string    `sqlx:"mode"`
-	ParentMessageId      *string    `sqlx:"parent_message_id"`
-	Phase                *string    `sqlx:"phase"`
-	Narration            *string    `sqlx:"preamble"`
-	RawContent           *string    `sqlx:"raw_content"`
-	Role                 string     `sqlx:"role"`
-	Sequence             *int       `sqlx:"sequence"`
-	Status               *string    `sqlx:"status"`
-	Summary              *string    `sqlx:"summary"`
-	SupersededBy         *string    `sqlx:"superseded_by"`
-	Tags                 *string    `sqlx:"tags"`
-	ToolName             *string    `sqlx:"tool_name"`
-	TurnId               *string    `sqlx:"turn_id"`
-	Type                 string     `sqlx:"type"`
-	UpdatedAt            *time.Time `sqlx:"updated_at"`
-}
+type MessageRowsView = base.MessageBaseView
 
 var MessageRowsPathURI = "/v1/api/agently/message/list/list"
