@@ -376,7 +376,10 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 		if err := json.Unmarshal(raw, &doc); err != nil {
 			t.Fatalf("Unmarshal() error: %v", err)
 		}
-		toolMessages, ok := doc["ToolMessage"].([]interface{})
+		if _, exists := doc["ToolMessage"]; exists {
+			t.Fatal("unexpected PascalCase ToolMessage JSON key")
+		}
+		toolMessages, ok := doc["toolMessage"].([]interface{})
 		if !ok || len(toolMessages) == 0 {
 			t.Fatalf("expected toolMessage array in json shape")
 		}
@@ -384,7 +387,10 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected first toolMessage object")
 		}
-		if _, ok := tm["ToolCall"].(map[string]interface{}); !ok {
+		if _, exists := tm["ToolCall"]; exists {
+			t.Fatal("unexpected PascalCase ToolCall JSON key")
+		}
+		if _, ok := tm["toolCall"].(map[string]interface{}); !ok {
 			t.Fatalf("expected nested toolCall object in json shape")
 		}
 	})
