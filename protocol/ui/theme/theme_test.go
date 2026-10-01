@@ -60,6 +60,13 @@ func TestInvalidManifest(t *testing.T) {
 		strings.ReplaceAll(example, "branded", "forge-default"),
 		strings.Replace(example, "control.radius: 8", "control.radius: 8px", 1),
 		strings.Replace(example, "control.radius: 8", "control.radius: -1", 1),
+		strings.Replace(example, "control.radius: 8", "control.radius: 8\n      typography.family: comic-sans", 1),
+		strings.Replace(example, "version: 1", "version: 1\nfonts:\n  - role: workspace-primary\n    name: 'Bad; } body {'\n    faces: [{file: font.woff2, style: normal, weight: '400'}]", 1),
+		strings.Replace(example, "version: 1", "version: 1\nfonts:\n  - role: workspace-primary\n    name: Example\n    fallback: fantasy\n    faces: [{file: font.woff2, style: normal, weight: '400'}]", 1),
+		strings.Replace(example, "version: 1", "version: 1\nfonts:\n  - role: workspace-primary\n    name: Example\n    faces: [{file: font.woff2, style: oblique, weight: '400'}]", 1),
+		strings.Replace(example, "version: 1", "version: 1\nfonts:\n  - role: workspace-primary\n    name: Example\n    faces: [{file: font.woff2, style: normal, weight: '700 100'}]", 1),
+		strings.Replace(example, "version: 1", "version: 1\nfonts:\n  - role: workspace-primary\n    name: Example\n    faces: [{file: font.woff2, style: normal, weight: '400', unicodeRange: 'U+0000-00FF;src:x'}]", 1),
+		strings.Replace(example, "version: 1", "version: 1\nfonts:\n  - role: workspace-primary\n    name: Example\n    faces:\n      - {file: one.woff2, style: normal, weight: '400'}\n      - {file: two.woff2, style: normal, weight: '400'}", 1),
 		strings.Replace(example, "control.radius: 8", "unknown.token: 8", 1),
 		strings.Replace(example, "'#123456'", "'red; } body { display:none'", 1),
 	} {
@@ -121,6 +128,48 @@ func TestCSSAndJSON(t *testing.T) {
 		t.Fatal("accepted selector injection")
 	}
 }
+
+func TestNamedFontFamily(t *testing.T) {
+	input := strings.Replace(example, "version: 1", `version: 1
+fonts:
+  - role: workspace-primary
+    name: Example Serif Variable
+    fallback: serif
+    faces:
+      - file: fonts/example.woff2
+        style: normal
+        weight: '100 700'
+        unicodeRange: U+0000-00FF`, 1)
+	input = strings.Replace(input, "control.radius: 8", "control.radius: 8\n      typography.family: workspace-primary", 1)
+	m, err := Parse([]byte(input))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := Resolve(*m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	css, err := CSS(c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, declaration := range []string{
+		`--agently-theme-font-family: var(--agently-font-workspace-primary, system-ui, sans-serif);`,
+		`--forge-font-family: var(--agently-font-workspace-primary, system-ui, sans-serif);`,
+	} {
+		if !strings.Contains(css, declaration) {
+			t.Fatalf("missing shared font declaration %q in:\n%s", declaration, css)
+		}
+	}
+}
+
+func TestWorkspaceFontMustBeRegistered(t *testing.T) {
+	input := strings.Replace(example, "control.radius: 8", "control.radius: 8\n      typography.family: workspace-primary", 1)
+	if _, err := Parse([]byte(input)); err == nil || !strings.Contains(err.Error(), "unregistered font role") {
+		t.Fatalf("expected unregistered font rejection, got %v", err)
+	}
+}
+
 func TestCSSOnlyManifest(t *testing.T) {
 	m, err := Parse([]byte("version: 1\nfiles: [forms.css]\n"))
 	if err != nil {

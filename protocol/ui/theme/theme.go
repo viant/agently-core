@@ -21,7 +21,22 @@ const Version = 1
 const PaletteVersion = 1
 const MaxManifestBytes = 512 * 1024
 
+const maxFontFamilies = 4
+const maxFontFaces = 32
+
 type Tokens map[string]interface{}
+type FontFace struct {
+	File         string `json:"file" yaml:"file"`
+	Style        string `json:"style" yaml:"style"`
+	Weight       string `json:"weight" yaml:"weight"`
+	UnicodeRange string `json:"unicodeRange,omitempty" yaml:"unicodeRange,omitempty"`
+}
+type FontFamily struct {
+	Role     string     `json:"role" yaml:"role"`
+	Name     string     `json:"name" yaml:"name"`
+	Fallback string     `json:"fallback,omitempty" yaml:"fallback,omitempty"`
+	Faces    []FontFace `json:"faces" yaml:"faces"`
+}
 type Variant struct {
 	Tokens Tokens   `json:"tokens,omitempty" yaml:"tokens,omitempty"`
 	Files  []string `json:"files,omitempty" yaml:"files,omitempty"`
@@ -35,12 +50,13 @@ type Theme struct {
 	Modes        map[string]Variant `json:"modes" yaml:"modes"`
 }
 type Manifest struct {
-	Overrides    []string `json:"overrides,omitempty" yaml:"overrides,omitempty"`
-	Version      int      `json:"version" yaml:"version"`
-	Files        []string `json:"files,omitempty" yaml:"files,omitempty"`
-	DefaultTheme string   `json:"defaultTheme,omitempty" yaml:"defaultTheme,omitempty"`
-	DefaultMode  string   `json:"defaultMode,omitempty" yaml:"defaultMode,omitempty"`
-	Themes       []Theme  `json:"themes,omitempty" yaml:"themes,omitempty"`
+	Overrides    []string     `json:"overrides,omitempty" yaml:"overrides,omitempty"`
+	Version      int          `json:"version" yaml:"version"`
+	Fonts        []FontFamily `json:"fonts,omitempty" yaml:"fonts,omitempty"`
+	Files        []string     `json:"files,omitempty" yaml:"files,omitempty"`
+	DefaultTheme string       `json:"defaultTheme,omitempty" yaml:"defaultTheme,omitempty"`
+	DefaultMode  string       `json:"defaultMode,omitempty" yaml:"defaultMode,omitempty"`
+	Themes       []Theme      `json:"themes,omitempty" yaml:"themes,omitempty"`
 }
 type ResolvedTheme struct {
 	ID           string            `json:"id"`
@@ -58,6 +74,8 @@ type Catalog struct {
 
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)
 var color = regexp.MustCompile(`^#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$`)
+var fontName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9 ._-]{0,79}$`)
+var unicodeRange = regexp.MustCompile(`^U\+[0-9A-F?]{1,6}(-[0-9A-F]{1,6})?(,U\+[0-9A-F?]{1,6}(-[0-9A-F]{1,6})?)*$`)
 
 // Parse rejects unknown fields, duplicate YAML keys, and multiple documents.
 func Parse(data []byte) (*Manifest, error) {
@@ -96,6 +114,10 @@ func Resolve(m Manifest) (*Catalog, error) {
 	if len(m.Themes) > 32 {
 		return nil, fmt.Errorf("at most 32 themes are supported")
 	}
+	registeredFonts, err := validateFonts(m.Fonts)
+	if err != nil {
+		return nil, err
+	}
 	result := &Catalog{Version: Version, PaletteVersion: PaletteVersion, DefaultTheme: m.DefaultTheme, DefaultMode: mode, Themes: []ResolvedTheme{}}
 	seen := map[string]bool{}
 	for _, t := range m.Themes {
@@ -130,6 +152,9 @@ func Resolve(m Manifest) (*Catalog, error) {
 			for k, v := range variant.Tokens {
 				values[k] = v
 			}
+			if family, _ := values["typography.family"].(string); family != "system" && !registeredFonts[family] {
+				return nil, fmt.Errorf("theme %s/%s selects unregistered font role %q", t.ID, mode, family)
+			}
 			resolved.Modes[mode] = values
 		}
 		result.Themes = append(result.Themes, resolved)
@@ -142,6 +167,71 @@ func Resolve(m Manifest) (*Catalog, error) {
 	}
 	sort.Slice(result.Themes, func(i, j int) bool { return result.Themes[i].ID < result.Themes[j].ID })
 	return result, nil
+}
+
+func validateFonts(fonts []FontFamily) (map[string]bool, error) {
+	if len(fonts) > maxFontFamilies {
+		return nil, fmt.Errorf("at most %d font families are supported", maxFontFamilies)
+	}
+	roles := make(map[string]bool, len(fonts))
+	faces := 0
+	for _, family := range fonts {
+		if family.Role == "system" || fontFamilies[family.Role] == "" || roles[family.Role] {
+			return nil, fmt.Errorf("invalid or duplicate font role %q", family.Role)
+		}
+		if !fontName.MatchString(family.Name) {
+			return nil, fmt.Errorf("font role %s requires a safe family name", family.Role)
+		}
+		if family.Fallback != "" && family.Fallback != "system" && family.Fallback != "sans-serif" && family.Fallback != "serif" && family.Fallback != "monospace" {
+			return nil, fmt.Errorf("font role %s has unsupported fallback %q", family.Role, family.Fallback)
+		}
+		if len(family.Faces) == 0 {
+			return nil, fmt.Errorf("font role %s requires at least one face", family.Role)
+		}
+		faces += len(family.Faces)
+		if faces > maxFontFaces {
+			return nil, fmt.Errorf("at most %d font faces are supported", maxFontFaces)
+		}
+		seen := map[string]bool{}
+		for _, face := range family.Faces {
+			if face.Style != "normal" && face.Style != "italic" {
+				return nil, fmt.Errorf("font role %s has unsupported style %q", family.Role, face.Style)
+			}
+			weight, ok := validFontWeight(face.Weight)
+			if !ok {
+				return nil, fmt.Errorf("font role %s has invalid weight %q", family.Role, face.Weight)
+			}
+			if face.UnicodeRange != "" && !unicodeRange.MatchString(face.UnicodeRange) {
+				return nil, fmt.Errorf("font role %s has invalid unicode range", family.Role)
+			}
+			key := strings.Join([]string{face.Style, weight, face.UnicodeRange}, "\x00")
+			if seen[key] {
+				return nil, fmt.Errorf("font role %s has a duplicate face", family.Role)
+			}
+			seen[key] = true
+		}
+		roles[family.Role] = true
+	}
+	return roles, nil
+}
+
+func validFontWeight(value string) (string, bool) {
+	parts := strings.Fields(value)
+	if len(parts) < 1 || len(parts) > 2 {
+		return "", false
+	}
+	weights := make([]int, len(parts))
+	for i, part := range parts {
+		var weight int
+		if _, err := fmt.Sscanf(part, "%d", &weight); err != nil || fmt.Sprintf("%d", weight) != part || weight < 1 || weight > 1000 {
+			return "", false
+		}
+		weights[i] = weight
+	}
+	if len(weights) == 2 && weights[0] > weights[1] {
+		return "", false
+	}
+	return strings.Join(parts, " "), true
 }
 
 func validateTokens(tokens Tokens) error {
@@ -157,8 +247,9 @@ func validateTokens(tokens Tokens) error {
 				return fmt.Errorf("token %s requires a hex color", key)
 			}
 		case "font":
-			if v, ok := value.(string); !ok || v != "system" {
-				return fmt.Errorf("token %s supports only system", key)
+			v, ok := value.(string)
+			if _, supported := fontFamilies[v]; !ok || !supported {
+				return fmt.Errorf("token %s requires a supported font family", key)
 			}
 		default:
 			n, ok := number(value)

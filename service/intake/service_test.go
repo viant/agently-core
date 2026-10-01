@@ -290,6 +290,14 @@ match:
 	toolNameProp, _ := directActionProps["toolName"].(map[string]interface{})
 	require.NotNil(t, toolNameProp)
 	assert.Equal(t, []string{"message:askUser", "ui/view:open", "ui/window:show"}, toolNameProp["enum"])
+
+	cfg.ModelDirectAction = &agentmdl.ModelDirectActionPolicy{AllowedTools: []string{"ui/window:show"}}
+	schema = svc.buildOutputJSONSchema(context.Background(), cfg)
+	props, _ = schema["properties"].(map[string]interface{})
+	directAction, _ = props["directAction"].(map[string]interface{})
+	directActionProps, _ = directAction["properties"].(map[string]interface{})
+	toolNameProp, _ = directActionProps["toolName"].(map[string]interface{})
+	assert.Equal(t, []string{"ui/window:show"}, toolNameProp["enum"])
 }
 
 func TestBuildOutputSchema_ClassBIncluded(t *testing.T) {
@@ -358,6 +366,20 @@ func TestBuildGenerateInputWithTranscriptIncludesCurrentMessageContext(t *testin
 	assert.Contains(t, userText, "Order 2664518 is underdelivering")
 	assert.Contains(t, userText, "Current user message:")
 	assert.Contains(t, userText, "show me the top audiences")
+}
+
+func TestBuildGenerateInputWithLiveContextKeepsSystemPromptStable(t *testing.T) {
+	svc := &Service{}
+	cfg := &agentmdl.Intake{MaxTokens: 400, Scope: []string{"intent", "context", "profile"}}
+	first := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "switch to starred advertisers", "", cfg,
+		WithLiveContext(`{"kind":"web","liveUI":true} advertiserListMode[all|starred]`))
+	second := svc.buildGenerateInputWithContext(context.Background(), "openai_gpt-5_6_luna", "shared routing rules", "show advertisers", "", cfg,
+		WithLiveContext(`{"kind":"web","liveUI":true} another window`))
+
+	assert.Equal(t, llm.MessageText(first.Message[0]), llm.MessageText(second.Message[0]))
+	assert.Equal(t, "shared routing rules", llm.MessageText(first.Message[0]))
+	assert.Contains(t, llm.MessageText(first.Message[1]), "advertiserListMode[all|starred]")
+	assert.NotContains(t, llm.MessageText(first.Message[0]), "advertiserListMode")
 }
 
 func TestBuildGenerateInputWithContext_ConstrainsTemplateAndProfileEnums(t *testing.T) {

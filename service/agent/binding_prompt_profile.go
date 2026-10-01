@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/binding"
 	intent "github.com/viant/agently-core/protocol/intent"
 	resources "github.com/viant/agently-core/protocol/tool/service/resources"
@@ -58,7 +60,14 @@ func (s *Service) applySelectedPromptProfile(ctx context.Context, input *QueryIn
 }
 
 func applyProfileExecutionRestrictions(b *binding.Binding, profile *intent.Profile) {
-	if b == nil || profile == nil || profile.Execution == nil || !profile.Execution.DisableDelegation {
+	if b == nil || profile == nil || profile.Execution == nil {
+		return
+	}
+	if profile.Execution.DisableTools {
+		b.Tools.Signatures = nil
+		return
+	}
+	if !profile.Execution.DisableDelegation {
 		return
 	}
 	filtered := b.Tools.Signatures[:0]
@@ -107,8 +116,10 @@ func (s *Service) appendKnowledgeMatches(ctx context.Context, input *QueryInput,
 		if spec.Path != "" {
 			args["path"] = spec.Path
 		}
+		matchStart := time.Now()
 		raw, err := s.registry.Execute(ctx, "resources:match", args)
 		if err != nil {
+			writeProfileKnowledgeTiming(source, index, spec, time.Since(matchStart), 0, 0, 0, nil, err)
 			if spec.Required {
 				return fmt.Errorf("knowledge[%d] match failed: %w", index, err)
 			}
@@ -116,6 +127,7 @@ func (s *Service) appendKnowledgeMatches(ctx context.Context, input *QueryInput,
 		}
 		var output resources.MatchOutput
 		if err = json.Unmarshal([]byte(raw), &output); err != nil {
+			writeProfileKnowledgeTiming(source, index, spec, time.Since(matchStart), 0, 0, 0, nil, err)
 			if spec.Required {
 				return fmt.Errorf("knowledge[%d] returned invalid match output: %w", index, err)
 			}
@@ -126,6 +138,20 @@ func (s *Service) appendKnowledgeMatches(ctx context.Context, input *QueryInput,
 			MaxDocuments:  spec.MaxDocuments,
 			MaxTotalBytes: spec.MaxTotalBytes,
 		})
+		selectedBytes := 0
+		for _, item := range items {
+			if item != nil {
+				selectedBytes += len(item.PageContent)
+			}
+		}
+		topScores := make([]float32, 0, 5)
+		for _, document := range output.Documents {
+			if len(topScores) >= cap(topScores) {
+				break
+			}
+			topScores = append(topScores, document.Score)
+		}
+		writeProfileKnowledgeTiming(source, index, spec, time.Since(matchStart), len(output.Documents), len(items), selectedBytes, topScores, nil)
 		for _, item := range items {
 			if item == nil || hasDocumentURI(b.SystemDocuments.Items, item.SourceURI) {
 				continue
@@ -138,6 +164,29 @@ func (s *Service) appendKnowledgeMatches(ctx context.Context, input *QueryInput,
 		}
 	}
 	return nil
+}
+
+func writeProfileKnowledgeTiming(source string, index int, spec intent.KnowledgeMatch, elapsed time.Duration, returned, selected, selectedBytes int, topScores []float32, err error) {
+	if !debugtrace.Enabled() {
+		return
+	}
+	payload := map[string]any{
+		"profile":              strings.TrimSpace(source),
+		"knowledgeIndex":       index,
+		"rootIds":              append([]string(nil), spec.RootIDs...),
+		"maxCandidates":        knowledgeMatchDepth(spec),
+		"maxDocuments":         spec.MaxDocuments,
+		"maxTotalBytes":        spec.MaxTotalBytes,
+		"elapsedMs":            elapsed.Milliseconds(),
+		"returnedDocuments":    returned,
+		"selectedDocuments":    selected,
+		"selectedContentBytes": selectedBytes,
+		"topScores":            append([]float32(nil), topScores...),
+	}
+	if err != nil {
+		payload["error"] = err.Error()
+	}
+	debugtrace.Write("agent", "profile_knowledge_timing", payload)
 }
 
 func knowledgeMatchDepth(spec intent.KnowledgeMatch) int {

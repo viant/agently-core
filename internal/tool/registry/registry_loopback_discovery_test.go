@@ -27,6 +27,7 @@ func (m *loopbackDiscoveryManagerStub) Touch(convID, serverName string) {}
 
 func (m *loopbackDiscoveryManagerStub) Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error) {
 	return &mcpcfg.MCPClient{
+		ToolsListVisibility: mcpcfg.ToolsListVisibilityPrivate,
 		ClientOptions: &mcp.ClientOptions{
 			Transport: mcp.ClientTransport{
 				Type: "streamable",
@@ -128,6 +129,7 @@ func (m *remoteDiscoveryManagerStub) Touch(convID, serverName string) {}
 
 func (m *remoteDiscoveryManagerStub) Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error) {
 	return &mcpcfg.MCPClient{
+		ToolsListVisibility: mcpcfg.ToolsListVisibilityPrivate,
 		ClientOptions: &mcp.ClientOptions{
 			Transport: mcp.ClientTransport{
 				Type: "streamable",

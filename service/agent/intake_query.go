@@ -41,12 +41,12 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	}
 	cfg := &input.Agent.Intake
 	runCfg := *cfg
+	var liveContext []string
 	if bootstrap := s.workspaceUIBootstrap(ctx, input.ConversationID); strings.TrimSpace(bootstrap) != "" {
-		if extra := strings.TrimSpace(runCfg.Prompt.Text); extra != "" {
-			runCfg.Prompt.Text = extra + "\n\nWorkspace UI bootstrap:\n" + bootstrap
-		} else {
-			runCfg.Prompt.Text = "Workspace UI bootstrap:\n" + bootstrap
-		}
+		liveContext = append(liveContext, "Workspace UI bootstrap:\n"+bootstrap)
+	}
+	if client := s.intakeClientSummary(ctx, input); client != "" {
+		liveContext = append(liveContext, "Client context (transport facts, not user intent): "+client)
 	}
 
 	if s.maybeInjectWorkspaceUIOverride(ctx, input, &runCfg) {
@@ -94,7 +94,8 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	}
 	runCtx := s.intakeTrackedContext(ctx, input)
 	tc := s.intakeSvc.Run(runCtx, userMessage, &runCfg, strings.TrimSpace(input.UserId),
-		intakesvc.WithTranscript(s.recentVisibleTranscriptForIntake(ctx, input)))
+		intakesvc.WithTranscript(s.recentVisibleTranscriptForIntake(ctx, input)),
+		intakesvc.WithLiveContext(strings.Join(liveContext, "\n\n")))
 	if tc == nil {
 		return
 	}
@@ -117,6 +118,30 @@ func (s *Service) maybeRunIntakeSidecar(ctx context.Context, input *QueryInput) 
 	}
 	applyTurnContext(input, tc, &runCfg)
 	s.maybeSetConversationTitle(ctx, input.ConversationID, tc.Classification.Title)
+}
+
+func (s *Service) intakeClientSummary(ctx context.Context, input *QueryInput) string {
+	if input == nil {
+		return ""
+	}
+	client := map[string]any{"kind": directActionClientKind(input.Context), "liveUI": s.hasRequestedUIClient(ctx, input.ConversationID)}
+	if input.Context != nil {
+		switch raw := input.Context["client"].(type) {
+		case map[string]any:
+			for _, key := range []string{"platform", "formFactor", "surface"} {
+				client[key] = strings.TrimSpace(stringValue(raw[key]))
+			}
+		case map[string]string:
+			for _, key := range []string{"platform", "formFactor", "surface"} {
+				client[key] = strings.TrimSpace(raw[key])
+			}
+		}
+	}
+	encoded, err := json.Marshal(client)
+	if err != nil {
+		return ""
+	}
+	return string(encoded)
 }
 
 func (s *Service) recentVisibleTranscriptForIntake(ctx context.Context, input *QueryInput) []intakesvc.TranscriptMessage {
@@ -1141,12 +1166,13 @@ func buildSetControlAction(clientID string, win *uireg.WindowSnapshot, control u
 	}
 	assistantText := fmt.Sprintf("Updated %s to %s on the open %s workspace.", firstNonEmpty(strings.TrimSpace(control.Label), strings.TrimSpace(control.ID), "control"), firstNonEmpty(strings.TrimSpace(valueLabel), fmt.Sprint(value)), firstNonEmpty(strings.TrimSpace(win.WindowTitle), strings.TrimSpace(win.WindowKey), "workspace"))
 	input := map[string]interface{}{
-		"windowId":    strings.TrimSpace(win.WindowID),
-		"controlId":   strings.TrimSpace(control.ID),
-		"scope":       strings.TrimSpace(control.Scope),
-		"value":       value,
-		"bindingPath": strings.TrimSpace(control.BindingPath),
-		"dataField":   strings.TrimSpace(control.DataField),
+		"windowId":      strings.TrimSpace(win.WindowID),
+		"controlId":     strings.TrimSpace(control.ID),
+		"scope":         strings.TrimSpace(control.Scope),
+		"value":         value,
+		"bindingPath":   strings.TrimSpace(control.BindingPath),
+		"dataField":     strings.TrimSpace(control.DataField),
+		"dataSourceRef": strings.TrimSpace(control.DataSourceRef),
 	}
 	if clientID = strings.TrimSpace(clientID); clientID != "" {
 		input["clientId"] = clientID
@@ -1342,7 +1368,7 @@ func (s *Service) normalizeIntakeTurnContext(ctx context.Context, input *QueryIn
 	if s == nil || input == nil || tc == nil || cfg == nil {
 		return
 	}
-	if strings.EqualFold(strings.TrimSpace(tc.Routing.Source), intakesvc.SourceAgent) && strings.TrimSpace(tc.DirectAction.ToolName) != "" {
+	if strings.EqualFold(strings.TrimSpace(tc.Routing.Source), intakesvc.SourceAgent) && strings.TrimSpace(tc.DirectAction.ToolName) != "" && !allowModelDirectAction(tc, cfg) {
 		logx.Infof("conversation", "intake.agent_direct_action_suppressed convo=%q agent=%q tool=%q",
 			strings.TrimSpace(input.ConversationID),
 			strings.TrimSpace(input.Agent.ID),
