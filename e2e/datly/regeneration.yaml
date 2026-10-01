@@ -10,8 +10,8 @@ pipeline:
     checkError: true
     commands:
       - cd $projectRoot
-      - rm -rf bin/datly-regeneration-before
-      - cp -R internal/datly bin/datly-regeneration-before
+      - rm -rf bin/_datly_regeneration_before
+      - cp -R internal/datly bin/_datly_regeneration_before
   transcribe:
     action: run
     request: '@transcribe'
@@ -22,4 +22,4 @@ pipeline:
     checkError: true
     commands:
       - cd $projectRoot
-      - diff -ru bin/datly-regeneration-before internal/datly
+      - diff -ru bin/_datly_regeneration_before internal/datly
