@@ -74,10 +74,10 @@ func (s *stubConversationClient) GetGeneratedFiles(ctx context.Context, input *g
 			continue
 		}
 		if input != nil && input.Has != nil {
-			if input.Has.ConversationID && file.ConversationID != input.ConversationID {
+			if input.Has.ConversationID && file.ConversationId != input.ConversationID {
 				continue
 			}
-			if input.Has.ID && file.ID != input.ID {
+			if input.Has.ID && file.Id != input.ID {
 				continue
 			}
 		}
@@ -116,9 +116,9 @@ func TestResolveUploadedAttachmentLoadsGeneratedFilePayload(t *testing.T) {
 				},
 			},
 			generatedFiles: []*generatedfilemodel.GeneratedFileView{{
-				ID:             "file-upload",
-				ConversationID: "conv-upload",
-				PayloadID:      strPtr(payloadID),
+				Id:             "file-upload",
+				ConversationId: "conv-upload",
+				PayloadId:      strPtr(payloadID),
 				Filename:       strPtr("cat.png"),
 				MimeType:       strPtr("image/png"),
 			}},

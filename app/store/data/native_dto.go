@@ -2,6 +2,7 @@ package data
 
 import (
 	"fmt"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
 	"reflect"
 	"strings"
 	"time"
@@ -86,7 +87,7 @@ func copyDataValue(target, source reflect.Value) error {
 				if !sf.IsExported() {
 					continue
 				}
-				if strings.EqualFold(tf.Name, sf.Name) || dataColumnMatches(tf, sf) {
+				if strings.EqualFold(tf.Name, sf.Name) {
 					if err := copyDataValue(target.Field(i), source.Field(j)); err != nil {
 						return fmt.Errorf("map %s: %w", tf.Name, err)
 					}
@@ -102,11 +103,6 @@ func copyDataValue(target, source reflect.Value) error {
 	}
 	return fmt.Errorf("cannot map %s to %s", source.Type(), target.Type())
 }
-func dataColumnMatches(a, b reflect.StructField) bool {
-	left := strings.Split(a.Tag.Get("sqlx"), ",")[0]
-	right := strings.Split(b.Tag.Get("sqlx"), ",")[0]
-	return left != "" && left != "-" && left == right
-}
 
 // applyDataMutationResult retains public logical fields which have no stored
 // column or generated presence marker, such as tool ResponseOverflow.
@@ -120,17 +116,20 @@ func applyDataMutationResult(target, source reflect.Value) error {
 	for target.Kind() == reflect.Pointer {
 		target = target.Elem()
 	}
+	if target.CanAddr() {
+		if tool, ok := target.Addr().Interface().(*toolcallmodel.ToolCall); ok {
+			overflow := tool.ResponseOverflow
+			defer func() { tool.ResponseOverflow = overflow }()
+		}
+	}
 	for i := 0; i < target.NumField(); i++ {
 		tf := target.Type().Field(i)
 		if !target.Field(i).CanSet() {
 			continue
 		}
-		if tf.Name != "Has" && strings.Split(tf.Tag.Get("sqlx"), ",")[0] == "-" {
-			continue
-		}
 		for j := 0; j < source.NumField(); j++ {
 			sf := source.Type().Field(j)
-			if strings.EqualFold(tf.Name, sf.Name) || dataColumnMatches(tf, sf) {
+			if strings.EqualFold(tf.Name, sf.Name) {
 				if err := copyDataValue(target.Field(i), source.Field(j)); err != nil {
 					return err
 				}

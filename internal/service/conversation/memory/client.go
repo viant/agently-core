@@ -60,7 +60,7 @@ func (c *Client) DeleteConversation(_ context.Context, id string) error {
 		}
 	}
 	for fid, fv := range c.generatedFiles {
-		if fv != nil && fv.ConversationID == id {
+		if fv != nil && fv.ConversationId == id {
 			delete(c.generatedFiles, fid)
 		}
 	}
@@ -80,10 +80,10 @@ func (c *Client) DeleteMessage(_ context.Context, conversationID, messageID stri
 	delete(c.messages, messageID)
 	delete(c.toolCalls, messageID)
 	for fid, fv := range c.generatedFiles {
-		if fv == nil || fv.MessageID == nil {
+		if fv == nil || fv.MessageId == nil {
 			continue
 		}
-		if *fv.MessageID == messageID {
+		if *fv.MessageId == messageID {
 			delete(c.generatedFiles, fid)
 		}
 	}
@@ -251,19 +251,19 @@ func (c *Client) GetGeneratedFiles(_ context.Context, input *generatedfilemodel.
 			continue
 		}
 		if input != nil {
-			if strings.TrimSpace(input.ID) != "" && item.ID != input.ID {
+			if strings.TrimSpace(input.ID) != "" && item.Id != input.ID {
 				continue
 			}
-			if strings.TrimSpace(input.ConversationID) != "" && item.ConversationID != input.ConversationID {
+			if strings.TrimSpace(input.ConversationID) != "" && item.ConversationId != input.ConversationID {
 				continue
 			}
 			if strings.TrimSpace(input.TurnID) != "" {
-				if item.TurnID == nil || strings.TrimSpace(*item.TurnID) != strings.TrimSpace(input.TurnID) {
+				if item.TurnId == nil || strings.TrimSpace(*item.TurnId) != strings.TrimSpace(input.TurnID) {
 					continue
 				}
 			}
 			if strings.TrimSpace(input.MessageID) != "" {
-				if item.MessageID == nil || strings.TrimSpace(*item.MessageID) != strings.TrimSpace(input.MessageID) {
+				if item.MessageId == nil || strings.TrimSpace(*item.MessageId) != strings.TrimSpace(input.MessageID) {
 					continue
 				}
 			}
@@ -283,10 +283,10 @@ func (c *Client) GetGeneratedFiles(_ context.Context, input *generatedfilemodel.
 	sort.SliceStable(out, func(i, j int) bool {
 		ti, tj := out[i].CreatedAt, out[j].CreatedAt
 		if ti == nil || tj == nil {
-			return out[i].ID < out[j].ID
+			return out[i].Id < out[j].Id
 		}
 		if ti.Equal(*tj) {
-			return out[i].ID < out[j].ID
+			return out[i].Id < out[j].Id
 		}
 		return ti.Before(*tj)
 	})
@@ -301,7 +301,7 @@ func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *generatedf
 	defer c.mu.Unlock()
 	cur := c.generatedFiles[generatedFile.ID]
 	if cur == nil {
-		cur = &generatedfilemodel.GeneratedFileView{ID: generatedFile.ID}
+		cur = &generatedfilemodel.GeneratedFileView{Id: generatedFile.ID}
 		now := time.Now()
 		cur.CreatedAt = &now
 		c.generatedFiles[generatedFile.ID] = cur
@@ -310,13 +310,13 @@ func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *generatedf
 		generatedFile.Has = &generatedfilemodel.GeneratedFileHas{}
 	}
 	if generatedFile.Has.ConversationID {
-		cur.ConversationID = generatedFile.ConversationID
+		cur.ConversationId = generatedFile.ConversationID
 	}
 	if generatedFile.Has.TurnID {
-		cur.TurnID = generatedFile.TurnID
+		cur.TurnId = generatedFile.TurnID
 	}
 	if generatedFile.Has.MessageID {
-		cur.MessageID = generatedFile.MessageID
+		cur.MessageId = generatedFile.MessageID
 	}
 	if generatedFile.Has.Provider {
 		cur.Provider = generatedFile.Provider
@@ -331,13 +331,13 @@ func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *generatedf
 		cur.Status = generatedFile.Status
 	}
 	if generatedFile.Has.PayloadID {
-		cur.PayloadID = generatedFile.PayloadID
+		cur.PayloadId = generatedFile.PayloadID
 	}
 	if generatedFile.Has.ContainerID {
-		cur.ContainerID = generatedFile.ContainerID
+		cur.ContainerId = generatedFile.ContainerID
 	}
 	if generatedFile.Has.ProviderFileID {
-		cur.ProviderFileID = generatedFile.ProviderFileID
+		cur.ProviderFileId = generatedFile.ProviderFileID
 	}
 	if generatedFile.Has.Filename {
 		cur.Filename = generatedFile.Filename

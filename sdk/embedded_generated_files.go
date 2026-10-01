@@ -58,7 +58,7 @@ func (c *backendClient) DownloadGeneratedFile(ctx context.Context, id string) ([
 
 	filename := strings.TrimSpace(ptrString(file.Filename))
 	if filename == "" {
-		filename = strings.TrimSpace(ptrString(file.ProviderFileID))
+		filename = strings.TrimSpace(ptrString(file.ProviderFileId))
 		if filename == "" {
 			filename = "generated-file.bin"
 		}
@@ -68,7 +68,7 @@ func (c *backendClient) DownloadGeneratedFile(ctx context.Context, id string) ([
 		contentType = "application/octet-stream"
 	}
 
-	if payloadID := strings.TrimSpace(ptrString(file.PayloadID)); payloadID != "" {
+	if payloadID := strings.TrimSpace(ptrString(file.PayloadId)); payloadID != "" {
 		payload, pErr := c.conv.GetPayload(ctx, payloadID)
 		if pErr != nil || payload == nil || payload.InlineBody == nil || len(*payload.InlineBody) == 0 {
 			return nil, "", "", errGeneratedFileNoContent
@@ -82,8 +82,8 @@ func (c *backendClient) DownloadGeneratedFile(ctx context.Context, id string) ([
 	if !strings.EqualFold(strings.TrimSpace(file.Provider), "openai") || !strings.EqualFold(strings.TrimSpace(file.Mode), "interpreter") {
 		return nil, "", "", errGeneratedFileNoContent
 	}
-	containerID := strings.TrimSpace(ptrString(file.ContainerID))
-	providerFileID := strings.TrimSpace(ptrString(file.ProviderFileID))
+	containerID := strings.TrimSpace(ptrString(file.ContainerId))
+	providerFileID := strings.TrimSpace(ptrString(file.ProviderFileId))
 	if containerID == "" || providerFileID == "" {
 		return nil, "", "", errGeneratedFileNoContent
 	}
@@ -95,7 +95,7 @@ func (c *backendClient) DownloadGeneratedFile(ctx context.Context, id string) ([
 		if strings.Contains(msg, "status=404") {
 			status = "expired"
 		}
-		_ = c.patchGeneratedFileDownloadState(ctx, strings.TrimSpace(file.ID), status, dErr.Error(), "", "", 0, "")
+		_ = c.patchGeneratedFileDownloadState(ctx, strings.TrimSpace(file.Id), status, dErr.Error(), "", "", 0, "")
 		return nil, "", "", dErr
 	}
 	if strings.TrimSpace(downloadedType) != "" {
@@ -104,9 +104,9 @@ func (c *backendClient) DownloadGeneratedFile(ctx context.Context, id string) ([
 	if strings.EqualFold(strings.TrimSpace(file.CopyMode), "lazy_cache") || strings.EqualFold(strings.TrimSpace(file.CopyMode), "eager") {
 		payloadID, pErr := c.persistGeneratedFilePayload(ctx, body, contentType)
 		if pErr != nil {
-			_ = c.patchGeneratedFileDownloadState(ctx, strings.TrimSpace(file.ID), "failed", pErr.Error(), "", contentType, len(body), "")
+			_ = c.patchGeneratedFileDownloadState(ctx, strings.TrimSpace(file.Id), "failed", pErr.Error(), "", contentType, len(body), "")
 		} else {
-			_ = c.patchGeneratedFileDownloadState(ctx, strings.TrimSpace(file.ID), "ready", "", payloadID, contentType, len(body), sha256Hex(body))
+			_ = c.patchGeneratedFileDownloadState(ctx, strings.TrimSpace(file.Id), "ready", "", payloadID, contentType, len(body), sha256Hex(body))
 		}
 	}
 	return body, contentType, filename, nil

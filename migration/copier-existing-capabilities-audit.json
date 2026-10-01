@@ -157,5 +157,23 @@
       "/tmp/agently-original-skill-semantic-baseline.log",
       "/tmp/agently-v1-skill-semantic-focused.log"
     ]
+  },
+  "final_small_cutover": {
+    "sqlx_tag_reads_in_native_dto_and_native_mutations": 0,
+    "aliases": [
+      "GeneratedFileView -> generatedfile/read.GeneratedFileView (19 scalar fields)",
+      "QueueRowView -> turnqueue/read.QueueRowView (8 scalar fields)"
+    ],
+    "business_conversions": [
+      "ElicitationMessageView.Preamble = canonical MessageView.Narration",
+      "caller-owned ToolCall.ResponseOverflow is retained explicitly when applying native defaults"
+    ],
+    "framework_changes": false,
+    "new_components": 0,
+    "new_generic_mappers": 0,
+    "whole_compile": "PASS /tmp/agently-no-tag-alias-compile.log",
+    "sparse_null_zero_Has_tests": "PASS Data6.027s /tmp/agently-no-tag-alias-focused.log",
+    "alias_scalar_tests": "PASS generatedfile0.922s/turnqueue2.680s",
+    "HTTP_scope": "Message generated scalar page HTTP proof retained from prior commit; generated-file upload/download existing SDK checks follow under source freeze"
   }
 }

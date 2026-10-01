@@ -165,10 +165,10 @@ func (c *backendClient) DownloadFile(ctx context.Context, input *DownloadFileInp
 		return nil, err
 	}
 	for _, row := range rows {
-		if row == nil || strings.TrimSpace(row.ID) != strings.TrimSpace(input.FileID) || row.PayloadID == nil || strings.TrimSpace(*row.PayloadID) == "" {
+		if row == nil || strings.TrimSpace(row.Id) != strings.TrimSpace(input.FileID) || row.PayloadId == nil || strings.TrimSpace(*row.PayloadId) == "" {
 			continue
 		}
-		payload, err := c.GetPayload(ctx, strings.TrimSpace(*row.PayloadID))
+		payload, err := c.GetPayload(ctx, strings.TrimSpace(*row.PayloadId))
 		if err != nil {
 			return nil, err
 		}

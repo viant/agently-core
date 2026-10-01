@@ -7,7 +7,7 @@ import (
 
 func TestRewriteSandboxMarkdownLinks(t *testing.T) {
 	files := []*generatedfilemodel.GeneratedFileView{
-		{ID: "gf-123", Filename: generatedFileStringPtr("mouse_story.pdf")},
+		{Id: "gf-123", Filename: generatedFileStringPtr("mouse_story.pdf")},
 	}
 	input := `Created [mouse_story.pdf](sandbox:/mnt/data/mouse_story.pdf).`
 	got := rewriteSandboxMarkdownLinks(input, files)
@@ -19,7 +19,7 @@ func TestRewriteSandboxMarkdownLinks(t *testing.T) {
 
 func TestRewriteSandboxMarkdownLinks_LeavesUnmatchedLinkUntouched(t *testing.T) {
 	files := []*generatedfilemodel.GeneratedFileView{
-		{ID: "gf-123", Filename: generatedFileStringPtr("fish_story.pdf")},
+		{Id: "gf-123", Filename: generatedFileStringPtr("fish_story.pdf")},
 	}
 	input := `Created [mouse_story.pdf](sandbox:/mnt/data/mouse_story.pdf).`
 	got := rewriteSandboxMarkdownLinks(input, files)
