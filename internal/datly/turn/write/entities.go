@@ -36,16 +36,6 @@ func (entity *Turn) SetConversationId(value string) {
 	}
 	entity.Has.ConversationId = true
 }
-func (entity *Turn) GetCreatedAt() *time.Time {
-	return entity.CreatedAt
-}
-func (entity *Turn) SetCreatedAt(value *time.Time) {
-	entity.CreatedAt = value
-	if entity.Has == nil {
-		entity.Has = &TurnHas{}
-	}
-	entity.Has.CreatedAt = true
-}
 func (entity *Turn) GetQueueSeq() *int64 {
 	return entity.QueueSeq
 }
@@ -55,6 +45,26 @@ func (entity *Turn) SetQueueSeq(value *int64) {
 		entity.Has = &TurnHas{}
 	}
 	entity.Has.QueueSeq = true
+}
+func (entity *Turn) GetStatus() string {
+	return entity.Status
+}
+func (entity *Turn) SetStatus(value string) {
+	entity.Status = value
+	if entity.Has == nil {
+		entity.Has = &TurnHas{}
+	}
+	entity.Has.Status = true
+}
+func (entity *Turn) GetCreatedAt() *time.Time {
+	return entity.CreatedAt
+}
+func (entity *Turn) SetCreatedAt(value *time.Time) {
+	entity.CreatedAt = value
+	if entity.Has == nil {
+		entity.Has = &TurnHas{}
+	}
+	entity.Has.CreatedAt = true
 }
 func (entity *Turn) GetOrigin() *string {
 	return entity.Origin
@@ -86,15 +96,15 @@ func (entity *Turn) SetStatusReason(value *string) {
 	}
 	entity.Has.StatusReason = true
 }
-func (entity *Turn) GetStatus() string {
-	return entity.Status
+func (entity *Turn) GetErrorMessage() *string {
+	return entity.ErrorMessage
 }
-func (entity *Turn) SetStatus(value string) {
-	entity.Status = value
+func (entity *Turn) SetErrorMessage(value *string) {
+	entity.ErrorMessage = value
 	if entity.Has == nil {
 		entity.Has = &TurnHas{}
 	}
-	entity.Has.Status = true
+	entity.Has.ErrorMessage = true
 }
 func (entity *Turn) GetStartedByMessageId() *string {
 	return entity.StartedByMessageId
@@ -175,14 +185,4 @@ func (entity *Turn) SetRunId(value *string) {
 		entity.Has = &TurnHas{}
 	}
 	entity.Has.RunId = true
-}
-func (entity *Turn) GetErrorMessage() *string {
-	return entity.ErrorMessage
-}
-func (entity *Turn) SetErrorMessage(value *string) {
-	entity.ErrorMessage = value
-	if entity.Has == nil {
-		entity.Has = &TurnHas{}
-	}
-	entity.Has.ErrorMessage = true
 }

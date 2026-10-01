@@ -2,10 +2,9 @@ package agent
 
 import (
 	"context"
+	turnmodel "github.com/viant/agently-core/model/turn"
 	"strings"
 
-	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
-	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	goalsys "github.com/viant/agently-core/service/goal"
@@ -46,16 +45,16 @@ func (s *Service) observeDetachedAsyncGoalCompletion(ctx context.Context, rec *a
 		if s.currentGoalAsyncPolicy(context.Background(), conversationID) == goalsys.AsyncPolicyWait {
 			return
 		}
-		active, err := s.dataService.GetActiveTurn(context.Background(), &agturnactive.ActiveTurnsInput{
+		active, err := s.dataService.GetActiveTurn(context.Background(), &turnmodel.ActiveTurnsInput{
 			ConversationID: conversationID,
-			Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+			Has:            &turnmodel.ActiveTurnsInputHas{ConversationID: true},
 		})
 		if err != nil || active != nil {
 			return
 		}
-		queuedCount, err := s.dataService.CountQueuedTurns(context.Background(), &agturncount.QueuedTotalInput{
+		queuedCount, err := s.dataService.CountQueuedTurns(context.Background(), &turnmodel.QueuedTotalInput{
 			ConversationID: conversationID,
-			Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
+			Has:            &turnmodel.QueuedTotalInputHas{ConversationID: true},
 		})
 		if err != nil {
 			return

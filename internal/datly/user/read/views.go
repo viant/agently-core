@@ -8,19 +8,19 @@ import (
 
 // UserView is generated canonical view metadata for reader.
 type UserView struct {
-	CreatedAt          time.Time  `sqlx:"created_at,required=true"`
-	DefaultAgentRef    *string    `sqlx:"default_agent_ref"`
-	DefaultEmbedderRef *string    `sqlx:"default_embedder_ref"`
-	DefaultModelRef    *string    `sqlx:"default_model_ref"`
-	Disabled           int        `sqlx:"disabled,required=true"`
-	DisplayName        *string    `sqlx:"display_name"`
-	Email              *string    `sqlx:"email"`
-	HashIp             *string    `sqlx:"hash_ip"`
-	Id                 string     `sqlx:"id,primaryKey=true"`
-	Provider           string     `sqlx:"provider,required=true"`
-	Settings           *string    `sqlx:"settings"`
-	Subject            *string    `sqlx:"subject"`
-	Timezone           string     `sqlx:"timezone,required=true"`
-	UpdatedAt          *time.Time `sqlx:"updated_at"`
-	Username           string     `sqlx:"username,required=true"`
+	CreatedAt          time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	Disabled           int        `sqlx:"disabled,required=true" json:"disabled"`
+	Id                 string     `sqlx:"id,primaryKey=true" json:"id"`
+	Provider           string     `sqlx:"provider,required=true" json:"provider"`
+	Timezone           string     `sqlx:"timezone,required=true" json:"timezone"`
+	Username           string     `sqlx:"username,required=true" json:"username"`
+	DisplayName        *string    `sqlx:"display_name" json:"displayName"`
+	Email              *string    `sqlx:"email" json:"email"`
+	Subject            *string    `sqlx:"subject" json:"subject"`
+	HashIp             *string    `sqlx:"hash_ip" json:"hashIp"`
+	DefaultAgentRef    *string    `sqlx:"default_agent_ref" json:"defaultAgentRef"`
+	DefaultModelRef    *string    `sqlx:"default_model_ref" json:"defaultModelRef"`
+	DefaultEmbedderRef *string    `sqlx:"default_embedder_ref" json:"defaultEmbedderRef"`
+	Settings           *string    `sqlx:"settings" json:"settings"`
+	UpdatedAt          *time.Time `sqlx:"updated_at" json:"updatedAt"`
 }

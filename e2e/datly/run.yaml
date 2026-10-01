@@ -32,6 +32,7 @@ pipeline:
     checkError: true
     commands:
       - cd $projectRoot
+      - python3 -m unittest discover -s scripts/datly -p 'test_*.py'
       - python3 scripts/datly/check_contracts.py
       - env GOWORK=off go test -count=1 $testPackages -run '$testRun'
   build:

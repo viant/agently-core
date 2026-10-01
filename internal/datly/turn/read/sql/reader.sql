@@ -1,4 +1,4 @@
-SELECT turn_rows.cleanup_status, turn_rows.id, turn_rows.conversation_id, turn_rows.created_at, turn_rows.queue_seq, turn_rows.status, turn_rows.error_message, turn_rows.started_by_message_id, turn_rows.retry_of, turn_rows.agent_id_used, turn_rows.agent_config_used_id, turn_rows.model_override_provider, turn_rows.model_override, turn_rows.model_params_override, turn_rows.run_id FROM  (
+SELECT turn_rows.* FROM  (
 SELECT
         t.id,
         t.conversation_id,
@@ -31,10 +31,9 @@ SELECT
       SELECT t.id FROM turn t WHERE 1=1
       ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
       LIMIT 1))
-    ORDER BY CASE WHEN $LockRows THEN t.id END ASC, CASE WHEN $ReadMode IN ('queued','nextQueued') THEN COALESCE(t.queue_seq,-1) END ASC,
+    ORDER BY CASE WHEN $ReadMode IN ('queued','nextQueued') THEN COALESCE(t.queue_seq,-1) END ASC,
       CASE WHEN $ReadMode IN ('queued','nextQueued') THEN t.created_at END ASC,
       CASE WHEN $ReadMode IN ('queued','nextQueued') THEN t.id END ASC,
       CASE WHEN $ReadMode NOT IN ('queued','nextQueued') THEN t.created_at END DESC,
       CASE WHEN $ReadMode NOT IN ('queued','nextQueued') THEN t.id END DESC
-    #if($LockRows) ${View.ForUpdate()} #end  
 )  turn_rows

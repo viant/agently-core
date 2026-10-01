@@ -10,33 +10,31 @@ import (
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	gfwrite "github.com/viant/agently-core/pkg/agently/generatedfile/write"
-	payloadread "github.com/viant/agently-core/pkg/agently/payload/read"
-	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
+	payloadmodel "github.com/viant/agently-core/model/payload"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
 )
 
 // Client is an in-memory implementation of conversation.Client.
 // It is intended for tests and local runs without SQL/Datly.
 type Client struct {
 	mu            sync.RWMutex
-	conversations map[string]*agconv.ConversationView
+	conversations map[string]*conversationmodel.ConversationView
 	// Indexes for fast lookup
-	messages       map[string]*agconv.MessageView
-	toolApprovals  map[string]*queuew.ToolApprovalQueue
-	payloads       map[string]*payloadread.PayloadView
-	generatedFiles map[string]*gfread.GeneratedFileView
+	messages       map[string]*conversationmodel.MessageView
+	toolApprovals  map[string]*toolapprovalqueuemodel.ToolApprovalQueue
+	payloads       map[string]*payloadmodel.PayloadView
+	generatedFiles map[string]*generatedfilemodel.GeneratedFileView
 }
 
 func New() *Client {
 	return &Client{
-		conversations:  map[string]*agconv.ConversationView{},
-		messages:       map[string]*agconv.MessageView{},
-		toolApprovals:  map[string]*queuew.ToolApprovalQueue{},
-		payloads:       map[string]*payloadread.PayloadView{},
-		generatedFiles: map[string]*gfread.GeneratedFileView{},
+		conversations:  map[string]*conversationmodel.ConversationView{},
+		messages:       map[string]*conversationmodel.MessageView{},
+		toolApprovals:  map[string]*toolapprovalqueuemodel.ToolApprovalQueue{},
+		payloads:       map[string]*payloadmodel.PayloadView{},
+		generatedFiles: map[string]*generatedfilemodel.GeneratedFileView{},
 	}
 }
 
@@ -235,10 +233,10 @@ func (c *Client) GetConversation(ctx context.Context, id string, options ...conv
 	return toClientConversation(cp), nil
 }
 
-func (c *Client) GetGeneratedFiles(_ context.Context, input *gfread.Input) ([]*gfread.GeneratedFileView, error) {
+func (c *Client) GetGeneratedFiles(_ context.Context, input *generatedfilemodel.Input) ([]*generatedfilemodel.GeneratedFileView, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	out := make([]*gfread.GeneratedFileView, 0, len(c.generatedFiles))
+	out := make([]*generatedfilemodel.GeneratedFileView, 0, len(c.generatedFiles))
 	for _, item := range c.generatedFiles {
 		if item == nil {
 			continue
@@ -286,7 +284,7 @@ func (c *Client) GetGeneratedFiles(_ context.Context, input *gfread.Input) ([]*g
 	return out, nil
 }
 
-func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *gfwrite.GeneratedFile) error {
+func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *generatedfilemodel.GeneratedFile) error {
 	if generatedFile == nil || strings.TrimSpace(generatedFile.ID) == "" {
 		return errors.New("generated file id required")
 	}
@@ -294,13 +292,13 @@ func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *gfwrite.Ge
 	defer c.mu.Unlock()
 	cur := c.generatedFiles[generatedFile.ID]
 	if cur == nil {
-		cur = &gfread.GeneratedFileView{ID: generatedFile.ID}
+		cur = &generatedfilemodel.GeneratedFileView{ID: generatedFile.ID}
 		now := time.Now()
 		cur.CreatedAt = &now
 		c.generatedFiles[generatedFile.ID] = cur
 	}
 	if generatedFile.Has == nil {
-		generatedFile.Has = &gfwrite.GeneratedFileHas{}
+		generatedFile.Has = &generatedfilemodel.GeneratedFileHas{}
 	}
 	if generatedFile.Has.ConversationID {
 		cur.ConversationID = generatedFile.ConversationID
@@ -363,7 +361,7 @@ func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *gfwrite.Ge
 }
 
 // aggregateUsage builds a UsageView equivalent to SQL aggregation for a conversation.
-func (c *Client) aggregateUsage(conversationID string) *agconv.UsageView {
+func (c *Client) aggregateUsage(conversationID string) *conversationmodel.UsageView {
 	if strings.TrimSpace(conversationID) == "" {
 		return nil
 	}
@@ -440,7 +438,7 @@ func (c *Client) aggregateUsage(conversationID string) *agconv.UsageView {
 	pint := func(i int) *int { v := i; return &v }
 
 	// Build usage view with per-model breakdown (stable order by model)
-	models := make([]*agconv.ModelView, 0, len(byModel))
+	models := make([]*conversationmodel.ModelView, 0, len(byModel))
 	keys := make([]string, 0, len(byModel))
 	for k := range byModel {
 		keys = append(keys, k)
@@ -448,7 +446,7 @@ func (c *Client) aggregateUsage(conversationID string) *agconv.UsageView {
 	sort.Strings(keys)
 	for _, k := range keys {
 		a := byModel[k]
-		models = append(models, &agconv.ModelView{
+		models = append(models, &conversationmodel.ModelView{
 			ConversationId:                     conversationID,
 			Model:                              k,
 			PromptTokens:                       pint(a.pt),
@@ -463,7 +461,7 @@ func (c *Client) aggregateUsage(conversationID string) *agconv.UsageView {
 		})
 	}
 
-	return &agconv.UsageView{
+	return &conversationmodel.UsageView{
 		ConversationId:                     conversationID,
 		PromptTokens:                       pint(totals.pt),
 		PromptCachedTokens:                 pint(totals.pct),
@@ -489,7 +487,7 @@ func (c *Client) PatchConversations(ctx context.Context, in *convcli.MutableConv
 	cur, ok := c.conversations[in.Id]
 	if !ok {
 		// Create minimal conversation
-		cur = &agconv.ConversationView{Id: in.Id, Stage: "", CreatedAt: time.Now()}
+		cur = &conversationmodel.ConversationView{Id: in.Id, Stage: "", CreatedAt: time.Now()}
 		// Default to private visibility and set owner when available
 		cur.Visibility = "private"
 		if ui := authctx.User(ctx); ui != nil {
@@ -528,7 +526,7 @@ func (c *Client) PatchPayload(_ context.Context, p *convcli.MutablePayload) erro
 	defer c.mu.Unlock()
 	existing, ok := c.payloads[p.Id]
 	if !ok {
-		c.payloads[p.Id] = &payloadread.PayloadView{Id: p.Id}
+		c.payloads[p.Id] = &payloadmodel.PayloadView{Id: p.Id}
 		existing = c.payloads[p.Id]
 	}
 	applyPayloadPatch((*convcli.Payload)(existing), p)
@@ -626,7 +624,7 @@ func (c *Client) PatchMessage(_ context.Context, in *convcli.MutableMessage) err
 
 	var (
 		convID string
-		cur    *agconv.MessageView
+		cur    *conversationmodel.MessageView
 	)
 	if existing, ok := c.messages[in.Id]; ok && existing != nil {
 		cur = existing
@@ -644,7 +642,7 @@ func (c *Client) PatchMessage(_ context.Context, in *convcli.MutableMessage) err
 	}
 
 	// Ensure turn exists if provided
-	var targetTurn *agconv.TranscriptView
+	var targetTurn *conversationmodel.TranscriptView
 	if in.Has.TurnID && in.TurnID != nil {
 		targetTurn = findOrCreateTurn(conv, *in.TurnID)
 	} else if cur != nil && cur.TurnId != nil && strings.TrimSpace(*cur.TurnId) != "" {
@@ -656,7 +654,7 @@ func (c *Client) PatchMessage(_ context.Context, in *convcli.MutableMessage) err
 
 	// Upsert message in index and in turn
 	if cur == nil {
-		cur = &agconv.MessageView{Id: in.Id, ConversationId: convID, Role: in.Role, Type: in.Type, CreatedAt: time.Now()}
+		cur = &conversationmodel.MessageView{Id: in.Id, ConversationId: convID, Role: in.Role, Type: in.Type, CreatedAt: time.Now()}
 		c.messages[in.Id] = cur
 		// Place into turn if not present
 		if !messageInTurn(targetTurn, in.Id) {
@@ -680,7 +678,7 @@ func (c *Client) PatchModelCall(_ context.Context, in *convcli.MutableModelCall)
 		return errors.New("message not found")
 	}
 	if msg.ModelCall == nil {
-		msg.ModelCall = &agconv.ModelCallView{MessageId: in.MessageID}
+		msg.ModelCall = &conversationmodel.ModelCallView{MessageId: in.MessageID}
 	}
 	applyModelCallPatch(msg.ModelCall, in)
 	return nil
@@ -699,9 +697,9 @@ func (c *Client) PatchToolCall(_ context.Context, in *convcli.MutableToolCall) e
 		return errors.New("message not found")
 	}
 	if msg.ToolMessage == nil {
-		msg.ToolMessage = []*agconv.ToolMessageView{}
+		msg.ToolMessage = []*conversationmodel.ToolMessageView{}
 	}
-	var target *agconv.ToolMessageView
+	var target *conversationmodel.ToolMessageView
 	for _, item := range msg.ToolMessage {
 		if item != nil && strings.TrimSpace(item.Id) == strings.TrimSpace(in.MessageID) {
 			target = item
@@ -709,7 +707,7 @@ func (c *Client) PatchToolCall(_ context.Context, in *convcli.MutableToolCall) e
 		}
 	}
 	if target == nil {
-		target = &agconv.ToolMessageView{
+		target = &conversationmodel.ToolMessageView{
 			Id:              in.MessageID,
 			ParentMessageId: msg.ParentMessageId,
 			CreatedAt:       msg.CreatedAt,
@@ -719,7 +717,7 @@ func (c *Client) PatchToolCall(_ context.Context, in *convcli.MutableToolCall) e
 		msg.ToolMessage = append(msg.ToolMessage, target)
 	}
 	if target.ToolCall == nil {
-		target.ToolCall = &agconv.ToolCallView{
+		target.ToolCall = &conversationmodel.ToolCallView{
 			MessageId: in.MessageID,
 			OpId:      in.OpID,
 			Attempt:   in.Attempt,
@@ -793,7 +791,7 @@ func (c *Client) EnsureConversation(id string, opts ...func(*convcli.MutableConv
 	return c.PatchConversations(context.Background(), mc)
 }
 
-func (c *Client) PatchToolApprovalQueue(_ context.Context, in *queuew.ToolApprovalQueue) error {
+func (c *Client) PatchToolApprovalQueue(_ context.Context, in *toolapprovalqueuemodel.ToolApprovalQueue) error {
 	if in == nil || strings.TrimSpace(in.Id) == "" {
 		return errors.New("queue id is required")
 	}
@@ -861,10 +859,10 @@ func (c *Client) PatchToolApprovalQueue(_ context.Context, in *queuew.ToolApprov
 	return nil
 }
 
-func (c *Client) ListToolApprovalQueues(_ context.Context, in *queueread.QueueRowsInput) ([]*queueread.QueueRowView, error) {
+func (c *Client) ListToolApprovalQueues(_ context.Context, in *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	var out []*queueread.QueueRowView
+	var out []*toolapprovalqueuemodel.QueueRowView
 	for _, q := range c.toolApprovals {
 		if q == nil {
 			continue
@@ -892,7 +890,7 @@ func (c *Client) ListToolApprovalQueues(_ context.Context, in *queueread.QueueRo
 				continue
 			}
 		}
-		row := &queueread.QueueRowView{
+		row := &toolapprovalqueuemodel.QueueRowView{
 			Id:        q.Id,
 			UserId:    q.UserId,
 			ToolName:  q.ToolName,

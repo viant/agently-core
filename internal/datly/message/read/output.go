@@ -4,5 +4,5 @@ package read
 
 // MessagesOutput is the generated output scaffold for reader.
 type MessagesOutput struct {
-	Data []*MessageView `parameter:"Data,kind=output,in=view,dataType=[]*MessageView" view:"reader,type=MessageView,table=message,selectorProjection=true,selectorOrderBy=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_message_read_reader:sql/reader.sql"`
+	Data []*MessageView `parameter:"Data,kind=output,in=view,dataType=[]*MessageView" view:"reader,type=MessageView,rowLock=message m,rowLockOrder=m.id,table=message,selectorProjection=true,selectorOrderBy=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_message_read_reader:sql/reader.sql"`
 }

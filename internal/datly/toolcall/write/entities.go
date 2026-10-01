@@ -26,16 +26,6 @@ func (entity *ToolCall) SetMessageId(value string) {
 	}
 	entity.Has.MessageId = true
 }
-func (entity *ToolCall) GetTurnId() *string {
-	return entity.TurnId
-}
-func (entity *ToolCall) SetTurnId(value *string) {
-	entity.TurnId = value
-	if entity.Has == nil {
-		entity.Has = &ToolCallHas{}
-	}
-	entity.Has.TurnId = true
-}
 func (entity *ToolCall) GetOpId() string {
 	return entity.OpId
 }
@@ -85,6 +75,46 @@ func (entity *ToolCall) SetStatus(value string) {
 		entity.Has = &ToolCallHas{}
 	}
 	entity.Has.Status = true
+}
+func (entity *ToolCall) GetCost() *float64 {
+	return entity.Cost
+}
+func (entity *ToolCall) SetCost(value *float64) {
+	entity.Cost = value
+	if entity.Has == nil {
+		entity.Has = &ToolCallHas{}
+	}
+	entity.Has.Cost = true
+}
+func (entity *ToolCall) GetRequestPayloadId() *string {
+	return entity.RequestPayloadId
+}
+func (entity *ToolCall) SetRequestPayloadId(value *string) {
+	entity.RequestPayloadId = value
+	if entity.Has == nil {
+		entity.Has = &ToolCallHas{}
+	}
+	entity.Has.RequestPayloadId = true
+}
+func (entity *ToolCall) GetResponsePayloadId() *string {
+	return entity.ResponsePayloadId
+}
+func (entity *ToolCall) SetResponsePayloadId(value *string) {
+	entity.ResponsePayloadId = value
+	if entity.Has == nil {
+		entity.Has = &ToolCallHas{}
+	}
+	entity.Has.ResponsePayloadId = true
+}
+func (entity *ToolCall) GetTurnId() *string {
+	return entity.TurnId
+}
+func (entity *ToolCall) SetTurnId(value *string) {
+	entity.TurnId = value
+	if entity.Has == nil {
+		entity.Has = &ToolCallHas{}
+	}
+	entity.Has.TurnId = true
 }
 func (entity *ToolCall) GetRequestHash() *string {
 	return entity.RequestHash
@@ -156,16 +186,6 @@ func (entity *ToolCall) SetLatencyMs(value *int) {
 	}
 	entity.Has.LatencyMs = true
 }
-func (entity *ToolCall) GetCost() *float64 {
-	return entity.Cost
-}
-func (entity *ToolCall) SetCost(value *float64) {
-	entity.Cost = value
-	if entity.Has == nil {
-		entity.Has = &ToolCallHas{}
-	}
-	entity.Has.Cost = true
-}
 func (entity *ToolCall) GetTraceId() *string {
 	return entity.TraceId
 }
@@ -185,26 +205,6 @@ func (entity *ToolCall) SetSpanId(value *string) {
 		entity.Has = &ToolCallHas{}
 	}
 	entity.Has.SpanId = true
-}
-func (entity *ToolCall) GetRequestPayloadId() *string {
-	return entity.RequestPayloadId
-}
-func (entity *ToolCall) SetRequestPayloadId(value *string) {
-	entity.RequestPayloadId = value
-	if entity.Has == nil {
-		entity.Has = &ToolCallHas{}
-	}
-	entity.Has.RequestPayloadId = true
-}
-func (entity *ToolCall) GetResponsePayloadId() *string {
-	return entity.ResponsePayloadId
-}
-func (entity *ToolCall) SetResponsePayloadId(value *string) {
-	entity.ResponsePayloadId = value
-	if entity.Has == nil {
-		entity.Has = &ToolCallHas{}
-	}
-	entity.Has.ResponsePayloadId = true
 }
 func (entity *ToolCall) GetRunId() *string {
 	return entity.RunId

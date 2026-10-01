@@ -2,17 +2,6 @@
 
 package read
 
-func (input *GoalInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &GoalInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *GoalInput) SetConversationID(value string) {
 	if input == nil {
 		return

@@ -36,16 +36,6 @@ func (entity *Message) SetId(value string) {
 	}
 	entity.Has.Id = true
 }
-func (entity *Message) GetArchived() *int {
-	return entity.Archived
-}
-func (entity *Message) SetArchived(value *int) {
-	entity.Archived = value
-	if entity.Has == nil {
-		entity.Has = &MessageHas{}
-	}
-	entity.Has.Archived = true
-}
 func (entity *Message) GetConversationId() string {
 	return entity.ConversationId
 }
@@ -56,6 +46,66 @@ func (entity *Message) SetConversationId(value string) {
 	}
 	entity.Has.ConversationId = true
 }
+func (entity *Message) GetRole() string {
+	return entity.Role
+}
+func (entity *Message) SetRole(value string) {
+	entity.Role = value
+	if entity.Has == nil {
+		entity.Has = &MessageHas{}
+	}
+	entity.Has.Role = true
+}
+func (entity *Message) GetType() string {
+	return entity.Type
+}
+func (entity *Message) SetType(value string) {
+	entity.Type = value
+	if entity.Has == nil {
+		entity.Has = &MessageHas{}
+	}
+	entity.Has.Type = true
+}
+func (entity *Message) GetEmbeddingIndex() *[]byte {
+	return entity.EmbeddingIndex
+}
+func (entity *Message) SetEmbeddingIndex(value *[]byte) {
+	entity.EmbeddingIndex = value
+	if entity.Has == nil {
+		entity.Has = &MessageHas{}
+	}
+	entity.Has.EmbeddingIndex = true
+}
+func (entity *Message) GetStatus() *string {
+	return entity.Status
+}
+func (entity *Message) SetStatus(value *string) {
+	entity.Status = value
+	if entity.Has == nil {
+		entity.Has = &MessageHas{}
+	}
+	entity.Has.Status = true
+}
+func (entity *Message) GetContent() *string {
+	return entity.Content
+}
+func (entity *Message) SetContent(value *string) {
+	entity.Content = value
+	if entity.Has == nil {
+		entity.Has = &MessageHas{}
+	}
+	entity.Has.Content = true
+}
+func (entity *Message) GetNarration() *string {
+	return entity.Narration
+}
+func (entity *Message) SetNarration(value *string) {
+	entity.Narration = value
+	if entity.Has == nil {
+		entity.Has = &MessageHas{}
+	}
+	entity.Has.Narration = true
+}
 func (entity *Message) GetTurnId() *string {
 	return entity.TurnId
 }
@@ -65,6 +115,16 @@ func (entity *Message) SetTurnId(value *string) {
 		entity.Has = &MessageHas{}
 	}
 	entity.Has.TurnId = true
+}
+func (entity *Message) GetArchived() *int {
+	return entity.Archived
+}
+func (entity *Message) SetArchived(value *int) {
+	entity.Archived = value
+	if entity.Has == nil {
+		entity.Has = &MessageHas{}
+	}
+	entity.Has.Archived = true
 }
 func (entity *Message) GetCreatedAt() *time.Time {
 	return entity.CreatedAt
@@ -106,46 +166,6 @@ func (entity *Message) SetMode(value *string) {
 	}
 	entity.Has.Mode = true
 }
-func (entity *Message) GetRole() string {
-	return entity.Role
-}
-func (entity *Message) SetRole(value string) {
-	entity.Role = value
-	if entity.Has == nil {
-		entity.Has = &MessageHas{}
-	}
-	entity.Has.Role = true
-}
-func (entity *Message) GetStatus() *string {
-	return entity.Status
-}
-func (entity *Message) SetStatus(value *string) {
-	entity.Status = value
-	if entity.Has == nil {
-		entity.Has = &MessageHas{}
-	}
-	entity.Has.Status = true
-}
-func (entity *Message) GetType() string {
-	return entity.Type
-}
-func (entity *Message) SetType(value string) {
-	entity.Type = value
-	if entity.Has == nil {
-		entity.Has = &MessageHas{}
-	}
-	entity.Has.Type = true
-}
-func (entity *Message) GetContent() *string {
-	return entity.Content
-}
-func (entity *Message) SetContent(value *string) {
-	entity.Content = value
-	if entity.Has == nil {
-		entity.Has = &MessageHas{}
-	}
-	entity.Has.Content = true
-}
 func (entity *Message) GetRawContent() *string {
 	return entity.RawContent
 }
@@ -175,16 +195,6 @@ func (entity *Message) SetContextSummary(value *string) {
 		entity.Has = &MessageHas{}
 	}
 	entity.Has.ContextSummary = true
-}
-func (entity *Message) GetEmbeddingIndex() *[]byte {
-	return entity.EmbeddingIndex
-}
-func (entity *Message) SetEmbeddingIndex(value *[]byte) {
-	entity.EmbeddingIndex = value
-	if entity.Has == nil {
-		entity.Has = &MessageHas{}
-	}
-	entity.Has.EmbeddingIndex = true
 }
 func (entity *Message) GetTags() *string {
 	return entity.Tags
@@ -246,6 +256,26 @@ func (entity *Message) SetLinkedConversationId(value *string) {
 	}
 	entity.Has.LinkedConversationId = true
 }
+func (entity *Message) GetAttachmentPayloadId() *string {
+	return entity.AttachmentPayloadId
+}
+func (entity *Message) SetAttachmentPayloadId(value *string) {
+	entity.AttachmentPayloadId = value
+	if entity.Has == nil {
+		entity.Has = &MessageHas{}
+	}
+	entity.Has.AttachmentPayloadId = true
+}
+func (entity *Message) GetElicitationPayloadId() *string {
+	return entity.ElicitationPayloadId
+}
+func (entity *Message) SetElicitationPayloadId(value *string) {
+	entity.ElicitationPayloadId = value
+	if entity.Has == nil {
+		entity.Has = &MessageHas{}
+	}
+	entity.Has.ElicitationPayloadId = true
+}
 func (entity *Message) GetToolName() *string {
 	return entity.ToolName
 }
@@ -255,16 +285,6 @@ func (entity *Message) SetToolName(value *string) {
 		entity.Has = &MessageHas{}
 	}
 	entity.Has.ToolName = true
-}
-func (entity *Message) GetNarration() *string {
-	return entity.Narration
-}
-func (entity *Message) SetNarration(value *string) {
-	entity.Narration = value
-	if entity.Has == nil {
-		entity.Has = &MessageHas{}
-	}
-	entity.Has.Narration = true
 }
 func (entity *Message) GetIteration() *int {
 	return entity.Iteration
@@ -285,24 +305,4 @@ func (entity *Message) SetPhase(value *string) {
 		entity.Has = &MessageHas{}
 	}
 	entity.Has.Phase = true
-}
-func (entity *Message) GetAttachmentPayloadId() *string {
-	return entity.AttachmentPayloadId
-}
-func (entity *Message) SetAttachmentPayloadId(value *string) {
-	entity.AttachmentPayloadId = value
-	if entity.Has == nil {
-		entity.Has = &MessageHas{}
-	}
-	entity.Has.AttachmentPayloadId = true
-}
-func (entity *Message) GetElicitationPayloadId() *string {
-	return entity.ElicitationPayloadId
-}
-func (entity *Message) SetElicitationPayloadId(value *string) {
-	entity.ElicitationPayloadId = value
-	if entity.Has == nil {
-		entity.Has = &MessageHas{}
-	}
-	entity.Has.ElicitationPayloadId = true
 }

@@ -4,10 +4,10 @@ package cube
 
 // TurnReportView is generated canonical view metadata for reader.
 type TurnReportView struct {
-	ConversationId  string  `groupable:"true" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	Status          string  `groupable:"true" sqlx:"status,required=true"`
-	Origin          *string `groupable:"true" sqlx:"origin"`
-	RecordCount     int     `groupable:"false" sqlx:"record_count"`
-	QueuedCount     int     `groupable:"false" sqlx:"queued_count"`
-	ControllerCount int     `groupable:"false" sqlx:"controller_count"`
+	ConversationId  string  `groupable:"true" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId"`
+	Status          string  `groupable:"true" sqlx:"status,required=true" json:"status"`
+	Origin          *string `groupable:"true" sqlx:"origin" json:"origin"`
+	RecordCount     int     `groupable:"false" sqlx:"record_count" json:"recordCount"`
+	QueuedCount     int     `groupable:"false" sqlx:"queued_count" json:"queuedCount"`
+	ControllerCount int     `groupable:"false" sqlx:"controller_count" json:"controllerCount"`
 }

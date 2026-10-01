@@ -37,7 +37,7 @@ func readProviders(kind string, fields []string) []locator.Provider {
 	owner := ""
 	return []locator.Provider{provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 		switch name {
-		case "internal", "lock":
+		case "internal":
 			return true, true, nil
 		case "mode":
 			return "rows", true, nil
@@ -56,7 +56,7 @@ func readArtifact(ctx context.Context, invoker dexec.ComponentInvoker, candidate
 	case ModelCall:
 		input := &modelread.ModelCallsInput{}
 		input.SetMessageId(candidate.ID)
-		value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: modelReader, Input: input, Providers: readProviders("modelcallaccess", []string{"message_id", "status", "cleanup_status", "turn_id", "run_id"})})
+		value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: modelReader, Input: input, Providers: readProviders("modelcallaccess", []string{"message_id", "status", "cleanup_status", "turn_id", "run_id"})})
 		if err != nil {
 			return artifactState{}, false, err
 		}
@@ -75,7 +75,7 @@ func readArtifact(ctx context.Context, invoker dexec.ComponentInvoker, candidate
 	case ToolCall:
 		input := &toolread.ToolCallsInput{}
 		input.SetMessageId(candidate.ID)
-		value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: toolReader, Input: input, Providers: readProviders("toolcallaccess", []string{"message_id", "status", "cleanup_status", "turn_id", "run_id"})})
+		value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: toolReader, Input: input, Providers: readProviders("toolcallaccess", []string{"message_id", "status", "cleanup_status", "turn_id", "run_id"})})
 		if err != nil {
 			return artifactState{}, false, err
 		}
@@ -97,7 +97,7 @@ func readArtifact(ctx context.Context, invoker dexec.ComponentInvoker, candidate
 func readMessage(ctx context.Context, invoker dexec.ComponentInvoker, id string) (artifactState, bool, error) {
 	input := &msgread.MessagesInput{}
 	input.SetId(id)
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: messageReader, Input: input, Providers: readProviders("messageaccess", []string{"id", "status", "cleanup_status", "turn_id"})})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: messageReader, Input: input, Providers: readProviders("messageaccess", []string{"id", "status", "cleanup_status", "turn_id"})})
 	if err != nil {
 		return artifactState{}, false, err
 	}
@@ -117,7 +117,7 @@ func readMessage(ctx context.Context, invoker dexec.ComponentInvoker, id string)
 func readTurn(ctx context.Context, invoker dexec.ComponentInvoker, id string) (turnState, bool, error) {
 	input := &turnread.TurnRowsInput{}
 	input.SetTurnId(id)
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: turnReader, Input: input, Providers: readProviders("turnaccess", []string{"id", "status", "cleanup_status", "conversation_id", "run_id"})})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: turnReader, Input: input, Providers: readProviders("turnaccess", []string{"id", "status", "cleanup_status", "conversation_id", "run_id"})})
 	if err != nil {
 		return turnState{}, false, err
 	}

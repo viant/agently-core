@@ -8,24 +8,24 @@ import (
 
 // ApprovalView is generated canonical view metadata for reader.
 type ApprovalView struct {
-	TransitionAt     *string    `sqlx:"transition_at"`
-	Id               string     `sqlx:"id,primaryKey=true"`
-	UserId           string     `sqlx:"user_id,required=true"`
-	ConversationId   *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id"`
-	TurnId           *string    `sqlx:"turn_id,refTable=turn,refColumn=id"`
-	MessageId        *string    `sqlx:"message_id,refTable=message,refColumn=id"`
-	ToolName         string     `sqlx:"tool_name,required=true"`
-	Title            *string    `sqlx:"title"`
-	Arguments        []byte     `sqlx:"arguments,required=true"`
-	Metadata         *[]byte    `sqlx:"metadata"`
-	Status           string     `sqlx:"status,required=true"`
-	Decision         *string    `sqlx:"decision"`
-	ExpiresAt        *time.Time `sqlx:"expires_at"`
-	TimedOutAt       *time.Time `sqlx:"timed_out_at"`
-	ApprovedByUserId *string    `sqlx:"approved_by_user_id"`
-	ApprovedAt       *time.Time `sqlx:"approved_at"`
-	ExecutedAt       *time.Time `sqlx:"executed_at"`
-	ErrorMessage     *string    `sqlx:"error_message"`
-	CreatedAt        time.Time  `sqlx:"created_at,required=true"`
-	UpdatedAt        *time.Time `sqlx:"updated_at"`
+	TransitionAt     *string    `sqlx:"transition_at" json:"transitionAt"`
+	Id               string     `sqlx:"id,primaryKey=true" json:"id"`
+	UserId           string     `sqlx:"user_id,required=true" json:"userId"`
+	ToolName         string     `sqlx:"tool_name,required=true" json:"toolName"`
+	Arguments        []byte     `sqlx:"arguments,required=true" json:"arguments"`
+	Metadata         *[]byte    `sqlx:"metadata" json:"metadata"`
+	Status           string     `sqlx:"status,required=true" json:"status"`
+	CreatedAt        time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	ConversationId   *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
+	TurnId           *string    `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId"`
+	MessageId        *string    `sqlx:"message_id,refTable=message,refColumn=id" json:"messageId"`
+	Title            *string    `sqlx:"title" json:"title"`
+	Decision         *string    `sqlx:"decision" json:"decision"`
+	ExpiresAt        *time.Time `sqlx:"expires_at" json:"expiresAt"`
+	TimedOutAt       *time.Time `sqlx:"timed_out_at" json:"timedOutAt"`
+	ApprovedByUserId *string    `sqlx:"approved_by_user_id" json:"approvedByUserId"`
+	ApprovedAt       *time.Time `sqlx:"approved_at" json:"approvedAt"`
+	ExecutedAt       *time.Time `sqlx:"executed_at" json:"executedAt"`
+	ErrorMessage     *string    `sqlx:"error_message" json:"errorMessage"`
+	UpdatedAt        *time.Time `sqlx:"updated_at" json:"updatedAt"`
 }

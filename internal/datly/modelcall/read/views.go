@@ -9,35 +9,35 @@ import (
 // ModelCallView is generated canonical view metadata for reader.
 type ModelCallView struct {
 	CleanupStatus                      string     `internal:"true" json:"-" sqlx:"cleanup_status"`
-	MessageId                          string     `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id"`
-	TurnId                             *string    `sqlx:"turn_id,refTable=turn,refColumn=id"`
-	Provider                           string     `validate:"required" sqlx:"provider,required=true"`
-	Model                              string     `validate:"required" sqlx:"model,required=true"`
-	ModelKind                          string     `validate:"required" sqlx:"model_kind,required=true"`
-	Status                             string     `validate:"required" sqlx:"status,required=true"`
-	ErrorCode                          *string    `sqlx:"error_code"`
-	ErrorMessage                       *string    `sqlx:"error_message"`
-	PromptTokens                       *int       `sqlx:"prompt_tokens"`
-	PromptCachedTokens                 *int       `sqlx:"prompt_cached_tokens"`
-	CompletionTokens                   *int       `sqlx:"completion_tokens"`
-	TotalTokens                        *int       `sqlx:"total_tokens"`
-	PromptAudioTokens                  *int       `sqlx:"prompt_audio_tokens"`
-	CompletionReasoningTokens          *int       `sqlx:"completion_reasoning_tokens"`
-	CompletionAudioTokens              *int       `sqlx:"completion_audio_tokens"`
-	CompletionAcceptedPredictionTokens *int       `sqlx:"completion_accepted_prediction_tokens"`
-	CompletionRejectedPredictionTokens *int       `sqlx:"completion_rejected_prediction_tokens"`
-	FinishReason                       *string    `sqlx:"finish_reason"`
-	StartedAt                          *time.Time `sqlx:"started_at"`
-	CompletedAt                        *time.Time `sqlx:"completed_at"`
-	LatencyMs                          *int       `sqlx:"latency_ms"`
-	Cost                               *float64   `sqlx:"cost"`
-	TraceId                            *string    `sqlx:"trace_id"`
-	SpanId                             *string    `sqlx:"span_id"`
-	RequestPayloadId                   *string    `sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
-	ResponsePayloadId                  *string    `sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
-	ProviderRequestPayloadId           *string    `sqlx:"provider_request_payload_id,refTable=call_payload,refColumn=id"`
-	ProviderResponsePayloadId          *string    `sqlx:"provider_response_payload_id,refTable=call_payload,refColumn=id"`
-	StreamPayloadId                    *string    `sqlx:"stream_payload_id,refTable=call_payload,refColumn=id"`
-	RunId                              *string    `sqlx:"run_id"`
-	Iteration                          *int       `sqlx:"iteration"`
+	MessageId                          string     `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id" json:"messageId"`
+	TurnId                             *string    `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId"`
+	Provider                           string     `validate:"required" sqlx:"provider,required=true" json:"provider"`
+	Model                              string     `validate:"required" sqlx:"model,required=true" json:"model"`
+	ModelKind                          string     `validate:"required" sqlx:"model_kind,required=true" json:"modelKind"`
+	Status                             string     `validate:"required" sqlx:"status,required=true" json:"status"`
+	ErrorCode                          *string    `sqlx:"error_code" json:"errorCode"`
+	ErrorMessage                       *string    `sqlx:"error_message" json:"errorMessage"`
+	PromptTokens                       *int       `sqlx:"prompt_tokens" json:"promptTokens"`
+	PromptCachedTokens                 *int       `sqlx:"prompt_cached_tokens" json:"promptCachedTokens"`
+	CompletionTokens                   *int       `sqlx:"completion_tokens" json:"completionTokens"`
+	TotalTokens                        *int       `sqlx:"total_tokens" json:"totalTokens"`
+	PromptAudioTokens                  *int       `sqlx:"prompt_audio_tokens" json:"promptAudioTokens"`
+	CompletionReasoningTokens          *int       `sqlx:"completion_reasoning_tokens" json:"completionReasoningTokens"`
+	CompletionAudioTokens              *int       `sqlx:"completion_audio_tokens" json:"completionAudioTokens"`
+	CompletionAcceptedPredictionTokens *int       `sqlx:"completion_accepted_prediction_tokens" json:"completionAcceptedPredictionTokens"`
+	CompletionRejectedPredictionTokens *int       `sqlx:"completion_rejected_prediction_tokens" json:"completionRejectedPredictionTokens"`
+	FinishReason                       *string    `sqlx:"finish_reason" json:"finishReason"`
+	StartedAt                          *time.Time `sqlx:"started_at" json:"startedAt"`
+	CompletedAt                        *time.Time `sqlx:"completed_at" json:"completedAt"`
+	LatencyMs                          *int       `sqlx:"latency_ms" json:"latencyMs"`
+	Cost                               *float64   `sqlx:"cost" json:"cost"`
+	TraceId                            *string    `sqlx:"trace_id" json:"traceId"`
+	SpanId                             *string    `sqlx:"span_id" json:"spanId"`
+	RequestPayloadId                   *string    `sqlx:"request_payload_id,refTable=call_payload,refColumn=id" json:"requestPayloadId"`
+	ResponsePayloadId                  *string    `sqlx:"response_payload_id,refTable=call_payload,refColumn=id" json:"responsePayloadId"`
+	ProviderRequestPayloadId           *string    `sqlx:"provider_request_payload_id,refTable=call_payload,refColumn=id" json:"providerRequestPayloadId"`
+	ProviderResponsePayloadId          *string    `sqlx:"provider_response_payload_id,refTable=call_payload,refColumn=id" json:"providerResponsePayloadId"`
+	StreamPayloadId                    *string    `sqlx:"stream_payload_id,refTable=call_payload,refColumn=id" json:"streamPayloadId"`
+	RunId                              *string    `sqlx:"run_id" json:"runId"`
+	Iteration                          *int       `sqlx:"iteration" json:"iteration"`
 }

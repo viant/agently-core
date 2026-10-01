@@ -1,4 +1,4 @@
-SELECT data_rows.lease_until_raw, data_rows.activity_raw, data_rows.maintenance_owner_id, data_rows.id, data_rows.schedule_id, data_rows.created_at, data_rows.updated_at, data_rows.status, data_rows.error_message, data_rows.lease_owner, data_rows.lease_until, data_rows.precondition_ran_at, data_rows.precondition_passed, data_rows.precondition_result, data_rows.conversation_id, data_rows.conversation_kind, data_rows.scheduled_for, data_rows.started_at, data_rows.completed_at FROM  (
+SELECT data_rows.* FROM  (
     SELECT r.id, r.schedule_id, r.created_at, r.updated_at,
            r.status, r.error_message, r.lease_owner, r.lease_until,
            r.precondition_ran_at, r.precondition_passed,
@@ -16,7 +16,7 @@ SELECT data_rows.lease_until_raw, data_rows.activity_raw, data_rows.maintenance_
     AND (${View.TimestampSecondsUTC("COALESCE(r.completed_at,r.updated_at,r.created_at)")} > $MaintenanceAfterActivity OR (${View.TimestampSecondsUTC("COALESCE(r.completed_at,r.updated_at,r.created_at)")} = $MaintenanceAfterActivity AND (${View.TimestampNanoseconds("COALESCE(r.completed_at,r.updated_at,r.created_at)")} > $MaintenanceAfterNano OR (${View.TimestampNanoseconds("COALESCE(r.completed_at,r.updated_at,r.created_at)")} = $MaintenanceAfterNano AND HEX(r.id)>HEX($MaintenanceAfterId)))))
     #end
     #end
-    ORDER BY CASE WHEN $LockRows THEN r.id END,
+    ORDER BY 
        
     #if($MaintenanceMode)
        ${View.TimestampSecondsUTC("COALESCE(r.completed_at,r.updated_at,r.created_at)")} ASC,${View.TimestampNanoseconds("COALESCE(r.completed_at,r.updated_at,r.created_at)")} ASC,
@@ -24,5 +24,4 @@ SELECT data_rows.lease_until_raw, data_rows.activity_raw, data_rows.maintenance_
        
        CASE WHEN $MaintenanceMode THEN HEX(r.id) END ASC,
        CASE WHEN NOT $MaintenanceMode THEN r.created_at END,CASE WHEN NOT $MaintenanceMode THEN r.id END
-    #if($LockRows) ${View.ForUpdate()} #end  
 )  data_rows

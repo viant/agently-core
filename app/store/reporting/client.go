@@ -3,14 +3,13 @@ package reporting
 import (
 	"context"
 	"errors"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
+	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
 	"strings"
 	"time"
-
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
-	reportshareartifact "github.com/viant/agently-core/pkg/agently/reportshareartifact"
 )
 
 var (
@@ -36,17 +35,17 @@ var (
 
 // Client persists reporting export jobs and artifacts.
 type Client interface {
-	CreateJob(ctx context.Context, job *reportjob.Record) error
-	GetJob(ctx context.Context, jobID string) (*reportjob.Record, error)
-	ListJobs(ctx context.Context) ([]*reportjob.Record, error)
-	UpdateJob(ctx context.Context, job *reportjob.Record) error
-	PutArtifact(ctx context.Context, artifact *reportartifact.Record) error
-	GetArtifact(ctx context.Context, artifactID string) (*reportartifact.Record, error)
-	ListArtifacts(ctx context.Context) ([]*reportartifact.Record, error)
-	CreateSharedArtifact(ctx context.Context, artifact *reportshareartifact.Record) error
-	GetSharedArtifact(ctx context.Context, artifactID string) (*reportshareartifact.Record, error)
-	ListSharedArtifacts(ctx context.Context) ([]*reportshareartifact.Record, error)
-	UpdateSharedArtifact(ctx context.Context, artifact *reportshareartifact.Record) error
+	CreateJob(ctx context.Context, job *reportjobmodel.Record) error
+	GetJob(ctx context.Context, jobID string) (*reportjobmodel.Record, error)
+	ListJobs(ctx context.Context) ([]*reportjobmodel.Record, error)
+	UpdateJob(ctx context.Context, job *reportjobmodel.Record) error
+	PutArtifact(ctx context.Context, artifact *reportartifactmodel.Record) error
+	GetArtifact(ctx context.Context, artifactID string) (*reportartifactmodel.Record, error)
+	ListArtifacts(ctx context.Context) ([]*reportartifactmodel.Record, error)
+	CreateSharedArtifact(ctx context.Context, artifact *reportshareartifactmodel.Record) error
+	GetSharedArtifact(ctx context.Context, artifactID string) (*reportshareartifactmodel.Record, error)
+	ListSharedArtifacts(ctx context.Context) ([]*reportshareartifactmodel.Record, error)
+	UpdateSharedArtifact(ctx context.Context, artifact *reportshareartifactmodel.Record) error
 	DeleteSharedArtifact(ctx context.Context, artifactID string) error
 }
 
@@ -54,30 +53,30 @@ type Client interface {
 // pointers. Implementations must scope reads and writes to the authenticated
 // owner in ctx.
 type RunClient interface {
-	CreateReportRun(ctx context.Context, run *reportrun.Record) error
-	GetReportRun(ctx context.Context, reportRunID string) (*reportrun.Record, error)
-	GetReportRunByRequestID(ctx context.Context, uiRunRequestID string) (*reportrun.Record, error)
-	UpdateReportRunCAS(ctx context.Context, run *reportrun.Record, expectedRevision int64) error
-	GetConversationReportContext(ctx context.Context, conversationID string) (*reportcontext.Record, error)
-	PutConversationReportContextCAS(ctx context.Context, record *reportcontext.Record, expectedRevision int64) error
-	AdoptReportRunAndContextCAS(ctx context.Context, run *reportrun.Record, expectedRunRevision int64, record *reportcontext.Record, expectedContextRevision int64) error
+	CreateReportRun(ctx context.Context, run *reportrunmodel.Record) error
+	GetReportRun(ctx context.Context, reportRunID string) (*reportrunmodel.Record, error)
+	GetReportRunByRequestID(ctx context.Context, uiRunRequestID string) (*reportrunmodel.Record, error)
+	UpdateReportRunCAS(ctx context.Context, run *reportrunmodel.Record, expectedRevision int64) error
+	GetConversationReportContext(ctx context.Context, conversationID string) (*reportcontextmodel.Record, error)
+	PutConversationReportContextCAS(ctx context.Context, record *reportcontextmodel.Record, expectedRevision int64) error
+	AdoptReportRunAndContextCAS(ctx context.Context, run *reportrunmodel.Record, expectedRunRevision int64, record *reportcontextmodel.Record, expectedContextRevision int64) error
 }
 
 // RunExportClient owns the T2 transactional/recoverable boundaries. The
 // candidate job contains trusted identity and export options only;
 // SubmitJobFromRun must copy the snapshot from the exact persisted run.
 type RunExportClient interface {
-	SubmitJobFromRun(ctx context.Context, candidate *reportjob.Record) (job *reportjob.Record, replay bool, err error)
-	ClaimJob(ctx context.Context, jobID string, startedAt time.Time) (*reportjob.Record, error)
-	CompleteJobWithArtifact(ctx context.Context, jobID string, artifact *reportartifact.Record, diagnostics []byte, completedAt time.Time, retentionTTL time.Duration) (*reportjob.Record, error)
-	FailJob(ctx context.Context, jobID, errorText string, diagnostics []byte, completedAt time.Time) (*reportjob.Record, error)
-	ReconcileRunningJobs(ctx context.Context, staleBefore, reconciledAt time.Time, errorText string) ([]*reportjob.Record, error)
+	SubmitJobFromRun(ctx context.Context, candidate *reportjobmodel.Record) (job *reportjobmodel.Record, replay bool, err error)
+	ClaimJob(ctx context.Context, jobID string, startedAt time.Time) (*reportjobmodel.Record, error)
+	CompleteJobWithArtifact(ctx context.Context, jobID string, artifact *reportartifactmodel.Record, diagnostics []byte, completedAt time.Time, retentionTTL time.Duration) (*reportjobmodel.Record, error)
+	FailJob(ctx context.Context, jobID, errorText string, diagnostics []byte, completedAt time.Time) (*reportjobmodel.Record, error)
+	ReconcileRunningJobs(ctx context.Context, staleBefore, reconciledAt time.Time, errorText string) ([]*reportjobmodel.Record, error)
 }
 
 // ValidateRunExportCandidate limits the trusted submit boundary to exact run
 // identity plus the currently supported exporter choices. The run revision and
 // snapshots are deliberately absent here: stores derive and copy them.
-func ValidateRunExportCandidate(candidate *reportjob.Record) error {
+func ValidateRunExportCandidate(candidate *reportjobmodel.Record) error {
 	if candidate == nil {
 		return ErrNotFound
 	}
@@ -107,7 +106,7 @@ func ValidateRunExportCandidate(candidate *reportjob.Record) error {
 
 // HasRunExportLink reports whether any nullable T2 link field is populated.
 // Such jobs must be created and transitioned through RunExportClient.
-func HasRunExportLink(job *reportjob.Record) bool {
+func HasRunExportLink(job *reportjobmodel.Record) bool {
 	return job != nil &&
 		(strings.TrimSpace(job.ReportRunID) != "" ||
 			job.ReportRunRevision != 0 ||

@@ -4,5 +4,5 @@ package read
 
 // ModelCallsOutput is the generated output scaffold for reader.
 type ModelCallsOutput struct {
-	Data []*ModelCallView `parameter:"Data,kind=output,in=view,dataType=[]*ModelCallView" view:"reader,type=ModelCallView,table=model_call,selectorProjection=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_modelcall_read_reader:sql/reader.sql"`
+	Data []*ModelCallView `parameter:"Data,kind=output,in=view,dataType=[]*ModelCallView" view:"reader,type=ModelCallView,rowLock=model_call data_rows,table=model_call,selectorProjection=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_modelcall_read_reader:sql/reader.sql"`
 }

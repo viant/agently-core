@@ -7,10 +7,10 @@ import (
 	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
-	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
-	agrunsteps "github.com/viant/agently-core/pkg/agently/run/steps"
-	agturnlistall "github.com/viant/agently-core/pkg/agently/turn/list"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
+	runmodel "github.com/viant/agently-core/model/run"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 type Direction string
@@ -28,7 +28,7 @@ type PageInput struct {
 }
 
 type ConversationPage struct {
-	Rows       []*agconvlist.ConversationRowsView
+	Rows       []*conversationmodel.ConversationRowsView
 	NextCursor string
 	PrevCursor string
 	HasMore    bool
@@ -37,21 +37,21 @@ type ConversationPage struct {
 }
 
 type MessagePage struct {
-	Rows       []*agmessagelist.MessageRowsView
+	Rows       []*messagemodel.MessageRowsView
 	NextCursor string
 	PrevCursor string
 	HasMore    bool
 }
 
 type TurnPage struct {
-	Rows       []*agturnlistall.TurnRowsView
+	Rows       []*turnmodel.TurnRowsView
 	NextCursor string
 	PrevCursor string
 	HasMore    bool
 }
 
 type RunStepPage struct {
-	Rows       []*agrunsteps.RunStepsView
+	Rows       []*runmodel.RunStepsView
 	NextCursor string
 	PrevCursor string
 	HasMore    bool
@@ -72,7 +72,7 @@ func normalizePageInput(page *PageInput) (int, Direction, string) {
 	return limit, direction, page.Cursor
 }
 
-func buildConversationPage(rows []*agconvlist.ConversationRowsView, limit int, direction Direction, cursor string) *ConversationPage {
+func buildConversationPage(rows []*conversationmodel.ConversationRowsView, limit int, direction Direction, cursor string) *ConversationPage {
 	page := &ConversationPage{Rows: rows}
 	if len(rows) > limit {
 		page.HasMore = true
@@ -96,7 +96,7 @@ func buildConversationPage(rows []*agconvlist.ConversationRowsView, limit int, d
 	return page
 }
 
-func buildConversationAfterPage(rows []*agconvlist.ConversationRowsView, limit int, cursor string) *ConversationPage {
+func buildConversationAfterPage(rows []*conversationmodel.ConversationRowsView, limit int, cursor string) *ConversationPage {
 	page := &ConversationPage{}
 	if len(rows) > limit {
 		page.HasMore = true
@@ -114,7 +114,7 @@ func buildConversationAfterPage(rows []*agconvlist.ConversationRowsView, limit i
 	return page
 }
 
-func conversationPageSortKey(row *agconvlist.ConversationRowsView) time.Time {
+func conversationPageSortKey(row *conversationmodel.ConversationRowsView) time.Time {
 	if row == nil {
 		return time.Time{}
 	}
@@ -127,7 +127,7 @@ func conversationPageSortKey(row *agconvlist.ConversationRowsView) time.Time {
 	return row.CreatedAt
 }
 
-func sortConversationRows(rows []*agconvlist.ConversationRowsView) {
+func sortConversationRows(rows []*conversationmodel.ConversationRowsView) {
 	sort.SliceStable(rows, func(i, j int) bool {
 		left := rows[i]
 		right := rows[j]
@@ -148,7 +148,7 @@ func sortConversationRows(rows []*agconvlist.ConversationRowsView) {
 	})
 }
 
-func buildMessagePage(rows []*agmessagelist.MessageRowsView, limit int) *MessagePage {
+func buildMessagePage(rows []*messagemodel.MessageRowsView, limit int) *MessagePage {
 	page := &MessagePage{Rows: rows}
 	if len(rows) > limit {
 		page.HasMore = true
@@ -161,7 +161,7 @@ func buildMessagePage(rows []*agmessagelist.MessageRowsView, limit int) *Message
 	return page
 }
 
-func buildTurnPage(rows []*agturnlistall.TurnRowsView, limit int) *TurnPage {
+func buildTurnPage(rows []*turnmodel.TurnRowsView, limit int) *TurnPage {
 	page := &TurnPage{Rows: rows}
 	if len(rows) > limit {
 		page.HasMore = true
@@ -174,7 +174,7 @@ func buildTurnPage(rows []*agturnlistall.TurnRowsView, limit int) *TurnPage {
 	return page
 }
 
-func buildRunStepPage(rows []*agrunsteps.RunStepsView, limit int) *RunStepPage {
+func buildRunStepPage(rows []*runmodel.RunStepsView, limit int) *RunStepPage {
 	page := &RunStepPage{Rows: rows}
 	if len(rows) > limit {
 		page.HasMore = true
@@ -187,12 +187,12 @@ func buildRunStepPage(rows []*agrunsteps.RunStepsView, limit int) *RunStepPage {
 	return page
 }
 
-func (s *datlyService) ListConversations(ctx context.Context, in *agconvlist.ConversationRowsInput, page *PageInput, opts ...Option) (*ConversationPage, error) {
-	input := agconvlist.ConversationRowsInput{Has: &agconvlist.ConversationRowsInputHas{}}
+func (s *datlyService) ListConversations(ctx context.Context, in *conversationmodel.ConversationRowsInput, page *PageInput, opts ...Option) (*ConversationPage, error) {
+	input := conversationmodel.ConversationRowsInput{Has: &conversationmodel.ConversationRowsInputHas{}}
 	if in != nil {
 		input = *in
 		if input.Has == nil {
-			input.Has = &agconvlist.ConversationRowsInputHas{}
+			input.Has = &conversationmodel.ConversationRowsInputHas{}
 		}
 	}
 	limit, direction, cursor := normalizePageInput(page)
@@ -234,16 +234,16 @@ func (s *datlyService) ListConversations(ctx context.Context, in *agconvlist.Con
 	return buildConversationPage(rows, limit, direction, cursor), nil
 }
 
-func (s *datlyService) queryConversationRows(ctx context.Context, input *agconvlist.ConversationRowsInput, limit int, direction Direction, callOpts *options) ([]*agconvlist.ConversationRowsView, error) {
+func (s *datlyService) queryConversationRows(ctx context.Context, input *conversationmodel.ConversationRowsInput, limit int, direction Direction, callOpts *options) ([]*conversationmodel.ConversationRowsView, error) {
 	return s.queryConversationRowsNative(ctx, input, limit, direction, callOpts)
 }
 
-func (s *datlyService) GetMessagesPage(ctx context.Context, in *agmessagelist.MessageRowsInput, page *PageInput, opts ...Option) (*MessagePage, error) {
-	input := agmessagelist.MessageRowsInput{Has: &agmessagelist.MessageRowsInputHas{}}
+func (s *datlyService) GetMessagesPage(ctx context.Context, in *messagemodel.MessageRowsInput, page *PageInput, opts ...Option) (*MessagePage, error) {
+	input := messagemodel.MessageRowsInput{Has: &messagemodel.MessageRowsInputHas{}}
 	if in != nil {
 		input = *in
 		if input.Has == nil {
-			input.Has = &agmessagelist.MessageRowsInputHas{}
+			input.Has = &messagemodel.MessageRowsInputHas{}
 		}
 	}
 	limit, direction, cursor := normalizePageInput(page)
@@ -273,7 +273,7 @@ func (s *datlyService) GetMessagesPage(ctx context.Context, in *agmessagelist.Me
 	}
 	if callOpts.principal != "" && !callOpts.isAdmin {
 		cache := newAuthCache()
-		filtered := make([]*agmessagelist.MessageRowsView, 0, len(rows))
+		filtered := make([]*messagemodel.MessageRowsView, 0, len(rows))
 		for _, row := range rows {
 			if row == nil {
 				continue
@@ -287,12 +287,12 @@ func (s *datlyService) GetMessagesPage(ctx context.Context, in *agmessagelist.Me
 	return buildMessagePage(rows, limit), nil
 }
 
-func (s *datlyService) GetTurnsPage(ctx context.Context, in *agturnlistall.TurnRowsInput, page *PageInput, opts ...Option) (*TurnPage, error) {
-	input := agturnlistall.TurnRowsInput{Has: &agturnlistall.TurnRowsInputHas{}}
+func (s *datlyService) GetTurnsPage(ctx context.Context, in *turnmodel.TurnRowsInput, page *PageInput, opts ...Option) (*TurnPage, error) {
+	input := turnmodel.TurnRowsInput{Has: &turnmodel.TurnRowsInputHas{}}
 	if in != nil {
 		input = *in
 		if input.Has == nil {
-			input.Has = &agturnlistall.TurnRowsInputHas{}
+			input.Has = &turnmodel.TurnRowsInputHas{}
 		}
 	}
 	limit, direction, cursor := normalizePageInput(page)
@@ -316,7 +316,7 @@ func (s *datlyService) GetTurnsPage(ctx context.Context, in *agturnlistall.TurnR
 	}
 	if callOpts.principal != "" && !callOpts.isAdmin {
 		cache := newAuthCache()
-		filtered := make([]*agturnlistall.TurnRowsView, 0, len(rows))
+		filtered := make([]*turnmodel.TurnRowsView, 0, len(rows))
 		for _, row := range rows {
 			if row == nil {
 				continue
@@ -330,12 +330,12 @@ func (s *datlyService) GetTurnsPage(ctx context.Context, in *agturnlistall.TurnR
 	return buildTurnPage(rows, limit), nil
 }
 
-func (s *datlyService) GetRunStepsPage(ctx context.Context, in *agrunsteps.RunStepsInput, page *PageInput, opts ...Option) (*RunStepPage, error) {
-	input := agrunsteps.RunStepsInput{Has: &agrunsteps.RunStepsInputHas{}}
+func (s *datlyService) GetRunStepsPage(ctx context.Context, in *runmodel.RunStepsInput, page *PageInput, opts ...Option) (*RunStepPage, error) {
+	input := runmodel.RunStepsInput{Has: &runmodel.RunStepsInputHas{}}
 	if in != nil {
 		input = *in
 		if input.Has == nil {
-			input.Has = &agrunsteps.RunStepsInputHas{}
+			input.Has = &runmodel.RunStepsInputHas{}
 		}
 	}
 	resolvedOpts := collectOptions(opts)
@@ -363,7 +363,7 @@ func (s *datlyService) GetRunStepsPage(ctx context.Context, in *agrunsteps.RunSt
 	}
 	if resolvedOpts.principal != "" && !resolvedOpts.isAdmin {
 		cache := newAuthCache()
-		filtered := make([]*agrunsteps.RunStepsView, 0, len(rows))
+		filtered := make([]*runmodel.RunStepsView, 0, len(rows))
 		for _, row := range rows {
 			if row == nil || row.ConversationId == nil {
 				continue

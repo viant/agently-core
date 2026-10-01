@@ -26,16 +26,6 @@ func (entity *Payload) SetId(value string) {
 	}
 	entity.Has.Id = true
 }
-func (entity *Payload) GetTenantId() *string {
-	return entity.TenantId
-}
-func (entity *Payload) SetTenantId(value *string) {
-	entity.TenantId = value
-	if entity.Has == nil {
-		entity.Has = &PayloadHas{}
-	}
-	entity.Has.TenantId = true
-}
 func (entity *Payload) GetKind() string {
 	return entity.Kind
 }
@@ -45,16 +35,6 @@ func (entity *Payload) SetKind(value string) {
 		entity.Has = &PayloadHas{}
 	}
 	entity.Has.Kind = true
-}
-func (entity *Payload) GetSubtype() *string {
-	return entity.Subtype
-}
-func (entity *Payload) SetSubtype(value *string) {
-	entity.Subtype = value
-	if entity.Has == nil {
-		entity.Has = &PayloadHas{}
-	}
-	entity.Has.Subtype = true
 }
 func (entity *Payload) GetMimeType() string {
 	return entity.MimeType
@@ -76,16 +56,6 @@ func (entity *Payload) SetSizeBytes(value int) {
 	}
 	entity.Has.SizeBytes = true
 }
-func (entity *Payload) GetDigest() *string {
-	return entity.Digest
-}
-func (entity *Payload) SetDigest(value *string) {
-	entity.Digest = value
-	if entity.Has == nil {
-		entity.Has = &PayloadHas{}
-	}
-	entity.Has.Digest = true
-}
 func (entity *Payload) GetStorage() string {
 	return entity.Storage
 }
@@ -106,16 +76,6 @@ func (entity *Payload) SetInlineBody(value *[]byte) {
 	}
 	entity.Has.InlineBody = true
 }
-func (entity *Payload) GetUri() *string {
-	return entity.Uri
-}
-func (entity *Payload) SetUri(value *string) {
-	entity.Uri = value
-	if entity.Has == nil {
-		entity.Has = &PayloadHas{}
-	}
-	entity.Has.Uri = true
-}
 func (entity *Payload) GetCompression() string {
 	return entity.Compression
 }
@@ -125,6 +85,46 @@ func (entity *Payload) SetCompression(value string) {
 		entity.Has = &PayloadHas{}
 	}
 	entity.Has.Compression = true
+}
+func (entity *Payload) GetTenantId() *string {
+	return entity.TenantId
+}
+func (entity *Payload) SetTenantId(value *string) {
+	entity.TenantId = value
+	if entity.Has == nil {
+		entity.Has = &PayloadHas{}
+	}
+	entity.Has.TenantId = true
+}
+func (entity *Payload) GetSubtype() *string {
+	return entity.Subtype
+}
+func (entity *Payload) SetSubtype(value *string) {
+	entity.Subtype = value
+	if entity.Has == nil {
+		entity.Has = &PayloadHas{}
+	}
+	entity.Has.Subtype = true
+}
+func (entity *Payload) GetDigest() *string {
+	return entity.Digest
+}
+func (entity *Payload) SetDigest(value *string) {
+	entity.Digest = value
+	if entity.Has == nil {
+		entity.Has = &PayloadHas{}
+	}
+	entity.Has.Digest = true
+}
+func (entity *Payload) GetUri() *string {
+	return entity.Uri
+}
+func (entity *Payload) SetUri(value *string) {
+	entity.Uri = value
+	if entity.Has == nil {
+		entity.Has = &PayloadHas{}
+	}
+	entity.Has.Uri = true
 }
 func (entity *Payload) GetEncryptionKmsKeyId() *string {
 	return entity.EncryptionKmsKeyId

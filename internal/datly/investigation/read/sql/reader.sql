@@ -1,4 +1,4 @@
-SELECT data_rows.id, data_rows.title, data_rows.created_by, data_rows.conversation_id, data_rows.summary, data_rows.ad_order_id, data_rows.verdict, data_rows.created FROM  (
+SELECT data_rows.* FROM  (
     SELECT i.id, i.title, i.created_by, i.conversation_id,
            i.summary, i.ad_order_id, i.verdict, i.created
     FROM investigation i
@@ -6,4 +6,3 @@ SELECT data_rows.id, data_rows.title, data_rows.created_by, data_rows.conversati
     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
     ORDER BY i.created, i.id
 )  data_rows
-#if($LockRows) ${View.ForUpdate()} #end

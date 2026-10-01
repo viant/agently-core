@@ -56,6 +56,26 @@ func (entity *AuditEvent) SetVersion(value int64) {
 	}
 	entity.Has.Version = true
 }
+func (entity *AuditEvent) GetActorId() string {
+	return entity.ActorId
+}
+func (entity *AuditEvent) SetActorId(value string) {
+	entity.ActorId = value
+	if entity.Has == nil {
+		entity.Has = &AuditEventHas{}
+	}
+	entity.Has.ActorId = true
+}
+func (entity *AuditEvent) GetMetadataJson() []byte {
+	return entity.MetadataJson
+}
+func (entity *AuditEvent) SetMetadataJson(value []byte) {
+	entity.MetadataJson = value
+	if entity.Has == nil {
+		entity.Has = &AuditEventHas{}
+	}
+	entity.Has.MetadataJson = true
+}
 func (entity *AuditEvent) GetJobId() *string {
 	return entity.JobId
 }
@@ -76,16 +96,6 @@ func (entity *AuditEvent) SetArtifactId(value *string) {
 	}
 	entity.Has.ArtifactId = true
 }
-func (entity *AuditEvent) GetActorId() string {
-	return entity.ActorId
-}
-func (entity *AuditEvent) SetActorId(value string) {
-	entity.ActorId = value
-	if entity.Has == nil {
-		entity.Has = &AuditEventHas{}
-	}
-	entity.Has.ActorId = true
-}
 func (entity *AuditEvent) GetActorRef() *string {
 	return entity.ActorRef
 }
@@ -105,14 +115,4 @@ func (entity *AuditEvent) SetOccurredAt(value *time.Time) {
 		entity.Has = &AuditEventHas{}
 	}
 	entity.Has.OccurredAt = true
-}
-func (entity *AuditEvent) GetMetadataJson() []byte {
-	return entity.MetadataJson
-}
-func (entity *AuditEvent) SetMetadataJson(value []byte) {
-	entity.MetadataJson = value
-	if entity.Has == nil {
-		entity.Has = &AuditEventHas{}
-	}
-	entity.Has.MetadataJson = true
 }

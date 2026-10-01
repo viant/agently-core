@@ -9,15 +9,15 @@ import (
 // Claim is generated canonical view metadata for writer.
 type Claim struct {
 	ShouldDelete        bool       `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
-	ClaimKey            string     `sqlx:"claim_key,primaryKey,required=true"`
-	RuleId              string     `sqlx:"rule_id,required=true"`
-	CanonicalToolName   string     `sqlx:"canonical_tool_name,required=true"`
-	TurnId              string     `sqlx:"turn_id,required=true"`
-	SemanticRequestHash string     `sqlx:"semantic_request_hash,required=true"`
-	State               string     `sqlx:"state,required=true"`
-	CreatedAt           *time.Time `sqlx:"created_at,required=true"`
-	UpdatedAt           *time.Time `sqlx:"updated_at,required=true"`
-	FinishedAt          *time.Time `sqlx:"finished_at"`
+	ClaimKey            string     `sqlx:"claim_key,primaryKey,required=true" json:"claimKey"`
+	RuleId              string     `sqlx:"rule_id,required=true" json:"ruleId"`
+	CanonicalToolName   string     `sqlx:"canonical_tool_name,required=true" json:"canonicalToolName"`
+	TurnId              string     `sqlx:"turn_id,required=true" json:"turnId"`
+	SemanticRequestHash string     `sqlx:"semantic_request_hash,required=true" json:"semanticRequestHash"`
+	State               string     `sqlx:"state,required=true" json:"state"`
+	CreatedAt           *time.Time `sqlx:"created_at,required=true" json:"createdAt"`
+	UpdatedAt           *time.Time `sqlx:"updated_at,required=true" json:"updatedAt"`
+	FinishedAt          *time.Time `sqlx:"finished_at" json:"finishedAt"`
 	Has                 *ClaimHas  `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"ClaimHas"`
 }
 
@@ -36,15 +36,15 @@ type ClaimHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	ClaimKey            string     `sqlx:"claim_key,primaryKey,required=true"`
-	RuleId              string     `sqlx:"rule_id,required=true"`
-	CanonicalToolName   string     `sqlx:"canonical_tool_name,required=true"`
-	TurnId              string     `sqlx:"turn_id,required=true"`
-	SemanticRequestHash string     `sqlx:"semantic_request_hash,required=true"`
-	State               string     `sqlx:"state,required=true"`
-	CreatedAt           *time.Time `sqlx:"created_at,required=true"`
-	UpdatedAt           *time.Time `sqlx:"updated_at,required=true"`
-	FinishedAt          *time.Time `sqlx:"finished_at"`
+	ClaimKey            string     `sqlx:"claim_key,primaryKey,required=true" json:"claimKey"`
+	RuleId              string     `sqlx:"rule_id,required=true" json:"ruleId"`
+	CanonicalToolName   string     `sqlx:"canonical_tool_name,required=true" json:"canonicalToolName"`
+	TurnId              string     `sqlx:"turn_id,required=true" json:"turnId"`
+	SemanticRequestHash string     `sqlx:"semantic_request_hash,required=true" json:"semanticRequestHash"`
+	State               string     `sqlx:"state,required=true" json:"state"`
+	CreatedAt           *time.Time `sqlx:"created_at,required=true" json:"createdAt"`
+	UpdatedAt           *time.Time `sqlx:"updated_at,required=true" json:"updatedAt"`
+	FinishedAt          *time.Time `sqlx:"finished_at" json:"finishedAt"`
 }
 
 type WriterKeysRow struct {

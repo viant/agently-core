@@ -8,33 +8,33 @@ import (
 
 // User is generated canonical view metadata for writer.
 type User struct {
-	Id                 string     `validate:"required" sqlx:"id,primaryKey"`
-	Username           string     `validate:"required" sqlx:"username,required=true"`
-	DisplayName        *string    `json:",omitempty" sqlx:"display_name"`
-	Email              *string    `json:",omitempty" sqlx:"email"`
-	Provider           string     `validate:"required" sqlx:"provider,required=true"`
-	Subject            *string    `json:",omitempty" sqlx:"subject"`
+	Id                 string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	Username           string     `validate:"required" json:"username" sqlx:"username,required=true"`
+	Provider           string     `validate:"required" json:"provider" sqlx:"provider,required=true"`
 	HashIp             *string    `json:"-" sqlx:"hash_ip"`
-	Timezone           string     `validate:"required" sqlx:"timezone,required=true"`
-	DefaultAgentRef    *string    `json:",omitempty" sqlx:"default_agent_ref"`
-	DefaultModelRef    *string    `json:",omitempty" sqlx:"default_model_ref"`
-	DefaultEmbedderRef *string    `json:",omitempty" sqlx:"default_embedder_ref"`
-	Settings           *string    `json:",omitempty" sqlx:"settings"`
-	Disabled           *int       `json:",omitempty" sqlx:"disabled,required=true"`
-	CreatedAt          *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt          *time.Time `json:",omitempty" sqlx:"updated_at"`
+	Timezone           string     `validate:"required" json:"timezone" sqlx:"timezone,required=true"`
+	DisplayName        *string    `sqlx:"display_name" json:"displayName,omitempty"`
+	Email              *string    `sqlx:"email" json:"email,omitempty"`
+	Subject            *string    `sqlx:"subject" json:"subject,omitempty"`
+	DefaultAgentRef    *string    `sqlx:"default_agent_ref" json:"defaultAgentRef,omitempty"`
+	DefaultModelRef    *string    `sqlx:"default_model_ref" json:"defaultModelRef,omitempty"`
+	DefaultEmbedderRef *string    `sqlx:"default_embedder_ref" json:"defaultEmbedderRef,omitempty"`
+	Settings           *string    `sqlx:"settings" json:"settings,omitempty"`
+	Disabled           *int       `sqlx:"disabled,required=true" json:"disabled,omitempty"`
+	CreatedAt          *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt          *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
 	Has                *UserHas   `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"UserHas"`
 }
 
 type UserHas struct {
 	Id                 bool
 	Username           bool
-	DisplayName        bool
-	Email              bool
 	Provider           bool
-	Subject            bool
 	HashIp             bool
 	Timezone           bool
+	DisplayName        bool
+	Email              bool
+	Subject            bool
 	DefaultAgentRef    bool
 	DefaultModelRef    bool
 	DefaultEmbedderRef bool
@@ -46,21 +46,21 @@ type UserHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id                 string     `validate:"required" sqlx:"id,primaryKey"`
-	Username           string     `validate:"required" sqlx:"username,required=true"`
-	DisplayName        *string    `json:",omitempty" sqlx:"display_name"`
-	Email              *string    `json:",omitempty" sqlx:"email"`
-	Provider           string     `validate:"required" sqlx:"provider,required=true"`
-	Subject            *string    `json:",omitempty" sqlx:"subject"`
+	Id                 string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	Username           string     `validate:"required" json:"username" sqlx:"username,required=true"`
+	Provider           string     `validate:"required" json:"provider" sqlx:"provider,required=true"`
 	HashIp             *string    `json:"-" sqlx:"hash_ip"`
-	Timezone           string     `validate:"required" sqlx:"timezone,required=true"`
-	DefaultAgentRef    *string    `json:",omitempty" sqlx:"default_agent_ref"`
-	DefaultModelRef    *string    `json:",omitempty" sqlx:"default_model_ref"`
-	DefaultEmbedderRef *string    `json:",omitempty" sqlx:"default_embedder_ref"`
-	Settings           *string    `json:",omitempty" sqlx:"settings"`
-	Disabled           *int       `json:",omitempty" sqlx:"disabled,required=true"`
-	CreatedAt          *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt          *time.Time `json:",omitempty" sqlx:"updated_at"`
+	Timezone           string     `validate:"required" json:"timezone" sqlx:"timezone,required=true"`
+	DisplayName        *string    `sqlx:"display_name" json:"displayName,omitempty"`
+	Email              *string    `sqlx:"email" json:"email,omitempty"`
+	Subject            *string    `sqlx:"subject" json:"subject,omitempty"`
+	DefaultAgentRef    *string    `sqlx:"default_agent_ref" json:"defaultAgentRef,omitempty"`
+	DefaultModelRef    *string    `sqlx:"default_model_ref" json:"defaultModelRef,omitempty"`
+	DefaultEmbedderRef *string    `sqlx:"default_embedder_ref" json:"defaultEmbedderRef,omitempty"`
+	Settings           *string    `sqlx:"settings" json:"settings,omitempty"`
+	Disabled           *int       `sqlx:"disabled,required=true" json:"disabled,omitempty"`
+	CreatedAt          *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt          *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
 }
 
 type WriterKeysRow struct {

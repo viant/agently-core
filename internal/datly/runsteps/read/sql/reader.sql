@@ -1,4 +1,4 @@
-SELECT run_steps.step_type, run_steps.run_id, run_steps.conversation_id, run_steps.iteration, run_steps.message_id, run_steps.name, run_steps.status, run_steps.started_at, run_steps.completed_at, run_steps.latency_ms, run_steps.error_message FROM  (
+SELECT run_steps.* FROM  (
 SELECT
         'model_call' AS step_type,
         m.run_id AS run_id,

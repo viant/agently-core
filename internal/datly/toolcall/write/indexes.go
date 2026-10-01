@@ -105,55 +105,6 @@ func (index WriterHandlerCurrentWriterGroupedByMessageId) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByTurnIdKey(value *CurrentWriterView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	if value.TurnId == nil {
-		return zero, false
-	}
-	return *value.TurnId, true
-}
-
-type WriterHandlerCurrentWriterIndexedByTurnId map[string]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByTurnId() (WriterHandlerCurrentWriterIndexedByTurnId, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByTurnId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByTurnIdKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByTurnId")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByTurnId) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByTurnId map[string][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByTurnId() WriterHandlerCurrentWriterGroupedByTurnId {
-	result := make(WriterHandlerCurrentWriterGroupedByTurnId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByTurnIdKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByTurnId) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
 func WriterHandlerCurrentWriterIndexByOpIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -381,6 +332,202 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByStatus() WriterHandlerCurrent
 	return result
 }
 func (index WriterHandlerCurrentWriterGroupedByStatus) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByCostKey(value *CurrentWriterView) (float64, bool) {
+	var zero float64
+	if value == nil {
+		return zero, false
+	}
+	if value.Cost == nil {
+		return zero, false
+	}
+	return *value.Cost, true
+}
+
+type WriterHandlerCurrentWriterIndexedByCost map[float64]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByCost() (WriterHandlerCurrentWriterIndexedByCost, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByCost)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByCostKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByCost")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByCost) Has(key float64) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByCost map[float64][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByCost() WriterHandlerCurrentWriterGroupedByCost {
+	result := make(WriterHandlerCurrentWriterGroupedByCost)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByCostKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByCost) Has(key float64) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByRequestPayloadIdKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.RequestPayloadId == nil {
+		return zero, false
+	}
+	return *value.RequestPayloadId, true
+}
+
+type WriterHandlerCurrentWriterIndexedByRequestPayloadId map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByRequestPayloadId() (WriterHandlerCurrentWriterIndexedByRequestPayloadId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByRequestPayloadId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByRequestPayloadIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByRequestPayloadId")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByRequestPayloadId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByRequestPayloadId map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByRequestPayloadId() WriterHandlerCurrentWriterGroupedByRequestPayloadId {
+	result := make(WriterHandlerCurrentWriterGroupedByRequestPayloadId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByRequestPayloadIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByRequestPayloadId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByResponsePayloadIdKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.ResponsePayloadId == nil {
+		return zero, false
+	}
+	return *value.ResponsePayloadId, true
+}
+
+type WriterHandlerCurrentWriterIndexedByResponsePayloadId map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByResponsePayloadId() (WriterHandlerCurrentWriterIndexedByResponsePayloadId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByResponsePayloadId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByResponsePayloadIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByResponsePayloadId")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByResponsePayloadId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByResponsePayloadId map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByResponsePayloadId() WriterHandlerCurrentWriterGroupedByResponsePayloadId {
+	result := make(WriterHandlerCurrentWriterGroupedByResponsePayloadId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByResponsePayloadIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByResponsePayloadId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByTurnIdKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.TurnId == nil {
+		return zero, false
+	}
+	return *value.TurnId, true
+}
+
+type WriterHandlerCurrentWriterIndexedByTurnId map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByTurnId() (WriterHandlerCurrentWriterIndexedByTurnId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByTurnId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByTurnIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByTurnId")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByTurnId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByTurnId map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByTurnId() WriterHandlerCurrentWriterGroupedByTurnId {
+	result := make(WriterHandlerCurrentWriterGroupedByTurnId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByTurnIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByTurnId) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
@@ -727,55 +874,6 @@ func (index WriterHandlerCurrentWriterGroupedByLatencyMs) Has(key int) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByCostKey(value *CurrentWriterView) (float64, bool) {
-	var zero float64
-	if value == nil {
-		return zero, false
-	}
-	if value.Cost == nil {
-		return zero, false
-	}
-	return *value.Cost, true
-}
-
-type WriterHandlerCurrentWriterIndexedByCost map[float64]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByCost() (WriterHandlerCurrentWriterIndexedByCost, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByCost)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByCostKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByCost")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByCost) Has(key float64) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByCost map[float64][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByCost() WriterHandlerCurrentWriterGroupedByCost {
-	result := make(WriterHandlerCurrentWriterGroupedByCost)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByCostKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByCost) Has(key float64) bool {
-	_, ok := index[key]
-	return ok
-}
 func WriterHandlerCurrentWriterIndexByTraceIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -871,104 +969,6 @@ func (rows WriterHandlerCurrentWriterSlice) GroupBySpanId() WriterHandlerCurrent
 	return result
 }
 func (index WriterHandlerCurrentWriterGroupedBySpanId) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByRequestPayloadIdKey(value *CurrentWriterView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	if value.RequestPayloadId == nil {
-		return zero, false
-	}
-	return *value.RequestPayloadId, true
-}
-
-type WriterHandlerCurrentWriterIndexedByRequestPayloadId map[string]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByRequestPayloadId() (WriterHandlerCurrentWriterIndexedByRequestPayloadId, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByRequestPayloadId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRequestPayloadIdKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByRequestPayloadId")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByRequestPayloadId) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByRequestPayloadId map[string][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByRequestPayloadId() WriterHandlerCurrentWriterGroupedByRequestPayloadId {
-	result := make(WriterHandlerCurrentWriterGroupedByRequestPayloadId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByRequestPayloadIdKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByRequestPayloadId) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByResponsePayloadIdKey(value *CurrentWriterView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	if value.ResponsePayloadId == nil {
-		return zero, false
-	}
-	return *value.ResponsePayloadId, true
-}
-
-type WriterHandlerCurrentWriterIndexedByResponsePayloadId map[string]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByResponsePayloadId() (WriterHandlerCurrentWriterIndexedByResponsePayloadId, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByResponsePayloadId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByResponsePayloadIdKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByResponsePayloadId")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByResponsePayloadId) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByResponsePayloadId map[string][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByResponsePayloadId() WriterHandlerCurrentWriterGroupedByResponsePayloadId {
-	result := make(WriterHandlerCurrentWriterGroupedByResponsePayloadId)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByResponsePayloadIdKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByResponsePayloadId) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
@@ -1145,9 +1145,6 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("MessageId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.MessageId")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TurnId") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TurnId")
-			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("OpId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.OpId")
 			}
@@ -1162,6 +1159,18 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Status") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Status")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Cost") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Cost")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("RequestPayloadId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.RequestPayloadId")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ResponsePayloadId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ResponsePayloadId")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TurnId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TurnId")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("RequestHash") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.RequestHash")
@@ -1184,20 +1193,11 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("LatencyMs") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.LatencyMs")
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Cost") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Cost")
-			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TraceId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TraceId")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SpanId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SpanId")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("RequestPayloadId") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.RequestPayloadId")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ResponsePayloadId") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ResponsePayloadId")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("RunId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.RunId")

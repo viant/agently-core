@@ -226,17 +226,6 @@ func (input *ConversationInput) SetGraphMode(value bool) {
 	input.Has.GraphMode = true
 }
 
-func (input *ConversationInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &ConversationInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *ConversationInput) SetListAscending(value bool) {
 	if input == nil {
 		return

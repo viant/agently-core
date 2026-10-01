@@ -46,36 +46,6 @@ func (entity *Job) SetOwnerId(value string) {
 	}
 	entity.Has.OwnerId = true
 }
-func (entity *Job) GetConversationId() *string {
-	return entity.ConversationId
-}
-func (entity *Job) SetConversationId(value *string) {
-	entity.ConversationId = value
-	if entity.Has == nil {
-		entity.Has = &JobHas{}
-	}
-	entity.Has.ConversationId = true
-}
-func (entity *Job) GetWorkspaceId() *string {
-	return entity.WorkspaceId
-}
-func (entity *Job) SetWorkspaceId(value *string) {
-	entity.WorkspaceId = value
-	if entity.Has == nil {
-		entity.Has = &JobHas{}
-	}
-	entity.Has.WorkspaceId = true
-}
-func (entity *Job) GetAuthContextRef() *string {
-	return entity.AuthContextRef
-}
-func (entity *Job) SetAuthContextRef(value *string) {
-	entity.AuthContextRef = value
-	if entity.Has == nil {
-		entity.Has = &JobHas{}
-	}
-	entity.Has.AuthContextRef = true
-}
 func (entity *Job) GetFormat() string {
 	return entity.Format
 }
@@ -146,26 +116,6 @@ func (entity *Job) SetMetadataJson(value []byte) {
 	}
 	entity.Has.MetadataJson = true
 }
-func (entity *Job) GetArtifactId() *string {
-	return entity.ArtifactId
-}
-func (entity *Job) SetArtifactId(value *string) {
-	entity.ArtifactId = value
-	if entity.Has == nil {
-		entity.Has = &JobHas{}
-	}
-	entity.Has.ArtifactId = true
-}
-func (entity *Job) GetErrorText() *string {
-	return entity.ErrorText
-}
-func (entity *Job) SetErrorText(value *string) {
-	entity.ErrorText = value
-	if entity.Has == nil {
-		entity.Has = &JobHas{}
-	}
-	entity.Has.ErrorText = true
-}
 func (entity *Job) GetDiagnosticsJson() []byte {
 	return entity.DiagnosticsJson
 }
@@ -185,6 +135,76 @@ func (entity *Job) SetSubmittedAt(value time.Time) {
 		entity.Has = &JobHas{}
 	}
 	entity.Has.SubmittedAt = true
+}
+func (entity *Job) GetRetentionTtlSec() int64 {
+	return entity.RetentionTtlSec
+}
+func (entity *Job) SetRetentionTtlSec(value int64) {
+	entity.RetentionTtlSec = value
+	if entity.Has == nil {
+		entity.Has = &JobHas{}
+	}
+	entity.Has.RetentionTtlSec = true
+}
+func (entity *Job) GetReportRunRevision() *int64 {
+	return entity.ReportRunRevision
+}
+func (entity *Job) SetReportRunRevision(value *int64) {
+	entity.ReportRunRevision = value
+	if entity.Has == nil {
+		entity.Has = &JobHas{}
+	}
+	entity.Has.ReportRunRevision = true
+}
+func (entity *Job) GetConversationId() *string {
+	return entity.ConversationId
+}
+func (entity *Job) SetConversationId(value *string) {
+	entity.ConversationId = value
+	if entity.Has == nil {
+		entity.Has = &JobHas{}
+	}
+	entity.Has.ConversationId = true
+}
+func (entity *Job) GetWorkspaceId() *string {
+	return entity.WorkspaceId
+}
+func (entity *Job) SetWorkspaceId(value *string) {
+	entity.WorkspaceId = value
+	if entity.Has == nil {
+		entity.Has = &JobHas{}
+	}
+	entity.Has.WorkspaceId = true
+}
+func (entity *Job) GetAuthContextRef() *string {
+	return entity.AuthContextRef
+}
+func (entity *Job) SetAuthContextRef(value *string) {
+	entity.AuthContextRef = value
+	if entity.Has == nil {
+		entity.Has = &JobHas{}
+	}
+	entity.Has.AuthContextRef = true
+}
+func (entity *Job) GetArtifactId() *string {
+	return entity.ArtifactId
+}
+func (entity *Job) SetArtifactId(value *string) {
+	entity.ArtifactId = value
+	if entity.Has == nil {
+		entity.Has = &JobHas{}
+	}
+	entity.Has.ArtifactId = true
+}
+func (entity *Job) GetErrorText() *string {
+	return entity.ErrorText
+}
+func (entity *Job) SetErrorText(value *string) {
+	entity.ErrorText = value
+	if entity.Has == nil {
+		entity.Has = &JobHas{}
+	}
+	entity.Has.ErrorText = true
 }
 func (entity *Job) GetStartedAt() *time.Time {
 	return entity.StartedAt
@@ -206,16 +226,6 @@ func (entity *Job) SetCompletedAt(value *time.Time) {
 	}
 	entity.Has.CompletedAt = true
 }
-func (entity *Job) GetRetentionTtlSec() int64 {
-	return entity.RetentionTtlSec
-}
-func (entity *Job) SetRetentionTtlSec(value int64) {
-	entity.RetentionTtlSec = value
-	if entity.Has == nil {
-		entity.Has = &JobHas{}
-	}
-	entity.Has.RetentionTtlSec = true
-}
 func (entity *Job) GetReportRunId() *string {
 	return entity.ReportRunId
 }
@@ -225,16 +235,6 @@ func (entity *Job) SetReportRunId(value *string) {
 		entity.Has = &JobHas{}
 	}
 	entity.Has.ReportRunId = true
-}
-func (entity *Job) GetReportRunRevision() *int64 {
-	return entity.ReportRunRevision
-}
-func (entity *Job) SetReportRunRevision(value *int64) {
-	entity.ReportRunRevision = value
-	if entity.Has == nil {
-		entity.Has = &JobHas{}
-	}
-	entity.Has.ReportRunRevision = true
 }
 func (entity *Job) GetExportRequestId() *string {
 	return entity.ExportRequestId

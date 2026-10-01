@@ -9,27 +9,27 @@ import (
 // Job is generated canonical view metadata for reader.
 type Job struct {
 	MaintenanceObservedAt string     `internal:"true" json:"-" sqlx:"maintenance_observed_at"`
-	JobId                 string     `sqlx:"job_id,primaryKey=true"`
-	ArtifactRef           string     `sqlx:"artifact_ref,required=true"`
-	OwnerId               string     `sqlx:"owner_id,required=true"`
-	ConversationId        string     `sqlx:"conversation_id"`
-	WorkspaceId           string     `sqlx:"workspace_id"`
-	AuthContextRef        string     `sqlx:"auth_context_ref"`
-	Format                string     `sqlx:"format,required=true"`
-	Scope                 string     `sqlx:"scope,required=true"`
-	Status                string     `sqlx:"status,required=true"`
-	ReportSpecJson        []byte     `sqlx:"report_spec_json"`
-	ReportFillJson        []byte     `sqlx:"report_fill_json"`
-	ReportPrintJson       []byte     `sqlx:"report_print_json"`
-	MetadataJson          []byte     `sqlx:"metadata_json"`
-	ArtifactId            string     `sqlx:"artifact_id"`
-	ErrorText             string     `sqlx:"error_text"`
-	DiagnosticsJson       []byte     `sqlx:"diagnostics_json"`
-	SubmittedAt           time.Time  `sqlx:"submitted_at,required=true"`
-	StartedAt             *time.Time `sqlx:"started_at"`
-	CompletedAt           *time.Time `sqlx:"completed_at"`
-	RetentionTtlSec       int64      `sqlx:"retention_ttl_sec,required=true"`
-	ReportRunId           string     `sqlx:"report_run_id"`
-	ReportRunRevision     int64      `sqlx:"report_run_revision"`
-	ExportRequestId       string     `sqlx:"export_request_id"`
+	JobId                 string     `sqlx:"job_id,primaryKey=true" json:"jobId"`
+	ArtifactRef           string     `sqlx:"artifact_ref,required=true" json:"artifactRef"`
+	OwnerId               string     `sqlx:"owner_id,required=true" json:"ownerId"`
+	ConversationId        string     `sqlx:"conversation_id" json:"conversationId"`
+	WorkspaceId           string     `sqlx:"workspace_id" json:"workspaceId"`
+	AuthContextRef        string     `sqlx:"auth_context_ref" json:"authContextRef"`
+	Format                string     `sqlx:"format,required=true" json:"format"`
+	Scope                 string     `sqlx:"scope,required=true" json:"scope"`
+	Status                string     `sqlx:"status,required=true" json:"status"`
+	ReportSpecJson        []byte     `sqlx:"report_spec_json" json:"reportSpecJson"`
+	ReportFillJson        []byte     `sqlx:"report_fill_json" json:"reportFillJson"`
+	ReportPrintJson       []byte     `sqlx:"report_print_json" json:"reportPrintJson"`
+	MetadataJson          []byte     `sqlx:"metadata_json" json:"metadataJson"`
+	ArtifactId            string     `sqlx:"artifact_id" json:"artifactId"`
+	ErrorText             string     `sqlx:"error_text" json:"errorText"`
+	DiagnosticsJson       []byte     `sqlx:"diagnostics_json" json:"diagnosticsJson"`
+	SubmittedAt           time.Time  `sqlx:"submitted_at,required=true" json:"submittedAt"`
+	RetentionTtlSec       int64      `sqlx:"retention_ttl_sec,required=true" json:"retentionTtlSec"`
+	ReportRunId           string     `sqlx:"report_run_id" json:"reportRunId"`
+	ReportRunRevision     int64      `sqlx:"report_run_revision" json:"reportRunRevision"`
+	ExportRequestId       string     `sqlx:"export_request_id" json:"exportRequestId"`
+	StartedAt             *time.Time `sqlx:"started_at" json:"startedAt"`
+	CompletedAt           *time.Time `sqlx:"completed_at" json:"completedAt"`
 }

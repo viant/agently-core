@@ -6,7 +6,6 @@
 #setting($_ = $input_type('Input'))
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
-#define($_ = $LockRows<bool>(claimaccess/lock).Optional())
 #define($_ = $Trusted<bool>(claimAccess/internal).Required())
 #define($_ = $ClaimKey<string>(query/claimKey).Optional().WithPredicate(0,'equal','c','claim_key'))
 #define($_ = $TurnID<string>(query/turnId).Optional().WithPredicate(0,'equal','c','turn_id'))
@@ -15,32 +14,16 @@
 #define($_ = $TurnIDs<[]string>(query/turnIds).Optional().WithPredicate(0,'in','c','turn_id'))
 #define($_ = $Data<[]*Claim>(output/view))
 
-SELECT claims.claim_key,
-       claims.rule_id,
-       claims.canonical_tool_name,
-       claims.turn_id,
-       claims.semantic_request_hash,
-       claims.state,
-       claims.created_at,
-       claims.updated_at,
-       claims.finished_at,
+SELECT claims.*,
+       row_lock(claims,'tool_execution_claim c'),
        type(claims,'Claim'),
-       CAST(claims.claim_key AS string),
-       CAST(claims.rule_id AS string),
-       CAST(claims.canonical_tool_name AS string),
-       CAST(claims.turn_id AS string),
-       CAST(claims.semantic_request_hash AS string),
-       CAST(claims.state AS string),
-       CAST(claims.created_at AS time.Time),
-       CAST(claims.updated_at AS time.Time),
-       CAST(claims.finished_at AS *time.Time)
-FROM (
-    SELECT c.claim_key, c.rule_id, c.canonical_tool_name, c.turn_id,
-           c.semantic_request_hash, c.state, c.created_at, c.updated_at, c.finished_at
-    FROM tool_execution_claim c
-    WHERE $Trusted
-    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
-    ORDER BY c.created_at, c.claim_key
-) claims
+       required(claims.claim_key),
+       required(claims.rule_id),
+       required(claims.canonical_tool_name),
+       required(claims.turn_id),
+       required(claims.semantic_request_hash),
+       required(claims.state),
+       required(claims.created_at),
+       required(claims.updated_at)
+FROM (${embed:sql/toolexecutionclaim.sql}) claims
 
-#if($LockRows) ${View.ForUpdate()} #end

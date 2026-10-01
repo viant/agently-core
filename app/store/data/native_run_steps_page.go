@@ -8,11 +8,11 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	read "github.com/viant/agently-core/internal/datly/runsteps/read"
 	store "github.com/viant/agently-core/internal/store/runsteps"
-	legacy "github.com/viant/agently-core/pkg/agently/run/steps"
+	runmodel "github.com/viant/agently-core/model/run"
 	"github.com/viant/xdatly/state"
 )
 
-func nativeRunStepsPageInput(input *legacy.RunStepsInput) *read.RunStepsInput {
+func nativeRunStepsPageInput(input *runmodel.RunStepsInput) *read.RunStepsInput {
 	query := &read.RunStepsInput{}
 	if input == nil || input.Has == nil {
 		return query
@@ -36,7 +36,7 @@ func nativeRunStepsPageInput(input *legacy.RunStepsInput) *read.RunStepsInput {
 	return query
 }
 
-func (s *datlyService) queryRunStepsNative(ctx context.Context, input *legacy.RunStepsInput, limit int, opts *options) ([]*legacy.RunStepsView, error) {
+func (s *datlyService) queryRunStepsNative(ctx context.Context, input *runmodel.RunStepsInput, limit int, opts *options) ([]*runmodel.RunStepsView, error) {
 	selectors := state.Selectors{&state.NamedSelector{Name: "RunSteps", Selector: state.Selector{Limit: limit + 1}}}
 	if opts != nil {
 		selectors = append(selectors, nativeSelectors(opts.selectors)...)
@@ -46,7 +46,7 @@ func (s *datlyService) queryRunStepsNative(ctx context.Context, input *legacy.Ru
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*legacy.RunStepsView, 0, len(rows))
+	result := make([]*runmodel.RunStepsView, 0, len(rows))
 	for _, row := range rows {
 		if row == nil {
 			continue
@@ -55,7 +55,7 @@ func (s *datlyService) queryRunStepsNative(ctx context.Context, input *legacy.Ru
 		if err != nil {
 			return nil, fmt.Errorf("encode native run step: %w", err)
 		}
-		var mapped legacy.RunStepsView
+		var mapped runmodel.RunStepsView
 		if err := json.Unmarshal(encoded, &mapped); err != nil {
 			return nil, fmt.Errorf("decode run step contract: %w", err)
 		}

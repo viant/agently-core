@@ -11,7 +11,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
-	agpayload "github.com/viant/agently-core/pkg/agently/payload"
+	payloadmodel "github.com/viant/agently-core/model/payload"
 )
 
 func TestDeleteConversationTree_RemovesTreeArtifactsAndUnsharedPayloads(t *testing.T) {
@@ -49,9 +49,9 @@ func TestDeleteConversationTree_RemovesTreeArtifactsAndUnsharedPayloads(t *testi
 		t.Fatalf("expected run to be deleted")
 	}
 
-	payloads, err := svc.ListPayloadRows(context.Background(), &agpayload.PayloadRowsInput{
+	payloads, err := svc.ListPayloadRows(context.Background(), &payloadmodel.PayloadRowsInput{
 		Ids: []string{"payload-root", "payload-model", "payload-tool", "payload-generated", "payload-shared"},
-		Has: &agpayload.PayloadRowsInputHas{Ids: true},
+		Has: &payloadmodel.PayloadRowsInputHas{Ids: true},
 	})
 	if err != nil {
 		t.Fatalf("ListPayloadRows() error: %v", err)
@@ -145,9 +145,9 @@ func TestDeleteConversationTree_RemovesUnsharedElicitationPayload(t *testing.T) 
 		t.Fatalf("DeleteConversationTree() error: %v", err)
 	}
 
-	payloads, err := svc.ListPayloadRows(context.Background(), &agpayload.PayloadRowsInput{
+	payloads, err := svc.ListPayloadRows(context.Background(), &payloadmodel.PayloadRowsInput{
 		Ids: []string{"payload-elicit", "payload-elicit-shared"},
-		Has: &agpayload.PayloadRowsInputHas{Ids: true},
+		Has: &payloadmodel.PayloadRowsInputHas{Ids: true},
 	})
 	if err != nil {
 		t.Fatalf("ListPayloadRows() error: %v", err)

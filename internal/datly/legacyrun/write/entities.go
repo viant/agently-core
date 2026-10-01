@@ -36,6 +36,26 @@ func (entity *LegacyRun) SetScheduleId(value string) {
 	}
 	entity.Has.ScheduleId = true
 }
+func (entity *LegacyRun) GetStatus() string {
+	return entity.Status
+}
+func (entity *LegacyRun) SetStatus(value string) {
+	entity.Status = value
+	if entity.Has == nil {
+		entity.Has = &LegacyRunHas{}
+	}
+	entity.Has.Status = true
+}
+func (entity *LegacyRun) GetConversationKind() string {
+	return entity.ConversationKind
+}
+func (entity *LegacyRun) SetConversationKind(value string) {
+	entity.ConversationKind = value
+	if entity.Has == nil {
+		entity.Has = &LegacyRunHas{}
+	}
+	entity.Has.ConversationKind = true
+}
 func (entity *LegacyRun) GetCreatedAt() *time.Time {
 	return entity.CreatedAt
 }
@@ -55,16 +75,6 @@ func (entity *LegacyRun) SetUpdatedAt(value *time.Time) {
 		entity.Has = &LegacyRunHas{}
 	}
 	entity.Has.UpdatedAt = true
-}
-func (entity *LegacyRun) GetStatus() string {
-	return entity.Status
-}
-func (entity *LegacyRun) SetStatus(value string) {
-	entity.Status = value
-	if entity.Has == nil {
-		entity.Has = &LegacyRunHas{}
-	}
-	entity.Has.Status = true
 }
 func (entity *LegacyRun) GetErrorMessage() *string {
 	return entity.ErrorMessage
@@ -135,16 +145,6 @@ func (entity *LegacyRun) SetConversationId(value *string) {
 		entity.Has = &LegacyRunHas{}
 	}
 	entity.Has.ConversationId = true
-}
-func (entity *LegacyRun) GetConversationKind() string {
-	return entity.ConversationKind
-}
-func (entity *LegacyRun) SetConversationKind(value string) {
-	entity.ConversationKind = value
-	if entity.Has == nil {
-		entity.Has = &LegacyRunHas{}
-	}
-	entity.Has.ConversationKind = true
 }
 func (entity *LegacyRun) GetScheduledFor() *time.Time {
 	return entity.ScheduledFor

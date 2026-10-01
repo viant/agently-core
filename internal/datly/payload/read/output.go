@@ -10,5 +10,5 @@ import (
 type PayloadRowsOutput struct {
 	response.Status `parameter:",kind=output,in=status"`
 	Metrics         response.Metrics   `parameter:",kind=output,in=metrics"`
-	Data            []*PayloadRowsView `parameter:"Data,kind=output,in=view,dataType=[]*PayloadRowsView" view:"reader,type=PayloadRowsView,table=call_payload,selectorProjection=true,selectorOrderBy=true,selectorCriteria=true,selectorLimit=true,selectorOffset=true,selectorPage=true,selectorFilterable={*},selectorOrderable={id,created_at,size_bytes}" sql:"uri=datly_payload_read_reader:sql/reader.sql"`
+	Data            []*PayloadRowsView `parameter:"Data,kind=output,in=view,dataType=[]*PayloadRowsView" view:"reader,type=PayloadRowsView,rowLock=call_payload p,table=call_payload,selectorProjection=true,selectorOrderBy=true,selectorCriteria=true,selectorLimit=true,selectorOffset=true,selectorPage=true,selectorFilterable={*},selectorOrderable={id,created_at,size_bytes}" sql:"uri=datly_payload_read_reader:sql/reader.sql"`
 }

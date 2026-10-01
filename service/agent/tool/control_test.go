@@ -5,9 +5,9 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	intent "github.com/viant/agently-core/protocol/intent"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
@@ -26,9 +26,9 @@ func TestFromAgent_IncludesSkillControlToolsWhenSkillsVisible(t *testing.T) {
 
 	assert.Equal(t, []string{"orchestrator"}, actual.Bundles)
 	assert.Equal(t, []string{
-		mcpname.Canonical("system/os:getEnv"),
+		mcpname2.Canonical("system/os:getEnv"),
 		skillproto.ListToolNameCanonical,
-		mcpname.Canonical(skillproto.GetToolName),
+		mcpname2.Canonical(skillproto.GetToolName),
 		skillproto.ActivateToolNameCanonical,
 	}, actual.Tools)
 }
@@ -41,8 +41,8 @@ func TestMerge_DedupesCaseInsensitiveSelections(t *testing.T) {
 
 	assert.Equal(t, []string{"orchestrator", "forecast"}, actual.Bundles)
 	assert.Equal(t, []string{
-		mcpname.Canonical("prompt:list"),
-		mcpname.Canonical("workspace/ForecastCube"),
+		mcpname2.Canonical("prompt:list"),
+		mcpname2.Canonical("workspace/ForecastCube"),
 	}, actual.Tools)
 }
 
@@ -53,5 +53,5 @@ func TestFromPromptProfile_ActivatesOnlyDeclaredProfileTools(t *testing.T) {
 	})
 
 	assert.Equal(t, []string{"practice-control"}, actual.Bundles)
-	assert.Equal(t, []string{mcpname.Canonical("pathwise/practice:select")}, actual.Tools)
+	assert.Equal(t, []string{mcpname2.Canonical("pathwise/practice:select")}, actual.Tools)
 }

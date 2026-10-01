@@ -11,7 +11,6 @@ type Input struct {
 	JobIDs       []string  `parameter:"JobIDs,kind=query,in=jobIds,dataType=[]string,required=false" predicate:"in,a,job_id"`
 	ArtifactRef  string    `parameter:"ArtifactRef,kind=query,in=artifactRef,dataType=string,required=false" predicate:"equal,a,artifact_ref"`
 	OwnerID      string    `parameter:"OwnerID,kind=query,in=ownerId,dataType=string,required=false" predicate:"equal,a,owner_id"`
-	LockRows     bool      `parameter:"LockRows,kind=reportaccess,in=lock,dataType=bool,required=false"`
 	Has          *InputHas `setMarker:"true" typeName:"InputHas" json:"-" sqlx:"-"`
 }
 
@@ -23,5 +22,4 @@ type InputHas struct {
 	JobIDs       bool
 	ArtifactRef  bool
 	OwnerID      bool
-	LockRows     bool
 }

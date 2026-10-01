@@ -9,12 +9,12 @@ import (
 // Lease is generated canonical view metadata for writer.
 type Lease struct {
 	ShouldDelete bool      `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
-	LeaseKey     string    `sqlx:"lease_key,primaryKey=true,required=true"`
-	OwnerId      string    `sqlx:"owner_id,required=true"`
-	LeaseToken   string    `sqlx:"lease_token,required=true"`
-	LeaseUntil   time.Time `sqlx:"lease_until,required=true"`
-	CreatedAt    time.Time `sqlx:"created_at,required=true"`
-	UpdatedAt    time.Time `sqlx:"updated_at,required=true"`
+	LeaseKey     string    `sqlx:"lease_key,primaryKey=true,required=true" json:"leaseKey"`
+	OwnerId      string    `sqlx:"owner_id,required=true" json:"ownerId"`
+	LeaseToken   string    `sqlx:"lease_token,required=true" json:"leaseToken"`
+	LeaseUntil   time.Time `sqlx:"lease_until,required=true" json:"leaseUntil"`
+	CreatedAt    time.Time `sqlx:"created_at,required=true" json:"createdAt"`
+	UpdatedAt    time.Time `sqlx:"updated_at,required=true" json:"updatedAt"`
 	Has          *LeaseHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"LeaseHas"`
 }
 
@@ -30,12 +30,12 @@ type LeaseHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	LeaseKey   string    `sqlx:"lease_key,primaryKey=true,required=true"`
-	OwnerId    string    `sqlx:"owner_id,required=true"`
-	LeaseToken string    `sqlx:"lease_token,required=true"`
-	LeaseUntil time.Time `sqlx:"lease_until,required=true"`
-	CreatedAt  time.Time `sqlx:"created_at,required=true"`
-	UpdatedAt  time.Time `sqlx:"updated_at,required=true"`
+	LeaseKey   string    `sqlx:"lease_key,primaryKey=true,required=true" json:"leaseKey"`
+	OwnerId    string    `sqlx:"owner_id,required=true" json:"ownerId"`
+	LeaseToken string    `sqlx:"lease_token,required=true" json:"leaseToken"`
+	LeaseUntil time.Time `sqlx:"lease_until,required=true" json:"leaseUntil"`
+	CreatedAt  time.Time `sqlx:"created_at,required=true" json:"createdAt"`
+	UpdatedAt  time.Time `sqlx:"updated_at,required=true" json:"updatedAt"`
 }
 
 type WriterKeysRow struct {

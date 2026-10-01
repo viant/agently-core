@@ -13,8 +13,8 @@ import (
 	toolwrite "github.com/viant/agently-core/internal/datly/toolcall/write"
 	turnwrite "github.com/viant/agently-core/internal/datly/turn/write"
 	queuewrite "github.com/viant/agently-core/internal/datly/turnqueue/write"
-	legacytool "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	legacyqueue "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
 )
@@ -53,7 +53,7 @@ func invokeDataBatch[T any, W any](ctx context.Context, s *datlyService, input a
 	}
 	for _, row := range mapped {
 		if call, ok := any(row).(*toolwrite.ToolCall); ok && call != nil && call.Has != nil && call.Has.ErrorMessage && call.ErrorMessage != nil {
-			value := legacytool.SanitizeErrorMessage(*call.ErrorMessage)
+			value := toolcallmodel.SanitizeErrorMessage(*call.ErrorMessage)
 			call.ErrorMessage = &value
 		}
 	}
@@ -213,11 +213,11 @@ func (s *datlyService) deleteDataNative(ctx context.Context, kind string, ids ..
 	_, err := s.invokeDataWriter(ctx, input, field, path, rows)
 	return err
 }
-func (s *datlyService) patchTurnQueueNative(ctx context.Context, row *legacyqueue.TurnQueue) error {
+func (s *datlyService) patchTurnQueueNative(ctx context.Context, row *turnqueuemodel.TurnQueue) error {
 	if row == nil {
 		return fmt.Errorf("turn queue input is required")
 	}
-	_, err := invokeDataBatch[legacyqueue.TurnQueue, queuewrite.TurnQueue](ctx, s, &queuewrite.Input{}, "Queues", "/v1/api/agently/turnqueue", []*legacyqueue.TurnQueue{row})
+	_, err := invokeDataBatch[turnqueuemodel.TurnQueue, queuewrite.TurnQueue](ctx, s, &queuewrite.Input{}, "Queues", "/v1/api/agently/turnqueue", []*turnqueuemodel.TurnQueue{row})
 	return err
 }
 

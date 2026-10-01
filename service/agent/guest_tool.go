@@ -8,7 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
@@ -63,7 +63,7 @@ func (s *Service) RunGuestToolCall(ctx context.Context, input *GuestToolCallInpu
 		return nil, errors.New("guest tool call requires registry and conversation client")
 	}
 
-	canonical := mcpname.Canonical(name)
+	canonical := mcpname2.Canonical(name)
 	ctx = toolapprovalqueue.WithState(ctx)
 	toolapprovalqueue.MarkSource(ctx, GuestToolSourceUI)
 	bundles := normalizeBundleIDs(input.ToolBundles)
@@ -178,7 +178,7 @@ func assertBundleAllowsTool(entry *resolvedToolSurface, canonicalName string) er
 	}
 	wanted := strings.ToLower(canonicalName)
 	for _, def := range entry.Definitions {
-		if strings.ToLower(mcpname.Canonical(def.Name)) == wanted {
+		if strings.ToLower(mcpname2.Canonical(def.Name)) == wanted {
 			return nil
 		}
 	}

@@ -19,7 +19,6 @@ type Input struct {
 	Status             string                        `parameter:"Status,kind=query,in=status,dataType=string,required=false" predicate:"equal,r,status"`
 	Origin             string                        `parameter:"Origin,kind=query,in=origin,dataType=string,required=false" predicate:"equal,r,origin"`
 	TechnicalRetention *predicate.TechnicalRetention `parameter:"TechnicalRetention,kind=technicalmaintenance,in=policy,dataType=*predicate.TechnicalRetention,required=false" predicate:"handler,github.com/viant/agently-core/internal/datly/predicate.TechnicalReportRunRetention"`
-	LockRows           bool                          `parameter:"LockRows,kind=reportaccess,in=lock,dataType=bool,required=false"`
 	Has                *InputHas                     `setMarker:"true" typeName:"InputHas" json:"-" sqlx:"-"`
 }
 
@@ -35,5 +34,4 @@ type InputHas struct {
 	Status             bool
 	Origin             bool
 	TechnicalRetention bool
-	LockRows           bool
 }

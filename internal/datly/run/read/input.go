@@ -21,7 +21,6 @@ type RunRowsInput struct {
 	RunStatus                string           `parameter:"RunStatus,kind=query,in=status,dataType=string,required=false" predicate:"equal,t,status"`
 	ExcludeStatuses          []string         `parameter:"ExcludeStatuses,kind=query,in=excludeStatuses,dataType=[]string,required=false" predicate:"not_in,t,status"`
 	InternalMode             bool             `parameter:"InternalMode,kind=runaccess,in=internal,dataType=bool,required=true"`
-	LockRows                 bool             `parameter:"LockRows,kind=runaccess,in=lock,dataType=bool,required=false"`
 	VisibilitySubject        *string          `parameter:"VisibilitySubject,kind=visibility,in=subject,dataType=*string,required=true"`
 	ReadMode                 string           `parameter:"ReadMode,kind=runaccess,in=mode,dataType=string,required=true"`
 	HeartbeatBefore          time.Time        `parameter:"HeartbeatBefore,kind=query,in=heartbeatBefore,dataType=time.Time,required=false" predicate:"expr,(t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < ?)"`
@@ -61,7 +60,6 @@ type RunRowsInputHas struct {
 	RunStatus                bool
 	ExcludeStatuses          bool
 	InternalMode             bool
-	LockRows                 bool
 	VisibilitySubject        bool
 	ReadMode                 bool
 	HeartbeatBefore          bool

@@ -9,14 +9,14 @@ import (
 // AuditEvent is generated canonical view metadata for reader.
 type AuditEvent struct {
 	MaintenanceObservedAt string    `internal:"true" json:"-" sqlx:"maintenance_observed_at"`
-	EventId               string    `sqlx:"event_id,primaryKey=true"`
-	EventType             string    `sqlx:"event_type,required=true"`
-	ArtifactRef           string    `sqlx:"artifact_ref,required=true"`
-	Version               int64     `sqlx:"version,required=true"`
-	JobId                 *string   `sqlx:"job_id"`
-	ArtifactId            *string   `sqlx:"artifact_id"`
-	ActorId               string    `sqlx:"actor_id,required=true"`
-	ActorRef              *string   `sqlx:"actor_ref"`
-	OccurredAt            time.Time `sqlx:"occurred_at,required=true"`
-	MetadataJson          []byte    `sqlx:"metadata_json"`
+	EventId               string    `sqlx:"event_id,primaryKey=true" json:"eventId"`
+	EventType             string    `sqlx:"event_type,required=true" json:"eventType"`
+	ArtifactRef           string    `sqlx:"artifact_ref,required=true" json:"artifactRef"`
+	Version               int64     `sqlx:"version,required=true" json:"version"`
+	ActorId               string    `sqlx:"actor_id,required=true" json:"actorId"`
+	OccurredAt            time.Time `sqlx:"occurred_at,required=true" json:"occurredAt"`
+	MetadataJson          []byte    `sqlx:"metadata_json" json:"metadataJson"`
+	JobId                 *string   `sqlx:"job_id" json:"jobId"`
+	ArtifactId            *string   `sqlx:"artifact_id" json:"artifactId"`
+	ActorRef              *string   `sqlx:"actor_ref" json:"actorRef"`
 }

@@ -28,7 +28,6 @@ type ConversationInput struct {
 	HasScheduleId            bool                  `parameter:"HasScheduleId,kind=query,in=hasScheduleId,dataType=bool,required=false" predicate:"expr,(NOT ? OR t.schedule_id IS NOT NULL)"`
 	ListMode                 bool                  `parameter:"ListMode,kind=conversationaccess,in=list,dataType=bool,required=true"`
 	GraphMode                bool                  `parameter:"GraphMode,kind=conversationaccess,in=graph,dataType=bool,required=false"`
-	LockRows                 bool                  `parameter:"LockRows,kind=conversationaccess,in=lock,dataType=bool,required=false"`
 	ListAscending            bool                  `parameter:"ListAscending,kind=conversationaccess,in=ascending,dataType=bool,required=false"`
 	EnforceVisibility        bool                  `parameter:"EnforceVisibility,kind=conversationaccess,in=enforceVisibility,dataType=bool,required=false"`
 	VisibilitySubject        *string               `parameter:"VisibilitySubject,kind=visibility,in=subject,dataType=*string,required=true"`
@@ -71,7 +70,6 @@ type ConversationInputHas struct {
 	HasScheduleId            bool
 	ListMode                 bool
 	GraphMode                bool
-	LockRows                 bool
 	ListAscending            bool
 	EnforceVisibility        bool
 	VisibilitySubject        bool

@@ -8,11 +8,11 @@ import (
 
 // Context is generated canonical view metadata for reader.
 type Context struct {
-	OwnerId           string    `sqlx:"owner_id,refTable=report_run,refColumn=owner_id,required=true,primaryKey=true"`
-	ConversationId    string    `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true,primaryKey=true"`
-	ActiveReportRunId string    `sqlx:"active_report_run_id,refTable=report_run,refColumn=report_run_id,required=true"`
-	Revision          int64     `sqlx:"revision,required=true"`
-	ActivationSource  string    `sqlx:"activation_source,required=true"`
-	ActorId           string    `sqlx:"actor_id,required=true"`
-	UpdatedAt         time.Time `sqlx:"updated_at,required=true"`
+	OwnerId           string    `sqlx:"owner_id,refTable=report_run,refColumn=owner_id,required=true,primaryKey=true" json:"ownerId"`
+	ConversationId    string    `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true,primaryKey=true" json:"conversationId"`
+	ActiveReportRunId string    `sqlx:"active_report_run_id,refTable=report_run,refColumn=report_run_id,required=true" json:"activeReportRunId"`
+	Revision          int64     `sqlx:"revision,required=true" json:"revision"`
+	ActivationSource  string    `sqlx:"activation_source,required=true" json:"activationSource"`
+	ActorId           string    `sqlx:"actor_id,required=true" json:"actorId"`
+	UpdatedAt         time.Time `sqlx:"updated_at,required=true" json:"updatedAt"`
 }

@@ -9,20 +9,20 @@ import (
 // PayloadView is generated canonical view metadata for reader.
 type PayloadView struct {
 	Referenced             bool       `internal:"true" json:"-" sqlx:"referenced"`
-	Id                     string     `sqlx:"id,primaryKey=true"`
-	TenantId               *string    `sqlx:"tenant_id"`
-	Kind                   string     `sqlx:"kind,required=true"`
-	Subtype                *string    `sqlx:"subtype"`
-	MimeType               string     `sqlx:"mime_type,required=true"`
-	SizeBytes              int        `sqlx:"size_bytes,required=true"`
-	Digest                 *string    `sqlx:"digest"`
-	Storage                string     `sqlx:"storage,required=true"`
-	InlineBody             *[]byte    `sqlx:"inline_body"`
-	Uri                    *string    `sqlx:"uri"`
-	Compression            string     `sqlx:"compression,required=true"`
-	EncryptionKmsKeyId     *string    `sqlx:"encryption_kms_key_id"`
-	RedactionPolicyVersion *string    `sqlx:"redaction_policy_version"`
-	Redacted               *int       `sqlx:"redacted,required=true"`
-	CreatedAt              *time.Time `sqlx:"created_at,required=true"`
-	SchemaRef              *string    `sqlx:"schema_ref"`
+	Id                     string     `sqlx:"id,primaryKey=true" json:"id"`
+	Kind                   string     `sqlx:"kind,required=true" json:"kind"`
+	MimeType               string     `sqlx:"mime_type,required=true" json:"mimeType"`
+	SizeBytes              int        `sqlx:"size_bytes,required=true" json:"sizeBytes"`
+	Storage                string     `sqlx:"storage,required=true" json:"storage"`
+	InlineBody             *[]byte    `sqlx:"inline_body" json:"inlineBody"`
+	Compression            string     `sqlx:"compression,required=true" json:"compression"`
+	TenantId               *string    `sqlx:"tenant_id" json:"tenantId"`
+	Subtype                *string    `sqlx:"subtype" json:"subtype"`
+	Digest                 *string    `sqlx:"digest" json:"digest"`
+	Uri                    *string    `sqlx:"uri" json:"uri"`
+	EncryptionKmsKeyId     *string    `sqlx:"encryption_kms_key_id" json:"encryptionKmsKeyId"`
+	RedactionPolicyVersion *string    `sqlx:"redaction_policy_version" json:"redactionPolicyVersion"`
+	Redacted               *int       `sqlx:"redacted,required=true" json:"redacted"`
+	CreatedAt              *time.Time `sqlx:"created_at,required=true" json:"createdAt"`
+	SchemaRef              *string    `sqlx:"schema_ref" json:"schemaRef"`
 }

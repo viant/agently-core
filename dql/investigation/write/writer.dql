@@ -1,5 +1,4 @@
 #package('github.com/viant/agently-core/internal/datly/investigation/write')
-#import('time','time')
 
 #setting($_ = $connector('agently'))
 #setting($_ = $internal(true))
@@ -13,21 +12,14 @@
 #define($_ = $Investigations<[]*Investigation>(body/data))
 #define($_ = $Data<[]*Investigation>(output/body))
 
-SELECT data_rows.id, data_rows.should_delete,
-       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:"shouldDelete,omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
-       data_rows.title, data_rows.created_by, data_rows.conversation_id,
-       data_rows.summary, data_rows.ad_order_id, data_rows.verdict, data_rows.created,
-       type(data_rows,'Investigation'), lifecycle_type(data_rows,'Lifecycle'), mutation_predicate(data_rows,7),
-       CAST(data_rows.id AS string), tag(data_rows.id,'sqlx:"id,primaryKey=true,required=true"'),
-       CAST(data_rows.title AS *string), tag(data_rows.title,'sqlx:"title"'),
-       CAST(data_rows.created_by AS *string), tag(data_rows.created_by,'sqlx:"created_by"'),
-       CAST(data_rows.conversation_id AS *string), tag(data_rows.conversation_id,'sqlx:"conversation_id"'),
-       CAST(data_rows.summary AS *string), tag(data_rows.summary,'sqlx:"summary"'),
-       CAST(data_rows.ad_order_id AS *int), tag(data_rows.ad_order_id,'sqlx:"ad_order_id"'),
-       CAST(data_rows.verdict AS *string), tag(data_rows.verdict,'sqlx:"verdict"'),
-       CAST(data_rows.created AS *time.Time), tag(data_rows.created,'sqlx:"created,required=true"')
-FROM (
-    SELECT 0 AS should_delete, id, title, created_by,
-           conversation_id, summary, ad_order_id, verdict, created
-    FROM investigation
-) data_rows
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'Investigation'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,7),
+       required(t.id),
+       tag(t.id,'sqlx:"id,primaryKey=true,required=true"')
+FROM (${embed:sql/investigation.sql}) t

@@ -9,25 +9,25 @@ import (
 // ToolCallView is generated canonical view metadata for reader.
 type ToolCallView struct {
 	CleanupStatus     string     `internal:"true" json:"-" sqlx:"cleanup_status"`
-	MessageId         string     `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id"`
-	TurnId            *string    `sqlx:"turn_id,refTable=turn,refColumn=id"`
-	OpId              string     `validate:"required" sqlx:"op_id,required=true"`
-	Attempt           int        `sqlx:"attempt,required=true"`
-	ToolName          string     `validate:"required" sqlx:"tool_name,required=true"`
-	ToolKind          string     `validate:"required" sqlx:"tool_kind,required=true"`
-	Status            string     `validate:"required" sqlx:"status,required=true"`
-	RequestHash       *string    `sqlx:"request_hash"`
-	ErrorCode         *string    `sqlx:"error_code"`
-	ErrorMessage      *string    `sqlx:"error_message"`
-	Retriable         *int       `sqlx:"retriable"`
-	StartedAt         *time.Time `sqlx:"started_at"`
-	CompletedAt       *time.Time `sqlx:"completed_at"`
-	LatencyMs         *int       `sqlx:"latency_ms"`
-	Cost              *float64   `sqlx:"cost"`
-	TraceId           *string    `sqlx:"trace_id"`
-	SpanId            *string    `sqlx:"span_id"`
-	RequestPayloadId  *string    `sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
-	ResponsePayloadId *string    `sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
-	RunId             *string    `sqlx:"run_id"`
-	Iteration         *int       `sqlx:"iteration"`
+	MessageId         string     `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id" json:"messageId"`
+	TurnId            *string    `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId"`
+	OpId              string     `validate:"required" sqlx:"op_id,required=true" json:"opId"`
+	Attempt           int        `sqlx:"attempt,required=true" json:"attempt"`
+	ToolName          string     `validate:"required" sqlx:"tool_name,required=true" json:"toolName"`
+	ToolKind          string     `validate:"required" sqlx:"tool_kind,required=true" json:"toolKind"`
+	Status            string     `validate:"required" sqlx:"status,required=true" json:"status"`
+	RequestHash       *string    `sqlx:"request_hash" json:"requestHash"`
+	ErrorCode         *string    `sqlx:"error_code" json:"errorCode"`
+	ErrorMessage      *string    `sqlx:"error_message" json:"errorMessage"`
+	Retriable         *int       `sqlx:"retriable" json:"retriable"`
+	StartedAt         *time.Time `sqlx:"started_at" json:"startedAt"`
+	CompletedAt       *time.Time `sqlx:"completed_at" json:"completedAt"`
+	LatencyMs         *int       `sqlx:"latency_ms" json:"latencyMs"`
+	Cost              *float64   `sqlx:"cost" json:"cost"`
+	TraceId           *string    `sqlx:"trace_id" json:"traceId"`
+	SpanId            *string    `sqlx:"span_id" json:"spanId"`
+	RequestPayloadId  *string    `sqlx:"request_payload_id,refTable=call_payload,refColumn=id" json:"requestPayloadId"`
+	ResponsePayloadId *string    `sqlx:"response_payload_id,refTable=call_payload,refColumn=id" json:"responsePayloadId"`
+	RunId             *string    `sqlx:"run_id" json:"runId"`
+	Iteration         *int       `sqlx:"iteration" json:"iteration"`
 }

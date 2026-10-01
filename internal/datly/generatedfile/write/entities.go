@@ -36,26 +36,6 @@ func (entity *GeneratedFile) SetConversationId(value string) {
 	}
 	entity.Has.ConversationId = true
 }
-func (entity *GeneratedFile) GetTurnId() *string {
-	return entity.TurnId
-}
-func (entity *GeneratedFile) SetTurnId(value *string) {
-	entity.TurnId = value
-	if entity.Has == nil {
-		entity.Has = &GeneratedFileHas{}
-	}
-	entity.Has.TurnId = true
-}
-func (entity *GeneratedFile) GetMessageId() *string {
-	return entity.MessageId
-}
-func (entity *GeneratedFile) SetMessageId(value *string) {
-	entity.MessageId = value
-	if entity.Has == nil {
-		entity.Has = &GeneratedFileHas{}
-	}
-	entity.Has.MessageId = true
-}
 func (entity *GeneratedFile) GetProvider() string {
 	return entity.Provider
 }
@@ -95,6 +75,26 @@ func (entity *GeneratedFile) SetStatus(value string) {
 		entity.Has = &GeneratedFileHas{}
 	}
 	entity.Has.Status = true
+}
+func (entity *GeneratedFile) GetTurnId() *string {
+	return entity.TurnId
+}
+func (entity *GeneratedFile) SetTurnId(value *string) {
+	entity.TurnId = value
+	if entity.Has == nil {
+		entity.Has = &GeneratedFileHas{}
+	}
+	entity.Has.TurnId = true
+}
+func (entity *GeneratedFile) GetMessageId() *string {
+	return entity.MessageId
+}
+func (entity *GeneratedFile) SetMessageId(value *string) {
+	entity.MessageId = value
+	if entity.Has == nil {
+		entity.Has = &GeneratedFileHas{}
+	}
+	entity.Has.MessageId = true
 }
 func (entity *GeneratedFile) GetPayloadId() *string {
 	return entity.PayloadId

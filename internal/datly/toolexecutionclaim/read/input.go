@@ -4,7 +4,6 @@ package read
 
 // Input is the generated input scaffold for reader.
 type Input struct {
-	LockRows bool      `parameter:"LockRows,kind=claimaccess,in=lock,dataType=bool,required=false"`
 	Trusted  bool      `parameter:"Trusted,kind=claimaccess,in=internal,dataType=bool,required=true"`
 	ClaimKey string    `parameter:"ClaimKey,kind=query,in=claimKey,dataType=string,required=false" predicate:"equal,c,claim_key"`
 	TurnID   string    `parameter:"TurnID,kind=query,in=turnId,dataType=string,required=false" predicate:"equal,c,turn_id"`
@@ -15,7 +14,6 @@ type Input struct {
 }
 
 type InputHas struct {
-	LockRows bool
 	Trusted  bool
 	ClaimKey bool
 	TurnID   bool

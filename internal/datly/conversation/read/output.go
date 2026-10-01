@@ -4,5 +4,5 @@ package read
 
 // ConversationOutput is the generated output scaffold for reader.
 type ConversationOutput struct {
-	Data []*ConversationView `parameter:"Data,kind=output,in=view,dataType=[]*ConversationView" view:"reader,type=ConversationView,table=conversation,selectorProjection=true,selectorLimit=true" sql:"uri=datly_conversation_read_reader:sql/reader.sql"`
+	Data []*ConversationView `parameter:"Data,kind=output,in=view,dataType=[]*ConversationView" view:"reader,type=ConversationView,rowLock=conversation t,rowLockOrder=t.id,table=conversation,selectorProjection=true,selectorLimit=true" sql:"uri=datly_conversation_read_reader:sql/reader.sql"`
 }

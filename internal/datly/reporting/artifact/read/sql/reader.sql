@@ -1,4 +1,4 @@
-SELECT data_rows.artifact_id, data_rows.job_id, data_rows.artifact_ref, data_rows.owner_id, data_rows.format, data_rows.content_type, data_rows.inline_data, data_rows.created_at, data_rows.retention_ttl_sec FROM  (
+SELECT data_rows.* FROM  (
     SELECT a.artifact_id, a.job_id, a.artifact_ref, a.owner_id,
            a.format, a.content_type, a.inline_data, a.created_at,
            a.retention_ttl_sec
@@ -6,5 +6,4 @@ SELECT data_rows.artifact_id, data_rows.job_id, data_rows.artifact_ref, data_row
     WHERE ($Internal OR a.owner_id = $OwnerSubject)
     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
     ORDER BY a.created_at DESC, a.artifact_id DESC
- #if($LockRows) ${View.ForUpdate()} #end  
 )  data_rows

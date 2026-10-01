@@ -28,11 +28,11 @@ import (
 	"github.com/viant/agently-core/internal/logx"
 	tmatch "github.com/viant/agently-core/internal/tool/matcher"
 	transform "github.com/viant/agently-core/internal/transform"
-	mcpnames "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	mcpname "github.com/viant/agently-core/protocol/mcpname"
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
@@ -623,7 +623,7 @@ func (r *Registry) MatchDefinitionWithContextResult(ctx context.Context, pattern
 		if tmatch.Match(pattern, id) {
 			copyDef := def
 			result = append(result, &copyDef)
-			seen[mcpnames.Canonical(strings.TrimSpace(copyDef.Name))] = struct{}{}
+			seen[mcpname.Canonical(strings.TrimSpace(copyDef.Name))] = struct{}{}
 		}
 	}
 	r.mu.RUnlock()
@@ -636,9 +636,9 @@ func (r *Registry) MatchDefinitionWithContextResult(ctx context.Context, pattern
 		if entry == nil || !tmatch.Match(pattern, alias) {
 			continue
 		}
-		key := mcpnames.Canonical(strings.TrimSpace(entry.def.Name))
+		key := mcpname.Canonical(strings.TrimSpace(entry.def.Name))
 		if key == "" {
-			key = mcpnames.Canonical(strings.TrimSpace(alias))
+			key = mcpname.Canonical(strings.TrimSpace(alias))
 		}
 		if _, ok := seen[key]; ok {
 			continue
@@ -689,7 +689,7 @@ func (r *Registry) MatchDefinitionWithContextResult(ctx context.Context, pattern
 					continue
 				}
 				defCopy := entry.def
-				key := mcpnames.Canonical(strings.TrimSpace(defCopy.Name))
+				key := mcpname.Canonical(strings.TrimSpace(defCopy.Name))
 				if _, ok := seen[key]; !ok {
 					result = append(result, &defCopy)
 					seen[key] = struct{}{}
@@ -1624,7 +1624,7 @@ func (r *Registry) AsyncConfig(name string) (*asynccfg.Config, bool) {
 	r.mu.RLock()
 	cfg, ok := r.asyncByTool[key]
 	if !ok {
-		cfg, ok = r.asyncByTool[mcpnames.Canonical(key)]
+		cfg, ok = r.asyncByTool[mcpname.Canonical(key)]
 	}
 	r.mu.RUnlock()
 	if ok && cfg != nil {
@@ -1647,7 +1647,7 @@ func (r *Registry) AsyncConfig(name string) (*asynccfg.Config, bool) {
 	}
 	cfg, ok = r.asyncByTool[key]
 	if !ok {
-		cfg, ok = r.asyncByTool[mcpnames.Canonical(key)]
+		cfg, ok = r.asyncByTool[mcpname.Canonical(key)]
 	}
 	r.mu.Unlock()
 	return cfg, ok && cfg != nil
@@ -2048,8 +2048,8 @@ func serverFromPattern(pattern string) string {
 
 // splitToolName returns service path and method given a name like "service/path:method".
 func splitToolName(name string) (service, method string) {
-	can := mcpnames.Canonical(name)
-	n := mcpnames.Name(can)
+	can := mcpname.Canonical(name)
+	n := mcpname.Name(can)
 	return n.Service(), n.Method()
 }
 
@@ -2092,7 +2092,7 @@ func cacheToolAliases(cache map[string]*toolCacheEntry, entry *toolCacheEntry, n
 	}
 	cache[svc+"/"+method] = entry
 	cache[svc+":"+method] = entry
-	cache[mcpnames.Canonical(name)] = entry
+	cache[mcpname.Canonical(name)] = entry
 }
 
 func cacheAsyncConfigAliases(cache map[string]*asynccfg.Config, cfg *asynccfg.Config) {
@@ -2113,7 +2113,7 @@ func cacheAsyncConfigAliases(cache map[string]*asynccfg.Config, cfg *asynccfg.Co
 			cache[svc+"/"+method] = cfg
 			cache[svc+":"+method] = cfg
 		}
-		cache[mcpnames.Canonical(name)] = cfg
+		cache[mcpname.Canonical(name)] = cfg
 	}
 }
 
@@ -3280,7 +3280,7 @@ func (r *Registry) applyCacheableOverrideWithMethods(def *llm.ToolDefinition, se
 		def.Cacheable = v
 		return
 	}
-	canonical := mcpnames.Canonical(def.Name)
+	canonical := mcpname.Canonical(def.Name)
 	if v, ok := opts.Cacheable[canonical]; ok {
 		def.Cacheable = v
 	}

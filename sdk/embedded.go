@@ -19,22 +19,15 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
-	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
-	agrun "github.com/viant/agently-core/pkg/agently/run"
-	queueCount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
-	queueOutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
-	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
-	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
-	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
-	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
-	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
-	"github.com/viant/agently-core/pkg/mcpname"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
+	runmodel "github.com/viant/agently-core/model/run"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+	turnmodel "github.com/viant/agently-core/model/turn"
+	turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 	templatesvc "github.com/viant/agently-core/protocol/tool/service/template"
@@ -62,31 +55,31 @@ import (
 )
 
 type toolApprovalQueueLister interface {
-	ListToolApprovalQueues(ctx context.Context, in *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error)
+	ListToolApprovalQueues(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error)
 }
 
 type toolApprovalQueueSelectorLister interface {
-	ListToolApprovalQueuesWithSelectors(ctx context.Context, in *queueRead.QueueRowsInput, selectors ...*hstate.NamedSelector) ([]*queueRead.QueueRowView, error)
+	ListToolApprovalQueuesWithSelectors(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput, selectors ...*hstate.NamedSelector) ([]*toolapprovalqueuemodel.QueueRowView, error)
 }
 
 type toolApprovalQueueCounter interface {
-	CountToolApprovalQueues(ctx context.Context, in *queueCount.QueueTotalInput) (int, error)
+	CountToolApprovalQueues(ctx context.Context, in *toolapprovalqueuemodel.QueueTotalInput) (int, error)
 }
 
 type toolApprovalOutcomeLister interface {
-	ListToolApprovalOutcomes(ctx context.Context, in *queueOutcome.OutcomeRowsInput) ([]*queueOutcome.OutcomeRowView, error)
+	ListToolApprovalOutcomes(ctx context.Context, in *toolapprovalqueuemodel.OutcomeRowsInput) ([]*toolapprovalqueuemodel.OutcomeRowView, error)
 }
 
 type toolApprovalQueuePatcher interface {
-	PatchToolApprovalQueue(ctx context.Context, queue *queueWrite.ToolApprovalQueue) error
+	PatchToolApprovalQueue(ctx context.Context, queue *toolapprovalqueuemodel.ToolApprovalQueue) error
 }
 
 type turnQueueLister interface {
-	ListTurnQueueRows(ctx context.Context, in *turnqueueread.QueueRowsInput) ([]*turnqueueread.QueueRowView, error)
+	ListTurnQueueRows(ctx context.Context, in *turnqueuemodel.QueueRowsInput) ([]*turnqueuemodel.QueueRowView, error)
 }
 
 type turnQueuePatcher interface {
-	PatchTurnQueue(ctx context.Context, in *turnqueuewrite.TurnQueue) error
+	PatchTurnQueue(ctx context.Context, in *turnqueuemodel.TurnQueue) error
 }
 
 type backendClient struct {
@@ -254,10 +247,10 @@ func (c *backendClient) UpdateConversation(ctx context.Context, input *UpdateCon
 	if !hasTitle && !hasVisibility && !hasShareable {
 		return nil, errors.New("at least one of title, visibility, or shareable is required")
 	}
-	if hasVisibility && visibility != agconvwrite.VisibilityPrivate && visibility != agconvwrite.VisibilityPublic {
+	if hasVisibility && visibility != conversationmodel.VisibilityPrivate && visibility != conversationmodel.VisibilityPublic {
 		return nil, fmt.Errorf("unsupported visibility: %q", input.Visibility)
 	}
-	row := agconvwrite.NewMutableConversationView()
+	row := conversationmodel.NewMutableConversationView()
 	row.SetId(conversationID)
 	if hasTitle {
 		row.SetTitle(title)
@@ -536,9 +529,9 @@ func (c *backendClient) GetMessages(ctx context.Context, input *GetMessagesInput
 		return nil, errors.New("conversation ID is required")
 	}
 	if c.data != nil {
-		in := &agmessagelist.MessageRowsInput{
+		in := &messagemodel.MessageRowsInput{
 			ConversationId: input.ConversationID,
-			Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true},
+			Has:            &messagemodel.MessageRowsInputHas{ConversationId: true},
 		}
 		if input.ID != "" {
 			in.Id = input.ID
@@ -570,7 +563,7 @@ func (c *backendClient) GetMessages(ctx context.Context, input *GetMessagesInput
 		return nil, err
 	}
 	if conv == nil || len(conv.Transcript) == 0 {
-		return &MessagePage{Rows: []*agmessagelist.MessageRowsView{}}, nil
+		return &MessagePage{Rows: []*messagemodel.MessageRowsView{}}, nil
 	}
 	roleFilter := map[string]bool{}
 	for _, role := range input.Roles {
@@ -584,7 +577,7 @@ func (c *backendClient) GetMessages(ctx context.Context, input *GetMessagesInput
 			typeFilter[typ] = true
 		}
 	}
-	rows := make([]*agmessagelist.MessageRowsView, 0)
+	rows := make([]*messagemodel.MessageRowsView, 0)
 	for _, turn := range conv.Transcript {
 		if turn == nil {
 			continue
@@ -612,10 +605,10 @@ func (c *backendClient) GetMessages(ctx context.Context, input *GetMessagesInput
 			}
 			toolName := msg.ToolName
 			if toolName != nil {
-				name := mcpname.Display(strings.TrimSpace(*toolName))
+				name := mcpname2.Display(strings.TrimSpace(*toolName))
 				toolName = &name
 			}
-			rows = append(rows, &agmessagelist.MessageRowsView{
+			rows = append(rows, &messagemodel.MessageRowsView{
 				Id:                   msg.Id,
 				ConversationId:       msg.ConversationId,
 				TurnId:               msg.TurnId,
@@ -644,7 +637,7 @@ func normalizeMessagePage(page *MessagePage) {
 		if row == nil || row.ToolName == nil {
 			continue
 		}
-		name := mcpname.Display(strings.TrimSpace(*row.ToolName))
+		name := mcpname2.Display(strings.TrimSpace(*row.ToolName))
 		row.ToolName = &name
 	}
 }
@@ -677,7 +670,7 @@ func (c *backendClient) CreateConversation(ctx context.Context, input *CreateCon
 	if input == nil {
 		return nil, errors.New("input is required")
 	}
-	row := agconvwrite.NewMutableConversationView()
+	row := conversationmodel.NewMutableConversationView()
 	id := generateID()
 	row.SetId(id)
 	if strings.TrimSpace(input.AgentID) != "" {
@@ -723,7 +716,7 @@ func (c *backendClient) CreateConversation(ctx context.Context, input *CreateCon
 }
 
 func (c *backendClient) ListConversations(ctx context.Context, input *ListConversationsInput) (*ConversationPage, error) {
-	in := &agconvlist.ConversationRowsInput{Has: &agconvlist.ConversationRowsInputHas{}}
+	in := &conversationmodel.ConversationRowsInput{Has: &conversationmodel.ConversationRowsInputHas{}}
 	var page *PageInput
 	agentID := ""
 	query := ""
@@ -775,7 +768,7 @@ func (c *backendClient) ListConversations(ctx context.Context, input *ListConver
 	if c.conv == nil {
 		return nil, errors.New("data service not configured")
 	}
-	queryInput := &conversation.Input{Has: &agconv.ConversationInputHas{}}
+	queryInput := &conversation.Input{Has: &conversationmodel.ConversationInputHas{}}
 	if agentID != "" {
 		queryInput.AgentId = agentID
 		queryInput.Has.AgentId = true
@@ -812,12 +805,12 @@ func (c *backendClient) ListConversations(ctx context.Context, input *ListConver
 	if err != nil {
 		return nil, err
 	}
-	rows := make([]*agconvlist.ConversationRowsView, 0, len(list))
+	rows := make([]*conversationmodel.ConversationRowsView, 0, len(list))
 	for _, item := range list {
 		if item == nil {
 			continue
 		}
-		rows = append(rows, &agconvlist.ConversationRowsView{
+		rows = append(rows, &conversationmodel.ConversationRowsView{
 			Id:                   item.Id,
 			AgentId:              item.AgentId,
 			Title:                item.Title,
@@ -846,7 +839,7 @@ func (c *backendClient) ListLinkedConversations(ctx context.Context, input *List
 	if c.conv == nil {
 		return nil, errors.New("conversation client not configured")
 	}
-	query := &conversation.Input{Has: &agconv.ConversationInputHas{}}
+	query := &conversation.Input{Has: &conversationmodel.ConversationInputHas{}}
 	if parentID != "" {
 		query.ParentId = parentID
 		query.Has.ParentId = true
@@ -942,7 +935,7 @@ func paginateLinkedConversationEntries(rows []*LinkedConversationEntry, page *Pa
 	return pageOut
 }
 
-func (c *backendClient) GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error) {
+func (c *backendClient) GetRun(ctx context.Context, id string) (*runmodel.RunRowsView, error) {
 	if c.data == nil {
 		return nil, errors.New("data service not configured")
 	}
@@ -965,13 +958,13 @@ func principalDataOpts(ctx context.Context) []data.Option {
 // the data layer's authorizeConversationID check fires. Returns the turn
 // view on success, a conflict error when the turn does not exist, or
 // ErrPermissionDenied when the caller does not own the conversation.
-func (c *backendClient) authorizeTurnAccess(ctx context.Context, turnID string) (*agturnbyid.TurnLookupView, error) {
+func (c *backendClient) authorizeTurnAccess(ctx context.Context, turnID string) (*turnmodel.TurnLookupView, error) {
 	if c.data == nil {
 		return nil, errors.New("data service not configured")
 	}
-	in := &agturnbyid.TurnLookupInput{
+	in := &turnmodel.TurnLookupInput{
 		ID:  strings.TrimSpace(turnID),
-		Has: &agturnbyid.TurnLookupInputHas{ID: true},
+		Has: &turnmodel.TurnLookupInputHas{ID: true},
 	}
 	turn, err := c.data.GetTurnByID(ctx, in, principalDataOpts(ctx)...)
 	if err != nil {
@@ -1011,10 +1004,10 @@ func (c *backendClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (*
 	if c.data == nil || c.conv == nil {
 		return nil, errors.New("data service not configured")
 	}
-	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+	turn, err := c.data.GetTurnByID(ctx, &turnmodel.TurnLookupInput{
 		ID:             strings.TrimSpace(input.TurnID),
 		ConversationID: strings.TrimSpace(input.ConversationID),
-		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+		Has:            &turnmodel.TurnLookupInputHas{ID: true, ConversationID: true},
 	}, principalDataOpts(ctx)...)
 	if err != nil {
 		if isTurnLookupUnavailable(err) {
@@ -1064,10 +1057,10 @@ func (c *backendClient) CancelQueuedTurn(ctx context.Context, conversationID, tu
 	if c.data == nil || c.conv == nil {
 		return errors.New("data service not configured")
 	}
-	turn, err := c.data.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+	turn, err := c.data.GetTurnByID(ctx, &turnmodel.TurnLookupInput{
 		ID:             strings.TrimSpace(turnID),
 		ConversationID: strings.TrimSpace(conversationID),
-		Has:            &agturnbyid.TurnLookupInputHas{ID: true, ConversationID: true},
+		Has:            &turnmodel.TurnLookupInputHas{ID: true, ConversationID: true},
 	}, principalDataOpts(ctx)...)
 	if err != nil {
 		if isTurnLookupUnavailable(err) {
@@ -1081,14 +1074,14 @@ func (c *backendClient) CancelQueuedTurn(ctx context.Context, conversationID, tu
 	if !strings.EqualFold(strings.TrimSpace(turn.Status), "queued") {
 		return newConflictError(fmt.Sprintf("turn is not queued: %s", turn.Status))
 	}
-	upd := &agturnwrite.MutableTurnView{Has: &agturnwrite.TurnHas{}}
+	upd := &turnmodel.MutableTurnView{Has: &turnmodel.TurnHas{}}
 	upd.SetId(strings.TrimSpace(turnID))
 	upd.SetStatus("canceled")
-	if _, err := c.data.PatchTurns(ctx, []*agturnwrite.MutableTurnView{upd}); err != nil {
+	if _, err := c.data.PatchTurns(ctx, []*turnmodel.MutableTurnView{upd}); err != nil {
 		return err
 	}
 	if patcher, ok := c.data.(turnQueuePatcher); ok {
-		q := &turnqueuewrite.TurnQueue{Has: &turnqueuewrite.TurnQueueHas{}}
+		q := &turnqueuemodel.TurnQueue{Has: &turnqueuemodel.TurnQueueHas{}}
 		q.SetId(strings.TrimSpace(turnID))
 		q.SetStatus("canceled")
 		q.SetUpdatedAt(time.Now())

@@ -8,19 +8,19 @@ import (
 
 // GoalView is generated canonical view metadata for reader.
 type GoalView struct {
-	Id                          string     `sqlx:"id,primaryKey=true"`
-	ConversationId              string     `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	Objective                   string     `sqlx:"objective,required=true"`
-	Status                      string     `sqlx:"status,required=true"`
-	StatusReason                *string    `sqlx:"status_reason"`
-	PauseReason                 *string    `sqlx:"pause_reason"`
-	ControllerSpec              *string    `sqlx:"controller_spec"`
-	TokenBudget                 *int64     `sqlx:"token_budget"`
-	TokensUsed                  int64      `sqlx:"tokens_used,required=true"`
-	TimeUsedSeconds             int64      `sqlx:"time_used_seconds,required=true"`
-	AutonomousTurnsUsed         int64      `sqlx:"autonomous_turns_used,required=true"`
-	ConsecutiveNoProgress       int64      `sqlx:"consecutive_no_progress,required=true"`
-	LastContinuationFingerprint *string    `sqlx:"last_continuation_fingerprint"`
-	CreatedAt                   time.Time  `sqlx:"created_at,required=true"`
-	UpdatedAt                   *time.Time `sqlx:"updated_at"`
+	Id                          string     `sqlx:"id,primaryKey=true" json:"id"`
+	ConversationId              string     `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId"`
+	Objective                   string     `sqlx:"objective,required=true" json:"objective"`
+	Status                      string     `sqlx:"status,required=true" json:"status"`
+	TokenBudget                 *int64     `sqlx:"token_budget" json:"tokenBudget"`
+	TokensUsed                  int64      `sqlx:"tokens_used,required=true" json:"tokensUsed"`
+	TimeUsedSeconds             int64      `sqlx:"time_used_seconds,required=true" json:"timeUsedSeconds"`
+	AutonomousTurnsUsed         int64      `sqlx:"autonomous_turns_used,required=true" json:"autonomousTurnsUsed"`
+	ConsecutiveNoProgress       int64      `sqlx:"consecutive_no_progress,required=true" json:"consecutiveNoProgress"`
+	CreatedAt                   time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	StatusReason                *string    `sqlx:"status_reason" json:"statusReason"`
+	PauseReason                 *string    `sqlx:"pause_reason" json:"pauseReason"`
+	ControllerSpec              *string    `sqlx:"controller_spec" json:"controllerSpec"`
+	LastContinuationFingerprint *string    `sqlx:"last_continuation_fingerprint" json:"lastContinuationFingerprint"`
+	UpdatedAt                   *time.Time `sqlx:"updated_at" json:"updatedAt"`
 }

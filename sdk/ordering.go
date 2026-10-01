@@ -1,10 +1,9 @@
 package sdk
 
 import (
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"strings"
 	"time"
-
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 )
 
 func normalizedCreatedAt(value time.Time) time.Time {
@@ -23,7 +22,7 @@ func lessTimeAndID(leftAt time.Time, leftID string, rightAt time.Time, rightID s
 	return strings.TrimSpace(leftID) < strings.TrimSpace(rightID)
 }
 
-func toolMessageSequence(message *agconv.ToolMessageView) int {
+func toolMessageSequence(message *conversationmodel.ToolMessageView) int {
 	if message == nil {
 		return 0
 	}
@@ -39,7 +38,7 @@ func toolMessageSequence(message *agconv.ToolMessageView) int {
 	return 0
 }
 
-func lessToolMessage(left, right *agconv.ToolMessageView) bool {
+func lessToolMessage(left, right *conversationmodel.ToolMessageView) bool {
 	leftSeq := toolMessageSequence(left)
 	rightSeq := toolMessageSequence(right)
 	if leftSeq != rightSeq {

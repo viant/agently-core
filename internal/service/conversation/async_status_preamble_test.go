@@ -9,8 +9,8 @@ import (
 	"github.com/stretchr/testify/require"
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	turnmodel "github.com/viant/agently-core/model/turn"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/protocol/tool"
 	memory "github.com/viant/agently-core/runtime/requestctx"
@@ -72,14 +72,14 @@ func TestExecuteToolStep_ActivatedStatusPollerPublishesNarrationEvents(t *testin
 	defer sub.Close()
 
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId("conv-async-status-preamble")
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
 	require.NoError(t, svc.PatchConversations(ctx, conv))
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn-async-status-preamble")
 	turn.SetConversationID("conv-async-status-preamble")
 	turn.SetStatus("running")

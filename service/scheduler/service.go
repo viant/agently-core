@@ -11,7 +11,7 @@ import (
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	token "github.com/viant/agently-core/internal/auth/token"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/scy"
@@ -170,7 +170,7 @@ func (s *Service) Upsert(ctx context.Context, schedule *Schedule) error {
 	if schedule.Internal || nonEmptyScheduleString(schedule.ConversationID) != "" || nonEmptyScheduleString(schedule.GoalID) != "" {
 		return errors.New("internal schedule fields are reserved")
 	}
-	var existing *schedulepkg.ScheduleView
+	var existing *schedulemodel.ScheduleView
 	if id := strings.TrimSpace(schedule.ID); id != "" {
 		row, err := s.store.Get(ctx, id)
 		if err != nil {
@@ -242,7 +242,7 @@ func nonEmptyScheduleString(value *string) string {
 	return strings.TrimSpace(*value)
 }
 
-func (s *Service) findScheduleByIDAll(ctx context.Context, id string) *schedulepkg.ScheduleView {
+func (s *Service) findScheduleByIDAll(ctx context.Context, id string) *schedulemodel.ScheduleView {
 	if s == nil || s.store == nil || strings.TrimSpace(id) == "" {
 		return nil
 	}

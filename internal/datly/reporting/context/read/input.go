@@ -11,7 +11,6 @@ type Input struct {
 	ConversationIDs    []string  `parameter:"ConversationIDs,kind=query,in=conversationIds,dataType=[]string,required=false" predicate:"in,c,conversation_id"`
 	ActiveReportRunID  string    `parameter:"ActiveReportRunID,kind=query,in=activeReportRunId,dataType=string,required=false" predicate:"equal,c,active_report_run_id"`
 	ActiveReportRunIDs []string  `parameter:"ActiveReportRunIDs,kind=query,in=activeReportRunIds,dataType=[]string,required=false" predicate:"in,c,active_report_run_id"`
-	LockRows           bool      `parameter:"LockRows,kind=reportaccess,in=lock,dataType=bool,required=false"`
 	Has                *InputHas `setMarker:"true" typeName:"InputHas" json:"-" sqlx:"-"`
 }
 
@@ -23,5 +22,4 @@ type InputHas struct {
 	ConversationIDs    bool
 	ActiveReportRunID  bool
 	ActiveReportRunIDs bool
-	LockRows           bool
 }

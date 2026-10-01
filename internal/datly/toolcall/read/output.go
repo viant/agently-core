@@ -4,5 +4,5 @@ package read
 
 // ToolCallsOutput is the generated output scaffold for reader.
 type ToolCallsOutput struct {
-	Data []*ToolCallView `parameter:"Data,kind=output,in=view,dataType=[]*ToolCallView" view:"reader,type=ToolCallView,table=tool_call,selectorProjection=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_toolcall_read_reader:sql/reader.sql"`
+	Data []*ToolCallView `parameter:"Data,kind=output,in=view,dataType=[]*ToolCallView" view:"reader,type=ToolCallView,rowLock=tool_call data_rows,table=tool_call,selectorProjection=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_toolcall_read_reader:sql/reader.sql"`
 }

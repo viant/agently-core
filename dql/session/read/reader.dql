@@ -11,38 +11,17 @@
 #define($_ = $Metrics<?>(output/metrics))
 #define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'equal','s','id'))
 #define($_ = $TechnicalRetention<*predicate.TechnicalRetention>(technicalMaintenance/policy).Optional().WithPredicate(0,'handler','predicate.TechnicalSessionRetention'))
-#define($_ = $LockRows<bool>(sessionMaintenance/lock).Optional())
 #define($_ = $Data<[]*SessionView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOrderBy=true"'))
 
-SELECT session.maintenance_observed_at,
-       CAST(session.maintenance_observed_at AS string), internal(session.maintenance_observed_at), tag(session.maintenance_observed_at,'json:"-"'),
-       session.id,
-       session.user_id,
-       session.provider,
-       session.created_at,
-       session.updated_at,
-       session.expires_at,
-       session.username,
-       session.display_name,
-       session.email,
-       session.subject,
+SELECT session.*,
+       row_lock(session,'session s'),
+       CAST(session.maintenance_observed_at AS string),
+       internal(session.maintenance_observed_at),
+       tag(session.maintenance_observed_at,'json:"-"'),
        type(session,'SessionView'),
-       CAST(session.id AS string),
-       CAST(session.user_id AS string),
-       CAST(session.provider AS string),
-       CAST(session.created_at AS time.Time),
-       CAST(session.updated_at AS *time.Time),
-       CAST(session.expires_at AS time.Time),
-       CAST(session.username AS *string),
-       CAST(session.display_name AS *string),
-       CAST(session.email AS *string),
-       CAST(session.subject AS *string)
-FROM (
-SELECT CAST(s.expires_at AS CHAR) AS maintenance_observed_at, s.*, u.username, u.display_name, u.email, u.subject
- FROM (
-   SELECT s.* FROM session s
-   ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
-   #if($LockRows) ${View.ForUpdate()} #end
- ) s
- LEFT JOIN users u ON u.id=s.user_id
-) session
+       required(session.id),
+       required(session.user_id),
+       required(session.provider),
+       required(session.created_at),
+       required(session.expires_at)
+FROM (${embed:sql/session.sql}) session

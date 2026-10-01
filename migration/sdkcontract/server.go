@@ -15,10 +15,10 @@ import (
 
 	"github.com/viant/agently-core/app/executor"
 	appserver "github.com/viant/agently-core/app/server"
-	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	msgwrite "github.com/viant/agently-core/pkg/agently/message/write"
-	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
-	queuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
+	turnmodel "github.com/viant/agently-core/model/turn"
+	turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/sdk"
 	svcauth "github.com/viant/agently-core/service/auth"
@@ -143,14 +143,14 @@ func seed(ctx context.Context, rt *executor.Runtime, reportingLifecycle bool) er
 		}
 	}
 	for _, id := range ids {
-		row := &convwrite.MutableConversationView{}
+		row := &conversationmodel.MutableConversationView{}
 		row.SetId(id)
 		row.SetCreatedByUserID(Owner)
 		row.SetTitle("Native SDK contract")
 		row.SetStatus("succeeded")
 		row.SetUsageInputTokens(11)
 		row.SetUsageOutputTokens(7)
-		if _, err := rt.Data.PatchConversations(ctx, []*convwrite.MutableConversationView{row}); err != nil {
+		if _, err := rt.Data.PatchConversations(ctx, []*conversationmodel.MutableConversationView{row}); err != nil {
 			return err
 		}
 	}
@@ -161,15 +161,15 @@ func seed(ctx context.Context, rt *executor.Runtime, reportingLifecycle bool) er
 		}
 	}
 	for _, item := range items {
-		turn := &turnwrite.Turn{}
+		turn := &turnmodel.Turn{}
 		turn.SetId(item.id)
 		turn.SetConversationID(item.conv)
 		turn.SetStatus(item.status)
 		turn.SetQueueSeq(1)
-		if _, err := rt.Data.PatchTurns(ctx, []*turnwrite.Turn{turn}); err != nil {
+		if _, err := rt.Data.PatchTurns(ctx, []*turnmodel.Turn{turn}); err != nil {
 			return err
 		}
-		message := &msgwrite.Message{}
+		message := &messagemodel.Message{}
 		message.SetId(item.id + "-message")
 		message.SetConversationID(item.conv)
 		message.SetTurnID(item.id)
@@ -177,15 +177,15 @@ func seed(ctx context.Context, rt *executor.Runtime, reportingLifecycle bool) er
 		message.SetType("text")
 		message.SetContent("fixture prompt")
 		message.SetInterim(0)
-		if _, err := rt.Data.PatchMessages(ctx, []*msgwrite.Message{message}); err != nil {
+		if _, err := rt.Data.PatchMessages(ctx, []*messagemodel.Message{message}); err != nil {
 			return err
 		}
 		turn.SetStartedByMessageID(message.Id)
-		if _, err := rt.Data.PatchTurns(ctx, []*turnwrite.Turn{turn}); err != nil {
+		if _, err := rt.Data.PatchTurns(ctx, []*turnmodel.Turn{turn}); err != nil {
 			return err
 		}
 		if item.status == "queued" {
-			queue := &queuewrite.TurnQueue{}
+			queue := &turnqueuemodel.TurnQueue{}
 			if item.id == "sdk-contract-queued-turn" {
 				queue.SetId("sdk-contract-queue-row")
 			} else {
@@ -197,7 +197,7 @@ func seed(ctx context.Context, rt *executor.Runtime, reportingLifecycle bool) er
 			queue.SetQueueSeq(1)
 			queue.SetStatus("queued")
 			queueStore, ok := rt.Data.(interface {
-				PatchTurnQueue(context.Context, *queuewrite.TurnQueue) error
+				PatchTurnQueue(context.Context, *turnqueuemodel.TurnQueue) error
 			})
 			if !ok {
 				return fmt.Errorf("native fixture data store lacks turn queue mutation")

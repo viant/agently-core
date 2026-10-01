@@ -13,8 +13,8 @@ import (
 	"github.com/google/uuid"
 	reportstore "github.com/viant/agently-core/app/store/reporting"
 	authctx "github.com/viant/agently-core/internal/auth"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 )
 
 var (
@@ -75,8 +75,8 @@ type BeginInput struct {
 }
 
 type BeginResult struct {
-	Run     *reportrun.Record     `json:"run"`
-	Context *reportcontext.Record `json:"context,omitempty"`
+	Run     *reportrunmodel.Record     `json:"run"`
+	Context *reportcontextmodel.Record `json:"context,omitempty"`
 }
 
 type CompleteInput struct {
@@ -113,8 +113,8 @@ type AdoptInput struct {
 }
 
 type AdoptionResult struct {
-	Run     *reportrun.Record     `json:"run"`
-	Context *reportcontext.Record `json:"context"`
+	Run     *reportrunmodel.Record     `json:"run"`
+	Context *reportcontextmodel.Record `json:"context"`
 }
 
 func (s *Service) Begin(ctx context.Context, input *BeginInput) (*BeginResult, error) {
@@ -148,11 +148,11 @@ func (s *Service) Begin(ctx context.Context, input *BeginInput) (*BeginResult, e
 	if err != nil {
 		return nil, err
 	}
-	candidate := &reportrun.Record{
+	candidate := &reportrunmodel.Record{
 		ReportRunID:     strings.TrimSpace(s.newID()),
 		OwnerID:         ownerID,
 		ConversationID:  conversationID,
-		Materializer:    reportrun.MaterializerLegacyBrowser,
+		Materializer:    reportrunmodel.MaterializerLegacyBrowser,
 		Origin:          origin,
 		BuilderRef:      strings.TrimSpace(input.BuilderRef),
 		PresetID:        strings.TrimSpace(input.PresetID),
@@ -160,7 +160,7 @@ func (s *Service) Begin(ctx context.Context, input *BeginInput) (*BeginResult, e
 		SourceID:        strings.TrimSpace(input.SourceID),
 		RequestedParams: requested,
 		EffectiveParams: effective,
-		Status:          reportrun.StatusRunning,
+		Status:          reportrunmodel.StatusRunning,
 		Revision:        1,
 		UIRunRequestID:  requestID,
 		ActorID:         ownerID,
@@ -197,7 +197,7 @@ func (s *Service) Begin(ctx context.Context, input *BeginInput) (*BeginResult, e
 	return s.beginResult(ctx, candidate), nil
 }
 
-func (s *Service) beginResult(ctx context.Context, run *reportrun.Record) *BeginResult {
+func (s *Service) beginResult(ctx context.Context, run *reportrunmodel.Record) *BeginResult {
 	result := &BeginResult{Run: cloneRun(run)}
 	if run != nil && strings.TrimSpace(run.ConversationID) != "" {
 		if current, err := s.store.GetConversationReportContext(ctx, run.ConversationID); err == nil {
@@ -207,7 +207,7 @@ func (s *Service) beginResult(ctx context.Context, run *reportrun.Record) *Begin
 	return result
 }
 
-func (s *Service) Complete(ctx context.Context, input *CompleteInput) (*reportrun.Record, error) {
+func (s *Service) Complete(ctx context.Context, input *CompleteInput) (*reportrunmodel.Record, error) {
 	if input == nil || strings.TrimSpace(input.ReportRunID) == "" {
 		return nil, invalid("reportRunId is required")
 	}
@@ -228,14 +228,14 @@ func (s *Service) Complete(ctx context.Context, input *CompleteInput) (*reportru
 		return nil, err
 	}
 	switch current.Status {
-	case reportrun.StatusCompleted:
+	case reportrunmodel.StatusCompleted:
 		if jsonEqual(current.ReportSpec, spec) && jsonEqual(current.ReportFill, fill) && jsonEqual(current.ReportPrint, printPayload) {
 			return cloneRun(current), nil
 		}
 		return nil, conflict("completed report snapshot is immutable")
-	case reportrun.StatusFailed:
+	case reportrunmodel.StatusFailed:
 		return nil, conflict("failed report run cannot be completed")
-	case reportrun.StatusRunning:
+	case reportrunmodel.StatusRunning:
 	default:
 		return nil, conflict("report run is not running")
 	}
@@ -244,7 +244,7 @@ func (s *Service) Complete(ctx context.Context, input *CompleteInput) (*reportru
 	}
 	next := cloneRun(current)
 	now := s.now().UTC()
-	next.Status = reportrun.StatusCompleted
+	next.Status = reportrunmodel.StatusCompleted
 	next.ReportSpec = spec
 	next.ReportFill = fill
 	next.ReportPrint = printPayload
@@ -256,7 +256,7 @@ func (s *Service) Complete(ctx context.Context, input *CompleteInput) (*reportru
 	if err := s.store.UpdateReportRunCAS(ctx, next, current.Revision); err != nil {
 		if errors.Is(err, reportstore.ErrCASMismatch) {
 			reloaded, getErr := s.getScopedRun(ctx, input.ReportRunID, input.ConversationID)
-			if getErr == nil && reloaded.Status == reportrun.StatusCompleted &&
+			if getErr == nil && reloaded.Status == reportrunmodel.StatusCompleted &&
 				jsonEqual(reloaded.ReportSpec, spec) && jsonEqual(reloaded.ReportFill, fill) && jsonEqual(reloaded.ReportPrint, printPayload) {
 				return cloneRun(reloaded), nil
 			}
@@ -266,7 +266,7 @@ func (s *Service) Complete(ctx context.Context, input *CompleteInput) (*reportru
 	return cloneRun(next), nil
 }
 
-func (s *Service) Fail(ctx context.Context, input *FailInput) (*reportrun.Record, error) {
+func (s *Service) Fail(ctx context.Context, input *FailInput) (*reportrunmodel.Record, error) {
 	if input == nil || strings.TrimSpace(input.ReportRunID) == "" {
 		return nil, invalid("reportRunId is required")
 	}
@@ -277,14 +277,14 @@ func (s *Service) Fail(ctx context.Context, input *FailInput) (*reportrun.Record
 	code := strings.TrimSpace(input.FailureCode)
 	text := strings.TrimSpace(input.FailureText)
 	switch current.Status {
-	case reportrun.StatusCompleted:
+	case reportrunmodel.StatusCompleted:
 		return nil, conflict("completed report run cannot fail")
-	case reportrun.StatusFailed:
+	case reportrunmodel.StatusFailed:
 		if current.FailureCode == code && current.FailureText == text {
 			return cloneRun(current), nil
 		}
 		return nil, conflict("failed report run is terminal")
-	case reportrun.StatusRunning:
+	case reportrunmodel.StatusRunning:
 	default:
 		return nil, conflict("report run is not running")
 	}
@@ -293,7 +293,7 @@ func (s *Service) Fail(ctx context.Context, input *FailInput) (*reportrun.Record
 	}
 	next := cloneRun(current)
 	now := s.now().UTC()
-	next.Status = reportrun.StatusFailed
+	next.Status = reportrunmodel.StatusFailed
 	next.FailureCode = code
 	next.FailureText = text
 	next.CompletedAt = &now
@@ -305,7 +305,7 @@ func (s *Service) Fail(ctx context.Context, input *FailInput) (*reportrun.Record
 	return cloneRun(next), nil
 }
 
-func (s *Service) Activate(ctx context.Context, input *ActivateInput) (*reportcontext.Record, error) {
+func (s *Service) Activate(ctx context.Context, input *ActivateInput) (*reportcontextmodel.Record, error) {
 	if input == nil || strings.TrimSpace(input.ReportRunID) == "" || strings.TrimSpace(input.ConversationID) == "" {
 		return nil, invalid("reportRunId and conversationId are required")
 	}
@@ -313,7 +313,7 @@ func (s *Service) Activate(ctx context.Context, input *ActivateInput) (*reportco
 	if err != nil {
 		return nil, err
 	}
-	if run.Status != reportrun.StatusCompleted {
+	if run.Status != reportrunmodel.StatusCompleted {
 		return nil, conflict("only a completed report run can be activated")
 	}
 	if run.Revision != input.ExpectedRunRevision {
@@ -337,7 +337,7 @@ func (s *Service) Activate(ctx context.Context, input *ActivateInput) (*reportco
 	if input.ExpectedContextRevision != actualRevision {
 		return nil, ErrCAS
 	}
-	next := &reportcontext.Record{
+	next := &reportcontextmodel.Record{
 		OwnerID:           ownerID,
 		ConversationID:    strings.TrimSpace(input.ConversationID),
 		ActiveReportRunID: strings.TrimSpace(run.ReportRunID),
@@ -415,7 +415,7 @@ func (s *Service) Adopt(ctx context.Context, input *AdoptInput) (*AdoptionResult
 	next.ActorID = ownerID
 	next.UpdatedAt = now
 	next.Revision++
-	reportCtx := &reportcontext.Record{
+	reportCtx := &reportcontextmodel.Record{
 		OwnerID:           ownerID,
 		ConversationID:    targetConversation,
 		ActiveReportRunID: next.ReportRunID,
@@ -444,7 +444,7 @@ func (s *Service) Adopt(ctx context.Context, input *AdoptInput) (*AdoptionResult
 	return &AdoptionResult{Run: cloneRun(next), Context: cloneContext(reportCtx)}, nil
 }
 
-func validAdoptionSuccess(run *reportrun.Record, reportCtx *reportcontext.Record, ownerID, conversationID string) bool {
+func validAdoptionSuccess(run *reportrunmodel.Record, reportCtx *reportcontextmodel.Record, ownerID, conversationID string) bool {
 	if run == nil || reportCtx == nil ||
 		strings.TrimSpace(run.OwnerID) != ownerID ||
 		!isCompletedAdoptionRun(run) ||
@@ -458,14 +458,14 @@ func validAdoptionSuccess(run *reportrun.Record, reportCtx *reportcontext.Record
 		strings.TrimSpace(reportCtx.ActiveReportRunID) == strings.TrimSpace(run.ReportRunID)
 }
 
-func isCompletedAdoptionRun(run *reportrun.Record) bool {
+func isCompletedAdoptionRun(run *reportrunmodel.Record) bool {
 	return run != nil &&
-		strings.ToLower(strings.TrimSpace(run.Status)) == reportrun.StatusCompleted &&
+		strings.ToLower(strings.TrimSpace(run.Status)) == reportrunmodel.StatusCompleted &&
 		run.CompletedAt != nil &&
 		!run.CompletedAt.IsZero()
 }
 
-func hasValidSnapshot(run *reportrun.Record) bool {
+func hasValidSnapshot(run *reportrunmodel.Record) bool {
 	if run == nil {
 		return false
 	}
@@ -479,7 +479,7 @@ func validRequiredJSON(value []byte) bool {
 	return len(trimmed) > 0 && json.Valid(trimmed) && !bytes.Equal(trimmed, []byte("null"))
 }
 
-func (s *Service) GetRun(ctx context.Context, reportRunID, conversationID string) (*reportrun.Record, error) {
+func (s *Service) GetRun(ctx context.Context, reportRunID, conversationID string) (*reportrunmodel.Record, error) {
 	return s.getScopedRun(ctx, reportRunID, conversationID)
 }
 
@@ -487,7 +487,7 @@ func (s *Service) GetRun(ctx context.Context, reportRunID, conversationID string
 // failed. Identity never falls back to a latest run, time window, active
 // pointer, or UI window: every read remains scoped by the authenticated owner,
 // trusted conversation, and exact reportRunId.
-func (s *Service) WaitTerminal(ctx context.Context, reportRunID, conversationID string) (*reportrun.Record, error) {
+func (s *Service) WaitTerminal(ctx context.Context, reportRunID, conversationID string) (*reportrunmodel.Record, error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -514,9 +514,9 @@ func (s *Service) WaitTerminal(ctx context.Context, reportRunID, conversationID 
 			return nil, err
 		}
 		switch strings.ToLower(strings.TrimSpace(run.Status)) {
-		case reportrun.StatusCompleted, reportrun.StatusFailed:
+		case reportrunmodel.StatusCompleted, reportrunmodel.StatusFailed:
 			return cloneRun(run), nil
-		case reportrun.StatusRunning:
+		case reportrunmodel.StatusRunning:
 		default:
 			return nil, conflict("report run has unsupported status " + strings.TrimSpace(run.Status))
 		}
@@ -546,7 +546,7 @@ func waitTerminalPollDelay(attempt int) time.Duration {
 	return waitTerminalBackoff[attempt]
 }
 
-func (s *Service) GetContext(ctx context.Context, conversationID string) (*reportcontext.Record, error) {
+func (s *Service) GetContext(ctx context.Context, conversationID string) (*reportcontextmodel.Record, error) {
 	if _, err := authenticatedOwner(ctx); err != nil {
 		return nil, err
 	}
@@ -556,7 +556,7 @@ func (s *Service) GetContext(ctx context.Context, conversationID string) (*repor
 	}
 	run, err := s.store.GetReportRun(ctx, record.ActiveReportRunID)
 	if err != nil || run == nil || strings.TrimSpace(run.ConversationID) != strings.TrimSpace(conversationID) ||
-		strings.TrimSpace(run.OwnerID) != strings.TrimSpace(record.OwnerID) || run.Status != reportrun.StatusCompleted {
+		strings.TrimSpace(run.OwnerID) != strings.TrimSpace(record.OwnerID) || run.Status != reportrunmodel.StatusCompleted {
 		return nil, ErrNotFound
 	}
 	return cloneContext(record), nil
@@ -600,15 +600,15 @@ func (s *Service) ValidateDurableUIEvent(ctx context.Context, conversationID, ki
 	}
 	switch kind {
 	case "report.run_start":
-		if status != reportrun.StatusRunning || run.Status != reportrun.StatusRunning || run.CompletedAt != nil {
+		if status != reportrunmodel.StatusRunning || run.Status != reportrunmodel.StatusRunning || run.CompletedAt != nil {
 			return conflict("report.run_start does not match the persisted run lifecycle")
 		}
 	case "report.run":
 		if status != run.Status || run.CompletedAt == nil ||
-			(run.Status != reportrun.StatusCompleted && run.Status != reportrun.StatusFailed) {
+			(run.Status != reportrunmodel.StatusCompleted && run.Status != reportrunmodel.StatusFailed) {
 			return conflict("report.run does not match the persisted run lifecycle")
 		}
-		if run.Status == reportrun.StatusCompleted &&
+		if run.Status == reportrunmodel.StatusCompleted &&
 			(len(bytes.TrimSpace(run.ReportSpec)) == 0 || len(bytes.TrimSpace(run.ReportFill)) == 0 || len(bytes.TrimSpace(run.ReportPrint)) == 0) {
 			return conflict("completed report run is missing its durable snapshot")
 		}
@@ -616,7 +616,7 @@ func (s *Service) ValidateDurableUIEvent(ctx context.Context, conversationID, ki
 	return nil
 }
 
-func (s *Service) getScopedRun(ctx context.Context, reportRunID, conversationID string) (*reportrun.Record, error) {
+func (s *Service) getScopedRun(ctx context.Context, reportRunID, conversationID string) (*reportrunmodel.Record, error) {
 	ownerID, err := authenticatedOwner(ctx)
 	if err != nil {
 		return nil, err
@@ -703,7 +703,7 @@ func jsonEqual(left, right []byte) bool {
 	return json.Unmarshal(left, &a) == nil && json.Unmarshal(right, &b) == nil && reflect.DeepEqual(a, b)
 }
 
-func sameBeginIdentity(left, right *reportrun.Record) bool {
+func sameBeginIdentity(left, right *reportrunmodel.Record) bool {
 	if left == nil || right == nil {
 		return false
 	}
@@ -719,7 +719,7 @@ func sameBeginIdentity(left, right *reportrun.Record) bool {
 		jsonEqual(left.EffectiveParams, right.EffectiveParams)
 }
 
-func cloneRun(input *reportrun.Record) *reportrun.Record {
+func cloneRun(input *reportrunmodel.Record) *reportrunmodel.Record {
 	if input == nil {
 		return nil
 	}
@@ -736,7 +736,7 @@ func cloneRun(input *reportrun.Record) *reportrun.Record {
 	return &out
 }
 
-func cloneContext(input *reportcontext.Record) *reportcontext.Record {
+func cloneContext(input *reportcontextmodel.Record) *reportcontextmodel.Record {
 	if input == nil {
 		return nil
 	}

@@ -16,10 +16,10 @@ import (
 	"github.com/viant/agently-core/app/store/native"
 	reportstore "github.com/viant/agently-core/app/store/reporting"
 	authctx "github.com/viant/agently-core/internal/auth"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	reporting "github.com/viant/agently-core/service/reporting"
 	"github.com/viant/datly/bootstrap/connector"
 )
@@ -58,7 +58,7 @@ func TestNativeReportingMySQLIndependentConnectionsAdoptionExportAndAudit(t *tes
 	_, err = db.Exec("INSERT INTO conversation(id,created_by_user_id,status) VALUES(?,?,'succeeded')", conversationID, ownerID)
 	require.NoError(t, err)
 	at := time.Now().UTC().Truncate(time.Second)
-	run := &reportrun.Record{ReportRunID: prefix + "run", OwnerID: ownerID, Materializer: reportrun.MaterializerLegacyBrowser, Origin: "manual", Status: "completed", StartedAt: at, CompletedAt: &at, Revision: 2, UIRunRequestID: prefix + "request", ReportSpec: []byte(`{"kind":"reportSpec","version":1}`), ReportFill: []byte(`{"kind":"reportFill","datasets":[]}`), ReportPrint: []byte(`{"kind":"reportPrint","pages":[]}`), CreatedAt: at, UpdatedAt: at}
+	run := &reportrunmodel.Record{ReportRunID: prefix + "run", OwnerID: ownerID, Materializer: reportrunmodel.MaterializerLegacyBrowser, Origin: "manual", Status: "completed", StartedAt: at, CompletedAt: &at, Revision: 2, UIRunRequestID: prefix + "request", ReportSpec: []byte(`{"kind":"reportSpec","version":1}`), ReportFill: []byte(`{"kind":"reportFill","datasets":[]}`), ReportPrint: []byte(`{"kind":"reportPrint","pages":[]}`), CreatedAt: at, UpdatedAt: at}
 	require.NoError(t, stores[0].CreateReportRun(owner, run))
 	run, err = stores[0].GetReportRun(owner, run.ReportRunID)
 	require.NoError(t, err)
@@ -81,7 +81,7 @@ func TestNativeReportingMySQLIndependentConnectionsAdoptionExportAndAudit(t *tes
 		next.AdoptionSource = "adopt"
 		next.Revision = 3
 		next.UpdatedAt = at.Add(time.Second)
-		pointer := &reportcontext.Record{OwnerID: ownerID, ConversationID: conversationID, ActiveReportRunID: run.ReportRunID, Revision: 1, ActivationSource: "adopt", ActorID: ownerID, UpdatedAt: next.UpdatedAt}
+		pointer := &reportcontextmodel.Record{OwnerID: ownerID, ConversationID: conversationID, ActiveReportRunID: run.ReportRunID, Revision: 1, ActivationSource: "adopt", ActorID: ownerID, UpdatedAt: next.UpdatedAt}
 		return stores[i].AdoptReportRunAndContextCAS(owner, &next, 2, pointer, 0)
 	})
 	success := 0
@@ -99,9 +99,9 @@ func TestNativeReportingMySQLIndependentConnectionsAdoptionExportAndAudit(t *tes
 	pointer, err := stores[0].GetConversationReportContext(owner, conversationID)
 	require.NoError(t, err)
 	require.Equal(t, int64(1), pointer.Revision)
-	jobs := make([]*reportjob.Record, 2)
+	jobs := make([]*reportjobmodel.Record, 2)
 	submit := race(func(i int) error {
-		candidate := &reportjob.Record{JobID: fmt.Sprintf("%sjob-%d", prefix, i), ArtifactRef: "report-run://" + run.ReportRunID, OwnerID: ownerID, ConversationID: conversationID, ReportRunID: run.ReportRunID, ExportRequestID: prefix + "operation", Format: "pdf", Scope: "draft", Status: "queued", SubmittedAt: at.Add(2 * time.Second)}
+		candidate := &reportjobmodel.Record{JobID: fmt.Sprintf("%sjob-%d", prefix, i), ArtifactRef: "report-run://" + run.ReportRunID, OwnerID: ownerID, ConversationID: conversationID, ReportRunID: run.ReportRunID, ExportRequestID: prefix + "operation", Format: "pdf", Scope: "draft", Status: "queued", SubmittedAt: at.Add(2 * time.Second)}
 		var err error
 		jobs[i], _, err = stores[i].SubmitJobFromRun(owner, candidate)
 		return err
@@ -113,9 +113,9 @@ func TestNativeReportingMySQLIndependentConnectionsAdoptionExportAndAudit(t *tes
 	worker := WithInternalAccess(ctx)
 	_, err = stores[0].ClaimJob(worker, jobs[0].JobID, at.Add(3*time.Second))
 	require.NoError(t, err)
-	outputs := make([]*reportjob.Record, 2)
+	outputs := make([]*reportjobmodel.Record, 2)
 	completion := race(func(i int) error {
-		artifact := &reportartifact.Record{ArtifactID: fmt.Sprintf("%sartifact-%d", prefix, i), JobID: jobs[0].JobID, OwnerID: ownerID, Format: "pdf", ContentType: "application/pdf", Data: []byte("%PDF MySQL contention"), CreatedAt: at.Add(4 * time.Second)}
+		artifact := &reportartifactmodel.Record{ArtifactID: fmt.Sprintf("%sartifact-%d", prefix, i), JobID: jobs[0].JobID, OwnerID: ownerID, Format: "pdf", ContentType: "application/pdf", Data: []byte("%PDF MySQL contention"), CreatedAt: at.Add(4 * time.Second)}
 		var err error
 		outputs[i], err = stores[i].CompleteJobWithArtifact(worker, jobs[0].JobID, artifact, nil, at.Add(5*time.Second), 0)
 		return err
@@ -144,7 +144,7 @@ func TestNativeReportingMySQLIndependentConnectionsAdoptionExportAndAudit(t *tes
 	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM report_audit_event WHERE actor_id=? AND event_type='report.download'", ownerID).Scan(&audits))
 	require.Equal(t, len(errs), audits)
 	// A failure in the final job writer must roll back the earlier artifact insert.
-	lateCandidate := &reportjob.Record{JobID: prefix + "late-job", ArtifactRef: "report-run://" + run.ReportRunID, OwnerID: ownerID, ConversationID: conversationID, ReportRunID: run.ReportRunID, ExportRequestID: prefix + "late-operation", Format: "pdf", Scope: "draft", Status: "queued", SubmittedAt: at.Add(7 * time.Second)}
+	lateCandidate := &reportjobmodel.Record{JobID: prefix + "late-job", ArtifactRef: "report-run://" + run.ReportRunID, OwnerID: ownerID, ConversationID: conversationID, ReportRunID: run.ReportRunID, ExportRequestID: prefix + "late-operation", Format: "pdf", Scope: "draft", Status: "queued", SubmittedAt: at.Add(7 * time.Second)}
 	lateJob, _, err := stores[0].SubmitJobFromRun(owner, lateCandidate)
 	require.NoError(t, err)
 	_, err = stores[0].ClaimJob(worker, lateJob.JobID, at.Add(8*time.Second))
@@ -153,7 +153,7 @@ func TestNativeReportingMySQLIndependentConnectionsAdoptionExportAndAudit(t *tes
 	_, err = db.Exec(fmt.Sprintf("CREATE TRIGGER `%s` BEFORE UPDATE ON report_export_job FOR EACH ROW BEGIN IF NEW.job_id='%s' AND NEW.status='succeeded' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='late reporting fixture rejection'; END IF; END", trigger, lateJob.JobID))
 	require.NoError(t, err)
 	t.Cleanup(func() { _, err := db.Exec("DROP TRIGGER IF EXISTS `" + trigger + "`"); require.NoError(t, err) })
-	_, err = stores[0].CompleteJobWithArtifact(worker, lateJob.JobID, &reportartifact.Record{ArtifactID: prefix + "late-artifact", JobID: lateJob.JobID, OwnerID: ownerID, Format: "pdf", ContentType: "application/pdf", Data: []byte("%PDF must rollback"), CreatedAt: at.Add(9 * time.Second)}, nil, at.Add(10*time.Second), 0)
+	_, err = stores[0].CompleteJobWithArtifact(worker, lateJob.JobID, &reportartifactmodel.Record{ArtifactID: prefix + "late-artifact", JobID: lateJob.JobID, OwnerID: ownerID, Format: "pdf", ContentType: "application/pdf", Data: []byte("%PDF must rollback"), CreatedAt: at.Add(9 * time.Second)}, nil, at.Add(10*time.Second), 0)
 	require.ErrorContains(t, err, "late reporting fixture rejection")
 	var lateArtifacts int
 	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM report_export_artifact WHERE job_id=?", lateJob.JobID).Scan(&lateArtifacts))

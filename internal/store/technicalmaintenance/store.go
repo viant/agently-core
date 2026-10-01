@@ -23,15 +23,13 @@ import (
 
 type Store struct{ Invoker dexec.ComponentInvoker }
 
-func providers(access string, policy *datlypredicate.TechnicalRetention, lock bool) []locator.Provider {
+func providers(access string, policy *datlypredicate.TechnicalRetention) []locator.Provider {
 	owner := ""
 	return []locator.Provider{
 		provider.Named(access, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 			switch name {
 			case "internal":
 				return true, true, nil
-			case "lock":
-				return lock, true, nil
 			}
 			return nil, false, nil
 		}),
@@ -104,7 +102,7 @@ func (s *Store) candidates(ctx context.Context, r rule, request CandidateRequest
 	switch r.kind {
 	case ReportRun:
 		input := &runread.Input{}
-		out, err := retentionRead[runread.Output](ctx, s, input, "/v1/internal/forge/reporting/run", providers("reportaccess", policy, lock), []string{"report_run_id", "maintenance_observed_at"}, "report_run_id ASC", request.Limit)
+		out, err := retentionRead[runread.Output](ctx, s, input, "/v1/internal/forge/reporting/run", providers("reportaccess", policy), []string{"report_run_id", "maintenance_observed_at"}, "report_run_id ASC", request.Limit, lock)
 		if err != nil {
 			return nil, err
 		}
@@ -115,7 +113,7 @@ func (s *Store) candidates(ctx context.Context, r rule, request CandidateRequest
 		}
 	case ExportJob:
 		input := &jobread.Input{}
-		out, err := retentionRead[jobread.Output](ctx, s, input, "/v1/internal/forge/reporting/job", providers("reportaccess", policy, lock), []string{"job_id", "maintenance_observed_at"}, "job_id ASC", request.Limit)
+		out, err := retentionRead[jobread.Output](ctx, s, input, "/v1/internal/forge/reporting/job", providers("reportaccess", policy), []string{"job_id", "maintenance_observed_at"}, "job_id ASC", request.Limit, lock)
 		if err != nil {
 			return nil, err
 		}
@@ -126,7 +124,7 @@ func (s *Store) candidates(ctx context.Context, r rule, request CandidateRequest
 		}
 	case Audit:
 		input := &auditread.Input{}
-		out, err := retentionRead[auditread.Output](ctx, s, input, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", policy, lock), []string{"event_id", "maintenance_observed_at"}, "event_id ASC", request.Limit)
+		out, err := retentionRead[auditread.Output](ctx, s, input, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", policy), []string{"event_id", "maintenance_observed_at"}, "event_id ASC", request.Limit, lock)
 		if err != nil {
 			return nil, err
 		}
@@ -137,7 +135,7 @@ func (s *Store) candidates(ctx context.Context, r rule, request CandidateRequest
 		}
 	case Session:
 		input := &sessionread.SessionInput{}
-		out, err := retentionRead[sessionread.SessionOutput](ctx, s, input, "/v1/api/agently/user/session", providers("sessionmaintenance", policy, lock), []string{"id", "maintenance_observed_at"}, "id ASC", request.Limit)
+		out, err := retentionRead[sessionread.SessionOutput](ctx, s, input, "/v1/api/agently/user/session", providers("sessionmaintenance", policy), []string{"id", "maintenance_observed_at"}, "id ASC", request.Limit, lock)
 		if err != nil {
 			return nil, err
 		}
@@ -180,12 +178,12 @@ func parseObserved(value string) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-func retentionRead[Output any](ctx context.Context, s *Store, input any, path string, bindings []locator.Provider, fields []string, order string, limit int) (*Output, error) {
+func retentionRead[Output any](ctx context.Context, s *Store, input any, path string, bindings []locator.Provider, fields []string, order string, limit int, lock bool) (*Output, error) {
 	if len(fields) > 0 || order != "" || limit > 0 {
 		bindings = append(bindings, queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: fields, OrderBy: order, Limit: limit}}}))
 	}
 	target := dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeOf(input).Elem().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: path}}
-	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: input, Providers: bindings})
+	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, lock), Target: target, Input: input, Providers: bindings})
 	if err != nil {
 		return nil, err
 	}

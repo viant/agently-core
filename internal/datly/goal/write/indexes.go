@@ -59,6 +59,251 @@ func (index WriterHandlerCurrentWriterGroupedById) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
+func WriterHandlerCurrentWriterIndexByTokenBudgetKey(value *CurrentWriterView) (int64, bool) {
+	var zero int64
+	if value == nil {
+		return zero, false
+	}
+	if value.TokenBudget == nil {
+		return zero, false
+	}
+	return *value.TokenBudget, true
+}
+
+type WriterHandlerCurrentWriterIndexedByTokenBudget map[int64]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByTokenBudget() (WriterHandlerCurrentWriterIndexedByTokenBudget, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByTokenBudget)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByTokenBudgetKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByTokenBudget")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByTokenBudget) Has(key int64) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByTokenBudget map[int64][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByTokenBudget() WriterHandlerCurrentWriterGroupedByTokenBudget {
+	result := make(WriterHandlerCurrentWriterGroupedByTokenBudget)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByTokenBudgetKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByTokenBudget) Has(key int64) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByTokensUsedKey(value *CurrentWriterView) (int64, bool) {
+	var zero int64
+	if value == nil {
+		return zero, false
+	}
+	if value.TokensUsed == nil {
+		return zero, false
+	}
+	return *value.TokensUsed, true
+}
+
+type WriterHandlerCurrentWriterIndexedByTokensUsed map[int64]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByTokensUsed() (WriterHandlerCurrentWriterIndexedByTokensUsed, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByTokensUsed)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByTokensUsedKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByTokensUsed")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByTokensUsed) Has(key int64) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByTokensUsed map[int64][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByTokensUsed() WriterHandlerCurrentWriterGroupedByTokensUsed {
+	result := make(WriterHandlerCurrentWriterGroupedByTokensUsed)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByTokensUsedKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByTokensUsed) Has(key int64) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByTimeUsedSecondsKey(value *CurrentWriterView) (int64, bool) {
+	var zero int64
+	if value == nil {
+		return zero, false
+	}
+	if value.TimeUsedSeconds == nil {
+		return zero, false
+	}
+	return *value.TimeUsedSeconds, true
+}
+
+type WriterHandlerCurrentWriterIndexedByTimeUsedSeconds map[int64]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByTimeUsedSeconds() (WriterHandlerCurrentWriterIndexedByTimeUsedSeconds, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByTimeUsedSeconds)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByTimeUsedSecondsKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByTimeUsedSeconds")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByTimeUsedSeconds) Has(key int64) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByTimeUsedSeconds map[int64][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByTimeUsedSeconds() WriterHandlerCurrentWriterGroupedByTimeUsedSeconds {
+	result := make(WriterHandlerCurrentWriterGroupedByTimeUsedSeconds)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByTimeUsedSecondsKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByTimeUsedSeconds) Has(key int64) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByAutonomousTurnsUsedKey(value *CurrentWriterView) (int64, bool) {
+	var zero int64
+	if value == nil {
+		return zero, false
+	}
+	if value.AutonomousTurnsUsed == nil {
+		return zero, false
+	}
+	return *value.AutonomousTurnsUsed, true
+}
+
+type WriterHandlerCurrentWriterIndexedByAutonomousTurnsUsed map[int64]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByAutonomousTurnsUsed() (WriterHandlerCurrentWriterIndexedByAutonomousTurnsUsed, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByAutonomousTurnsUsed)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByAutonomousTurnsUsedKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByAutonomousTurnsUsed")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByAutonomousTurnsUsed) Has(key int64) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByAutonomousTurnsUsed map[int64][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByAutonomousTurnsUsed() WriterHandlerCurrentWriterGroupedByAutonomousTurnsUsed {
+	result := make(WriterHandlerCurrentWriterGroupedByAutonomousTurnsUsed)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByAutonomousTurnsUsedKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByAutonomousTurnsUsed) Has(key int64) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByConsecutiveNoProgressKey(value *CurrentWriterView) (int64, bool) {
+	var zero int64
+	if value == nil {
+		return zero, false
+	}
+	if value.ConsecutiveNoProgress == nil {
+		return zero, false
+	}
+	return *value.ConsecutiveNoProgress, true
+}
+
+type WriterHandlerCurrentWriterIndexedByConsecutiveNoProgress map[int64]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByConsecutiveNoProgress() (WriterHandlerCurrentWriterIndexedByConsecutiveNoProgress, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByConsecutiveNoProgress)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByConsecutiveNoProgressKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByConsecutiveNoProgress")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByConsecutiveNoProgress) Has(key int64) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByConsecutiveNoProgress map[int64][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByConsecutiveNoProgress() WriterHandlerCurrentWriterGroupedByConsecutiveNoProgress {
+	result := make(WriterHandlerCurrentWriterGroupedByConsecutiveNoProgress)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByConsecutiveNoProgressKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByConsecutiveNoProgress) Has(key int64) bool {
+	_, ok := index[key]
+	return ok
+}
 func WriterHandlerCurrentWriterIndexByConversationIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -353,251 +598,6 @@ func (index WriterHandlerCurrentWriterGroupedByControllerSpec) Has(key string) b
 	_, ok := index[key]
 	return ok
 }
-func WriterHandlerCurrentWriterIndexByTokenBudgetKey(value *CurrentWriterView) (int64, bool) {
-	var zero int64
-	if value == nil {
-		return zero, false
-	}
-	if value.TokenBudget == nil {
-		return zero, false
-	}
-	return *value.TokenBudget, true
-}
-
-type WriterHandlerCurrentWriterIndexedByTokenBudget map[int64]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByTokenBudget() (WriterHandlerCurrentWriterIndexedByTokenBudget, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByTokenBudget)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByTokenBudgetKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByTokenBudget")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByTokenBudget) Has(key int64) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByTokenBudget map[int64][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByTokenBudget() WriterHandlerCurrentWriterGroupedByTokenBudget {
-	result := make(WriterHandlerCurrentWriterGroupedByTokenBudget)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByTokenBudgetKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByTokenBudget) Has(key int64) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByTokensUsedKey(value *CurrentWriterView) (int64, bool) {
-	var zero int64
-	if value == nil {
-		return zero, false
-	}
-	if value.TokensUsed == nil {
-		return zero, false
-	}
-	return *value.TokensUsed, true
-}
-
-type WriterHandlerCurrentWriterIndexedByTokensUsed map[int64]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByTokensUsed() (WriterHandlerCurrentWriterIndexedByTokensUsed, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByTokensUsed)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByTokensUsedKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByTokensUsed")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByTokensUsed) Has(key int64) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByTokensUsed map[int64][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByTokensUsed() WriterHandlerCurrentWriterGroupedByTokensUsed {
-	result := make(WriterHandlerCurrentWriterGroupedByTokensUsed)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByTokensUsedKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByTokensUsed) Has(key int64) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByTimeUsedSecondsKey(value *CurrentWriterView) (int64, bool) {
-	var zero int64
-	if value == nil {
-		return zero, false
-	}
-	if value.TimeUsedSeconds == nil {
-		return zero, false
-	}
-	return *value.TimeUsedSeconds, true
-}
-
-type WriterHandlerCurrentWriterIndexedByTimeUsedSeconds map[int64]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByTimeUsedSeconds() (WriterHandlerCurrentWriterIndexedByTimeUsedSeconds, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByTimeUsedSeconds)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByTimeUsedSecondsKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByTimeUsedSeconds")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByTimeUsedSeconds) Has(key int64) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByTimeUsedSeconds map[int64][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByTimeUsedSeconds() WriterHandlerCurrentWriterGroupedByTimeUsedSeconds {
-	result := make(WriterHandlerCurrentWriterGroupedByTimeUsedSeconds)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByTimeUsedSecondsKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByTimeUsedSeconds) Has(key int64) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByAutonomousTurnsUsedKey(value *CurrentWriterView) (int64, bool) {
-	var zero int64
-	if value == nil {
-		return zero, false
-	}
-	if value.AutonomousTurnsUsed == nil {
-		return zero, false
-	}
-	return *value.AutonomousTurnsUsed, true
-}
-
-type WriterHandlerCurrentWriterIndexedByAutonomousTurnsUsed map[int64]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByAutonomousTurnsUsed() (WriterHandlerCurrentWriterIndexedByAutonomousTurnsUsed, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByAutonomousTurnsUsed)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByAutonomousTurnsUsedKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByAutonomousTurnsUsed")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByAutonomousTurnsUsed) Has(key int64) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByAutonomousTurnsUsed map[int64][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByAutonomousTurnsUsed() WriterHandlerCurrentWriterGroupedByAutonomousTurnsUsed {
-	result := make(WriterHandlerCurrentWriterGroupedByAutonomousTurnsUsed)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByAutonomousTurnsUsedKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByAutonomousTurnsUsed) Has(key int64) bool {
-	_, ok := index[key]
-	return ok
-}
-func WriterHandlerCurrentWriterIndexByConsecutiveNoProgressKey(value *CurrentWriterView) (int64, bool) {
-	var zero int64
-	if value == nil {
-		return zero, false
-	}
-	if value.ConsecutiveNoProgress == nil {
-		return zero, false
-	}
-	return *value.ConsecutiveNoProgress, true
-}
-
-type WriterHandlerCurrentWriterIndexedByConsecutiveNoProgress map[int64]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByConsecutiveNoProgress() (WriterHandlerCurrentWriterIndexedByConsecutiveNoProgress, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByConsecutiveNoProgress)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByConsecutiveNoProgressKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByConsecutiveNoProgress")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByConsecutiveNoProgress) Has(key int64) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByConsecutiveNoProgress map[int64][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByConsecutiveNoProgress() WriterHandlerCurrentWriterGroupedByConsecutiveNoProgress {
-	result := make(WriterHandlerCurrentWriterGroupedByConsecutiveNoProgress)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByConsecutiveNoProgressKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByConsecutiveNoProgress) Has(key int64) bool {
-	_, ok := index[key]
-	return ok
-}
 func WriterHandlerCurrentWriterIndexByLastContinuationFingerprintKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -817,6 +817,21 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Id") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Id")
 			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TokenBudget") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TokenBudget")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TokensUsed") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TokensUsed")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TimeUsedSeconds") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TimeUsedSeconds")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("AutonomousTurnsUsed") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.AutonomousTurnsUsed")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ConsecutiveNoProgress") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ConsecutiveNoProgress")
+			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ConversationId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ConversationId")
 			}
@@ -834,21 +849,6 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ControllerSpec") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ControllerSpec")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TokenBudget") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TokenBudget")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TokensUsed") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TokensUsed")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("TimeUsedSeconds") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.TimeUsedSeconds")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("AutonomousTurnsUsed") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.AutonomousTurnsUsed")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ConsecutiveNoProgress") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ConsecutiveNoProgress")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("LastContinuationFingerprint") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.LastContinuationFingerprint")

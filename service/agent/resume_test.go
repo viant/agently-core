@@ -7,7 +7,7 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/service/reactor"
 )
 
@@ -35,33 +35,33 @@ func (c *resumeConvClient) PatchMessage(_ context.Context, m *apiconv.MutableMes
 
 func intptr(v int) *int { return &v }
 
-func assistantWithModelCall(id, status string, iteration int, completed bool, payload string) *agconv.MessageView {
+func assistantWithModelCall(id, status string, iteration int, completed bool, payload string) *conversationmodel.MessageView {
 	content := "assistant says"
-	mc := &agconv.ModelCallView{MessageId: id, Status: status, Iteration: intptr(iteration)}
+	mc := &conversationmodel.ModelCallView{MessageId: id, Status: status, Iteration: intptr(iteration)}
 	if completed {
 		now := time.Now()
 		mc.CompletedAt = &now
 	}
 	if payload != "" {
-		mc.ModelCallResponsePayload = &agconv.ModelCallStreamPayloadView{Id: "p-" + id, InlineBody: &payload}
+		mc.ModelCallResponsePayload = &conversationmodel.ModelCallStreamPayloadView{Id: "p-" + id, InlineBody: &payload}
 	}
-	return &agconv.MessageView{Id: id, Role: "assistant", Type: "text", Content: &content, CreatedAt: time.Now(), ModelCall: mc}
+	return &conversationmodel.MessageView{Id: id, Role: "assistant", Type: "text", Content: &content, CreatedAt: time.Now(), ModelCall: mc}
 }
 
-func toolOpMessage(id, opID, status string, iteration int, content string) *agconv.MessageView {
+func toolOpMessage(id, opID, status string, iteration int, content string) *conversationmodel.MessageView {
 	var body *string
 	if content != "" {
 		body = &content
 	}
-	return &agconv.MessageView{Id: id, Role: "tool", Type: "tool_op", Content: body, CreatedAt: time.Now(),
-		MessageToolCall: &agconv.MessageToolCallView{MessageId: id, OpId: opID, Status: status, Iteration: intptr(iteration)}}
+	return &conversationmodel.MessageView{Id: id, Role: "tool", Type: "tool_op", Content: body, CreatedAt: time.Now(),
+		MessageToolCall: &conversationmodel.MessageToolCallView{MessageId: id, OpId: opID, Status: status, Iteration: intptr(iteration)}}
 }
 
 func TestRecoveryStart_Boundaries(t *testing.T) {
 	const twoTools = `{"choices":[{"message":{"role":"assistant","tool_calls":[{"id":"op-a","name":"t/a","arguments":{"x":1}},{"id":"op-b","name":"t/b","arguments":{}}]}}]}`
 	tests := []struct {
 		name           string
-		messages       []*agconv.MessageView
+		messages       []*conversationmodel.MessageView
 		wantPhase      planLoopPhase
 		wantIter       int
 		wantSteps      int
@@ -71,19 +71,19 @@ func TestRecoveryStart_Boundaries(t *testing.T) {
 	}{
 		{name: "no model call enters model phase at run iteration", wantPhase: planLoopPhaseModel, wantIter: 3},
 		{name: "unfinished model attempt is discarded as a whole",
-			messages:  []*agconv.MessageView{assistantWithModelCall("m1", "streaming", 2, false, "")},
+			messages:  []*conversationmodel.MessageView{assistantWithModelCall("m1", "streaming", 2, false, "")},
 			wantPhase: planLoopPhaseModel, wantIter: 2, wantModelPatch: true},
 		{name: "unfinished model attempt with running tool row blocks",
-			messages: []*agconv.MessageView{assistantWithModelCall("m1", "streaming", 2, false, ""), toolOpMessage("t1", "op-x", "running", 2, "")},
+			messages: []*conversationmodel.MessageView{assistantWithModelCall("m1", "streaming", 2, false, ""), toolOpMessage("t1", "op-x", "running", 2, "")},
 			wantErr:  errRecoveryAmbiguousToolOutcome},
 		{name: "completed model attempt resumes only never-started tools",
-			messages:  []*agconv.MessageView{assistantWithModelCall("m1", "completed", 2, true, twoTools), toolOpMessage("t1", "op-a", "completed", 2, "done-a")},
+			messages:  []*conversationmodel.MessageView{assistantWithModelCall("m1", "completed", 2, true, twoTools), toolOpMessage("t1", "op-a", "completed", 2, "done-a")},
 			wantPhase: planLoopPhaseTools, wantIter: 2, wantSteps: 2, wantCompleted: []string{"op-a"}},
 		{name: "completed model attempt with running tool without result blocks",
-			messages: []*agconv.MessageView{assistantWithModelCall("m1", "completed", 2, true, twoTools), toolOpMessage("t1", "op-a", "running", 2, "")},
+			messages: []*conversationmodel.MessageView{assistantWithModelCall("m1", "completed", 2, true, twoTools), toolOpMessage("t1", "op-a", "running", 2, "")},
 			wantErr:  errRecoveryAmbiguousToolOutcome},
 		{name: "completed model attempt without tools finishes without a model call",
-			messages:  []*agconv.MessageView{assistantWithModelCall("m1", "completed", 4, true, `{"choices":[{"message":{"role":"assistant","content":"final"}}]}`)},
+			messages:  []*conversationmodel.MessageView{assistantWithModelCall("m1", "completed", 4, true, `{"choices":[{"message":{"role":"assistant","content":"final"}}]}`)},
 			wantPhase: planLoopPhaseTools, wantIter: 4, wantSteps: 0},
 	}
 	for _, test := range tests {
@@ -193,7 +193,7 @@ func TestResolveResumeAgentID_SkipsInternalHelperTurn(t *testing.T) {
 func TestResumeTurnQuery_RestoresPersistedUserTask(t *testing.T) {
 	older := "older request"
 	latest := "  troubleshoot order 2696000  "
-	turn := &apiconv.Turn{Message: []*agconv.MessageView{
+	turn := &apiconv.Turn{Message: []*conversationmodel.MessageView{
 		{Role: "user", Content: &older},
 		{Role: "assistant", Content: &older},
 		{Role: "user", RawContent: &latest},

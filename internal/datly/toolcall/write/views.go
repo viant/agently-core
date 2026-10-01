@@ -8,41 +8,44 @@ import (
 
 // ToolCall is generated canonical view metadata for writer.
 type ToolCall struct {
-	ShouldDelete      bool         `json:",omitempty" sqlx:"-" writer:"delete"`
-	ResponseOverflow  bool         `sqlx:"-" json:",omitempty"`
-	MessageId         string       `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id"`
-	TurnId            *string      `json:",omitempty" sqlx:"turn_id,refTable=turn,refColumn=id"`
-	OpId              string       `validate:"required" sqlx:"op_id,required=true"`
-	Attempt           int          `sqlx:"attempt,required=true"`
-	ToolName          string       `validate:"required" sqlx:"tool_name,required=true"`
-	ToolKind          string       `validate:"required" sqlx:"tool_kind,required=true"`
-	Status            string       `validate:"required" sqlx:"status,required=true"`
-	RequestHash       *string      `json:",omitempty" sqlx:"request_hash"`
-	ErrorCode         *string      `json:",omitempty" sqlx:"error_code"`
-	ErrorMessage      *string      `json:",omitempty" sqlx:"error_message"`
-	Retriable         *int         `json:",omitempty" sqlx:"retriable"`
-	StartedAt         *time.Time   `json:",omitempty" sqlx:"started_at"`
-	CompletedAt       *time.Time   `json:",omitempty" sqlx:"completed_at"`
-	LatencyMs         *int         `json:",omitempty" sqlx:"latency_ms"`
-	Cost              *float64     `json:",omitempty" sqlx:"cost"`
-	TraceId           *string      `json:",omitempty" sqlx:"trace_id"`
-	SpanId            *string      `json:",omitempty" sqlx:"span_id"`
-	RequestPayloadId  *string      `sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
-	ResponsePayloadId *string      `sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
-	RunId             *string      `json:",omitempty" sqlx:"run_id"`
-	Iteration         *int         `json:",omitempty" sqlx:"iteration"`
+	ShouldDelete      bool         `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	ResponseOverflow  bool         `sqlx:"-" json:"responseOverflow,omitempty"`
+	MessageId         string       `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id" json:"messageId"`
+	OpId              string       `validate:"required" json:"opId" sqlx:"op_id,required=true"`
+	Attempt           int          `json:"attempt" sqlx:"attempt,required=true"`
+	ToolName          string       `validate:"required" json:"toolName" sqlx:"tool_name,required=true"`
+	ToolKind          string       `validate:"required" json:"toolKind" sqlx:"tool_kind,required=true"`
+	Status            string       `validate:"required" json:"status" sqlx:"status,required=true"`
+	Cost              *float64     `sqlx:"cost" json:"cost,omitempty"`
+	RequestPayloadId  *string      `json:"requestPayloadId" sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
+	ResponsePayloadId *string      `json:"responsePayloadId" sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
+	TurnId            *string      `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
+	RequestHash       *string      `sqlx:"request_hash" json:"requestHash,omitempty"`
+	ErrorCode         *string      `sqlx:"error_code" json:"errorCode,omitempty"`
+	ErrorMessage      *string      `sqlx:"error_message" json:"errorMessage,omitempty"`
+	Retriable         *int         `sqlx:"retriable" json:"retriable,omitempty"`
+	StartedAt         *time.Time   `sqlx:"started_at" json:"startedAt,omitempty"`
+	CompletedAt       *time.Time   `sqlx:"completed_at" json:"completedAt,omitempty"`
+	LatencyMs         *int         `sqlx:"latency_ms" json:"latencyMs,omitempty"`
+	TraceId           *string      `sqlx:"trace_id" json:"traceId,omitempty"`
+	SpanId            *string      `sqlx:"span_id" json:"spanId,omitempty"`
+	RunId             *string      `sqlx:"run_id" json:"runId,omitempty"`
+	Iteration         *int         `sqlx:"iteration" json:"iteration,omitempty"`
 	Has               *ToolCallHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"ToolCallHas"`
 }
 
 type ToolCallHas struct {
 	ShouldDelete      bool
 	MessageId         bool
-	TurnId            bool
 	OpId              bool
 	Attempt           bool
 	ToolName          bool
 	ToolKind          bool
 	Status            bool
+	Cost              bool
+	RequestPayloadId  bool
+	ResponsePayloadId bool
+	TurnId            bool
 	RequestHash       bool
 	ErrorCode         bool
 	ErrorMessage      bool
@@ -50,39 +53,36 @@ type ToolCallHas struct {
 	StartedAt         bool
 	CompletedAt       bool
 	LatencyMs         bool
-	Cost              bool
 	TraceId           bool
 	SpanId            bool
-	RequestPayloadId  bool
-	ResponsePayloadId bool
 	RunId             bool
 	Iteration         bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	ResponseOverflow  bool       `sqlx:"response_overflow" json:",omitempty"`
-	MessageId         string     `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id"`
-	TurnId            *string    `json:",omitempty" sqlx:"turn_id,refTable=turn,refColumn=id"`
-	OpId              string     `validate:"required" sqlx:"op_id,required=true"`
-	Attempt           int        `sqlx:"attempt,required=true"`
-	ToolName          string     `validate:"required" sqlx:"tool_name,required=true"`
-	ToolKind          string     `validate:"required" sqlx:"tool_kind,required=true"`
-	Status            string     `validate:"required" sqlx:"status,required=true"`
-	RequestHash       *string    `json:",omitempty" sqlx:"request_hash"`
-	ErrorCode         *string    `json:",omitempty" sqlx:"error_code"`
-	ErrorMessage      *string    `json:",omitempty" sqlx:"error_message"`
-	Retriable         *int       `json:",omitempty" sqlx:"retriable"`
-	StartedAt         *time.Time `json:",omitempty" sqlx:"started_at"`
-	CompletedAt       *time.Time `json:",omitempty" sqlx:"completed_at"`
-	LatencyMs         *int       `json:",omitempty" sqlx:"latency_ms"`
-	Cost              *float64   `json:",omitempty" sqlx:"cost"`
-	TraceId           *string    `json:",omitempty" sqlx:"trace_id"`
-	SpanId            *string    `json:",omitempty" sqlx:"span_id"`
-	RequestPayloadId  *string    `sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
-	ResponsePayloadId *string    `sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
-	RunId             *string    `json:",omitempty" sqlx:"run_id"`
-	Iteration         *int       `json:",omitempty" sqlx:"iteration"`
+	ResponseOverflow  bool       `sqlx:"response_overflow" json:"responseOverflow,omitempty"`
+	MessageId         string     `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id" json:"messageId"`
+	OpId              string     `validate:"required" json:"opId" sqlx:"op_id,required=true"`
+	Attempt           int        `json:"attempt" sqlx:"attempt,required=true"`
+	ToolName          string     `validate:"required" json:"toolName" sqlx:"tool_name,required=true"`
+	ToolKind          string     `validate:"required" json:"toolKind" sqlx:"tool_kind,required=true"`
+	Status            string     `validate:"required" json:"status" sqlx:"status,required=true"`
+	Cost              *float64   `sqlx:"cost" json:"cost,omitempty"`
+	RequestPayloadId  *string    `json:"requestPayloadId" sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
+	ResponsePayloadId *string    `json:"responsePayloadId" sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
+	TurnId            *string    `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
+	RequestHash       *string    `sqlx:"request_hash" json:"requestHash,omitempty"`
+	ErrorCode         *string    `sqlx:"error_code" json:"errorCode,omitempty"`
+	ErrorMessage      *string    `sqlx:"error_message" json:"errorMessage,omitempty"`
+	Retriable         *int       `sqlx:"retriable" json:"retriable,omitempty"`
+	StartedAt         *time.Time `sqlx:"started_at" json:"startedAt,omitempty"`
+	CompletedAt       *time.Time `sqlx:"completed_at" json:"completedAt,omitempty"`
+	LatencyMs         *int       `sqlx:"latency_ms" json:"latencyMs,omitempty"`
+	TraceId           *string    `sqlx:"trace_id" json:"traceId,omitempty"`
+	SpanId            *string    `sqlx:"span_id" json:"spanId,omitempty"`
+	RunId             *string    `sqlx:"run_id" json:"runId,omitempty"`
+	Iteration         *int       `sqlx:"iteration" json:"iteration,omitempty"`
 }
 
 type WriterKeysRow struct {

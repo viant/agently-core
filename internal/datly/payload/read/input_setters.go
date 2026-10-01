@@ -6,17 +6,6 @@ import (
 	time "time"
 )
 
-func (input *PayloadRowsInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &PayloadRowsInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *PayloadRowsInput) SetTenantID(value string) {
 	if input == nil {
 		return

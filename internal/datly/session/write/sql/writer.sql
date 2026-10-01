@@ -1,1 +1,1 @@
-SELECT data_rows.id, data_rows.should_delete, data_rows.user_id, data_rows.provider, data_rows.created_at, data_rows.updated_at, data_rows.expires_at FROM  (SELECT 0 AS should_delete, `id`, `user_id`, `provider`, `created_at`, `updated_at`, `expires_at` FROM session)  data_rows
+SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM session c)  t

@@ -4,5 +4,5 @@ package read
 
 // RunRowsOutput is the generated output scaffold for reader.
 type RunRowsOutput struct {
-	Data []*RunRowsView `parameter:"Data,kind=output,in=view,dataType=[]*RunRowsView" view:"reader,type=RunRowsView,table=run,selectorProjection=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_run_read_reader:sql/reader.sql"`
+	Data []*RunRowsView `parameter:"Data,kind=output,in=view,dataType=[]*RunRowsView" view:"reader,type=RunRowsView,rowLock=run t,rowLockOrder=t.id,table=run,selectorProjection=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_run_read_reader:sql/reader.sql"`
 }

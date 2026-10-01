@@ -8,51 +8,53 @@ import (
 
 // ModelCall is generated canonical view metadata for writer.
 type ModelCall struct {
-	ShouldDelete                       bool          `json:",omitempty" sqlx:"-" writer:"delete"`
-	MessageId                          string        `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id"`
-	TurnId                             *string       `json:",omitempty" sqlx:"turn_id,refTable=turn,refColumn=id"`
-	Provider                           string        `validate:"required" sqlx:"provider,required=true"`
-	Model                              string        `validate:"required" sqlx:"model,required=true"`
-	ModelKind                          string        `validate:"required" sqlx:"model_kind,required=true"`
-	Status                             string        `validate:"required" sqlx:"status,required=true"`
-	ErrorCode                          *string       `json:",omitempty" sqlx:"error_code"`
-	ErrorMessage                       *string       `json:",omitempty" sqlx:"error_message"`
-	PromptTokens                       *int          `json:",omitempty" sqlx:"prompt_tokens"`
-	PromptCachedTokens                 *int          `json:",omitempty" sqlx:"prompt_cached_tokens"`
-	CompletionTokens                   *int          `json:",omitempty" sqlx:"completion_tokens"`
-	TotalTokens                        *int          `json:",omitempty" sqlx:"total_tokens"`
-	PromptAudioTokens                  *int          `json:",omitempty" sqlx:"prompt_audio_tokens"`
-	CompletionReasoningTokens          *int          `json:",omitempty" sqlx:"completion_reasoning_tokens"`
-	CompletionAudioTokens              *int          `json:",omitempty" sqlx:"completion_audio_tokens"`
-	CompletionAcceptedPredictionTokens *int          `json:",omitempty" sqlx:"completion_accepted_prediction_tokens"`
-	CompletionRejectedPredictionTokens *int          `json:",omitempty" sqlx:"completion_rejected_prediction_tokens"`
-	FinishReason                       *string       `json:",omitempty" sqlx:"finish_reason"`
-	StartedAt                          *time.Time    `json:",omitempty" sqlx:"started_at"`
-	CompletedAt                        *time.Time    `json:",omitempty" sqlx:"completed_at"`
-	LatencyMs                          *int          `json:",omitempty" sqlx:"latency_ms"`
-	Cost                               *float64      `json:",omitempty" sqlx:"cost"`
-	TraceId                            *string       `json:",omitempty" sqlx:"trace_id"`
-	SpanId                             *string       `json:",omitempty" sqlx:"span_id"`
-	RequestPayloadId                   *string       `json:",omitempty" sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
-	ResponsePayloadId                  *string       `json:",omitempty" sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
-	ProviderRequestPayloadId           *string       `json:",omitempty" sqlx:"provider_request_payload_id,refTable=call_payload,refColumn=id"`
-	ProviderResponsePayloadId          *string       `json:",omitempty" sqlx:"provider_response_payload_id,refTable=call_payload,refColumn=id"`
-	StreamPayloadId                    *string       `json:",omitempty" sqlx:"stream_payload_id,refTable=call_payload,refColumn=id"`
-	RunId                              *string       `json:",omitempty" sqlx:"run_id"`
-	Iteration                          *int          `json:",omitempty" sqlx:"iteration"`
+	ShouldDelete                       bool          `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	MessageId                          string        `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id" json:"messageId"`
+	Provider                           string        `validate:"required" json:"provider" sqlx:"provider,required=true"`
+	Model                              string        `validate:"required" json:"model" sqlx:"model,required=true"`
+	ModelKind                          string        `validate:"required" json:"modelKind" sqlx:"model_kind,required=true"`
+	Status                             string        `validate:"required" json:"status" sqlx:"status,required=true"`
+	Cost                               *float64      `sqlx:"cost" json:"cost,omitempty"`
+	TurnId                             *string       `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
+	ErrorCode                          *string       `sqlx:"error_code" json:"errorCode,omitempty"`
+	ErrorMessage                       *string       `sqlx:"error_message" json:"errorMessage,omitempty"`
+	FinishReason                       *string       `sqlx:"finish_reason" json:"finishReason,omitempty"`
+	PromptTokens                       *int          `sqlx:"prompt_tokens" json:"promptTokens,omitempty"`
+	PromptCachedTokens                 *int          `sqlx:"prompt_cached_tokens" json:"promptCachedTokens,omitempty"`
+	CompletionTokens                   *int          `sqlx:"completion_tokens" json:"completionTokens,omitempty"`
+	TotalTokens                        *int          `sqlx:"total_tokens" json:"totalTokens,omitempty"`
+	PromptAudioTokens                  *int          `sqlx:"prompt_audio_tokens" json:"promptAudioTokens,omitempty"`
+	CompletionReasoningTokens          *int          `sqlx:"completion_reasoning_tokens" json:"completionReasoningTokens,omitempty"`
+	CompletionAudioTokens              *int          `sqlx:"completion_audio_tokens" json:"completionAudioTokens,omitempty"`
+	CompletionAcceptedPredictionTokens *int          `sqlx:"completion_accepted_prediction_tokens" json:"completionAcceptedPredictionTokens,omitempty"`
+	CompletionRejectedPredictionTokens *int          `sqlx:"completion_rejected_prediction_tokens" json:"completionRejectedPredictionTokens,omitempty"`
+	StartedAt                          *time.Time    `sqlx:"started_at" json:"startedAt,omitempty"`
+	CompletedAt                        *time.Time    `sqlx:"completed_at" json:"completedAt,omitempty"`
+	LatencyMs                          *int          `sqlx:"latency_ms" json:"latencyMs,omitempty"`
+	TraceId                            *string       `sqlx:"trace_id" json:"traceId,omitempty"`
+	SpanId                             *string       `sqlx:"span_id" json:"spanId,omitempty"`
+	RequestPayloadId                   *string       `sqlx:"request_payload_id,refTable=call_payload,refColumn=id" json:"requestPayloadId,omitempty"`
+	ResponsePayloadId                  *string       `sqlx:"response_payload_id,refTable=call_payload,refColumn=id" json:"responsePayloadId,omitempty"`
+	ProviderRequestPayloadId           *string       `sqlx:"provider_request_payload_id,refTable=call_payload,refColumn=id" json:"providerRequestPayloadId,omitempty"`
+	ProviderResponsePayloadId          *string       `sqlx:"provider_response_payload_id,refTable=call_payload,refColumn=id" json:"providerResponsePayloadId,omitempty"`
+	StreamPayloadId                    *string       `sqlx:"stream_payload_id,refTable=call_payload,refColumn=id" json:"streamPayloadId,omitempty"`
+	RunId                              *string       `sqlx:"run_id" json:"runId,omitempty"`
+	Iteration                          *int          `sqlx:"iteration" json:"iteration,omitempty"`
 	Has                                *ModelCallHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"ModelCallHas"`
 }
 
 type ModelCallHas struct {
 	ShouldDelete                       bool
 	MessageId                          bool
-	TurnId                             bool
 	Provider                           bool
 	Model                              bool
 	ModelKind                          bool
 	Status                             bool
+	Cost                               bool
+	TurnId                             bool
 	ErrorCode                          bool
 	ErrorMessage                       bool
+	FinishReason                       bool
 	PromptTokens                       bool
 	PromptCachedTokens                 bool
 	CompletionTokens                   bool
@@ -62,11 +64,9 @@ type ModelCallHas struct {
 	CompletionAudioTokens              bool
 	CompletionAcceptedPredictionTokens bool
 	CompletionRejectedPredictionTokens bool
-	FinishReason                       bool
 	StartedAt                          bool
 	CompletedAt                        bool
 	LatencyMs                          bool
-	Cost                               bool
 	TraceId                            bool
 	SpanId                             bool
 	RequestPayloadId                   bool
@@ -80,37 +80,37 @@ type ModelCallHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	MessageId                          string     `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id"`
-	TurnId                             *string    `json:",omitempty" sqlx:"turn_id,refTable=turn,refColumn=id"`
-	Provider                           string     `validate:"required" sqlx:"provider,required=true"`
-	Model                              string     `validate:"required" sqlx:"model,required=true"`
-	ModelKind                          string     `validate:"required" sqlx:"model_kind,required=true"`
-	Status                             string     `validate:"required" sqlx:"status,required=true"`
-	ErrorCode                          *string    `json:",omitempty" sqlx:"error_code"`
-	ErrorMessage                       *string    `json:",omitempty" sqlx:"error_message"`
-	PromptTokens                       *int       `json:",omitempty" sqlx:"prompt_tokens"`
-	PromptCachedTokens                 *int       `json:",omitempty" sqlx:"prompt_cached_tokens"`
-	CompletionTokens                   *int       `json:",omitempty" sqlx:"completion_tokens"`
-	TotalTokens                        *int       `json:",omitempty" sqlx:"total_tokens"`
-	PromptAudioTokens                  *int       `json:",omitempty" sqlx:"prompt_audio_tokens"`
-	CompletionReasoningTokens          *int       `json:",omitempty" sqlx:"completion_reasoning_tokens"`
-	CompletionAudioTokens              *int       `json:",omitempty" sqlx:"completion_audio_tokens"`
-	CompletionAcceptedPredictionTokens *int       `json:",omitempty" sqlx:"completion_accepted_prediction_tokens"`
-	CompletionRejectedPredictionTokens *int       `json:",omitempty" sqlx:"completion_rejected_prediction_tokens"`
-	FinishReason                       *string    `json:",omitempty" sqlx:"finish_reason"`
-	StartedAt                          *time.Time `json:",omitempty" sqlx:"started_at"`
-	CompletedAt                        *time.Time `json:",omitempty" sqlx:"completed_at"`
-	LatencyMs                          *int       `json:",omitempty" sqlx:"latency_ms"`
-	Cost                               *float64   `json:",omitempty" sqlx:"cost"`
-	TraceId                            *string    `json:",omitempty" sqlx:"trace_id"`
-	SpanId                             *string    `json:",omitempty" sqlx:"span_id"`
-	RequestPayloadId                   *string    `json:",omitempty" sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
-	ResponsePayloadId                  *string    `json:",omitempty" sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
-	ProviderRequestPayloadId           *string    `json:",omitempty" sqlx:"provider_request_payload_id,refTable=call_payload,refColumn=id"`
-	ProviderResponsePayloadId          *string    `json:",omitempty" sqlx:"provider_response_payload_id,refTable=call_payload,refColumn=id"`
-	StreamPayloadId                    *string    `json:",omitempty" sqlx:"stream_payload_id,refTable=call_payload,refColumn=id"`
-	RunId                              *string    `json:",omitempty" sqlx:"run_id"`
-	Iteration                          *int       `json:",omitempty" sqlx:"iteration"`
+	MessageId                          string     `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id" json:"messageId"`
+	Provider                           string     `validate:"required" json:"provider" sqlx:"provider,required=true"`
+	Model                              string     `validate:"required" json:"model" sqlx:"model,required=true"`
+	ModelKind                          string     `validate:"required" json:"modelKind" sqlx:"model_kind,required=true"`
+	Status                             string     `validate:"required" json:"status" sqlx:"status,required=true"`
+	Cost                               *float64   `sqlx:"cost" json:"cost,omitempty"`
+	TurnId                             *string    `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
+	ErrorCode                          *string    `sqlx:"error_code" json:"errorCode,omitempty"`
+	ErrorMessage                       *string    `sqlx:"error_message" json:"errorMessage,omitempty"`
+	FinishReason                       *string    `sqlx:"finish_reason" json:"finishReason,omitempty"`
+	PromptTokens                       *int       `sqlx:"prompt_tokens" json:"promptTokens,omitempty"`
+	PromptCachedTokens                 *int       `sqlx:"prompt_cached_tokens" json:"promptCachedTokens,omitempty"`
+	CompletionTokens                   *int       `sqlx:"completion_tokens" json:"completionTokens,omitempty"`
+	TotalTokens                        *int       `sqlx:"total_tokens" json:"totalTokens,omitempty"`
+	PromptAudioTokens                  *int       `sqlx:"prompt_audio_tokens" json:"promptAudioTokens,omitempty"`
+	CompletionReasoningTokens          *int       `sqlx:"completion_reasoning_tokens" json:"completionReasoningTokens,omitempty"`
+	CompletionAudioTokens              *int       `sqlx:"completion_audio_tokens" json:"completionAudioTokens,omitempty"`
+	CompletionAcceptedPredictionTokens *int       `sqlx:"completion_accepted_prediction_tokens" json:"completionAcceptedPredictionTokens,omitempty"`
+	CompletionRejectedPredictionTokens *int       `sqlx:"completion_rejected_prediction_tokens" json:"completionRejectedPredictionTokens,omitempty"`
+	StartedAt                          *time.Time `sqlx:"started_at" json:"startedAt,omitempty"`
+	CompletedAt                        *time.Time `sqlx:"completed_at" json:"completedAt,omitempty"`
+	LatencyMs                          *int       `sqlx:"latency_ms" json:"latencyMs,omitempty"`
+	TraceId                            *string    `sqlx:"trace_id" json:"traceId,omitempty"`
+	SpanId                             *string    `sqlx:"span_id" json:"spanId,omitempty"`
+	RequestPayloadId                   *string    `sqlx:"request_payload_id,refTable=call_payload,refColumn=id" json:"requestPayloadId,omitempty"`
+	ResponsePayloadId                  *string    `sqlx:"response_payload_id,refTable=call_payload,refColumn=id" json:"responsePayloadId,omitempty"`
+	ProviderRequestPayloadId           *string    `sqlx:"provider_request_payload_id,refTable=call_payload,refColumn=id" json:"providerRequestPayloadId,omitempty"`
+	ProviderResponsePayloadId          *string    `sqlx:"provider_response_payload_id,refTable=call_payload,refColumn=id" json:"providerResponsePayloadId,omitempty"`
+	StreamPayloadId                    *string    `sqlx:"stream_payload_id,refTable=call_payload,refColumn=id" json:"streamPayloadId,omitempty"`
+	RunId                              *string    `sqlx:"run_id" json:"runId,omitempty"`
+	Iteration                          *int       `sqlx:"iteration" json:"iteration,omitempty"`
 }
 
 type WriterKeysRow struct {

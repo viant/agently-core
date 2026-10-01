@@ -8,13 +8,13 @@ import (
 
 // Artifact is generated canonical view metadata for reader.
 type Artifact struct {
-	ArtifactId      string    `sqlx:"artifact_id,primaryKey=true"`
-	JobId           string    `sqlx:"job_id,refTable=report_export_job,refColumn=job_id,required=true"`
-	ArtifactRef     string    `sqlx:"artifact_ref,required=true"`
-	OwnerId         string    `sqlx:"owner_id,required=true"`
-	Format          string    `sqlx:"format,required=true"`
-	ContentType     string    `sqlx:"content_type,required=true"`
-	InlineData      []byte    `sqlx:"inline_data"`
-	CreatedAt       time.Time `sqlx:"created_at,required=true"`
-	RetentionTtlSec int64     `sqlx:"retention_ttl_sec,required=true"`
+	ArtifactId      string    `sqlx:"artifact_id,primaryKey=true" json:"artifactId"`
+	JobId           string    `sqlx:"job_id,refTable=report_export_job,refColumn=job_id,required=true" json:"jobId"`
+	ArtifactRef     string    `sqlx:"artifact_ref,required=true" json:"artifactRef"`
+	OwnerId         string    `sqlx:"owner_id,required=true" json:"ownerId"`
+	Format          string    `sqlx:"format,required=true" json:"format"`
+	ContentType     string    `sqlx:"content_type,required=true" json:"contentType"`
+	InlineData      []byte    `sqlx:"inline_data" json:"inlineData"`
+	CreatedAt       time.Time `sqlx:"created_at,required=true" json:"createdAt"`
+	RetentionTtlSec int64     `sqlx:"retention_ttl_sec,required=true" json:"retentionTtlSec"`
 }

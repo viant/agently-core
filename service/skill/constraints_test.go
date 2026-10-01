@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
@@ -19,9 +19,9 @@ type constraintRegistry struct {
 
 func (r *constraintRegistry) Definitions() []llm.ToolDefinition { return r.defs }
 func (r *constraintRegistry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
-	target := strings.TrimSpace(strings.ToLower(mcpname.Canonical(name)))
+	target := strings.TrimSpace(strings.ToLower(mcpname2.Canonical(name)))
 	for i := range r.defs {
-		if strings.TrimSpace(strings.ToLower(mcpname.Canonical(r.defs[i].Name))) == target {
+		if strings.TrimSpace(strings.ToLower(mcpname2.Canonical(r.defs[i].Name))) == target {
 			def := r.defs[i]
 			return &def, true
 		}
@@ -32,8 +32,8 @@ func (r *constraintRegistry) MatchDefinition(pattern string) []*llm.ToolDefiniti
 	pattern = strings.TrimSpace(pattern)
 	var out []*llm.ToolDefinition
 	for i := range r.defs {
-		name := strings.TrimSpace(strings.ToLower(mcpname.Canonical(r.defs[i].Name)))
-		pp := strings.TrimSpace(strings.ToLower(mcpname.Canonical(pattern)))
+		name := strings.TrimSpace(strings.ToLower(mcpname2.Canonical(r.defs[i].Name)))
+		pp := strings.TrimSpace(strings.ToLower(mcpname2.Canonical(pattern)))
 		if pp == "" {
 			continue
 		}
@@ -58,9 +58,9 @@ type exactCanonicalRegistry struct {
 
 func (r *exactCanonicalRegistry) Definitions() []llm.ToolDefinition { return r.defs }
 func (r *exactCanonicalRegistry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
-	target := strings.TrimSpace(mcpname.Canonical(name))
+	target := strings.TrimSpace(mcpname2.Canonical(name))
 	for i := range r.defs {
-		if strings.TrimSpace(mcpname.Canonical(r.defs[i].Name)) == target {
+		if strings.TrimSpace(mcpname2.Canonical(r.defs[i].Name)) == target {
 			def := r.defs[i]
 			return &def, true
 		}
@@ -71,7 +71,7 @@ func (r *exactCanonicalRegistry) MatchDefinition(pattern string) []*llm.ToolDefi
 	pattern = strings.TrimSpace(pattern)
 	var out []*llm.ToolDefinition
 	for i := range r.defs {
-		name := strings.TrimSpace(mcpname.Canonical(r.defs[i].Name))
+		name := strings.TrimSpace(mcpname2.Canonical(r.defs[i].Name))
 		if pattern == name {
 			def := r.defs[i]
 			out = append(out, &def)

@@ -27,7 +27,7 @@ func (value *JSON) Scan(source any) error {
 	case []byte:
 		raw = string(source)
 	default:
-		return fmt.Errorf("unsupported JSON scan type %T", source)
+		return fmt.Errorf("unsupported elicitation scan type %T", source)
 	}
 	if strings.TrimSpace(raw) == "" {
 		*value = nil

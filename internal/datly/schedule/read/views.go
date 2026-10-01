@@ -9,33 +9,33 @@ import (
 // ScheduleView is generated canonical view metadata for reader.
 type ScheduleView struct {
 	LeaseUntilRaw   *string    `internal:"true" json:"-" sqlx:"lease_until_raw"`
-	AgentRef        string     `sqlx:"agent_ref,required=true"`
-	CreatedAt       time.Time  `sqlx:"created_at,required=true"`
-	CreatedByUserId *string    `sqlx:"created_by_user_id"`
-	Visibility      string     `sqlx:"visibility,required=true"`
-	CronExpr        *string    `sqlx:"cron_expr"`
-	Description     *string    `sqlx:"description"`
-	Enabled         bool       `sqlx:"enabled,required=true"`
-	EndAt           *time.Time `sqlx:"end_at"`
-	GoalId          *string    `sqlx:"goal_id"`
-	Id              string     `sqlx:"id,primaryKey=true"`
-	Internal        bool       `sqlx:"internal,required=true"`
-	IntervalSeconds *int       `sqlx:"interval_seconds"`
-	LastError       *string    `sqlx:"last_error"`
-	LastRunAt       *time.Time `sqlx:"last_run_at"`
-	LastStatus      *string    `sqlx:"last_status"`
-	LeaseOwner      *string    `sqlx:"lease_owner"`
-	LeaseUntil      *time.Time `sqlx:"lease_until"`
-	ModelOverride   *string    `sqlx:"model_override"`
-	ConversationId  *string    `sqlx:"conversation_id"`
-	UserCredUrl     *string    `sqlx:"user_cred_url"`
-	Name            string     `sqlx:"name,required=true"`
-	NextRunAt       *time.Time `sqlx:"next_run_at"`
-	ScheduleType    string     `sqlx:"schedule_type,required=true"`
-	StartAt         *time.Time `sqlx:"start_at"`
-	TaskPrompt      *string    `sqlx:"task_prompt"`
-	TaskPromptUri   *string    `sqlx:"task_prompt_uri"`
-	TimeoutSeconds  int        `sqlx:"timeout_seconds,required=true"`
-	Timezone        string     `sqlx:"timezone,required=true"`
-	UpdatedAt       *time.Time `sqlx:"updated_at"`
+	AgentRef        string     `sqlx:"agent_ref,required=true" json:"agentRef"`
+	CreatedAt       time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	Visibility      string     `sqlx:"visibility,required=true" json:"visibility"`
+	Enabled         bool       `sqlx:"enabled,required=true" json:"enabled"`
+	Id              string     `sqlx:"id,primaryKey=true" json:"id"`
+	Internal        bool       `sqlx:"internal,required=true" json:"internal"`
+	Name            string     `sqlx:"name,required=true" json:"name"`
+	ScheduleType    string     `sqlx:"schedule_type,required=true" json:"scheduleType"`
+	TimeoutSeconds  int        `sqlx:"timeout_seconds,required=true" json:"timeoutSeconds"`
+	Timezone        string     `sqlx:"timezone,required=true" json:"timezone"`
+	Description     *string    `sqlx:"description" json:"description"`
+	CreatedByUserId *string    `sqlx:"created_by_user_id" json:"createdByUserId"`
+	ConversationId  *string    `sqlx:"conversation_id" json:"conversationId"`
+	GoalId          *string    `sqlx:"goal_id" json:"goalId"`
+	ModelOverride   *string    `sqlx:"model_override" json:"modelOverride"`
+	UserCredUrl     *string    `sqlx:"user_cred_url" json:"userCredUrl"`
+	StartAt         *time.Time `sqlx:"start_at" json:"startAt"`
+	EndAt           *time.Time `sqlx:"end_at" json:"endAt"`
+	CronExpr        *string    `sqlx:"cron_expr" json:"cronExpr"`
+	IntervalSeconds *int       `sqlx:"interval_seconds" json:"intervalSeconds"`
+	TaskPromptUri   *string    `sqlx:"task_prompt_uri" json:"taskPromptUri"`
+	TaskPrompt      *string    `sqlx:"task_prompt" json:"taskPrompt"`
+	NextRunAt       *time.Time `sqlx:"next_run_at" json:"nextRunAt"`
+	LastRunAt       *time.Time `sqlx:"last_run_at" json:"lastRunAt"`
+	LastStatus      *string    `sqlx:"last_status" json:"lastStatus"`
+	LastError       *string    `sqlx:"last_error" json:"lastError"`
+	LeaseOwner      *string    `sqlx:"lease_owner" json:"leaseOwner"`
+	LeaseUntil      *time.Time `sqlx:"lease_until" json:"leaseUntil"`
+	UpdatedAt       *time.Time `sqlx:"updated_at" json:"updatedAt"`
 }

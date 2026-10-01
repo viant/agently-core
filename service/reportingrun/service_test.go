@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	reportstore "github.com/viant/agently-core/app/store/reporting"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	authsvc "github.com/viant/agently-core/service/auth"
 )
 
@@ -294,11 +294,11 @@ func TestService_OwnerConversationActivationAndAdoption(t *testing.T) {
 func TestService_AdoptRequiresOwnedCompletedManualRunWithValidSnapshot(t *testing.T) {
 	ownerCtx := authsvc.InjectUser(context.Background(), "owner-1")
 	completedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	validRun := &reportrun.Record{
+	validRun := &reportrunmodel.Record{
 		ReportRunID: "run-1",
 		OwnerID:     "owner-1",
 		Origin:      "manual",
-		Status:      reportrun.StatusCompleted,
+		Status:      reportrunmodel.StatusCompleted,
 		CompletedAt: &completedAt,
 		Revision:    2,
 		ReportSpec:  testSpec,
@@ -307,21 +307,21 @@ func TestService_AdoptRequiresOwnedCompletedManualRunWithValidSnapshot(t *testin
 	}
 	tests := []struct {
 		name   string
-		mutate func(*reportrun.Record)
+		mutate func(*reportrunmodel.Record)
 		want   error
 	}{
-		{name: "foreign owner", mutate: func(run *reportrun.Record) { run.OwnerID = "owner-2" }, want: ErrNotFound},
-		{name: "running", mutate: func(run *reportrun.Record) { run.Status = reportrun.StatusRunning }, want: ErrConflict},
-		{name: "missing completion", mutate: func(run *reportrun.Record) { run.CompletedAt = nil }, want: ErrConflict},
-		{name: "zero completion", mutate: func(run *reportrun.Record) {
+		{name: "foreign owner", mutate: func(run *reportrunmodel.Record) { run.OwnerID = "owner-2" }, want: ErrNotFound},
+		{name: "running", mutate: func(run *reportrunmodel.Record) { run.Status = reportrunmodel.StatusRunning }, want: ErrConflict},
+		{name: "missing completion", mutate: func(run *reportrunmodel.Record) { run.CompletedAt = nil }, want: ErrConflict},
+		{name: "zero completion", mutate: func(run *reportrunmodel.Record) {
 			zero := time.Time{}
 			run.CompletedAt = &zero
 		}, want: ErrConflict},
-		{name: "prompt", mutate: func(run *reportrun.Record) { run.Origin = "prompt" }, want: ErrConflict},
-		{name: "missing spec", mutate: func(run *reportrun.Record) { run.ReportSpec = nil }, want: ErrConflict},
-		{name: "null fill", mutate: func(run *reportrun.Record) { run.ReportFill = []byte(`null`) }, want: ErrConflict},
-		{name: "invalid print", mutate: func(run *reportrun.Record) { run.ReportPrint = []byte(`{`) }, want: ErrConflict},
-		{name: "different conversation", mutate: func(run *reportrun.Record) { run.ConversationID = "conv-other" }, want: ErrNotFound},
+		{name: "prompt", mutate: func(run *reportrunmodel.Record) { run.Origin = "prompt" }, want: ErrConflict},
+		{name: "missing spec", mutate: func(run *reportrunmodel.Record) { run.ReportSpec = nil }, want: ErrConflict},
+		{name: "null fill", mutate: func(run *reportrunmodel.Record) { run.ReportFill = []byte(`null`) }, want: ErrConflict},
+		{name: "invalid print", mutate: func(run *reportrunmodel.Record) { run.ReportPrint = []byte(`{`) }, want: ErrConflict},
+		{name: "different conversation", mutate: func(run *reportrunmodel.Record) { run.ConversationID = "conv-other" }, want: ErrNotFound},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -329,11 +329,11 @@ func TestService_AdoptRequiresOwnedCompletedManualRunWithValidSnapshot(t *testin
 			test.mutate(run)
 			adoptCalled := false
 			store := &adoptionRunClient{
-				getRun: func(context.Context, string) (*reportrun.Record, error) { return run, nil },
-				getContext: func(context.Context, string) (*reportcontext.Record, error) {
+				getRun: func(context.Context, string) (*reportrunmodel.Record, error) { return run, nil },
+				getContext: func(context.Context, string) (*reportcontextmodel.Record, error) {
 					return nil, reportstore.ErrNotFound
 				},
-				adopt: func(context.Context, *reportrun.Record, int64, *reportcontext.Record, int64) error {
+				adopt: func(context.Context, *reportrunmodel.Record, int64, *reportcontextmodel.Record, int64) error {
 					adoptCalled = true
 					return nil
 				},
@@ -356,22 +356,28 @@ func TestService_AdoptIdempotentSuccessRevalidatesFullState(t *testing.T) {
 	validRun, validContext := validAdoptionState()
 	tests := []struct {
 		name   string
-		mutate func(*reportrun.Record, *reportcontext.Record)
+		mutate func(*reportrunmodel.Record, *reportcontextmodel.Record)
 		want   error
 	}{
-		{name: "run owner", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.OwnerID = "owner-2" }, want: ErrNotFound},
-		{name: "run status", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.Status = reportrun.StatusRunning }, want: ErrNotFound},
-		{name: "missing completion", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.CompletedAt = nil }, want: ErrNotFound},
-		{name: "zero completion", mutate: func(run *reportrun.Record, _ *reportcontext.Record) {
+		{name: "run owner", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) { run.OwnerID = "owner-2" }, want: ErrNotFound},
+		{name: "run status", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) {
+			run.Status = reportrunmodel.StatusRunning
+		}, want: ErrNotFound},
+		{name: "missing completion", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) { run.CompletedAt = nil }, want: ErrNotFound},
+		{name: "zero completion", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) {
 			zero := time.Time{}
 			run.CompletedAt = &zero
 		}, want: ErrNotFound},
-		{name: "run origin", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.Origin = "prompt" }, want: ErrNotFound},
-		{name: "run snapshot", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.ReportSpec = []byte(`null`) }, want: ErrNotFound},
-		{name: "run conversation", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.ConversationID = "conv-other" }, want: ErrNotFound},
-		{name: "active pointer", mutate: func(_ *reportrun.Record, reportCtx *reportcontext.Record) { reportCtx.ActiveReportRunID = "run-other" }, want: ErrNotFound},
-		{name: "context owner", mutate: func(_ *reportrun.Record, reportCtx *reportcontext.Record) { reportCtx.OwnerID = "owner-2" }, want: ErrNotFound},
-		{name: "context conversation", mutate: func(_ *reportrun.Record, reportCtx *reportcontext.Record) { reportCtx.ConversationID = "conv-other" }, want: ErrNotFound},
+		{name: "run origin", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) { run.Origin = "prompt" }, want: ErrNotFound},
+		{name: "run snapshot", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) { run.ReportSpec = []byte(`null`) }, want: ErrNotFound},
+		{name: "run conversation", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) { run.ConversationID = "conv-other" }, want: ErrNotFound},
+		{name: "active pointer", mutate: func(_ *reportrunmodel.Record, reportCtx *reportcontextmodel.Record) {
+			reportCtx.ActiveReportRunID = "run-other"
+		}, want: ErrNotFound},
+		{name: "context owner", mutate: func(_ *reportrunmodel.Record, reportCtx *reportcontextmodel.Record) { reportCtx.OwnerID = "owner-2" }, want: ErrNotFound},
+		{name: "context conversation", mutate: func(_ *reportrunmodel.Record, reportCtx *reportcontextmodel.Record) {
+			reportCtx.ConversationID = "conv-other"
+		}, want: ErrNotFound},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -379,8 +385,8 @@ func TestService_AdoptIdempotentSuccessRevalidatesFullState(t *testing.T) {
 			reportCtx := cloneContext(validContext)
 			test.mutate(run, reportCtx)
 			service := New(Options{Store: &adoptionRunClient{
-				getRun:     func(context.Context, string) (*reportrun.Record, error) { return run, nil },
-				getContext: func(context.Context, string) (*reportcontext.Record, error) { return reportCtx, nil },
+				getRun:     func(context.Context, string) (*reportrunmodel.Record, error) { return run, nil },
+				getContext: func(context.Context, string) (*reportcontextmodel.Record, error) { return reportCtx, nil },
 			}})
 			_, err := service.Adopt(ownerCtx, &AdoptInput{ReportRunID: "run-1", ConversationID: "conv-1"})
 			require.ErrorIs(t, err, test.want)
@@ -404,10 +410,10 @@ func TestService_AdoptIdempotentContextReadErrors(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			service := New(Options{Store: &adoptionRunClient{
-				getRun: func(context.Context, string) (*reportrun.Record, error) {
+				getRun: func(context.Context, string) (*reportrunmodel.Record, error) {
 					return cloneRun(validRun), nil
 				},
-				getContext: func(context.Context, string) (*reportcontext.Record, error) {
+				getContext: func(context.Context, string) (*reportcontextmodel.Record, error) {
 					return nil, test.contextErr
 				},
 			}})
@@ -425,22 +431,28 @@ func TestService_AdoptCASReloadSuccessRevalidatesFullState(t *testing.T) {
 	validReloadedRun, validReloadedContext := validAdoptionState()
 	tests := []struct {
 		name   string
-		mutate func(*reportrun.Record, *reportcontext.Record)
+		mutate func(*reportrunmodel.Record, *reportcontextmodel.Record)
 	}{
-		{name: "valid", mutate: func(*reportrun.Record, *reportcontext.Record) {}},
-		{name: "run owner", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.OwnerID = "owner-2" }},
-		{name: "run status", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.Status = reportrun.StatusRunning }},
-		{name: "missing completion", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.CompletedAt = nil }},
-		{name: "zero completion", mutate: func(run *reportrun.Record, _ *reportcontext.Record) {
+		{name: "valid", mutate: func(*reportrunmodel.Record, *reportcontextmodel.Record) {}},
+		{name: "run owner", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) { run.OwnerID = "owner-2" }},
+		{name: "run status", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) {
+			run.Status = reportrunmodel.StatusRunning
+		}},
+		{name: "missing completion", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) { run.CompletedAt = nil }},
+		{name: "zero completion", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) {
 			zero := time.Time{}
 			run.CompletedAt = &zero
 		}},
-		{name: "run origin", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.Origin = "prompt" }},
-		{name: "run snapshot", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.ReportPrint = []byte(`null`) }},
-		{name: "run conversation", mutate: func(run *reportrun.Record, _ *reportcontext.Record) { run.ConversationID = "conv-other" }},
-		{name: "active pointer", mutate: func(_ *reportrun.Record, reportCtx *reportcontext.Record) { reportCtx.ActiveReportRunID = "run-other" }},
-		{name: "context owner", mutate: func(_ *reportrun.Record, reportCtx *reportcontext.Record) { reportCtx.OwnerID = "owner-2" }},
-		{name: "context conversation", mutate: func(_ *reportrun.Record, reportCtx *reportcontext.Record) { reportCtx.ConversationID = "conv-other" }},
+		{name: "run origin", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) { run.Origin = "prompt" }},
+		{name: "run snapshot", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) { run.ReportPrint = []byte(`null`) }},
+		{name: "run conversation", mutate: func(run *reportrunmodel.Record, _ *reportcontextmodel.Record) { run.ConversationID = "conv-other" }},
+		{name: "active pointer", mutate: func(_ *reportrunmodel.Record, reportCtx *reportcontextmodel.Record) {
+			reportCtx.ActiveReportRunID = "run-other"
+		}},
+		{name: "context owner", mutate: func(_ *reportrunmodel.Record, reportCtx *reportcontextmodel.Record) { reportCtx.OwnerID = "owner-2" }},
+		{name: "context conversation", mutate: func(_ *reportrunmodel.Record, reportCtx *reportcontextmodel.Record) {
+			reportCtx.ConversationID = "conv-other"
+		}},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -450,21 +462,21 @@ func TestService_AdoptCASReloadSuccessRevalidatesFullState(t *testing.T) {
 			runReads := 0
 			contextReads := 0
 			service := New(Options{Store: &adoptionRunClient{
-				getRun: func(context.Context, string) (*reportrun.Record, error) {
+				getRun: func(context.Context, string) (*reportrunmodel.Record, error) {
 					runReads++
 					if runReads == 1 {
 						return cloneRun(initial), nil
 					}
 					return reloadedRun, nil
 				},
-				getContext: func(context.Context, string) (*reportcontext.Record, error) {
+				getContext: func(context.Context, string) (*reportcontextmodel.Record, error) {
 					contextReads++
 					if contextReads == 1 {
 						return nil, reportstore.ErrNotFound
 					}
 					return reloadedContext, nil
 				},
-				adopt: func(context.Context, *reportrun.Record, int64, *reportcontext.Record, int64) error {
+				adopt: func(context.Context, *reportrunmodel.Record, int64, *reportcontextmodel.Record, int64) error {
 					return reportstore.ErrCASMismatch
 				},
 			}})
@@ -493,9 +505,9 @@ func TestService_AdoptCASReloadErrors(t *testing.T) {
 	backendErr := errors.New("reload backend unavailable")
 	tests := []struct {
 		name            string
-		reloadedRun     *reportrun.Record
+		reloadedRun     *reportrunmodel.Record
 		runErr          error
-		reloadedContext *reportcontext.Record
+		reloadedContext *reportcontextmodel.Record
 		contextErr      error
 		want            error
 	}{
@@ -511,21 +523,21 @@ func TestService_AdoptCASReloadErrors(t *testing.T) {
 			runReads := 0
 			contextReads := 0
 			service := New(Options{Store: &adoptionRunClient{
-				getRun: func(context.Context, string) (*reportrun.Record, error) {
+				getRun: func(context.Context, string) (*reportrunmodel.Record, error) {
 					runReads++
 					if runReads == 1 {
 						return cloneRun(initial), nil
 					}
 					return cloneRun(test.reloadedRun), test.runErr
 				},
-				getContext: func(context.Context, string) (*reportcontext.Record, error) {
+				getContext: func(context.Context, string) (*reportcontextmodel.Record, error) {
 					contextReads++
 					if contextReads == 1 {
 						return nil, reportstore.ErrNotFound
 					}
 					return cloneContext(test.reloadedContext), test.contextErr
 				},
-				adopt: func(context.Context, *reportrun.Record, int64, *reportcontext.Record, int64) error {
+				adopt: func(context.Context, *reportrunmodel.Record, int64, *reportcontextmodel.Record, int64) error {
 					return reportstore.ErrCASMismatch
 				},
 			}})
@@ -541,20 +553,20 @@ func TestService_AdoptCASReloadErrors(t *testing.T) {
 	}
 }
 
-func validAdoptionState() (*reportrun.Record, *reportcontext.Record) {
+func validAdoptionState() (*reportrunmodel.Record, *reportcontextmodel.Record) {
 	completedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	return &reportrun.Record{
+	return &reportrunmodel.Record{
 		ReportRunID:    "run-1",
 		OwnerID:        "owner-1",
 		ConversationID: "conv-1",
 		Origin:         "manual",
-		Status:         reportrun.StatusCompleted,
+		Status:         reportrunmodel.StatusCompleted,
 		CompletedAt:    &completedAt,
 		Revision:       3,
 		ReportSpec:     testSpec,
 		ReportFill:     testFill,
 		ReportPrint:    testPrint,
-	}, &reportcontext.Record{
+	}, &reportcontextmodel.Record{
 		OwnerID:           "owner-1",
 		ConversationID:    "conv-1",
 		ActiveReportRunID: "run-1",
@@ -564,20 +576,20 @@ func validAdoptionState() (*reportrun.Record, *reportcontext.Record) {
 
 type adoptionRunClient struct {
 	reportstore.RunClient
-	getRun     func(context.Context, string) (*reportrun.Record, error)
-	getContext func(context.Context, string) (*reportcontext.Record, error)
-	adopt      func(context.Context, *reportrun.Record, int64, *reportcontext.Record, int64) error
+	getRun     func(context.Context, string) (*reportrunmodel.Record, error)
+	getContext func(context.Context, string) (*reportcontextmodel.Record, error)
+	adopt      func(context.Context, *reportrunmodel.Record, int64, *reportcontextmodel.Record, int64) error
 }
 
-func (s *adoptionRunClient) GetReportRun(ctx context.Context, reportRunID string) (*reportrun.Record, error) {
+func (s *adoptionRunClient) GetReportRun(ctx context.Context, reportRunID string) (*reportrunmodel.Record, error) {
 	return s.getRun(ctx, reportRunID)
 }
 
-func (s *adoptionRunClient) GetConversationReportContext(ctx context.Context, conversationID string) (*reportcontext.Record, error) {
+func (s *adoptionRunClient) GetConversationReportContext(ctx context.Context, conversationID string) (*reportcontextmodel.Record, error) {
 	return s.getContext(ctx, conversationID)
 }
 
-func (s *adoptionRunClient) AdoptReportRunAndContextCAS(ctx context.Context, run *reportrun.Record, expectedRunRevision int64, reportCtx *reportcontext.Record, expectedContextRevision int64) error {
+func (s *adoptionRunClient) AdoptReportRunAndContextCAS(ctx context.Context, run *reportrunmodel.Record, expectedRunRevision int64, reportCtx *reportcontextmodel.Record, expectedContextRevision int64) error {
 	return s.adopt(ctx, run, expectedRunRevision, reportCtx, expectedContextRevision)
 }
 
@@ -597,7 +609,7 @@ func TestService_WaitTerminalCompletedAndFailed(t *testing.T) {
 	owner := authsvc.InjectUser(context.Background(), "owner-1")
 
 	completedRun := begin(t, service, owner, "wait-completed", "conv-1", "prompt")
-	completedResult := make(chan *reportrun.Record, 1)
+	completedResult := make(chan *reportrunmodel.Record, 1)
 	completedErr := make(chan error, 1)
 	go func() {
 		result, err := service.WaitTerminal(owner, completedRun.Run.ReportRunID, "conv-1")
@@ -608,11 +620,11 @@ func TestService_WaitTerminalCompletedAndFailed(t *testing.T) {
 	require.NoError(t, <-completedErr)
 	completed := <-completedResult
 	require.Equal(t, completedRun.Run.ReportRunID, completed.ReportRunID)
-	require.Equal(t, reportrun.StatusCompleted, completed.Status)
+	require.Equal(t, reportrunmodel.StatusCompleted, completed.Status)
 	require.Equal(t, int64(2), completed.Revision)
 
 	failedRun := begin(t, service, owner, "wait-failed", "conv-1", "prompt")
-	failedResult := make(chan *reportrun.Record, 1)
+	failedResult := make(chan *reportrunmodel.Record, 1)
 	failedErr := make(chan error, 1)
 	go func() {
 		result, err := service.WaitTerminal(owner, failedRun.Run.ReportRunID, "conv-1")
@@ -630,7 +642,7 @@ func TestService_WaitTerminalCompletedAndFailed(t *testing.T) {
 	require.NoError(t, <-failedErr)
 	failed := <-failedResult
 	require.Equal(t, failedRun.Run.ReportRunID, failed.ReportRunID)
-	require.Equal(t, reportrun.StatusFailed, failed.Status)
+	require.Equal(t, reportrunmodel.StatusFailed, failed.Status)
 	require.Equal(t, int64(2), failed.Revision)
 }
 

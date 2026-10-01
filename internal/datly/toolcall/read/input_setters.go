@@ -28,17 +28,6 @@ func (input *ToolCallsInput) SetReadMode(value string) {
 	input.Has.ReadMode = true
 }
 
-func (input *ToolCallsInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &ToolCallsInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *ToolCallsInput) SetVisibilitySubject(value *string) {
 	if input == nil {
 		return

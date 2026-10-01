@@ -10,12 +10,12 @@ import (
 type TokenView struct {
 	EncToken      string     `internal:"true" sqlx:"enc_token,required=true"`
 	DbNow         string     `internal:"true" sqlx:"db_now"`
-	CreatedAt     time.Time  `sqlx:"created_at,required=true"`
-	Provider      string     `sqlx:"provider,required=true,primaryKey=true"`
-	UpdatedAt     *time.Time `sqlx:"updated_at"`
-	UserId        string     `sqlx:"user_id,refTable=users,refColumn=id,required=true,primaryKey=true"`
-	Version       int64      `sqlx:"version,required=true"`
-	LeaseOwner    *string    `sqlx:"lease_owner"`
-	LeaseUntil    *time.Time `sqlx:"lease_until"`
-	RefreshStatus string     `sqlx:"refresh_status,required=true"`
+	CreatedAt     time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	Provider      string     `sqlx:"provider,required=true,primaryKey=true" json:"provider"`
+	UserId        string     `sqlx:"user_id,refTable=users,refColumn=id,required=true,primaryKey=true" json:"userId"`
+	Version       int64      `sqlx:"version,required=true" json:"version"`
+	RefreshStatus string     `sqlx:"refresh_status,required=true" json:"refreshStatus"`
+	UpdatedAt     *time.Time `sqlx:"updated_at" json:"updatedAt"`
+	LeaseOwner    *string    `sqlx:"lease_owner" json:"leaseOwner"`
+	LeaseUntil    *time.Time `sqlx:"lease_until" json:"leaseUntil"`
 }

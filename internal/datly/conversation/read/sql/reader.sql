@@ -1,6 +1,39 @@
-SELECT conversation.created_at_raw, conversation.activity_raw, conversation.last_turn_id, conversation.stage, conversation.list_mode, conversation.id, conversation.summary, conversation.last_activity, conversation.usage_input_tokens, conversation.usage_output_tokens, conversation.usage_embedding_tokens, conversation.created_at, conversation.updated_at, conversation.created_by_user_id, conversation.agent_id, conversation.default_model_provider, conversation.default_model, conversation.default_model_params, conversation.title, conversation.conversation_parent_id, conversation.conversation_parent_turn_id, conversation.metadata, conversation.visibility, conversation.shareable, CASE WHEN $ListMode AND conversation.latest_turn_status IN ('completed','success','done') THEN 'succeeded'
+SELECT * FROM  (
+SELECT conversation.created_at_raw,
+       conversation.activity_raw,
+       conversation.last_turn_id,
+       conversation.stage,
+       conversation.list_mode,
+       conversation.id,
+       conversation.summary,
+       conversation.last_activity,
+       conversation.usage_input_tokens,
+       conversation.usage_output_tokens,
+       conversation.usage_embedding_tokens,
+       conversation.created_at,
+       conversation.updated_at,
+       conversation.created_by_user_id,
+       conversation.agent_id,
+       conversation.default_model_provider,
+       conversation.default_model,
+       conversation.default_model_params,
+       conversation.title,
+       conversation.conversation_parent_id,
+       conversation.conversation_parent_turn_id,
+       conversation.metadata,
+       conversation.visibility,
+       conversation.shareable,
+       conversation.scheduled,
+       conversation.schedule_id,
+       conversation.schedule_run_id,
+       conversation.schedule_kind,
+       conversation.schedule_timezone,
+       conversation.schedule_cron_expr,
+       conversation.external_task_ref,
+       CASE WHEN $ListMode AND conversation.latest_turn_status IN ('completed','success','done') THEN 'succeeded'
             WHEN $ListMode AND conversation.latest_turn_status <> '' THEN conversation.latest_turn_status
-            ELSE conversation.status END AS status, conversation.scheduled, conversation.schedule_id, conversation.schedule_run_id, conversation.schedule_kind, conversation.schedule_timezone, conversation.schedule_cron_expr, conversation.external_task_ref FROM  (
+            ELSE conversation.status END AS status
+FROM (
 SELECT t.*,CAST(t.created_at AS CHAR) AS created_at_raw,CAST(COALESCE(t.last_activity,t.updated_at,t.created_at) AS CHAR) AS activity_raw,
           (SELECT LOWER(COALESCE(z.status,'')) FROM turn z WHERE z.conversation_id=t.id ORDER BY z.created_at DESC,z.id DESC LIMIT 1) AS latest_turn_status,
           (SELECT id
@@ -32,7 +65,7 @@ SELECT t.*,CAST(t.created_at AS CHAR) AS created_at_raw,CAST(COALESCE(t.last_act
     AND (${View.TimestampSecondsUTC("COALESCE(t.last_activity,t.updated_at,t.created_at)")} > $MaintenanceAfterActivity OR (${View.TimestampSecondsUTC("COALESCE(t.last_activity,t.updated_at,t.created_at)")} = $MaintenanceAfterActivity AND (${View.TimestampNanoseconds("COALESCE(t.last_activity,t.updated_at,t.created_at)")} > $MaintenanceAfterNano OR (${View.TimestampNanoseconds("COALESCE(t.last_activity,t.updated_at,t.created_at)")} = $MaintenanceAfterNano AND t.id>$MaintenanceAfterRootId))))
     #end
     #end
-    ORDER BY CASE WHEN $LockRows THEN t.id END ASC,
+    ORDER BY 
       
     #if($MaintenanceMode)
        ${View.TimestampSecondsUTC("COALESCE(t.last_activity,t.updated_at,t.created_at)")} ASC,${View.TimestampNanoseconds("COALESCE(t.last_activity,t.updated_at,t.created_at)")} ASC,
@@ -42,5 +75,5 @@ SELECT t.*,CAST(t.created_at AS CHAR) AS created_at_raw,CAST(COALESCE(t.last_act
              CASE WHEN $ListMode AND NOT $ListAscending THEN COALESCE(t.last_activity,t.updated_at,t.created_at) END DESC,
              CASE WHEN $ListMode AND $ListAscending THEN t.id END ASC,
              t.id DESC
-    #if($LockRows) ${View.ForUpdate()} #end  
+) conversation
 )  conversation

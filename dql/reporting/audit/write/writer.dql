@@ -14,25 +14,19 @@
 #define($_ = $Events<[]*AuditEvent>(body/data))
 #define($_ = $Data<[]*AuditEvent>(output/body))
 
-SELECT data_rows.event_id, data_rows.should_delete,
-       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:"shouldDelete,omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'ignore'),
-       data_rows.event_type, data_rows.artifact_ref, data_rows.version,
-       data_rows.job_id, data_rows.artifact_id, data_rows.actor_id, data_rows.actor_ref,
-       data_rows.occurred_at, data_rows.metadata_json,
-       type(data_rows,'AuditEvent'), lifecycle_type(data_rows,'Lifecycle'), mutation_predicate(data_rows,7),
-       CAST(data_rows.event_id AS string), tag(data_rows.event_id,'sqlx:"event_id,primaryKey=true,required=true"'),
-       CAST(data_rows.event_type AS string), tag(data_rows.event_type,'sqlx:"event_type,required=true"'),
-       CAST(data_rows.artifact_ref AS string), tag(data_rows.artifact_ref,'sqlx:"artifact_ref,required=true"'),
-       CAST(data_rows.version AS int64), tag(data_rows.version,'sqlx:"version,required=true"'),
-       CAST(data_rows.job_id AS *string), tag(data_rows.job_id,'sqlx:"job_id"'),
-       CAST(data_rows.artifact_id AS *string), tag(data_rows.artifact_id,'sqlx:"artifact_id"'),
-       CAST(data_rows.actor_id AS string), tag(data_rows.actor_id,'sqlx:"actor_id,required=true"'),
-       CAST(data_rows.actor_ref AS *string), tag(data_rows.actor_ref,'sqlx:"actor_ref"'),
-       CAST(data_rows.occurred_at AS *time.Time), tag(data_rows.occurred_at,'sqlx:"occurred_at,required=true"'),
-       CAST(data_rows.metadata_json AS []byte), tag(data_rows.metadata_json,'sqlx:"metadata_json"')
-FROM (
-    SELECT 0 AS should_delete, event_id, event_type, artifact_ref,
-           version, job_id, artifact_id, actor_id, actor_ref,
-           occurred_at, metadata_json
-    FROM report_audit_event
-) data_rows
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'AuditEvent'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,7),
+       required(t.event_id),
+       tag(t.event_id,'sqlx:"event_id,primaryKey=true,required=true"'),
+       required(t.event_type),
+       required(t.artifact_ref),
+       CAST(t.version AS int64),
+       required(t.actor_id),
+       CAST(t.metadata_json AS []byte)
+FROM (${embed:sql/audit.sql}) t

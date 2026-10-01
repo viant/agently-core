@@ -12,7 +12,7 @@ import (
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -45,9 +45,9 @@ func TestMaybeContinueActiveGoal_SchedulesWakeupWhenControllerRequestsDelay(t *t
 	ctx := context.Background()
 	dataSvc, err := data.NewThinServiceInMemory(ctx)
 	require.NoError(t, err)
-	convRow := convw.NewMutableConversationView(convw.WithConversationID("conv-wakeup"))
+	convRow := conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-wakeup"))
 	convRow.SetAgentId("coder")
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{convRow})
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{convRow})
 	require.NoError(t, err)
 
 	spec, err := (&goalsys.ControllerSpec{
@@ -113,9 +113,9 @@ features:
 	ctx := context.Background()
 	dataSvc, err := data.NewThinServiceInMemory(ctx)
 	require.NoError(t, err)
-	convRow := convw.NewMutableConversationView(convw.WithConversationID("conv-wakeup"))
+	convRow := conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-wakeup"))
 	convRow.SetAgentId("coder")
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{convRow})
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{convRow})
 	require.NoError(t, err)
 
 	spec, err := (&goalsys.ControllerSpec{
@@ -164,8 +164,8 @@ features:
 	ctx := context.Background()
 	dataSvc, err := data.NewThinServiceInMemory(ctx)
 	require.NoError(t, err)
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{
-		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{
+		conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-goal")),
 	})
 	require.NoError(t, err)
 

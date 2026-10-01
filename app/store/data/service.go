@@ -10,33 +10,16 @@ import (
 	"github.com/viant/agently-core/internal/sqlitewrite"
 	agentrun "github.com/viant/agently-core/internal/store/agentrun"
 	convstore "github.com/viant/agently-core/internal/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
-	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	agmessage "github.com/viant/agently-core/pkg/agently/message"
-	elicitationmsg "github.com/viant/agently-core/pkg/agently/message/elicitation"
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
-	agmessagewrite "github.com/viant/agently-core/pkg/agently/message/write"
-	agmodelcallwrite "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	agpayload "github.com/viant/agently-core/pkg/agently/payload"
-	agpayloadwrite "github.com/viant/agently-core/pkg/agently/payload/write"
-	agrun "github.com/viant/agently-core/pkg/agently/run"
-	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
-	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
-	agrunsteps "github.com/viant/agently-core/pkg/agently/run/steps"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	agtoolcall "github.com/viant/agently-core/pkg/agently/toolcall/byOp"
-	agtoolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
-	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
-	agturnlistall "github.com/viant/agently-core/pkg/agently/turn/list"
-	agturnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
-	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
-	agturnlist "github.com/viant/agently-core/pkg/agently/turn/queuedList"
-	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
-	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
-	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
+	messagemodel "github.com/viant/agently-core/model/message"
+	modelcallmodel "github.com/viant/agently-core/model/modelcall"
+	payloadmodel "github.com/viant/agently-core/model/payload"
+	runmodel "github.com/viant/agently-core/model/run"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnmodel "github.com/viant/agently-core/model/turn"
+	turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
+
 	dexec "github.com/viant/datly/exec"
 )
 
@@ -54,36 +37,36 @@ var ErrInvalidMaintenanceLease = errors.New("invalid maintenance lease request")
 
 // Service is a thin facade over generated Datly read components.
 type Service interface {
-	GetConversation(ctx context.Context, id string, in *agconv.ConversationInput, opts ...Option) (*agconv.ConversationView, error)
-	ListConversations(ctx context.Context, in *agconvlist.ConversationRowsInput, page *PageInput, opts ...Option) (*ConversationPage, error)
-	GetMessage(ctx context.Context, id string, in *agmessage.MessageInput, opts ...Option) (*agmessage.MessageView, error)
-	GetMessagesPage(ctx context.Context, in *agmessagelist.MessageRowsInput, page *PageInput, opts ...Option) (*MessagePage, error)
-	GetMessageByElicitation(ctx context.Context, conversationID, elicitationID string, opts ...Option) (*elicitationmsg.MessageView, error)
+	GetConversation(ctx context.Context, id string, in *conversationmodel.ConversationInput, opts ...Option) (*conversationmodel.ConversationView, error)
+	ListConversations(ctx context.Context, in *conversationmodel.ConversationRowsInput, page *PageInput, opts ...Option) (*ConversationPage, error)
+	GetMessage(ctx context.Context, id string, in *messagemodel.MessageInput, opts ...Option) (*messagemodel.MessageView, error)
+	GetMessagesPage(ctx context.Context, in *messagemodel.MessageRowsInput, page *PageInput, opts ...Option) (*MessagePage, error)
+	GetMessageByElicitation(ctx context.Context, conversationID, elicitationID string, opts ...Option) (*messagemodel.ElicitationMessageView, error)
 
-	GetRun(ctx context.Context, id string, in *agrun.RunRowsInput, opts ...Option) (*agrun.RunRowsView, error)
-	GetRunStepsPage(ctx context.Context, in *agrunsteps.RunStepsInput, page *PageInput, opts ...Option) (*RunStepPage, error)
-	GetActiveRun(ctx context.Context, in *agrunactive.ActiveRunsInput, opts ...Option) (*agrunactive.ActiveRunsView, error)
-	ListStaleRuns(ctx context.Context, in *agrunstale.StaleRunsInput, opts ...Option) ([]*agrunstale.StaleRunsView, error)
+	GetRun(ctx context.Context, id string, in *runmodel.RunRowsInput, opts ...Option) (*runmodel.RunRowsView, error)
+	GetRunStepsPage(ctx context.Context, in *runmodel.RunStepsInput, page *PageInput, opts ...Option) (*RunStepPage, error)
+	GetActiveRun(ctx context.Context, in *runmodel.ActiveRunsInput, opts ...Option) (*runmodel.ActiveRunsView, error)
+	ListStaleRuns(ctx context.Context, in *runmodel.StaleRunsInput, opts ...Option) ([]*runmodel.StaleRunsView, error)
 
-	GetActiveTurn(ctx context.Context, in *agturnactive.ActiveTurnsInput, opts ...Option) (*agturnactive.ActiveTurnsView, error)
-	GetTurnByID(ctx context.Context, in *agturnbyid.TurnLookupInput, opts ...Option) (*agturnbyid.TurnLookupView, error)
-	GetTurnsPage(ctx context.Context, in *agturnlistall.TurnRowsInput, page *PageInput, opts ...Option) (*TurnPage, error)
-	GetNextQueuedTurn(ctx context.Context, in *agturnnext.QueuedTurnInput, opts ...Option) (*agturnnext.QueuedTurnView, error)
-	ListQueuedTurns(ctx context.Context, in *agturnlist.QueuedTurnsInput, opts ...Option) ([]*agturnlist.QueuedTurnsView, error)
-	CountQueuedTurns(ctx context.Context, in *agturncount.QueuedTotalInput, opts ...Option) (int, error)
+	GetActiveTurn(ctx context.Context, in *turnmodel.ActiveTurnsInput, opts ...Option) (*turnmodel.ActiveTurnsView, error)
+	GetTurnByID(ctx context.Context, in *turnmodel.TurnLookupInput, opts ...Option) (*turnmodel.TurnLookupView, error)
+	GetTurnsPage(ctx context.Context, in *turnmodel.TurnRowsInput, page *PageInput, opts ...Option) (*TurnPage, error)
+	GetNextQueuedTurn(ctx context.Context, in *turnmodel.QueuedTurnInput, opts ...Option) (*turnmodel.QueuedTurnView, error)
+	ListQueuedTurns(ctx context.Context, in *turnmodel.QueuedTurnsInput, opts ...Option) ([]*turnmodel.QueuedTurnsView, error)
+	CountQueuedTurns(ctx context.Context, in *turnmodel.QueuedTotalInput, opts ...Option) (int, error)
 
-	GetToolCallByOp(ctx context.Context, opID string, in *agtoolcall.ToolCallRowsInput, opts ...Option) ([]*agtoolcall.ToolCallRowsView, error)
-	ListPayloadRows(ctx context.Context, in *agpayload.PayloadRowsInput, opts ...Option) ([]*agpayload.PayloadRowsView, error)
+	GetToolCallByOp(ctx context.Context, opID string, in *toolcallmodel.ToolCallByOpInput, opts ...Option) ([]*toolcallmodel.ToolCallByOpView, error)
+	ListPayloadRows(ctx context.Context, in *payloadmodel.PayloadRowsInput, opts ...Option) ([]*payloadmodel.PayloadRowsView, error)
 
-	ListGeneratedFiles(ctx context.Context, conversationID string, opts ...Option) ([]*gfread.GeneratedFileView, error)
+	ListGeneratedFiles(ctx context.Context, conversationID string, opts ...Option) ([]*generatedfilemodel.GeneratedFileView, error)
 
-	PatchConversations(ctx context.Context, rows []*agconvwrite.MutableConversationView) ([]*agconvwrite.MutableConversationView, error)
-	PatchMessages(ctx context.Context, rows []*agmessagewrite.MutableMessageView) ([]*agmessagewrite.MutableMessageView, error)
-	PatchTurns(ctx context.Context, rows []*agturnwrite.MutableTurnView) ([]*agturnwrite.MutableTurnView, error)
-	PatchModelCalls(ctx context.Context, rows []*agmodelcallwrite.MutableModelCallView) ([]*agmodelcallwrite.MutableModelCallView, error)
-	PatchToolCalls(ctx context.Context, rows []*agtoolcallwrite.MutableToolCallView) ([]*agtoolcallwrite.MutableToolCallView, error)
-	PatchPayloads(ctx context.Context, rows []*agpayloadwrite.MutablePayloadView) ([]*agpayloadwrite.MutablePayloadView, error)
-	PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error)
+	PatchConversations(ctx context.Context, rows []*conversationmodel.MutableConversationView) ([]*conversationmodel.MutableConversationView, error)
+	PatchMessages(ctx context.Context, rows []*messagemodel.MutableMessageView) ([]*messagemodel.MutableMessageView, error)
+	PatchTurns(ctx context.Context, rows []*turnmodel.MutableTurnView) ([]*turnmodel.MutableTurnView, error)
+	PatchModelCalls(ctx context.Context, rows []*modelcallmodel.MutableModelCallView) ([]*modelcallmodel.MutableModelCallView, error)
+	PatchToolCalls(ctx context.Context, rows []*toolcallmodel.MutableToolCallView) ([]*toolcallmodel.MutableToolCallView, error)
+	PatchPayloads(ctx context.Context, rows []*payloadmodel.MutablePayloadView) ([]*payloadmodel.MutablePayloadView, error)
+	PatchRuns(ctx context.Context, rows []*runmodel.MutableRunView) ([]*runmodel.MutableRunView, error)
 
 	DeleteConversations(ctx context.Context, ids ...string) error
 	DeleteConversationTree(ctx context.Context, ids ...string) error
@@ -155,63 +138,63 @@ func NewService(invoker dexec.ComponentInvoker, opts ...ServiceOption) Service {
 	return service
 }
 
-func (s *datlyService) GetConversation(ctx context.Context, id string, in *agconv.ConversationInput, opts ...Option) (*agconv.ConversationView, error) {
+func (s *datlyService) GetConversation(ctx context.Context, id string, in *conversationmodel.ConversationInput, opts ...Option) (*conversationmodel.ConversationView, error) {
 	return s.getConversationNative(ctx, id, in, collectOptions(opts))
 }
 
-func (s *datlyService) GetMessage(ctx context.Context, id string, in *agmessage.MessageInput, opts ...Option) (*agmessage.MessageView, error) {
+func (s *datlyService) GetMessage(ctx context.Context, id string, in *messagemodel.MessageInput, opts ...Option) (*messagemodel.MessageView, error) {
 	return s.getMessageNative(ctx, id, in, collectOptions(opts))
 }
 
-func (s *datlyService) GetMessageByElicitation(ctx context.Context, conversationID, elicitationID string, opts ...Option) (*elicitationmsg.MessageView, error) {
+func (s *datlyService) GetMessageByElicitation(ctx context.Context, conversationID, elicitationID string, opts ...Option) (*messagemodel.ElicitationMessageView, error) {
 	return s.getMessageByElicitationNative(ctx, conversationID, elicitationID, collectOptions(opts))
 }
 
-func (s *datlyService) GetRun(ctx context.Context, id string, in *agrun.RunRowsInput, opts ...Option) (*agrun.RunRowsView, error) {
+func (s *datlyService) GetRun(ctx context.Context, id string, in *runmodel.RunRowsInput, opts ...Option) (*runmodel.RunRowsView, error) {
 	return s.getRunNative(ctx, id, in, collectOptions(opts))
 }
 
-func (s *datlyService) GetActiveRun(ctx context.Context, in *agrunactive.ActiveRunsInput, opts ...Option) (*agrunactive.ActiveRunsView, error) {
+func (s *datlyService) GetActiveRun(ctx context.Context, in *runmodel.ActiveRunsInput, opts ...Option) (*runmodel.ActiveRunsView, error) {
 	return s.getActiveRunNative(ctx, in, collectOptions(opts))
 }
 
-func (s *datlyService) ListStaleRuns(ctx context.Context, in *agrunstale.StaleRunsInput, opts ...Option) ([]*agrunstale.StaleRunsView, error) {
+func (s *datlyService) ListStaleRuns(ctx context.Context, in *runmodel.StaleRunsInput, opts ...Option) ([]*runmodel.StaleRunsView, error) {
 	return s.listStaleRunsNative(ctx, in, collectOptions(opts))
 }
 
-func (s *datlyService) GetActiveTurn(ctx context.Context, in *agturnactive.ActiveTurnsInput, opts ...Option) (*agturnactive.ActiveTurnsView, error) {
+func (s *datlyService) GetActiveTurn(ctx context.Context, in *turnmodel.ActiveTurnsInput, opts ...Option) (*turnmodel.ActiveTurnsView, error) {
 	rows, err := s.readTurnNative(ctx, "active", in, collectOptions(opts))
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
-	return mapDataDTO[agturnactive.ActiveTurnsView](rows[0])
+	return mapDataDTO[turnmodel.ActiveTurnsView](rows[0])
 }
 
-func (s *datlyService) GetTurnByID(ctx context.Context, in *agturnbyid.TurnLookupInput, opts ...Option) (*agturnbyid.TurnLookupView, error) {
+func (s *datlyService) GetTurnByID(ctx context.Context, in *turnmodel.TurnLookupInput, opts ...Option) (*turnmodel.TurnLookupView, error) {
 	rows, err := s.readTurnNative(ctx, "byId", in, collectOptions(opts))
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
-	return mapDataDTO[agturnbyid.TurnLookupView](rows[0])
+	return mapDataDTO[turnmodel.TurnLookupView](rows[0])
 }
 
-func (s *datlyService) GetNextQueuedTurn(ctx context.Context, in *agturnnext.QueuedTurnInput, opts ...Option) (*agturnnext.QueuedTurnView, error) {
+func (s *datlyService) GetNextQueuedTurn(ctx context.Context, in *turnmodel.QueuedTurnInput, opts ...Option) (*turnmodel.QueuedTurnView, error) {
 	rows, err := s.readTurnNative(ctx, "nextQueued", in, collectOptions(opts))
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
-	return mapDataDTO[agturnnext.QueuedTurnView](rows[0])
+	return mapDataDTO[turnmodel.QueuedTurnView](rows[0])
 }
 
-func (s *datlyService) ListQueuedTurns(ctx context.Context, in *agturnlist.QueuedTurnsInput, opts ...Option) ([]*agturnlist.QueuedTurnsView, error) {
+func (s *datlyService) ListQueuedTurns(ctx context.Context, in *turnmodel.QueuedTurnsInput, opts ...Option) ([]*turnmodel.QueuedTurnsView, error) {
 	rows, err := s.readTurnNative(ctx, "queued", in, collectOptions(opts))
 	if err != nil {
 		return nil, err
 	}
-	return mapDataDTOs[agturnlist.QueuedTurnsView](rows)
+	return mapDataDTOs[turnmodel.QueuedTurnsView](rows)
 }
 
-func (s *datlyService) CountQueuedTurns(ctx context.Context, in *agturncount.QueuedTotalInput, opts ...Option) (int, error) {
+func (s *datlyService) CountQueuedTurns(ctx context.Context, in *turnmodel.QueuedTotalInput, opts ...Option) (int, error) {
 	id := ""
 	if in != nil {
 		id = in.ConversationID
@@ -238,15 +221,15 @@ func (s *datlyService) CountPendingElicitations(ctx context.Context, conversatio
 	return s.countPendingNative(ctx, conversationID, true, collectOptions(opts))
 }
 
-func (s *datlyService) ListTurnQueueRows(ctx context.Context, in *turnqueueread.QueueRowsInput, opts ...Option) ([]*turnqueueread.QueueRowView, error) {
+func (s *datlyService) ListTurnQueueRows(ctx context.Context, in *turnqueuemodel.QueueRowsInput, opts ...Option) ([]*turnqueuemodel.QueueRowView, error) {
 	return s.listTurnQueueNative(ctx, in, collectOptions(opts))
 }
 
-func (s *datlyService) PatchTurnQueue(ctx context.Context, in *turnqueuewrite.TurnQueue) error {
+func (s *datlyService) PatchTurnQueue(ctx context.Context, in *turnqueuemodel.TurnQueue) error {
 	return s.patchTurnQueueNative(ctx, in)
 }
 
-func (s *datlyService) GetToolCallByOp(ctx context.Context, opID string, in *agtoolcall.ToolCallRowsInput, opts ...Option) ([]*agtoolcall.ToolCallRowsView, error) {
+func (s *datlyService) GetToolCallByOp(ctx context.Context, opID string, in *toolcallmodel.ToolCallByOpInput, opts ...Option) ([]*toolcallmodel.ToolCallByOpView, error) {
 	return s.getToolCallByOpNative(ctx, opID, in, collectOptions(opts))
 }
 
@@ -283,35 +266,35 @@ func (s *datlyService) GetToolMessageIDsByTurn(ctx context.Context, conversation
 	return result, nil
 }
 
-func (s *datlyService) ListPayloadRows(ctx context.Context, in *agpayload.PayloadRowsInput, opts ...Option) ([]*agpayload.PayloadRowsView, error) {
+func (s *datlyService) ListPayloadRows(ctx context.Context, in *payloadmodel.PayloadRowsInput, opts ...Option) ([]*payloadmodel.PayloadRowsView, error) {
 	return s.listPayloadsNative(ctx, in, collectOptions(opts))
 }
 
-func (s *datlyService) PatchConversations(ctx context.Context, rows []*agconvwrite.MutableConversationView) ([]*agconvwrite.MutableConversationView, error) {
+func (s *datlyService) PatchConversations(ctx context.Context, rows []*conversationmodel.MutableConversationView) ([]*conversationmodel.MutableConversationView, error) {
 	return nativePatchData(ctx, s, "conversation", rows)
 }
 
-func (s *datlyService) PatchMessages(ctx context.Context, rows []*agmessagewrite.MutableMessageView) ([]*agmessagewrite.MutableMessageView, error) {
+func (s *datlyService) PatchMessages(ctx context.Context, rows []*messagemodel.MutableMessageView) ([]*messagemodel.MutableMessageView, error) {
 	return nativePatchData(ctx, s, "message", rows)
 }
 
-func (s *datlyService) PatchTurns(ctx context.Context, rows []*agturnwrite.MutableTurnView) ([]*agturnwrite.MutableTurnView, error) {
+func (s *datlyService) PatchTurns(ctx context.Context, rows []*turnmodel.MutableTurnView) ([]*turnmodel.MutableTurnView, error) {
 	return nativePatchData(ctx, s, "turn", rows)
 }
 
-func (s *datlyService) PatchModelCalls(ctx context.Context, rows []*agmodelcallwrite.MutableModelCallView) ([]*agmodelcallwrite.MutableModelCallView, error) {
+func (s *datlyService) PatchModelCalls(ctx context.Context, rows []*modelcallmodel.MutableModelCallView) ([]*modelcallmodel.MutableModelCallView, error) {
 	return nativePatchData(ctx, s, "modelcall", rows)
 }
 
-func (s *datlyService) PatchToolCalls(ctx context.Context, rows []*agtoolcallwrite.MutableToolCallView) ([]*agtoolcallwrite.MutableToolCallView, error) {
+func (s *datlyService) PatchToolCalls(ctx context.Context, rows []*toolcallmodel.MutableToolCallView) ([]*toolcallmodel.MutableToolCallView, error) {
 	return nativePatchData(ctx, s, "toolcall", rows)
 }
 
-func (s *datlyService) PatchPayloads(ctx context.Context, rows []*agpayloadwrite.MutablePayloadView) ([]*agpayloadwrite.MutablePayloadView, error) {
+func (s *datlyService) PatchPayloads(ctx context.Context, rows []*payloadmodel.MutablePayloadView) ([]*payloadmodel.MutablePayloadView, error) {
 	return nativePatchData(ctx, s, "payload", rows)
 }
 
-func (s *datlyService) PatchRuns(ctx context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error) {
+func (s *datlyService) PatchRuns(ctx context.Context, rows []*runmodel.MutableRunView) ([]*runmodel.MutableRunView, error) {
 	return s.patchRunsNative(ctx, rows)
 }
 
@@ -352,7 +335,7 @@ func (s *datlyService) DeleteRuns(ctx context.Context, ids ...string) error {
 	return (&agentrun.Store{Invoker: s.native}).DeleteTrusted(ctx, ids...)
 }
 
-func (s *datlyService) ListGeneratedFiles(ctx context.Context, conversationID string, opts ...Option) ([]*gfread.GeneratedFileView, error) {
+func (s *datlyService) ListGeneratedFiles(ctx context.Context, conversationID string, opts ...Option) ([]*generatedfilemodel.GeneratedFileView, error) {
 	return s.listGeneratedFilesNative(ctx, conversationID, collectOptions(opts))
 }
 

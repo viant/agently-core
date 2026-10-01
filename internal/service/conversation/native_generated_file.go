@@ -8,11 +8,10 @@ import (
 	read "github.com/viant/agently-core/internal/datly/generatedfile/read"
 	write "github.com/viant/agently-core/internal/datly/generatedfile/write"
 	store "github.com/viant/agently-core/internal/store/conversation"
-	legacyread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	legacywrite "github.com/viant/agently-core/pkg/agently/generatedfile/write"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
 )
 
-func (s *Service) getGeneratedFilesNative(ctx context.Context, input *legacyread.Input) ([]*legacyread.GeneratedFileView, error) {
+func (s *Service) getGeneratedFilesNative(ctx context.Context, input *generatedfilemodel.Input) ([]*generatedfilemodel.GeneratedFileView, error) {
 	query := &read.Input{}
 	if input != nil && input.Has != nil {
 		h := input.Has
@@ -42,12 +41,12 @@ func (s *Service) getGeneratedFilesNative(ctx context.Context, input *legacyread
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*legacyread.GeneratedFileView, 0, len(rows))
+	result := make([]*generatedfilemodel.GeneratedFileView, 0, len(rows))
 	for _, row := range rows {
 		if row == nil {
 			continue
 		}
-		result = append(result, &legacyread.GeneratedFileView{
+		result = append(result, &generatedfilemodel.GeneratedFileView{
 			ID: row.Id, ConversationID: row.ConversationId,
 			TurnID: row.TurnId, MessageID: row.MessageId,
 			Provider: row.Provider, Mode: row.Mode, CopyMode: row.CopyMode,
@@ -61,7 +60,7 @@ func (s *Service) getGeneratedFilesNative(ctx context.Context, input *legacyread
 	return result, nil
 }
 
-func (s *Service) patchGeneratedFileNative(ctx context.Context, file *legacywrite.GeneratedFile) error {
+func (s *Service) patchGeneratedFileNative(ctx context.Context, file *generatedfilemodel.GeneratedFile) error {
 	if file == nil {
 		return fmt.Errorf("generated file mutation is required")
 	}

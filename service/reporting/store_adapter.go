@@ -8,9 +8,9 @@ import (
 	"time"
 
 	reportstore "github.com/viant/agently-core/app/store/reporting"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
-	reportshareartifact "github.com/viant/agently-core/pkg/agently/reportshareartifact"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
+	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
 )
 
 // NewStoreAdapter bridges the generic reporting store client into the
@@ -217,7 +217,7 @@ func (s *storeAdapter) DeleteSharedArtifact(ctx context.Context, artifactID stri
 	return translateStoreError(s.client.DeleteSharedArtifact(ctx, strings.TrimSpace(artifactID)))
 }
 
-func encodeJob(input *ExportJob) *reportjob.Record {
+func encodeJob(input *ExportJob) *reportjobmodel.Record {
 	if input == nil {
 		return nil
 	}
@@ -225,7 +225,7 @@ func encodeJob(input *ExportJob) *reportjob.Record {
 	if len(input.Diagnostics) > 0 {
 		diagnostics, _ = json.Marshal(input.Diagnostics)
 	}
-	return &reportjob.Record{
+	return &reportjobmodel.Record{
 		JobID:             strings.TrimSpace(input.JobID),
 		ArtifactRef:       strings.TrimSpace(input.ArtifactRef),
 		OwnerID:           strings.TrimSpace(input.OwnerID),
@@ -252,7 +252,7 @@ func encodeJob(input *ExportJob) *reportjob.Record {
 	}
 }
 
-func decodeJob(input *reportjob.Record) (*ExportJob, error) {
+func decodeJob(input *reportjobmodel.Record) (*ExportJob, error) {
 	if input == nil {
 		return nil, nil
 	}
@@ -289,11 +289,11 @@ func decodeJob(input *reportjob.Record) (*ExportJob, error) {
 	}, nil
 }
 
-func encodeArtifact(input *Artifact) *reportartifact.Record {
+func encodeArtifact(input *Artifact) *reportartifactmodel.Record {
 	if input == nil {
 		return nil
 	}
-	return &reportartifact.Record{
+	return &reportartifactmodel.Record{
 		ArtifactID:   strings.TrimSpace(input.ArtifactID),
 		JobID:        strings.TrimSpace(input.JobID),
 		ArtifactRef:  strings.TrimSpace(input.ArtifactRef),
@@ -306,7 +306,7 @@ func encodeArtifact(input *Artifact) *reportartifact.Record {
 	}
 }
 
-func decodeArtifact(input *reportartifact.Record) (*Artifact, error) {
+func decodeArtifact(input *reportartifactmodel.Record) (*Artifact, error) {
 	if input == nil {
 		return nil, nil
 	}
@@ -332,11 +332,11 @@ func cloneTime(value *time.Time) *time.Time {
 	return &next
 }
 
-func encodeSharedArtifact(input *SharedArtifact) *reportshareartifact.Record {
+func encodeSharedArtifact(input *SharedArtifact) *reportshareartifactmodel.Record {
 	if input == nil {
 		return nil
 	}
-	return &reportshareartifact.Record{
+	return &reportshareartifactmodel.Record{
 		ArtifactID:       strings.TrimSpace(input.ArtifactID),
 		ArtifactRef:      strings.TrimSpace(input.ArtifactRef),
 		OwnerID:          strings.TrimSpace(input.OwnerID),
@@ -362,7 +362,7 @@ func encodeSharedArtifact(input *SharedArtifact) *reportshareartifact.Record {
 	}
 }
 
-func decodeSharedArtifact(input *reportshareartifact.Record) (*SharedArtifact, error) {
+func decodeSharedArtifact(input *reportshareartifactmodel.Record) (*SharedArtifact, error) {
 	if input == nil {
 		return nil, nil
 	}

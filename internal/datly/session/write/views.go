@@ -8,13 +8,13 @@ import (
 
 // Session is generated canonical view metadata for writer.
 type Session struct {
-	ShouldDelete bool        `json:",omitempty" sqlx:"-" writer:"delete"`
-	Id           string      `json:"id,omitempty" sqlx:"id,primaryKey"`
-	UserId       string      `json:"userId,omitempty" sqlx:"user_id,required=true"`
-	Provider     string      `json:"provider,omitempty" sqlx:"provider,required=true"`
-	CreatedAt    time.Time   `json:"createdAt,omitempty" sqlx:"created_at,required=true" format:"2006-01-02 15:04:05"`
-	UpdatedAt    *time.Time  `json:"updatedAt,omitempty" sqlx:"updated_at" format:"2006-01-02 15:04:05"`
-	ExpiresAt    time.Time   `json:"expiresAt,omitempty" sqlx:"expires_at,required=true" format:"2006-01-02 15:04:05"`
+	ShouldDelete bool        `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	Id           string      `sqlx:"id,primaryKey" json:"id,omitempty"`
+	UserId       string      `sqlx:"user_id,required=true" json:"userId,omitempty"`
+	Provider     string      `sqlx:"provider,required=true" json:"provider,omitempty"`
+	CreatedAt    time.Time   `format:"2006-01-02 15:04:05" sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt    *time.Time  `format:"2006-01-02 15:04:05" sqlx:"updated_at" json:"updatedAt,omitempty"`
+	ExpiresAt    time.Time   `format:"2006-01-02 15:04:05" sqlx:"expires_at,required=true" json:"expiresAt,omitempty"`
 	Has          *SessionHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"SessionHas"`
 }
 
@@ -30,12 +30,12 @@ type SessionHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id        string     `json:"id,omitempty" sqlx:"id,primaryKey"`
-	UserId    string     `json:"userId,omitempty" sqlx:"user_id,required=true"`
-	Provider  string     `json:"provider,omitempty" sqlx:"provider,required=true"`
-	CreatedAt time.Time  `json:"createdAt,omitempty" sqlx:"created_at,required=true" format:"2006-01-02 15:04:05"`
-	UpdatedAt *time.Time `json:"updatedAt,omitempty" sqlx:"updated_at" format:"2006-01-02 15:04:05"`
-	ExpiresAt time.Time  `json:"expiresAt,omitempty" sqlx:"expires_at,required=true" format:"2006-01-02 15:04:05"`
+	Id        string     `sqlx:"id,primaryKey" json:"id,omitempty"`
+	UserId    string     `sqlx:"user_id,required=true" json:"userId,omitempty"`
+	Provider  string     `sqlx:"provider,required=true" json:"provider,omitempty"`
+	CreatedAt time.Time  `format:"2006-01-02 15:04:05" sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt *time.Time `format:"2006-01-02 15:04:05" sqlx:"updated_at" json:"updatedAt,omitempty"`
+	ExpiresAt time.Time  `format:"2006-01-02 15:04:05" sqlx:"expires_at,required=true" json:"expiresAt,omitempty"`
 }
 
 type WriterKeysRow struct {

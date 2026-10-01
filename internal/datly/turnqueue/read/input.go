@@ -4,7 +4,6 @@ package read
 
 // QueueRowsInput is the generated input scaffold for reader.
 type QueueRowsInput struct {
-	LockRows        bool               `parameter:"LockRows,kind=turnqueueaccess,in=lock,dataType=bool,required=false"`
 	Id              string             `parameter:"Id,kind=query,in=id,dataType=string,required=false" predicate:"equal,q,id"`
 	ConversationId  string             `parameter:"ConversationId,kind=query,in=conversationId,dataType=string,required=false" predicate:"equal,q,conversation_id"`
 	ConversationIds []string           `parameter:"ConversationIds,kind=query,in=conversationIds,dataType=[]string,required=false" predicate:"in,q,conversation_id"`
@@ -15,7 +14,6 @@ type QueueRowsInput struct {
 }
 
 type QueueRowsInputHas struct {
-	LockRows        bool
 	Id              bool
 	ConversationId  bool
 	ConversationIds bool

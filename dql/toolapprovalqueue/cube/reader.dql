@@ -17,21 +17,23 @@
 #define($_ = $QueueStatus<string>(query/status).Optional().WithPredicate(0,'equal','q','status'))
 #define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
 #define($_ = $Data<[]*ApprovalReportView>(output/view))
-SELECT groupable(q), q.user_id,q.conversation_id,q.tool_name,q.status,q.decision,
- COUNT(*) AS total_count,
- COUNT(CASE WHEN q.status='pending' THEN 1 END) AS pending_count,
- COUNT(CASE WHEN LOWER(q.status) IN ('approved','rejected','canceled','executed','failed','timed_out') THEN 1 END) AS outcome_count,
- COUNT(CASE WHEN LOWER(q.status)='timed_out' THEN 1 END) AS timed_out_count,
- type(q,'ApprovalReportView'),
- CAST(q.user_id AS string),tag(q.user_id,'groupable:"true"'),
- CAST(q.conversation_id AS *string),tag(q.conversation_id,'groupable:"true"'),
- CAST(q.tool_name AS string),tag(q.tool_name,'groupable:"true"'),
- CAST(q.status AS string),tag(q.status,'groupable:"true"'),
- CAST(q.decision AS *string),tag(q.decision,'groupable:"true"'),
- CAST(q.total_count AS int),tag(q.total_count,'groupable:"false"'),
- CAST(q.pending_count AS int),tag(q.pending_count,'groupable:"false"'),
- CAST(q.outcome_count AS int),tag(q.outcome_count,'groupable:"false"'),
- CAST(q.timed_out_count AS int),tag(q.timed_out_count,'groupable:"false"')
-FROM tool_approval_queue q WHERE ($Internal OR q.user_id=NULLIF($VisibilitySubject,''))
- ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
-GROUP BY q.user_id,q.conversation_id,q.tool_name,q.status,q.decision
+SELECT q.*,
+       groupable(q),
+       type(q,'ApprovalReportView'),
+       required(q.user_id),
+       tag(q.user_id,'groupable:"true"'),
+       tag(q.conversation_id,'groupable:"true"'),
+       required(q.tool_name),
+       tag(q.tool_name,'groupable:"true"'),
+       required(q.status),
+       tag(q.status,'groupable:"true"'),
+       tag(q.decision,'groupable:"true"'),
+       CAST(q.total_count AS int),
+       tag(q.total_count,'groupable:"false"'),
+       CAST(q.pending_count AS int),
+       tag(q.pending_count,'groupable:"false"'),
+       CAST(q.outcome_count AS int),
+       tag(q.outcome_count,'groupable:"false"'),
+       CAST(q.timed_out_count AS int),
+       tag(q.timed_out_count,'groupable:"false"')
+FROM (${embed:sql/toolapprovalqueue.sql}) q

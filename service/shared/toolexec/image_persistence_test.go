@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -84,7 +84,7 @@ func TestPersistToolImageAttachmentIfNeeded_DataDriven(t *testing.T) {
 		require.NoError(t, err, tc.name)
 		require.NotNil(t, gotConv, tc.name)
 
-		var attachmentMessage *agconv.MessageView
+		var attachmentMessage *conversationmodel.MessageView
 		for _, trn := range gotConv.GetTranscript() {
 			for _, msg := range trn.Message {
 				if msg == nil || msg.ParentMessageId == nil {
@@ -98,7 +98,7 @@ func TestPersistToolImageAttachmentIfNeeded_DataDriven(t *testing.T) {
 		}
 
 		if !tc.expectAttached {
-			assert.EqualValues(t, (*agconv.MessageView)(nil), attachmentMessage, tc.name)
+			assert.EqualValues(t, (*conversationmodel.MessageView)(nil), attachmentMessage, tc.name)
 			continue
 		}
 		require.NotNil(t, attachmentMessage, tc.name)

@@ -4,21 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
+	svc "github.com/viant/agently-core/protocol/tool/service"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"reflect"
 	"strings"
 	"time"
-
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
-	svc "github.com/viant/agently-core/protocol/tool/service"
-	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // ActiveReportRunResolver is the narrow, read-only reportingrun.Service
 // surface used by the model-facing active-run resolver.
 type ActiveReportRunResolver interface {
-	GetContext(ctx context.Context, conversationID string) (*reportcontext.Record, error)
-	GetRun(ctx context.Context, reportRunID, conversationID string) (*reportrun.Record, error)
+	GetContext(ctx context.Context, conversationID string) (*reportcontextmodel.Record, error)
+	GetRun(ctx context.Context, reportRunID, conversationID string) (*reportrunmodel.Record, error)
 }
 
 // GetActiveReportRunInput is deliberately empty. Owner and conversation
@@ -84,7 +83,7 @@ func (s *Service) GetActiveReportRun(ctx context.Context) (*ActiveReportRun, err
 		run.OwnerID != ownerID ||
 		strings.TrimSpace(run.ReportRunID) != reportRunID ||
 		strings.TrimSpace(run.ConversationID) != conversationID ||
-		strings.ToLower(strings.TrimSpace(run.Status)) != reportrun.StatusCompleted ||
+		strings.ToLower(strings.TrimSpace(run.Status)) != reportrunmodel.StatusCompleted ||
 		run.CompletedAt == nil || run.CompletedAt.IsZero() {
 		return nil, ErrNotFound
 	}
@@ -112,7 +111,7 @@ func (s *Service) GetActiveReportRun(ctx context.Context) (*ActiveReportRun, err
 	return &ActiveReportRun{
 		ReportRunID:     reportRunID,
 		Revision:        run.Revision,
-		Status:          reportrun.StatusCompleted,
+		Status:          reportrunmodel.StatusCompleted,
 		ArtifactRef:     "report-run://" + reportRunID,
 		Origin:          origin,
 		BuilderRef:      strings.TrimSpace(run.BuilderRef),
@@ -125,7 +124,7 @@ func (s *Service) GetActiveReportRun(ctx context.Context) (*ActiveReportRun, err
 	}, nil
 }
 
-func hasValidActiveRunSnapshot(run *reportrun.Record) bool {
+func hasValidActiveRunSnapshot(run *reportrunmodel.Record) bool {
 	if run == nil {
 		return false
 	}

@@ -61,7 +61,7 @@ func (s *Store) Candidates(ctx context.Context, request CandidateRequest) ([]Can
 	}
 	input.SetFields([]string{"id", "activity_raw", "maintenance_owner_id"})
 	input.SetLimit(request.Limit)
-	rows, err := readRows[runread.RunRowsOutput](ctx, s.Invoker, runTarget, input, providers("runaccess", "scheduledMaintenance", false, false, nil))
+	rows, err := readRows[runread.RunRowsOutput](ctx, s.Invoker, runTarget, input, providers("runaccess", "scheduledMaintenance", false, nil), false)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func (s *Store) Candidates(ctx context.Context, request CandidateRequest) ([]Can
 		}
 		query.SetFields([]string{"id", "activity_raw", "maintenance_owner_id"})
 		query.SetLimit(request.Limit)
-		rows, err := readRows[legacyread.Output](ctx, s.Invoker, legacyTarget, query, providers("schedulerunaccess", "rows", false, true, nil))
+		rows, err := readRows[legacyread.Output](ctx, s.Invoker, legacyTarget, query, providers("schedulerunaccess", "rows", true, nil), false)
 		if err != nil {
 			return nil, err
 		}
@@ -130,8 +130,8 @@ func (s *Store) Candidates(ctx context.Context, request CandidateRequest) ([]Can
 	return result, nil
 }
 
-func readRows[T any](ctx context.Context, invoker dexec.ComponentInvoker, target dexec.ComponentTarget, input any, providers []locator.Provider) (*T, error) {
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: input, Providers: providers})
+func readRows[T any](ctx context.Context, invoker dexec.ComponentInvoker, target dexec.ComponentTarget, input any, providers []locator.Provider, lock bool) (*T, error) {
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, lock), Target: target, Input: input, Providers: providers})
 	if err != nil {
 		return nil, err
 	}
@@ -141,7 +141,7 @@ func readRows[T any](ctx context.Context, invoker dexec.ComponentInvoker, target
 	}
 	return out, nil
 }
-func providers(kind, mode string, lock, maintenance bool, fields []string) []locator.Provider {
+func providers(kind, mode string, maintenance bool, fields []string) []locator.Provider {
 	owner := ""
 	result := []locator.Provider{provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 		switch name {
@@ -149,8 +149,6 @@ func providers(kind, mode string, lock, maintenance bool, fields []string) []loc
 			return true, true, nil
 		case "mode":
 			return mode, true, nil
-		case "lock":
-			return lock, true, nil
 		case "maintenance":
 			return maintenance, true, nil
 		case "graph":

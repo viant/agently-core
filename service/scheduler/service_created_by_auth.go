@@ -10,11 +10,11 @@ import (
 	token "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/authlog"
 	"github.com/viant/agently-core/internal/logx"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
 	svcauth "github.com/viant/agently-core/service/auth"
 )
 
-func (s *Service) preloadCreatedByUserTokens(ctx context.Context, row *schedulepkg.ScheduleView, runID string) (context.Context, error) {
+func (s *Service) preloadCreatedByUserTokens(ctx context.Context, row *schedulemodel.ScheduleView, runID string) (context.Context, error) {
 	if s == nil || row == nil || s.tokenProvider == nil || s.users == nil {
 		return ctx, nil
 	}

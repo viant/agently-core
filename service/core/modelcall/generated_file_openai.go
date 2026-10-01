@@ -17,7 +17,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -52,12 +52,12 @@ func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgI
 		return nil
 	}
 
-	input := &gfread.Input{ConversationID: turn.ConversationID, TurnID: turn.TurnID, MessageID: msgID, Has: &gfread.Has{ConversationID: true, TurnID: true, MessageID: true}}
+	input := &generatedfilemodel.Input{ConversationID: turn.ConversationID, TurnID: turn.TurnID, MessageID: msgID, Has: &generatedfilemodel.Has{ConversationID: true, TurnID: true, MessageID: true}}
 	existing, err := store.GetGeneratedFiles(ctx, input)
 	if err != nil {
 		return err
 	}
-	existingByKey := map[string]*gfread.GeneratedFileView{}
+	existingByKey := map[string]*generatedfilemodel.GeneratedFileView{}
 	for _, item := range existing {
 		if item == nil {
 			continue
@@ -208,7 +208,7 @@ func (o *recorderObserver) persistOpenAIGeneratedFiles(ctx context.Context, msgI
 		if err := store.PatchGeneratedFile(ctx, rec); err != nil {
 			return err
 		}
-		existingByKey[key] = &gfread.GeneratedFileView{ID: rec.ID}
+		existingByKey[key] = &generatedfilemodel.GeneratedFileView{ID: rec.ID}
 	}
 	return nil
 }

@@ -6,7 +6,7 @@ import (
 	"sync"
 
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 )
 
 type stateKey struct{}
@@ -44,7 +44,7 @@ func MarkTool(ctx context.Context, name string, cfg *llm.ApprovalConfig) {
 	if st == nil {
 		return
 	}
-	key := strings.ToLower(strings.TrimSpace(mcpname.Canonical(name)))
+	key := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(name)))
 	if key == "" {
 		return
 	}
@@ -77,7 +77,7 @@ func ConfigFor(ctx context.Context, name string) (*llm.ApprovalConfig, bool) {
 	if st == nil {
 		return nil, false
 	}
-	key := strings.ToLower(strings.TrimSpace(mcpname.Canonical(name)))
+	key := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(name)))
 	if key == "" {
 		return nil, false
 	}

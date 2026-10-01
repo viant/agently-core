@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/data"
-	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
 func TestWorkspaceRuntimeNativeMemoryFactoryBorrowedLifetime(t *testing.T) {
@@ -18,8 +18,8 @@ func TestWorkspaceRuntimeNativeMemoryFactoryBorrowedLifetime(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEmpty(t, identity)
 	service := data.NewService(server)
-	row := convwrite.NewMutableConversationView(convwrite.WithConversationID("native-factory-lifetime"), convwrite.WithConversationStatus("active"))
-	_, err = service.PatchConversations(ctx, []*convwrite.MutableConversationView{row})
+	row := conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("native-factory-lifetime"), conversationmodel.WithConversationStatus("active"))
+	_, err = service.PatchConversations(ctx, []*conversationmodel.MutableConversationView{row})
 	require.NoError(t, err)
 	require.NoError(t, data.CloseService(ctx, service))
 	found, err := service.GetConversation(ctx, row.Id, nil)

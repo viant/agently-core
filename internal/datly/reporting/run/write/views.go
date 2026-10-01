@@ -9,32 +9,32 @@ import (
 // Run is generated canonical view metadata for writer.
 type Run struct {
 	ShouldDelete        bool       `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
-	Revision            int64      `sqlx:"revision,required=true" writer:"concurrency"`
-	ReportRunId         string     `sqlx:"report_run_id,primaryKey=true,required=true"`
-	OwnerId             string     `sqlx:"owner_id,required=true"`
-	ConversationId      *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id"`
-	Materializer        string     `sqlx:"materializer,required=true"`
-	Origin              *string    `sqlx:"origin"`
-	BuilderRef          *string    `sqlx:"builder_ref"`
-	PresetId            *string    `sqlx:"preset_id"`
-	SourceKind          *string    `sqlx:"source_kind"`
-	SourceId            *string    `sqlx:"source_id"`
-	RequestedParamsJson []byte     `sqlx:"requested_params_json"`
-	EffectiveParamsJson []byte     `sqlx:"effective_params_json"`
-	Status              string     `sqlx:"status,required=true"`
-	FailureCode         *string    `sqlx:"failure_code"`
-	FailureText         *string    `sqlx:"failure_text"`
-	StartedAt           time.Time  `sqlx:"started_at,required=true"`
-	CompletedAt         *time.Time `sqlx:"completed_at"`
-	UiRunRequestId      string     `sqlx:"ui_run_request_id,required=true"`
-	ReportSpecJson      []byte     `sqlx:"report_spec_json"`
-	ReportFillJson      []byte     `sqlx:"report_fill_json"`
-	ReportPrintJson     []byte     `sqlx:"report_print_json"`
-	ActivationSource    *string    `sqlx:"activation_source"`
-	AdoptionSource      *string    `sqlx:"adoption_source"`
-	ActorId             *string    `sqlx:"actor_id"`
-	CreatedAt           time.Time  `sqlx:"created_at,required=true"`
-	UpdatedAt           time.Time  `sqlx:"updated_at,required=true"`
+	Revision            int64      `writer:"concurrency" sqlx:"revision,required=true" json:"revision"`
+	ReportRunId         string     `sqlx:"report_run_id,primaryKey=true,required=true" json:"reportRunId"`
+	OwnerId             string     `sqlx:"owner_id,required=true" json:"ownerId"`
+	Materializer        string     `sqlx:"materializer,required=true" json:"materializer"`
+	RequestedParamsJson []byte     `sqlx:"requested_params_json" json:"requestedParamsJson"`
+	EffectiveParamsJson []byte     `sqlx:"effective_params_json" json:"effectiveParamsJson"`
+	Status              string     `sqlx:"status,required=true" json:"status"`
+	StartedAt           time.Time  `sqlx:"started_at,required=true" json:"startedAt"`
+	UiRunRequestId      string     `sqlx:"ui_run_request_id,required=true" json:"uiRunRequestId"`
+	ReportSpecJson      []byte     `sqlx:"report_spec_json" json:"reportSpecJson"`
+	ReportFillJson      []byte     `sqlx:"report_fill_json" json:"reportFillJson"`
+	ReportPrintJson     []byte     `sqlx:"report_print_json" json:"reportPrintJson"`
+	CreatedAt           time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	UpdatedAt           time.Time  `sqlx:"updated_at,required=true" json:"updatedAt"`
+	ConversationId      *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
+	Origin              *string    `sqlx:"origin" json:"origin"`
+	BuilderRef          *string    `sqlx:"builder_ref" json:"builderRef"`
+	PresetId            *string    `sqlx:"preset_id" json:"presetId"`
+	SourceKind          *string    `sqlx:"source_kind" json:"sourceKind"`
+	SourceId            *string    `sqlx:"source_id" json:"sourceId"`
+	FailureCode         *string    `sqlx:"failure_code" json:"failureCode"`
+	FailureText         *string    `sqlx:"failure_text" json:"failureText"`
+	CompletedAt         *time.Time `sqlx:"completed_at" json:"completedAt"`
+	ActivationSource    *string    `sqlx:"activation_source" json:"activationSource"`
+	AdoptionSource      *string    `sqlx:"adoption_source" json:"adoptionSource"`
+	ActorId             *string    `sqlx:"actor_id" json:"actorId"`
 	Has                 *RunHas    `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"RunHas"`
 }
 
@@ -43,59 +43,59 @@ type RunHas struct {
 	Revision            bool
 	ReportRunId         bool
 	OwnerId             bool
-	ConversationId      bool
 	Materializer        bool
+	RequestedParamsJson bool
+	EffectiveParamsJson bool
+	Status              bool
+	StartedAt           bool
+	UiRunRequestId      bool
+	ReportSpecJson      bool
+	ReportFillJson      bool
+	ReportPrintJson     bool
+	CreatedAt           bool
+	UpdatedAt           bool
+	ConversationId      bool
 	Origin              bool
 	BuilderRef          bool
 	PresetId            bool
 	SourceKind          bool
 	SourceId            bool
-	RequestedParamsJson bool
-	EffectiveParamsJson bool
-	Status              bool
 	FailureCode         bool
 	FailureText         bool
-	StartedAt           bool
 	CompletedAt         bool
-	UiRunRequestId      bool
-	ReportSpecJson      bool
-	ReportFillJson      bool
-	ReportPrintJson     bool
 	ActivationSource    bool
 	AdoptionSource      bool
 	ActorId             bool
-	CreatedAt           bool
-	UpdatedAt           bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Revision            int64      `sqlx:"revision,required=true"`
-	ReportRunId         string     `sqlx:"report_run_id,primaryKey=true,required=true"`
-	OwnerId             string     `sqlx:"owner_id,required=true"`
-	ConversationId      *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id"`
-	Materializer        string     `sqlx:"materializer,required=true"`
-	Origin              *string    `sqlx:"origin"`
-	BuilderRef          *string    `sqlx:"builder_ref"`
-	PresetId            *string    `sqlx:"preset_id"`
-	SourceKind          *string    `sqlx:"source_kind"`
-	SourceId            *string    `sqlx:"source_id"`
-	RequestedParamsJson []byte     `sqlx:"requested_params_json"`
-	EffectiveParamsJson []byte     `sqlx:"effective_params_json"`
-	Status              string     `sqlx:"status,required=true"`
-	FailureCode         *string    `sqlx:"failure_code"`
-	FailureText         *string    `sqlx:"failure_text"`
-	StartedAt           time.Time  `sqlx:"started_at,required=true"`
-	CompletedAt         *time.Time `sqlx:"completed_at"`
-	UiRunRequestId      string     `sqlx:"ui_run_request_id,required=true"`
-	ReportSpecJson      []byte     `sqlx:"report_spec_json"`
-	ReportFillJson      []byte     `sqlx:"report_fill_json"`
-	ReportPrintJson     []byte     `sqlx:"report_print_json"`
-	ActivationSource    *string    `sqlx:"activation_source"`
-	AdoptionSource      *string    `sqlx:"adoption_source"`
-	ActorId             *string    `sqlx:"actor_id"`
-	CreatedAt           time.Time  `sqlx:"created_at,required=true"`
-	UpdatedAt           time.Time  `sqlx:"updated_at,required=true"`
+	Revision            int64      `sqlx:"revision,required=true" json:"revision"`
+	ReportRunId         string     `sqlx:"report_run_id,primaryKey=true,required=true" json:"reportRunId"`
+	OwnerId             string     `sqlx:"owner_id,required=true" json:"ownerId"`
+	Materializer        string     `sqlx:"materializer,required=true" json:"materializer"`
+	RequestedParamsJson []byte     `sqlx:"requested_params_json" json:"requestedParamsJson"`
+	EffectiveParamsJson []byte     `sqlx:"effective_params_json" json:"effectiveParamsJson"`
+	Status              string     `sqlx:"status,required=true" json:"status"`
+	StartedAt           time.Time  `sqlx:"started_at,required=true" json:"startedAt"`
+	UiRunRequestId      string     `sqlx:"ui_run_request_id,required=true" json:"uiRunRequestId"`
+	ReportSpecJson      []byte     `sqlx:"report_spec_json" json:"reportSpecJson"`
+	ReportFillJson      []byte     `sqlx:"report_fill_json" json:"reportFillJson"`
+	ReportPrintJson     []byte     `sqlx:"report_print_json" json:"reportPrintJson"`
+	CreatedAt           time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	UpdatedAt           time.Time  `sqlx:"updated_at,required=true" json:"updatedAt"`
+	ConversationId      *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
+	Origin              *string    `sqlx:"origin" json:"origin"`
+	BuilderRef          *string    `sqlx:"builder_ref" json:"builderRef"`
+	PresetId            *string    `sqlx:"preset_id" json:"presetId"`
+	SourceKind          *string    `sqlx:"source_kind" json:"sourceKind"`
+	SourceId            *string    `sqlx:"source_id" json:"sourceId"`
+	FailureCode         *string    `sqlx:"failure_code" json:"failureCode"`
+	FailureText         *string    `sqlx:"failure_text" json:"failureText"`
+	CompletedAt         *time.Time `sqlx:"completed_at" json:"completedAt"`
+	ActivationSource    *string    `sqlx:"activation_source" json:"activationSource"`
+	AdoptionSource      *string    `sqlx:"adoption_source" json:"adoptionSource"`
+	ActorId             *string    `sqlx:"actor_id" json:"actorId"`
 }
 
 type WriterKeysRow struct {

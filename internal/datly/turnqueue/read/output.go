@@ -4,5 +4,5 @@ package read
 
 // QueueRowsOutput is the generated output scaffold for reader.
 type QueueRowsOutput struct {
-	Data []*QueueRowView `parameter:"Data,kind=output,in=view,dataType=[]*QueueRowView" view:"reader,type=QueueRowView,table=turn_queue" sql:"uri=datly_turnqueue_read_reader:sql/reader.sql"`
+	Data []*QueueRowView `parameter:"Data,kind=output,in=view,dataType=[]*QueueRowView" view:"reader,type=QueueRowView,rowLock=turn_queue q,table=turn_queue" sql:"uri=datly_turnqueue_read_reader:sql/reader.sql"`
 }

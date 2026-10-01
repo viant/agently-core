@@ -13,36 +13,36 @@ type MessageView struct {
 	ReadMode               string                   `json:"-" sqlx:"read_mode"`
 	ElicitationBody        []byte                   `json:"-" sqlx:"elicitation_body"`
 	ElicitationCompression string                   `json:"-" sqlx:"elicitation_compression"`
-	Elicitation            codec.JSON               `sqlx:"elicitation"`
-	Archived               *int                     `sqlx:"archived"`
-	AttachmentPayloadId    *string                  `sqlx:"attachment_payload_id,refTable=call_payload,refColumn=id"`
-	Content                *string                  `sqlx:"content"`
-	ContextSummary         *string                  `sqlx:"context_summary"`
-	ConversationId         string                   `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	CreatedAt              time.Time                `sqlx:"created_at,required=true"`
-	CreatedByUserId        *string                  `sqlx:"created_by_user_id"`
-	ElicitationId          *string                  `sqlx:"elicitation_id"`
-	ElicitationPayloadId   *string                  `sqlx:"elicitation_payload_id,refTable=call_payload,refColumn=id"`
-	EmbeddingIndex         *string                  `sqlx:"embedding_index"`
-	Id                     string                   `sqlx:"id,primaryKey=true"`
-	Interim                int                      `sqlx:"interim,required=true"`
-	Iteration              *int                     `sqlx:"iteration"`
-	LinkedConversationId   *string                  `sqlx:"linked_conversation_id"`
-	Mode                   *string                  `sqlx:"mode"`
-	ParentMessageId        *string                  `sqlx:"parent_message_id"`
-	Phase                  *string                  `sqlx:"phase"`
-	Narration              *string                  `sqlx:"preamble"`
-	RawContent             *string                  `sqlx:"raw_content"`
-	Role                   string                   `sqlx:"role,required=true"`
-	Sequence               *int                     `sqlx:"sequence"`
-	Status                 *string                  `sqlx:"status"`
-	Summary                *string                  `sqlx:"summary"`
-	SupersededBy           *string                  `sqlx:"superseded_by"`
-	Tags                   *string                  `sqlx:"tags"`
-	ToolName               *string                  `sqlx:"tool_name"`
-	TurnId                 *string                  `sqlx:"turn_id,refTable=turn,refColumn=id"`
-	Type                   string                   `sqlx:"type,required=true"`
-	UpdatedAt              *time.Time               `sqlx:"updated_at"`
+	Elicitation            codec.JSON               `sqlx:"elicitation" json:"elicitation"`
+	ConversationId         string                   `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId"`
+	CreatedAt              time.Time                `sqlx:"created_at,required=true" json:"createdAt"`
+	Id                     string                   `sqlx:"id,primaryKey=true" json:"id"`
+	Interim                int                      `sqlx:"interim,required=true" json:"interim"`
+	Role                   string                   `sqlx:"role,required=true" json:"role"`
+	Type                   string                   `sqlx:"type,required=true" json:"type"`
+	Narration              *string                  `sqlx:"preamble" json:"narration"`
+	TurnId                 *string                  `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId"`
+	Archived               *int                     `sqlx:"archived" json:"archived"`
+	Sequence               *int                     `sqlx:"sequence" json:"sequence"`
+	UpdatedAt              *time.Time               `sqlx:"updated_at" json:"updatedAt"`
+	CreatedByUserId        *string                  `sqlx:"created_by_user_id" json:"createdByUserId"`
+	Status                 *string                  `sqlx:"status" json:"status"`
+	Mode                   *string                  `sqlx:"mode" json:"mode"`
+	Content                *string                  `sqlx:"content" json:"content"`
+	RawContent             *string                  `sqlx:"raw_content" json:"rawContent"`
+	Summary                *string                  `sqlx:"summary" json:"summary"`
+	ContextSummary         *string                  `sqlx:"context_summary" json:"contextSummary"`
+	Tags                   *string                  `sqlx:"tags" json:"tags"`
+	ElicitationId          *string                  `sqlx:"elicitation_id" json:"elicitationId"`
+	ParentMessageId        *string                  `sqlx:"parent_message_id" json:"parentMessageId"`
+	SupersededBy           *string                  `sqlx:"superseded_by" json:"supersededBy"`
+	LinkedConversationId   *string                  `sqlx:"linked_conversation_id" json:"linkedConversationId"`
+	AttachmentPayloadId    *string                  `sqlx:"attachment_payload_id,refTable=call_payload,refColumn=id" json:"attachmentPayloadId"`
+	ElicitationPayloadId   *string                  `sqlx:"elicitation_payload_id,refTable=call_payload,refColumn=id" json:"elicitationPayloadId"`
+	ToolName               *string                  `sqlx:"tool_name" json:"toolName"`
+	EmbeddingIndex         *string                  `sqlx:"embedding_index" json:"embeddingIndex"`
+	Iteration              *int                     `sqlx:"iteration" json:"iteration"`
+	Phase                  *string                  `sqlx:"phase" json:"phase"`
 	MessageToolCall        *MessageToolCallView     `view:"messageToolCall,type=MessageToolCallView,table=tool_call" on:"Id:data_rows.id=MessageId:messageToolCall.message_id" json:"messageToolCall" sql:"uri=datly_message_read_reader:sql/message_tool_call.sql"`
 	ToolMessage            []*ToolMessageView       `view:"toolMessage,type=ToolMessageView,table=message" on:"Id:data_rows.id=ParentMessageId:toolMessage.parent_message_id" json:"toolMessage" sql:"uri=datly_message_read_reader:sql/tool_message.sql"`
 	UserElicitationData    *UserElicitationDataView `view:"userElicitationData,type=UserElicitationDataView,table=message" on:"Id:data_rows.id=MessageId:userElicitationData.message_id" json:"userElicitationData" sql:"uri=datly_message_read_reader:sql/user_elicitation_data.sql"`
@@ -53,159 +53,159 @@ type MessageView struct {
 
 // MessageToolCallView is generated canonical view metadata for reader.
 type MessageToolCallView struct {
-	MessageSequence        *int                        `sqlx:"message_sequence"`
-	MessageId              string                      `sqlx:"message_id,refTable=message,refColumn=id,primaryKey=true"`
-	TurnId                 *string                     `sqlx:"turn_id,refTable=turn,refColumn=id"`
-	OpId                   string                      `sqlx:"op_id,required=true"`
-	Attempt                int                         `sqlx:"attempt,required=true"`
-	ToolName               string                      `sqlx:"tool_name,required=true"`
-	ToolKind               string                      `sqlx:"tool_kind,required=true"`
-	Status                 string                      `sqlx:"status,required=true"`
-	RequestHash            *string                     `sqlx:"request_hash"`
-	ErrorCode              *string                     `sqlx:"error_code"`
-	ErrorMessage           *string                     `sqlx:"error_message"`
-	Retriable              *int                        `sqlx:"retriable"`
-	StartedAt              *time.Time                  `sqlx:"started_at"`
-	CompletedAt            *time.Time                  `sqlx:"completed_at"`
-	LatencyMs              *int                        `sqlx:"latency_ms"`
-	Cost                   *float64                    `sqlx:"cost"`
-	TraceId                *string                     `sqlx:"trace_id"`
-	SpanId                 *string                     `sqlx:"span_id"`
-	RequestPayloadId       *string                     `sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
-	ResponsePayloadId      *string                     `sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
-	RunId                  *string                     `sqlx:"run_id"`
-	Iteration              *int                        `sqlx:"iteration"`
+	MessageId              string                      `sqlx:"message_id,refTable=message,refColumn=id,primaryKey=true" json:"messageId"`
+	OpId                   string                      `sqlx:"op_id,required=true" json:"opId"`
+	Attempt                int                         `sqlx:"attempt,required=true" json:"attempt"`
+	ToolName               string                      `sqlx:"tool_name,required=true" json:"toolName"`
+	ToolKind               string                      `sqlx:"tool_kind,required=true" json:"toolKind"`
+	Status                 string                      `sqlx:"status,required=true" json:"status"`
+	TurnId                 *string                     `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId"`
+	RequestHash            *string                     `sqlx:"request_hash" json:"requestHash"`
+	ErrorCode              *string                     `sqlx:"error_code" json:"errorCode"`
+	ErrorMessage           *string                     `sqlx:"error_message" json:"errorMessage"`
+	Retriable              *int                        `sqlx:"retriable" json:"retriable"`
+	StartedAt              *time.Time                  `sqlx:"started_at" json:"startedAt"`
+	CompletedAt            *time.Time                  `sqlx:"completed_at" json:"completedAt"`
+	LatencyMs              *int                        `sqlx:"latency_ms" json:"latencyMs"`
+	Cost                   *float64                    `sqlx:"cost" json:"cost"`
+	TraceId                *string                     `sqlx:"trace_id" json:"traceId"`
+	SpanId                 *string                     `sqlx:"span_id" json:"spanId"`
+	RequestPayloadId       *string                     `sqlx:"request_payload_id,refTable=call_payload,refColumn=id" json:"requestPayloadId"`
+	ResponsePayloadId      *string                     `sqlx:"response_payload_id,refTable=call_payload,refColumn=id" json:"responsePayloadId"`
+	RunId                  *string                     `sqlx:"run_id" json:"runId"`
+	Iteration              *int                        `sqlx:"iteration" json:"iteration"`
+	MessageSequence        *int                        `sqlx:"message_sequence" json:"messageSequence"`
 	MessageRequestPayload  *MessageRequestPayloadView  `view:"messageRequestPayload,type=MessageRequestPayloadView,table=call_payload" on:"RequestPayloadId:messageToolCall.request_payload_id=Id:messageRequestPayload.id" json:"messageRequestPayload" sql:"uri=datly_message_read_reader:sql/message_request_payload.sql"`
 	MessageResponsePayload *MessageResponsePayloadView `view:"messageResponsePayload,type=MessageResponsePayloadView,table=call_payload" on:"ResponsePayloadId:messageToolCall.response_payload_id=Id:messageResponsePayload.id" json:"messageResponsePayload" sql:"uri=datly_message_read_reader:sql/message_response_payload.sql"`
 }
 
 // MessageRequestPayloadView is generated canonical view metadata for reader.
 type MessageRequestPayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true"`
-	InlineBody  *string `sqlx:"inline_body"`
-	Compression string  `sqlx:"compression,required=true"`
+	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string  `sqlx:"compression,required=true" json:"compression"`
+	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
 }
 
 // MessageResponsePayloadView is generated canonical view metadata for reader.
 type MessageResponsePayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true"`
-	InlineBody  *string `sqlx:"inline_body"`
-	Compression string  `sqlx:"compression,required=true"`
+	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string  `sqlx:"compression,required=true" json:"compression"`
+	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
 }
 
 // ToolMessageView is generated canonical view metadata for reader.
 type ToolMessageView struct {
-	Id                   string        `sqlx:"id,primaryKey=true"`
-	ParentMessageId      *string       `sqlx:"parent_message_id"`
-	CreatedAt            time.Time     `sqlx:"created_at,required=true"`
-	Sequence             *int          `sqlx:"sequence"`
-	Type                 string        `sqlx:"type,required=true"`
-	Content              *string       `sqlx:"content"`
-	ToolName             *string       `sqlx:"tool_name"`
-	Iteration            *int          `sqlx:"iteration"`
-	LinkedConversationId *string       `sqlx:"linked_conversation_id"`
+	Id                   string        `sqlx:"id,primaryKey=true" json:"id"`
+	CreatedAt            time.Time     `sqlx:"created_at,required=true" json:"createdAt"`
+	Type                 string        `sqlx:"type,required=true" json:"type"`
+	LinkedConversationId *string       `sqlx:"linked_conversation_id" json:"linkedConversationId"`
+	ParentMessageId      *string       `sqlx:"parent_message_id" json:"parentMessageId"`
+	Sequence             *int          `sqlx:"sequence" json:"sequence"`
+	Content              *string       `sqlx:"content" json:"content"`
+	ToolName             *string       `sqlx:"tool_name" json:"toolName"`
+	Iteration            *int          `sqlx:"iteration" json:"iteration"`
 	ToolCall             *ToolCallView `view:"toolCall,type=ToolCallView,table=tool_call" on:"Id:toolMessage.id=MessageId:toolCall.message_id" json:"toolCall" sql:"uri=datly_message_read_reader:sql/tool_call.sql"`
 }
 
 // ToolCallView is generated canonical view metadata for reader.
 type ToolCallView struct {
-	MessageSequence   *int                 `sqlx:"message_sequence"`
-	MessageId         string               `sqlx:"message_id,refTable=message,refColumn=id,primaryKey=true"`
-	TurnId            *string              `sqlx:"turn_id,refTable=turn,refColumn=id"`
-	OpId              string               `sqlx:"op_id,required=true"`
-	Attempt           int                  `sqlx:"attempt,required=true"`
-	ToolName          string               `sqlx:"tool_name,required=true"`
-	ToolKind          string               `sqlx:"tool_kind,required=true"`
-	Status            string               `sqlx:"status,required=true"`
-	RequestHash       *string              `sqlx:"request_hash"`
-	ErrorCode         *string              `sqlx:"error_code"`
-	ErrorMessage      *string              `sqlx:"error_message"`
-	Retriable         *int                 `sqlx:"retriable"`
-	StartedAt         *time.Time           `sqlx:"started_at"`
-	CompletedAt       *time.Time           `sqlx:"completed_at"`
-	LatencyMs         *int                 `sqlx:"latency_ms"`
-	Cost              *float64             `sqlx:"cost"`
-	TraceId           *string              `sqlx:"trace_id"`
-	SpanId            *string              `sqlx:"span_id"`
-	RequestPayloadId  *string              `sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
-	ResponsePayloadId *string              `sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
-	RunId             *string              `sqlx:"run_id"`
-	Iteration         *int                 `sqlx:"iteration"`
+	MessageId         string               `sqlx:"message_id,refTable=message,refColumn=id,primaryKey=true" json:"messageId"`
+	OpId              string               `sqlx:"op_id,required=true" json:"opId"`
+	Attempt           int                  `sqlx:"attempt,required=true" json:"attempt"`
+	ToolName          string               `sqlx:"tool_name,required=true" json:"toolName"`
+	ToolKind          string               `sqlx:"tool_kind,required=true" json:"toolKind"`
+	Status            string               `sqlx:"status,required=true" json:"status"`
+	TurnId            *string              `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId"`
+	RequestHash       *string              `sqlx:"request_hash" json:"requestHash"`
+	ErrorCode         *string              `sqlx:"error_code" json:"errorCode"`
+	ErrorMessage      *string              `sqlx:"error_message" json:"errorMessage"`
+	Retriable         *int                 `sqlx:"retriable" json:"retriable"`
+	StartedAt         *time.Time           `sqlx:"started_at" json:"startedAt"`
+	CompletedAt       *time.Time           `sqlx:"completed_at" json:"completedAt"`
+	LatencyMs         *int                 `sqlx:"latency_ms" json:"latencyMs"`
+	Cost              *float64             `sqlx:"cost" json:"cost"`
+	TraceId           *string              `sqlx:"trace_id" json:"traceId"`
+	SpanId            *string              `sqlx:"span_id" json:"spanId"`
+	RequestPayloadId  *string              `sqlx:"request_payload_id,refTable=call_payload,refColumn=id" json:"requestPayloadId"`
+	ResponsePayloadId *string              `sqlx:"response_payload_id,refTable=call_payload,refColumn=id" json:"responsePayloadId"`
+	RunId             *string              `sqlx:"run_id" json:"runId"`
+	Iteration         *int                 `sqlx:"iteration" json:"iteration"`
+	MessageSequence   *int                 `sqlx:"message_sequence" json:"messageSequence"`
 	RequestPayload    *RequestPayloadView  `view:"requestPayload,type=RequestPayloadView,table=call_payload" on:"RequestPayloadId:toolCall.request_payload_id=Id:requestPayload.id" json:"requestPayload" sql:"uri=datly_message_read_reader:sql/request_payload.sql"`
 	ResponsePayload   *ResponsePayloadView `view:"responsePayload,type=ResponsePayloadView,table=call_payload" on:"ResponsePayloadId:toolCall.response_payload_id=Id:responsePayload.id" json:"responsePayload" sql:"uri=datly_message_read_reader:sql/response_payload.sql"`
 }
 
 // RequestPayloadView is generated canonical view metadata for reader.
 type RequestPayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true"`
-	InlineBody  *string `sqlx:"inline_body"`
-	Compression string  `sqlx:"compression,required=true"`
+	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string  `sqlx:"compression,required=true" json:"compression"`
+	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
 }
 
 // ResponsePayloadView is generated canonical view metadata for reader.
 type ResponsePayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true"`
-	InlineBody  *string `sqlx:"inline_body"`
-	Compression string  `sqlx:"compression,required=true"`
+	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string  `sqlx:"compression,required=true" json:"compression"`
+	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
 }
 
 // UserElicitationDataView is generated canonical view metadata for reader.
 type UserElicitationDataView struct {
-	InlineBody  *string `sqlx:"inline_body"`
-	Compression string  `sqlx:"compression"`
-	MessageId   string  `sqlx:"id|message_id,primaryKey=true"`
+	Compression string  `sqlx:"compression" json:"compression"`
+	MessageId   string  `sqlx:"id|message_id,primaryKey=true" json:"messageId"`
+	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
 }
 
 // LinkedConversationView is generated canonical view metadata for reader.
 type LinkedConversationView struct {
-	Id        string     `sqlx:"id,primaryKey=true"`
-	Status    *string    `sqlx:"status"`
-	CreatedAt time.Time  `sqlx:"created_at,required=true"`
-	UpdatedAt *time.Time `sqlx:"updated_at"`
+	Id        string     `sqlx:"id,primaryKey=true" json:"id"`
+	CreatedAt time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	Status    *string    `sqlx:"status" json:"status"`
+	UpdatedAt *time.Time `sqlx:"updated_at" json:"updatedAt"`
 }
 
 // AttachmentView is generated canonical view metadata for reader.
 type AttachmentView struct {
-	InlineBody      *[]uint8 `sqlx:"inline_body"`
-	Compression     string   `sqlx:"compression"`
-	Uri             *string  `sqlx:"uri"`
-	MimeType        string   `sqlx:"mime_type"`
-	ParentMessageId *string  `sqlx:"parent_message_id"`
+	InlineBody      *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Compression     string   `sqlx:"compression" json:"compression"`
+	MimeType        string   `sqlx:"mime_type" json:"mimeType"`
+	Uri             *string  `sqlx:"uri" json:"uri"`
+	ParentMessageId *string  `sqlx:"parent_message_id" json:"parentMessageId"`
 }
 
 // ModelCallView is generated canonical view metadata for reader.
 type ModelCallView struct {
-	CompletedAt                        *time.Time                            `sqlx:"completed_at"`
-	CompletionAcceptedPredictionTokens *int                                  `sqlx:"completion_accepted_prediction_tokens"`
-	CompletionAudioTokens              *int                                  `sqlx:"completion_audio_tokens"`
-	CompletionReasoningTokens          *int                                  `sqlx:"completion_reasoning_tokens"`
-	CompletionRejectedPredictionTokens *int                                  `sqlx:"completion_rejected_prediction_tokens"`
-	CompletionTokens                   *int                                  `sqlx:"completion_tokens"`
-	Cost                               *float64                              `sqlx:"cost"`
-	ErrorCode                          *string                               `sqlx:"error_code"`
-	ErrorMessage                       *string                               `sqlx:"error_message"`
-	FinishReason                       *string                               `sqlx:"finish_reason"`
-	Iteration                          *int                                  `sqlx:"iteration"`
-	LatencyMs                          *int                                  `sqlx:"latency_ms"`
-	MessageId                          string                                `sqlx:"message_id,refTable=message,refColumn=id,primaryKey=true"`
-	Model                              string                                `sqlx:"model,required=true"`
-	ModelKind                          string                                `sqlx:"model_kind,required=true"`
-	PromptAudioTokens                  *int                                  `sqlx:"prompt_audio_tokens"`
-	PromptCachedTokens                 *int                                  `sqlx:"prompt_cached_tokens"`
-	PromptTokens                       *int                                  `sqlx:"prompt_tokens"`
-	Provider                           string                                `sqlx:"provider,required=true"`
-	ProviderRequestPayloadId           *string                               `sqlx:"provider_request_payload_id,refTable=call_payload,refColumn=id"`
-	ProviderResponsePayloadId          *string                               `sqlx:"provider_response_payload_id,refTable=call_payload,refColumn=id"`
-	RequestPayloadId                   *string                               `sqlx:"request_payload_id,refTable=call_payload,refColumn=id"`
-	ResponsePayloadId                  *string                               `sqlx:"response_payload_id,refTable=call_payload,refColumn=id"`
-	RunId                              *string                               `sqlx:"run_id"`
-	SpanId                             *string                               `sqlx:"span_id"`
-	StartedAt                          *time.Time                            `sqlx:"started_at"`
-	Status                             string                                `sqlx:"status,required=true"`
-	StreamPayloadId                    *string                               `sqlx:"stream_payload_id,refTable=call_payload,refColumn=id"`
-	TotalTokens                        *int                                  `sqlx:"total_tokens"`
-	TraceId                            *string                               `sqlx:"trace_id"`
-	TurnId                             *string                               `sqlx:"turn_id,refTable=turn,refColumn=id"`
+	MessageId                          string                                `sqlx:"message_id,refTable=message,refColumn=id,primaryKey=true" json:"messageId"`
+	Model                              string                                `sqlx:"model,required=true" json:"model"`
+	ModelKind                          string                                `sqlx:"model_kind,required=true" json:"modelKind"`
+	Provider                           string                                `sqlx:"provider,required=true" json:"provider"`
+	Status                             string                                `sqlx:"status,required=true" json:"status"`
+	TurnId                             *string                               `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId"`
+	ErrorCode                          *string                               `sqlx:"error_code" json:"errorCode"`
+	ErrorMessage                       *string                               `sqlx:"error_message" json:"errorMessage"`
+	FinishReason                       *string                               `sqlx:"finish_reason" json:"finishReason"`
+	PromptTokens                       *int                                  `sqlx:"prompt_tokens" json:"promptTokens"`
+	PromptCachedTokens                 *int                                  `sqlx:"prompt_cached_tokens" json:"promptCachedTokens"`
+	CompletionTokens                   *int                                  `sqlx:"completion_tokens" json:"completionTokens"`
+	TotalTokens                        *int                                  `sqlx:"total_tokens" json:"totalTokens"`
+	PromptAudioTokens                  *int                                  `sqlx:"prompt_audio_tokens" json:"promptAudioTokens"`
+	CompletionReasoningTokens          *int                                  `sqlx:"completion_reasoning_tokens" json:"completionReasoningTokens"`
+	CompletionAudioTokens              *int                                  `sqlx:"completion_audio_tokens" json:"completionAudioTokens"`
+	CompletionAcceptedPredictionTokens *int                                  `sqlx:"completion_accepted_prediction_tokens" json:"completionAcceptedPredictionTokens"`
+	CompletionRejectedPredictionTokens *int                                  `sqlx:"completion_rejected_prediction_tokens" json:"completionRejectedPredictionTokens"`
+	StartedAt                          *time.Time                            `sqlx:"started_at" json:"startedAt"`
+	CompletedAt                        *time.Time                            `sqlx:"completed_at" json:"completedAt"`
+	LatencyMs                          *int                                  `sqlx:"latency_ms" json:"latencyMs"`
+	Cost                               *float64                              `sqlx:"cost" json:"cost"`
+	TraceId                            *string                               `sqlx:"trace_id" json:"traceId"`
+	SpanId                             *string                               `sqlx:"span_id" json:"spanId"`
+	RequestPayloadId                   *string                               `sqlx:"request_payload_id,refTable=call_payload,refColumn=id" json:"requestPayloadId"`
+	ResponsePayloadId                  *string                               `sqlx:"response_payload_id,refTable=call_payload,refColumn=id" json:"responsePayloadId"`
+	ProviderRequestPayloadId           *string                               `sqlx:"provider_request_payload_id,refTable=call_payload,refColumn=id" json:"providerRequestPayloadId"`
+	ProviderResponsePayloadId          *string                               `sqlx:"provider_response_payload_id,refTable=call_payload,refColumn=id" json:"providerResponsePayloadId"`
+	StreamPayloadId                    *string                               `sqlx:"stream_payload_id,refTable=call_payload,refColumn=id" json:"streamPayloadId"`
+	RunId                              *string                               `sqlx:"run_id" json:"runId"`
+	Iteration                          *int                                  `sqlx:"iteration" json:"iteration"`
 	ModelCallRequestPayload            *ModelCallRequestPayloadView          `view:"modelCallRequestPayload,type=ModelCallRequestPayloadView,table=call_payload" on:"RequestPayloadId:modelCall.request_payload_id=Id:modelCallRequestPayload.id" json:"modelCallRequestPayload" sql:"uri=datly_message_read_reader:sql/model_call_request_payload.sql"`
 	ModelCallProviderRequestPayload    *ModelCallProviderRequestPayloadView  `view:"modelCallProviderRequestPayload,type=ModelCallProviderRequestPayloadView,table=call_payload" on:"ProviderRequestPayloadId:modelCall.provider_request_payload_id=Id:modelCallProviderRequestPayload.id" json:"modelCallProviderRequestPayload" sql:"uri=datly_message_read_reader:sql/model_call_provider_request_payload.sql"`
 	ModelCallResponsePayload           *ModelCallResponsePayloadView         `view:"modelCallResponsePayload,type=ModelCallResponsePayloadView,table=call_payload" on:"ResponsePayloadId:modelCall.response_payload_id=Id:modelCallResponsePayload.id" json:"modelCallResponsePayload" sql:"uri=datly_message_read_reader:sql/model_call_response_payload.sql"`
@@ -216,42 +216,42 @@ type ModelCallView struct {
 
 // ModelCallRequestPayloadView is generated canonical view metadata for reader.
 type ModelCallRequestPayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true"`
-	InlineBody  *string `sqlx:"inline_body"`
-	Compression string  `sqlx:"compression,required=true"`
+	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string  `sqlx:"compression,required=true" json:"compression"`
+	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
 }
 
 // ModelCallProviderRequestPayloadView is generated canonical view metadata for reader.
 type ModelCallProviderRequestPayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true"`
-	InlineBody  *string `sqlx:"inline_body"`
-	Compression string  `sqlx:"compression,required=true"`
+	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string  `sqlx:"compression,required=true" json:"compression"`
+	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
 }
 
 // ModelCallResponsePayloadView is generated canonical view metadata for reader.
 type ModelCallResponsePayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true"`
-	InlineBody  *string `sqlx:"inline_body"`
-	Compression string  `sqlx:"compression,required=true"`
+	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string  `sqlx:"compression,required=true" json:"compression"`
+	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
 }
 
 // ModelCallProviderResponsePayloadView is generated canonical view metadata for reader.
 type ModelCallProviderResponsePayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true"`
-	InlineBody  *string `sqlx:"inline_body"`
-	Compression string  `sqlx:"compression,required=true"`
+	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string  `sqlx:"compression,required=true" json:"compression"`
+	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
 }
 
 // ToolCallLinksView is generated canonical view metadata for reader.
 type ToolCallLinksView struct {
-	MessageId string  `sqlx:"message_id,refTable=message,refColumn=id,primaryKey=true"`
-	OpId      string  `sqlx:"op_id,required=true"`
-	TraceId   *string `sqlx:"trace_id"`
+	MessageId string  `sqlx:"message_id,refTable=message,refColumn=id,primaryKey=true" json:"messageId"`
+	OpId      string  `sqlx:"op_id,required=true" json:"opId"`
+	TraceId   *string `sqlx:"trace_id" json:"traceId"`
 }
 
 // ModelCallStreamPayloadView is generated canonical view metadata for reader.
 type ModelCallStreamPayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true"`
-	InlineBody  *string `sqlx:"inline_body"`
-	Compression string  `sqlx:"compression,required=true"`
+	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string  `sqlx:"compression,required=true" json:"compression"`
+	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
 }

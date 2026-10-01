@@ -8,7 +8,6 @@ import (
 
 // PayloadRowsInput is the generated input scaffold for reader.
 type PayloadRowsInput struct {
-	LockRows bool                 `parameter:"LockRows,kind=payloadaccess,in=lock,dataType=bool,required=false"`
 	TenantID string               `parameter:"TenantID,kind=path,in=tenantId,dataType=string,required=false" predicate:"in,p,tenant_id"`
 	Id       string               `parameter:"Id,kind=query,in=id,dataType=string,required=false" predicate:"in,p,id"`
 	Ids      []string             `parameter:"Ids,kind=query,in=ids,dataType=[]string,required=false" predicate:"in,p,id"`
@@ -27,7 +26,6 @@ type PayloadRowsInput struct {
 }
 
 type PayloadRowsInputHas struct {
-	LockRows bool
 	TenantID bool
 	Id       bool
 	Ids      bool

@@ -1,4 +1,4 @@
-SELECT toolMessage.id, toolMessage.parent_message_id, toolMessage.created_at, toolMessage.sequence, toolMessage.type, toolMessage.content, toolMessage.tool_name, toolMessage.iteration, toolMessage.linked_conversation_id FROM (
+SELECT * FROM (
 SELECT
     m.id,
     m.parent_message_id,

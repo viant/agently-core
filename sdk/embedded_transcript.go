@@ -9,7 +9,7 @@ import (
 
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/agent/execution"
 	hstate "github.com/viant/xdatly/state"
 )
@@ -247,12 +247,12 @@ func (c *backendClient) getTranscriptConversation(ctx context.Context, conversat
 	includeModelCalls := input != nil && input.IncludeModelCalls || optsState != nil && optsState.includeModelCalls
 	includeToolCalls := input != nil && input.IncludeToolCalls || optsState != nil && optsState.includeToolCalls
 	if c.data != nil && len(selectors) > 0 {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			Id:                conversationID,
 			IncludeTranscript: true,
 			IncludeModelCal:   includeModelCalls,
 			IncludeToolCall:   includeToolCalls,
-			Has: &agconv.ConversationInputHas{
+			Has: &conversationmodel.ConversationInputHas{
 				Id:                true,
 				IncludeTranscript: true,
 				IncludeModelCal:   true,
@@ -353,7 +353,7 @@ func pruneTranscriptNoise(turns conversation.Transcript) {
 	}
 }
 
-func shouldDropTranscriptMessage(msg *agconv.MessageView) bool {
+func shouldDropTranscriptMessage(msg *conversationmodel.MessageView) bool {
 	if msg == nil {
 		return true
 	}
@@ -369,7 +369,7 @@ func shouldDropTranscriptMessage(msg *agconv.MessageView) bool {
 	return !(msg.ModelCall != nil || len(msg.ToolMessage) > 0)
 }
 
-func (c *backendClient) resolveMessageElicitation(ctx context.Context, msg *agconv.MessageView) map[string]interface{} {
+func (c *backendClient) resolveMessageElicitation(ctx context.Context, msg *conversationmodel.MessageView) map[string]interface{} {
 	if msg == nil || msg.ElicitationId == nil || strings.TrimSpace(*msg.ElicitationId) == "" {
 		return nil
 	}
@@ -440,7 +440,7 @@ func filterTranscriptSinceMessage(turns conversation.Transcript, messageID strin
 			}
 			found = true
 			cloned := *turn
-			cloned.Message = append([]*agconv.MessageView(nil), turn.Message[index:]...)
+			cloned.Message = append([]*conversationmodel.MessageView(nil), turn.Message[index:]...)
 			result = append(result, &cloned)
 			continue
 		}

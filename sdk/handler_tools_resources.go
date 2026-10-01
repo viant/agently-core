@@ -13,7 +13,7 @@ import (
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
-	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -155,12 +155,12 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 func withTrustedExportRequest(ctx context.Context, r *http.Request) context.Context {
 	requestID := ""
 	if r != nil {
-		requestID = strings.TrimSpace(r.Header.Get(exportrequest.Header))
+		requestID = strings.TrimSpace(r.Header.Get(exportrequestmodel.Header))
 	}
 	if requestID == "" {
-		requestID = exportrequest.NewID()
+		requestID = exportrequestmodel.NewID()
 	}
-	return exportrequest.WithID(ctx, requestID)
+	return exportrequestmodel.WithID(ctx, requestID)
 }
 
 func debugMCPExecf(format string, args ...interface{}) {

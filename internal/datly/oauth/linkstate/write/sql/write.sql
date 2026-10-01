@@ -1,1 +1,1 @@
-SELECT states.state_hash, states.should_delete, states.flow_hash, states.user_id, states.session_hash, states.provider, states.expires_at, states.consumed_at, states.created_at, states.now FROM  (SELECT 0 AS should_delete, state_hash, flow_hash, user_id, session_hash, provider, expires_at, consumed_at, created_at, '' AS now FROM oauth_link_state)  states
+SELECT states.* FROM  (SELECT c.* , 0 AS should_delete, '' AS now FROM oauth_link_state c)  states

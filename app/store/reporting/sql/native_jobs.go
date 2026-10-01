@@ -13,7 +13,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	jobread "github.com/viant/agently-core/internal/datly/reporting/job/read"
 	jobwrite "github.com/viant/agently-core/internal/datly/reporting/job/write"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
 )
@@ -38,7 +38,7 @@ func (s *Store) readJobsNative(ctx context.Context, input *jobread.Input) ([]*jo
 	return out.Data, nil
 }
 
-func (s *Store) getJobNative(ctx context.Context, jobID string) (*reportjob.Record, error) {
+func (s *Store) getJobNative(ctx context.Context, jobID string) (*reportjobmodel.Record, error) {
 	if strings.TrimSpace(jobID) == "" || effectiveOwnerID(ctx) == "" && !hasInternalAccess(ctx) {
 		return nil, errNotFound
 	}
@@ -57,15 +57,15 @@ func (s *Store) getJobNative(ctx context.Context, jobID string) (*reportjob.Reco
 	return reportJobFromNative(rows[0]), nil
 }
 
-func (s *Store) listJobsNative(ctx context.Context) ([]*reportjob.Record, error) {
+func (s *Store) listJobsNative(ctx context.Context) ([]*reportjobmodel.Record, error) {
 	if effectiveOwnerID(ctx) == "" && !hasInternalAccess(ctx) {
-		return []*reportjob.Record{}, nil
+		return []*reportjobmodel.Record{}, nil
 	}
 	rows, err := s.readJobsNative(ctx, &jobread.Input{})
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*reportjob.Record, 0, len(rows))
+	result := make([]*reportjobmodel.Record, 0, len(rows))
 	for _, row := range rows {
 		if row != nil {
 			result = append(result, reportJobFromNative(row))
@@ -108,7 +108,7 @@ func (s *Store) writeJobNative(ctx context.Context, mode string, row *jobwrite.J
 	return nil
 }
 
-func (s *Store) createJobNative(ctx context.Context, job *reportjob.Record) error {
+func (s *Store) createJobNative(ctx context.Context, job *reportjobmodel.Record) error {
 	if job == nil {
 		return errNotFound
 	}
@@ -121,7 +121,7 @@ func (s *Store) createJobNative(ctx context.Context, job *reportjob.Record) erro
 	return s.writeJobNative(ctx, "create", nativeJobRow(job), "")
 }
 
-func (s *Store) updateJobNative(ctx context.Context, job *reportjob.Record) error {
+func (s *Store) updateJobNative(ctx context.Context, job *reportjobmodel.Record) error {
 	if job == nil {
 		return errNotFound
 	}
@@ -134,7 +134,7 @@ func (s *Store) updateJobNative(ctx context.Context, job *reportjob.Record) erro
 	return s.writeJobNative(ctx, "update", nativeJobRow(job), "")
 }
 
-func (s *Store) claimJobNative(ctx context.Context, jobID string, startedAt time.Time) (*reportjob.Record, error) {
+func (s *Store) claimJobNative(ctx context.Context, jobID string, startedAt time.Time) (*reportjobmodel.Record, error) {
 	job, err := s.getJobNative(ctx, jobID)
 	if err != nil {
 		return nil, err
@@ -151,7 +151,7 @@ func (s *Store) claimJobNative(ctx context.Context, jobID string, startedAt time
 	return s.getJobNative(ctx, jobID)
 }
 
-func (s *Store) failJobNative(ctx context.Context, jobID, errorText string, diagnostics []byte, completedAt time.Time) (*reportjob.Record, error) {
+func (s *Store) failJobNative(ctx context.Context, jobID, errorText string, diagnostics []byte, completedAt time.Time) (*reportjobmodel.Record, error) {
 	job, err := s.getJobNative(ctx, jobID)
 	if err != nil {
 		return nil, err
@@ -171,7 +171,7 @@ func (s *Store) failJobNative(ctx context.Context, jobID, errorText string, diag
 	return s.getJobNative(ctx, jobID)
 }
 
-func nativeJobRow(job *reportjob.Record) *jobwrite.Job {
+func nativeJobRow(job *reportjobmodel.Record) *jobwrite.Job {
 	row := &jobwrite.Job{}
 	row.SetJobId(strings.TrimSpace(job.JobID))
 	row.SetArtifactRef(strings.TrimSpace(job.ArtifactRef))

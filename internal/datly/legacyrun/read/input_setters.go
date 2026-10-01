@@ -17,17 +17,6 @@ func (input *Input) SetTrusted(value bool) {
 	input.Has.Trusted = true
 }
 
-func (input *Input) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &InputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *Input) SetID(value string) {
 	if input == nil {
 		return

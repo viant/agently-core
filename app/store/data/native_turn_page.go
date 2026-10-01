@@ -7,11 +7,11 @@ import (
 
 	read "github.com/viant/agently-core/internal/datly/turn/read"
 	store "github.com/viant/agently-core/internal/store/conversation"
-	legacy "github.com/viant/agently-core/pkg/agently/turn/list"
+	turnmodel "github.com/viant/agently-core/model/turn"
 	"github.com/viant/xdatly/state"
 )
 
-func nativeTurnPageInput(input *legacy.TurnRowsInput) *read.TurnRowsInput {
+func nativeTurnPageInput(input *turnmodel.TurnRowsInput) *read.TurnRowsInput {
 	query := &read.TurnRowsInput{}
 	if input == nil || input.Has == nil {
 		return query
@@ -41,7 +41,7 @@ func nativeTurnPageInput(input *legacy.TurnRowsInput) *read.TurnRowsInput {
 	return query
 }
 
-func (s *datlyService) queryTurnRowsNative(ctx context.Context, input *legacy.TurnRowsInput, limit int, opts *options) ([]*legacy.TurnRowsView, error) {
+func (s *datlyService) queryTurnRowsNative(ctx context.Context, input *turnmodel.TurnRowsInput, limit int, opts *options) ([]*turnmodel.TurnRowsView, error) {
 	selectors := state.Selectors{&state.NamedSelector{Name: "TurnRows", Selector: state.Selector{Limit: limit + 1}}}
 	if opts != nil {
 		selectors = append(selectors, nativeSelectors(opts.selectors)...)
@@ -50,7 +50,7 @@ func (s *datlyService) queryTurnRowsNative(ctx context.Context, input *legacy.Tu
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*legacy.TurnRowsView, 0, len(rows))
+	result := make([]*turnmodel.TurnRowsView, 0, len(rows))
 	for _, row := range rows {
 		if row == nil {
 			continue
@@ -59,7 +59,7 @@ func (s *datlyService) queryTurnRowsNative(ctx context.Context, input *legacy.Tu
 		if err != nil {
 			return nil, fmt.Errorf("encode native turn row: %w", err)
 		}
-		var mapped legacy.TurnRowsView
+		var mapped turnmodel.TurnRowsView
 		if err := json.Unmarshal(encoded, &mapped); err != nil {
 			return nil, fmt.Errorf("decode turn row contract: %w", err)
 		}

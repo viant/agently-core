@@ -9,10 +9,10 @@ import (
 	store "github.com/viant/agently-core/internal/store/agentrun"
 
 	datlypredicate "github.com/viant/agently-core/internal/datly/predicate"
-	legacy "github.com/viant/agently-core/pkg/agently/run/write"
+	runmodel "github.com/viant/agently-core/model/run"
 )
 
-func nativeRunMutation(row *legacy.MutableRunView) (*write.MutableRunView, error) {
+func nativeRunMutation(row *runmodel.MutableRunView) (*write.MutableRunView, error) {
 	if row == nil {
 		return nil, nil
 	}
@@ -54,7 +54,7 @@ func nativeRunMutation(row *legacy.MutableRunView) (*write.MutableRunView, error
 	return &mapped, nil
 }
 
-func legacyRunMutation(row *write.MutableRunView) (*legacy.MutableRunView, error) {
+func legacyRunMutation(row *write.MutableRunView) (*runmodel.MutableRunView, error) {
 	if row == nil {
 		return nil, nil
 	}
@@ -62,17 +62,17 @@ func legacyRunMutation(row *write.MutableRunView) (*legacy.MutableRunView, error
 	if err != nil {
 		return nil, fmt.Errorf("encode native run result: %w", err)
 	}
-	var mapped legacy.MutableRunView
+	var mapped runmodel.MutableRunView
 	if err := json.Unmarshal(encoded, &mapped); err != nil {
 		return nil, fmt.Errorf("decode run result contract: %w", err)
 	}
 	if row.Condition != nil {
-		mapped.Condition = &legacy.RunPatchCondition{
+		mapped.Condition = &runmodel.RunPatchCondition{
 			Status: row.Condition.Status, LeaseOwner: row.Condition.LeaseOwner, Attempt: row.Condition.Attempt,
 		}
 	}
 	if h := row.Has; h != nil {
-		mapped.Has = &legacy.RunHas{
+		mapped.Has = &runmodel.RunHas{
 			Id: h.Id, TurnID: h.TurnId, ScheduleID: h.ScheduleId,
 			ConversationID: h.ConversationId, ConversationKind: h.ConversationKind,
 			Attempt: h.Attempt, ResumedFromRunID: h.ResumedFromRunId,
@@ -96,7 +96,7 @@ func legacyRunMutation(row *write.MutableRunView) (*legacy.MutableRunView, error
 	return &mapped, nil
 }
 
-func (s *datlyService) patchRunsNative(ctx context.Context, rows []*legacy.MutableRunView) ([]*legacy.MutableRunView, error) {
+func (s *datlyService) patchRunsNative(ctx context.Context, rows []*runmodel.MutableRunView) ([]*runmodel.MutableRunView, error) {
 	mutations := make([]*write.MutableRunView, 0, len(rows))
 	for _, row := range rows {
 		mapped, err := nativeRunMutation(row)
@@ -109,7 +109,7 @@ func (s *datlyService) patchRunsNative(ctx context.Context, rows []*legacy.Mutab
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*legacy.MutableRunView, 0, len(output))
+	result := make([]*runmodel.MutableRunView, 0, len(output))
 	for _, row := range output {
 		mapped, err := legacyRunMutation(row)
 		if err != nil {

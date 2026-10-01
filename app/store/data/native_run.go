@@ -8,12 +8,10 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	read "github.com/viant/agently-core/internal/datly/run/read"
 	store "github.com/viant/agently-core/internal/store/agentrun"
-	legacy "github.com/viant/agently-core/pkg/agently/run"
-	legacyactive "github.com/viant/agently-core/pkg/agently/run/active"
-	legacystale "github.com/viant/agently-core/pkg/agently/run/stale"
+	runmodel "github.com/viant/agently-core/model/run"
 )
 
-func nativeRunInput(id string, input *legacy.RunRowsInput) *read.RunRowsInput {
+func nativeRunInput(id string, input *runmodel.RunRowsInput) *read.RunRowsInput {
 	query := &read.RunRowsInput{}
 	query.SetId(id)
 	if input == nil || input.Has == nil {
@@ -41,7 +39,7 @@ func nativeRunInput(id string, input *legacy.RunRowsInput) *read.RunRowsInput {
 	return query
 }
 
-func (s *datlyService) getRunNative(ctx context.Context, id string, input *legacy.RunRowsInput, opts *options) (*legacy.RunRowsView, error) {
+func (s *datlyService) getRunNative(ctx context.Context, id string, input *runmodel.RunRowsInput, opts *options) (*runmodel.RunRowsView, error) {
 	component := &store.Store{Invoker: s.native, OwnerID: authctx.EffectiveUserID}
 	var selectors = nativeSelectors(nil)
 	if opts != nil {
@@ -55,7 +53,7 @@ func (s *datlyService) getRunNative(ctx context.Context, id string, input *legac
 	if err != nil {
 		return nil, fmt.Errorf("encode native run: %w", err)
 	}
-	var mapped legacy.RunRowsView
+	var mapped runmodel.RunRowsView
 	if err := json.Unmarshal(encoded, &mapped); err != nil {
 		return nil, fmt.Errorf("decode run contract: %w", err)
 	}
@@ -82,7 +80,7 @@ func mapRunRow[T any](row *read.RunRowsView) (*T, error) {
 	return &mapped, nil
 }
 
-func (s *datlyService) getActiveRunNative(ctx context.Context, input *legacyactive.ActiveRunsInput, opts *options) (*legacyactive.ActiveRunsView, error) {
+func (s *datlyService) getActiveRunNative(ctx context.Context, input *runmodel.ActiveRunsInput, opts *options) (*runmodel.ActiveRunsView, error) {
 	query := &read.RunRowsInput{}
 	if input != nil && input.Has != nil {
 		if input.Has.TurnId {
@@ -97,7 +95,7 @@ func (s *datlyService) getActiveRunNative(ctx context.Context, input *legacyacti
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
-	mapped, err := mapRunRow[legacyactive.ActiveRunsView](rows[0])
+	mapped, err := mapRunRow[runmodel.ActiveRunsView](rows[0])
 	if err != nil {
 		return nil, err
 	}
@@ -109,7 +107,7 @@ func (s *datlyService) getActiveRunNative(ctx context.Context, input *legacyacti
 	return mapped, nil
 }
 
-func (s *datlyService) listStaleRunsNative(ctx context.Context, input *legacystale.StaleRunsInput, opts *options) ([]*legacystale.StaleRunsView, error) {
+func (s *datlyService) listStaleRunsNative(ctx context.Context, input *runmodel.StaleRunsInput, opts *options) ([]*runmodel.StaleRunsView, error) {
 	query := &read.RunRowsInput{}
 	if input != nil && input.Has != nil {
 		h := input.Has
@@ -137,10 +135,10 @@ func (s *datlyService) listStaleRunsNative(ctx context.Context, input *legacysta
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*legacystale.StaleRunsView, 0, len(rows))
+	result := make([]*runmodel.StaleRunsView, 0, len(rows))
 	cache := newAuthCache()
 	for _, row := range rows {
-		mapped, err := mapRunRow[legacystale.StaleRunsView](row)
+		mapped, err := mapRunRow[runmodel.StaleRunsView](row)
 		if err != nil {
 			return nil, err
 		}

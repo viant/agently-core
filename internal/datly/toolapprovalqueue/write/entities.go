@@ -36,36 +36,6 @@ func (entity *ToolApprovalQueue) SetUserId(value string) {
 	}
 	entity.Has.UserId = true
 }
-func (entity *ToolApprovalQueue) GetConversationId() *string {
-	return entity.ConversationId
-}
-func (entity *ToolApprovalQueue) SetConversationId(value *string) {
-	entity.ConversationId = value
-	if entity.Has == nil {
-		entity.Has = &ToolApprovalQueueHas{}
-	}
-	entity.Has.ConversationId = true
-}
-func (entity *ToolApprovalQueue) GetTurnId() *string {
-	return entity.TurnId
-}
-func (entity *ToolApprovalQueue) SetTurnId(value *string) {
-	entity.TurnId = value
-	if entity.Has == nil {
-		entity.Has = &ToolApprovalQueueHas{}
-	}
-	entity.Has.TurnId = true
-}
-func (entity *ToolApprovalQueue) GetMessageId() *string {
-	return entity.MessageId
-}
-func (entity *ToolApprovalQueue) SetMessageId(value *string) {
-	entity.MessageId = value
-	if entity.Has == nil {
-		entity.Has = &ToolApprovalQueueHas{}
-	}
-	entity.Has.MessageId = true
-}
 func (entity *ToolApprovalQueue) GetToolName() string {
 	return entity.ToolName
 }
@@ -75,16 +45,6 @@ func (entity *ToolApprovalQueue) SetToolName(value string) {
 		entity.Has = &ToolApprovalQueueHas{}
 	}
 	entity.Has.ToolName = true
-}
-func (entity *ToolApprovalQueue) GetTitle() *string {
-	return entity.Title
-}
-func (entity *ToolApprovalQueue) SetTitle(value *string) {
-	entity.Title = value
-	if entity.Has == nil {
-		entity.Has = &ToolApprovalQueueHas{}
-	}
-	entity.Has.Title = true
 }
 func (entity *ToolApprovalQueue) GetArguments() []byte {
 	return entity.Arguments
@@ -115,6 +75,46 @@ func (entity *ToolApprovalQueue) SetStatus(value string) {
 		entity.Has = &ToolApprovalQueueHas{}
 	}
 	entity.Has.Status = true
+}
+func (entity *ToolApprovalQueue) GetConversationId() *string {
+	return entity.ConversationId
+}
+func (entity *ToolApprovalQueue) SetConversationId(value *string) {
+	entity.ConversationId = value
+	if entity.Has == nil {
+		entity.Has = &ToolApprovalQueueHas{}
+	}
+	entity.Has.ConversationId = true
+}
+func (entity *ToolApprovalQueue) GetTurnId() *string {
+	return entity.TurnId
+}
+func (entity *ToolApprovalQueue) SetTurnId(value *string) {
+	entity.TurnId = value
+	if entity.Has == nil {
+		entity.Has = &ToolApprovalQueueHas{}
+	}
+	entity.Has.TurnId = true
+}
+func (entity *ToolApprovalQueue) GetMessageId() *string {
+	return entity.MessageId
+}
+func (entity *ToolApprovalQueue) SetMessageId(value *string) {
+	entity.MessageId = value
+	if entity.Has == nil {
+		entity.Has = &ToolApprovalQueueHas{}
+	}
+	entity.Has.MessageId = true
+}
+func (entity *ToolApprovalQueue) GetTitle() *string {
+	return entity.Title
+}
+func (entity *ToolApprovalQueue) SetTitle(value *string) {
+	entity.Title = value
+	if entity.Has == nil {
+		entity.Has = &ToolApprovalQueueHas{}
+	}
+	entity.Has.Title = true
 }
 func (entity *ToolApprovalQueue) GetDecision() *string {
 	return entity.Decision

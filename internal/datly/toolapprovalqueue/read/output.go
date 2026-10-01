@@ -4,5 +4,5 @@ package read
 
 // ApprovalRowsOutput is the generated output scaffold for reader.
 type ApprovalRowsOutput struct {
-	Data []*ApprovalView `parameter:"Data,kind=output,in=view,dataType=[]*ApprovalView" view:"reader,type=ApprovalView,table=tool_approval_queue,selectorProjection=true,selectorOrderBy=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_toolapprovalqueue_read_reader:sql/reader.sql"`
+	Data []*ApprovalView `parameter:"Data,kind=output,in=view,dataType=[]*ApprovalView" view:"reader,type=ApprovalView,rowLock=tool_approval_queue q,table=tool_approval_queue,selectorProjection=true,selectorOrderBy=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_toolapprovalqueue_read_reader:sql/reader.sql"`
 }

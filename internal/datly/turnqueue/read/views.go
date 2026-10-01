@@ -8,12 +8,12 @@ import (
 
 // QueueRowView is generated canonical view metadata for reader.
 type QueueRowView struct {
-	Id             string     `sqlx:"id,primaryKey=true"`
-	ConversationId string     `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	TurnId         string     `sqlx:"turn_id,refTable=turn,refColumn=id,required=true"`
-	MessageId      string     `sqlx:"message_id,refTable=message,refColumn=id,required=true"`
-	QueueSeq       int64      `sqlx:"queue_seq,required=true"`
-	Status         string     `sqlx:"status,required=true"`
-	CreatedAt      time.Time  `sqlx:"created_at,required=true"`
-	UpdatedAt      *time.Time `sqlx:"updated_at"`
+	Id             string     `sqlx:"id,primaryKey=true" json:"id"`
+	ConversationId string     `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId"`
+	TurnId         string     `sqlx:"turn_id,refTable=turn,refColumn=id,required=true" json:"turnId"`
+	MessageId      string     `sqlx:"message_id,refTable=message,refColumn=id,required=true" json:"messageId"`
+	QueueSeq       int64      `sqlx:"queue_seq,required=true" json:"queueSeq"`
+	Status         string     `sqlx:"status,required=true" json:"status"`
+	CreatedAt      time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	UpdatedAt      *time.Time `sqlx:"updated_at" json:"updatedAt"`
 }

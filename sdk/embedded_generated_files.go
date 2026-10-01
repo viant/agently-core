@@ -15,7 +15,7 @@ import (
 
 	"github.com/google/uuid"
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
 )
 
 var (
@@ -23,15 +23,15 @@ var (
 	errGeneratedFileNoContent = errors.New("generated file has no content")
 )
 
-func (c *backendClient) ListGeneratedFiles(ctx context.Context, conversationID string) ([]*gfread.GeneratedFileView, error) {
+func (c *backendClient) ListGeneratedFiles(ctx context.Context, conversationID string) ([]*generatedfilemodel.GeneratedFileView, error) {
 	convID := strings.TrimSpace(conversationID)
 	if convID == "" {
 		return nil, errors.New("conversation ID is required")
 	}
 	if store, ok := c.conv.(convstore.GeneratedFileClient); ok {
-		in := &gfread.Input{
+		in := &generatedfilemodel.Input{
 			ConversationID: convID,
-			Has:            &gfread.Has{ConversationID: true},
+			Has:            &generatedfilemodel.Has{ConversationID: true},
 		}
 		return store.GetGeneratedFiles(ctx, in)
 	}
@@ -46,9 +46,9 @@ func (c *backendClient) DownloadGeneratedFile(ctx context.Context, id string) ([
 	if !ok {
 		return nil, "", "", errGeneratedFileNotFound
 	}
-	in := &gfread.Input{
+	in := &generatedfilemodel.Input{
 		ID:  strings.TrimSpace(id),
-		Has: &gfread.Has{ID: true},
+		Has: &generatedfilemodel.Has{ID: true},
 	}
 	files, err := store.GetGeneratedFiles(ctx, in)
 	if err != nil || len(files) == 0 || files[0] == nil {

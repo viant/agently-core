@@ -16,8 +16,8 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	iauth "github.com/viant/agently-core/internal/auth"
-	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
-	agrun "github.com/viant/agently-core/pkg/agently/run"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
+	runmodel "github.com/viant/agently-core/model/run"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/streaming"
 	api "github.com/viant/agently-core/sdk/api"
@@ -72,7 +72,7 @@ func TestHTTPClient_GetRun(t *testing.T) {
 		if r.URL.Path != "/v1/runs/run-1" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
-		_ = json.NewEncoder(w).Encode(&agrun.RunRowsView{
+		_ = json.NewEncoder(w).Encode(&runmodel.RunRowsView{
 			Id:             "run-1",
 			Status:         "running",
 			Model:          strPtr("gpt-5.5"),
@@ -914,11 +914,11 @@ func (s *spyConversationDeleteClient) DeleteConversation(_ context.Context, id s
 type spyRunClient struct {
 	*HTTPClient
 	gotID string
-	run   *agrun.RunRowsView
+	run   *runmodel.RunRowsView
 	err   error
 }
 
-func (s *spyRunClient) GetRun(_ context.Context, id string) (*agrun.RunRowsView, error) {
+func (s *spyRunClient) GetRun(_ context.Context, id string) (*runmodel.RunRowsView, error) {
 	s.gotID = id
 	if s.err != nil {
 		return nil, s.err
@@ -986,7 +986,7 @@ func TestHandler_GetRun(t *testing.T) {
 	}
 	spy := &spyRunClient{
 		HTTPClient: base,
-		run: &agrun.RunRowsView{
+		run: &runmodel.RunRowsView{
 			Id:             "run-1",
 			Status:         "running",
 			Model:          strPtr("gpt-5.5"),
@@ -1520,7 +1520,7 @@ type exportRequestCaptureClient struct {
 }
 
 func (c *exportRequestCaptureClient) ExecuteTool(ctx context.Context, _ string, args map[string]interface{}) (string, error) {
-	c.requestIDs = append(c.requestIDs, exportrequest.ID(ctx))
+	c.requestIDs = append(c.requestIDs, exportrequestmodel.ID(ctx))
 	c.args = append(c.args, args)
 	return `{"jobId":"job-1","status":"queued"}`, nil
 }
@@ -1539,7 +1539,7 @@ func TestHandler_ExecuteToolKeepsTrustedExportRequestIdentityOutsideArgs(t *test
 			strings.NewReader(`{"reportRunId":"run-1","format":"pdf"}`),
 		)
 		if header != "" {
-			request.Header.Set(exportrequest.Header, header)
+			request.Header.Set(exportrequestmodel.Header, header)
 		}
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, request)

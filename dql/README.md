@@ -5,7 +5,7 @@ This is the authoritative DQL tree for Core. Each operation declares its generat
 - Stock contracts and required authored hook sidecars: `internal/datly/<domain>/read|write`.
 - Authored transactional orchestration: `internal/store/<domain>`.
 - Shared codecs, predicates, clocks and invariants: `internal/datly/codec`, `predicate`, `dbtime`, `invariant`.
-- Public service and DTO import paths remain in `service/` and `pkg/agently/`.
+- Public services live in `service/`; business DTOs live in entity packages under `model/`.
 
 Use `#import` aliases for shared types and predicate/codec references. The actual module is `github.com/viant/agently-core`; dot-only legacy `com.viant.*` names are not package identities.
 

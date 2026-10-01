@@ -8,11 +8,11 @@ import (
 
 // LeaseSnapshot is generated canonical view metadata for reader.
 type LeaseSnapshot struct {
-	DbNow      string     `sqlx:"db_now"`
-	LeaseKey   *string    `sqlx:"lease_key"`
-	OwnerId    *string    `sqlx:"owner_id"`
-	LeaseToken *string    `sqlx:"lease_token"`
-	LeaseUntil *time.Time `sqlx:"lease_until"`
-	CreatedAt  *time.Time `sqlx:"created_at"`
-	UpdatedAt  *time.Time `sqlx:"updated_at"`
+	DbNow      string     `sqlx:"db_now" json:"dbNow"`
+	LeaseKey   *string    `sqlx:"lease_key" json:"leaseKey"`
+	OwnerId    *string    `sqlx:"owner_id" json:"ownerId"`
+	LeaseToken *string    `sqlx:"lease_token" json:"leaseToken"`
+	LeaseUntil *time.Time `sqlx:"lease_until" json:"leaseUntil"`
+	CreatedAt  *time.Time `sqlx:"created_at" json:"createdAt"`
+	UpdatedAt  *time.Time `sqlx:"updated_at" json:"updatedAt"`
 }

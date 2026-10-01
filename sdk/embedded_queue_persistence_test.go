@@ -9,20 +9,19 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
-	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
-	turnRead "github.com/viant/agently-core/pkg/agently/turn/byId"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 type queueRetryStore struct {
 	status  string
-	patch   *queueWrite.ToolApprovalQueue
+	patch   *toolapprovalqueuemodel.ToolApprovalQueue
 	patches int
 	err     error
 	ignore  bool
 }
 
-func (s *queueRetryStore) PatchToolApprovalQueue(_ context.Context, row *queueWrite.ToolApprovalQueue) error {
+func (s *queueRetryStore) PatchToolApprovalQueue(_ context.Context, row *toolapprovalqueuemodel.ToolApprovalQueue) error {
 	s.patch = row
 	s.patches++
 	if s.err != nil {
@@ -33,8 +32,8 @@ func (s *queueRetryStore) PatchToolApprovalQueue(_ context.Context, row *queueWr
 	}
 	return nil
 }
-func (s *queueRetryStore) ListToolApprovalQueues(_ context.Context, _ *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error) {
-	return []*queueRead.QueueRowView{{Id: "approval", Status: s.status}}, nil
+func (s *queueRetryStore) ListToolApprovalQueues(_ context.Context, _ *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error) {
+	return []*toolapprovalqueuemodel.QueueRowView{{Id: "approval", Status: s.status}}, nil
 }
 func TestToolApprovalCanonicalFallbackRetriesAndVerifies(t *testing.T) {
 	ctx := context.Background()
@@ -76,27 +75,27 @@ func TestToolApprovalCanonicalFallbackRetriesAndVerifies(t *testing.T) {
 
 type queueTurnData struct {
 	data.Service
-	get func(context.Context, *turnRead.TurnLookupInput, []data.Option) (*turnRead.TurnLookupView, error)
+	get func(context.Context, *turnmodel.TurnLookupInput, []data.Option) (*turnmodel.TurnLookupView, error)
 }
 
-func (s *queueTurnData) GetTurnByID(ctx context.Context, input *turnRead.TurnLookupInput, opts ...data.Option) (*turnRead.TurnLookupView, error) {
+func (s *queueTurnData) GetTurnByID(ctx context.Context, input *turnmodel.TurnLookupInput, opts ...data.Option) (*turnmodel.TurnLookupView, error) {
 	return s.get(ctx, input, opts)
 }
 func TestQueueTurnAgentUsesScopedNativeDataRead(t *testing.T) {
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "owner"})
 	agent := " agent-id "
-	client := &backendClient{data: &queueTurnData{get: func(got context.Context, input *turnRead.TurnLookupInput, opts []data.Option) (*turnRead.TurnLookupView, error) {
+	client := &backendClient{data: &queueTurnData{get: func(got context.Context, input *turnmodel.TurnLookupInput, opts []data.Option) (*turnmodel.TurnLookupView, error) {
 		require.Equal(t, "owner", authctx.EffectiveUserID(got))
 		require.Equal(t, "turn-id", input.ID)
 		require.True(t, input.Has.ID)
 		require.NotEmpty(t, opts)
-		return &turnRead.TurnLookupView{AgentIdUsed: &agent}, nil
+		return &turnmodel.TurnLookupView{AgentIdUsed: &agent}, nil
 	}}}
 	value, err := lookupQueueTurnAgentID(ctx, client, " turn-id ")
 	require.NoError(t, err)
 	require.Equal(t, "agent-id", value)
 	denied := errors.New("permission denied")
-	client.data = &queueTurnData{get: func(context.Context, *turnRead.TurnLookupInput, []data.Option) (*turnRead.TurnLookupView, error) {
+	client.data = &queueTurnData{get: func(context.Context, *turnmodel.TurnLookupInput, []data.Option) (*turnmodel.TurnLookupView, error) {
 		return nil, denied
 	}}
 	_, err = lookupQueueTurnAgentID(ctx, client, "turn-id")

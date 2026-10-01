@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -17,15 +17,15 @@ import (
 // stubQueueConv captures the approval-queue row that enqueueToolApproval writes.
 type stubQueueConv struct {
 	stubConv
-	rec *queuew.ToolApprovalQueue
+	rec *toolapprovalqueuemodel.ToolApprovalQueue
 }
 
-func (s *stubQueueConv) PatchToolApprovalQueue(_ context.Context, rec *queuew.ToolApprovalQueue) error {
+func (s *stubQueueConv) PatchToolApprovalQueue(_ context.Context, rec *toolapprovalqueuemodel.ToolApprovalQueue) error {
 	s.rec = rec
 	return nil
 }
 
-func (s *stubQueueConv) ListToolApprovalQueues(context.Context, *queueread.QueueRowsInput) ([]*queueread.QueueRowView, error) {
+func (s *stubQueueConv) ListToolApprovalQueues(context.Context, *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error) {
 	return nil, nil
 }
 

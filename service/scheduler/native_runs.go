@@ -12,7 +12,7 @@ import (
 	cube "github.com/viant/agently-core/internal/datly/run/cube"
 	read "github.com/viant/agently-core/internal/datly/run/read"
 	store "github.com/viant/agently-core/internal/store/agentrun"
-	legacy "github.com/viant/agently-core/pkg/agently/scheduler/run"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
 	"github.com/viant/xdatly/state"
 )
 
@@ -20,7 +20,7 @@ func (s *datlyStore) nativeRunStore() *store.Store {
 	return &store.Store{Invoker: s.native, OwnerID: authctx.EffectiveUserID}
 }
 
-func mapSchedulerRun(row *read.RunRowsView) (*legacy.RunView, error) {
+func mapSchedulerRun(row *read.RunRowsView) (*scheduledrunmodel.RunView, error) {
 	if row == nil {
 		return nil, nil
 	}
@@ -28,14 +28,14 @@ func mapSchedulerRun(row *read.RunRowsView) (*legacy.RunView, error) {
 	if err != nil {
 		return nil, fmt.Errorf("encode native scheduler run: %w", err)
 	}
-	var mapped legacy.RunView
+	var mapped scheduledrunmodel.RunView
 	if err := json.Unmarshal(encoded, &mapped); err != nil {
 		return nil, fmt.Errorf("decode scheduler run contract: %w", err)
 	}
 	return &mapped, nil
 }
 
-func (s *datlyStore) listRunsNative(ctx context.Context, in *legacy.RunListInput, page, size int) (*RunListPage, error) {
+func (s *datlyStore) listRunsNative(ctx context.Context, in *scheduledrunmodel.RunListInput, page, size int) (*RunListPage, error) {
 	if in != nil && strings.TrimSpace(in.EffectiveUserID) != "" && !strings.EqualFold(strings.TrimSpace(in.EffectiveUserID), strings.TrimSpace(authctx.EffectiveUserID(ctx))) {
 		return nil, data.ErrPermissionDenied
 	}
@@ -80,7 +80,7 @@ func (s *datlyStore) listRunsNative(ctx context.Context, in *legacy.RunListInput
 	if err != nil {
 		return nil, err
 	}
-	result := &RunListPage{Rows: make([]*legacy.RunView, 0, len(rows)), TotalCount: total, PageCount: computePageCount(total, size)}
+	result := &RunListPage{Rows: make([]*scheduledrunmodel.RunView, 0, len(rows)), TotalCount: total, PageCount: computePageCount(total, size)}
 	for _, row := range rows {
 		mapped, err := mapSchedulerRun(row)
 		if err != nil {
@@ -93,7 +93,7 @@ func (s *datlyStore) listRunsNative(ctx context.Context, in *legacy.RunListInput
 	return result, nil
 }
 
-func (s *datlyStore) listRunsForDueNative(ctx context.Context, scheduleID string, scheduledFor *time.Time, excludeStatuses []string) ([]*legacy.RunView, error) {
+func (s *datlyStore) listRunsForDueNative(ctx context.Context, scheduleID string, scheduledFor *time.Time, excludeStatuses []string) ([]*scheduledrunmodel.RunView, error) {
 	query := &read.RunRowsInput{}
 	query.SetScheduleId(strings.TrimSpace(scheduleID))
 	if scheduledFor != nil && !scheduledFor.IsZero() {
@@ -106,7 +106,7 @@ func (s *datlyStore) listRunsForDueNative(ctx context.Context, scheduleID string
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*legacy.RunView, 0, len(rows))
+	result := make([]*scheduledrunmodel.RunView, 0, len(rows))
 	for _, row := range rows {
 		mapped, err := mapSchedulerRun(row)
 		if err != nil {

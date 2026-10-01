@@ -26,13 +26,11 @@ var scheduleTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindCo
 var runTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[runread.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/run/{id}"}}
 var legacyTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[legacyread.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/scheduler/legacy-run"}}
 
-func trustedProviders(kind, owner string, lock bool) []locator.Provider {
+func trustedProviders(kind, owner string) []locator.Provider {
 	return []locator.Provider{provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 		switch name {
 		case "internal":
 			return true, true, nil
-		case "lock":
-			return lock, true, nil
 		case "mode":
 			return "rows", true, nil
 		}
@@ -43,7 +41,7 @@ func trustedProviders(kind, owner string, lock bool) []locator.Provider {
 func readSchedule(ctx context.Context, invoker dexec.ComponentInvoker, id, owner string) (*schedread.ScheduleView, error) {
 	input := &schedread.ScheduleInput{}
 	input.SetId(id)
-	providers := trustedProviders("scheduleaccess", owner, true)
+	providers := trustedProviders("scheduleaccess", owner)
 	fields := []string{}
 	view := reflect.TypeFor[schedread.ScheduleView]()
 	for i := 0; i < view.NumField(); i++ {
@@ -53,7 +51,7 @@ func readSchedule(ctx context.Context, invoker dexec.ComponentInvoker, id, owner
 		}
 	}
 	providers = append(providers, queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: fields}}}))
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: scheduleTarget, Input: input, Providers: providers})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: scheduleTarget, Input: input, Providers: providers})
 	if err != nil {
 		return nil, err
 	}
@@ -71,7 +69,7 @@ func readSchedule(ctx context.Context, invoker dexec.ComponentInvoker, id, owner
 }
 
 func readRuns(ctx context.Context, invoker dexec.ComponentInvoker, input *runread.RunRowsInput, owner string, lock bool) ([]*runread.RunRowsView, error) {
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: runTarget, Input: input, Providers: trustedProviders("runaccess", owner, lock)})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, lock), Target: runTarget, Input: input, Providers: trustedProviders("runaccess", owner)})
 	if err != nil {
 		return nil, err
 	}
@@ -82,7 +80,7 @@ func readRuns(ctx context.Context, invoker dexec.ComponentInvoker, input *runrea
 	return output.Data, nil
 }
 func readLegacy(ctx context.Context, invoker dexec.ComponentInvoker, input *legacyread.Input, owner string, lock bool) ([]*legacyread.LegacyRun, error) {
-	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: legacyTarget, Input: input, Providers: trustedProviders("schedulerunaccess", owner, lock)})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, lock), Target: legacyTarget, Input: input, Providers: trustedProviders("schedulerunaccess", owner)})
 	if err != nil {
 		return nil, err
 	}

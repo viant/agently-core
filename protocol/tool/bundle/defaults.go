@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 )
 
 // DefaultIconRef returns an iconRef for well-known built-in tool services.
@@ -91,7 +91,7 @@ func defaultBundleMatch(service string) []llm.Tool {
 }
 
 func serviceFromToolName(name string) string {
-	can := mcpname.Canonical(strings.TrimSpace(name))
-	n := mcpname.Name(can)
+	can := mcpname2.Canonical(strings.TrimSpace(name))
+	n := mcpname2.Name(can)
 	return n.Service()
 }

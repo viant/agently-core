@@ -8,36 +8,36 @@ import (
 
 // Schedule is generated canonical view metadata for writer.
 type Schedule struct {
-	ShouldDelete    bool         `json:",omitempty" sqlx:"-" writer:"delete"`
-	Id              string       `validate:"required" sqlx:"id,primaryKey"`
-	Name            string       `validate:"required" sqlx:"name,required=true"`
-	Description     *string      `json:",omitempty" sqlx:"description"`
-	CreatedByUserId *string      `json:",omitempty" sqlx:"created_by_user_id"`
-	Visibility      string       `sqlx:"visibility,required=true"`
-	Internal        *bool        `json:",omitempty" sqlx:"internal,required=true"`
-	ConversationId  *string      `json:",omitempty" sqlx:"conversation_id"`
-	GoalId          *string      `json:",omitempty" sqlx:"goal_id"`
-	AgentRef        string       `validate:"required" sqlx:"agent_ref,required=true"`
-	ModelOverride   *string      `json:",omitempty" sqlx:"model_override"`
-	UserCredUrl     *string      `json:",omitempty" sqlx:"user_cred_url"`
-	Enabled         bool         `sqlx:"enabled,required=true"`
-	StartAt         *time.Time   `json:",omitempty" sqlx:"start_at"`
-	EndAt           *time.Time   `json:",omitempty" sqlx:"end_at"`
-	ScheduleType    string       `validate:"required" sqlx:"schedule_type,required=true"`
-	CronExpr        *string      `json:",omitempty" sqlx:"cron_expr"`
-	IntervalSeconds *int         `json:",omitempty" sqlx:"interval_seconds"`
-	Timezone        string       `validate:"required" sqlx:"timezone,required=true"`
-	TimeoutSeconds  int          `sqlx:"timeout_seconds,required=true"`
-	TaskPromptUri   *string      `json:",omitempty" sqlx:"task_prompt_uri"`
-	TaskPrompt      *string      `json:",omitempty" sqlx:"task_prompt"`
-	NextRunAt       *time.Time   `json:",omitempty" sqlx:"next_run_at"`
-	LastRunAt       *time.Time   `json:",omitempty" sqlx:"last_run_at"`
-	LastStatus      *string      `json:",omitempty" sqlx:"last_status"`
-	LastError       *string      `json:",omitempty" sqlx:"last_error"`
-	LeaseOwner      *string      `json:",omitempty" sqlx:"lease_owner"`
-	LeaseUntil      *time.Time   `json:",omitempty" sqlx:"lease_until"`
-	CreatedAt       *time.Time   `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt       *time.Time   `json:",omitempty" sqlx:"updated_at"`
+	ShouldDelete    bool         `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	Id              string       `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	Name            string       `validate:"required" json:"name" sqlx:"name,required=true"`
+	Visibility      string       `json:"visibility" sqlx:"visibility,required=true"`
+	Internal        *bool        `sqlx:"internal,required=true" json:"internal,omitempty"`
+	AgentRef        string       `validate:"required" json:"agentRef" sqlx:"agent_ref,required=true"`
+	Enabled         bool         `json:"enabled" sqlx:"enabled,required=true"`
+	ScheduleType    string       `validate:"required" json:"scheduleType" sqlx:"schedule_type,required=true"`
+	Timezone        string       `validate:"required" json:"timezone" sqlx:"timezone,required=true"`
+	TimeoutSeconds  int          `json:"timeoutSeconds" sqlx:"timeout_seconds,required=true"`
+	Description     *string      `sqlx:"description" json:"description,omitempty"`
+	CreatedByUserId *string      `sqlx:"created_by_user_id" json:"createdByUserId,omitempty"`
+	ConversationId  *string      `sqlx:"conversation_id" json:"conversationId,omitempty"`
+	GoalId          *string      `sqlx:"goal_id" json:"goalId,omitempty"`
+	ModelOverride   *string      `sqlx:"model_override" json:"modelOverride,omitempty"`
+	UserCredUrl     *string      `sqlx:"user_cred_url" json:"userCredUrl,omitempty"`
+	StartAt         *time.Time   `sqlx:"start_at" json:"startAt,omitempty"`
+	EndAt           *time.Time   `sqlx:"end_at" json:"endAt,omitempty"`
+	CronExpr        *string      `sqlx:"cron_expr" json:"cronExpr,omitempty"`
+	IntervalSeconds *int         `sqlx:"interval_seconds" json:"intervalSeconds,omitempty"`
+	TaskPromptUri   *string      `sqlx:"task_prompt_uri" json:"taskPromptUri,omitempty"`
+	TaskPrompt      *string      `sqlx:"task_prompt" json:"taskPrompt,omitempty"`
+	NextRunAt       *time.Time   `sqlx:"next_run_at" json:"nextRunAt,omitempty"`
+	LastRunAt       *time.Time   `sqlx:"last_run_at" json:"lastRunAt,omitempty"`
+	LastStatus      *string      `sqlx:"last_status" json:"lastStatus,omitempty"`
+	LastError       *string      `sqlx:"last_error" json:"lastError,omitempty"`
+	LeaseOwner      *string      `sqlx:"lease_owner" json:"leaseOwner,omitempty"`
+	LeaseUntil      *time.Time   `sqlx:"lease_until" json:"leaseUntil,omitempty"`
+	CreatedAt       *time.Time   `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt       *time.Time   `sqlx:"updated_at" json:"updatedAt,omitempty"`
 	Has             *ScheduleHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"ScheduleHas"`
 }
 
@@ -45,23 +45,23 @@ type ScheduleHas struct {
 	ShouldDelete    bool
 	Id              bool
 	Name            bool
-	Description     bool
-	CreatedByUserId bool
 	Visibility      bool
 	Internal        bool
-	ConversationId  bool
-	GoalId          bool
 	AgentRef        bool
-	ModelOverride   bool
-	UserCredUrl     bool
 	Enabled         bool
-	StartAt         bool
-	EndAt           bool
 	ScheduleType    bool
-	CronExpr        bool
-	IntervalSeconds bool
 	Timezone        bool
 	TimeoutSeconds  bool
+	Description     bool
+	CreatedByUserId bool
+	ConversationId  bool
+	GoalId          bool
+	ModelOverride   bool
+	UserCredUrl     bool
+	StartAt         bool
+	EndAt           bool
+	CronExpr        bool
+	IntervalSeconds bool
 	TaskPromptUri   bool
 	TaskPrompt      bool
 	NextRunAt       bool
@@ -76,35 +76,35 @@ type ScheduleHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id              string     `validate:"required" sqlx:"id,primaryKey"`
-	Name            string     `validate:"required" sqlx:"name,required=true"`
-	Description     *string    `json:",omitempty" sqlx:"description"`
-	CreatedByUserId *string    `json:",omitempty" sqlx:"created_by_user_id"`
-	Visibility      string     `sqlx:"visibility,required=true"`
-	Internal        *bool      `json:",omitempty" sqlx:"internal,required=true"`
-	ConversationId  *string    `json:",omitempty" sqlx:"conversation_id"`
-	GoalId          *string    `json:",omitempty" sqlx:"goal_id"`
-	AgentRef        string     `validate:"required" sqlx:"agent_ref,required=true"`
-	ModelOverride   *string    `json:",omitempty" sqlx:"model_override"`
-	UserCredUrl     *string    `json:",omitempty" sqlx:"user_cred_url"`
-	Enabled         bool       `sqlx:"enabled,required=true"`
-	StartAt         *time.Time `json:",omitempty" sqlx:"start_at"`
-	EndAt           *time.Time `json:",omitempty" sqlx:"end_at"`
-	ScheduleType    string     `validate:"required" sqlx:"schedule_type,required=true"`
-	CronExpr        *string    `json:",omitempty" sqlx:"cron_expr"`
-	IntervalSeconds *int       `json:",omitempty" sqlx:"interval_seconds"`
-	Timezone        string     `validate:"required" sqlx:"timezone,required=true"`
-	TimeoutSeconds  int        `sqlx:"timeout_seconds,required=true"`
-	TaskPromptUri   *string    `json:",omitempty" sqlx:"task_prompt_uri"`
-	TaskPrompt      *string    `json:",omitempty" sqlx:"task_prompt"`
-	NextRunAt       *time.Time `json:",omitempty" sqlx:"next_run_at"`
-	LastRunAt       *time.Time `json:",omitempty" sqlx:"last_run_at"`
-	LastStatus      *string    `json:",omitempty" sqlx:"last_status"`
-	LastError       *string    `json:",omitempty" sqlx:"last_error"`
-	LeaseOwner      *string    `json:",omitempty" sqlx:"lease_owner"`
-	LeaseUntil      *time.Time `json:",omitempty" sqlx:"lease_until"`
-	CreatedAt       *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt       *time.Time `json:",omitempty" sqlx:"updated_at"`
+	Id              string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	Name            string     `validate:"required" json:"name" sqlx:"name,required=true"`
+	Visibility      string     `json:"visibility" sqlx:"visibility,required=true"`
+	Internal        *bool      `sqlx:"internal,required=true" json:"internal,omitempty"`
+	AgentRef        string     `validate:"required" json:"agentRef" sqlx:"agent_ref,required=true"`
+	Enabled         bool       `json:"enabled" sqlx:"enabled,required=true"`
+	ScheduleType    string     `validate:"required" json:"scheduleType" sqlx:"schedule_type,required=true"`
+	Timezone        string     `validate:"required" json:"timezone" sqlx:"timezone,required=true"`
+	TimeoutSeconds  int        `json:"timeoutSeconds" sqlx:"timeout_seconds,required=true"`
+	Description     *string    `sqlx:"description" json:"description,omitempty"`
+	CreatedByUserId *string    `sqlx:"created_by_user_id" json:"createdByUserId,omitempty"`
+	ConversationId  *string    `sqlx:"conversation_id" json:"conversationId,omitempty"`
+	GoalId          *string    `sqlx:"goal_id" json:"goalId,omitempty"`
+	ModelOverride   *string    `sqlx:"model_override" json:"modelOverride,omitempty"`
+	UserCredUrl     *string    `sqlx:"user_cred_url" json:"userCredUrl,omitempty"`
+	StartAt         *time.Time `sqlx:"start_at" json:"startAt,omitempty"`
+	EndAt           *time.Time `sqlx:"end_at" json:"endAt,omitempty"`
+	CronExpr        *string    `sqlx:"cron_expr" json:"cronExpr,omitempty"`
+	IntervalSeconds *int       `sqlx:"interval_seconds" json:"intervalSeconds,omitempty"`
+	TaskPromptUri   *string    `sqlx:"task_prompt_uri" json:"taskPromptUri,omitempty"`
+	TaskPrompt      *string    `sqlx:"task_prompt" json:"taskPrompt,omitempty"`
+	NextRunAt       *time.Time `sqlx:"next_run_at" json:"nextRunAt,omitempty"`
+	LastRunAt       *time.Time `sqlx:"last_run_at" json:"lastRunAt,omitempty"`
+	LastStatus      *string    `sqlx:"last_status" json:"lastStatus,omitempty"`
+	LastError       *string    `sqlx:"last_error" json:"lastError,omitempty"`
+	LeaseOwner      *string    `sqlx:"lease_owner" json:"leaseOwner,omitempty"`
+	LeaseUntil      *time.Time `sqlx:"lease_until" json:"leaseUntil,omitempty"`
+	CreatedAt       *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt       *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
 }
 
 type WriterKeysRow struct {

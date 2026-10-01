@@ -4,5 +4,5 @@ package read
 
 // RunStepsOutput is the generated output scaffold for reader.
 type RunStepsOutput struct {
-	Data []*RunStepsView `parameter:"Data,kind=output,in=view,dataType=[]*RunStepsView" view:"reader,type=RunStepsView,table=model_call,selectorProjection=true,selectorOrderBy=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_runsteps_read_reader:sql/reader.sql"`
+	Data []*RunStepsView `parameter:"Data,kind=output,in=view,dataType=[]*RunStepsView" view:"reader,type=RunStepsView,selectorProjection=true,selectorOrderBy=true,selectorLimit=true,selectorOffset=true" sql:"uri=datly_runsteps_read_reader:sql/reader.sql"`
 }

@@ -8,23 +8,23 @@ import (
 
 // GeneratedFileView is generated canonical view metadata for reader.
 type GeneratedFileView struct {
-	Id             string     `sqlx:"id,primaryKey=true"`
-	ConversationId string     `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	TurnId         *string    `sqlx:"turn_id"`
-	MessageId      *string    `sqlx:"message_id"`
-	Provider       string     `sqlx:"provider,required=true"`
-	Mode           string     `sqlx:"mode,required=true"`
-	CopyMode       string     `sqlx:"copy_mode,required=true"`
-	Status         string     `sqlx:"status,required=true"`
-	PayloadId      *string    `sqlx:"payload_id"`
-	ContainerId    *string    `sqlx:"container_id"`
-	ProviderFileId *string    `sqlx:"provider_file_id"`
-	Filename       *string    `sqlx:"filename"`
-	MimeType       *string    `sqlx:"mime_type"`
-	SizeBytes      *int       `sqlx:"size_bytes"`
-	Checksum       *string    `sqlx:"checksum"`
-	ErrorMessage   *string    `sqlx:"error_message"`
-	ExpiresAt      *time.Time `sqlx:"expires_at"`
-	CreatedAt      *time.Time `sqlx:"created_at,required=true"`
-	UpdatedAt      *time.Time `sqlx:"updated_at,required=true"`
+	Id             string     `sqlx:"id,primaryKey=true" json:"id"`
+	ConversationId string     `sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true" json:"conversationId"`
+	Provider       string     `sqlx:"provider,required=true" json:"provider"`
+	Mode           string     `sqlx:"mode,required=true" json:"mode"`
+	CopyMode       string     `sqlx:"copy_mode,required=true" json:"copyMode"`
+	Status         string     `sqlx:"status,required=true" json:"status"`
+	TurnId         *string    `sqlx:"turn_id" json:"turnId"`
+	MessageId      *string    `sqlx:"message_id" json:"messageId"`
+	PayloadId      *string    `sqlx:"payload_id" json:"payloadId"`
+	ContainerId    *string    `sqlx:"container_id" json:"containerId"`
+	ProviderFileId *string    `sqlx:"provider_file_id" json:"providerFileId"`
+	Filename       *string    `sqlx:"filename" json:"filename"`
+	MimeType       *string    `sqlx:"mime_type" json:"mimeType"`
+	SizeBytes      *int       `sqlx:"size_bytes" json:"sizeBytes"`
+	Checksum       *string    `sqlx:"checksum" json:"checksum"`
+	ErrorMessage   *string    `sqlx:"error_message" json:"errorMessage"`
+	ExpiresAt      *time.Time `sqlx:"expires_at" json:"expiresAt"`
+	CreatedAt      *time.Time `sqlx:"created_at,required=true" json:"createdAt"`
+	UpdatedAt      *time.Time `sqlx:"updated_at,required=true" json:"updatedAt"`
 }

@@ -6,6 +6,7 @@
 #setting($_ = $internal(true))
 #setting($_ = $route('/v1/api/agently/conversation/{id}','GET'))
 #setting($_ = $input_type('ConversationInput'))
+#setting($_ = $client_input_type('ConversationRequest'))
 #setting($_ = $output_type('ConversationOutput'))
 #setting($_ = $case_format('lc'))
 #define($_ = $Id<string>(path/id).Optional().WithPredicate(0,'equal','t','id'))
@@ -28,7 +29,6 @@
 #define($_ = $HasScheduleId<bool>(query/hasScheduleId).Optional().WithPredicate(0,'expr','(NOT ? OR t.schedule_id IS NOT NULL)'))
 #define($_ = $ListMode<bool>(conversationAccess/list).Required())
 #define($_ = $GraphMode<bool>(conversationAccess/graph).Optional())
-#define($_ = $LockRows<bool>(conversationAccess/lock).Optional())
 #define($_ = $ListAscending<bool>(conversationAccess/ascending).Optional())
 #define($_ = $EnforceVisibility<bool>(conversationAccess/enforceVisibility).Optional())
 #define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
@@ -49,483 +49,138 @@
 #define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
 #define($_ = $Data<[]*ConversationView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true"'))
 
-SELECT conversation.created_at_raw,
-       CAST(conversation.created_at_raw AS *string),tag(conversation.created_at_raw,'internal:"true" json:"-"'),
-       conversation.activity_raw,
-       CAST(conversation.activity_raw AS *string),tag(conversation.activity_raw,'internal:"true" json:"-"'),
-       conversation.last_turn_id,
-       conversation.stage, conversation.list_mode,
-       CAST(conversation.list_mode AS bool), tag(conversation.list_mode,'json:"-"'),
-       conversation.id,
-       conversation.summary,
-       conversation.last_activity,
-       conversation.usage_input_tokens,
-       conversation.usage_output_tokens,
-       conversation.usage_embedding_tokens,
-       conversation.created_at,
-       conversation.updated_at,
-       conversation.created_by_user_id,
-       conversation.agent_id,
-       conversation.default_model_provider,
-       conversation.default_model,
-       conversation.default_model_params,
-       conversation.title,
-       conversation.conversation_parent_id,
-       conversation.conversation_parent_turn_id,
-       conversation.metadata,
-       conversation.visibility,
-       conversation.shareable,
-       CASE WHEN $ListMode AND conversation.latest_turn_status IN ('completed','success','done') THEN 'succeeded'
-            WHEN $ListMode AND conversation.latest_turn_status <> '' THEN conversation.latest_turn_status
-            ELSE conversation.status END AS status,
-       conversation.scheduled,
-       conversation.schedule_id,
-       conversation.schedule_run_id,
-       conversation.schedule_kind,
-       conversation.schedule_timezone,
-       conversation.schedule_cron_expr,
-       conversation.external_task_ref,
-       type(conversation,'ConversationView'),
+SELECT conversation.*,
+       row_lock(conversation,'conversation t','t.id'),
+       CAST(conversation.created_at_raw AS *string),
+       tag(conversation.created_at_raw,'internal:"true" json:"-"'),
+       CAST(conversation.activity_raw AS *string),
+       tag(conversation.activity_raw,'internal:"true" json:"-"'),
+       CAST(conversation.list_mode AS bool),
+       tag(conversation.list_mode,'json:"-"'),
        CAST(conversation.last_turn_id AS *string),
-       CAST(conversation.stage AS string),
-       CAST(conversation.id AS string),
-       CAST(conversation.summary AS *string),
-       CAST(conversation.last_activity AS *time.Time),
-       CAST(conversation.usage_input_tokens AS *int),
-       CAST(conversation.usage_output_tokens AS *int),
-       CAST(conversation.usage_embedding_tokens AS *int),
-       CAST(conversation.created_at AS time.Time),
-       CAST(conversation.updated_at AS *time.Time),
-       CAST(conversation.created_by_user_id AS *string),
-       CAST(conversation.agent_id AS *string),
-       CAST(conversation.default_model_provider AS *string),
-       CAST(conversation.default_model AS *string),
-       CAST(conversation.default_model_params AS *string),
-       CAST(conversation.title AS *string),
-       CAST(conversation.conversation_parent_id AS *string),
-       CAST(conversation.conversation_parent_turn_id AS *string),
-       CAST(conversation.metadata AS *string),
-       CAST(conversation.visibility AS string),
-       CAST(conversation.shareable AS int),
        CAST(conversation.status AS *string),
-       CAST(conversation.scheduled AS *int),
-       CAST(conversation.schedule_id AS *string),
-       CAST(conversation.schedule_run_id AS *string),
-       CAST(conversation.schedule_kind AS *string),
-       CAST(conversation.schedule_timezone AS *string),
-       CAST(conversation.schedule_cron_expr AS *string),
-       CAST(conversation.external_task_ref AS *string),
-       transcript.elapsedInSec,
-       transcript.stage,
-       transcript.id,
-       transcript.conversation_id,
-       transcript.created_at,
-       transcript.queue_seq,
-       transcript.origin,
-       transcript.goal_id,
-       transcript.status_reason,
-       transcript.status,
-       transcript.error_message,
-       transcript.started_by_message_id,
-       transcript.retry_of,
-       transcript.agent_id_used,
-       transcript.agent_config_used_id,
-       transcript.model_override_provider,
-       transcript.model_override,
-       transcript.model_params_override,
-       transcript.run_id,
+       type(conversation,'ConversationView'),
+       CAST(conversation.stage AS string),
+       required(conversation.id),
+       required(conversation.created_at),
+       required(conversation.visibility),
+       required(conversation.shareable),
+       transcript.*,
+       transcript.goal_id AS GoalID,
        type(transcript,'TranscriptView'),
-       CAST(transcript.elapsedInSec AS int),
+       required(transcript.elapsedInSec),
        CAST(transcript.stage AS string),
-       CAST(transcript.id AS string),
-       CAST(transcript.conversation_id AS string),
-       CAST(transcript.created_at AS time.Time),
-       CAST(transcript.queue_seq AS *int),
-       CAST(transcript.origin AS *string),
-       CAST(transcript.goal_id AS *string),
-       CAST(transcript.status_reason AS *string),
-       CAST(transcript.status AS string),
-       CAST(transcript.error_message AS *string),
-       CAST(transcript.started_by_message_id AS *string),
-       CAST(transcript.retry_of AS *string),
-       CAST(transcript.agent_id_used AS *string),
-       CAST(transcript.agent_config_used_id AS *string),
-       CAST(transcript.model_override_provider AS *string),
-       CAST(transcript.model_override AS *string),
-       CAST(transcript.model_params_override AS *string),
-       CAST(transcript.run_id AS *string),
-       message.ELICITATION,
-       message.id,
-       message.conversation_id,
-       message.turn_id,
-       message.archived,
-       message.sequence,
-       message.created_at,
-       message.updated_at,
-       message.created_by_user_id,
-       message.status,
-       message.mode,
-       message.role,
-       message.type,
-       message.content,
-       message.raw_content,
-       message.summary,
-       message.context_summary,
-       message.tags,
-       message.interim,
-       message.elicitation_id,
-       message.parent_message_id,
-       message.superseded_by,
-       message.linked_conversation_id,
-       message.attachment_payload_id,
-       message.elicitation_payload_id,
-       message.tool_name,
-       message.embedding_index,
+       required(transcript.id),
+       required(transcript.conversation_id),
+       required(transcript.created_at),
+       required(transcript.status),
+       message.*,
+       CAST(message.linked_conversation_id AS *string),
        message.preamble AS narration,
-       message.iteration,
-       message.phase,
        type(message,'MessageView'),
        CAST(message.ELICITATION AS codec.JSON),
-       CAST(message.id AS string),
-       CAST(message.conversation_id AS string),
-       CAST(message.turn_id AS *string),
-       CAST(message.archived AS *int),
-       CAST(message.sequence AS *int),
-       CAST(message.created_at AS time.Time),
-       CAST(message.updated_at AS *time.Time),
-       CAST(message.created_by_user_id AS *string),
-       CAST(message.status AS *string),
-       CAST(message.mode AS *string),
-       CAST(message.role AS string),
-       CAST(message.type AS string),
-       CAST(message.content AS *string),
-       CAST(message.raw_content AS *string),
-       CAST(message.summary AS *string),
-       CAST(message.context_summary AS *string),
-       CAST(message.tags AS *string),
-       CAST(message.interim AS int),
-       CAST(message.elicitation_id AS *string),
-       CAST(message.parent_message_id AS *string),
-       CAST(message.superseded_by AS *string),
-       CAST(message.linked_conversation_id AS *string),
-       CAST(message.attachment_payload_id AS *string),
-       CAST(message.elicitation_payload_id AS *string),
-       CAST(message.tool_name AS *string),
-       CAST(message.embedding_index AS *string),
-       CAST(message.narration AS *string),
-       CAST(message.iteration AS *int),
-       CAST(message.phase AS *string),
-       messageToolCall.message_sequence,
-       messageToolCall.message_id,
-       messageToolCall.turn_id,
-       messageToolCall.op_id,
-       messageToolCall.attempt,
-       messageToolCall.tool_name,
-       messageToolCall.tool_kind,
-       messageToolCall.status,
-       messageToolCall.request_hash,
-       messageToolCall.error_code,
-       messageToolCall.error_message,
-       messageToolCall.retriable,
-       messageToolCall.started_at,
-       messageToolCall.completed_at,
-       messageToolCall.latency_ms,
-       messageToolCall.cost,
-       messageToolCall.trace_id,
-       messageToolCall.span_id,
-       messageToolCall.request_payload_id,
-       messageToolCall.response_payload_id,
-       messageToolCall.run_id,
-       messageToolCall.iteration,
+       required(message.id),
+       required(message.conversation_id),
+       required(message.created_at),
+       required(message.role),
+       required(message.type),
+       required(message.interim),
+       messageToolCall.*,
        type(messageToolCall,'MessageToolCallView'),
-       CAST(messageToolCall.message_sequence AS *int),
-       CAST(messageToolCall.message_id AS string),
-       CAST(messageToolCall.turn_id AS *string),
-       CAST(messageToolCall.op_id AS string),
-       CAST(messageToolCall.attempt AS int),
-       CAST(messageToolCall.tool_name AS string),
-       CAST(messageToolCall.tool_kind AS string),
-       CAST(messageToolCall.status AS string),
-       CAST(messageToolCall.request_hash AS *string),
-       CAST(messageToolCall.error_code AS *string),
-       CAST(messageToolCall.error_message AS *string),
-       CAST(messageToolCall.retriable AS *int),
-       CAST(messageToolCall.started_at AS *time.Time),
-       CAST(messageToolCall.completed_at AS *time.Time),
-       CAST(messageToolCall.latency_ms AS *int),
-       CAST(messageToolCall.cost AS *float64),
-       CAST(messageToolCall.trace_id AS *string),
-       CAST(messageToolCall.span_id AS *string),
-       CAST(messageToolCall.request_payload_id AS *string),
-       CAST(messageToolCall.response_payload_id AS *string),
-       CAST(messageToolCall.run_id AS *string),
-       CAST(messageToolCall.iteration AS *int),
-       messageRequestPayload.id,
-       messageRequestPayload.inline_body,
-       messageRequestPayload.compression,
-       type(messageRequestPayload,'MessageRequestPayloadView'),
-       CAST(messageRequestPayload.id AS string),
-       CAST(messageRequestPayload.inline_body AS *string),
-       CAST(messageRequestPayload.compression AS string),
-       messageResponsePayload.id,
-       messageResponsePayload.inline_body,
-       messageResponsePayload.compression,
-       type(messageResponsePayload,'MessageResponsePayloadView'),
-       CAST(messageResponsePayload.id AS string),
-       CAST(messageResponsePayload.inline_body AS *string),
-       CAST(messageResponsePayload.compression AS string),
-       toolMessage.id,
-       toolMessage.parent_message_id,
-       toolMessage.created_at,
-       toolMessage.sequence,
-       toolMessage.type,
-       toolMessage.content,
-       toolMessage.tool_name,
-       toolMessage.iteration,
-       toolMessage.linked_conversation_id,
+       required(messageToolCall.message_id),
+       required(messageToolCall.op_id),
+       required(messageToolCall.attempt),
+       required(messageToolCall.tool_name),
+       required(messageToolCall.tool_kind),
+       required(messageToolCall.status),
+       messageRequestPayload.*,
+       type(messageRequestPayload,'ModelCallStreamPayloadView'),
+       required(messageRequestPayload.id),
+       required(messageRequestPayload.compression),
+       messageResponsePayload.*,
+       type(messageResponsePayload,'ModelCallStreamPayloadView'),
+       required(messageResponsePayload.id),
+       required(messageResponsePayload.compression),
+       toolMessage.*,
        type(toolMessage,'ToolMessageView'),
-       CAST(toolMessage.id AS string),
-       CAST(toolMessage.parent_message_id AS *string),
-       CAST(toolMessage.created_at AS time.Time),
-       CAST(toolMessage.sequence AS *int),
-       CAST(toolMessage.type AS string),
-       CAST(toolMessage.content AS *string),
-       CAST(toolMessage.tool_name AS *string),
-       CAST(toolMessage.iteration AS *int),
+       required(toolMessage.id),
+       required(toolMessage.created_at),
+       required(toolMessage.type),
        CAST(toolMessage.linked_conversation_id AS *string),
-       toolCall.message_sequence,
-       toolCall.message_id,
-       toolCall.turn_id,
-       toolCall.op_id,
-       toolCall.attempt,
-       toolCall.tool_name,
-       toolCall.tool_kind,
-       toolCall.status,
-       toolCall.request_hash,
-       toolCall.error_code,
-       toolCall.error_message,
-       toolCall.retriable,
-       toolCall.started_at,
-       toolCall.completed_at,
-       toolCall.latency_ms,
-       toolCall.cost,
-       toolCall.trace_id,
-       toolCall.span_id,
-       toolCall.request_payload_id,
-       toolCall.response_payload_id,
-       toolCall.run_id,
-       toolCall.iteration,
+       toolCall.*,
        type(toolCall,'ToolCallView'),
-       CAST(toolCall.message_sequence AS *int),
-       CAST(toolCall.message_id AS string),
-       CAST(toolCall.turn_id AS *string),
-       CAST(toolCall.op_id AS string),
-       CAST(toolCall.attempt AS int),
-       CAST(toolCall.tool_name AS string),
-       CAST(toolCall.tool_kind AS string),
-       CAST(toolCall.status AS string),
-       CAST(toolCall.request_hash AS *string),
-       CAST(toolCall.error_code AS *string),
-       CAST(toolCall.error_message AS *string),
-       CAST(toolCall.retriable AS *int),
-       CAST(toolCall.started_at AS *time.Time),
-       CAST(toolCall.completed_at AS *time.Time),
-       CAST(toolCall.latency_ms AS *int),
-       CAST(toolCall.cost AS *float64),
-       CAST(toolCall.trace_id AS *string),
-       CAST(toolCall.span_id AS *string),
-       CAST(toolCall.request_payload_id AS *string),
-       CAST(toolCall.response_payload_id AS *string),
-       CAST(toolCall.run_id AS *string),
-       CAST(toolCall.iteration AS *int),
-       requestPayload.id,
-       requestPayload.inline_body,
-       requestPayload.compression,
-       type(requestPayload,'RequestPayloadView'),
-       CAST(requestPayload.id AS string),
-       CAST(requestPayload.inline_body AS *string),
-       CAST(requestPayload.compression AS string),
-       responsePayload.id,
-       responsePayload.inline_body,
-       responsePayload.compression,
-       type(responsePayload,'ResponsePayloadView'),
-       CAST(responsePayload.id AS string),
-       CAST(responsePayload.inline_body AS *string),
-       CAST(responsePayload.compression AS string),
-       userElicitationData.inline_body,
-       userElicitationData.compression,
-       userElicitationData.message_id,
+       required(toolCall.message_id),
+       required(toolCall.op_id),
+       required(toolCall.attempt),
+       required(toolCall.tool_name),
+       required(toolCall.tool_kind),
+       required(toolCall.status),
+       requestPayload.*,
+       type(requestPayload,'ModelCallStreamPayloadView'),
+       required(requestPayload.id),
+       required(requestPayload.compression),
+       responsePayload.*,
+       type(responsePayload,'ModelCallStreamPayloadView'),
+       required(responsePayload.id),
+       required(responsePayload.compression),
+       userElicitationData.*,
        type(userElicitationData,'UserElicitationDataView'),
-       CAST(userElicitationData.inline_body AS *string),
-       CAST(userElicitationData.compression AS string),
-       CAST(userElicitationData.message_id AS string),
-       linkedConversation.id,
-       linkedConversation.status,
-       linkedConversation.created_at,
-       linkedConversation.updated_at,
+       required(userElicitationData.compression),
+       required(userElicitationData.message_id),
+       linkedConversation.*,
        type(linkedConversation,'LinkedConversationView'),
-       CAST(linkedConversation.id AS string),
-       CAST(linkedConversation.status AS *string),
-       CAST(linkedConversation.created_at AS time.Time),
-       CAST(linkedConversation.updated_at AS *time.Time),
-       attachment.inline_body,
-       attachment.compression,
-       attachment.uri,
-       attachment.mime_type,
-       attachment.parent_message_id,
+       required(linkedConversation.id),
+       required(linkedConversation.created_at),
+       attachment.*,
        type(attachment,'AttachmentView'),
        CAST(attachment.inline_body AS *[]uint8),
-       CAST(attachment.compression AS string),
-       CAST(attachment.uri AS *string),
-       CAST(attachment.mime_type AS string),
-       CAST(attachment.parent_message_id AS *string),
-       modelCall.completed_at,
-       modelCall.completion_accepted_prediction_tokens,
-       modelCall.completion_audio_tokens,
-       modelCall.completion_reasoning_tokens,
-       modelCall.completion_rejected_prediction_tokens,
-       modelCall.completion_tokens,
-       modelCall.cost,
-       modelCall.error_code,
-       modelCall.error_message,
-       modelCall.finish_reason,
-       modelCall.iteration,
-       modelCall.latency_ms,
-       modelCall.message_id,
-       modelCall.model,
-       modelCall.model_kind,
-       modelCall.prompt_audio_tokens,
-       modelCall.prompt_cached_tokens,
-       modelCall.prompt_tokens,
-       modelCall.provider,
-       modelCall.provider_request_payload_id,
-       modelCall.provider_response_payload_id,
-       modelCall.request_payload_id,
-       modelCall.response_payload_id,
-       modelCall.run_id,
-       modelCall.span_id,
-       modelCall.started_at,
-       modelCall.status,
-       modelCall.stream_payload_id,
-       modelCall.total_tokens,
-       modelCall.trace_id,
-       modelCall.turn_id,
+       required(attachment.compression),
+       required(attachment.mime_type),
+       modelCall.*,
        type(modelCall,'ModelCallView'),
-       CAST(modelCall.completed_at AS *time.Time),
-       CAST(modelCall.completion_accepted_prediction_tokens AS *int),
-       CAST(modelCall.completion_audio_tokens AS *int),
-       CAST(modelCall.completion_reasoning_tokens AS *int),
-       CAST(modelCall.completion_rejected_prediction_tokens AS *int),
-       CAST(modelCall.completion_tokens AS *int),
-       CAST(modelCall.cost AS *float64),
-       CAST(modelCall.error_code AS *string),
-       CAST(modelCall.error_message AS *string),
-       CAST(modelCall.finish_reason AS *string),
-       CAST(modelCall.iteration AS *int),
-       CAST(modelCall.latency_ms AS *int),
-       CAST(modelCall.message_id AS string),
-       CAST(modelCall.model AS string),
-       CAST(modelCall.model_kind AS string),
-       CAST(modelCall.prompt_audio_tokens AS *int),
-       CAST(modelCall.prompt_cached_tokens AS *int),
-       CAST(modelCall.prompt_tokens AS *int),
-       CAST(modelCall.provider AS string),
-       CAST(modelCall.provider_request_payload_id AS *string),
-       CAST(modelCall.provider_response_payload_id AS *string),
-       CAST(modelCall.request_payload_id AS *string),
-       CAST(modelCall.response_payload_id AS *string),
-       CAST(modelCall.run_id AS *string),
-       CAST(modelCall.span_id AS *string),
-       CAST(modelCall.started_at AS *time.Time),
-       CAST(modelCall.status AS string),
-       CAST(modelCall.stream_payload_id AS *string),
-       CAST(modelCall.total_tokens AS *int),
-       CAST(modelCall.trace_id AS *string),
-       CAST(modelCall.turn_id AS *string),
-       modelCallRequestPayload.id,
-       modelCallRequestPayload.inline_body,
-       modelCallRequestPayload.compression,
-       type(modelCallRequestPayload,'ModelCallRequestPayloadView'),
-       CAST(modelCallRequestPayload.id AS string),
-       CAST(modelCallRequestPayload.inline_body AS *string),
-       CAST(modelCallRequestPayload.compression AS string),
-       modelCallProviderRequestPayload.id,
-       modelCallProviderRequestPayload.inline_body,
-       modelCallProviderRequestPayload.compression,
-       type(modelCallProviderRequestPayload,'ModelCallProviderRequestPayloadView'),
-       CAST(modelCallProviderRequestPayload.id AS string),
-       CAST(modelCallProviderRequestPayload.inline_body AS *string),
-       CAST(modelCallProviderRequestPayload.compression AS string),
-       modelCallResponsePayload.id,
-       modelCallResponsePayload.inline_body,
-       modelCallResponsePayload.compression,
-       type(modelCallResponsePayload,'ModelCallResponsePayloadView'),
-       CAST(modelCallResponsePayload.id AS string),
-       CAST(modelCallResponsePayload.inline_body AS *string),
-       CAST(modelCallResponsePayload.compression AS string),
-       modelCallProviderResponsePayload.id,
-       modelCallProviderResponsePayload.inline_body,
-       modelCallProviderResponsePayload.compression,
-       type(modelCallProviderResponsePayload,'ModelCallProviderResponsePayloadView'),
-       CAST(modelCallProviderResponsePayload.id AS string),
-       CAST(modelCallProviderResponsePayload.inline_body AS *string),
-       CAST(modelCallProviderResponsePayload.compression AS string),
-       toolCallLinks.message_id,
-       toolCallLinks.op_id,
-       toolCallLinks.trace_id,
+       required(modelCall.message_id),
+       required(modelCall.model),
+       required(modelCall.model_kind),
+       required(modelCall.provider),
+       required(modelCall.status),
+       modelCallRequestPayload.*,
+       type(modelCallRequestPayload,'ModelCallStreamPayloadView'),
+       required(modelCallRequestPayload.id),
+       required(modelCallRequestPayload.compression),
+       modelCallProviderRequestPayload.*,
+       type(modelCallProviderRequestPayload,'ModelCallStreamPayloadView'),
+       required(modelCallProviderRequestPayload.id),
+       required(modelCallProviderRequestPayload.compression),
+       modelCallResponsePayload.*,
+       type(modelCallResponsePayload,'ModelCallStreamPayloadView'),
+       required(modelCallResponsePayload.id),
+       required(modelCallResponsePayload.compression),
+       modelCallProviderResponsePayload.*,
+       type(modelCallProviderResponsePayload,'ModelCallStreamPayloadView'),
+       required(modelCallProviderResponsePayload.id),
+       required(modelCallProviderResponsePayload.compression),
+       toolCallLinks.*,
        type(toolCallLinks,'ToolCallLinksView'),
-       CAST(toolCallLinks.message_id AS string),
-       CAST(toolCallLinks.op_id AS string),
-       CAST(toolCallLinks.trace_id AS *string),
-       modelCallStreamPayload.id,
-       modelCallStreamPayload.inline_body,
-       modelCallStreamPayload.compression,
+       required(toolCallLinks.message_id),
+       required(toolCallLinks.op_id),
+       modelCallStreamPayload.*,
        type(modelCallStreamPayload,'ModelCallStreamPayloadView'),
-       CAST(modelCallStreamPayload.id AS string),
-       CAST(modelCallStreamPayload.inline_body AS *string),
-       CAST(modelCallStreamPayload.compression AS string),
-       usage.conversation_id,
-       usage.cost,
-       usage.prompt_tokens,
-       usage.prompt_cached_tokens,
-       usage.prompt_audio_tokens,
-       usage.completion_tokens,
-       usage.completion_reasoning_tokens,
-       usage.completion_audio_tokens,
-       usage.completion_accepted_prediction_tokens,
-       usage.completion_rejected_prediction_tokens,
-       usage.total_tokens,
-       type(usage,'UsageView'),
-       CAST(usage.conversation_id AS string),
-       CAST(usage.cost AS *float64),
-       CAST(usage.prompt_tokens AS *int),
-       CAST(usage.prompt_cached_tokens AS *int),
-       CAST(usage.prompt_audio_tokens AS *int),
-       CAST(usage.completion_tokens AS *int),
-       CAST(usage.completion_reasoning_tokens AS *int),
-       CAST(usage.completion_audio_tokens AS *int),
-       CAST(usage.completion_accepted_prediction_tokens AS *int),
-       CAST(usage.completion_rejected_prediction_tokens AS *int),
-       CAST(usage.total_tokens AS *int),
-       model.conversation_id,
-       model.provider,
-       model.model,
-       model.execution_role,
-       model.prompt_tokens,
-       model.prompt_cached_tokens,
-       model.prompt_audio_tokens,
-       model.completion_tokens,
-       model.completion_reasoning_tokens,
-       model.completion_audio_tokens,
-       model.completion_accepted_prediction_tokens,
-       model.completion_rejected_prediction_tokens,
-       model.total_tokens,
-       model.cost,
-       type(model,'ModelView'),
-       CAST(model.conversation_id AS string),
-       CAST(model.provider AS string),
-       CAST(model.model AS string),
-       CAST(model.execution_role AS string),
+       required(modelCallStreamPayload.id),
+       required(modelCallStreamPayload.compression),
+       u.*,
+       CAST(u.cost AS *float64),
+       CAST(u.prompt_tokens AS *int),
+       CAST(u.prompt_cached_tokens AS *int),
+       CAST(u.prompt_audio_tokens AS *int),
+       CAST(u.completion_tokens AS *int),
+       CAST(u.completion_reasoning_tokens AS *int),
+       CAST(u.completion_audio_tokens AS *int),
+       CAST(u.completion_accepted_prediction_tokens AS *int),
+       CAST(u.completion_rejected_prediction_tokens AS *int),
+       CAST(u.total_tokens AS *int),
+       type(u,'UsageView','Usage'),
+       required(u.conversation_id),
+       model.*,
        CAST(model.prompt_tokens AS *int),
        CAST(model.prompt_cached_tokens AS *int),
        CAST(model.prompt_audio_tokens AS *int),
@@ -535,222 +190,31 @@ SELECT conversation.created_at_raw,
        CAST(model.completion_accepted_prediction_tokens AS *int),
        CAST(model.completion_rejected_prediction_tokens AS *int),
        CAST(model.total_tokens AS *int),
-       CAST(model.cost AS *float64)
-FROM (
-SELECT t.*,CAST(t.created_at AS CHAR) AS created_at_raw,CAST(COALESCE(t.last_activity,t.updated_at,t.created_at) AS CHAR) AS activity_raw,
-          (SELECT LOWER(COALESCE(z.status,'')) FROM turn z WHERE z.conversation_id=t.id ORDER BY z.created_at DESC,z.id DESC LIMIT 1) AS latest_turn_status,
-          (SELECT id
-           FROM turn
-           WHERE conversation_id = t.id
-           ORDER BY created_at DESC, CASE WHEN $ListMode THEN id END DESC
-           LIMIT 1) AS last_turn_id,
-    CASE WHEN $ListMode THEN CASE
-      WHEN COALESCE((SELECT LOWER(COALESCE(z.status,'')) FROM turn z WHERE z.conversation_id=t.id ORDER BY z.created_at DESC,z.id DESC LIMIT 1),LOWER(COALESCE(t.status,''))) IN ('failed','error','terminated') THEN 'error'
-      WHEN COALESCE((SELECT LOWER(COALESCE(z.status,'')) FROM turn z WHERE z.conversation_id=t.id ORDER BY z.created_at DESC,z.id DESC LIMIT 1),LOWER(COALESCE(t.status,''))) IN ('canceled','cancelled') THEN 'canceled'
-      WHEN COALESCE((SELECT LOWER(COALESCE(z.status,'')) FROM turn z WHERE z.conversation_id=t.id ORDER BY z.created_at DESC,z.id DESC LIMIT 1),LOWER(COALESCE(t.status,''))) IN ('completed','succeeded','success','done','compacted','pruned') THEN 'done'
-      WHEN COALESCE((SELECT LOWER(COALESCE(z.status,'')) FROM turn z WHERE z.conversation_id=t.id ORDER BY z.created_at DESC,z.id DESC LIMIT 1),LOWER(COALESCE(t.status,''))) IN ('waiting_for_user','blocked') THEN 'elicitation'
-      WHEN COALESCE((SELECT LOWER(COALESCE(z.status,'')) FROM turn z WHERE z.conversation_id=t.id ORDER BY z.created_at DESC,z.id DESC LIMIT 1),LOWER(COALESCE(t.status,''))) IN ('running','thinking','processing','in_progress','queued','pending','open') THEN 'executing'
-      ELSE '' END ELSE '' END AS stage, $ListMode AS list_mode
-    FROM conversation t
-    WHERE 1=1
-    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
-    AND (NOT $ListMode OR (t.conversation_parent_id IS NULL OR (t.conversation_parent_turn_id IS NOT NULL AND EXISTS (SELECT 1 FROM conversation p WHERE p.id=t.conversation_parent_id) AND EXISTS (SELECT 1 FROM turn pt WHERE pt.id=t.conversation_parent_turn_id AND pt.conversation_id=t.conversation_parent_id))))
-    AND (NOT $ListMode OR NOT $EnforceVisibility OR (COALESCE(t.visibility, '') <> 'private' OR t.created_by_user_id = NULLIF($VisibilitySubject, '')))
-    AND (NOT $MaintenanceMode OR (TRIM(COALESCE(t.conversation_parent_id,''))='' AND TRIM(COALESCE(t.conversation_parent_turn_id,''))='' AND COALESCE(t.last_activity,t.updated_at,t.created_at) IS NOT NULL AND NOT EXISTS(SELECT 1 FROM message maintenance_link WHERE maintenance_link.linked_conversation_id=t.id)
-      AND (($MaintenanceKind='interactive' AND NOT (COALESCE(t.scheduled,0)<>0 OR TRIM(COALESCE(t.schedule_id,''))<>'' OR TRIM(COALESCE(t.schedule_run_id,''))<>'' OR TRIM(COALESCE(t.schedule_kind,''))<>'' OR EXISTS(SELECT 1 FROM run maintenance_run WHERE maintenance_run.conversation_id=t.id AND LOWER(TRIM(COALESCE(maintenance_run.conversation_kind,'')))='scheduled'))) OR ($MaintenanceKind IN ('scheduled','scheduled_fallback') AND (COALESCE(t.scheduled,0)<>0 OR TRIM(COALESCE(t.schedule_id,''))<>'' OR TRIM(COALESCE(t.schedule_run_id,''))<>'' OR TRIM(COALESCE(t.schedule_kind,''))<>'' OR EXISTS(SELECT 1 FROM run maintenance_run WHERE maintenance_run.conversation_id=t.id AND LOWER(TRIM(COALESCE(maintenance_run.conversation_kind,'')))='scheduled'))))
-      AND ($MaintenanceKind<>'scheduled_fallback' OR NOT EXISTS(SELECT 1 FROM run maintenance_any_run WHERE maintenance_any_run.conversation_id=t.id))))
-    #if($MaintenanceMode && $MaintenanceLegacy && $MaintenanceKind == "scheduled_fallback")
-    AND NOT EXISTS(SELECT 1 FROM schedule_run maintenance_legacy_run WHERE maintenance_legacy_run.conversation_id=t.id OR maintenance_legacy_run.id=TRIM(COALESCE(t.schedule_run_id,'')))
-    #end
-    #if($MaintenanceMode)
-    AND (${View.TimestampSecondsUTC("COALESCE(t.last_activity,t.updated_at,t.created_at)")} < $MaintenanceBeforeSecond OR (${View.TimestampSecondsUTC("COALESCE(t.last_activity,t.updated_at,t.created_at)")} = $MaintenanceBeforeSecond AND ${View.TimestampNanoseconds("COALESCE(t.last_activity,t.updated_at,t.created_at)")} <= $MaintenanceBeforeNano))
-    #if($Has.MaintenanceAfterRootId)
-    AND (${View.TimestampSecondsUTC("COALESCE(t.last_activity,t.updated_at,t.created_at)")} > $MaintenanceAfterActivity OR (${View.TimestampSecondsUTC("COALESCE(t.last_activity,t.updated_at,t.created_at)")} = $MaintenanceAfterActivity AND (${View.TimestampNanoseconds("COALESCE(t.last_activity,t.updated_at,t.created_at)")} > $MaintenanceAfterNano OR (${View.TimestampNanoseconds("COALESCE(t.last_activity,t.updated_at,t.created_at)")} = $MaintenanceAfterNano AND t.id>$MaintenanceAfterRootId))))
-    #end
-    #end
-    ORDER BY CASE WHEN $LockRows THEN t.id END ASC,
-      
-    #if($MaintenanceMode)
-       ${View.TimestampSecondsUTC("COALESCE(t.last_activity,t.updated_at,t.created_at)")} ASC,${View.TimestampNanoseconds("COALESCE(t.last_activity,t.updated_at,t.created_at)")} ASC,
-    #end
-       
-      CASE WHEN $MaintenanceMode THEN t.id END ASC, CASE WHEN $ListMode AND $ListAscending THEN COALESCE(t.last_activity,t.updated_at,t.created_at) END ASC,
-             CASE WHEN $ListMode AND NOT $ListAscending THEN COALESCE(t.last_activity,t.updated_at,t.created_at) END DESC,
-             CASE WHEN $ListMode AND $ListAscending THEN t.id END ASC,
-             t.id DESC
-    #if($LockRows) ${View.ForUpdate()} #end
-) conversation
-LEFT JOIN (
-SELECT
-      t.*,
-      0 elapsedInSec,
-      '' AS stage
-       FROM turn t
-      ${predicate.Builder().CombineOr($predicate.FilterGroup(1, "AND")).Build("WHERE")}
-) transcript ON transcript.conversation_id = conversation.id
-LEFT JOIN (
-SELECT
-    m.id,
-    m.conversation_id,
-    m.turn_id,
-    m.archived,
-    m.sequence,
-    m.created_at,
-    m.updated_at,
-    m.created_by_user_id,
-    m.status,
-    m.mode,
-    m.role,
-    m.type,
-    m.content,
-    m.raw_content,
-    m.summary,
-    m.context_summary,
-    m.tags,
-    m.interim,
-    m.elicitation_id,
-    m.parent_message_id,
-    m.superseded_by,
-    NULLIF(m.linked_conversation_id, '') AS linked_conversation_id,
-    m.attachment_payload_id,
-    m.elicitation_payload_id,
-    m.tool_name,
-    m.embedding_index,
-    m.preamble,
-    m.iteration,
-    m.phase,
-    NULL AS ELICITATION
-FROM message m
-${predicate.Builder().CombineOr($predicate.FilterGroup(4, "AND")).Build("WHERE")}
-) message ON message.turn_id = transcript.id
-LEFT JOIN (
-SELECT t.*,
-          m.sequence AS message_sequence
- FROM tool_call t
- JOIN message m ON m.id = t.message_id
- WHERE (m.type = 'tool_op' OR m.role = 'tool')
- ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("AND")}
-) messageToolCall ON messageToolCall.message_id = message.id AND 1=1
-LEFT JOIN (
-SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
-) messageRequestPayload ON messageRequestPayload.id = messageToolCall.request_payload_id AND 1=1
-LEFT JOIN (
-SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
-) messageResponsePayload ON messageResponsePayload.id = messageToolCall.response_payload_id AND 1=1
-LEFT JOIN (
-SELECT
-    m.id,
-    m.parent_message_id,
-    m.created_at,
-    m.sequence,
-    m.type,
-    m.content,
-    m.tool_name,
-    m.iteration,
-    NULLIF(m.linked_conversation_id, '') AS linked_conversation_id
- FROM message m
- WHERE m.parent_message_id IS NOT NULL
-   AND (m.type = 'tool_op' OR m.role = 'tool')
- ORDER BY m.sequence, m.created_at
-) toolMessage ON toolMessage.parent_message_id = message.id
-LEFT JOIN (
-SELECT t.*,
-          m.sequence AS message_sequence
- FROM tool_call t
- JOIN message m ON m.id = t.message_id
- WHERE (m.type = 'tool_op' OR m.role = 'tool')
- ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("AND")}
-) toolCall ON toolCall.message_id = toolMessage.id AND 1=1
-LEFT JOIN (
-SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
-) requestPayload ON requestPayload.id = toolCall.request_payload_id AND 1=1
-LEFT JOIN (
-SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(3, "AND")).Build("WHERE")}
-) responsePayload ON responsePayload.id = toolCall.response_payload_id AND 1=1
-LEFT JOIN (
-SELECT inline_body, compression, m.id as message_id FROM message m
- JOIN call_payload p ON m.elicitation_payload_id = p.id
- WHERE m.elicitation_payload_id IS NOT NULL
-) userElicitationData ON userElicitationData.message_id = message.id AND 1=1
-LEFT JOIN (
-SELECT id, status, created_at, updated_at
-FROM conversation t
-WHERE t.id <> ''
-) linkedConversation ON linkedConversation.id = message.linked_conversation_id AND 1=1
-LEFT JOIN (
-SELECT inline_body, compression, uri,mime_type, m.parent_message_id FROM message m
- JOIN call_payload p ON m.attachment_payload_id = p.id
- WHERE m.attachment_payload_id IS NOT NULL
-) attachment ON attachment.parent_message_id = message.id
-LEFT JOIN (
-SELECT t.*
- FROM model_call t
- JOIN message m ON m.id = t.message_id
- WHERE m.role = 'assistant'
- ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("AND")}
-) modelCall ON modelCall.message_id = message.id AND 1=1
-LEFT JOIN (
-SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
-) modelCallRequestPayload ON modelCallRequestPayload.id = modelCall.request_payload_id AND 1=1
-LEFT JOIN (
-SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
-) modelCallProviderRequestPayload ON modelCallProviderRequestPayload.id = modelCall.provider_request_payload_id AND 1=1
-LEFT JOIN (
-SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
-) modelCallResponsePayload ON modelCallResponsePayload.id = modelCall.response_payload_id AND 1=1
-LEFT JOIN (
-SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
-) modelCallProviderResponsePayload ON modelCallProviderResponsePayload.id = modelCall.provider_response_payload_id AND 1=1
-LEFT JOIN (
-SELECT message_id, op_id, trace_id  FROM tool_call t
-) toolCallLinks ON toolCallLinks.trace_id = modelCall.trace_id
-LEFT JOIN (
-SELECT id, inline_body, compression FROM call_payload ${predicate.Builder().CombineOr($predicate.FilterGroup(2, "AND")).Build("WHERE")}
-) modelCallStreamPayload ON modelCallStreamPayload.id = modelCall.stream_payload_id AND 1=1
-LEFT JOIN (
-SELECT
-    m.conversation_id AS conversation_id,
-    CASE WHEN COUNT(mc.cost) = COUNT(*) THEN SUM(mc.cost) ELSE NULL END                                           AS cost,
-    SUM(COALESCE(mc.prompt_tokens, 0))                                  AS prompt_tokens,
-    SUM(COALESCE(mc.prompt_cached_tokens, 0))                           AS prompt_cached_tokens,
-    SUM(COALESCE(mc.prompt_audio_tokens, 0))                            AS prompt_audio_tokens,
-    SUM(COALESCE(mc.completion_tokens, 0))                               AS completion_tokens,
-    SUM(COALESCE(mc.completion_reasoning_tokens, 0))                    AS completion_reasoning_tokens,
-    SUM(COALESCE(mc.completion_audio_tokens, 0))                         AS completion_audio_tokens,
-    SUM(COALESCE(mc.completion_accepted_prediction_tokens, 0))          AS completion_accepted_prediction_tokens,
-    SUM(COALESCE(mc.completion_rejected_prediction_tokens, 0))          AS completion_rejected_prediction_tokens,
-    SUM(COALESCE(mc.total_tokens, 0))                                    AS total_tokens
-  FROM model_call mc
-  JOIN message m ON m.id = mc.message_id
-  $View.ParentJoinOn("WHERE","m.conversation_id")
-  GROUP BY m.conversation_id
-) usage ON usage.conversation_id = conversation.id AND 1=1
-LEFT JOIN (
-SELECT
-    m.conversation_id AS conversation_id,
-    mc.provider,
-    mc.model,
-    CASE
-      WHEN LOWER(COALESCE(m.mode, '')) = 'router' THEN 'intake'
-      WHEN LOWER(COALESCE(m.mode, '')) IN ('intake', 'sidecar', 'summary', 'narrator', 'worker')
-        THEN LOWER(m.mode)
-      WHEN LOWER(COALESCE(t.agent_id_used, '')) IN ('intake_sidecar', 'agent_selector', 'agent-selector', 'tool_router', 'planner_pass')
-        THEN 'sidecar'
-      ELSE 'react'
-    END AS execution_role,
-    SUM(COALESCE(mc.prompt_tokens, 0))                                  AS prompt_tokens,
-    SUM(COALESCE(mc.prompt_cached_tokens, 0))                           AS prompt_cached_tokens,
-    SUM(COALESCE(mc.prompt_audio_tokens, 0))                            AS prompt_audio_tokens,
-    SUM(COALESCE(mc.completion_tokens, 0))                               AS completion_tokens,
-    SUM(COALESCE(mc.completion_reasoning_tokens, 0))                    AS completion_reasoning_tokens,
-    SUM(COALESCE(mc.completion_audio_tokens, 0))                         AS completion_audio_tokens,
-    SUM(COALESCE(mc.completion_accepted_prediction_tokens, 0))          AS completion_accepted_prediction_tokens,
-    SUM(COALESCE(mc.completion_rejected_prediction_tokens, 0))          AS completion_rejected_prediction_tokens,
-    SUM(COALESCE(mc.total_tokens, 0))                                    AS total_tokens,
-    CASE WHEN COUNT(mc.cost) = COUNT(*) THEN SUM(mc.cost) ELSE NULL END                                    AS cost
-  FROM model_call mc
-  JOIN message m ON m.id = mc.message_id
-  LEFT JOIN turn t ON t.id = m.turn_id
-  $View.ParentJoinOn("WHERE","m.conversation_id")
-  GROUP BY m.conversation_id, mc.provider, mc.model, execution_role
-) model ON model.conversation_id = usage.conversation_id
+       CAST(model.cost AS *float64),
+       type(model,'ModelView'),
+       required(model.conversation_id),
+       required(model.provider),
+       required(model.model),
+       CAST(model.execution_role AS string)
+FROM (${embed:sql/conversation.sql}) conversation
+LEFT JOIN (${embed:sql/transcript.sql}) transcript ON transcript.conversation_id = conversation.id
+LEFT JOIN (${embed:sql/message.sql}) message ON message.turn_id = transcript.id
+LEFT JOIN (${embed:sql/tool_call.sql}) messageToolCall ON messageToolCall.message_id = message.id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) messageRequestPayload ON messageRequestPayload.id = messageToolCall.request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) messageResponsePayload ON messageResponsePayload.id = messageToolCall.response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_message.sql}) toolMessage ON toolMessage.parent_message_id = message.id
+LEFT JOIN (${embed:sql/tool_call.sql}) toolCall ON toolCall.message_id = toolMessage.id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) requestPayload ON requestPayload.id = toolCall.request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) responsePayload ON responsePayload.id = toolCall.response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/elicitation.sql}) userElicitationData ON userElicitationData.message_id = message.id AND 1=1
+LEFT JOIN (${embed:sql/linked_conversation.sql}) linkedConversation ON linkedConversation.id = message.linked_conversation_id AND 1=1
+LEFT JOIN (${embed:sql/attachment.sql}) attachment ON attachment.parent_message_id = message.id
+LEFT JOIN (${embed:sql/model_call.sql}) modelCall ON modelCall.message_id = message.id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallRequestPayload ON modelCallRequestPayload.id = modelCall.request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallProviderRequestPayload ON modelCallProviderRequestPayload.id = modelCall.provider_request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallResponsePayload ON modelCallResponsePayload.id = modelCall.response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallProviderResponsePayload ON modelCallProviderResponsePayload.id = modelCall.provider_response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_call_links.sql}) toolCallLinks ON toolCallLinks.trace_id = modelCall.trace_id
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallStreamPayload ON modelCallStreamPayload.id = modelCall.stream_payload_id AND 1=1
+LEFT JOIN (${embed:sql/usage.sql}) u ON u.conversation_id = conversation.id AND 1=1
+LEFT JOIN (${embed:sql/model.sql}) model ON model.conversation_id = u.conversation_id

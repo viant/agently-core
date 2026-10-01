@@ -9,14 +9,14 @@ import (
 // Token is generated canonical view metadata for writer.
 type Token struct {
 	EncToken      string     `internal:"true" json:"encToken,omitempty" sqlx:"enc_token,required=true"`
-	UserId        string     `json:"userId,omitempty" sqlx:"user_id,primaryKey,refTable=users,refColumn=id,required=true"`
-	Provider      string     `json:"provider,omitempty" sqlx:"provider,primaryKey,required=true"`
-	CreatedAt     time.Time  `json:"createdAt,omitempty" sqlx:"created_at,required=true" format:"2006-01-02 15:04:05"`
-	UpdatedAt     *time.Time `json:"updatedAt,omitempty" sqlx:"updated_at" format:"2006-01-02 15:04:05"`
-	Version       int64      `sqlx:"version,required=true"`
-	LeaseOwner    *string    `sqlx:"lease_owner"`
-	LeaseUntil    *time.Time `sqlx:"lease_until"`
-	RefreshStatus string     `sqlx:"refresh_status,required=true"`
+	UserId        string     `sqlx:"user_id,primaryKey,refTable=users,refColumn=id,required=true" json:"userId,omitempty"`
+	Provider      string     `sqlx:"provider,primaryKey,required=true" json:"provider,omitempty"`
+	CreatedAt     time.Time  `format:"2006-01-02 15:04:05" sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt     *time.Time `format:"2006-01-02 15:04:05" sqlx:"updated_at" json:"updatedAt,omitempty"`
+	Version       int64      `json:"version" sqlx:"version,required=true"`
+	RefreshStatus string     `json:"refreshStatus" sqlx:"refresh_status,required=true"`
+	LeaseOwner    *string    `json:"leaseOwner" sqlx:"lease_owner"`
+	LeaseUntil    *time.Time `json:"leaseUntil" sqlx:"lease_until"`
 	Has           *TokenHas  `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"TokenHas"`
 }
 
@@ -27,22 +27,22 @@ type TokenHas struct {
 	CreatedAt     bool
 	UpdatedAt     bool
 	Version       bool
+	RefreshStatus bool
 	LeaseOwner    bool
 	LeaseUntil    bool
-	RefreshStatus bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
 	EncToken      string     `internal:"true" json:"encToken,omitempty" sqlx:"enc_token,required=true"`
-	UserId        string     `json:"userId,omitempty" sqlx:"user_id,primaryKey,refTable=users,refColumn=id,required=true"`
-	Provider      string     `json:"provider,omitempty" sqlx:"provider,primaryKey,required=true"`
-	CreatedAt     time.Time  `json:"createdAt,omitempty" sqlx:"created_at,required=true" format:"2006-01-02 15:04:05"`
-	UpdatedAt     *time.Time `json:"updatedAt,omitempty" sqlx:"updated_at" format:"2006-01-02 15:04:05"`
-	Version       int64      `sqlx:"version,required=true"`
-	LeaseOwner    *string    `sqlx:"lease_owner"`
-	LeaseUntil    *time.Time `sqlx:"lease_until"`
-	RefreshStatus string     `sqlx:"refresh_status,required=true"`
+	UserId        string     `sqlx:"user_id,primaryKey,refTable=users,refColumn=id,required=true" json:"userId,omitempty"`
+	Provider      string     `sqlx:"provider,primaryKey,required=true" json:"provider,omitempty"`
+	CreatedAt     time.Time  `format:"2006-01-02 15:04:05" sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt     *time.Time `format:"2006-01-02 15:04:05" sqlx:"updated_at" json:"updatedAt,omitempty"`
+	Version       int64      `json:"version" sqlx:"version,required=true"`
+	RefreshStatus string     `json:"refreshStatus" sqlx:"refresh_status,required=true"`
+	LeaseOwner    *string    `json:"leaseOwner" sqlx:"lease_owner"`
+	LeaseUntil    *time.Time `json:"leaseUntil" sqlx:"lease_until"`
 }
 
 type WriterKeysRow struct {

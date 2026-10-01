@@ -19,7 +19,7 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/feedextract"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/elicitation"
@@ -403,26 +403,26 @@ func TestEmbeddedClient_GetTranscript_WithIncludeFeeds_BuiltinBehavior(t *testin
 	}
 	conv := &conversation.Conversation{
 		Id: "conv-transcript",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "turn-1",
 				ConversationId: "conv-transcript",
 				Status:         "completed",
 				CreatedAt:      time.Now(),
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:        "m1",
 						Role:      "assistant",
 						Interim:   1,
 						Iteration: &iteration,
-						ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
-						ToolMessage: []*agconv.ToolMessageView{
+						ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: "completed"},
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{
 								Id:              "tm1",
 								ParentMessageId: stringPtr("m1"),
 								Sequence:        intPtr(1),
 								Iteration:       &iteration,
-								ToolCall: &agconv.ToolCallView{
+								ToolCall: &conversationmodel.ToolCallView{
 									MessageId:         "tm1",
 									ToolName:          "resources-grepFiles",
 									Status:            "completed",
@@ -435,7 +435,7 @@ func TestEmbeddedClient_GetTranscript_WithIncludeFeeds_BuiltinBehavior(t *testin
 								ParentMessageId: stringPtr("m1"),
 								Sequence:        intPtr(2),
 								Iteration:       &iteration,
-								ToolCall: &agconv.ToolCallView{
+								ToolCall: &conversationmodel.ToolCallView{
 									MessageId:         "tm2",
 									ToolName:          "resources-grepFiles",
 									Status:            "completed",
@@ -474,26 +474,26 @@ func TestHandleGetFeedData_ReturnsResolvedBuiltinFeed(t *testing.T) {
 	}
 	conv := &conversation.Conversation{
 		Id: "conv-feed-handler",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "turn-1",
 				ConversationId: "conv-feed-handler",
 				Status:         "completed",
 				CreatedAt:      time.Now(),
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:        "m1",
 						Role:      "assistant",
 						Interim:   1,
 						Iteration: &iteration,
-						ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
-						ToolMessage: []*agconv.ToolMessageView{
+						ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: "completed"},
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{
 								Id:              "tm1",
 								ParentMessageId: stringPtr("m1"),
 								Sequence:        intPtr(1),
 								Iteration:       &iteration,
-								ToolCall: &agconv.ToolCallView{
+								ToolCall: &conversationmodel.ToolCallView{
 									MessageId:         "tm1",
 									ToolName:          "system_exec-execute",
 									Status:            "completed",
@@ -505,7 +505,7 @@ func TestHandleGetFeedData_ReturnsResolvedBuiltinFeed(t *testing.T) {
 								ParentMessageId: stringPtr("m1"),
 								Sequence:        intPtr(2),
 								Iteration:       &iteration,
-								ToolCall: &agconv.ToolCallView{
+								ToolCall: &conversationmodel.ToolCallView{
 									MessageId:         "tm2",
 									ToolName:          "system_exec-execute",
 									Status:            "completed",
@@ -569,8 +569,8 @@ func TestUsageSummaryIncludesSidecarModelsSeparately(t *testing.T) {
 		Id:                "conv-usage-roles",
 		UsageInputTokens:  intPtr(1000),
 		UsageOutputTokens: intPtr(100),
-		Usage: &agconv.UsageView{
-			Model: []*agconv.ModelView{
+		Usage: &conversationmodel.UsageView{
+			Model: []*conversationmodel.ModelView{
 				{Provider: "openai", Model: "gpt-5-mini", ExecutionRole: "react", PromptTokens: intPtr(800), CompletionTokens: intPtr(80), TotalTokens: intPtr(880)},
 				{Provider: "openai", Model: "gpt-5-mini", ExecutionRole: "intake", PromptTokens: intPtr(200), CompletionTokens: intPtr(20), TotalTokens: intPtr(220), Cost: &cost},
 			},
@@ -772,7 +772,7 @@ func TestEmbeddedFeedHelpers_DeprecatedAndPayloadAccess(t *testing.T) {
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "completed",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "m1",
 				Role:      "assistant",
@@ -780,11 +780,11 @@ func TestEmbeddedFeedHelpers_DeprecatedAndPayloadAccess(t *testing.T) {
 				ToolName:  &toolName,
 				Content:   &content,
 				Iteration: &iteration,
-				ToolMessage: []*agconv.ToolMessageView{
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:              "tm1",
 						ParentMessageId: stringPtr("m1"),
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							MessageId: "tm1",
 							ToolName:  toolName,
 							Status:    "completed",
@@ -800,7 +800,7 @@ func TestEmbeddedFeedHelpers_DeprecatedAndPayloadAccess(t *testing.T) {
 		Match: FeedMatch{Service: "system/exec", Method: "execute"},
 	}
 	client := &backendClient{
-		conv:  newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{(*agconv.TranscriptView)(turn)}}, nil),
+		conv:  newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1", Transcript: []*conversationmodel.TranscriptView{(*conversationmodel.TranscriptView)(turn)}}, nil),
 		feeds: &FeedRegistry{specs: []*FeedSpec{spec}},
 	}
 
@@ -822,10 +822,10 @@ func TestEmbeddedFeedHelpers_FetchToolCallPayloadAndGetPayloads(t *testing.T) {
 	}
 	msg := &conversation.Message{
 		Id: "m1",
-		ToolMessage: []*agconv.ToolMessageView{
+		ToolMessage: []*conversationmodel.ToolMessageView{
 			{
 				Id: "tm1",
-				ToolCall: &agconv.ToolCallView{
+				ToolCall: &conversationmodel.ToolCallView{
 					MessageId:         "tm1",
 					ResponsePayloadId: stringPtr("p1"),
 				},
@@ -872,26 +872,26 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 		}
 		conv := &conversation.Conversation{
 			Id: "conv-1",
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id:             "turn-1",
 					ConversationId: "conv-1",
 					Status:         "completed",
 					CreatedAt:      time.Now(),
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:        "m1",
 							Role:      "assistant",
 							Interim:   1,
 							Iteration: &iteration,
-							ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
-							ToolMessage: []*agconv.ToolMessageView{
+							ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: "completed"},
+							ToolMessage: []*conversationmodel.ToolMessageView{
 								{
 									Id:              "tm1",
 									ParentMessageId: stringPtr("m1"),
 									Sequence:        intPtr(1),
 									Iteration:       &iteration,
-									ToolCall: &agconv.ToolCallView{
+									ToolCall: &conversationmodel.ToolCallView{
 										MessageId:         "tm1",
 										ToolName:          "resources-list",
 										Status:            "completed",
@@ -904,7 +904,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 									ParentMessageId: stringPtr("m1"),
 									Sequence:        intPtr(2),
 									Iteration:       &iteration,
-									ToolCall: &agconv.ToolCallView{
+									ToolCall: &conversationmodel.ToolCallView{
 										MessageId:         "tm2",
 										ToolName:          "resources-grepFiles",
 										Status:            "completed",
@@ -950,25 +950,25 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 		}
 		toolName := "system_exec-execute"
 		valid := `{"commands":[{"input":"pwd","output":"/tmp"}]}`
-		turn1 := &agconv.TranscriptView{
+		turn1 := &conversationmodel.TranscriptView{
 			Id:             "turn-1",
 			ConversationId: "conv-1",
 			Status:         "completed",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				nil,
 				{Id: "m1", Role: "assistant", ToolName: &toolName},
 			},
 		}
-		turn2 := &agconv.TranscriptView{
+		turn2 := &conversationmodel.TranscriptView{
 			Id:             "turn-2",
 			ConversationId: "conv-1",
 			Status:         "completed",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{Id: "m2", Role: "assistant", ToolName: &toolName, Content: &valid},
 			},
 		}
 		client := &backendClient{
-			conv: newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{turn1, turn2}}, nil),
+			conv: newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1", Transcript: []*conversationmodel.TranscriptView{turn1, turn2}}, nil),
 		}
 		got, err := client.ResolveFeedData(context.Background(), spec, "conv-1")
 		require.NoError(t, err)
@@ -983,19 +983,19 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 			Id:       msgID,
 			ToolName: &toolName,
 		}
-		msg.ToolMessage = []*agconv.ToolMessageView{
-			{ToolCall: &agconv.ToolCallView{MessageId: "tm1", ResponsePayloadId: stringPtr("p1")}},
+		msg.ToolMessage = []*conversationmodel.ToolMessageView{
+			{ToolCall: &conversationmodel.ToolCallView{MessageId: "tm1", ResponsePayloadId: stringPtr("p1")}},
 		}
 		client := &backendClient{conv: newMessagesAndPayloadsClient(map[string]*conversation.Message{msgID: msg}, payloads)}
-		turn := &conversation.Turn{Message: []*agconv.MessageView{{Id: msgID, ToolName: &toolName}}}
+		turn := &conversation.Turn{Message: []*conversationmodel.MessageView{{Id: msgID, ToolName: &toolName}}}
 		assert.Equal(t, payloads["p1"], client.findLastToolCallPayload(context.Background(), conversation.Transcript{turn}, toolName))
 	})
 
 	t.Run("findLastToolCallPayload scans backward across turns", func(t *testing.T) {
 		toolName := "system_exec-execute"
 		content := `{"commands":[{"input":"pwd","output":"/tmp"}]}`
-		turn1 := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant", ToolName: &toolName}}}
-		turn2 := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant", ToolName: &toolName, Content: &content}}}
+		turn1 := &conversation.Turn{Message: []*conversationmodel.MessageView{{Role: "assistant", ToolName: &toolName}}}
+		turn2 := &conversation.Turn{Message: []*conversationmodel.MessageView{{Role: "assistant", ToolName: &toolName, Content: &content}}}
 		got := (&backendClient{}).findLastToolCallPayload(context.Background(), conversation.Transcript{turn1, turn2}, toolName)
 		assert.Equal(t, content, got)
 	})
@@ -1003,8 +1003,8 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 	t.Run("findLastToolCallPayload falls back to older turn", func(t *testing.T) {
 		toolName := "system_exec-execute"
 		content := `{"commands":[{"input":"pwd","output":"/tmp"}]}`
-		turn1 := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant", ToolName: &toolName, Content: &content}}}
-		turn2 := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant", ToolName: &toolName}}}
+		turn1 := &conversation.Turn{Message: []*conversationmodel.MessageView{{Role: "assistant", ToolName: &toolName, Content: &content}}}
+		turn2 := &conversation.Turn{Message: []*conversationmodel.MessageView{{Role: "assistant", ToolName: &toolName}}}
 		got := (&backendClient{}).findLastToolCallPayload(context.Background(), conversation.Transcript{turn1, turn2}, toolName)
 		assert.Equal(t, content, got)
 	})
@@ -1034,7 +1034,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 	t.Run("fetchToolCallResponsePayload missing branches", func(t *testing.T) {
 		client := &backendClient{conv: newMessagesAndPayloadsClient(nil, nil)}
 		assert.Equal(t, "", client.fetchToolCallResponsePayload(context.Background(), "missing"))
-		msg := &conversation.Message{Id: "m1", ToolMessage: []*agconv.ToolMessageView{{ToolCall: &agconv.ToolCallView{MessageId: "tm1"}}}}
+		msg := &conversation.Message{Id: "m1", ToolMessage: []*conversationmodel.ToolMessageView{{ToolCall: &conversationmodel.ToolCallView{MessageId: "tm1"}}}}
 		client = &backendClient{conv: newMessagesAndPayloadsClient(map[string]*conversation.Message{"m1": msg}, nil)}
 		assert.Equal(t, "", client.fetchToolCallResponsePayload(context.Background(), "m1"))
 	})
@@ -1056,12 +1056,12 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 			Id:             "turn-1",
 			ConversationId: "conv-1",
 			Status:         "completed",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{Id: "m1", Role: "assistant", Interim: 1, ToolName: &toolName, Content: &content},
 			},
 		}
 		client = &backendClient{
-			conv: newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{(*agconv.TranscriptView)(turn)}}, nil),
+			conv: newConversationWithPayloadsClient(&conversation.Conversation{Id: "conv-1", Transcript: []*conversationmodel.TranscriptView{(*conversationmodel.TranscriptView)(turn)}}, nil),
 		}
 		got, err = client.ResolveFeedData(context.Background(), spec, "conv-1")
 		require.NoError(t, err)
@@ -1086,7 +1086,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 	t.Run("resolveActiveFeeds empty and no-match", func(t *testing.T) {
 		client := &backendClient{feeds: &FeedRegistry{specs: []*FeedSpec{{ID: "terminal", Match: FeedMatch{Service: "system/exec", Method: "execute"}}}}}
 		assert.Nil(t, client.resolveActiveFeeds(context.Background(), nil))
-		turn := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant"}}}
+		turn := &conversation.Turn{Message: []*conversationmodel.MessageView{{Role: "assistant"}}}
 		assert.Nil(t, client.resolveActiveFeeds(context.Background(), conversation.Transcript{turn}))
 	})
 
@@ -1095,12 +1095,12 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 		bad := `not-json`
 		client := &backendClient{feeds: &FeedRegistry{specs: []*FeedSpec{{ID: "terminal", Title: "Terminal", Match: FeedMatch{Service: "system/exec", Method: "execute"}}}}}
 		turn := &conversation.Turn{
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Role:        "assistant",
 					ToolName:    &toolName,
 					Content:     &bad,
-					ToolMessage: []*agconv.ToolMessageView{{ToolCall: &agconv.ToolCallView{ToolName: toolName}}},
+					ToolMessage: []*conversationmodel.ToolMessageView{{ToolCall: &conversationmodel.ToolCallView{ToolName: toolName}}},
 				},
 			},
 		}
@@ -1135,7 +1135,7 @@ func TestAdditionalFeedHelperBranches(t *testing.T) {
 	t.Run("findLastToolCallPayload returns empty when nothing matches", func(t *testing.T) {
 		toolName := "system_exec-execute"
 		other := "resources-grepFiles"
-		turn := &conversation.Turn{Message: []*agconv.MessageView{{Role: "assistant", ToolName: &other}}}
+		turn := &conversation.Turn{Message: []*conversationmodel.MessageView{{Role: "assistant", ToolName: &other}}}
 		assert.Equal(t, "", (&backendClient{}).findLastToolCallPayload(context.Background(), conversation.Transcript{turn}, toolName))
 	})
 }
@@ -1321,26 +1321,26 @@ func TestAdditionalLinkedFeedMergeBranches(t *testing.T) {
 	client := &backendClient{
 		conv: newConversationWithPayloadsClient(&conversation.Conversation{
 			Id: "child-conv",
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id:             "turn-1",
 					ConversationId: "child-conv",
 					Status:         "completed",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:        "m1",
 							Role:      "assistant",
 							Interim:   1,
 							Iteration: &iteration,
-							ModelCall: &agconv.ModelCallView{
+							ModelCall: &conversationmodel.ModelCallView{
 								MessageId: "m1",
 								Status:    "completed",
 							},
-							ToolMessage: []*agconv.ToolMessageView{
+							ToolMessage: []*conversationmodel.ToolMessageView{
 								{
 									Id:        "tm1",
 									Iteration: &iteration,
-									ToolCall: &agconv.ToolCallView{
+									ToolCall: &conversationmodel.ToolCallView{
 										MessageId:         "tm1",
 										ToolName:          "orchestration:updatePlan",
 										Status:            "completed",
@@ -1513,26 +1513,26 @@ func TestLinkedChildFeedHelpers(t *testing.T) {
 	iteration := 1
 	childConv := &conversation.Conversation{
 		Id: "child-conv",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "child-turn",
 				ConversationId: "child-conv",
 				Status:         "completed",
 				CreatedAt:      time.Now(),
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:        "m1",
 						Role:      "assistant",
 						Interim:   1,
 						Iteration: &iteration,
-						ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
-						ToolMessage: []*agconv.ToolMessageView{
+						ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: "completed"},
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{
 								Id:              "tm1",
 								ParentMessageId: stringPtr("m1"),
 								Sequence:        intPtr(1),
 								Iteration:       &iteration,
-								ToolCall: &agconv.ToolCallView{
+								ToolCall: &conversationmodel.ToolCallView{
 									MessageId:         "tm1",
 									ToolName:          "orchestration:updatePlan",
 									Status:            "completed",

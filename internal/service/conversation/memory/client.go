@@ -10,19 +10,14 @@ import (
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	gfwrite "github.com/viant/agently-core/pkg/agently/generatedfile/write"
-	msgw "github.com/viant/agently-core/pkg/agently/message/write"
-	mcallw "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	payloadread "github.com/viant/agently-core/pkg/agently/payload/read"
-	payloadw "github.com/viant/agently-core/pkg/agently/payload/write"
-	queuecount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
-	queueoutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
-	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
-	toolw "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	turnw "github.com/viant/agently-core/pkg/agently/turn/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
+	messagemodel "github.com/viant/agently-core/model/message"
+	modelcallmodel "github.com/viant/agently-core/model/modelcall"
+	payloadmodel "github.com/viant/agently-core/model/payload"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnmodel "github.com/viant/agently-core/model/turn"
 	hstate "github.com/viant/xdatly/state"
 )
 
@@ -30,23 +25,23 @@ import (
 // It is intended for tests and local runs without SQL/Datly.
 type Client struct {
 	mu            sync.RWMutex
-	conversations map[string]*agconv.ConversationView
+	conversations map[string]*conversationmodel.ConversationView
 	// Indexes for fast lookup
-	messages       map[string]*agconv.MessageView
-	toolCalls      map[string]*agconv.ToolCallView
-	toolApprovals  map[string]*queuew.ToolApprovalQueue
-	payloads       map[string]*payloadread.PayloadView
-	generatedFiles map[string]*gfread.GeneratedFileView
+	messages       map[string]*conversationmodel.MessageView
+	toolCalls      map[string]*conversationmodel.ToolCallView
+	toolApprovals  map[string]*toolapprovalqueuemodel.ToolApprovalQueue
+	payloads       map[string]*payloadmodel.PayloadView
+	generatedFiles map[string]*generatedfilemodel.GeneratedFileView
 }
 
 func New() *Client {
 	return &Client{
-		conversations:  map[string]*agconv.ConversationView{},
-		messages:       map[string]*agconv.MessageView{},
-		toolCalls:      map[string]*agconv.ToolCallView{},
-		toolApprovals:  map[string]*queuew.ToolApprovalQueue{},
-		payloads:       map[string]*payloadread.PayloadView{},
-		generatedFiles: map[string]*gfread.GeneratedFileView{},
+		conversations:  map[string]*conversationmodel.ConversationView{},
+		messages:       map[string]*conversationmodel.MessageView{},
+		toolCalls:      map[string]*conversationmodel.ToolCallView{},
+		toolApprovals:  map[string]*toolapprovalqueuemodel.ToolApprovalQueue{},
+		payloads:       map[string]*payloadmodel.PayloadView{},
+		generatedFiles: map[string]*generatedfilemodel.GeneratedFileView{},
 	}
 }
 
@@ -247,10 +242,10 @@ func (c *Client) GetConversation(ctx context.Context, id string, options ...conv
 	return toClientConversation(cp), nil
 }
 
-func (c *Client) GetGeneratedFiles(_ context.Context, input *gfread.Input) ([]*gfread.GeneratedFileView, error) {
+func (c *Client) GetGeneratedFiles(_ context.Context, input *generatedfilemodel.Input) ([]*generatedfilemodel.GeneratedFileView, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	out := make([]*gfread.GeneratedFileView, 0, len(c.generatedFiles))
+	out := make([]*generatedfilemodel.GeneratedFileView, 0, len(c.generatedFiles))
 	for _, item := range c.generatedFiles {
 		if item == nil {
 			continue
@@ -298,7 +293,7 @@ func (c *Client) GetGeneratedFiles(_ context.Context, input *gfread.Input) ([]*g
 	return out, nil
 }
 
-func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *gfwrite.GeneratedFile) error {
+func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *generatedfilemodel.GeneratedFile) error {
 	if generatedFile == nil || strings.TrimSpace(generatedFile.ID) == "" {
 		return errors.New("generated file id required")
 	}
@@ -306,13 +301,13 @@ func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *gfwrite.Ge
 	defer c.mu.Unlock()
 	cur := c.generatedFiles[generatedFile.ID]
 	if cur == nil {
-		cur = &gfread.GeneratedFileView{ID: generatedFile.ID}
+		cur = &generatedfilemodel.GeneratedFileView{ID: generatedFile.ID}
 		now := time.Now()
 		cur.CreatedAt = &now
 		c.generatedFiles[generatedFile.ID] = cur
 	}
 	if generatedFile.Has == nil {
-		generatedFile.Has = &gfwrite.GeneratedFileHas{}
+		generatedFile.Has = &generatedfilemodel.GeneratedFileHas{}
 	}
 	if generatedFile.Has.ConversationID {
 		cur.ConversationID = generatedFile.ConversationID
@@ -374,11 +369,11 @@ func (c *Client) PatchGeneratedFile(_ context.Context, generatedFile *gfwrite.Ge
 	return nil
 }
 
-func (c *Client) attachToolMessages(conv *agconv.ConversationView) {
+func (c *Client) attachToolMessages(conv *conversationmodel.ConversationView) {
 	if conv == nil || conv.Transcript == nil {
 		return
 	}
-	msgByID := map[string]*agconv.MessageView{}
+	msgByID := map[string]*conversationmodel.MessageView{}
 	for _, turn := range conv.Transcript {
 		if turn == nil || turn.Message == nil {
 			continue
@@ -399,7 +394,7 @@ func (c *Client) attachToolMessages(conv *agconv.ConversationView) {
 		if parent == nil {
 			continue
 		}
-		tm := &agconv.ToolMessageView{
+		tm := &conversationmodel.ToolMessageView{
 			Id:              msg.Id,
 			ParentMessageId: msg.ParentMessageId,
 			CreatedAt:       msg.CreatedAt,
@@ -419,7 +414,7 @@ func (c *Client) attachToolMessages(conv *agconv.ConversationView) {
 }
 
 // aggregateUsage builds a UsageView equivalent to SQL aggregation for a conversation.
-func (c *Client) aggregateUsage(conversationID string) *agconv.UsageView {
+func (c *Client) aggregateUsage(conversationID string) *conversationmodel.UsageView {
 	if strings.TrimSpace(conversationID) == "" {
 		return nil
 	}
@@ -496,7 +491,7 @@ func (c *Client) aggregateUsage(conversationID string) *agconv.UsageView {
 	pint := func(i int) *int { v := i; return &v }
 
 	// Build usage view with per-model breakdown (stable order by model)
-	models := make([]*agconv.ModelView, 0, len(byModel))
+	models := make([]*conversationmodel.ModelView, 0, len(byModel))
 	keys := make([]string, 0, len(byModel))
 	for k := range byModel {
 		keys = append(keys, k)
@@ -504,7 +499,7 @@ func (c *Client) aggregateUsage(conversationID string) *agconv.UsageView {
 	sort.Strings(keys)
 	for _, k := range keys {
 		a := byModel[k]
-		models = append(models, &agconv.ModelView{
+		models = append(models, &conversationmodel.ModelView{
 			ConversationId:                     conversationID,
 			Model:                              k,
 			PromptTokens:                       pint(a.pt),
@@ -519,7 +514,7 @@ func (c *Client) aggregateUsage(conversationID string) *agconv.UsageView {
 		})
 	}
 
-	return &agconv.UsageView{
+	return &conversationmodel.UsageView{
 		ConversationId:                     conversationID,
 		PromptTokens:                       pint(totals.pt),
 		PromptCachedTokens:                 pint(totals.pct),
@@ -545,7 +540,7 @@ func (c *Client) PatchConversations(ctx context.Context, in *convcli.MutableConv
 	cur, ok := c.conversations[in.Id]
 	if !ok {
 		// Create minimal conversation
-		cur = &agconv.ConversationView{Id: in.Id, Stage: "", CreatedAt: time.Now()}
+		cur = &conversationmodel.ConversationView{Id: in.Id, Stage: "", CreatedAt: time.Now()}
 		// Default to private visibility and set owner when available
 		cur.Visibility = "private"
 		if ui := authctx.User(ctx); ui != nil {
@@ -584,7 +579,7 @@ func (c *Client) PatchPayload(_ context.Context, p *convcli.MutablePayload) erro
 	defer c.mu.Unlock()
 	existing, ok := c.payloads[p.Id]
 	if !ok {
-		c.payloads[p.Id] = &payloadread.PayloadView{Id: p.Id}
+		c.payloads[p.Id] = &payloadmodel.PayloadView{Id: p.Id}
 		existing = c.payloads[p.Id]
 	}
 	applyPayloadPatch((*convcli.Payload)(existing), p)
@@ -682,7 +677,7 @@ func (c *Client) PatchMessage(_ context.Context, in *convcli.MutableMessage) err
 
 	var (
 		convID string
-		cur    *agconv.MessageView
+		cur    *conversationmodel.MessageView
 	)
 	if existing, ok := c.messages[in.Id]; ok && existing != nil {
 		cur = existing
@@ -700,7 +695,7 @@ func (c *Client) PatchMessage(_ context.Context, in *convcli.MutableMessage) err
 	}
 
 	// Ensure turn exists if provided
-	var targetTurn *agconv.TranscriptView
+	var targetTurn *conversationmodel.TranscriptView
 	if in.Has.TurnID && in.TurnID != nil {
 		targetTurn = findOrCreateTurn(conv, *in.TurnID)
 	} else if cur != nil && cur.TurnId != nil && strings.TrimSpace(*cur.TurnId) != "" {
@@ -712,7 +707,7 @@ func (c *Client) PatchMessage(_ context.Context, in *convcli.MutableMessage) err
 
 	// Upsert message in index and in turn
 	if cur == nil {
-		cur = &agconv.MessageView{Id: in.Id, ConversationId: convID, Role: in.Role, Type: in.Type, CreatedAt: time.Now()}
+		cur = &conversationmodel.MessageView{Id: in.Id, ConversationId: convID, Role: in.Role, Type: in.Type, CreatedAt: time.Now()}
 		c.messages[in.Id] = cur
 		// Place into turn if not present
 		if !messageInTurn(targetTurn, in.Id) {
@@ -736,7 +731,7 @@ func (c *Client) PatchModelCall(_ context.Context, in *convcli.MutableModelCall)
 	}
 	msg := c.messages[in.MessageID]
 	if msg.ModelCall == nil {
-		msg.ModelCall = &agconv.ModelCallView{MessageId: in.MessageID}
+		msg.ModelCall = &conversationmodel.ModelCallView{MessageId: in.MessageID}
 	}
 	applyModelCallPatch(msg.ModelCall, in)
 	return nil
@@ -755,7 +750,7 @@ func (c *Client) PatchToolCall(_ context.Context, in *convcli.MutableToolCall) e
 	}
 	tc := c.toolCalls[in.MessageID]
 	if tc == nil {
-		tc = &agconv.ToolCallView{MessageId: in.MessageID, OpId: in.OpID, Attempt: in.Attempt, ToolName: in.ToolName, ToolKind: in.ToolKind}
+		tc = &conversationmodel.ToolCallView{MessageId: in.MessageID, OpId: in.OpID, Attempt: in.Attempt, ToolName: in.ToolName, ToolKind: in.ToolKind}
 		c.toolCalls[in.MessageID] = tc
 	}
 	applyToolCallPatch(tc, in)
@@ -806,8 +801,8 @@ func (c *Client) PatchTurn(_ context.Context, in *convcli.MutableTurn) error {
 
 // Internal helpers operating on agconv views
 
-func buildInput(id string, options []convcli.Option) agconv.ConversationInput {
-	in := agconv.ConversationInput{Id: id, Has: &agconv.ConversationInputHas{Id: true}}
+func buildInput(id string, options []convcli.Option) conversationmodel.ConversationInput {
+	in := conversationmodel.ConversationInput{Id: id, Has: &conversationmodel.ConversationInputHas{Id: true}}
 	for _, opt := range options {
 		if opt != nil {
 			opt((*convcli.Input)(&in))
@@ -816,20 +811,20 @@ func buildInput(id string, options []convcli.Option) agconv.ConversationInput {
 	return in
 }
 
-func cloneConversationView(src *agconv.ConversationView) *agconv.ConversationView {
+func cloneConversationView(src *conversationmodel.ConversationView) *conversationmodel.ConversationView {
 	if src == nil {
 		return nil
 	}
 	out := *src
 	if src.Transcript != nil {
-		out.Transcript = make([]*agconv.TranscriptView, 0, len(src.Transcript))
+		out.Transcript = make([]*conversationmodel.TranscriptView, 0, len(src.Transcript))
 		for _, t := range src.Transcript {
 			if t == nil {
 				continue
 			}
 			tt := *t
 			if t.Message != nil {
-				tt.Message = make([]*agconv.MessageView, 0, len(t.Message))
+				tt.Message = make([]*conversationmodel.MessageView, 0, len(t.Message))
 				for _, m := range t.Message {
 					tt.Message = append(tt.Message, copyMessage(m))
 				}
@@ -840,13 +835,13 @@ func cloneConversationView(src *agconv.ConversationView) *agconv.ConversationVie
 	return &out
 }
 
-func copyMessage(m *agconv.MessageView) *agconv.MessageView {
+func copyMessage(m *conversationmodel.MessageView) *conversationmodel.MessageView {
 	if m == nil {
 		return nil
 	}
 	cp := *m
 	if m.Attachment != nil {
-		cp.Attachment = make([]*agconv.AttachmentView, len(m.Attachment))
+		cp.Attachment = make([]*conversationmodel.AttachmentView, len(m.Attachment))
 		copy(cp.Attachment, m.Attachment)
 	}
 	if m.ModelCall != nil {
@@ -854,7 +849,7 @@ func copyMessage(m *agconv.MessageView) *agconv.MessageView {
 		cp.ModelCall = &tmp
 	}
 	if m.ToolMessage != nil {
-		cp.ToolMessage = make([]*agconv.ToolMessageView, 0, len(m.ToolMessage))
+		cp.ToolMessage = make([]*conversationmodel.ToolMessageView, 0, len(m.ToolMessage))
 		for _, tm := range m.ToolMessage {
 			if tm == nil {
 				continue
@@ -883,22 +878,22 @@ func copyPayload(p *convcli.Payload) *convcli.Payload {
 	return &cp
 }
 
-func findOrCreateTurn(conv *agconv.ConversationView, turnID string) *agconv.TranscriptView {
+func findOrCreateTurn(conv *conversationmodel.ConversationView, turnID string) *conversationmodel.TranscriptView {
 	if conv.Transcript == nil {
-		conv.Transcript = []*agconv.TranscriptView{}
+		conv.Transcript = []*conversationmodel.TranscriptView{}
 	}
 	for _, t := range conv.Transcript {
 		if t != nil && t.Id == turnID {
 			return t
 		}
 	}
-	t := &agconv.TranscriptView{Id: turnID, ConversationId: conv.Id, Status: "active", CreatedAt: time.Now()}
+	t := &conversationmodel.TranscriptView{Id: turnID, ConversationId: conv.Id, Status: "active", CreatedAt: time.Now()}
 	conv.Transcript = append(conv.Transcript, t)
 	sort.SliceStable(conv.Transcript, func(i, j int) bool { return conv.Transcript[i].CreatedAt.Before(conv.Transcript[j].CreatedAt) })
 	return t
 }
 
-func messageInTurn(t *agconv.TranscriptView, id string) bool {
+func messageInTurn(t *conversationmodel.TranscriptView, id string) bool {
 	for _, m := range t.Message {
 		if m != nil && m.Id == id {
 			return true
@@ -907,7 +902,7 @@ func messageInTurn(t *agconv.TranscriptView, id string) bool {
 	return false
 }
 
-func toClientConversation(v *agconv.ConversationView) *convcli.Conversation {
+func toClientConversation(v *conversationmodel.ConversationView) *convcli.Conversation {
 	if v == nil {
 		return nil
 	}
@@ -922,7 +917,7 @@ func stringValue(value *string) string {
 	return *value
 }
 
-func toClientMessage(v *agconv.MessageView) *convcli.Message {
+func toClientMessage(v *conversationmodel.MessageView) *convcli.Message {
 	if v == nil {
 		return nil
 	}
@@ -930,7 +925,7 @@ func toClientMessage(v *agconv.MessageView) *convcli.Message {
 	return &m
 }
 
-func applySinceFilter(conv *agconv.ConversationView, in *agconv.ConversationInput) {
+func applySinceFilter(conv *conversationmodel.ConversationView, in *conversationmodel.ConversationInput) {
 	if conv == nil || in == nil || in.Has == nil || !in.Has.Since || strings.TrimSpace(in.Since) == "" || conv.Transcript == nil {
 		return
 	}
@@ -946,7 +941,7 @@ func applySinceFilter(conv *agconv.ConversationView, in *agconv.ConversationInpu
 	if sinceTime == nil {
 		return
 	}
-	filtered := make([]*agconv.TranscriptView, 0, len(conv.Transcript))
+	filtered := make([]*conversationmodel.TranscriptView, 0, len(conv.Transcript))
 	for _, t := range conv.Transcript {
 		if t != nil && (t.CreatedAt.Equal(*sinceTime) || t.CreatedAt.After(*sinceTime)) {
 			filtered = append(filtered, t)
@@ -955,7 +950,7 @@ func applySinceFilter(conv *agconv.ConversationView, in *agconv.ConversationInpu
 	conv.Transcript = filtered
 }
 
-func applyIncludeFlags(conv *agconv.ConversationView, in *agconv.ConversationInput) {
+func applyIncludeFlags(conv *conversationmodel.ConversationView, in *conversationmodel.ConversationInput) {
 	if conv == nil || conv.Transcript == nil {
 		return
 	}
@@ -980,7 +975,7 @@ func defaultTurnID(convID string) string { return convID + ":turn" }
 
 // Patch appliers
 
-func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableConversation) {
+func applyConversationPatch(dst *conversationmodel.ConversationView, src *convcli.MutableConversation) {
 	if src.Has == nil {
 		return
 	}
@@ -1064,7 +1059,7 @@ func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableCo
 	}
 }
 
-func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
+func applyMessagePatch(dst *conversationmodel.MessageView, src *messagemodel.Message) {
 	if src.Has == nil {
 		return
 	}
@@ -1151,7 +1146,7 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 	}
 }
 
-func applyModelCallPatch(dst *agconv.ModelCallView, src *mcallw.ModelCall) {
+func applyModelCallPatch(dst *conversationmodel.ModelCallView, src *modelcallmodel.ModelCall) {
 	if src.Has == nil {
 		return
 	}
@@ -1223,7 +1218,7 @@ func applyModelCallPatch(dst *agconv.ModelCallView, src *mcallw.ModelCall) {
 	}
 }
 
-func applyToolCallPatch(dst *agconv.ToolCallView, src *toolw.ToolCall) {
+func applyToolCallPatch(dst *conversationmodel.ToolCallView, src *toolcallmodel.ToolCall) {
 	if src.Has == nil {
 		return
 	}
@@ -1286,7 +1281,7 @@ func applyToolCallPatch(dst *agconv.ToolCallView, src *toolw.ToolCall) {
 	}
 }
 
-func applyTurnPatch(dst *agconv.TranscriptView, src *turnw.Turn) {
+func applyTurnPatch(dst *conversationmodel.TranscriptView, src *turnmodel.Turn) {
 	if src.Has == nil {
 		return
 	}
@@ -1300,7 +1295,7 @@ func applyTurnPatch(dst *agconv.TranscriptView, src *turnw.Turn) {
 		dst.Origin = src.Origin
 	}
 	if src.Has.GoalID {
-		dst.GoalID = src.GoalID
+		dst.GoalId = src.GoalID
 	}
 	if src.Has.StatusReason {
 		dst.StatusReason = src.StatusReason
@@ -1331,7 +1326,7 @@ func applyTurnPatch(dst *agconv.TranscriptView, src *turnw.Turn) {
 	}
 }
 
-func applyPayloadPatch(dst *convcli.Payload, src *payloadw.Payload) {
+func applyPayloadPatch(dst *convcli.Payload, src *payloadmodel.Payload) {
 	if src.Has == nil {
 		return
 	}
@@ -1396,7 +1391,7 @@ func (c *Client) EnsureConversation(id string, opts ...func(*convcli.MutableConv
 	return c.PatchConversations(context.Background(), mc)
 }
 
-func (c *Client) PatchToolApprovalQueue(_ context.Context, in *queuew.ToolApprovalQueue) error {
+func (c *Client) PatchToolApprovalQueue(_ context.Context, in *toolapprovalqueuemodel.ToolApprovalQueue) error {
 	if in == nil || strings.TrimSpace(in.Id) == "" {
 		return errors.New("queue id is required")
 	}
@@ -1470,12 +1465,12 @@ func (c *Client) PatchToolApprovalQueue(_ context.Context, in *queuew.ToolApprov
 	return nil
 }
 
-func (c *Client) ListToolApprovalQueues(ctx context.Context, in *queueread.QueueRowsInput) ([]*queueread.QueueRowView, error) {
+func (c *Client) ListToolApprovalQueues(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error) {
 	return c.ListToolApprovalQueuesWithSelectors(ctx, in)
 }
 
-func (c *Client) CountToolApprovalQueues(ctx context.Context, in *queuecount.QueueTotalInput) (int, error) {
-	rows, err := c.ListToolApprovalQueues(ctx, &queueread.QueueRowsInput{
+func (c *Client) CountToolApprovalQueues(ctx context.Context, in *toolapprovalqueuemodel.QueueTotalInput) (int, error) {
+	rows, err := c.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		Id:             in.Id,
 		UserId:         in.UserId,
 		ConversationId: in.ConversationId,
@@ -1483,7 +1478,7 @@ func (c *Client) CountToolApprovalQueues(ctx context.Context, in *queuecount.Que
 		MessageId:      in.MessageId,
 		ToolName:       in.ToolName,
 		QueueStatus:    in.QueueStatus,
-		Has: &queueread.QueueRowsInputHas{
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{
 			Id:             in.Has != nil && in.Has.Id,
 			UserId:         in.Has != nil && in.Has.UserId,
 			ConversationId: in.Has != nil && in.Has.ConversationId,
@@ -1499,13 +1494,13 @@ func (c *Client) CountToolApprovalQueues(ctx context.Context, in *queuecount.Que
 	return len(rows), nil
 }
 
-func (c *Client) ListToolApprovalOutcomes(ctx context.Context, in *queueoutcome.OutcomeRowsInput) ([]*queueoutcome.OutcomeRowView, error) {
+func (c *Client) ListToolApprovalOutcomes(ctx context.Context, in *toolapprovalqueuemodel.OutcomeRowsInput) ([]*toolapprovalqueuemodel.OutcomeRowView, error) {
 	if err := enforceMemoryToolApprovalOutcomeUserScope(ctx, in); err != nil {
 		return nil, err
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	var out []*queueoutcome.OutcomeRowView
+	var out []*toolapprovalqueuemodel.OutcomeRowView
 	for _, q := range c.toolApprovals {
 		if q == nil {
 			continue
@@ -1534,7 +1529,7 @@ func (c *Client) ListToolApprovalOutcomes(ctx context.Context, in *queueoutcome.
 			formatted := transition.UTC().Format(time.RFC3339Nano)
 			transitionAt = &formatted
 		}
-		row := &queueoutcome.OutcomeRowView{
+		row := &toolapprovalqueuemodel.OutcomeRowView{
 			Id:               q.Id,
 			UserId:           q.UserId,
 			ConversationId:   q.ConversationId,
@@ -1579,13 +1574,13 @@ func (c *Client) ListToolApprovalOutcomes(ctx context.Context, in *queueoutcome.
 	return out, nil
 }
 
-func (c *Client) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *queueread.QueueRowsInput, selectors ...*hstate.NamedSelector) ([]*queueread.QueueRowView, error) {
+func (c *Client) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput, selectors ...*hstate.NamedSelector) ([]*toolapprovalqueuemodel.QueueRowView, error) {
 	if err := enforceMemoryToolApprovalQueueUserScope(ctx, in); err != nil {
 		return nil, err
 	}
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	var out []*queueread.QueueRowView
+	var out []*toolapprovalqueuemodel.QueueRowView
 	for _, q := range c.toolApprovals {
 		if q == nil {
 			continue
@@ -1613,7 +1608,7 @@ func (c *Client) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *qu
 				continue
 			}
 		}
-		row := &queueread.QueueRowView{
+		row := &toolapprovalqueuemodel.QueueRowView{
 			Id:               q.Id,
 			UserId:           q.UserId,
 			ConversationId:   q.ConversationId,
@@ -1648,7 +1643,7 @@ func (c *Client) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *qu
 	return out, nil
 }
 
-func applyQueueSelector(rows []*queueread.QueueRowView, selectors ...*hstate.NamedSelector) []*queueread.QueueRowView {
+func applyQueueSelector(rows []*toolapprovalqueuemodel.QueueRowView, selectors ...*hstate.NamedSelector) []*toolapprovalqueuemodel.QueueRowView {
 	if len(rows) == 0 || len(selectors) == 0 {
 		return rows
 	}
@@ -1667,7 +1662,7 @@ func applyQueueSelector(rows []*queueread.QueueRowView, selectors ...*hstate.Nam
 		offset = 0
 	}
 	if offset >= len(rows) {
-		return []*queueread.QueueRowView{}
+		return []*toolapprovalqueuemodel.QueueRowView{}
 	}
 	rows = rows[offset:]
 	if selector.Limit > 0 && selector.Limit < len(rows) {
@@ -1676,7 +1671,7 @@ func applyQueueSelector(rows []*queueread.QueueRowView, selectors ...*hstate.Nam
 	return rows
 }
 
-func enforceMemoryToolApprovalQueueUserScope(ctx context.Context, in *queueread.QueueRowsInput) error {
+func enforceMemoryToolApprovalQueueUserScope(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput) error {
 	if in == nil {
 		return nil
 	}
@@ -1689,13 +1684,13 @@ func enforceMemoryToolApprovalQueueUserScope(ctx context.Context, in *queueread.
 	}
 	in.UserId = userID
 	if in.Has == nil {
-		in.Has = &queueread.QueueRowsInputHas{}
+		in.Has = &toolapprovalqueuemodel.QueueRowsInputHas{}
 	}
 	in.Has.UserId = true
 	return nil
 }
 
-func enforceMemoryToolApprovalOutcomeUserScope(ctx context.Context, in *queueoutcome.OutcomeRowsInput) error {
+func enforceMemoryToolApprovalOutcomeUserScope(ctx context.Context, in *toolapprovalqueuemodel.OutcomeRowsInput) error {
 	if in == nil {
 		return nil
 	}
@@ -1708,13 +1703,13 @@ func enforceMemoryToolApprovalOutcomeUserScope(ctx context.Context, in *queueout
 	}
 	in.UserId = userID
 	if in.Has == nil {
-		in.Has = &queueoutcome.OutcomeRowsInputHas{}
+		in.Has = &toolapprovalqueuemodel.OutcomeRowsInputHas{}
 	}
 	in.Has.UserId = true
 	return nil
 }
 
-func queueTransitionTimeForOutcome(q *queuew.ToolApprovalQueue) time.Time {
+func queueTransitionTimeForOutcome(q *toolapprovalqueuemodel.ToolApprovalQueue) time.Time {
 	if q == nil {
 		return time.Time{}
 	}

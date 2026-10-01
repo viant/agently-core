@@ -11,20 +11,20 @@ type LegacyRun struct {
 	LeaseUntilRaw      *string    `internal:"true" json:"-" sqlx:"lease_until_raw"`
 	ActivityRaw        *string    `internal:"true" json:"-" sqlx:"activity_raw"`
 	MaintenanceOwnerId string     `internal:"true" json:"-" sqlx:"maintenance_owner_id"`
-	Id                 string     `sqlx:"id,primaryKey=true"`
-	ScheduleId         string     `sqlx:"schedule_id,refTable=schedule,refColumn=id,required=true"`
-	CreatedAt          time.Time  `sqlx:"created_at,required=true"`
-	UpdatedAt          *time.Time `sqlx:"updated_at"`
-	Status             string     `sqlx:"status,required=true"`
-	ErrorMessage       *string    `sqlx:"error_message"`
-	LeaseOwner         *string    `sqlx:"lease_owner"`
-	LeaseUntil         *time.Time `sqlx:"lease_until"`
-	PreconditionRanAt  *time.Time `sqlx:"precondition_ran_at"`
-	PreconditionPassed *int       `sqlx:"precondition_passed"`
-	PreconditionResult *string    `sqlx:"precondition_result"`
-	ConversationId     *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id"`
-	ConversationKind   string     `sqlx:"conversation_kind,required=true"`
-	ScheduledFor       *time.Time `sqlx:"scheduled_for"`
-	StartedAt          *time.Time `sqlx:"started_at"`
-	CompletedAt        *time.Time `sqlx:"completed_at"`
+	Id                 string     `sqlx:"id,primaryKey=true" json:"id"`
+	ScheduleId         string     `sqlx:"schedule_id,refTable=schedule,refColumn=id,required=true" json:"scheduleId"`
+	CreatedAt          time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
+	Status             string     `sqlx:"status,required=true" json:"status"`
+	ConversationKind   string     `sqlx:"conversation_kind,required=true" json:"conversationKind"`
+	UpdatedAt          *time.Time `sqlx:"updated_at" json:"updatedAt"`
+	ErrorMessage       *string    `sqlx:"error_message" json:"errorMessage"`
+	LeaseOwner         *string    `sqlx:"lease_owner" json:"leaseOwner"`
+	LeaseUntil         *time.Time `sqlx:"lease_until" json:"leaseUntil"`
+	PreconditionRanAt  *time.Time `sqlx:"precondition_ran_at" json:"preconditionRanAt"`
+	PreconditionPassed *int       `sqlx:"precondition_passed" json:"preconditionPassed"`
+	PreconditionResult *string    `sqlx:"precondition_result" json:"preconditionResult"`
+	ConversationId     *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
+	ScheduledFor       *time.Time `sqlx:"scheduled_for" json:"scheduledFor"`
+	StartedAt          *time.Time `sqlx:"started_at" json:"startedAt"`
+	CompletedAt        *time.Time `sqlx:"completed_at" json:"completedAt"`
 }

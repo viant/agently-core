@@ -226,17 +226,6 @@ func (input *MessagesInput) SetReadMode(value string) {
 	input.Has.ReadMode = true
 }
 
-func (input *MessagesInput) SetLockRows(value bool) {
-	if input == nil {
-		return
-	}
-	input.LockRows = value
-	if input.Has == nil {
-		input.Has = &MessagesInputHas{}
-	}
-	input.Has.LockRows = true
-}
-
 func (input *MessagesInput) SetVisibilitySubject(value *string) {
 	if input == nil {
 		return

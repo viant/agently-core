@@ -1,5 +1,4 @@
 #package('github.com/viant/agently-core/internal/datly/reporting/context/write')
-#import('time','time')
 #setting($_ = $connector('agently'))
 #setting($_ = $internal(true))
 #setting($_ = $route('/v1/internal/forge/reporting/conversation-context','PATCH'))
@@ -12,23 +11,21 @@
 #define($_ = $Contexts<[]*Context>(body/data))
 #define($_ = $Data<[]*Context>(output/body))
 
-SELECT data_rows.owner_id, data_rows.conversation_id, data_rows.should_delete,
-       CAST(data_rows.should_delete AS bool), tag(data_rows.should_delete,'json:"shouldDelete,omitempty"'), delete_marker(data_rows.should_delete), delete_not_found(data_rows,'error'),
-       data_rows.active_report_run_id,
-       data_rows.revision,
-       data_rows.activation_source,
-       data_rows.actor_id,
-       data_rows.updated_at,
-       type(data_rows,'Context'), lifecycle_type(data_rows,'Lifecycle'), concurrency_token(data_rows.revision),
-       CAST(data_rows.owner_id AS string), tag(data_rows.owner_id,'sqlx:"owner_id,primaryKey=true,required=true"'),
-       CAST(data_rows.conversation_id AS string), tag(data_rows.conversation_id,'sqlx:"conversation_id,primaryKey=true,required=true"'),
-       CAST(data_rows.active_report_run_id AS string), tag(data_rows.active_report_run_id,'sqlx:"active_report_run_id,required=true"'),
-       CAST(data_rows.revision AS int64), tag(data_rows.revision,'sqlx:"revision,required=true"'),
-       CAST(data_rows.activation_source AS string), tag(data_rows.activation_source,'sqlx:"activation_source,required=true"'),
-       CAST(data_rows.actor_id AS string), tag(data_rows.actor_id,'sqlx:"actor_id,required=true"'),
-       CAST(data_rows.updated_at AS time.Time), tag(data_rows.updated_at,'sqlx:"updated_at,required=true"')
-FROM (
-    SELECT 0 AS should_delete, owner_id, conversation_id, active_report_run_id,
-           revision, activation_source, actor_id, updated_at
-    FROM conversation_report_context
-) data_rows
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'error'),
+       type(t,'Context'),
+       lifecycle_type(t,'Lifecycle'),
+       concurrency_token(t.revision),
+       required(t.owner_id),
+       tag(t.owner_id,'sqlx:"owner_id,primaryKey=true,required=true"'),
+       required(t.conversation_id),
+       tag(t.conversation_id,'sqlx:"conversation_id,primaryKey=true,required=true"'),
+       required(t.active_report_run_id),
+       CAST(t.revision AS int64),
+       required(t.activation_source),
+       required(t.actor_id),
+       required(t.updated_at)
+FROM (${embed:sql/context.sql}) t

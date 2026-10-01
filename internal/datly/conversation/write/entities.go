@@ -26,6 +26,16 @@ func (entity *MutableConversationView) SetId(value string) {
 	}
 	entity.Has.Id = true
 }
+func (entity *MutableConversationView) GetShareable() int {
+	return entity.Shareable
+}
+func (entity *MutableConversationView) SetShareable(value int) {
+	entity.Shareable = value
+	if entity.Has == nil {
+		entity.Has = &MutableConversationViewHas{}
+	}
+	entity.Has.Shareable = true
+}
 func (entity *MutableConversationView) GetSummary() *string {
 	return entity.Summary
 }
@@ -195,16 +205,6 @@ func (entity *MutableConversationView) SetVisibility(value *string) {
 		entity.Has = &MutableConversationViewHas{}
 	}
 	entity.Has.Visibility = true
-}
-func (entity *MutableConversationView) GetShareable() int {
-	return entity.Shareable
-}
-func (entity *MutableConversationView) SetShareable(value int) {
-	entity.Shareable = value
-	if entity.Has == nil {
-		entity.Has = &MutableConversationViewHas{}
-	}
-	entity.Has.Shareable = true
 }
 func (entity *MutableConversationView) GetStatus() *string {
 	return entity.Status

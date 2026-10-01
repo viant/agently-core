@@ -21,7 +21,6 @@ type Input struct {
 	ArtifactRef        string                        `parameter:"ArtifactRef,kind=query,in=artifactRef,dataType=string,required=false" predicate:"equal,j,artifact_ref"`
 	Status             string                        `parameter:"Status,kind=query,in=status,dataType=string,required=false" predicate:"equal,j,status"`
 	TechnicalRetention *predicate.TechnicalRetention `parameter:"TechnicalRetention,kind=technicalmaintenance,in=policy,dataType=*predicate.TechnicalRetention,required=false" predicate:"handler,github.com/viant/agently-core/internal/datly/predicate.TechnicalReportJobRetention"`
-	LockRows           bool                          `parameter:"LockRows,kind=reportaccess,in=lock,dataType=bool,required=false"`
 	Has                *InputHas                     `setMarker:"true" typeName:"InputHas" json:"-" sqlx:"-"`
 }
 
@@ -39,5 +38,4 @@ type InputHas struct {
 	ArtifactRef        bool
 	Status             bool
 	TechnicalRetention bool
-	LockRows           bool
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/executor"
 	execconfig "github.com/viant/agently-core/app/executor/config"
-	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	authsvc "github.com/viant/agently-core/service/auth"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
@@ -47,11 +47,11 @@ func TestBuilderBuild_ActiveReportRunRegistryPersistsAcrossRuntimeRebuild(t *tes
 	requireRegistryTool(t, first, "reporting/get_active_report_run", true)
 
 	ownerCtx := authsvc.InjectUser(context.Background(), "restart-owner")
-	conversation := &convwrite.MutableConversationView{}
+	conversation := &conversationmodel.MutableConversationView{}
 	conversation.SetId("restart-conversation")
 	conversation.SetCreatedByUserID("restart-owner")
 	conversation.SetStatus("succeeded")
-	_, err = first.Data.PatchConversations(ownerCtx, []*convwrite.MutableConversationView{conversation})
+	_, err = first.Data.PatchConversations(ownerCtx, []*conversationmodel.MutableConversationView{conversation})
 	require.NoError(t, err)
 	begun, err := first.ReportRuns.Begin(ownerCtx, &reportingrunsvc.BeginInput{
 		ConversationID:  "restart-conversation",

@@ -15,11 +15,11 @@ import (
 	reportstore "github.com/viant/agently-core/app/store/reporting"
 	reportfs "github.com/viant/agently-core/app/store/reporting/fs"
 	authctx "github.com/viant/agently-core/internal/auth"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
-	reportshareartifact "github.com/viant/agently-core/pkg/agently/reportshareartifact"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
+	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
 	fsstate "github.com/viant/agently-core/workspace/store/fs"
 	"github.com/viant/datly/standalone"
@@ -53,7 +53,7 @@ func TestNativeReportingStoreLifecycle(t *testing.T) {
 	_, err := db.ExecContext(ctx, "INSERT INTO conversation(id) VALUES('c1')")
 	require.NoError(t, err)
 	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-	run := &reportrun.Record{ReportRunID: "run-1", OwnerID: "u1", Materializer: "test", Origin: "manual", Status: "running", StartedAt: at, Revision: 1, UIRunRequestID: "request-1", ReportSpec: []byte(`{}`), CreatedAt: at, UpdatedAt: at}
+	run := &reportrunmodel.Record{ReportRunID: "run-1", OwnerID: "u1", Materializer: "test", Origin: "manual", Status: "running", StartedAt: at, Revision: 1, UIRunRequestID: "request-1", ReportSpec: []byte(`{}`), CreatedAt: at, UpdatedAt: at}
 	require.NoError(t, store.CreateReportRun(owner, run))
 	gotRun, err := store.GetReportRunByRequestID(owner, run.UIRunRequestID)
 	require.NoError(t, err)
@@ -67,12 +67,12 @@ func TestNativeReportingStoreLifecycle(t *testing.T) {
 	run.UpdatedAt = completed
 	require.NoError(t, store.UpdateReportRunCAS(owner, run, 1))
 	require.ErrorIs(t, store.UpdateReportRunCAS(owner, run, 1), reportstore.ErrCASMismatch)
-	pointer := &reportcontext.Record{OwnerID: "u1", ConversationID: "c1", ActiveReportRunID: "run-1", Revision: 1, ActivationSource: "manual", ActorID: "u1", UpdatedAt: completed}
+	pointer := &reportcontextmodel.Record{OwnerID: "u1", ConversationID: "c1", ActiveReportRunID: "run-1", Revision: 1, ActivationSource: "manual", ActorID: "u1", UpdatedAt: completed}
 	require.NoError(t, store.PutConversationReportContextCAS(owner, pointer, 0))
 	gotPointer, err := store.GetConversationReportContext(owner, "c1")
 	require.NoError(t, err)
 	require.Equal(t, pointer.ActiveReportRunID, gotPointer.ActiveReportRunID)
-	job := &reportjob.Record{JobID: "job-1", ArtifactRef: "report://one", OwnerID: "u1", Format: "pdf", Scope: "draft", Status: "queued", SubmittedAt: at}
+	job := &reportjobmodel.Record{JobID: "job-1", ArtifactRef: "report://one", OwnerID: "u1", Format: "pdf", Scope: "draft", Status: "queued", SubmittedAt: at}
 	require.NoError(t, store.CreateJob(owner, job))
 	_, err = store.GetJob(other, job.JobID)
 	require.True(t, errors.Is(err, errNotFound))
@@ -84,12 +84,12 @@ func TestNativeReportingStoreLifecycle(t *testing.T) {
 	failed, err := store.FailJob(owner, job.JobID, "worker failed", []byte(`{"reason":"test"}`), completed.Add(time.Minute))
 	require.NoError(t, err)
 	require.Equal(t, "failed", failed.Status)
-	artifact := &reportartifact.Record{ArtifactID: "artifact-1", JobID: job.JobID, ArtifactRef: job.ArtifactRef, OwnerID: "u1", Format: "pdf", ContentType: "application/pdf", Data: []byte("%PDF"), CreatedAt: completed}
+	artifact := &reportartifactmodel.Record{ArtifactID: "artifact-1", JobID: job.JobID, ArtifactRef: job.ArtifactRef, OwnerID: "u1", Format: "pdf", ContentType: "application/pdf", Data: []byte("%PDF"), CreatedAt: completed}
 	require.NoError(t, store.PutArtifact(owner, artifact))
 	gotArtifact, err := store.GetArtifact(owner, artifact.ArtifactID)
 	require.NoError(t, err)
 	require.Equal(t, artifact.Data, gotArtifact.Data)
-	shared := &reportshareartifact.Record{ArtifactID: "shared-1", ArtifactRef: "report://saved", OwnerID: "u1", Kind: "saved", Lifecycle: "draft", Version: 1, ReportID: "report-1", Title: "Saved", DocumentVersion: 1, Document: []byte(`{}`), CreatedAt: at}
+	shared := &reportshareartifactmodel.Record{ArtifactID: "shared-1", ArtifactRef: "report://saved", OwnerID: "u1", Kind: "saved", Lifecycle: "draft", Version: 1, ReportID: "report-1", Title: "Saved", DocumentVersion: 1, Document: []byte(`{}`), CreatedAt: at}
 	require.NoError(t, store.CreateSharedArtifact(owner, shared))
 	items, err := store.ListSharedArtifacts(owner)
 	require.NoError(t, err)
@@ -108,9 +108,9 @@ func TestNativeReportingStoreRunExport(t *testing.T) {
 	require.NoError(t, err)
 	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	completed := at.Add(time.Hour)
-	run := &reportrun.Record{ReportRunID: "run-export", OwnerID: "u1", ConversationID: "c1", Materializer: "test", Origin: "manual", Status: "completed", StartedAt: at, CompletedAt: &completed, Revision: 2, UIRunRequestID: "run-request", ReportSpec: []byte(`{}`), ReportFill: []byte(`{}`), ReportPrint: []byte(`{}`), CreatedAt: at, UpdatedAt: completed}
+	run := &reportrunmodel.Record{ReportRunID: "run-export", OwnerID: "u1", ConversationID: "c1", Materializer: "test", Origin: "manual", Status: "completed", StartedAt: at, CompletedAt: &completed, Revision: 2, UIRunRequestID: "run-request", ReportSpec: []byte(`{}`), ReportFill: []byte(`{}`), ReportPrint: []byte(`{}`), CreatedAt: at, UpdatedAt: completed}
 	require.NoError(t, store.CreateReportRun(owner, run))
-	candidate := &reportjob.Record{JobID: "job-export", ArtifactRef: "report-run://run-export", OwnerID: "u1", ConversationID: "c1", ReportRunID: run.ReportRunID, ExportRequestID: "export-request", Format: "pdf", Scope: "draft", Status: "queued", SubmittedAt: completed}
+	candidate := &reportjobmodel.Record{JobID: "job-export", ArtifactRef: "report-run://run-export", OwnerID: "u1", ConversationID: "c1", ReportRunID: run.ReportRunID, ExportRequestID: "export-request", Format: "pdf", Scope: "draft", Status: "queued", SubmittedAt: completed}
 	job, replay, err := store.SubmitJobFromRun(owner, candidate)
 	require.NoError(t, err)
 	require.False(t, replay)
@@ -121,7 +121,7 @@ func TestNativeReportingStoreRunExport(t *testing.T) {
 	worker := WithInternalAccess(ctx)
 	_, err = store.ClaimJob(worker, job.JobID, completed.Add(time.Minute))
 	require.NoError(t, err)
-	artifact := &reportartifact.Record{ArtifactID: "artifact-export", JobID: job.JobID, ContentType: "application/pdf", Data: []byte("%PDF"), CreatedAt: completed.Add(2 * time.Minute)}
+	artifact := &reportartifactmodel.Record{ArtifactID: "artifact-export", JobID: job.JobID, ContentType: "application/pdf", Data: []byte("%PDF"), CreatedAt: completed.Add(2 * time.Minute)}
 	done, err := store.CompleteJobWithArtifact(worker, job.JobID, artifact, nil, completed.Add(3*time.Minute), 0)
 	require.NoError(t, err)
 	require.Equal(t, "succeeded", done.Status)
@@ -134,9 +134,9 @@ func TestNativeReportingStoreImportsFilesystemState(t *testing.T) {
 	stateStore := fsstate.NewStateStore(t.TempDir())
 	fsClient := reportfs.New(stateStore)
 	at := time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
-	require.NoError(t, fsClient.CreateJob(ctx, &reportjob.Record{JobID: "fs-job", ArtifactRef: "report://fs", OwnerID: "u1", Format: "pdf", Scope: "draft", Status: "queued", SubmittedAt: at}))
-	require.NoError(t, fsClient.PutArtifact(ctx, &reportartifact.Record{ArtifactID: "fs-artifact", JobID: "fs-job", ArtifactRef: "report://fs", OwnerID: "u1", Format: "pdf", ContentType: "application/pdf", Data: []byte("%PDF"), CreatedAt: at}))
-	require.NoError(t, fsClient.CreateSharedArtifact(ctx, &reportshareartifact.Record{ArtifactID: "fs-shared", ArtifactRef: "report://saved", OwnerID: "u1", Kind: "saved", Lifecycle: "draft", Version: 1, ReportID: "report-1", Title: "Saved", DocumentVersion: 1, Document: []byte(`{}`), CreatedAt: at}))
+	require.NoError(t, fsClient.CreateJob(ctx, &reportjobmodel.Record{JobID: "fs-job", ArtifactRef: "report://fs", OwnerID: "u1", Format: "pdf", Scope: "draft", Status: "queued", SubmittedAt: at}))
+	require.NoError(t, fsClient.PutArtifact(ctx, &reportartifactmodel.Record{ArtifactID: "fs-artifact", JobID: "fs-job", ArtifactRef: "report://fs", OwnerID: "u1", Format: "pdf", ContentType: "application/pdf", Data: []byte("%PDF"), CreatedAt: at}))
+	require.NoError(t, fsClient.CreateSharedArtifact(ctx, &reportshareartifactmodel.Record{ArtifactID: "fs-shared", ArtifactRef: "report://saved", OwnerID: "u1", Kind: "saved", Lifecycle: "draft", Version: 1, ReportID: "report-1", Title: "Saved", DocumentVersion: 1, Document: []byte(`{}`), CreatedAt: at}))
 	require.NoError(t, reportfs.NewAuditSink(stateStore).Record(ctx, &reportingsvc.AuditEvent{EventType: "report.saved", ArtifactRef: "report://saved", ArtifactID: "fs-shared", ActorID: "u1", OccurredAt: at}))
 	for i := 0; i < 2; i++ {
 		client, err := New(ctx, handle, stateStore, fsClient)

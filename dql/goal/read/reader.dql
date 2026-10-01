@@ -7,7 +7,6 @@
 #setting($_ = $input_type('GoalInput'))
 #setting($_ = $output_type('GoalOutput'))
 #setting($_ = $case_format('lc'))
-#define($_ = $LockRows<bool>(goalaccess/lock).Optional())
 #define($_ = $Status<?>(output/status).WithTag('anonymous:"true"'))
 #define($_ = $ConversationID<string>(path/conversationId).Optional().WithPredicate(0,'equal','t','conversation_id'))
 #define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','t','conversation_id'))
@@ -16,41 +15,17 @@
 #define($_ = $Metrics<?>(output/metrics))
 #define($_ = $Data<[]*GoalView>(output/view))
 
-SELECT goal.id,
-       goal.conversation_id,
-       goal.objective,
-       goal.status,
-       goal.status_reason,
-       goal.pause_reason,
-       goal.controller_spec,
-       goal.token_budget,
-       goal.tokens_used,
-       goal.time_used_seconds,
-       goal.autonomous_turns_used,
-       goal.consecutive_no_progress,
-       goal.last_continuation_fingerprint,
-       goal.created_at,
-       goal.updated_at,
+SELECT goal.*,
+       row_lock(goal,'goal t'),
        type(goal,'GoalView'),
-       CAST(goal.id AS string),
-       CAST(goal.conversation_id AS string),
-       CAST(goal.objective AS string),
-       CAST(goal.status AS string),
-       CAST(goal.status_reason AS *string),
-       CAST(goal.pause_reason AS *string),
-       CAST(goal.controller_spec AS *string),
+       required(goal.id),
+       required(goal.conversation_id),
+       required(goal.objective),
+       required(goal.status),
        CAST(goal.token_budget AS *int64),
        CAST(goal.tokens_used AS int64),
        CAST(goal.time_used_seconds AS int64),
        CAST(goal.autonomous_turns_used AS int64),
        CAST(goal.consecutive_no_progress AS int64),
-       CAST(goal.last_continuation_fingerprint AS *string),
-       CAST(goal.created_at AS time.Time),
-       CAST(goal.updated_at AS *time.Time)
-FROM (
-SELECT t.*
-  FROM goal t
-  ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
-
-#if($LockRows) ${View.ForUpdate()} #end
-) goal
+       required(goal.created_at)
+FROM (${embed:sql/goal.sql}) goal

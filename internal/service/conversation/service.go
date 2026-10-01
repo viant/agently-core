@@ -14,20 +14,11 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	convstore "github.com/viant/agently-core/internal/store/conversation"
-
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-
-	generatedfileread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	generatedfilewrite "github.com/viant/agently-core/pkg/agently/generatedfile/write"
-
-	queueCount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
-	queueOutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
-	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
-
-	toolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
-
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
@@ -88,7 +79,7 @@ func (s *Service) GetConversation(ctx context.Context, id string, options ...con
 	return s.getConversationNative(ctx, id, options...)
 }
 
-func pruneBlankAssistantPlaceholders(turns []*agconv.TranscriptView) {
+func pruneBlankAssistantPlaceholders(turns []*conversationmodel.TranscriptView) {
 	for _, turn := range turns {
 		if turn == nil || len(turn.Message) == 0 {
 			continue
@@ -104,7 +95,7 @@ func pruneBlankAssistantPlaceholders(turns []*agconv.TranscriptView) {
 	}
 }
 
-func shouldDropBlankAssistantPlaceholder(msg *agconv.MessageView) bool {
+func shouldDropBlankAssistantPlaceholder(msg *conversationmodel.MessageView) bool {
 	if msg == nil {
 		return true
 	}
@@ -145,11 +136,11 @@ func (s *Service) PatchPayload(ctx context.Context, payload *convcli.MutablePayl
 	return nil
 }
 
-func (s *Service) GetGeneratedFiles(ctx context.Context, input *generatedfileread.Input) ([]*generatedfileread.GeneratedFileView, error) {
+func (s *Service) GetGeneratedFiles(ctx context.Context, input *generatedfilemodel.Input) ([]*generatedfilemodel.GeneratedFileView, error) {
 	return s.getGeneratedFilesNative(ctx, input)
 }
 
-func (s *Service) PatchGeneratedFile(ctx context.Context, generatedFile *generatedfilewrite.GeneratedFile) error {
+func (s *Service) PatchGeneratedFile(ctx context.Context, generatedFile *generatedfilemodel.GeneratedFile) error {
 	if s == nil || s.native == nil {
 		return errors.New("conversation service not configured")
 	}
@@ -438,7 +429,7 @@ func messagePatchPayload(message *convcli.MutableMessage) map[string]interface{}
 		out["status"] = strings.TrimSpace(*message.Status)
 	}
 	if message.Has.ToolName && message.ToolName != nil {
-		out["toolName"] = mcpname.Display(strings.TrimSpace(*message.ToolName))
+		out["toolName"] = mcpname2.Display(strings.TrimSpace(*message.ToolName))
 	}
 	if message.Has.Interim && message.Interim != nil {
 		out["interim"] = *message.Interim
@@ -700,7 +691,7 @@ func toolCallEvent(ctx context.Context, toolCall *convcli.MutableToolCall) *stre
 		ResponseID:         strings.TrimSpace(valueOrEmptyStr(toolCall.TraceID)),
 		RequestPayloadID:   strings.TrimSpace(valueOrEmptyStr(toolCall.RequestPayloadID)),
 		ResponsePayloadID:  strings.TrimSpace(valueOrEmptyStr(toolCall.ResponsePayloadID)),
-		ToolName:           mcpname.Display(strings.TrimSpace(toolCall.ToolName)),
+		ToolName:           mcpname2.Display(strings.TrimSpace(toolCall.ToolName)),
 		Status:             strings.TrimSpace(toolCall.Status),
 		Phase:              modelEventPhase(requestModeForEvent(ctx), toolCall.Iteration),
 		CreatedAt:          time.Now(),
@@ -784,24 +775,24 @@ func sanitizeMutableToolCallErrorMessage(toolCall *convcli.MutableToolCall) {
 	if toolCall == nil || toolCall.Has == nil || !toolCall.Has.ErrorMessage || toolCall.ErrorMessage == nil {
 		return
 	}
-	sanitized := toolcallwrite.SanitizeErrorMessage(*toolCall.ErrorMessage)
+	sanitized := toolcallmodel.SanitizeErrorMessage(*toolCall.ErrorMessage)
 	toolCall.ErrorMessage = &sanitized
 }
 
-func (s *Service) PatchToolApprovalQueue(ctx context.Context, queue *queueWrite.ToolApprovalQueue) error {
+func (s *Service) PatchToolApprovalQueue(ctx context.Context, queue *toolapprovalqueuemodel.ToolApprovalQueue) error {
 	return s.patchApprovalNative(ctx, queue)
 }
 
-func (s *Service) ListToolApprovalQueues(ctx context.Context, in *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error) {
+func (s *Service) ListToolApprovalQueues(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error) {
 	return s.ListToolApprovalQueuesWithSelectors(ctx, in)
 }
 
-func (s *Service) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *queueRead.QueueRowsInput, selectors ...*hstate.NamedSelector) ([]*queueRead.QueueRowView, error) {
+func (s *Service) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput, selectors ...*hstate.NamedSelector) ([]*toolapprovalqueuemodel.QueueRowView, error) {
 	if s == nil || s.native == nil {
 		return nil, errors.New("conversation service not configured: component invoker is nil")
 	}
 	if in == nil {
-		in = &queueRead.QueueRowsInput{}
+		in = &toolapprovalqueuemodel.QueueRowsInput{}
 	}
 	if err := enforceToolApprovalQueueUserScope(ctx, in); err != nil {
 		return nil, err
@@ -811,12 +802,12 @@ func (s *Service) ListToolApprovalQueuesWithSelectors(ctx context.Context, in *q
 
 }
 
-func (s *Service) CountToolApprovalQueues(ctx context.Context, in *queueCount.QueueTotalInput) (int, error) {
+func (s *Service) CountToolApprovalQueues(ctx context.Context, in *toolapprovalqueuemodel.QueueTotalInput) (int, error) {
 	if s == nil || s.native == nil {
 		return 0, errors.New("conversation service not configured: component invoker is nil")
 	}
 	if in == nil {
-		in = &queueCount.QueueTotalInput{}
+		in = &toolapprovalqueuemodel.QueueTotalInput{}
 	}
 	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
 		if strings.TrimSpace(in.UserId) != "" && !strings.EqualFold(strings.TrimSpace(in.UserId), userID) {
@@ -824,7 +815,7 @@ func (s *Service) CountToolApprovalQueues(ctx context.Context, in *queueCount.Qu
 		}
 		in.UserId = userID
 		if in.Has == nil {
-			in.Has = &queueCount.QueueTotalInputHas{}
+			in.Has = &toolapprovalqueuemodel.QueueTotalInputHas{}
 		}
 		in.Has.UserId = true
 	}
@@ -833,12 +824,12 @@ func (s *Service) CountToolApprovalQueues(ctx context.Context, in *queueCount.Qu
 
 }
 
-func (s *Service) ListToolApprovalOutcomes(ctx context.Context, in *queueOutcome.OutcomeRowsInput) ([]*queueOutcome.OutcomeRowView, error) {
+func (s *Service) ListToolApprovalOutcomes(ctx context.Context, in *toolapprovalqueuemodel.OutcomeRowsInput) ([]*toolapprovalqueuemodel.OutcomeRowView, error) {
 	if s == nil || s.native == nil {
 		return nil, errors.New("conversation service not configured: component invoker is nil")
 	}
 	if in == nil {
-		in = &queueOutcome.OutcomeRowsInput{}
+		in = &toolapprovalqueuemodel.OutcomeRowsInput{}
 	}
 	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
 		if strings.TrimSpace(in.UserId) != "" && !strings.EqualFold(strings.TrimSpace(in.UserId), userID) {
@@ -846,7 +837,7 @@ func (s *Service) ListToolApprovalOutcomes(ctx context.Context, in *queueOutcome
 		}
 		in.UserId = userID
 		if in.Has == nil {
-			in.Has = &queueOutcome.OutcomeRowsInputHas{}
+			in.Has = &toolapprovalqueuemodel.OutcomeRowsInputHas{}
 		}
 		in.Has.UserId = true
 	}
@@ -855,7 +846,7 @@ func (s *Service) ListToolApprovalOutcomes(ctx context.Context, in *queueOutcome
 
 }
 
-func enforceToolApprovalQueueUserScope(ctx context.Context, in *queueRead.QueueRowsInput) error {
+func enforceToolApprovalQueueUserScope(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput) error {
 	if in == nil {
 		return nil
 	}
@@ -868,7 +859,7 @@ func enforceToolApprovalQueueUserScope(ctx context.Context, in *queueRead.QueueR
 	}
 	in.UserId = userID
 	if in.Has == nil {
-		in.Has = &queueRead.QueueRowsInputHas{}
+		in.Has = &toolapprovalqueuemodel.QueueRowsInputHas{}
 	}
 	in.Has.UserId = true
 	return nil

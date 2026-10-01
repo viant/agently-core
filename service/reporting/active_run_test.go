@@ -10,8 +10,8 @@ import (
 	"github.com/stretchr/testify/require"
 	reportstore "github.com/viant/agently-core/app/store/reporting"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	mcpmanager "github.com/viant/agently-core/protocol/mcp/manager"
 	toolregistry "github.com/viant/agently-core/protocol/tool"
 	mcpadapter "github.com/viant/agently-core/protocol/tool/adapter/mcp"
@@ -102,13 +102,13 @@ func TestServiceGetActiveReportRunSanitizesAndScopesExactPromptRun(t *testing.T)
 
 func TestServiceGetActiveReportRunFailsClosedForUntrustedRunState(t *testing.T) {
 	completedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	validContext := &reportcontext.Record{OwnerID: "owner-1", ConversationID: "conv-1", ActiveReportRunID: "run-1"}
-	validRun := &reportrun.Record{
+	validContext := &reportcontextmodel.Record{OwnerID: "owner-1", ConversationID: "conv-1", ActiveReportRunID: "run-1"}
+	validRun := &reportrunmodel.Record{
 		ReportRunID:     "run-1",
 		OwnerID:         "owner-1",
 		ConversationID:  "conv-1",
 		Origin:          "prompt",
-		Status:          reportrun.StatusCompleted,
+		Status:          reportrunmodel.StatusCompleted,
 		CompletedAt:     &completedAt,
 		Revision:        2,
 		RequestedParams: json.RawMessage(`{}`),
@@ -116,18 +116,22 @@ func TestServiceGetActiveReportRunFailsClosedForUntrustedRunState(t *testing.T) 
 	}
 	tests := []struct {
 		name       string
-		mutate     func(*reportcontext.Record, *reportrun.Record)
+		mutate     func(*reportcontextmodel.Record, *reportrunmodel.Record)
 		contextErr error
 		runErr     error
 	}{
-		{name: "missing pointer", mutate: func(ctx *reportcontext.Record, _ *reportrun.Record) { ctx.ActiveReportRunID = "" }},
-		{name: "context owner mismatch", mutate: func(ctx *reportcontext.Record, _ *reportrun.Record) { ctx.OwnerID = "owner-2" }},
-		{name: "run owner mismatch", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.OwnerID = "owner-2" }},
-		{name: "mismatched run", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.ReportRunID = "other" }},
-		{name: "running", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.Status = reportrun.StatusRunning }},
-		{name: "manual", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.Origin = "manual" }},
-		{name: "adopted", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.AdoptionSource = "adopt" }},
-		{name: "invalid params", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.RequestedParams = json.RawMessage(`[]`) }},
+		{name: "missing pointer", mutate: func(ctx *reportcontextmodel.Record, _ *reportrunmodel.Record) { ctx.ActiveReportRunID = "" }},
+		{name: "context owner mismatch", mutate: func(ctx *reportcontextmodel.Record, _ *reportrunmodel.Record) { ctx.OwnerID = "owner-2" }},
+		{name: "run owner mismatch", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) { run.OwnerID = "owner-2" }},
+		{name: "mismatched run", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) { run.ReportRunID = "other" }},
+		{name: "running", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) {
+			run.Status = reportrunmodel.StatusRunning
+		}},
+		{name: "manual", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) { run.Origin = "manual" }},
+		{name: "adopted", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) { run.AdoptionSource = "adopt" }},
+		{name: "invalid params", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) {
+			run.RequestedParams = json.RawMessage(`[]`)
+		}},
 		{name: "context error", contextErr: errors.New("backend unavailable")},
 		{name: "run error", runErr: errors.New("backend unavailable")},
 	}
@@ -154,17 +158,17 @@ func TestServiceGetActiveReportRunFailsClosedForUntrustedRunState(t *testing.T) 
 
 func TestServiceGetActiveReportRunConversationAdoptionFlag(t *testing.T) {
 	completedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
-	validContext := &reportcontext.Record{
+	validContext := &reportcontextmodel.Record{
 		OwnerID:           "owner-1",
 		ConversationID:    "conv-1",
 		ActiveReportRunID: "run-1",
 	}
-	validManualRun := &reportrun.Record{
+	validManualRun := &reportrunmodel.Record{
 		ReportRunID:     "run-1",
 		OwnerID:         "owner-1",
 		ConversationID:  "conv-1",
 		Origin:          "manual",
-		Status:          reportrun.StatusCompleted,
+		Status:          reportrunmodel.StatusCompleted,
 		CompletedAt:     &completedAt,
 		Revision:        3,
 		RequestedParams: json.RawMessage(`{}`),
@@ -230,16 +234,22 @@ func TestServiceGetActiveReportRunConversationAdoptionFlag(t *testing.T) {
 
 	for _, test := range []struct {
 		name   string
-		mutate func(*reportcontext.Record, *reportrun.Record)
+		mutate func(*reportcontextmodel.Record, *reportrunmodel.Record)
 	}{
-		{name: "missing spec", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.ReportSpec = nil }},
-		{name: "null fill", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.ReportFill = json.RawMessage(`null`) }},
-		{name: "invalid print", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.ReportPrint = json.RawMessage(`{`) }},
-		{name: "run owner mismatch", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.OwnerID = "owner-2" }},
-		{name: "run conversation mismatch", mutate: func(_ *reportcontext.Record, run *reportrun.Record) { run.ConversationID = "conv-2" }},
-		{name: "context owner mismatch", mutate: func(reportCtx *reportcontext.Record, _ *reportrun.Record) { reportCtx.OwnerID = "owner-2" }},
-		{name: "context conversation mismatch", mutate: func(reportCtx *reportcontext.Record, _ *reportrun.Record) { reportCtx.ConversationID = "conv-2" }},
-		{name: "active pointer mismatch", mutate: func(reportCtx *reportcontext.Record, _ *reportrun.Record) { reportCtx.ActiveReportRunID = "run-2" }},
+		{name: "missing spec", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) { run.ReportSpec = nil }},
+		{name: "null fill", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) {
+			run.ReportFill = json.RawMessage(`null`)
+		}},
+		{name: "invalid print", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) { run.ReportPrint = json.RawMessage(`{`) }},
+		{name: "run owner mismatch", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) { run.OwnerID = "owner-2" }},
+		{name: "run conversation mismatch", mutate: func(_ *reportcontextmodel.Record, run *reportrunmodel.Record) { run.ConversationID = "conv-2" }},
+		{name: "context owner mismatch", mutate: func(reportCtx *reportcontextmodel.Record, _ *reportrunmodel.Record) { reportCtx.OwnerID = "owner-2" }},
+		{name: "context conversation mismatch", mutate: func(reportCtx *reportcontextmodel.Record, _ *reportrunmodel.Record) {
+			reportCtx.ConversationID = "conv-2"
+		}},
+		{name: "active pointer mismatch", mutate: func(reportCtx *reportcontextmodel.Record, _ *reportrunmodel.Record) {
+			reportCtx.ActiveReportRunID = "run-2"
+		}},
 	} {
 		t.Run("enabled rejects manual "+test.name, func(t *testing.T) {
 			reportCtx := *validContext
@@ -259,13 +269,13 @@ func TestServiceGetActiveReportRunConversationAdoptionFlag(t *testing.T) {
 func TestServiceGetActiveReportRunReadsContextBeforeExactRun(t *testing.T) {
 	completedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	resolver := &activeRunResolverStub{
-		context: &reportcontext.Record{OwnerID: "owner-1", ConversationID: "conv-1", ActiveReportRunID: "run-1"},
-		run: &reportrun.Record{
+		context: &reportcontextmodel.Record{OwnerID: "owner-1", ConversationID: "conv-1", ActiveReportRunID: "run-1"},
+		run: &reportrunmodel.Record{
 			ReportRunID:     "run-1",
 			OwnerID:         "owner-1",
 			ConversationID:  "conv-1",
 			Origin:          "prompt",
-			Status:          reportrun.StatusCompleted,
+			Status:          reportrunmodel.StatusCompleted,
 			CompletedAt:     &completedAt,
 			Revision:        2,
 			RequestedParams: json.RawMessage(`{}`),
@@ -394,13 +404,13 @@ func TestServiceNormalizesTypedNilActiveRunResolver(t *testing.T) {
 func validActiveRunResolverStub() *activeRunResolverStub {
 	completedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
 	return &activeRunResolverStub{
-		context: &reportcontext.Record{OwnerID: "owner-1", ConversationID: "conv-1", ActiveReportRunID: "run-1"},
-		run: &reportrun.Record{
+		context: &reportcontextmodel.Record{OwnerID: "owner-1", ConversationID: "conv-1", ActiveReportRunID: "run-1"},
+		run: &reportrunmodel.Record{
 			ReportRunID:     "run-1",
 			OwnerID:         "owner-1",
 			ConversationID:  "conv-1",
 			Origin:          "prompt",
-			Status:          reportrun.StatusCompleted,
+			Status:          reportrunmodel.StatusCompleted,
 			CompletedAt:     &completedAt,
 			Revision:        2,
 			RequestedParams: json.RawMessage(`{}`),
@@ -410,19 +420,19 @@ func validActiveRunResolverStub() *activeRunResolverStub {
 }
 
 type activeRunResolverStub struct {
-	context    *reportcontext.Record
-	run        *reportrun.Record
+	context    *reportcontextmodel.Record
+	run        *reportrunmodel.Record
 	contextErr error
 	runErr     error
 	calls      []string
 }
 
-func (s *activeRunResolverStub) GetContext(_ context.Context, conversationID string) (*reportcontext.Record, error) {
+func (s *activeRunResolverStub) GetContext(_ context.Context, conversationID string) (*reportcontextmodel.Record, error) {
 	s.calls = append(s.calls, "context:"+conversationID)
 	return s.context, s.contextErr
 }
 
-func (s *activeRunResolverStub) GetRun(_ context.Context, reportRunID, conversationID string) (*reportrun.Record, error) {
+func (s *activeRunResolverStub) GetRun(_ context.Context, reportRunID, conversationID string) (*reportrunmodel.Record, error) {
 	s.calls = append(s.calls, "run:"+reportRunID+":"+conversationID)
 	return s.run, s.runErr
 }

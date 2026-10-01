@@ -8,7 +8,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -42,7 +42,7 @@ func (s *Service) Start(ctx context.Context, parent runtimerequestctx.TurnMeta, 
 		apiconv.WithContent(""),
 		apiconv.WithCreatedByUserID(actor),
 		apiconv.WithMode(mode),
-		apiconv.WithToolName(mcpname.Display(toolName)),
+		apiconv.WithToolName(mcpname2.Display(toolName)),
 	)
 	if err != nil {
 		logx.Errorf("conversation", "status start error parent_convo=%q tool=%q err=%v", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(toolName), err)
@@ -82,7 +82,7 @@ func (s *Service) StartNarration(ctx context.Context, parent runtimerequestctx.T
 		apiconv.WithNarration(strings.TrimSpace(preamble)),
 		apiconv.WithCreatedByUserID(actor),
 		apiconv.WithMode(mode),
-		apiconv.WithToolName(mcpname.Display(toolName)),
+		apiconv.WithToolName(mcpname2.Display(toolName)),
 	)
 	if err != nil {
 		return "", fmt.Errorf("status: start preamble failed: %w", err)
@@ -231,7 +231,7 @@ func (s *Service) PublishFinal(ctx context.Context, parent runtimerequestctx.Tur
 		apiconv.WithContent(preview),
 		apiconv.WithCreatedByUserID(actor),
 		apiconv.WithMode(mode),
-		apiconv.WithToolName(mcpname.Display(toolName)),
+		apiconv.WithToolName(mcpname2.Display(toolName)),
 		apiconv.WithLinkedConversationID(strings.TrimSpace(linkedConversationID)),
 		apiconv.WithStatus(normalizeMessageStatus(status)),
 	)

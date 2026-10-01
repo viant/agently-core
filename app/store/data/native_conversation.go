@@ -2,88 +2,39 @@ package data
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"strings"
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	read "github.com/viant/agently-core/internal/datly/conversation/read"
 	store "github.com/viant/agently-core/internal/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
-func nativeConversationInput(input *agconv.ConversationInput) *read.ConversationInput {
-	query := &read.ConversationInput{}
+func nativeConversationInput(input *conversationmodel.ConversationInput) (*read.ConversationInput, error) {
 	if input == nil || input.Has == nil {
-		return query
+		return &read.ConversationInput{}, nil
 	}
-	h := input.Has
-	if h.Since {
-		query.SetSince(input.Since)
-	}
-	if h.IncludeTranscript {
-		query.SetIncludeTranscript(input.IncludeTranscript)
-	}
-	if h.IncludeModelCal {
-		query.SetIncludeModelCal(input.IncludeModelCal)
-	}
-	if h.IncludeToolCall {
-		query.SetIncludeToolCall(input.IncludeToolCall)
-	}
-	if h.AgentId {
-		query.SetAgentId(input.AgentId)
-	}
-	if h.ParentId {
-		query.SetParentId(input.ParentId)
-	}
-	if h.ParentTurnId {
-		query.SetParentTurnId(input.ParentTurnId)
-	}
-	if h.ExcludeChildren {
-		query.SetExcludeChildren(input.ExcludeChildren)
-	}
-	if h.ExcludeScheduled {
-		query.SetExcludeScheduled(input.ExcludeScheduled)
-	}
-	if h.ScheduleId {
-		query.SetScheduleId(input.ScheduleId)
-	}
-	if h.ScheduleRunId {
-		query.SetScheduleRunId(input.ScheduleRunId)
-	}
-	if h.Query {
-		query.SetQuery(input.Query)
-	}
-	if h.StatusFilter {
-		query.SetStatusFilter(input.StatusFilter)
-	}
-	if h.HasScheduleId {
-		query.SetHasScheduleId(input.HasScheduleId)
-	}
-	return query
+	return mapDataDTO[read.ConversationInput](input)
 }
 
-func mapNativeConversation(ctx context.Context, row *read.ConversationView) (*agconv.ConversationView, error) {
+func normalizeNativeConversationGet(ctx context.Context, row *read.ConversationView) *conversationmodel.ConversationView {
 	if row == nil {
-		return nil, nil
+		return nil
 	}
-	encoded, err := json.Marshal(row)
-	if err != nil {
-		return nil, fmt.Errorf("encode native conversation: %w", err)
-	}
-	var mapped agconv.ConversationView
-	if err := json.Unmarshal(encoded, &mapped); err != nil {
-		return nil, fmt.Errorf("decode conversation contract: %w", err)
-	}
-	mapped.OnRelation(ctx)
-	return &mapped, nil
+	// Base fallback rows are read in list mode to avoid loading the graph.
+	// The public get still applies its existing relation/stage normalization.
+	row.ListMode = false
+	row.OnRelation(ctx)
+	return row
 }
 
-func (s *datlyService) getConversationNative(ctx context.Context, id string, input *agconv.ConversationInput, opts *options) (*agconv.ConversationView, error) {
+func (s *datlyService) getConversationNative(ctx context.Context, id string, input *conversationmodel.ConversationInput, opts *options) (*conversationmodel.ConversationView, error) {
 	component := &store.Store{Invoker: s.native, OwnerID: authctx.EffectiveUserID}
-	query := nativeConversationInput(input)
+	query, err := nativeConversationInput(input)
+	if err != nil {
+		return nil, err
+	}
 	selectors := nativeSelectors(nil)
 	if opts != nil {
 		selectors = nativeSelectors(opts.selectors)
@@ -98,17 +49,14 @@ func (s *datlyService) getConversationNative(ctx context.Context, id string, inp
 	if err != nil {
 		return nil, err
 	}
-	mapped, err := mapNativeConversation(ctx, row)
-	if err != nil {
-		return nil, err
-	}
+	mapped := normalizeNativeConversationGet(ctx, row)
 	if err := authorizeConversation(mapped, opts); err != nil {
 		return nil, err
 	}
 	return mapped, nil
 }
 
-func (s *datlyService) loadConversationForAuthNative(ctx context.Context, id string) (*agconv.ConversationView, error) {
+func (s *datlyService) loadConversationForAuthNative(ctx context.Context, id string) (*conversationmodel.ConversationView, error) {
 	component := &store.Store{Invoker: s.native, OwnerID: authctx.EffectiveUserID}
 	row, err := component.GetBaseInternal(ctx, id)
 	if errors.Is(err, store.ErrNotFound) {
@@ -117,10 +65,10 @@ func (s *datlyService) loadConversationForAuthNative(ctx context.Context, id str
 	if err != nil {
 		return nil, err
 	}
-	return mapNativeConversation(ctx, row)
+	return normalizeNativeConversationGet(ctx, row), nil
 }
 
-func nativeConversationListInput(input *agconvlist.ConversationRowsInput) *read.ConversationInput {
+func nativeConversationListInput(input *conversationmodel.ConversationRowsInput) *read.ConversationInput {
 	query := &read.ConversationInput{}
 	if input == nil || input.Has == nil {
 		return query
@@ -168,27 +116,12 @@ func nativeConversationListInput(input *agconvlist.ConversationRowsInput) *read.
 	return query
 }
 
-func (s *datlyService) queryConversationRowsNative(ctx context.Context, input *agconvlist.ConversationRowsInput, limit int, direction Direction, callOpts *options) ([]*agconvlist.ConversationRowsView, error) {
+func (s *datlyService) queryConversationRowsNative(ctx context.Context, input *conversationmodel.ConversationRowsInput, limit int, direction Direction, callOpts *options) ([]*conversationmodel.ConversationRowsView, error) {
 	enforceVisibility := callOpts != nil && strings.TrimSpace(callOpts.principal) != "" && !callOpts.isAdmin
 	component := &store.Store{Invoker: s.native, OwnerID: authctx.EffectiveUserID}
 	rows, err := component.ListPage(ctx, nativeConversationListInput(input), limit, direction == DirectionAfter, enforceVisibility)
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*agconvlist.ConversationRowsView, 0, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		encoded, err := json.Marshal(row)
-		if err != nil {
-			return nil, fmt.Errorf("encode native conversation row: %w", err)
-		}
-		var mapped agconvlist.ConversationRowsView
-		if err := json.Unmarshal(encoded, &mapped); err != nil {
-			return nil, fmt.Errorf("decode conversation row contract: %w", err)
-		}
-		result = append(result, &mapped)
-	}
-	return result, nil
+	return rows, nil
 }

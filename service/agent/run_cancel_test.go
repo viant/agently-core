@@ -9,7 +9,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
@@ -37,11 +37,11 @@ func TestServiceRunPlanAndStatus_EmptyCanceledResultFallsBackToFailed(t *testing
 	convClient := &dedupeConvClient{
 		conversation: &apiconv.Conversation{
 			Id: "conv-1",
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id:             "turn-1",
 					ConversationId: "conv-1",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:             "user-1",
 							ConversationId: "conv-1",
@@ -112,11 +112,11 @@ func TestServiceRunPlanAndStatus_EmptyResultIsFailedNotCanceled(t *testing.T) {
 	convClient := &dedupeConvClient{
 		conversation: &apiconv.Conversation{
 			Id: "conv-empty",
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id:             "turn-empty",
 					ConversationId: "conv-empty",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:             "user-empty",
 							ConversationId: "conv-empty",
@@ -168,11 +168,11 @@ func TestServiceRunPlanAndStatus_RecoversDurableFinalAssistantContent(t *testing
 	convClient := &dedupeConvClient{
 		conversation: &apiconv.Conversation{
 			Id: "conv-recover",
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id:             "turn-recover",
 					ConversationId: "conv-recover",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:             "user-recover",
 							ConversationId: "conv-recover",
@@ -232,11 +232,11 @@ func TestServiceRunPlanAndStatus_EmptyResultUsesLastFailedModelCallError(t *test
 	convClient := &dedupeConvClient{
 		conversation: &apiconv.Conversation{
 			Id: "conv-model-error",
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id:             "turn-model-error",
 					ConversationId: "conv-model-error",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:             "user-model-error",
 							ConversationId: "conv-model-error",
@@ -251,7 +251,7 @@ func TestServiceRunPlanAndStatus_EmptyResultUsesLastFailedModelCallError(t *test
 							Role:           "assistant",
 							Type:           "text",
 							TurnId:         cancelPtr("turn-model-error"),
-							ModelCall: &agconv.ModelCallView{
+							ModelCall: &conversationmodel.ModelCallView{
 								MessageId:    "assistant-model-error",
 								Status:       "failed",
 								ErrorMessage: cancelPtr(providerErr),

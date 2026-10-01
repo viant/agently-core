@@ -8,7 +8,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
 type toolMessageLookupDataService struct {
@@ -213,17 +213,17 @@ func fallbackToolMessageConversation() *apiconv.Conversation {
 	otherTurnID := "turn-2"
 	return &apiconv.Conversation{
 		Id: "conv-1",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             turnID,
 				ConversationId: "conv-1",
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "parent-normal",
 						ConversationId: "conv-1",
 						TurnId:         toolMessageLookupStringPtr(turnID),
 						Type:           "text",
-						ToolMessage: []*agconv.ToolMessageView{
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{Id: "child-low", ToolCall: fallbackToolCall(" op-dupe ", turnID, 1)},
 							{Id: "child-high-a", ToolCall: fallbackToolCall("op-dupe", turnID, 3)},
 							{Id: " child-high-z ", ToolCall: fallbackToolCall("op-dupe", turnID, 3)},
@@ -236,7 +236,7 @@ func fallbackToolMessageConversation() *apiconv.Conversation {
 						ConversationId: "conv-1",
 						TurnId:         toolMessageLookupStringPtr(turnID),
 						Type:           " TOOL_OP ",
-						ToolMessage: []*agconv.ToolMessageView{
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{Id: "child-parent", ToolCall: fallbackToolCall(" op-parent ", turnID, 1)},
 						},
 					},
@@ -245,7 +245,7 @@ func fallbackToolMessageConversation() *apiconv.Conversation {
 						ConversationId: "conv-other",
 						TurnId:         toolMessageLookupStringPtr(turnID),
 						Type:           "text",
-						ToolMessage: []*agconv.ToolMessageView{
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{Id: "child-wrong-conversation", ToolCall: fallbackToolCall("op-wrong-conversation", turnID, 9)},
 						},
 					},
@@ -254,7 +254,7 @@ func fallbackToolMessageConversation() *apiconv.Conversation {
 						ConversationId: "conv-1",
 						TurnId:         toolMessageLookupStringPtr(otherTurnID),
 						Type:           "text",
-						ToolMessage: []*agconv.ToolMessageView{
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{Id: "child-wrong-turn", ToolCall: fallbackToolCall("op-wrong-turn", turnID, 9)},
 						},
 					},
@@ -263,13 +263,13 @@ func fallbackToolMessageConversation() *apiconv.Conversation {
 			{
 				Id:             otherTurnID,
 				ConversationId: "conv-1",
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "later-parent",
 						ConversationId: "conv-1",
 						TurnId:         toolMessageLookupStringPtr(otherTurnID),
 						Type:           "text",
-						ToolMessage: []*agconv.ToolMessageView{
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{Id: "later-child", ToolCall: fallbackToolCall("op-later", otherTurnID, 10)},
 						},
 					},
@@ -278,13 +278,13 @@ func fallbackToolMessageConversation() *apiconv.Conversation {
 			{
 				Id:             turnID,
 				ConversationId: "conv-other",
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "wrong-turn-conversation-parent",
 						ConversationId: "conv-other",
 						TurnId:         toolMessageLookupStringPtr(turnID),
 						Type:           "text",
-						ToolMessage: []*agconv.ToolMessageView{
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{Id: "wrong-turn-conversation-child", ToolCall: fallbackToolCall("op-wrong-turn-conversation", turnID, 10)},
 						},
 					},
@@ -294,8 +294,8 @@ func fallbackToolMessageConversation() *apiconv.Conversation {
 	}
 }
 
-func fallbackToolCall(opID, turnID string, attempt int) *agconv.ToolCallView {
-	return &agconv.ToolCallView{
+func fallbackToolCall(opID, turnID string, attempt int) *conversationmodel.ToolCallView {
+	return &conversationmodel.ToolCallView{
 		OpId:    opID,
 		TurnId:  toolMessageLookupStringPtr(turnID),
 		Attempt: attempt,

@@ -3,7 +3,7 @@ package conversation
 import (
 	"context"
 	"database/sql"
-	queueoutcome "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
 	"github.com/viant/xdatly/state"
 	"testing"
 	"time"
@@ -11,9 +11,6 @@ import (
 	"github.com/stretchr/testify/require"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
-	queuecount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count"
-	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queuewrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 
 	_ "modernc.org/sqlite"
 )
@@ -25,7 +22,7 @@ func TestService_ToolApprovalQueue_CreateReadUpdate(t *testing.T) {
 	})
 
 	ctx := context.Background()
-	create := &queuewrite.ToolApprovalQueue{Has: &queuewrite.ToolApprovalQueueHas{}}
+	create := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	create.SetId("q-service-1")
 	create.SetUserId("u1")
 	create.SetToolName("system/exec")
@@ -34,9 +31,9 @@ func TestService_ToolApprovalQueue_CreateReadUpdate(t *testing.T) {
 	create.SetStatus("pending")
 	require.NoError(t, svc.PatchToolApprovalQueue(ctx, create))
 
-	rows, err := svc.ListToolApprovalQueues(ctx, &queueread.QueueRowsInput{
+	rows, err := svc.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  "q-service-1",
-		Has: &queueread.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -46,7 +43,7 @@ func TestService_ToolApprovalQueue_CreateReadUpdate(t *testing.T) {
 	require.NotNil(t, rows[0].Title)
 	require.Equal(t, "Initial title", *rows[0].Title)
 
-	patch := &queuewrite.ToolApprovalQueue{Has: &queuewrite.ToolApprovalQueueHas{}}
+	patch := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	patch.SetId("q-service-1")
 	patch.SetUserId("u1")
 	patch.SetToolName("system/exec")
@@ -54,9 +51,9 @@ func TestService_ToolApprovalQueue_CreateReadUpdate(t *testing.T) {
 	patch.SetStatus("approved")
 	require.NoError(t, svc.PatchToolApprovalQueue(ctx, patch))
 
-	rows, err = svc.ListToolApprovalQueues(ctx, &queueread.QueueRowsInput{
+	rows, err = svc.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  "q-service-1",
-		Has: &queueread.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -95,16 +92,16 @@ func TestService_ToolApprovalQueue_UserScope(t *testing.T) {
 	})
 
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})
-	rows, err := svc.ListToolApprovalQueues(ctx, &queueread.QueueRowsInput{
+	rows, err := svc.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		QueueStatus: "pending",
-		Has:         &queueread.QueueRowsInputHas{QueueStatus: true},
+		Has:         &toolapprovalqueuemodel.QueueRowsInputHas{QueueStatus: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.Equal(t, "q-u1", rows[0].Id)
 
-	err = svc.PatchToolApprovalQueue(ctx, func() *queuewrite.ToolApprovalQueue {
-		q := &queuewrite.ToolApprovalQueue{Has: &queuewrite.ToolApprovalQueueHas{}}
+	err = svc.PatchToolApprovalQueue(ctx, func() *toolapprovalqueuemodel.ToolApprovalQueue {
+		q := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 		q.SetId("q-u1")
 		q.SetUserId("u1")
 		q.SetToolName("system/exec")
@@ -114,17 +111,17 @@ func TestService_ToolApprovalQueue_UserScope(t *testing.T) {
 	}())
 	require.NoError(t, err)
 
-	rows, err = svc.ListToolApprovalQueues(ctx, &queueread.QueueRowsInput{
+	rows, err = svc.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  "q-u1",
-		Has: &queueread.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.Equal(t, "approved", rows[0].Status)
 
-	_, err = svc.ListToolApprovalQueues(ctx, &queueread.QueueRowsInput{
+	_, err = svc.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		UserId: "u2",
-		Has:    &queueread.QueueRowsInputHas{UserId: true},
+		Has:    &toolapprovalqueuemodel.QueueRowsInputHas{UserId: true},
 	})
 	require.Error(t, err)
 }
@@ -155,10 +152,10 @@ func TestService_ToolApprovalQueue_ExactCount(t *testing.T) {
 		}
 	})
 
-	total, err := svc.CountToolApprovalQueues(context.Background(), &queuecount.QueueTotalInput{
+	total, err := svc.CountToolApprovalQueues(context.Background(), &toolapprovalqueuemodel.QueueTotalInput{
 		UserId:      "u1",
 		QueueStatus: "pending",
-		Has:         &queuecount.QueueTotalInputHas{UserId: true, QueueStatus: true},
+		Has:         &toolapprovalqueuemodel.QueueTotalInputHas{UserId: true, QueueStatus: true},
 	})
 	require.NoError(t, err)
 	require.Equal(t, 2, total)
@@ -207,7 +204,7 @@ func TestService_ToolApprovalQueue_NativeSelectorsAndOutcomes(t *testing.T) {
 	require.Nil(t, rows[0].Arguments)
 	require.Equal(t, "queue_rows", selector.Name)
 	require.Equal(t, []string{"id"}, selector.Fields)
-	outcomes, err := svc.ListToolApprovalOutcomes(ctx, &queueoutcome.OutcomeRowsInput{Since: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), Has: &queueoutcome.OutcomeRowsInputHas{Since: true}})
+	outcomes, err := svc.ListToolApprovalOutcomes(ctx, &toolapprovalqueuemodel.OutcomeRowsInput{Since: time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC), Has: &toolapprovalqueuemodel.OutcomeRowsInputHas{Since: true}})
 	require.NoError(t, err)
 	require.Len(t, outcomes, 1)
 	require.Equal(t, "own-a", outcomes[0].Id)

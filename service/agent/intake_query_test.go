@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
@@ -175,10 +175,10 @@ func TestShouldRunIntake_RepeatedQuestionStillRunsWithTopicShift(t *testing.T) {
 	now := time.Now()
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
-			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
+			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id: "turn-1",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show me audience that deliver the most"), CreatedAt: now},
 						{Id: "msg-assistant-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr("I can open the order summary."), CreatedAt: now.Add(time.Second)},
 					},
@@ -209,10 +209,10 @@ func TestShouldRunIntake_RerunsAfterPriorDirectActionEvenWithoutTopicShift(t *te
 	intakeJSON := `{"classification":{"title":"Show record 2637048","intent":"troubleshoot_record","confidence":0.92},"scope":{"values":{"recordId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"RecordId\":[2637048]}}","assistantText":"opened"}}`
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
-			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
+			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id: "turn-1",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my record 2637048"), CreatedAt: now},
 						{Id: "msg-intake-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr(intakeJSON), CreatedAt: now, Phase: strPtr("intake")},
 					},
@@ -233,17 +233,17 @@ func TestShouldRunIntake_RerunsAfterOlderMatchingDirectActionEvenIfImmediatePrio
 	intakeJSON := `{"classification":{"title":"Show record 2637048","intent":"troubleshoot_record","confidence":0.92},"scope":{"values":{"recordId":"2637048"}},"directAction":{"toolName":"ui/view:open","inputJson":"{\"id\":\"order\",\"parameters\":{\"RecordId\":[2637048]}}","assistantText":"opened"}}`
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
-			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
+			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id: "turn-1",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show my record 2637048"), CreatedAt: now},
 						{Id: "msg-intake-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr(intakeJSON), CreatedAt: now, Phase: strPtr("intake")},
 					},
 				},
 				{
 					Id: "turn-2",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{Id: "msg-user-2", TurnId: strPtr("turn-2"), Role: "user", Type: "text", Content: strPtr("show my record 2637048"), CreatedAt: now.Add(time.Second)},
 						{Id: "msg-assistant-2", TurnId: strPtr("turn-2"), Role: "assistant", Type: "text", Content: strPtr("I couldn't reopen it..."), CreatedAt: now.Add(time.Second)},
 					},
@@ -263,10 +263,10 @@ func TestShouldRunIntake_RerunsForConcreteOrderOpenEvenWhenOrderIdChangesWithout
 	now := time.Now()
 	s := &Service{
 		conversation: &stubProjectionBindingConversationClient{
-			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
+			conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id: "turn-1",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{Id: "msg-user-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("show record 2656980"), CreatedAt: now},
 						{Id: "msg-assistant-1", TurnId: strPtr("turn-1"), Role: "assistant", Type: "text", Content: strPtr("opened"), CreatedAt: now},
 					},
@@ -288,7 +288,7 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderTabs(
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{
 				Id: "conv-1",
-				Transcript: []*agconv.TranscriptView{
+				Transcript: []*conversationmodel.TranscriptView{
 					workspaceFollowUpFocusTurn(
 						now,
 						"turn-focus",
@@ -338,7 +338,7 @@ func TestMaybeRunIntakeSidecar_InjectsWorkspaceFollowUpDirectActionForOrderContr
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{
 				Id: "conv-1",
-				Transcript: []*agconv.TranscriptView{
+				Transcript: []*conversationmodel.TranscriptView{
 					workspaceFollowUpControlTurn(
 						now,
 						"turn-control",
@@ -392,7 +392,7 @@ func TestResolveWorkspaceUIIntentOverride_FollowUpRequiresSurfaceMatch(t *testin
 		conversation: &stubProjectionBindingConversationClient{
 			conversation: &apiconv.Conversation{
 				Id: "conv-1",
-				Transcript: []*agconv.TranscriptView{
+				Transcript: []*conversationmodel.TranscriptView{
 					workspaceFollowUpFocusTurn(now, "turn-focus", "order_2656980", ""),
 				},
 			},
@@ -413,7 +413,7 @@ func TestVisibleTranscriptMessagesForIntakeKeepsOnlyPriorVisibleChat(t *testing.
 	now := time.Now()
 	archived := 1
 	transcript := apiconv.Transcript{
-		&apiconv.Turn{Id: "turn-prior", Message: []*agconv.MessageView{
+		&apiconv.Turn{Id: "turn-prior", Message: []*conversationmodel.MessageView{
 			{Id: "user-prior", TurnId: strPtr("turn-prior"), Role: "user", Type: "text", Content: strPtr("Troubleshoot order 2664518"), CreatedAt: now},
 			{Id: "intake-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr(`{"scope":{"values":{"id":"internal"}}}`), Phase: strPtr("intake"), CreatedAt: now.Add(time.Second)},
 			{Id: "tool-prior", TurnId: strPtr("turn-prior"), Role: "tool", Type: "text", Content: strPtr("tool output"), CreatedAt: now.Add(2 * time.Second)},
@@ -421,7 +421,7 @@ func TestVisibleTranscriptMessagesForIntakeKeepsOnlyPriorVisibleChat(t *testing.
 			{Id: "archived-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr("archived"), Archived: &archived, CreatedAt: now.Add(4 * time.Second)},
 			{Id: "interim-prior", TurnId: strPtr("turn-prior"), Role: "assistant", Type: "text", Content: strPtr("interim"), Interim: 1, CreatedAt: now.Add(5 * time.Second)},
 		}},
-		&apiconv.Turn{Id: "turn-current", Message: []*agconv.MessageView{
+		&apiconv.Turn{Id: "turn-current", Message: []*conversationmodel.MessageView{
 			{Id: "user-current", TurnId: strPtr("turn-current"), Role: "user", Type: "text", Content: strPtr("show me audience that deliver the most"), CreatedAt: now.Add(6 * time.Second)},
 		}},
 	}
@@ -534,10 +534,10 @@ func testOrderFollowUpRules() []agentmdl.ActivationRule {
 	}
 }
 
-func workspaceFollowUpFocusTurn(now time.Time, turnID, selectedWindowID, previousWindowID string) *agconv.TranscriptView {
-	return &agconv.TranscriptView{
+func workspaceFollowUpFocusTurn(now time.Time, turnID, selectedWindowID, previousWindowID string) *conversationmodel.TranscriptView {
+	return &conversationmodel.TranscriptView{
 		Id: turnID,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "msg-user-" + turnID,
 				TurnId:    strPtr(turnID),
@@ -553,18 +553,18 @@ func workspaceFollowUpFocusTurn(now time.Time, turnID, selectedWindowID, previou
 				Type:      "text",
 				Content:   strPtr("Focused on record 2656980."),
 				CreatedAt: now.Add(time.Second),
-				ToolMessage: []*agconv.ToolMessageView{
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:        "msg-tool-list-" + turnID,
 						Type:      "tool_op",
 						Content:   strPtr(`{"clientId":"client-1","focusedWindowId":"` + previousWindowID + `","items":[{"windowId":"` + selectedWindowID + `","windowKey":"order","presentation":"hosted","region":"chat.top","parentKey":"chat/new"},{"windowId":"` + previousWindowID + `","windowKey":"order","presentation":"hosted","region":"chat.top","parentKey":"chat/new"}]}`),
 						CreatedAt: now.Add(2 * time.Second),
 						ToolName:  strPtr("ui/window:list"),
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							ToolName:       "ui/window:list",
 							Status:         "completed",
-							RequestPayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1"}`), Compression: "none"},
-							ResponsePayload: &agconv.ModelCallStreamPayloadView{
+							RequestPayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1"}`), Compression: "none"},
+							ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 								InlineBody:  strPtr(`{"clientId":"client-1","focusedWindowId":"` + previousWindowID + `","items":[{"windowId":"` + selectedWindowID + `","windowKey":"order","presentation":"hosted","region":"chat.top","parentKey":"chat/new"},{"windowId":"` + previousWindowID + `","windowKey":"order","presentation":"hosted","region":"chat.top","parentKey":"chat/new"}]}`),
 								Compression: "none",
 							},
@@ -576,11 +576,11 @@ func workspaceFollowUpFocusTurn(now time.Time, turnID, selectedWindowID, previou
 						Content:   strPtr(`{"clientId":"client-1","ok":true}`),
 						CreatedAt: now.Add(3 * time.Second),
 						ToolName:  strPtr("ui/window:show"),
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							ToolName:       "ui/window:show",
 							Status:         "completed",
-							RequestPayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1","windowId":"` + selectedWindowID + `","windowKey":"order"}`), Compression: "none"},
-							ResponsePayload: &agconv.ModelCallStreamPayloadView{
+							RequestPayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1","windowId":"` + selectedWindowID + `","windowKey":"order"}`), Compression: "none"},
+							ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 								InlineBody:  strPtr(`{"clientId":"client-1","ok":true}`),
 								Compression: "none",
 							},
@@ -592,10 +592,10 @@ func workspaceFollowUpFocusTurn(now time.Time, turnID, selectedWindowID, previou
 	}
 }
 
-func workspaceFollowUpControlTurn(now time.Time, turnID, selectedWindowID string) *agconv.TranscriptView {
-	return &agconv.TranscriptView{
+func workspaceFollowUpControlTurn(now time.Time, turnID, selectedWindowID string) *conversationmodel.TranscriptView {
+	return &conversationmodel.TranscriptView{
 		Id: turnID,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "msg-user-" + turnID,
 				TurnId:    strPtr(turnID),
@@ -611,18 +611,18 @@ func workspaceFollowUpControlTurn(now time.Time, turnID, selectedWindowID string
 				Type:      "text",
 				Content:   strPtr("Switched the open order summary period to 7D."),
 				CreatedAt: now.Add(time.Second),
-				ToolMessage: []*agconv.ToolMessageView{
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:        "msg-tool-control-" + turnID,
 						Type:      "tool_op",
 						Content:   strPtr(`{"clientId":"client-1","ok":true}`),
 						CreatedAt: now.Add(2 * time.Second),
 						ToolName:  strPtr("ui/control:setValue"),
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							ToolName:       "ui/control:setValue",
 							Status:         "completed",
-							RequestPayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1","windowId":"` + selectedWindowID + `","windowKey":"order","controlId":"periodView","scope":"windowForm","value":"7d"}`), Compression: "none"},
-							ResponsePayload: &agconv.ModelCallStreamPayloadView{
+							RequestPayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1","windowId":"` + selectedWindowID + `","windowKey":"order","controlId":"periodView","scope":"windowForm","value":"7d"}`), Compression: "none"},
+							ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 								InlineBody:  strPtr(`{"clientId":"client-1","ok":true}`),
 								Compression: "none",
 							},
@@ -1837,14 +1837,14 @@ func TestResolveWorkspaceUIIntentOverride_FollowUpRuleTranscriptOrderControl(t *
 	svc := &Service{
 		conversation: &followupStubConversationClient{
 			conversation: &apiconv.Conversation{
-				Transcript: []*agconv.TranscriptView{
+				Transcript: []*conversationmodel.TranscriptView{
 					{
-						Message: []*agconv.MessageView{
+						Message: []*conversationmodel.MessageView{
 							{
-								ToolMessage: []*agconv.ToolMessageView{
+								ToolMessage: []*conversationmodel.ToolMessageView{
 									{
 										Content: strPtr(`{"clientId":"client-1","selectedWindowId":"order__conv-1","items":[{"windowId":"order__conv-1","windowKey":"order"}]}`),
-										ToolCall: &agconv.ToolCallView{
+										ToolCall: &conversationmodel.ToolCallView{
 											ToolName: "ui/view:open",
 											Status:   "completed",
 										},

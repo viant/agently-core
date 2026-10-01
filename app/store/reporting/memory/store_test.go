@@ -9,18 +9,18 @@ import (
 
 	"github.com/stretchr/testify/require"
 	reportstore "github.com/viant/agently-core/app/store/reporting"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
-	reportshareartifact "github.com/viant/agently-core/pkg/agently/reportshareartifact"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
+	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
 	authsvc "github.com/viant/agently-core/service/auth"
 )
 
 func TestStoreCRUD(t *testing.T) {
 	store := New()
 	now := time.Date(2026, 6, 13, 10, 0, 0, 0, time.UTC)
-	job := &reportjob.Record{
+	job := &reportjobmodel.Record{
 		JobID:       "job-1",
 		ArtifactRef: "report://draft/demo",
 		OwnerID:     "user-1",
@@ -47,7 +47,7 @@ func TestStoreCRUD(t *testing.T) {
 	require.Equal(t, "running", updated.Status)
 	require.NotNil(t, updated.StartedAt)
 
-	artifact := &reportartifact.Record{
+	artifact := &reportartifactmodel.Record{
 		ArtifactID:  "artifact-1",
 		JobID:       "job-1",
 		ArtifactRef: "report://draft/demo",
@@ -69,7 +69,7 @@ func TestStoreCRUD(t *testing.T) {
 	require.Len(t, artifacts, 1)
 	require.Equal(t, "artifact-1", artifacts[0].ArtifactID)
 
-	sharedArtifact := &reportshareartifact.Record{
+	sharedArtifact := &reportshareartifactmodel.Record{
 		ArtifactID:       "shared-1",
 		ArtifactRef:      "reportBuilder.savedView://saved_view_capacity_q3",
 		OwnerID:          "user-1",
@@ -100,7 +100,7 @@ func TestStore_AdoptionIsCompositeAndCompletedSnapshotsAreImmutable(t *testing.T
 
 	prior := completedMemoryRun("prior-run", "owner-1", "conv-stale", 2, now)
 	require.NoError(t, store.CreateReportRun(ctx, prior))
-	require.NoError(t, store.PutConversationReportContextCAS(ctx, &reportcontext.Record{
+	require.NoError(t, store.PutConversationReportContextCAS(ctx, &reportcontextmodel.Record{
 		OwnerID:           "owner-1",
 		ConversationID:    "conv-stale",
 		ActiveReportRunID: prior.ReportRunID,
@@ -167,15 +167,15 @@ func TestStore_AdoptionIsCompositeAndCompletedSnapshotsAreImmutable(t *testing.T
 	require.Equal(t, concurrent.ReportRunID, gotPointer.ActiveReportRunID)
 }
 
-func completedMemoryRun(id, ownerID, conversationID string, revision int64, now time.Time) *reportrun.Record {
+func completedMemoryRun(id, ownerID, conversationID string, revision int64, now time.Time) *reportrunmodel.Record {
 	completedAt := now
-	return &reportrun.Record{
+	return &reportrunmodel.Record{
 		ReportRunID:    id,
 		OwnerID:        ownerID,
 		ConversationID: conversationID,
-		Materializer:   reportrun.MaterializerLegacyBrowser,
+		Materializer:   reportrunmodel.MaterializerLegacyBrowser,
 		Origin:         "prompt",
-		Status:         reportrun.StatusCompleted,
+		Status:         reportrunmodel.StatusCompleted,
 		Revision:       revision,
 		UIRunRequestID: "request-" + id,
 		ReportSpec:     []byte(`{"kind":"reportSpec"}`),
@@ -188,7 +188,7 @@ func completedMemoryRun(id, ownerID, conversationID string, revision int64, now 
 	}
 }
 
-func adoptedMemoryRun(current *reportrun.Record, conversationID string, now time.Time) *reportrun.Record {
+func adoptedMemoryRun(current *reportrunmodel.Record, conversationID string, now time.Time) *reportrunmodel.Record {
 	next := *current
 	next.ConversationID = conversationID
 	next.AdoptionSource = "adopt"
@@ -198,8 +198,8 @@ func adoptedMemoryRun(current *reportrun.Record, conversationID string, now time
 	return &next
 }
 
-func adoptedMemoryContext(run *reportrun.Record, expectedRevision int64, now time.Time) *reportcontext.Record {
-	return &reportcontext.Record{
+func adoptedMemoryContext(run *reportrunmodel.Record, expectedRevision int64, now time.Time) *reportcontextmodel.Record {
+	return &reportcontextmodel.Record{
 		OwnerID:           run.OwnerID,
 		ConversationID:    run.ConversationID,
 		ActiveReportRunID: run.ReportRunID,
@@ -213,7 +213,7 @@ func adoptedMemoryContext(run *reportrun.Record, expectedRevision int64, now tim
 func TestStoreRejectsDuplicateRecords(t *testing.T) {
 	store := New()
 	now := time.Date(2026, 6, 13, 10, 30, 0, 0, time.UTC)
-	job := &reportjob.Record{
+	job := &reportjobmodel.Record{
 		JobID:       "job-1",
 		ArtifactRef: "report://draft/demo",
 		OwnerID:     "user-1",
@@ -228,7 +228,7 @@ func TestStoreRejectsDuplicateRecords(t *testing.T) {
 	require.ErrorContains(t, err, "reporting memory store: job job-1 already exists")
 	require.ErrorIs(t, err, reportstore.ErrAlreadyExists)
 
-	artifact := &reportartifact.Record{
+	artifact := &reportartifactmodel.Record{
 		ArtifactID:  "artifact-1",
 		JobID:       "job-1",
 		ArtifactRef: "report://draft/demo",
@@ -249,7 +249,7 @@ func TestStoreRejectsDuplicateRecords(t *testing.T) {
 	require.Len(t, artifacts, 1)
 	require.Equal(t, "artifact-1", artifacts[0].ArtifactID)
 
-	sharedArtifact := &reportshareartifact.Record{
+	sharedArtifact := &reportshareartifactmodel.Record{
 		ArtifactID:       "shared-1",
 		ArtifactRef:      "reportBuilder.savedView://saved_view_capacity_q3",
 		OwnerID:          "user-1",

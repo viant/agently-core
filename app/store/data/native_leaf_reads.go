@@ -15,13 +15,11 @@ import (
 	queueread "github.com/viant/agently-core/internal/datly/turnqueue/read"
 	convstore "github.com/viant/agently-core/internal/store/conversation"
 	queuestore "github.com/viant/agently-core/internal/store/turnqueue"
-	legacygf "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	legacymsg "github.com/viant/agently-core/pkg/agently/message"
-	legacyelicitation "github.com/viant/agently-core/pkg/agently/message/elicitation"
-	legacypayload "github.com/viant/agently-core/pkg/agently/payload"
-	legacytool "github.com/viant/agently-core/pkg/agently/toolcall/byOp"
-	legacytoolturn "github.com/viant/agently-core/pkg/agently/toolcall/byTurn"
-	legacyqueue "github.com/viant/agently-core/pkg/agently/turnqueue/read"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
+	messagemodel "github.com/viant/agently-core/model/message"
+	payloadmodel "github.com/viant/agently-core/model/payload"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
@@ -57,7 +55,7 @@ func (s *datlyService) readDataNative(ctx context.Context, input any, path, acce
 	return s.native.InvokeComponent(ctx, dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeOf(input).Elem().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: path}}, Input: input, Providers: providers})
 }
 
-func (s *datlyService) getMessageNative(ctx context.Context, id string, input *legacymsg.MessageInput, opts *options) (*legacymsg.MessageView, error) {
+func (s *datlyService) getMessageNative(ctx context.Context, id string, input *messagemodel.MessageInput, opts *options) (*messagemodel.MessageView, error) {
 	query, err := mapDataDTO[msgread.MessagesInput](input)
 	if err != nil {
 		return nil, err
@@ -80,9 +78,9 @@ func (s *datlyService) getMessageNative(ctx context.Context, id string, input *l
 	if err = s.authorizeConversationID(ctx, output.Data[0].ConversationId, opts, nil); err != nil {
 		return nil, err
 	}
-	return mapDataDTO[legacymsg.MessageView](output.Data[0])
+	return output.Data[0], nil
 }
-func (s *datlyService) getMessageByElicitationNative(ctx context.Context, conversationID, elicitationID string, opts *options) (*legacyelicitation.MessageView, error) {
+func (s *datlyService) getMessageByElicitationNative(ctx context.Context, conversationID, elicitationID string, opts *options) (*messagemodel.ElicitationMessageView, error) {
 	if err := s.authorizeConversationID(ctx, conversationID, opts, nil); err != nil {
 		return nil, err
 	}
@@ -91,7 +89,7 @@ func (s *datlyService) getMessageByElicitationNative(ctx context.Context, conver
 	if err != nil {
 		return nil, err
 	}
-	return mapDataDTO[legacyelicitation.MessageView](row)
+	return mapDataDTO[messagemodel.ElicitationMessageView](row)
 }
 func (s *datlyService) readTurnNative(ctx context.Context, mode string, input any, opts *options) ([]*turnread.TurnRowsView, error) {
 	query, err := mapDataDTO[turnread.TurnRowsInput](input)
@@ -136,7 +134,7 @@ func (s *datlyService) readTurnNative(ctx context.Context, mode string, input an
 	}
 	return out.Data, nil
 }
-func (s *datlyService) getToolCallByOpNative(ctx context.Context, opID string, input *legacytool.ToolCallRowsInput, opts *options) ([]*legacytool.ToolCallRowsView, error) {
+func (s *datlyService) getToolCallByOpNative(ctx context.Context, opID string, input *toolcallmodel.ToolCallByOpInput, opts *options) ([]*toolcallmodel.ToolCallByOpView, error) {
 	query, err := mapDataDTO[toolread.ToolCallsInput](input)
 	if err != nil {
 		return nil, err
@@ -158,9 +156,9 @@ func (s *datlyService) getToolCallByOpNative(ctx context.Context, opID string, i
 	if !ok {
 		return nil, fmt.Errorf("tool call reader returned %T", value)
 	}
-	return mapDataDTOs[legacytool.ToolCallRowsView](out.Data)
+	return mapDataDTOs[toolcallmodel.ToolCallByOpView](out.Data)
 }
-func (s *datlyService) toolCallsByTurnNative(ctx context.Context, conversationID, turnID string) ([]*legacytoolturn.ToolCallRowsView, error) {
+func (s *datlyService) toolCallsByTurnNative(ctx context.Context, conversationID, turnID string) ([]*toolcallmodel.ToolCallByTurnView, error) {
 	query := &toolread.ToolCallsInput{}
 	query.SetConversationId(strings.TrimSpace(conversationID))
 	query.SetTurnId(strings.TrimSpace(turnID))
@@ -172,9 +170,9 @@ func (s *datlyService) toolCallsByTurnNative(ctx context.Context, conversationID
 	if !ok {
 		return nil, fmt.Errorf("tool call reader returned %T", value)
 	}
-	return mapDataDTOs[legacytoolturn.ToolCallRowsView](out.Data)
+	return mapDataDTOs[toolcallmodel.ToolCallByTurnView](out.Data)
 }
-func (s *datlyService) listPayloadsNative(ctx context.Context, input *legacypayload.PayloadRowsInput, opts *options) ([]*legacypayload.PayloadRowsView, error) {
+func (s *datlyService) listPayloadsNative(ctx context.Context, input *payloadmodel.PayloadRowsInput, opts *options) ([]*payloadmodel.PayloadRowsView, error) {
 	query, err := mapDataDTO[payloadread.Input](input)
 	if err != nil {
 		return nil, err
@@ -190,9 +188,9 @@ func (s *datlyService) listPayloadsNative(ctx context.Context, input *legacypayl
 	if !ok {
 		return nil, fmt.Errorf("payload reader returned %T", value)
 	}
-	return mapDataDTOs[legacypayload.PayloadRowsView](out.Data)
+	return mapDataDTOs[payloadmodel.PayloadRowsView](out.Data)
 }
-func (s *datlyService) listGeneratedFilesNative(ctx context.Context, conversationID string, opts *options) ([]*legacygf.GeneratedFileView, error) {
+func (s *datlyService) listGeneratedFilesNative(ctx context.Context, conversationID string, opts *options) ([]*generatedfilemodel.GeneratedFileView, error) {
 	if err := s.authorizeConversationID(ctx, conversationID, opts, nil); err != nil {
 		return nil, err
 	}
@@ -202,9 +200,9 @@ func (s *datlyService) listGeneratedFilesNative(ctx context.Context, conversatio
 	if err != nil {
 		return nil, err
 	}
-	return mapDataDTOs[legacygf.GeneratedFileView](rows)
+	return mapDataDTOs[generatedfilemodel.GeneratedFileView](rows)
 }
-func (s *datlyService) listTurnQueueNative(ctx context.Context, input *legacyqueue.QueueRowsInput, opts *options) ([]*legacyqueue.QueueRowView, error) {
+func (s *datlyService) listTurnQueueNative(ctx context.Context, input *turnqueuemodel.QueueRowsInput, opts *options) ([]*turnqueuemodel.QueueRowView, error) {
 	query, err := mapDataDTO[queueread.QueueRowsInput](input)
 	if err != nil {
 		return nil, err
@@ -223,7 +221,7 @@ func (s *datlyService) listTurnQueueNative(ctx context.Context, input *legacyque
 			}
 		}
 	}
-	return mapDataDTOs[legacyqueue.QueueRowView](rows)
+	return mapDataDTOs[turnqueuemodel.QueueRowView](rows)
 }
 
 // dataSelectorsProvider maps the legacy facade's named selectors to the stock

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	core "github.com/viant/agently-core/service/core"
@@ -34,7 +34,7 @@ func TestBuildHistory_SkipsQueuedTurns(t *testing.T) {
 			Content:   strPtr(userContent),
 			CreatedAt: createdAt,
 		}
-		turn.Message = []*agconv.MessageView{(*agconv.MessageView)(msg)}
+		turn.Message = []*conversationmodel.MessageView{(*conversationmodel.MessageView)(msg)}
 		return turn
 	}
 
@@ -103,7 +103,7 @@ func TestContinuationRequest_QueuedPromptUsesTurnCreatedAt(t *testing.T) {
 		Id:        "turn-3",
 		Status:    "running",
 		CreatedAt: execAt, // updated at execution time by startTurn
-		Message: []*agconv.MessageView{(*agconv.MessageView)(&apiconv.Message{
+		Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(&apiconv.Message{
 			Id:        "turn-3",
 			Role:      "user",
 			Type:      "text",
@@ -151,7 +151,7 @@ func TestBuildHistory_SkipsCanceledTurns(t *testing.T) {
 			Status:    msgStatus,
 			CreatedAt: createdAt,
 		}
-		turn.Message = []*agconv.MessageView{(*agconv.MessageView)(msg)}
+		turn.Message = []*conversationmodel.MessageView{(*conversationmodel.MessageView)(msg)}
 		return turn
 	}
 
@@ -190,15 +190,15 @@ func TestBuildHistory_SkipsRouterModeMessages(t *testing.T) {
 		{
 			Id:     "turn-1",
 			Status: "succeeded",
-			Message: []*agconv.MessageView{
-				(*agconv.MessageView)(&apiconv.Message{
+			Message: []*conversationmodel.MessageView{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "user-1",
 					Role:      "user",
 					Type:      "text",
 					Content:   strPtr("hello"),
 					CreatedAt: now,
 				}),
-				(*agconv.MessageView)(&apiconv.Message{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "router-1",
 					Role:      "assistant",
 					Type:      "text",
@@ -206,7 +206,7 @@ func TestBuildHistory_SkipsRouterModeMessages(t *testing.T) {
 					Content:   strPtr(`{"agentId":"chatter"}`),
 					CreatedAt: now.Add(time.Second),
 				}),
-				(*agconv.MessageView)(&apiconv.Message{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "assistant-1",
 					Role:      "assistant",
 					Type:      "text",
@@ -233,15 +233,15 @@ func TestBuildHistory_PreservesAssistantMessageWithEmptyType(t *testing.T) {
 		{
 			Id:     "turn-1",
 			Status: "succeeded",
-			Message: []*agconv.MessageView{
-				(*agconv.MessageView)(&apiconv.Message{
+			Message: []*conversationmodel.MessageView{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "user-1",
 					Role:      "user",
 					Type:      "text",
 					Content:   strPtr("show my record 2667545"),
 					CreatedAt: now,
 				}),
-				(*agconv.MessageView)(&apiconv.Message{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "assistant-1",
 					Role:      "assistant",
 					Content:   strPtr("The details window for record 2667545 is now open and in focus."),
@@ -284,30 +284,30 @@ func TestBuildTraces_SkipsRouterAssistantMessages(t *testing.T) {
 		{
 			Id:     "turn-1",
 			Status: "succeeded",
-			Message: []*agconv.MessageView{
-				(*agconv.MessageView)(&apiconv.Message{
+			Message: []*conversationmodel.MessageView{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "user-1",
 					Role:      "user",
 					Type:      "text",
 					Content:   strPtr("hello"),
 					CreatedAt: now,
 				}),
-				(*agconv.MessageView)(&apiconv.Message{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "router-1",
 					Role:      "assistant",
 					Type:      "text",
 					Mode:      &routerMode,
 					Content:   strPtr(`{"agentId":"chatter"}`),
 					CreatedAt: now.Add(time.Second),
-					ModelCall: &agconv.ModelCallView{TraceId: &routerTrace},
+					ModelCall: &conversationmodel.ModelCallView{TraceId: &routerTrace},
 				}),
-				(*agconv.MessageView)(&apiconv.Message{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "assistant-1",
 					Role:      "assistant",
 					Type:      "text",
 					Content:   strPtr("Hi there."),
 					CreatedAt: now.Add(2 * time.Second),
-					ModelCall: &agconv.ModelCallView{TraceId: &assistantTrace},
+					ModelCall: &conversationmodel.ModelCallView{TraceId: &assistantTrace},
 				}),
 			},
 		},

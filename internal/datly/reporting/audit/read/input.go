@@ -16,7 +16,6 @@ type Input struct {
 	JobIDs             []string                      `parameter:"JobIDs,kind=query,in=jobIds,dataType=[]string,required=false" predicate:"in,a,job_id"`
 	ArtifactIDs        []string                      `parameter:"ArtifactIDs,kind=query,in=artifactIds,dataType=[]string,required=false" predicate:"in,a,artifact_id"`
 	TechnicalRetention *predicate.TechnicalRetention `parameter:"TechnicalRetention,kind=technicalmaintenance,in=policy,dataType=*predicate.TechnicalRetention,required=false" predicate:"handler,github.com/viant/agently-core/internal/datly/predicate.TechnicalReportAuditRetention"`
-	LockRows           bool                          `parameter:"LockRows,kind=reportauditaccess,in=lock,dataType=bool,required=false"`
 	Has                *InputHas                     `setMarker:"true" typeName:"InputHas" json:"-" sqlx:"-"`
 }
 
@@ -29,5 +28,4 @@ type InputHas struct {
 	JobIDs             bool
 	ArtifactIDs        bool
 	TechnicalRetention bool
-	LockRows           bool
 }

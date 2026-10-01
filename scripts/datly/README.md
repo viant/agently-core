@@ -23,3 +23,5 @@ Endly runs native contract/store tests separately from the full Core suite:
 The native workflow accepts `testPackages` and `testRun` overrides. The full Core workflow runs `go test -count=1 ./...`.
 
 Run transcription and regeneration before starting runtime test fixtures. Regeneration replaces generated directories while discovery reads them.
+
+The boundary gate rejects unquoted MySQL reserved table/view aliases, including nested views and CTEs. `mysql_reserved_words.json` records the MySQL 8.4 manual snapshot used offline; update its version, authority, and retrieval date when refreshing the list. Quote an alias when its name is part of the generated Go/JSON contract. SQL strings, comments, and DQL metadata arguments are excluded by the lexer. Run lexer and inventory regressions with `python3 -m unittest discover -s scripts/datly -p 'test_*.py'`.

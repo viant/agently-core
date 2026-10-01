@@ -8,39 +8,39 @@ import (
 
 // Payload is generated canonical view metadata for writer.
 type Payload struct {
-	ShouldDelete           bool        `json:",omitempty" sqlx:"-" writer:"delete"`
-	Id                     string      `validate:"required" sqlx:"id,primaryKey"`
-	TenantId               *string     `json:",omitempty" sqlx:"tenant_id"`
-	Kind                   string      `validate:"required" sqlx:"kind,required=true"`
-	Subtype                *string     `json:",omitempty" sqlx:"subtype"`
-	MimeType               string      `validate:"required" sqlx:"mime_type,required=true"`
-	SizeBytes              int         `validate:"required" sqlx:"size_bytes,required=true"`
-	Digest                 *string     `json:",omitempty" sqlx:"digest"`
-	Storage                string      `validate:"required" sqlx:"storage,required=true"`
-	InlineBody             *[]byte     `json:",omitempty" sqlx:"inline_body"`
-	Uri                    *string     `json:",omitempty" sqlx:"uri"`
-	Compression            string      `sqlx:"compression,required=true"`
-	EncryptionKmsKeyId     *string     `json:",omitempty" sqlx:"encryption_kms_key_id"`
-	RedactionPolicyVersion *string     `json:",omitempty" sqlx:"redaction_policy_version"`
-	Redacted               *int        `json:",omitempty" sqlx:"redacted,required=true"`
-	CreatedAt              *time.Time  `json:",omitempty" sqlx:"created_at,required=true"`
-	SchemaRef              *string     `json:",omitempty" sqlx:"schema_ref"`
+	ShouldDelete           bool        `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	Id                     string      `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	Kind                   string      `validate:"required" json:"kind" sqlx:"kind,required=true"`
+	MimeType               string      `validate:"required" json:"mimeType" sqlx:"mime_type,required=true"`
+	SizeBytes              int         `validate:"required" json:"sizeBytes" sqlx:"size_bytes,required=true"`
+	Storage                string      `validate:"required" json:"storage" sqlx:"storage,required=true"`
+	InlineBody             *[]byte     `sqlx:"inline_body" json:"inlineBody,omitempty"`
+	Compression            string      `json:"compression" sqlx:"compression,required=true"`
+	TenantId               *string     `sqlx:"tenant_id" json:"tenantId,omitempty"`
+	Subtype                *string     `sqlx:"subtype" json:"subtype,omitempty"`
+	Digest                 *string     `sqlx:"digest" json:"digest,omitempty"`
+	Uri                    *string     `sqlx:"uri" json:"uri,omitempty"`
+	EncryptionKmsKeyId     *string     `sqlx:"encryption_kms_key_id" json:"encryptionKmsKeyId,omitempty"`
+	RedactionPolicyVersion *string     `sqlx:"redaction_policy_version" json:"redactionPolicyVersion,omitempty"`
+	Redacted               *int        `sqlx:"redacted,required=true" json:"redacted,omitempty"`
+	CreatedAt              *time.Time  `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	SchemaRef              *string     `sqlx:"schema_ref" json:"schemaRef,omitempty"`
 	Has                    *PayloadHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"PayloadHas"`
 }
 
 type PayloadHas struct {
 	ShouldDelete           bool
 	Id                     bool
-	TenantId               bool
 	Kind                   bool
-	Subtype                bool
 	MimeType               bool
 	SizeBytes              bool
-	Digest                 bool
 	Storage                bool
 	InlineBody             bool
-	Uri                    bool
 	Compression            bool
+	TenantId               bool
+	Subtype                bool
+	Digest                 bool
+	Uri                    bool
 	EncryptionKmsKeyId     bool
 	RedactionPolicyVersion bool
 	Redacted               bool
@@ -50,22 +50,22 @@ type PayloadHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id                     string     `validate:"required" sqlx:"id,primaryKey"`
-	TenantId               *string    `json:",omitempty" sqlx:"tenant_id"`
-	Kind                   string     `validate:"required" sqlx:"kind,required=true"`
-	Subtype                *string    `json:",omitempty" sqlx:"subtype"`
-	MimeType               string     `validate:"required" sqlx:"mime_type,required=true"`
-	SizeBytes              int        `validate:"required" sqlx:"size_bytes,required=true"`
-	Digest                 *string    `json:",omitempty" sqlx:"digest"`
-	Storage                string     `validate:"required" sqlx:"storage,required=true"`
-	InlineBody             *[]byte    `json:",omitempty" sqlx:"inline_body"`
-	Uri                    *string    `json:",omitempty" sqlx:"uri"`
-	Compression            string     `sqlx:"compression,required=true"`
-	EncryptionKmsKeyId     *string    `json:",omitempty" sqlx:"encryption_kms_key_id"`
-	RedactionPolicyVersion *string    `json:",omitempty" sqlx:"redaction_policy_version"`
-	Redacted               *int       `json:",omitempty" sqlx:"redacted,required=true"`
-	CreatedAt              *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	SchemaRef              *string    `json:",omitempty" sqlx:"schema_ref"`
+	Id                     string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	Kind                   string     `validate:"required" json:"kind" sqlx:"kind,required=true"`
+	MimeType               string     `validate:"required" json:"mimeType" sqlx:"mime_type,required=true"`
+	SizeBytes              int        `validate:"required" json:"sizeBytes" sqlx:"size_bytes,required=true"`
+	Storage                string     `validate:"required" json:"storage" sqlx:"storage,required=true"`
+	InlineBody             *[]byte    `sqlx:"inline_body" json:"inlineBody,omitempty"`
+	Compression            string     `json:"compression" sqlx:"compression,required=true"`
+	TenantId               *string    `sqlx:"tenant_id" json:"tenantId,omitempty"`
+	Subtype                *string    `sqlx:"subtype" json:"subtype,omitempty"`
+	Digest                 *string    `sqlx:"digest" json:"digest,omitempty"`
+	Uri                    *string    `sqlx:"uri" json:"uri,omitempty"`
+	EncryptionKmsKeyId     *string    `sqlx:"encryption_kms_key_id" json:"encryptionKmsKeyId,omitempty"`
+	RedactionPolicyVersion *string    `sqlx:"redaction_policy_version" json:"redactionPolicyVersion,omitempty"`
+	Redacted               *int       `sqlx:"redacted,required=true" json:"redacted,omitempty"`
+	CreatedAt              *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	SchemaRef              *string    `sqlx:"schema_ref" json:"schemaRef,omitempty"`
 }
 
 type WriterKeysRow struct {

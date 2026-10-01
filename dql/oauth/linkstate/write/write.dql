@@ -21,13 +21,12 @@
 #define($_ = $Unconsumed<bool>(query/unconsumed).Optional().WithPredicate(7,'is_null','oauth_link_state','consumed_at'))
 #define($_ = $NotExpiredAfter<string>(query/notExpiredAfter).Optional().WithPredicate(7,'expr','oauth_link_state.expires_at > ?'))
 #define($_ = $Before<string>(query/before).Optional().WithPredicate(7,'expr','oauth_link_state.expires_at <= ?'))
-SELECT states.state_hash, states.should_delete, states.flow_hash, states.user_id, states.session_hash,
-       states.provider, states.expires_at, states.consumed_at, states.created_at, states.now,
+SELECT states.*,
        type(states,'LinkState'), lifecycle_type(states,'Lifecycle'), mutation_predicate(states,7),
        CAST(states.should_delete AS bool), tag(states.should_delete,'json:",omitempty"'), delete_marker(states.should_delete), delete_not_found(states,'ignore'),
-       CAST(states.state_hash AS string), tag(states.state_hash,'sqlx:"state_hash,primaryKey=false"'),
-       CAST(states.flow_hash AS string), tag(states.flow_hash,'sqlx:"flow_hash,primaryKey=true"'),
-       CAST(states.user_id AS string), CAST(states.session_hash AS string),
-       CAST(states.provider AS string), CAST(states.expires_at AS string),
-       CAST(states.consumed_at AS *string), CAST(states.created_at AS string), CAST(states.now AS string), tag(states.now,'sqlx:"-"')
-FROM (SELECT 0 AS should_delete, state_hash, flow_hash, user_id, session_hash, provider, expires_at, consumed_at, created_at, '' AS now FROM oauth_link_state) states
+       required(states.state_hash), tag(states.state_hash,'sqlx:"state_hash,primaryKey=false"'),
+       required(states.flow_hash), tag(states.flow_hash,'sqlx:"flow_hash,primaryKey=true"'),
+       required(states.user_id), required(states.session_hash),
+       required(states.provider), CAST(states.expires_at AS string),
+       CAST(states.consumed_at AS *string), CAST(states.created_at AS string), required(states.now), tag(states.now,'sqlx:"-"')
+FROM (${embed:sql/linkstate.sql}) states

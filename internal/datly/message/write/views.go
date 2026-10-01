@@ -8,36 +8,36 @@ import (
 
 // Message is generated canonical view metadata for writer.
 type Message struct {
-	ShouldDelete         bool        `json:",omitempty" sqlx:"-" writer:"delete"`
-	Sequence             *int        `sequenceScope:"turn_id" sequenceOnNull:"allocate" json:",omitempty" sqlx:"sequence"`
-	Id                   string      `validate:"required" sqlx:"id,primaryKey"`
-	Archived             *int        `json:",omitempty" sqlx:"archived"`
-	ConversationId       string      `validate:"required" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	TurnId               *string     `json:",omitempty" sqlx:"turn_id,refTable=turn,refColumn=id"`
-	CreatedAt            *time.Time  `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt            *time.Time  `json:",omitempty" sqlx:"updated_at"`
-	CreatedByUserId      *string     `json:",omitempty" sqlx:"created_by_user_id"`
-	Mode                 *string     `json:",omitempty" sqlx:"mode"`
-	Role                 string      `validate:"required" sqlx:"role,required=true"`
-	Status               *string     `sqlx:"status"`
-	Type                 string      `validate:"required" sqlx:"type,required=true"`
-	Content              *string     `sqlx:"content"`
-	RawContent           *string     `json:",omitempty" sqlx:"raw_content"`
-	Summary              *string     `json:",omitempty" sqlx:"summary"`
-	ContextSummary       *string     `json:",omitempty" sqlx:"context_summary"`
-	EmbeddingIndex       *[]byte     `json:",omitempty" sqlx:"embedding_index"`
-	Tags                 *string     `json:",omitempty" sqlx:"tags"`
-	Interim              *int        `json:",omitempty" sqlx:"interim,required=true"`
-	ElicitationId        *string     `json:",omitempty" sqlx:"elicitation_id"`
-	ParentMessageId      *string     `json:",omitempty" sqlx:"parent_message_id"`
-	SupersededBy         *string     `json:",omitempty" sqlx:"superseded_by"`
-	LinkedConversationId *string     `json:",omitempty" sqlx:"linked_conversation_id"`
-	ToolName             *string     `json:",omitempty" sqlx:"tool_name"`
-	Narration            *string     `json:",omitempty" sqlx:"preamble"`
-	Iteration            *int        `json:",omitempty" sqlx:"iteration"`
-	Phase                *string     `json:",omitempty" sqlx:"phase"`
-	AttachmentPayloadId  *string     `json:",omitempty" sqlx:"attachment_payload_id,refTable=call_payload,refColumn=id"`
-	ElicitationPayloadId *string     `json:",omitempty" sqlx:"elicitation_payload_id,refTable=call_payload,refColumn=id"`
+	ShouldDelete         bool        `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	Sequence             *int        `sequenceScope:"turn_id" sequenceOnNull:"allocate" sqlx:"sequence" json:"sequence,omitempty"`
+	Id                   string      `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	ConversationId       string      `validate:"required" json:"conversationId" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
+	Role                 string      `validate:"required" json:"role" sqlx:"role,required=true"`
+	Type                 string      `validate:"required" json:"type" sqlx:"type,required=true"`
+	EmbeddingIndex       *[]byte     `sqlx:"embedding_index" json:"embeddingIndex,omitempty"`
+	Status               *string     `json:"status" sqlx:"status"`
+	Content              *string     `json:"content" sqlx:"content"`
+	Narration            *string     `sqlx:"preamble" json:"narration,omitempty"`
+	TurnId               *string     `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
+	Archived             *int        `sqlx:"archived" json:"archived,omitempty"`
+	CreatedAt            *time.Time  `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt            *time.Time  `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	CreatedByUserId      *string     `sqlx:"created_by_user_id" json:"createdByUserId,omitempty"`
+	Mode                 *string     `sqlx:"mode" json:"mode,omitempty"`
+	RawContent           *string     `sqlx:"raw_content" json:"rawContent,omitempty"`
+	Summary              *string     `sqlx:"summary" json:"summary,omitempty"`
+	ContextSummary       *string     `sqlx:"context_summary" json:"contextSummary,omitempty"`
+	Tags                 *string     `sqlx:"tags" json:"tags,omitempty"`
+	Interim              *int        `sqlx:"interim,required=true" json:"interim,omitempty"`
+	ElicitationId        *string     `sqlx:"elicitation_id" json:"elicitationId,omitempty"`
+	ParentMessageId      *string     `sqlx:"parent_message_id" json:"parentMessageId,omitempty"`
+	SupersededBy         *string     `sqlx:"superseded_by" json:"supersededBy,omitempty"`
+	LinkedConversationId *string     `sqlx:"linked_conversation_id" json:"linkedConversationId,omitempty"`
+	AttachmentPayloadId  *string     `sqlx:"attachment_payload_id,refTable=call_payload,refColumn=id" json:"attachmentPayloadId,omitempty"`
+	ElicitationPayloadId *string     `sqlx:"elicitation_payload_id,refTable=call_payload,refColumn=id" json:"elicitationPayloadId,omitempty"`
+	ToolName             *string     `sqlx:"tool_name" json:"toolName,omitempty"`
+	Iteration            *int        `sqlx:"iteration" json:"iteration,omitempty"`
+	Phase                *string     `sqlx:"phase" json:"phase,omitempty"`
 	Has                  *MessageHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"MessageHas"`
 }
 
@@ -45,66 +45,66 @@ type MessageHas struct {
 	ShouldDelete         bool
 	Sequence             bool
 	Id                   bool
-	Archived             bool
 	ConversationId       bool
+	Role                 bool
+	Type                 bool
+	EmbeddingIndex       bool
+	Status               bool
+	Content              bool
+	Narration            bool
 	TurnId               bool
+	Archived             bool
 	CreatedAt            bool
 	UpdatedAt            bool
 	CreatedByUserId      bool
 	Mode                 bool
-	Role                 bool
-	Status               bool
-	Type                 bool
-	Content              bool
 	RawContent           bool
 	Summary              bool
 	ContextSummary       bool
-	EmbeddingIndex       bool
 	Tags                 bool
 	Interim              bool
 	ElicitationId        bool
 	ParentMessageId      bool
 	SupersededBy         bool
 	LinkedConversationId bool
-	ToolName             bool
-	Narration            bool
-	Iteration            bool
-	Phase                bool
 	AttachmentPayloadId  bool
 	ElicitationPayloadId bool
+	ToolName             bool
+	Iteration            bool
+	Phase                bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Sequence             *int       `sequenceScope:"turn_id" sequenceOnNull:"allocate" json:",omitempty" sqlx:"sequence"`
-	Id                   string     `validate:"required" sqlx:"id,primaryKey"`
-	Archived             *int       `json:",omitempty" sqlx:"archived"`
-	ConversationId       string     `validate:"required" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	TurnId               *string    `json:",omitempty" sqlx:"turn_id,refTable=turn,refColumn=id"`
-	CreatedAt            *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt            *time.Time `json:",omitempty" sqlx:"updated_at"`
-	CreatedByUserId      *string    `json:",omitempty" sqlx:"created_by_user_id"`
-	Mode                 *string    `json:",omitempty" sqlx:"mode"`
-	Role                 string     `validate:"required" sqlx:"role,required=true"`
-	Status               *string    `sqlx:"status"`
-	Type                 string     `validate:"required" sqlx:"type,required=true"`
-	Content              *string    `sqlx:"content"`
-	RawContent           *string    `json:",omitempty" sqlx:"raw_content"`
-	Summary              *string    `json:",omitempty" sqlx:"summary"`
-	ContextSummary       *string    `json:",omitempty" sqlx:"context_summary"`
-	EmbeddingIndex       *[]byte    `json:",omitempty" sqlx:"embedding_index"`
-	Tags                 *string    `json:",omitempty" sqlx:"tags"`
-	Interim              *int       `json:",omitempty" sqlx:"interim,required=true"`
-	ElicitationId        *string    `json:",omitempty" sqlx:"elicitation_id"`
-	ParentMessageId      *string    `json:",omitempty" sqlx:"parent_message_id"`
-	SupersededBy         *string    `json:",omitempty" sqlx:"superseded_by"`
-	LinkedConversationId *string    `json:",omitempty" sqlx:"linked_conversation_id"`
-	ToolName             *string    `json:",omitempty" sqlx:"tool_name"`
-	Narration            *string    `json:",omitempty" sqlx:"preamble"`
-	Iteration            *int       `json:",omitempty" sqlx:"iteration"`
-	Phase                *string    `json:",omitempty" sqlx:"phase"`
-	AttachmentPayloadId  *string    `json:",omitempty" sqlx:"attachment_payload_id,refTable=call_payload,refColumn=id"`
-	ElicitationPayloadId *string    `json:",omitempty" sqlx:"elicitation_payload_id,refTable=call_payload,refColumn=id"`
+	Sequence             *int       `sequenceScope:"turn_id" sequenceOnNull:"allocate" sqlx:"sequence" json:"sequence,omitempty"`
+	Id                   string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	ConversationId       string     `validate:"required" json:"conversationId" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
+	Role                 string     `validate:"required" json:"role" sqlx:"role,required=true"`
+	Type                 string     `validate:"required" json:"type" sqlx:"type,required=true"`
+	EmbeddingIndex       *[]byte    `sqlx:"embedding_index" json:"embeddingIndex,omitempty"`
+	Status               *string    `json:"status" sqlx:"status"`
+	Content              *string    `json:"content" sqlx:"content"`
+	Narration            *string    `sqlx:"preamble" json:"narration,omitempty"`
+	TurnId               *string    `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
+	Archived             *int       `sqlx:"archived" json:"archived,omitempty"`
+	CreatedAt            *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt            *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	CreatedByUserId      *string    `sqlx:"created_by_user_id" json:"createdByUserId,omitempty"`
+	Mode                 *string    `sqlx:"mode" json:"mode,omitempty"`
+	RawContent           *string    `sqlx:"raw_content" json:"rawContent,omitempty"`
+	Summary              *string    `sqlx:"summary" json:"summary,omitempty"`
+	ContextSummary       *string    `sqlx:"context_summary" json:"contextSummary,omitempty"`
+	Tags                 *string    `sqlx:"tags" json:"tags,omitempty"`
+	Interim              *int       `sqlx:"interim,required=true" json:"interim,omitempty"`
+	ElicitationId        *string    `sqlx:"elicitation_id" json:"elicitationId,omitempty"`
+	ParentMessageId      *string    `sqlx:"parent_message_id" json:"parentMessageId,omitempty"`
+	SupersededBy         *string    `sqlx:"superseded_by" json:"supersededBy,omitempty"`
+	LinkedConversationId *string    `sqlx:"linked_conversation_id" json:"linkedConversationId,omitempty"`
+	AttachmentPayloadId  *string    `sqlx:"attachment_payload_id,refTable=call_payload,refColumn=id" json:"attachmentPayloadId,omitempty"`
+	ElicitationPayloadId *string    `sqlx:"elicitation_payload_id,refTable=call_payload,refColumn=id" json:"elicitationPayloadId,omitempty"`
+	ToolName             *string    `sqlx:"tool_name" json:"toolName,omitempty"`
+	Iteration            *int       `sqlx:"iteration" json:"iteration,omitempty"`
+	Phase                *string    `sqlx:"phase" json:"phase,omitempty"`
 }
 
 type WriterKeysRow struct {

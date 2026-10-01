@@ -17,7 +17,7 @@ import (
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 )
@@ -156,7 +156,7 @@ func TestFinishModelCallSetsCost_DataDriven(t *testing.T) {
 			// Price provider returns per-1k prices
 			provider := staticPriceProvider{model: c.model, inP: c.inP, outP: c.outP, cacheP: c.cacheP}
 			// Ensure conversation exists in the client store
-			if err := client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+			if err := client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")); err != nil {
 				t.Fatalf("failed to seed conversation: %v", err)
 			}
 
@@ -272,7 +272,7 @@ func TestRecorderObserver_PersistsAssistantContent_DataDriven(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := convmem.New()
 			base := memory.WithConversationID(context.Background(), "conv-1")
-			if err := client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+			if err := client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")); err != nil {
 				t.Fatalf("failed to seed conversation: %v", err)
 			}
 
@@ -369,7 +369,7 @@ func TestRecorderObserver_PropagatesUsageToParentChainWithoutCycling(t *testing.
 func TestRecorderObserver_OnCallStart_ReusesExistingFinishBarrier(t *testing.T) {
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-barrier")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-barrier", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-barrier", "")))
 
 	ctx := WithRecorderObserver(base, client)
 	ctx, originalBarrier := WithFinishBarrier(ctx)
@@ -435,7 +435,7 @@ func TestRecorderObserver_OnCallEnd_PreservesModelKind(t *testing.T) {
 	baseClient := convmem.New()
 	client := &captureModelCallClient{Client: baseClient}
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")))
 
 	ctx := WithRecorderObserver(base, client)
 	ob := ObserverFromContext(ctx)
@@ -475,7 +475,7 @@ func TestCloseIfOpen_ClosesStartedModelCall(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			client := convmem.New()
 			base := memory.WithConversationID(context.Background(), "conv-1")
-			if err := client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+			if err := client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")); err != nil {
 				t.Fatalf("failed to seed conversation: %v", err)
 			}
 
@@ -522,7 +522,7 @@ func TestRecorderObserver_OnCallEnd_UserEchoLookupIgnoresCanceledParentContext(t
 	baseClient := convmem.New()
 	client := &uncanceledGetMessageClient{Client: baseClient, t: t}
 	base := memory.WithConversationID(context.Background(), "conv-echo")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-echo", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-echo", "")))
 
 	userTurn := apiconv.NewTurn()
 	userTurn.SetId("turn-echo")
@@ -576,7 +576,7 @@ func TestRecorderObserver_OnCallEnd_UserEchoLookupIgnoresCanceledParentContext(t
 func TestOnCallEnd_DoesNotPatchConversationWhenFinishModelCallFails(t *testing.T) {
 	baseClient := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	if err := baseClient.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+	if err := baseClient.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")); err != nil {
 		t.Fatalf("failed to seed conversation: %v", err)
 	}
 
@@ -615,7 +615,7 @@ func TestRecorderObserver_OnStreamDelta_IgnoresCanceledPersistenceAndFinalizesAc
 
 	baseClient := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	if err := baseClient.PatchConversations(base, convw.NewConversationStatus("conv-1", "")); err != nil {
+	if err := baseClient.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")); err != nil {
 		t.Fatalf("failed to seed conversation: %v", err)
 	}
 
@@ -673,7 +673,7 @@ func TestRecorderObserver_OnStreamDelta_CoalescesPublishedDeltasUntilTimer(t *te
 
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")))
 
 	publisher := &captureStreamPublisher{}
 	ctx := WithRecorderObserver(WithStreamPublisher(base, publisher), client)
@@ -702,7 +702,7 @@ func TestRecorderObserver_OnCallEnd_FlushesPendingPublishedDelta(t *testing.T) {
 
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")))
 
 	publisher := &captureStreamPublisher{}
 	ctx := WithRecorderObserver(WithStreamPublisher(base, publisher), client)
@@ -731,7 +731,7 @@ func TestRecorderObserver_OnStreamDelta_DefaultBufferedFlushesOnInterval(t *test
 
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")))
 
 	ctx := WithRecorderObserver(base, client)
 	ob := ObserverFromContext(ctx)
@@ -777,7 +777,7 @@ func TestRecorderObserver_OnStreamDelta_ImmediateModePersistsEachDelta(t *testin
 
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")))
 
 	ctx := WithRecorderObserver(base, client)
 	ob := ObserverFromContext(ctx)
@@ -814,7 +814,7 @@ func TestRecorderObserver_OnStreamDelta_FinalModePersistsOnlyOnFinalize(t *testi
 
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")))
 
 	ctx := WithRecorderObserver(base, client)
 	ob := ObserverFromContext(ctx)
@@ -858,7 +858,7 @@ func TestRecorderObserver_OnStreamDelta_InvalidModeFallsBackToBuffered(t *testin
 
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")))
 
 	ctx := WithRecorderObserver(base, client)
 	ob := ObserverFromContext(ctx)
@@ -884,7 +884,7 @@ func TestRecorderObserver_OnStreamDelta_InvalidModeFallsBackToBuffered(t *testin
 func TestCloseIfOpen_CanceledBeforeFirstDeltaDoesNotPersistStreamPayload(t *testing.T) {
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-1", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-1", "")))
 
 	runCtx, cancel := context.WithCancel(base)
 	ctx := WithRecorderObserver(runCtx, client)
@@ -920,7 +920,7 @@ func TestRecorderObserver_SuppressesToolEchoAndPersistsRunMeta(t *testing.T) {
 	baseClient := convmem.New()
 	client := &capturingModelCallClient{Client: baseClient}
 	base := memory.WithConversationID(context.Background(), "conv-echo")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-echo", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-echo", "")))
 
 	user := apiconv.NewMessage()
 	user.SetId("user-1")
@@ -995,7 +995,7 @@ func TestRecorderObserver_SuppressesToolEchoAndPersistsRunMeta(t *testing.T) {
 func TestRecorderObserver_WritesProviderPayloadFiles(t *testing.T) {
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-payloads")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-payloads", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-payloads", "")))
 
 	payloadDir := filepath.Join(t.TempDir(), "payloads")
 	t.Setenv("AGENTLY_DEBUG_PAYLOAD_DIR", payloadDir)
@@ -1041,7 +1041,7 @@ func TestRecorderObserver_WritesProviderPayloadFiles(t *testing.T) {
 func TestRecorderObserver_PatchesAssistantRoleTypeAndMode(t *testing.T) {
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-assistant-meta")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-assistant-meta", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-assistant-meta", "")))
 
 	ctx := memory.WithTurnMeta(base, memory.TurnMeta{
 		ConversationID:  "conv-assistant-meta",
@@ -1085,7 +1085,7 @@ func TestRecorderObserver_PatchesAssistantRoleTypeAndMode(t *testing.T) {
 func TestRecorderObserver_OnCallStart_PersistsInterimAssistantPlaceholder(t *testing.T) {
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-no-blank")
-	require.NoError(t, client.PatchConversations(base, convw.NewConversationStatus("conv-no-blank", "")))
+	require.NoError(t, client.PatchConversations(base, conversationmodel.NewConversationStatus("conv-no-blank", "")))
 
 	ctx := memory.WithTurnMeta(base, memory.TurnMeta{
 		ConversationID:  "conv-no-blank",

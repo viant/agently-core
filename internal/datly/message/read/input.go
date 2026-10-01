@@ -28,7 +28,6 @@ type MessagesInput struct {
 	IncludeToolCall       bool              `parameter:"IncludeToolCall,kind=query,in=includeToolCall,dataType=bool,value=false,required=false" predicate:"expr,group=3,?"`
 	Internal              bool              `parameter:"Internal,kind=messageaccess,in=internal,dataType=bool,required=true"`
 	ReadMode              string            `parameter:"ReadMode,kind=messageaccess,in=mode,dataType=string,required=true"`
-	LockRows              bool              `parameter:"LockRows,kind=messageaccess,in=lock,dataType=bool,required=false"`
 	VisibilitySubject     *string           `parameter:"VisibilitySubject,kind=visibility,in=subject,dataType=*string,required=true"`
 	ElicitationId         string            `parameter:"ElicitationId,kind=query,in=elicitationId,dataType=string,required=false" predicate:"equal,group=4,m,elicitation_id"`
 	LinkedConversationId  string            `parameter:"LinkedConversationId,kind=query,in=linkedConversationId,dataType=string,required=false" predicate:"equal,group=4,m,linked_conversation_id"`
@@ -64,7 +63,6 @@ type MessagesInputHas struct {
 	IncludeToolCall       bool
 	Internal              bool
 	ReadMode              bool
-	LockRows              bool
 	VisibilitySubject     bool
 	ElicitationId         bool
 	LinkedConversationId  bool

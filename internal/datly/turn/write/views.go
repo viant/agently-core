@@ -8,24 +8,24 @@ import (
 
 // Turn is generated canonical view metadata for writer.
 type Turn struct {
-	ShouldDelete          bool       `json:",omitempty" sqlx:"-" writer:"delete"`
-	Id                    string     `validate:"required" sqlx:"id,primaryKey"`
-	ConversationId        string     `validate:"required" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	CreatedAt             *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	QueueSeq              *int64     `json:",omitempty" sqlx:"queue_seq"`
-	Origin                *string    `json:",omitempty" sqlx:"origin"`
-	GoalId                *string    `json:",omitempty" sqlx:"goal_id"`
-	StatusReason          *string    `json:",omitempty" sqlx:"status_reason"`
-	Status                string     `validate:"required" sqlx:"status,required=true"`
-	StartedByMessageId    *string    `json:",omitempty" sqlx:"started_by_message_id"`
-	RetryOf               *string    `json:",omitempty" sqlx:"retry_of"`
-	AgentIdUsed           *string    `json:",omitempty" sqlx:"agent_id_used"`
-	AgentConfigUsedId     *string    `json:",omitempty" sqlx:"agent_config_used_id"`
-	ModelOverrideProvider *string    `json:",omitempty" sqlx:"model_override_provider"`
-	ModelOverride         *string    `json:",omitempty" sqlx:"model_override"`
-	ModelParamsOverride   *string    `json:",omitempty" sqlx:"model_params_override"`
-	RunId                 *string    `json:",omitempty" sqlx:"run_id"`
-	ErrorMessage          *string    `json:",omitempty" sqlx:"error_message"`
+	ShouldDelete          bool       `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	Id                    string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	ConversationId        string     `validate:"required" json:"conversationId" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
+	QueueSeq              *int64     `sqlx:"queue_seq" json:"queueSeq,omitempty"`
+	Status                string     `validate:"required" json:"status" sqlx:"status,required=true"`
+	CreatedAt             *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	Origin                *string    `sqlx:"origin" json:"origin,omitempty"`
+	GoalId                *string    `sqlx:"goal_id" json:"goalId,omitempty"`
+	StatusReason          *string    `sqlx:"status_reason" json:"statusReason,omitempty"`
+	ErrorMessage          *string    `sqlx:"error_message" json:"errorMessage,omitempty"`
+	StartedByMessageId    *string    `sqlx:"started_by_message_id" json:"startedByMessageId,omitempty"`
+	RetryOf               *string    `sqlx:"retry_of" json:"retryOf,omitempty"`
+	AgentIdUsed           *string    `sqlx:"agent_id_used" json:"agentIdUsed,omitempty"`
+	AgentConfigUsedId     *string    `sqlx:"agent_config_used_id" json:"agentConfigUsedId,omitempty"`
+	ModelOverrideProvider *string    `sqlx:"model_override_provider" json:"modelOverrideProvider,omitempty"`
+	ModelOverride         *string    `sqlx:"model_override" json:"modelOverride,omitempty"`
+	ModelParamsOverride   *string    `sqlx:"model_params_override" json:"modelParamsOverride,omitempty"`
+	RunId                 *string    `sqlx:"run_id" json:"runId,omitempty"`
 	Has                   *TurnHas   `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"TurnHas"`
 }
 
@@ -33,12 +33,13 @@ type TurnHas struct {
 	ShouldDelete          bool
 	Id                    bool
 	ConversationId        bool
-	CreatedAt             bool
 	QueueSeq              bool
+	Status                bool
+	CreatedAt             bool
 	Origin                bool
 	GoalId                bool
 	StatusReason          bool
-	Status                bool
+	ErrorMessage          bool
 	StartedByMessageId    bool
 	RetryOf               bool
 	AgentIdUsed           bool
@@ -47,28 +48,27 @@ type TurnHas struct {
 	ModelOverride         bool
 	ModelParamsOverride   bool
 	RunId                 bool
-	ErrorMessage          bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id                    string     `validate:"required" sqlx:"id,primaryKey"`
-	ConversationId        string     `validate:"required" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
-	CreatedAt             *time.Time `json:",omitempty" sqlx:"created_at,required=true"`
-	QueueSeq              *int64     `json:",omitempty" sqlx:"queue_seq"`
-	Origin                *string    `json:",omitempty" sqlx:"origin"`
-	GoalId                *string    `json:",omitempty" sqlx:"goal_id"`
-	StatusReason          *string    `json:",omitempty" sqlx:"status_reason"`
-	Status                string     `validate:"required" sqlx:"status,required=true"`
-	StartedByMessageId    *string    `json:",omitempty" sqlx:"started_by_message_id"`
-	RetryOf               *string    `json:",omitempty" sqlx:"retry_of"`
-	AgentIdUsed           *string    `json:",omitempty" sqlx:"agent_id_used"`
-	AgentConfigUsedId     *string    `json:",omitempty" sqlx:"agent_config_used_id"`
-	ModelOverrideProvider *string    `json:",omitempty" sqlx:"model_override_provider"`
-	ModelOverride         *string    `json:",omitempty" sqlx:"model_override"`
-	ModelParamsOverride   *string    `json:",omitempty" sqlx:"model_params_override"`
-	RunId                 *string    `json:",omitempty" sqlx:"run_id"`
-	ErrorMessage          *string    `json:",omitempty" sqlx:"error_message"`
+	Id                    string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	ConversationId        string     `validate:"required" json:"conversationId" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
+	QueueSeq              *int64     `sqlx:"queue_seq" json:"queueSeq,omitempty"`
+	Status                string     `validate:"required" json:"status" sqlx:"status,required=true"`
+	CreatedAt             *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	Origin                *string    `sqlx:"origin" json:"origin,omitempty"`
+	GoalId                *string    `sqlx:"goal_id" json:"goalId,omitempty"`
+	StatusReason          *string    `sqlx:"status_reason" json:"statusReason,omitempty"`
+	ErrorMessage          *string    `sqlx:"error_message" json:"errorMessage,omitempty"`
+	StartedByMessageId    *string    `sqlx:"started_by_message_id" json:"startedByMessageId,omitempty"`
+	RetryOf               *string    `sqlx:"retry_of" json:"retryOf,omitempty"`
+	AgentIdUsed           *string    `sqlx:"agent_id_used" json:"agentIdUsed,omitempty"`
+	AgentConfigUsedId     *string    `sqlx:"agent_config_used_id" json:"agentConfigUsedId,omitempty"`
+	ModelOverrideProvider *string    `sqlx:"model_override_provider" json:"modelOverrideProvider,omitempty"`
+	ModelOverride         *string    `sqlx:"model_override" json:"modelOverride,omitempty"`
+	ModelParamsOverride   *string    `sqlx:"model_params_override" json:"modelParamsOverride,omitempty"`
+	RunId                 *string    `sqlx:"run_id" json:"runId,omitempty"`
 }
 
 type WriterKeysRow struct {

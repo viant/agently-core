@@ -8,20 +8,20 @@ import (
 
 // SharedArtifact is generated canonical view metadata for writer.
 type SharedArtifact struct {
-	ShouldDelete         bool               `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
-	ArtifactId           string             `json:"artifactId,omitempty" sqlx:"artifact_id,primaryKey"`
-	ArtifactRef          string             `json:"artifactRef,omitempty" sqlx:"artifact_ref,required=true"`
-	OwnerId              string             `json:"ownerId,omitempty" sqlx:"owner_id,required=true"`
-	OwnerRef             string             `json:"ownerRef,omitempty" sqlx:"owner_ref"`
-	Kind                 string             `json:"kind,omitempty" sqlx:"kind,required=true"`
-	Lifecycle            string             `json:"lifecycle,omitempty" sqlx:"lifecycle,required=true"`
-	Version              int                `json:"version,omitempty" sqlx:"version,required=true"`
-	ReportId             string             `json:"reportId,omitempty" sqlx:"report_id"`
-	Title                string             `json:"title,omitempty" sqlx:"title"`
-	SourceArtifactId     string             `json:"sourceArtifactId,omitempty" sqlx:"source_artifact_id"`
-	BaseArtifactRef      string             `json:"baseArtifactRef,omitempty" sqlx:"base_artifact_ref"`
-	PolicyRef            string             `json:"policyRef,omitempty" sqlx:"policy_ref"`
-	DocumentVersion      int                `json:"documentVersion,omitempty" sqlx:"document_version,required=true"`
+	ShouldDelete         bool               `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	ArtifactId           string             `sqlx:"artifact_id,primaryKey" json:"artifactId,omitempty"`
+	ArtifactRef          string             `sqlx:"artifact_ref,required=true" json:"artifactRef,omitempty"`
+	OwnerId              string             `sqlx:"owner_id,required=true" json:"ownerId,omitempty"`
+	OwnerRef             string             `sqlx:"owner_ref" json:"ownerRef,omitempty"`
+	Kind                 string             `sqlx:"kind,required=true" json:"kind,omitempty"`
+	Lifecycle            string             `sqlx:"lifecycle,required=true" json:"lifecycle,omitempty"`
+	Version              int                `sqlx:"version,required=true" json:"version,omitempty"`
+	ReportId             string             `sqlx:"report_id" json:"reportId,omitempty"`
+	Title                string             `sqlx:"title" json:"title,omitempty"`
+	SourceArtifactId     string             `sqlx:"source_artifact_id" json:"sourceArtifactId,omitempty"`
+	BaseArtifactRef      string             `sqlx:"base_artifact_ref" json:"baseArtifactRef,omitempty"`
+	PolicyRef            string             `sqlx:"policy_ref" json:"policyRef,omitempty"`
+	DocumentVersion      int                `sqlx:"document_version,required=true" json:"documentVersion,omitempty"`
 	ReportDocumentJson   []byte             `json:"document,omitempty" sqlx:"report_document_json"`
 	ReportSpecJson       []byte             `json:"reportSpec,omitempty" sqlx:"report_spec_json"`
 	CompileStateJson     []byte             `json:"compileState,omitempty" sqlx:"compile_state_json"`
@@ -29,8 +29,8 @@ type SharedArtifact struct {
 	ReportPrintJson      []byte             `json:"reportPrint,omitempty" sqlx:"report_print_json"`
 	SavedViewOverlayJson []byte             `json:"savedViewOverlay,omitempty" sqlx:"saved_view_overlay_json"`
 	MetadataJson         []byte             `json:"metadata,omitempty" sqlx:"metadata_json"`
-	CreatedAt            time.Time          `json:"createdAt,omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt            *time.Time         `json:"updatedAt,omitempty" sqlx:"updated_at"`
+	CreatedAt            time.Time          `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt            *time.Time         `sqlx:"updated_at" json:"updatedAt,omitempty"`
 	Has                  *SharedArtifactHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"SharedArtifactHas"`
 }
 
@@ -62,19 +62,19 @@ type SharedArtifactHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	ArtifactId           string     `json:"artifactId,omitempty" sqlx:"artifact_id,primaryKey"`
-	ArtifactRef          string     `json:"artifactRef,omitempty" sqlx:"artifact_ref,required=true"`
-	OwnerId              string     `json:"ownerId,omitempty" sqlx:"owner_id,required=true"`
-	OwnerRef             string     `json:"ownerRef,omitempty" sqlx:"owner_ref"`
-	Kind                 string     `json:"kind,omitempty" sqlx:"kind,required=true"`
-	Lifecycle            string     `json:"lifecycle,omitempty" sqlx:"lifecycle,required=true"`
-	Version              int        `json:"version,omitempty" sqlx:"version,required=true"`
-	ReportId             string     `json:"reportId,omitempty" sqlx:"report_id"`
-	Title                string     `json:"title,omitempty" sqlx:"title"`
-	SourceArtifactId     string     `json:"sourceArtifactId,omitempty" sqlx:"source_artifact_id"`
-	BaseArtifactRef      string     `json:"baseArtifactRef,omitempty" sqlx:"base_artifact_ref"`
-	PolicyRef            string     `json:"policyRef,omitempty" sqlx:"policy_ref"`
-	DocumentVersion      int        `json:"documentVersion,omitempty" sqlx:"document_version,required=true"`
+	ArtifactId           string     `sqlx:"artifact_id,primaryKey" json:"artifactId,omitempty"`
+	ArtifactRef          string     `sqlx:"artifact_ref,required=true" json:"artifactRef,omitempty"`
+	OwnerId              string     `sqlx:"owner_id,required=true" json:"ownerId,omitempty"`
+	OwnerRef             string     `sqlx:"owner_ref" json:"ownerRef,omitempty"`
+	Kind                 string     `sqlx:"kind,required=true" json:"kind,omitempty"`
+	Lifecycle            string     `sqlx:"lifecycle,required=true" json:"lifecycle,omitempty"`
+	Version              int        `sqlx:"version,required=true" json:"version,omitempty"`
+	ReportId             string     `sqlx:"report_id" json:"reportId,omitempty"`
+	Title                string     `sqlx:"title" json:"title,omitempty"`
+	SourceArtifactId     string     `sqlx:"source_artifact_id" json:"sourceArtifactId,omitempty"`
+	BaseArtifactRef      string     `sqlx:"base_artifact_ref" json:"baseArtifactRef,omitempty"`
+	PolicyRef            string     `sqlx:"policy_ref" json:"policyRef,omitempty"`
+	DocumentVersion      int        `sqlx:"document_version,required=true" json:"documentVersion,omitempty"`
 	ReportDocumentJson   []byte     `json:"document,omitempty" sqlx:"report_document_json"`
 	ReportSpecJson       []byte     `json:"reportSpec,omitempty" sqlx:"report_spec_json"`
 	CompileStateJson     []byte     `json:"compileState,omitempty" sqlx:"compile_state_json"`
@@ -82,8 +82,8 @@ type CurrentWriterView struct {
 	ReportPrintJson      []byte     `json:"reportPrint,omitempty" sqlx:"report_print_json"`
 	SavedViewOverlayJson []byte     `json:"savedViewOverlay,omitempty" sqlx:"saved_view_overlay_json"`
 	MetadataJson         []byte     `json:"metadata,omitempty" sqlx:"metadata_json"`
-	CreatedAt            time.Time  `json:"createdAt,omitempty" sqlx:"created_at,required=true"`
-	UpdatedAt            *time.Time `json:"updatedAt,omitempty" sqlx:"updated_at"`
+	CreatedAt            time.Time  `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt            *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
 }
 
 type WriterKeysRow struct {

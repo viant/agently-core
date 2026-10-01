@@ -66,6 +66,16 @@ func (entity *Token) SetVersion(value int64) {
 	}
 	entity.Has.Version = true
 }
+func (entity *Token) GetRefreshStatus() string {
+	return entity.RefreshStatus
+}
+func (entity *Token) SetRefreshStatus(value string) {
+	entity.RefreshStatus = value
+	if entity.Has == nil {
+		entity.Has = &TokenHas{}
+	}
+	entity.Has.RefreshStatus = true
+}
 func (entity *Token) GetLeaseOwner() *string {
 	return entity.LeaseOwner
 }
@@ -85,14 +95,4 @@ func (entity *Token) SetLeaseUntil(value *time.Time) {
 		entity.Has = &TokenHas{}
 	}
 	entity.Has.LeaseUntil = true
-}
-func (entity *Token) GetRefreshStatus() string {
-	return entity.RefreshStatus
-}
-func (entity *Token) SetRefreshStatus(value string) {
-	entity.RefreshStatus = value
-	if entity.Has == nil {
-		entity.Has = &TokenHas{}
-	}
-	entity.Has.RefreshStatus = true
 }
