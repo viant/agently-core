@@ -193,10 +193,6 @@ func validTechnicalMaintenanceKind(kind TechnicalMaintenanceKind) bool {
 	return false
 }
 
-func encodeTechnicalMaintenanceCursor(rule technicalMaintenanceRule, recordID string) string {
-	return fmt.Sprintf("%04d%s%s%s%s", rule.Priority, technicalMaintenanceCursorSeparator, rule.Kind, technicalMaintenanceCursorSeparator, recordID)
-}
-
 func decodeTechnicalMaintenanceCursor(cursor string) (int, TechnicalMaintenanceKind, string, error) {
 	if cursor == "" {
 		return 0, "", "", nil

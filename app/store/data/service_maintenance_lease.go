@@ -125,10 +125,6 @@ func validateMaintenanceLease(lease MaintenanceLease) error {
 	return nil
 }
 
-func isMaintenanceMySQLDriver(driver string) bool {
-	return strings.Contains(strings.ToLower(strings.TrimSpace(driver)), "mysql")
-}
-
 func isMaintenanceSQLiteDriver(driver string) bool {
 	return strings.Contains(strings.ToLower(strings.TrimSpace(driver)), "sqlite")
 }

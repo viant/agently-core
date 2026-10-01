@@ -11,7 +11,6 @@ import (
 	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
 	agrunsteps "github.com/viant/agently-core/pkg/agently/run/steps"
 	agturnlistall "github.com/viant/agently-core/pkg/agently/turn/list"
-	hstate "github.com/viant/xdatly/state"
 )
 
 type Direction string
@@ -71,25 +70,6 @@ func normalizePageInput(page *PageInput) (int, Direction, string) {
 		direction = DirectionBefore
 	}
 	return limit, direction, page.Cursor
-}
-
-func buildPageSelector(viewName string, limit int) Option {
-	return WithQuerySelector(&hstate.NamedSelector{
-		Name: viewName,
-		Selector: hstate.Selector{
-			Limit: limit + 1, // read one extra row to calculate hasMore
-		},
-	})
-}
-
-func buildMessagePageSelector(limit int) Option {
-	return WithQuerySelector(&hstate.NamedSelector{
-		Name: "message_rows",
-		Selector: hstate.Selector{
-			Limit:   limit + 1, // read one extra row to calculate hasMore
-			OrderBy: "created_at DESC,id DESC",
-		},
-	})
 }
 
 func buildConversationPage(rows []*agconvlist.ConversationRowsView, limit int, direction Direction, cursor string) *ConversationPage {
@@ -205,24 +185,6 @@ func buildRunStepPage(rows []*agrunsteps.RunStepsView, limit int) *RunStepPage {
 		page.NextCursor = page.Rows[len(page.Rows)-1].MessageId
 	}
 	return page
-}
-
-func hasNamedSelector(opts []Option, names ...string) bool {
-	callOpts := collectOptions(opts)
-	if len(callOpts.selectors) == 0 {
-		return false
-	}
-	for _, selector := range callOpts.selectors {
-		if selector == nil {
-			continue
-		}
-		for _, name := range names {
-			if selector.Name == name {
-				return true
-			}
-		}
-	}
-	return false
 }
 
 func (s *datlyService) ListConversations(ctx context.Context, in *agconvlist.ConversationRowsInput, page *PageInput, opts ...Option) (*ConversationPage, error) {

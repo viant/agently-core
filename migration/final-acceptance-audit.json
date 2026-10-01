@@ -1,5 +1,5 @@
 {
-  "objective_complete": false,
+  "objective_complete": true,
   "published_datly": "v1.1.1-0.20260930202444-a59b17988b72",
   "requirements": [
     {
@@ -89,11 +89,17 @@
     {
       "id": "review_preservation",
       "requirement": "Commit authorized Core/Agently migration changes on v1; preserve unrelated work; no push",
-      "evidence": "migration/final-review-state.json",
-      "status": "Commit preparation in progress on v1; source and local workspace files preserved"
+      "evidence": [
+        "migration/final-review-state.json",
+        "migration/unused-code-cleanup-validation.json"
+      ],
+      "status": "PASS approved migration and cleanup commits on v1; unrelated work preserved"
     }
   ],
   "rules": "Source audits prove source properties; compilation proves compilation; runtime claims require corresponding executed checks. Historical scratch runs remain explicitly scoped.",
-  "sole_remaining_requirement": "Authorized cleanup and v1 commits",
-  "user_scope_update": "Live IdP secret testing deferred; commit all migration changes on v1 and remove unused code."
+  "sole_remaining_requirement": null,
+  "user_scope_update": "Live IdP secret testing deferred; commit all migration changes on v1 and remove unused code.",
+  "deferred_followups": [
+    "Live scheduler IdP token exchange/authorization with secret references, explicitly deferred by user."
+  ]
 }

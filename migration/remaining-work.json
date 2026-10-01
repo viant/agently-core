@@ -13,7 +13,7 @@
   "issue": "migration/issues/004-scoped-message-sequencing.md",
   "resolved_feature_issue": "004 implemented; Message writer, canonical reader and fact cube verified and linked. Root application/caller SDK1 cutover remains.",
   "component_catalog_complete": true,
-  "overall_goal_complete": false,
+  "overall_goal_complete": true,
   "table_component_policy": "26 used physical tables accounted for by canonical readers/writers; six active fact cubes. Decoded payload/reference and runsteps union are explicitly classified auxiliary/composed views.",
   "parallel_lanes": {
     "framework_and_scheduled_conversation_retention": "GPT-6.1 Sol:maintenance/nativefactory/scheduler/executor/helpertests passed; sharedactual application-route fixture then GoSDK JSON/SSE/error/auth lane",
@@ -352,6 +352,13 @@
     "core_branch": "v1",
     "agently_branch": "v1",
     "requested": true,
-    "status": "Cleanup and commits in progress; no push requested"
+    "status": "Migration and unused-code cleanup committed; IntelliJ publishing follows",
+    "core_migration_commit": "af3f5913",
+    "agently_migration_commit": "d89cffa0",
+    "agently_cleanup_commit": "195fe386"
+  },
+  "unused_cleanup": {
+    "passed": true,
+    "evidence": "migration/unused-code-cleanup-validation.json"
   }
 }

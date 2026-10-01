@@ -81,31 +81,6 @@ func conversationDeleteDiagPhaseDone(ctx context.Context, phase string, started 
 	diagnostics.logDone(phase, started, err, details)
 }
 
-func conversationDeleteDiagSQLStart(ctx context.Context, kind, statement string, idCount, chunk, chunks int) time.Time {
-	diagnostics := conversationDeleteDiagnosticsFromContext(ctx)
-	if diagnostics == nil {
-		return time.Time{}
-	}
-	diagnostics.logf("phase=sql event=start kind=%s statement=%q ids=%d chunk=%d chunks=%d",
-		kind, compactConversationDeleteStatement(statement), idCount, chunk, chunks)
-	return time.Now()
-}
-
-func conversationDeleteDiagSQLDone(ctx context.Context, kind, statement string, idCount, chunk, chunks, rows int, affected int64, started time.Time, err error) {
-	diagnostics := conversationDeleteDiagnosticsFromContext(ctx)
-	if diagnostics == nil {
-		return
-	}
-	details := fmt.Sprintf("kind=%s statement=%q ids=%d chunk=%d chunks=%d",
-		kind, compactConversationDeleteStatement(statement), idCount, chunk, chunks)
-	if kind == "exec" {
-		details += fmt.Sprintf(" affected=%d", affected)
-	} else {
-		details += fmt.Sprintf(" rows=%d", rows)
-	}
-	diagnostics.logDone("sql", started, err, details)
-}
-
 func (d *conversationDeleteDiagnostics) logDone(phase string, started time.Time, err error, details string) {
 	elapsed := time.Duration(0)
 	if !started.IsZero() {

@@ -20,10 +20,19 @@
     "tracked_change_count": 0
   },
   "preservation": {
-    "core_migration_committed": false,
-    "agently_migration_committed": false,
+    "core_migration_committed": true,
+    "agently_migration_committed": true,
     "agent_pushed_datly": false,
     "original_checkout_source_modified_by_final_audit": false,
     "layout": "Root DQL and one production Core module; frozen legacyprobe remains isolated test-only"
+  },
+  "snapshot_scope": "Source heads previously recorded before authorized commits; current commit policy supersedes uncommitted preservation.",
+  "commit_authorization": {
+    "user_requested": true,
+    "branch": "v1",
+    "core_base_commit": "af3f5913",
+    "agently_base_commit": "d89cffa0",
+    "agently_cleanup_commit": "195fe386",
+    "core_cleanup": "Included with this final record"
   }
 }
