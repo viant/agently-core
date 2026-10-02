@@ -1,0 +1,47 @@
+{
+  "objective_complete": false,
+  "core_revision": "13cdedf4",
+  "datly_revision": "5425a1af1f86",
+  "sqlx_revision": "c707e294db3b",
+  "generation": {
+    "command": "endly -r=build && endly -r=regeneration",
+    "scope": "Isolated git archive of committed Core; all 65 DQL contracts, including three base readers; 947 internal/datly files compared",
+    "result": "PASS; regenerated tree byte-identical",
+    "regeneration_milliseconds": 80989,
+    "log": "/tmp/agently-core-final-regeneration.log"
+  },
+  "full_core_tests": {
+    "command": "go test ./...",
+    "result": "FAIL",
+    "log": "/tmp/agently-core-final-verification.log",
+    "failed_packages": ["app/store/data", "app/store/native"],
+    "failed_tests": 8,
+    "failure": "Existing SQLite maintenance expressions cannot be parsed by the published SQLparser dependency; proposed dependency correction awaits approval",
+    "other_packages": "PASS, including executor, message contracts and scheduler"
+  },
+  "application_build": {
+    "command": "GOWORK=off go build -modfile=/tmp/agently-current-core-build/go.mod -mod=readonly -o /tmp/agently-current-core-v1 ./agently",
+    "result": "PASS",
+    "scope": "Current local Core through private modfile; does not prove the published application includes this revision"
+  },
+  "schema_and_source": {
+    "original_mysql_schema_comparison": "PASS; all three MySQL DDL files byte-identical to original Core",
+    "active_sequence_ledger_metadata": "Absent from DQL/generated sources",
+    "store_sdk_sqlx_tag_reflection": "Absent from app, internal/store and sdk"
+  },
+  "fresh_live_query": {
+    "mysql": "PASS; returned migration verified; transcript includes request, assistant reply and model payloads",
+    "mysql_conversation": "b86278f3-eba5-4afa-8353-21ca4c0e535d",
+    "sqlite": "FAIL; HTTP 500 observer OnCallStart: database table is locked: message",
+    "scope": "Rebuilt local binary with actual IdP OOB credentials and Mercury model; existing owned fixtures"
+  },
+  "remaining": [
+    "Diagnose and correct fresh SQLite conversation message-table lock",
+    "Approve/publish the SQLparser dependency correction and rerun maintenance/full-suite gates",
+    "Complete queued-turn cancellation, tooltip and live skill/MCP activation checks",
+    "Refresh expired UI OAuth session and finish browser verification",
+    "Finish legacy DTO authority/unused-code audit",
+    "Publish final Core revision and pin Agently to it; current remote Core v1 is 8dc2927f"
+  ],
+  "historical_evidence": "Earlier checkpoint manifests remain historical; this record does not claim full migration acceptance"
+}

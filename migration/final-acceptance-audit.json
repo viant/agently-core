@@ -105,10 +105,10 @@
   "current_verification_date": "2026-10-01",
   "historical_evidence_scope": "Requirement results below record the September 30 checkpoint. They do not prove the October 1 simplification/public type changes.",
   "current_blockers": [
-    "Generated message CurrentWriter SQL references Go alias Narration rather than physical preamble; fix and regeneration pending.",
-    "Current full Core tests fail; cube source/filter and output casing failures require resolution.",
-    "Original versus v1 plain/tool/attachment transcript and database comparison pending.",
-    "Live UI/CLI query/transcript verification on SQLite and MySQL pending.",
-    "New Datly compiler commits require published revision pin and reproducible final generation."
+    "Current authoritative checkpoint: migration/current-verification-20261001.json; prior requirement PASS records are historical.",
+    "Full Core suite has eight maintenance failures in Data/Native from published SQLparser limitations; dependency correction awaits approval.",
+    "Fresh rebuilt SQLite conversation fails observer OnCallStart with database table is locked: message; diagnosis ongoing.",
+    "Queued-turn cancellation, tooltip, live skill/MCP activation and legacy DTO audit remain incomplete.",
+    "Final Core revision must be published and pinned in Agently."
   ]
 }
