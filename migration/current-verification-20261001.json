@@ -56,6 +56,20 @@
     "result": "PASS",
     "scope": "Current local Core through private modfile; does not prove the published application includes this revision"
   },
+  "latest_application_tests": {
+    "command": "GOWORK=off go test -modfile=/tmp/agently-current-core-build/go.mod -mod=readonly ./...",
+    "result": "PASS",
+    "log": "/tmp/agently-final66-app-tests.log",
+    "scope": "Whole Agently suite against the current local Core candidate; published application remains pinned to older Core"
+  },
+  "fresh_original_mysql_coder_task": {
+    "conversation": "35c802b7-b7d7-410f-b588-f66b1a2aec6c",
+    "result": "PASS; CLI completed and transcript records failing test, one-line perl correction, and passing test",
+    "scope": "Fresh owned Go module outside all repositories; original-schema MySQL backend; temporary agent advertises system/exec only",
+    "fixture_change": "Add changed from return a - b to return a + b",
+    "independent_check": "go test -count=1 ./... PASS 0.389s",
+    "earlier_attempt": "A different fixture agent retained repository-summary instructions and timed out; its result is not used as this task's passing evidence"
+  },
   "javascript_unit_checks": {
     "ui": {
       "command": "APPSERVER_URL=http://127.0.0.1:53702 npm test",
