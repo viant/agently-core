@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/go-sql-driver/mysql"
 	"github.com/mattn/go-sqlite3"
 	read "github.com/viant/agently-core/internal/datly/toolexecutionclaim/read"
 	write "github.com/viant/agently-core/internal/datly/toolexecutionclaim/write"
@@ -16,6 +15,7 @@ import (
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
 	"github.com/viant/datly/spec"
+	"github.com/viant/sqlx/io/errx"
 )
 
 // Store owns the claim protocol while generated components own every read and
@@ -134,15 +134,7 @@ func (s *Store) Finish(ctx context.Context, key, state string, finishedAt time.T
 	return err
 }
 
-func isUniqueViolation(err error) bool {
-	var mysqlErr *mysql.MySQLError
-	if errors.As(err, &mysqlErr) && mysqlErr.Number == 1062 {
-		return true
-	}
-	var sqliteErr sqlite3.Error
-	return errors.As(err, &sqliteErr) && sqliteErr.Code == sqlite3.ErrConstraint &&
-		(sqliteErr.ExtendedCode == sqlite3.ErrConstraintPrimaryKey || sqliteErr.ExtendedCode == sqlite3.ErrConstraintUnique)
-}
+func isUniqueViolation(err error) bool { return errx.IsDuplicateKey(err) }
 
 func isSQLiteLock(err error) bool {
 	var sqliteErr sqlite3.Error
