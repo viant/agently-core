@@ -1,8 +1,0 @@
-=== RUN   TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses
-    service_orphan_maintenance_mysql_test.go:176: MySQL orphan dry-run: controlled_candidates=8
-    service_orphan_maintenance_mysql_test.go:210: MySQL orphan maintenance: results=map[deleted:5 detached:2 no_longer_eligible:1]
---- PASS: TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses (4.59s)
-=== RUN   TestMaintainOrphanCandidate_MySQLInvestigationEligibilityAndRecheck
---- PASS: TestMaintainOrphanCandidate_MySQLInvestigationEligibilityAndRecheck (2.87s)
-PASS
-ok  	github.com/viant/agently-core/app/store/data	8.561s

@@ -31,7 +31,7 @@ func legacyProbeBinary(t *testing.T, project string) string {
 		}
 		legacyProbeBuild.binary = filepath.Join(legacyProbeBuild.directory, "legacyprobe")
 		command := exec.Command("go", "build", "-mod=mod", "-o", legacyProbeBuild.binary, ".")
-		command.Dir = filepath.Join(root, "migration", "legacyprobe")
+		command.Dir = filepath.Join(root, "internal", "datly", "contracttest", "testdata", "legacyprobe")
 		command.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=")
 		output, err := command.CombinedOutput()
 		if err != nil {
