@@ -2,7 +2,6 @@ package conversation
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -127,16 +126,9 @@ func (s *Service) getConversationNative(ctx context.Context, id string, options 
 	if err != nil {
 		return nil, err
 	}
-	encoded, err := json.Marshal(row)
-	if err != nil {
-		return nil, fmt.Errorf("encode native conversation: %w", err)
-	}
-	var result convcli.Conversation
-	if err := json.Unmarshal(encoded, &result); err != nil {
-		return nil, fmt.Errorf("decode conversation contract: %w", err)
-	}
+	result := (*convcli.Conversation)(row)
 	pruneBlankAssistantPlaceholders(result.Transcript)
-	return &result, nil
+	return result, nil
 }
 
 func nativeConversationQuery(input *convcli.Input) *read.ConversationInput {

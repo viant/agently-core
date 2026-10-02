@@ -111,5 +111,44 @@
     "Live Datly reader skill activation followed by components invocation passes on SQLite and original-schema MySQL; both identity-routing issues are resolved.",
     "Native HTTP queued-turn cancellation passes SQLite/MySQL; browser flow, tooltip and legacy DTO audit remain incomplete.",
     "Final Core revision must be published and pinned in Agently."
-  ]
+  ],
+  "authoritative_current_verification": "current_verification_20261002",
+  "prior_sections_scope": "Historical checkpoints; use current_verification_20261002 for current acceptance state.",
+  "current_verification_20261002": {
+    "date": "2026-10-02",
+    "authoritative": true,
+    "objective_complete": false,
+    "core_revision": "e1d5abbc",
+    "publication": {
+      "core_v1": "Local e1d5abbc; remote v1 verified d35a0af92f28f4d08c59d1664d6ecfe7786cf66e on 2026-10-02. Publication pending.",
+      "datly": "v1.1.1-0.20261002040859-26c14e55af80",
+      "sqlparser": "v0.13.1-0.20261001210110-82d5588e4251"
+    },
+    "full_core_tests": {
+      "command": "GOWORK=off go test -p=2 -timeout=20m ./...",
+      "log": "/tmp/agently-core-published-dependencies-final.log",
+      "result": "PASS; all package outcomes are successful or no-test-file entries; no FAIL entries",
+      "verified_packages": {
+        "app/executor_seconds": 111.997,
+        "app/store/data_seconds": 350.249,
+        "app/store/native_seconds": 224.912,
+        "sdk_seconds": 17.379
+      },
+      "resolved_historical_failures": "Eight published SQLparser maintenance failures resolved by published parser correction; corrected detach child-request assertion passes in the full suite."
+    },
+    "model_authority": {
+      "evidence": "migration/model-authority.json",
+      "classification": "11 generated aliases and 57 intentionally distinct concrete facade declarations in the tracked original families",
+      "acceptance": "Concrete declaration count does not constitute an unfulfilled blanket alias requirement. Public inputs, presence/control semantics, output envelopes, aggregates and narrow projections retain distinct contracts.",
+      "unused_candidates": "ScheduleListInput/ScheduleRunDueListInput and their route constants have no current Core/App references; exported API compatibility governs removal. Output envelope types with no local production references remain exported compatibility candidates."
+    },
+    "remaining": [
+      "Complete browser OAuth and tooltip acceptance; browser cancellation/live UI acceptance remains open. No new browser evidence is claimed.",
+      "Update Agently to actual final published Core/Datly/parser dependencies, run application tests/build against those dependencies, and publish the application revision.",
+      "Preserve and remove newly generated untracked runtime artifacts after final gates; verify final clean repository state.",
+      "Investigate and resolve the newly identified performance regression; measurement is in progress in the coordinating task. This gate is open."
+    ],
+    "change_scope": "No Datly changes are approved. Core JSON-copy removal uses an existing generated pointer conversion; full transcript wire snapshot is byte-identical and internal/service/conversation tests pass (22.441s). Performance regression remains open.",
+    "historical_scope": "All earlier checkpoint sections are preserved as historical evidence. Their parser failure/publication blockers and remaining blanket model-alias interpretations are superseded by this section."
+  }
 }

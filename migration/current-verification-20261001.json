@@ -32,7 +32,10 @@
     "command": "go test ./...",
     "result": "FAIL",
     "log": "/tmp/agently-core-final-verification.log",
-    "failed_packages": ["app/store/data", "app/store/native"],
+    "failed_packages": [
+      "app/store/data",
+      "app/store/native"
+    ],
     "failed_tests": 8,
     "failure": "Existing SQLite maintenance expressions cannot be parsed by the published SQLparser dependency; proposed dependency correction awaits approval",
     "other_packages": "PASS, including executor, message contracts and scheduler"
@@ -56,7 +59,10 @@
     "command": "GOWORK=off go test ./...",
     "result": "FAIL; exactly eight known SQLparser maintenance tests in Data/Native",
     "log": "/tmp/agently-core-final66-full-tests.log",
-    "failed_packages": {"app/store/data": 419.237, "app/store/native": 309.345},
+    "failed_packages": {
+      "app/store/data": 419.237,
+      "app/store/native": 309.345
+    },
     "other_packages": "PASS; previous fork assertion, malformed-heartbeat deletion, duplicate claim and SDK GetRun failures resolved",
     "required_next_step": "User approval to publish tested SQLparser fix and update Datly dependency, then repeat maintenance and full-suite gates"
   },
@@ -119,7 +125,12 @@
     "test": "sdk/handler_turns_native_test.go",
     "log": "/tmp/agently-native-http-queued-cancel.log",
     "scope": "Real HTTP server and production cancellation handler backed by native Datly stores; injected test identity, not a browser OAuth test",
-    "assertions": ["queued cancellation returns 204", "turn and queue status persist as canceled", "starter message status persists as cancel", "completed turn returns 409 and stays succeeded"]
+    "assertions": [
+      "queued cancellation returns 204",
+      "turn and queue status persist as canceled",
+      "starter message status persists as cancel",
+      "completed turn returns 409 and stays succeeded"
+    ]
   },
   "sqlite_driver_restoration": {
     "commit": "70e480e5",
@@ -145,7 +156,10 @@
     "dispatch_fix_commit": "3f83088b",
     "sqlite_completed_call": "0d2c4f2a-b7e9-486d-ad64-76e32e0a324d; transcript confirms completed datly/datly/components",
     "original_mysql_completed_call": "047f1ccf-3faa-42c9-a47a-f00d4b997bc2; transcript confirms completed datly/datly/components",
-    "returned_routes": ["GET /records/get", "PATCH /records/patch"],
+    "returned_routes": [
+      "GET /records/get",
+      "PATCH /records/patch"
+    ],
     "original_mysql_ledger_after_run": "Absent; information_schema count remains zero",
     "skill_activation": "Completed in original MySQL conversation",
     "post_activation_call": "FAIL; skill origin gate still reparses datly/datly/components as a different server; exact discovered identity must be reused without widening permissions"
@@ -156,7 +170,10 @@
     "mysql_conversation": "90bc3cd8-bffd-4753-9c08-0de08a5b8b43",
     "sqlite_conversation": "def00167-bdd7-4e4e-a168-33f844d84e7c",
     "result": "PASS on both databases; transcripts confirm completed llm/skills/activate followed by completed datly/datly/components",
-    "returned_routes": ["GET /records/get", "PATCH /records/patch"],
+    "returned_routes": [
+      "GET /records/get",
+      "PATCH /records/patch"
+    ],
     "mysql_scope": "Unchanged original-schema fixture with no sequence ledger",
     "permissions": "Existing origin restrictions retained; exact discovered identity reused"
   },
@@ -174,5 +191,44 @@
     "Finish legacy DTO authority/unused-code audit",
     "Publish final Core revision and pin Agently to it; current remote Core v1 is 8dc2927f"
   ],
-  "historical_evidence": "Earlier checkpoint manifests remain historical; this record does not claim full migration acceptance"
+  "historical_evidence": "Earlier checkpoint manifests remain historical; this record does not claim full migration acceptance",
+  "authoritative_current_verification": "current_verification_20261002",
+  "prior_sections_scope": "Historical checkpoints; use current_verification_20261002 for current acceptance state.",
+  "current_verification_20261002": {
+    "date": "2026-10-02",
+    "authoritative": true,
+    "objective_complete": false,
+    "core_revision": "e1d5abbc",
+    "publication": {
+      "core_v1": "Local e1d5abbc; remote v1 verified d35a0af92f28f4d08c59d1664d6ecfe7786cf66e on 2026-10-02. Publication pending.",
+      "datly": "v1.1.1-0.20261002040859-26c14e55af80",
+      "sqlparser": "v0.13.1-0.20261001210110-82d5588e4251"
+    },
+    "full_core_tests": {
+      "command": "GOWORK=off go test -p=2 -timeout=20m ./...",
+      "log": "/tmp/agently-core-published-dependencies-final.log",
+      "result": "PASS; all package outcomes are successful or no-test-file entries; no FAIL entries",
+      "verified_packages": {
+        "app/executor_seconds": 111.997,
+        "app/store/data_seconds": 350.249,
+        "app/store/native_seconds": 224.912,
+        "sdk_seconds": 17.379
+      },
+      "resolved_historical_failures": "Eight published SQLparser maintenance failures resolved by published parser correction; corrected detach child-request assertion passes in the full suite."
+    },
+    "model_authority": {
+      "evidence": "migration/model-authority.json",
+      "classification": "11 generated aliases and 57 intentionally distinct concrete facade declarations in the tracked original families",
+      "acceptance": "Concrete declaration count does not constitute an unfulfilled blanket alias requirement. Public inputs, presence/control semantics, output envelopes, aggregates and narrow projections retain distinct contracts.",
+      "unused_candidates": "ScheduleListInput/ScheduleRunDueListInput and their route constants have no current Core/App references; exported API compatibility governs removal. Output envelope types with no local production references remain exported compatibility candidates."
+    },
+    "remaining": [
+      "Complete browser OAuth and tooltip acceptance; browser cancellation/live UI acceptance remains open. No new browser evidence is claimed.",
+      "Update Agently to actual final published Core/Datly/parser dependencies, run application tests/build against those dependencies, and publish the application revision.",
+      "Preserve and remove newly generated untracked runtime artifacts after final gates; verify final clean repository state.",
+      "Investigate and resolve the newly identified performance regression; measurement is in progress in the coordinating task. This gate is open."
+    ],
+    "change_scope": "No Datly changes are approved. Core JSON-copy removal uses an existing generated pointer conversion; full transcript wire snapshot is byte-identical and internal/service/conversation tests pass (22.441s). Performance regression remains open.",
+    "historical_scope": "All earlier checkpoint sections are preserved as historical evidence. Their parser failure/publication blockers and remaining blanket model-alias interpretations are superseded by this section."
+  }
 }
