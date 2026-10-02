@@ -40,6 +40,7 @@ import (
 	_ "github.com/viant/agently-core/internal/datly/reporting/sharedartifact/read"
 	_ "github.com/viant/agently-core/internal/datly/reporting/sharedartifact/write"
 	_ "github.com/viant/agently-core/internal/datly/run/cube"
+	_ "github.com/viant/agently-core/internal/datly/run/delete"
 	_ "github.com/viant/agently-core/internal/datly/run/read"
 	_ "github.com/viant/agently-core/internal/datly/run/write"
 	_ "github.com/viant/agently-core/internal/datly/runsteps/read"

@@ -14,6 +14,7 @@ import (
 	contextwrite "github.com/viant/agently-core/internal/datly/reporting/context/write"
 	jobwrite "github.com/viant/agently-core/internal/datly/reporting/job/write"
 	reportwrite "github.com/viant/agently-core/internal/datly/reporting/run/write"
+	rundelete "github.com/viant/agently-core/internal/datly/run/delete"
 	runwrite "github.com/viant/agently-core/internal/datly/run/write"
 	schedulewrite "github.com/viant/agently-core/internal/datly/schedule/write"
 	toolwrite "github.com/viant/agently-core/internal/datly/toolcall/write"
@@ -111,13 +112,13 @@ func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy Investigat
 		return err
 	}
 	if plan.Tables["run"] {
-		if err := treeDeleteIDs[runwrite.MutableRunView, runwrite.Output](ctx, m, plan.RunIDs, "/v1/api/agently/run", func(id string) *runwrite.MutableRunView {
-			row := &runwrite.MutableRunView{}
+		if err := treeDeleteIDs[rundelete.RunDelete, rundelete.Output](ctx, m, plan.RunIDs, "/v1/internal/agently/run/delete", func(id string) *rundelete.RunDelete {
+			row := &rundelete.RunDelete{}
 			row.SetId(id)
 			row.SetShouldDelete(true)
 			return row
-		}, func(rows []*runwrite.MutableRunView) any {
-			input := &runwrite.Input{}
+		}, func(rows []*rundelete.RunDelete) any {
+			input := &rundelete.Input{}
 			input.SetRuns(rows)
 			return input
 		}); err != nil {

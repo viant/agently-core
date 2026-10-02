@@ -928,6 +928,22 @@
       "input_type": "ReportInput",
       "output_type": "ReportOutput",
       "root_tables": []
+    },
+    {
+      "operation": "delete",
+      "source": "dql/run/delete",
+      "destination": "internal/datly/run/delete",
+      "route": "/v1/internal/agently/run/delete",
+      "method": "PATCH",
+      "internal": true,
+      "status": "generated-key-only-mutation-delete",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "run"
+      ],
+      "role": "private_key_only_delete_writer",
+      "purpose": "Reads only actual run identity before delete; unrelated malformed historical timestamps cannot block an already-authorized deletion. Core orchestration retains owner/liveness/lease/reference guards. Full ordinary/conditional/mixed mutations use canonical run/write."
     }
   ],
   "blocked": [
@@ -952,7 +968,8 @@
     "generated": "internal/datly/",
     "composition": "internal/store/",
     "host_support": "internal/datly/{host,link,queryselectors,codec,predicate,dbtime,invariant}",
-    "contracts": 62
+    "contracts": 66,
+    "contract_count_scope": "Current active DQL sources including three base readers and private run key-only delete writer; earlier parity milestones remain historical."
   },
   "historical_component_notes_scope": "Per-component status/hooks retain earlier component parity checkpoints; current root caller/layout results are recorded by integration/evidence fields.",
   "go_orchestrations": [

@@ -289,6 +289,13 @@
           "source": "dql/run/write",
           "destination": "internal/datly/run/write",
           "status": "sqlite-legacy-parity"
+        },
+        {
+          "source": "dql/run/delete",
+          "destination": "internal/datly/run/delete",
+          "status": "generated-key-only-mutation-delete",
+          "role": "private_key_only_delete_writer",
+          "purpose": "Auxiliary identity-only deletion operation; ordinary run mutations remain owned by canonical run/write. No duplicate general table writer."
         }
       ]
     },

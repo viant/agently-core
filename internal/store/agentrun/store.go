@@ -8,6 +8,7 @@ import (
 
 	"github.com/viant/agently-core/internal/datly/queryselectors"
 	cube "github.com/viant/agently-core/internal/datly/run/cube"
+	rundelete "github.com/viant/agently-core/internal/datly/run/delete"
 	read "github.com/viant/agently-core/internal/datly/run/read"
 	write "github.com/viant/agently-core/internal/datly/run/write"
 	"github.com/viant/bindly/locator"
@@ -63,10 +64,10 @@ func (s *Store) PatchTrusted(ctx context.Context, rows []*write.MutableRunView) 
 
 // DeleteTrusted submits all IDs as one generated mutation batch.
 func (s *Store) DeleteTrusted(ctx context.Context, ids ...string) error {
-	rows := make([]*write.MutableRunView, 0, len(ids))
+	rows := make([]*rundelete.RunDelete, 0, len(ids))
 	for _, id := range ids {
 		if id = strings.TrimSpace(id); id != "" {
-			row := &write.MutableRunView{}
+			row := &rundelete.RunDelete{}
 			row.SetId(id)
 			row.SetShouldDelete(true)
 			rows = append(rows, row)
@@ -75,8 +76,20 @@ func (s *Store) DeleteTrusted(ctx context.Context, ids ...string) error {
 	if len(rows) == 0 {
 		return nil
 	}
-	_, err := s.PatchTrusted(ctx, rows)
-	return err
+	if s == nil || s.Invoker == nil {
+		return fmt.Errorf("run component store is not configured")
+	}
+	input := &rundelete.Input{}
+	input.SetRuns(rows)
+	target := dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[rundelete.WriterComponent]().PkgPath(), Name: "writer"}, Route: spec.RouteRef{Method: "PATCH", Path: "/v1/internal/agently/run/delete"}}
+	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: input})
+	if err != nil {
+		return err
+	}
+	if _, ok := value.(*rundelete.Output); !ok {
+		return fmt.Errorf("run delete writer returned %T", value)
+	}
+	return nil
 }
 
 // GetTrusted reads one run; the caller preserves its conversation-level
