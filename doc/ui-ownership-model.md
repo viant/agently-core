@@ -56,6 +56,23 @@ Rules:
 - when `policy.authorization.ui` is enabled, denied windows are removed from
   navigation and rejected again on direct metadata load
 
+Remote MCP window providers are configured in the host workspace layout. Set
+`trusted: true` only for providers whose window definitions may include
+JavaScript `actions.code`, `actionRefs`, or service-backed `dataSource` entries:
+
+```yaml
+windowProviders:
+  - id: operations-ui
+    type: mcp
+    trusted: true
+    serverRef: operations
+    catalogTool: list_ui_windows
+    windowTool: get_ui_window
+```
+
+Without `trusted: true`, those fields are rejected. Separately declared MCP
+`dataSources` must still use the configured provider's MCP service.
+
 ### 3. Message/turn-embedded Forge content
 
 These are not windows. They are embedded renderable artifacts inside transcript/message content.
