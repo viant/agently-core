@@ -10,6 +10,15 @@
     "regeneration_milliseconds": 80989,
     "log": "/tmp/agently-core-final-regeneration.log"
   },
+  "stock_validation_diagnostic": {
+    "result": "FAIL; separate from operation-aware transcription/regeneration",
+    "existing_source_validation": "Writer operation normalization rejects delete_not_found unless a writable PATCH/PUT view is established",
+    "generated_contract_experiment": "Stock validate of internal/datly/... rejects conversation writer with delete_not_found requires delete_marker",
+    "experiment_report": "/tmp/agently-generated-contract-validation.json",
+    "cli_alternative_audit": "Published validate command exposes no operation-selection flag; generated-package validation also fails",
+    "framework_changes": "None; any Datly correction requires a reviewed proposal under the user's consultation requirement",
+    "acceptance_scope": "Native Endly acceptance currently uses build, explicit get/patch transcription, byte regeneration and Go runtime tests; this diagnostic is not reported as passing"
+  },
   "full_core_tests": {
     "command": "go test ./...",
     "result": "FAIL",
