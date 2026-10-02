@@ -51,6 +51,15 @@
     ],
     "fork_assertion_rerun": "PASS; /tmp/agently-fork-child-identity-final.log; no runtime change"
   },
+  "final66_full_core_tests": {
+    "candidate_revision": "46e9f479",
+    "command": "GOWORK=off go test ./...",
+    "result": "FAIL; exactly eight known SQLparser maintenance tests in Data/Native",
+    "log": "/tmp/agently-core-final66-full-tests.log",
+    "failed_packages": {"app/store/data": 419.237, "app/store/native": 309.345},
+    "other_packages": "PASS; previous fork assertion, malformed-heartbeat deletion, duplicate claim and SDK GetRun failures resolved",
+    "required_next_step": "User approval to publish tested SQLparser fix and update Datly dependency, then repeat maintenance and full-suite gates"
+  },
   "application_build": {
     "command": "GOWORK=off go build -modfile=/tmp/agently-current-core-build/go.mod -mod=readonly -o /tmp/agently-current-core-v1 ./agently",
     "result": "PASS",
@@ -159,7 +168,6 @@
   },
   "remaining": [
     "Finish post-driver-restoration live checks and final test gates",
-    "Resolve original SQLite malformed-heartbeat deletion and duplicate-claim compatibility failures",
     "Approve/publish the SQLparser dependency correction and rerun maintenance/full-suite gates",
     "Finish tooltip and browser cancellation flow after browser sign-in; live skill activation and tool invocation now pass on both databases",
     "Refresh expired UI OAuth session and finish browser verification",
