@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/viant/agently-core/internal/datly/invariant"
+	dexec "github.com/viant/datly/exec"
 	xhandler "github.com/viant/xdatly/handler"
 	reflect "reflect"
 	"time"
@@ -13,7 +14,8 @@ import (
 
 // Lifecycle customizes role Input.Messages.
 type Lifecycle struct {
-	Input     *Input `bind:"kind=input"`
+	Invoker   dexec.ComponentInvoker `bind:"kind=component_invoker"`
+	Input     *Input                 `bind:"kind=input"`
 	createdAt *time.Time
 }
 
@@ -55,6 +57,9 @@ func (hooks *Lifecycle) Init(ctx context.Context, entity *Message, state xhandle
 		entity.Has = &MessageHas{}
 	}
 	if previous := state.Previous; previous != nil {
+		if ids, ok := ctx.Value(insertReplayContext{}).(*replayState); ok && ids.ids[entity.Id] {
+			return fmt.Errorf("message insert identity appeared during sequence retry")
+		}
 		if !entity.Has.ConversationId && previous.ConversationId != "" {
 			entity.SetConversationId(previous.ConversationId)
 		}
@@ -82,6 +87,20 @@ func (hooks *Lifecycle) Init(ctx context.Context, entity *Message, state xhandle
 		now := time.Now().UTC()
 		entity.SetUpdatedAt(&now)
 	} else {
+		if snapshot, ok := ctx.Value(allocationContext{}).(*allocationSnapshot); ok {
+			snapshot.inserted[entity.Id] = true
+		}
+		if entity.Sequence == nil && nonempty(entity.TurnId) {
+			sequence, err := nextTurnSequence(ctx, hooks.Invoker, *entity.TurnId)
+			if err != nil {
+				return err
+			}
+			entity.SetSequence(&sequence)
+			if snapshot, ok := ctx.Value(allocationContext{}).(*allocationSnapshot); ok {
+				copy := *entity
+				snapshot.allocated[entity.Id] = &copy
+			}
+		}
 		if hooks.createdAt == nil {
 			now := time.Now()
 			hooks.createdAt = &now

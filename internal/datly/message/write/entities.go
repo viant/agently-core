@@ -16,16 +16,6 @@ func (entity *Message) SetShouldDelete(value bool) {
 	}
 	entity.Has.ShouldDelete = true
 }
-func (entity *Message) GetSequence() *int {
-	return entity.Sequence
-}
-func (entity *Message) SetSequence(value *int) {
-	entity.Sequence = value
-	if entity.Has == nil {
-		entity.Has = &MessageHas{}
-	}
-	entity.Has.Sequence = true
-}
 func (entity *Message) GetId() string {
 	return entity.Id
 }
@@ -125,6 +115,16 @@ func (entity *Message) SetArchived(value *int) {
 		entity.Has = &MessageHas{}
 	}
 	entity.Has.Archived = true
+}
+func (entity *Message) GetSequence() *int {
+	return entity.Sequence
+}
+func (entity *Message) SetSequence(value *int) {
+	entity.Sequence = value
+	if entity.Has == nil {
+		entity.Has = &MessageHas{}
+	}
+	entity.Has.Sequence = true
 }
 func (entity *Message) GetCreatedAt() *time.Time {
 	return entity.CreatedAt

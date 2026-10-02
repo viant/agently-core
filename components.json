@@ -954,5 +954,21 @@
     "host_support": "internal/datly/{host,link,queryselectors,codec,predicate,dbtime,invariant}",
     "contracts": 62
   },
-  "historical_component_notes_scope": "Per-component status/hooks retain earlier component parity checkpoints; current root caller/layout results are recorded by integration/evidence fields."
+  "historical_component_notes_scope": "Per-component status/hooks retain earlier component parity checkpoints; current root caller/layout results are recorded by integration/evidence fields.",
+  "go_orchestrations": [
+    {
+      "name": "CoreWrite",
+      "kind": "linked_go_orchestration_facade",
+      "source": "internal/datly/message/write/core_writer.go",
+      "canonical_source": "dql/message/write/writer.dql",
+      "canonical_contract": "internal/datly/message/write.WriterComponent",
+      "route": "/v1/internal/agently/message/write",
+      "method": "PATCH",
+      "internal": true,
+      "input_type": "internal/datly/message/write.Input",
+      "output_type": "internal/datly/message/write.Output",
+      "sql_ownership": "Canonical DQL owns all views, predicates, codecs, generated contracts and embedded SQL resources. Facade delegates a native writer built from generated component metadata.",
+      "policy": "Original process-local per-turn sequence allocation and generated-only collision retry; no SQL source, schema or framework feature added."
+    }
+  ]
 }

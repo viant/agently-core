@@ -4,6 +4,8 @@ package host
 
 import (
 	"context"
+	messagewrite "github.com/viant/agently-core/internal/datly/message/write"
+	"reflect"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/mattn/go-sqlite3"
@@ -30,6 +32,7 @@ import (
 
 func exports() (*x.Registry, []any, error) {
 	registry := x.NewRegistry()
+	registry.Register(x.NewType(reflect.TypeFor[messagewrite.CoreWriterComponent]()))
 	for _, export := range []func() (*x.Registry, error){reorder.Exports, adoption.Exports, submit.Exports, complete.Exports, maintenance.Exports, tree.Exports, scheduledelete.Exports, terminalartifact.Exports, conversationmaintenance.Exports, scheduledmaintenance.Exports, technicalmaintenance.Exports, orphanmaintenance.Exports} {
 		item, err := export()
 		if err != nil {
@@ -40,7 +43,7 @@ func exports() (*x.Registry, []any, error) {
 			return nil, nil, err
 		}
 	}
-	return registry, []any{reorder.ReorderComponent{}, adoption.Component{}, submit.Component{}, complete.Component{}, maintenance.PurgeComponent{}, tree.DeleteComponent{}, scheduledelete.Component{}, terminalartifact.CleanupComponent{}, conversationmaintenance.Component{}, scheduledmaintenance.Component{}, technicalmaintenance.Component{}, orphanmaintenance.ApplyComponent{}}, nil
+	return registry, []any{messagewrite.CoreWriterComponent{}, reorder.ReorderComponent{}, adoption.Component{}, submit.Component{}, complete.Component{}, maintenance.PurgeComponent{}, tree.DeleteComponent{}, scheduledelete.Component{}, terminalartifact.CleanupComponent{}, conversationmaintenance.Component{}, scheduledmaintenance.Component{}, technicalmaintenance.Component{}, orphanmaintenance.ApplyComponent{}}, nil
 }
 
 // Command uses the same linked contracts and business factories as New.
