@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { AgentlyClient } from './client';
 import { HttpError } from './errors';
 
-// This suite runs only against migration/cmd/sdkcontractserver, the actual
+// This suite runs only against e2e/sdkcontract/cmd/server, the actual
 // disposable application runtime. Tokens remain in private temporary files.
 const readyPath = process.env.AGENTLY_SDK_CONTRACT_READY;
 const ready = readyPath ? JSON.parse(readFileSync(readyPath, 'utf8')) : undefined;

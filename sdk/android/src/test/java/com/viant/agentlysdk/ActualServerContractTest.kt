@@ -13,7 +13,7 @@ import kotlin.test.assertEquals
 import kotlin.test.assertFails
 import kotlin.test.assertTrue
 
-/** Opt-in integration gate against migration/cmd/sdkcontractserver. */
+/** Opt-in integration gate against e2e/sdkcontract/cmd/server. */
 class ActualServerContractTest {
     @Test
     fun actualSDK1JSONAuthErrorsAndSSE() = runBlocking {

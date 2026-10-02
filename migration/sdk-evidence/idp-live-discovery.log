@@ -1,4 +1,0 @@
-=== RUN   TestOAuthVerifierConfig_LiveDiscoveryAndJWKS
---- PASS: TestOAuthVerifierConfig_LiveDiscoveryAndJWKS (1.01s)
-PASS
-ok  	github.com/viant/agently-core/service/auth	2.298s
