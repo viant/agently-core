@@ -530,6 +530,9 @@ func (r *Registry) DefinitionsWithContext(ctx context.Context) []llm.ToolDefinit
 			continue
 		}
 		disp := svc + ":" + method
+		if strings.Contains(e.mcpDef.Name, ".") {
+			disp = e.def.Name
+		}
 		if _, ok := seen[disp]; ok {
 			continue
 		}
@@ -730,11 +733,36 @@ func (r *Registry) GetDefinitionWithContext(ctx context.Context, name string) (*
 	// cache hit?
 	if e, ok := r.cache[name]; ok {
 		def := e.def
+		server := serverFromName(name)
+		if e.mcpDef.Name != "" && strings.HasSuffix(e.def.Name, "/"+e.mcpDef.Name) {
+			server = strings.TrimSuffix(e.def.Name, "/"+e.mcpDef.Name)
+		}
 		r.mu.RUnlock()
-		return &def, true
+		if r.isInternalServer(server) || r.toolCatalogVisibility(ctx, server) != mcpcfg.ToolsListVisibilityPrivate {
+			return &def, true
+		}
+		// A catalog made private must resolve again under this caller.
+	} else {
+		r.mu.RUnlock()
 	}
-	r.mu.RUnlock()
-	svc := serverFromName(name)
+	svc, literalMethod, resolved, identityErr := r.discoveredMCPIdentity(ctx, name)
+	if identityErr != nil {
+		return nil, false
+	}
+	if !resolved {
+		svc = serverFromName(name)
+	}
+	if resolved && (r.isInternalServer(svc) || r.isPublicToolCatalog(ctx, svc)) {
+		r.mu.RLock()
+		for _, entry := range r.cache {
+			if entry != nil && entry.mcpDef.Name == literalMethod && entry.def.Name == svc+"/"+literalMethod {
+				definition := entry.def
+				r.mu.RUnlock()
+				return &definition, true
+			}
+		}
+		r.mu.RUnlock()
+	}
 	if svc == "" {
 		return nil, false
 	}
@@ -758,6 +786,9 @@ func (r *Registry) GetDefinitionWithContext(ctx context.Context, name string) (*
 	}
 	// Compare by method part; add both aliases on hit
 	_, method := splitToolName(name)
+	if resolved {
+		method = literalMethod
+	}
 	for _, t := range tools {
 		if strings.TrimSpace(t.Name) == strings.TrimSpace(method) {
 			tool := llm.ToolDefinitionFromMcpTool(&t)
@@ -886,7 +917,13 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		// Post-filter output when possible (JSON expected)
 		return r.applySelector(out, selector)
 	}
-	serviceName, _ := splitToolName(baseName)
+	serviceName, literalMethod, resolvedIdentity, identityErr := r.discoveredMCPIdentity(ctx, baseName)
+	if identityErr != nil {
+		return "", identityErr
+	}
+	if !resolvedIdentity {
+		serviceName, _ = splitToolName(baseName)
+	}
 	hasInternalClient := false
 	if serviceName != "" {
 		r.mu.RLock()
@@ -1007,7 +1044,11 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		attemptStart := time.Now()
 		debugMCPExecf("registry calltool start server=%s base=%s attempt=%d argsBytes=%d", server, baseName, attempt+1, len(keyArgs))
-		res, err = px.CallTool(ctx, baseName, callArgs, options...)
+		if resolvedIdentity {
+			res, err = cli.CallTool(ctx, &mcpschema.CallToolRequestParams{Name: literalMethod, Arguments: callArgs}, options...)
+		} else {
+			res, err = px.CallTool(ctx, baseName, callArgs, options...)
+		}
 		debugMCPExecf("registry calltool done server=%s base=%s attempt=%d elapsed=%s err=%v nilResult=%v", server, baseName, attempt+1, time.Since(attemptStart).Round(time.Millisecond), err, res == nil)
 		if err == nil {
 			if res == nil {
@@ -1165,7 +1206,13 @@ func (r *Registry) PreflightCredential(ctx context.Context, name string) error {
 	if i := strings.Index(baseName, "|"); i >= 0 {
 		baseName = strings.TrimSpace(baseName[:i])
 	}
-	server, _ := splitToolName(baseName)
+	server, _, resolved, identityErr := r.discoveredMCPIdentity(ctx, baseName)
+	if identityErr != nil {
+		return identityErr
+	}
+	if !resolved {
+		server, _ = splitToolName(baseName)
+	}
 	if server == "" || !r.isDelegatedAuthServer(ctx, server) {
 		return nil
 	}
@@ -1330,7 +1377,10 @@ func (r *Registry) applyTimeoutMs(ctx context.Context, name string, args map[str
 	// timeout support under this caller rather than dropping a server's genuine
 	// timeoutMs argument because the context-free cache is empty.
 	if !ok && authctx.EffectiveUserID(ctx) != "" {
-		server, method := splitToolName(name)
+		server, method, resolved, _ := r.discoveredMCPIdentity(ctx, name)
+		if !resolved {
+			server, method = splitToolName(name)
+		}
 		if tools, err := r.listServerTools(ctx, server); err == nil {
 			for _, item := range tools {
 				if item.Name == method {
@@ -1378,9 +1428,28 @@ func (r *Registry) lookupTimeoutSupport(name string) (timeoutSupport, bool) {
 	}
 	if e, ok := r.cache[name]; ok {
 		r.mu.RUnlock()
-		return e.timeoutSupport, true
+		server := serverFromName(name)
+		if e.mcpDef.Name != "" && strings.HasSuffix(e.def.Name, "/"+e.mcpDef.Name) {
+			server = strings.TrimSuffix(e.def.Name, "/"+e.mcpDef.Name)
+		}
+		if r.isInternalServer(server) || r.toolCatalogVisibility(context.Background(), server) != mcpcfg.ToolsListVisibilityPrivate {
+			return e.timeoutSupport, true
+		}
+		return timeoutSupport{}, false
 	}
 	r.mu.RUnlock()
+
+	if server, method, resolved, err := r.discoveredMCPIdentity(context.Background(), name); err == nil && resolved {
+		r.mu.RLock()
+		for _, entry := range r.cache {
+			if entry != nil && entry.mcpDef.Name == method && entry.def.Name == server+"/"+method {
+				support := entry.timeoutSupport
+				r.mu.RUnlock()
+				return support, true
+			}
+		}
+		r.mu.RUnlock()
+	}
 
 	svc, method := splitToolName(name)
 	if svc == "" || method == "" {
@@ -1655,7 +1724,10 @@ func (r *Registry) AsyncConfig(name string) (*asynccfg.Config, bool) {
 
 // ToolTimeout returns a suggested timeout for a given tool name.
 func (r *Registry) ToolTimeout(name string) (time.Duration, bool) {
-	server, method := splitToolName(name)
+	server, method, resolved, _ := r.discoveredMCPIdentity(context.Background(), name)
+	if !resolved {
+		server, method = splitToolName(name)
+	}
 	if server == "" {
 		return 0, false
 	}
