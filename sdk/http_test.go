@@ -1007,8 +1007,15 @@ func TestHandler_GetRun(t *testing.T) {
 	if spy.gotID != "run-1" {
 		t.Fatalf("unexpected run id: %q", spy.gotID)
 	}
-	if !strings.Contains(rec.Body.String(), `"Id":"run-1"`) {
-		t.Fatalf("unexpected body: %s", rec.Body.String())
+	var body map[string]interface{}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode run response: %v", err)
+	}
+	if body["id"] != "run-1" || body["status"] != "running" || body["turnId"] != "turn-1" || body["conversationId"] != "conv-1" {
+		t.Fatalf("unexpected lower-camel run response: %s", rec.Body.String())
+	}
+	if _, legacyCase := body["Id"]; legacyCase {
+		t.Fatalf("run response ignores migrated lower-camel case policy: %s", rec.Body.String())
 	}
 }
 
