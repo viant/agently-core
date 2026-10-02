@@ -36,7 +36,7 @@ func TestScheduleLeaseLegacyV1Parity(t *testing.T) {
 		Input  input
 		Expect expect
 	}
-	raw, err := os.ReadFile(filepath.Join(project, "migration/schedule-lease-legacy-baseline.json"))
+	raw, err := os.ReadFile(filepath.Join(project, "internal/datly/contracttest/testdata/schedule-lease-legacy-baseline.json"))
 	must(t, err)
 	var cases []useCase
 	must(t, json.Unmarshal(raw, &cases))
