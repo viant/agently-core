@@ -14,9 +14,9 @@ import (
 	schedwrite "github.com/viant/agently-core/internal/datly/schedule/write"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	dexec "github.com/viant/datly/exec"
+	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
 	"github.com/viant/datly/spec"
-	"github.com/viant/x"
 	xdatly "github.com/viant/xdatly"
 	"github.com/viant/xdatly/handler"
 )
@@ -37,19 +37,14 @@ type Output struct {
 type Delete struct{}
 
 func NewDelete() handler.Contract[Input, Output] { return &Delete{} }
-func Exports() (*x.Registry, error) {
-	registry := x.NewRegistry()
-	for _, typ := range []reflect.Type{reflect.TypeFor[Input](), reflect.TypeFor[Output]()} {
-		registry.Register(x.NewType(typ))
+
+// DatlyHandler binds the holder's declared handler to its typed implementation.
+// Linked package discovery calls this provider without a host registration list.
+func (Component) DatlyHandler(name string) func() (rh.TypedHandler, error) {
+	if name != "NewDelete" {
+		return nil
 	}
-	factory, err := x.NewFunction(reflect.TypeFor[Component]().PkgPath(), "NewDelete", custom.Factory(NewDelete))
-	if err != nil {
-		return nil, err
-	}
-	if err = registry.RegisterFunctions(factory); err != nil {
-		return nil, err
-	}
-	return registry, nil
+	return custom.Factory(NewDelete)
 }
 
 type dependencies struct {

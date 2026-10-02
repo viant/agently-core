@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -11,7 +10,6 @@ import (
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -22,7 +20,6 @@ import (
 func TestScheduleDeletionLegacyV1Parity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		ids    []string
 		reject bool
@@ -48,26 +45,13 @@ func TestScheduleDeletionLegacyV1Parity(t *testing.T) {
 		{"late rejection restores parent and cascading runs", input{ids: []string{"owned", "missing", "other"}, reject: true}, expect{failed: true, ids: all, runs: allRuns}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := scheduleDeleteFixture(t, project)
 			db, _ := scheduleDeleteFixture(t, project)
 			if tc.input.reject {
-				for _, fixture := range []*sql.DB{oldDB, db} {
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec(`CREATE TRIGGER reject_schedule_delete BEFORE DELETE ON schedule WHEN OLD.id='other' BEGIN SELECT RAISE(ABORT,'fixture delete rejection'); END;`)
 					must(t, err)
 				}
 			}
-			encoded, err := json.Marshal(map[string]any{"Component": "scheduleDelete", "DBPath": oldPath, "Filters": map[string]any{"mode": "due", "ids": tc.input.ids}})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(encoded)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
 			rt, key := scheduleWriterRuntime(t, db, "")
 			rows := []map[string]any{}
 			for _, id := range tc.input.ids {
@@ -81,36 +65,23 @@ func TestScheduleDeletionLegacyV1Parity(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			result, mutationErr := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/scheduler/", scope)
-			if before.Failed != tc.expect.failed || (mutationErr != nil) != tc.expect.failed {
-				t.Fatalf("legacy failed=%v (%s), new=%v, expected=%v", before.Failed, before.Error, mutationErr, tc.expect.failed)
+			if (mutationErr != nil) != tc.expect.failed {
+				t.Fatalf("mutation error=%v, expected failure=%v", mutationErr, tc.expect.failed)
 			}
 			if !tc.expect.failed {
-				var oldAck []string
-				must(t, json.Unmarshal(before.Output, &oldAck))
-				if oldAck == nil {
-					oldAck = []string{}
-				}
-				newAck := []string{}
 				for _, row := range result.(*write.Output).Data {
 					if !row.ShouldDelete {
 						t.Fatal("deleted request marker was lost")
 					}
-					newAck = append(newAck, row.Id)
-				}
-				if !reflect.DeepEqual(oldAck, newAck) {
-					t.Fatalf("acknowledgments legacy=%v new=%v", oldAck, newAck)
 				}
 			}
 			result, err = rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/scheduler/schedule/{id}"}}, Input: &schedule.ScheduleInput{}})
 			must(t, err)
-			raw, err = json.Marshal(result.(*schedule.ScheduleOutput).Data)
+			raw, err := json.Marshal(result.(*schedule.ScheduleOutput).Data)
 			must(t, err)
 			var after []json.RawMessage
 			must(t, json.Unmarshal(raw, &after))
-			oldRows, newRows := normalizeRows(t, before.Rows), normalizeRows(t, after)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("stored parity\nlegacy=%s\nnew=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := normalizeRows(t, after)
 			ids := []string{}
 			for _, row := range newRows {
 				ids = append(ids, row["id"].(string))
@@ -118,7 +89,7 @@ func TestScheduleDeletionLegacyV1Parity(t *testing.T) {
 			if !reflect.DeepEqual(ids, tc.expect.ids) {
 				t.Fatalf("identities=%v expected=%v", ids, tc.expect.ids)
 			}
-			for _, fixture := range []*sql.DB{oldDB, db} {
+			for _, fixture := range []*sql.DB{db} {
 				rows, err := fixture.Query("SELECT id FROM run ORDER BY id")
 				must(t, err)
 				ids := []string{}

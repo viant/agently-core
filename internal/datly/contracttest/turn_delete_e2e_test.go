@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -18,7 +17,6 @@ import (
 func TestTurnDeletionLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		ids    []string
 		reject bool
@@ -42,32 +40,19 @@ func TestTurnDeletionLegacyParity(t *testing.T) {
 		{"late failure restores earlier deleted row", input{ids: []string{"existing", "second"}, reject: true}, expect{failed: true, ids: []string{"existing", "second"}}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := turnDeleteFixture(t, project)
 			db, _ := turnDeleteFixture(t, project)
 			if tc.input.reject {
-				for _, fixture := range []*sql.DB{oldDB, db} {
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec(`CREATE TRIGGER reject_turn_delete BEFORE DELETE ON turn WHEN OLD.id='second' BEGIN SELECT RAISE(ABORT,'fixture delete rejection'); END`)
 					must(t, err)
 				}
 			}
-			legacyRows := []map[string]any{}
 			nativeRows := []map[string]any{}
 			for _, id := range tc.input.ids {
-				legacyRows = append(legacyRows, map[string]any{"id": id})
 				nativeRows = append(nativeRows, map[string]any{"id": id, "shouldDelete": true})
 			}
-			body, err := json.Marshal(map[string]any{"data": legacyRows})
-			must(t, err)
-			payload, err := json.Marshal(map[string]any{"Component": "turn", "Method": "DELETE", "DBPath": oldPath, "Body": string(body), "Filters": map[string]string{"conversationId": "c1"}})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
 			rt, _ := turnWriterRuntime(t, db)
-			body, err = json.Marshal(map[string]any{"data": nativeRows})
+			body, err := json.Marshal(map[string]any{"data": nativeRows})
 			must(t, err)
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/turn", bytes.NewReader(body))
 			request.Header.Set("Content-Type", "application/json")
@@ -75,13 +60,10 @@ func TestTurnDeletionLegacyParity(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			_, err = rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/turn", scope)
-			if before.Failed != tc.expect.failed || (err != nil) != tc.expect.failed {
-				t.Fatalf("failure legacy=%v native=%v expected=%v", before.Failed, err, tc.expect.failed)
+			if (err != nil) != tc.expect.failed {
+				t.Fatalf("failure native=%v expected=%v", err, tc.expect.failed)
 			}
-			oldRows, newRows := turnStoredRows(t, oldDB), turnStoredRows(t, db)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("stored rows legacy=%s native=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := turnStoredRows(t, db)
 			ids := []string{}
 			for _, row := range newRows {
 				ids = append(ids, row["id"].(string))

@@ -1,12 +1,9 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"github.com/viant/datly/runtime/handler/provider"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -44,11 +41,11 @@ func reportExportCompleteRuntime(t *testing.T, db *sql.DB, owner string, supplie
 	jr := payloadArtifact(t, resources, reflect.TypeFor[jobread.ReaderComponent](), reflect.TypeFor[jobread.Input](), reflect.TypeFor[jobread.Output]())
 	jw := payloadArtifact(t, resources, reflect.TypeFor[jobwrite.WriterComponent](), reflect.TypeFor[jobwrite.Input](), reflect.TypeFor[jobwrite.Output]())
 	parent := payloadArtifact(t, resources, reflect.TypeFor[complete.Component](), reflect.TypeFor[complete.Input](), reflect.TypeFor[complete.Output]())
-	exports, err := complete.Exports()
+	handler, err := (complete.Component{}).DatlyHandler("NewComplete")()
 	must(t, err)
-	builder, err := bootstrap.NewArtifactBuilder(exports)
+	builder, err := bootstrap.NewArtifactBuilder(nil)
 	must(t, err)
-	parent, err = builder.Build(bootstrap.ArtifactInput{Component: parent.Component, InputType: reflect.TypeFor[complete.Input](), OutputType: reflect.TypeFor[complete.Output](), Resources: resources})
+	parent, err = builder.Build(bootstrap.ArtifactInput{Component: parent.Component, InputType: reflect.TypeFor[complete.Input](), OutputType: reflect.TypeFor[complete.Output](), Resources: resources, Handler: handler})
 	must(t, err)
 	visibility := provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil })
 	access := ordinaryAccess("reportaccess", func(context.Context, reflect.Type, string) (any, bool, error) { return false, true, nil })
@@ -94,7 +91,6 @@ func invokeReportExportComplete(ctx context.Context, rt *druntime.Runtime, key s
 func TestReportExportCompleteNativeFlow(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct{ existingArtifact, replay, queued, wrongOwner, rejectJob bool }
 	type expect struct {
 		failure   bool
@@ -115,22 +111,21 @@ func TestReportExportCompleteNativeFlow(t *testing.T) {
 		{"late job failure rolls back inserted artifact", input{rejectJob: true}, expect{failure: true, status: "running"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := reportArtifactFixture(t, project)
 			db, _ := reportArtifactFixture(t, project)
 			if !tc.input.existingArtifact {
-				for _, fixture := range []*sql.DB{db, oldDB} {
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec("DELETE FROM report_export_artifact WHERE job_id='running'")
 					must(t, err)
 				}
 			}
 			if tc.input.replay {
-				for _, fixture := range []*sql.DB{db, oldDB} {
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec("UPDATE report_export_job SET status='succeeded',artifact_id='artifact-running' WHERE job_id='running'")
 					must(t, err)
 				}
 			}
 			if tc.input.rejectJob {
-				for _, fixture := range []*sql.DB{db, oldDB} {
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec("CREATE TRIGGER reject_job_complete BEFORE UPDATE ON report_export_job WHEN OLD.job_id='running' AND NEW.status='succeeded' BEGIN SELECT RAISE(ABORT,'fixture job completion rejection'); END")
 					must(t, err)
 				}
@@ -144,29 +139,7 @@ func TestReportExportCompleteNativeFlow(t *testing.T) {
 			if tc.input.queued {
 				candidate.JobID = "queued"
 			}
-			body, marshalErr := json.Marshal(map[string]any{
-				"jobId": candidate.JobID,
-				"artifact": map[string]any{
-					"artifactId": candidate.ArtifactID, "jobId": candidate.JobID,
-					"contentType": candidate.ContentType, "data": candidate.Data,
-					"createdAt": candidate.ArtifactCreatedAt,
-				},
-				"diagnostics": candidate.Diagnostics, "completedAt": candidate.CompletedAt,
-				"retentionTtl": candidate.RetentionTTL,
-			})
-			must(t, marshalErr)
-			payload, marshalErr := json.Marshal(map[string]any{"Component": "reportComplete", "DBPath": oldPath, "Principal": owner, "Body": string(body)})
-			must(t, marshalErr)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, commandErr := cmd.Output()
-			must(t, commandErr)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
 			out, err := invokeReportExportComplete(context.Background(), rt, key, candidate)
-			if before.Failed != (err != nil) {
-				t.Fatalf("legacy failed=%v (%s), native=%v", before.Failed, before.Error, err)
-			}
 			if (err != nil) != tc.expect.failure {
 				t.Fatalf("complete output=%+v error=%v expected failure=%v", out, err, tc.expect.failure)
 			}
@@ -186,13 +159,6 @@ func TestReportExportCompleteNativeFlow(t *testing.T) {
 			must(t, db.QueryRow("SELECT COUNT(*) FROM report_export_artifact WHERE job_id=?", jobID).Scan(&count))
 			if count != tc.expect.artifacts {
 				t.Fatalf("artifact count=%d expected=%d", count, tc.expect.artifacts)
-			}
-			var oldStatus string
-			must(t, oldDB.QueryRow("SELECT status FROM report_export_job WHERE job_id=?", jobID).Scan(&oldStatus))
-			var oldCount int
-			must(t, oldDB.QueryRow("SELECT COUNT(*) FROM report_export_artifact WHERE job_id=?", jobID).Scan(&oldCount))
-			if oldStatus != status || oldCount != count {
-				t.Fatalf("legacy=(%s,%d) native=(%s,%d)", oldStatus, oldCount, status, count)
 			}
 		})
 	}

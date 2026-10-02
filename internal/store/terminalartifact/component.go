@@ -3,11 +3,10 @@ package terminalartifact
 import (
 	"context"
 	"fmt"
-	"reflect"
 
 	dexec "github.com/viant/datly/exec"
+	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
-	"github.com/viant/x"
 	xdatly "github.com/viant/xdatly"
 	"github.com/viant/xdatly/handler"
 )
@@ -18,19 +17,14 @@ type CleanupComponent struct {
 type Cleanup struct{}
 
 func NewCleanup() handler.Contract[Input, Output] { return &Cleanup{} }
-func Exports() (*x.Registry, error) {
-	registry := x.NewRegistry()
-	for _, typ := range []reflect.Type{reflect.TypeFor[Input](), reflect.TypeFor[Output]()} {
-		registry.Register(x.NewType(typ))
+
+// DatlyHandler binds the holder's declared handler to its typed implementation.
+// Linked package discovery calls this provider without a host registration list.
+func (CleanupComponent) DatlyHandler(name string) func() (rh.TypedHandler, error) {
+	if name != "NewCleanup" {
+		return nil
 	}
-	factory, err := x.NewFunction(reflect.TypeFor[CleanupComponent]().PkgPath(), "NewCleanup", custom.Factory(NewCleanup))
-	if err != nil {
-		return nil, err
-	}
-	if err = registry.RegisterFunctions(factory); err != nil {
-		return nil, err
-	}
-	return registry, nil
+	return custom.Factory(NewCleanup)
 }
 
 type dependencies struct {

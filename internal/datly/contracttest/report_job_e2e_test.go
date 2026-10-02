@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"github.com/viant/datly/runtime/handler/provider"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -92,7 +90,6 @@ func reportJobNew(id string) *write.Job {
 func TestReportJobWriterModes(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		mode, id, owner string
 		expectedStatus  string
@@ -116,7 +113,6 @@ func TestReportJobWriterModes(t *testing.T) {
 		{"wrong owner cannot claim", input{mode: "claim", id: "queued", owner: "u2", expectedStatus: "queued"}, expect{failure: true, status: "queued"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := reportJobFixture(t, project)
 			db, _ := reportJobFixture(t, project)
 			rt, _, key := reportJobRuntime(t, db, tc.input.owner, false, nil)
 			row := &write.Job{}
@@ -146,50 +142,12 @@ func TestReportJobWriterModes(t *testing.T) {
 			if (err != nil) != tc.expect.failure {
 				t.Fatalf("job writer error=%v expected failure=%v", err, tc.expect.failure)
 			}
-			legacyBody := map[string]any{"jobId": tc.input.id}
-			switch tc.input.mode {
-			case "create":
-				legacyBody = map[string]any{
-					"jobId": tc.input.id, "artifactRef": "report://" + tc.input.id, "ownerId": "u1",
-					"format": "pdf", "scope": "draft", "status": "queued",
-					"reportSpec": []byte("{}"), "reportFill": []byte("{}"), "reportPrint": []byte("{}"),
-					"submittedAt": "2026-01-04T00:00:00Z",
-				}
-			case "claim":
-				legacyBody["startedAt"] = "2026-01-04T00:00:00Z"
-			case "fail":
-				legacyBody["error"] = "export failed"
-				legacyBody["completedAt"] = "2026-01-04T00:00:00Z"
-			}
-			body, e := json.Marshal(legacyBody)
-			must(t, e)
-			payload, e := json.Marshal(map[string]any{
-				"Component": "reportJob", "DBPath": oldPath, "Principal": tc.input.owner,
-				"Method": tc.input.mode, "Body": string(body),
-			})
-			must(t, e)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, e := cmd.Output()
-			must(t, e)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed != tc.expect.failure {
-				t.Fatalf("legacy failure=%v (%s), native=%v", before.Failed, before.Error, err)
-			}
 			var status string
 			if err := db.QueryRow("SELECT status FROM report_export_job WHERE job_id=?", tc.input.id).Scan(&status); err != nil {
 				t.Fatal(err)
 			}
-			var oldStatus string
-			if err := oldDB.QueryRow("SELECT status FROM report_export_job WHERE job_id=?", tc.input.id).Scan(&oldStatus); err != nil {
-				t.Fatal(err)
-			}
 			if status != tc.expect.status {
 				t.Fatalf("status=%q expected=%q", status, tc.expect.status)
-			}
-			if oldStatus != status {
-				t.Fatalf("legacy status=%q native=%q", oldStatus, status)
 			}
 		})
 	}
@@ -252,15 +210,13 @@ func reportJobSnapshotFromView(row *read.Job) reportJobSnapshot {
 func TestReportJobReaderLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		subject, id, exportRequestID, method string
 		internal                             bool
 	}
 	type expect struct {
-		id            string
-		list          []string
-		compareLegacy bool
+		id   string
+		list []string
 	}
 	type useCase struct {
 		desc   string
@@ -268,14 +224,13 @@ func TestReportJobReaderLegacyParity(t *testing.T) {
 		expect expect
 	}
 	for _, tc := range []useCase{
-		{"rich job includes all physical fields", input{subject: "u1", id: "queued", method: "get"}, expect{id: "queued", compareLegacy: true}},
-		{"run-linked job includes T2 fields", input{subject: "u1", id: "running", method: "get"}, expect{id: "running", compareLegacy: true}},
-		{"owner list uses submitted order", input{subject: "u1", method: "list"}, expect{list: []string{"running", "queued"}, compareLegacy: true}},
-		{"foreign job remains hidden", input{subject: "u2", id: "running", method: "get"}, expect{compareLegacy: true}},
+		{"rich job includes all physical fields", input{subject: "u1", id: "queued", method: "get"}, expect{id: "queued"}},
+		{"run-linked job includes T2 fields", input{subject: "u1", id: "running", method: "get"}, expect{id: "running"}},
+		{"owner list uses submitted order", input{subject: "u1", method: "list"}, expect{list: []string{"running", "queued"}}},
+		{"foreign job remains hidden", input{subject: "u2", id: "running", method: "get"}, expect{}},
 		{"internal reader sees foreign job", input{internal: true, id: "foreign"}, expect{id: "foreign"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := reportJobReaderFixture(t, project)
 			db, _ := reportJobReaderFixture(t, project)
 			rt, key, _ := reportJobRuntime(t, db, tc.input.subject, tc.input.internal, nil)
 			query := &read.Input{}
@@ -303,44 +258,17 @@ func TestReportJobReaderLegacyParity(t *testing.T) {
 			} else if len(rows) != 1 || rows[0].JobId != tc.expect.id {
 				t.Fatalf("rows=%+v expected=%q", rows, tc.expect.id)
 			}
-			if !tc.expect.compareLegacy {
-				return
-			}
-			body, e := json.Marshal(map[string]any{"jobId": tc.input.id})
-			must(t, e)
-			payload, e := json.Marshal(map[string]any{"Component": "reportJob", "DBPath": oldPath, "Principal": tc.input.subject, "Method": tc.input.method, "Body": string(body)})
-			must(t, e)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, e := cmd.Output()
-			must(t, e)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed != (tc.expect.id == "" && tc.expect.list == nil) {
-				t.Fatalf("legacy failure=%v (%s), native rows=%d", before.Failed, before.Error, len(rows))
-			}
-			if tc.expect.id == "" && tc.expect.list == nil {
-				return
-			}
-			if tc.expect.list != nil {
-				var oldRows []reportJobSnapshot
-				must(t, json.Unmarshal(before.Output, &oldRows))
-				ids := []string{}
-				for _, row := range oldRows {
-					ids = append(ids, row.JobID)
+			if tc.expect.id == "queued" {
+				row := rows[0]
+				if row.ArtifactRef != "report://queued" || row.OwnerId != "u1" || row.Format != "pdf" || row.Scope != "draft" || row.Status != "queued" || string(row.ReportSpecJson) != "{}" || string(row.ReportFillJson) != "{}" || string(row.ReportPrintJson) != "{}" {
+					t.Fatalf("queued job snapshot differs from fixture: %+v", row)
 				}
-				if !reflect.DeepEqual(ids, tc.expect.list) {
-					t.Fatalf("legacy ids=%v native=%v", ids, tc.expect.list)
-				}
-				return
 			}
-			nativeJSON, e := json.Marshal(reportJobSnapshotFromView(rows[0]))
-			must(t, e)
-			var oldFields, newFields map[string]any
-			must(t, json.Unmarshal(before.Output, &oldFields))
-			must(t, json.Unmarshal(nativeJSON, &newFields))
-			if !reflect.DeepEqual(oldFields, newFields) {
-				t.Fatalf("legacy=%s native=%s", before.Output, nativeJSON)
+			if tc.expect.id == "running" {
+				row := rows[0]
+				if row.ArtifactRef != "report://running" || row.OwnerId != "u1" || row.Status != "running" || row.StartedAt == nil || !row.StartedAt.Equal(time.Date(2026, 1, 2, 1, 0, 0, 0, time.UTC)) {
+					t.Fatalf("running job snapshot differs from fixture: %+v", row)
+				}
 			}
 		})
 	}

@@ -4,88 +4,46 @@ package host
 
 import (
 	"context"
-	messagewrite "github.com/viant/agently-core/internal/datly/message/write"
-	"reflect"
+	_ "github.com/viant/agently-core/internal/datly/message/write"
 
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/mattn/go-sqlite3"
 	_ "github.com/viant/agently-core/internal/datly/link"
-	conversationmaintenance "github.com/viant/agently-core/internal/store/conversationmaintenance"
-	tree "github.com/viant/agently-core/internal/store/conversationtree"
-	maintenance "github.com/viant/agently-core/internal/store/maintenancelease"
-	orphanmaintenance "github.com/viant/agently-core/internal/store/orphanmaintenance"
-	reorder "github.com/viant/agently-core/internal/store/queuereorder"
-	adoption "github.com/viant/agently-core/internal/store/reporting/adoption"
-	complete "github.com/viant/agently-core/internal/store/reporting/exportcomplete"
-	submit "github.com/viant/agently-core/internal/store/reporting/exportsubmit"
-	scheduledelete "github.com/viant/agently-core/internal/store/scheduledelete"
-	scheduledmaintenance "github.com/viant/agently-core/internal/store/scheduledmaintenance"
-	technicalmaintenance "github.com/viant/agently-core/internal/store/technicalmaintenance"
-	terminalartifact "github.com/viant/agently-core/internal/store/terminalartifact"
+	_ "github.com/viant/agently-core/internal/store/conversationmaintenance"
+	_ "github.com/viant/agently-core/internal/store/conversationtree"
+	_ "github.com/viant/agently-core/internal/store/maintenancelease"
+	_ "github.com/viant/agently-core/internal/store/orphanmaintenance"
+	_ "github.com/viant/agently-core/internal/store/queuereorder"
+	_ "github.com/viant/agently-core/internal/store/reporting/adoption"
+	_ "github.com/viant/agently-core/internal/store/reporting/exportcomplete"
+	_ "github.com/viant/agently-core/internal/store/reporting/exportsubmit"
+	_ "github.com/viant/agently-core/internal/store/scheduledelete"
+	_ "github.com/viant/agently-core/internal/store/scheduledmaintenance"
+	_ "github.com/viant/agently-core/internal/store/technicalmaintenance"
+	_ "github.com/viant/agently-core/internal/store/terminalartifact"
 	"github.com/viant/datly/cmd/command"
 	"github.com/viant/datly/standalone"
 	"github.com/viant/datly/standalone/config"
 	_ "github.com/viant/sqlx/metadata/product/mysql"
 	_ "github.com/viant/sqlx/metadata/product/sqlite"
-	"github.com/viant/x"
 	_ "modernc.org/sqlite"
 )
 
-func exports() (*x.Registry, []any, error) {
-	registry := x.NewRegistry()
-	registry.Register(x.NewType(reflect.TypeFor[messagewrite.CoreWriterComponent]()))
-	for _, export := range []func() (*x.Registry, error){reorder.Exports, adoption.Exports, submit.Exports, complete.Exports, maintenance.Exports, tree.Exports, scheduledelete.Exports, terminalartifact.Exports, conversationmaintenance.Exports, scheduledmaintenance.Exports, technicalmaintenance.Exports, orphanmaintenance.Exports} {
-		item, err := export()
-		if err != nil {
-			return nil, nil, err
-		}
-		registry.Merge(item)
-		if err := registry.RegisterFunctions(item.Functions()...); err != nil {
-			return nil, nil, err
-		}
-	}
-	return registry, []any{messagewrite.CoreWriterComponent{}, reorder.ReorderComponent{}, adoption.Component{}, submit.Component{}, complete.Component{}, maintenance.PurgeComponent{}, tree.DeleteComponent{}, scheduledelete.Component{}, terminalartifact.CleanupComponent{}, conversationmaintenance.Component{}, scheduledmaintenance.Component{}, technicalmaintenance.Component{}, orphanmaintenance.ApplyComponent{}}, nil
-}
-
-// Command uses the same linked contracts and business factories as New.
+// Command uses the same package-linked contracts as the embedded application.
 func Command() (command.Service, error) {
-	registry, holders, err := exports()
-	return command.Service{Registry: registry, Holders: holders}, err
+	return command.Service{}, nil
 }
 
 // New opens a single native runtime and its configured connector pools. It
 // publishes the initial generation without opening an HTTP or MCP listener.
-// The caller owns Shutdown and must keep BaseDir source available for reload.
+// The caller owns Shutdown. Linked runtime reloads require no source checkout.
 // Providers and authentication options retain their stock Datly semantics.
 func New(ctx context.Context, options standalone.Options) (*standalone.Server, error) {
-	registry, holders, err := exports()
-	if err != nil {
-		return nil, err
-	}
-	if options.Registry != nil {
-		registry.Merge(options.Registry)
-		if err := registry.RegisterFunctions(options.Registry.Functions()...); err != nil {
-			return nil, err
-		}
-	}
-	options.Registry = registry
-	options.Holders = append(holders, options.Holders...)
 	options.RequireLinked = true
 	if options.Config != nil && options.Config.GoBootstrap == nil {
-		options.Config.GoBootstrap = &config.Packages{Packages: []string{
+		options.Config.GoBootstrap = &config.Packages{LinkedOnly: true, Packages: []string{
 			"github.com/viant/agently-core/internal/datly/...",
-			"github.com/viant/agently-core/internal/store/queuereorder",
-			"github.com/viant/agently-core/internal/store/maintenancelease",
-			"github.com/viant/agently-core/internal/store/conversationtree",
-			"github.com/viant/agently-core/internal/store/scheduledelete",
-			"github.com/viant/agently-core/internal/store/terminalartifact",
-			"github.com/viant/agently-core/internal/store/conversationmaintenance",
-			"github.com/viant/agently-core/internal/store/scheduledmaintenance",
-			"github.com/viant/agently-core/internal/store/technicalmaintenance",
-			"github.com/viant/agently-core/internal/store/orphanmaintenance",
-			"github.com/viant/agently-core/internal/store/reporting/adoption",
-			"github.com/viant/agently-core/internal/store/reporting/exportsubmit",
-			"github.com/viant/agently-core/internal/store/reporting/exportcomplete",
+			"github.com/viant/agently-core/internal/store/...",
 		}}
 	}
 	server, err := standalone.New(ctx, options)

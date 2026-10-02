@@ -1,13 +1,11 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	xhandler "github.com/viant/xdatly/handler"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -31,14 +29,11 @@ import (
 	viewprovider "github.com/viant/datly/sql/reader/provider"
 )
 
-// This compares creation, pending adoption and guarded replacement through the
-// real legacy and generated runtimes. The deterministic competing-insert case
-// verifies native affected-row recovery preserves winner output.
-// This component is deliberately not linked or counted as migrated.
+// Creation, pending adoption, competing writes and retries are checked against
+// fixed expected winner identities through the generated runtime.
 func TestLinkStateCreateAdoptSequentialEvidence(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type useCase struct {
 		desc               string
 		input              bool
@@ -50,7 +45,7 @@ func TestLinkStateCreateAdoptSequentialEvidence(t *testing.T) {
 	}
 	for _, tc := range []useCase{{desc: "expired row is replaced", expect: true}, {desc: "consumed row is replaced", input: true, expect: true}, {desc: "pending row is adopted without mutation", pending: true}, {desc: "missing flow is created", absent: true, expect: true}, {desc: "losing insert must adopt stored winner", absent: true, race: true, expect: false}, {desc: "concurrent creator is adopted after fresh Current", absent: true, concurrent: true}, {desc: "concurrent replacement is adopted after fresh Current", concurrent: true}, {desc: "concurrent deletion retries as creation", concurrent: true, vanish: true, expect: true}, {desc: "exhausted replacement adopts last expired winner", absent: true, race: true, exhausted: true}, {desc: "zero insert without winner remains error", absent: true, failed: true}} {
 		t.Run(tc.desc, func(t *testing.T) {
-			fixture := func(legacy bool) (*sql.DB, string) {
+			fixture := func() (*sql.DB, string) {
 				db, path := goalFixture(t, project)
 				if tc.exhausted {
 					_, err := db.Exec("PRAGMA journal_mode=WAL")
@@ -59,15 +54,7 @@ func TestLinkStateCreateAdoptSequentialEvidence(t *testing.T) {
 				if tc.concurrent {
 					_, err := db.Exec("PRAGMA journal_mode=WAL")
 					must(t, err)
-					// Legacy observes the same final competitor state before its first read;
-					// native uses a second connection after Current binding and before DML.
-					if legacy {
-						if !tc.vanish {
-							_, err = db.Exec("INSERT INTO oauth_link_state(state_hash,flow_hash,user_id,session_hash,provider,expires_at,consumed_at,created_at) VALUES('winner','flow','u9','session9','winner-provider','2027-01-01 00:00:00',NULL,'2026-01-02 00:00:00')")
-							must(t, err)
-						}
-						return db, path
-					}
+
 				}
 				consumed := "NULL"
 				expiry := "2026-01-01 00:00:00"
@@ -81,10 +68,6 @@ func TestLinkStateCreateAdoptSequentialEvidence(t *testing.T) {
 				if tc.absent {
 					if tc.failed {
 						_, err := db.Exec("CREATE TRIGGER ignored_flow BEFORE INSERT ON oauth_link_state BEGIN SELECT RAISE(IGNORE); END")
-						must(t, err)
-					}
-					if tc.exhausted && legacy {
-						_, err := db.Exec(`CREATE TRIGGER ignored_replacement BEFORE UPDATE ON oauth_link_state WHEN NEW.state_hash='new' BEGIN UPDATE oauth_link_state SET state_hash='last-winner', expires_at='2026-01-01 00:00:00' WHERE flow_hash=OLD.flow_hash; SELECT RAISE(IGNORE); END;`)
 						must(t, err)
 					}
 					if tc.race {
@@ -103,32 +86,8 @@ func TestLinkStateCreateAdoptSequentialEvidence(t *testing.T) {
 				must(t, err)
 				return db, path
 			}
-			_, oldPath := fixture(true)
-			db, newPath := fixture(false)
+			db, newPath := fixture()
 			body := `{"data":{"stateHash":"new","flowHash":"flow","userId":"u2","sessionHash":"session2","provider":"bp","expiresAt":"2027-01-01 00:00:00","now":"2026-01-02 00:00:00"}}`
-			encoded, err := json.Marshal(struct {
-				Component, DBPath, Body string
-				Filters                 map[string]any
-			}{"linkStateWrite", oldPath, body, map[string]any{"flowHash": "flow"}})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(encoded)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed != tc.failed {
-				t.Fatalf("legacy failed=%v expected=%v error=%s", before.Failed, tc.failed, before.Error)
-			}
-			var out struct{ Created bool }
-			must(t, json.Unmarshal(before.Output, &out))
-			if out.Created != tc.expect {
-				t.Fatalf("legacy created=%v", out.Created)
-			}
 			resources := resource.New()
 			must(t, resources.Register(current.ReaderDatlyResourceNamespace, current.ReaderDatlyResources))
 			ca := payloadArtifact(t, resources, reflect.TypeFor[current.ReaderComponent](), reflect.TypeFor[current.LinkStateInput](), reflect.TypeFor[current.LinkStateOutput]())
@@ -201,10 +160,7 @@ func TestLinkStateCreateAdoptSequentialEvidence(t *testing.T) {
 			must(t, err)
 			var current []json.RawMessage
 			must(t, json.Unmarshal(data, &current))
-			oldRows, newRows := normalizeRowsInOrder(t, before.Rows), normalizeRowsInOrder(t, current)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("state parity\nlegacy=%s\nv1=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := normalizeRowsInOrder(t, current)
 			expectedHash := "new"
 			if tc.pending {
 				expectedHash = "old"
@@ -221,6 +177,15 @@ func TestLinkStateCreateAdoptSequentialEvidence(t *testing.T) {
 			}
 			if len(newRows) != 1 || newRows[0]["statehash"] != expectedHash || newRows[0]["consumedat"] != nil {
 				t.Fatalf("replacement=%s", pretty(newRows))
+			}
+			expectedUser, expectedSession, expectedProvider := "u2", "session2", "bp"
+			if tc.pending {
+				expectedUser, expectedSession, expectedProvider = "u1", "session1", "ap"
+			} else if tc.race || (tc.concurrent && !tc.vanish) {
+				expectedUser, expectedSession, expectedProvider = "u9", "session9", "winner-provider"
+			}
+			if newRows[0]["userid"] != expectedUser || newRows[0]["sessionhash"] != expectedSession || newRows[0]["provider"] != expectedProvider {
+				t.Fatalf("adoption did not preserve the stored winner identity: %s", pretty(newRows))
 			}
 		})
 	}

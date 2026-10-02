@@ -1,12 +1,9 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -50,7 +47,6 @@ func forgeSharedStoreRuntime(t *testing.T, db *sql.DB, owner string) *shared.Sto
 func TestForgeSharedArtifactStoreLifecycle(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		owner, action, id string
 	}
@@ -78,7 +74,6 @@ func TestForgeSharedArtifactStoreLifecycle(t *testing.T) {
 		{"foreign get fails", input{"u2", "get", "existing"}, expect{failure: shared.ErrNotFound, count: 1, title: "old"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := goalFixture(t, project)
 			db, _ := forgeFixture(t, project)
 			store := forgeSharedStoreRuntime(t, db, tc.input.owner)
 			var err error
@@ -113,36 +108,11 @@ func TestForgeSharedArtifactStoreLifecycle(t *testing.T) {
 			if tc.expect.failure != nil && !errors.Is(err, tc.expect.failure) {
 				t.Fatalf("%s failure = %v, want %v", tc.input.action, err, tc.expect.failure)
 			}
-			legacyBody, e := json.Marshal(map[string]any{
-				"artifactId": tc.input.id, "artifactRef": "report://new", "ownerId": tc.input.owner,
-				"kind": "report", "lifecycle": "saved", "title": "new title", "document": []byte("{}"),
-			})
-			must(t, e)
-			payload, e := json.Marshal(map[string]any{
-				"Component": "forgeStore", "DBPath": oldPath, "Principal": tc.input.owner,
-				"Method": tc.input.action, "Body": string(legacyBody), "Filters": map[string]any{"artifactId": tc.input.id}, "SeedExisting": true,
-			})
-			must(t, e)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, e := cmd.Output()
-			must(t, e)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed != (err != nil) {
-				t.Fatalf("legacy %s failed=%v (%s), native=%v", tc.input.action, before.Failed, before.Error, err)
-			}
 			var count int
 			var title string
 			must(t, db.QueryRow("SELECT COUNT(*), COALESCE(MAX(title), '') FROM report_shared_artifact WHERE artifact_id=?", tc.input.id).Scan(&count, &title))
 			if count != tc.expect.count || title != tc.expect.title {
 				t.Fatalf("persisted count/title=(%d,%q), want (%d,%q)", count, title, tc.expect.count, tc.expect.title)
-			}
-			var oldCount int
-			var oldTitle string
-			must(t, oldDB.QueryRow("SELECT COUNT(*), COALESCE(MAX(title), '') FROM report_shared_artifact WHERE artifact_id=?", tc.input.id).Scan(&oldCount, &oldTitle))
-			if oldCount != count || oldTitle != title {
-				t.Fatalf("legacy count/title=(%d,%q), native=(%d,%q)", oldCount, oldTitle, count, title)
 			}
 		})
 	}

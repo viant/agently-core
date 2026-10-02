@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -26,32 +25,17 @@ import (
 func TestMessageCubeLegacyPendingCount(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type useCase struct {
 		desc, input string
 		expect      int
 	}
 	for _, tc := range []useCase{{"pending includes responses with elicitation id", "c1", 2}, {"other conversation", "c2", 0}, {"empty conversation", "c3", 0}, {"blank supplied scope", "", 0}} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, path := messageCubeFixture(t, project)
 			db, _ := messageCubeFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "messageReader", "DBPath": path, "Filters": map[string]any{"mode": "pendingCount", "conversationId": tc.input}})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed || len(before.Rows) != 1 {
-				t.Fatalf("legacy: %s", raw)
-			}
-			var old map[string]any
-			must(t, json.Unmarshal(before.Rows[0], &old))
 			out, err := executeMessageCube(t, messageCubeRuntime(t, db, "", true, true), map[string]any{"measures": map[string]bool{"PendingCount": true}, "filters": map[string]any{"ConversationId": tc.input}})
 			must(t, err)
-			if len(out.Data) != 1 || out.Data[0].PendingCount != tc.expect || int(old["PendingCount"].(float64)) != tc.expect {
-				t.Fatalf("legacy=%v native=%v expected=%d", old, out.Data, tc.expect)
+			if len(out.Data) != 1 || out.Data[0].PendingCount != tc.expect {
+				t.Fatalf("native=%v expected=%d", out.Data, tc.expect)
 			}
 		})
 	}

@@ -57,11 +57,11 @@ func maintenanceLeaseRuntime(t *testing.T, db *sql.DB, supplied ...*sql.Tx) (*dr
 	r := payloadArtifact(t, resources, reflect.TypeFor[read.ReaderComponent](), reflect.TypeFor[read.Input](), reflect.TypeFor[read.Output]())
 	w := payloadArtifact(t, resources, reflect.TypeFor[write.WriterComponent](), reflect.TypeFor[write.Input](), reflect.TypeFor[write.Output]())
 	parent := payloadArtifact(t, resources, reflect.TypeFor[maintenance.PurgeComponent](), reflect.TypeFor[maintenance.PurgeInput](), reflect.TypeFor[maintenance.PurgeOutput]())
-	exports, err := maintenance.Exports()
+	customHandler, err := (maintenance.PurgeComponent{}).DatlyHandler("NewPurge")()
 	must(t, err)
-	builder, err := bootstrap.NewArtifactBuilder(exports)
+	builder, err := bootstrap.NewArtifactBuilder(nil)
 	must(t, err)
-	parent, err = builder.Build(bootstrap.ArtifactInput{Component: parent.Component, InputType: reflect.TypeFor[maintenance.PurgeInput](), OutputType: reflect.TypeFor[maintenance.PurgeOutput](), Resources: resources})
+	parent, err = builder.Build(bootstrap.ArtifactInput{Component: parent.Component, InputType: reflect.TypeFor[maintenance.PurgeInput](), OutputType: reflect.TypeFor[maintenance.PurgeOutput](), Resources: resources, Handler: customHandler})
 	must(t, err)
 	var tx *sql.Tx
 	if len(supplied) > 0 {

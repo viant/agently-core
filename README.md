@@ -387,14 +387,17 @@ Apache License 2.0 — see [LICENSE](./LICENSE) and [NOTICE](./NOTICE).
 
 ## Datly persistence
 
-The migration checkout uses branch `datly_1` and one Core Go module. Its 62
-canonical contracts live in `dql/`; stock-generated readers, writers, and cubes
-live in `internal/datly/`. Managed business compositions live in
-`internal/store/`. Public DTO packages and HTTP/JSON/SSE contracts retain their
-existing paths and behavior.
+Canonical contracts live in `dql/`; generated readers, writers, and cubes live
+in `internal/datly/`. Managed business compositions live in `internal/store/`.
 
-Core and Agently production builds pass. Generated component, public SDK,
-MySQL contention, rollback, and caller-transaction evidence are linked from
-[the current migration checkpoint](migration/README.md). Namespace relocation
-validation is recorded separately from earlier successful caller gates.
-Core changes remain uncommitted for review.
+The embedded runtime selects linked Go packages with
+`GoBootstrap.LinkedOnly`. It discovers component tags and types in parallel,
+then compiles each component on first use using its embedded SQL/resources.
+It needs no Go source checkout, source hashes, or application registration list.
+Custom holders expose their typed handler through `DatlyHandler`.
+
+Transcription is a separate authoring step that reads local DQL, SQL, and Go
+shapes; see [authoring commands](scripts/datly/README.md).
+The [startup profiler](e2e/startup/README.md) measures runtime initialization
+separately from process launch and first-query materialization. Native contract
+tests use fixed expectations and fixtures without a legacy Datly dependency.

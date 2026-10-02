@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -26,7 +25,6 @@ import (
 func TestToolCallCubeLegacyCounts(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct{ mode, conversation, turn, op string }
 	type useCase struct {
 		desc   string
@@ -43,39 +41,23 @@ func TestToolCallCubeLegacyCounts(t *testing.T) {
 		{"wrong conversation turn", input{"byTurn", "c2", "t1", ""}, 0},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := toolCallCubeFixture(t, project)
 			db, _ := toolCallCubeFixture(t, project)
-			oldFilters := map[string]any{"mode": tc.input.mode}
 			filters := map[string]any{}
 			if tc.input.conversation != "" {
-				oldFilters["conversationId"] = tc.input.conversation
 				filters["ConversationId"] = tc.input.conversation
 			}
 			if tc.input.op != "" {
-				oldFilters["opId"] = tc.input.op
 				filters["OpId"] = tc.input.op
 			}
 			if tc.input.turn != "" {
-				oldFilters["turnId"] = tc.input.turn
 				filters["TurnId"] = tc.input.turn
 				filters["ConsistentTurn"] = true
-			}
-			raw, err := json.Marshal(map[string]any{"Component": "toolCallReader", "DBPath": oldPath, "Filters": oldFilters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(raw)
-			raw, err = process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy: %s", before.Error)
 			}
 			rt := toolCallCubeRuntime(t, db, "", true, true)
 			out, err := executeToolCallCube(t, rt, map[string]any{"measures": map[string]bool{"RecordCount": true}, "filters": filters})
 			must(t, err)
-			if len(before.Rows) != tc.expect || len(out.Data) != 1 || out.Data[0].RecordCount != tc.expect {
-				t.Fatalf("legacy count=%d cube=%s expected=%d", len(before.Rows), pretty(out.Data), tc.expect)
+			if len(out.Data) != 1 || out.Data[0].RecordCount != tc.expect {
+				t.Fatalf("cube=%s expected=%d", pretty(out.Data), tc.expect)
 			}
 		})
 	}

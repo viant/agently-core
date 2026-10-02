@@ -28,7 +28,7 @@ var messageReaderTarget = dexec.ComponentTarget{
 }
 var messageBaseReaderTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[base.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/message/base"}}
 var messageWriterTarget = dexec.ComponentTarget{
-	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[write.WriterComponent]().PkgPath(), Name: "CoreWrite"},
+	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[write.CoreWriterComponent]().PkgPath(), Name: "CoreWrite"},
 	Route:     spec.RouteRef{Method: "PATCH", Path: "/v1/internal/agently/message/write"},
 }
 

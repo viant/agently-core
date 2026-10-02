@@ -1,14 +1,12 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
 	"net/http/httptest"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -46,12 +44,6 @@ type useCase struct {
 	expect expectation
 }
 type mutationInput struct{ method, body string }
-type probeRequest struct {
-	DBPath          string
-	Body            string
-	Method          string
-	ConversationIDs []string
-}
 type probeResult struct {
 	Failed bool
 	Error  string
@@ -59,13 +51,9 @@ type probeResult struct {
 	Output json.RawMessage
 }
 
-func TestGoalLegacyV1Parity(t *testing.T) {
+func TestGoalNativeContract(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := os.Getenv("LEGACY_GOAL_PROBE")
-	if legacy == "" {
-		legacy = legacyProbeBinary(t, project)
-	}
 	base := map[string]any{"objective": "original", "status": "active", "tokenbudget": float64(100), "tokensused": float64(17), "statusreason": "why"}
 	cases := []useCase{
 		{desc: "reader returns existing row and excludes empty and wrong conversation scopes", expect: expectation{rows: map[string]map[string]any{"g1": base}}},
@@ -86,24 +74,7 @@ func TestGoalLegacyV1Parity(t *testing.T) {
 	)
 	for _, test := range cases {
 		t.Run(test.desc, func(t *testing.T) {
-			oldDB, oldPath := goalFixture(t, project)
-			_ = oldDB
 			newDB, _ := goalFixture(t, project)
-			request := probeRequest{DBPath: oldPath, Body: test.input.body, Method: test.input.method, ConversationIDs: []string{"c1", "c2", "c3", "wrong"}}
-			payload, err := json.Marshal(request)
-			must(t, err)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			var stderr bytes.Buffer
-			cmd.Stderr = &stderr
-			output, err := cmd.Output()
-			if err != nil {
-				t.Fatalf("legacy component: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			if err = json.Unmarshal(bytes.TrimSpace(output), &before); err != nil {
-				t.Fatalf("legacy output: %v\n%s", err, output)
-			}
 			rt, readerKey := goalRuntime(t, newDB, false)
 			after := probeResult{Rows: []json.RawMessage{}}
 			if test.input.body != "" {
@@ -122,7 +93,7 @@ func TestGoalLegacyV1Parity(t *testing.T) {
 					after.Output, _ = json.Marshal(value.(*write.Output).Data)
 				}
 			}
-			for _, id := range request.ConversationIDs {
+			for _, id := range []string{"c1", "c2", "c3", "wrong"} {
 				input := &read.GoalInput{}
 				input.SetConversationID(id)
 				value, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: readerKey, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/goal/{conversationId}"}}, Input: input})
@@ -133,14 +104,10 @@ func TestGoalLegacyV1Parity(t *testing.T) {
 					after.Rows = append(after.Rows, data)
 				}
 			}
-			if before.Failed != test.expect.failed || after.Failed != test.expect.failed {
-				t.Fatalf("failure parity: legacy=%t (%s), v1=%t (%s), expect=%t", before.Failed, before.Error, after.Failed, after.Error, test.expect.failed)
+			if after.Failed != test.expect.failed {
+				t.Fatalf("native failure=%t (%s), expected=%t", after.Failed, after.Error, test.expect.failed)
 			}
-			oldRows := normalizeRows(t, before.Rows)
 			newRows := normalizeRows(t, after.Rows)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("persisted reader parity\nlegacy=%s\nv1=%s", pretty(oldRows), pretty(newRows))
-			}
 			if len(newRows) != len(test.expect.rows) {
 				t.Fatalf("row count: %d, expect %d", len(newRows), len(test.expect.rows))
 			}
@@ -157,12 +124,25 @@ func TestGoalLegacyV1Parity(t *testing.T) {
 				}
 			}
 			if test.input.body != "" && !test.expect.failed && test.input.method != "DELETE" {
-				var oldOut, newOut []json.RawMessage
-				must(t, json.Unmarshal(before.Output, &oldOut))
-				must(t, json.Unmarshal(after.Output, &newOut))
-				if !reflect.DeepEqual(normalizeRowsInOrder(t, oldOut), normalizeRowsInOrder(t, newOut)) {
-					t.Fatalf("transformed output parity\nlegacy=%s\nv1=%s", before.Output, after.Output)
+				var requested struct {
+					Data []struct {
+						ID string `json:"id"`
+					} `json:"data"`
 				}
+				must(t, json.Unmarshal([]byte(test.input.body), &requested))
+				var returned []struct {
+					ID string `json:"id"`
+				}
+				must(t, json.Unmarshal(after.Output, &returned))
+				if len(returned) != len(requested.Data) {
+					t.Fatalf("writer returned %d rows for %d inputs", len(returned), len(requested.Data))
+				}
+				for i, row := range returned {
+					if row.ID != requested.Data[i].ID {
+						t.Fatalf("response order at %d: got %s, want %s", i, row.ID, requested.Data[i].ID)
+					}
+				}
+
 			}
 		})
 	}

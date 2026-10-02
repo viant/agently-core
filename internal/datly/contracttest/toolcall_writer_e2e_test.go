@@ -1,12 +1,11 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -28,7 +27,6 @@ import (
 func TestToolCallWriterLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type expect struct{ failed bool }
 	type useCase struct {
 		desc, input string
@@ -66,16 +64,8 @@ func TestToolCallWriterLegacyParity(t *testing.T) {
 		{"null batch", `{"data":null}`, expect{}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := toolCallFixture(t, project)
 			db, _ := toolCallFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "toolCall", "DBPath": oldPath, "Body": tc.input})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
+			initial := toolCallStoredRows(t, db)
 			rt := toolCallWriterRuntime(t, db)
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/toolcall", strings.NewReader(tc.input))
 			request.Header.Set("Content-Type", "application/json")
@@ -83,23 +73,49 @@ func TestToolCallWriterLegacyParity(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			value, err := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/toolcall", scope)
-			if before.Failed != tc.expect.failed || (err != nil) != tc.expect.failed {
-				t.Fatalf("failure legacy=%v (%s) native=%v expected=%v", before.Failed, before.Error, err, tc.expect.failed)
+			if (err != nil) != tc.expect.failed {
+				t.Fatalf("native error=%v expected failure=%v", err, tc.expect.failed)
 			}
-			oldRows, newRows := toolCallStoredRows(t, oldDB), toolCallStoredRows(t, db)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("complete stored rows legacy=%s native=%s", pretty(oldRows), pretty(newRows))
+			newRows := toolCallStoredRows(t, db)
+			if tc.expect.failed && !reflect.DeepEqual(initial, newRows) {
+				t.Fatalf("failed mutation changed stored rows: before=%s after=%s", pretty(initial), pretty(newRows))
 			}
 			if !tc.expect.failed {
-				var oldOutput []json.RawMessage
-				must(t, json.Unmarshal(before.Output, &oldOutput))
-				raw, err := json.Marshal(value.(*write.Output).Data)
-				must(t, err)
-				var newOutput []json.RawMessage
-				must(t, json.Unmarshal(raw, &newOutput))
-				oldResponse, newResponse := normalizeRowsInOrder(t, oldOutput), normalizeRowsInOrder(t, newOutput)
-				if !reflect.DeepEqual(oldResponse, newResponse) {
-					t.Fatalf("response legacy=%s native=%s", before.Output, raw)
+				var submitted struct {
+					Data []map[string]any `json:"data"`
+				}
+				must(t, json.Unmarshal([]byte(tc.input), &submitted))
+				if len(value.(*write.Output).Data) != len(submitted.Data) {
+					t.Fatalf("response rows=%d submitted=%d", len(value.(*write.Output).Data), len(submitted.Data))
+				}
+				indexed := map[string]map[string]any{}
+				for _, row := range newRows {
+					indexed[row["messageid"].(string)] = row
+				}
+				for _, submittedRow := range submitted.Data {
+					stored := indexed[submittedRow["messageId"].(string)]
+					if stored == nil {
+						t.Fatalf("missing persisted row for %v", submittedRow["messageId"])
+					}
+					for field, want := range submittedRow {
+						if field == "responseOverflow" || field == "startedAt" || field == "completedAt" {
+							continue
+						}
+						if field == "errorMessage" && len(fmt.Sprint(want)) > 65535 {
+							if len(fmt.Sprint(stored["errormessage"])) >= len(fmt.Sprint(want)) {
+								t.Fatalf("error message was not truncated")
+							}
+							continue
+						}
+						if got := stored[strings.ToLower(field)]; !reflect.DeepEqual(got, want) {
+							t.Fatalf("stored %s=%v, want %v", field, got, want)
+						}
+					}
+					if submittedRow["messageId"] == "new" {
+						if _, supplied := submittedRow["attempt"]; !supplied && stored["attempt"] != float64(1) {
+							t.Fatalf("default attempt=%v, want 1", stored["attempt"])
+						}
+					}
 				}
 			}
 		})

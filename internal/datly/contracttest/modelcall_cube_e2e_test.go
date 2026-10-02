@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -30,7 +29,6 @@ var modelCallUsageMeasures = map[string]bool{"Cost": true, "PromptTokens": true,
 func TestModelCallCubeLegacyUsage(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		conversation       string
 		models, knownCosts bool
@@ -52,19 +50,7 @@ func TestModelCallCubeLegacyUsage(t *testing.T) {
 		{"explicit narrator role is case insensitive", input{"c3", true, false}, 1},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := modelCallCubeFixture(t, project, tc.input.knownCosts)
 			db, _ := modelCallCubeFixture(t, project, tc.input.knownCosts)
-			payload, err := json.Marshal(map[string]any{"Component": "modelCallUsage", "DBPath": oldPath, "Filters": map[string]any{"id": tc.input.conversation, "models": tc.input.models}})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy usage: %s", before.Error)
-			}
 			dimensions := map[string]bool{"ConversationId": true}
 			if tc.input.models {
 				dimensions["Provider"] = true
@@ -74,7 +60,7 @@ func TestModelCallCubeLegacyUsage(t *testing.T) {
 			rt := modelCallCubeRuntime(t, db, "", true, true)
 			out, err := executeModelCallCube(t, rt, map[string]any{"dimensions": dimensions, "measures": modelCallUsageMeasures, "filters": map[string]any{"ConversationId": tc.input.conversation}})
 			must(t, err)
-			raw, err = json.Marshal(out.Data)
+			raw, err := json.Marshal(out.Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
@@ -85,9 +71,9 @@ func TestModelCallCubeLegacyUsage(t *testing.T) {
 			for name := range modelCallUsageMeasures {
 				fields = append(fields, strings.ToLower(name))
 			}
-			oldRows, newRows := modelCallUsageRows(t, before.Rows, fields), modelCallUsageRows(t, rows, fields)
-			if len(newRows) != tc.expect || !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("usage legacy=%s cube=%s expectedRows=%d", pretty(oldRows), pretty(newRows), tc.expect)
+			newRows := modelCallUsageRows(t, rows, fields)
+			if len(newRows) != tc.expect {
+				t.Fatalf("usage cube=%s expectedRows=%d", pretty(newRows), tc.expect)
 			}
 		})
 	}

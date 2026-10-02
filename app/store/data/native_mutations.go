@@ -138,6 +138,7 @@ func (s *datlyService) invokeDataWriter(ctx context.Context, input any, field, p
 	has.Elem().FieldByName(field).SetBool(true)
 	target := dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: value.Type().PkgPath(), Name: "writer"}, Route: spec.RouteRef{Method: "PATCH", Path: path}}
 	if _, message := input.(*msgwrite.Input); message {
+		target.Component.Scope = reflect.TypeFor[msgwrite.CoreWriterComponent]().PkgPath()
 		target.Component.Name = "CoreWrite"
 		target.Route.Path = "/v1/internal/agently/message/write"
 	}

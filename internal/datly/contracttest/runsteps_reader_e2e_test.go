@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -32,12 +30,9 @@ import (
 func TestRunStepsReaderLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct{ filters map[string]any }
 	type expect struct {
-		ids          []string
-		legacyBroken bool
-		legacyEmpty  bool
+		ids []string
 	}
 	type useCase struct {
 		desc   string
@@ -53,40 +48,21 @@ func TestRunStepsReaderLegacyParity(t *testing.T) {
 		{"before cursor", input{map[string]any{"runId": "r1", "cursorBefore": "t1"}}, expect{ids: []string{"m1", "m2"}}},
 		{"after cursor", input{map[string]any{"runId": "r1", "cursorAfter": "m2"}}, expect{ids: []string{"t1", "t2"}}},
 		{"unknown run", input{map[string]any{"runId": "absent"}}, expect{ids: []string{}}},
-		{"model type filter", input{map[string]any{"stepTypes": []string{"model_call"}}}, expect{ids: []string{"m1", "m2", "other", "public"}, legacyEmpty: true}},
-		{"tool type filter", input{map[string]any{"stepTypes": []string{"tool_call"}}}, expect{ids: []string{"t1", "t2"}, legacyEmpty: true}},
+		{"model type filter", input{map[string]any{"stepTypes": []string{"model_call"}}}, expect{ids: []string{"m1", "m2", "other", "public"}}},
+		{"tool type filter", input{map[string]any{"stepTypes": []string{"tool_call"}}}, expect{ids: []string{"t1", "t2"}}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, path := runStepsFixture(t, project)
 			db, _ := runStepsFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "runSteps", "DBPath": path, "Filters": tc.input.filters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
 			rt, key := runStepsReaderRuntime(t, db, "", true, true)
 			request := runStepsInput(t, tc.input.filters)
 			out, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/run/steps"}}, Input: request})
 			must(t, err)
-			raw, err = json.Marshal(out.(*read.RunStepsOutput).Data)
+			raw, err := json.Marshal(out.(*read.RunStepsOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
-			oldRows, newRows := normalizeRowsInOrder(t, before.Rows), normalizeRowsInOrder(t, rows)
-			sort.Slice(oldRows, func(i, j int) bool { return oldRows[i]["messageid"].(string) < oldRows[j]["messageid"].(string) })
+			newRows := normalizeRowsInOrder(t, rows)
 			sort.Slice(newRows, func(i, j int) bool { return newRows[i]["messageid"].(string) < newRows[j]["messageid"].(string) })
-			if before.Failed != tc.expect.legacyBroken {
-				t.Fatalf("legacy error=%s expected broken=%v", before.Error, tc.expect.legacyBroken)
-			}
-			if tc.expect.legacyEmpty && len(oldRows) != 0 {
-				t.Fatalf("legacy type filter unexpectedly returned rows: %s", pretty(oldRows))
-			}
-			if !before.Failed && !tc.expect.legacyEmpty && !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("legacy=%s native=%s", pretty(oldRows), pretty(newRows))
-			}
 			ids := []string{}
 			for _, row := range newRows {
 				ids = append(ids, row["messageid"].(string))

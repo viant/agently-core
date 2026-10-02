@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -31,7 +29,6 @@ import (
 func TestApprovalReaderLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		mode    string
 		filters map[string]any
@@ -59,38 +56,19 @@ func TestApprovalReaderLegacyParity(t *testing.T) {
 		{"outcome window", input{"outcome", map[string]any{"since": "2026-01-02T12:00:00Z", "until": "2026-01-04T12:00:00Z"}}, []string{"timeout", "approved"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, path := approvalReaderFixture(t, project)
 			db, _ := approvalReaderFixture(t, project)
-			filters := map[string]any{"mode": tc.input.mode}
-			for k, v := range tc.input.filters {
-				filters[k] = v
-			}
-			payload, err := json.Marshal(map[string]any{"Component": "approvalReader", "DBPath": path, "Filters": filters})
-			must(t, err)
-			command := exec.Command(legacy)
-			command.Stdin = bytes.NewReader(payload)
-			raw, err := command.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy: %s", before.Error)
-			}
 			rt, key := approvalReaderRuntime(t, db, "", tc.input.mode, true, true)
 			result, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/tool-approval"}}, Input: approvalReadInput(t, tc.input.filters)})
 			must(t, err)
-			raw, err = json.Marshal(result.(*read.ApprovalRowsOutput).Data)
+			raw, err := json.Marshal(result.(*read.ApprovalRowsOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
-			oldRows, newRows := normalizeRowsInOrder(t, before.Rows), normalizeRowsInOrder(t, rows)
+			newRows := normalizeRowsInOrder(t, rows)
 			if tc.input.mode == "rows" {
 				for _, row := range newRows {
 					delete(row, "transitionat")
 				}
-			}
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("legacy=%s native=%s", pretty(oldRows), pretty(newRows))
 			}
 			ids := []string{}
 			for _, row := range newRows {

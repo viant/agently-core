@@ -4,10 +4,8 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"github.com/viant/datly/runtime/handler/provider"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -94,7 +92,6 @@ func reportArtifactNew(id, jobID, artifactRef, format string, ttl int64) *write.
 func TestReportArtifactWriterParentMatch(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		id, jobID, artifactRef, format, subject string
 		ttl                                     int64
@@ -122,7 +119,6 @@ func TestReportArtifactWriterParentMatch(t *testing.T) {
 		{"foreign caller cannot create", input{"new", "queued", "report://queued", "pdf", "u2", 0}, expect{failure: true}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := reportArtifactFixture(t, project)
 			db, _ := reportArtifactFixture(t, project)
 			rt, _, key := reportArtifactRuntime(t, db, tc.input.subject, false, nil)
 			row := reportArtifactNew(tc.input.id, tc.input.jobID, tc.input.artifactRef, tc.input.format, tc.input.ttl)
@@ -133,34 +129,8 @@ func TestReportArtifactWriterParentMatch(t *testing.T) {
 			if (err != nil) != tc.expect.failure {
 				t.Fatalf("writer error=%v expected failure=%v", err, tc.expect.failure)
 			}
-			body, e := json.Marshal(map[string]any{
-				"artifactId": tc.input.id, "jobId": tc.input.jobID,
-				"artifactRef": tc.input.artifactRef, "ownerId": "u1", "format": tc.input.format,
-				"contentType": "application/pdf", "data": []byte("%PDF"),
-				"createdAt": "2026-01-04T00:00:00Z", "retentionTtl": time.Duration(tc.input.ttl) * time.Second,
-			})
-			must(t, e)
-			payload, e := json.Marshal(map[string]any{
-				"Component": "reportArtifact", "DBPath": oldPath, "Principal": tc.input.subject,
-				"Method": "put", "Body": string(body),
-			})
-			must(t, e)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, e := cmd.Output()
-			must(t, e)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed != tc.expect.failure {
-				t.Fatalf("legacy failure=%v (%s), native=%v", before.Failed, before.Error, err)
-			}
 			var ttl int64
 			err = db.QueryRow("SELECT retention_ttl_sec FROM report_export_artifact WHERE artifact_id=?", tc.input.id).Scan(&ttl)
-			var oldTTL int64
-			oldErr := oldDB.QueryRow("SELECT retention_ttl_sec FROM report_export_artifact WHERE artifact_id=?", tc.input.id).Scan(&oldTTL)
-			if (err == nil) != (oldErr == nil) || err == nil && ttl != oldTTL {
-				t.Fatalf("legacy ttl=(%d,%v) native=(%d,%v)", oldTTL, oldErr, ttl, err)
-			}
 			if tc.expect.present {
 				must(t, err)
 				if ttl != tc.expect.ttl {
@@ -197,15 +167,13 @@ func reportArtifactSnapshotFromView(row *read.Artifact) reportArtifactSnapshot {
 func TestReportArtifactReaderLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		subject, id, method string
 		internal            bool
 	}
 	type expect struct {
-		id            string
-		list          []string
-		compareLegacy bool
+		id   string
+		list []string
 	}
 	type useCase struct {
 		desc   string
@@ -213,14 +181,13 @@ func TestReportArtifactReaderLegacyParity(t *testing.T) {
 		expect expect
 	}
 	for _, tc := range []useCase{
-		{"exact artifact preserves bytes and retention", input{subject: "u1", id: "artifact-running", method: "get"}, expect{id: "artifact-running", compareLegacy: true}},
-		{"owner list returns only own artifact", input{subject: "u1", method: "list"}, expect{list: []string{"artifact-running"}, compareLegacy: true}},
-		{"foreign artifact stays hidden", input{subject: "u2", id: "artifact-running", method: "get"}, expect{compareLegacy: true}},
-		{"anonymous list is empty", input{subject: "", method: "list"}, expect{list: []string{}, compareLegacy: true}},
+		{"exact artifact preserves bytes and retention", input{subject: "u1", id: "artifact-running", method: "get"}, expect{id: "artifact-running"}},
+		{"owner list returns only own artifact", input{subject: "u1", method: "list"}, expect{list: []string{"artifact-running"}}},
+		{"foreign artifact stays hidden", input{subject: "u2", id: "artifact-running", method: "get"}, expect{}},
+		{"anonymous list is empty", input{subject: "", method: "list"}, expect{list: []string{}}},
 		{"internal reader can see foreign artifact", input{internal: true, id: "artifact-foreign"}, expect{id: "artifact-foreign"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := reportArtifactFixture(t, project)
 			db, _ := reportArtifactFixture(t, project)
 			rt, key, _ := reportArtifactRuntime(t, db, tc.input.subject, tc.input.internal, nil)
 			query := &read.Input{}
@@ -245,44 +212,11 @@ func TestReportArtifactReaderLegacyParity(t *testing.T) {
 			} else if len(rows) != 1 || rows[0].ArtifactId != tc.expect.id {
 				t.Fatalf("rows=%+v expected=%q", rows, tc.expect.id)
 			}
-			if !tc.expect.compareLegacy {
-				return
-			}
-			body, e := json.Marshal(map[string]any{"artifactId": tc.input.id})
-			must(t, e)
-			payload, e := json.Marshal(map[string]any{"Component": "reportArtifact", "DBPath": oldPath, "Principal": tc.input.subject, "Method": tc.input.method, "Body": string(body)})
-			must(t, e)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, e := cmd.Output()
-			must(t, e)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed != (tc.expect.id == "" && tc.expect.list == nil) {
-				t.Fatalf("legacy failure=%v (%s), native rows=%d", before.Failed, before.Error, len(rows))
-			}
-			if tc.expect.id == "" && tc.expect.list == nil {
-				return
-			}
-			if tc.expect.list != nil {
-				var oldRows []reportArtifactSnapshot
-				must(t, json.Unmarshal(before.Output, &oldRows))
-				ids := []string{}
-				for _, row := range oldRows {
-					ids = append(ids, row.ArtifactID)
+			if tc.expect.id == "artifact-running" {
+				row := rows[0]
+				if row.JobId != "running" || row.ArtifactRef != "report://running" || row.OwnerId != "u1" || row.Format != "pdf" || row.ContentType != "application/pdf" || string(row.InlineData) != "%PDF" || row.RetentionTtlSec != 120 {
+					t.Fatalf("artifact differs from fixture: %+v", row)
 				}
-				if !reflect.DeepEqual(ids, tc.expect.list) {
-					t.Fatalf("legacy ids=%v native=%v", ids, tc.expect.list)
-				}
-				return
-			}
-			nativeJSON, e := json.Marshal(reportArtifactSnapshotFromView(rows[0]))
-			must(t, e)
-			var oldFields, newFields map[string]any
-			must(t, json.Unmarshal(before.Output, &oldFields))
-			must(t, json.Unmarshal(nativeJSON, &newFields))
-			if !reflect.DeepEqual(oldFields, newFields) {
-				t.Fatalf("legacy=%s native=%s", before.Output, nativeJSON)
 			}
 		})
 	}

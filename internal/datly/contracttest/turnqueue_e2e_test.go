@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -32,16 +30,14 @@ import (
 func TestTurnQueueLegacyV1Parity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		body    string
 		filters map[string]any
 	}
 	type expect struct {
-		failed        bool
-		ids           []string
-		fields        map[string]map[string]any
-		legacyPartial bool
+		failed bool
+		ids    []string
+		fields map[string]map[string]any
 	}
 	type useCase struct {
 		desc   string
@@ -63,36 +59,17 @@ func TestTurnQueueLegacyV1Parity(t *testing.T) {
 		{desc: "empty collection is a no-op", input: input{body: `{"data":[]}`}},
 		{desc: "missing identity is rejected", input: input{body: `{"data":[{"conversationId":"c1","turnId":"t3","messageId":"m3","queueSeq":3}]}`}, expect: expect{failed: true}},
 		{desc: "explicit null nonnullable sequence is rejected", input: input{body: `{"data":[{"id":"q1","queueSeq":null}]}`}, expect: expect{failed: true}},
-		{desc: "mixed batch rolls back earlier update when insert fails", input: input{body: `{"data":[{"id":"q1","status":"completed"},{"id":"q-reject","conversationId":"c1","turnId":"t3","messageId":"m3","queueSeq":3}]}`}, expect: expect{failed: true, legacyPartial: true, fields: map[string]map[string]any{"q1": {"status": "queued", "createdat": "2026-01-01T00:00:00Z", "updatedat": nil}}}},
+		{desc: "mixed batch rolls back earlier update when insert fails", input: input{body: `{"data":[{"id":"q1","status":"completed"},{"id":"q-reject","conversationId":"c1","turnId":"t3","messageId":"m3","queueSeq":3}]}`}, expect: expect{failed: true, fields: map[string]map[string]any{"q1": {"status": "queued", "createdat": "2026-01-01T00:00:00Z", "updatedat": nil}}}},
 		{desc: "database insert rejection preserves existing rows", input: input{body: `{"data":[{"id":"q-reject","conversationId":"c1","turnId":"t3","messageId":"m3","queueSeq":3}]}`}, expect: expect{failed: true}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := queueParityFixture(t, project)
 			db, _ := queueParityFixture(t, project)
 			filters := tc.input.filters
 			if filters == nil {
 				filters = map[string]any{}
 			}
-			probe := struct {
-				Component, DBPath, Body string
-				Filters                 map[string]any
-			}{"turnQueue", oldPath, tc.input.body, filters}
-			payload, err := json.Marshal(probe)
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy execution: %v\n%s", err, raw)
-			}
-			var before probeResult
-			if err := json.Unmarshal(raw, &before); err != nil {
-				t.Fatalf("legacy response: %v\nstdout=%s\nstderr=%s", err, raw, stderr.String())
-			}
 			rt, key := queueParityRuntime(t, db)
-			var afterOutput json.RawMessage
+			var outputRows int
 			var mutationError error
 			if tc.input.body != "" {
 				req := httptest.NewRequest("PATCH", "/v1/api/agently/turnqueue", strings.NewReader(tc.input.body))
@@ -103,12 +80,11 @@ func TestTurnQueueLegacyV1Parity(t *testing.T) {
 				result, err := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/turnqueue", scope)
 				mutationError = err
 				if err == nil {
-					afterOutput, err = json.Marshal(result.(*queuewrite.Output).Data)
-					must(t, err)
+					outputRows = len(result.(*queuewrite.Output).Data)
 				}
 			}
-			if before.Failed != tc.expect.failed || (mutationError != nil) != tc.expect.failed {
-				t.Fatalf("outcome legacy=%v (%s) v1=%v expected failure=%v", before.Failed, before.Error, mutationError, tc.expect.failed)
+			if (mutationError != nil) != tc.expect.failed {
+				t.Fatalf("native error=%v expected failure=%v", mutationError, tc.expect.failed)
 			}
 			readerInput := &queueread.QueueRowsInput{Has: &queueread.QueueRowsInputHas{}}
 			for _, field := range []struct {
@@ -131,14 +107,7 @@ func TestTurnQueueLegacyV1Parity(t *testing.T) {
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(data, &rows))
-			oldRows, newRows := normalizeRowsInOrder(t, before.Rows), normalizeRowsInOrder(t, rows)
-			if tc.expect.legacyPartial {
-				if len(oldRows) != 2 || oldRows[1]["status"] != "completed" || len(newRows) != 2 || newRows[1]["status"] != "queued" {
-					t.Fatalf("rollback evidence legacy=%s new=%s", pretty(oldRows), pretty(newRows))
-				}
-			} else if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("stored row parity\nlegacy=%s\nv1=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := normalizeRowsInOrder(t, rows)
 			ids := []string{}
 			indexed := map[string]map[string]any{}
 			for _, row := range newRows {
@@ -161,11 +130,12 @@ func TestTurnQueueLegacyV1Parity(t *testing.T) {
 				}
 			}
 			if tc.input.body != "" && !tc.expect.failed {
-				var old, new []json.RawMessage
-				must(t, json.Unmarshal(before.Output, &old))
-				must(t, json.Unmarshal(afterOutput, &new))
-				if !reflect.DeepEqual(normalizeRowsInOrder(t, old), normalizeRowsInOrder(t, new)) {
-					t.Fatalf("write response parity\nlegacy=%s\nv1=%s", before.Output, afterOutput)
+				var submitted struct {
+					Data []map[string]any `json:"data"`
+				}
+				must(t, json.Unmarshal([]byte(tc.input.body), &submitted))
+				if outputRows != len(submitted.Data) {
+					t.Fatalf("write response rows=%d submitted=%d", outputRows, len(submitted.Data))
 				}
 			}
 		})

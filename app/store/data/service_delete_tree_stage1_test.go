@@ -664,22 +664,29 @@ func TestConversationDeleteSchemaManifest_CoversCurrentSQLiteReferences(t *testi
 	}
 
 	_, source, _, _ := runtime.Caller(0)
-	body, err := os.ReadFile(filepath.Join(filepath.Dir(source), "..", "..", "..", "migration", "table-component-map.json"))
+	body, err := os.ReadFile(filepath.Join(filepath.Dir(source), "..", "..", "..", "components.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	var mapping struct {
-		Tables map[string]struct {
-			Readers []json.RawMessage `json:"readers"`
-			Writers []json.RawMessage `json:"writers"`
-		} `json:"tables"`
+		Components []struct {
+			Operation string   `json:"operation"`
+			Tables    []string `json:"root_tables"`
+		} `json:"components"`
 	}
 	if err = json.Unmarshal(body, &mapping); err != nil {
 		t.Fatal(err)
 	}
-	manifest := map[string]bool{}
-	for table, components := range mapping.Tables {
-		manifest[table] = len(components.Readers) > 0 && len(components.Writers) > 0
+	readers, writers := map[string]bool{}, map[string]bool{}
+	for _, component := range mapping.Components {
+		for _, table := range component.Tables {
+			switch component.Operation {
+			case "get":
+				readers[normalizeStatus(table)] = true
+			case "patch", "post", "put":
+				writers[normalizeStatus(table)] = true
+			}
+		}
 	}
 	referenceColumns := nativeReferenceSet(
 		"conversation_id", "conversation_parent_id", "conversation_parent_turn_id", "linked_conversation_id",
@@ -706,9 +713,9 @@ func TestConversationDeleteSchemaManifest_CoversCurrentSQLiteReferences(t *testi
 			if !referenceColumns[normalizeStatus(name)] {
 				continue
 			}
-			if !manifest[normalizeStatus(table)] {
+			if !readers[normalizeStatus(table)] || !writers[normalizeStatus(table)] {
 				_ = columnRows.Close()
-				t.Fatalf("table %s has deletion-related column %s but is absent from conversationDeleteSchemaTables", table, name)
+				t.Fatalf("table %s has deletion-related column %s but lacks a reader/writer pair in components.json", table, name)
 			}
 		}
 		if err := columnRows.Close(); err != nil {

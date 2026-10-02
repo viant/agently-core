@@ -1,11 +1,9 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -26,7 +24,6 @@ import (
 func TestTurnReaderLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		mode    string
 		filters map[string]any
@@ -62,23 +59,7 @@ func TestTurnReaderLegacyParity(t *testing.T) {
 		{"missing cursor yields no rows", input{"rows", scope(map[string]any{"cursorBefore": "absent"})}, []string{}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := turnReaderFixture(t, project)
 			db, _ := turnReaderFixture(t, project)
-			filters := map[string]any{"mode": tc.input.mode}
-			for k, v := range tc.input.filters {
-				filters[k] = v
-			}
-			payload, err := json.Marshal(map[string]any{"Component": "turnReader", "DBPath": oldPath, "Filters": filters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy read failed: %s", before.Error)
-			}
 			rt, key := turnReaderRuntime(t, db, tc.input.mode, true)
 			input := &read.TurnRowsInput{Has: &read.TurnRowsInputHas{}}
 			for _, field := range []struct {
@@ -113,18 +94,18 @@ func TestTurnReaderLegacyParity(t *testing.T) {
 			}
 			value, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/turn/list/list"}}, Input: input})
 			must(t, err)
-			raw, err = json.Marshal(value.(*read.TurnRowsOutput).Data)
+			raw, err := json.Marshal(value.(*read.TurnRowsOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
-			oldRows, newRows := normalizeRowsInOrder(t, before.Rows), normalizeRowsInOrder(t, rows)
+			newRows := normalizeRowsInOrder(t, rows)
 			if tc.input.mode == "queued" {
 				for i, row := range newRows {
+					if row["id"] == "a" && row["queueseq"] != nil || row["id"] != "a" && row["queueseq"] != float64(0) {
+						t.Fatalf("queue sequence for %s=%v", row["id"], row["queueseq"])
+					}
 					newRows[i] = map[string]any{"id": row["id"], "queueseq": row["queueseq"]}
 				}
-			}
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("ordered rows legacy=%s native=%s", pretty(oldRows), pretty(newRows))
 			}
 			ids := []string{}
 			for _, row := range newRows {

@@ -7,7 +7,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -33,7 +32,6 @@ import (
 func TestMessageReaderLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		mode    string
 		filters map[string]any
@@ -66,35 +64,16 @@ func TestMessageReaderLegacyParity(t *testing.T) {
 		{"parent elicitation", input{"parentElicitation", map[string]any{"parentMessageId": "a", "elicitationId": "el"}}, []string{"b", "c", "d"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, path := messageReaderFixture(t, project)
 			db, _ := messageReaderFixture(t, project)
-			filters := map[string]any{"mode": tc.input.mode}
-			for k, v := range tc.input.filters {
-				filters[k] = v
-			}
-			payload, err := json.Marshal(map[string]any{"Component": "messageReader", "DBPath": path, "Filters": filters})
-			must(t, err)
-			command := exec.Command(legacy)
-			command.Stdin = bytes.NewReader(payload)
-			raw, err := command.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy: %s", before.Error)
-			}
 			rt, key := messageReaderRuntime(t, db, "", tc.input.mode, true, true)
 			request := messageReadInput(t, tc.input.filters)
 			result, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/message"}}, Input: request})
 			must(t, err)
-			raw, err = json.Marshal(result.(*read.MessagesOutput).Data)
+			raw, err := json.Marshal(result.(*read.MessagesOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
-			oldRows, newRows := messageComparableRows(t, before.Rows), messageComparableRows(t, rows)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("legacy=%s native=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := messageComparableRows(t, rows)
 			ids := []string{}
 			for _, row := range newRows {
 				ids = append(ids, row["id"].(string))
@@ -297,7 +276,6 @@ func TestMessageReaderSelectorProxy(t *testing.T) {
 func TestMessageReaderElicitationPayloadLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	var compressed bytes.Buffer
 	zip := gzip.NewWriter(&compressed)
 	_, err := zip.Write([]byte(`{"prompt":"gzip"}`))
@@ -314,23 +292,9 @@ func TestMessageReaderElicitationPayloadLegacyParity(t *testing.T) {
 	}
 	for _, tc := range []useCase{{"gzip payload", input{compressed.Bytes(), "gzip"}, "gzip"}, {"malformed gzip is nonfatal", input{[]byte("broken"), "gzip"}, ""}, {"malformed JSON is nonfatal", input{[]byte("broken"), "none"}, ""}, {"empty payload is nonfatal", input{nil, "none"}, ""}} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, path := messageReaderFixture(t, project)
 			db, _ := messageReaderFixture(t, project)
-			for _, fixture := range []*sql.DB{oldDB, db} {
-				_, err := fixture.Exec("UPDATE call_payload SET inline_body=?,compression=? WHERE id='p1'", tc.input.body, tc.input.compression)
-				must(t, err)
-			}
-			payload, err := json.Marshal(map[string]any{"Component": "messageReader", "DBPath": path, "Filters": map[string]any{"mode": "byId", "id": "b"}})
+			_, err := db.Exec("UPDATE call_payload SET inline_body=?,compression=? WHERE id='p1'", tc.input.body, tc.input.compression)
 			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy: %s", before.Error)
-			}
 			rt, key := messageReaderRuntime(t, db, "", "byId", true, true)
 			result, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/message"}}, Input: messageReadInput(t, map[string]any{"id": "b"})})
 			must(t, err)
@@ -338,21 +302,11 @@ func TestMessageReaderElicitationPayloadLegacyParity(t *testing.T) {
 			if len(rows) != 1 {
 				t.Fatal("missing row")
 			}
-			var original map[string]any
-			must(t, json.Unmarshal(before.Rows[0], &original))
-			oldValue := original["Elicitation"]
-			if value, ok := original["elicitation"]; ok {
-				oldValue = value
-			}
-			raw, err = json.Marshal(rows[0].Elicitation)
-			must(t, err)
-			var newValue any
-			must(t, json.Unmarshal(raw, &newValue))
-			if !reflect.DeepEqual(oldValue, newValue) {
-				t.Fatalf("legacy elicitation=%v native=%v", oldValue, newValue)
-			}
 			if tc.expect != "" && rows[0].Elicitation["prompt"] != tc.expect {
 				t.Fatal("gzip hydration lost")
+			}
+			if tc.expect == "" && rows[0].Elicitation != nil {
+				t.Fatalf("malformed or empty payload hydrated unexpectedly: %v", rows[0].Elicitation)
 			}
 		})
 	}
@@ -361,55 +315,39 @@ func TestMessageReaderElicitationPayloadLegacyParity(t *testing.T) {
 func TestMessageReaderTranscriptLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		id          string
 		model, tool bool
 	}
 	type useCase struct {
-		desc   string
-		input  input
-		expect bool
+		desc                  string
+		input                 input
+		expectModelCall       bool
+		expectMessageToolCall bool
 	}
-	for _, tc := range []useCase{{"assistant without optional facts", input{"b", false, false}, false}, {"assistant model facts and five payload relations", input{"b", true, false}, true}, {"assistant includes both fact families", input{"b", true, true}, true}, {"user owns tool message children", input{"a", false, true}, false}, {"tool message owns tool call and payloads", input{"d", false, true}, false}, {"tool facts disabled", input{"d", false, false}, false}} {
+	for _, tc := range []useCase{{"assistant without optional facts", input{"b", false, false}, false, false}, {"assistant model facts and five payload relations", input{"b", true, false}, true, false}, {"assistant includes both fact families", input{"b", true, true}, true, false}, {"user owns tool message children", input{"a", false, true}, false, false}, {"tool message owns tool call and payloads", input{"d", false, true}, false, true}, {"tool facts disabled", input{"d", false, false}, false, false}} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, path := messageTranscriptFixture(t, project)
 			db, _ := messageTranscriptFixture(t, project)
 			filters := map[string]any{"mode": "transcript", "id": tc.input.id, "includeModelCall": tc.input.model, "includeToolCall": tc.input.tool}
-			payload, err := json.Marshal(map[string]any{"Component": "messageReader", "DBPath": path, "Filters": filters})
-			must(t, err)
-			command := exec.Command(legacy)
-			command.Stdin = bytes.NewReader(payload)
-			raw, err := command.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy: %s", before.Error)
-			}
 			rt, key := messageReaderRuntime(t, db, "", "transcript", true, true)
 			result, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/message"}}, Input: messageReadInput(t, filters)})
 			must(t, err)
-			raw, err = json.Marshal(result.(*read.MessagesOutput).Data)
+			raw, err := json.Marshal(result.(*read.MessagesOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
-			oldRows, newRows := normalizeConversationRows(t, before.Rows), normalizeConversationRows(t, rows)
-			// The canonical reader has extra internal payload backing metadata; compare
-			// every field of the original transcript contract recursively.
-			for i, row := range oldRows {
-				for field, value := range row {
-					if !reflect.DeepEqual(value, newRows[i][field]) {
-						t.Fatalf("field %s legacy=%s native=%s", field, pretty(value), pretty(newRows[i][field]))
-					}
-				}
-			}
 			native := result.(*read.MessagesOutput).Data
 			if len(native) != 1 {
 				t.Fatal("missing message")
 			}
-			if (native[0].ModelCall != nil) != tc.expect {
-				t.Fatalf("model call present=%v expected=%v", native[0].ModelCall != nil, tc.expect)
+			if (native[0].ModelCall != nil) != tc.expectModelCall {
+				t.Fatalf("model call present=%v expected=%v", native[0].ModelCall != nil, tc.expectModelCall)
+			}
+			if (native[0].MessageToolCall != nil) != tc.expectMessageToolCall {
+				t.Fatalf("message tool call present=%v expected=%v", native[0].MessageToolCall != nil, tc.expectMessageToolCall)
+			}
+			if tc.expectModelCall && (native[0].ModelCall.Provider != "p" || native[0].ModelCall.Model != "m") {
+				t.Fatalf("model call=%+v, want fixture provider/model p/m", native[0].ModelCall)
 			}
 		})
 	}

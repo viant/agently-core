@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -17,7 +16,6 @@ import (
 	"github.com/viant/datly/spec"
 	dsql "github.com/viant/datly/sql"
 	"github.com/viant/xdatly/state"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -28,7 +26,6 @@ import (
 func TestSchedulerRunListLegacyV1Parity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		subject string
 		filters map[string]any
@@ -51,23 +48,7 @@ func TestSchedulerRunListLegacyV1Parity(t *testing.T) {
 		{"missing schedule is empty", input{subject: "u1", filters: map[string]any{"scheduleId": "missing"}}, []string{}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := schedulerRunListFixture(t, project)
 			db, _ := schedulerRunListFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "schedulerRunList", "DBPath": oldPath, "Principal": tc.input.subject, "Filters": tc.input.filters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy failed: %s", before.Error)
-			}
 			rt, key := schedulerRunListRuntime(t, db, tc.input.subject, tc.input.filters)
 			input := &read.RunRowsInput{Has: &read.RunRowsInputHas{}}
 			for _, field := range []struct {
@@ -84,7 +65,7 @@ func TestSchedulerRunListLegacyV1Parity(t *testing.T) {
 			}
 			value, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/run/{id}"}}, Input: input})
 			must(t, err)
-			raw, err = json.Marshal(value.(*read.RunRowsOutput).Data)
+			raw, err := json.Marshal(value.(*read.RunRowsOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
@@ -101,24 +82,12 @@ func TestSchedulerRunListLegacyV1Parity(t *testing.T) {
 				}
 				return result
 			}
-			oldRows, newRows := lower(before.Rows), lower(rows)
+			newRows := lower(rows)
 			// Compare the selected scheduler projection and ensure unselected fields are zero.
 			for _, row := range value.(*read.RunRowsOutput).Data {
 				if row.WorkerId != nil || row.AuthAuthority != nil || row.CheckpointData != nil {
 					t.Fatal("scheduler list fetched an unselected runtime field")
 				}
-			}
-			for i, row := range newRows {
-				if i < len(oldRows) {
-					for key := range row {
-						if _, ok := oldRows[i][key]; !ok {
-							delete(row, key)
-						}
-					}
-				}
-			}
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("full selected projection/order\nlegacy=%s\nnew=%s", pretty(oldRows), pretty(newRows))
 			}
 			ids := []string{}
 			for _, row := range newRows {

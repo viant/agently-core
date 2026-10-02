@@ -11,9 +11,9 @@ import (
 	queueread "github.com/viant/agently-core/internal/datly/turnqueue/read"
 	queuewrite "github.com/viant/agently-core/internal/datly/turnqueue/write"
 	dexec "github.com/viant/datly/exec"
+	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
 	"github.com/viant/datly/spec"
-	"github.com/viant/x"
 	xdatly "github.com/viant/xdatly"
 	"github.com/viant/xdatly/handler"
 )
@@ -45,21 +45,13 @@ type Reorder struct{}
 
 func NewQueueReorder() handler.Contract[Input, Output] { return &Reorder{} }
 
-// Exports supplies the named factory and typed contract to the Datly 1.0 host
-// when it registers this private orchestration component.
-func Exports() (*x.Registry, error) {
-	registry := x.NewRegistry()
-	for _, typ := range []reflect.Type{reflect.TypeFor[Input](), reflect.TypeFor[Output]()} {
-		registry.Register(x.NewType(typ))
+// DatlyHandler binds the holder's declared handler to its typed implementation.
+// Linked package discovery calls this provider without a host registration list.
+func (ReorderComponent) DatlyHandler(name string) func() (rh.TypedHandler, error) {
+	if name != "NewQueueReorder" {
+		return nil
 	}
-	factory, err := x.NewFunction(reflect.TypeFor[ReorderComponent]().PkgPath(), "NewQueueReorder", custom.Factory(NewQueueReorder))
-	if err != nil {
-		return nil, err
-	}
-	if err := registry.RegisterFunctions(factory); err != nil {
-		return nil, err
-	}
-	return registry, nil
+	return custom.Factory(NewQueueReorder)
 }
 
 var _ handler.Contract[Input, Output] = (*Reorder)(nil)

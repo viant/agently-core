@@ -15,11 +15,11 @@ import (
 	runread "github.com/viant/agently-core/internal/datly/reporting/run/read"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
+	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
 	"github.com/viant/datly/runtime/handler/provider"
 	"github.com/viant/datly/spec"
 	"github.com/viant/sqlx/io/errx"
-	"github.com/viant/x"
 	xdatly "github.com/viant/xdatly"
 	"github.com/viant/xdatly/handler"
 )
@@ -71,19 +71,13 @@ func NewSubmit() handler.Contract[Input, Output] { return &Submit{} }
 
 var _ handler.Contract[Input, Output] = (*Submit)(nil)
 
-func Exports() (*x.Registry, error) {
-	registry := x.NewRegistry()
-	for _, typ := range []reflect.Type{reflect.TypeFor[Input](), reflect.TypeFor[Output]()} {
-		registry.Register(x.NewType(typ))
+// DatlyHandler binds the holder's declared handler to its typed implementation.
+// Linked package discovery calls this provider without a host registration list.
+func (Component) DatlyHandler(name string) func() (rh.TypedHandler, error) {
+	if name != "NewSubmit" {
+		return nil
 	}
-	factory, err := x.NewFunction(reflect.TypeFor[Component]().PkgPath(), "NewSubmit", custom.Factory(NewSubmit))
-	if err != nil {
-		return nil, err
-	}
-	if err := registry.RegisterFunctions(factory); err != nil {
-		return nil, err
-	}
-	return registry, nil
+	return custom.Factory(NewSubmit)
 }
 
 func (*Submit) Exec(ctx context.Context, session handler.Session, input *Input, output *Output) error {

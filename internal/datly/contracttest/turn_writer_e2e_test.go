@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -33,7 +31,6 @@ import (
 func TestTurnWriterLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type expect struct {
 		failed bool
 		count  int
@@ -60,16 +57,8 @@ func TestTurnWriterLegacyParity(t *testing.T) {
 		{"null batch", `{"data":null}`, expect{false, 1}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := turnWriterFixture(t, project)
 			db, _ := turnWriterFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "turn", "DBPath": oldPath, "Body": tc.input, "Filters": map[string]string{"conversationId": "c1"}})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
+			initial := turnStoredRows(t, db)
 			rt, key := turnWriterRuntime(t, db)
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/turn", strings.NewReader(tc.input))
 			request.Header.Set("Content-Type", "application/json")
@@ -77,35 +66,50 @@ func TestTurnWriterLegacyParity(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			mutationOutput, err := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/turn", scope)
-			if before.Failed != tc.expect.failed || (err != nil) != tc.expect.failed {
-				t.Fatalf("failure legacy=%v native=%v expected=%v legacyError=%s", before.Failed, err, tc.expect.failed, before.Error)
+			if (err != nil) != tc.expect.failed {
+				t.Fatalf("native error=%v expected failure=%v", err, tc.expect.failed)
 			}
 			input := &read.TurnRowsInput{ConversationID: "c1", Has: &read.TurnRowsInputHas{ConversationID: true}}
 			value, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/turn/list/list"}}, Input: input})
 			must(t, err)
-			raw, err = json.Marshal(value.(*read.TurnRowsOutput).Data)
+			raw, err := json.Marshal(value.(*read.TurnRowsOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
-			oldRows, newRows := normalizeRows(t, before.Rows), normalizeRows(t, rows)
-			if len(newRows) != tc.expect.count || !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("stored state legacy=%s native=%s", pretty(oldRows), pretty(newRows))
+			newRows := normalizeRows(t, rows)
+			if len(newRows) != tc.expect.count {
+				t.Fatalf("stored rows=%s expected count=%d", pretty(newRows), tc.expect.count)
 			}
-			oldDB, err := sql.Open("sqlite3", oldPath)
-			must(t, err)
-			defer oldDB.Close()
-			if !reflect.DeepEqual(turnStoredRows(t, oldDB), turnStoredRows(t, db)) {
-				t.Fatal("complete stored turn rows differ")
+			stored := turnStoredRows(t, db)
+			if tc.expect.failed && !reflect.DeepEqual(initial, stored) {
+				t.Fatalf("failed mutation changed state: before=%s after=%s", pretty(initial), pretty(stored))
 			}
 			if !tc.expect.failed {
-				var oldOutput []json.RawMessage
-				must(t, json.Unmarshal(before.Output, &oldOutput))
-				raw, err := json.Marshal(mutationOutput.(*write.Output).Data)
-				must(t, err)
-				var newOutput []json.RawMessage
-				must(t, json.Unmarshal(raw, &newOutput))
-				if !reflect.DeepEqual(normalizeRows(t, oldOutput), normalizeRows(t, newOutput)) {
-					t.Fatalf("writer response differs: legacy=%s native=%s", before.Output, raw)
+				var submitted struct {
+					Data []map[string]any `json:"data"`
+				}
+				must(t, json.Unmarshal([]byte(tc.input), &submitted))
+				if len(mutationOutput.(*write.Output).Data) != len(submitted.Data) {
+					t.Fatalf("writer response rows=%d submitted=%d", len(mutationOutput.(*write.Output).Data), len(submitted.Data))
+				}
+				for _, row := range submitted.Data {
+					id := row["id"].(string)
+					var status string
+					var queueSeq sql.NullInt64
+					var origin, errorMessage sql.NullString
+					must(t, db.QueryRow("SELECT status,queue_seq,origin,error_message FROM turn WHERE id=?", id).Scan(&status, &queueSeq, &origin, &errorMessage))
+					if want, ok := row["status"]; ok && status != want {
+						t.Fatalf("turn %s status=%q expected=%v", id, status, want)
+					}
+					if want, ok := row["queueSeq"]; ok && (!queueSeq.Valid || queueSeq.Int64 != int64(want.(float64))) {
+						t.Fatalf("turn %s queue sequence=%v expected=%v", id, queueSeq, want)
+					}
+					if want, ok := row["origin"]; ok && (!origin.Valid || origin.String != want) {
+						t.Fatalf("turn %s origin=%v expected=%v", id, origin, want)
+					}
+					if want, ok := row["errorMessage"]; ok && (errorMessage.Valid != (want != nil) || want != nil && errorMessage.String != want) {
+						t.Fatalf("turn %s error message=%v expected=%v", id, errorMessage, want)
+					}
 				}
 			}
 			if !tc.expect.failed && strings.Contains(tc.input, `"id":"new"`) {

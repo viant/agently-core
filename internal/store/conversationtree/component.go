@@ -9,10 +9,10 @@ import (
 
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
+	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
 	"github.com/viant/datly/runtime/handler/provider"
 	"github.com/viant/datly/spec"
-	"github.com/viant/x"
 	xdatly "github.com/viant/xdatly"
 	"github.com/viant/xdatly/handler"
 )
@@ -37,19 +37,13 @@ type Delete struct{}
 
 func NewDelete() handler.Contract[DeleteInput, DeleteOutput] { return &Delete{} }
 
-func Exports() (*x.Registry, error) {
-	registry := x.NewRegistry()
-	for _, typ := range []reflect.Type{reflect.TypeFor[DeleteInput](), reflect.TypeFor[DeleteOutput]()} {
-		registry.Register(x.NewType(typ))
+// DatlyHandler binds the holder's declared handler to its typed implementation.
+// Linked package discovery calls this provider without a host registration list.
+func (DeleteComponent) DatlyHandler(name string) func() (rh.TypedHandler, error) {
+	if name != "NewDelete" {
+		return nil
 	}
-	factory, err := x.NewFunction(reflect.TypeFor[DeleteComponent]().PkgPath(), "NewDelete", custom.Factory(NewDelete))
-	if err != nil {
-		return nil, err
-	}
-	if err = registry.RegisterFunctions(factory); err != nil {
-		return nil, err
-	}
-	return registry, nil
+	return custom.Factory(NewDelete)
 }
 
 func (*Delete) Exec(ctx context.Context, session handler.Session, input *DeleteInput, output *DeleteOutput) error {
