@@ -3,6 +3,7 @@
 package write
 
 import (
+	predicate "github.com/viant/agently-core/internal/datly/predicate"
 	time "time"
 )
 
@@ -15,6 +16,16 @@ func (entity *MutableRunView) SetShouldDelete(value bool) {
 		entity.Has = &MutableRunViewHas{}
 	}
 	entity.Has.ShouldDelete = true
+}
+func (entity *MutableRunView) GetCondition() *predicate.RunPatchCondition {
+	return entity.Condition
+}
+func (entity *MutableRunView) SetCondition(value *predicate.RunPatchCondition) {
+	entity.Condition = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.Condition = true
 }
 func (entity *MutableRunView) GetId() string {
 	return entity.Id

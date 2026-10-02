@@ -27,6 +27,7 @@ type LinkStateHas struct {
 	ExpiresAt    bool
 	ConsumedAt   bool
 	CreatedAt    bool
+	Now          bool
 }
 
 // CurrentWriteView is generated canonical view metadata for write.

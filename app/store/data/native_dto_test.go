@@ -2,6 +2,7 @@ package data
 
 import (
 	"bytes"
+	"fmt"
 	convwrite "github.com/viant/agently-core/internal/datly/conversation/write"
 	modelwrite "github.com/viant/agently-core/internal/datly/modelcall/write"
 	payloadwrite "github.com/viant/agently-core/internal/datly/payload/write"
@@ -139,5 +140,81 @@ func TestDataDTO_ApplyCanonicalResultPreservesLogicalFields(t *testing.T) {
 	}
 	if public.Has.Attempt || public.Attempt != 0 {
 		t.Fatal("mapping mutated the caller before publication")
+	}
+}
+
+func TestDataDTO_ApplyCanonicalResultPreservesResponseOverflow(t *testing.T) {
+	for _, publicValue := range []bool{false, true} {
+		for _, publicPresence := range []string{"nil", "absent", "present"} {
+			for _, canonicalValue := range []bool{false, true} {
+				for _, canonicalPresence := range []string{"nil", "absent", "present"} {
+					name := fmt.Sprintf("public=%t/%s/canonical=%t/%s", publicValue, publicPresence, canonicalValue, canonicalPresence)
+					t.Run(name, func(t *testing.T) {
+						cost, zero := 42.5, 0
+						public := &toolcallmodel.ToolCall{MessageID: "m", ResponseOverflow: publicValue, Cost: &cost}
+						if publicPresence != "nil" {
+							public.Has = &toolcallmodel.ToolCallHas{MessageID: true, ResponseOverflow: publicPresence == "present"}
+						}
+						canonical := &toolwrite.ToolCall{MessageId: "m", ResponseOverflow: canonicalValue, Attempt: 1, Status: "completed", LatencyMs: &zero}
+						if canonicalPresence != "nil" {
+							canonical.Has = &toolwrite.ToolCallHas{MessageId: true, ResponseOverflow: canonicalPresence == "present", Attempt: true, Status: true, Cost: true, LatencyMs: true}
+						}
+						publicBefore, err := mapDataDTO[toolcallmodel.ToolCall](public)
+						if err != nil {
+							t.Fatal(err)
+						}
+						canonicalBefore, err := mapDataDTO[toolwrite.ToolCall](canonical)
+						if err != nil {
+							t.Fatal(err)
+						}
+						result, err := mapDataDTO[toolcallmodel.ToolCall](public)
+						if err != nil {
+							t.Fatal(err)
+						}
+						if err = applyDataMutationResult(reflect.ValueOf(result).Elem(), reflect.ValueOf(canonical)); err != nil {
+							t.Fatal(err)
+						}
+						wantPresence := publicPresence == "present"
+						gotPresence := result.Has != nil && result.Has.ResponseOverflow
+						if result.ResponseOverflow != publicValue || gotPresence != wantPresence {
+							t.Fatalf("logical value/presence=%t/%t, want %t/%t", result.ResponseOverflow, gotPresence, publicValue, wantPresence)
+						}
+						if result.Attempt != 1 || result.Status != "completed" || result.Cost != nil || result.LatencyMS == nil || *result.LatencyMS != 0 {
+							t.Fatalf("stored defaults, null or zero values lost: %#v", result)
+						}
+						if canonical.Has != nil && (result.Has == nil || !result.Has.Attempt || !result.Has.Status || !result.Has.Cost || !result.Has.LatencyMS) {
+							t.Fatalf("stored field presence lost: %#v", result.Has)
+						}
+						if canonical.Has == nil && !wantPresence && result.Has != nil {
+							t.Fatal("allocated presence for an absent logical field")
+						}
+						if result.Has != nil && result.Has == public.Has {
+							t.Fatal("result aliases caller presence")
+						}
+						if !reflect.DeepEqual(public, publicBefore) || !reflect.DeepEqual(canonical, canonicalBefore) {
+							t.Fatal("mapping changed the caller or canonical result")
+						}
+					})
+				}
+			}
+		}
+	}
+}
+
+func TestDataDTO_ApplyCanonicalResultRejectsNilWithoutMutation(t *testing.T) {
+	public := &toolcallmodel.ToolCall{}
+	public.SetMessageID("m")
+	public.SetResponseOverflow(true)
+	before, err := mapDataDTO[toolcallmodel.ToolCall](public)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var canonical *toolwrite.ToolCall
+	err = applyDataMutationResult(reflect.ValueOf(public).Elem(), reflect.ValueOf(canonical))
+	if err == nil || err.Error() != "nil mutation result" {
+		t.Fatalf("nil mutation error changed: %v", err)
+	}
+	if !reflect.DeepEqual(public, before) {
+		t.Fatal("nil mutation changed the caller")
 	}
 }

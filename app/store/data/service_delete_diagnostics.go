@@ -4,31 +4,23 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"os"
 	"strings"
-	"sync/atomic"
 	"time"
+
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 )
 
-const conversationDeleteDiagnosticsEnv = "AGENTLY_DEBUG_CONVERSATION_DELETE"
+const conversationDeleteDiagnosticsEnv = maintenancediag.Env
 
 type conversationDeleteDiagnosticsContextKey struct{}
 
 type conversationDeleteDiagnostics struct {
-	id      string
-	roots   []string
-	started time.Time
+	id    string
+	trace *maintenancediag.Trace
 }
 
-var conversationDeleteDiagnosticsSequence atomic.Uint64
-
 func conversationDeleteDiagnosticsEnabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(conversationDeleteDiagnosticsEnv))) {
-	case "1", "true", "yes", "y", "on":
-		return true
-	default:
-		return false
-	}
+	return maintenancediag.Enabled()
 }
 
 func beginConversationDeleteDiagnostics(ctx context.Context, rootIDs []string) (context.Context, *conversationDeleteDiagnostics) {
@@ -38,14 +30,13 @@ func beginConversationDeleteDiagnostics(ctx context.Context, rootIDs []string) (
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	now := time.Now()
+	ctx, trace := maintenancediag.Begin(ctx, "manual_conversation_delete")
 	diagnostics := &conversationDeleteDiagnostics{
-		id:      fmt.Sprintf("%x-%x", now.UnixNano(), conversationDeleteDiagnosticsSequence.Add(1)),
-		roots:   append([]string(nil), rootIDs...),
-		started: now,
+		id:    maintenancediag.ID(ctx),
+		trace: trace,
 	}
 	ctx = context.WithValue(ctx, conversationDeleteDiagnosticsContextKey{}, diagnostics)
-	diagnostics.logf("phase=request event=start roots=%q root_count=%d", summarizeConversationDeleteIDs(rootIDs), len(rootIDs))
+	diagnostics.logf("phase=roots roots=%q root_count=%d", summarizeConversationDeleteIDs(rootIDs), len(rootIDs))
 	return ctx, diagnostics
 }
 
@@ -61,7 +52,7 @@ func (d *conversationDeleteDiagnostics) finish(err error) {
 	if d == nil {
 		return
 	}
-	d.logDone("request", d.started, err, fmt.Sprintf("roots=%q root_count=%d", summarizeConversationDeleteIDs(d.roots), len(d.roots)))
+	d.trace.Finish(err)
 }
 
 func conversationDeleteDiagPhaseStart(ctx context.Context, phase string) time.Time {
@@ -87,7 +78,7 @@ func (d *conversationDeleteDiagnostics) logDone(phase string, started time.Time,
 		elapsed = time.Since(started)
 	}
 	if err != nil {
-		d.logf("phase=%s event=done elapsed_ms=%.3f error=%q %s", phase, elapsedMilliseconds(elapsed), err.Error(), strings.TrimSpace(details))
+		d.logf("phase=%s event=done elapsed_ms=%.3f error_type=%T %s", phase, elapsedMilliseconds(elapsed), err, strings.TrimSpace(details))
 		return
 	}
 	d.logf("phase=%s event=done elapsed_ms=%.3f %s", phase, elapsedMilliseconds(elapsed), strings.TrimSpace(details))

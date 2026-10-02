@@ -8,6 +8,7 @@ import (
 
 	read "github.com/viant/agently-core/internal/datly/orphanmaintenance/read"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 
 	"github.com/viant/agently-core/internal/datly/dbtime"
 	"github.com/viant/bindly/locator"
@@ -123,7 +124,9 @@ func (s *Store) List(ctx context.Context, request CandidateRequest) ([]Candidate
 	}
 	return result, nil
 }
-func (s *Store) Apply(ctx context.Context, request Request) (*Result, error) {
+func (s *Store) Apply(ctx context.Context, request Request) (result *Result, retErr error) {
+	ctx, trace := maintenancediag.Begin(ctx, "orphanmaintenance")
+	defer func() { trace.Finish(retErr) }()
 	request, err := normalizeRequest(request)
 	if err != nil {
 		return nil, err

@@ -10,6 +10,7 @@ import (
 
 	read "github.com/viant/agently-core/internal/datly/conversation/read"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 
 	"github.com/viant/agently-core/internal/datly/dbtime"
 	"github.com/viant/bindly/locator"
@@ -107,7 +108,9 @@ func (s *Store) Candidates(ctx context.Context, request CandidateRequest) ([]Can
 	}
 	return result, nil
 }
-func (s *Store) Maintain(ctx context.Context, input *Input) (*Output, error) {
+func (s *Store) Maintain(ctx context.Context, input *Input) (result *Output, retErr error) {
+	ctx, trace := maintenancediag.Begin(ctx, "conversationmaintenance")
+	defer func() { trace.Finish(retErr) }()
 	if s == nil || s.Invoker == nil || input == nil {
 		return nil, fmt.Errorf("conversation maintenance runtime and input are required")
 	}

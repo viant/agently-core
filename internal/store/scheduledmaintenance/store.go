@@ -7,6 +7,7 @@ import (
 	"reflect"
 
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
@@ -15,7 +16,9 @@ import (
 
 var maintainTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[Component]().PkgPath(), Name: "ScheduledRunMaintenance"}, Route: spec.RouteRef{Method: "POST", Path: "/v1/internal/agently/scheduled-run/maintenance"}}
 
-func (s *Store) Maintain(ctx context.Context, input *Input) (*Output, error) {
+func (s *Store) Maintain(ctx context.Context, input *Input) (result *Output, retErr error) {
+	ctx, trace := maintenancediag.Begin(ctx, "scheduledmaintenance")
+	defer func() { trace.Finish(retErr) }()
 	if s == nil || s.Invoker == nil || input == nil {
 		return nil, fmt.Errorf("scheduled maintenance runtime and input are required")
 	}

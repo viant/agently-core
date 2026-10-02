@@ -11,6 +11,7 @@ import (
 	legacyread "github.com/viant/agently-core/internal/datly/legacyrun/read"
 	runread "github.com/viant/agently-core/internal/datly/run/read"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 	lease "github.com/viant/agently-core/internal/store/maintenancelease"
 	shared "github.com/viant/agently-core/internal/store/scheduledmaintenance"
 	dexec "github.com/viant/datly/exec"
@@ -59,7 +60,9 @@ type dependencies struct {
 	Schema  tree.TableInspector        `bind:"kind=conversationtreeSchema,in=inspector,required"`
 }
 
-func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input, output *Output) error {
+func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input, output *Output) (retErr error) {
+	ctx, trace := maintenancediag.Begin(ctx, "conversationmaintenance")
+	defer func() { trace.Finish(retErr) }()
 	if session == nil || session.Binder() == nil || input == nil || output == nil {
 		return fmt.Errorf("conversation maintenance invocation is incomplete")
 	}
@@ -73,6 +76,7 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	if deps.Invoker == nil || deps.Starter == nil || deps.Schema == nil {
 		return fmt.Errorf("conversation maintenance capabilities are unavailable")
 	}
+	deps.Invoker = maintenancediag.Wrap(ctx, deps.Invoker)
 	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
@@ -187,9 +191,8 @@ func evaluate(ctx context.Context, deps dependencies, input *Input, result *Outp
 		}
 		return err
 	}
-	if err = d.RefreshDeletePlanRunEvidence(ctx, plan); err != nil {
-		return err
-	}
+	// CollectDeletePlan already refreshed run evidence. No intervening lock
+	// or state change justifies repeating the same readers here.
 	if input.Kind == Fallback {
 		runIDs, err = d.CollectInitialRunIDs(ctx, graph)
 		if err != nil {

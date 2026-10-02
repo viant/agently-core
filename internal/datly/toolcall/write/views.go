@@ -36,6 +36,7 @@ type ToolCall struct {
 
 type ToolCallHas struct {
 	ShouldDelete      bool
+	ResponseOverflow  bool
 	MessageId         bool
 	OpId              bool
 	Attempt           bool
