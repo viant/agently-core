@@ -2,7 +2,7 @@ import Foundation
 import XCTest
 @testable import AgentlySDK
 
-/// Opt-in integration gate against migration/cmd/sdkcontractserver.
+/// Opt-in integration gate against e2e/sdkcontract/cmd/server.
 final class ActualServerContractTests: XCTestCase {
     func testSSETransportPreservesBlankFramesAndLineEndings() async throws {
         let configuration = URLSessionConfiguration.ephemeral
