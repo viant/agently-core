@@ -26,8 +26,17 @@
   },
   "schema_and_source": {
     "original_mysql_schema_comparison": "PASS; all three MySQL DDL files byte-identical to original Core",
+    "original_sqlite_schema_comparison": "PASS; internal/script/sqlite/schema.ddl and script/schema.ddl byte-identical to original Core",
+    "original_mysql_fixture_ledger": "Absent; information_schema count for sqlx_scoped_sequences is zero in the original MySQL fixture",
     "active_sequence_ledger_metadata": "Absent from DQL/generated sources",
     "store_sdk_sqlx_tag_reflection": "Absent from app, internal/store and sdk"
+  },
+  "runtime_cleanup": {
+    "files": 364,
+    "scope": "Only git-untracked .agently runtime files; tracked and ignored files retained",
+    "result": "Moved outside repository with bytes preserved; zero such untracked files immediately afterward",
+    "recovery_pointer": "/tmp/agently-core-latest-runtime-cleanup-path",
+    "limit": "Later tests may create new runtime files; cleanup is repeated after final gates"
   },
   "fresh_live_query": {
     "mysql": "PASS; returned migration verified; transcript includes request, assistant reply and model payloads",
