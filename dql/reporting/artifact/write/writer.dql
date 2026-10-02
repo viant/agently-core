@@ -1,0 +1,34 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/artifact/write')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/artifact','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(reportAccess/internal).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required().WithPredicate(8,'equal','report_export_artifact','owner_id'))
+#define($_ = $OrphanDelete<bool>(orphanDelete/enabledDelete).Optional())
+#define($_ = $Mode<string>(query/mode).Required())
+#define($_ = $ExpectedJobID<string>(query/expectedJobId).Optional().WithPredicate(8,'equal','report_export_artifact','job_id'))
+#define($_ = $Artifacts<[]*Artifact>(body/data))
+#define($_ = $Data<[]*Artifact>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'error'),
+       type(t,'Artifact'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,8),
+       required(t.artifact_id),
+       tag(t.artifact_id,'sqlx:"artifact_id,primaryKey=true,required=true"'),
+       required(t.job_id),
+       required(t.artifact_ref),
+       required(t.owner_id),
+       required(t.format),
+       required(t.content_type),
+       CAST(t.inline_data AS []byte),
+       required(t.created_at),
+       CAST(t.retention_ttl_sec AS int64)
+FROM (${embed:sql/artifact.sql}) t

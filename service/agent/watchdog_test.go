@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	agrun "github.com/viant/agently-core/pkg/agently/run"
+	runmodel "github.com/viant/agently-core/model/run"
 	"log"
 	"strings"
 	"sync"
@@ -17,17 +17,11 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	token "github.com/viant/agently-core/internal/auth/token"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	agmessagewrite "github.com/viant/agently-core/pkg/agently/message/write"
-	agmodelcallwrite "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
-	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
-	agrunsteps "github.com/viant/agently-core/pkg/agently/run/steps"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	agtoolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
-	agturnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
+	modelcallmodel "github.com/viant/agently-core/model/modelcall"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 func strptr(v string) *string { return &v }
@@ -35,13 +29,13 @@ func strptr(v string) *string { return &v }
 func TestShouldSkipStaleRun(t *testing.T) {
 	cases := []struct {
 		name string
-		run  *agrunstale.StaleRunsView
+		run  *runmodel.StaleRunsView
 		want bool
 	}{
 		{name: "nil", run: nil, want: true},
-		{name: "scheduled", run: &agrunstale.StaleRunsView{ConversationKind: "scheduled"}, want: true},
-		{name: "resumed interactive run", run: &agrunstale.StaleRunsView{ConversationKind: "interactive", ResumedFromRunId: strptr("old-run")}, want: false},
-		{name: "interactive root", run: &agrunstale.StaleRunsView{ConversationKind: "interactive"}, want: false},
+		{name: "scheduled", run: &runmodel.StaleRunsView{ConversationKind: "scheduled"}, want: true},
+		{name: "resumed interactive run", run: &runmodel.StaleRunsView{ConversationKind: "interactive", ResumedFromRunId: strptr("old-run")}, want: false},
+		{name: "interactive root", run: &runmodel.StaleRunsView{ConversationKind: "interactive"}, want: false},
 	}
 	for _, tc := range cases {
 		if got := shouldSkipStaleRun(tc.run); got != tc.want {
@@ -54,31 +48,31 @@ func TestResolveResumeUserID(t *testing.T) {
 	effective := "persisted-user"
 	tests := []struct {
 		name string
-		run  *agrunstale.StaleRunsView
+		run  *runmodel.StaleRunsView
 		sd   *token.SecurityData
 		want string
 	}{
 		{
 			name: "prefers restored security subject",
-			run:  &agrunstale.StaleRunsView{EffectiveUserId: &effective},
+			run:  &runmodel.StaleRunsView{EffectiveUserId: &effective},
 			sd:   &token.SecurityData{Subject: "restored-user"},
 			want: "restored-user",
 		},
 		{
 			name: "falls back to persisted effective user",
-			run:  &agrunstale.StaleRunsView{EffectiveUserId: &effective},
+			run:  &runmodel.StaleRunsView{EffectiveUserId: &effective},
 			sd:   nil,
 			want: "persisted-user",
 		},
 		{
 			name: "trims persisted effective user",
-			run:  &agrunstale.StaleRunsView{EffectiveUserId: strptr("  persisted-user  ")},
+			run:  &runmodel.StaleRunsView{EffectiveUserId: strptr("  persisted-user  ")},
 			sd:   &token.SecurityData{},
 			want: "persisted-user",
 		},
 		{
 			name: "empty when neither source exists",
-			run:  &agrunstale.StaleRunsView{},
+			run:  &runmodel.StaleRunsView{},
 			sd:   nil,
 			want: "",
 		},
@@ -94,14 +88,14 @@ func TestActiveRunSupersedesStale(t *testing.T) {
 	cases := []struct {
 		name   string
 		stale  string
-		active *agrunactive.ActiveRunsView
+		active *runmodel.ActiveRunsView
 		want   bool
 	}{
 		{name: "nil active", stale: "run-1", active: nil, want: false},
-		{name: "empty active id", stale: "run-1", active: &agrunactive.ActiveRunsView{}, want: false},
-		{name: "same run", stale: "run-1", active: &agrunactive.ActiveRunsView{Id: "run-1"}, want: false},
-		{name: "different active run", stale: "run-1", active: &agrunactive.ActiveRunsView{Id: "run-2"}, want: true},
-		{name: "trimmed ids", stale: " run-1 ", active: &agrunactive.ActiveRunsView{Id: " run-2 "}, want: true},
+		{name: "empty active id", stale: "run-1", active: &runmodel.ActiveRunsView{}, want: false},
+		{name: "same run", stale: "run-1", active: &runmodel.ActiveRunsView{Id: "run-1"}, want: false},
+		{name: "different active run", stale: "run-1", active: &runmodel.ActiveRunsView{Id: "run-2"}, want: true},
+		{name: "trimmed ids", stale: " run-1 ", active: &runmodel.ActiveRunsView{Id: " run-2 "}, want: true},
 	}
 	for _, tc := range cases {
 		if got := activeRunSupersedesStale(tc.stale, tc.active); got != tc.want {
@@ -130,23 +124,23 @@ func TestNormalizedRecoveryAttempt(t *testing.T) {
 type resumeAttemptDataService struct {
 	data.Service
 
-	activeRun   *agrunactive.ActiveRunsView
-	patchCalls  [][]*agrunwrite.MutableRunView
+	activeRun   *runmodel.ActiveRunsView
+	patchCalls  [][]*runmodel.MutableRunView
 	storedOwner string
 }
 
-func (s *resumeAttemptDataService) GetActiveRun(_ context.Context, _ *agrunactive.ActiveRunsInput, _ ...data.Option) (*agrunactive.ActiveRunsView, error) {
+func (s *resumeAttemptDataService) GetActiveRun(_ context.Context, _ *runmodel.ActiveRunsInput, _ ...data.Option) (*runmodel.ActiveRunsView, error) {
 	return s.activeRun, nil
 }
 
-func (s *resumeAttemptDataService) PatchRuns(_ context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error) {
+func (s *resumeAttemptDataService) PatchRuns(_ context.Context, rows []*runmodel.MutableRunView) ([]*runmodel.MutableRunView, error) {
 	s.patchCalls = append(s.patchCalls, rows)
 	return rows, nil
 }
 
-func (s *resumeAttemptDataService) GetRun(_ context.Context, id string, _ *agrun.RunRowsInput, _ ...data.Option) (*agrun.RunRowsView, error) {
+func (s *resumeAttemptDataService) GetRun(_ context.Context, id string, _ *runmodel.RunRowsInput, _ ...data.Option) (*runmodel.RunRowsView, error) {
 	owner := s.storedOwner
-	return &agrun.RunRowsView{Id: id, Status: "running", LeaseOwner: &owner}, nil
+	return &runmodel.RunRowsView{Id: id, Status: "running", LeaseOwner: &owner}, nil
 }
 
 func TestWatchdogHandleStaleRun_ClaimsSameRunConditionally(t *testing.T) {
@@ -164,7 +158,7 @@ func TestWatchdogHandleStaleRun_ClaimsSameRunConditionally(t *testing.T) {
 			leaseUntil := time.Now().Add(-time.Minute)
 			store := &resumeAttemptDataService{storedOwner: "another-pod"}
 			watchdog := NewWatchdog(store, nil)
-			run := &agrunstale.StaleRunsView{
+			run := &runmodel.StaleRunsView{
 				Id:               "source-run",
 				Attempt:          test.sourceAttempt,
 				ConversationId:   strptr("conversation-1"),
@@ -210,7 +204,7 @@ func TestWatchdogHandleStaleRun_WinningClaimWithoutAgentReportsError(t *testing.
 	// Simulate winning: read-back returns whatever token the claim proposed.
 	store.Service = nil
 	leaseUntil := time.Now().Add(-time.Minute)
-	run := &agrunstale.StaleRunsView{Id: "run-1", Attempt: 1, ConversationId: strptr("c-1"), ConversationKind: "interactive", TurnId: strptr("run-1"), LeaseOwner: strptr("dead-owner"), LeaseUntil: &leaseUntil}
+	run := &runmodel.StaleRunsView{Id: "run-1", Attempt: 1, ConversationId: strptr("c-1"), ConversationKind: "interactive", TurnId: strptr("run-1"), LeaseOwner: strptr("dead-owner"), LeaseUntil: &leaseUntil}
 	watchdogStore := &winningClaimDataService{resumeAttemptDataService: store}
 	watchdog.data = watchdogStore
 	err := watchdog.handleStaleRun(context.Background(), run)
@@ -226,59 +220,59 @@ type winningClaimDataService struct {
 	*resumeAttemptDataService
 }
 
-func (s *winningClaimDataService) GetRun(_ context.Context, id string, _ *agrun.RunRowsInput, _ ...data.Option) (*agrun.RunRowsView, error) {
+func (s *winningClaimDataService) GetRun(_ context.Context, id string, _ *runmodel.RunRowsInput, _ ...data.Option) (*runmodel.RunRowsView, error) {
 	last := s.patchCalls[len(s.patchCalls)-1][0]
-	return &agrun.RunRowsView{Id: id, Status: "running", LeaseOwner: last.LeaseOwner}, nil
+	return &runmodel.RunRowsView{Id: id, Status: "running", LeaseOwner: last.LeaseOwner}, nil
 }
 
-func (s *winningClaimDataService) GetActiveRun(_ context.Context, input *agrunactive.ActiveRunsInput, _ ...data.Option) (*agrunactive.ActiveRunsView, error) {
+func (s *winningClaimDataService) GetActiveRun(_ context.Context, input *runmodel.ActiveRunsInput, _ ...data.Option) (*runmodel.ActiveRunsView, error) {
 	turnID := ""
 	if input != nil {
 		turnID = input.TurnId
 	}
 	if len(s.patchCalls) == 0 {
-		return &agrunactive.ActiveRunsView{Id: turnID, Status: "running"}, nil
+		return &runmodel.ActiveRunsView{Id: turnID, Status: "running"}, nil
 	}
 	last := s.patchCalls[len(s.patchCalls)-1][0]
-	return &agrunactive.ActiveRunsView{Id: turnID, Status: "running", LeaseOwner: last.LeaseOwner}, nil
+	return &runmodel.ActiveRunsView{Id: turnID, Status: "running", LeaseOwner: last.LeaseOwner}, nil
 }
 
 type recoveryLimitDataService struct {
 	data.Service
 
-	activeTurn           *agturnactive.ActiveTurnsView
-	patchedRuns          []*agrunwrite.MutableRunView
-	patchedConversations []*convw.Conversation
+	activeTurn           *turnmodel.ActiveTurnsView
+	patchedRuns          []*runmodel.MutableRunView
+	patchedConversations []*conversationmodel.Conversation
 	queueDrainCalled     chan struct{}
 }
 
-func (s *recoveryLimitDataService) GetActiveRun(_ context.Context, _ *agrunactive.ActiveRunsInput, _ ...data.Option) (*agrunactive.ActiveRunsView, error) {
+func (s *recoveryLimitDataService) GetActiveRun(_ context.Context, _ *runmodel.ActiveRunsInput, _ ...data.Option) (*runmodel.ActiveRunsView, error) {
 	return nil, nil
 }
 
-func (s *recoveryLimitDataService) GetActiveTurn(_ context.Context, _ *agturnactive.ActiveTurnsInput, _ ...data.Option) (*agturnactive.ActiveTurnsView, error) {
+func (s *recoveryLimitDataService) GetActiveTurn(_ context.Context, _ *turnmodel.ActiveTurnsInput, _ ...data.Option) (*turnmodel.ActiveTurnsView, error) {
 	return s.activeTurn, nil
 }
 
-func (s *recoveryLimitDataService) GetRunStepsPage(_ context.Context, _ *agrunsteps.RunStepsInput, _ *data.PageInput, _ ...data.Option) (*data.RunStepPage, error) {
+func (s *recoveryLimitDataService) GetRunStepsPage(_ context.Context, _ *runmodel.RunStepsInput, _ *data.PageInput, _ ...data.Option) (*data.RunStepPage, error) {
 	return &data.RunStepPage{}, nil
 }
 
-func (s *recoveryLimitDataService) GetConversation(_ context.Context, id string, _ *agconv.ConversationInput, _ ...data.Option) (*agconv.ConversationView, error) {
-	return &agconv.ConversationView{Id: id}, nil
+func (s *recoveryLimitDataService) GetConversation(_ context.Context, id string, _ *conversationmodel.ConversationInput, _ ...data.Option) (*conversationmodel.ConversationView, error) {
+	return &conversationmodel.ConversationView{Id: id}, nil
 }
 
-func (s *recoveryLimitDataService) PatchRuns(_ context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error) {
+func (s *recoveryLimitDataService) PatchRuns(_ context.Context, rows []*runmodel.MutableRunView) ([]*runmodel.MutableRunView, error) {
 	s.patchedRuns = append(s.patchedRuns, rows...)
 	return rows, nil
 }
 
-func (s *recoveryLimitDataService) PatchConversations(_ context.Context, rows []*convw.Conversation) ([]*convw.Conversation, error) {
+func (s *recoveryLimitDataService) PatchConversations(_ context.Context, rows []*conversationmodel.Conversation) ([]*conversationmodel.Conversation, error) {
 	s.patchedConversations = append(s.patchedConversations, rows...)
 	return rows, nil
 }
 
-func (s *recoveryLimitDataService) GetNextQueuedTurn(_ context.Context, _ *agturnnext.QueuedTurnInput, _ ...data.Option) (*agturnnext.QueuedTurnView, error) {
+func (s *recoveryLimitDataService) GetNextQueuedTurn(_ context.Context, _ *turnmodel.QueuedTurnInput, _ ...data.Option) (*turnmodel.QueuedTurnView, error) {
 	select {
 	case s.queueDrainCalled <- struct{}{}:
 	default:
@@ -305,7 +299,7 @@ func (c *recoveryLimitConversationClient) PatchConversations(_ context.Context, 
 
 func TestWatchdogHandleStaleRun_StopsAtRecoveryAttemptLimit(t *testing.T) {
 	store := &recoveryLimitDataService{
-		activeTurn: &agturnactive.ActiveTurnsView{
+		activeTurn: &turnmodel.ActiveTurnsView{
 			Id:             "turn-10",
 			ConversationId: "conversation-1",
 			Status:         "running",
@@ -316,7 +310,7 @@ func TestWatchdogHandleStaleRun_StopsAtRecoveryAttemptLimit(t *testing.T) {
 	conversationClient := &recoveryLimitConversationClient{}
 	agentService := &Service{conversation: conversationClient, dataService: store}
 	watchdog := NewWatchdog(store, agentService)
-	run := &agrunstale.StaleRunsView{
+	run := &runmodel.StaleRunsView{
 		Id:               "run-10",
 		Attempt:          maxRecoveryAttempts,
 		ConversationId:   strptr("conversation-1"),
@@ -359,7 +353,7 @@ func TestWatchdogSweepRuns_StuckRunDoesNotBlockFollowingRuns(t *testing.T) {
 		handled []string
 	)
 	w := NewWatchdog(nil, nil, WithWatchdogHandleTimeout(25*time.Millisecond))
-	w.handleFn = func(ctx context.Context, run *agrunstale.StaleRunsView) error {
+	w.handleFn = func(ctx context.Context, run *runmodel.StaleRunsView) error {
 		switch run.Id {
 		case "run-1":
 			<-ctx.Done()
@@ -372,7 +366,7 @@ func TestWatchdogSweepRuns_StuckRunDoesNotBlockFollowingRuns(t *testing.T) {
 		}
 	}
 	start := time.Now()
-	w.sweepRuns(context.Background(), []*agrunstale.StaleRunsView{
+	w.sweepRuns(context.Background(), []*runmodel.StaleRunsView{
 		{Id: "run-1", ConversationKind: "interactive"},
 		{Id: "run-2", ConversationKind: "interactive"},
 	})
@@ -390,7 +384,7 @@ func TestWatchdogSweepRuns_HandlesStaleRunsConcurrently(t *testing.T) {
 	var current int32
 	var maxCurrent int32
 	w := NewWatchdog(nil, nil, WithWatchdogHandleTimeout(40*time.Millisecond))
-	w.handleFn = func(ctx context.Context, run *agrunstale.StaleRunsView) error {
+	w.handleFn = func(ctx context.Context, run *runmodel.StaleRunsView) error {
 		n := atomic.AddInt32(&current, 1)
 		defer atomic.AddInt32(&current, -1)
 		for {
@@ -406,7 +400,7 @@ func TestWatchdogSweepRuns_HandlesStaleRunsConcurrently(t *testing.T) {
 		return ctx.Err()
 	}
 	start := time.Now()
-	w.sweepRuns(context.Background(), []*agrunstale.StaleRunsView{
+	w.sweepRuns(context.Background(), []*runmodel.StaleRunsView{
 		{Id: "slow-1", ConversationKind: "interactive"},
 		{Id: "slow-2", ConversationKind: "interactive"},
 		{Id: "slow-3", ConversationKind: "interactive"},
@@ -455,33 +449,33 @@ func TestAcquireRecoverySlot_RespectsContext(t *testing.T) {
 
 type cleanupCaptureDataService struct {
 	data.Service
-	runStepRows      []*agrunsteps.RunStepsView
-	conversationView *agconv.ConversationView
+	runStepRows      []*runmodel.RunStepsView
+	conversationView *conversationmodel.ConversationView
 
-	patchedModelCalls []*agmodelcallwrite.MutableModelCallView
-	patchedToolCalls  []*agtoolcallwrite.MutableToolCallView
-	patchedMessages   []*agmessagewrite.MutableMessageView
+	patchedModelCalls []*modelcallmodel.MutableModelCallView
+	patchedToolCalls  []*toolcallmodel.MutableToolCallView
+	patchedMessages   []*messagemodel.MutableMessageView
 }
 
-func (s *cleanupCaptureDataService) GetRunStepsPage(_ context.Context, _ *agrunsteps.RunStepsInput, _ *data.PageInput, _ ...data.Option) (*data.RunStepPage, error) {
+func (s *cleanupCaptureDataService) GetRunStepsPage(_ context.Context, _ *runmodel.RunStepsInput, _ *data.PageInput, _ ...data.Option) (*data.RunStepPage, error) {
 	return &data.RunStepPage{Rows: s.runStepRows}, nil
 }
 
-func (s *cleanupCaptureDataService) GetConversation(_ context.Context, _ string, _ *agconv.ConversationInput, _ ...data.Option) (*agconv.ConversationView, error) {
+func (s *cleanupCaptureDataService) GetConversation(_ context.Context, _ string, _ *conversationmodel.ConversationInput, _ ...data.Option) (*conversationmodel.ConversationView, error) {
 	return s.conversationView, nil
 }
 
-func (s *cleanupCaptureDataService) PatchModelCalls(_ context.Context, rows []*agmodelcallwrite.MutableModelCallView) ([]*agmodelcallwrite.MutableModelCallView, error) {
+func (s *cleanupCaptureDataService) PatchModelCalls(_ context.Context, rows []*modelcallmodel.MutableModelCallView) ([]*modelcallmodel.MutableModelCallView, error) {
 	s.patchedModelCalls = append(s.patchedModelCalls, rows...)
 	return rows, nil
 }
 
-func (s *cleanupCaptureDataService) PatchToolCalls(_ context.Context, rows []*agtoolcallwrite.MutableToolCallView) ([]*agtoolcallwrite.MutableToolCallView, error) {
+func (s *cleanupCaptureDataService) PatchToolCalls(_ context.Context, rows []*toolcallmodel.MutableToolCallView) ([]*toolcallmodel.MutableToolCallView, error) {
 	s.patchedToolCalls = append(s.patchedToolCalls, rows...)
 	return rows, nil
 }
 
-func (s *cleanupCaptureDataService) PatchMessages(_ context.Context, rows []*agmessagewrite.MutableMessageView) ([]*agmessagewrite.MutableMessageView, error) {
+func (s *cleanupCaptureDataService) PatchMessages(_ context.Context, rows []*messagemodel.MutableMessageView) ([]*messagemodel.MutableMessageView, error) {
 	s.patchedMessages = append(s.patchedMessages, rows...)
 	return rows, nil
 }
@@ -490,7 +484,7 @@ func TestFailSupersededRunArtifacts_TerminalizesRunningStepsAndToolMessages(t *t
 	running := "running"
 	completed := "completed"
 	store := &cleanupCaptureDataService{
-		runStepRows: []*agrunsteps.RunStepsView{
+		runStepRows: []*runmodel.RunStepsView{
 			{StepType: "model_call", MessageId: "model-running", Status: "thinking"},
 			{StepType: "model_call", MessageId: "model-done", Status: "completed"},
 			{StepType: "tool_call", MessageId: "tool-running", Status: "running"},
@@ -551,10 +545,10 @@ func TestFailSupersededRunArtifacts_TerminalizesRunningStepsAndToolMessages(t *t
 	}
 }
 
-func cleanupConversationView(conversationID, turnID string, messages ...*agconv.MessageView) *agconv.ConversationView {
-	return &agconv.ConversationView{
+func cleanupConversationView(conversationID, turnID string, messages ...*conversationmodel.MessageView) *conversationmodel.ConversationView {
+	return &conversationmodel.ConversationView{
 		Id: conversationID,
-		Transcript: []*agconv.TranscriptView{{
+		Transcript: []*conversationmodel.TranscriptView{{
 			Id:             turnID,
 			ConversationId: conversationID,
 			Message:        messages,
@@ -562,15 +556,15 @@ func cleanupConversationView(conversationID, turnID string, messages ...*agconv.
 	}
 }
 
-func cleanupToolMessage(conversationID, turnID, messageID string, messageStatus *string, toolStatus string) *agconv.MessageView {
-	return &agconv.MessageView{
+func cleanupToolMessage(conversationID, turnID, messageID string, messageStatus *string, toolStatus string) *conversationmodel.MessageView {
+	return &conversationmodel.MessageView{
 		Id:             messageID,
 		ConversationId: conversationID,
 		TurnId:         strptr(turnID),
 		Role:           "tool",
 		Type:           "tool_op",
 		Status:         messageStatus,
-		MessageToolCall: &agconv.MessageToolCallView{
+		MessageToolCall: &conversationmodel.MessageToolCallView{
 			MessageId: messageID,
 			TurnId:    strptr(turnID),
 			OpId:      messageID,
@@ -617,7 +611,7 @@ func (s *startupCleanupStore) CleanupTerminalArtifactCandidates(_ context.Contex
 	return result, nil
 }
 
-func (s *startupCleanupStore) ListStaleRuns(_ context.Context, _ *agrunstale.StaleRunsInput, _ ...data.Option) ([]*agrunstale.StaleRunsView, error) {
+func (s *startupCleanupStore) ListStaleRuns(_ context.Context, _ *runmodel.StaleRunsInput, _ ...data.Option) ([]*runmodel.StaleRunsView, error) {
 	s.mu.Lock()
 	s.events = append(s.events, "sweep")
 	s.mu.Unlock()

@@ -7,7 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/viant/agently-core/internal/logx"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -47,7 +47,7 @@ func AddMessage(ctx context.Context, cl Client, turn *runtimerequestctx.TurnMeta
 	// set conversation status to "" (active) if this is a non-interim assistant message and conversation not in summary status
 	if (m.Interim == nil || *m.Interim == 0) && m.Role == "assistant" && !strings.EqualFold(strings.TrimSpace(valueOrEmptyStr(m.Status)), "summary") {
 		status := ""
-		patch := &convw.Conversation{Has: &convw.ConversationHas{}}
+		patch := &conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 		patch.SetId(m.ConversationID)
 		patch.SetStatus(status)
 		if err := cl.PatchConversations(ctx, patch); err != nil {

@@ -1,0 +1,19 @@
+{
+  "table": "schedule_run",
+  "reader": "datlyv1/dql/agently/scheduler/runlegacy/read/reader.dql",
+  "writer": "datlyv1/dql/agently/scheduler/runlegacy/write/writer.dql",
+  "legacy_source": "app/store/data/service_delete_tree.go and service_delete_tree_policy.go",
+  "status": "verified-and-linked",
+  "data_driven_cases": 15,
+  "case_groups": {
+    "legacy_delete_parity": 3,
+    "guard_and_insert_defaults": 5,
+    "reader_scope": 4,
+    "http_trust_override": 1,
+    "caller_transactions": 2
+  },
+  "behavior": "One private reader and writer cover the legacy MySQL compatibility table. The writer uses a native expected-schedule mutation predicate and delete marker; a business hook enforces trusted access, required schedule on delete, and insert defaults. No authored product SQL is used.",
+  "schema_source": "Platform/Steward Skeema for agently and agently_steward; only the disposable Datly SQLite fixture was copied/synchronized, leaving public Core DDL and entities unchanged.",
+  "verification": "Full Endly workflow passed after the disposable schema was synchronized with locally available Skeema: 54/54 contracts transcribed, 727 generated artifacts byte-stable, native boundary audit, nested tests 172.814s, host build, workflow 211939ms.",
+  "root_caller_cutover_complete": false
+}

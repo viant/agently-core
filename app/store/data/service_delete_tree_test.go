@@ -9,10 +9,9 @@ import (
 	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
+	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
-	agpayload "github.com/viant/agently-core/pkg/agently/payload"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
+	payloadmodel "github.com/viant/agently-core/model/payload"
 )
 
 func TestDeleteConversationTree_RemovesTreeArtifactsAndUnsharedPayloads(t *testing.T) {
@@ -50,9 +49,9 @@ func TestDeleteConversationTree_RemovesTreeArtifactsAndUnsharedPayloads(t *testi
 		t.Fatalf("expected run to be deleted")
 	}
 
-	payloads, err := svc.ListPayloadRows(context.Background(), &agpayload.PayloadRowsInput{
+	payloads, err := svc.ListPayloadRows(context.Background(), &payloadmodel.PayloadRowsInput{
 		Ids: []string{"payload-root", "payload-model", "payload-tool", "payload-generated", "payload-shared"},
-		Has: &agpayload.PayloadRowsInputHas{Ids: true},
+		Has: &payloadmodel.PayloadRowsInputHas{Ids: true},
 	})
 	if err != nil {
 		t.Fatalf("ListPayloadRows() error: %v", err)
@@ -123,28 +122,9 @@ func TestDeleteConversationTree_AllowsStaleActiveConversation(t *testing.T) {
 }
 
 func TestDeleteConversationGraph_RemovesLegacyScheduleRunRowsWhenContractIncludesTable(t *testing.T) {
-	_, db := newSeededServiceWithDB(t, seedForLegacyScheduleRunConversationDelete)
-	tx, err := db.BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("begin legacy schedule_run transaction: %v", err)
-	}
-	capabilities := &deleteSchemaCapabilities{
-		driver: "sqlite",
-		unavailableTables: map[string]struct{}{
-			"investigation": {},
-		},
-	}
-	graph, err := buildConversationDeleteGraph(context.Background(), tx, []string{"conv-root"}, capabilities)
-	if err != nil {
-		_ = tx.Rollback()
-		t.Fatalf("build conversation delete graph: %v", err)
-	}
-	if err := deleteConversationGraph(context.Background(), tx, graph); err != nil {
-		_ = tx.Rollback()
-		t.Fatalf("delete conversation graph: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatalf("commit legacy schedule_run transaction: %v", err)
+	svc, db := newSeededServiceWithDB(t, seedForLegacyScheduleRunConversationDelete)
+	if err := svc.DeleteConversationTree(deleteTestContext(), "conv-root"); err != nil {
+		t.Fatal(err)
 	}
 
 	for _, id := range []string{"sr-by-conversation", "sr-by-conversation-column"} {
@@ -165,9 +145,9 @@ func TestDeleteConversationTree_RemovesUnsharedElicitationPayload(t *testing.T) 
 		t.Fatalf("DeleteConversationTree() error: %v", err)
 	}
 
-	payloads, err := svc.ListPayloadRows(context.Background(), &agpayload.PayloadRowsInput{
+	payloads, err := svc.ListPayloadRows(context.Background(), &payloadmodel.PayloadRowsInput{
 		Ids: []string{"payload-elicit", "payload-elicit-shared"},
-		Has: &agpayload.PayloadRowsInputHas{Ids: true},
+		Has: &payloadmodel.PayloadRowsInputHas{Ids: true},
 	})
 	if err != nil {
 		t.Fatalf("ListPayloadRows() error: %v", err)
@@ -260,12 +240,15 @@ func TestDeleteScheduleCascade_AllowsStaleActiveRunWithoutConversation(t *testin
 func TestConversationIDsByDepthDesc_OrdersOldestFirstWithinDepth(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	newer := old.Add(time.Minute)
-	got := conversationIDsByDepthDesc(map[string]*conversationTreeRow{
+	got, err := tree.ConversationIDsByDepthDesc(&tree.Graph{Nodes: map[string]*tree.Node{
 		"parent-new": {ID: "parent-new", Depth: 0, CreatedAt: newer},
 		"parent-old": {ID: "parent-old", Depth: 0, CreatedAt: old},
 		"child-new":  {ID: "child-new", Depth: 1, CreatedAt: newer},
 		"child-old":  {ID: "child-old", Depth: 1, CreatedAt: old},
-	})
+	}}, []string{"parent-new", "parent-old", "child-new", "child-old"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	want := [][]string{{"child-old", "child-new"}, {"parent-old", "parent-new"}}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Fatalf("unexpected delete order: got %v want %v", got, want)
@@ -273,27 +256,7 @@ func TestConversationIDsByDepthDesc_OrdersOldestFirstWithinDepth(t *testing.T) {
 }
 
 func newSeededServiceWithDB(t *testing.T, seeds ...seedFn) (Service, *sql.DB) {
-	t.Helper()
-	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "agently-core-data-service")
-	t.Cleanup(cleanup)
-	dbtest.LoadSQLiteSchema(t, db)
-	for _, seed := range seeds {
-		seed(t, db)
-	}
-
-	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
-	}
-	connector := view.NewConnector("agently", "sqlite", dbPath)
-	if err = dao.AddConnectors(ctx, connector); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents() error: %v", err)
-	}
-	return NewService(dao), db
+	return newScheduledMaintenanceServiceWithDB(t, seeds...)
 }
 
 func legacyScheduleRunExists(t *testing.T, db *sql.DB, id string) bool {

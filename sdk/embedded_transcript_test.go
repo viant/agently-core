@@ -7,17 +7,17 @@ import (
 
 	"github.com/stretchr/testify/require"
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
 )
 
 func TestFilterTranscriptSinceMessage_Inclusive(t *testing.T) {
-	msg1 := &agconv.MessageView{Id: "m1", CreatedAt: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)}
-	msg2 := &agconv.MessageView{Id: "m2", CreatedAt: time.Date(2026, 1, 1, 10, 1, 0, 0, time.UTC)}
-	msg3 := &agconv.MessageView{Id: "m3", CreatedAt: time.Date(2026, 1, 1, 10, 2, 0, 0, time.UTC)}
-	msg4 := &agconv.MessageView{Id: "m4", CreatedAt: time.Date(2026, 1, 1, 10, 3, 0, 0, time.UTC)}
-	turn1 := &agconv.TranscriptView{Id: "turn-1", Message: []*agconv.MessageView{msg1, msg2, msg3}}
-	turn2 := &agconv.TranscriptView{Id: "turn-2", Message: []*agconv.MessageView{msg4}}
+	msg1 := &conversationmodel.MessageView{Id: "m1", CreatedAt: time.Date(2026, 1, 1, 10, 0, 0, 0, time.UTC)}
+	msg2 := &conversationmodel.MessageView{Id: "m2", CreatedAt: time.Date(2026, 1, 1, 10, 1, 0, 0, time.UTC)}
+	msg3 := &conversationmodel.MessageView{Id: "m3", CreatedAt: time.Date(2026, 1, 1, 10, 2, 0, 0, time.UTC)}
+	msg4 := &conversationmodel.MessageView{Id: "m4", CreatedAt: time.Date(2026, 1, 1, 10, 3, 0, 0, time.UTC)}
+	turn1 := &conversationmodel.TranscriptView{Id: "turn-1", Message: []*conversationmodel.MessageView{msg1, msg2, msg3}}
+	turn2 := &conversationmodel.TranscriptView{Id: "turn-2", Message: []*conversationmodel.MessageView{msg4}}
 
 	got := filterTranscriptSinceMessage(convstore.Transcript{(*convstore.Turn)(turn1), (*convstore.Turn)(turn2)}, "m2")
 	require.Len(t, got, 2)
@@ -85,7 +85,7 @@ func TestResolveElicitationPayload_ContentFallback(t *testing.T) {
 
 func TestNormalizeMessagePage_CanonicalizesToolName(t *testing.T) {
 	page := &MessagePage{
-		Rows: []*agmessagelist.MessageRowsView{
+		Rows: []*messagemodel.MessageRowsView{
 			{ToolName: strPtr("system_os-getEnv")},
 		},
 	}
@@ -99,7 +99,7 @@ func TestNormalizeMessagePage_CanonicalizesToolName(t *testing.T) {
 func TestEnrichTranscriptElicitations_NormalizesContentFromStructuredPayload(t *testing.T) {
 	client := &backendClient{}
 	elicitationID := "elic-1"
-	msg := &agconv.MessageView{
+	msg := &conversationmodel.MessageView{
 		Id:            "m1",
 		Content:       strPtr("map[message:Please provide your favorite color. requestedSchema:map[type:object]]"),
 		ElicitationId: &elicitationID,
@@ -107,7 +107,7 @@ func TestEnrichTranscriptElicitations_NormalizesContentFromStructuredPayload(t *
 			"message": "Please provide your favorite color.",
 		},
 	}
-	turn := &agconv.TranscriptView{Id: "turn-1", Message: []*agconv.MessageView{msg}}
+	turn := &conversationmodel.TranscriptView{Id: "turn-1", Message: []*conversationmodel.MessageView{msg}}
 
 	client.enrichTranscriptElicitations(context.Background(), convstore.Transcript{(*convstore.Turn)(turn)})
 
@@ -119,9 +119,9 @@ func TestEnrichTranscriptElicitations_NormalizesContentFromStructuredPayload(t *
 
 func TestPruneTranscriptNoise_RemovesBlankInterimAssistant(t *testing.T) {
 	content := "visible"
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id: "turn-1",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{Id: "m1", Role: "assistant", Interim: 1},
 			{Id: "m2", Role: "assistant", Content: &content},
 		},
@@ -142,27 +142,27 @@ func TestBuildCanonicalState_ExecutionPagesPerModelMessage(t *testing.T) {
 	content1 := "I'm going to inspect the repository structure."
 	content2 := "The repo is primarily Go code."
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "succeeded",
 		CreatedAt:      now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "m1",
 				Role:      "assistant",
 				Interim:   1,
 				Content:   &content1,
 				Iteration: &iteration1,
-				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: modelStatus},
-				ToolMessage: []*agconv.ToolMessageView{
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: modelStatus},
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:              "tm1",
 						ParentMessageId: strPtr("m1"),
 						CreatedAt:       now.Add(time.Second),
 						Sequence:        intPtr(1),
 						Iteration:       &iteration1,
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							MessageId: "tm1",
 							ToolName:  "resources-list",
 							Status:    toolStatus,
@@ -174,7 +174,7 @@ func TestBuildCanonicalState_ExecutionPagesPerModelMessage(t *testing.T) {
 						CreatedAt:       now.Add(2 * time.Second),
 						Sequence:        intPtr(2),
 						Iteration:       &iteration1,
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							MessageId: "tm2",
 							ToolName:  "resources-grepFiles",
 							Status:    toolStatus,
@@ -188,7 +188,7 @@ func TestBuildCanonicalState_ExecutionPagesPerModelMessage(t *testing.T) {
 				Interim:   0,
 				Content:   &content2,
 				Iteration: &iteration2,
-				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: modelStatus},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m2", Status: modelStatus},
 			},
 		},
 	}
@@ -223,11 +223,11 @@ func TestBuildCanonicalState_ReconstructsPlannerStateFromTranscript(t *testing.T
 	mode := "exec"
 	summary := "planner://strategy"
 	policySummary := "planner://policy"
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "succeeded",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:             "planner-strategy:turn-1",
 				ConversationId: "conv-1",
@@ -269,11 +269,11 @@ func TestBuildCanonicalState_ReconstructsPlannerFailureStateFromTranscript(t *te
 	mode := "exec"
 	strategySummary := "planner://strategy"
 	policySummary := "planner://policy"
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-2",
 		ConversationId: "conv-1",
 		Status:         "succeeded",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:             "planner-strategy:turn-2",
 				ConversationId: "conv-1",
@@ -315,11 +315,11 @@ func TestBuildCanonicalState_HidesIntakeRouterJSONUntilFinalResponse(t *testing.
 	phase := "intake"
 	status := "completed"
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "running",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "m1",
 				Role:      "assistant",
@@ -328,7 +328,7 @@ func TestBuildCanonicalState_HidesIntakeRouterJSONUntilFinalResponse(t *testing.
 				Mode:      &mode,
 				Phase:     &phase,
 				Iteration: &iteration,
-				ModelCall: &agconv.ModelCallView{
+				ModelCall: &conversationmodel.ModelCallView{
 					MessageId: "m1",
 					Status:    status,
 				},
@@ -357,17 +357,17 @@ func TestBuildCanonicalState_AttachesRootParentToolMessagesByIteration(t *testin
 	rootID := "root-1"
 	narration := "Using resources-list."
 
-	root := &agconv.MessageView{
+	root := &conversationmodel.MessageView{
 		Id:   rootID,
 		Role: "user",
-		ToolMessage: []*agconv.ToolMessageView{
+		ToolMessage: []*conversationmodel.ToolMessageView{
 			{
 				Id:              "tm1",
 				ParentMessageId: strPtr(rootID),
 				Sequence:        intPtr(2),
 				Iteration:       &iteration1,
 				ToolName:        strPtr("resources/list"),
-				ToolCall: &agconv.ToolCallView{
+				ToolCall: &conversationmodel.ToolCallView{
 					MessageId: "tm1",
 					ToolName:  "resources/list",
 					Status:    toolStatus,
@@ -375,23 +375,23 @@ func TestBuildCanonicalState_AttachesRootParentToolMessagesByIteration(t *testin
 			},
 		},
 	}
-	model := &agconv.MessageView{
+	model := &conversationmodel.MessageView{
 		Id:              "m1",
 		Role:            "assistant",
 		Interim:         1,
 		Content:         &narration,
 		Iteration:       &iteration1,
 		ParentMessageId: strPtr(rootID),
-		ModelCall: &agconv.ModelCallView{
+		ModelCall: &conversationmodel.ModelCallView{
 			MessageId: "m1",
 			Status:    modelStatus,
 		},
 	}
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "running",
-		Message:        []*agconv.MessageView{root, model},
+		Message:        []*conversationmodel.MessageView{root, model},
 	}
 
 	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
@@ -412,25 +412,25 @@ func TestBuildCanonicalState_PreservesLinkedConversationOnToolStepAndTurn(t *tes
 	iteration1 := 1
 	linkedID := "child-conv-1"
 	toolStatus := "completed"
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "succeeded",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "m1",
 				Role:      "assistant",
 				Interim:   1,
 				Content:   strPtr("Delegating to coder."),
 				Iteration: &iteration1,
-				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
-				ToolMessage: []*agconv.ToolMessageView{
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: "completed"},
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:                   "tm1",
 						ParentMessageId:      strPtr("m1"),
 						Iteration:            &iteration1,
 						LinkedConversationId: &linkedID,
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							MessageId: "tm1",
 							OpId:      "call-1",
 							ToolName:  "llm/agents/run",
@@ -463,31 +463,31 @@ func TestBuildCanonicalState_PreservesLinkedConversationOnToolStepAndTurn(t *tes
 func TestBuildCanonicalState_DerivesExecAsyncOperationFromResponsePayload(t *testing.T) {
 	toolStatus := "completed"
 	payloadID := "resp-1"
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "succeeded",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:      "m1",
 				Role:    "assistant",
 				Interim: 1,
 				Content: strPtr("Running command."),
-				ModelCall: &agconv.ModelCallView{
+				ModelCall: &conversationmodel.ModelCallView{
 					MessageId: "m1",
 					Status:    "completed",
 				},
-				ToolMessage: []*agconv.ToolMessageView{
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:              "tm1",
 						ParentMessageId: strPtr("m1"),
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							MessageId:         "tm1",
 							OpId:              "call-1",
 							ToolName:          "system/exec:start",
 							Status:            toolStatus,
 							ResponsePayloadId: &payloadID,
-							ResponsePayload: &agconv.ModelCallStreamPayloadView{
+							ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 								Id:         payloadID,
 								InlineBody: strPtr(`{"sessionId":"sess-1","status":"completed"}`),
 							},
@@ -533,31 +533,31 @@ func TestBuildCanonicalState_DerivesExecAsyncOperationTerminalStatusFromResponse
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
 			payloadID := "resp-1"
-			turn := &agconv.TranscriptView{
+			turn := &conversationmodel.TranscriptView{
 				Id:             "turn-1",
 				ConversationId: "conv-1",
 				Status:         "succeeded",
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:      "m1",
 						Role:    "assistant",
 						Interim: 1,
 						Content: strPtr("Running command."),
-						ModelCall: &agconv.ModelCallView{
+						ModelCall: &conversationmodel.ModelCallView{
 							MessageId: "m1",
 							Status:    "completed",
 						},
-						ToolMessage: []*agconv.ToolMessageView{
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{
 								Id:              "tm1",
 								ParentMessageId: strPtr("m1"),
-								ToolCall: &agconv.ToolCallView{
+								ToolCall: &conversationmodel.ToolCallView{
 									MessageId:         "tm1",
 									OpId:              "call-1",
 									ToolName:          "system/exec:start",
 									Status:            testCase.status,
 									ResponsePayloadId: &payloadID,
-									ResponsePayload: &agconv.ModelCallStreamPayloadView{
+									ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 										Id:         payloadID,
 										InlineBody: strPtr(testCase.body),
 									},
@@ -591,17 +591,17 @@ func TestBuildCanonicalState_PreservesModelPayloadsOnCanonicalStep(t *testing.T)
 	providerRequestID := "preq-1"
 	providerResponseID := "presp-1"
 	streamID := "stream-1"
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "succeeded",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:      "m1",
 				Role:    "assistant",
 				Interim: 0,
 				Content: strPtr("done"),
-				ModelCall: &agconv.ModelCallView{
+				ModelCall: &conversationmodel.ModelCallView{
 					MessageId:                        "m1",
 					Provider:                         "openai",
 					Model:                            "gpt-5.2",
@@ -611,11 +611,11 @@ func TestBuildCanonicalState_PreservesModelPayloadsOnCanonicalStep(t *testing.T)
 					ProviderRequestPayloadId:         &providerRequestID,
 					ProviderResponsePayloadId:        &providerResponseID,
 					StreamPayloadId:                  &streamID,
-					ModelCallRequestPayload:          &agconv.ModelCallStreamPayloadView{Id: requestID, InlineBody: strPtr(`{"input":"hello"}`)},
-					ModelCallResponsePayload:         &agconv.ModelCallStreamPayloadView{Id: responseID, InlineBody: strPtr(`{"output":"world"}`)},
-					ModelCallProviderRequestPayload:  &agconv.ModelCallStreamPayloadView{Id: providerRequestID, InlineBody: strPtr(`{"provider":"request"}`)},
-					ModelCallProviderResponsePayload: &agconv.ModelCallStreamPayloadView{Id: providerResponseID, InlineBody: strPtr(`{"provider":"response"}`)},
-					ModelCallStreamPayload:           &agconv.ModelCallStreamPayloadView{Id: streamID, InlineBody: strPtr("stream body")},
+					ModelCallRequestPayload:          &conversationmodel.ModelCallStreamPayloadView{Id: requestID, InlineBody: strPtr(`{"input":"hello"}`)},
+					ModelCallResponsePayload:         &conversationmodel.ModelCallStreamPayloadView{Id: responseID, InlineBody: strPtr(`{"output":"world"}`)},
+					ModelCallProviderRequestPayload:  &conversationmodel.ModelCallStreamPayloadView{Id: providerRequestID, InlineBody: strPtr(`{"provider":"request"}`)},
+					ModelCallProviderResponsePayload: &conversationmodel.ModelCallStreamPayloadView{Id: providerResponseID, InlineBody: strPtr(`{"provider":"response"}`)},
+					ModelCallStreamPayload:           &conversationmodel.ModelCallStreamPayloadView{Id: streamID, InlineBody: strPtr("stream body")},
 				},
 			},
 		},
@@ -647,17 +647,17 @@ func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 	narration := "Let me check."
 	final := "Here is the answer."
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:     "turn-1",
 		Status: "succeeded",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "m1",
 				Role:      "assistant",
 				Interim:   1,
 				Content:   &narration,
 				Iteration: &iteration1,
-				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: "completed"},
 			},
 			{
 				Id:        "m2",
@@ -665,7 +665,7 @@ func TestBuildCanonicalState_ExtractsAssistantState(t *testing.T) {
 				Interim:   0,
 				Content:   &final,
 				Iteration: &iteration2,
-				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m2", Status: "completed"},
 			},
 		},
 	}
@@ -685,11 +685,11 @@ func TestBuildCanonicalState_ExtractsStandaloneAssistantFinal(t *testing.T) {
 	user := "Show mobile dashboard backward compatibility proof"
 	final := "Mobile dashboard verification\n\n```forge-data id=\"summary_metrics\"\n[{\"label\":\"Line A\",\"value\":42}]\n```\n\n```forge-ui\n{\"blocks\":[{\"kind\":\"dashboard.summary\"},{\"kind\":\"dashboard.table\"}]}\n```"
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:        "turn-standalone-final",
 		Status:    "succeeded",
 		CreatedAt: now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "user-message",
 				Role:      "user",
@@ -734,10 +734,10 @@ func TestBuildCanonicalState_PrefersLatestInterimAssistantNarrationFromTranscrip
 	final := "Here is the answer."
 	execMode := "exec"
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:     "turn-1",
 		Status: "running",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "m1",
 				Role:      "assistant",
@@ -745,7 +745,7 @@ func TestBuildCanonicalState_PrefersLatestInterimAssistantNarrationFromTranscrip
 				Content:   &modelNarration,
 				Narration: &modelNarration,
 				Iteration: &iteration1,
-				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: "completed"},
 			},
 			{
 				Id:        "m2",
@@ -760,7 +760,7 @@ func TestBuildCanonicalState_PrefersLatestInterimAssistantNarrationFromTranscrip
 				Interim:   0,
 				Content:   &final,
 				Iteration: &iteration2,
-				ModelCall: &agconv.ModelCallView{MessageId: "m3", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m3", Status: "completed"},
 			},
 		},
 	}
@@ -780,10 +780,10 @@ func TestBuildCanonicalState_PromotesNarratorInterimAssistantToExecutionPage(t *
 	narratorMode := "narrator"
 	narration := "Delegated child is still working through the file listing."
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:     "turn-1",
 		Status: "running",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "n1",
 				Role:      "assistant",
@@ -814,10 +814,10 @@ func TestBuildCanonicalState_NarratorPageInheritsCompletedTurnStatusWhenMessageS
 	narratorMode := "narrator"
 	narration := "The filtered sample came back empty, so I'm widening the lookback."
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:     "turn-1",
 		Status: "completed",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "n1",
 				Role:      "assistant",
@@ -848,17 +848,17 @@ func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 	summary := "Title: Summary\n\n- key point"
 	summaryMode := "summary"
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:     "turn-1",
 		Status: "succeeded",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "m1",
 				Role:      "assistant",
 				Interim:   1,
 				Content:   &narration,
 				Iteration: &iteration1,
-				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: "completed"},
 			},
 			{
 				Id:        "m2",
@@ -866,7 +866,7 @@ func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 				Interim:   0,
 				Content:   &final,
 				Iteration: &iteration2,
-				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m2", Status: "completed"},
 			},
 			{
 				Id:        "m3",
@@ -874,7 +874,7 @@ func TestBuildCanonicalState_SkipsSummaryAssistantAsFinal(t *testing.T) {
 				Interim:   0,
 				Content:   &summary,
 				Mode:      &summaryMode,
-				ModelCall: &agconv.ModelCallView{MessageId: "m3", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m3", Status: "completed"},
 			},
 		},
 	}
@@ -903,17 +903,17 @@ func TestBuildCanonicalState_DoesNotLetExecCompletionOverridePrimaryFinal(t *tes
 	completed := "completed"
 	toolName := "llm/agents:start"
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:     "turn-1",
 		Status: "succeeded",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "m1",
 				Role:      "assistant",
 				Interim:   1,
 				Content:   strPtr("Working on it."),
 				Iteration: &iteration,
-				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: "completed"},
 			},
 			{
 				Id:        "m2",
@@ -921,7 +921,7 @@ func TestBuildCanonicalState_DoesNotLetExecCompletionOverridePrimaryFinal(t *tes
 				Interim:   0,
 				Content:   &final,
 				Iteration: &iteration,
-				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m2", Status: "completed"},
 			},
 			{
 				Id:       "m3",
@@ -954,12 +954,12 @@ func TestBuildCanonicalState_NormalizesTranscriptStatuses(t *testing.T) {
 	waiting := "waiting_for_user"
 	cancelled := "cancelled"
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "succeeded",
 		CreatedAt:      now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:            "elic-1",
 				Role:          "assistant",
@@ -975,15 +975,15 @@ func TestBuildCanonicalState_NormalizesTranscriptStatuses(t *testing.T) {
 				Content:   strPtr("done"),
 				Iteration: &iteration,
 				CreatedAt: now.Add(2 * time.Second),
-				ModelCall: &agconv.ModelCallView{
+				ModelCall: &conversationmodel.ModelCallView{
 					MessageId: "m1",
 					Status:    "success",
 				},
-				ToolMessage: []*agconv.ToolMessageView{
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:        "tm1",
 						CreatedAt: now.Add(3 * time.Second),
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							MessageId: "tm1",
 							OpId:      "call-1",
 							ToolName:  "resources/read",
@@ -994,7 +994,7 @@ func TestBuildCanonicalState_NormalizesTranscriptStatuses(t *testing.T) {
 						Id:                   "tm2",
 						CreatedAt:            now.Add(4 * time.Second),
 						LinkedConversationId: strPtr("child-1"),
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							MessageId: "tm2",
 							OpId:      "call-2",
 							ToolName:  "llm/agents/run",
@@ -1036,12 +1036,12 @@ func TestBuildCanonicalState_NormalizesTranscriptStatuses(t *testing.T) {
 func TestBuildCanonicalState_NormalizesRawCancelElicitationStatus(t *testing.T) {
 	now := time.Date(2026, 5, 29, 20, 8, 0, 0, time.UTC)
 	cancel := "cancel"
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "succeeded",
 		CreatedAt:      now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:            "elic-1",
 				Role:          "assistant",
@@ -1063,12 +1063,12 @@ func TestBuildCanonicalState_NormalizesRawCancelElicitationStatus(t *testing.T) 
 func TestBuildCanonicalState_PreservesFailedElicitationStatus(t *testing.T) {
 	now := time.Date(2026, 5, 29, 20, 8, 0, 0, time.UTC)
 	failed := "failed"
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "canceled",
 		CreatedAt:      now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:            "elic-1",
 				Role:          "assistant",
@@ -1092,12 +1092,12 @@ func TestBuildCanonicalState_UserElicitationResponseDoesNotOverwriteAcceptedProm
 	accepted := "accepted"
 	elicID := "elicitation-1"
 	final := "Your favorite animal is a cat."
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "completed",
 		CreatedAt:      now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "user-ask",
 				Role:      "user",
@@ -1126,7 +1126,7 @@ func TestBuildCanonicalState_UserElicitationResponseDoesNotOverwriteAcceptedProm
 				Role:      "assistant",
 				Content:   &final,
 				CreatedAt: now.Add(4 * time.Second),
-				ModelCall: &agconv.ModelCallView{
+				ModelCall: &conversationmodel.ModelCallView{
 					MessageId: "assistant-final",
 					Status:    "completed",
 				},
@@ -1155,12 +1155,12 @@ func TestBuildCanonicalState_UserElicitationResponseDoesNotOverwriteAcceptedProm
 
 func TestBuildCanonicalState_PreservesVisibleInnerUserMessages(t *testing.T) {
 	now := time.Date(2026, 6, 1, 11, 10, 0, 0, time.UTC)
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:             "turn-1",
 		ConversationId: "conv-1",
 		Status:         "completed",
 		CreatedAt:      now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "user-ask",
 				Role:      "user",
@@ -1193,10 +1193,10 @@ func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T)
 	content := "0 report items saved for team review.\n\n## Highlights\n| A | B |\n|---|---|\n| 1 | 2 |\n"
 	narration := "Working through the request.\n\n"
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:     "turn-1",
 		Status: "succeeded",
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "m1",
 				Role:      "assistant",
@@ -1204,7 +1204,7 @@ func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T)
 				Narration: &narration,
 				Content:   &narration,
 				Iteration: &iteration,
-				ModelCall: &agconv.ModelCallView{MessageId: "m1", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m1", Status: "completed"},
 			},
 			{
 				Id:        "m2",
@@ -1212,7 +1212,7 @@ func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T)
 				Interim:   0,
 				Content:   &content,
 				Iteration: &iteration,
-				ModelCall: &agconv.ModelCallView{MessageId: "m2", Status: "completed"},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "m2", Status: "completed"},
 			},
 		},
 	}
@@ -1234,13 +1234,13 @@ func TestBuildCanonicalState_PreservesMarkdownWhitespaceBoundaries(t *testing.T)
 func TestBuildCanonicalStateSeedsActivePageFromStreamPayload(t *testing.T) {
 	stream := "Visible summary\n```forge-data\n{}\n```"
 	iteration := 1
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id: "turn-live",
-		Message: []*agconv.MessageView{{
+		Message: []*conversationmodel.MessageView{{
 			Id: "assistant-live", Role: "assistant", Interim: 1, Iteration: &iteration,
-			ModelCall: &agconv.ModelCallView{
+			ModelCall: &conversationmodel.ModelCallView{
 				MessageId: "assistant-live", Status: "streaming",
-				ModelCallStreamPayload: &agconv.ModelCallStreamPayloadView{Id: "assistant-live", InlineBody: &stream},
+				ModelCallStreamPayload: &conversationmodel.ModelCallStreamPayloadView{Id: "assistant-live", InlineBody: &stream},
 			},
 		}},
 	}
@@ -1264,11 +1264,11 @@ func TestBuildTranscriptSelectors(t *testing.T) {
 	})
 	require.Len(t, selectors, 3)
 	require.Equal(t, TranscriptSelectorTurn, selectors[0].Name)
-	require.Equal(t, 1, selectors[0].QuerySelector.Limit)
+	require.Equal(t, 1, selectors[0].Selector.Limit)
 	require.Equal(t, TranscriptSelectorMessage, selectors[1].Name)
-	require.Equal(t, 2, selectors[1].QuerySelector.Offset)
+	require.Equal(t, 2, selectors[1].Selector.Offset)
 	require.Equal(t, TranscriptSelectorToolMessage, selectors[2].Name)
-	require.Equal(t, "created_at ASC,id ASC", selectors[2].QuerySelector.OrderBy)
+	require.Equal(t, "created_at ASC,id ASC", selectors[2].Selector.OrderBy)
 }
 
 func strPtr(value string) *string {

@@ -1,0 +1,41 @@
+#package('github.com/viant/agently-core/internal/datly/payload/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/payload','GET'))
+#setting($_ = $input_type('PayloadRowsInput'))
+#setting($_ = $output_type('PayloadRowsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Status<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $Metrics<?>(output/metrics))
+#define($_ = $TenantID<string>(path/tenantId).Optional().WithPredicate(0,'in','p','tenant_id'))
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'in','p','id'))
+#define($_ = $Ids<[]string>(query/ids).Optional().WithPredicate(0,'in','p','id'))
+#define($_ = $Kind<string>(query/kind).Optional().WithPredicate(0,'in','p','kind'))
+#define($_ = $Digest<string>(query/digest).Optional().WithPredicate(0,'in','p','digest'))
+#define($_ = $Storage<string>(query/storage).Optional().WithPredicate(0,'in','p','storage'))
+#define($_ = $MimeType<string>(query/mime_type).Optional().WithPredicate(0,'in','p','mime_type'))
+#define($_ = $Since<time.Time>(query/since).Optional().WithPredicate(0,'greater_or_equal','p','created_at'))
+#define($_ = $Fields<[]string>(query/_fields).Optional().QuerySelector('reader'))
+#define($_ = $OrderBy<string>(query/_orderBy).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/_limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/_offset).Optional().QuerySelector('reader'))
+#define($_ = $Page<int>(query/_page).Optional().QuerySelector('reader'))
+#define($_ = $Criteria<string>(query/_criteria).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*PayloadRowsView>(output/view))
+
+SELECT payload_rows.*,
+       row_lock(payload_rows,'call_payload p'),
+       type(payload_rows,'PayloadRowsView'),
+       allowed_order_by_columns(payload_rows,'id,created_at,size_bytes'),
+       required(payload_rows.id),
+       required(payload_rows.kind),
+       required(payload_rows.mime_type),
+       required(payload_rows.size_bytes),
+       required(payload_rows.storage),
+       required(payload_rows.compression),
+       required(payload_rows.redacted),
+       required(payload_rows.created_at)
+FROM (${embed:sql/payload.sql}) payload_rows
+

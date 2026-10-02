@@ -1,0 +1,38 @@
+#package('github.com/viant/agently-core/internal/datly/oauth/token/write')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/user/oauth','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $Token<*Token>(body/data))
+#define($_ = $Mode<string>(query/mode).Optional())
+#define($_ = $ExpectedVersion<int64>(query/expectedVersion).Optional().WithPredicate(7,'equal','user_oauth_token','version'))
+#define($_ = $ExpectedLeaseOwner<string>(query/expectedLeaseOwner).Optional().WithPredicate(7,'equal','user_oauth_token','lease_owner'))
+#define($_ = $ExpectedEncToken<string>(query/expectedEncToken).Optional().WithPredicate(7,'equal','user_oauth_token','enc_token'))
+#define($_ = $LeaseMode<string>(query/leaseMode).Optional().WithPredicate(7,'handler','predicate.TokenLeasePredicate'))
+#define($_ = $Data<*Token>(output/body))
+
+SELECT t.*,
+       internal(t.enc_token),
+       type(t,'Token'),
+       mutation_predicate(t,7),
+       lifecycle_type(t,'Lifecycle'),
+       required(t.user_id),
+       tag(t.user_id,'sqlx:"user_id,primaryKey"'),
+       required(t.provider),
+       tag(t.provider,'sqlx:"provider,primaryKey"'),
+       required(t.enc_token),
+       tag(t.enc_token,'json:"encToken,omitempty"'),
+       required(t.created_at),
+       tag(t.created_at,'format:"2006-01-02 15:04:05"'),
+       tag(t.updated_at,'format:"2006-01-02 15:04:05"'),
+       CAST(t.version AS int64),
+       required(t.refresh_status),
+       tag(t.version,'json:","'),
+       tag(t.lease_owner,'json:","'),
+       tag(t.lease_until,'json:","'),
+       tag(t.refresh_status,'json:","')
+FROM (${embed:sql/token.sql}) t

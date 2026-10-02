@@ -1,0 +1,3 @@
+SELECT * FROM (
+SELECT message_id, op_id, trace_id FROM tool_call t WHERE ($Internal OR EXISTS(SELECT 1 FROM message scope_m JOIN conversation scope_c ON scope_c.id=scope_m.conversation_id WHERE scope_m.id=t.message_id AND (COALESCE(scope_c.visibility,'')<>'private' OR scope_c.created_by_user_id=NULLIF($VisibilitySubject,''))))
+) toolCallLinks

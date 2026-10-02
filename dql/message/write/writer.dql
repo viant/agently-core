@@ -1,0 +1,40 @@
+#package('github.com/viant/agently-core/internal/datly/message/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/message','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $DetachLinks<bool>(messageAccess/detachLinks).Optional())
+#define($_ = $TerminalCleanup<bool>(messageAccess/terminalCleanup).Optional())
+#define($_ = $DetachMessageIDs<[]string>(messageAccess/messageIds).Optional())
+#define($_ = $Messages<[]*Message>(body/data))
+#define($_ = $Data<[]*Message>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       t.preamble AS Narration,
+       type(t,'Message'),
+       lifecycle_type(t,'Lifecycle'),
+       required(t.id),
+       tag(t.id,'validate:"required" sqlx:"id,primaryKey"'),
+       required(t.conversation_id),
+       tag(t.conversation_id,'validate:"required"'),
+       required(t.role),
+       tag(t.role,'validate:"required"'),
+       required(t.type),
+       tag(t.type,'validate:"required"'),
+       CAST(t.embedding_index AS *[]byte),
+       tag(t.id,'json:","'),
+       tag(t.conversation_id,'json:","'),
+       tag(t.role,'json:","'),
+       tag(t.status,'json:","'),
+       tag(t.type,'json:","'),
+       tag(t.content,'json:","')
+FROM (${embed:sql/message.sql}) t

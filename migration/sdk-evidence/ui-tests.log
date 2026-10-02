@@ -1,0 +1,1594 @@
+
+> agently-v1-ui@0.1.0 test
+> vitest run
+
+
+ RUN  v2.1.9 /Users/awitas/go/src/github.com/viant/agently/ui
+
+(node:77638) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+stdout | src/services/chatRuntime.test.js > publishActiveConversation > does not overwrite route or sidebar selection with stale async conversation completion
+[agently-executor] {
+  event: 'publish-active-conversation-ignored-stale-route',
+  ts: '2026-09-30T14:27:49.293Z',
+  conversationId: 'conv-stale',
+  routeConversationId: 'conv-route',
+  windowId: 'chat/new'
+}
+
+stdout | src/services/chatRuntime.test.js > publishActiveConversation > does not rewrite the URL even when the calling context still has the published id in its form
+[agently-executor] {
+  event: 'publish-active-conversation-ignored-stale-route',
+  ts: '2026-09-30T14:27:49.296Z',
+  conversationId: 'conv-active',
+  routeConversationId: 'conv-route',
+  windowId: 'chat/new'
+}
+
+stdout | src/services/chatRuntime.test.js > publishActiveConversation > keeps an explicit new-conversation route empty when the previous conversation completes late
+[agently-executor] {
+  event: 'publish-active-conversation-ignored-explicit-new',
+  ts: '2026-09-30T14:27:49.297Z',
+  conversationId: 'conv-previous',
+  windowId: 'chat/new'
+}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > removes only the resolved elicitation from the overlay bus
+[stream-event] elicitation_resolved {
+  conversationId: 'root-conv',
+  turnId: undefined,
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: 'accepted',
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: 'elic-a3',
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.302Z","event":"stream-event","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"elicitation_resolved","eventSize":106,"payloadConversationId":"root-conv","payloadTurnId":"","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > keeps transcript feed cache aligned with live feed active/inactive events
+[stream-event] tool_feed_active {
+  conversationId: 'conv-1',
+  turnId: undefined,
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: undefined,
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.303Z","event":"stream-event","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"tool_feed_active","eventSize":180,"payloadConversationId":"conv-1","payloadTurnId":"","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[stream-event] tool_feed_inactive {
+  conversationId: 'conv-1',
+  turnId: undefined,
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: undefined,
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:49.304Z","event":"stream-event","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"tool_feed_inactive","eventSize":71,"payloadConversationId":"conv-1","payloadTurnId":"","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > does not force transcript refresh on terminal SSE when the same turn was already prefetched terminal state
+[stream-event] turn_completed {
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: 'completed',
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 4,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.304Z","event":"stream-event","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"turn_completed","eventSize":107,"payloadConversationId":"conv-1","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[agently-executor] {
+  event: 'turn-terminal',
+  ts: '2026-09-30T14:27:49.304Z',
+  type: 'turn_completed',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  runningTurnId: '',
+  activeStreamTurnId: '',
+  status: 'completed',
+  hasFinalContent: true,
+  finalRowId: '',
+  finalRowContentLen: 0,
+  canonicalRowCount: 1,
+  canonicalHasAssistantRow: true,
+  linkedConversationCount: 0
+}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:49.304Z","event":"stream-done","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","status":"completed"}
+[agently-executor] {
+  event: 'turn-terminal-stream-settled',
+  ts: '2026-09-30T14:27:49.304Z',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  hasFinalContent: true
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:49.304Z',
+  conversationId: 'conv-1'
+}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > does not force transcript refresh on terminal SSE while terminal hydration is already in progress for the conversation
+[stream-event] turn_completed {
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: 'completed',
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 4,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.306Z","event":"stream-event","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"turn_completed","eventSize":107,"payloadConversationId":"conv-1","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[agently-executor] {
+  event: 'turn-terminal',
+  ts: '2026-09-30T14:27:49.306Z',
+  type: 'turn_completed',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  runningTurnId: '',
+  activeStreamTurnId: '',
+  status: 'completed',
+  hasFinalContent: true,
+  finalRowId: '',
+  finalRowContentLen: 0,
+  canonicalRowCount: 1,
+  canonicalHasAssistantRow: true,
+  linkedConversationCount: 0
+}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:49.306Z","event":"stream-done","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","status":"completed"}
+[agently-executor] {
+  event: 'turn-terminal-stream-settled',
+  ts: '2026-09-30T14:27:49.306Z',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  hasFinalContent: true
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:49.306Z',
+  conversationId: 'conv-1'
+}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > updates conversation form live state from stream lifecycle events
+[stream-event] model_started {
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: 'msg-1',
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: 'thinking',
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.307Z","event":"stream-event","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"model_started","eventSize":165,"payloadConversationId":"conv-1","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"msg-1","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[stream-event] tool_call_started {
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: 'msg-1',
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: 'running',
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: 'call-1',
+  toolMessageId: 'tool-msg-1',
+  toolName: 'orchestration/updatePlan',
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:49.308Z","event":"stream-event","elapsedMs":1,"conversationId":"","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","type":"tool_call_started","eventSize":209,"payloadConversationId":"conv-1","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"msg-1","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"call-1","payloadToolMessageId":"tool-msg-1","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[agently-stream] {"seq":3,"ts":"2026-09-30T14:27:49.308Z","event":"stream-tool_call_started","elapsedMs":1,"conversationId":"","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","turnId":"turn-1","assistantMessageId":"msg-1","toolCallId":"call-1","toolMessageId":"tool-msg-1","toolName":"orchestration/updatePlan","status":"running"}
+[stream-event] linked_conversation_attached {
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: 'msg-1',
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: undefined,
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: 'call-1',
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: 'child-conv-1',
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":4,"ts":"2026-09-30T14:27:49.308Z","event":"stream-event","elapsedMs":1,"conversationId":"","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","type":"linked_conversation_attached","eventSize":172,"payloadConversationId":"conv-1","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"msg-1","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"call-1","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"child-conv-1","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[agently-stream] {"seq":5,"ts":"2026-09-30T14:27:49.308Z","event":"stream-linked-conversation-attached","elapsedMs":1,"conversationId":"","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","turnId":"turn-1","toolCallId":"call-1","linkedConversationId":"child-conv-1"}
+[stream-event] elicitation_requested {
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: 'msg-1',
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: 'pending',
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 10,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: 'elic-1',
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":6,"ts":"2026-09-30T14:27:49.308Z","event":"stream-event","elapsedMs":1,"conversationId":"","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","type":"elicitation_requested","eventSize":228,"payloadConversationId":"conv-1","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"msg-1","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[agently-stream] {"seq":7,"ts":"2026-09-30T14:27:49.308Z","event":"stream-elicitation-requested","elapsedMs":1,"conversationId":"","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","turnId":"turn-1","elicitationId":"elic-1","assistantMessageId":"msg-1","hasElicitationData":true}
+[elicitation-overlay-debug] {
+  elicitationId: 'elic-1',
+  hasElicitationData: true,
+  elicitationDataKeys: [ 'requestedSchema' ],
+  hasRequestedSchema: true,
+  requestedSchemaType: 'object',
+  requestedSchemaKeys: [ 'type' ],
+  content: 'Need input',
+  rawElicitationData: '{"requestedSchema":{"type":"object"}}'
+}
+[stream-event] turn_completed {
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: 'succeeded',
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":8,"ts":"2026-09-30T14:27:49.308Z","event":"stream-event","elapsedMs":1,"conversationId":"","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","type":"turn_completed","eventSize":90,"payloadConversationId":"conv-1","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[agently-executor] {
+  event: 'turn-terminal',
+  ts: '2026-09-30T14:27:49.308Z',
+  type: 'turn_completed',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  runningTurnId: 'turn-1',
+  activeStreamTurnId: 'turn-1',
+  status: 'succeeded',
+  hasFinalContent: false,
+  finalRowId: '',
+  finalRowContentLen: 0,
+  canonicalRowCount: 1,
+  canonicalHasAssistantRow: true,
+  linkedConversationCount: 0
+}
+[agently-executor] {
+  event: 'phantom-terminal',
+  ts: '2026-09-30T14:27:49.308Z',
+  type: 'turn_completed',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  reason: 'terminal-event-without-final-content'
+}
+[agently-stream] {"seq":9,"ts":"2026-09-30T14:27:49.308Z","event":"stream-done","elapsedMs":1,"conversationId":"","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","status":"succeeded"}
+[agently-executor] {
+  event: 'turn-terminal-stream-settled',
+  ts: '2026-09-30T14:27:49.309Z',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  hasFinalContent: false
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:49.309Z',
+  conversationId: 'conv-1'
+}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > ignores summary-mode execution events so maintenance work does not reanimate the live card
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.309Z","event":"stream-event-ignored-mode","elapsedMs":null,"conversationId":"conv-1","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","type":"model_started","mode":"summary","eventConversationId":"conv-1","visibleConversationId":"conv-1","windowId":"chat/main"}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > ignores intake-phase streaming content while still allowing non-streaming lifecycle events elsewhere
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.309Z","event":"stream-event-ignored-mode","elapsedMs":null,"conversationId":"conv-1","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","type":"narration","mode":"","eventConversationId":"conv-1","visibleConversationId":"conv-1","windowId":"chat/main"}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > does not reference a raw MessageEvent when given a parsed SSE payload
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.310Z","event":"stream-event-ignored","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"unknown_event","eventConversationId":"conv-1","visibleConversationId":"conv-bootstrap","switchingConversationId":"","windowId":"chat/new"}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > ignores late execution events after the turn is already terminal
+[agently-executor] {
+  event: 'post-terminal-event',
+  ts: '2026-09-30T14:27:49.310Z',
+  type: 'model_started',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  terminalAt: '2026-03-31T10:00:10Z',
+  status: 'streaming'
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.310Z","event":"stream-event-ignored-terminal","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"model_started","turnId":"turn-1","terminalAt":"2026-03-31T10:00:10Z","eventConversationId":"conv-1","visibleConversationId":"conv-1"}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > publishes sidebar activity for hidden conversation terminal events
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.310Z","event":"stream-event-ignored","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"turn_completed","eventConversationId":"parent-conv","visibleConversationId":"child-conv","switchingConversationId":"","windowId":"linked-child"}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > publishes conversation meta updates from SSE control path
+[stream-event] conversation_meta_updated {
+  conversationId: 'conv-1',
+  turnId: undefined,
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: undefined,
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.311Z","event":"stream-event","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"conversation_meta_updated","eventSize":132,"payloadConversationId":"conv-1","payloadTurnId":"","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > publishes normalized conversation meta updates from terminal SSE events
+[stream-event] turn_completed {
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: 'succeeded',
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.311Z","event":"stream-event","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"turn_completed","eventSize":90,"payloadConversationId":"conv-1","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[agently-executor] {
+  event: 'turn-terminal',
+  ts: '2026-09-30T14:27:49.311Z',
+  type: 'turn_completed',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  runningTurnId: '',
+  activeStreamTurnId: '',
+  status: 'succeeded',
+  hasFinalContent: false,
+  finalRowId: '',
+  finalRowContentLen: 0,
+  canonicalRowCount: 1,
+  canonicalHasAssistantRow: true,
+  linkedConversationCount: 0
+}
+[agently-executor] {
+  event: 'phantom-terminal',
+  ts: '2026-09-30T14:27:49.311Z',
+  type: 'turn_completed',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  reason: 'terminal-event-without-final-content'
+}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:49.311Z","event":"stream-done","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","status":"succeeded"}
+[agently-executor] {
+  event: 'turn-terminal-stream-settled',
+  ts: '2026-09-30T14:27:49.311Z',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  hasFinalContent: false
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:49.311Z',
+  conversationId: 'conv-1'
+}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > stores deterministic terminal turn markers from the terminal payload
+[stream-event] turn_completed {
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: 'succeeded',
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: '2026-03-16T10:00:10Z',
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.311Z","event":"stream-event","elapsedMs":null,"conversationId":"conv-1","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","type":"turn_completed","eventSize":125,"payloadConversationId":"conv-1","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"2026-03-16T10:00:10Z","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[agently-executor] {
+  event: 'turn-terminal',
+  ts: '2026-09-30T14:27:49.311Z',
+  type: 'turn_completed',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  runningTurnId: 'turn-1',
+  activeStreamTurnId: 'turn-1',
+  status: 'succeeded',
+  hasFinalContent: false,
+  finalRowId: '',
+  finalRowContentLen: 0,
+  canonicalRowCount: 1,
+  canonicalHasAssistantRow: true,
+  linkedConversationCount: 0
+}
+[agently-executor] {
+  event: 'phantom-terminal',
+  ts: '2026-09-30T14:27:49.311Z',
+  type: 'turn_completed',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  reason: 'terminal-event-without-final-content'
+}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:49.311Z","event":"stream-done","elapsedMs":null,"conversationId":"conv-1","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","status":"succeeded"}
+[agently-executor] {
+  event: 'turn-terminal-stream-settled',
+  ts: '2026-09-30T14:27:49.311Z',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  hasFinalContent: false
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:49.311Z',
+  conversationId: 'conv-1'
+}
+
+stdout | src/services/chatRuntime.test.js > handleStreamEvent > ignores late post-terminal execution events for the completed turn id
+[stream-event] turn_completed {
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: 'succeeded',
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: '2026-03-16T10:00:10Z',
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:49.312Z","event":"stream-event","elapsedMs":null,"conversationId":"","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","type":"turn_completed","eventSize":125,"payloadConversationId":"conv-1","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"2026-03-16T10:00:10Z","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+[agently-executor] {
+  event: 'turn-terminal',
+  ts: '2026-09-30T14:27:49.312Z',
+  type: 'turn_completed',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  runningTurnId: 'turn-1',
+  activeStreamTurnId: 'turn-1',
+  status: 'succeeded',
+  hasFinalContent: false,
+  finalRowId: '',
+  finalRowContentLen: 0,
+  canonicalRowCount: 1,
+  canonicalHasAssistantRow: true,
+  linkedConversationCount: 0
+}
+[agently-executor] {
+  event: 'phantom-terminal',
+  ts: '2026-09-30T14:27:49.312Z',
+  type: 'turn_completed',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  reason: 'terminal-event-without-final-content'
+}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:49.312Z","event":"stream-done","elapsedMs":null,"conversationId":"","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","status":"succeeded"}
+[agently-executor] {
+  event: 'turn-terminal-stream-settled',
+  ts: '2026-09-30T14:27:49.312Z',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  hasFinalContent: false
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:49.312Z',
+  conversationId: 'conv-1'
+}
+[agently-executor] {
+  event: 'post-terminal-event',
+  ts: '2026-09-30T14:27:49.312Z',
+  type: 'model_started',
+  conversationId: 'conv-1',
+  turnId: 'turn-1',
+  terminalAt: '2026-03-16T10:00:10Z',
+  status: 'running'
+}
+[agently-stream] {"seq":3,"ts":"2026-09-30T14:27:49.312Z","event":"stream-event-ignored-terminal","elapsedMs":null,"conversationId":"","activeStreamTurnId":"","runningTurnId":"","type":"model_started","turnId":"turn-1","terminalAt":"2026-03-16T10:00:10Z","eventConversationId":"conv-1","visibleConversationId":"conv-1"}
+
+stdout | src/services/chatRuntime.test.js > dsTick > restores a past conversation workspace from the route while the main chat form is empty
+[transcript-fetch] { conversationID: 'conv-route-restore', since: '' }
+
+stderr | src/components/ToolFeedDetail.test.js > ToolFeedDetail > renders a loading state while the selected feed payload is pending
+Legacy tool-feed target "workspace"; use "rail".
+
+ ✓ src/components/ToolFeedDetail.test.js (16 tests) 984ms
+   ✓ ToolFeedDetail > renders the plan feed as a visible detail panel 970ms
+ ✓ src/services/conversationWindow.test.js (49 tests) 16ms
+ ✓ src/components/MenuBar.test.jsx (20 tests) 100ms
+stdout | src/services/chatRuntime.test.js > dsTick > does not fetch transcript for the active live-owned conversation
+[agently-executor] {
+  event: 'transcript-deferred-to-live',
+  ts: '2026-09-30T14:27:50.109Z',
+  conversationId: 'conv-1',
+  liveOwnedConversationID: 'conv-1',
+  liveOwnedTurnIds: [ 'turn-1' ],
+  runningTurnId: 'turn-1',
+  activeStreamTurnId: 'turn-1',
+  canonicalActiveTurnId: '',
+  lastHasRunning: true
+}
+
+stdout | src/services/chatRuntime.test.js > dsTick > does not fetch transcript during live bootstrap before the first turn id arrives
+[agently-executor] {
+  event: 'transcript-deferred-to-live',
+  ts: '2026-09-30T14:27:50.109Z',
+  conversationId: 'conv-1',
+  liveOwnedConversationID: 'conv-1',
+  liveOwnedTurnIds: [],
+  runningTurnId: '',
+  activeStreamTurnId: '',
+  canonicalActiveTurnId: '',
+  lastHasRunning: false
+}
+
+stdout | src/services/chatRuntime.test.js > dsTick > promotes a transcript-discovered running conversation onto live stream transport
+[transcript-fetch] { conversationID: 'conv-live-promote', since: '' }
+
+ ✓ src/services/toolFeedBus.test.js (14 tests) 393ms
+   ✓ toolFeedBus conversation scoping > keeps same feed ids isolated across conversations 385ms
+ ✓ src/services/reportExportService.test.js (19 tests) 7ms
+stdout | src/services/chatRuntime.test.js > dsTick > promotes a transcript-discovered running conversation onto live stream transport
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:50.926Z","event":"stream-connect","elapsedMs":1,"conversationId":"conv-live-promote","activeStreamTurnId":"","runningTurnId":"turn-live-promote","subscriptionID":"conv-live-promote:1:1790778470925","generation":1}
+
+stdout | src/services/chatRuntime.test.js > createNewConversation > prefers persisted auto agent for a fresh draft conversation
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:50.927Z',
+  conversationId: 'old'
+}
+
+stdout | src/services/chatRuntime.test.js > createNewConversation > clears persisted composer drafts for current and pending conversations on explicit new conversation
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-set',
+  ts: '2026-09-30T14:27:50.927Z',
+  conversationId: 'conv-old'
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:50.927Z',
+  conversationId: 'conv-old'
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:50.927Z',
+  conversationId: 'conv-old'
+}
+
+stdout | src/services/chatRuntime.test.js > switchConversation > rejects a settled bootstrap snapshot stored under another conversation id
+[agently-executor] {
+  event: 'settled-bootstrap-cache-rejected-conversation-mismatch',
+  ts: '2026-09-30T14:27:50.928Z',
+  conversationId: 'conv-target',
+  snapshotConversationId: 'conv-other'
+}
+
+stdout | src/services/chatRuntime.test.js > switchConversation > rejects and evicts non-terminal turns from the settled bootstrap cache
+[agently-executor] {
+  event: 'settled-bootstrap-cache-rejected-nonterminal',
+  ts: '2026-09-30T14:27:50.928Z',
+  conversationId: 'conv-running'
+}
+[agently-executor] {
+  event: 'settled-bootstrap-cache-set',
+  ts: '2026-09-30T14:27:50.928Z',
+  conversationId: 'conv-mutated',
+  turnCount: 1,
+  elicitationCount: 0,
+  generatedFileCount: 0
+}
+[agently-executor] {
+  event: 'settled-bootstrap-cache-evicted-nonterminal',
+  ts: '2026-09-30T14:27:50.928Z',
+  conversationId: 'conv-mutated'
+}
+
+stdout | src/services/chatRuntime.test.js > switchConversation > clears the previous transcript before the target conversation request settles
+[agently-executor] {
+  event: 'switch-conversation-run',
+  ts: '2026-09-30T14:27:50.928Z',
+  conversationId: 'conv-target',
+  currentId: 'conv-old',
+  lastConversationId: 'conv-old',
+  hasSettledTranscript: false,
+  terminalHydrationPending: '',
+  initialSubmitPending: '',
+  switchingConversationId: ''
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:50.928Z',
+  conversationId: 'conv-old'
+}
+[transcript-fetch] { conversationID: 'conv-target', since: '' }
+
+stdout | src/services/chatRuntime.test.js > switchConversation > clears the previous transcript before the target conversation request settles
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:51.909Z',
+  conversationId: 'conv-target'
+}
+
+stdout | src/services/chatRuntime.test.js > switchConversation > releases the switching latch when conversation lookup fails
+[agently-executor] {
+  event: 'switch-conversation-run',
+  ts: '2026-09-30T14:27:51.910Z',
+  conversationId: 'conv-target',
+  currentId: 'conv-old',
+  lastConversationId: '',
+  hasSettledTranscript: false,
+  terminalHydrationPending: '',
+  initialSubmitPending: '',
+  switchingConversationId: ''
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:51.910Z',
+  conversationId: 'conv-old'
+}
+[transcript-fetch] { conversationID: 'conv-target', since: '' }
+
+ ✓ src/services/scheduleService.test.js (46 tests) 2791ms
+ ✓ src/components/DetailPanel.test.js (18 tests) 12ms
+ ✓ src/services/forgeUIActions.test.js (10 tests) 6ms
+stdout | src/services/chatRuntime.test.js > switchConversation > starts the latest conversation switch without waiting for the previous request
+[agently-executor] {
+  event: 'switch-conversation-run',
+  ts: '2026-09-30T14:27:52.754Z',
+  conversationId: 'conv-first',
+  currentId: 'conv-old',
+  lastConversationId: '',
+  hasSettledTranscript: false,
+  terminalHydrationPending: '',
+  initialSubmitPending: '',
+  switchingConversationId: ''
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:52.754Z',
+  conversationId: 'conv-old'
+}
+[transcript-fetch] { conversationID: 'conv-first', since: '' }
+[agently-executor] {
+  event: 'switch-conversation-run',
+  ts: '2026-09-30T14:27:52.754Z',
+  conversationId: 'conv-latest',
+  currentId: 'conv-first',
+  lastConversationId: '',
+  hasSettledTranscript: false,
+  terminalHydrationPending: '',
+  initialSubmitPending: '',
+  switchingConversationId: 'conv-first'
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:52.754Z',
+  conversationId: 'conv-first'
+}
+[transcript-fetch] { conversationID: 'conv-latest', since: '' }
+
+stdout | src/services/chatRuntime.test.js > switchConversation > starts the latest conversation switch without waiting for the previous request
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:53.670Z',
+  conversationId: 'conv-latest'
+}
+
+stdout | src/services/chatRuntime.test.js > switchConversation > resets stale transcript cursor when bootstrap already set the target conversation id
+[agently-executor] {
+  event: 'switch-conversation-run',
+  ts: '2026-09-30T14:27:53.670Z',
+  conversationId: 'conv-target',
+  currentId: 'conv-target',
+  lastConversationId: 'conv-old',
+  hasSettledTranscript: false,
+  terminalHydrationPending: '',
+  initialSubmitPending: '',
+  switchingConversationId: ''
+}
+[transcript-fetch] { conversationID: 'conv-target', since: '' }
+
+stdout | src/services/chatRuntime.test.js > switchConversation > resets stale transcript cursor when bootstrap already set the target conversation id
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:54.626Z',
+  conversationId: 'conv-target'
+}
+[agently-executor] {
+  event: 'publish-active-conversation-ignored-stale-route',
+  ts: '2026-09-30T14:27:54.626Z',
+  conversationId: 'conv-target',
+  routeConversationId: 'conv-bootstrap',
+  windowId: 'chat/new'
+}
+
+stdout | src/services/chatRuntime.test.js > switchConversation > uses SSE only when joining a live conversation started by another client
+[agently-executor] {
+  event: 'switch-conversation-run',
+  ts: '2026-09-30T14:27:54.627Z',
+  conversationId: 'conv-live-target',
+  currentId: 'conv-live-target',
+  lastConversationId: 'conv-live-target',
+  hasSettledTranscript: false,
+  terminalHydrationPending: '',
+  initialSubmitPending: '',
+  switchingConversationId: ''
+}
+[transcript-fetch] { conversationID: 'conv-live-target', since: '' }
+
+ ✓ src/components/chat/ChatFeedFromChatStore.test.js (18 tests) 13ms
+stdout | src/services/chatRuntime.test.js > switchConversation > uses SSE only when joining a live conversation started by another client
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:55.428Z","event":"stream-connect","elapsedMs":0,"conversationId":"conv-live-target","activeStreamTurnId":"","runningTurnId":"","subscriptionID":"conv-live-target:2:1790778475428","generation":1}
+[agently-executor] {
+  event: 'publish-active-conversation-ignored-stale-route',
+  ts: '2026-09-30T14:27:55.428Z',
+  conversationId: 'conv-live-target',
+  routeConversationId: 'conv-bootstrap',
+  windowId: 'chat/new'
+}
+
+stdout | src/services/chatRuntime.test.js > switchConversation > does not connect stream for a visible conversation that is already completed
+[agently-executor] {
+  event: 'switch-conversation-run',
+  ts: '2026-09-30T14:27:55.429Z',
+  conversationId: 'conv-idle-target',
+  currentId: 'conv-idle-target',
+  lastConversationId: 'conv-idle-target',
+  hasSettledTranscript: false,
+  terminalHydrationPending: '',
+  initialSubmitPending: '',
+  switchingConversationId: ''
+}
+[transcript-fetch] { conversationID: 'conv-idle-target', since: '' }
+
+stdout | src/services/chatRuntime.test.js > switchConversation > does not connect stream for a visible conversation that is already completed
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:56.313Z',
+  conversationId: 'conv-idle-target'
+}
+[agently-executor] {
+  event: 'publish-active-conversation-ignored-stale-route',
+  ts: '2026-09-30T14:27:56.313Z',
+  conversationId: 'conv-idle-target',
+  routeConversationId: 'conv-bootstrap',
+  windowId: 'chat/new'
+}
+
+stdout | src/services/chatRuntime.test.js > switchConversation > clears feeds for the previously active conversation even when the form id is blank
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:56.314Z',
+  conversationId: 'conv-old'
+}
+
+stdout | src/services/chatRuntime.test.js > switchConversation > skips redundant settled self-switch for the already active hydrated conversation
+[agently-executor] {
+  event: 'switch-conversation-skip-settled-self',
+  ts: '2026-09-30T14:27:56.315Z',
+  conversationId: 'conv-1',
+  lastConversationId: 'conv-1',
+  canonicalRowCount: 1
+}
+[agently-executor] {
+  event: 'publish-active-conversation-ignored-stale-route',
+  ts: '2026-09-30T14:27:56.315Z',
+  conversationId: 'conv-1',
+  routeConversationId: 'conv-bootstrap',
+  windowId: 'chat/new'
+}
+
+stdout | src/services/chatRuntime.test.js > switchConversation > hydrates from settled bootstrap cache on conversation switch without refetching conversation or transcript
+[agently-executor] {
+  event: 'settled-bootstrap-cache-set',
+  ts: '2026-09-30T14:27:56.315Z',
+  conversationId: 'conv-1',
+  turnCount: 1,
+  elicitationCount: 0,
+  generatedFileCount: 0
+}
+[agently-executor] {
+  event: 'switch-conversation-hydrate-settled-cache',
+  ts: '2026-09-30T14:27:56.315Z',
+  conversationId: 'conv-1',
+  cachedTurnCount: 1
+}
+[agently-executor] {
+  event: 'publish-active-conversation-ignored-stale-route',
+  ts: '2026-09-30T14:27:56.315Z',
+  conversationId: 'conv-1',
+  routeConversationId: 'conv-bootstrap',
+  windowId: 'chat/new'
+}
+
+stdout | src/services/chatRuntime.test.js > getCurrentConversationID fallback behavior > uses activeConversationID from chat state when the conversation form id is still blank
+[agently-executor] {
+  event: 'transcript-deferred-to-live',
+  ts: '2026-09-30T14:27:56.320Z',
+  conversationId: 'conv-1',
+  liveOwnedConversationID: 'conv-1',
+  liveOwnedTurnIds: [],
+  runningTurnId: '',
+  activeStreamTurnId: '',
+  canonicalActiveTurnId: '',
+  lastHasRunning: false
+}
+
+stdout | src/services/chatRuntime.test.js > startPolling > never fetches an empty conversation transcript on the new-conversation route
+[agently-executor] {
+  event: 'polling-start',
+  ts: '2026-09-30T14:27:56.320Z',
+  windowId: 'chat/new',
+  conversationId: ''
+}
+
+stdout | src/services/chatRuntime.test.js > startPolling > never fetches an empty conversation transcript on the new-conversation route
+[agently-executor] {
+  event: 'polling-stop',
+  ts: '2026-09-30T14:28:08.320Z',
+  conversationId: '',
+  hadTimer: true,
+  hadRefreshTimer: false,
+  hadStream: false
+}
+
+stdout | src/services/chatRuntime.test.js > startPolling > replaces a stale poll owner when the same chat window remounts
+[agently-executor] {
+  event: 'polling-start',
+  ts: '2026-09-30T14:27:56.324Z',
+  windowId: 'chat/new',
+  conversationId: ''
+}
+[agently-executor] {
+  event: 'polling-stop',
+  ts: '2026-09-30T14:27:56.324Z',
+  conversationId: '',
+  hadTimer: true,
+  hadRefreshTimer: false,
+  hadStream: false
+}
+[agently-executor] {
+  event: 'polling-start',
+  ts: '2026-09-30T14:27:56.324Z',
+  windowId: 'chat/new',
+  conversationId: ''
+}
+[agently-executor] {
+  event: 'polling-stop',
+  ts: '2026-09-30T14:27:56.324Z',
+  conversationId: '',
+  hadTimer: false,
+  hadRefreshTimer: false,
+  hadStream: false
+}
+[agently-executor] {
+  event: 'polling-stop',
+  ts: '2026-09-30T14:27:56.324Z',
+  conversationId: '',
+  hadTimer: true,
+  hadRefreshTimer: false,
+  hadStream: false
+}
+
+stdout | src/services/chatRuntime.test.js > startPolling > reattaches SSE after an active conversation remount without fetching transcript
+[agently-executor] {
+  event: 'polling-start',
+  ts: '2026-09-30T14:27:56.324Z',
+  windowId: 'chat/new',
+  conversationId: 'conv-remount'
+}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:56.324Z","event":"stream-connect","elapsedMs":0,"conversationId":"conv-remount","activeStreamTurnId":"turn-1","runningTurnId":"turn-1","subscriptionID":"conv-remount:3:1790778476324","generation":1}
+[agently-executor] {
+  event: 'polling-stop',
+  ts: '2026-09-30T14:27:56.324Z',
+  conversationId: 'conv-remount',
+  hadTimer: true,
+  hadRefreshTimer: false,
+  hadStream: true
+}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:56.324Z","event":"stream-close-manual","elapsedMs":0,"conversationId":"conv-remount","activeStreamTurnId":"turn-1","runningTurnId":"turn-1"}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:56.324Z',
+  conversationId: 'conv-remount'
+}
+
+stdout | src/services/chatRuntime.test.js > startPolling > does not poll finished conversations once transcript is already loaded
+[agently-executor] {
+  event: 'polling-start',
+  ts: '2026-09-30T14:27:56.325Z',
+  windowId: 'chat/new',
+  conversationId: 'conv-1'
+}
+[agently-executor] {
+  event: 'polling-stop',
+  ts: '2026-09-30T14:28:00.825Z',
+  conversationId: 'conv-1',
+  hadTimer: true,
+  hadRefreshTimer: false,
+  hadStream: false
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:28:00.825Z',
+  conversationId: 'conv-1'
+}
+
+stdout | src/services/chatRuntime.test.js > startPolling > does not poll while terminal hydration is still in progress for the active conversation
+[agently-executor] {
+  event: 'polling-start',
+  ts: '2026-09-30T14:27:56.326Z',
+  windowId: 'chat/new',
+  conversationId: 'conv-1'
+}
+[agently-executor] {
+  event: 'polling-stop',
+  ts: '2026-09-30T14:28:00.826Z',
+  conversationId: 'conv-1',
+  hadTimer: true,
+  hadRefreshTimer: false,
+  hadStream: false
+}
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:28:00.826Z',
+  conversationId: 'conv-1'
+}
+
+stdout | src/services/chatRuntime.test.js > createNewConversation > restores starter tasks immediately after switching away from a populated conversation
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:56.328Z',
+  conversationId: 'conv-old'
+}
+
+stdout | src/services/chatRuntime.test.js > createNewConversation > ignores a persisted agent from another workspace so current workspace starter tasks still appear
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:56.329Z',
+  conversationId: 'conv-old'
+}
+
+stdout | src/services/chatRuntime.test.js > shouldUseLiveStream > does not fetch transcript while the latest turn is live-owned
+[transcript-fetch] { conversationID: 'conv-live', since: '' }
+[agently-executor] {
+  event: 'transcript-fetch-deferred-to-sse-owner',
+  ts: '2026-09-30T14:27:56.332Z',
+  conversationId: 'conv-live',
+  pendingBootstrap: false,
+  activeStreamOwner: false,
+  localLiveOwner: true
+}
+
+stdout | src/services/chatRuntime.test.js > shouldUseLiveStream > does not reset or replace local user state during pending conversation bootstrap
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-set',
+  ts: '2026-09-30T14:27:56.332Z',
+  conversationId: 'conv-bootstrap'
+}
+[transcript-fetch] { conversationID: 'conv-bootstrap', since: '' }
+[agently-executor] {
+  event: 'pending-conversation-bootstrap-clear',
+  ts: '2026-09-30T14:27:56.332Z',
+  conversationId: 'conv-bootstrap'
+}
+
+stdout | src/services/chatRuntime.test.js > shouldUseLiveStream > does not fetch a terminal transcript while pre-fetch state is still SSE-owned
+[transcript-fetch] { conversationID: 'conv-live', since: '' }
+[agently-executor] {
+  event: 'transcript-fetch-deferred-to-sse-owner',
+  ts: '2026-09-30T14:27:56.333Z',
+  conversationId: 'conv-live',
+  pendingBootstrap: false,
+  activeStreamOwner: false,
+  localLiveOwner: true
+}
+
+stdout | src/services/chatRuntime.test.js > shouldUseLiveStream > preserves MCP UI row renderKey across a reconnect-style transcript refresh while live-owned
+[transcript-fetch] { conversationID: 'conv-mcpui', since: '' }
+[agently-executor] {
+  event: 'transcript-fetch-deferred-to-sse-owner',
+  ts: '2026-09-30T14:27:56.333Z',
+  conversationId: 'conv-mcpui',
+  pendingBootstrap: false,
+  activeStreamOwner: false,
+  localLiveOwner: true
+}
+
+stdout | src/services/chatRuntime.test.js > shouldUseLiveStream > refines terminal canonical state without destructive reset
+[transcript-fetch] { conversationID: 'conv-idle', since: '' }
+
+stdout | src/services/chatRuntime.test.js > iframe-mounted SSE reconnect stability > preserves active-turn state and iframe identity across an onError-triggered SSE reconnect while an mcpui row is mounted
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:56.333Z","event":"stream-connect","elapsedMs":0,"conversationId":"conv-reconnect-mcpui","activeStreamTurnId":"turn-reconnect-mcpui","runningTurnId":"turn-reconnect-mcpui","subscriptionID":"conv-reconnect-mcpui:4:1790778476333","generation":1}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:56.333Z","event":"stream-error","elapsedMs":0,"conversationId":"conv-reconnect-mcpui","activeStreamTurnId":"turn-reconnect-mcpui","runningTurnId":"turn-reconnect-mcpui","error":"network blip"}
+[agently-stream] {"seq":3,"ts":"2026-09-30T14:27:56.333Z","event":"stream-reconnect-scheduled","elapsedMs":0,"conversationId":"conv-reconnect-mcpui","activeStreamTurnId":"turn-reconnect-mcpui","runningTurnId":"turn-reconnect-mcpui","reason":"network blip"}
+[agently-stream] {"seq":4,"ts":"2026-09-30T14:27:57.333Z","event":"stream-connect","elapsedMs":0,"conversationId":"conv-reconnect-mcpui","activeStreamTurnId":"turn-reconnect-mcpui","runningTurnId":"turn-reconnect-mcpui","subscriptionID":"conv-reconnect-mcpui:5:1790778477333","generation":2}
+
+stdout | src/services/chatRuntime.test.js > SSE subscription fencing > ignores events queued by a replaced subscription
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:56.334Z","event":"stream-connect","elapsedMs":0,"conversationId":"conv-fenced","activeStreamTurnId":"","runningTurnId":"","subscriptionID":"conv-fenced:6:1790778476334","generation":1}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:56.334Z","event":"stream-connect","elapsedMs":0,"conversationId":"conv-fenced","activeStreamTurnId":"","runningTurnId":"","subscriptionID":"conv-fenced:7:1790778476334","generation":2}
+[agently-stream] {"seq":3,"ts":"2026-09-30T14:27:56.334Z","event":"stream-event-ignored-stale-subscription","elapsedMs":0,"conversationId":"conv-fenced","activeStreamTurnId":"","runningTurnId":"","subscriptionID":"conv-fenced:6:1790778476334","generation":1,"type":"reasoning_delta","contentLength":0,"contentHash":"811c9dc5"}
+[agently-stream] {"seq":4,"ts":"2026-09-30T14:27:56.334Z","event":"stream-js-event","elapsedMs":0,"conversationId":"conv-fenced","activeStreamTurnId":"","runningTurnId":"","subscriptionID":"conv-fenced:7:1790778476334","generation":2,"subscriptionEventSeq":1,"type":"reasoning_delta","eventSeq":0,"messageID":"","contentLength":0,"contentHash":"811c9dc5"}
+[stream-event] reasoning_delta {
+  conversationId: 'conv-fenced',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: undefined,
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":5,"ts":"2026-09-30T14:27:56.335Z","event":"stream-event","elapsedMs":1,"conversationId":"conv-fenced","activeStreamTurnId":"","runningTurnId":"","type":"reasoning_delta","eventSize":75,"payloadConversationId":"conv-fenced","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+
+stdout | src/services/chatRuntime.test.js > SSE subscription fencing > enforces one subscription owner across separate chat contexts
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:56.335Z","event":"stream-connect","elapsedMs":0,"conversationId":"conv-global-fence","activeStreamTurnId":"","runningTurnId":"","subscriptionID":"conv-global-fence:8:1790778476335","generation":1}
+[agently-stream] {"seq":1,"ts":"2026-09-30T14:27:56.335Z","event":"stream-connect","elapsedMs":0,"conversationId":"conv-global-fence","activeStreamTurnId":"","runningTurnId":"","subscriptionID":"conv-global-fence:9:1790778476335","generation":1}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:56.335Z","event":"stream-event-ignored-stale-subscription","elapsedMs":0,"conversationId":"conv-global-fence","activeStreamTurnId":"","runningTurnId":"","subscriptionID":"conv-global-fence:8:1790778476335","generation":1,"type":"reasoning_delta","contentLength":0,"contentHash":"811c9dc5"}
+[agently-stream] {"seq":2,"ts":"2026-09-30T14:27:56.335Z","event":"stream-js-event","elapsedMs":0,"conversationId":"conv-global-fence","activeStreamTurnId":"","runningTurnId":"","subscriptionID":"conv-global-fence:9:1790778476335","generation":1,"subscriptionEventSeq":1,"type":"reasoning_delta","eventSeq":0,"messageID":"","contentLength":0,"contentHash":"811c9dc5"}
+[stream-event] reasoning_delta {
+  conversationId: 'conv-global-fence',
+  turnId: 'turn-1',
+  eventSeq: undefined,
+  mode: undefined,
+  agentIdUsed: undefined,
+  agentName: undefined,
+  userMessageId: undefined,
+  messageId: undefined,
+  assistantMessageId: undefined,
+  parentMessageId: undefined,
+  modelCallId: undefined,
+  status: undefined,
+  finalResponse: undefined,
+  iteration: undefined,
+  pageIndex: undefined,
+  pageCount: undefined,
+  pageId: undefined,
+  interim: undefined,
+  createdAt: undefined,
+  startedAt: undefined,
+  completedAt: undefined,
+  contentLen: 0,
+  toolCallsPlanned: undefined,
+  toolCallId: undefined,
+  toolMessageId: undefined,
+  toolName: undefined,
+  linkedConversationId: undefined,
+  elicitationId: undefined,
+  requestPayloadId: undefined,
+  responsePayloadId: undefined,
+  providerRequestPayloadId: undefined,
+  providerResponsePayloadId: undefined,
+  streamPayloadId: undefined,
+  op: undefined,
+  id: undefined
+}
+[agently-stream] {"seq":3,"ts":"2026-09-30T14:27:56.335Z","event":"stream-event","elapsedMs":0,"conversationId":"conv-global-fence","activeStreamTurnId":"","runningTurnId":"","type":"reasoning_delta","eventSize":81,"payloadConversationId":"conv-global-fence","payloadTurnId":"turn-1","payloadEventSeq":0,"payloadMode":"","payloadAgentIdUsed":"","payloadAgentName":"","payloadCreatedAt":"","payloadStartedAt":"","payloadCompletedAt":"","payloadUserMessageId":"","payloadMessageId":"","payloadAssistantMessageId":"","payloadParentMessageId":"","payloadModelCallId":"","payloadToolCallId":"","payloadToolMessageId":"","payloadRequestPayloadId":"","payloadResponsePayloadId":"","payloadProviderRequestPayloadId":"","payloadProviderResponsePayloadId":"","payloadStreamPayloadId":"","payloadLinkedConversationId":"","payloadIteration":0,"payloadPageId":"","payloadPageIndex":0,"payloadPageCount":0}
+
+ ✓ src/services/chatRuntime.test.js (77 tests) 7043ms
+   ✓ dsTick > restores a past conversation workspace from the route while the main chat form is empty 797ms
+   ✓ dsTick > promotes a transcript-discovered running conversation onto live stream transport 817ms
+   ✓ switchConversation > clears the previous transcript before the target conversation request settles 982ms
+   ✓ switchConversation > releases the switching latch when conversation lookup fails 844ms
+   ✓ switchConversation > starts the latest conversation switch without waiting for the previous request 916ms
+   ✓ switchConversation > resets stale transcript cursor when bootstrap already set the target conversation id 957ms
+   ✓ switchConversation > uses SSE only when joining a live conversation started by another client 801ms
+   ✓ switchConversation > does not connect stream for a visible conversation that is already completed 885ms
+(node:77643) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+(node:77646) ExperimentalWarning: localStorage is not available because --localstorage-file was not provided.
+(Use `node --trace-warnings ...` to show where the warning was created)
+ ✓ src/services/chatService.test.js (20 tests) 27ms
+ ✓ src/components/chat/IterationBlock.test.js (93 tests) 30ms
+ ✓ src/components/Sidebar.test.js (18 tests) 8ms
+ ✓ src/components/Root.test.jsx (41 tests) 7ms
+ ✓ src/components/chat/RichContent.test.js (63 tests) 101ms
+ ✓ src/services/chatService.submit.test.js (15 tests) 440ms
+ ✓ src/services/forgeHostServices.test.js (1 test) 5ms
+ ✓ src/services/mcpApps/forgeGuestBridge.test.js (11 tests) 5ms
+ ✓ src/services/workspaceStyles.test.js (13 tests) 6ms
+ ✓ src/services/agentlyClient.test.js (13 tests) 292ms
+ ✓ src/services/reportingHostServices.test.js (9 tests) 6ms
+ ✓ src/services/chatStore.test.js (14 tests) 7ms
+ ✓ src/services/mcpApps/resourceLoader.test.js (15 tests) 6ms
+ ✓ src/services/reportRunService.test.js (15 tests) 7ms
+ ✓ src/services/mcpAuth.test.js (9 tests) 58ms
+ ✓ src/components/mcpApps/AppRenderer.test.jsx (6 tests) 3ms
+ ✓ src/services/feedForgeContext.test.js (11 tests) 8ms
+ ✓ src/services/mcpApps/mcpuiVerifierRouteDiagnostics.test.js (12 tests) 4ms
+ ✓ src/services/mcpApps/bridge.test.js (14 tests) 4ms
+ ✓ src/services/chatService.init.test.js (7 tests) 7ms
+ ✓ src/components/TurnProgressStatus.test.js (13 tests) 14ms
+ ✓ src/services/feedForgeWiring.test.js (7 tests) 3ms
+ ✓ src/services/reportStoreService.test.js (8 tests) 4ms
+stderr | src/components/ToolFeedWorkspace.test.jsx > filterWorkspaceFeeds > keeps auto/workspace feeds and excludes explicit inline/detached feeds
+Legacy tool-feed target "workspace"; use "rail".
+Legacy tool-feed target "detached"; use "overlay".
+
+ ✓ src/components/ToolFeedWorkspace.test.jsx (10 tests) 9ms
+ ✓ src/hooks/useApprovalQueue.test.js (6 tests) 4ms
+ ✓ src/components/chatLegacySubmitState.test.js (7 tests) 3ms
+ ✓ src/services/tokenUsageEstimation.test.js (5 tests) 5ms
+ ✓ src/services/callbackService.test.js (7 tests) 5ms
+ ✓ src/services/workspaceSession.test.js (6 tests) 4ms
+ ✓ src/services/chatStore.e2e.test.js (5 tests) 7ms
+ ✓ src/services/workspaceMetadata.test.js (7 tests) 3ms
+ ✓ src/components/chat/ElicitationForm.test.js (11 tests) 3ms
+ ✓ src/components/chatLegacyHelpers.test.js (10 tests) 3ms
+ ✓ src/services/elicitationBus.test.js (5 tests) 2ms
+ ✓ src/services/conversationUsage.test.js (6 tests) 4ms
+ ✓ src/services/mcpuiVerifierActions.test.js (2 tests) 5ms
+ ✓ src/components/ExecutionWorkspace.test.js (7 tests) 3ms
+ ✓ src/services/workspaceThemeBridge.test.js (3 tests) 4ms
+ ✓ src/components/chatDerivedState.test.js (4 tests) 2ms
+ ✓ src/connector.test.js (5 tests) 2ms
+stdout | src/services/chatRuntime.feeds.test.js > fetchTranscript > requests transcript feeds for history-mode activation without replaying them directly
+[transcript-fetch] { conversationID: 'conv-history-1', since: '' }
+
+stdout | src/services/chatRuntime.feeds.test.js > fetchTranscript > does not resurrect an inactive feed from transcript hydration
+[transcript-fetch] { conversationID: 'conv-history-2', since: '' }
+
+ ✓ src/services/chatRuntime.feeds.test.js (3 tests) 4ms
+stdout | src/services/chatRuntime.feeds.test.js > fetchTranscript > still requests feeds when execution details are disabled
+[transcript-fetch] { conversationID: 'conv-history-3', since: '' }
+
+ ✓ src/components/chatCommandCenterActions.test.js (3 tests) 3ms
+ ✓ src/services/toolFeedSelection.test.js (5 tests) 3ms
+ ✓ src/services/toolPresentation.test.js (7 tests) 3ms
+ ✓ src/components/chatQueueActions.test.js (3 tests) 3ms
+ ✓ src/components/chatCommandCenterViewState.test.js (4 tests) 3ms
+ ✓ src/components/ConversationWorkspaceSurface.test.jsx (12 tests) 13ms
+ ✓ src/bridgeStartup.test.js (1 test) 45ms
+ ✓ src/services/mcpApps/approvalEvents.test.js (4 tests) 2ms
+ ✓ src/services/feedDraftState.test.js (3 tests) 3ms
+ ✓ src/services/clientContext.test.js (4 tests) 3ms
+ ✓ src/services/chatService.goal.test.js (19 tests) 7ms
+ ✓ src/services/windowLifecycle.test.js (1 test) 3ms
+ ✓ src/components/GoalSummaryStrip.test.jsx (4 tests) 24ms
+ ✓ src/components/chatCommandCenterHelpers.test.js (4 tests) 2ms
+ ✓ src/services/reportLifecycleService.test.js (2 tests) 3ms
+ ✓ src/services/chatterPrompt.test.js (2 tests) 3ms
+ ✓ src/services/reportEventService.test.js (4 tests) 3ms
+ ✓ src/components/mcpApps/AppRenderer.lifecycle.test.js (2 tests) 2ms
+ ✓ src/colorThemeContract.test.js (2 tests) 9ms
+ ✓ src/components/chatViewHelpers.test.jsx (2 tests) 3ms
+ ✓ src/services/workspaceHistory.test.js (3 tests) 5ms
+ ✓ src/components/lookups/client.cancel.test.js (2 tests) 5ms
+ ✓ src/services/reportSharedArtifactService.test.js (2 tests) 3ms
+ ✓ src/typographyContract.test.js (2 tests) 6ms
+ ✓ src/components/lookups/lookupTrigger.test.mjs (1 test) 2ms
+ ✓ src/components/ToolFeedBar.test.js (3 tests) 2ms
+ ✓ src/services/workspaceReady.test.js (3 tests) 5ms
+ ✓ src/services/workspaceQueryContext.test.js (2 tests) 2ms
+ ✓ src/components/chat/starterPromptMacros.test.js (4 tests) 4ms
+ ✓ src/services/approvalCallbacks.test.js (1 test) 47ms
+ ✓ src/components/CodeDiffDialog.test.js (4 tests) 3ms
+ ✓ src/components/chat/SteerQueue.test.jsx (2 tests) 6ms
+ ✓ src/components/chat/IterationRowBlock.test.js (9 tests) 18ms
+ ✓ src/services/feedReportExport.test.js (2 tests) 2ms
+stderr | src/services/toolFeedTarget.test.js > tool feed presentation target > normalizes known values and defaults unknown values to auto
+Legacy tool-feed target "workspace"; use "rail".
+Legacy tool-feed target "detached"; use "overlay".
+
+ ✓ src/services/toolFeedTarget.test.js (4 tests) 2ms
+ ✓ src/components/OAuthCallback.test.jsx (2 tests) 4ms
+ ✓ src/services/usageBus.test.js (2 tests) 2ms
+ ✓ src/services/httpClient.test.js (1 test) 6ms
+ ✓ src/components/GoalDraftDialog.test.jsx (1 test) 4ms
+ ✓ src/services/usageProjectionStore.test.js (1 test) 5ms
+ ✓ src/components/ElicitationMessage.test.jsx (3 tests) 4ms
+ ✓ src/services/conversationTitle.test.js (3 tests) 2ms
+ ✓ src/components/lookups/skillHints.test.mjs (1 test) 1ms
+ ✓ src/services/reportAuditService.test.js (1 test) 3ms
+ ✓ src/services/forgeWindowContract.test.js (2 tests) 1ms
+ ✓ src/services/progressPresentation.test.js (3 tests) 2ms
+ ✓ src/services/mcpApps/appproto.test.js (3 tests) 3ms
+ ✓ src/components/chat/IterationRowBlock.layout.test.js (1 test) 4ms
+ ✓ src/components/mcpApps/AppFrame.test.jsx (2 tests) 4ms
+ ✓ src/components/WorkspaceSidebar.test.jsx (5 tests) 2ms
+ ✓ src/services/workspaceAdapters.test.js (2 tests) 2ms
+ ✓ src/services/uiPreferences.test.js (1 test) 5ms
+ ✓ src/services/datasourceRequestContext.test.js (2 tests) 2ms
+ ✓ src/services/workspaceToolbar.test.jsx (2 tests) 2ms
+ ✓ src/services/uiSettingsNavigation.test.js (2 tests) 1ms
+ ✓ src/services/composerDefaults.test.js (2 tests) 2ms
+stderr | src/components/ToolFeedDetached.test.jsx > detached tool feeds > selects only detached feeds for the active conversation
+Legacy tool-feed target "detached"; use "overlay".
+Legacy tool-feed target "workspace"; use "rail".
+
+ ✓ src/components/ToolFeedDetached.test.jsx (1 test) 2ms
+ ✓ src/services/feedEntityAliases.test.js (1 test) 2ms
+ ✓ src/chartEmptyState.test.js (2 tests) 1ms
+ ✓ src/services/workspaceTitle.test.js (1 test) 2ms
+ ✓ src/appRoutePaths.test.js (1 test) 2ms
+ ✓ src/services/composerPresentation.test.js (2 tests) 2ms
+ ✓ src/components/ScheduleConversationHistory.test.js (2 tests) 2ms
+ ✓ src/components/mcpApps/MCPUIForgeWindowPage.test.jsx (3 tests) 2ms
+ ✓ src/components/MenuBar.layoutIdentity.test.jsx (1 test) 2ms
+ ✓ src/components/forgeWindowMetadataError.test.js (3 tests) 8ms
+ ✓ src/components/UISettingsPage.test.jsx (2 tests) 5ms
+ ✓ src/components/chat/IterationBlock.mcpui.test.jsx (1 test) 1ms
+ ✓ src/components/chat/BubbleMessage.test.js (2 tests) 1ms
+
+ Test Files  120 passed (120)
+      Tests  1020 passed (1020)
+   Start at  07:27:47
+   Duration  28.31s (transform 4.66s, setup 0ms, collect 166.60s, tests 12.83s, environment 16ms, prepare 11.88s)
+

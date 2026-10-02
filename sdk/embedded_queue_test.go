@@ -11,8 +11,8 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
-	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queueWrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+
 	"github.com/viant/agently-core/protocol/tool"
 	api "github.com/viant/agently-core/sdk/api"
 )
@@ -38,9 +38,9 @@ func TestEmbeddedClient_DecideToolApproval_ApproveSystemOSEnvCompletesTurn(t *te
 	require.Equal(t, "system/os/getEnv", out.Outcome.ToolName)
 	require.Equal(t, `{"values":{"LOGNAME":"test-user"}}`, out.Outcome.Result)
 
-	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  row.Id,
-		Has: &queueRead.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, gotRows, 1)
@@ -82,9 +82,9 @@ func TestEmbeddedClient_DecideToolApproval_ApproveFailureKeepsQueuePending(t *te
 	require.Equal(t, "failed", out.Outcome.Status)
 	require.Equal(t, io.ErrUnexpectedEOF.Error(), out.Outcome.ErrorMessage)
 
-	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  row.Id,
-		Has: &queueRead.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, gotRows, 1)
@@ -116,9 +116,9 @@ func TestEmbeddedClient_DecideToolApproval_CancelSystemOSEnvCompletesTurn(t *tes
 	require.Equal(t, "cancel", out.Outcome.Decision)
 	require.Equal(t, "tool execution was not approved by user", out.Outcome.Result)
 
-	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  row.Id,
-		Has: &queueRead.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, gotRows, 1)
@@ -197,7 +197,7 @@ func TestEmbeddedClient_ListPendingToolApprovals_ExpiresTimedOutRowsAndReturnsOu
 	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-timeout", "turn-timeout", "approval-timeout", "LOGNAME")
 	expiredAt := time.Now().UTC().Add(-1 * time.Minute)
-	queue := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+	queue := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	queue.SetId(row.Id)
 	queue.SetUserId("devuser")
 	queue.SetToolName("system/os/getEnv")
@@ -215,9 +215,9 @@ func TestEmbeddedClient_ListPendingToolApprovals_ExpiresTimedOutRowsAndReturnsOu
 	require.Equal(t, "timed_out", out.Outcomes[0].Status)
 	require.Equal(t, api.ApprovalTimeoutErrorMessage, out.Outcomes[0].ErrorMessage)
 
-	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  row.Id,
-		Has: &queueRead.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, gotRows, 1)
@@ -235,7 +235,7 @@ func TestEmbeddedClient_DecideToolApproval_ExpiredPendingRowYieldsTimeoutOutcome
 	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, ctx, client, "conv-expired", "turn-expired", "approval-expired", "LOGNAME")
 	expired := time.Now().UTC().Add(-2 * time.Minute)
-	patch := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+	patch := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	patch.SetId(row.Id)
 	patch.SetUserId("devuser")
 	patch.SetToolName("system/os/getEnv")
@@ -260,9 +260,9 @@ func TestEmbeddedClient_DecideToolApproval_ExpiredPendingRowYieldsTimeoutOutcome
 	require.NotNil(t, out.Outcome.TimedOutAt)
 	require.NotNil(t, out.Outcome.ExpiresAt)
 
-	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+	gotRows, err := client.conv.(toolApprovalQueueLister).ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  row.Id,
-		Has: &queueRead.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, gotRows, 1)
@@ -287,7 +287,7 @@ func TestEmbeddedClient_ListPendingToolApprovals_DurableTimeoutOutcomeViaCursor(
 	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-cursor-timeout", "turn-cursor-timeout", "approval-cursor-timeout", "LOGNAME")
 	expiredAt := time.Now().UTC().Add(-1 * time.Minute)
-	queue := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+	queue := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	queue.SetId(row.Id)
 	queue.SetUserId("devuser")
 	queue.SetToolName("system/os/getEnv")
@@ -397,7 +397,7 @@ func TestEmbeddedClient_ListPendingToolApprovals_BootstrapPollDoesNotReplayHisto
 	client := newQueueApprovalTestClient(t, `{"values":{"LOGNAME":"test-user"}}`)
 	row := seedPendingSystemOSEnvApproval(t, context.Background(), client, "conv-bootstrap", "turn-bootstrap", "approval-bootstrap", "LOGNAME")
 	decisionTime := time.Now().UTC().Add(-1 * time.Minute)
-	patch := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+	patch := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	patch.SetId(row.Id)
 	patch.SetUserId("devuser")
 	patch.SetToolName("system/os/getEnv")
@@ -443,7 +443,7 @@ func newQueueApprovalTestClientWithError(t *testing.T, toolResult string, execEr
 	}
 }
 
-func seedPendingSystemOSEnvApproval(t *testing.T, ctx context.Context, client *backendClient, conversationID, turnID, approvalID, envName string) *queueWrite.ToolApprovalQueue {
+func seedPendingSystemOSEnvApproval(t *testing.T, ctx context.Context, client *backendClient, conversationID, turnID, approvalID, envName string) *toolapprovalqueuemodel.ToolApprovalQueue {
 	t.Helper()
 
 	conv := conversation.NewConversation()
@@ -494,7 +494,7 @@ func seedPendingSystemOSEnvApproval(t *testing.T, ctx context.Context, client *b
 	require.NoError(t, client.conv.PatchMessage(ctx, queuedTool))
 
 	now := time.Now().UTC()
-	queue := &queueWrite.ToolApprovalQueue{Has: &queueWrite.ToolApprovalQueueHas{}}
+	queue := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	queue.SetId(approvalID)
 	queue.SetUserId("devuser")
 	queue.SetConversationId(conversationID)

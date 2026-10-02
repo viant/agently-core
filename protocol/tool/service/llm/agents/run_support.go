@@ -13,9 +13,8 @@ import (
 	datastore "github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	runmodel "github.com/viant/agently-core/model/run"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	toolpol "github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
@@ -26,7 +25,7 @@ import (
 	"github.com/viant/agently-core/service/shared/convterm"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 	skillsvc "github.com/viant/agently-core/service/skill"
-	hstate "github.com/viant/xdatly/handler/state"
+	hstate "github.com/viant/xdatly/state"
 )
 
 type linkedRun struct {
@@ -596,14 +595,14 @@ func (s *Service) terminalizeTimedOutChildConversation(ctx context.Context, conv
 			logx.Warnf("conversation", "agents.status timed-out child patch turn failed conv=%q turn=%q err=%v", conversationID, turnID, err)
 		}
 		if s.data != nil {
-			run := &agrunwrite.MutableRunView{}
+			run := &runmodel.MutableRunView{}
 			run.SetId(turnID)
 			run.SetStatus("failed")
 			run.SetCompletedAt(now)
 			if msg := strings.TrimSpace(state.errorSummary); msg != "" {
 				run.SetErrorMessage(msg)
 			}
-			if _, err := s.data.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
+			if _, err := s.data.PatchRuns(ctx, []*runmodel.MutableRunView{run}); err != nil {
 				logx.Warnf("conversation", "agents.status timed-out child patch run failed conv=%q turn=%q err=%v", conversationID, turnID, err)
 			}
 		}
@@ -643,16 +642,16 @@ func (s *Service) getConversationForStatus(ctx context.Context, conversationID s
 		return nil, nil
 	}
 	if s.data != nil {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			Id:                conversationID,
 			IncludeTranscript: true,
-			Has: &agconv.ConversationInputHas{
+			Has: &conversationmodel.ConversationInputHas{
 				Id:                true,
 				IncludeTranscript: true,
 			},
 		}
-		selectors := []*hstate.NamedQuerySelector{
-			{Name: "Transcript", QuerySelector: hstate.QuerySelector{Limit: 1, OrderBy: "created_at DESC,id DESC"}},
+		selectors := []*hstate.NamedSelector{
+			{Name: "Transcript", Selector: hstate.Selector{Limit: 1, OrderBy: "created_at DESC,id DESC"}},
 		}
 		conv, err := s.data.GetConversation(ctx, conversationID, in, store.WithQuerySelector(selectors...))
 		if err == nil || conv != nil {
@@ -777,9 +776,9 @@ func (s *Service) collectStatusItems(ctx context.Context, in *StatusInput) ([]St
 	if parentID == "" {
 		return nil, nil
 	}
-	query := &agconv.ConversationInput{
+	query := &conversationmodel.ConversationInput{
 		ParentId: parentID,
-		Has: &agconv.ConversationInputHas{
+		Has: &conversationmodel.ConversationInputHas{
 			ParentId: true,
 		},
 	}
@@ -1035,7 +1034,7 @@ func (s *Service) setChildConversationStatus(ctx context.Context, conversationID
 	if s == nil || s.conv == nil || strings.TrimSpace(conversationID) == "" || strings.TrimSpace(status) == "" {
 		return
 	}
-	upd := convw.Conversation{Has: &convw.ConversationHas{}}
+	upd := conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 	upd.SetId(strings.TrimSpace(conversationID))
 	upd.SetStatus(strings.TrimSpace(status))
 	if err := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd)); err != nil {
@@ -1105,10 +1104,10 @@ func (s *Service) resolveReusableChildConversation(ctx context.Context, agentID 
 	if s == nil || s.conv == nil || strings.TrimSpace(agentID) == "" || strings.TrimSpace(parent.ConversationID) == "" || scope == "new" {
 		return ""
 	}
-	input := &agconv.ConversationInput{
+	input := &conversationmodel.ConversationInput{
 		AgentId:  agentID,
 		ParentId: parent.ConversationID,
-		Has:      &agconv.ConversationInputHas{AgentId: true, ParentId: true},
+		Has:      &conversationmodel.ConversationInputHas{AgentId: true, ParentId: true},
 	}
 	if scope == "parentturn" {
 		input.ParentTurnId = parent.TurnID
@@ -1148,7 +1147,7 @@ func (s *Service) assignConversationAgent(ctx context.Context, conversationID, a
 	if s == nil || s.conv == nil || strings.TrimSpace(conversationID) == "" || strings.TrimSpace(agentID) == "" {
 		return
 	}
-	upd := convw.Conversation{Has: &convw.ConversationHas{}}
+	upd := conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 	upd.SetId(strings.TrimSpace(conversationID))
 	upd.SetAgentId(strings.TrimSpace(agentID))
 	if err := s.conv.PatchConversations(ctx, (*apiconv.MutableConversation)(&upd)); err != nil {

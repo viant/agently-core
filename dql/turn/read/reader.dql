@@ -1,0 +1,37 @@
+#package('github.com/viant/agently-core/internal/datly/turn/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/turn/list/list','GET'))
+#setting($_ = $input_type('TurnRowsInput'))
+#setting($_ = $output_type('TurnRowsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $ReadMode<string>(turnAccess/mode).Required())
+#define($_ = $ConversationID<string>(query/conversationId).Optional().WithPredicate(0,'equal','t','conversation_id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','t','conversation_id'))
+#define($_ = $GoalIDs<[]string>(query/goalIds).Optional().WithPredicate(0,'in','t','goal_id'))
+#define($_ = $TurnId<string>(query/id).Optional().WithPredicate(0,'equal','t','id'))
+#define($_ = $Statuses<[]string>(query/statuses).Optional().WithPredicate(0,'in','t','status'))
+#define($_ = $CreatedSince<time.Time>(query/createdSince).Optional().WithPredicate(0,'greater_or_equal','t','created_at'))
+#define($_ = $CreatedBefore<time.Time>(query/createdBefore).Optional().WithPredicate(0,'less_or_equal','t','created_at'))
+#define($_ = $CursorBefore<string>(query/cursorBefore).Optional().WithPredicate(0,'expr','EXISTS (SELECT 1 FROM turn x WHERE x.id = ? AND (t.created_at < x.created_at OR (t.created_at = x.created_at AND t.id < x.id)))'))
+#define($_ = $CursorAfter<string>(query/cursorAfter).Optional().WithPredicate(0,'expr','EXISTS (SELECT 1 FROM turn x WHERE x.id = ? AND (t.created_at > x.created_at OR (t.created_at = x.created_at AND t.id > x.id)))'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $StartedByMessageIDs<[]string>(query/startedByMessageIds).Optional().WithPredicate(0,'in','t','started_by_message_id'))
+#define($_ = $RetryOfIDs<[]string>(query/retryOfIds).Optional().WithPredicate(0,'in','t','retry_of'))
+#define($_ = $Data<[]*TurnRowsView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true"'))
+
+SELECT turn_rows.*,
+       row_lock(turn_rows,'turn t','t.id'),
+       CAST(turn_rows.cleanup_status AS string),
+       internal(turn_rows.cleanup_status),
+       tag(turn_rows.cleanup_status,'json:"-"'),
+       type(turn_rows,'TurnRowsView'),
+       required(turn_rows.id),
+       required(turn_rows.conversation_id),
+       required(turn_rows.created_at),
+       required(turn_rows.status)
+FROM (${embed:sql/turn.sql}) turn_rows

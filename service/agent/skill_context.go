@@ -6,9 +6,9 @@ import (
 	"strings"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	agruntime "github.com/viant/agently-core/runtime"
 	skillsvc "github.com/viant/agently-core/service/skill"
@@ -125,7 +125,7 @@ func latestInlineSkillContextForTurn(conv *apiconv.Conversation, turnID string) 
 			if msg == nil {
 				continue
 			}
-			if !strings.EqualFold(strings.TrimSpace(mcpname.Canonical(stringOrEmpty(msg.ToolName))), skillproto.ActivateToolNameCanonical) {
+			if !strings.EqualFold(strings.TrimSpace(mcpname2.Canonical(stringOrEmpty(msg.ToolName))), skillproto.ActivateToolNameCanonical) {
 				continue
 			}
 			payload := parsePersistedSkillActivation(stringOrEmpty(msg.Content))

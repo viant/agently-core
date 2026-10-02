@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -25,10 +25,10 @@ func TestBuildToolExecutions_DecodesCompressedToolResult(t *testing.T) {
 	}
 
 	conv := &apiconv.Conversation{
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id: turnID,
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "tool-parent-1",
 						ConversationId: "conv-1",
@@ -36,15 +36,15 @@ func TestBuildToolExecutions_DecodesCompressedToolResult(t *testing.T) {
 						Role:           "assistant",
 						Type:           "tool_op",
 						CreatedAt:      now,
-						ToolMessage: []*agconv.ToolMessageView{
+						ToolMessage: []*conversationmodel.ToolMessageView{
 							{
 								Id:        "tool-msg-1",
 								CreatedAt: now,
-								ToolCall: &agconv.ToolCallView{
+								ToolCall: &conversationmodel.ToolCallView{
 									OpId:            "op-1",
 									ToolName:        "llm_agents-list",
-									RequestPayload:  &agconv.ModelCallStreamPayloadView{InlineBody: strPtr("{}")},
-									ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(gzipString(t, body)), Compression: "gzip"},
+									RequestPayload:  &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr("{}")},
+									ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(gzipString(t, body)), Compression: "gzip"},
 								},
 							},
 						},

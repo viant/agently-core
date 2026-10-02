@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
 func TestTranscriptHistory_EmptyTranscript(t *testing.T) {
@@ -38,7 +38,7 @@ func TestTranscript_LastAssistantMessageWithModelCall_SkipsSummaryMode(t *testin
 		Type:      "text",
 		CreatedAt: now.Add(-1 * time.Second),
 		Mode:      &modePlan,
-		ModelCall: &agconv.ModelCallView{ProviderResponsePayloadId: &payloadMain, TraceId: &respMain},
+		ModelCall: &conversationmodel.ModelCallView{ProviderResponsePayloadId: &payloadMain, TraceId: &respMain},
 	}
 
 	summary := &Message{
@@ -47,10 +47,10 @@ func TestTranscript_LastAssistantMessageWithModelCall_SkipsSummaryMode(t *testin
 		Type:      "text",
 		CreatedAt: now,
 		Mode:      &modeSummary,
-		ModelCall: &agconv.ModelCallView{ProviderResponsePayloadId: &payloadSummary, TraceId: &respSummary},
+		ModelCall: &conversationmodel.ModelCallView{ProviderResponsePayloadId: &payloadSummary, TraceId: &respSummary},
 	}
 
-	turn := &Turn{Id: "turn-1", Message: []*agconv.MessageView{(*agconv.MessageView)(main), (*agconv.MessageView)(summary)}}
+	turn := &Turn{Id: "turn-1", Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(main), (*conversationmodel.MessageView)(summary)}}
 	tr := Transcript{turn}
 
 	got := (&tr).LastAssistantMessageWithModelCall()
@@ -74,7 +74,7 @@ func TestTranscript_LastAssistantMessageWithModelCall_SkipsRouterMode(t *testing
 		Role:      "assistant",
 		Type:      "text",
 		CreatedAt: now.Add(-1 * time.Second),
-		ModelCall: &agconv.ModelCallView{ProviderResponsePayloadId: &payloadMain, TraceId: &respMain},
+		ModelCall: &conversationmodel.ModelCallView{ProviderResponsePayloadId: &payloadMain, TraceId: &respMain},
 	}
 
 	router := &Message{
@@ -83,10 +83,10 @@ func TestTranscript_LastAssistantMessageWithModelCall_SkipsRouterMode(t *testing
 		Type:      "text",
 		CreatedAt: now,
 		Mode:      &modeRouter,
-		ModelCall: &agconv.ModelCallView{ProviderResponsePayloadId: &payloadRouter, TraceId: &respRouter},
+		ModelCall: &conversationmodel.ModelCallView{ProviderResponsePayloadId: &payloadRouter, TraceId: &respRouter},
 	}
 
-	turn := &Turn{Id: "turn-1", Message: []*agconv.MessageView{(*agconv.MessageView)(main), (*agconv.MessageView)(router)}}
+	turn := &Turn{Id: "turn-1", Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(main), (*conversationmodel.MessageView)(router)}}
 	tr := Transcript{turn}
 
 	got := (&tr).LastAssistantMessageWithModelCall()
@@ -110,7 +110,7 @@ func TestTranscript_LastAssistantMessageWithModelCall_SkipsSummaryStatus(t *test
 		Role:      "assistant",
 		Type:      "text",
 		CreatedAt: now.Add(-1 * time.Second),
-		ModelCall: &agconv.ModelCallView{ProviderResponsePayloadId: &payloadMain, TraceId: &respMain},
+		ModelCall: &conversationmodel.ModelCallView{ProviderResponsePayloadId: &payloadMain, TraceId: &respMain},
 	}
 
 	summary := &Message{
@@ -119,10 +119,10 @@ func TestTranscript_LastAssistantMessageWithModelCall_SkipsSummaryStatus(t *test
 		Type:      "text",
 		CreatedAt: now,
 		Status:    &statusSummary,
-		ModelCall: &agconv.ModelCallView{ProviderResponsePayloadId: &payloadSummary, TraceId: &respSummary},
+		ModelCall: &conversationmodel.ModelCallView{ProviderResponsePayloadId: &payloadSummary, TraceId: &respSummary},
 	}
 
-	turn := &Turn{Id: "turn-1", Message: []*agconv.MessageView{(*agconv.MessageView)(main), (*agconv.MessageView)(summary)}}
+	turn := &Turn{Id: "turn-1", Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(main), (*conversationmodel.MessageView)(summary)}}
 	tr := Transcript{turn}
 
 	got := (&tr).LastAssistantMessageWithModelCall()
@@ -141,10 +141,10 @@ func TestTranscript_LastAssistantMessageWithModelCall_AllowsTraceOnlyModelCall(t
 		Role:      "assistant",
 		Type:      "text",
 		CreatedAt: now,
-		ModelCall: &agconv.ModelCallView{TraceId: &resp},
+		ModelCall: &conversationmodel.ModelCallView{TraceId: &resp},
 	}
 
-	turn := &Turn{Id: "turn-1", Message: []*agconv.MessageView{(*agconv.MessageView)(traceOnly)}}
+	turn := &Turn{Id: "turn-1", Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(traceOnly)}}
 	tr := Transcript{turn}
 
 	got := (&tr).LastAssistantMessageWithModelCall()
@@ -169,9 +169,9 @@ func TestTranscript_LastAssistantMessageWithModelCall_SkipsNullChoiceResponsePay
 		Type:      "text",
 		CreatedAt: now.Add(-1 * time.Second),
 		Content:   &content,
-		ModelCall: &agconv.ModelCallView{
+		ModelCall: &conversationmodel.ModelCallView{
 			TraceId: &respGood,
-			ModelCallResponsePayload: &agconv.ModelCallStreamPayloadView{
+			ModelCallResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 				InlineBody: &toolResponse,
 			},
 		},
@@ -182,15 +182,15 @@ func TestTranscript_LastAssistantMessageWithModelCall_SkipsNullChoiceResponsePay
 		Role:      "assistant",
 		Type:      "text",
 		CreatedAt: now,
-		ModelCall: &agconv.ModelCallView{
+		ModelCall: &conversationmodel.ModelCallView{
 			TraceId: &respBad,
-			ModelCallResponsePayload: &agconv.ModelCallStreamPayloadView{
+			ModelCallResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 				InlineBody: &nullChoices,
 			},
 		},
 	}
 
-	turn := &Turn{Id: "turn-1", Message: []*agconv.MessageView{(*agconv.MessageView)(good), (*agconv.MessageView)(bad)}}
+	turn := &Turn{Id: "turn-1", Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(good), (*conversationmodel.MessageView)(bad)}}
 	tr := Transcript{turn}
 
 	got := (&tr).LastAssistantMessageWithModelCall()
@@ -215,15 +215,15 @@ func TestTranscript_LastAssistantMessageWithModelCall_AllowsBlankToolOnlyAnchorW
 		Type:      "text",
 		CreatedAt: now.Add(-2 * time.Second),
 		Content:   &earlyContent,
-		ModelCall: &agconv.ModelCallView{TraceId: &respEarly},
+		ModelCall: &conversationmodel.ModelCallView{TraceId: &respEarly},
 	}
 
-	lateToolChild := &agconv.ToolMessageView{
+	lateToolChild := &conversationmodel.ToolMessageView{
 		Id:        "tool-msg-late",
 		CreatedAt: now.Add(-1 * time.Second),
 		Type:      "tool_op",
 		Content:   strPtr(`{"conversationId":"child-1","status":"running"}`),
-		ToolCall: &agconv.ToolCallView{
+		ToolCall: &conversationmodel.ToolCallView{
 			ToolName: "llm/agents:start",
 			TraceId:  &respLate,
 		},
@@ -234,16 +234,16 @@ func TestTranscript_LastAssistantMessageWithModelCall_AllowsBlankToolOnlyAnchorW
 		Type:      "text",
 		CreatedAt: now,
 		Interim:   1,
-		ModelCall: &agconv.ModelCallView{
+		ModelCall: &conversationmodel.ModelCallView{
 			TraceId: &respLate,
-			ModelCallResponsePayload: &agconv.ModelCallStreamPayloadView{
+			ModelCallResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 				InlineBody: &nullChoices,
 			},
 		},
-		ToolMessage: []*agconv.ToolMessageView{lateToolChild},
+		ToolMessage: []*conversationmodel.ToolMessageView{lateToolChild},
 	}
 
-	turn := &Turn{Id: "turn-1", Message: []*agconv.MessageView{(*agconv.MessageView)(early), (*agconv.MessageView)(late)}}
+	turn := &Turn{Id: "turn-1", Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(early), (*conversationmodel.MessageView)(late)}}
 	tr := Transcript{turn}
 
 	got := (&tr).LastAssistantMessageWithModelCall()

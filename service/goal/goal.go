@@ -1,5 +1,5 @@
 // Package goal implements the autonomous-system runtime above the durable goal
-// persistence (pkg/agently/goal) and the system/goal model tool. It composes
+// persistence (Datly goal components) and the system/goal model tool. It composes
 // three deliberately separate concerns:
 //
 //  1. Domain model — the runtime-owned Goal, Status, and ControllerSpec types.

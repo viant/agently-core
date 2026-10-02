@@ -2,8 +2,8 @@ package data
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
+	native "github.com/viant/agently-core/internal/store/conversationmaintenance"
 	"strings"
 	"time"
 )
@@ -34,94 +34,13 @@ func (s *datlyService) ListConversationMaintenanceCandidates(ctx context.Context
 	if err := validateConversationMaintenanceCandidateRequest(request); err != nil {
 		return nil, err
 	}
-
-	db, driver, err := s.dbWithDriver()
+	rows, err := (&native.Store{Invoker: s.native}).Candidates(ctx, native.CandidateRequest{Kind: string(request.Kind), InactiveBefore: request.InactiveBefore, AfterActivity: request.AfterActivity, AfterRootID: request.AfterRootID, Limit: request.Limit})
 	if err != nil {
 		return nil, err
 	}
-	capabilities, err := deleteSchemaCapabilitiesForDriver(driver)
-	if err != nil {
-		return nil, err
-	}
-
-	activityExpr := "COALESCE(c.last_activity, c.updated_at, c.created_at)"
-	scheduledExpr := `(COALESCE(c.scheduled, 0) <> 0
- OR TRIM(COALESCE(c.schedule_id, '')) <> ''
- OR TRIM(COALESCE(c.schedule_run_id, '')) <> ''
- OR TRIM(COALESCE(c.schedule_kind, '')) <> ''
- OR EXISTS (
-     SELECT 1 FROM run maintenance_run
-     WHERE maintenance_run.conversation_id = c.id
-       AND LOWER(TRIM(COALESCE(maintenance_run.conversation_kind, ''))) = 'scheduled'
- ))`
-	kindPredicate := "NOT " + scheduledExpr
-	// System retention must also discover ownerless legacy roots. The selected
-	// owner value remains diagnostic metadata only.
-	ownerPredicate := "1 = 1"
-	if request.Kind == ConversationMaintenanceScheduled {
-		kindPredicate = scheduledExpr
-	} else if request.Kind == ConversationMaintenanceScheduledFallback {
-		kindPredicate = scheduledExpr + `
-  AND NOT EXISTS (
-      SELECT 1 FROM run maintenance_any_run
-      WHERE maintenance_any_run.conversation_id = c.id
-  )`
-		if capabilities.hasColumn("schedule_run", "conversation_id") {
-			kindPredicate += `
-  AND NOT EXISTS (
-      SELECT 1 FROM schedule_run maintenance_legacy_run
-      WHERE maintenance_legacy_run.conversation_id = c.id
-         OR maintenance_legacy_run.id = TRIM(COALESCE(c.schedule_run_id, ''))
-  )`
-		}
-	}
-
-	args := []interface{}{request.InactiveBefore}
-	var cursorPredicate string
-	if request.AfterRootID != "" {
-		cursorPredicate = fmt.Sprintf("\n  AND (%s > ? OR (%s = ? AND c.id > ?))", activityExpr, activityExpr)
-		args = append(args, request.AfterActivity, request.AfterActivity, request.AfterRootID)
-	}
-	args = append(args, request.Limit)
-	query := fmt.Sprintf(`SELECT c.id, TRIM(COALESCE(c.created_by_user_id, '')), CAST(%s AS CHAR)
-FROM conversation c
-WHERE TRIM(COALESCE(c.conversation_parent_id, '')) = ''
-  AND TRIM(COALESCE(c.conversation_parent_turn_id, '')) = ''
-  AND %s
-  AND %s IS NOT NULL
-  AND %s <= ?
-  AND %s
-  AND NOT EXISTS (
-      SELECT 1 FROM message maintenance_link
-      WHERE maintenance_link.linked_conversation_id = c.id
-  )%s
-ORDER BY %s ASC, c.id ASC
-LIMIT ?`, activityExpr, ownerPredicate, activityExpr, activityExpr, kindPredicate, cursorPredicate, activityExpr)
-
-	rows, err := db.QueryContext(ctx, query, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-
-	result := make([]ConversationMaintenanceCandidate, 0, request.Limit)
-	for rows.Next() {
-		var candidate ConversationMaintenanceCandidate
-		var rawActivity sql.NullString
-		if err = rows.Scan(&candidate.RootID, &candidate.ExpectedOwnerID, &rawActivity); err != nil {
-			return nil, err
-		}
-		candidate.RootID = strings.TrimSpace(candidate.RootID)
-		candidate.ExpectedOwnerID = strings.TrimSpace(candidate.ExpectedOwnerID)
-		activityAt, ok := parseDBTime(rawActivity.String)
-		if !rawActivity.Valid || !ok {
-			return nil, fmt.Errorf("maintenance candidate %q has invalid activity time %q", candidate.RootID, rawActivity.String)
-		}
-		candidate.ActivityAt = activityAt
-		result = append(result, candidate)
-	}
-	if err = rows.Err(); err != nil {
-		return nil, err
+	result := make([]ConversationMaintenanceCandidate, 0, len(rows))
+	for _, row := range rows {
+		result = append(result, ConversationMaintenanceCandidate{RootID: row.RootID, ExpectedOwnerID: row.ExpectedOwnerID, ActivityAt: row.ActivityAt})
 	}
 	return result, nil
 }

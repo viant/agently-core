@@ -1,0 +1,29 @@
+#package('github.com/viant/agently-core/internal/datly/toolexecutionclaim/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/tool-execution-claim','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(claimAccess/internal).Required())
+#define($_ = $ClaimKey<string>(query/claimKey).Optional().WithPredicate(0,'equal','c','claim_key'))
+#define($_ = $TurnID<string>(query/turnId).Optional().WithPredicate(0,'equal','c','turn_id'))
+#define($_ = $RuleID<string>(query/ruleId).Optional().WithPredicate(0,'equal','c','rule_id'))
+#define($_ = $State<string>(query/state).Optional().WithPredicate(0,'equal','c','state'))
+#define($_ = $TurnIDs<[]string>(query/turnIds).Optional().WithPredicate(0,'in','c','turn_id'))
+#define($_ = $Data<[]*Claim>(output/view))
+
+SELECT claims.*,
+       row_lock(claims,'tool_execution_claim c'),
+       type(claims,'Claim'),
+       required(claims.claim_key),
+       required(claims.rule_id),
+       required(claims.canonical_tool_name),
+       required(claims.turn_id),
+       required(claims.semantic_request_hash),
+       required(claims.state),
+       required(claims.created_at),
+       required(claims.updated_at)
+FROM (${embed:sql/toolexecutionclaim.sql}) claims
+

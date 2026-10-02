@@ -1,0 +1,1 @@
+SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM conversation c)  t

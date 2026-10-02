@@ -1,0 +1,41 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/job/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/job','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(reportAccess/internal).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required().WithPredicate(8,'equal','report_export_job','owner_id'))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $Mode<string>(query/mode).Required())
+#define($_ = $ExpectedStatus<string>(query/expectedStatus).Optional().WithPredicate(8,'equal','report_export_job','status'))
+#define($_ = $Jobs<[]*Job>(body/data))
+#define($_ = $Data<[]*Job>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'error'),
+       type(t,'Job'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,8),
+       required(t.job_id),
+       tag(t.job_id,'sqlx:"job_id,primaryKey=true,required=true"'),
+       required(t.artifact_ref),
+       required(t.owner_id),
+       required(t.format),
+       required(t.scope),
+       required(t.status),
+       CAST(t.report_spec_json AS []byte),
+       CAST(t.report_fill_json AS []byte),
+       CAST(t.report_print_json AS []byte),
+       CAST(t.metadata_json AS []byte),
+       CAST(t.diagnostics_json AS []byte),
+       required(t.submitted_at),
+       CAST(t.retention_ttl_sec AS int64),
+       CAST(t.report_run_revision AS *int64)
+FROM (${embed:sql/job.sql}) t

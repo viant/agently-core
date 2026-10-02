@@ -2,47 +2,55 @@ package auth
 
 import (
 	"context"
+	"database/sql"
 	"errors"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
-	"github.com/viant/datly"
+	"github.com/viant/agently-core/app/store/native"
+	"github.com/viant/agently-core/internal/testutil/dbtest"
+	"github.com/viant/datly/bootstrap/connector"
 )
 
-// newLinkStateStore spins an isolated SQLite datly service with the full
-// Agently schema (migration test: oauth_link_state must exist) and registers
-// the linkstate components.
-func newLinkStateStore(t *testing.T) (*OAuthStateStoreDatly, *datly.Service) {
+// newLinkStateStore opens the stock v1 host against one disposable workspace
+// database. Schema inspection below is fixture-only SQL.
+func newLinkStateStore(t *testing.T) (*OAuthStateStoreNative, *sql.DB) {
 	t.Helper()
 	ctx := context.Background()
-	dao := newMCPLinkTestDAO(t)
-	if err := DefineOAuthLinkStateComponents(ctx, dao); err != nil {
-		t.Fatalf("DefineOAuthLinkStateComponents() error = %v", err)
+	_, file, _, _ := runtime.Caller(0)
+	project := filepath.Join(filepath.Dir(file), "..", "..")
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "oauth-state-v1")
+	t.Cleanup(cleanup)
+	dbtest.LoadSQLiteSchema(t, db)
+	server, err := native.New(ctx, native.Options{
+		SourceRoot: project,
+		Connectors: []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: dbPath + "?_foreign_keys=on&_busy_timeout=5000", MaxOpenConns: 2}},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	store := NewOAuthStateStoreDatly(dao)
+	t.Cleanup(func() {
+		if err := server.Shutdown(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	store := NewOAuthStateStoreNative(server)
 	if store == nil {
-		t.Fatalf("NewOAuthStateStoreDatly() = nil")
+		t.Fatal("native oauth state store is nil")
 	}
-	return store, dao
+	return store, db
 }
 
 func TestOAuthLinkStateMigration_SQLiteTableExists(t *testing.T) {
 	ctx := context.Background()
-	dao := newMCPLinkTestDAO(t)
-	conn, err := dao.Resource().Connector("agently")
-	if err != nil {
-		t.Fatalf("Connector() error = %v", err)
-	}
-	db, err := conn.DB()
-	if err != nil {
-		t.Fatalf("DB() error = %v", err)
-	}
+	_, db := newLinkStateStore(t)
 	row := db.QueryRowContext(ctx, `SELECT COUNT(1) FROM oauth_link_state`)
 	var count int
 	if err := row.Scan(&count); err != nil {
 		t.Fatalf("oauth_link_state table missing from SQLite schema: %v", err)
 	}
-	// The unique flow index must exist: cross-pod CreateOrGetPending relies on it.
 	var indexName string
 	if err := db.QueryRowContext(ctx,
 		`SELECT name FROM sqlite_master WHERE type='index' AND name='ux_oauth_link_state_flow'`).Scan(&indexName); err != nil {

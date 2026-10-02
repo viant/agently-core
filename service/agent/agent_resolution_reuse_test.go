@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 )
 
@@ -62,10 +62,10 @@ func makeReuseConv(convID, priorAgent, priorUserMsg string) *apiconv.Conversatio
 	priorAgentPtr := priorAgent
 	contentPrior := priorUserMsg
 	conv := &apiconv.Conversation{Id: convID}
-	conv.Transcript = []*agconv.TranscriptView{
+	conv.Transcript = []*conversationmodel.TranscriptView{
 		{
 			AgentIdUsed: &priorAgentPtr,
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{Role: "user", Type: "text", Content: &contentPrior},
 				{Role: "assistant", Type: "text"},
 			},

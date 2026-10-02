@@ -1,0 +1,8 @@
+{
+  "contracts": 65,
+  "files_checked": 844,
+  "changed_files": [],
+  "command": "go run ./e2e/datly/authoring <Core root> <read-only SQLite discovery schema> <entity>",
+  "framework": "official pinned Datly74db and SQLxc707",
+  "old_files_preserved": true
+}

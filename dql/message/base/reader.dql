@@ -1,0 +1,44 @@
+#package('github.com/viant/agently-core/internal/datly/message/base')
+#import('time','time')
+#import('codec','github.com/viant/agently-core/internal/datly/codec')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/message/base','GET'))
+#setting($_ = $output_type('MessagesOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Data<[]*MessageBaseView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true,selectorOrderBy=true"'))
+
+SELECT data_rows.id,
+       data_rows.conversation_id,
+       data_rows.turn_id,
+       data_rows.archived,
+       data_rows.sequence,
+       data_rows.created_at,
+       data_rows.updated_at,
+       data_rows.created_by_user_id,
+       data_rows.status,
+       data_rows.mode,
+       data_rows.role,
+       data_rows.type,
+       data_rows.content,
+       data_rows.raw_content,
+       data_rows.summary,
+       data_rows.context_summary,
+       data_rows.tags,
+       data_rows.interim,
+       data_rows.elicitation_id,
+       data_rows.parent_message_id,
+       data_rows.superseded_by,
+       data_rows.linked_conversation_id,
+       data_rows.attachment_payload_id,
+       data_rows.elicitation_payload_id,
+       data_rows.tool_name,
+       data_rows.embedding_index,
+       data_rows.preamble AS Narration,
+       data_rows.iteration,
+       data_rows.phase,
+       row_lock(data_rows,'message m','m.id'),
+       type(data_rows,'MessageBaseView'),
+       required(data_rows.conversation_id), required(data_rows.created_at), required(data_rows.id), required(data_rows.interim), required(data_rows.role), required(data_rows.type)
+FROM (${embed:canonical:sql/message.sql}) data_rows

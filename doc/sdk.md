@@ -1,10 +1,15 @@
 # SDK surface
 
-Three SDK flavours share one contract (`Client` interface):
+The Go embedded and HTTP clients, TypeScript, Swift and Kotlin clients share
+one public operation and wire contract (`Client` is its Go authority):
 
 1. **Embedded** — in-process Go; direct service calls, fastest.
 2. **HTTP** — Go client over HTTP; exercises the same endpoints browser clients use.
-3. **Mobile** — Swift (iOS) and Kotlin (Android); mirror the Go `Client` method-for-method.
+3. **TypeScript** — browser/Node HTTP client for the web UI.
+4. **Mobile** — Swift (iOS) and Kotlin (Android); mirror the Go `Client` method-for-method.
+
+For the Datly 1.0 server migration and cross-platform compatibility gate, see
+[datly-sdk-contract.md](datly-sdk-contract.md).
 
 ## Packages
 

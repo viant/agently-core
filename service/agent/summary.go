@@ -7,7 +7,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/service/agent/prompts"
 	"github.com/viant/agently-core/service/core"
@@ -32,7 +32,7 @@ func (s *Service) Summarize(ctx context.Context, conv *apiconv.Conversation) err
 	if !(conv.Summary == nil || *conv.Summary == "") {
 		transcript = transcript.Last()
 		summary := "SUMMARY:" + *conv.Summary
-		transcript[0].Message = append(transcript[0].Message, &conversation.MessageView{
+		transcript[0].Message = append(transcript[0].Message, &conversationmodel.MessageView{
 			Role:    "user",
 			Type:    "text",
 			Content: &summary,

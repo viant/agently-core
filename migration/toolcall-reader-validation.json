@@ -1,0 +1,33 @@
+{
+  "source": "datlyv1/dql/agently/toolcall/read/reader.dql",
+  "destination": "datlyv1/generated/agently/toolcall/read",
+  "legacy_cases": 12,
+  "native_scope_predicate_selector_cases": 18,
+  "http_scope_cases": 2,
+  "historical_timestamp_cases": 1,
+  "focused": "PASS",
+  "logs": [
+    "/tmp/agently-toolcall-reader-final-parity.log",
+    "/tmp/agently-toolcall-reader-http-time.log",
+    "/tmp/agently-toolcall-reader-selectors-final.log"
+  ],
+  "removed_drafts": [
+    "dql/agently/toolcall/byop/toolcall_by_op/reader",
+    "dql/agently/toolcall/byturn/toolcall_by_turn/reader",
+    "dql/agently/toolcall/read/toolcall_by_op/reader"
+  ],
+  "semantics": [
+    "Optional by-op absent/empty conversation retains legacy omission",
+    "Always-scoped by-op retains empty/missing scope as no rows",
+    "By-turn requires consistent tool, message and turn links; orders op, descending attempt and descending identity",
+    "Ownership/host mode outside optional predicates; query cannot override them",
+    "Lookup modes fetch only original projection fields"
+  ],
+  "full_endly": {
+    "status": "SUCCESS",
+    "log": "/tmp/agently-toolcall-reader-endly.log",
+    "test_seconds": 104.695,
+    "workflow_ms": 149702
+  },
+  "caller_cutover": "Pending"
+}

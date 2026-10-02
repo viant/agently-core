@@ -7,8 +7,8 @@ import (
 	"sync"
 
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 )
@@ -219,7 +219,7 @@ func ExpandDefinitionsForConstraintsWithContext(ctx context.Context, defs []*llm
 	if c != nil && len(c.RemoteServers) > 0 {
 		filtered := make([]*llm.ToolDefinition, 0, len(defs))
 		for _, def := range defs {
-			if def != nil && remoteToolAllowed(def.Name, c.RemoteServers) {
+			if def != nil && remoteToolAllowedWithRegistry(ctx, reg, def.Name, c.RemoteServers) {
 				filtered = append(filtered, def)
 			}
 		}
@@ -236,7 +236,7 @@ func ExpandDefinitionsForConstraintsWithContext(ctx context.Context, defs []*llm
 		if def == nil {
 			return
 		}
-		key := strings.TrimSpace(strings.ToLower(mcpname.Canonical(def.Name)))
+		key := strings.TrimSpace(strings.ToLower(mcpname2.Canonical(def.Name)))
 		if key == "" {
 			return
 		}
@@ -285,9 +285,14 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 	if c.Denied {
 		return fmt.Errorf("active skill authorization is no longer available")
 	}
-	toolName = strings.TrimSpace(mcpname.Canonical(toolName))
+	var registry tool.Registry
+	if state, ok := RuntimeStateFromContext(ctx); ok && state != nil && state.service != nil {
+		registry = state.service.toolRegistry
+	}
+	rawName := toolName
+	toolName = strings.TrimSpace(mcpname2.Canonical(toolName))
 	if len(c.RemoteServers) > 0 {
-		if !remoteToolAllowed(toolName, c.RemoteServers) {
+		if !remoteToolAllowedWithRegistry(ctx, registry, rawName, c.RemoteServers) {
 			return fmt.Errorf("MCP skill does not grant local execution or cross-origin tool access")
 		}
 	}
@@ -307,7 +312,7 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 			}
 		}
 	}
-	if toolName == strings.TrimSpace(mcpname.Canonical("system/exec:execute")) && len(c.ExecFirstTokenAllow) > 0 {
+	if toolName == strings.TrimSpace(mcpname2.Canonical("system/exec:execute")) && len(c.ExecFirstTokenAllow) > 0 {
 		commands, _ := args["commands"].([]string)
 		if len(commands) == 0 {
 			if raw, ok := args["commands"].([]interface{}); ok {
@@ -339,14 +344,34 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 	return nil
 }
 
-func remoteToolAllowed(name string, servers []string) bool {
-	canonical := mcpname.Canonical(name)
-	if canonical == mcpname.Canonical("llm/skills:list") || canonical == mcpname.Canonical("llm/skills:get") {
+func remoteToolAllowedWithRegistry(ctx context.Context, registry tool.Registry, name string, servers []string) bool {
+	canonical := mcpname2.Canonical(name)
+	if canonical == mcpname2.Canonical("llm/skills:list") || canonical == mcpname2.Canonical("llm/skills:get") {
 		return true
 	}
-	service := mcpname.Name(canonical).Service()
+	if resolver, ok := registry.(tool.MCPIdentityResolver); ok {
+		server, _, found, err := resolver.ResolveMCPIdentity(ctx, name)
+		if err != nil || !found {
+			return false
+		}
+		for _, allowed := range servers {
+			if server == allowed {
+				return true
+			}
+		}
+		return false
+	}
+	return remoteToolAllowed(name, servers)
+}
+
+func remoteToolAllowed(name string, servers []string) bool {
+	canonical := mcpname2.Canonical(name)
+	if canonical == mcpname2.Canonical("llm/skills:list") || canonical == mcpname2.Canonical("llm/skills:get") {
+		return true
+	}
+	service := mcpname2.Name(canonical).Service()
 	for _, server := range servers {
-		if service == mcpname.Name(mcpname.Canonical(server+":placeholder")).Service() {
+		if service == mcpname2.Name(mcpname2.Canonical(server+":placeholder")).Service() {
 			return true
 		}
 	}
@@ -354,8 +379,8 @@ func remoteToolAllowed(name string, servers []string) bool {
 }
 
 func toolPatternMatch(name, pattern string) bool {
-	name = strings.TrimSpace(mcpname.Canonical(name))
-	pattern = strings.TrimSpace(mcpname.Canonical(pattern))
+	name = strings.TrimSpace(mcpname2.Canonical(name))
+	pattern = strings.TrimSpace(mcpname2.Canonical(pattern))
 	switch {
 	case pattern == "*":
 		return true
@@ -386,8 +411,8 @@ func toolPatternVariants(pattern string) []string {
 		out = append(out, value)
 	}
 	appendVariant(pattern)
-	appendVariant(mcpname.Canonical(pattern))
-	appendVariant(mcpname.Display(pattern))
+	appendVariant(mcpname2.Canonical(pattern))
+	appendVariant(mcpname2.Display(pattern))
 	return out
 }
 
@@ -410,11 +435,11 @@ func constrainedServiceFamilies(patterns []string) map[string]struct{} {
 }
 
 func patternServiceFamily(pattern string) string {
-	canonical := strings.TrimSpace(mcpname.Canonical(pattern))
+	canonical := strings.TrimSpace(mcpname2.Canonical(pattern))
 	if canonical == "" {
 		return ""
 	}
-	service := strings.TrimSpace(strings.ToLower(mcpname.Name(canonical).Service()))
+	service := strings.TrimSpace(strings.ToLower(mcpname2.Name(canonical).Service()))
 	if service == "" || service == "*" {
 		return ""
 	}
@@ -425,7 +450,7 @@ func belongsToConstrainedService(def *llm.ToolDefinition, constrained map[string
 	if def == nil || len(constrained) == 0 {
 		return false
 	}
-	service := strings.TrimSpace(strings.ToLower(mcpname.Name(mcpname.Canonical(def.Name)).Service()))
+	service := strings.TrimSpace(strings.ToLower(mcpname2.Name(mcpname2.Canonical(def.Name)).Service()))
 	if service == "" {
 		return false
 	}

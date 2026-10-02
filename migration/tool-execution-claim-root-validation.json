@@ -1,0 +1,24 @@
+{
+  "date": "2026-09-30",
+  "scope": "Tool execution protection claim and finish repository",
+  "changes": [
+    "Root repository no longer opens a Datly SDK0 connector or executes product SQL",
+    "The builder passes the shared v1 host to NewComponentRepository",
+    "The canonical tool_execution_claim writer accepts host-only claim/finish modes; lifecycle hooks reject existing claims and missing finishes before mutation",
+    "Typed adapter invokes generated reader/writer components, resolves duplicate-key races by reading the winner, and retries bounded SQLite lock errors"
+  ],
+  "verified": [
+    "Focused nested tool execution claim parity tests passed",
+    "Root internal/tool/executionprotection package passed with scratch v1 modfile",
+    "Linked-host claim, duplicate, completion, missing-finish and post-completion duplicate behavior passed",
+    "Eight-way SQLite contention produced one winner in each of ten repeated linked-host runs",
+    "Full app/store/native package passed",
+    "Full nested Endly passed 60/60 transcription, stable regeneration, boundary audit, nested tests (170.476s) and linked-host build"
+  ],
+  "remaining": [
+    "Root app/executor still fails package setup on other SDK0 imports and missing dependency sums, so rebuilt application behavior is unverified",
+    "MySQL contention is unverified",
+    "Conversation-tree maintenance still contains a separate direct-SQL delete of tool_execution_claim rows"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-tool-execution-claim.log"
+}

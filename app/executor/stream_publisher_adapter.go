@@ -74,19 +74,19 @@ func (a *streamPublisherAdapter) Publish(ctx context.Context, ev *modelcallctx.S
 	}
 
 	out := &streaming.Event{
-		ID:                 messageID,
-		StreamID:           convID,
-		ConversationID:     convID,
-		TurnID:             strings.TrimSpace(turnMeta.TurnID),
-		MessageID:          messageID,
-		AgentIDUsed:        strings.TrimSpace(turnMeta.Assistant),
-		UserMessageID:      strings.TrimSpace(turnMeta.ParentMessageID),
-		Type:               streaming.EventTypeTextDelta,
-		Mode:               strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)),
-		ParentMessageID:    strings.TrimSpace(turnMeta.ParentMessageID),
-		ModelCallID:        messageID,
-		Content:            content,
-		CreatedAt:          time.Now(),
+		ID:              messageID,
+		StreamID:        convID,
+		ConversationID:  convID,
+		TurnID:          strings.TrimSpace(turnMeta.TurnID),
+		MessageID:       messageID,
+		AgentIDUsed:     strings.TrimSpace(turnMeta.Assistant),
+		UserMessageID:   strings.TrimSpace(turnMeta.ParentMessageID),
+		Type:            streaming.EventTypeTextDelta,
+		Mode:            strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)),
+		ParentMessageID: strings.TrimSpace(turnMeta.ParentMessageID),
+		ModelCallID:     messageID,
+		Content:         content,
+		CreatedAt:       time.Now(),
 	}
 	out.NormalizeIdentity(convID, strings.TrimSpace(turnMeta.TurnID))
 	if err := a.bus.Publish(ctx, out); err != nil {

@@ -15,7 +15,7 @@ import (
 
 	pdf "github.com/ledongthuc/pdf"
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
@@ -609,7 +609,7 @@ func ToolResultLLMMessages(msg *Message) []llm.Message {
 		return nil
 	}
 	rawName := strings.TrimSpace(msg.ToolName)
-	name := mcpname.Canonical(rawName)
+	name := mcpname2.Canonical(rawName)
 	if name == "" {
 		name = rawName
 	}

@@ -1,0 +1,33 @@
+{
+  "scope": "Remaining full Core test failures in conversation trace, authenticated workspace resource listing, and concurrent duplicate tool execution",
+  "changes": [
+    "Trace fixture keeps required presence markers and verifies existing identity, sparse trace update, and canonical persisted row without weakening creation validation.",
+    "Configured backend ListResources delegates to runtime workspace Store; authenticated HTTP test asserts saved agent name while existing JWT/cookie/401 expectations remain.",
+    "Coalescing test uses explicit owner/provider hold and confirmed active waiter instead of a mock mutex plus sleep that serialized credential preflight; expected one provider execution and both completed histories retained. Test conversation recorder protects concurrent writes."
+  ],
+  "checks": {
+    "conversation_full": {
+      "result": "PASS",
+      "seconds": 21.727
+    },
+    "auth_full": {
+      "result": "PASS",
+      "seconds": 38.815
+    },
+    "toolexec_full": {
+      "result": "PASS",
+      "seconds": 1.78
+    },
+    "coalescing_race": {
+      "result": "PASS",
+      "count": 20,
+      "seconds": 3.274,
+      "includes": "unprotected coalescing, protected duplicate bypass, shared error persistence"
+    }
+  },
+  "limitations": [
+    "A broader full toolexec race attempt exposed additional asynchronous test fixture reads outside their locks; the focused affected concurrency cases pass with race detection.",
+    "Checks used the private local framework modfile; root owns final published dependency and whole Core acceptance gates."
+  ],
+  "state": "Changes uncommitted; no push"
+}

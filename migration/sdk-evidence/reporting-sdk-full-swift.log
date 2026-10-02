@@ -1,0 +1,218 @@
+Building for debugging...
+[Computing dependencies]
+[1 / 10]
+[2 / 11] AgentlySDK
+[4 / 13] AgentlySDK
+[8 / 17] AgentlySDK
+[12 / 18] AgentlySDK
+[15 / 18] AgentlySDKTests-product
+[22 / 25] AgentlySDKTests-product
+[27 / 29] AgentlySDKTests-product
+Build complete! (8.82 sec)
+Test Suite 'All tests' started at 2026-09-30 14:03:10.333.
+Test Suite 'AgentlySDKTests.xctest' started at 2026-09-30 14:03:10.335.
+Test Suite 'ActualReportingContractTests' started at 2026-09-30 14:03:10.335.
+Test Case '-[AgentlySDKTests.ActualReportingContractTests testPublicReportingExportAuditAndQueueSDK]' started.
+Test Case '-[AgentlySDKTests.ActualReportingContractTests testPublicReportingExportAuditAndQueueSDK]' passed (0.199 seconds).
+Test Case '-[AgentlySDKTests.ActualReportingContractTests testQueuedEditAcceptsNoContentButObjectReadStillRequiresJSON]' started.
+Test Case '-[AgentlySDKTests.ActualReportingContractTests testQueuedEditAcceptsNoContentButObjectReadStillRequiresJSON]' passed (0.002 seconds).
+Test Suite 'ActualReportingContractTests' passed at 2026-09-30 14:03:10.535.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.200 (0.201) seconds
+Test Suite 'ActualServerContractTests' started at 2026-09-30 14:03:10.535.
+Test Case '-[AgentlySDKTests.ActualServerContractTests testActualSDK1JSONAuthErrorsAndSSE]' started.
+Test Case '-[AgentlySDKTests.ActualServerContractTests testActualSDK1JSONAuthErrorsAndSSE]' passed (0.250 seconds).
+Test Case '-[AgentlySDKTests.ActualServerContractTests testSSETransportPreservesBlankFramesAndLineEndings]' started.
+Test Case '-[AgentlySDKTests.ActualServerContractTests testSSETransportPreservesBlankFramesAndLineEndings]' passed (0.001 seconds).
+Test Suite 'ActualServerContractTests' passed at 2026-09-30 14:03:10.786.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.251 (0.251) seconds
+Test Suite 'AgentlySDKTests' started at 2026-09-30 14:03:10.786.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testApplyPermissionUsesDedicatedOperation]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testApplyPermissionUsesDedicatedOperation]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testApprovalCallbackPayloadDecodesActionContract]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testApprovalCallbackPayloadDecodesActionContract]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testApprovalCallbackResultDecodesCanonicalCallbackContract]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testApprovalCallbackResultDecodesCanonicalCallbackContract]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testApprovalCallbackResultDecodesCurrentEditedFieldsAndActionContract]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testApprovalCallbackResultDecodesCurrentEditedFieldsAndActionContract]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testClearSessionCookiesRemovesPersistedCookie]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testClearSessionCookiesRemovesPersistedCookie]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStateDecodesCanonicalExecutionFields]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStateDecodesCanonicalExecutionFields]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStateDefaultsMissingFeedsAndUsesTurnId]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStateDefaultsMissingFeedsAndUsesTurnId]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerAppliesControlMessagePatchAndExecutionGroup]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerAppliesControlMessagePatchAndExecutionGroup]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerCarriesCanonicalProgressiveReport]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerCarriesCanonicalProgressiveReport]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerHydrateDoesNotOverwriteActiveTurnMessageOwnedBySSE]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerHydrateDoesNotOverwriteActiveTurnMessageOwnedBySSE]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerHydratesExecutionGroupsFromTranscriptToolPayloads]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerHydratesExecutionGroupsFromTranscriptToolPayloads]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerHydratesPlannerStateForPastTurns]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerHydratesPlannerStateForPastTurns]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerHydrateUsesCursorNotTranscriptMessageSequenceForLiveDelta]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerHydrateUsesCursorNotTranscriptMessageSequenceForLiveDelta]' passed (0.003 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerIgnoresEventsFromDifferentConversation]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerIgnoresEventsFromDifferentConversation]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerMergesToolTurnIDIntoExistingGroup]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerMergesToolTurnIDIntoExistingGroup]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPlannerEventsUpdateTurnPlannerState]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPlannerEventsUpdateTurnPlannerState]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPreservesNonObjectToolPayloads]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPreservesNonObjectToolPayloads]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPreservesPendingElicitationStatus]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPreservesPendingElicitationStatus]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPreservesToolOrderWhenMergingUpdates]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPreservesToolOrderWhenMergingUpdates]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPreservesToolResponsePayload]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPreservesToolResponsePayload]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPreservesUsageEvents]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerPreservesUsageEvents]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerProgressivelyUpdatesAssistantMessage]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerProgressivelyUpdatesAssistantMessage]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerTranscriptDoesNotOverwriteActivePlannerStateOwnedBySSE]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testConversationStreamTrackerTranscriptDoesNotOverwriteActivePlannerStateOwnedBySSE]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testCreateConversationDecodesParentFields]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testCreateConversationDecodesParentFields]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testDatasourceAndLookupRoutesEncodeSlashBearingIdentifiers]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testDatasourceAndLookupRoutesEncodeSlashBearingIdentifiers]' passed (0.002 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testDatasourceAndLookupRoutesRejectBlankIdentifiersBeforeDispatch]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testDatasourceAndLookupRoutesRejectBlankIdentifiersBeforeDispatch]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testFeedDraftFacadeWrapsScopedGetAndUpdateTools]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testFeedDraftFacadeWrapsScopedGetAndUpdateTools]' passed (0.002 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetForgeWindowMetadataAppendsTargetContextQueryItems]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetForgeWindowMetadataAppendsTargetContextQueryItems]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetForgeWindowMetadataRejectsBlankWindowKeyBeforeDispatch]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetForgeWindowMetadataRejectsBlankWindowKeyBeforeDispatch]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetForgeWindowMetadataUnwrapsDataEnvelope]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetForgeWindowMetadataUnwrapsDataEnvelope]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetPayloadsUsesBatchEndpointWithDeduplicatedIDs]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetPayloadsUsesBatchEndpointWithDeduplicatedIDs]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetRunUsesSharedRunRoute]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetRunUsesSharedRunRoute]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetTranscriptRejectsResponseAboveMobileSafetyLimit]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetTranscriptRejectsResponseAboveMobileSafetyLimit]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetTranscriptRejectsStreamedResponseWithoutContentLengthAboveMobileSafetyLimit]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetTranscriptRejectsStreamedResponseWithoutContentLengthAboveMobileSafetyLimit]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetTranscriptUsesExpectedPathAndQuery]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetTranscriptUsesExpectedPathAndQuery]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetWorkspaceMetadataAppendsTargetContextQueryItems]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetWorkspaceMetadataAppendsTargetContextQueryItems]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetWorkspaceMetadataUnwrapsDataEnvelopeAndAppliesDefaultFallbacks]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testGetWorkspaceMetadataUnwrapsDataEnvelopeAndAppliesDefaultFallbacks]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreDecodesPersistedPayloadEnvelopes]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreDecodesPersistedPayloadEnvelopes]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreDoesNotRequireAppPlacementFields]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreDoesNotRequireAppPlacementFields]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreFallsBackToPlainWindowGetContentWhenPayloadIsCompressed]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreFallsBackToPlainWindowGetContentWhenPayloadIsCompressed]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreFoldsInlineBodyWindowFormDataIntoOpenedWindow]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreFoldsInlineBodyWindowFormDataIntoOpenedWindow]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreFoldsLaterWindowFormDataIntoOpenedWindow]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreFoldsLaterWindowFormDataIntoOpenedWindow]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreIgnoresLiveGroupsWithoutActiveTurn]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreIgnoresLiveGroupsWithoutActiveTurn]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestorePreservesWorkspaceAcrossLaterNonWorkspaceTurn]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestorePreservesWorkspaceAcrossLaterNonWorkspaceTurn]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreUsesLaterWindowGetAsAuthoritativeLegacyFormSnapshot]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreUsesLaterWindowGetAsAuthoritativeLegacyFormSnapshot]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreUsesLiveStreamPayloads]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreUsesLiveStreamPayloads]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreUsesWindowOpenPayloads]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testHostedWorkspaceRestoreUsesWindowOpenPayloads]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testJSONValueRoundTrip]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testJSONValueRoundTrip]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testListConversationsBuildsExpectedQueryParameters]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testListConversationsBuildsExpectedQueryParameters]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testListFilesOutputDecodesCapitalizedFilesKey]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testListFilesOutputDecodesCapitalizedFilesKey]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testListPendingToolApprovalsPageDecodesRowsAndPagination]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testListPendingToolApprovalsPageDecodesRowsAndPagination]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testListUIEventsExecutesScopedToolAndDecodesStructuredDetails]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testListUIEventsExecutesScopedToolAndDecodesStructuredDetails]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testLookupFlatteningToleratesDuplicateRegistryNames]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testLookupFlatteningToleratesDuplicateRegistryNames]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testMCPAuthStatusAndInitiateUseCurrentSessionAndCSRF]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testMCPAuthStatusAndInitiateUseCurrentSessionAndCSRF]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testOAuthConfigDecodesNullScopesAsEmpty]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testOAuthConfigDecodesNullScopesAsEmpty]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testOAuthInitiatePostsMobileRedirectURIWhenProvided]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testOAuthInitiatePostsMobileRedirectURIWhenProvided]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testOAuthMobileCallbackPostsMobileEndpoint]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testOAuthMobileCallbackPostsMobileEndpoint]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testOAuthMobileInitiatePostsMobileEndpoint]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testOAuthMobileInitiatePostsMobileEndpoint]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPersistentSessionCookieStoreReplaysCookieForFreshClient]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPersistentSessionCookieStoreReplaysCookieForFreshClient]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1AuthBackfillUsesAndroidEquivalentRoutes]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1AuthBackfillUsesAndroidEquivalentRoutes]' passed (0.002 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1CanonicalTranscriptBackfillRoutesAndDecoding]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1CanonicalTranscriptBackfillRoutesAndDecoding]' passed (0.003 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1ConversationBackfillUsesExpectedRoutes]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1ConversationBackfillUsesExpectedRoutes]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1PayloadAndWorkspaceFileBackfillRoutes]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1PayloadAndWorkspaceFileBackfillRoutes]' passed (0.002 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1ResourcesAndSchedulerBackfillRoutes]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1ResourcesAndSchedulerBackfillRoutes]' passed (0.003 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1ToolsAndA2ABackfillRoutes]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testPhase1ToolsAndA2ABackfillRoutes]' passed (0.004 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testQueryInputEncodesAndroidWebParityFields]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testQueryInputEncodesAndroidWebParityFields]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testQueryOutputDefaultsMissingWarnings]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testQueryOutputDefaultsMissingWarnings]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testRenderedContentDecodesProgressiveInlineReport]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testRenderedContentDecodesProgressiveInlineReport]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testRenderedContentDecodesWithoutDiagnostics]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testRenderedContentDecodesWithoutDiagnostics]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testSessionDebugOptionsAppendDebugHeaders]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testSessionDebugOptionsAppendDebugHeaders]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testSharedProgressiveRenderedContentFixture]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testSharedProgressiveRenderedContentFixture]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testStreamEventsEncodesConversationIDQuery]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testStreamEventsEncodesConversationIDQuery]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testStreamEventsReplaysPersistentSessionCookie]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testStreamEventsReplaysPersistentSessionCookie]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTemplateAndSkillTransportsEncodeSlashBearingPathSegments]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTemplateAndSkillTransportsEncodeSlashBearingPathSegments]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTemplatesSkillsAndMCPUIToolCallRoutesMatchSharedClientContract]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTemplatesSkillsAndMCPUIToolCallRoutesMatchSharedClientContract]' passed (0.003 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTrackConversationHydratesRunningTurnAsActiveBeforeNewEvents]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTrackConversationHydratesRunningTurnAsActiveBeforeNewEvents]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTrackConversationHydratesThenAppliesEvents]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTrackConversationHydratesThenAppliesEvents]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTrackConversationSkipsPreCursorEventAndAppliesLaterLiveEvent]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTrackConversationSkipsPreCursorEventAndAppliesLaterLiveEvent]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTrackConversationStartsStreamBeforeHydrationAndSkipsHydratedEventSequences]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTrackConversationStartsStreamBeforeHydrationAndSkipsHydratedEventSequences]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTurnAndConversationControlRoutesMatchSharedClientContract]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testTurnAndConversationControlRoutesMatchSharedClientContract]' passed (0.004 seconds).
+Test Case '-[AgentlySDKTests.AgentlySDKTests testUIBridgeRPCClientOmitsSessionHeaderForExplicitCommandPlane]' started.
+Test Case '-[AgentlySDKTests.AgentlySDKTests testUIBridgeRPCClientOmitsSessionHeaderForExplicitCommandPlane]' passed (0.001 seconds).
+Test Suite 'AgentlySDKTests' passed at 2026-09-30 14:03:10.866.
+	 Executed 81 tests, with 0 failures (0 unexpected) in 0.074 (0.080) seconds
+Test Suite 'ResourceUploadTests' started at 2026-09-30 14:03:10.866.
+Test Case '-[AgentlySDKTests.ResourceUploadTests testFilenameIsEscapedInMultipartHeader]' started.
+Test Case '-[AgentlySDKTests.ResourceUploadTests testFilenameIsEscapedInMultipartHeader]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.ResourceUploadTests testLegacyAndAnonymousUploadResponses]' started.
+Test Case '-[AgentlySDKTests.ResourceUploadTests testLegacyAndAnonymousUploadResponses]' passed (0.000 seconds).
+Test Case '-[AgentlySDKTests.ResourceUploadTests testUploadThenQueryUsesResourceURI]' started.
+Test Case '-[AgentlySDKTests.ResourceUploadTests testUploadThenQueryUsesResourceURI]' passed (0.002 seconds).
+Test Case '-[AgentlySDKTests.ResourceUploadTests testUploadValidationAndHTTPFailure]' started.
+Test Case '-[AgentlySDKTests.ResourceUploadTests testUploadValidationAndHTTPFailure]' passed (0.001 seconds).
+Test Suite 'ResourceUploadTests' passed at 2026-09-30 14:03:10.870.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'WorkspaceThemeAssetTests' started at 2026-09-30 14:03:10.870.
+Test Case '-[AgentlySDKTests.WorkspaceThemeAssetTests testCatalogRequestUsesConfiguredAuthenticationAndMetadataSession]' started.
+Test Case '-[AgentlySDKTests.WorkspaceThemeAssetTests testCatalogRequestUsesConfiguredAuthenticationAndMetadataSession]' passed (0.001 seconds).
+Test Case '-[AgentlySDKTests.WorkspaceThemeAssetTests testSparseMetadataPreservesThemeDescriptors]' started.
+Test Case '-[AgentlySDKTests.WorkspaceThemeAssetTests testSparseMetadataPreservesThemeDescriptors]' passed (0.001 seconds).
+Test Suite 'WorkspaceThemeAssetTests' passed at 2026-09-30 14:03:10.872.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'AgentlySDKTests.xctest' passed at 2026-09-30 14:03:10.872.
+	 Executed 91 tests, with 0 failures (0 unexpected) in 0.530 (0.537) seconds
+Test Suite 'All tests' passed at 2026-09-30 14:03:10.872.
+	 Executed 91 tests, with 0 failures (0 unexpected) in 0.530 (0.539) seconds
+◇ Test run started.
+↳ Testing Library Version: 2078
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

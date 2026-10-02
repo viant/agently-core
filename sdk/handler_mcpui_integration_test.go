@@ -14,7 +14,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	convmem "github.com/viant/agently-core/internal/service/conversation/memory"
-	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
 	"github.com/viant/agently-core/protocol/tool"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -164,9 +164,9 @@ func TestHandler_MCPUI_ToolCall_HTTPIntegrationQueuesApproval(t *testing.T) {
 	require.Equal(t, out.TurnID, out.Approval.TurnID)
 	require.Equal(t, 0, registry.executeHits, "queue-gated tool must not be executed by the registry")
 
-	rows, err := convClient.ListToolApprovalQueues(ctx, &queueread.QueueRowsInput{
+	rows, err := convClient.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		ConversationId: conversationID,
-		Has:            &queueread.QueueRowsInputHas{ConversationId: true},
+		Has:            &toolapprovalqueuemodel.QueueRowsInputHas{ConversationId: true},
 	})
 	require.NoError(t, err)
 	require.Lenf(t, rows, 1, "queue writer must persist exactly one row through the real approval queue path")
@@ -244,9 +244,9 @@ func TestHandler_MCPUI_ToolCall_HTTPIntegrationMissingConversationCreatesOne(t *
 	require.Equal(t, displayName, out.Approval.ToolName)
 	require.Equal(t, 0, registry.executeHits)
 
-	rows, err := convClient.ListToolApprovalQueues(ctx, &queueread.QueueRowsInput{
+	rows, err := convClient.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		ConversationId: out.ConversationID,
-		Has:            &queueread.QueueRowsInputHas{ConversationId: true},
+		Has:            &toolapprovalqueuemodel.QueueRowsInputHas{ConversationId: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)

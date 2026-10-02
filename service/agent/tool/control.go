@@ -4,9 +4,9 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	intent "github.com/viant/agently-core/protocol/intent"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 )
 
@@ -136,7 +136,7 @@ func NormalizeToolNames(in []string) []string {
 	seen := map[string]struct{}{}
 	var out []string
 	for _, raw := range in {
-		value := strings.TrimSpace(mcpname.Canonical(raw))
+		value := strings.TrimSpace(mcpname2.Canonical(raw))
 		if value == "" {
 			continue
 		}

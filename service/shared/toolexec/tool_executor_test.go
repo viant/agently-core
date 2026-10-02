@@ -18,7 +18,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
-	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -267,7 +267,15 @@ func TestExecuteToolStep_CoalescesConcurrentDuplicateActiveTurnSteps(t *testing.
 
 	turn := memory.TurnMeta{ConversationID: "c-coalesce", TurnID: "t-coalesce", ParentMessageID: "p-coalesce"}
 	ctx := memory.WithTurnMeta(context.Background(), turn)
-	reg := &scriptedRegistry{script: []scriptedResult{{result: `{"clientId":"ios-ui-test","ok":true}`, delay: 25 * time.Millisecond}}}
+	reg := &heldCoalesceRegistry{scriptedRegistry: &scriptedRegistry{script: []scriptedResult{{result: `{"clientId":"ios-ui-test","ok":true}`}}}, entered: make(chan struct{}), release: make(chan struct{})}
+	t.Cleanup(func() {
+		select {
+		case <-reg.release:
+		default:
+			close(reg.release)
+		}
+	})
+	waiterEntered := make(chan struct{})
 	conv := &stubConv{}
 	args := map[string]interface{}{
 		"clientId": "ios-ui-test",
@@ -280,7 +288,6 @@ func TestExecuteToolStep_CoalescesConcurrentDuplicateActiveTurnSteps(t *testing.
 			},
 		},
 	}
-	start := make(chan struct{})
 	results := make(chan llm.ToolCall, 2)
 	errs := make(chan error, 2)
 	var wait sync.WaitGroup
@@ -288,8 +295,11 @@ func TestExecuteToolStep_CoalescesConcurrentDuplicateActiveTurnSteps(t *testing.
 		wait.Add(1)
 		go func(id string) {
 			defer wait.Done()
-			<-start
-			call, _, err := ExecuteToolStep(ctx, reg, StepInfo{
+			callCtx := ctx
+			if id == "call-b" {
+				callCtx = &coalesceWaiterContext{Context: ctx, entered: waiterEntered}
+			}
+			call, _, err := ExecuteToolStep(callCtx, reg, StepInfo{
 				ID:         id,
 				Name:       "ui/window/setFormData",
 				Args:       args,
@@ -298,8 +308,22 @@ func TestExecuteToolStep_CoalescesConcurrentDuplicateActiveTurnSteps(t *testing.
 			results <- call
 			errs <- err
 		}(id)
+		if id == "call-a" {
+			select {
+			case <-reg.entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("owner did not enter registry")
+			}
+		}
 	}
-	close(start)
+	// Done is evaluated in begin's waiter select only after finding the active
+	// owner's call. This proves overlap without depending on scheduler delays.
+	select {
+	case <-waiterEntered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("duplicate did not join active owner")
+	}
+	close(reg.release)
 	wait.Wait()
 	close(results)
 	close(errs)
@@ -786,6 +810,7 @@ func (r *recordingFeedNotifier) NotifyToolCompleted(_ context.Context, _ string,
 }
 
 type stubConv struct {
+	mu               sync.Mutex
 	patchedMessages  []*apiconv.MutableMessage
 	insertedMessages []*apiconv.MutableMessage
 	patchedPayloads  []*apiconv.MutablePayload
@@ -801,6 +826,8 @@ type stubConv struct {
 }
 
 func (s *stubConv) GetConversation(context.Context, string, ...apiconv.Option) (*apiconv.Conversation, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	return s.conversation, nil
 }
 
@@ -809,6 +836,8 @@ func (s *stubConv) GetConversations(context.Context, *apiconv.Input) ([]*apiconv
 }
 
 func (s *stubConv) PatchConversations(_ context.Context, conv *apiconv.MutableConversation) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.patchConversationCount++
 	s.patchedConvs = append(s.patchedConvs, conv)
 	if s.failPatchConversationAt != nil {
@@ -824,11 +853,15 @@ func (s *stubConv) GetPayload(context.Context, string) (*apiconv.Payload, error)
 }
 
 func (s *stubConv) PatchPayload(_ context.Context, payload *apiconv.MutablePayload) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.patchedPayloads = append(s.patchedPayloads, payload)
 	return nil
 }
 
 func (s *stubConv) PatchMessage(_ context.Context, message *apiconv.MutableMessage) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.patchedMessages = append(s.patchedMessages, message)
 	if message != nil && strings.TrimSpace(derefString(message.Content)) != "" {
 		s.insertedMessages = append(s.insertedMessages, message)
@@ -849,6 +882,8 @@ func (s *stubConv) PatchModelCall(context.Context, *apiconv.MutableModelCall) er
 }
 
 func (s *stubConv) PatchToolCall(_ context.Context, call *apiconv.MutableToolCall) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.patchToolCallCount++
 	s.patchedToolCalls = append(s.patchedToolCalls, call)
 	if s.failPatchToolCallAt != nil {
@@ -958,7 +993,7 @@ func (s *scriptedRegistry) Execute(ctx context.Context, name string, args map[st
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.lastName = name
-	s.requestIDs = append(s.requestIDs, exportrequest.ID(ctx))
+	s.requestIDs = append(s.requestIDs, exportrequestmodel.ID(ctx))
 	if args != nil {
 		cloned := make(map[string]interface{}, len(args))
 		for k, v := range args {
@@ -1143,4 +1178,33 @@ func TestSynthesizeToolStep_ParentMessageID(t *testing.T) {
 	require.NotNil(t, toolMsg.ParentMessageID)
 	assert.Equal(t, "assistant-msg-99", *toolMsg.ParentMessageID,
 		"synthesized tool should also point to assistant message from context")
+}
+
+// heldCoalesceRegistry keeps the owner's provider call active while allowing
+// the second call's credential preflight to proceed independently.
+type heldCoalesceRegistry struct {
+	*scriptedRegistry
+	entered, release chan struct{}
+	once             sync.Once
+}
+
+func (r *heldCoalesceRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	r.once.Do(func() { close(r.entered) })
+	select {
+	case <-r.release:
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
+	return r.scriptedRegistry.Execute(ctx, name, args)
+}
+
+type coalesceWaiterContext struct {
+	context.Context
+	entered chan struct{}
+	once    sync.Once
+}
+
+func (c *coalesceWaiterContext) Done() <-chan struct{} {
+	c.once.Do(func() { close(c.entered) })
+	return c.Context.Done()
 }

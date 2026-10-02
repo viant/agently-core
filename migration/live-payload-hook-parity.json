@@ -1,0 +1,1261 @@
+{
+  "original": {
+    "plain": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 707,
+          "decoded_bytes": 2394,
+          "decoded_sha256": "c2f75132f338ee17c107eaef333351a6a884a2c62ea6b8e094df214181f19f9f",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 307
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 261,
+          "decoded_bytes": 261,
+          "decoded_sha256": "186bd1bc1bf0efb1c9236de621287a74bbf86e97a9b6ce8a96dfb68b89d4b044",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 742,
+          "decoded_bytes": 742,
+          "decoded_sha256": "fbd27bb234a9c832050b3bb2d9098987d6cf8d56ea2f2c51802706313e384eb5",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 474,
+          "decoded_bytes": 474,
+          "decoded_sha256": "7bc3bf430240ae8bf3913cfe2936c110f07284ccadd29b7e7ed7a487d2371959",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        }
+      ],
+      "turn_statuses": [
+        "completed"
+      ]
+    },
+    "shell": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 1850,
+          "decoded_bytes": 8586,
+          "decoded_sha256": "a7ea57bf88c368d94aa845417d33d0223a31089117c0c8a1e76a5d5247de4033",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 846
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 476,
+          "decoded_bytes": 476,
+          "decoded_sha256": "d18b8d365e9c31367ad5269032e57c55078770c6238fdbff40900874ec470e16",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 1239,
+          "decoded_bytes": 3926,
+          "decoded_sha256": "45833485444e634dc903ac6040ef74b64e5ccd7c9bc66650a6133945188fb12e",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 532
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 670,
+          "decoded_bytes": 670,
+          "decoded_sha256": "dc17c681e560ffb624956495acb1dde25f3e7f3705fed37f1c62c659d7a57c7c",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 77,
+          "decoded_bytes": 77,
+          "decoded_sha256": "e8284c3d16dfeae578f7c8a5aa3e9f73698e79ccabe2f93baf411c5d02262011",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 176,
+          "decoded_bytes": 176,
+          "decoded_sha256": "aee9e12d1a0c43c55faca5f74d65bfd27fe674d78e1402bd53e51b2ecaca5584",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 176,
+          "decoded_bytes": 176,
+          "decoded_sha256": "aee9e12d1a0c43c55faca5f74d65bfd27fe674d78e1402bd53e51b2ecaca5584",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 2089,
+          "decoded_bytes": 10029,
+          "decoded_sha256": "268cf4f899b5d5255360e1d12e818cffe7eadb601846083a5e3fcbbeb2808d04",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 880
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 324,
+          "decoded_bytes": 324,
+          "decoded_sha256": "9453445baf2b4e692534b94b550ac1f8da0162ef4f0812536457862ed41def35",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 1391,
+          "decoded_bytes": 4470,
+          "decoded_sha256": "e230f593cb0923cd3c8011a424a10b8aad26e74a3d161dad98136893601c6d53",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 602
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 538,
+          "decoded_bytes": 538,
+          "decoded_sha256": "bf93cee788f9c67bb8d0acbe5e7974d45b46a0640694d41e76209dcc21009e92",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        }
+      ],
+      "turn_statuses": [
+        "completed"
+      ]
+    },
+    "attachment": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 807,
+          "decoded_bytes": 3101,
+          "decoded_sha256": "c04813f3a9b9a1fb1ad1d1c03f3a6b8905837574efc02f63befc0aff19861c5c",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 352
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 253,
+          "decoded_bytes": 253,
+          "decoded_sha256": "d50c948d35b7ea49d493fb35f9d1942bce6302173da9d9c2abf1eda22e59e486",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 490,
+          "decoded_bytes": 1083,
+          "decoded_sha256": "e9e33301fa0d5660fe18c35f8f67665bc282d84dc132553e2f1e7250193e3064",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 214
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 466,
+          "decoded_bytes": 466,
+          "decoded_sha256": "8e96083e31b444d7ded6473e65afc446ee63a5eac18740008b4131cc986febc4",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        }
+      ],
+      "turn_statuses": [
+        "completed"
+      ]
+    }
+  },
+  "v1": {
+    "plain": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 860,
+          "decoded_bytes": 3539,
+          "decoded_sha256": "066d1df82218180eb3c5466ad0edca804cad378bf3a48e148d6bebde58586a04",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 407
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 266,
+          "decoded_bytes": 266,
+          "decoded_sha256": "e81592e376d085b9bc4363e28d997d6106d691ef254134699e9d707670435dba",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 543,
+          "decoded_bytes": 1122,
+          "decoded_sha256": "00b9e507ebc2037b2604a35dd0a85ff52fb5ffa0da1b59960247c8b1dcb53eca",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 226
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 479,
+          "decoded_bytes": 479,
+          "decoded_sha256": "a8712c2a008721f644e96002bd309ccf0bde6b2fbdaab72108ef08efbe2eff9e",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        }
+      ],
+      "turn_statuses": [
+        "completed"
+      ]
+    },
+    "shell": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 2052,
+          "decoded_bytes": 9683,
+          "decoded_sha256": "ae0947e4718b38f181ebfac079446c4a333efb20d29cadf315501d032f91ce3b",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 911
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 527,
+          "decoded_bytes": 527,
+          "decoded_sha256": "cdccaf9df873bd92a79c97210b67a08578c8ccb869b7047dd8283c7513ad5ccf",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 1403,
+          "decoded_bytes": 4290,
+          "decoded_sha256": "3101203cb350d657a5b04a9c9995192e8747df28482542f3517195335f664765",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 584
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 721,
+          "decoded_bytes": 721,
+          "decoded_sha256": "e996393cd38caccf821a980d6eafa7f3cd1746991b2179c28d973d656196ce90",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 127,
+          "decoded_bytes": 127,
+          "decoded_sha256": "2172ff135913da27db0041c05a1139ca9c63310ca22634eb8f95c2771be5aa9f",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 276,
+          "decoded_bytes": 276,
+          "decoded_sha256": "cf01f030380169d7766af8b80e4374aadfcc7e58e5e1e3de88c811aa412f21d3",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 276,
+          "decoded_bytes": 276,
+          "decoded_sha256": "cf01f030380169d7766af8b80e4374aadfcc7e58e5e1e3de88c811aa412f21d3",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 2304,
+          "decoded_bytes": 11632,
+          "decoded_sha256": "dfe7044f96c6eba7b52ecba7757f8574d7931e34c764b9c5dd41966011b0f726",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 994
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 374,
+          "decoded_bytes": 374,
+          "decoded_sha256": "e543db6b9e0bff7289af30991175fa0df33d611a0530b09bcb74d2f72cb14de5",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 1560,
+          "decoded_bytes": 4986,
+          "decoded_sha256": "db7f03876f9fea50b170e6b97938a2b078cc41bfdb240b8b336b0c1349034bd0",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 685
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 588,
+          "decoded_bytes": 588,
+          "decoded_sha256": "874546adb3279152e85d8ffbc772f685de7fb55bc8487f20021eed7a76331702",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        }
+      ],
+      "turn_statuses": [
+        "completed"
+      ]
+    },
+    "attachment": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 974,
+          "decoded_bytes": 4315,
+          "decoded_sha256": "c38c01137073e837bb000199ae39829613b08e5a53bd3d9bf80df26bd7b574b0",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 416
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 253,
+          "decoded_bytes": 253,
+          "decoded_sha256": "18bc515f577710ec4d7a2647f989982cfaa26feadb2325137a948e627536d6b8",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 648,
+          "decoded_bytes": 1486,
+          "decoded_sha256": "5ce0f4ef661a886367c03ec61b8b0d0ea959ba321ce937ddbf6d8b95681ca98b",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 267
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 466,
+          "decoded_bytes": 466,
+          "decoded_sha256": "edc04cb5f8d0ca4b2a25d4df42ac5d737ff26b5ac140bf31c4b14b8cc28a9366",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        }
+      ],
+      "turn_statuses": [
+        "completed"
+      ]
+    },
+    "coder": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 2226,
+          "decoded_bytes": 11282,
+          "decoded_sha256": "edeca529e1d7060f90230f8c4f69b816f03300593ad47a4c574717a4d073ed54",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 918
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 591,
+          "decoded_bytes": 591,
+          "decoded_sha256": "995ef9378ed88b280a06c8c31145bfb5e01052f8df9685c4b3529388c367467f",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 1562,
+          "decoded_bytes": 4823,
+          "decoded_sha256": "4fb5bd0196678fc17b4a1963ab683666f8bfe47c0fae9468613820a0fd609af8",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 672
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 785,
+          "decoded_bytes": 785,
+          "decoded_sha256": "3a9c137fe3c113f9ccde43eafe8877106b977ffa732ea7af266e8816d72fe968",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 181,
+          "decoded_bytes": 181,
+          "decoded_sha256": "54ee23a8af24acde619287c26673b5350c8fe5da8c45b4c0436911a26a182a7e",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 619,
+          "decoded_bytes": 619,
+          "decoded_sha256": "2ab5ea588781b08e38b67c8b8edcf1e791d512c4becbe8c37659d7f1bdf72dc8",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 619,
+          "decoded_bytes": 619,
+          "decoded_sha256": "2ab5ea588781b08e38b67c8b8edcf1e791d512c4becbe8c37659d7f1bdf72dc8",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 2676,
+          "decoded_bytes": 14917,
+          "decoded_sha256": "f20bcda0e80e6f96be43abcf4fcf05b5e286be629a82567fb1de4016e7346667",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 1178
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 582,
+          "decoded_bytes": 582,
+          "decoded_sha256": "0ca5a38943e9f0ea1be76951191d63de598d50dba3d24cf678f7d1182ba896d7",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 1882,
+          "decoded_bytes": 5972,
+          "decoded_sha256": "5b20fe09b6157cfb0713f1e136299aa41979c683982b715a7b972f23c60b0f4f",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 833
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 776,
+          "decoded_bytes": 776,
+          "decoded_sha256": "8f5755cc4866916956103497ffe3d582b44c9e9b0826ad142f7cb0d06da5b468",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 177,
+          "decoded_bytes": 177,
+          "decoded_sha256": "c48dce6cc877993fcb6ebe3a28fba06dd5cd860e4f14868ef5121864a7dded91",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 111,
+          "decoded_bytes": 111,
+          "decoded_sha256": "3435f418fc372002330ffd7e9a69340babc41702e993ab83cda08df640a7f534",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 111,
+          "decoded_bytes": 111,
+          "decoded_sha256": "3435f418fc372002330ffd7e9a69340babc41702e993ab83cda08df640a7f534",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 2789,
+          "decoded_bytes": 16284,
+          "decoded_sha256": "966da2d5a73e8ec06435d4b0c161bbff9e3e35c612593fbd6a6fe5c4fe58f0ab",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 1197
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 538,
+          "decoded_bytes": 538,
+          "decoded_sha256": "2133d5485bf69d97853c43e3a0d61a9fc1d876e6f023312ef93507d34d85134d",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 1928,
+          "decoded_bytes": 6550,
+          "decoded_sha256": "e6acd80ff563eaa1b744468e18d45bc4f0ab604bfaf3f4bff09e30067314b70f",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 793
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 733,
+          "decoded_bytes": 733,
+          "decoded_sha256": "fe236a5f4b13c62f72f0f578f943decadd4a4a5ea997978e5f22d29fe6e61545",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 138,
+          "decoded_bytes": 138,
+          "decoded_sha256": "cdfbbab60a511a05d29c04f6b2ecc68210faf8485425b36e79ca314ff5d749eb",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 168,
+          "decoded_bytes": 168,
+          "decoded_sha256": "af4dfea8322e9f02097ea47ed5c0c8b02c7c8f778b434b0cc623641e5042473b",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 168,
+          "decoded_bytes": 168,
+          "decoded_sha256": "af4dfea8322e9f02097ea47ed5c0c8b02c7c8f778b434b0cc623641e5042473b",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 2929,
+          "decoded_bytes": 17833,
+          "decoded_sha256": "5c3eab16d5fa1434c6805b748957a8e4d1f8b3689f56d922cfd70a7daf5006fd",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 1299
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 533,
+          "decoded_bytes": 533,
+          "decoded_sha256": "db14e26b2c015402e39306e8d1456a605b7a252a8cf3ccbd51eedbcde08287ef",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "stored_bytes": 1996,
+          "decoded_bytes": 7151,
+          "decoded_sha256": "f7b6988ac5cef36b28d77781cc780eb481a8280ee92d6afaff0c5ccea3b345ee",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "wire_equals_stored": false,
+          "wire_compression": "gzip",
+          "wire_replacement_chars": 822
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "stored_bytes": 747,
+          "decoded_bytes": 747,
+          "decoded_sha256": "1f1af6d35d16f75971599001db7ca2165321df65637f7d1a15c1e31f3ff23bf9",
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "wire_equals_stored": true,
+          "wire_compression": "none",
+          "wire_replacement_chars": 0
+        }
+      ],
+      "turn_statuses": [
+        "completed"
+      ]
+    }
+  },
+  "relations": {
+    "original": {
+      "plain": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1,
+        "last_turn_matches": true,
+        "http": 200
+      },
+      "shell": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1,
+        "last_turn_matches": true,
+        "http": 200
+      },
+      "attachment": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1,
+        "last_turn_matches": true,
+        "http": 200
+      }
+    },
+    "v1": {
+      "plain": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1,
+        "last_turn_matches": true,
+        "http": 200
+      },
+      "shell": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1,
+        "last_turn_matches": true,
+        "http": 200
+      },
+      "attachment": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1,
+        "last_turn_matches": true,
+        "http": 200
+      }
+    }
+  },
+  "conclusion": {
+    "stored_gzip_integrity": "all captured compressed bodies decompress; no synthetic large attachment required",
+    "public_transcript_gzip": "both original and v1 expose compressed binary as lossy JSON string; decoded body equality fails only gzip captures",
+    "existing_decode_component": "internal/datly/payload/reference.OnFetch already decompresses and trims bytes; conversation graph payload types do not invoke it",
+    "scope": "SQLite actual public APIs and stored bodies; MySQL public API audit pending matched V1 cases"
+  },
+  "decoded_payload_endpoint": {
+    "original_sqlite": {
+      "http": 200,
+      "wire_compression": "",
+      "wire_equals_decompressed": true,
+      "wire_json_valid": true,
+      "wire_bytes": 8586
+    },
+    "v1_sqlite": {
+      "http": 200,
+      "wire_compression": "",
+      "wire_equals_decompressed": true,
+      "wire_json_valid": true,
+      "wire_bytes": 9683
+    }
+  },
+  "original_mysql": {
+    "plain": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 707,
+          "decoded_bytes": 2385
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 265,
+          "decoded_bytes": 265
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 739,
+          "decoded_bytes": 739
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 477,
+          "decoded_bytes": 477
+        }
+      ],
+      "relations": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1
+      }
+    },
+    "shell": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 1849,
+          "decoded_bytes": 8574
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 475,
+          "decoded_bytes": 475
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 1239,
+          "decoded_bytes": 3922
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 669,
+          "decoded_bytes": 669
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 76,
+          "decoded_bytes": 76
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 174,
+          "decoded_bytes": 174
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 174,
+          "decoded_bytes": 174
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 2083,
+          "decoded_bytes": 10007
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 323,
+          "decoded_bytes": 323
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 1388,
+          "decoded_bytes": 4463
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 536,
+          "decoded_bytes": 536
+        }
+      ],
+      "relations": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1
+      }
+    },
+    "attachment": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 809,
+          "decoded_bytes": 3092
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 255,
+          "decoded_bytes": 255
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 490,
+          "decoded_bytes": 1080
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 468,
+          "decoded_bytes": 468
+        }
+      ],
+      "relations": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1
+      }
+    }
+  },
+  "v1_mysql": {
+    "plain": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 873,
+          "decoded_bytes": 3566
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 261,
+          "decoded_bytes": 261
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 560,
+          "decoded_bytes": 1131
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 474,
+          "decoded_bytes": 474
+        }
+      ],
+      "relations": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1
+      }
+    },
+    "shell": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 2021,
+          "decoded_bytes": 9617
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 527,
+          "decoded_bytes": 527
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 1402,
+          "decoded_bytes": 4268
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 721,
+          "decoded_bytes": 721
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 126,
+          "decoded_bytes": 126
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 274,
+          "decoded_bytes": 274
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 274,
+          "decoded_bytes": 274
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 2271,
+          "decoded_bytes": 11550
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 377,
+          "decoded_bytes": 377
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 1557,
+          "decoded_bytes": 4959
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 590,
+          "decoded_bytes": 590
+        }
+      ],
+      "relations": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1
+      }
+    },
+    "attachment": {
+      "payloads": [
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 976,
+          "decoded_bytes": 4309
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 256,
+          "decoded_bytes": 256
+        },
+        {
+          "stored_compression": "gzip",
+          "gzip_magic": true,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": false,
+          "stored_bytes": 649,
+          "decoded_bytes": 1484
+        },
+        {
+          "stored_compression": "none",
+          "gzip_magic": false,
+          "decoded_json_valid": true,
+          "wire_equals_decoded": true,
+          "stored_bytes": 468,
+          "decoded_bytes": 468
+        }
+      ],
+      "relations": {
+        "status": "succeeded",
+        "stage": "done",
+        "turn_count": 1
+      }
+    }
+  },
+  "fix": {
+    "source": "internal/datly/conversation/read/payload_hook.go",
+    "reuse": "reference.PayloadView.OnFetch",
+    "no_new_decoder": true,
+    "generated_files_modified": false,
+    "focused_unit": "PASS 0.689s",
+    "actual_generated_graph_sqlite_mysql": "PASS 3.879s",
+    "actual_generated_graph_log": "/tmp/agently-embedded-payload-native-both.log",
+    "public_api_after_rebuild": "pending",
+    "checks": [
+      "UTF8 JSON exact bytes/checksum",
+      "JSON transport roundtrip",
+      "compression cleared",
+      "nil preserved",
+      "uncompressed canonical trim",
+      "actual generated related-view OnFetch registration"
+    ]
+  }
+}

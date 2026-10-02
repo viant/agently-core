@@ -1,0 +1,93 @@
+{
+  "date": "2026-09-30",
+  "status": "read-plan-and-protected-lock-boundary-verified-mysql-order-regeneration-pending",
+  "changes": [
+    "Added typed DeletePlan collecting all legacy tree deletion identities, child/report/investigation/claim snapshots, and all inside/outside detach reference rows through existing canonical components.",
+    "Preserved raw dangling run references from turn/model/tool links and graph schedule_run IDs; included runs and legacy scheduled rows reached through owned goal-wakeup schedules.",
+    "Explicit parent-authorized extra current/legacy identities support empty conversation graphs for schedule cascades.",
+    "Recorded stock table-presence evidence for optional legacy/investigation/report tables.",
+    "Refresh unions current references with initial identities and rereads detach snapshots without duplicates.",
+    "Added batch predicates to existing message, turn, investigation, claim, audit and schedule readers.",
+    "Added protected optional message/turn LockRows source clauses using View.ForUpdate plus transaction-only Discoverer.LockDetachRows provider.",
+    "Restricted legacy/schedule fixture providers and legacy discovery provider to exact internal names so authorization providers do not accidentally request locks."
+  ],
+  "validation": [
+    {
+      "command": "go test -mod=mod -modfile=$(cat /tmp/agently-scheduler-sol61-modfile-path) ./app/store/native -run '^TestWorkspaceRuntimeConversationTreeDeletionPlan$' -count=1",
+      "stage": "before adding the lock-capability boundary assertion",
+      "result": "pass",
+      "duration_seconds": 3.907,
+      "coverage": [
+        "typed child/investigation/claim/report/composite-context snapshots",
+        "job+artifact audit event union including other actor",
+        "goal-wakeup current and legacy runs",
+        "raw dangling run/legacy identities",
+        "all graph-internal and external parent/superseded/start/retry/resume references",
+        "empty graph extras",
+        "refresh no duplicate detaches",
+        "optional schedule_run table absent and installed",
+        "collection performs no mutation"
+      ]
+    },
+    {
+      "command": "go test -mod=mod -modfile=$(cat /tmp/agently-scheduler-sol61-modfile-path) ./app/store/native -run '^TestWorkspaceRuntimeConversationTreeDeletionPlan$' -count=1",
+      "stage": "current test includes required protected lock boundary",
+      "result": "fails",
+      "duration_seconds": 4.154,
+      "failure": "LockDetachRows=true outside a transaction unexpectedly succeeds instead of returning FOR UPDATE requires an active transaction.",
+      "scope": "Actual current linked host and regenerated reader LockRows inputs, not a surrogate."
+    },
+    {
+      "command": "go test -mod=mod -modfile=$(cat /tmp/agently-v1-framework-root-modfile-path) ./app/store/native -run '^TestWorkspaceRuntimeConversationTree' -count=1",
+      "result": "pass",
+      "duration_seconds": 15.505,
+      "scope": "Actual linked Core host with private local framework modfile after sole 61/61 regeneration. Includes current Plan collection and protected no-transaction lock boundary plus existing tree discovery/reference/liveness checks."
+    }
+  ],
+  "capability_gap": {
+    "requirement": "Conditional protected row locks survive canonical DQL transcription and execute inside the parent transaction.",
+    "source": "Message/turn DQL contains #if($LockRows) ${View.ForUpdate()} #end.",
+    "current_generated_evidence": "Generated message/turn/conversation/run/legacyrun SQL resources omit both ForUpdate and the conditional block; ORDER BY LockRows survives.",
+    "implication": "Current lock providers bind booleans but cannot establish MySQL locking parity because the runtime clause is absent.",
+    "owner": "Root is investigating the framework transcription gap; no generated source edits or SQL fallback were made.",
+    "status": "Original template-clause loss fixed by local compiler commit 0473dd86 and proved through regenerated resources and current Core boundary."
+  },
+  "remaining": [
+    "Complete sole regeneration of terminal-order compiler correction and verify emitted MySQL statement order.",
+    "Integrate parent serializable transaction and generated mutation phase with full tree rollback/ownership/unrelated-row tests.",
+    "Run MySQL contention and final full Endly/root/application/SDK verification."
+  ],
+  "emitted_clause_evidence": [
+    {
+      "file": "datlyv1/generated/agently/message/read/sql/reader.sql",
+      "contains_for_update": true,
+      "contains_lock_condition": true
+    },
+    {
+      "file": "datlyv1/generated/agently/turn/list/list/reader/sql/reader.sql",
+      "contains_for_update": true,
+      "contains_lock_condition": true
+    },
+    {
+      "file": "datlyv1/generated/agently/run/run/reader/sql/reader.sql",
+      "contains_for_update": true,
+      "contains_lock_condition": true
+    },
+    {
+      "file": "datlyv1/generated/agently/conversation/conversation/reader/sql/reader.sql",
+      "contains_for_update": true,
+      "contains_lock_condition": true
+    },
+    {
+      "file": "datlyv1/generated/agently/scheduler/runlegacy/read/sql/reader.sql",
+      "contains_for_update": true,
+      "contains_lock_condition": true
+    }
+  ],
+  "followup_mysql_order": {
+    "finding": "SDK review found a terminal outer reader lock before implicit ORDER BY ASC; SQLite empty clause masked invalid MySQL FOR UPDATE ASC.",
+    "fix_commit": "87f65641c9a653e8468cc9158258a9aee6f97c0c",
+    "verification": "Full Datly compile package passes 5.643s; real operation-get/generated runtime compares complete evaluated MySQL statement with correct terminal lock order and verifies inactive-tx denial.",
+    "core_status": "Root sole regeneration of this follow-on compiler correction is still pending."
+  }
+}

@@ -1,7 +1,7 @@
 package toolapprovalqueue
 
-import queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
+import toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
 
 type (
-	MutableToolApprovalQueue = queuew.ToolApprovalQueue
+	MutableToolApprovalQueue = toolapprovalqueuemodel.ToolApprovalQueue
 )

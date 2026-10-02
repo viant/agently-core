@@ -15,7 +15,7 @@ import (
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/jsonutil"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/agent/execution"
 	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
@@ -610,7 +610,7 @@ func TestService_patchStreamingToolPreamble_SkipsDuplicatePatch(t *testing.T) {
 	client := &patchCountingClient{Client: inner}
 
 	base := memory.WithConversationID(context.Background(), "conv-dedup")
-	seed := &convw.Conversation{Has: &convw.ConversationHas{}}
+	seed := &conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 	seed.SetId("conv-dedup")
 	seed.SetStatus("")
 	require.NoError(t, inner.PatchConversations(base, seed))
@@ -662,7 +662,7 @@ func TestService_patchStreamingToolPreamble_SkipsDuplicatePatch(t *testing.T) {
 func TestService_patchStreamingToolPreamble_PatchesAssistantMessage(t *testing.T) {
 	client := convmem.New()
 	base := memory.WithConversationID(context.Background(), "conv-1")
-	seed := &convw.Conversation{Has: &convw.ConversationHas{}}
+	seed := &conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 	seed.SetId("conv-1")
 	seed.SetStatus("")
 	require.NoError(t, client.PatchConversations(base, seed))

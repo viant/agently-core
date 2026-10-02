@@ -1,0 +1,27 @@
+#package('github.com/viant/agently-core/internal/datly/session/read')
+#import('time','time')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/user/session','GET'))
+#setting($_ = $input_type('SessionInput'))
+#setting($_ = $output_type('SessionOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $StatusInfo<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $Metrics<?>(output/metrics))
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'equal','s','id'))
+#define($_ = $TechnicalRetention<*predicate.TechnicalRetention>(technicalMaintenance/policy).Optional().WithPredicate(0,'handler','predicate.TechnicalSessionRetention'))
+#define($_ = $Data<[]*SessionView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOrderBy=true"'))
+
+SELECT session.*,
+       row_lock(session,'session s'),
+       CAST(session.maintenance_observed_at AS string),
+       internal(session.maintenance_observed_at),
+       tag(session.maintenance_observed_at,'json:"-"'),
+       type(session,'SessionView'),
+       required(session.id),
+       required(session.user_id),
+       required(session.provider),
+       required(session.created_at),
+       required(session.expires_at)
+FROM (${embed:sql/session.sql}) session

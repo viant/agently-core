@@ -11,7 +11,7 @@ import (
 
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -676,9 +676,9 @@ func TestService_activate_ForkFallsBackToParentUserTaskWhenArgsMissing(t *testin
 	conv := &apiconv.Conversation{
 		Id:      "conv-skill",
 		AgentId: &agentID,
-		Transcript: []*agconv.TranscriptView{{
+		Transcript: []*conversationmodel.TranscriptView{{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{{
+			Message: []*conversationmodel.MessageView{{
 				Id:      "user-1",
 				Role:    "user",
 				Type:    "text",
@@ -856,9 +856,9 @@ func TestService_ActivateForConversation_ForkWaitsForChildStatus(t *testing.T) {
 		"conv-skill": conv,
 		"child-1": {
 			Id: "child-1",
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Role:    "assistant",
 							Type:    "text",
@@ -923,9 +923,9 @@ func TestService_ActivateForConversation_ForkPollsStatusUntilTerminal(t *testing
 		"conv-skill": conv,
 		"child-1": {
 			Id: "child-1",
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Role:    "assistant",
 							Type:    "text",

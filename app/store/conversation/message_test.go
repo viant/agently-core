@@ -3,9 +3,8 @@ package conversation
 import (
 	"bytes"
 	"compress/gzip"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"testing"
-
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
 )
 
 func gzipString(t *testing.T, value string) string {
@@ -40,9 +39,9 @@ func TestDecodeInlineBody_GzipNeverReturnsCompressedBytes(t *testing.T) {
 func TestMessage_ToolCallArguments_DecodesCompressedRequestPayload(t *testing.T) {
 	payload := gzipString(t, `{"name":"capacity-review","args":"WorkspaceId=7268995"}`)
 	msg := &Message{
-		ToolMessage: []*agconv.ToolMessageView{{
-			ToolCall: &agconv.ToolCallView{
-				RequestPayload: &agconv.ModelCallStreamPayloadView{
+		ToolMessage: []*conversationmodel.ToolMessageView{{
+			ToolCall: &conversationmodel.ToolCallView{
+				RequestPayload: &conversationmodel.ModelCallStreamPayloadView{
 					InlineBody:  &payload,
 					Compression: "gzip",
 				},

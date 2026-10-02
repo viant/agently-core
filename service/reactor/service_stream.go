@@ -14,8 +14,8 @@ import (
 	debugtrace "github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/agent/execution"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -412,7 +412,7 @@ func (s *Service) executePendingToolStep(toolCtx context.Context, reg tool.Regis
 }
 
 func isActivationBarrierTool(name string) bool {
-	return strings.EqualFold(strings.TrimSpace(mcpname.Canonical(name)), skillproto.ActivateToolNameCanonical)
+	return strings.EqualFold(strings.TrimSpace(mcpname2.Canonical(name)), skillproto.ActivateToolNameCanonical)
 }
 
 func (s *Service) patchStreamingToolPreamble(ctx context.Context, choice llm.Choice) {

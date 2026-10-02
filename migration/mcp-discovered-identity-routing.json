@@ -1,0 +1,39 @@
+{
+  "status": "Core dispatch fix complete; live MCP retry pending parent",
+  "failure": "datly_datly-components was inferred as server datly_datly instead of catalog server datly and literal tool datly.components",
+  "legacy_comparison": "Original and migrated mcpname Canonical/Service/Method and proxy fallback use the same lossy separator heuristics; no migration-only framework API issue",
+  "reused_authority": [
+    "existing cache definition full name and original MCP tool name",
+    "existing principal/token discovery catalog cache",
+    "existing MCP client CallTool"
+  ],
+  "behavior": [
+    "resolve cached advertised aliases before inferring service",
+    "send literal discovered MCP name without proxy suffix truncation",
+    "reject multiple catalog identities sharing normalized alias",
+    "respect catalog visibility and exact principal/token cache key",
+    "metadata lookup, credential preflight and timeout handling use discovered identity",
+    "virtual functions and uncached legacy fallback retained"
+  ],
+  "framework_or_schema_changes": false,
+  "tests": {
+    "focused": "PASS3.604s",
+    "broad": "registry4.142s/proxy0.696s/toolexec2.190s",
+    "whole_Core_compile": "PASS /tmp/agently-mcp-identity-whole-compile.log",
+    "names": [
+      "datly.components",
+      "server/tool underscore",
+      "server/tool dot",
+      "server/tool hyphen",
+      "multi-segment service"
+    ],
+    "privacy": [
+      "different principal excluded",
+      "different token excluded",
+      "anonymous excluded",
+      "stale public catalog after private visibility excluded"
+    ],
+    "collision": "ambiguous normalized identity rejected before MCP dispatch"
+  },
+  "log": "/tmp/agently-mcp-identity-broad-final.log"
+}

@@ -5,22 +5,22 @@ import (
 
 	"github.com/stretchr/testify/require"
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
 func TestCollectToolChildren_FallsBackToParentWithoutIteration(t *testing.T) {
 	iteration := 1
 	parentID := "assistant-1"
 	turn := &convstore.Turn{
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        parentID,
 				Iteration: &iteration,
-				ToolMessage: []*agconv.ToolMessageView{
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:        "tool-queued",
 						Iteration: &iteration,
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							OpId:     "tool-call-1",
 							ToolName: "system/os/getEnv",
 							Status:   "queued",
@@ -28,7 +28,7 @@ func TestCollectToolChildren_FallsBackToParentWithoutIteration(t *testing.T) {
 					},
 					{
 						Id: "tool-completed",
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							OpId:     "tool-call-1",
 							ToolName: "system/os/getEnv",
 							Status:   "completed",
@@ -53,22 +53,22 @@ func TestBuildExecutionPages_PrefersLatestToolStepStatus(t *testing.T) {
 	iteration := 1
 	parentID := "assistant-1"
 	turn := &convstore.Turn{
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        parentID,
 				Role:      "assistant",
 				Iteration: &iteration,
-				ModelCall: &agconv.ModelCallView{
+				ModelCall: &conversationmodel.ModelCallView{
 					MessageId: parentID,
 					Status:    "completed",
 					Provider:  "openai",
 					Model:     "gpt-5-mini",
 				},
-				ToolMessage: []*agconv.ToolMessageView{
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:        "tool-queued",
 						Iteration: &iteration,
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							OpId:     "tool-call-1",
 							ToolName: "system/os/getEnv",
 							Status:   "queued",
@@ -76,7 +76,7 @@ func TestBuildExecutionPages_PrefersLatestToolStepStatus(t *testing.T) {
 					},
 					{
 						Id: "tool-completed",
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							OpId:     "tool-call-1:approved",
 							ToolName: "system/os/getEnv",
 							Status:   "completed",

@@ -1,0 +1,23 @@
+{
+  "date": "2026-09-30",
+  "scope": "Data-facade PatchRuns and DeleteRuns native branches",
+  "changes": [
+    "The typed agentrun store submits run mutation batches to the canonical v1 writer",
+    "The run writer DQL now declares an explicit delete marker with an idempotent missing-row policy",
+    "The data facade maps legacy run values, all 40 presence markers and the compare-and-set condition to v1, then maps writer output back to the legacy DTO",
+    "PatchRuns and DeleteRuns choose the shared native host when available"
+  ],
+  "verified": [
+    "All 44 legacy mutable-run fields have v1 counterparts; v1 adds only ShouldDelete. All 40 legacy presence markers have v1 counterparts",
+    "Focused run writer and compare-and-set parity/race tests passed",
+    "Linked-host test passed sparse status patch, stale-condition no-op, idempotent missing-ID delete and rollback of a failed delete batch",
+    "Full app/store/native package passed with the scratch v1 modfile",
+    "Full nested Endly passed 60/60 transcription, stable regeneration, boundary audit, nested tests (170.091s) and linked-host build"
+  ],
+  "remaining": [
+    "Root app/store/data still fails setup on SDK0 DTO/registration imports, so the new root branches and output mapper have not compiled in that package or through application routes",
+    "MySQL contention and public run/lease caller parity remain unverified",
+    "The old DAO writer/delete fallback remains until all root callers and tests move to v1"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-run-crud.log"
+}

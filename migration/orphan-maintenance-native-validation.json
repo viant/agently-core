@@ -1,0 +1,112 @@
+{
+  "date": "2026-09-30",
+  "scope": "Complete generic orphan report and fenced per-row maintenance source cutover",
+  "rule_contract": {
+    "sqlite": 56,
+    "mysql": 59,
+    "policy": "Static configured-driver schema contract; SQLite excludes investigation/schedule_run even when installed. Disabled audit missing-job/artifact and shared-artifact logical source rules remain disabled."
+  },
+  "changes": [
+    "Single generated heterogeneous report reader preserves original grace cutoff, nullable observation handling, composite keys, stable dependency order and binary keyset cursors using HEX ordering. SQLite composite strings use printf with a fixed format; MySQL uses CONCAT.",
+    "Root list/apply methods invoke native components without SQL/DB handles/manual transactions. Public DTOs, opaque cursor delimiters, errors and per-action reasons preserved.",
+    "Private managed Apply starts serializable scope, fences live lease token, locks canonical row, rechecks exact static missing-reference rule and age through generated report, then invokes typed canonical writer.",
+    "Dedicated protected orphan detach modes accept only unchanged explicit identity/control tokens and exactly one nil reference; skip ordinary timestamp/content/sequence/revision changes. Modes default false and are not body/query switches.",
+    "Private orphan delete modes cover invalid/blank legacy schedule, claim-turn, investigation-parent and artifact-owner/job evidence while ordinary strict guards remain unchanged.",
+    "Exact detached MutationReporter evidence must show one update/delete affecting one row; unexpected outcome rolls back fence and mutation."
+  ],
+  "checks": {
+    "all_sqlite_rules": {
+      "command": "go test -mod=mod -modfile=$(cat /tmp/agently-terminal-sol61-modfile-path) ./app/store/native -run TestWorkspaceRuntimeOrphanEverySQLiteRule -count=1 -v",
+      "result": "pass",
+      "seconds": 9.769,
+      "eligible_rules": 56,
+      "log": "orphan-maintenance-evidence/all-sqlite-rules.log"
+    },
+    "full_native_baseline": {
+      "command": "go test -mod=mod -modfile=$(cat /tmp/agently-terminal-sol61-modfile-path) ./app/store/native -count=1",
+      "result": "pass",
+      "seconds": 177.889,
+      "log": "orphan-maintenance-evidence/full-native.log"
+    },
+    "representative_runtime": {
+      "result": "3 named tests pass; matrix in same log failed on fixture preparation before corrected independent full-rule run",
+      "coverage": [
+        "report nonmutation and keyset paging across rules",
+        "restored reference no longer eligible",
+        "historical owner values ignored by system scope",
+        "dedicated nil detach preserves timestamp/content/NULL sequence",
+        "non-null replacement/extra field rejects",
+        "HTTP/body/query cannot activate private mode",
+        "held/superseded lease fencing",
+        "mutation failure rolls back lease fence update and row change"
+      ],
+      "log": "orphan-maintenance-evidence/representative-runtime.log"
+    },
+    "business_contract": {
+      "result": "pass",
+      "model_seconds": 0.485,
+      "domain_seconds": 0.548,
+      "coverage": "strict nil/delete shape, cursor/composite identity, disabled pseudo-rules and static driver schema",
+      "log": "orphan-maintenance-evidence/business-contract.log"
+    },
+    "sqlite_matrix_after_fixture_refactor": {
+      "result": "PASS",
+      "seconds": 10.308,
+      "eligible_rules": 56,
+      "log": "orphan-maintenance-evidence/sqlite-matrix-regression.log"
+    }
+  },
+  "dependency_scope": "Disposable root modfile verifies local framework with stock canonical generated packages. This does not establish currently published-only server route parity; root coordinates final published pins/build and full Endly gates.",
+  "pending": [
+    "Expanded NULL/blank/history/changed-parent variants beyond one eligible fixture per SQLite rule",
+    "Full nested Endly regeneration/boundary/tests/build after all lanes",
+    "New root raw-date liveness source changes occurred after recorded full native baseline; next root full gate must include them."
+  ],
+  "state": "Core edits uncommitted; no push by this lane",
+  "rootFacadeValidation": {
+    "command": "go test ./app/store/data -run Orphan -count=1",
+    "result": "PASS",
+    "seconds": 15.983,
+    "dependencyScope": "private local Datly framework modfile"
+  },
+  "mysqlValidation": {
+    "database": "disposable MySQL8.4.11 agently_migration schemaVersion40",
+    "dependencyScope": "private local framework modfile, stock regenerated contracts62/62; no permanent dependency replacements",
+    "facade": {
+      "result": "PASS",
+      "tests": 2,
+      "seconds": 17.909,
+      "coverage": "paging2, dry-run count8, all3MySQL-only rules, NULL/blank/inclusivecutoff investigation, parent restoration, disabledaudit/sharedrules,5deletes2detaches1no-longer-eligible, idempotence",
+      "log": "orphan-maintenance-evidence/mysql-facade-final.log"
+    },
+    "native": {
+      "result": "PASS",
+      "seconds": 28.497,
+      "matrix": {
+        "result": "PASS",
+        "eligible_rules": 59,
+        "log": "orphan-maintenance-evidence/mysql-native-final.log"
+      },
+      "transactionCases": {
+        "result": "PASS",
+        "seconds": 4.19,
+        "coverage": [
+          "stale lease rejects",
+          "late SIGNAL failure rolls back row and a distinct older lease updated_at value",
+          "held deciding row blocks native cleanup; fresh committed reference is classified no longer eligible"
+        ]
+      },
+      "blankCases": {
+        "result": "PASS",
+        "seconds": 4.53,
+        "coverage": [
+          "blank legacy schedule reference",
+          "blank claim turn reference",
+          "ownerless export artifact"
+        ]
+      }
+    },
+    "fixturePolicy": "Unique own namespace, session-only seedFKdisable, cleanup only ownedrowprefixes/triggers; protectedconfig freshperchild; no schema drop/reinit",
+    "pending": []
+  }
+}

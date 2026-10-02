@@ -1,0 +1,32 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/audit/write')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/audit','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(reportAuditAccess/internal).Required())
+#define($_ = $RetentionDelete<bool>(technicalMaintenance/deleteAudit).Optional())
+#define($_ = $RetentionCutoff<time.Time>(technicalMaintenance/cutoff).Optional().WithPredicate(7,'less_or_equal','report_audit_event','occurred_at'))
+#define($_ = $ExpectedJobID<string>(query/expectedJobId).Optional().WithPredicate(7,'equal','report_audit_event','job_id'))
+#define($_ = $ExpectedArtifactID<string>(query/expectedArtifactId).Optional().WithPredicate(7,'equal','report_audit_event','artifact_id'))
+#define($_ = $Events<[]*AuditEvent>(body/data))
+#define($_ = $Data<[]*AuditEvent>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'AuditEvent'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,7),
+       required(t.event_id),
+       tag(t.event_id,'sqlx:"event_id,primaryKey=true,required=true"'),
+       required(t.event_type),
+       required(t.artifact_ref),
+       CAST(t.version AS int64),
+       required(t.actor_id),
+       CAST(t.metadata_json AS []byte)
+FROM (${embed:sql/audit.sql}) t

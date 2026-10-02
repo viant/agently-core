@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/datly"
+	"github.com/viant/datly/standalone"
 )
 
 // TestNewDelegatedMCPAuthKeyDerivation covers the encryption-key contract:
@@ -14,7 +14,7 @@ import (
 // workspaces, the legacy configURL salt keeps working, and a workspace with
 // neither installs a fail-loud resolver instead of silently disabling.
 func TestNewDelegatedMCPAuthKeyDerivation(t *testing.T) {
-	dao := &datly.Service{}
+	runtime := &standalone.Server{}
 
 	// No DAO: no persistence layer at all; the manager then fails loudly with
 	// "no credential resolver is installed" for delegated configs.
@@ -23,19 +23,19 @@ func TestNewDelegatedMCPAuthKeyDerivation(t *testing.T) {
 	}
 
 	// JWT-only workspace with an explicit key: fully configured.
-	jwtOnly := NewDelegatedMCPAuth(&Config{JWT: &JWT{Enabled: true}, TokenEncryptionKey: "jwt-key"}, dao)
+	jwtOnly := NewDelegatedMCPAuth(&Config{JWT: &JWT{Enabled: true}, TokenEncryptionKey: "jwt-key"}, runtime)
 	if jwtOnly == nil || jwtOnly.resolver == nil || jwtOnly.resolver.initErr != nil || jwtOnly.resolver.store == nil {
 		t.Fatalf("explicit tokenEncryptionKey must enable delegated auth for jwt workspaces: %+v", jwtOnly)
 	}
 
 	// Legacy fallback: workspace OAuth configURL-derived salt.
-	legacy := NewDelegatedMCPAuth(&Config{OAuth: &OAuth{Client: &OAuthClient{ConfigURL: "scy://workspace"}}}, dao)
+	legacy := NewDelegatedMCPAuth(&Config{OAuth: &OAuth{Client: &OAuthClient{ConfigURL: "scy://workspace"}}}, runtime)
 	if legacy == nil || legacy.resolver == nil || legacy.resolver.initErr != nil || legacy.resolver.store == nil {
 		t.Fatalf("configURL fallback must keep delegated auth enabled: %+v", legacy)
 	}
 
 	// Neither: fail loudly when delegated configuration is used.
-	unkeyed := NewDelegatedMCPAuth(&Config{JWT: &JWT{Enabled: true}}, dao)
+	unkeyed := NewDelegatedMCPAuth(&Config{JWT: &JWT{Enabled: true}}, runtime)
 	if unkeyed == nil || unkeyed.resolver == nil {
 		t.Fatalf("missing key must not silently disable delegated auth")
 	}

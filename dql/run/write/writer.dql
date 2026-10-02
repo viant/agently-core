@@ -1,0 +1,37 @@
+#package('github.com/viant/agently-core/internal/datly/run/write')
+#import('time','time')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/run','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $LeaseMode<string>(query/leaseMode).Optional())
+#define($_ = $LeaseOwner<string>(query/leaseOwner).Optional())
+#define($_ = $LeaseNow<time.Time>(query/leaseNow).Optional())
+#define($_ = $LeaseResult<bool>(output/leaseResult))
+#define($_ = $Expectations<[]*predicate.RunExpected>(transient/expectations).Optional().WithPredicate(7,'handler','predicate.RunPredicate'))
+#define($_ = $Runs<[]*MutableRunView>(body/data))
+#define($_ = $Data<[]*MutableRunView>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       CAST(t.condition AS *predicate.RunPatchCondition),
+       tag(t.condition,'sqlx:"-"'),
+       type(t,'MutableRunView'),
+       mutation_predicate(t,7),
+       lifecycle_type(t,'Lifecycle'),
+       required(t.id),
+       tag(t.id,'validate:"required" sqlx:"id,primaryKey"'),
+       required(t.status),
+       tag(t.status,'validate:"required"'),
+       CAST(t.usage_cost AS *float64),
+       tag(t.id,'json:","'),
+       tag(t.status,'json:","')
+FROM (${embed:sql/run.sql}) t

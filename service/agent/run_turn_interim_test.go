@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convcli "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -98,12 +98,12 @@ func TestService_archiveOlderInterimAssistantMessages_ArchivesTaskModeRows(t *te
 	now := time.Now()
 	conversation := &apiconv.Conversation{
 		Id: "conv-1",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "turn-1",
 				ConversationId: "conv-1",
 				CreatedAt:      now,
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "assistant-old",
 						ConversationId: "conv-1",
@@ -149,12 +149,12 @@ func TestService_archiveOlderInterimAssistantMessages_SkipsSummaryAndRouterRows(
 	now := time.Now()
 	conversation := &apiconv.Conversation{
 		Id: "conv-1",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "turn-1",
 				ConversationId: "conv-1",
 				CreatedAt:      now,
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "summary-row",
 						ConversationId: "conv-1",
@@ -205,12 +205,12 @@ func TestService_archiveOlderInterimAssistantMessages_FinalPatchSupersedesOlderT
 	now := time.Now()
 	conversation := &apiconv.Conversation{
 		Id: "conv-1",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "turn-1",
 				ConversationId: "conv-1",
 				CreatedAt:      now,
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "assistant-old",
 						ConversationId: "conv-1",

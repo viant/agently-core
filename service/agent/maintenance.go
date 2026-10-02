@@ -12,12 +12,9 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
-	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
-	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	runmodel "github.com/viant/agently-core/model/run"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 // maintenanceGuards prevents concurrent maintenance operations on the same conversation.
@@ -96,7 +93,7 @@ func (s *Service) terminateConversationTree(ctx context.Context, conversationID 
 
 	patchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 	defer cancel()
-	if err := s.conversation.PatchConversations(patchCtx, convw.NewConversationStatus(conversationID, "canceled")); err != nil {
+	if err := s.conversation.PatchConversations(patchCtx, conversationmodel.NewConversationStatus(conversationID, "canceled")); err != nil {
 		return err
 	}
 
@@ -176,14 +173,12 @@ func (s *Service) ReconcileRunningConversationStatuses(ctx context.Context, limi
 	if limit > maxReconcileLimit {
 		limit = maxReconcileLimit
 	}
-	page, err := s.dataService.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		StatusFilter:     "running",
-		DefaultPredicate: "1",
-		ParentId:         "",
-		Has: &agconvlist.ConversationRowsInputHas{
-			StatusFilter:     true,
-			DefaultPredicate: true,
-			ParentId:         true,
+	page, err := s.dataService.ListConversations(ctx, &conversationmodel.ConversationRowsInput{
+		StatusFilter: "running",
+		ParentId:     "",
+		Has: &conversationmodel.ConversationRowsInputHas{
+			StatusFilter: true,
+			ParentId:     true,
 		},
 	}, &data.PageInput{Limit: limit, Direction: data.DirectionLatest}, data.WithAdminPrincipal("maintenance"))
 	if err != nil {
@@ -252,9 +247,9 @@ func (s *Service) reconcileConversationStatusAt(ctx context.Context, conversatio
 	if hasActiveRun {
 		return reconcileSkipped, nil
 	}
-	activeTurn, err := s.dataService.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
+	activeTurn, err := s.dataService.GetActiveTurn(ctx, &turnmodel.ActiveTurnsInput{
 		ConversationID: conversationID,
-		Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+		Has:            &turnmodel.ActiveTurnsInputHas{ConversationID: true},
 	}, data.WithAdminPrincipal("maintenance"))
 	if err != nil {
 		return reconcileSkipped, fmt.Errorf("load active turn for %s: %w", conversationID, err)
@@ -287,9 +282,9 @@ func (s *Service) reconcileConversationStatusAt(ctx context.Context, conversatio
 		s.triggerQueueDrain(conversationID)
 		return reconcileRepaired, nil
 	}
-	queuedCount, err := s.dataService.CountQueuedTurns(ctx, &agturncount.QueuedTotalInput{
+	queuedCount, err := s.dataService.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{
 		ConversationID: conversationID,
-		Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
+		Has:            &turnmodel.QueuedTotalInputHas{ConversationID: true},
 	}, data.WithAdminPrincipal("maintenance"))
 	if err != nil {
 		return reconcileSkipped, fmt.Errorf("count queued turns for %s: %w", conversationID, err)
@@ -297,10 +292,10 @@ func (s *Service) reconcileConversationStatusAt(ctx context.Context, conversatio
 	if queuedCount > 0 {
 		return reconcileSkipped, nil
 	}
-	conv, err := s.dataService.GetConversation(ctx, conversationID, &agconv.ConversationInput{
+	conv, err := s.dataService.GetConversation(ctx, conversationID, &conversationmodel.ConversationInput{
 		Id:                conversationID,
 		IncludeTranscript: true,
-		Has: &agconv.ConversationInputHas{
+		Has: &conversationmodel.ConversationInputHas{
 			Id:                true,
 			IncludeTranscript: true,
 		},
@@ -329,9 +324,9 @@ func (s *Service) reconcileConversationStatusAt(ctx context.Context, conversatio
 }
 
 func (s *Service) hasActiveRun(ctx context.Context, conversationID string) (bool, error) {
-	activeRun, err := s.dataService.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+	activeRun, err := s.dataService.GetActiveRun(ctx, &runmodel.ActiveRunsInput{
 		ConversationId: conversationID,
-		Has:            &agrunactive.ActiveRunsInputHas{ConversationId: true},
+		Has:            &runmodel.ActiveRunsInputHas{ConversationId: true},
 	}, data.WithAdminPrincipal("maintenance"))
 	if err != nil {
 		return false, fmt.Errorf("load active run for %s: %w", conversationID, err)

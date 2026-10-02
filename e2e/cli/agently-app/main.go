@@ -96,7 +96,8 @@ func serve(args []string) {
 		log.Printf("auth enabled: JWT (pub=%s)", pubKey)
 	}
 
-	schedStore, err := scheduler.NewDatlyStore(ctx, rt.DAO, rt.Data)
+	defer rt.Close(context.Background())
+	schedStore, err := scheduler.NewDatlyStore(ctx, rt.Native, rt.Data)
 	if err != nil {
 		log.Fatalf("failed to initialize scheduler store: %v", err)
 	}

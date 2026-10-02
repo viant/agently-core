@@ -1,0 +1,1 @@
+SELECT 0 AS should_delete, `id`, `conversation_id`, `turn_id`, `message_id`, `provider`, `mode`, `copy_mode`, `status`, `payload_id`, `container_id`, `provider_file_id`, `filename`, `mime_type`, `size_bytes`, `checksum`, `error_message`, `expires_at`, `created_at`, `updated_at` FROM generated_file

@@ -5,8 +5,8 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/pkg/agently/tool/resolver"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
+	resolver2 "github.com/viant/agently-core/protocol/tool/resolver"
 )
 
 // View is the canonical view model built from a tool call request and its approval config.
@@ -43,13 +43,13 @@ func selectApprovalArg(selector string, args map[string]interface{}) interface{}
 		return nil
 	}
 	if strings.HasPrefix(sel, "input.") || strings.HasPrefix(sel, "output.") || sel == "input" || sel == "output" {
-		return resolver.Select(sel, args, nil)
+		return resolver2.Select(sel, args, nil)
 	}
-	return resolver.Select("input."+sel, args, nil)
+	return resolver2.Select("input."+sel, args, nil)
 }
 
 func BuildView(toolName string, args map[string]interface{}, cfg *llm.ApprovalConfig) View {
-	displayName := mcpname.Display(strings.TrimSpace(toolName))
+	displayName := mcpname2.Display(strings.TrimSpace(toolName))
 	v := View{
 		ToolName: toolName,
 		Title:    displayName,
@@ -98,7 +98,7 @@ func BuildView(toolName string, args map[string]interface{}, cfg *llm.ApprovalCo
 }
 
 func applyToolSpecificView(v View, toolName string, args map[string]interface{}) View {
-	if mcpname.Canonical(strings.TrimSpace(toolName)) != mcpname.Canonical("system/os:getEnv") {
+	if mcpname2.Canonical(strings.TrimSpace(toolName)) != mcpname2.Canonical("system/os:getEnv") {
 		return v
 	}
 	names := envNames(args)
@@ -142,7 +142,7 @@ func buildEditor(args map[string]interface{}, field *llm.ApprovalEditableField) 
 		Label:       strings.TrimSpace(field.Label),
 		Description: strings.TrimSpace(field.Description),
 	}
-	raw := resolver.Select(field.Selector, args, nil)
+	raw := resolver2.Select(field.Selector, args, nil)
 	if items, ok := raw.([]interface{}); ok {
 		for index, item := range items {
 			if option := buildOption(item, index, field); option != nil {
@@ -213,9 +213,9 @@ func selectItemField(item interface{}, selector string) interface{} {
 		return nil
 	}
 	if strings.HasPrefix(selector, "input.") || strings.HasPrefix(selector, "output.") || selector == "input" || selector == "output" {
-		return resolver.Select(selector, item, item)
+		return resolver2.Select(selector, item, item)
 	}
-	return resolver.Select("input."+selector, item, item)
+	return resolver2.Select("input."+selector, item, item)
 }
 
 func normalizePath(selector, fallback string) string {

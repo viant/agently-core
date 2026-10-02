@@ -9,8 +9,8 @@ import (
 
 	"github.com/google/uuid"
 	convcli "github.com/viant/agently-core/app/store/conversation"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
+	runmodel "github.com/viant/agently-core/model/run"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
 )
 
 // RunDue scans persisted schedules, claims due slots, and starts runs.
@@ -103,7 +103,7 @@ func (s *Service) processDue(ctx context.Context) {
 	}
 }
 
-func (s *Service) enqueueAndLaunch(ctx context.Context, row *schedulepkg.ScheduleView, scheduledFor time.Time, advanceNext bool) error {
+func (s *Service) enqueueAndLaunch(ctx context.Context, row *schedulemodel.ScheduleView, scheduledFor time.Time, advanceNext bool) error {
 	if row == nil {
 		return fmt.Errorf("schedule is required")
 	}
@@ -112,7 +112,7 @@ func (s *Service) enqueueAndLaunch(ctx context.Context, row *schedulepkg.Schedul
 	now := time.Now().UTC()
 	userID := scheduleUserID(ctx, row)
 
-	run := &agrunwrite.MutableRunView{}
+	run := &runmodel.MutableRunView{}
 	run.SetId(runID)
 	run.SetScheduleID(row.Id)
 	run.SetConversationKind("scheduled")
@@ -123,10 +123,10 @@ func (s *Service) enqueueAndLaunch(ctx context.Context, row *schedulepkg.Schedul
 	if userID != "" {
 		run.SetEffectiveUserID(userID)
 	}
-	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredURL)); cred != "" {
+	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredUrl)); cred != "" {
 		run.SetUserCredURL(cred)
 	}
-	if err := s.store.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
+	if err := s.store.PatchRuns(ctx, []*runmodel.MutableRunView{run}); err != nil {
 		return err
 	}
 	if advanceNext {
@@ -153,14 +153,14 @@ func (s *Service) enqueueAndLaunch(ctx context.Context, row *schedulepkg.Schedul
 	return nil
 }
 
-func scheduleExecutionTimeout(row *schedulepkg.ScheduleView) time.Duration {
+func scheduleExecutionTimeout(row *schedulemodel.ScheduleView) time.Duration {
 	if row != nil && row.TimeoutSeconds > 0 {
 		return time.Duration(row.TimeoutSeconds) * time.Second
 	}
 	return defaultStaleRunTimeout
 }
 
-func (s *Service) annotateConversation(ctx context.Context, row *schedulepkg.ScheduleView, conversationID, runID string) {
+func (s *Service) annotateConversation(ctx context.Context, row *schedulemodel.ScheduleView, conversationID, runID string) {
 	if s == nil || s.conversation == nil || strings.TrimSpace(conversationID) == "" || row == nil {
 		return
 	}

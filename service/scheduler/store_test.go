@@ -9,18 +9,20 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
 
 	storedata "github.com/viant/agently-core/app/store/data"
+	"github.com/viant/agently-core/app/store/native"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
-	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
-	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
+	"github.com/viant/datly/bootstrap/connector"
 	_ "modernc.org/sqlite"
 )
 
@@ -28,7 +30,7 @@ func TestDatlyStore_PatchScheduleRoundTrip(t *testing.T) {
 	store, db := newTestStore(t)
 	ctx := context.Background()
 
-	row := &schedwrite.Schedule{}
+	row := &schedulemodel.Schedule{}
 	row.SetId("sched-1")
 	row.SetName("Scheduler Store Test")
 	row.SetVisibility("public")
@@ -905,15 +907,15 @@ func newTestStore(t *testing.T) (Store, *sql.DB) {
 	dbtest.LoadSQLiteSchema(t, db)
 
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
-	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "sqlite", dbPath)); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
 
-	store, err := NewDatlyStore(ctx, dao, nil)
+	_, file, _, _ := runtime.Caller(0)
+	sourceRoot := filepath.Join(filepath.Dir(file), "..", "..")
+	server, err := native.New(ctx, native.Options{SourceRoot: sourceRoot, Connectors: []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: dbPath}}})
+	if err != nil {
+		t.Fatalf("native.New() error: %v", err)
+	}
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	store, err := NewDatlyStore(ctx, server, storedata.NewService(server))
 	if err != nil {
 		t.Fatalf("NewDatlyStore() error: %v", err)
 	}
@@ -980,8 +982,8 @@ func TestHandler_ListRunsBySchedule(t *testing.T) {
 	}
 
 	var payload struct {
-		Status string            `json:"status"`
-		Data   []*schrun.RunView `json:"data"`
+		Status string                       `json:"status"`
+		Data   []*scheduledrunmodel.RunView `json:"data"`
 		Info   struct {
 			PageCount  int `json:"pageCount"`
 			TotalCount int `json:"totalCount"`
@@ -1015,7 +1017,7 @@ func TestHandler_ListRunsRequireScheduleIDReturnsEmpty(t *testing.T) {
 	}
 
 	var payload struct {
-		Data []*schrun.RunView `json:"data"`
+		Data []*scheduledrunmodel.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -1046,8 +1048,8 @@ func TestHandler_ListRunsWithoutScheduleIDReturnsAllVisibleRuns(t *testing.T) {
 	}
 
 	var payload struct {
-		Status string            `json:"status"`
-		Data   []*schrun.RunView `json:"data"`
+		Status string                       `json:"status"`
+		Data   []*scheduledrunmodel.RunView `json:"data"`
 		Info   struct {
 			PageCount  int `json:"pageCount"`
 			TotalCount int `json:"totalCount"`
@@ -1086,8 +1088,8 @@ func TestHandler_ListRunsIncludesPrivateRunsForOwner(t *testing.T) {
 	}
 
 	var payload struct {
-		Status string            `json:"status"`
-		Data   []*schrun.RunView `json:"data"`
+		Status string                       `json:"status"`
+		Data   []*scheduledrunmodel.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -1119,8 +1121,8 @@ func TestHandler_ListRunsExcludesPrivateRunsFromOtherUsers(t *testing.T) {
 	}
 
 	var payload struct {
-		Status string            `json:"status"`
-		Data   []*schrun.RunView `json:"data"`
+		Status string                       `json:"status"`
+		Data   []*scheduledrunmodel.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -1153,8 +1155,8 @@ func TestHandler_ListRunsByPrivateScheduleReturnsEmptyForOtherUsers(t *testing.T
 	}
 
 	var payload struct {
-		Status string            `json:"status"`
-		Data   []*schrun.RunView `json:"data"`
+		Status string                       `json:"status"`
+		Data   []*scheduledrunmodel.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -1187,8 +1189,8 @@ func TestHandler_ListRunsByPrivateScheduleIncludesOwner(t *testing.T) {
 	}
 
 	var payload struct {
-		Status string            `json:"status"`
-		Data   []*schrun.RunView `json:"data"`
+		Status string                       `json:"status"`
+		Data   []*scheduledrunmodel.RunView `json:"data"`
 		Info   struct {
 			PageCount  int `json:"pageCount"`
 			TotalCount int `json:"totalCount"`
@@ -1228,8 +1230,8 @@ func TestHandler_ListRunsIgnoresInteractiveRunsWithoutScheduleID(t *testing.T) {
 	}
 
 	var payload struct {
-		Status string            `json:"status"`
-		Data   []*schrun.RunView `json:"data"`
+		Status string                       `json:"status"`
+		Data   []*scheduledrunmodel.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -1265,8 +1267,8 @@ func TestHandler_ListRunsIncludesScheduledRunsWhileKindIsStillInteractive(t *tes
 	}
 
 	var payload struct {
-		Status string            `json:"status"`
-		Data   []*schrun.RunView `json:"data"`
+		Status string                       `json:"status"`
+		Data   []*scheduledrunmodel.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -1301,7 +1303,7 @@ func TestHandler_ListRunsSupportsTrailingSlashAndPagination(t *testing.T) {
 	}
 
 	var payload struct {
-		Data []*schrun.RunView `json:"data"`
+		Data []*scheduledrunmodel.RunView `json:"data"`
 		Info struct {
 			PageCount  int `json:"pageCount"`
 			TotalCount int `json:"totalCount"`
@@ -1340,7 +1342,7 @@ func TestHandler_ListRunsSupportsPathScheduleID(t *testing.T) {
 	}
 
 	var payload struct {
-		Data []*schrun.RunView `json:"data"`
+		Data []*scheduledrunmodel.RunView `json:"data"`
 	}
 	if err := json.Unmarshal(rec.Body.Bytes(), &payload); err != nil {
 		t.Fatalf("json.Unmarshal() error: %v", err)
@@ -1420,8 +1422,8 @@ func TestHandler_ListRunsFiltersKeepScheduleScopeAndIgnoreBlankValues(t *testing
 }
 
 func decodeRunListPayload(t *testing.T, rec *httptest.ResponseRecorder) struct {
-	Status string            `json:"status"`
-	Data   []*schrun.RunView `json:"data"`
+	Status string                       `json:"status"`
+	Data   []*scheduledrunmodel.RunView `json:"data"`
 	Info   struct {
 		PageCount  int `json:"pageCount"`
 		TotalCount int `json:"totalCount"`
@@ -1429,8 +1431,8 @@ func decodeRunListPayload(t *testing.T, rec *httptest.ResponseRecorder) struct {
 } {
 	t.Helper()
 	var payload struct {
-		Status string            `json:"status"`
-		Data   []*schrun.RunView `json:"data"`
+		Status string                       `json:"status"`
+		Data   []*scheduledrunmodel.RunView `json:"data"`
 		Info   struct {
 			PageCount  int `json:"pageCount"`
 			TotalCount int `json:"totalCount"`

@@ -1,0 +1,6 @@
+pipeline:
+  native:
+    action: run
+    request: '@../datly/run'
+    params:
+      projectRoot: $repoPath

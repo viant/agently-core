@@ -1,0 +1,894 @@
+{
+  "status": "source_relocated; Core_and_Agently_compilation_and_build_pass; affected_runtime_suites_pass",
+  "date": "2026-10-01",
+  "scope": {
+    "removed_unused_packages": 10,
+    "removed_unused_files": 17,
+    "relocated_files": 77,
+    "old_relocated_packages": 47,
+    "new_domain_and_helper_packages": 22,
+    "core_and_agently_go_files_rewritten": 311,
+    "pkg_directory_present": false,
+    "removed_obsolete_dependency_files": 1,
+    "downstream_agently_files_updated": 2
+  },
+  "relocations": [
+    {
+      "old_file": "pkg/agently/conversation/const.go",
+      "new_file": "model/conversation/const.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/conversation",
+      "new_import": "github.com/viant/agently-core/model/conversation",
+      "old_package": "conversation",
+      "new_package": "conversation",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/conversation/conversation.go",
+      "new_file": "model/conversation/conversation.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/conversation",
+      "new_import": "github.com/viant/agently-core/model/conversation",
+      "old_package": "conversation",
+      "new_package": "conversation",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/conversation/conversation_hook.go",
+      "new_file": "model/conversation/conversation_hook.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/conversation",
+      "new_import": "github.com/viant/agently-core/model/conversation",
+      "old_package": "conversation",
+      "new_package": "conversation",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/conversation/elicitation_type.go",
+      "new_file": "model/conversation/elicitation_type.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/conversation",
+      "new_import": "github.com/viant/agently-core/model/conversation",
+      "old_package": "conversation",
+      "new_package": "conversation",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/conversation/list/list.go",
+      "new_file": "model/conversation/list_list.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/conversation/list",
+      "new_import": "github.com/viant/agently-core/model/conversation",
+      "old_package": "conversation",
+      "new_package": "conversation",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/conversation/stage_test.go",
+      "new_file": "model/conversation/stage_test.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/conversation",
+      "new_import": "github.com/viant/agently-core/model/conversation",
+      "old_package": "conversation",
+      "new_package": "conversation",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/conversation/transcript_hook.go",
+      "new_file": "model/conversation/transcript_hook.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/conversation",
+      "new_import": "github.com/viant/agently-core/model/conversation",
+      "old_package": "conversation",
+      "new_package": "conversation",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/conversation/write/const.go",
+      "new_file": "model/conversation/write_const.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/conversation/write",
+      "new_import": "github.com/viant/agently-core/model/conversation",
+      "old_package": "write",
+      "new_package": "conversation",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/conversation/write/constructors.go",
+      "new_file": "model/conversation/write_constructors.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/conversation/write",
+      "new_import": "github.com/viant/agently-core/model/conversation",
+      "old_package": "write",
+      "new_package": "conversation",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/conversation/write/conversation.go",
+      "new_file": "model/conversation/write_conversation.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/conversation/write",
+      "new_import": "github.com/viant/agently-core/model/conversation",
+      "old_package": "write",
+      "new_package": "conversation",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/exportrequest/exportrequest.go",
+      "new_file": "model/exportrequest/exportrequest.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/exportrequest",
+      "new_import": "github.com/viant/agently-core/model/exportrequest",
+      "old_package": "exportrequest",
+      "new_package": "exportrequest",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/generatedfile/read/generated_file.go",
+      "new_file": "model/generatedfile/read_generated_file.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/generatedfile/read",
+      "new_import": "github.com/viant/agently-core/model/generatedfile",
+      "old_package": "read",
+      "new_package": "generatedfile",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/generatedfile/read/options.go",
+      "new_file": "model/generatedfile/read_options.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/generatedfile/read",
+      "new_import": "github.com/viant/agently-core/model/generatedfile",
+      "old_package": "read",
+      "new_package": "generatedfile",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/generatedfile/write/generated_file.go",
+      "new_file": "model/generatedfile/write_generated_file.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/generatedfile/write",
+      "new_import": "github.com/viant/agently-core/model/generatedfile",
+      "old_package": "write",
+      "new_package": "generatedfile",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/message/elicitation/message_by_elicitation.go",
+      "new_file": "model/message/elicitation_message_by_elicitation.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/message/elicitation",
+      "new_import": "github.com/viant/agently-core/model/message",
+      "old_package": "message",
+      "new_package": "message",
+      "rename": {
+        "MessageInput": "ElicitationMessageInput",
+        "MessageInputHas": "ElicitationMessageInputHas",
+        "MessageOutput": "ElicitationMessageOutput",
+        "MessageView": "ElicitationMessageView",
+        "MessagePathURI": "ElicitationMessagePathURI"
+      }
+    },
+    {
+      "old_file": "pkg/agently/message/list/list.go",
+      "new_file": "model/message/list_list.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/message/list",
+      "new_import": "github.com/viant/agently-core/model/message",
+      "old_package": "message",
+      "new_package": "message",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/message/message.go",
+      "new_file": "model/message/message.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/message",
+      "new_import": "github.com/viant/agently-core/model/message",
+      "old_package": "message",
+      "new_package": "message",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/message/message_hook.go",
+      "new_file": "model/message/message_hook.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/message",
+      "new_import": "github.com/viant/agently-core/model/message",
+      "old_package": "message",
+      "new_package": "message",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/message/write/constructors.go",
+      "new_file": "model/message/write_constructors.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/message/write",
+      "new_import": "github.com/viant/agently-core/model/message",
+      "old_package": "write",
+      "new_package": "message",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/message/write/message.go",
+      "new_file": "model/message/write_message.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/message/write",
+      "new_import": "github.com/viant/agently-core/model/message",
+      "old_package": "write",
+      "new_package": "message",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/modelcall/write/constructors.go",
+      "new_file": "model/modelcall/write_constructors.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/modelcall/write",
+      "new_import": "github.com/viant/agently-core/model/modelcall",
+      "old_package": "write",
+      "new_package": "modelcall",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/modelcall/write/model_call.go",
+      "new_file": "model/modelcall/write_model_call.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/modelcall/write",
+      "new_import": "github.com/viant/agently-core/model/modelcall",
+      "old_package": "write",
+      "new_package": "modelcall",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/payload/payload.go",
+      "new_file": "model/payload/payload.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/payload",
+      "new_import": "github.com/viant/agently-core/model/payload",
+      "old_package": "payload",
+      "new_package": "payload",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/payload/read/options.go",
+      "new_file": "model/payload/read_options.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/payload/read",
+      "new_import": "github.com/viant/agently-core/model/payload",
+      "old_package": "read",
+      "new_package": "payload",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/payload/read/payload.go",
+      "new_file": "model/payload/read_payload.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/payload/read",
+      "new_import": "github.com/viant/agently-core/model/payload",
+      "old_package": "read",
+      "new_package": "payload",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/payload/read/payload_hook.go",
+      "new_file": "model/payload/read_payload_hook.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/payload/read",
+      "new_import": "github.com/viant/agently-core/model/payload",
+      "old_package": "read",
+      "new_package": "payload",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/payload/write/constructors.go",
+      "new_file": "model/payload/write_constructors.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/payload/write",
+      "new_import": "github.com/viant/agently-core/model/payload",
+      "old_package": "write",
+      "new_package": "payload",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/payload/write/payload.go",
+      "new_file": "model/payload/write_payload.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/payload/write",
+      "new_import": "github.com/viant/agently-core/model/payload",
+      "old_package": "write",
+      "new_package": "payload",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/reportartifact/reportartifact.go",
+      "new_file": "model/reportartifact/reportartifact.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/reportartifact",
+      "new_import": "github.com/viant/agently-core/model/reportartifact",
+      "old_package": "reportartifact",
+      "new_package": "reportartifact",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/reportcontext/reportcontext.go",
+      "new_file": "model/reportcontext/reportcontext.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/reportcontext",
+      "new_import": "github.com/viant/agently-core/model/reportcontext",
+      "old_package": "reportcontext",
+      "new_package": "reportcontext",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/reportjob/reportjob.go",
+      "new_file": "model/reportjob/reportjob.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/reportjob",
+      "new_import": "github.com/viant/agently-core/model/reportjob",
+      "old_package": "reportjob",
+      "new_package": "reportjob",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/reportrun/reportrun.go",
+      "new_file": "model/reportrun/reportrun.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/reportrun",
+      "new_import": "github.com/viant/agently-core/model/reportrun",
+      "old_package": "reportrun",
+      "new_package": "reportrun",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/reportshareartifact/reportshareartifact.go",
+      "new_file": "model/reportshareartifact/reportshareartifact.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/reportshareartifact",
+      "new_import": "github.com/viant/agently-core/model/reportshareartifact",
+      "old_package": "reportshareartifact",
+      "new_package": "reportshareartifact",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/run/active/run_active.go",
+      "new_file": "model/run/active_run_active.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/run/active",
+      "new_import": "github.com/viant/agently-core/model/run",
+      "old_package": "run",
+      "new_package": "run",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/run/input.go",
+      "new_file": "model/run/input.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/run",
+      "new_import": "github.com/viant/agently-core/model/run",
+      "old_package": "run",
+      "new_package": "run",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/run/run.go",
+      "new_file": "model/run/run.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/run",
+      "new_import": "github.com/viant/agently-core/model/run",
+      "old_package": "run",
+      "new_package": "run",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/run/stale/run_stale.go",
+      "new_file": "model/run/stale_run_stale.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/run/stale",
+      "new_import": "github.com/viant/agently-core/model/run",
+      "old_package": "run",
+      "new_package": "run",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/run/steps/steps.go",
+      "new_file": "model/run/steps_steps.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/run/steps",
+      "new_import": "github.com/viant/agently-core/model/run",
+      "old_package": "run",
+      "new_package": "run",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/run/write/condition.go",
+      "new_file": "model/run/write_condition.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/run/write",
+      "new_import": "github.com/viant/agently-core/model/run",
+      "old_package": "write",
+      "new_package": "run",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/run/write/constructors.go",
+      "new_file": "model/run/write_constructors.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/run/write",
+      "new_import": "github.com/viant/agently-core/model/run",
+      "old_package": "write",
+      "new_package": "run",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/run/write/run.go",
+      "new_file": "model/run/write_run.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/run/write",
+      "new_import": "github.com/viant/agently-core/model/run",
+      "old_package": "write",
+      "new_package": "run",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/scheduler/run/input_key.go",
+      "new_file": "model/scheduledrun/run_input_key.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/scheduler/run",
+      "new_import": "github.com/viant/agently-core/model/scheduledrun",
+      "old_package": "run",
+      "new_package": "scheduledrun",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/scheduler/run/list.go",
+      "new_file": "model/scheduledrun/run_list.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/scheduler/run",
+      "new_import": "github.com/viant/agently-core/model/scheduledrun",
+      "old_package": "run",
+      "new_package": "scheduledrun",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/scheduler/run/run.go",
+      "new_file": "model/scheduledrun/run_run.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/scheduler/run",
+      "new_import": "github.com/viant/agently-core/model/scheduledrun",
+      "old_package": "run",
+      "new_package": "scheduledrun",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/scheduler/run/run_rundue.go",
+      "new_file": "model/scheduledrun/run_run_rundue.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/scheduler/run",
+      "new_import": "github.com/viant/agently-core/model/scheduledrun",
+      "old_package": "run",
+      "new_package": "scheduledrun",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/scheduler/run/total.go",
+      "new_file": "model/scheduledrun/run_total.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/scheduler/run",
+      "new_import": "github.com/viant/agently-core/model/scheduledrun",
+      "old_package": "run",
+      "new_package": "scheduledrun",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/scheduler/schedule/schedule.go",
+      "new_file": "model/schedule/schedule_schedule.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/scheduler/schedule",
+      "new_import": "github.com/viant/agently-core/model/schedule",
+      "old_package": "schedule",
+      "new_package": "schedule",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/scheduler/schedule/schedule_list.go",
+      "new_file": "model/schedule/schedule_schedule_list.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/scheduler/schedule",
+      "new_import": "github.com/viant/agently-core/model/schedule",
+      "old_package": "schedule",
+      "new_package": "schedule",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/scheduler/schedule/schedule_list_internal.go",
+      "new_file": "model/schedule/schedule_schedule_list_internal.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/scheduler/schedule",
+      "new_import": "github.com/viant/agently-core/model/schedule",
+      "old_package": "schedule",
+      "new_package": "schedule",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/scheduler/schedule/write/schedule.go",
+      "new_file": "model/schedule/schedule_write_schedule.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write",
+      "new_import": "github.com/viant/agently-core/model/schedule",
+      "old_package": "write",
+      "new_package": "schedule",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/tool/feed.go",
+      "new_file": "model/tool/feed.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/tool",
+      "new_import": "github.com/viant/agently-core/model/tool",
+      "old_package": "tool",
+      "new_package": "tool",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/tool/metadata.go",
+      "new_file": "model/tool/metadata.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/tool",
+      "new_import": "github.com/viant/agently-core/model/tool",
+      "old_package": "tool",
+      "new_package": "tool",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/tool/resolver/resolver.go",
+      "new_file": "protocol/tool/resolver/resolver_resolver.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/tool/resolver",
+      "new_import": "github.com/viant/agently-core/protocol/tool/resolver",
+      "old_package": "resolver",
+      "new_package": "resolver",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/tool/resolver/resolver_test.go",
+      "new_file": "protocol/tool/resolver/resolver_resolver_test.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/tool/resolver",
+      "new_import": "github.com/viant/agently-core/protocol/tool/resolver",
+      "old_package": "resolver",
+      "new_package": "resolver",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/toolapprovalqueue/count/count.go",
+      "new_file": "model/toolapprovalqueue/count_count.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/count",
+      "new_import": "github.com/viant/agently-core/model/toolapprovalqueue",
+      "old_package": "toolapprovalqueue",
+      "new_package": "toolapprovalqueue",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/toolapprovalqueue/outcome/outcome.go",
+      "new_file": "model/toolapprovalqueue/outcome_outcome.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/outcome",
+      "new_import": "github.com/viant/agently-core/model/toolapprovalqueue",
+      "old_package": "toolapprovalqueue",
+      "new_package": "toolapprovalqueue",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/toolapprovalqueue/read/list.go",
+      "new_file": "model/toolapprovalqueue/read_list.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read",
+      "new_import": "github.com/viant/agently-core/model/toolapprovalqueue",
+      "old_package": "read",
+      "new_package": "toolapprovalqueue",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/toolapprovalqueue/write/tool_approval_queue.go",
+      "new_file": "model/toolapprovalqueue/write_tool_approval_queue.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write",
+      "new_import": "github.com/viant/agently-core/model/toolapprovalqueue",
+      "old_package": "write",
+      "new_package": "toolapprovalqueue",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/toolcall/byOp/toolcall_by_op.go",
+      "new_file": "model/toolcall/byOp_toolcall_by_op.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/toolcall/byOp",
+      "new_import": "github.com/viant/agently-core/model/toolcall",
+      "old_package": "toolcall",
+      "new_package": "toolcall",
+      "rename": {
+        "ToolCallRowsInput": "ToolCallByOpInput",
+        "ToolCallRowsInputHas": "ToolCallByOpInputHas",
+        "ToolCallRowsOutput": "ToolCallByOpOutput",
+        "ToolCallRowsView": "ToolCallByOpView",
+        "ToolCallRowsPathURI": "ToolCallByOpPathURI"
+      }
+    },
+    {
+      "old_file": "pkg/agently/toolcall/byTurn/toolcall_by_turn.go",
+      "new_file": "model/toolcall/byTurn_toolcall_by_turn.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/toolcall/byTurn",
+      "new_import": "github.com/viant/agently-core/model/toolcall",
+      "old_package": "toolcall",
+      "new_package": "toolcall",
+      "rename": {
+        "ToolCallRowsInput": "ToolCallByTurnInput",
+        "ToolCallRowsInputHas": "ToolCallByTurnInputHas",
+        "ToolCallRowsOutput": "ToolCallByTurnOutput",
+        "ToolCallRowsView": "ToolCallByTurnView",
+        "ToolCallRowsPathURI": "ToolCallByTurnPathURI"
+      }
+    },
+    {
+      "old_file": "pkg/agently/toolcall/write/constructors.go",
+      "new_file": "model/toolcall/write_constructors.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/toolcall/write",
+      "new_import": "github.com/viant/agently-core/model/toolcall",
+      "old_package": "write",
+      "new_package": "toolcall",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/toolcall/write/error_message.go",
+      "new_file": "model/toolcall/write_error_message.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/toolcall/write",
+      "new_import": "github.com/viant/agently-core/model/toolcall",
+      "old_package": "write",
+      "new_package": "toolcall",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/toolcall/write/error_message_test.go",
+      "new_file": "model/toolcall/write_error_message_test.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/toolcall/write",
+      "new_import": "github.com/viant/agently-core/model/toolcall",
+      "old_package": "write",
+      "new_package": "toolcall",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/toolcall/write/tool_call.go",
+      "new_file": "model/toolcall/write_tool_call.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/toolcall/write",
+      "new_import": "github.com/viant/agently-core/model/toolcall",
+      "old_package": "write",
+      "new_package": "toolcall",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turn/active/active.go",
+      "new_file": "model/turn/active_active.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turn/active",
+      "new_import": "github.com/viant/agently-core/model/turn",
+      "old_package": "turn",
+      "new_package": "turn",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turn/byId/by_id.go",
+      "new_file": "model/turn/byId_by_id.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turn/byId",
+      "new_import": "github.com/viant/agently-core/model/turn",
+      "old_package": "turn",
+      "new_package": "turn",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turn/list/list.go",
+      "new_file": "model/turn/list_list.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turn/list",
+      "new_import": "github.com/viant/agently-core/model/turn",
+      "old_package": "turn",
+      "new_package": "turn",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turn/nextQueued/next_queued.go",
+      "new_file": "model/turn/nextQueued_next_queued.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turn/nextQueued",
+      "new_import": "github.com/viant/agently-core/model/turn",
+      "old_package": "turn",
+      "new_package": "turn",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turn/queuedCount/queued_count.go",
+      "new_file": "model/turn/queuedCount_queued_count.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turn/queuedCount",
+      "new_import": "github.com/viant/agently-core/model/turn",
+      "old_package": "turn",
+      "new_package": "turn",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turn/queuedList/queued_list.go",
+      "new_file": "model/turn/queuedList_queued_list.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turn/queuedList",
+      "new_import": "github.com/viant/agently-core/model/turn",
+      "old_package": "turn",
+      "new_package": "turn",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turn/write/constructors.go",
+      "new_file": "model/turn/write_constructors.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turn/write",
+      "new_import": "github.com/viant/agently-core/model/turn",
+      "old_package": "write",
+      "new_package": "turn",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turn/write/turn.go",
+      "new_file": "model/turn/write_turn.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turn/write",
+      "new_import": "github.com/viant/agently-core/model/turn",
+      "old_package": "write",
+      "new_package": "turn",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turnqueue/read/list.go",
+      "new_file": "model/turnqueue/read_list.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turnqueue/read",
+      "new_import": "github.com/viant/agently-core/model/turnqueue",
+      "old_package": "read",
+      "new_package": "turnqueue",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turnqueue/read/list_test.go",
+      "new_file": "model/turnqueue/read_list_test.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turnqueue/read",
+      "new_import": "github.com/viant/agently-core/model/turnqueue",
+      "old_package": "read",
+      "new_package": "turnqueue",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/agently/turnqueue/write/turn_queue.go",
+      "new_file": "model/turnqueue/write_turn_queue.go",
+      "old_import": "github.com/viant/agently-core/pkg/agently/turnqueue/write",
+      "new_import": "github.com/viant/agently-core/model/turnqueue",
+      "old_package": "write",
+      "new_package": "turnqueue",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/jsonrepair/redaction.go",
+      "new_file": "internal/jsonrepair/redaction.go",
+      "old_import": "github.com/viant/agently-core/pkg/jsonrepair",
+      "new_import": "github.com/viant/agently-core/internal/jsonrepair",
+      "old_package": "jsonrepair",
+      "new_package": "jsonrepair",
+      "rename": {}
+    },
+    {
+      "old_file": "pkg/mcpname/name.go",
+      "new_file": "protocol/mcpname/name.go",
+      "old_import": "github.com/viant/agently-core/pkg/mcpname",
+      "new_import": "github.com/viant/agently-core/protocol/mcpname",
+      "old_package": "mcpname",
+      "new_package": "mcpname",
+      "rename": {}
+    }
+  ],
+  "unused_packages": [
+    {
+      "package": "pkg/agently/conversation/delete",
+      "files": [
+        "pkg/agently/conversation/delete/const.go"
+      ],
+      "caller_result": "no Core or Agently import/type-string/reflection-registration callers; surviving references are historical evidence/documentation"
+    },
+    {
+      "package": "pkg/agently/message/delete",
+      "files": [
+        "pkg/agently/message/delete/const.go"
+      ],
+      "caller_result": "no Core or Agently import/type-string/reflection-registration callers; surviving references are historical evidence/documentation"
+    },
+    {
+      "package": "pkg/agently/message/elicitationCount",
+      "files": [
+        "pkg/agently/message/elicitationCount/elicitation_count.go"
+      ],
+      "caller_result": "no Core or Agently import/type-string/reflection-registration callers; surviving references are historical evidence/documentation"
+    },
+    {
+      "package": "pkg/agently/message/read",
+      "files": [
+        "pkg/agently/message/read/message.go",
+        "pkg/agently/message/read/message_by_elicitation.go",
+        "pkg/agently/message/read/message_by_linked_elicitation.go",
+        "pkg/agently/message/read/message_by_parent_elicitation.go"
+      ],
+      "caller_result": "no Core or Agently import/type-string/reflection-registration callers; surviving references are historical evidence/documentation"
+    },
+    {
+      "package": "pkg/agently/tool/invoker",
+      "files": [
+        "pkg/agently/tool/invoker/context.go"
+      ],
+      "caller_result": "no Core or Agently import/type-string/reflection-registration callers; surviving references are historical evidence/documentation"
+    },
+    {
+      "package": "pkg/agently/toolapprovalqueue/pending",
+      "files": [
+        "pkg/agently/toolapprovalqueue/pending/pending.go"
+      ],
+      "caller_result": "no Core or Agently import/type-string/reflection-registration callers; surviving references are historical evidence/documentation"
+    },
+    {
+      "package": "pkg/agently/toolapprovalqueue/pendingCount",
+      "files": [
+        "pkg/agently/toolapprovalqueue/pendingCount/pending_count.go"
+      ],
+      "caller_result": "no Core or Agently import/type-string/reflection-registration callers; surviving references are historical evidence/documentation"
+    },
+    {
+      "package": "pkg/agently/toolcall/read",
+      "files": [
+        "pkg/agently/toolcall/read/toolcall_by_op.go"
+      ],
+      "caller_result": "no Core or Agently import/type-string/reflection-registration callers; surviving references are historical evidence/documentation"
+    },
+    {
+      "package": "pkg/agently/turn/controllerCount",
+      "files": [
+        "pkg/agently/turn/controllerCount/controller_count.go"
+      ],
+      "caller_result": "no Core or Agently import/type-string/reflection-registration callers; surviving references are historical evidence/documentation"
+    },
+    {
+      "package": "pkg/agently/turn/read",
+      "files": [
+        "pkg/agently/turn/read/active.go",
+        "pkg/agently/turn/read/by_id.go",
+        "pkg/agently/turn/read/next_queued.go",
+        "pkg/agently/turn/read/queued_count.go",
+        "pkg/agently/turn/read/queued_list.go"
+      ],
+      "caller_result": "no Core or Agently import/type-string/reflection-registration callers; surviving references are historical evidence/documentation"
+    }
+  ],
+  "collision_decisions": {
+    "message_elicitation": "Consolidated into model/message; MessageInput/InputHas/Output/View/PathURI become ElicitationMessage* because ordinary message types already use those names.",
+    "toolcall_lookup": "Consolidated into model/toolcall; ByOp and ByTurn lookup Input/InputHas/Output/View/PathURI use distinct ToolCallByOp* and ToolCallByTurn* names.",
+    "scheduled_run": "model/scheduledrun preserves schedule_run public DTOs independently of model/run agent-run DTOs; historical schedule_run handling remains active."
+  },
+  "behavior_preservation": {
+    "struct_definitions_verified": 173,
+    "verification": "AST comparison to committed old source preserved every struct field name, field type, struct tag, presence marker, and JSON omission control after intentional Go type-name substitutions.",
+    "log": "/tmp/agently-model-shape-verification.log",
+    "empty_registration_removed": "pkg/dependency imported DTO packages for side effects but had an empty init and no remaining callers."
+  },
+  "checks": [
+    {
+      "command": "go test -mod=readonly ./... -run ^$",
+      "result": "PASS",
+      "log": "/tmp/agently-model-relocation-compile.log"
+    },
+    {
+      "cwd": "../agently",
+      "command": "go build -mod=readonly ./...",
+      "result": "PASS",
+      "log": "/tmp/agently-model-relocation-agently-build.log"
+    },
+    {
+      "command": "go test -mod=readonly ./model/conversation ./model/toolcall ./protocol/mcpname ./protocol/tool/resolver ./internal/jsonrepair",
+      "result": "PASS",
+      "log": "/tmp/agently-model-helper-tests.log"
+    },
+    {
+      "command": "go test -mod=readonly ./sdk ./service/scheduler ./model/... ./protocol/mcpname ./protocol/tool/resolver ./internal/jsonrepair",
+      "result": "PASS",
+      "log": "/tmp/agently-model-relocation-runtime-tests.log"
+    },
+    {
+      "cwd": "../agently",
+      "command": "go test -mod=readonly ./... -run ^$",
+      "result": "PASS",
+      "log": "/tmp/agently-model-relocation-agently-test-compile.log"
+    },
+    {
+      "command": "git diff --check in Core and Agently",
+      "result": "PASS"
+    }
+  ],
+  "retained_active_wrappers": [
+    {
+      "symbols": [
+        "sdk.NewEmbedded",
+        "sdk.NewEmbeddedFromRuntime",
+        "sdk.NewBackendFromRuntime"
+      ],
+      "reason": "Active thin backend construction APIs called by internal/sdkbackend and public local HTTP wiring; they invoke native-backed implementation, not legacy Datly. Removing requires a separate SDK backend API move, not deleting an unused persistence package."
+    },
+    {
+      "symbols": [
+        "protocol/async.Manager.TryStartPoller",
+        "protocol/async.Manager.StorePollerCancel"
+      ],
+      "reason": "Existing concurrency/close tests exercise these separate-admission APIs. Production uses atomic AdmitPoller. Preserve comparisons until tests are migrated deliberately."
+    },
+    {
+      "symbols": [
+        "sdk.backendClient.resolveActiveFeeds",
+        "sdk.backendClient.findLastToolCallPayload"
+      ],
+      "reason": "Private historical feed resolver is only used by feed behavior tests. It can move into a test-only reference helper without losing behavioral coverage; production uses resolveActiveFeedsFromState."
+    }
+  ],
+  "legacy_probe_retirement": {
+    "current": "Retained isolated migration/legacyprobe module pins unchanged published SDK0 and is built only by contract tests; no root product dependency.",
+    "proposed_steps": [
+      "Record all existing probe invocations as versioned golden cases including operation/input, independently seeded fixture, initial/final database snapshots, response/error classification and normalized clocks/IDs.",
+      "Validate golden cases against the frozen published baseline once, retain baseline revision and per-case hashes, and change current native tests to compare against those immutable expectations plus existing rollback/contention assertions.",
+      "Only after every probe-calling suite has equivalent golden coverage, remove process build helper and nested legacyprobe go.mod/go.sum/main.go. Do not replace comparisons with expectations inferred from the new implementation."
+    ]
+  },
+  "additional_cleanup": {
+    "removed_unused_registration_symbols": 7,
+    "test_only_feed_reference": [
+      "sdk.backendClient.resolveActiveFeeds",
+      "sdk.backendClient.findLastToolCallPayload",
+      "sdk.backendClient.fetchToolCallResponsePayload"
+    ],
+    "test_reference_file": "sdk/feed_reference_test.go",
+    "reason": "Exact historical implementations remain in the test binary; no production callers, existing assertions retained."
+  },
+  "baseline_commit": "d6f4d39aab28254d19157c0b0601c33c0be6f719"
+}

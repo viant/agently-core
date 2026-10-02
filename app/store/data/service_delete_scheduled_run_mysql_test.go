@@ -10,8 +10,6 @@ import (
 
 	_ "github.com/go-sql-driver/mysql"
 	authctx "github.com/viant/agently-core/internal/auth"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
 )
 
 func TestDeleteScheduledRun_MySQLDeletesCurrentAndLegacyButKeepsScheduleAndNewerRun(t *testing.T) {
@@ -77,16 +75,7 @@ func TestDeleteScheduledRun_MySQLDeletesCurrentAndLegacyButKeepsScheduleAndNewer
 	}
 
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "owner-1"})
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
-	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents() error: %v", err)
-	}
+	dao := newNativeMySQLRuntime(t, dsn)
 	service := NewService(dao)
 
 	if err = service.DeleteScheduledRun(ctx, currentRunID); err != nil {

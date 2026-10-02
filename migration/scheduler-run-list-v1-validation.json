@@ -1,0 +1,21 @@
+{
+  "date": "2026-09-30",
+  "scope": "Scheduler run list, count and due lookup",
+  "changes": [
+    "The typed agentrun store invokes canonical schedulerList and schedulerDue reader modes and the run fact cube's scheduler count mode",
+    "The root scheduler store has native branches for ListRuns and ListRunsForDue, maps the existing filters, paging and public RunView, and computes page count from cube totals",
+    "A requested effective user that disagrees with the authenticated context is rejected by the root native list branch"
+  ],
+  "verified": [
+    "Linked-host tests passed owner-scoped one-row pagination, private/internal schedule exclusion, cube totals and trusted due lookup for an internal schedule",
+    "Focused scheduler run list, scheduler due and run cube legacy parity passed",
+    "Full app/store/native package passed with the v1 scratch modfile",
+    "Full nested Endly passed 60/60 transcription, stable regeneration, boundary audit, nested tests (170.822s) and linked-host build"
+  ],
+  "remaining": [
+    "service/scheduler still fails package setup on SDK0 DTO/registration imports and dependency sums, so root caller and application route parity remain unverified",
+    "Schedule and scheduled-run cascade deletion plus old component registration still need native cutover",
+    "MySQL contention and live IdP validation remain unverified; the local Docker daemon is stopped, no MySQL server binary is installed, and AGENTLY_TEST_MYSQL_DSN is unset"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-scheduler-run-list.log"
+}

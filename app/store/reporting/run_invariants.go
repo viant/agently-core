@@ -1,16 +1,15 @@
 package reporting
 
 import (
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	"reflect"
 	"strings"
-
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
 )
 
 // ValidateReportRunUpdate protects terminal snapshots even when a caller
 // bypasses the report-run service and invokes a store directly.
-func ValidateReportRunUpdate(current, next *reportrun.Record, expectedRevision int64) error {
+func ValidateReportRunUpdate(current, next *reportrunmodel.Record, expectedRevision int64) error {
 	if current == nil || next == nil {
 		return ErrNotFound
 	}
@@ -25,7 +24,7 @@ func ValidateReportRunUpdate(current, next *reportrun.Record, expectedRevision i
 		strings.TrimSpace(current.UIRunRequestID) != strings.TrimSpace(next.UIRunRequestID) {
 		return ErrNotFound
 	}
-	if current.Status == reportrun.StatusCompleted {
+	if current.Status == reportrunmodel.StatusCompleted {
 		return ErrImmutable
 	}
 	return nil
@@ -34,7 +33,7 @@ func ValidateReportRunUpdate(current, next *reportrun.Record, expectedRevision i
 // ValidateAdoptionMutation validates the only mutation permitted for a
 // completed run: binding an unbound manual snapshot and advancing its exact
 // conversation pointer in one store operation.
-func ValidateAdoptionMutation(current, next *reportrun.Record, expectedRunRevision int64, record *reportcontext.Record, expectedContextRevision int64) error {
+func ValidateAdoptionMutation(current, next *reportrunmodel.Record, expectedRunRevision int64, record *reportcontextmodel.Record, expectedContextRevision int64) error {
 	if current == nil || next == nil || record == nil {
 		return ErrNotFound
 	}
@@ -42,7 +41,7 @@ func ValidateAdoptionMutation(current, next *reportrun.Record, expectedRunRevisi
 		record.Revision != expectedContextRevision+1 {
 		return ErrCASMismatch
 	}
-	if current.Status != reportrun.StatusCompleted || next.Status != reportrun.StatusCompleted ||
+	if current.Status != reportrunmodel.StatusCompleted || next.Status != reportrunmodel.StatusCompleted ||
 		strings.TrimSpace(current.Origin) != "manual" ||
 		strings.TrimSpace(current.ConversationID) != "" {
 		return ErrImmutable

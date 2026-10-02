@@ -1,0 +1,30 @@
+#package('github.com/viant/agently-core/internal/datly/legacyrun/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/scheduler/legacy-run','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $OrphanDelete<bool>(orphanDelete/enabledDelete).Optional())
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $Trusted<bool>(scheduleRunAccess/internal).Required())
+#define($_ = $ExpectedScheduleID<string>(query/expectedScheduleId).Optional().WithPredicate(7,'equal','schedule_run','schedule_id'))
+#define($_ = $Runs<[]*LegacyRun>(body/data))
+#define($_ = $Data<[]*LegacyRun>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'LegacyRun'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,7),
+       required(t.id),
+       tag(t.id,'sqlx:"id,primaryKey=true,required=true"'),
+       required(t.schedule_id),
+       required(t.status),
+       required(t.conversation_kind)
+FROM (${embed:sql/legacyrun.sql}) t

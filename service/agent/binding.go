@@ -357,10 +357,10 @@ func appendActiveGoalSystemDocumentFromReader(ctx context.Context, conversationI
 }
 
 func (s *Service) activeGoalReader() activeGoalReader {
-	if s == nil || s.dataService == nil {
+	if s == nil || s.goalRuntime == nil {
 		return nil
 	}
-	return goalsys.NewStore(s.dataService)
+	return s.goalRuntime
 }
 
 func buildActiveGoalSystemDocument(goal *goalsys.Goal) *binding.Document {

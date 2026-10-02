@@ -1,0 +1,132 @@
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_provider_request_payload
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_provider_response_payload
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_request_payload
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_response_payload
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_run
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_stream_payload
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_call.missing_request_payload
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_call.missing_response_payload
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_call.missing_run
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_call.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/generated_file.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/generated_file.missing_payload
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/generated_file.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_attachment_payload
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_elicitation_payload
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_linked_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_parent
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_superseded_by
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/run.missing_checkpoint_message
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/run.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/run.missing_resumed_from
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/run.missing_schedule
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/run.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/schedule_run.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/turn.missing_goal
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/turn.missing_retry_of
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/turn.missing_run
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/turn.missing_started_by_message
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/report_export_job.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/report_run.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/schedule.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/schedule.missing_goal
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation.missing_parent_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation.missing_parent_turn
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation.missing_schedule
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation.missing_schedule_run
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_execution_claim.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/turn_queue.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/turn_queue.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/turn_queue.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_call.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/generated_file.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/report_export_artifact.missing_job
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation_report_context.missing_active_report_run
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation_report_context.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/investigation.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/schedule_run.missing_schedule
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/turn.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/goal.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/call_payload.unused
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/report_export_job.missing_artifact
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/report_export_job.missing_report_run
+--- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule (18.63s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_conversation (2.54s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_message (0.12s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_turn (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_provider_request_payload (0.78s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_provider_response_payload (0.12s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_request_payload (0.14s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_response_payload (0.15s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_run (0.12s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_stream_payload (0.11s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_turn (0.11s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_call.missing_request_payload (0.53s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_call.missing_response_payload (0.13s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_call.missing_run (0.12s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_call.missing_turn (0.14s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/generated_file.missing_message (0.56s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/generated_file.missing_payload (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/generated_file.missing_turn (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_attachment_payload (0.67s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_elicitation_payload (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_linked_conversation (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_parent (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_superseded_by (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_turn (0.11s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/run.missing_checkpoint_message (0.52s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/run.missing_conversation (0.12s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/run.missing_resumed_from (0.14s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/run.missing_schedule (0.12s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/run.missing_turn (0.11s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/schedule_run.missing_conversation (0.56s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/turn.missing_goal (0.47s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/turn.missing_retry_of (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/turn.missing_run (0.13s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/turn.missing_started_by_message (0.09s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/report_export_job.missing_conversation (0.45s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/report_run.missing_conversation (0.47s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/schedule.missing_conversation (0.53s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/schedule.missing_goal (0.13s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation.missing_parent_conversation (0.53s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation.missing_parent_turn (0.11s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation.missing_schedule (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation.missing_schedule_run (0.09s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_execution_claim.missing_turn (0.42s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/turn_queue.missing_conversation (0.43s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/turn_queue.missing_message (0.09s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/turn_queue.missing_turn (0.09s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/model_call.missing_message (0.09s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_call.missing_message (0.12s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/generated_file.missing_conversation (0.09s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/report_export_artifact.missing_job (0.42s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation_report_context.missing_active_report_run (0.40s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/conversation_report_context.missing_conversation (0.09s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/investigation.missing_conversation (0.43s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/message.missing_conversation (0.11s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/schedule_run.missing_schedule (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/turn.missing_conversation (0.10s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/goal.missing_conversation (0.43s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/call_payload.unused (0.43s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/report_export_job.missing_artifact (0.09s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/report_export_job.missing_report_run (0.08s)
+=== RUN   TestWorkspaceRuntimeOrphanMySQLFenceRollbackAndLockedRecheck
+--- PASS: TestWorkspaceRuntimeOrphanMySQLFenceRollbackAndLockedRecheck (4.19s)
+=== RUN   TestWorkspaceRuntimeOrphanMySQLBlankLegacyReferences
+=== RUN   TestWorkspaceRuntimeOrphanMySQLBlankLegacyReferences/schedule_run.missing_schedule
+=== RUN   TestWorkspaceRuntimeOrphanMySQLBlankLegacyReferences/tool_execution_claim.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanMySQLBlankLegacyReferences/report_export_artifact.missing_job
+--- PASS: TestWorkspaceRuntimeOrphanMySQLBlankLegacyReferences (4.53s)
+    --- PASS: TestWorkspaceRuntimeOrphanMySQLBlankLegacyReferences/schedule_run.missing_schedule (1.75s)
+    --- PASS: TestWorkspaceRuntimeOrphanMySQLBlankLegacyReferences/tool_execution_claim.missing_turn (0.42s)
+    --- PASS: TestWorkspaceRuntimeOrphanMySQLBlankLegacyReferences/report_export_artifact.missing_job (0.44s)
+PASS
+ok  	github.com/viant/agently-core/app/store/native	28.497s

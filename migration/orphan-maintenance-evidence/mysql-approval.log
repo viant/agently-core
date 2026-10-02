@@ -1,0 +1,10 @@
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_turn
+--- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule (2.94s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_conversation (1.40s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_message (0.08s)
+    --- PASS: TestWorkspaceRuntimeOrphanEveryMySQLRule/tool_approval_queue.missing_turn (0.09s)
+PASS
+ok  	github.com/viant/agently-core/app/store/native	4.083s

@@ -1,0 +1,37 @@
+{
+  "table": "report_run",
+  "reader": "datlyv1/dql/forge/reporting/run/read/reader.dql",
+  "writer": "datlyv1/dql/forge/reporting/run/write/writer.dql",
+  "adapter": "datlyv1/application/reporting/run/store.go",
+  "generated_destinations": [
+    "datlyv1/generated/forge/reporting/run/read",
+    "datlyv1/generated/forge/reporting/run/write"
+  ],
+  "legacy_source": "app/store/reporting/sql/store.go CreateReportRun, GetReportRun, GetReportRunByRequestID, UpdateReportRunCAS, AdoptReportRunAndContextCAS",
+  "scope_and_cas": "Private host-bound owner visibility; native concurrency_token on revision and owner/request mutation predicate. The writer business hook distinguishes create, update, adopt and delete, protects completed snapshots, and advances the desired revision after expected-token capture.",
+  "data_driven_cases": 19,
+  "case_groups": {
+    "writer_modes": 8,
+    "reader_full_field_parity": 4,
+    "caller_transactions": 2,
+    "independent_connection_cas": 1,
+    "revision_guarded_delete": 3,
+    "http_owner_override": 1
+  },
+  "legacy_comparison": "Six create/update and three read cases execute the original SDK0 reporting SQL store in an isolated process against independent SQLite fixtures. The reader comparison covers all 26 physical fields, including optional strings, JSON blobs and timestamps. The typed adapter preserves duplicate/CAS/not-found/immutable outcomes.",
+  "verification": {
+    "focused": "go test ./tests -run '^TestReportRun' -count=1: pass",
+    "race_repeat": "go test ./tests -run '^TestReportRunIndependentConnectionsCAS$' -count=10: pass; one of two competing revisions succeeds",
+    "full_endly": "endly from datlyv1/e2e: success; 48/48 transcribed, 646 generated artifacts byte-stable, native boundary audit, nested tests 153.559s, host build, workflow 195195ms"
+  },
+  "limits": [
+    "Root reporting package/application routes remain blocked by the SDK0 DAO import used by remaining job/artifact methods; no route parity is claimed.",
+    "MySQL contention remains unverified."
+  ],
+  "root_caller_cutover": {
+    "source": "app/store/reporting/sql/store.go now delegates CreateReportRun, GetReportRun, GetReportRunByRequestID, UpdateReportRunCAS and adoption to typed v1 application stores; adoption retains its private managed transaction.",
+    "verification": "go test -mod=readonly with scratch modfile -count=1 ./app/store/native: pass (8.586s), including linked-host run/context CRUD, owner denial, revision conflict, and root record conversion.",
+    "limits": "Full root reporting package setup still stops at its SDK0 github.com/viant/datly DAO import for remaining job/artifact SQL. Root application routes and MySQL contention remain unverified."
+  },
+  "current_root_reporting_status": "Superseded by migration/reporting-root-cutover-validation.json: root reporting production package now builds and its linked-host tests pass with v1 only; application/public routes and MySQL remain."
+}

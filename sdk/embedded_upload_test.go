@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	memdata "github.com/viant/agently-core/app/store/data/memory"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
 )
 
 func TestEmbeddedClient_UploadFileRegistersPayloadAndGeneratedFile(t *testing.T) {
@@ -26,7 +26,7 @@ func TestEmbeddedClient_UploadFileRegistersPayloadAndGeneratedFile(t *testing.T)
 		t.Fatalf("unexpected output %+v", out)
 	}
 
-	files, err := store.GetGeneratedFiles(context.Background(), &gfread.Input{ConversationID: "conv_1"})
+	files, err := store.GetGeneratedFiles(context.Background(), &generatedfilemodel.Input{ConversationID: "conv_1"})
 	if err != nil {
 		t.Fatalf("get generated files: %v", err)
 	}
@@ -45,10 +45,10 @@ func TestEmbeddedClient_UploadFileRegistersPayloadAndGeneratedFile(t *testing.T)
 	if got := files[0].CopyMode; got != "eager" {
 		t.Fatalf("unexpected copy mode %q", got)
 	}
-	if files[0].PayloadID == nil || *files[0].PayloadID == "" {
+	if files[0].PayloadId == nil || *files[0].PayloadId == "" {
 		t.Fatalf("expected payload id on generated file %+v", files[0])
 	}
-	payload, err := store.GetPayload(context.Background(), *files[0].PayloadID)
+	payload, err := store.GetPayload(context.Background(), *files[0].PayloadId)
 	if err != nil {
 		t.Fatalf("get payload: %v", err)
 	}

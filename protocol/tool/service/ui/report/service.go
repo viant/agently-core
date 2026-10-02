@@ -4,15 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"reflect"
-	"strings"
-	"time"
-
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	"reflect"
+	"strings"
+	"time"
 )
 
 const Name = "ui/report"
@@ -69,7 +68,7 @@ type MaterializationResult struct {
 }
 
 type TerminalRunWaiter interface {
-	WaitTerminal(ctx context.Context, reportRunID, conversationID string) (*reportrun.Record, error)
+	WaitTerminal(ctx context.Context, reportRunID, conversationID string) (*reportrunmodel.Record, error)
 }
 
 type Option func(*Service)
@@ -275,11 +274,11 @@ func (s *Service) waitForDurableRun(ctx context.Context, output *ActionOutput) e
 		return fmt.Errorf("update durable report run result: %w", err)
 	}
 	switch status {
-	case reportrun.StatusCompleted:
+	case reportrunmodel.StatusCompleted:
 		output.OK = true
 		output.Error = ""
 		return nil
-	case reportrun.StatusFailed:
+	case reportrunmodel.StatusFailed:
 		output.OK = false
 		output.Error = strings.TrimSpace(run.FailureText)
 		if output.Error == "" {

@@ -12,9 +12,9 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/genai/llm"
 	memconv "github.com/viant/agently-core/internal/service/conversation/memory"
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
-	queuewrite "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
-	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
+	messagemodel "github.com/viant/agently-core/model/message"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+	turnmodel "github.com/viant/agently-core/model/turn"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -415,7 +415,7 @@ func TestService_TurnAwaitingUserAction_DetachedQueueDoesNotBlock(t *testing.T) 
 
 	meta, err := json.Marshal(map[string]interface{}{"queueBehavior": llm.ApprovalQueueBehaviorDetach})
 	require.NoError(t, err)
-	queue := &queuewrite.ToolApprovalQueue{}
+	queue := &toolapprovalqueuemodel.ToolApprovalQueue{}
 	queue.SetId("q-detach")
 	queue.SetUserId("u1")
 	queue.SetConversationId("c-detach")
@@ -462,7 +462,7 @@ func TestService_TurnAwaitingUserAction_WaitQueueStillBlocks(t *testing.T) {
 
 	meta, err := json.Marshal(map[string]interface{}{"queueBehavior": llm.ApprovalQueueBehaviorWait})
 	require.NoError(t, err)
-	queue := &queuewrite.ToolApprovalQueue{}
+	queue := &toolapprovalqueuemodel.ToolApprovalQueue{}
 	queue.SetId("q-wait")
 	queue.SetUserId("u1")
 	queue.SetConversationId("c-wait")
@@ -486,13 +486,13 @@ func TestService_TurnAwaitingUserAction_UsesDataService(t *testing.T) {
 	svc := &Service{
 		conversation: panicAwaitingConversationClient{},
 		dataService: &awaitingUserDataService{
-			turn: &agturnbyid.TurnLookupView{
+			turn: &turnmodel.TurnLookupView{
 				Id:             "t-await",
 				ConversationId: "c-await",
 				Status:         "running",
 			},
 			page: &data.MessagePage{
-				Rows: []*agmessagelist.MessageRowsView{
+				Rows: []*messagemodel.MessageRowsView{
 					{
 						Id:             "m-tool",
 						ConversationId: "c-await",
@@ -562,7 +562,7 @@ func TestService_TurnAwaitingUserAction_IgnoresRootProxyElicitation(t *testing.T
 	svc := &Service{
 		conversation: client,
 		dataService: &awaitingUserDataService{
-			page: &data.MessagePage{Rows: []*agmessagelist.MessageRowsView{{
+			page: &data.MessagePage{Rows: []*messagemodel.MessageRowsView{{
 				Id:             "m-proxy",
 				ConversationId: "c-root",
 				TurnId:         strPtrAwaiting("t-root"),
@@ -582,7 +582,7 @@ func TestService_TurnAwaitingUserAction_IgnoresRootProxyElicitation(t *testing.T
 	require.False(t, waiting)
 
 	svc.dataService = &awaitingUserDataService{
-		page: &data.MessagePage{Rows: []*agmessagelist.MessageRowsView{{
+		page: &data.MessagePage{Rows: []*messagemodel.MessageRowsView{{
 			Id:             "m-real",
 			ConversationId: "c-root",
 			TurnId:         strPtrAwaiting("t-root"),
@@ -701,15 +701,15 @@ func (panicAwaitingConversationClient) DeleteMessage(context.Context, string, st
 
 type awaitingUserDataService struct {
 	data.Service
-	turn *agturnbyid.TurnLookupView
+	turn *turnmodel.TurnLookupView
 	page *data.MessagePage
 }
 
-func (s *awaitingUserDataService) GetTurnByID(context.Context, *agturnbyid.TurnLookupInput, ...data.Option) (*agturnbyid.TurnLookupView, error) {
+func (s *awaitingUserDataService) GetTurnByID(context.Context, *turnmodel.TurnLookupInput, ...data.Option) (*turnmodel.TurnLookupView, error) {
 	return s.turn, nil
 }
 
-func (s *awaitingUserDataService) GetMessagesPage(context.Context, *agmessagelist.MessageRowsInput, *data.PageInput, ...data.Option) (*data.MessagePage, error) {
+func (s *awaitingUserDataService) GetMessagesPage(context.Context, *messagemodel.MessageRowsInput, *data.PageInput, ...data.Option) (*data.MessagePage, error) {
 	return s.page, nil
 }
 

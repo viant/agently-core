@@ -1,0 +1,16 @@
+init:
+  - name: projectRoot
+    when: $params.projectRoot
+    value: $params.projectRoot
+    else: $WorkingDirectory(../..)
+
+pipeline:
+  validate:
+    action: exec:run
+    TimeoutMs: 600000
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - rm -f bin/datly-validation.db
+      - env GOWORK=off go run ./tools/schema bin/datly-validation.db
+      - bin/datly-stock validate -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-validation.db -format json -exclude github.com/viant/agently-core/dql/conversation/base -exclude github.com/viant/agently-core/dql/message/base -exclude github.com/viant/agently-core/dql/schedule/base github.com/viant/agently-core/dql/...

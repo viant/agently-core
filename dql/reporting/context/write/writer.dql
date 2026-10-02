@@ -1,0 +1,31 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/context/write')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/conversation-context','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(reportAccess/internal).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required())
+#define($_ = $DesiredRevision<int64>(query/desiredRevision).Optional())
+#define($_ = $Contexts<[]*Context>(body/data))
+#define($_ = $Data<[]*Context>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'error'),
+       type(t,'Context'),
+       lifecycle_type(t,'Lifecycle'),
+       concurrency_token(t.revision),
+       required(t.owner_id),
+       tag(t.owner_id,'sqlx:"owner_id,primaryKey=true,required=true"'),
+       required(t.conversation_id),
+       tag(t.conversation_id,'sqlx:"conversation_id,primaryKey=true,required=true"'),
+       required(t.active_report_run_id),
+       CAST(t.revision AS int64),
+       required(t.activation_source),
+       required(t.actor_id),
+       required(t.updated_at)
+FROM (${embed:sql/context.sql}) t

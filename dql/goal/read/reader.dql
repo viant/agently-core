@@ -1,0 +1,31 @@
+#package('github.com/viant/agently-core/internal/datly/goal/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/goal/{conversationId}','GET'))
+#setting($_ = $input_type('GoalInput'))
+#setting($_ = $output_type('GoalOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Status<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $ConversationID<string>(path/conversationId).Optional().WithPredicate(0,'equal','t','conversation_id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','t','conversation_id'))
+#define($_ = $GraphMode<bool>(goalAccess/graph).Optional())
+#define($_ = $Ids<[]string>(query/ids).Optional().WithPredicate(0,'in','t','id'))
+#define($_ = $Metrics<?>(output/metrics))
+#define($_ = $Data<[]*GoalView>(output/view))
+
+SELECT goal.*,
+       row_lock(goal,'goal t'),
+       type(goal,'GoalView'),
+       required(goal.id),
+       required(goal.conversation_id),
+       required(goal.objective),
+       required(goal.status),
+       CAST(goal.token_budget AS *int64),
+       CAST(goal.tokens_used AS int64),
+       CAST(goal.time_used_seconds AS int64),
+       CAST(goal.autonomous_turns_used AS int64),
+       CAST(goal.consecutive_no_progress AS int64),
+       required(goal.created_at)
+FROM (${embed:sql/goal.sql}) goal

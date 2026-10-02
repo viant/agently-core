@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/pkg/agently/tool/resolver"
+	resolver2 "github.com/viant/agently-core/protocol/tool/resolver"
 )
 
 func ApplyEdits(args map[string]interface{}, editors []*EditorView, editedFields map[string]interface{}) error {
@@ -29,7 +29,7 @@ func ApplyEdits(args map[string]interface{}, editors []*EditorView, editedFields
 		if !hasValue {
 			continue
 		}
-		if err := resolver.Assign(args, editor.Path, nextValue); err != nil {
+		if err := resolver2.Assign(args, editor.Path, nextValue); err != nil {
 			return fmt.Errorf("apply approval edit %s: %w", editor.Name, err)
 		}
 	}
@@ -91,7 +91,7 @@ func applyDecisionPatchValue(args map[string]interface{}, path string, value int
 		}
 		return nil
 	}
-	if err := resolver.Assign(args, path, cloneValue(value)); err != nil {
+	if err := resolver2.Assign(args, path, cloneValue(value)); err != nil {
 		return fmt.Errorf("apply approval decision patch %s: %w", path, err)
 	}
 	return nil
@@ -250,7 +250,7 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	}
 	sourceRecommendation := cloneMapValue(existingMapValue(args[writePath]))
 	if sourceRecommendation == nil {
-		sourceRecommendation = cloneMapValue(existingMapValue(resolver.Select(writePath, args, nil)))
+		sourceRecommendation = cloneMapValue(existingMapValue(resolver2.Select(writePath, args, nil)))
 	}
 	var recommendation map[string]interface{}
 	if !replaceTarget {
@@ -279,12 +279,12 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 		}
 		value, ok := sourceRecommendation[field]
 		if !ok {
-			value = resolver.Select(field, sourceRecommendation, nil)
+			value = resolver2.Select(field, sourceRecommendation, nil)
 		}
 		if isEmptyApprovalValue(value) {
 			continue
 		}
-		if err := resolver.Assign(recommendation, field, cloneValue(value)); err != nil {
+		if err := resolver2.Assign(recommendation, field, cloneValue(value)); err != nil {
 			return fmt.Errorf("apply approval review copy field %s: %w", field, err)
 		}
 	}
@@ -294,7 +294,7 @@ func applyGroupRowsReview(args map[string]interface{}, xform map[string]interfac
 	if err := applyConfiguredRowAssignments(recommendation, xform["assignFromRow"], groupRows); err != nil {
 		return err
 	}
-	if err := resolver.Assign(args, writePath, recommendation); err != nil {
+	if err := resolver2.Assign(args, writePath, recommendation); err != nil {
 		return fmt.Errorf("apply approval review group_rows: %w", err)
 	}
 	delete(args, rowsField)
@@ -342,7 +342,7 @@ func applyGroupFieldsReview(args map[string]interface{}, xform map[string]interf
 	}
 	sourceRecommendation := cloneMapValue(existingMapValue(args[writePath]))
 	if sourceRecommendation == nil {
-		sourceRecommendation = cloneMapValue(existingMapValue(resolver.Select(writePath, args, nil)))
+		sourceRecommendation = cloneMapValue(existingMapValue(resolver2.Select(writePath, args, nil)))
 	}
 	var recommendation map[string]interface{}
 	if !replaceTarget {
@@ -379,12 +379,12 @@ func applyGroupFieldsReview(args map[string]interface{}, xform map[string]interf
 		}
 		value, ok := sourceRecommendation[field]
 		if !ok {
-			value = resolver.Select(field, sourceRecommendation, nil)
+			value = resolver2.Select(field, sourceRecommendation, nil)
 		}
 		if isEmptyApprovalValue(value) {
 			continue
 		}
-		if err := resolver.Assign(recommendation, field, cloneValue(value)); err != nil {
+		if err := resolver2.Assign(recommendation, field, cloneValue(value)); err != nil {
 			return fmt.Errorf("apply approval review copy field %s: %w", field, err)
 		}
 	}
@@ -394,7 +394,7 @@ func applyGroupFieldsReview(args map[string]interface{}, xform map[string]interf
 	if err := applyConfiguredRowAssignments(recommendation, xform["assignFromRow"], selectedRows); err != nil {
 		return err
 	}
-	if err := resolver.Assign(args, writePath, recommendation); err != nil {
+	if err := resolver2.Assign(args, writePath, recommendation); err != nil {
 		return fmt.Errorf("apply approval review group_fields: %w", err)
 	}
 	delete(args, rowsField)
@@ -408,7 +408,7 @@ func applyConfiguredAssignments(target map[string]interface{}, config interface{
 		if strings.TrimSpace(path) == "" {
 			continue
 		}
-		if err := resolver.Assign(target, path, cloneValue(value)); err != nil {
+		if err := resolver2.Assign(target, path, cloneValue(value)); err != nil {
 			return fmt.Errorf("apply approval review assignment %s: %w", path, err)
 		}
 	}
@@ -429,7 +429,7 @@ func applyConfiguredRowAssignments(target map[string]interface{}, config interfa
 		if !found || isEmptyApprovalValue(value) {
 			continue
 		}
-		if err := resolver.Assign(target, path, cloneValue(value)); err != nil {
+		if err := resolver2.Assign(target, path, cloneValue(value)); err != nil {
 			return fmt.Errorf("apply approval review row assignment %s: %w", path, err)
 		}
 	}
@@ -514,7 +514,7 @@ func rowFieldValue(row map[string]interface{}, field string) (interface{}, bool)
 	if value, ok := row[field]; ok {
 		return value, true
 	}
-	value := resolver.Select(field, row, nil)
+	value := resolver2.Select(field, row, nil)
 	if value == nil {
 		return nil, false
 	}

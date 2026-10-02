@@ -1,0 +1,18 @@
+{
+  "status": "verified-and-linked",
+  "new_reader": "dql/agently/run/steps/read/reader.dql",
+  "retired_draft": "dql/agently/run/steps/steps/reader/reader.dql",
+  "checks": 20,
+  "legacy_comparisons": 10,
+  "native_scope_selector_checks": 10,
+  "semantic_correction": "Legacy supplied stepTypes returns no rows; generated reader filters the post-UNION step_type and returns the requested model/tool facts. The test proves both the legacy empty result and corrected native result.",
+  "security": "Host internal/subject bindings scope physical run effective user and private conversation visibility outside optional filters; HTTP cannot override these bindings.",
+  "execution": "Stock Datly transcribe get. No authored execution Go, direct product SQL, or handwritten reader plumbing.",
+  "focused_endly": {
+    "status": "SUCCESS",
+    "log": "/tmp/agently-runsteps-endly-verify.log",
+    "tests_seconds": 16.361,
+    "workflow_ms": 19803
+  },
+  "app_caller": "Root/application SDK1 cutover remains; existing SDK0 caller keeps GetRun authorization and post-read conversation authorization"
+}

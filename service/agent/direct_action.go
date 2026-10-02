@@ -8,8 +8,8 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/internal/logx"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	agenttool "github.com/viant/agently-core/service/agent/tool"
 	intakesvc "github.com/viant/agently-core/service/intake"
@@ -41,9 +41,9 @@ func modelDirectActionToolAllowed(toolName string, policy *agentmdl.ModelDirectA
 	if policy == nil {
 		return false
 	}
-	name := strings.ToLower(strings.TrimSpace(mcpname.Canonical(toolName)))
+	name := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(toolName)))
 	for _, allowed := range policy.AllowedTools {
-		if name == strings.ToLower(strings.TrimSpace(mcpname.Canonical(allowed))) {
+		if name == strings.ToLower(strings.TrimSpace(mcpname2.Canonical(allowed))) {
 			return true
 		}
 	}
@@ -72,7 +72,7 @@ func validateDirectAction(action *intakesvc.DirectActionContext) error {
 	if action.Input == nil {
 		return fmt.Errorf("direct action input is required")
 	}
-	switch strings.ToLower(strings.TrimSpace(mcpname.Display(toolName))) {
+	switch strings.ToLower(strings.TrimSpace(mcpname2.Display(toolName))) {
 	case "ui/view/open":
 		if strings.TrimSpace(stringValue(action.Input["id"])) == "" {
 			items, ok := action.Input["items"].([]interface{})
@@ -126,7 +126,7 @@ func (s *Service) directActionAllowedToolNames(ctx context.Context, cfg *agentmd
 	}
 	allowed := make(map[string]struct{}, len(defs))
 	for _, def := range defs {
-		name := strings.TrimSpace(mcpname.Canonical(def.Name))
+		name := strings.TrimSpace(mcpname2.Canonical(def.Name))
 		if name == "" {
 			continue
 		}
@@ -143,7 +143,7 @@ func (s *Service) authorizeDirectAction(ctx context.Context, input *QueryInput, 
 	if err != nil {
 		return err
 	}
-	toolName := strings.ToLower(strings.TrimSpace(mcpname.Canonical(action.ToolName)))
+	toolName := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(action.ToolName)))
 	if toolName == "" {
 		return fmt.Errorf("direct action toolName is required")
 	}

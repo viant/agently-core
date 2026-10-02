@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-30",
+  "scope": "Data facade single-conversation and authorization-base reads",
+  "changes": [
+    "app/store/data.GetConversation chooses the canonical Datly v1 conversation reader when the shared native host is available",
+    "The authorization lookup reads only base conversation fields through the generated reader",
+    "Legacy input presence flags are mapped to generated predicates; the facade retains its existing post-read visibility check and public DTO shape"
+  ],
+  "verified": [
+    "Linked-host base-row read returns identity and owner without transcript expansion",
+    "Full app/store/native package passed with the v1 scratch modfile",
+    "Full nested Endly passed 60/60 transcription, byte-stable regeneration, boundary audit, nested tests (166.940s) and linked-host build"
+  ],
+  "remaining": [
+    "app/store/data still fails package setup on SDK0 Datly and split-xdatly imports, so the new root branches have not compiled or run through application routes",
+    "Data-facade DTOs, list/message/run callers and conversation-tree maintenance still need native conversion",
+    "Public route and MySQL parity are unverified"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-data-conversation-read.log"
+}

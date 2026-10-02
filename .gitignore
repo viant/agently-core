@@ -1,6 +1,8 @@
 .idea
-datly
+/datly
 bin/
+!workspace/defaults/bin/
+!workspace/defaults/bin/playwright-cli
 repo/
 logs/
 node_modules/

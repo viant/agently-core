@@ -12,9 +12,9 @@ import (
 	iauth "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	asyncnarrator "github.com/viant/agently-core/protocol/async/narrator"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	"github.com/viant/agently-core/protocol/tool"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -734,7 +734,7 @@ func synthesizeAsyncOperationID(step StepInfo, requestDigest string) string {
 }
 
 func sameToolName(actual, expected string) bool {
-	return strings.EqualFold(strings.TrimSpace(mcpname.Canonical(actual)), strings.TrimSpace(mcpname.Canonical(expected)))
+	return strings.EqualFold(strings.TrimSpace(mcpname2.Canonical(actual)), strings.TrimSpace(mcpname2.Canonical(expected)))
 }
 
 func maybeStartAsyncPoller(ctx context.Context, manager *asynccfg.Manager, reg tool.Registry, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {

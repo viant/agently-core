@@ -1,0 +1,28 @@
+=== RUN   TestMaintainScheduledRun_MySQLDryRunCurrentAndLegacyThenDelete
+--- PASS: TestMaintainScheduledRun_MySQLDryRunCurrentAndLegacyThenDelete (9.52s)
+=== RUN   TestMaintainConversationTree_ScheduledFallbackMySQL
+--- PASS: TestMaintainConversationTree_ScheduledFallbackMySQL (6.52s)
+=== RUN   TestDeleteScheduledRun_MySQLDeletesCurrentAndLegacyButKeepsScheduleAndNewerRun
+--- PASS: TestDeleteScheduledRun_MySQLDeletesCurrentAndLegacyButKeepsScheduleAndNewerRun (10.88s)
+=== RUN   TestDeleteConversationTree_MySQLStage1
+--- PASS: TestDeleteConversationTree_MySQLStage1 (13.29s)
+=== RUN   TestDeleteConversationTree_MySQLLegacyNullStatusWithStaleRun
+--- PASS: TestDeleteConversationTree_MySQLLegacyNullStatusWithStaleRun (10.52s)
+=== RUN   TestDeleteScheduledRun_MySQL
+--- PASS: TestDeleteScheduledRun_MySQL (13.63s)
+=== RUN   TestMaintainConversationTree_MySQL
+--- PASS: TestMaintainConversationTree_MySQL (10.51s)
+=== RUN   TestMaintenanceLease_MySQLAcquireRenewReleaseAndFence
+--- PASS: TestMaintenanceLease_MySQLAcquireRenewReleaseAndFence (3.79s)
+=== RUN   TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses
+    service_orphan_maintenance_mysql_test.go:176: MySQL orphan dry-run: controlled_candidates=8
+    service_orphan_maintenance_mysql_test.go:210: MySQL orphan maintenance: results=map[deleted:5 detached:2 no_longer_eligible:1]
+--- PASS: TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses (12.18s)
+=== RUN   TestMaintainOrphanCandidate_MySQLInvestigationEligibilityAndRecheck
+--- PASS: TestMaintainOrphanCandidate_MySQLInvestigationEligibilityAndRecheck (7.10s)
+=== RUN   TestDataService_RunRecoveryClaimMySQLSmoke
+--- PASS: TestDataService_RunRecoveryClaimMySQLSmoke (4.13s)
+=== RUN   TestTechnicalMaintenance_MySQLDeletesTechnicalStateAndPreservesSavedReports
+--- PASS: TestTechnicalMaintenance_MySQLDeletesTechnicalStateAndPreservesSavedReports (6.94s)
+PASS
+ok  	github.com/viant/agently-core/app/store/data	110.146s

@@ -8,16 +8,16 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/data"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
+	runmodel "github.com/viant/agently-core/model/run"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
 type capturePatchRunsService struct {
 	data.Service
-	rows []*agrunwrite.MutableRunView
+	rows []*runmodel.MutableRunView
 }
 
-func (s *capturePatchRunsService) PatchRuns(_ context.Context, rows []*agrunwrite.MutableRunView) ([]*agrunwrite.MutableRunView, error) {
+func (s *capturePatchRunsService) PatchRuns(_ context.Context, rows []*runmodel.MutableRunView) ([]*runmodel.MutableRunView, error) {
 	s.rows = append(s.rows, rows...)
 	return rows, nil
 }

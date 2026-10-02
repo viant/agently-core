@@ -1,0 +1,1 @@
+SELECT t.* FROM  (SELECT c.* FROM users c)  t

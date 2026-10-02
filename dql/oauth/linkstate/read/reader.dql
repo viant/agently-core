@@ -1,0 +1,28 @@
+#package('github.com/viant/agently-core/internal/datly/oauth/linkstate/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/user/oauth/linkstate/current','GET'))
+#setting($_ = $input_type('LinkStateInput'))
+#setting($_ = $output_type('LinkStateOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(linkStateAccess/internal).Required())
+#define($_ = $Mode<string>(query/mode).Optional().Value('lookup'))
+#define($_ = $Before<string>(query/before).Optional())
+#define($_ = $FlowHash<string>(query/flowHash).Optional())
+#define($_ = $StateHash<string>(query/stateHash).Optional())
+#define($_ = $Pending<bool>(query/pending).Optional().Value('false'))
+#define($_ = $Data<[]*LinkStateView>(output/view))
+
+SELECT link_state.*,
+       type(link_state,'LinkStateView'),
+       required(link_state.state_hash),
+       required(link_state.flow_hash),
+       required(link_state.user_id),
+       required(link_state.session_hash),
+       required(link_state.provider),
+       CAST(link_state.expires_at AS string),
+       CAST(link_state.consumed_at AS *string),
+       CAST(link_state.created_at AS string)
+FROM (${embed:sql/linkstate.sql}) link_state

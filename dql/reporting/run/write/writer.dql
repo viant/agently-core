@@ -1,0 +1,43 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/run/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/run','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(reportAccess/internal).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required().WithPredicate(8,'equal','report_run','owner_id'))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $Mode<string>(query/mode).Required())
+#define($_ = $DesiredRevision<int64>(query/desiredRevision).Optional())
+#define($_ = $ExpectedRequestID<string>(query/expectedRequestId).Optional().WithPredicate(8,'equal','report_run','ui_run_request_id'))
+#define($_ = $Runs<[]*Run>(body/data))
+#define($_ = $Data<[]*Run>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'error'),
+       type(t,'Run'),
+       lifecycle_type(t,'Lifecycle'),
+       concurrency_token(t.revision),
+       mutation_predicate(t,8),
+       required(t.report_run_id),
+       tag(t.report_run_id,'sqlx:"report_run_id,primaryKey=true,required=true"'),
+       required(t.owner_id),
+       required(t.materializer),
+       CAST(t.requested_params_json AS []byte),
+       CAST(t.effective_params_json AS []byte),
+       required(t.status),
+       required(t.started_at),
+       CAST(t.revision AS int64),
+       required(t.ui_run_request_id),
+       CAST(t.report_spec_json AS []byte),
+       CAST(t.report_fill_json AS []byte),
+       CAST(t.report_print_json AS []byte),
+       required(t.created_at),
+       required(t.updated_at)
+FROM (${embed:sql/run.sql}) t

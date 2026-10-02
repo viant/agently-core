@@ -1,0 +1,79 @@
+{
+  "status": "ROOT TOKEN STORE USES GENERATED V1 COMPONENTS; MYSQL/APP VERIFICATION PENDING",
+  "root_source": "service/auth/tokenstore_datly.go",
+  "component_reader": "datlyv1/dql/agently/user/oauth/token/reader/reader.dql",
+  "component_writer": "datlyv1/dql/agently/user/oauth/write/writer.dql",
+  "authoring_policy": "All product DB access remains in generated Datly reader/writer. Encryption, provider selection and expired-token filtering remain Go codecs/business logic. Schema width is infrastructure metadata, not product DML.",
+  "operations": [
+    {
+      "legacy_method": "Get",
+      "contract": "reader by user_id; select exact provider then first non-delegated fallback in Go",
+      "target": "generated reader + existing chooseTokenRow codec",
+      "evidence": "focused reader fields passed"
+    },
+    {
+      "legacy_method": "GetExact",
+      "contract": "reader by user_id and provider",
+      "target": "generated reader",
+      "evidence": "focused provider predicate passed"
+    },
+    {
+      "legacy_method": "ListDelegated",
+      "contract": "reader by user_id; filter mcp:v1 providers and decrypt in Go",
+      "target": "generated reader + existing codec",
+      "evidence": "caller pending"
+    },
+    {
+      "legacy_method": "ScanExpiring",
+      "contract": "reader over encrypted rows; decrypt and filter refresh-token expiry in Go",
+      "target": "generated reader + existing codec",
+      "evidence": "caller pending; legacy also scans all rows"
+    },
+    {
+      "legacy_method": "Put",
+      "contract": "default generated PATCH writer after application encryption",
+      "target": "generated writer",
+      "evidence": "SDK0 parity passed"
+    },
+    {
+      "legacy_method": "Delete",
+      "contract": "mode clear: blank ciphertext, increment version, reset lease/status and update timestamp",
+      "target": "generated writer lifecycle",
+      "evidence": "SQLite mode test passed"
+    },
+    {
+      "legacy_method": "migrateCiphertext",
+      "contract": "mode migrate with old encrypted value as mutation predicate; increment version",
+      "target": "generated writer + CAS predicate",
+      "evidence": "SQLite stale/success passed"
+    },
+    {
+      "legacy_method": "TryAcquireRefreshLease",
+      "contract": "mode claim with database UTC guard; reader DBNow plus TTL supplies leaseUntil",
+      "target": "generated reader/writer + TokenLeasePredicate",
+      "evidence": "SQLite idle/expired/live-lease passed; root caller/MySQL pending"
+    },
+    {
+      "legacy_method": "ReleaseRefreshLease",
+      "contract": "mode release with lease owner mutation predicate; clear lease without version bump",
+      "target": "generated writer + predicate",
+      "evidence": "SQLite success/stale passed"
+    },
+    {
+      "legacy_method": "CASPut",
+      "contract": "mode cas_put with version and lease owner mutation predicates; update ciphertext/version and reset lease",
+      "target": "generated writer + predicates",
+      "evidence": "SQLite success/stale passed"
+    },
+    {
+      "legacy_method": "ValidateProviderColumnWidth",
+      "contract": "live provider VARCHAR width through SQLX schema metadata, not application SQL",
+      "target": "Datly schema metadata capability needed",
+      "evidence": "Root auth suite passed on generated component and Datly metadata path; MySQL live check pending"
+    }
+  ],
+  "root_remaining": [
+    "Run isolated MySQL live provider-width and contention cases; SQLite auth suite passes.",
+    "Remove other root direct product SQL and SDK0 imports before full app/SDK route verification."
+  ]
+}
