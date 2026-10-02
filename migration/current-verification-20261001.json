@@ -47,6 +47,20 @@
     "result": "PASS",
     "scope": "Current local Core through private modfile; does not prove the published application includes this revision"
   },
+  "javascript_unit_checks": {
+    "ui": {
+      "command": "APPSERVER_URL=http://127.0.0.1:53702 npm test",
+      "result": "PASS; 120 files, 1020 tests, 24.51s",
+      "log": "/tmp/agently-ui-final-unit-tests.log",
+      "configuration": "Initial run stopped at the documented missing backend-target check; rerun supplied the required setting"
+    },
+    "typescript_sdk": {
+      "command": "npm test",
+      "result": "PASS; 32 files passed, 2 skipped; 408 tests passed, 5 skipped; 1.91s",
+      "log": "/tmp/agently-sdk-ts-final-tests.log"
+    },
+    "scope": "Unit checks only; does not prove browser OAuth, tooltip interaction, or live SQLite/MySQL UI behavior"
+  },
   "schema_and_source": {
     "original_mysql_schema_comparison": "PASS; all three MySQL DDL files byte-identical to original Core",
     "original_sqlite_schema_comparison": "PASS; internal/script/sqlite/schema.ddl and script/schema.ddl byte-identical to original Core",
