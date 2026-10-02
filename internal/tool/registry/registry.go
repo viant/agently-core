@@ -496,7 +496,12 @@ func newToolCacheEntry(def *llm.ToolDefinition, mcpDef mcpschema.Tool, inject bo
 	if def == nil {
 		return nil
 	}
-	support := maybeInjectTimeoutMs(def, inject)
+	// Discovery may already have added the host-only timeout field to def.
+	// Only the original MCP schema can establish native argument support.
+	_ = maybeInjectTimeoutMs(def, inject)
+	_, native := mcpDef.InputSchema.Properties[timeoutMsField]
+	_, advertised := toolProperties(def)[timeoutMsField]
+	support := timeoutSupport{native: native, injected: advertised && !native}
 	return &toolCacheEntry{def: *def, mcpDef: mcpDef, timeoutSupport: support}
 }
 

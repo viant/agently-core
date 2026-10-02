@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -110,6 +111,131 @@ func TestExecute_TimeoutMsNative_PreservesArgs(t *testing.T) {
 	delta := time.Until(gotDeadline)
 	require.Greater(t, delta, 50*time.Millisecond)
 	require.Less(t, delta, time.Second)
+}
+
+func TestExecute_TimeoutMsInjectedFromMCPToolCacheIsStrippedForAllAliases(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		cache func(*Registry, string, []mcpschema.Tool)
+	}{
+		{name: "merged", cache: (*Registry).mergeServerTools},
+		{name: "replaced", cache: (*Registry).replaceServerTools},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &timeoutArgumentClient{toolListClient: &toolListClient{}}
+			mgr := &discoveryManagerStub{getFunc: func(_, server string) (mcpclient.Interface, error) {
+				require.Equal(t, "remote", server)
+				return client, nil
+			}}
+			reg := &Registry{
+				mgr:            mgr,
+				cache:          map[string]*toolCacheEntry{},
+				virtualTimeout: map[string]timeoutSupport{},
+				recentResults:  map[string]map[string]recentItem{},
+			}
+			properties := mcpschema.ToolInputSchemaProperties{"foo": {"type": "string"}}
+			tool := mcpschema.Tool{Name: "ping", InputSchema: mcpschema.ToolInputSchema{Type: "object", Properties: properties}}
+			tc.cache(reg, "remote", []mcpschema.Tool{tool})
+
+			entry := reg.cache["remote/ping"]
+			require.NotNil(t, entry)
+			require.Same(t, entry, reg.cache["remote:ping"])
+			require.Contains(t, properties, "foo")
+			require.NotContains(t, properties, timeoutMsField, "the virtual parameter must not mutate the MCP schema")
+			definition, ok := reg.GetDefinition("remote:ping")
+			require.True(t, ok, "the advertised colon alias should resolve")
+			definitionProperties := toolProperties(definition)
+			require.Contains(t, definitionProperties, timeoutMsField)
+
+			for _, name := range []string{"remote/ping", "remote:ping"} {
+				args := map[string]interface{}{"foo": "bar", timeoutMsField: 200.0}
+				_, err := reg.Execute(context.Background(), name, args)
+				require.NoError(t, err, "synthetic timeoutMs must be stripped before MCP validation")
+				require.Equal(t, 200.0, args[timeoutMsField], "execution must not mutate caller arguments")
+			}
+
+			calls := client.snapshot()
+			require.Len(t, calls, 2)
+			for _, call := range calls {
+				require.Equal(t, "ping", call.name)
+				require.Equal(t, map[string]interface{}{"foo": "bar"}, call.args)
+				require.True(t, call.hasDeadline)
+				require.Greater(t, time.Until(call.deadline), 50*time.Millisecond)
+				require.Less(t, time.Until(call.deadline), time.Second)
+			}
+		})
+	}
+}
+
+func TestExecute_TimeoutMsNativeFromMCPToolSchemaIsPreserved(t *testing.T) {
+	client := &timeoutArgumentClient{toolListClient: &toolListClient{}, allowTimeoutMs: true}
+	mgr := &discoveryManagerStub{getFunc: func(_, server string) (mcpclient.Interface, error) {
+		require.Equal(t, "remote", server)
+		return client, nil
+	}}
+	reg := &Registry{
+		mgr:            mgr,
+		cache:          map[string]*toolCacheEntry{},
+		virtualTimeout: map[string]timeoutSupport{},
+		recentResults:  map[string]map[string]recentItem{},
+	}
+	properties := mcpschema.ToolInputSchemaProperties{
+		"foo":          {"type": "string"},
+		timeoutMsField: {"type": "integer"},
+	}
+	tool := mcpschema.Tool{Name: "ping", InputSchema: mcpschema.ToolInputSchema{Type: "object", Properties: properties}}
+	reg.replaceServerTools("remote", []mcpschema.Tool{tool})
+
+	entry := reg.cache["remote/ping"]
+	require.NotNil(t, entry)
+	require.Contains(t, properties, timeoutMsField, "native schema must remain unchanged")
+	args := map[string]interface{}{"foo": "bar", timeoutMsField: int64(200)}
+	_, err := reg.Execute(context.Background(), "remote:ping", args)
+	require.NoError(t, err)
+	require.Equal(t, int64(200), args[timeoutMsField], "execution must not mutate caller arguments")
+
+	calls := client.snapshot()
+	require.Len(t, calls, 1)
+	require.Equal(t, "ping", calls[0].name)
+	require.Equal(t, map[string]interface{}{"foo": "bar", timeoutMsField: int64(200)}, calls[0].args)
+	require.True(t, calls[0].hasDeadline)
+	require.Greater(t, time.Until(calls[0].deadline), 50*time.Millisecond)
+	require.Less(t, time.Until(calls[0].deadline), time.Second)
+}
+
+type timeoutArgumentCall struct {
+	name        string
+	args        map[string]interface{}
+	deadline    time.Time
+	hasDeadline bool
+}
+
+type timeoutArgumentClient struct {
+	*toolListClient
+	allowTimeoutMs bool
+	mu             sync.Mutex
+	calls          []timeoutArgumentCall
+}
+
+func (c *timeoutArgumentClient) CallTool(ctx context.Context, params *mcpschema.CallToolRequestParams, options ...mcpclient.RequestOption) (*mcpschema.CallToolResult, error) {
+	args := make(map[string]interface{}, len(params.Arguments))
+	for key, value := range params.Arguments {
+		if key != "foo" && !(key == timeoutMsField && c.allowTimeoutMs) {
+			return nil, fmt.Errorf("-32602 unknown MCP argument %q", key)
+		}
+		args[key] = value
+	}
+	deadline, hasDeadline := ctx.Deadline()
+	c.mu.Lock()
+	c.calls = append(c.calls, timeoutArgumentCall{name: params.Name, args: args, deadline: deadline, hasDeadline: hasDeadline})
+	c.mu.Unlock()
+	return &mcpschema.CallToolResult{}, nil
+}
+
+func (c *timeoutArgumentClient) snapshot() []timeoutArgumentCall {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]timeoutArgumentCall(nil), c.calls...)
 }
 
 func TestEnsureTimeoutMs_SkipsWhenTimeoutSecPresent(t *testing.T) {
