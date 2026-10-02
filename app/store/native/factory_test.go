@@ -93,7 +93,7 @@ func TestWorkspaceRuntimeToolExecutionClaimRepository(t *testing.T) {
 	server, err := native.New(ctx, native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
