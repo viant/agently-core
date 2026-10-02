@@ -108,7 +108,7 @@
     "Current authoritative checkpoint: migration/current-verification-20261001.json; prior requirement PASS records are historical.",
     "Full Core suite has eight maintenance failures in Data/Native from published SQLparser limitations; dependency correction awaits approval.",
     "Fresh rebuilt SQLite conversation fails observer OnCallStart with database table is locked: message; diagnosis ongoing.",
-    "Queued-turn cancellation, tooltip, live skill/MCP activation and legacy DTO audit remain incomplete.",
+    "Native HTTP queued-turn cancellation now passes SQLite/MySQL; browser flow, tooltip, live skill/MCP activation and legacy DTO audit remain incomplete.",
     "Final Core revision must be published and pinned in Agently."
   ]
 }

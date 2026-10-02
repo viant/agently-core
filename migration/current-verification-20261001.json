@@ -35,10 +35,18 @@
     "sqlite": "FAIL; HTTP 500 observer OnCallStart: database table is locked: message",
     "scope": "Rebuilt local binary with actual IdP OOB credentials and Mercury model; existing owned fixtures"
   },
+  "queued_turn_http": {
+    "command": "AGENTLY_TEST_MYSQL_DSN=<protected owned fixture> go test ./sdk -run '^TestHTTPQueuedTurnCancellationNative$' -count=1",
+    "result": "PASS 4.246s; SQLite and MySQL both executed",
+    "test": "sdk/handler_turns_native_test.go",
+    "log": "/tmp/agently-native-http-queued-cancel.log",
+    "scope": "Real HTTP server and production cancellation handler backed by native Datly stores; injected test identity, not a browser OAuth test",
+    "assertions": ["queued cancellation returns 204", "turn and queue status persist as canceled", "starter message status persists as cancel", "completed turn returns 409 and stays succeeded"]
+  },
   "remaining": [
     "Diagnose and correct fresh SQLite conversation message-table lock",
     "Approve/publish the SQLparser dependency correction and rerun maintenance/full-suite gates",
-    "Complete queued-turn cancellation, tooltip and live skill/MCP activation checks",
+    "Complete tooltip and live skill/MCP activation checks; browser cancellation flow remains unverified",
     "Refresh expired UI OAuth session and finish browser verification",
     "Finish legacy DTO authority/unused-code audit",
     "Publish final Core revision and pin Agently to it; current remote Core v1 is 8dc2927f"
