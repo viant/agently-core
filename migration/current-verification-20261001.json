@@ -10,6 +10,15 @@
     "regeneration_milliseconds": 80989,
     "log": "/tmp/agently-core-final-regeneration.log"
   },
+  "latest_generation": {
+    "core_revision": "cec4cfe3",
+    "command": "endly -r=build; endly -r=regeneration",
+    "scope": "Isolated committed tree; all 66 DQL contracts and 967 internal/datly files",
+    "result": "PASS; regenerated tree byte-identical",
+    "build_milliseconds": 22345,
+    "regeneration_milliseconds": 59890,
+    "log": "/tmp/agently-core-final66-regeneration.log"
+  },
   "stock_validation_diagnostic": {
     "result": "FAIL; separate from operation-aware transcription/regeneration",
     "existing_source_validation": "Writer operation normalization rejects delete_not_found unless a writable PATCH/PUT view is established",
@@ -118,12 +127,27 @@
     "skill_activation": "Completed in original MySQL conversation",
     "post_activation_call": "FAIL; skill origin gate still reparses datly/datly/components as a different server; exact discovered identity must be reused without widening permissions"
   },
+  "final_live_skill_origin_check": {
+    "fix_commit": "4bbf2aad",
+    "candidate_includes": "cec4cfe3 delete-only writer and current committed Core changes",
+    "mysql_conversation": "90bc3cd8-bffd-4753-9c08-0de08a5b8b43",
+    "sqlite_conversation": "def00167-bdd7-4e4e-a168-33f844d84e7c",
+    "result": "PASS on both databases; transcripts confirm completed llm/skills/activate followed by completed datly/datly/components",
+    "returned_routes": ["GET /records/get", "PATCH /records/patch"],
+    "mysql_scope": "Unchanged original-schema fixture with no sequence ledger",
+    "permissions": "Existing origin restrictions retained; exact discovered identity reused"
+  },
+  "run_response_case_policy": {
+    "policy": "Lower camel case, consistent with declared DQL case_format('lc') and the user's case-formatting request",
+    "compatibility_note": "Original handwritten run DTO emitted PascalCase. The canonical generated alias now emits lower camel case; this is explicitly recorded as a casing change",
+    "test": "TestHandler_GetRun verifies id/status/turnId/conversationId and excludes legacy Id spelling",
+    "result": "PASS 1.486s; /tmp/agently-sdk-run-case-policy.log"
+  },
   "remaining": [
     "Finish post-driver-restoration live checks and final test gates",
     "Resolve original SQLite malformed-heartbeat deletion and duplicate-claim compatibility failures",
-    "Confirm SDK run endpoint casing contract and apply matching checks",
     "Approve/publish the SQLparser dependency correction and rerun maintenance/full-suite gates",
-    "Correct post-activation MCP skill origin lookup; bare components dispatch now passes; tooltip and browser cancellation flow remain unverified",
+    "Finish tooltip and browser cancellation flow after browser sign-in; live skill activation and tool invocation now pass on both databases",
     "Refresh expired UI OAuth session and finish browser verification",
     "Finish legacy DTO authority/unused-code audit",
     "Publish final Core revision and pin Agently to it; current remote Core v1 is 8dc2927f"
