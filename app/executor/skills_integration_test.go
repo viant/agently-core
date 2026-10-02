@@ -1609,12 +1609,41 @@ func TestRuntimeQuery_DetachSkillActivation_RoutesLLMRequestThroughChildConversa
 		if err != nil {
 			t.Fatalf("read payload %s: %v", path, err)
 		}
-		if payloadContains(data, "# Demo Skill") && payloadContains(data, "Use the detached instructions.") {
-			if payloadContains(data, "llm_skills-list") || payloadContains(data, "llm/skills:list") || payloadContains(data, "llm_skills-activate") || payloadContains(data, "llm/skills:activate") {
-				t.Fatalf("expected detach child llm-request to avoid recursive skill tools: %s", string(data))
+		var request struct {
+			DebugContext struct {
+				ConversationID string `json:"conversationId"`
+			} `json:"debugContext"`
+			Options struct {
+				Tools []struct {
+					Definition struct {
+						Name string `json:"name"`
+					} `json:"definition"`
+				} `json:"tools"`
+			} `json:"options"`
+			Messages []struct {
+				Role    string `json:"role"`
+				Content string `json:"content"`
+			} `json:"messages"`
+		}
+		if err := json.Unmarshal(data, &request); err != nil {
+			t.Fatalf("decode payload %s: %v", path, err)
+		}
+		if request.DebugContext.ConversationID == "conv-skill-detach" {
+			continue
+		}
+		for _, message := range request.Messages {
+			if message.Role != "system" || !strings.Contains(message.Content, "# Demo Skill") || !strings.Contains(message.Content, "Use the detached instructions.") {
+				continue
+			}
+			if request.DebugContext.ConversationID == "" {
+				t.Fatalf("child payload lacks conversation identity: %s", path)
+			}
+			for _, tool := range request.Options.Tools {
+				if tool.Definition.Name == "llm_skills-list" || tool.Definition.Name == "llm/skills:list" || tool.Definition.Name == "llm_skills-activate" || tool.Definition.Name == "llm/skills:activate" {
+					t.Fatalf("child request advertises recursive skill tools: %s", path)
+				}
 			}
 			foundChild = true
-			break
 		}
 	}
 	if !foundChild {
