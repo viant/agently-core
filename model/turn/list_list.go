@@ -1,6 +1,7 @@
 package turn
 
 import (
+	read "github.com/viant/agently-core/internal/datly/turn/read"
 	"github.com/viant/xdatly/response"
 
 	"time"
@@ -35,21 +36,7 @@ type TurnRowsOutput struct {
 	Metrics         response.Metrics
 }
 
-type TurnRowsView struct {
-	Id                    string    `sqlx:"id"`
-	ConversationId        string    `sqlx:"conversation_id"`
-	CreatedAt             time.Time `sqlx:"created_at"`
-	QueueSeq              *int      `sqlx:"queue_seq"`
-	Status                string    `sqlx:"status"`
-	ErrorMessage          *string   `sqlx:"error_message"`
-	StartedByMessageId    *string   `sqlx:"started_by_message_id"`
-	RetryOf               *string   `sqlx:"retry_of"`
-	AgentIdUsed           *string   `sqlx:"agent_id_used"`
-	AgentConfigUsedId     *string   `sqlx:"agent_config_used_id"`
-	ModelOverrideProvider *string   `sqlx:"model_override_provider"`
-	ModelOverride         *string   `sqlx:"model_override"`
-	ModelParamsOverride   *string   `sqlx:"model_params_override"`
-	RunId                 *string   `sqlx:"run_id"`
-}
+// TurnRowsView uses the canonical DQL reader shape.
+type TurnRowsView = read.TurnRowsView
 
 var TurnRowsPathURI = "/v1/api/agently/turn/list/list"
