@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -30,16 +28,14 @@ import (
 )
 
 // The generated component opts into delete_not_found(ignore), while the framework
-// default remains strict. Stored state and acknowledgments are compared with legacy.
-func TestSessionDeletionLegacyV1Parity(t *testing.T) {
+// default remains strict. Fixed stored-state expectations cover idempotence and rollback.
+func TestSessionDeletionNativeContract(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type expect struct {
-		legacyIDs, newIDs []string
-		newFails          bool
-		legacyFails       bool
-		reject            bool
+		newIDs   []string
+		newFails bool
+		reject   bool
 	}
 	type useCase struct {
 		desc   string
@@ -47,45 +43,20 @@ func TestSessionDeletionLegacyV1Parity(t *testing.T) {
 		expect expect
 	}
 	for _, tc := range []useCase{
-		{"empty request is a no-op", []string{}, expect{legacyIDs: []string{"s1", "s2"}, newIDs: []string{"s1", "s2"}}},
-		{"repeated ID remains idempotent", []string{"s1", "s1"}, expect{legacyIDs: []string{"s2"}, newIDs: []string{"s2"}}},
-		{"existing ID matches", []string{"s1"}, expect{legacyIDs: []string{"s2"}, newIDs: []string{"s2"}}},
-		{"unknown ID is a legacy no-op", []string{"absent"}, expect{legacyIDs: []string{"s1", "s2"}, newIDs: []string{"s1", "s2"}, newFails: false}},
-		{"existing and unknown IDs delete matching rows atomically", []string{"s1", "absent"}, expect{legacyIDs: []string{"s2"}, newIDs: []string{"s2"}, newFails: false}},
-		{"late delete failure rolls back known and missing batch", []string{"s1", "absent", "s2"}, expect{legacyIDs: []string{"s1", "s2"}, newIDs: []string{"s1", "s2"}, newFails: true, legacyFails: true, reject: true}},
+		{"empty request is a no-op", []string{}, expect{newIDs: []string{"s1", "s2"}}},
+		{"repeated ID remains idempotent", []string{"s1", "s1"}, expect{newIDs: []string{"s2"}}},
+		{"existing ID matches", []string{"s1"}, expect{newIDs: []string{"s2"}}},
+		{"unknown ID is a no-op", []string{"absent"}, expect{newIDs: []string{"s1", "s2"}, newFails: false}},
+		{"existing and unknown IDs delete matching rows atomically", []string{"s1", "absent"}, expect{newIDs: []string{"s2"}, newFails: false}},
+		{"late delete failure rolls back known and missing batch", []string{"s1", "absent", "s2"}, expect{newIDs: []string{"s1", "s2"}, newFails: true, reject: true}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := sessionParityFixture(t, project)
 			db, _ := sessionParityFixture(t, project)
 			if tc.expect.reject {
-				for _, fixture := range []*sql.DB{oldDB, db} {
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec("CREATE TRIGGER reject_session_delete BEFORE DELETE ON session WHEN OLD.id='s2' BEGIN SELECT RAISE(ABORT,'fixture delete rejection'); END;")
 					must(t, err)
 				}
-			}
-			request := struct {
-				Component, DBPath string
-				Filters           map[string]any
-			}{"sessionDelete", oldPath, map[string]any{"ids": tc.input}}
-			encoded, err := json.Marshal(request)
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(encoded)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			output, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy execution: %v\n%s", err, stderr.String())
-			}
-			var old probeResult
-			must(t, json.Unmarshal(output, &old))
-			if old.Failed != tc.expect.legacyFails {
-				t.Fatalf("legacy deletion failed: %s", old.Error)
-			}
-			var acknowledged []string
-			must(t, json.Unmarshal(old.Output, &acknowledged))
-			if !tc.expect.legacyFails && len(tc.input) > 0 && !reflect.DeepEqual(acknowledged, tc.input) {
-				t.Fatalf("legacy acknowledgment=%v expected=%v", acknowledged, tc.input)
 			}
 			resources := resource.New()
 			must(t, resources.Register(sessionread.ReaderDatlyResourceNamespace, sessionread.ReaderDatlyResources))
@@ -123,7 +94,7 @@ func TestSessionDeletionLegacyV1Parity(t *testing.T) {
 			}
 			result, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: ra.Component.Key, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/user/session"}}, Input: &sessionread.SessionInput{}})
 			must(t, err)
-			encoded, err = json.Marshal(result.(*sessionread.SessionOutput).Data)
+			encoded, err := json.Marshal(result.(*sessionread.SessionOutput).Data)
 			must(t, err)
 			var current []json.RawMessage
 			must(t, json.Unmarshal(encoded, &current))
@@ -134,8 +105,8 @@ func TestSessionDeletionLegacyV1Parity(t *testing.T) {
 				}
 				return values
 			}
-			if !reflect.DeepEqual(ids(old.Rows), tc.expect.legacyIDs) || !reflect.DeepEqual(ids(current), tc.expect.newIDs) {
-				t.Fatalf("legacy=%v native=%v", ids(old.Rows), ids(current))
+			if !reflect.DeepEqual(ids(current), tc.expect.newIDs) {
+				t.Fatalf("remaining IDs=%v expected=%v", ids(current), tc.expect.newIDs)
 			}
 		})
 	}

@@ -3,15 +3,14 @@ package orphanmaintenance
 import (
 	"context"
 	"fmt"
-	"reflect"
 	"time"
 
 	read "github.com/viant/agently-core/internal/datly/orphanmaintenance/read"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	maintenance "github.com/viant/agently-core/internal/store/maintenancelease"
 	dexec "github.com/viant/datly/exec"
+	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
-	"github.com/viant/x"
 	xdatly "github.com/viant/xdatly"
 	"github.com/viant/xdatly/handler"
 )
@@ -31,19 +30,14 @@ type ApplyOutput struct {
 type Apply struct{}
 
 func NewApply() handler.Contract[ApplyInput, ApplyOutput] { return &Apply{} }
-func Exports() (*x.Registry, error) {
-	registry := x.NewRegistry()
-	for _, typ := range []reflect.Type{reflect.TypeFor[ApplyInput](), reflect.TypeFor[ApplyOutput]()} {
-		registry.Register(x.NewType(typ))
+
+// DatlyHandler binds the holder's declared handler to its typed implementation.
+// Linked package discovery calls this provider without a host registration list.
+func (ApplyComponent) DatlyHandler(name string) func() (rh.TypedHandler, error) {
+	if name != "NewApply" {
+		return nil
 	}
-	factory, err := x.NewFunction(reflect.TypeFor[ApplyComponent]().PkgPath(), "NewApply", custom.Factory(NewApply))
-	if err != nil {
-		return nil, err
-	}
-	if err = registry.RegisterFunctions(factory); err != nil {
-		return nil, err
-	}
-	return registry, nil
+	return custom.Factory(NewApply)
 }
 func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInput, output *ApplyOutput) error {
 	if session == nil || session.Binder() == nil || input == nil || output == nil {

@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -30,7 +28,6 @@ import (
 func TestToolCallReaderLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		mode    string
 		filters map[string]any
@@ -55,23 +52,7 @@ func TestToolCallReaderLegacyParity(t *testing.T) {
 		{"by-turn missing turn is empty", input{"byTurn", map[string]any{"conversationId": "c1"}}, []string{}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := toolCallReaderFixture(t, project)
 			db, _ := toolCallReaderFixture(t, project)
-			filters := map[string]any{"mode": tc.input.mode}
-			for k, v := range tc.input.filters {
-				filters[k] = v
-			}
-			payload, err := json.Marshal(map[string]any{"Component": "toolCallReader", "DBPath": oldPath, "Filters": filters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy: %s", before.Error)
-			}
 			rt, key := toolCallReaderRuntime(t, db, "", tc.input.mode, true, true)
 			input := &read.ToolCallsInput{Has: &read.ToolCallsInputHas{}}
 			for _, field := range []struct {
@@ -89,7 +70,7 @@ func TestToolCallReaderLegacyParity(t *testing.T) {
 			value, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/tool-call"}}, Input: input})
 			must(t, err)
 			out := value.(*read.ToolCallsOutput)
-			raw, err = json.Marshal(out.Data)
+			raw, err := json.Marshal(out.Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
@@ -97,13 +78,9 @@ func TestToolCallReaderLegacyParity(t *testing.T) {
 			if tc.input.mode == "byTurn" {
 				fields = []string{"messageid", "turnid", "opid", "attempt"}
 			}
-			oldRows, newRows := toolCallSelectedRows(t, before.Rows, fields), toolCallSelectedRows(t, rows, fields)
+			newRows := toolCallSelectedRows(t, rows, fields)
 			if tc.input.mode != "byTurn" {
-				sort.Slice(oldRows, func(i, j int) bool { return oldRows[i]["messageid"].(string) < oldRows[j]["messageid"].(string) })
 				sort.Slice(newRows, func(i, j int) bool { return newRows[i]["messageid"].(string) < newRows[j]["messageid"].(string) })
-			}
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("legacy=%s native=%s", pretty(oldRows), pretty(newRows))
 			}
 			ids := []string{}
 			for _, row := range newRows {

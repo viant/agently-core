@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -28,7 +26,6 @@ import (
 func TestApprovalWriterLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type useCase struct {
 		desc, input string
 		expect      bool
@@ -59,38 +56,74 @@ func TestApprovalWriterLegacyParity(t *testing.T) {
 		{"empty batch", `{"data":[]}`, false}, {"null batch", `{"data":null}`, false},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, path := approvalFixture(t, project)
 			db, _ := approvalFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "approval", "DBPath": path, "Body": tc.input})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
+			initial := approvalStoredRows(t, db)
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/toolapprovalqueue", strings.NewReader(tc.input))
 			request.Header.Set("Content-Type", "application/json")
 			scope, err := requestprovider.New(request)
 			must(t, err)
 			defer scope.Close()
 			out, err := approvalWriterRuntime(t, db).ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/toolapprovalqueue", scope)
-			if before.Failed != tc.expect || (err != nil) != tc.expect {
-				t.Fatalf("failure legacy=%v (%s) native=%v expected=%v", before.Failed, before.Error, err, tc.expect)
+			if (err != nil) != tc.expect {
+				t.Fatalf("native error=%v expected failure=%v", err, tc.expect)
 			}
-			oldRows, newRows := approvalStoredRows(t, oldDB), approvalStoredRows(t, db)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("stored legacy=%s native=%s", pretty(oldRows), pretty(newRows))
+			newRows := approvalStoredRows(t, db)
+			if tc.expect && !reflect.DeepEqual(initial, newRows) {
+				t.Fatalf("failed mutation changed state: before=%s after=%s", pretty(initial), pretty(newRows))
 			}
 			if !tc.expect {
-				var oldOutput []json.RawMessage
-				must(t, json.Unmarshal(before.Output, &oldOutput))
-				raw, err = json.Marshal(out.(*write.Output).Data)
-				must(t, err)
-				var newOutput []json.RawMessage
-				must(t, json.Unmarshal(raw, &newOutput))
-				if !reflect.DeepEqual(normalizeRowsInOrder(t, oldOutput), normalizeRowsInOrder(t, newOutput)) {
-					t.Fatalf("response legacy=%s native=%s", before.Output, raw)
+				var submitted struct {
+					Data []map[string]any `json:"data"`
+				}
+				must(t, json.Unmarshal([]byte(tc.input), &submitted))
+				if len(out.(*write.Output).Data) != len(submitted.Data) {
+					t.Fatalf("response rows=%d submitted=%d", len(out.(*write.Output).Data), len(submitted.Data))
+				}
+				indexed := map[string]map[string]any{}
+				for _, row := range newRows {
+					indexed[row["id"].(string)] = row
+				}
+				for _, submittedRow := range submitted.Data {
+					stored := indexed[submittedRow["id"].(string)]
+					if stored == nil {
+						t.Fatalf("missing persisted approval %v", submittedRow["id"])
+					}
+					for field, want := range submittedRow {
+						if field == "updatedAt" && want == nil {
+							if stored["updatedat"] == nil {
+								t.Fatal("updatedAt was not generated")
+							}
+							continue
+						}
+						if field == "createdAt" && want == nil {
+							if stored["createdat"] != "2026-01-01T00:00:00Z" {
+								t.Fatalf("createdAt changed: %v", stored["createdat"])
+							}
+							continue
+						}
+						if field == "arguments" || field == "metadata" {
+							if want == nil {
+								if stored[strings.ToLower(field)] != nil {
+									t.Fatalf("approval %v %s was not cleared", submittedRow["id"], field)
+								}
+								continue
+							}
+							encoded := make([]byte, 0)
+							for _, number := range want.([]any) {
+								encoded = append(encoded, byte(number.(float64)))
+							}
+							want = string(encoded)
+						}
+						if field == "status" && want == "" && submittedRow["id"] == "new" {
+							want = "pending"
+						}
+						if got := stored[strings.ToLower(field)]; !reflect.DeepEqual(got, want) {
+							t.Fatalf("approval %v %s=%v want %v", submittedRow["id"], field, got, want)
+						}
+					}
+					if submittedRow["id"] == "new" && stored["status"] != "pending" {
+						t.Fatalf("default status=%v", stored["status"])
+					}
 				}
 			}
 		})

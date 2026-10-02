@@ -2,10 +2,6 @@ package data
 
 import (
 	"context"
-	"os"
-	"path/filepath"
-	"runtime"
-	"strings"
 
 	"github.com/viant/agently-core/app/store/native"
 	sqlitesvc "github.com/viant/agently-core/internal/service/sqlite"
@@ -13,21 +9,13 @@ import (
 	"github.com/viant/datly/standalone"
 )
 
-func sourceRoot() string {
-	if configured := strings.TrimSpace(os.Getenv("AGENTLY_DATLY_SOURCE_ROOT")); configured != "" {
-		return configured
-	}
-	_, file, _, _ := runtime.Caller(0)
-	return filepath.Join(filepath.Dir(file), "..", "..", "..")
-}
-
 // NewRuntime opens one application-owned stock runtime and connector pool.
 // The caller shares it across stores and owns Shutdown.
 func NewRuntime(ctx context.Context) (*standalone.Server, error) {
-	return native.New(ctx, native.Options{SourceRoot: sourceRoot()})
+	return native.New(ctx, native.Options{})
 }
 func NewRuntimeFromWorkspace(ctx context.Context, root string) (*standalone.Server, error) {
-	return native.New(ctx, native.Options{SourceRoot: sourceRoot(), WorkspaceRoot: root})
+	return native.New(ctx, native.Options{WorkspaceRoot: root})
 }
 
 // NewRuntimeInMemory shares the initialized modernc memory database with the
@@ -38,7 +26,7 @@ func NewRuntimeInMemory(ctx context.Context) (*standalone.Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	return native.New(ctx, native.Options{SourceRoot: sourceRoot(), Connectors: []connector.Config{{Name: "agently", Driver: "sqlite", DSN: dsn, MaxOpenConns: 2, MaxIdleConns: 2}}})
+	return native.New(ctx, native.Options{Connectors: []connector.Config{{Name: "agently", Driver: "sqlite", DSN: dsn, MaxOpenConns: 2, MaxIdleConns: 2}}})
 }
 func NewThinServiceFromEnv(ctx context.Context) (Service, error) {
 	server, err := NewRuntime(ctx)

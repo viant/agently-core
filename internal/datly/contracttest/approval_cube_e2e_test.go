@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -26,7 +25,6 @@ import (
 func TestApprovalCubeLegacyCounts(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		mode, measure string
 		filters       map[string]any
@@ -49,28 +47,12 @@ func TestApprovalCubeLegacyCounts(t *testing.T) {
 		{"blank supplied pending scope", input{"pendingCount", "PendingCount", map[string]any{"conversationId": ""}}, 0},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, path := approvalReaderFixture(t, project)
 			db, _ := approvalReaderFixture(t, project)
-			filters := map[string]any{"mode": tc.input.mode}
 			nativeFilters := map[string]any{}
 			names := map[string]string{"userId": "UserId", "conversationId": "ConversationId", "toolName": "ToolName", "status": "QueueStatus", "id": "Id"}
 			for k, v := range tc.input.filters {
-				filters[k] = v
 				nativeFilters[names[k]] = v
 			}
-			payload, err := json.Marshal(map[string]any{"Component": "approvalReader", "DBPath": path, "Filters": filters})
-			must(t, err)
-			command := exec.Command(legacy)
-			command.Stdin = bytes.NewReader(payload)
-			raw, err := command.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed || len(before.Rows) != 1 {
-				t.Fatalf("legacy: %s", raw)
-			}
-			var old map[string]any
-			must(t, json.Unmarshal(before.Rows[0], &old))
 			out, err := executeApprovalCube(t, approvalCubeRuntime(t, db, "", true, true), map[string]any{"measures": map[string]bool{tc.input.measure: true}, "filters": nativeFilters})
 			must(t, err)
 			if len(out.Data) != 1 {
@@ -80,8 +62,8 @@ func TestApprovalCubeLegacyCounts(t *testing.T) {
 			if tc.input.measure == "PendingCount" {
 				count = out.Data[0].PendingCount
 			}
-			if count != tc.expect || int(old[tc.input.measure].(float64)) != tc.expect {
-				t.Fatalf("legacy=%v native=%d expected=%d", old, count, tc.expect)
+			if count != tc.expect {
+				t.Fatalf("native=%d expected=%d", count, tc.expect)
 			}
 		})
 	}

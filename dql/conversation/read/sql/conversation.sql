@@ -75,4 +75,7 @@ SELECT t.*,CAST(t.created_at AS CHAR) AS created_at_raw,CAST(COALESCE(t.last_act
              CASE WHEN $ListMode AND NOT $ListAscending THEN COALESCE(t.last_activity,t.updated_at,t.created_at) END DESC,
              CASE WHEN $ListMode AND $ListAscending THEN t.id END ASC,
              t.id DESC
+    #if($ListMode)
+    $PAGINATION
+    #end
 ) conversation

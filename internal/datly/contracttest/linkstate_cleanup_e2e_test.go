@@ -21,17 +21,15 @@ import (
 	viewprovider "github.com/viant/datly/sql/reader/provider"
 	"net/http/httptest"
 	"net/url"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"testing"
 )
 
-func TestLinkStateCleanupLegacyParity(t *testing.T) {
+func TestLinkStateCleanupNativeContract(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		before string
 		reject bool
@@ -56,24 +54,13 @@ func TestLinkStateCleanupLegacyParity(t *testing.T) {
 		{"late deletion failure rolls back entire batch", input{before: "2026-01-02 00:00:00", reject: true}, expect{failed: true, remaining: []string{"a", "b", "c", "d"}}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, path := linkStateCleanupFixture(t, project)
 			db, _ := linkStateCleanupFixture(t, project)
 			if tc.input.reject {
-				for _, fixture := range []*sql.DB{oldDB, db} {
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec(`CREATE TRIGGER reject_link_cleanup BEFORE DELETE ON oauth_link_state WHEN OLD.flow_hash='b' BEGIN SELECT RAISE(ABORT,'fixture cleanup rejection'); END`)
 					must(t, err)
 				}
 			}
-			oldBody, err := json.Marshal(map[string]any{"data": map[string]any{"before": tc.input.before}})
-			must(t, err)
-			payload, err := json.Marshal(map[string]any{"Component": "linkStateCleanup", "DBPath": path, "Body": string(oldBody)})
-			must(t, err)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, err := cmd.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
 			rt, readerKey := linkStateCleanupRuntime(t, db)
 			rows := []map[string]any{}
 			if tc.input.before != "" {
@@ -87,20 +74,18 @@ func TestLinkStateCleanupLegacyParity(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			result, err := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/internal/agently/user/oauth/linkstate/write", scope)
-			if before.Failed != tc.expect.failed || (err != nil) != tc.expect.failed {
-				t.Fatalf("failure legacy=%v (%s) native=%v expected=%v", before.Failed, before.Error, err, tc.expect.failed)
+			if (err != nil) != tc.expect.failed {
+				t.Fatalf("native failure=%v expected=%v", err, tc.expect.failed)
 			}
 			if !tc.expect.failed {
-				var old map[string]any
-				must(t, json.Unmarshal(before.Output, &old))
 				native := result.(*replace.Output)
-				if int(old["deleted"].(float64)) != tc.expect.deleted || native.Deleted != tc.expect.deleted || old["oldestExpiresAt"] != tc.expect.oldest || native.OldestExpiresAt != tc.expect.oldest {
-					t.Fatalf("legacy=%v native=%+v expected=%+v", old, native, tc.expect)
+				if native.Deleted != tc.expect.deleted || native.OldestExpiresAt != tc.expect.oldest {
+					t.Fatalf("native=%+v expected=%+v", native, tc.expect)
 				}
 			}
-			oldRows, newRows := linkStateRemainingFlows(t, oldDB), linkStateRemainingFlows(t, db)
-			if !reflect.DeepEqual(oldRows, newRows) || !reflect.DeepEqual(newRows, tc.expect.remaining) {
-				t.Fatalf("legacy=%v native=%v expected=%v", oldRows, newRows, tc.expect.remaining)
+			newRows := linkStateRemainingFlows(t, db)
+			if !reflect.DeepEqual(newRows, tc.expect.remaining) {
+				t.Fatalf("remaining=%v expected=%v", newRows, tc.expect.remaining)
 			}
 		})
 	}

@@ -11,9 +11,9 @@ import (
 	read "github.com/viant/agently-core/internal/datly/maintenancelease/read"
 	write "github.com/viant/agently-core/internal/datly/maintenancelease/write"
 	dexec "github.com/viant/datly/exec"
+	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
 	"github.com/viant/datly/spec"
-	"github.com/viant/x"
 	xdatly "github.com/viant/xdatly"
 	"github.com/viant/xdatly/handler"
 )
@@ -40,19 +40,13 @@ type Purge struct{}
 
 func NewPurge() handler.Contract[PurgeInput, PurgeOutput] { return &Purge{} }
 
-func Exports() (*x.Registry, error) {
-	registry := x.NewRegistry()
-	for _, typ := range []reflect.Type{reflect.TypeFor[PurgeInput](), reflect.TypeFor[PurgeOutput]()} {
-		registry.Register(x.NewType(typ))
+// DatlyHandler binds the holder's declared handler to its typed implementation.
+// Linked package discovery calls this provider without a host registration list.
+func (PurgeComponent) DatlyHandler(name string) func() (rh.TypedHandler, error) {
+	if name != "NewPurge" {
+		return nil
 	}
-	factory, err := x.NewFunction(reflect.TypeFor[PurgeComponent]().PkgPath(), "NewPurge", custom.Factory(NewPurge))
-	if err != nil {
-		return nil, err
-	}
-	if err := registry.RegisterFunctions(factory); err != nil {
-		return nil, err
-	}
-	return registry, nil
+	return custom.Factory(NewPurge)
 }
 
 var _ handler.Contract[PurgeInput, PurgeOutput] = (*Purge)(nil)

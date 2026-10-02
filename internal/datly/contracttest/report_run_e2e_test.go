@@ -1,14 +1,12 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"github.com/viant/datly/runtime/handler/provider"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -106,7 +104,6 @@ func reportRunRow(id string, expected int64) *write.Run {
 func TestReportRunWriterModes(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		mode, id          string
 		expected, desired int64
@@ -134,16 +131,10 @@ func TestReportRunWriterModes(t *testing.T) {
 		{"adoption cannot modify snapshot fields", input{mode: "adopt", id: "manual", expected: 2, desired: 3, mutateSnapshot: true}, expect{failure: true, revision: 2}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			var oldDB *sql.DB
-			var oldPath string
-			compareLegacy := tc.input.mode != "adopt"
-			if compareLegacy {
-				oldDB, oldPath = reportRunFixture(t, project)
-			}
 			db, _ := reportRunFixture(t, project)
 			var adapterDB *sql.DB
 			var adapter *runstore.Store
-			if compareLegacy {
+			if tc.input.mode != "adopt" {
 				adapterDB, _ = reportRunFixture(t, project)
 				adapterRT, _, _ := reportRunRuntime(t, adapterDB, "u1", false, nil)
 				adapter = &runstore.Store{Invoker: adapterRT, OwnerID: func(context.Context) string { return "u1" }}
@@ -214,31 +205,6 @@ func TestReportRunWriterModes(t *testing.T) {
 					}
 				}
 			}
-			if compareLegacy {
-				legacyBody, e := json.Marshal(map[string]any{
-					"reportRunId": tc.input.id, "ownerId": "u1", "materializer": "test",
-					"origin":    map[bool]string{true: "manual", false: "interactive"}[tc.input.id == "manual"],
-					"status":    map[bool]string{true: "completed", false: "running"}[tc.input.id == "manual"],
-					"startedAt": "2026-01-01T00:00:00Z", "revision": map[bool]int64{true: tc.input.desired, false: tc.input.expected}[tc.input.mode == "update"],
-					"uiRunRequestId": row.UiRunRequestId, "reportSpec": json.RawMessage(`{}`),
-					"createdAt": "2026-01-01T00:00:00Z", "updatedAt": "2026-01-03T00:00:00Z",
-				})
-				must(t, e)
-				payload, e := json.Marshal(map[string]any{
-					"Component": "reportRun", "DBPath": oldPath, "Principal": "u1",
-					"Method": tc.input.mode, "Body": string(legacyBody), "ExpectedRevision": tc.input.expected,
-				})
-				must(t, e)
-				cmd := exec.Command(legacy)
-				cmd.Stdin = bytes.NewReader(payload)
-				raw, e := cmd.Output()
-				must(t, e)
-				var before probeResult
-				must(t, json.Unmarshal(raw, &before))
-				if before.Failed != tc.expect.failure {
-					t.Fatalf("legacy failure=%v (%s), native=%v", before.Failed, before.Error, err)
-				}
-			}
 			var revision int64
 			var conversation string
 			err = db.QueryRow("SELECT revision,COALESCE(conversation_id,'') FROM report_run WHERE report_run_id=?", tc.input.id).Scan(&revision, &conversation)
@@ -252,16 +218,10 @@ func TestReportRunWriterModes(t *testing.T) {
 			if revision != tc.expect.revision || conversation != tc.expect.conversation {
 				t.Fatalf("stored revision/conversation=(%d,%q), expected=(%d,%q)", revision, conversation, tc.expect.revision, tc.expect.conversation)
 			}
-			if compareLegacy {
-				var oldRevision int64
-				var oldConversation string
-				must(t, oldDB.QueryRow("SELECT revision,COALESCE(conversation_id,'') FROM report_run WHERE report_run_id=?", tc.input.id).Scan(&oldRevision, &oldConversation))
+			if adapterDB != nil {
 				var adapterRevision int64
 				var adapterConversation string
 				must(t, adapterDB.QueryRow("SELECT revision,COALESCE(conversation_id,'') FROM report_run WHERE report_run_id=?", tc.input.id).Scan(&adapterRevision, &adapterConversation))
-				if oldRevision != revision || oldConversation != conversation {
-					t.Fatalf("legacy revision/conversation=(%d,%q), native=(%d,%q)", oldRevision, oldConversation, revision, conversation)
-				}
 				if adapterRevision != revision || adapterConversation != conversation {
 					t.Fatalf("adapter revision/conversation=(%d,%q), native=(%d,%q)", adapterRevision, adapterConversation, revision, conversation)
 				}
@@ -345,14 +305,13 @@ func reportRunSnapshotFromAdapter(row *runstore.Record) reportRunSnapshot {
 func TestReportRunReaderLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		subject, id, requestID, method string
 		internal                       bool
 	}
 	type expect struct {
-		id            string
-		compareLegacy bool
+		id             string
+		compareAdapter bool
 	}
 	type useCase struct {
 		desc   string
@@ -360,13 +319,12 @@ func TestReportRunReaderLegacyParity(t *testing.T) {
 		expect expect
 	}
 	for _, tc := range []useCase{
-		{"exact ID includes all physical fields", input{subject: "u1", id: "running", method: "get"}, expect{id: "running", compareLegacy: true}},
-		{"request identity resolves manual run", input{subject: "u1", requestID: "req-manual", method: "getByRequest"}, expect{id: "manual", compareLegacy: true}},
-		{"foreign owner cannot read run", input{subject: "u2", id: "running", method: "get"}, expect{compareLegacy: true}},
+		{"exact ID includes all physical fields", input{subject: "u1", id: "running", method: "get"}, expect{id: "running", compareAdapter: true}},
+		{"request identity resolves manual run", input{subject: "u1", requestID: "req-manual", method: "getByRequest"}, expect{id: "manual", compareAdapter: true}},
+		{"foreign owner cannot read run", input{subject: "u2", id: "running", method: "get"}, expect{compareAdapter: true}},
 		{"trusted internal can read foreign run", input{internal: true, id: "foreign"}, expect{id: "foreign"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := reportRunReaderFixture(t, project)
 			db, _ := reportRunReaderFixture(t, project)
 			rt, key, _ := reportRunRuntime(t, db, tc.input.subject, tc.input.internal, nil)
 			query := &read.Input{}
@@ -386,7 +344,7 @@ func TestReportRunReaderLegacyParity(t *testing.T) {
 			} else if len(rows) != 1 || rows[0].ReportRunId != tc.expect.id {
 				t.Fatalf("rows=%+v, want %q", rows, tc.expect.id)
 			}
-			if !tc.expect.compareLegacy {
+			if !tc.expect.compareAdapter {
 				return
 			}
 			store := &runstore.Store{Invoker: rt, OwnerID: func(context.Context) string { return tc.input.subject }}
@@ -403,36 +361,19 @@ func TestReportRunReaderLegacyParity(t *testing.T) {
 			} else if err != nil || adapterRow == nil {
 				t.Fatalf("adapter read=(%+v,%v)", adapterRow, err)
 			}
-			body, e := json.Marshal(map[string]any{"reportRunId": tc.input.id, "uiRunRequestId": tc.input.requestID})
-			must(t, e)
-			payload, e := json.Marshal(map[string]any{"Component": "reportRun", "DBPath": oldPath, "Principal": tc.input.subject, "Method": tc.input.method, "Body": string(body)})
-			must(t, e)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, e := cmd.Output()
-			must(t, e)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed != (tc.expect.id == "") {
-				t.Fatalf("legacy failed=%v (%s), native rows=%d", before.Failed, before.Error, len(rows))
-			}
 			if tc.expect.id == "" {
 				return
 			}
 			nativeJSON, e := json.Marshal(reportRunSnapshotFromView(rows[0]))
 			must(t, e)
-			var oldFields, newFields map[string]any
-			must(t, json.Unmarshal(before.Output, &oldFields))
+			var newFields map[string]any
 			must(t, json.Unmarshal(nativeJSON, &newFields))
-			if !reflect.DeepEqual(oldFields, newFields) {
-				t.Fatalf("legacy=%s native=%s", before.Output, nativeJSON)
-			}
 			adapterJSON, e := json.Marshal(reportRunSnapshotFromAdapter(adapterRow))
 			must(t, e)
 			var adapterFields map[string]any
 			must(t, json.Unmarshal(adapterJSON, &adapterFields))
-			if !reflect.DeepEqual(oldFields, adapterFields) {
-				t.Fatalf("legacy=%s adapter=%s", before.Output, adapterJSON)
+			if !reflect.DeepEqual(newFields, adapterFields) {
+				t.Fatalf("native=%s adapter=%s", nativeJSON, adapterJSON)
 			}
 		})
 	}

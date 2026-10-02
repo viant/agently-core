@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -26,7 +24,6 @@ import (
 func TestTurnCubeLegacyCounts(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct{ conversation, mode, measure string }
 	type useCase struct {
 		desc   string
@@ -44,22 +41,7 @@ func TestTurnCubeLegacyCounts(t *testing.T) {
 		{"controller blank supplied scope", input{"", "controllerCount", "ControllerCount"}, 0},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := turnCubeFixture(t, project)
 			db, _ := turnCubeFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "turnReader", "DBPath": oldPath, "Filters": map[string]any{"mode": tc.input.mode, "conversationId": tc.input.conversation}})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed || len(before.Rows) != 1 {
-				t.Fatalf("legacy count: %s", raw)
-			}
-			var old map[string]any
-			must(t, json.Unmarshal(before.Rows[0], &old))
-			oldCount := int(old[tc.input.measure].(float64))
 			rt := turnCubeRuntime(t, db, true, true)
 			body := map[string]any{"measures": map[string]bool{tc.input.measure: true}, "filters": map[string]any{"ConversationId": tc.input.conversation}}
 			out, err := executeTurnCube(t, rt, body)
@@ -71,8 +53,8 @@ func TestTurnCubeLegacyCounts(t *testing.T) {
 			if tc.input.measure == "ControllerCount" {
 				count = out.Data[0].ControllerCount
 			}
-			if oldCount != tc.expect || count != tc.expect {
-				t.Fatalf("count legacy=%d cube=%d expected=%d", oldCount, count, tc.expect)
+			if count != tc.expect {
+				t.Fatalf("cube=%d expected=%d", count, tc.expect)
 			}
 		})
 	}

@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -16,7 +15,6 @@ import (
 	"github.com/viant/datly/spec"
 	dsql "github.com/viant/datly/sql"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -104,16 +102,16 @@ func TestLinkStateCanonicalReader(t *testing.T) {
 		must(t, err)
 		var rows []map[string]any
 		must(t, json.Unmarshal(raw, &rows))
-			if len(rows) != 1 {
-				t.Fatalf("HTTP state lookup returned %d rows, want 1", len(rows))
-			}
-			stateHash, present := rows[0]["stateHash"]
-			if !present || stateHash != "s" {
-				t.Fatalf("HTTP state lookup requires lowerCamel stateHash=s, got %s", raw)
-			}
-			if _, legacyName := rows[0]["StateHash"]; legacyName {
-				t.Fatal("HTTP state lookup exposed PascalCase StateHash")
-			}
+		if len(rows) != 1 {
+			t.Fatalf("HTTP state lookup returned %d rows, want 1", len(rows))
+		}
+		stateHash, present := rows[0]["stateHash"]
+		if !present || stateHash != "s" {
+			t.Fatalf("HTTP state lookup requires lowerCamel stateHash=s, got %s", raw)
+		}
+		if _, legacyName := rows[0]["StateHash"]; legacyName {
+			t.Fatal("HTTP state lookup exposed PascalCase StateHash")
+		}
 	})
 }
 func linkStateReaderRuntime(t *testing.T, db *sql.DB) (*druntime.Runtime, spec.Key) {
@@ -130,7 +128,6 @@ func linkStateReaderRuntime(t *testing.T, db *sql.DB) (*druntime.Runtime, spec.K
 func TestLinkStatePendingReaderLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type useCase struct {
 		desc, input string
 		expect      []string
@@ -142,42 +139,27 @@ func TestLinkStatePendingReaderLegacyParity(t *testing.T) {
 		{"unknown flow", "absent", []string{}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			fixture := func() (*sql.DB, string) {
-				db, path := goalFixture(t, project)
+			fixture := func() *sql.DB {
+				db, _ := goalFixture(t, project)
 				_, err := db.Exec(`INSERT INTO oauth_link_state(state_hash,flow_hash,user_id,session_hash,provider,expires_at,consumed_at,created_at) VALUES
  ('state1','flow1','u1','session1','idp','2027-01-01 00:00:00',NULL,'2026-01-01 00:00:00'),
  ('state2','flow2','u2','session2','idp','2027-01-01 00:00:00','2026-01-02 00:00:00','2026-01-01 00:00:00'),
  ('state3','flow3','u3','session3','idp','2025-01-01 00:00:00',NULL,'2026-01-01 00:00:00')`)
 				must(t, err)
-				return db, path
+				return db
 			}
-			_, path := fixture()
-			db, _ := fixture()
-			payload, err := json.Marshal(map[string]any{"Component": "linkStateReader", "DBPath": path, "Filters": map[string]any{"flowHash": tc.input}})
-			must(t, err)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, err := cmd.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy: %s", before.Error)
-			}
+			db := fixture()
 			rt, key := linkStateReaderRuntime(t, db)
 			input := &current.LinkStateInput{}
 			input.SetFlowHash(tc.input)
 			input.SetPending(true)
 			out, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/user/oauth/linkstate/current"}}, Input: input})
 			must(t, err)
-			raw, err = json.Marshal(out.(*current.LinkStateOutput).Data)
+			raw, err := json.Marshal(out.(*current.LinkStateOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
-			oldRows, newRows := normalizeRowsInOrder(t, before.Rows), normalizeRowsInOrder(t, rows)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("legacy=%s native=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := normalizeRowsInOrder(t, rows)
 			got := []string{}
 			for _, row := range newRows {
 				got = append(got, row["statehash"].(string))

@@ -1,14 +1,12 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"github.com/viant/datly/runtime/handler/provider"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -103,7 +101,6 @@ func TestForgeWriterIntentLegacyStoreContract(t *testing.T) {
 func TestForgeWriterLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type expect struct{ failed, corrected bool }
 	type useCase struct {
 		desc, input string
@@ -122,45 +119,78 @@ func TestForgeWriterLegacyParity(t *testing.T) {
 		{"missing artifact reference stores legacy empty value", `{"data":{"artifactId":"new","ownerId":"u1","kind":"report","lifecycle":"draft"}}`, expect{}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, path := forgeFixture(t, project)
 			db, _ := forgeFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "forgeWriter", "DBPath": path, "Body": tc.input})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
+			initial := forgeStoredRows(t, db)
 			request := httptest.NewRequest("PATCH", "/v1/api/forge/reporting/shared-artifact", strings.NewReader(tc.input))
 			request.Header.Set("Content-Type", "application/json")
 			scope, err := requestprovider.New(request)
 			must(t, err)
 			defer scope.Close()
 			out, err := forgeWriterRuntime(t, db, "u1", false).ExecuteRoute(context.Background(), "PATCH", "/v1/api/forge/reporting/shared-artifact", scope)
-			if before.Failed != tc.expect.failed || (err != nil) != tc.expect.failed {
-				t.Fatalf("legacy failure=%v (%s) native=%v expected=%v", before.Failed, before.Error, err, tc.expect.failed)
+			if (err != nil) != tc.expect.failed {
+				t.Fatalf("native error=%v expected failure=%v", err, tc.expect.failed)
 			}
-			oldRows, newRows := forgeStoredRows(t, oldDB), forgeStoredRows(t, db)
+			newRows := forgeStoredRows(t, db)
 			if tc.expect.corrected {
-				if reflect.DeepEqual(oldRows, newRows) {
-					t.Fatal("legacy sparse overwrite was not demonstrated")
-				}
 				if newRows[0]["artifactref"] != "report://existing" || newRows[0]["kind"] != "report" || newRows[0]["reportdocumentjson"] != "{}" {
 					t.Fatalf("native lost omitted report fields: %s", pretty(newRows))
 				}
-			} else if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("stored legacy=%s native=%s", pretty(oldRows), pretty(newRows))
 			}
-			if !tc.expect.failed && !tc.expect.corrected {
-				var oldOutput map[string]any
-				must(t, json.Unmarshal(before.Output, &oldOutput))
-				raw, err = json.Marshal(out.(*write.Output).Data)
-				must(t, err)
-				var newOutput map[string]any
-				must(t, json.Unmarshal(raw, &newOutput))
-				if !reflect.DeepEqual(normalizeForgeResponse(oldOutput), normalizeForgeResponse(newOutput)) {
-					t.Fatalf("response legacy=%s native=%s", before.Output, raw)
+			if tc.expect.failed && !reflect.DeepEqual(initial, newRows) {
+				t.Fatalf("failed mutation changed state: before=%s after=%s", pretty(initial), pretty(newRows))
+			}
+			if !tc.expect.failed {
+				var submitted struct {
+					Data map[string]any `json:"data"`
+				}
+				must(t, json.Unmarshal([]byte(tc.input), &submitted))
+				id := strings.TrimSpace(submitted.Data["artifactId"].(string))
+				if out.(*write.Output).Data == nil || out.(*write.Output).Data.ArtifactId != id {
+					t.Fatalf("writer output=%+v expected artifact %q", out, id)
+				}
+				var stored map[string]any
+				for _, row := range newRows {
+					if row["artifactid"] == id {
+						stored = row
+					}
+				}
+				if stored == nil {
+					t.Fatalf("missing persisted artifact %q", id)
+				}
+				for field, want := range submitted.Data {
+					key := strings.ToLower(field)
+					if field == "createdAt" || field == "updatedAt" {
+						continue
+					}
+					if field == "document" {
+						key = "reportdocumentjson"
+					}
+					if field == "version" {
+						if got, ok := stored[key].(int64); ok && float64(got) == want {
+							continue
+						}
+					}
+					if field == "reportSpec" {
+						key = "reportspecjson"
+					}
+					if field == "metadata" {
+						key = "metadatajson"
+					}
+					if field == "document" || field == "reportSpec" || field == "metadata" {
+						if want != nil {
+							encoded := make([]byte, 0)
+							for _, number := range want.([]any) {
+								encoded = append(encoded, byte(number.(float64)))
+							}
+							want = string(encoded)
+						}
+					}
+					if got := stored[key]; !reflect.DeepEqual(got, want) {
+						t.Fatalf("artifact %s %s=%v want %v", id, field, got, want)
+					}
+				}
+				if _, supplied := submitted.Data["artifactRef"]; id == "new" && !supplied && stored["artifactref"] != "" {
+					t.Fatalf("missing artifact reference default=%v", stored["artifactref"])
 				}
 			}
 		})

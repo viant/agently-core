@@ -18,7 +18,6 @@ import (
 	"github.com/viant/datly/sql/dml"
 	viewprovider "github.com/viant/datly/sql/reader/provider"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -30,12 +29,10 @@ import (
 func TestLinkStateConsumeLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct{ state, user, session, flow, expires, consumed, now string }
 	type expect struct {
 		failed, changed bool
 		outcome         string
-		legacyOutcome   string
 	}
 	type useCase struct {
 		desc   string
@@ -51,7 +48,7 @@ func TestLinkStateConsumeLegacyParity(t *testing.T) {
 		{"user mismatch precedes session mismatch", input{user: "u2", session: "other"}, expect{outcome: "user_mismatch"}},
 		{"expiry precedes owner mismatch", input{expires: "2026-01-01 00:00:00", user: "u2"}, expect{outcome: "expired"}},
 		{"already consumed precedes expiry", input{consumed: "2026-01-01 00:00:00", expires: "2026-01-01 00:00:00"}, expect{outcome: "already_consumed"}},
-		{"expiry boundary is closed", input{expires: "2026-01-02 00:00:00"}, expect{outcome: "expired", legacyOutcome: "already_consumed"}},
+		{"expiry boundary is closed", input{expires: "2026-01-02 00:00:00"}, expect{outcome: "expired"}},
 		{"absent state", input{state: "missing", flow: "missing"}, expect{outcome: "absent"}},
 		{"state hash mismatched flow", input{state: "other"}, expect{outcome: "absent"}},
 		{"blank user rejected", input{user: " "}, expect{failed: true}},
@@ -71,7 +68,6 @@ func TestLinkStateConsumeLegacyParity(t *testing.T) {
 				must(t, err)
 				return db, path
 			}
-			oldDB, path := seed()
 			db, _ := seed()
 			state := tc.input.state
 			if state == "" {
@@ -93,16 +89,6 @@ func TestLinkStateConsumeLegacyParity(t *testing.T) {
 			if now == "" {
 				now = "2026-01-02 00:00:00"
 			}
-			oldBody, err := json.Marshal(map[string]any{"data": map[string]any{"stateHash": state, "canonicalUserId": user, "sessionHash": session, "now": now}})
-			must(t, err)
-			payload, err := json.Marshal(map[string]any{"Component": "linkStateConsume", "DBPath": path, "Body": string(oldBody)})
-			must(t, err)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, err := cmd.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
 			body, err := json.Marshal(map[string]any{"data": []map[string]any{{"stateHash": state, "flowHash": flow, "userId": user, "sessionHash": session, "now": now}}})
 			must(t, err)
 			req := httptest.NewRequest("PATCH", "/v1/internal/agently/user/oauth/linkstate/write?mode=consume", bytes.NewReader(body))
@@ -111,28 +97,25 @@ func TestLinkStateConsumeLegacyParity(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			out, err := linkStateConsumeRuntime(t, db).ExecuteRoute(context.Background(), "PATCH", "/v1/internal/agently/user/oauth/linkstate/write", scope)
-			if before.Failed != tc.expect.failed || (err != nil) != tc.expect.failed {
-				t.Fatalf("legacy failure=%v (%s), native=%v expected=%v", before.Failed, before.Error, err, tc.expect.failed)
+			if (err != nil) != tc.expect.failed {
+				t.Fatalf("native error=%v expected failure=%v", err, tc.expect.failed)
 			}
 			if !tc.expect.failed {
-				var oldResult map[string]any
-				must(t, json.Unmarshal(before.Output, &oldResult))
-				legacyOutcome := tc.expect.legacyOutcome
-				if legacyOutcome == "" {
-					legacyOutcome = tc.expect.outcome
-				}
-				if oldResult["outcome"] != legacyOutcome || out.(*write.Output).Outcome != tc.expect.outcome {
-					t.Fatalf("legacy=%v native=%q expected=%q", oldResult, out.(*write.Output).Outcome, tc.expect.outcome)
+				if out.(*write.Output).Outcome != tc.expect.outcome {
+					t.Fatalf("native outcome=%q expected=%q", out.(*write.Output).Outcome, tc.expect.outcome)
 				}
 				if tc.expect.outcome != "consumed" && out.(*write.Output).Data != nil {
 					t.Fatal("rejected consume exposed state data")
 				}
 			}
-			var oldTime, newTime sql.NullString
-			must(t, oldDB.QueryRow("SELECT consumed_at FROM oauth_link_state WHERE state_hash='state1'").Scan(&oldTime))
+			var newTime sql.NullString
 			must(t, db.QueryRow("SELECT consumed_at FROM oauth_link_state WHERE state_hash='state1'").Scan(&newTime))
-			if oldTime.Valid != newTime.Valid || oldTime.String != newTime.String {
-				t.Fatalf("persisted timestamp legacy=%v native=%v", oldTime, newTime)
+			initialTime := strings.Replace(tc.input.consumed, " ", "T", 1)
+			if initialTime != "" {
+				initialTime += "Z"
+			}
+			if tc.expect.changed && (!newTime.Valid || !strings.HasPrefix(newTime.String, "2026-01-02")) || !tc.expect.changed && tc.input.consumed != "" && (!newTime.Valid || newTime.String != initialTime) || !tc.expect.changed && tc.input.consumed == "" && newTime.Valid {
+				t.Fatalf("persisted consumed_at=%v, changed=%v initial=%q", newTime, tc.expect.changed, tc.input.consumed)
 			}
 		})
 	}
@@ -153,8 +136,6 @@ func linkStateConsumeRuntime(t *testing.T, db *sql.DB) *druntime.Runtime {
 	must(t, err)
 	return rt
 }
-
-var _ = strings.TrimSpace
 
 func TestLinkStateConsumeAcrossIndependentConnections(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)

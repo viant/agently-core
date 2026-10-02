@@ -1,12 +1,9 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -90,11 +87,11 @@ func queueReorderRuntime(t *testing.T, db *sql.DB, supplied *sql.Tx) (*druntime.
 	turnArtifact := payloadArtifact(t, resources, reflect.TypeFor[turnwrite.WriterComponent](), reflect.TypeFor[turnwrite.Input](), reflect.TypeFor[turnwrite.Output]())
 	queueArtifact := payloadArtifact(t, resources, reflect.TypeFor[queuewrite.WriterComponent](), reflect.TypeFor[queuewrite.Input](), reflect.TypeFor[queuewrite.Output]())
 	parentArtifact := payloadArtifact(t, resources, reflect.TypeFor[reorder.ReorderComponent](), reflect.TypeFor[reorder.Input](), reflect.TypeFor[reorder.Output]())
-	exports, err := reorder.Exports()
+	handler, err := (reorder.ReorderComponent{}).DatlyHandler("NewQueueReorder")()
 	must(t, err)
-	builder, err := bootstrap.NewArtifactBuilder(exports)
+	builder, err := bootstrap.NewArtifactBuilder(nil)
 	must(t, err)
-	parentArtifact, err = builder.Build(bootstrap.ArtifactInput{Component: parentArtifact.Component, InputType: reflect.TypeFor[reorder.Input](), OutputType: reflect.TypeFor[reorder.Output](), Resources: resources})
+	parentArtifact, err = builder.Build(bootstrap.ArtifactInput{Component: parentArtifact.Component, InputType: reflect.TypeFor[reorder.Input](), OutputType: reflect.TypeFor[reorder.Output](), Resources: resources, Handler: handler})
 	must(t, err)
 	parentRegistration, err := parentArtifact.Registration(registry.RegisteredComponent{DataSource: dml.Source{DB: db, Tx: supplied}})
 	must(t, err)
@@ -176,7 +173,6 @@ func TestQueueReorderIndependentConnections(t *testing.T) {
 func TestQueueReorderSharedTransaction(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		conversation string
 		firstSeq     int64
@@ -203,18 +199,6 @@ func TestQueueReorderSharedTransaction(t *testing.T) {
 		{"caller transaction commit retains ownership", input{conversation: "c1", firstSeq: 2, callerTx: true, commit: true}, expect{first: 1, second: 2}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			compareLegacy := !tc.input.callerTx && tc.input.firstSeq == 2 && tc.input.conversation == "c1"
-			var oldDB *sql.DB
-			var oldPath string
-			if compareLegacy {
-				oldDB, oldPath = queueParityFixture(t, project)
-				_, err := oldDB.Exec("UPDATE turn SET queue_seq=2 WHERE id='t1'; UPDATE turn SET queue_seq=1 WHERE id='t2'; UPDATE turn_queue SET status='queued' WHERE id='q2'")
-				must(t, err)
-				if tc.input.rejectSecond {
-					_, err = oldDB.Exec("CREATE TRIGGER reject_second_queue_update BEFORE UPDATE ON turn_queue WHEN OLD.id='q2' BEGIN SELECT RAISE(ABORT,'fixture second queue rejection'); END")
-					must(t, err)
-				}
-			}
 			db, _ := queueParityFixture(t, project)
 			_, err := db.Exec("UPDATE turn SET queue_seq=2 WHERE id='t1'; UPDATE turn SET queue_seq=1 WHERE id='t2'; UPDATE turn_queue SET status='queued' WHERE id='q2'")
 			must(t, err)
@@ -263,27 +247,6 @@ func TestQueueReorderSharedTransaction(t *testing.T) {
 			first, second := queueReorderSequences(t, db)
 			if first != tc.expect.first || second != tc.expect.second {
 				t.Fatalf("stored sequence=(%d,%d), expected=(%d,%d)", first, second, tc.expect.first, tc.expect.second)
-			}
-			if compareLegacy {
-				payload, e := json.Marshal(map[string]any{"Component": "queueReorder", "DBPath": oldPath})
-				must(t, e)
-				cmd := exec.Command(legacy)
-				cmd.Stdin = bytes.NewReader(payload)
-				raw, e := cmd.Output()
-				must(t, e)
-				var before probeResult
-				must(t, json.Unmarshal(raw, &before))
-				if before.Failed != tc.expect.failure {
-					t.Fatalf("legacy reorder failed=%v (%s), native=%v", before.Failed, before.Error, err)
-				}
-				oldTurnFirst, oldTurnSecond, oldQueueFirst, oldQueueSecond := queueRawSequences(t, oldDB)
-				if tc.input.rejectSecond {
-					if oldTurnFirst != 1 || oldTurnSecond != 2 || oldQueueFirst != 1 || oldQueueSecond != 1 {
-						t.Fatalf("legacy partial reorder=(%d,%d,%d,%d)", oldTurnFirst, oldTurnSecond, oldQueueFirst, oldQueueSecond)
-					}
-				} else if oldTurnFirst != first || oldTurnSecond != second || oldQueueFirst != first || oldQueueSecond != second {
-					t.Fatalf("legacy reorder=(%d,%d,%d,%d), native=(%d,%d)", oldTurnFirst, oldTurnSecond, oldQueueFirst, oldQueueSecond, first, second)
-				}
 			}
 		})
 	}

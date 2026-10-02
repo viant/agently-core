@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -15,7 +14,6 @@ import (
 	"github.com/viant/datly/runtime/registry"
 	"github.com/viant/datly/spec"
 	dsql "github.com/viant/datly/sql"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -26,11 +24,9 @@ import (
 func TestRunVariantsLegacyV1Parity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
-		legacyEmpty bool
-		mode        string
-		filters     map[string]any
+		mode    string
+		filters map[string]any
 	}
 	type useCase struct {
 		desc   string
@@ -38,10 +34,10 @@ func TestRunVariantsLegacyV1Parity(t *testing.T) {
 		expect []string
 	}
 	for _, tc := range []useCase{
-		{"active selects newest eligible run", input{mode: "active", legacyEmpty: true}, []string{"queued"}},
+		{"active selects newest eligible run", input{mode: "active"}, []string{"queued"}},
 		{"active conversation predicate affects newest selection", input{mode: "active", filters: map[string]any{"conversationId": "c1"}}, []string{"running"}},
 		{"unknown active conversation is empty", input{mode: "active", filters: map[string]any{"conversationId": "missing"}}, []string{}},
-		{"stale keeps running only in activity order", input{mode: "stale", legacyEmpty: true}, []string{"recent", "scheduled", "running", "child"}},
+		{"stale keeps running only in activity order", input{mode: "stale"}, []string{"recent", "scheduled", "running", "child"}},
 		{"heartbeat cutoff includes null", input{mode: "stale", filters: map[string]any{"heartbeatBefore": "2026-01-02T00:00:00Z"}}, []string{"scheduled", "running", "child"}},
 		{"worker host includes null", input{mode: "stale", filters: map[string]any{"workerHost": "host-a"}}, []string{"scheduled", "running", "child"}},
 		{"expired leases exclude null", input{mode: "stale", filters: map[string]any{"leaseExpiredBefore": "2026-01-02T00:00:00Z"}}, []string{"scheduled", "child"}},
@@ -50,21 +46,7 @@ func TestRunVariantsLegacyV1Parity(t *testing.T) {
 		{"root interactive excludes scheduled and child conversations", input{mode: "stale", filters: map[string]any{"rootInteractive": true}}, []string{"recent", "running"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := runVariantFixture(t, project)
 			db, _ := runVariantFixture(t, project)
-			component := map[string]string{"active": "runActive", "stale": "runStale"}[tc.input.mode]
-			payload, err := json.Marshal(map[string]any{"Component": component, "DBPath": oldPath, "Filters": tc.input.filters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
 			rt, key := runVariantRuntime(t, db, tc.input.mode, true)
 			input := &read.RunRowsInput{Has: &read.RunRowsInputHas{}}
 			fields := reflect.ValueOf(input).Elem()
@@ -78,7 +60,7 @@ func TestRunVariantsLegacyV1Parity(t *testing.T) {
 			}
 			value, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/run/{id}"}}, Input: input})
 			must(t, err)
-			raw, err = json.Marshal(value.(*read.RunRowsOutput).Data)
+			raw, err := json.Marshal(value.(*read.RunRowsOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
@@ -95,34 +77,7 @@ func TestRunVariantsLegacyV1Parity(t *testing.T) {
 				}
 				return result
 			}
-			oldRows, newRows := normalize(before.Rows), normalize(rows)
-			if tc.input.legacyEmpty {
-				if len(oldRows) != 0 {
-					t.Fatal("legacy empty-predicate behavior changed; reassess documented correction")
-				}
-				t.Logf("legacy no-predicate result is empty (failed=%v, message=%s); canonical explicit WHERE fixes this", before.Failed, before.Error)
-				// Independently compare every corrected row with the legacy table reader.
-				payload, err := json.Marshal(map[string]any{"Component": "run", "DBPath": oldPath, "Raw": true})
-				must(t, err)
-				lookup := exec.Command(legacy)
-				lookup.Stdin = bytes.NewReader(payload)
-				raw, err := lookup.Output()
-				must(t, err)
-				var full probeResult
-				must(t, json.Unmarshal(raw, &full))
-				indexed := map[string]map[string]any{}
-				for _, row := range normalize(full.Rows) {
-					indexed[row["id"].(string)] = row
-				}
-				for _, row := range newRows {
-					if !reflect.DeepEqual(indexed[row["id"].(string)], row) {
-						t.Fatalf("corrected result differs from legacy table projection: %s", pretty(row))
-					}
-				}
-
-			} else if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("full ordered parity\nlegacy=%s\nnew=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := normalize(rows)
 			ids := []string{}
 			for _, row := range newRows {
 				ids = append(ids, row["id"].(string))

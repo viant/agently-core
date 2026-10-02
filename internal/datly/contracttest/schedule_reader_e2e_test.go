@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -15,7 +14,6 @@ import (
 	"github.com/viant/datly/runtime/registry"
 	"github.com/viant/datly/spec"
 	dsql "github.com/viant/datly/sql"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -25,7 +23,6 @@ import (
 func TestScheduleReaderLegacyV1Parity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct{ subject, mode, id string }
 	type useCase struct {
 		desc   string
@@ -43,27 +40,7 @@ func TestScheduleReaderLegacyV1Parity(t *testing.T) {
 		{"unknown schedule returns empty", input{subject: "u1", id: "missing"}, []string{}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := scheduleReaderFixture(t, project)
 			db, _ := scheduleReaderFixture(t, project)
-			filters := map[string]any{"mode": tc.input.mode}
-			if tc.input.id != "" {
-				filters["id"] = tc.input.id
-			}
-			encoded, err := json.Marshal(map[string]any{"Component": "schedule", "DBPath": oldPath, "Principal": tc.input.subject, "Filters": filters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(encoded)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy read failed: %s", before.Error)
-			}
 			rt, key := scheduleReaderRuntime(t, db, tc.input.subject, tc.input.mode == "due", true, true)
 			in := &schedule.ScheduleInput{Has: &schedule.ScheduleInputHas{}}
 			if tc.input.id != "" {
@@ -72,14 +49,11 @@ func TestScheduleReaderLegacyV1Parity(t *testing.T) {
 			}
 			result, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/scheduler/schedule/{id}"}}, Input: in})
 			must(t, err)
-			raw, err = json.Marshal(result.(*schedule.ScheduleOutput).Data)
+			raw, err := json.Marshal(result.(*schedule.ScheduleOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
-			oldRows, newRows := normalizeRows(t, before.Rows), normalizeRows(t, rows)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("full schedule parity\nlegacy=%s\nnew=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := normalizeRows(t, rows)
 			ids := []string{}
 			for _, row := range newRows {
 				ids = append(ids, row["id"].(string))

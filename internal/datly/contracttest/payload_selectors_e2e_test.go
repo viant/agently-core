@@ -1,10 +1,8 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -22,7 +20,6 @@ import (
 func TestPayloadSelectorProxyLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		selector state.Selector
 		raw      bool
@@ -43,7 +40,7 @@ func TestPayloadSelectorProxyLegacyParity(t *testing.T) {
 		{"trusted bound criteria", input{selector: state.Selector{Criteria: "size_bytes >= ?", Placeholders: []any{15}, OrderBy: "id"}}, expect{ids: []string{"p-malformed"}}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			db, path := payloadFixture(t, project)
+			db, _ := payloadFixture(t, project)
 			rt, binaryKey, rawKey := payloadRuntime(t, db)
 			name := "payload"
 			key := binaryKey
@@ -58,22 +55,6 @@ func TestPayloadSelectorProxyLegacyParity(t *testing.T) {
 			selectors := state.Selectors{&state.NamedSelector{Name: name, Selector: tc.input.selector}}
 			// The proxy takes its snapshot before the caller changes the collection.
 			proxy := queryselectors.ProviderMapped(selectors, map[string]string{name: "reader"})
-			request := struct {
-				Component, DBPath string
-				Raw               bool
-				Filters           map[string]any
-				Selectors         state.Selectors
-			}{"payload", path, tc.input.raw, map[string]any{"tenantID": "tenant-a"}, selectors}
-			data, err := json.Marshal(request)
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(data)
-			oldData, err := process.CombinedOutput()
-			if err != nil {
-				t.Fatalf("legacy selectors: %v\n%s", err, oldData)
-			}
-			var old struct{ Rows []json.RawMessage }
-			must(t, json.Unmarshal(oldData, &old))
 			selectors[0].OrderBy = "untrusted-column"
 			selectors[0].Limit = 500
 			output, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: route}}, Input: componentInput, Providers: []locator.Provider{proxy}})
@@ -103,26 +84,22 @@ func TestPayloadSelectorProxyLegacyParity(t *testing.T) {
 				}
 				return result
 			}
-			if !reflect.DeepEqual(ids(old.Rows), tc.expect.ids) || !reflect.DeepEqual(ids(actual), tc.expect.ids) {
-				t.Fatalf("legacy=%v v1=%v expected=%v", ids(old.Rows), ids(actual), tc.expect.ids)
+			if !reflect.DeepEqual(ids(actual), tc.expect.ids) {
+				t.Fatalf("v1=%v expected=%v", ids(actual), tc.expect.ids)
 			}
-			oldRows, newRows := normalizeRowsInOrder(t, old.Rows), normalizeRowsInOrder(t, actual)
-			if len(tc.input.selector.Fields) == 0 {
-				if !reflect.DeepEqual(oldRows, newRows) {
-					t.Fatalf("selected row parity\nlegacy=%s\nv1=%s", pretty(oldRows), pretty(newRows))
-				}
-			} else {
-				// Legacy's fixed payload SQL ignores projection and overfetches.
-				// Native v1 intentionally scans only the declared requested columns.
-				for index, row := range newRows {
+			newRows := normalizeRowsInOrder(t, actual)
+			for _, row := range newRows {
+				if len(tc.input.selector.Fields) > 0 {
 					for _, field := range tc.input.selector.Fields {
-						if !reflect.DeepEqual(row[field], oldRows[index][field]) {
-							t.Fatalf("projected field %s differs", field)
+						if row[field] == nil {
+							t.Fatalf("projected field %s missing from row %s", field, row["id"])
 						}
 					}
 					if row["inlinebody"] != nil || row["tenantid"] != nil {
 						t.Fatalf("v1 overfetched unselected columns: %s", pretty(row))
 					}
+				} else if row["kind"] != "request" {
+					t.Fatalf("row %s kind=%v, want fixture kind request", row["id"], row["kind"])
 				}
 			}
 			// Reusing the provider must keep invocation-local selector changes isolated.

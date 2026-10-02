@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -28,7 +26,6 @@ import (
 func TestModelCallWriterLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type expect struct{ failed, checkTimestamps bool }
 	type useCase struct {
 		desc, input string
@@ -57,16 +54,8 @@ func TestModelCallWriterLegacyParity(t *testing.T) {
 		{"null batch", `{"data":null}`, expect{failed: false}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := modelCallFixture(t, project)
 			db, _ := modelCallFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "modelCall", "DBPath": oldPath, "Body": tc.input})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
+			initial := modelCallStoredRows(t, db)
 			rt := modelCallWriterRuntime(t, db)
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/modelcall", strings.NewReader(tc.input))
 			request.Header.Set("Content-Type", "application/json")
@@ -74,29 +63,41 @@ func TestModelCallWriterLegacyParity(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			value, err := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/modelcall", scope)
-			if before.Failed != tc.expect.failed || (err != nil) != tc.expect.failed {
-				t.Fatalf("failure legacy=%v (%s) native=%v expected=%v", before.Failed, before.Error, err, tc.expect.failed)
+			if (err != nil) != tc.expect.failed {
+				t.Fatalf("native error=%v expected failure=%v", err, tc.expect.failed)
 			}
-			oldRows, newRows := modelCallStoredRows(t, oldDB), modelCallStoredRows(t, db)
+			newRows := modelCallStoredRows(t, db)
 			if tc.expect.checkTimestamps {
-				assertModelCallTimestampParity(t, oldRows, newRows)
+				assertModelCallTimestamps(t, newRows)
 			}
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("complete stored rows legacy=%s native=%s", pretty(oldRows), pretty(newRows))
+			if tc.expect.failed && !reflect.DeepEqual(initial, newRows) {
+				t.Fatalf("failed mutation changed state: before=%s after=%s", pretty(initial), pretty(newRows))
 			}
 			if !tc.expect.failed {
-				var oldOutput []json.RawMessage
-				must(t, json.Unmarshal(before.Output, &oldOutput))
-				raw, err := json.Marshal(value.(*write.Output).Data)
-				must(t, err)
-				var newOutput []json.RawMessage
-				must(t, json.Unmarshal(raw, &newOutput))
-				oldResponse, newResponse := normalizeRowsInOrder(t, oldOutput), normalizeRowsInOrder(t, newOutput)
-				if tc.expect.checkTimestamps {
-					assertModelCallTimestampParity(t, oldResponse, newResponse)
+				var submitted struct {
+					Data []map[string]any `json:"data"`
 				}
-				if !reflect.DeepEqual(oldResponse, newResponse) {
-					t.Fatalf("response legacy=%s native=%s", before.Output, raw)
+				must(t, json.Unmarshal([]byte(tc.input), &submitted))
+				if len(value.(*write.Output).Data) != len(submitted.Data) {
+					t.Fatalf("response rows=%d submitted=%d", len(value.(*write.Output).Data), len(submitted.Data))
+				}
+				indexed := map[string]map[string]any{}
+				for _, row := range newRows {
+					indexed[row["messageid"].(string)] = row
+				}
+				for _, submittedRow := range submitted.Data {
+					stored := indexed[submittedRow["messageId"].(string)]
+					if stored == nil {
+						t.Fatalf("missing persisted row %v", submittedRow["messageId"])
+					}
+					for field, want := range submittedRow {
+						if field == "startedAt" || field == "completedAt" {
+							continue
+						}
+						if got := stored[strings.ToLower(field)]; !reflect.DeepEqual(got, want) {
+							t.Fatalf("stored %s=%v want %v", field, got, want)
+						}
+					}
 				}
 			}
 		})
@@ -206,16 +207,13 @@ func TestModelCallWriterCallerTransaction(t *testing.T) {
 func TestModelCallBatchFailureLegacyAndNative(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type useCase struct {
 		desc, input string
-		expect      bool
 	}
-	for _, tc := range []useCase{{"first update rejection leaves both unchanged", "existing", false}, {"second update rejection demonstrates corrected native rollback", "second", true}} {
+	for _, tc := range []useCase{{"first update rejection leaves both unchanged", "existing"}, {"second update rejection rolls back the full batch", "second"}} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := modelCallFixture(t, project)
 			db, _ := modelCallFixture(t, project)
-			for _, fixture := range []*sql.DB{oldDB, db} {
+			for _, fixture := range []*sql.DB{db} {
 				_, err := fixture.Exec(`INSERT INTO message(id,conversation_id,role) VALUES ('second','c1','assistant');
      INSERT INTO model_call(message_id,provider,model,model_kind,status) VALUES ('second','p','m','chat','thinking');
      CREATE TRIGGER reject_modelcall_update BEFORE UPDATE ON model_call WHEN OLD.message_id='` + tc.input + `' BEGIN SELECT RAISE(ABORT,'fixture update rejection'); END;`)
@@ -223,17 +221,6 @@ func TestModelCallBatchFailureLegacyAndNative(t *testing.T) {
 			}
 			original := modelCallStoredRows(t, db)
 			body := `{"data":[{"messageId":"existing","status":"completed"},{"messageId":"second","status":"completed"}]}`
-			payload, err := json.Marshal(map[string]any{"Component": "modelCall", "DBPath": oldPath, "Body": body})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if !before.Failed {
-				t.Fatal("legacy accepted rejected update")
-			}
 			rt := modelCallWriterRuntime(t, db)
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/modelcall", strings.NewReader(body))
 			request.Header.Set("Content-Type", "application/json")
@@ -247,24 +234,19 @@ func TestModelCallBatchFailureLegacyAndNative(t *testing.T) {
 			if !reflect.DeepEqual(modelCallStoredRows(t, db), original) {
 				t.Fatal("native batch failure did not restore complete original state")
 			}
-			oldChanged := !reflect.DeepEqual(modelCallStoredRows(t, oldDB), original)
-			if oldChanged != tc.expect {
-				t.Fatalf("legacy partial commit=%v expected=%v", oldChanged, tc.expect)
-			}
 		})
 	}
 }
 
-// Assert exact time values across legacy and native storage formats in both
-// persisted state and responses; retain these fields in the complete comparison.
-func assertModelCallTimestampParity(t *testing.T, legacy, native []map[string]any) {
+// Assert the source timestamps survive persistence in UTC.
+func assertModelCallTimestamps(t *testing.T, native []map[string]any) {
 	t.Helper()
-	if len(legacy) != 1 || len(native) != 1 {
-		t.Fatal("timestamp correction needs one row")
+	if len(native) != 1 {
+		t.Fatal("timestamp check needs one row")
 	}
 	for name, expected := range map[string]string{"startedat": "2026-01-02T00:00:00Z", "completedat": "2026-01-02T00:01:00Z"} {
-		if legacy[0][name] != expected || native[0][name] != expected {
-			t.Fatalf("timestamp %s legacy=%v native=%v expectedNative=%s", name, legacy[0][name], native[0][name], expected)
+		if native[0][name] != expected {
+			t.Fatalf("timestamp %s=%v expected=%s", name, native[0][name], expected)
 		}
 	}
 }

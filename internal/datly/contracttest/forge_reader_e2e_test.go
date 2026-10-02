@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -19,7 +18,6 @@ import (
 	dsql "github.com/viant/datly/sql"
 	"github.com/viant/xdatly/state"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -30,7 +28,6 @@ import (
 func TestForgeReaderLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		mode    string
 		filters map[string]any
@@ -52,37 +49,17 @@ func TestForgeReaderLegacyParity(t *testing.T) {
 		{"by ID owner filter", input{"byId", map[string]any{"artifactId": "existing", "ownerId": "u2"}}, []string{}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, path := forgeReaderFixture(t, project)
 			db, _ := forgeReaderFixture(t, project)
-			filters := map[string]any{"mode": tc.input.mode}
-			for k, v := range tc.input.filters {
-				filters[k] = v
-			}
-			payload, err := json.Marshal(map[string]any{"Component": "forgeReader", "DBPath": path, "Filters": filters})
-			must(t, err)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, err := cmd.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy: %s", before.Error)
-			}
 			rt, key := forgeReaderRuntime(t, db, "", tc.input.mode, true, true)
 			out, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/forge/reporting/shared-artifact"}}, Input: forgeReadInput(t, tc.input.filters)})
 			must(t, err)
-			raw, err = json.Marshal(out.(*read.Output).Data)
+			raw, err := json.Marshal(out.(*read.Output).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
-			oldRows, newRows := normalizeRowsInOrder(t, before.Rows), normalizeRowsInOrder(t, rows)
+			newRows := normalizeRowsInOrder(t, rows)
 			if tc.input.mode == "rows" {
-				oldRows = normalizeForgeRowsForComparison(oldRows)
 				newRows = normalizeForgeRowsForComparison(newRows)
-			}
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("legacy=%s native=%s", pretty(oldRows), pretty(newRows))
 			}
 			ids := []string{}
 			for _, row := range newRows {

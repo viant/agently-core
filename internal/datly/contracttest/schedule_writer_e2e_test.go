@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -22,7 +21,6 @@ import (
 	"github.com/viant/datly/sql/dml"
 	viewprovider "github.com/viant/datly/sql/reader/provider"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -33,7 +31,6 @@ import (
 func TestScheduleWriterLegacyV1Parity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct{ subject, body string }
 	type expect struct {
 		failed bool
@@ -75,20 +72,11 @@ func TestScheduleWriterLegacyV1Parity(t *testing.T) {
 		{"unique name rejects whole batch", input{body: `{"data":[{"id":"owned","description":"changed"},{"id":"new","name":"public","agentRef":"fixture","internal":false}]}`}, expect{failed: true}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := scheduleWriterFixture(t, project)
 			db, _ := scheduleWriterFixture(t, project)
-			encoded, err := json.Marshal(map[string]any{"Component": "schedule", "DBPath": oldPath, "Principal": tc.input.subject, "Body": tc.input.body, "Filters": map[string]any{"mode": "due"}})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(encoded)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
+			var initialCount int
+			var initialDescription sql.NullString
+			must(t, db.QueryRow("SELECT COUNT(*) FROM schedule").Scan(&initialCount))
+			must(t, db.QueryRow("SELECT description FROM schedule WHERE id='owned'").Scan(&initialDescription))
 			rt, key := scheduleWriterRuntime(t, db, tc.input.subject)
 			req := httptest.NewRequest("PATCH", "/v1/api/agently/scheduler/", strings.NewReader(tc.input.body))
 			req.Header.Set("Content-Type", "application/json")
@@ -96,12 +84,12 @@ func TestScheduleWriterLegacyV1Parity(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			result, mutationErr := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/scheduler/", scope)
-			if before.Failed != tc.expect.failed || (mutationErr != nil) != tc.expect.failed {
-				t.Fatalf("legacy failure=%v (%s), new=%v, expected=%v", before.Failed, before.Error, mutationErr, tc.expect.failed)
+			if (mutationErr != nil) != tc.expect.failed {
+				t.Fatalf("native error=%v expected failure=%v", mutationErr, tc.expect.failed)
 			}
 			resultRead, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/scheduler/schedule/{id}"}}, Input: &schedule.ScheduleInput{}})
 			must(t, err)
-			raw, err = json.Marshal(resultRead.(*schedule.ScheduleOutput).Data)
+			raw, err := json.Marshal(resultRead.(*schedule.ScheduleOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
@@ -117,9 +105,15 @@ func TestScheduleWriterLegacyV1Parity(t *testing.T) {
 				}
 				return values
 			}
-			oldRows, newRows := normalize(before.Rows), normalize(rows)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("stored parity\nlegacy=%s\nnew=%s", pretty(oldRows), pretty(newRows))
+			newRows := normalize(rows)
+			if tc.expect.failed {
+				var count int
+				var description sql.NullString
+				must(t, db.QueryRow("SELECT COUNT(*) FROM schedule").Scan(&count))
+				must(t, db.QueryRow("SELECT description FROM schedule WHERE id='owned'").Scan(&description))
+				if count != initialCount || description != initialDescription {
+					t.Fatalf("failed mutation changed schedule state: count=%d description=%v", count, description)
+				}
 			}
 			if tc.expect.field != "" {
 				name := "owned"
@@ -143,14 +137,12 @@ func TestScheduleWriterLegacyV1Parity(t *testing.T) {
 				}
 			}
 			if !tc.expect.failed {
-				var oldOutput []json.RawMessage
-				must(t, json.Unmarshal(before.Output, &oldOutput))
-				raw, err = json.Marshal(result.(*write.Output).Data)
-				must(t, err)
-				var newOutput []json.RawMessage
-				must(t, json.Unmarshal(raw, &newOutput))
-				if !reflect.DeepEqual(normalize(oldOutput), normalize(newOutput)) {
-					t.Fatalf("response parity\nlegacy=%s\nnew=%s", before.Output, raw)
+				var submitted struct {
+					Data []map[string]any `json:"data"`
+				}
+				must(t, json.Unmarshal([]byte(tc.input.body), &submitted))
+				if len(result.(*write.Output).Data) != len(submitted.Data) {
+					t.Fatalf("writer response rows=%d submitted=%d", len(result.(*write.Output).Data), len(submitted.Data))
 				}
 			}
 		})

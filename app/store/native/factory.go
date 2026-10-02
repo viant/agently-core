@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -17,12 +16,11 @@ import (
 	"github.com/viant/datly/bootstrap/connector"
 	"github.com/viant/datly/standalone"
 	"github.com/viant/datly/standalone/config"
-	xmodule "github.com/viant/x/module"
 	xauth "github.com/viant/xdatly/auth"
 )
 
 // Options binds one application lifetime to one connector pool. SourceRoot is
-// the Core source root used by Datly's linked bootstrap.
+// retained for caller compatibility; linked bootstrap needs no source checkout.
 // The caller supplies trusted providers and owns the returned server shutdown.
 type Options struct {
 	SourceRoot           string
@@ -38,9 +36,6 @@ func New(ctx context.Context, options Options) (*standalone.Server, error) {
 	if ctx == nil {
 		return nil, fmt.Errorf("native Datly context is required")
 	}
-	if strings.TrimSpace(options.SourceRoot) == "" {
-		return nil, fmt.Errorf("native Datly source root is required")
-	}
 	connectors := options.Connectors
 	if len(connectors) == 0 {
 		config, err := connectorFromEnvironment(ctx, options.WorkspaceRoot)
@@ -51,30 +46,14 @@ func New(ctx context.Context, options Options) (*standalone.Server, error) {
 	}
 	providers := AccessProviders()
 	providers = append(providers, options.Providers...)
-	// Discovery roots contain the linked contracts and orchestration. Dependency
-	// type resolution still uses the enclosing Core module; unrelated SDK build
-	// trees are outside discovery and cannot invalidate an application runtime.
-	workspace, err := sourceWorkspace(ctx, options.SourceRoot)
-	if err != nil {
-		return nil, err
-	}
 	return host.New(ctx, standalone.Options{
-		Workspace: workspace,
 		Config: &config.Config{
-			BaseDir:    options.SourceRoot,
 			Connector:  "agently",
 			Connectors: connectors,
 		},
 		Providers:            providers,
 		DefaultAuthenticator: options.DefaultAuthenticator,
 	})
-}
-
-func sourceWorkspace(ctx context.Context, root string) (*xmodule.Workspace, error) {
-	return (xmodule.LocalWorkspace{
-		BaseDir:    filepath.Join(root, "internal", "datly"),
-		ModuleDirs: []string{filepath.Join(root, "internal", "store")},
-	}).Resolve(ctx)
 }
 
 func connectorFromEnvironment(ctx context.Context, workspaceRoot string) (connector.Config, error) {

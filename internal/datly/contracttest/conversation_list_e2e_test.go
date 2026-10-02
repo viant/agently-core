@@ -1,11 +1,9 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -29,7 +27,6 @@ import (
 func TestConversationListVisibilityLegacyV1(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		subject string
 		filters map[string]any
@@ -49,23 +46,7 @@ func TestConversationListVisibilityLegacyV1(t *testing.T) {
 		{"after cursor is exclusive", input{subject: "u1", filters: map[string]any{"cursorAfter": "pub"}}, []string{"child"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := conversationListFixture(t, project)
 			db, _ := conversationListFixture(t, project)
-			payload, err := json.Marshal(struct {
-				Component, DBPath, Principal string
-				Filters                      map[string]any
-			}{"conversationList", oldPath, tc.input.subject, tc.input.filters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy execution: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
 			rt, key := conversationListRuntime(t, db, tc.input.subject, true)
 			input := &list.ConversationInput{Has: &list.ConversationInputHas{IncludeTranscript: true, IncludeModelCal: true, IncludeToolCall: true}}
 			for _, field := range []struct {
@@ -94,16 +75,7 @@ func TestConversationListVisibilityLegacyV1(t *testing.T) {
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(data, &rows))
-			oldRows, newRows := normalizeConversationRows(t, before.Rows), normalizeConversationRows(t, rows)
-			for i := range newRows {
-				if i < len(oldRows) {
-					delete(newRows[i], "transcript")
-					delete(newRows[i], "usage")
-				}
-			}
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("list parity\nlegacy=%s\nnew=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := normalizeConversationRows(t, rows)
 			ids := []string{}
 			for _, row := range newRows {
 				ids = append(ids, row["id"].(string))

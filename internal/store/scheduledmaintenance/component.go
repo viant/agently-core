@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
 	"sort"
 	"strings"
 	"time"
@@ -16,8 +15,8 @@ import (
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	lease "github.com/viant/agently-core/internal/store/maintenancelease"
 	dexec "github.com/viant/datly/exec"
+	rh "github.com/viant/datly/runtime/handler"
 	custom "github.com/viant/datly/runtime/handler/custom"
-	"github.com/viant/x"
 	xdatly "github.com/viant/xdatly"
 	"github.com/viant/xdatly/handler"
 )
@@ -43,19 +42,14 @@ type Component struct {
 type Maintain struct{}
 
 func NewMaintain() handler.Contract[Input, Output] { return &Maintain{} }
-func Exports() (*x.Registry, error) {
-	registry := x.NewRegistry()
-	for _, typ := range []reflect.Type{reflect.TypeFor[Input](), reflect.TypeFor[Output](), reflect.TypeFor[lease.Lease]()} {
-		registry.Register(x.NewType(typ))
+
+// DatlyHandler binds the holder's declared handler to its typed implementation.
+// Linked package discovery calls this provider without a host registration list.
+func (Component) DatlyHandler(name string) func() (rh.TypedHandler, error) {
+	if name != "NewMaintain" {
+		return nil
 	}
-	factory, err := x.NewFunction(reflect.TypeFor[Component]().PkgPath(), "NewMaintain", custom.Factory(NewMaintain))
-	if err != nil {
-		return nil, err
-	}
-	if err = registry.RegisterFunctions(factory); err != nil {
-		return nil, err
-	}
-	return registry, nil
+	return custom.Factory(NewMaintain)
 }
 
 type dependencies struct {

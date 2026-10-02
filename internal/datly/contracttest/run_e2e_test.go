@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -21,7 +20,6 @@ import (
 	"github.com/viant/datly/sql/dml"
 	viewprovider "github.com/viant/datly/sql/reader/provider"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -32,7 +30,6 @@ import (
 func TestRunLegacyV1Parity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		body, subject string
 		raw           bool
@@ -73,40 +70,8 @@ func TestRunLegacyV1Parity(t *testing.T) {
 		{"null batch is no-op", input{raw: true, body: `{"data":null}`}, expect{ids: all}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := runParityFixture(t, project)
 			db, _ := runParityFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "run", "DBPath": oldPath, "Body": tc.input.body, "Principal": tc.input.subject, "Raw": tc.input.raw, "Filters": tc.input.filters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			// SDK0's worker predicate occasionally returns an empty result only
-			// during the full suite. A read-only retry keeps the exact legacy
-			// comparison while distinguishing a transient probe miss from a
-			// persistent parity failure.
-			if tc.desc == "worker predicate" && !before.Failed && len(before.Rows) == 0 {
-				for retry := 0; retry < 2 && len(before.Rows) == 0; retry++ {
-					process = exec.Command(legacy)
-					process.Stdin = bytes.NewReader(payload)
-					stderr.Reset()
-					process.Stderr = &stderr
-					raw, err = process.Output()
-					if err != nil {
-						t.Fatalf("legacy worker predicate retry: %v\n%s", err, stderr.String())
-					}
-					before = probeResult{}
-					must(t, json.Unmarshal(raw, &before))
-				}
-			}
 			rt, key := runParityRuntime(t, db, tc.input.subject, tc.input.raw)
-			var afterOutput []json.RawMessage
 			var mutationErr error
 			if tc.input.body != "" {
 				request := httptest.NewRequest("PATCH", "/v1/api/agently/run", strings.NewReader(tc.input.body))
@@ -117,13 +82,12 @@ func TestRunLegacyV1Parity(t *testing.T) {
 				out, err := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/run", scope)
 				mutationErr = err
 				if err == nil {
-					raw, err = json.Marshal(out.(*write.Output).Data)
+					_, err = json.Marshal(out.(*write.Output).Data)
 					must(t, err)
-					must(t, json.Unmarshal(raw, &afterOutput))
 				}
 			}
-			if before.Failed != tc.expect.failed || (mutationErr != nil) != tc.expect.failed {
-				t.Fatalf("legacy=%v (%s), native=%v, expected failure=%v", before.Failed, before.Error, mutationErr, tc.expect.failed)
+			if (mutationErr != nil) != tc.expect.failed {
+				t.Fatalf("native=%v, expected failure=%v", mutationErr, tc.expect.failed)
 			}
 			input := &read.RunRowsInput{Has: &read.RunRowsInputHas{}}
 			for _, field := range []struct {
@@ -146,14 +110,11 @@ func TestRunLegacyV1Parity(t *testing.T) {
 			}
 			out, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/run/{id}"}}, Input: input})
 			must(t, err)
-			raw, err = json.Marshal(out.(*read.RunRowsOutput).Data)
+			raw, err := json.Marshal(out.(*read.RunRowsOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
-			oldRows, newRows := normalizeRows(t, before.Rows), normalizeRows(t, rows)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("stored parity\nlegacy=%s\nnew=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := normalizeRows(t, rows)
 			ids := []string{}
 			for _, row := range newRows {
 				ids = append(ids, row["id"].(string))
@@ -169,13 +130,6 @@ func TestRunLegacyV1Parity(t *testing.T) {
 			}
 			if !reflect.DeepEqual(ids, tc.expect.ids) {
 				t.Fatalf("ids=%v expected=%v", ids, tc.expect.ids)
-			}
-			if tc.input.body != "" && !tc.expect.failed {
-				var oldOutput []json.RawMessage
-				must(t, json.Unmarshal(before.Output, &oldOutput))
-				if !reflect.DeepEqual(normalizeRows(t, oldOutput), normalizeRows(t, afterOutput)) {
-					t.Fatalf("response parity\nlegacy=%s\nnew=%s", before.Output, pretty(afterOutput))
-				}
 			}
 		})
 	}

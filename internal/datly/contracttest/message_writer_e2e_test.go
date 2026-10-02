@@ -10,7 +10,6 @@ import (
 	read "github.com/viant/agently-core/internal/datly/message/read"
 	"github.com/viant/datly/bootstrap"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -33,7 +32,6 @@ import (
 func TestMessageWriterLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type useCase struct {
 		desc, input string
 		expect      bool
@@ -63,17 +61,9 @@ func TestMessageWriterLegacyParity(t *testing.T) {
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
 			prefix := fmt.Sprintf("message-parity-%d-", time.Now().UnixNano())
-			oldDB, path := messageFixture(t, project, prefix)
 			db, _ := messageFixture(t, project, prefix)
 			tc.input = strings.ReplaceAll(strings.ReplaceAll(tc.input, `"t1"`, `"`+prefix+`t1"`), `"t2"`, `"`+prefix+`t2"`)
-			payload, err := json.Marshal(map[string]any{"Component": "message", "DBPath": path, "Body": tc.input})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
+			initial := messageStoredRows(t, db)
 			rt := messageWriterRuntime(t, db)
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/message", strings.NewReader(tc.input))
 			request.Header.Set("Content-Type", "application/json")
@@ -81,41 +71,63 @@ func TestMessageWriterLegacyParity(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			value, err := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/message", scope)
-			if before.Failed != tc.expect || (err != nil) != tc.expect {
-				t.Fatalf("legacy=%v (%s) native=%v expected failure=%v", before.Failed, before.Error, err, tc.expect)
+			if (err != nil) != tc.expect {
+				t.Fatalf("native error=%v expected failure=%v", err, tc.expect)
 			}
-			oldRows, newRows := messageStoredRows(t, oldDB), messageStoredRows(t, db)
-			for _, rows := range [][]map[string]any{oldRows, newRows} {
-				for _, row := range rows {
-					for _, key := range []string{"createdat", "updatedat"} {
-						if row[key] != nil {
-							row[key] = "<timestamp>"
-						}
-					}
-				}
-			}
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("legacy=%s native=%s", pretty(oldRows), pretty(newRows))
+			newRows := messageStoredRows(t, db)
+			if tc.expect && !reflect.DeepEqual(initial, newRows) {
+				t.Fatalf("failed mutation changed stored rows: before=%s after=%s", pretty(initial), pretty(newRows))
 			}
 			if !tc.expect {
-				var oldOutput []json.RawMessage
-				must(t, json.Unmarshal(before.Output, &oldOutput))
-				raw, err := json.Marshal(value.(*write.Output).Data)
-				must(t, err)
-				var newOutput []json.RawMessage
-				must(t, json.Unmarshal(raw, &newOutput))
-				beforeRows, afterRows := normalizeRowsInOrder(t, oldOutput), normalizeRowsInOrder(t, newOutput)
-				for _, rows := range [][]map[string]any{beforeRows, afterRows} {
-					for _, row := range rows {
-						for _, key := range []string{"createdat", "updatedat"} {
-							if row[key] != nil {
-								row[key] = "<timestamp>"
-							}
+				var submitted struct {
+					Data []map[string]any `json:"data"`
+				}
+				must(t, json.Unmarshal([]byte(tc.input), &submitted))
+				if len(value.(*write.Output).Data) != len(submitted.Data) {
+					t.Fatalf("response rows=%d submitted=%d", len(value.(*write.Output).Data), len(submitted.Data))
+				}
+				indexed := map[string]map[string]any{}
+				for _, row := range newRows {
+					indexed[row["id"].(string)] = row
+				}
+				for _, submittedRow := range submitted.Data {
+					id := submittedRow["id"].(string)
+					stored := indexed[id]
+					if stored == nil {
+						t.Fatalf("missing persisted message %s", id)
+					}
+					for field, want := range submittedRow {
+						if field == "createdAt" || field == "sequence" {
+							continue
+						}
+						key := strings.ToLower(field)
+						if field == "narration" {
+							key = "preamble"
+						}
+						if got := stored[key]; !reflect.DeepEqual(got, want) {
+							t.Fatalf("message %s %s=%v want %v", id, field, got, want)
 						}
 					}
-				}
-				if !reflect.DeepEqual(beforeRows, afterRows) {
-					t.Fatalf("response legacy=%s native=%s", before.Output, raw)
+					if id == "new" {
+						wantSequence := any(nil)
+						if suppliedSequence, ok := submittedRow["sequence"]; ok && suppliedSequence != nil {
+							wantSequence = suppliedSequence
+						} else if turn, ok := submittedRow["turnId"]; ok && turn != nil {
+							wantSequence = float64(4)
+							if turn == prefix+"t2" {
+								wantSequence = float64(1)
+							}
+						}
+						if stored["sequence"] != wantSequence {
+							t.Fatalf("new message sequence=%v want %v", stored["sequence"], wantSequence)
+						}
+					} else if submittedRow["sequence"] == nil && strings.Contains(tc.input, `"sequence":null`) {
+						if stored["sequence"] != nil {
+							t.Fatalf("message sequence was not cleared: %v", stored["sequence"])
+						}
+					} else if _, supplied := submittedRow["sequence"]; !supplied && stored["sequence"] != float64(3) {
+						t.Fatalf("existing sequence changed: %v", stored["sequence"])
+					}
 				}
 			}
 
@@ -256,28 +268,15 @@ func TestMessageWriterCallerTransaction(t *testing.T) {
 func TestMessageWriterContentBoundaryLegacyParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type useCase struct {
 		desc, input string
 		expect      int
 	}
 	for _, tc := range []useCase{{"ASCII content limit", strings.Repeat("x", write.MaxContentBytes+1), write.MaxContentBytes}, {"UTF8 content limit", strings.Repeat("x", write.MaxContentBytes-1) + "界", write.MaxContentBytes - 1}} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, path := messageFixture(t, project)
 			db, _ := messageFixture(t, project)
 			body, err := json.Marshal(map[string]any{"data": []map[string]any{{"id": "existing", "content": tc.input, "rawContent": tc.input}}})
 			must(t, err)
-			payload, err := json.Marshal(map[string]any{"Component": "message", "DBPath": path, "Body": string(body)})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy failed: %s", before.Error)
-			}
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/message", bytes.NewReader(body))
 			request.Header.Set("Content-Type", "application/json")
 			scope, err := requestprovider.New(request)
@@ -285,11 +284,10 @@ func TestMessageWriterContentBoundaryLegacyParity(t *testing.T) {
 			defer scope.Close()
 			_, err = messageWriterRuntime(t, db).ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/message", scope)
 			must(t, err)
-			var oldContent, oldRaw, content, rawContent string
-			must(t, oldDB.QueryRow("SELECT content,raw_content FROM message WHERE id='existing'").Scan(&oldContent, &oldRaw))
+			var content, rawContent string
 			must(t, db.QueryRow("SELECT content,raw_content FROM message WHERE id='existing'").Scan(&content, &rawContent))
-			if content != oldContent || rawContent != oldRaw || len(content) != tc.expect || len(rawContent) != tc.expect {
-				t.Fatalf("content lengths legacy=%d/%d native=%d/%d expected=%d", len(oldContent), len(oldRaw), len(content), len(rawContent), tc.expect)
+			if len(content) != tc.expect || len(rawContent) != tc.expect || content != rawContent {
+				t.Fatalf("content lengths=%d/%d expected=%d", len(content), len(rawContent), tc.expect)
 			}
 		})
 	}

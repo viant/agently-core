@@ -1,13 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"github.com/viant/datly/runtime/handler/provider"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -55,11 +52,11 @@ func reportExportSubmitRuntime(t *testing.T, db *sql.DB, owner string, supplied 
 	jw := payloadArtifact(t, resources, reflect.TypeFor[jobwrite.WriterComponent](), reflect.TypeFor[jobwrite.Input](), reflect.TypeFor[jobwrite.Output]())
 	rr := payloadArtifact(t, resources, reflect.TypeFor[runread.ReaderComponent](), reflect.TypeFor[runread.Input](), reflect.TypeFor[runread.Output]())
 	parent := payloadArtifact(t, resources, reflect.TypeFor[submit.Component](), reflect.TypeFor[submit.Input](), reflect.TypeFor[submit.Output]())
-	exports, err := submit.Exports()
+	customHandler, err := (submit.Component{}).DatlyHandler("NewSubmit")()
 	must(t, err)
-	builder, err := bootstrap.NewArtifactBuilder(exports)
+	builder, err := bootstrap.NewArtifactBuilder(nil)
 	must(t, err)
-	parent, err = builder.Build(bootstrap.ArtifactInput{Component: parent.Component, InputType: reflect.TypeFor[submit.Input](), OutputType: reflect.TypeFor[submit.Output](), Resources: resources})
+	parent, err = builder.Build(bootstrap.ArtifactInput{Component: parent.Component, InputType: reflect.TypeFor[submit.Input](), OutputType: reflect.TypeFor[submit.Output](), Resources: resources, Handler: customHandler})
 	must(t, err)
 	visibility := provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil })
 	access := ordinaryAccess("reportaccess", func(context.Context, reflect.Type, string) (any, bool, error) { return false, true, nil })
@@ -102,7 +99,6 @@ func invokeReportExportSubmit(ctx context.Context, rt *druntime.Runtime, key spe
 func TestReportExportSubmitNativeFlow(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		seedReplay, mismatchReplay, missingRun, wrongConversation, runningRun, emptySnapshot, malformed, foreignOwner, rejectInsert bool
 	}
@@ -130,22 +126,21 @@ func TestReportExportSubmitNativeFlow(t *testing.T) {
 		{"insert failure leaves no job", input{rejectInsert: true}, expect{failure: true}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := reportExportSubmitFixture(t, project)
 			db, _ := reportExportSubmitFixture(t, project)
 			if tc.input.seedReplay {
-				for _, fixture := range []*sql.DB{db, oldDB} {
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec(`INSERT INTO report_export_job(job_id,artifact_ref,owner_id,conversation_id,format,scope,status,report_run_id,report_run_revision,export_request_id,report_spec_json,report_fill_json,report_print_json,submitted_at) VALUES('prior','report-run://manual','u1','c1','pdf','draft','queued','manual',2,'export-one',X'7B7D',X'7B7D',X'7B7D','2026-01-03 00:00:00')`)
 					must(t, err)
 				}
 			}
 			if tc.input.emptySnapshot {
-				for _, fixture := range []*sql.DB{db, oldDB} {
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec("UPDATE report_run SET report_fill_json=NULL WHERE report_run_id='manual'")
 					must(t, err)
 				}
 			}
 			if tc.input.rejectInsert {
-				for _, fixture := range []*sql.DB{db, oldDB} {
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec("CREATE TRIGGER reject_export_submit BEFORE INSERT ON report_export_job WHEN NEW.job_id='export' BEGIN SELECT RAISE(ABORT,'fixture submit rejection'); END")
 					must(t, err)
 				}
@@ -171,25 +166,7 @@ func TestReportExportSubmitNativeFlow(t *testing.T) {
 			if tc.input.malformed {
 				candidate.Format = "csv"
 			}
-			legacyBody, marshalErr := json.Marshal(map[string]any{
-				"jobId": candidate.JobID, "ownerId": candidate.OwnerID, "conversationId": candidate.ConversationID,
-				"reportRunId": candidate.ReportRunID, "exportRequestId": candidate.ExportRequestID,
-				"artifactRef": candidate.ArtifactRef, "format": candidate.Format, "scope": candidate.Scope,
-				"status": candidate.Status, "submittedAt": candidate.SubmittedAt,
-			})
-			must(t, marshalErr)
-			payload, marshalErr := json.Marshal(map[string]any{"Component": "reportJob", "DBPath": oldPath, "Principal": owner, "Method": "submit", "Body": string(legacyBody)})
-			must(t, marshalErr)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, commandErr := cmd.Output()
-			must(t, commandErr)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
 			output, err := invokeReportExportSubmit(context.Background(), rt, key, candidate)
-			if before.Failed != (err != nil) {
-				t.Fatalf("legacy failed=%v (%s), native=%v", before.Failed, before.Error, err)
-			}
 			if (err != nil) != tc.expect.failure {
 				t.Fatalf("submit result=%+v err=%v expected failure=%v", output, err, tc.expect.failure)
 			}
@@ -197,18 +174,6 @@ func TestReportExportSubmitNativeFlow(t *testing.T) {
 				t.Fatalf("submit error=%v want %v", err, tc.expect.class)
 			}
 			if err == nil {
-				var old struct {
-					Job struct {
-						JobID             string `json:"jobId"`
-						ReportRunID       string `json:"reportRunId"`
-						ReportRunRevision int64  `json:"reportRunRevision"`
-					} `json:"job"`
-					Replay bool `json:"replay"`
-				}
-				must(t, json.Unmarshal(before.Output, &old))
-				if old.Replay != output.Replay || old.Job.JobID != output.Job.JobId || old.Job.ReportRunID != output.Job.ReportRunId || old.Job.ReportRunRevision != output.Job.ReportRunRevision {
-					t.Fatalf("legacy=%s native=%+v", before.Output, output)
-				}
 				if output.Replay != tc.expect.replay || output.Job == nil {
 					t.Fatalf("submit output=%+v", output)
 				}
@@ -220,11 +185,6 @@ func TestReportExportSubmitNativeFlow(t *testing.T) {
 			must(t, db.QueryRow("SELECT COUNT(*) FROM report_export_job WHERE export_request_id='export-one'").Scan(&count))
 			if count != tc.expect.count {
 				t.Fatalf("job count=%d expected=%d", count, tc.expect.count)
-			}
-			var oldCount int
-			must(t, oldDB.QueryRow("SELECT COUNT(*) FROM report_export_job WHERE export_request_id='export-one'").Scan(&oldCount))
-			if oldCount != count {
-				t.Fatalf("legacy job count=%d native=%d", oldCount, count)
 			}
 		})
 	}

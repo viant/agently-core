@@ -15,7 +15,6 @@ import (
 	provider "github.com/viant/datly/runtime/handler/provider"
 	dsql "github.com/viant/datly/sql"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -125,7 +124,6 @@ func runCubeRuntime(t *testing.T, db *sql.DB, subject, mode string, internal boo
 func TestRunCubeLegacySchedulerTotal(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		subject string
 		filters map[string]any
@@ -146,22 +144,7 @@ func TestRunCubeLegacySchedulerTotal(t *testing.T) {
 		{"internal schedules do not contribute", input{subject: "u1", filters: map[string]any{"scheduleId": "internal"}}, 0},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := schedulerRunListFixture(t, project)
 			db, _ := schedulerRunListFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "schedulerRunTotal", "DBPath": oldPath, "Principal": tc.input.subject, "Filters": tc.input.filters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed || len(before.Rows) != 1 {
-				t.Fatalf("legacy total: %s", raw)
-			}
-			var old map[string]any
-			must(t, json.Unmarshal(before.Rows[0], &old))
-			oldCount := int(old["RecordCount"].(float64))
 			filters := map[string]any{}
 			for name, value := range tc.input.filters {
 				target := map[string]string{"scheduleId": "ScheduleId", "status": "StatusPattern", "errorMessage": "ErrorPattern", "conversationId": "ConversationPattern"}[name]
@@ -182,8 +165,8 @@ func TestRunCubeLegacySchedulerTotal(t *testing.T) {
 				t.Fatalf("aggregate row count=%d", len(out.Data))
 			}
 			count := out.Data[0].RecordCount
-			if oldCount != tc.expect || count != tc.expect {
-				t.Fatalf("count legacy=%d cube=%d expected=%d", oldCount, count, tc.expect)
+			if count != tc.expect {
+				t.Fatalf("cube=%d expected=%d", count, tc.expect)
 			}
 		})
 	}

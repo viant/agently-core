@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -31,7 +29,6 @@ import (
 func TestModelCallReaderLegacyTranscriptParity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type useCase struct {
 		desc, input string
 		expect      []string
@@ -43,32 +40,17 @@ func TestModelCallReaderLegacyTranscriptParity(t *testing.T) {
 		{"missing conversation", "absent", []string{}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := modelCallReaderFixture(t, project)
 			db, _ := modelCallReaderFixture(t, project)
-			payload, err := json.Marshal(map[string]any{"Component": "modelCallTranscript", "DBPath": oldPath, "Filters": map[string]any{"id": tc.input}})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			raw, err := process.Output()
-			must(t, err)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy: %s", before.Error)
-			}
 			rt, key := modelCallReaderRuntime(t, db, "", "transcript", true, true)
 			input := &read.ModelCallsInput{ConversationId: tc.input, Has: &read.ModelCallsInputHas{ConversationId: true}}
 			out, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/model-call"}}, Input: input})
 			must(t, err)
-			raw, err = json.Marshal(out.(*read.ModelCallsOutput).Data)
+			raw, err := json.Marshal(out.(*read.ModelCallsOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
 			fields := modelCallPhysicalFields(t, db)
-			oldRows, newRows := modelCallReaderPhysicalRows(t, before.Rows, fields), modelCallReaderPhysicalRows(t, rows, fields)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("scalar transcript legacy=%s native=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := modelCallReaderPhysicalRows(t, rows, fields)
 			ids := []string{}
 			for _, row := range newRows {
 				ids = append(ids, row["messageid"].(string))

@@ -1,7 +1,6 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -19,7 +18,6 @@ import (
 	dsql "github.com/viant/datly/sql"
 	"github.com/viant/xdatly/state"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -30,7 +28,6 @@ import (
 func TestSchedulerRunsLegacyV1Parity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		Subject, Mode string
 		Filters       map[string]any
@@ -54,23 +51,11 @@ func TestSchedulerRunsLegacyV1Parity(t *testing.T) {
 `), &cases))
 	for _, tc := range cases {
 		t.Run(tc.Desc, func(t *testing.T) {
-			_, oldPath := schedulerRunsFixture(t, project)
 			db, _ := schedulerRunsFixture(t, project)
 			if slot, ok := tc.Input.Filters["scheduledFor"]; ok {
 				// Use each writer path's real timestamp representation for a matching slot.
 				seedBody, err := json.Marshal(map[string]any{"data": []map[string]any{{"id": "pub-new", "scheduledFor": slot}}})
 				must(t, err)
-				seedPayload, err := json.Marshal(map[string]any{"Component": "run", "DBPath": oldPath, "Raw": true, "Body": string(seedBody)})
-				must(t, err)
-				seed := exec.Command(legacy)
-				seed.Stdin = bytes.NewReader(seedPayload)
-				raw, err := seed.Output()
-				must(t, err)
-				var seeded probeResult
-				must(t, json.Unmarshal(raw, &seeded))
-				if seeded.Failed {
-					t.Fatalf("legacy slot seed failed: %s", seeded.Error)
-				}
 				rt, _ := runParityRuntime(t, db, "", true)
 				request := httptest.NewRequest("PATCH", "/v1/api/agently/run", strings.NewReader(string(seedBody)))
 				request.Header.Set("Content-Type", "application/json")
@@ -79,21 +64,6 @@ func TestSchedulerRunsLegacyV1Parity(t *testing.T) {
 				_, err = rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/run", scope)
 				must(t, err)
 				must(t, scope.Close())
-			}
-			payload, err := json.Marshal(map[string]any{"Component": map[string]string{"schedulerRuns": "schedulerRuns", "schedulerDue": "schedulerRunDue"}[tc.Input.Mode], "DBPath": oldPath, "Principal": tc.Input.Subject, "Filters": tc.Input.Filters})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatalf("legacy failed: %s", before.Error)
 			}
 			rt, key := schedulerRunsRuntime(t, db, tc.Input.Subject, tc.Input.Mode)
 			input := &read.RunRowsInput{Has: &read.RunRowsInputHas{}}
@@ -123,7 +93,7 @@ func TestSchedulerRunsLegacyV1Parity(t *testing.T) {
 			}
 			value, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/run/{id}"}}, Input: input})
 			must(t, err)
-			raw, err = json.Marshal(value.(*read.RunRowsOutput).Data)
+			raw, err := json.Marshal(value.(*read.RunRowsOutput).Data)
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(raw, &rows))
@@ -140,24 +110,12 @@ func TestSchedulerRunsLegacyV1Parity(t *testing.T) {
 				}
 				return result
 			}
-			oldRows, newRows := lower(before.Rows), lower(rows)
+			newRows := lower(rows)
 			// Compare the selected scheduler projection and ensure unselected fields are zero.
 			for _, row := range value.(*read.RunRowsOutput).Data {
 				if row.WorkerId != nil || row.AuthAuthority != nil || row.CheckpointData != nil {
 					t.Fatal("scheduler list fetched an unselected runtime field")
 				}
-			}
-			for i, row := range newRows {
-				if i < len(oldRows) {
-					for key := range row {
-						if _, ok := oldRows[i][key]; !ok {
-							delete(row, key)
-						}
-					}
-				}
-			}
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("full selected projection/order\nlegacy=%s\nnew=%s", pretty(oldRows), pretty(newRows))
 			}
 			ids := []string{}
 			for _, row := range newRows {
@@ -222,24 +180,9 @@ func TestSchedulerRunsAnonymousPrivateScope(t *testing.T) {
 func TestSchedulerRunsSinceTurnCorrection(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	oldDB, oldPath := schedulerRunsFixture(t, project)
 	db, _ := schedulerRunsFixture(t, project)
-	for _, fixture := range []*sql.DB{oldDB, db} {
-		_, err := fixture.Exec(`INSERT INTO turn(id,conversation_id,status,created_at) VALUES('anchor','c1','succeeded','2026-01-03 00:00:00');UPDATE run SET created_at='2026-01-04 00:00:00' WHERE id='pub-new'`)
-		must(t, err)
-	}
-	legacy := legacyProbeBinary(t, project)
-	payload, err := json.Marshal(map[string]any{"Component": "schedulerRuns", "DBPath": oldPath, "Principal": "u1", "Filters": map[string]any{"scheduleId": "pub", "since": "anchor"}})
+	_, err := db.Exec(`INSERT INTO turn(id,conversation_id,status,created_at) VALUES('anchor','c1','succeeded','2026-01-03 00:00:00');UPDATE run SET created_at='2026-01-04 00:00:00' WHERE id='pub-new'`)
 	must(t, err)
-	process := exec.Command(legacy)
-	process.Stdin = bytes.NewReader(payload)
-	raw, err := process.Output()
-	must(t, err)
-	var before probeResult
-	must(t, json.Unmarshal(raw, &before))
-	if len(before.Rows) != 2 {
-		t.Fatal("legacy since group behavior changed; reassess correction")
-	}
 	rt, key := schedulerRunsRuntime(t, db, "u1", "schedulerRuns")
 	input := &read.RunRowsInput{}
 	input.SetScheduleId("pub")

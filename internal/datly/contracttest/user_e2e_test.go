@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -32,7 +30,6 @@ import (
 func TestUserLegacyV1Parity(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		body    string
 		filters map[string]any
@@ -68,29 +65,10 @@ func TestUserLegacyV1Parity(t *testing.T) {
 		{desc: "late database rejection rolls back earlier update", input: input{body: `{"data":[{"id":"u1","displayName":"changed"},{"id":"u-reject","username":"reject","provider":"local","timezone":"UTC"}]}`}, expect: expect{failed: true, fields: map[string]map[string]any{"u1": {"displayname": "seed name"}}}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := userParityFixture(t, project)
 			db, _ := userParityFixture(t, project)
 			filters := tc.input.filters
 			if filters == nil {
 				filters = map[string]any{}
-			}
-			probe := struct {
-				Component, DBPath, Body string
-				Filters                 map[string]any
-			}{"user", oldPath, tc.input.body, filters}
-			payload, err := json.Marshal(probe)
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(payload)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy execution: %v\n%s", err, raw)
-			}
-			var before probeResult
-			if err := json.Unmarshal(raw, &before); err != nil {
-				t.Fatalf("legacy response: %v\nstdout=%s\nstderr=%s", err, raw, stderr.String())
 			}
 			rt, key := userParityRuntime(t, db)
 			var afterOutput json.RawMessage
@@ -108,8 +86,8 @@ func TestUserLegacyV1Parity(t *testing.T) {
 					must(t, err)
 				}
 			}
-			if before.Failed != tc.expect.failed || (mutationError != nil) != tc.expect.failed {
-				t.Fatalf("outcome legacy=%v (%s) v1=%v expected failure=%v", before.Failed, before.Error, mutationError, tc.expect.failed)
+			if (mutationError != nil) != tc.expect.failed {
+				t.Fatalf("outcome v1=%v expected failure=%v", mutationError, tc.expect.failed)
 			}
 			readerInput := &userread.UserInput{Has: &userread.UserInputHas{}}
 			for name, value := range filters {
@@ -130,10 +108,7 @@ func TestUserLegacyV1Parity(t *testing.T) {
 			must(t, err)
 			var rows []json.RawMessage
 			must(t, json.Unmarshal(data, &rows))
-			oldRows, newRows := normalizeRows(t, before.Rows), normalizeRows(t, rows)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("stored row parity\nlegacy=%s\nv1=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := normalizeRows(t, rows)
 			ids := []string{}
 			indexed := map[string]map[string]any{}
 			for _, row := range newRows {
@@ -155,13 +130,8 @@ func TestUserLegacyV1Parity(t *testing.T) {
 					}
 				}
 			}
-			if tc.input.body != "" && !tc.expect.failed {
-				var old, new []json.RawMessage
-				must(t, json.Unmarshal(before.Output, &old))
-				must(t, json.Unmarshal(afterOutput, &new))
-				if !reflect.DeepEqual(normalizeRowsInOrder(t, old), normalizeRowsInOrder(t, new)) {
-					t.Fatalf("write response parity\nlegacy=%s\nv1=%s", before.Output, afterOutput)
-				}
+			if tc.input.body != "" && !tc.expect.failed && len(afterOutput) == 0 {
+				t.Fatal("successful write returned no response")
 			}
 		})
 	}

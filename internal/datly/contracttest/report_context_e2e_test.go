@@ -1,18 +1,14 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"github.com/viant/datly/runtime/handler/provider"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
-	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -94,7 +90,6 @@ func invokeReportContextWriter(ctx context.Context, rt *druntime.Runtime, key sp
 func TestReportContextWriterCAS(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		owner, subject, conversation, run string
 		expected, desired                 int64
@@ -119,7 +114,6 @@ func TestReportContextWriterCAS(t *testing.T) {
 		{"other owner cannot patch", input{"u1", "u2", "c1", "r2", 1, 2}, expect{failure: true, class: "notfound", revision: 1, run: "r1"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, oldPath := reportContextFixture(t, project)
 			db, _ := reportContextFixture(t, project)
 			adapterDB, _ := reportContextFixture(t, project)
 			rt, _, key := reportContextRuntime(t, db, tc.input.subject, false, nil)
@@ -148,41 +142,12 @@ func TestReportContextWriterCAS(t *testing.T) {
 					t.Fatalf("adapter notfound class=%v", adapterErr)
 				}
 			}
-			body, e := json.Marshal(map[string]any{
-				"ownerId": tc.input.owner, "conversationId": tc.input.conversation,
-				"activeReportRunId": tc.input.run, "revision": tc.input.desired,
-				"activationSource": "manual", "actorId": "actor1", "updatedAt": "2026-01-03T00:00:00Z",
-			})
-			must(t, e)
-			payload, e := json.Marshal(map[string]any{
-				"Component": "reportContext", "DBPath": oldPath, "Principal": tc.input.subject,
-				"Method": "put", "Body": string(body), "ExpectedRevision": tc.input.expected,
-			})
-			must(t, e)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, e := cmd.Output()
-			must(t, e)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed != tc.expect.failure {
-				t.Fatalf("legacy CAS failure=%v (%s), native=%v", before.Failed, before.Error, err)
-			}
-			if tc.expect.class == "cas" && !strings.Contains(before.Error, "revision mismatch") || tc.expect.class == "notfound" && !strings.Contains(before.Error, "not found") {
-				t.Fatalf("legacy error class=%q expected %s", before.Error, tc.expect.class)
-			}
 			var revision int64
 			var runID string
 			err = db.QueryRow("SELECT revision,active_report_run_id FROM conversation_report_context WHERE owner_id=? AND conversation_id=?", tc.input.owner, tc.input.conversation).Scan(&revision, &runID)
-			var oldRevision int64
-			var oldRunID string
-			oldErr := oldDB.QueryRow("SELECT revision,active_report_run_id FROM conversation_report_context WHERE owner_id=? AND conversation_id=?", tc.input.owner, tc.input.conversation).Scan(&oldRevision, &oldRunID)
 			var adapterRevision int64
 			var adapterRunID string
 			adapterRowErr := adapterDB.QueryRow("SELECT revision,active_report_run_id FROM conversation_report_context WHERE owner_id=? AND conversation_id=?", tc.input.owner, tc.input.conversation).Scan(&adapterRevision, &adapterRunID)
-			if (err == nil) != (oldErr == nil) || err == nil && (revision != oldRevision || runID != oldRunID) {
-				t.Fatalf("legacy revision/run=(%d,%q,%v), native=(%d,%q,%v)", oldRevision, oldRunID, oldErr, revision, runID, err)
-			}
 			if (err == nil) != (adapterRowErr == nil) || err == nil && (revision != adapterRevision || runID != adapterRunID) {
 				t.Fatalf("adapter revision/run=(%d,%q,%v), native=(%d,%q,%v)", adapterRevision, adapterRunID, adapterRowErr, revision, runID, err)
 			}
@@ -381,10 +346,9 @@ func TestReportContextIndependentConnectionsCAS(t *testing.T) {
 	}
 }
 
-func TestReportContextStoreGetLegacyParity(t *testing.T) {
+func TestReportContextStoreGet(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		subject, conversation string
 	}
@@ -404,7 +368,6 @@ func TestReportContextStoreGetLegacyParity(t *testing.T) {
 		{"anonymous lookup is not found", input{"", "c1"}, expect{}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			_, oldPath := reportContextFixture(t, project)
 			db, _ := reportContextFixture(t, project)
 			rt, _, _ := reportContextRuntime(t, db, tc.input.subject, false, nil)
 			store := &contextstore.Store{Invoker: rt, OwnerID: func(context.Context) string { return tc.input.subject }}
@@ -415,29 +378,9 @@ func TestReportContextStoreGetLegacyParity(t *testing.T) {
 			if !tc.expect.found && !errors.Is(err, contextstore.ErrNotFound) {
 				t.Fatalf("native get error=%v, want not found", err)
 			}
-			body, e := json.Marshal(map[string]any{"conversationId": tc.input.conversation})
-			must(t, e)
-			payload, e := json.Marshal(map[string]any{"Component": "reportContext", "DBPath": oldPath, "Principal": tc.input.subject, "Method": "get", "Body": string(body)})
-			must(t, e)
-			cmd := exec.Command(legacy)
-			cmd.Stdin = bytes.NewReader(payload)
-			raw, e := cmd.Output()
-			must(t, e)
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed == tc.expect.found {
-				t.Fatalf("legacy get failure=%v (%s), expected found=%v", before.Failed, before.Error, tc.expect.found)
-			}
 			if tc.expect.found {
-				var legacyRow struct {
-					OwnerID           string `json:"ownerId"`
-					ConversationID    string `json:"conversationId"`
-					ActiveReportRunID string `json:"activeReportRunId"`
-					Revision          int64  `json:"revision"`
-				}
-				must(t, json.Unmarshal(before.Output, &legacyRow))
-				if row.OwnerID != legacyRow.OwnerID || row.ConversationID != legacyRow.ConversationID || row.ActiveReportRunID != legacyRow.ActiveReportRunID || row.Revision != legacyRow.Revision || row.ActiveReportRunID != tc.expect.run {
-					t.Fatalf("native=%+v legacy=%+v", row, legacyRow)
+				if row.OwnerID != tc.input.subject || row.ConversationID != tc.input.conversation || row.ActiveReportRunID != tc.expect.run || row.Revision != 1 {
+					t.Fatalf("native=%+v expected run=%q revision=1", row, tc.expect.run)
 				}
 			}
 		})

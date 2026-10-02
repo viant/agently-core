@@ -1,13 +1,11 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
 	"github.com/viant/datly/runtime/handler/provider"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -114,11 +112,11 @@ func reportAdoptionRuntime(t *testing.T, db *sql.DB, subject string, supplied *s
 	cr := payloadArtifact(t, resources, reflect.TypeFor[contextread.ReaderComponent](), reflect.TypeFor[contextread.Input](), reflect.TypeFor[contextread.Output]())
 	cw := payloadArtifact(t, resources, reflect.TypeFor[contextwrite.WriterComponent](), reflect.TypeFor[contextwrite.Input](), reflect.TypeFor[contextwrite.Output]())
 	parent := payloadArtifact(t, resources, reflect.TypeFor[adoption.Component](), reflect.TypeFor[adoption.Input](), reflect.TypeFor[adoption.Output]())
-	exports, err := adoption.Exports()
+	handler, err := (adoption.Component{}).DatlyHandler("NewAdoption")()
 	must(t, err)
-	builder, err := bootstrap.NewArtifactBuilder(exports)
+	builder, err := bootstrap.NewArtifactBuilder(nil)
 	must(t, err)
-	parent, err = builder.Build(bootstrap.ArtifactInput{Component: parent.Component, InputType: reflect.TypeFor[adoption.Input](), OutputType: reflect.TypeFor[adoption.Output](), Resources: resources})
+	parent, err = builder.Build(bootstrap.ArtifactInput{Component: parent.Component, InputType: reflect.TypeFor[adoption.Input](), OutputType: reflect.TypeFor[adoption.Output](), Resources: resources, Handler: handler})
 	must(t, err)
 	visibility := provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &subject, true, nil })
 	access := ordinaryAccess("reportaccess", func(context.Context, reflect.Type, string) (any, bool, error) { return false, true, nil })
@@ -181,7 +179,6 @@ func reportAdoptionState(t *testing.T, db *sql.DB) (int64, string, int64) {
 func TestReportAdoptionSharedTransaction(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type input struct {
 		existingPointer, staleRun, stalePointer, alteredSnapshot, foreignOwner, rejectPointer, callerTx, commit bool
 	}
@@ -207,26 +204,15 @@ func TestReportAdoptionSharedTransaction(t *testing.T) {
 		{"caller transaction commit retains ownership", input{callerTx: true, commit: true}, expect{runRevision: 3, contextRevision: 1, conversation: "c1"}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			var oldDB *sql.DB
-			var oldPath string
-			if !tc.input.callerTx {
-				oldDB, oldPath = reportRunFixture(t, project)
-			}
 			db, _ := reportRunFixture(t, project)
 			if tc.input.existingPointer {
-				for _, fixture := range []*sql.DB{db, oldDB} {
-					if fixture == nil {
-						continue
-					}
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec("INSERT INTO conversation_report_context(owner_id,conversation_id,active_report_run_id,revision,activation_source,actor_id,updated_at) VALUES('u1','c1','running',1,'prior','u1','2026-01-02 00:00:00')")
 					must(t, err)
 				}
 			}
 			if tc.input.rejectPointer {
-				for _, fixture := range []*sql.DB{db, oldDB} {
-					if fixture == nil {
-						continue
-					}
+				for _, fixture := range []*sql.DB{db} {
 					_, err := fixture.Exec("CREATE TRIGGER reject_report_pointer BEFORE INSERT ON conversation_report_context BEGIN SELECT RAISE(ABORT,'fixture pointer failure'); END")
 					must(t, err)
 				}
@@ -290,45 +276,6 @@ func TestReportAdoptionSharedTransaction(t *testing.T) {
 			runRevision, conversation, contextRevision := reportAdoptionState(t, db)
 			if runRevision != tc.expect.runRevision || conversation != tc.expect.conversation || contextRevision != tc.expect.contextRevision {
 				t.Fatalf("stored state=(%d,%q,%d), expected=%+v", runRevision, conversation, contextRevision, tc.expect)
-			}
-			if oldDB != nil {
-				legacyBody, e := json.Marshal(map[string]any{
-					"run": map[string]any{
-						"reportRunId": in.Run.ReportRunID, "ownerId": in.Run.OwnerID,
-						"conversationId": in.Run.ConversationID, "materializer": in.Run.Materializer,
-						"origin": in.Run.Origin, "status": in.Run.Status,
-						"startedAt": in.Run.StartedAt, "completedAt": in.Run.CompletedAt,
-						"revision": in.Run.Revision, "uiRunRequestId": in.Run.UIRunRequestID,
-						"reportSpec": in.Run.ReportSpec, "adoptionSource": in.Run.AdoptionSource,
-						"actorId": in.Run.ActorID, "createdAt": in.Run.CreatedAt, "updatedAt": in.Run.UpdatedAt,
-					},
-					"context": map[string]any{
-						"ownerId": in.Context.OwnerID, "conversationId": in.Context.ConversationID,
-						"activeReportRunId": in.Context.ActiveReportRunID, "revision": in.Context.Revision,
-						"activationSource": in.Context.ActivationSource, "actorId": in.Context.ActorID,
-						"updatedAt": in.Context.UpdatedAt,
-					},
-				})
-				must(t, e)
-				payload, e := json.Marshal(map[string]any{
-					"Component": "reportAdoption", "DBPath": oldPath, "Principal": owner,
-					"Body": string(legacyBody), "ExpectedRevision": expectedRun,
-					"ExpectedContextRevision": expectedPointer,
-				})
-				must(t, e)
-				cmd := exec.Command(legacy)
-				cmd.Stdin = bytes.NewReader(payload)
-				raw, e := cmd.Output()
-				must(t, e)
-				var before probeResult
-				must(t, json.Unmarshal(raw, &before))
-				if before.Failed != tc.expect.failure {
-					t.Fatalf("legacy adoption failure=%v (%s), native=%v", before.Failed, before.Error, err)
-				}
-				oldRunRevision, oldConversation, oldContextRevision := reportAdoptionState(t, oldDB)
-				if oldRunRevision != runRevision || oldConversation != conversation || oldContextRevision != contextRevision {
-					t.Fatalf("legacy state=(%d,%q,%d), native=(%d,%q,%d)", oldRunRevision, oldConversation, oldContextRevision, runRevision, conversation, contextRevision)
-				}
 			}
 		})
 	}

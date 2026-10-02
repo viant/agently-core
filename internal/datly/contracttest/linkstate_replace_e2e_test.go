@@ -1,12 +1,10 @@
 package tests
 
 import (
-	"bytes"
 	"context"
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -31,16 +29,14 @@ import (
 
 // This verifies the atomic replacement primitive. Create/adopt/retry composition
 // is a separate outstanding gate and this package is deliberately not linked.
-func TestLinkStateAtomicReplacementLegacyEvidence(t *testing.T) {
+func TestLinkStateAtomicReplacement(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	legacy := legacyProbeBinary(t, project)
 	type useCase struct {
-		desc   string
-		input  bool
-		expect bool
+		desc  string
+		input bool
 	}
-	for _, tc := range []useCase{{"expired row changes state hash under guarded flow identity", false, true}, {"consumed row changes state hash and clears consumed timestamp", true, true}} {
+	for _, tc := range []useCase{{"expired row changes state hash under guarded flow identity", false}, {"consumed row changes state hash and clears consumed timestamp", true}} {
 		t.Run(tc.desc, func(t *testing.T) {
 			fixture := func() (*sql.DB, string) {
 				db, path := goalFixture(t, project)
@@ -54,32 +50,7 @@ func TestLinkStateAtomicReplacementLegacyEvidence(t *testing.T) {
 				must(t, err)
 				return db, path
 			}
-			_, oldPath := fixture()
 			db, _ := fixture()
-			body := `{"data":{"stateHash":"new","flowHash":"flow","userId":"u2","sessionHash":"session2","provider":"bp","expiresAt":"2027-01-01 00:00:00","now":"2026-01-02 00:00:00"}}`
-			encoded, err := json.Marshal(struct {
-				Component, DBPath, Body string
-				Filters                 map[string]any
-			}{"linkStateWrite", oldPath, body, map[string]any{"flowHash": "flow"}})
-			must(t, err)
-			process := exec.Command(legacy)
-			process.Stdin = bytes.NewReader(encoded)
-			var stderr bytes.Buffer
-			process.Stderr = &stderr
-			raw, err := process.Output()
-			if err != nil {
-				t.Fatalf("legacy: %v\n%s", err, stderr.String())
-			}
-			var before probeResult
-			must(t, json.Unmarshal(raw, &before))
-			if before.Failed {
-				t.Fatal(before.Error)
-			}
-			var out struct{ Created bool }
-			must(t, json.Unmarshal(before.Output, &out))
-			if out.Created != tc.expect {
-				t.Fatalf("legacy created=%v", out.Created)
-			}
 			resources := resource.New()
 			must(t, resources.Register(linkread.ReaderDatlyResourceNamespace, linkread.ReaderDatlyResources))
 			must(t, resources.Register(replacement.WriteDatlyResourceNamespace, replacement.WriteDatlyResources))
@@ -109,10 +80,7 @@ func TestLinkStateAtomicReplacementLegacyEvidence(t *testing.T) {
 			must(t, err)
 			var current []json.RawMessage
 			must(t, json.Unmarshal(data, &current))
-			oldRows, newRows := normalizeRowsInOrder(t, before.Rows), normalizeRowsInOrder(t, current)
-			if !reflect.DeepEqual(oldRows, newRows) {
-				t.Fatalf("state parity\nlegacy=%s\nv1=%s", pretty(oldRows), pretty(newRows))
-			}
+			newRows := normalizeRowsInOrder(t, current)
 			if len(newRows) != 1 || newRows[0]["statehash"] != "new" || newRows[0]["consumedat"] != nil {
 				t.Fatalf("replacement=%s", pretty(newRows))
 			}
