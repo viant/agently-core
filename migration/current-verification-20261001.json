@@ -43,10 +43,30 @@
     "scope": "Real HTTP server and production cancellation handler backed by native Datly stores; injected test identity, not a browser OAuth test",
     "assertions": ["queued cancellation returns 204", "turn and queue status persist as canceled", "starter message status persists as cancel", "completed turn returns 409 and stays succeeded"]
   },
+  "sqlite_driver_restoration": {
+    "commit": "70e480e5",
+    "cause": "Forced sqlite3 driver conversion introduced a reader/writer table-lock regression; the original modernc sqlite driver waits for the held reader",
+    "evidence": "migration/sqlite-original-driver-validation.json",
+    "scope": "Original default driver and pragmas restored; pool remains two; explicit driver/DSN requests retained",
+    "fresh_attachment_multiturn": {
+      "sqlite": "PASS; 9a35cb1f-00b0-48c3-aafb-68097b82120a",
+      "mysql": "PASS; 30ae7a74-b993-4892-a206-4a93ab761e13",
+      "assertions": "Both CLI runs completed two turns, recalled exact attachment marker and exported transcript/model payloads"
+    },
+    "fresh_sqlite_shell": "PASS; 63f9d8da-50ea-4c85-bae8-42eb7d3cbd2a; transcript confirms completed system/exec/execute call"
+  },
+  "live_datly_tools": {
+    "advertised": "All seven Datly tools appear in model requests",
+    "skill_activation": "PASS; llm/skills/activate completed in fc7558c6-03f8-4c89-881b-e13c81fb4444",
+    "mcp_dispatch": "FAIL; advertised datly_datly-components resolves to nonexistent server datly_datly instead of server datly with tool datly.components",
+    "dispatch_conversation": "2f2d8390-2c88-4cf5-bd98-f7436df30ea8",
+    "scope": "Owned Datly authoring fixture with existing wildcard permission configuration; no production workspace changes",
+    "model_limit": "Mercury also produced unknown shell and llm/skills/call names; completed calls are verified from transcripts rather than assistant claims"
+  },
   "remaining": [
-    "Diagnose and correct fresh SQLite conversation message-table lock",
+    "Finish post-driver-restoration live checks and final test gates",
     "Approve/publish the SQLparser dependency correction and rerun maintenance/full-suite gates",
-    "Complete tooltip and live skill/MCP activation checks; browser cancellation flow remains unverified",
+    "Correct Datly MCP tool-name dispatch, then repeat live tool invocation; tooltip and browser cancellation flow remain unverified",
     "Refresh expired UI OAuth session and finish browser verification",
     "Finish legacy DTO authority/unused-code audit",
     "Publish final Core revision and pin Agently to it; current remote Core v1 is 8dc2927f"
