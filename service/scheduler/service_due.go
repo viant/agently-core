@@ -123,7 +123,7 @@ func (s *Service) enqueueAndLaunch(ctx context.Context, row *schedulemodel.Sched
 	if userID != "" {
 		run.SetEffectiveUserID(userID)
 	}
-	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredURL)); cred != "" {
+	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredUrl)); cred != "" {
 		run.SetUserCredURL(cred)
 	}
 	if err := s.store.PatchRuns(ctx, []*runmodel.MutableRunView{run}); err != nil {
