@@ -2,12 +2,11 @@ package executor
 
 import (
 	"context"
-	"testing"
-
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
+	"testing"
 )
 
 func TestStreamPublisherAdapterPublish(t *testing.T) {
@@ -33,7 +32,7 @@ func TestStreamPublisherAdapterPublish(t *testing.T) {
 
 	err = adapter.Publish(ctx, &modelcallctx.StreamEvent{
 		ConversationID: "c1",
-		Message:        &agconv.MessageView{Id: "m1"},
+		Message:        &conversationmodel.MessageView{Id: "m1"},
 		Content:        map[string]interface{}{"delta": "hello"},
 	})
 	if err != nil {

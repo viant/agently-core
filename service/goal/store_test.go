@@ -6,9 +6,9 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
-	"github.com/viant/agently-core/app/store/data"
-	aggoal "github.com/viant/agently-core/pkg/agently/goal"
-	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
+	aggoal "github.com/viant/agently-core/internal/datly/goal/read"
+	aggoalwrite "github.com/viant/agently-core/internal/datly/goal/write"
+	dexec "github.com/viant/datly/exec"
 )
 
 // fakeAccess records writes and serves a configured read view.
@@ -16,22 +16,30 @@ type fakeAccess struct {
 	view     *aggoal.GoalView
 	getErr   error
 	patchErr error
-	patched  []*aggoalwrite.MutableGoalView
+	patched  []*aggoalwrite.Goal
 }
 
-func (f *fakeAccess) GetGoal(_ context.Context, _ string, _ *aggoal.GoalInput, _ ...data.Option) (*aggoal.GoalView, error) {
-	if f.getErr != nil {
-		return nil, f.getErr
+func (f *fakeAccess) InvokeComponent(_ context.Context, request dexec.ComponentRequest) (any, error) {
+	switch request.Target.Component {
+	case goalReaderKey:
+		if f.getErr != nil {
+			return nil, f.getErr
+		}
+		result := &aggoal.GoalOutput{}
+		if f.view != nil {
+			result.Data = []*aggoal.GoalView{f.view}
+		}
+		return result, nil
+	case goalWriterKey:
+		if f.patchErr != nil {
+			return nil, f.patchErr
+		}
+		input := request.Input.(*aggoalwrite.Input)
+		f.patched = append(f.patched, input.Goals...)
+		return &aggoalwrite.Output{}, nil
+	default:
+		return nil, errors.New("unexpected component target")
 	}
-	return f.view, nil
-}
-
-func (f *fakeAccess) PatchGoals(_ context.Context, rows []*aggoalwrite.MutableGoalView) ([]*aggoalwrite.MutableGoalView, error) {
-	if f.patchErr != nil {
-		return nil, f.patchErr
-	}
-	f.patched = append(f.patched, rows...)
-	return rows, nil
 }
 
 func strPtr(v string) *string { return &v }
@@ -48,7 +56,7 @@ func TestStore_Current(t *testing.T) {
 		spec := `{"continueMode":"idle_only","onTurnFinished":"evaluate","onAsyncCompleted":"evaluate"}`
 		access := &fakeAccess{view: &aggoal.GoalView{
 			Id:             "goal-c1",
-			ConversationID: "c1",
+			ConversationId: "c1",
 			Objective:      "ship it",
 			Status:         "active",
 			StatusReason:   strPtr("on track"),

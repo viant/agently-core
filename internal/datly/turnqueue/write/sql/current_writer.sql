@@ -1,0 +1,1 @@
+SELECT r.id, r.conversation_id, r.turn_id, r.message_id, r.queue_seq, r.status, r.created_at, r.updated_at FROM (SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM turn_queue c)  t) r WHERE $criteria.CompositeIn("r", $WriterKeys)

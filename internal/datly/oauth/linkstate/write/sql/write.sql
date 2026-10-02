@@ -1,0 +1,1 @@
+SELECT states.* FROM  (SELECT c.* , 0 AS should_delete, '' AS now FROM oauth_link_state c)  states

@@ -12,7 +12,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	base "github.com/viant/agently-core/genai/llm/provider/base"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/protocol/binding"
@@ -55,11 +55,11 @@ func (singleResponseModel) Implements(string) bool { return false }
 
 type loopConvClient struct {
 	conversation *apiconv.Conversation
-	messages     map[string]*agconv.MessageView
+	messages     map[string]*conversationmodel.MessageView
 }
 
 func newLoopConvClient(conv *apiconv.Conversation) *loopConvClient {
-	index := map[string]*agconv.MessageView{}
+	index := map[string]*conversationmodel.MessageView{}
 	if conv != nil {
 		for _, turn := range conv.Transcript {
 			if turn == nil {
@@ -108,12 +108,12 @@ func (c *loopConvClient) PatchModelCall(_ context.Context, in *apiconv.MutableMo
 	}
 	msg, ok := c.messages[in.MessageID]
 	if !ok {
-		msg = &agconv.MessageView{Id: in.MessageID, ConversationId: c.conversation.Id, Role: "assistant", Type: "text", CreatedAt: time.Now()}
+		msg = &conversationmodel.MessageView{Id: in.MessageID, ConversationId: c.conversation.Id, Role: "assistant", Type: "text", CreatedAt: time.Now()}
 		c.messages[in.MessageID] = msg
 		c.conversation.Transcript[0].Message = append(c.conversation.Transcript[0].Message, msg)
 	}
 	if msg.ModelCall == nil {
-		msg.ModelCall = &agconv.ModelCallView{MessageId: in.MessageID}
+		msg.ModelCall = &conversationmodel.ModelCallView{MessageId: in.MessageID}
 	}
 	if in.Has.Status {
 		msg.ModelCall.Status = in.Status
@@ -130,7 +130,7 @@ func (c *loopConvClient) PatchMessage(_ context.Context, in *apiconv.MutableMess
 	}
 	msg, ok := c.messages[in.Id]
 	if !ok {
-		msg = &agconv.MessageView{
+		msg = &conversationmodel.MessageView{
 			Id:             in.Id,
 			ConversationId: c.conversation.Id,
 			Role:           "assistant",
@@ -173,11 +173,11 @@ func TestServiceRunPlanLoop_TerminalContentIsNotDiscardedByCompletedAsyncChange(
 
 	conv := &apiconv.Conversation{
 		Id: "conv-1",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "turn-1",
 				ConversationId: "conv-1",
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "user-1",
 						ConversationId: "conv-1",
@@ -238,7 +238,7 @@ func TestServiceRunPlanLoop_TerminalContentIsNotDiscardedByCompletedAsyncChange(
 	require.NoError(t, err)
 	require.Equal(t, "final answer", output.Content)
 	require.EqualValues(t, 1, finder.calls.Load(), "terminal content-only answer should not trigger a second same-turn model pass from residual completed async changes")
-	var finalMsg *agconv.MessageView
+	var finalMsg *conversationmodel.MessageView
 	for _, msg := range conv.Transcript[0].Message {
 		if msg == nil || !strings.EqualFold(msg.Role, "assistant") || msg.Content == nil {
 			continue
@@ -298,12 +298,12 @@ func TestServiceRunPlanLoop_SteerUnlocksAsyncWaitAndAddsDirective(t *testing.T) 
 	now := time.Now().UTC()
 	conv := &apiconv.Conversation{
 		Id: "conv-steer",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "turn-1",
 				ConversationId: "conv-steer",
 				Status:         "running",
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "user-1",
 						ConversationId: "conv-steer",
@@ -376,7 +376,7 @@ func TestServiceRunPlanLoop_SteerUnlocksAsyncWaitAndAddsDirective(t *testing.T) 
 	}()
 
 	time.Sleep(25 * time.Millisecond)
-	steerMsg := &agconv.MessageView{
+	steerMsg := &conversationmodel.MessageView{
 		Id:             "steer-1",
 		ConversationId: "conv-steer",
 		Role:           "user",

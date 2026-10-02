@@ -1,0 +1,37 @@
+{
+  "component": "dql/agently/message/write",
+  "status": "verified-and-linked",
+  "cases": 34,
+  "legacy": "migration/legacyprobe/main.go uses original SDK0 Message writer/delete",
+  "generated": "Stock Datly transcribe patch; only lifecycle.go business code",
+  "datly_commit": "e3c62bb5434579ac9ca571eae754701f9072c4c7",
+  "sqlx_version": "v0.26.1-0.20260929151803-0df7f08c4926",
+  "sequencing": "Native per turn, explicit null allocates opt-in, zero preserved, UPDATE null clears; transaction-bound ledger",
+  "wire_name": "Narration aliases stored preamble; original public narration retained",
+  "checks": [
+    "21 legacy/new PATCH storage and response comparisons",
+    "2 caller commit/rollback checks for source row and sequence ledger",
+    "2 MEDIUMTEXT ASCII and UTF8 comparisons for content and rawContent",
+    "7 deletion comparisons including late-failure rollback",
+    "2 cascade comparisons (model_call, tool_call, turn_queue) including rollback"
+  ],
+  "timestamp_validation": "Generated creation/update timestamps normalized for legacy/native clock difference; other storage fields and ordered response rows compared",
+  "logs": [
+    "/tmp/agently-message-writer-checks.log",
+    "/tmp/agently-message-cascade.log"
+  ],
+  "remaining": "Message reader consolidation and root caller/SDK1 cutover remain pending",
+  "endly": {
+    "status": "SUCCESS",
+    "tests_seconds": 114.398,
+    "workflow_ms": 159109,
+    "log": "/tmp/agently-message-endly.log",
+    "checks": [
+      "52/52 stock transcription",
+      "byte-stable regeneration",
+      "contract boundary audit",
+      "full nested-module tests",
+      "linked host build"
+    ]
+  }
+}

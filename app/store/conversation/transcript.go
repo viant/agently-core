@@ -2,12 +2,11 @@ package conversation
 
 import (
 	"encoding/json"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	"github.com/viant/agently-core/protocol/binding"
 	"path"
 	"strings"
 	"unsafe"
-
-	"github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/protocol/binding"
 )
 
 func (t *Turn) GetMessages() Messages {
@@ -15,7 +14,7 @@ func (t *Turn) GetMessages() Messages {
 }
 
 func (t *Turn) SetMessages(msg Messages) {
-	t.Message = *(*[]*conversation.MessageView)(unsafe.Pointer(&msg))
+	t.Message = *(*[]*conversationmodel.MessageView)(unsafe.Pointer(&msg))
 }
 
 func (t *Turn) ToolCalls() Messages {
@@ -191,7 +190,7 @@ func assistantMessageHasContinuationSafeModelCall(m *Message) bool {
 		strings.TrimSpace(*m.ModelCall.TraceId) != ""
 }
 
-func hasAssistantPayloadChoice(payload *conversation.ModelCallStreamPayloadView) bool {
+func hasAssistantPayloadChoice(payload *conversationmodel.ModelCallStreamPayloadView) bool {
 	if payload == nil || payload.InlineBody == nil {
 		return false
 	}

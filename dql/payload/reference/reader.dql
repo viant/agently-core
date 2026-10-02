@@ -1,0 +1,42 @@
+#package('github.com/viant/agently-core/internal/datly/payload/reference')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v2/api/agently/payload','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Status<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $Metrics<?>(output/metrics))
+#define($_ = $CheckReferences<bool>(payloadAccess/checkReferences).Optional())
+#define($_ = $TenantID<string>(path/tenantId).Optional().WithPredicate(0,'in','p','tenant_id'))
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'in','p','id'))
+#define($_ = $Ids<[]string>(query/ids).Optional().WithPredicate(0,'in','p','id'))
+#define($_ = $Kind<string>(query/kind).Optional().WithPredicate(0,'in','p','kind'))
+#define($_ = $Digest<string>(query/digest).Optional().WithPredicate(0,'in','p','digest'))
+#define($_ = $Storage<string>(query/storage).Optional().WithPredicate(0,'in','p','storage'))
+#define($_ = $MimeType<string>(query/mime_type).Optional().WithPredicate(0,'in','p','mime_type'))
+#define($_ = $Since<*time.Time>(query/since).Optional().WithPredicate(0,'greater_or_equal','p','created_at'))
+#define($_ = $Fields<[]string>(query/_fields).Optional().QuerySelector('reader'))
+#define($_ = $OrderBy<string>(query/_orderBy).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/_limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/_offset).Optional().QuerySelector('reader'))
+#define($_ = $Page<int>(query/_page).Optional().QuerySelector('reader'))
+#define($_ = $Criteria<string>(query/_criteria).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*PayloadView>(output/view))
+
+SELECT payload.*,
+       CAST(payload.referenced AS bool),
+       internal(payload.referenced),
+       tag(payload.referenced,'json:"-"'),
+       type(payload,'PayloadView'),
+       allowed_order_by_columns(payload,'id,created_at,size_bytes'),
+       required(payload.id),
+       required(payload.kind),
+       required(payload.mime_type),
+       required(payload.size_bytes),
+       required(payload.storage),
+       CAST(payload.inline_body AS *[]byte),
+       required(payload.compression)
+FROM (${embed:sql/payload.sql}) payload

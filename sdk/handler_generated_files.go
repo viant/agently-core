@@ -4,14 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
 	"net/http"
 	"strings"
-
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
 )
 
 type generatedFileLister interface {
-	ListGeneratedFiles(ctx context.Context, conversationID string) ([]*gfread.GeneratedFileView, error)
+	ListGeneratedFiles(ctx context.Context, conversationID string) ([]*generatedfilemodel.GeneratedFileView, error)
 }
 
 type generatedFileDownloader interface {

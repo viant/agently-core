@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/service/auth/providerregistry"
-	"github.com/viant/datly"
+	dexec "github.com/viant/datly/exec"
 	authcfg "github.com/viant/mcp/client/auth/config"
 )
 
@@ -28,8 +28,8 @@ type DelegatedMCPAuth struct {
 // nor a workspace OAuth client configURL), the resolver is installed in a
 // fail-loud state: every delegated resolution returns an actionable
 // configuration error instead of silently disabling delegated auth.
-func NewDelegatedMCPAuth(cfg *Config, dao *datly.Service) *DelegatedMCPAuth {
-	if dao == nil {
+func NewDelegatedMCPAuth(cfg *Config, invoker dexec.ComponentInvoker) *DelegatedMCPAuth {
+	if invoker == nil {
 		return nil
 	}
 	registry := providerregistry.New()
@@ -47,7 +47,7 @@ func NewDelegatedMCPAuth(cfg *Config, dao *datly.Service) *DelegatedMCPAuth {
 	if cfg != nil && cfg.OAuth != nil && cfg.OAuth.Client != nil {
 		workspaceSalt = strings.TrimSpace(cfg.OAuth.Client.ConfigURL)
 	}
-	store := NewTokenStoreDAO(dao, firstNonEmpty(workspaceSalt, delegatedSalt), WithDelegatedSalt(delegatedSalt))
+	store := NewTokenStoreDAO(invoker, firstNonEmpty(workspaceSalt, delegatedSalt), WithDelegatedSalt(delegatedSalt))
 	resolver := NewDelegatedCredentialResolver(cfg, store, registry, namespace)
 	return &DelegatedMCPAuth{registry: registry, resolver: resolver}
 }

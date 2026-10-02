@@ -1,0 +1,1 @@
+SELECT r.revision, r.owner_id, r.conversation_id, r.active_report_run_id, r.activation_source, r.actor_id, r.updated_at FROM (SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM conversation_report_context c)  t) r WHERE $criteria.CompositeIn("r", $WriterKeys)

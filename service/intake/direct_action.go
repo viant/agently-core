@@ -2,10 +2,9 @@ package intake
 
 import (
 	"fmt"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	"strconv"
 	"strings"
-
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 )
 
 func normalizeDirectActionWithScope(action DirectActionContext, scope map[string]string) DirectActionContext {
@@ -113,7 +112,7 @@ func normalizeInterfaceMap(value interface{}) (map[string]interface{}, bool) {
 }
 
 func validDirectActionInput(action DirectActionContext) bool {
-	toolName := strings.ToLower(strings.TrimSpace(mcpname.Display(action.ToolName)))
+	toolName := strings.ToLower(strings.TrimSpace(mcpname2.Display(action.ToolName)))
 	switch toolName {
 	case "ui/view/open":
 		return strings.TrimSpace(directActionString(action.Input["id"])) != ""

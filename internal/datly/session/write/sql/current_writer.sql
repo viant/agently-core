@@ -1,0 +1,1 @@
+SELECT r.id, r.user_id, r.provider, r.created_at, r.updated_at, r.expires_at FROM (SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM session c)  t) r WHERE $criteria.CompositeIn("r", $WriterKeys)

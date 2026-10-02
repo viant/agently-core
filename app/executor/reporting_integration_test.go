@@ -103,11 +103,12 @@ func TestBuilderBuild_RegistersReportingServiceFromDefaults(t *testing.T) {
 }
 
 func TestBuilderBuild_RegistersReportingServiceFromSQLStoreDefaults(t *testing.T) {
-	dao, err := data.NewDatlyInMemory(context.Background())
+	dao, err := data.NewRuntimeInMemory(context.Background())
 	require.NoError(t, err)
+	t.Cleanup(func() { _ = dao.Shutdown(context.Background()) })
 
 	rt, err := executor.NewBuilder().
-		WithDAO(dao).
+		WithNativeRuntime(dao).
 		WithAgentFinder(stubAgentFinder{}).
 		WithModelFinder(stubModelFinder{}).
 		WithDefaults(&execconfig.Defaults{

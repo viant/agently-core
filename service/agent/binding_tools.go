@@ -10,9 +10,9 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/logx"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	"github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
@@ -102,12 +102,12 @@ func collectToolPresence(defs []*llm.ToolDefinition) (map[string]bool, map[strin
 		if raw == "" {
 			continue
 		}
-		name := mcpname.Canonical(raw)
+		name := mcpname2.Canonical(raw)
 		if strings.TrimSpace(name) == "" {
 			name = raw
 		}
 		present[name] = true
-		svc := mcpname.Name(name).Service()
+		svc := mcpname2.Name(name).Service()
 		if strings.TrimSpace(svc) != "" {
 			services[svc] = true
 		}
@@ -124,7 +124,7 @@ func filterDelegationDiscoveryTools(defs []*llm.ToolDefinition, docs *binding.Do
 		if def == nil {
 			continue
 		}
-		name := mcpname.Canonical(strings.TrimSpace(def.Name))
+		name := mcpname2.Canonical(strings.TrimSpace(def.Name))
 		if name == "llm_agents-list" {
 			continue
 		}
@@ -143,7 +143,7 @@ func dedupeToolDefinitions(defs []*llm.ToolDefinition) []*llm.ToolDefinition {
 		if def == nil {
 			continue
 		}
-		key := strings.ToLower(strings.TrimSpace(mcpname.Canonical(def.Name)))
+		key := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(def.Name)))
 		if key == "" {
 			continue
 		}
@@ -169,7 +169,7 @@ func filterToolSignaturesByServicePrefix(defs []*llm.ToolDefinition, prefix stri
 		if def == nil {
 			continue
 		}
-		name := strings.ToLower(strings.TrimSpace(mcpname.Canonical(def.Name)))
+		name := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(def.Name)))
 		if strings.HasPrefix(name, prefix) {
 			continue
 		}
@@ -236,7 +236,7 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 		if e == nil {
 			continue
 		}
-		have[mcpname.Canonical(e.Name)] = true
+		have[mcpname2.Canonical(e.Name)] = true
 	}
 
 	// Query only message tools from the registry (avoid full scan)
@@ -248,7 +248,7 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 		if d == nil {
 			continue
 		}
-		name := mcpname.Canonical(d.Name)
+		name := mcpname2.Canonical(d.Name)
 		// Only expose show/summarize/match on overflow; gate remove for token-limit flow
 		// Derive method from tool name. Names can be in forms like:
 		//   message:show  (service:method)
@@ -293,7 +293,7 @@ func (s *Service) handleOverflow(ctx context.Context, input *QueryInput, current
 		}
 		dd := *d
 		// Canonicalize name to service_path-method for consistency (e.g., message-match)
-		dd.Name = mcpname.Canonical(dd.Name)
+		dd.Name = mcpname2.Canonical(dd.Name)
 		b.Tools.Signatures = append(b.Tools.Signatures, &dd)
 		have[name] = true
 	}
@@ -365,7 +365,7 @@ func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryI
 		if sig == nil {
 			continue
 		}
-		have[mcpname.Canonical(sig.Name)] = true
+		have[mcpname2.Canonical(sig.Name)] = true
 	}
 
 	// Collect message tool definitions and append only the subset required by
@@ -384,7 +384,7 @@ func (s *Service) ensureInternalToolsIfNeeded(ctx context.Context, input *QueryI
 		if d == nil {
 			continue
 		}
-		name := mcpname.Canonical(d.Name)
+		name := mcpname2.Canonical(d.Name)
 		// Derive method suffix
 		method := name
 		if i := strings.LastIndexAny(name, ":-"); i != -1 && i+1 < len(name) {
@@ -438,7 +438,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 			if tcView == nil {
 				continue
 			}
-			canonicalName := mcpname.Canonical(tcView.ToolName)
+			canonicalName := mcpname2.Canonical(tcView.ToolName)
 			args := m.ToolCallArguments()
 			// Prepare result content for LLM: derive preview from message content with per-turn limit
 			result := ""

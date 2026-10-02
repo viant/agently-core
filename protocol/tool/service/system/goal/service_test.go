@@ -8,67 +8,55 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	"github.com/viant/agently-core/app/store/data"
-	aggoal "github.com/viant/agently-core/pkg/agently/goal"
-	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	goalsys "github.com/viant/agently-core/service/goal"
 	"github.com/viant/agently-core/service/scheduler"
 	"github.com/viant/agently-core/workspace"
 )
 
 type stubStore struct {
-	current *aggoal.GoalView
-	rows    []*aggoalwrite.MutableGoalView
+	current *goalsys.Record
+	rows    []goalsys.Mutation
 	deleted []string
 }
 
-func (s *stubStore) GetGoal(_ context.Context, _ string, _ *aggoal.GoalInput, _ ...data.Option) (*aggoal.GoalView, error) {
+func (s *stubStore) Get(_ context.Context, _ string) (*goalsys.Record, error) {
 	return s.current, nil
 }
 
-func (s *stubStore) PatchGoals(_ context.Context, rows []*aggoalwrite.MutableGoalView) ([]*aggoalwrite.MutableGoalView, error) {
-	s.rows = append(s.rows, rows...)
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		if s.current == nil {
-			s.current = &aggoal.GoalView{Id: row.Id}
-		}
-		if row.Id != "" {
-			s.current.Id = row.Id
-		}
-		if row.ConversationID != nil {
-			s.current.ConversationID = *row.ConversationID
-		}
-		if row.Objective != nil {
-			s.current.Objective = *row.Objective
-		}
-		if row.Status != nil {
-			s.current.Status = *row.Status
-		}
-		if row.Has != nil && row.Has.StatusReason && row.StatusReason == nil {
-			s.current.StatusReason = nil
-		} else if row.StatusReason != nil {
-			s.current.StatusReason = row.StatusReason
-		}
-		if row.Has != nil && row.Has.PauseReason && row.PauseReason == nil {
-			s.current.PauseReason = nil
-		} else if row.PauseReason != nil {
-			s.current.PauseReason = row.PauseReason
-		}
-		if row.ControllerSpec != nil {
-			s.current.ControllerSpec = row.ControllerSpec
-		}
-		if row.TokenBudget != nil {
-			s.current.TokenBudget = row.TokenBudget
-		}
+func (s *stubStore) Apply(_ context.Context, row goalsys.Mutation) error {
+	s.rows = append(s.rows, row)
+	if row.Delete {
+		s.deleted = append(s.deleted, row.ID)
+		return nil
 	}
-	return rows, nil
-}
-
-func (s *stubStore) DeleteGoals(_ context.Context, ids ...string) error {
-	s.deleted = append(s.deleted, ids...)
+	if s.current == nil {
+		s.current = &goalsys.Record{ID: row.ID}
+	}
+	if row.ID != "" {
+		s.current.ID = row.ID
+	}
+	if row.ConversationID.Present && row.ConversationID.Value != nil {
+		s.current.ConversationID = *row.ConversationID.Value
+	}
+	if row.Objective.Present && row.Objective.Value != nil {
+		s.current.Objective = *row.Objective.Value
+	}
+	if row.Status.Present && row.Status.Value != nil {
+		s.current.Status = *row.Status.Value
+	}
+	if row.StatusReason.Present {
+		s.current.StatusReason = row.StatusReason.Value
+	}
+	if row.PauseReason.Present {
+		s.current.PauseReason = row.PauseReason.Value
+	}
+	if row.ControllerSpec.Present {
+		s.current.ControllerSpec = row.ControllerSpec.Value
+	}
+	if row.TokenBudget.Present {
+		s.current.TokenBudget = row.TokenBudget.Value
+	}
 	return nil
 }
 
@@ -85,8 +73,8 @@ func goalContext() context.Context {
 	return runtimerequestctx.WithConversationID(context.Background(), "conv-1")
 }
 
-func activeGoal() *aggoal.GoalView {
-	return &aggoal.GoalView{Id: "goal-conv-1", ConversationID: "conv-1", Objective: "finish cleanup", Status: "active"}
+func activeGoal() *goalsys.Record {
+	return &goalsys.Record{ID: "goal-conv-1", ConversationID: "conv-1", Objective: "finish cleanup", Status: "active"}
 }
 
 type stubScheduleReader struct {
@@ -194,7 +182,7 @@ features:
 		},
 		{
 			name:  "resume",
-			store: &stubStore{current: &aggoal.GoalView{Id: "goal-conv-1", ConversationID: "conv-1", Objective: "finish cleanup", Status: "paused"}},
+			store: &stubStore{current: &goalsys.Record{ID: "goal-conv-1", ConversationID: "conv-1", Objective: "finish cleanup", Status: "paused"}},
 			run: func(svc *Service) (*Goal, error) {
 				out := &ResumeOutput{}
 				err := svc.resume(goalContext(), &ResumeInput{}, out)

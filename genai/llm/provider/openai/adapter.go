@@ -23,7 +23,7 @@ import (
 	openai "github.com/openai/openai-go/v3"
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 )
 
 var modelTemperature = map[string]float64{
@@ -242,7 +242,7 @@ func (c *Client) ToRequestContext(ctx context.Context, request *llm.GenerateRequ
 				req.Tools[i] = Tool{
 					Type: "function",
 					Function: ToolDefinition{
-						Name:        mcpname.Canonical(def.Name),
+						Name:        mcpname2.Canonical(def.Name),
 						Description: def.Description,
 						Parameters:  def.Parameters,
 						Required:    def.Required,

@@ -1,0 +1,22 @@
+#package('github.com/viant/agently-core/internal/datly/investigation/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/investigation','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(investigationAccess/internal).Required())
+#define($_ = $ID<string>(query/id).Optional().WithPredicate(0,'equal','i','id'))
+#define($_ = $ConversationID<string>(query/conversationId).Optional().WithPredicate(0,'equal','i','conversation_id'))
+#define($_ = $CreatedBy<string>(query/createdBy).Optional().WithPredicate(0,'equal','i','created_by'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','i','conversation_id'))
+#define($_ = $Data<[]*Investigation>(output/view))
+
+SELECT data_rows.*,
+       row_lock(data_rows,'investigation i'),
+       type(data_rows,'Investigation'),
+       required(data_rows.id),
+       required(data_rows.created)
+FROM (${embed:sql/investigation.sql}) data_rows
+

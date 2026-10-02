@@ -5,7 +5,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 )
 
 type resolvedToolScopeKeyT struct{}
@@ -55,5 +55,5 @@ func ResolvedToolAllowed(ctx context.Context, name string) (bool, bool) {
 }
 
 func canonicalResolvedToolName(name string) string {
-	return strings.ToLower(strings.TrimSpace(mcpname.Canonical(strings.TrimSpace(name))))
+	return strings.ToLower(strings.TrimSpace(mcpname2.Canonical(strings.TrimSpace(name))))
 }

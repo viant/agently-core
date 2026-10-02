@@ -26,7 +26,7 @@ import (
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	token "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/debugtrace"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	asyncnarrator "github.com/viant/agently-core/protocol/async/narrator"
 	bindpkg "github.com/viant/agently-core/protocol/binding"
@@ -793,10 +793,10 @@ func shouldContinueAfterAsyncChange(planEmpty bool, hasActiveWaitOps bool, chang
 }
 
 func (s *Service) currentGoalAsyncPolicy(ctx context.Context, conversationID string) goalsys.AsyncPolicy {
-	if s == nil || s.dataService == nil || strings.TrimSpace(conversationID) == "" {
+	if s == nil || s.goalRuntime == nil || strings.TrimSpace(conversationID) == "" {
 		return goalsys.AsyncPolicyEvaluate
 	}
-	current, err := goalsys.NewStore(s.dataService).Current(ctx, strings.TrimSpace(conversationID))
+	current, err := s.goalRuntime.Current(ctx, strings.TrimSpace(conversationID))
 	if err != nil || current == nil || current.Controller == nil {
 		return goalsys.AsyncPolicyEvaluate
 	}
@@ -1688,11 +1688,11 @@ func (s *Service) rewriteGeneratedFileLinks(ctx context.Context, conversationID,
 	if !ok {
 		return strings.TrimSpace(content)
 	}
-	in := &gfread.Input{
+	in := &generatedfilemodel.Input{
 		ConversationID: strings.TrimSpace(conversationID),
 		TurnID:         strings.TrimSpace(turnID),
 		MessageID:      strings.TrimSpace(msgID),
-		Has: &gfread.Has{
+		Has: &generatedfilemodel.Has{
 			ConversationID: true,
 			TurnID:         strings.TrimSpace(turnID) != "",
 			MessageID:      strings.TrimSpace(msgID) != "",
@@ -1844,7 +1844,7 @@ func parseExplicitSkillInvocation(query string) (string, string, bool) {
 	return name, strings.TrimSpace(strings.TrimPrefix(query, head)), true
 }
 
-func rewriteSandboxMarkdownLinks(content string, files []*gfread.GeneratedFileView) string {
+func rewriteSandboxMarkdownLinks(content string, files []*generatedfilemodel.GeneratedFileView) string {
 	if strings.TrimSpace(content) == "" || len(files) == 0 {
 		return content
 	}
@@ -1863,7 +1863,7 @@ func rewriteSandboxMarkdownLinks(content string, files []*gfread.GeneratedFileVi
 	})
 }
 
-func resolveGeneratedFileDownloadHref(sandboxURL string, files []*gfread.GeneratedFileView) string {
+func resolveGeneratedFileDownloadHref(sandboxURL string, files []*generatedfilemodel.GeneratedFileView) string {
 	filename := normalizeSandboxFilename(sandboxURL)
 	if filename == "" {
 		return ""
@@ -1873,7 +1873,7 @@ func resolveGeneratedFileDownloadHref(sandboxURL string, files []*gfread.Generat
 		if file == nil {
 			continue
 		}
-		id := strings.TrimSpace(file.ID)
+		id := strings.TrimSpace(file.Id)
 		name := strings.ToLower(strings.TrimSpace(optionalString(file.Filename)))
 		if id == "" || name == "" || name != want {
 			continue

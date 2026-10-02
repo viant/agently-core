@@ -1,53 +1,53 @@
 package conversation
 
 import (
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	gfwrite "github.com/viant/agently-core/pkg/agently/generatedfile/write"
-	msgw "github.com/viant/agently-core/pkg/agently/message/write"
-	mcall "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	payloadw "github.com/viant/agently-core/pkg/agently/payload/write"
-	toolcall "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	turnw "github.com/viant/agently-core/pkg/agently/turn/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
+	messagemodel "github.com/viant/agently-core/model/message"
+	modelcallmodel "github.com/viant/agently-core/model/modelcall"
+	payloadmodel "github.com/viant/agently-core/model/payload"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 // NewConversation allocates a mutable conversation with Has populated.
 func NewConversation() *MutableConversation {
-	v := &convw.Conversation{Has: &convw.ConversationHas{}}
+	v := &conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 	return (*MutableConversation)(v)
 }
 
 // NewMessage allocates a mutable message with Has populated.
 func NewMessage() *MutableMessage {
-	v := &msgw.Message{Has: &msgw.MessageHas{}}
+	v := &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 	return (*MutableMessage)(v)
 }
 
 // NewModelCall allocates a mutable model call with Has populated.
 func NewModelCall() *MutableModelCall {
-	v := &mcall.ModelCall{Has: &mcall.ModelCallHas{}}
+	v := &modelcallmodel.ModelCall{Has: &modelcallmodel.ModelCallHas{}}
 	return (*MutableModelCall)(v)
 }
 
 // NewToolCall allocates a mutable tool call with Has populated.
 func NewToolCall() *MutableToolCall {
-	v := &toolcall.ToolCall{Has: &toolcall.ToolCallHas{}}
+	v := &toolcallmodel.ToolCall{Has: &toolcallmodel.ToolCallHas{}}
 	return (*MutableToolCall)(v)
 }
 
 // NewPayload allocates a mutable payload with Has populated.
 func NewPayload() *MutablePayload {
-	v := &payloadw.Payload{Has: &payloadw.PayloadHas{}}
+	v := &payloadmodel.Payload{Has: &payloadmodel.PayloadHas{}}
 	return (*MutablePayload)(v)
 }
 
 // NewTurn allocates a mutable turn with Has populated.
 func NewTurn() *MutableTurn {
-	v := &turnw.Turn{Has: &turnw.TurnHas{}}
+	v := &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 	return (*MutableTurn)(v)
 }
 
 // NewGeneratedFile allocates a mutable generated file with Has populated.
 func NewGeneratedFile() *MutableGeneratedFile {
-	v := &gfwrite.GeneratedFile{Has: &gfwrite.GeneratedFileHas{}}
+	v := &generatedfilemodel.GeneratedFile{Has: &generatedfilemodel.GeneratedFileHas{}}
 	return (*MutableGeneratedFile)(v)
 }

@@ -1,0 +1,10 @@
+=== RUN   TestWorkspaceRuntimeTerminalArtifactMatrix
+--- PASS: TestWorkspaceRuntimeTerminalArtifactMatrix (1.93s)
+=== RUN   TestWorkspaceRuntimeTerminalArtifactSQLTrimClassification
+=== RUN   TestWorkspaceRuntimeTerminalArtifactSQLTrimClassification/artifact_tabs_remain_SQL_nonterminal
+=== RUN   TestWorkspaceRuntimeTerminalArtifactSQLTrimClassification/turn_tabs_fail_SQL_guard_but_remain_Go_eligible
+--- PASS: TestWorkspaceRuntimeTerminalArtifactSQLTrimClassification (2.68s)
+    --- PASS: TestWorkspaceRuntimeTerminalArtifactSQLTrimClassification/artifact_tabs_remain_SQL_nonterminal (1.39s)
+    --- PASS: TestWorkspaceRuntimeTerminalArtifactSQLTrimClassification/turn_tabs_fail_SQL_guard_but_remain_Go_eligible (1.29s)
+PASS
+ok  	github.com/viant/agently-core/app/store/native	5.786s

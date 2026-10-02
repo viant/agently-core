@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/genai/llm"
-	mcpnames "github.com/viant/agently-core/pkg/mcpname"
 	asynccfg "github.com/viant/agently-core/protocol/async"
+	mcpname "github.com/viant/agently-core/protocol/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -28,7 +28,11 @@ func WithConversation(inner Registry, convID string) Registry {
 		// to preserve backward compatibility.
 		return inner
 	}
-	return &scopedRegistry{inner: inner, convID: convID}
+	scoped := &scopedRegistry{inner: inner, convID: convID}
+	if _, ok := inner.(MCPIdentityResolver); ok {
+		return &scopedMCPRegistry{scopedRegistry: scoped}
+	}
+	return scoped
 }
 
 // Definitions delegates to the underlying registry with the scoped conversation.
@@ -98,6 +102,15 @@ func (s *scopedRegistry) Execute(ctx context.Context, name string, args map[stri
 	return s.inner.Execute(ctx, name, args)
 }
 
+type scopedMCPRegistry struct{ *scopedRegistry }
+
+func (s *scopedMCPRegistry) ResolveMCPIdentity(ctx context.Context, name string) (string, string, bool, error) {
+	if resolver, ok := s.inner.(MCPIdentityResolver); ok {
+		return resolver.ResolveMCPIdentity(s.withConversation(ctx), name)
+	}
+	return "", "", false, nil
+}
+
 func (s *scopedRegistry) PreflightCredential(ctx context.Context, name string) error {
 	ctx = s.withConversation(ctx)
 	if preflight, ok := s.inner.(CredentialPreflighter); ok {
@@ -130,8 +143,8 @@ func (s *scopedRegistry) ToolTimeout(name string) (time.Duration, bool) {
 		}
 	}
 	// Best-effort fallback for known internal services with static timeouts
-	can := mcpnames.Canonical(name)
-	svc := mcpnames.Name(can).Service()
+	can := mcpname.Canonical(name)
+	svc := mcpname.Name(can).Service()
 	switch svc {
 	case "llm/agents":
 		return 5 * time.Minute, true

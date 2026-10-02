@@ -1,0 +1,31 @@
+#package('github.com/viant/agently-core/internal/datly/toolexecutionclaim/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/tool-execution-claim','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $OrphanDelete<bool>(orphanDelete/enabledDelete).Optional())
+#define($_ = $Trusted<bool>(claimAccess/internal).Required())
+#define($_ = $ClaimMode<string>(claimAccess/mode).Optional())
+#define($_ = $ExpectedTurnID<string>(query/expectedTurnId).Optional().WithPredicate(7,'equal','tool_execution_claim','turn_id'))
+#define($_ = $Claims<[]*Claim>(body/data))
+#define($_ = $Data<[]*Claim>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'Claim'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,7),
+       required(t.claim_key),
+       tag(t.claim_key,'sqlx:"claim_key,primaryKey,required=true"'),
+       required(t.rule_id),
+       required(t.canonical_tool_name),
+       required(t.turn_id),
+       required(t.semantic_request_hash),
+       required(t.state)
+FROM (${embed:sql/toolexecutionclaim.sql}) t

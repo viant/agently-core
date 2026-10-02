@@ -1,0 +1,70 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/sharedartifact/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/shared-artifact','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(artifactAccess/internal).Required())
+#define($_ = $ReadMode<string>(artifactAccess/mode).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required())
+#define($_ = $ArtifactID<string>(query/artifactId).Optional().WithPredicate(0,'equal','r','artifact_id'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $OrderBy<string>(query/orderBy).Optional().QuerySelector('reader'))
+#define($_ = $OwnerID<string>(query/ownerId).Optional().WithPredicate(0,'equal','r','owner_id'))
+#define($_ = $ArtifactRef<string>(query/artifactRef).Optional().WithPredicate(0,'equal','r','artifact_ref'))
+#define($_ = $ReportID<string>(query/reportId).Optional().WithPredicate(0,'equal','r','report_id'))
+#define($_ = $Kind<string>(query/kind).Optional().WithPredicate(0,'equal','r','kind'))
+#define($_ = $Lifecycle<string>(query/lifecycle).Optional().WithPredicate(0,'equal','r','lifecycle'))
+#define($_ = $Data<[]*SharedArtifact>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true,selectorOrderBy=true"'))
+
+SELECT data_rows.*,
+       type(data_rows,'SharedArtifact'),
+       required(data_rows.artifact_id),
+       tag(data_rows.artifact_id,'json:"artifactId,omitempty"'),
+       required(data_rows.artifact_ref),
+       tag(data_rows.artifact_ref,'json:"artifactRef,omitempty"'),
+       required(data_rows.owner_id),
+       tag(data_rows.owner_id,'json:"ownerId,omitempty"'),
+       CAST(data_rows.owner_ref AS string),
+       tag(data_rows.owner_ref,'json:"ownerRef,omitempty"'),
+       required(data_rows.kind),
+       tag(data_rows.kind,'json:"kind,omitempty"'),
+       required(data_rows.lifecycle),
+       tag(data_rows.lifecycle,'json:"lifecycle,omitempty"'),
+       required(data_rows.version),
+       tag(data_rows.version,'json:"version,omitempty"'),
+       CAST(data_rows.report_id AS string),
+       tag(data_rows.report_id,'json:"reportId,omitempty"'),
+       CAST(data_rows.title AS string),
+       tag(data_rows.title,'json:"title,omitempty"'),
+       CAST(data_rows.source_artifact_id AS string),
+       tag(data_rows.source_artifact_id,'json:"sourceArtifactId,omitempty"'),
+       CAST(data_rows.base_artifact_ref AS string),
+       tag(data_rows.base_artifact_ref,'json:"baseArtifactRef,omitempty"'),
+       CAST(data_rows.policy_ref AS string),
+       tag(data_rows.policy_ref,'json:"policyRef,omitempty"'),
+       required(data_rows.document_version),
+       tag(data_rows.document_version,'json:"documentVersion,omitempty"'),
+       CAST(data_rows.report_document_json AS []byte),
+       tag(data_rows.report_document_json,'json:"document,omitempty"'),
+       CAST(data_rows.report_spec_json AS []byte),
+       tag(data_rows.report_spec_json,'json:"reportSpec,omitempty"'),
+       CAST(data_rows.compile_state_json AS []byte),
+       tag(data_rows.compile_state_json,'json:"compileState,omitempty"'),
+       CAST(data_rows.report_fill_json AS []byte),
+       tag(data_rows.report_fill_json,'json:"reportFill,omitempty"'),
+       CAST(data_rows.report_print_json AS []byte),
+       tag(data_rows.report_print_json,'json:"reportPrint,omitempty"'),
+       CAST(data_rows.saved_view_overlay_json AS []byte),
+       tag(data_rows.saved_view_overlay_json,'json:"savedViewOverlay,omitempty"'),
+       CAST(data_rows.metadata_json AS []byte),
+       tag(data_rows.metadata_json,'json:"metadata,omitempty"'),
+       required(data_rows.created_at),
+       tag(data_rows.created_at,'json:"createdAt,omitempty"'),
+       tag(data_rows.updated_at,'json:"updatedAt,omitempty"')
+FROM (${embed:sql/sharedartifact.sql}) data_rows

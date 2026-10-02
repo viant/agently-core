@@ -9,11 +9,11 @@ import (
 	"github.com/stretchr/testify/require"
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	mem "github.com/viant/agently-core/internal/service/conversation/memory"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	msgw "github.com/viant/agently-core/pkg/agently/message/write"
-	mcallw "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	toolw "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	turnw "github.com/viant/agently-core/pkg/agently/turn/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
+	modelcallmodel "github.com/viant/agently-core/model/modelcall"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 // dd-style data-driven test using testCase with input and expected output
@@ -35,14 +35,14 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	assert.NoError(t, c.PatchConversations(ctx, conv))
 
 	// Seed turns
-	turn1 := &turnw.Turn{Has: &turnw.TurnHas{}}
+	turn1 := &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 	turn1.SetId("t1")
 	turn1.SetConversationID("c1")
 	turn1.SetStatus("ok")
 	turn1.SetCreatedAt(t1)
 	assert.NoError(t, c.PatchTurn(ctx, (*convcli.MutableTurn)(turn1)))
 
-	turn2 := &turnw.Turn{Has: &turnw.TurnHas{}}
+	turn2 := &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 	turn2.SetId("t2")
 	turn2.SetConversationID("c1")
 	turn2.SetStatus("ok")
@@ -50,7 +50,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	assert.NoError(t, c.PatchTurn(ctx, (*convcli.MutableTurn)(turn2)))
 
 	// Seed messages
-	m1 := &msgw.Message{Has: &msgw.MessageHas{}}
+	m1 := &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 	m1.SetId("m1")
 	m1.SetConversationID("c1")
 	m1.SetTurnID("t1")
@@ -61,7 +61,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	m1.SetCreatedAt(t1)
 	assert.NoError(t, c.PatchMessage(ctx, (*convcli.MutableMessage)(m1)))
 
-	m2 := &msgw.Message{Has: &msgw.MessageHas{}}
+	m2 := &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 	m2.SetId("m2")
 	m2.SetConversationID("c1")
 	m2.SetTurnID("t2")
@@ -72,7 +72,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	assert.NoError(t, c.PatchMessage(ctx, (*convcli.MutableMessage)(m2)))
 
 	// Attach model call to m2
-	mc := &mcallw.ModelCall{Has: &mcallw.ModelCallHas{}}
+	mc := &modelcallmodel.ModelCall{Has: &modelcallmodel.ModelCallHas{}}
 	mc.SetMessageID("m2")
 	mc.SetProvider("openai")
 	mc.SetModel("gpt-4o")
@@ -81,7 +81,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	assert.NoError(t, c.PatchModelCall(ctx, (*convcli.MutableModelCall)(mc)))
 
 	// Attach tool call to m2 (as separate tool message)
-	m3 := &msgw.Message{Has: &msgw.MessageHas{}}
+	m3 := &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 	m3.SetId("m3")
 	m3.SetConversationID("c1")
 	m3.SetTurnID("t2")
@@ -92,7 +92,7 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	m3.SetCreatedAt(t2)
 	assert.NoError(t, c.PatchMessage(ctx, (*convcli.MutableMessage)(m3)))
 
-	tc := &toolw.ToolCall{Has: &toolw.ToolCallHas{}}
+	tc := &toolcallmodel.ToolCall{Has: &toolcallmodel.ToolCallHas{}}
 	tc.SetMessageID("m3")
 	tc.SetOpID("op-1")
 	tc.SetAttempt(1)
@@ -110,15 +110,15 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 	}
 
 	// Build expected base conversation using agconv then cast to client type
-	agBase := &agconv.ConversationView{
+	agBase := &conversationmodel.ConversationView{
 		Id:         "c1",
 		AgentId:    ptrS("agentA"),
 		Title:      ptrS("A title"),
 		Visibility: "private",
 		CreatedAt:  t0,
-		Transcript: []*agconv.TranscriptView{
-			{Id: "t1", ConversationId: "c1", CreatedAt: t1, Status: "ok", Message: []*agconv.MessageView{{Id: "m1", ConversationId: "c1", TurnId: ptrS("t1"), Role: "user", Type: "text", Content: ptrS("hello"), RawContent: ptrS("hello raw"), CreatedAt: t1}}},
-			{Id: "t2", ConversationId: "c1", CreatedAt: t2, Status: "ok", Message: []*agconv.MessageView{
+		Transcript: []*conversationmodel.TranscriptView{
+			{Id: "t1", ConversationId: "c1", CreatedAt: t1, Status: "ok", Message: []*conversationmodel.MessageView{{Id: "m1", ConversationId: "c1", TurnId: ptrS("t1"), Role: "user", Type: "text", Content: ptrS("hello"), RawContent: ptrS("hello raw"), CreatedAt: t1}}},
+			{Id: "t2", ConversationId: "c1", CreatedAt: t2, Status: "ok", Message: []*conversationmodel.MessageView{
 				{Id: "m2", ConversationId: "c1", TurnId: ptrS("t2"), Role: "assistant", Type: "text", Content: ptrS("world"), CreatedAt: t2},
 				{Id: "m3", ConversationId: "c1", TurnId: ptrS("t2"), ParentMessageId: ptrS("m2"), Role: "assistant", Type: "tool", Content: ptrS("call:toolX"), CreatedAt: t2},
 			}},
@@ -128,17 +128,17 @@ func TestClient_GetConversation_DataDriven(t *testing.T) {
 
 	// Expected with model included
 	withModel := toClient(cloneAg(agBase))
-	withModel.Transcript[1].Message[0].ModelCall = &agconv.ModelCallView{MessageId: "m2", Provider: "openai", Model: "gpt-4o", ModelKind: "chat", Status: "ok"}
+	withModel.Transcript[1].Message[0].ModelCall = &conversationmodel.ModelCallView{MessageId: "m2", Provider: "openai", Model: "gpt-4o", ModelKind: "chat", Status: "ok"}
 
 	// Expected with tool included
 	withTool := toClient(cloneAg(agBase))
-	withTool.Transcript[1].Message[0].ToolMessage = []*agconv.ToolMessageView{{
+	withTool.Transcript[1].Message[0].ToolMessage = []*conversationmodel.ToolMessageView{{
 		Id:              "m3",
 		ParentMessageId: ptrS("m2"),
 		CreatedAt:       t2,
 		Type:            "tool",
 		Content:         ptrS("call:toolX"),
-		ToolCall:        &agconv.ToolCallView{MessageId: "m3", OpId: "op-1", Attempt: 1, ToolName: "toolX", ToolKind: "http", Status: "ok"},
+		ToolCall:        &conversationmodel.ToolCallView{MessageId: "m3", OpId: "op-1", Attempt: 1, ToolName: "toolX", ToolKind: "http", Status: "ok"},
 	}}
 
 	// Expected since t2 only
@@ -189,7 +189,7 @@ func TestClient_GetConversations_ListSummary(t *testing.T) {
 	assert.NoError(t, c.PatchConversations(ctx, conv))
 
 	// Add a turn but list should not include transcript
-	turn := &turnw.Turn{Has: &turnw.TurnHas{}}
+	turn := &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 	turn.SetId("t1")
 	turn.SetConversationID("c1")
 	turn.SetStatus("ok")
@@ -214,12 +214,12 @@ func TestClient_PatchMessage_PreservesModeAndNarration(t *testing.T) {
 	conv.SetId("c-mode")
 	require.NoError(t, c.PatchConversations(ctx, conv))
 
-	turn := &turnw.Turn{Has: &turnw.TurnHas{}}
+	turn := &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 	turn.SetId("t-mode")
 	turn.SetConversationID("c-mode")
 	require.NoError(t, c.PatchTurn(ctx, (*convcli.MutableTurn)(turn)))
 
-	msg := &msgw.Message{Has: &msgw.MessageHas{}}
+	msg := &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 	msg.SetId("m-mode")
 	msg.SetConversationID("c-mode")
 	msg.SetTurnID("t-mode")
@@ -250,7 +250,7 @@ func TestClient_GetConversations_AppliesListFilters(t *testing.T) {
 	parent.SetVisibility("public")
 	require.NoError(t, c.PatchConversations(ctx, parent))
 
-	parentTurn := &turnw.Turn{Has: &turnw.TurnHas{}}
+	parentTurn := &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 	parentTurn.SetId("turn-1")
 	parentTurn.SetConversationID("parent-1")
 	parentTurn.SetStatus("completed")
@@ -292,7 +292,7 @@ func TestClient_GetConversations_AppliesListFilters(t *testing.T) {
 		ExcludeScheduled: true,
 		Query:            "favorite",
 		StatusFilter:     "active",
-		Has: &agconv.ConversationInputHas{
+		Has: &conversationmodel.ConversationInputHas{
 			AgentId:          true,
 			ExcludeChildren:  true,
 			ExcludeScheduled: true,
@@ -324,13 +324,13 @@ func TestClient_DeleteConversation_DataDriven(t *testing.T) {
 	conv.SetCreatedAt(time.Date(2025, 2, 1, 0, 0, 0, 0, time.UTC))
 	assert.NoError(t, c.PatchConversations(ctx, conv))
 
-	turn := &turnw.Turn{Has: &turnw.TurnHas{}}
+	turn := &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 	turn.SetId("t-del")
 	turn.SetConversationID("c-del")
 	turn.SetStatus("ok")
 	assert.NoError(t, c.PatchTurn(ctx, (*convcli.MutableTurn)(turn)))
 
-	m := &msgw.Message{Has: &msgw.MessageHas{}}
+	m := &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 	m.SetId("m-del")
 	m.SetConversationID("c-del")
 	m.SetTurnID("t-del")
@@ -375,7 +375,7 @@ func TestClient_MessageRawContentRoundTrip(t *testing.T) {
 			conv := convcli.NewConversation()
 			conv.SetId("c-raw")
 			require.NoError(t, c.PatchConversations(ctx, conv))
-			msg := &msgw.Message{Has: &msgw.MessageHas{}}
+			msg := &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 			msg.SetId("m-raw")
 			msg.SetConversationID("c-raw")
 			msg.SetRole("user")
@@ -406,15 +406,15 @@ func TestClient_PatchMessage_PartialUpdate_DataDriven(t *testing.T) {
 	ctx := context.Background()
 	type testCase struct {
 		name       string
-		build      func() *msgw.Message
+		build      func() *messagemodel.Message
 		expectErr  string
 		wantStatus *string
 	}
 	cases := []testCase{
 		{
 			name: "update existing message status without conversation id",
-			build: func() *msgw.Message {
-				m := &msgw.Message{Has: &msgw.MessageHas{}}
+			build: func() *messagemodel.Message {
+				m := &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 				m.SetId("m1")
 				m.SetStatus("accepted")
 				return m
@@ -423,8 +423,8 @@ func TestClient_PatchMessage_PartialUpdate_DataDriven(t *testing.T) {
 		},
 		{
 			name: "new message without conversation id returns missing conversation id",
-			build: func() *msgw.Message {
-				m := &msgw.Message{Has: &msgw.MessageHas{}}
+			build: func() *messagemodel.Message {
+				m := &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 				m.SetId("m-new")
 				m.SetStatus("accepted")
 				return m
@@ -433,8 +433,8 @@ func TestClient_PatchMessage_PartialUpdate_DataDriven(t *testing.T) {
 		},
 		{
 			name: "missing id returns missing message id",
-			build: func() *msgw.Message {
-				return &msgw.Message{Has: &msgw.MessageHas{}}
+			build: func() *messagemodel.Message {
+				return &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 			},
 			expectErr: "missing message id",
 		},
@@ -449,7 +449,7 @@ func TestClient_PatchMessage_PartialUpdate_DataDriven(t *testing.T) {
 			conv.SetId("c1")
 			require.NoError(t, c.PatchConversations(ctx, conv))
 
-			seed := &msgw.Message{Has: &msgw.MessageHas{}}
+			seed := &messagemodel.Message{Has: &messagemodel.MessageHas{}}
 			seed.SetId("m1")
 			seed.SetConversationID("c1")
 			seed.SetRole("tool")
@@ -477,15 +477,15 @@ func TestClient_PatchTurn_PartialUpdate_DataDriven(t *testing.T) {
 	ctx := context.Background()
 	type testCase struct {
 		name       string
-		build      func() *turnw.Turn
+		build      func() *turnmodel.Turn
 		expectErr  string
 		wantStatus string
 	}
 	cases := []testCase{
 		{
 			name: "update existing turn status without conversation id",
-			build: func() *turnw.Turn {
-				t := &turnw.Turn{Has: &turnw.TurnHas{}}
+			build: func() *turnmodel.Turn {
+				t := &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 				t.SetId("t1")
 				t.SetStatus("completed")
 				return t
@@ -494,8 +494,8 @@ func TestClient_PatchTurn_PartialUpdate_DataDriven(t *testing.T) {
 		},
 		{
 			name: "new turn without conversation id returns missing conversation id",
-			build: func() *turnw.Turn {
-				t := &turnw.Turn{Has: &turnw.TurnHas{}}
+			build: func() *turnmodel.Turn {
+				t := &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 				t.SetId("t-new")
 				t.SetStatus("completed")
 				return t
@@ -504,8 +504,8 @@ func TestClient_PatchTurn_PartialUpdate_DataDriven(t *testing.T) {
 		},
 		{
 			name: "missing id returns missing turn id",
-			build: func() *turnw.Turn {
-				return &turnw.Turn{Has: &turnw.TurnHas{}}
+			build: func() *turnmodel.Turn {
+				return &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 			},
 			expectErr: "missing turn id",
 		},
@@ -518,7 +518,7 @@ func TestClient_PatchTurn_PartialUpdate_DataDriven(t *testing.T) {
 			conv.SetId("c1")
 			require.NoError(t, c.PatchConversations(ctx, conv))
 
-			seed := &turnw.Turn{Has: &turnw.TurnHas{}}
+			seed := &turnmodel.Turn{Has: &turnmodel.TurnHas{}}
 			seed.SetId("t1")
 			seed.SetConversationID("c1")
 			seed.SetStatus("running")
@@ -552,26 +552,26 @@ func TestClient_PatchTurn_PartialUpdate_DataDriven(t *testing.T) {
 func ptrS(s string) *string { return &s }
 
 // toClient casts agconv view to client view
-func toClient(v *agconv.ConversationView) *convcli.Conversation {
+func toClient(v *conversationmodel.ConversationView) *convcli.Conversation {
 	c := convcli.Conversation(*v)
 	return &c
 }
 
 // cloneAg deep copies an agconv conversation
-func cloneAg(in *agconv.ConversationView) *agconv.ConversationView {
+func cloneAg(in *conversationmodel.ConversationView) *conversationmodel.ConversationView {
 	if in == nil {
 		return nil
 	}
 	cp := *in
 	if in.Transcript != nil {
-		cp.Transcript = make([]*agconv.TranscriptView, len(in.Transcript))
+		cp.Transcript = make([]*conversationmodel.TranscriptView, len(in.Transcript))
 		for i, tv := range in.Transcript {
 			if tv == nil {
 				continue
 			}
 			tt := *tv
 			if tv.Message != nil {
-				tt.Message = make([]*agconv.MessageView, len(tv.Message))
+				tt.Message = make([]*conversationmodel.MessageView, len(tv.Message))
 				for j, mv := range tv.Message {
 					if mv == nil {
 						continue
@@ -582,7 +582,7 @@ func cloneAg(in *agconv.ConversationView) *agconv.ConversationView {
 						mm.ModelCall = &tmp
 					}
 					if mv.ToolMessage != nil {
-						mm.ToolMessage = make([]*agconv.ToolMessageView, len(mv.ToolMessage))
+						mm.ToolMessage = make([]*conversationmodel.ToolMessageView, len(mv.ToolMessage))
 						for k, tm := range mv.ToolMessage {
 							if tm == nil {
 								continue

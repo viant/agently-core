@@ -1,0 +1,3060 @@
+[
+  {
+    "path": "app/store/data/service.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "NewService",
+      "*datlyService.Raw",
+      "*datlyService.GetConversation",
+      "*datlyService.GetGoal",
+      "*datlyService.GetMessage",
+      "*datlyService.GetMessageByElicitation",
+      "*datlyService.GetRun",
+      "*datlyService.GetActiveRun",
+      "*datlyService.ListStaleRuns",
+      "*datlyService.GetActiveTurn",
+      "*datlyService.GetTurnByID",
+      "*datlyService.GetNextQueuedTurn",
+      "*datlyService.ListQueuedTurns",
+      "*datlyService.CountQueuedTurns",
+      "*datlyService.CountControllerTurns",
+      "*datlyService.CountPendingApprovals",
+      "*datlyService.CountPendingElicitations",
+      "*datlyService.ListTurnQueueRows",
+      "*datlyService.PatchTurnQueue",
+      "*datlyService.GetToolCallByOp",
+      "*datlyService.GetToolMessageIDsByTurn",
+      "*datlyService.ListPayloadRows",
+      "*datlyService.PatchConversations",
+      "*datlyService.PatchGoals",
+      "*datlyService.PatchMessages",
+      "*datlyService.PatchTurns",
+      "*datlyService.PatchModelCalls",
+      "*datlyService.PatchToolCalls",
+      "*datlyService.PatchPayloads",
+      "*datlyService.PatchRuns",
+      "*datlyService.DeleteConversations",
+      "*datlyService.DeleteGoals",
+      "*datlyService.DeleteMessages",
+      "*datlyService.DeleteTurns",
+      "*datlyService.DeleteModelCalls",
+      "*datlyService.DeleteToolCalls",
+      "*datlyService.DeletePayloads",
+      "*datlyService.DeleteRuns",
+      "*datlyService.ListGeneratedFiles"
+    ]
+  },
+  {
+    "path": "app/store/data/service_delete_maintenance.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "tx.QueryRowContext",
+      "tx.QueryRowContext",
+      "tx.QueryRowContext",
+      "tx.QueryContext"
+    ],
+    "functions": [
+      "*datlyService.MaintainConversationTree",
+      "validateConversationMaintenanceRequest",
+      "*datlyService.maintainConversationTreeDirect",
+      "conversationMaintenanceGraphHasRunRecords",
+      "conversationMaintenanceRootState",
+      "conversationMaintenanceGraphKind",
+      "conversationMaintenanceLastActivity"
+    ]
+  },
+  {
+    "path": "app/store/data/service_delete_maintenance_candidates.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "db.QueryContext"
+    ],
+    "functions": [
+      "*datlyService.ListConversationMaintenanceCandidates",
+      "validateConversationMaintenanceCandidateRequest"
+    ]
+  },
+  {
+    "path": "app/store/data/service_delete_schedule.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "tx.QueryRowContext",
+      "tx.QueryContext",
+      "tx.QueryContext"
+    ],
+    "functions": [
+      "*datlyService.DeleteScheduleCascade",
+      "deleteScheduleCascadeTx",
+      "loadScheduleForDelete",
+      "collectScheduleRunIDsForSchedule",
+      "collectScheduleConversationRoots",
+      "loadScheduleConversationCandidates",
+      "collectRemainingScheduleRunIDs"
+    ]
+  },
+  {
+    "path": "app/store/data/service_delete_scheduled_maintenance.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "db.QueryContext",
+      "tx.QueryContext",
+      "tx.QueryContext",
+      "tx.QueryRowContext",
+      "tx.QueryRowContext",
+      "tx.QueryContext"
+    ],
+    "functions": [
+      "*datlyService.ListScheduledRunMaintenanceCandidates",
+      "scheduledRunMaintenanceCandidateSource",
+      "validateScheduledRunMaintenanceCandidateRequest",
+      "*datlyService.MaintainScheduledRun",
+      "validateScheduledRunMaintenanceRequest",
+      "*datlyService.maintainScheduledRunDirect",
+      "ensureScheduledRunMaintenanceGraphScope",
+      "ensureScheduledRunMaintenanceRowsInScope",
+      "loadScheduledRunForMaintenance",
+      "queryScheduledRunMaintenanceRow",
+      "loadScheduleForScheduledRunMaintenance",
+      "scheduledRunMaintenancePrepareReason",
+      "scheduledRunMaintenanceRelatedActivity",
+      "laterTime"
+    ]
+  },
+  {
+    "path": "app/store/data/service_delete_scheduled_run.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "tx.QueryRowContext",
+      "tx.QueryRowContext"
+    ],
+    "functions": [
+      "*datlyService.DeleteScheduledRun",
+      "deleteScheduledRunTx",
+      "appendScheduledRunDeleteID",
+      "loadScheduledRunSchedule",
+      "locateScheduledRunForDelete",
+      "loadScheduledRunForDelete",
+      "queryScheduledRunForDelete",
+      "collectScheduledRunConversationRoots"
+    ]
+  },
+  {
+    "path": "app/store/data/service_delete_tree.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "tx.QueryContext",
+      "tx.QueryContext",
+      "tx.ExecContext"
+    ],
+    "functions": [
+      "*datlyService.DeleteConversationTree",
+      "buildConversationDeleteGraph",
+      "collectConversationTree",
+      "collectConversationTreeWithCapabilities",
+      "loadConversationsByIDs",
+      "loadChildConversations",
+      "loadChildConversationsByParentTurns",
+      "loadLinkedConversations",
+      "queryConversationRows",
+      "authorizeConversationTreeDelete",
+      "deleteConversationGraph",
+      "applyInvestigationDeletePolicy",
+      "collectRunIDsForDelete",
+      "collectApprovalIDsForDelete",
+      "collectScheduleRunIDsForDelete",
+      "collectPayloadIDsForDelete",
+      "addStringsFromMultiColumnQuery",
+      "addStringsFromQuery",
+      "queryStringsForColumn",
+      "queryStringsForColumns",
+      "execDeleteIDs",
+      "execIDs",
+      "deleteUnreferencedPayloads",
+      "conversationIDsByDepthDesc",
+      "normalizeDeleteIDs",
+      "sortedKeys",
+      "chunkStrings",
+      "placeholders",
+      "stringArgs",
+      "normalizeStatus",
+      "statusSet",
+      "conversationDeleteActiveStatuses",
+      "runDeleteActiveStatuses",
+      "parseDBTime"
+    ]
+  },
+  {
+    "path": "app/store/data/service_delete_tree_policy.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "tx.QueryContext",
+      "tx.QueryContext",
+      "tx.QueryContext",
+      "tx.QueryContext",
+      "tx.QueryContext",
+      "tx.QueryContext",
+      "tx.QueryContext"
+    ],
+    "functions": [
+      "*deleteSchemaCapabilities.hasTable",
+      "*deleteSchemaCapabilities.hasColumn",
+      "deleteSchemaCapabilitiesForDriver",
+      "*datlyService.deleteConversationTreeDirect",
+      "lockConversationGraphForDelete",
+      "prepareConversationDeleteGraph",
+      "prepareConversationDeleteGraphForSystemMaintenance",
+      "prepareConversationDeleteGraphWithOwnership",
+      "validateConversationDeleteGraph",
+      "lockConversationRunRowsForDelete",
+      "refreshConversationDeleteRunIDs",
+      "ensureNoInboundConversationReferences",
+      "collectGoalWakeupSchedules",
+      "addDeleteScheduleDependencies",
+      "isGoalWakeupDependency",
+      "prepareReportDeleteGraph",
+      "validateOwnedReportRuns",
+      "validateOwnedReportJobs",
+      "validateOwnedRows",
+      "ensureNoExternalReportContexts",
+      "ensureConversationGraphDeletableOrEmpty",
+      "evaluateConversationRunDeleteDecision",
+      "ensureNoLiveConversationRuns",
+      "isNonExpiredDBTime",
+      "ensureNoActiveReportExports",
+      "hasStatusInSet",
+      "makeStringSet"
+    ]
+  },
+  {
+    "path": "app/store/data/service_maintenance_lease.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "tx.ExecContext",
+      "tx.ExecContext",
+      "tx.ExecContext",
+      "tx.ExecContext",
+      "tx.ExecContext",
+      "tx.QueryRowContext",
+      "tx.ExecContext",
+      "tx.QueryRowContext",
+      "queryer.QueryRowContext"
+    ],
+    "functions": [
+      "*datlyService.AcquireMaintenanceLease",
+      "*datlyService.RenewMaintenanceLease",
+      "*datlyService.ReleaseMaintenanceLease",
+      "*datlyService.DeleteExpiredMaintenanceLeases",
+      "lockMaintenanceLeaseTx",
+      "loadMaintenanceLease",
+      "maintenanceLeaseDatabaseNow",
+      "normalizeMaintenanceLease",
+      "validateMaintenanceLease",
+      "isMaintenanceMySQLDriver",
+      "isMaintenanceSQLiteDriver",
+      "maintenanceLeaseWrite",
+      "isRetryableMaintenanceSQLiteError"
+    ]
+  },
+  {
+    "path": "app/store/data/service_options.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/state"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "WithQuerySelector",
+      "WithPrincipal",
+      "WithAdminPrincipal",
+      "toOperateOptions",
+      "collectOptions"
+    ]
+  },
+  {
+    "path": "app/store/data/service_orphan_maintenance.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "db.QueryContext"
+    ],
+    "functions": [
+      "*datlyService.ListOrphanMaintenanceCandidates",
+      "listOrphanMaintenanceRuleCandidates",
+      "encodeOrphanMaintenanceCursor",
+      "decodeOrphanMaintenanceCursor",
+      "orphanMaintenanceRules",
+      "orphanMaintenancePriority",
+      "isOrphanMaintenanceIdentifier",
+      "orphanRuleByID"
+    ]
+  },
+  {
+    "path": "app/store/data/service_orphan_maintenance_apply.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "tx.ExecContext",
+      "tx.QueryRowContext"
+    ],
+    "functions": [
+      "*datlyService.MaintainOrphanCandidate",
+      "*datlyService.maintainOrphanCandidateDirect",
+      "validateOrphanMaintenanceMutationRule",
+      "orphanMaintenanceKeyValues",
+      "recheckOrphanMaintenanceCandidate",
+      "orphanMaintenanceMutationStatement",
+      "orphanMaintenanceKeyPredicate"
+    ]
+  },
+  {
+    "path": "app/store/data/service_page.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/state"
+    ],
+    "sql_calls": [
+      "db.QueryContext"
+    ],
+    "functions": [
+      "normalizePageInput",
+      "buildPageSelector",
+      "buildMessagePageSelector",
+      "buildConversationPage",
+      "buildConversationAfterPage",
+      "conversationPageSortKey",
+      "sortConversationRows",
+      "buildMessagePage",
+      "buildTurnPage",
+      "buildRunStepPage",
+      "hasNamedSelector",
+      "*datlyService.ListConversations",
+      "*datlyService.queryConversationRows",
+      "buildConversationRowsQuery",
+      "scanConversationRowsView",
+      "*datlyService.GetMessagesPage",
+      "nullableStringPointer",
+      "nullableIntPointer",
+      "nullableTimePointer",
+      "*datlyService.db",
+      "*datlyService.dbWithDriver",
+      "*datlyService.GetTurnsPage",
+      "*datlyService.GetRunStepsPage"
+    ]
+  },
+  {
+    "path": "app/store/data/service_technical_maintenance.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "queryer.QueryContext",
+      "tx.QueryRowContext",
+      "tx.ExecContext"
+    ],
+    "functions": [
+      "*datlyService.ListTechnicalMaintenanceCandidates",
+      "normalizeTechnicalMaintenanceCandidateRequest",
+      "validateTechnicalMaintenanceCandidateRequest",
+      "validTechnicalMaintenanceScope",
+      "validTechnicalMaintenanceKind",
+      "encodeTechnicalMaintenanceCursor",
+      "decodeTechnicalMaintenanceCursor",
+      "listTechnicalMaintenanceRuleCandidates",
+      "technicalMaintenanceCandidateSQL",
+      "technicalMaintenanceScopePredicate",
+      "technicalBeforePredicate",
+      "technicalAfterPredicate",
+      "technicalTTLExpiredPredicate",
+      "*datlyService.MaintainTechnicalCandidate",
+      "validateTechnicalMaintenanceRequest",
+      "*datlyService.maintainTechnicalCandidateDirect",
+      "technicalMaintenanceRuleByKind",
+      "lockTechnicalMaintenanceRecord",
+      "technicalMaintenanceTableKey",
+      "deleteTechnicalMaintenanceRecord",
+      "deleteTechnicalReportJobs",
+      "execTechnicalIDs"
+    ]
+  },
+  {
+    "path": "app/store/data/terminal_artifact_cleanup.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "db.QueryContext",
+      "stmt.ExecContext",
+      "tx.QueryRowContext",
+      "tx.QueryRowContext",
+      "tx.QueryRowContext"
+    ],
+    "functions": [
+      "*datlyService.SnapshotTerminalArtifactCandidates",
+      "*datlyService.CleanupTerminalArtifactCandidates",
+      "cleanupTerminalArtifactCandidatesTx",
+      "buildTerminalArtifactUpdate",
+      "classifyTerminalArtifactCandidate",
+      "loadTerminalArtifactState",
+      "loadTerminalTurnState",
+      "loadTerminalArtifactMessageTurn",
+      "isTerminalArtifactCleanupStatus",
+      "isTerminalTurnCleanupStatus"
+    ]
+  },
+  {
+    "path": "app/store/reporting/sql/audit_sink.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "db.ExecContext"
+    ],
+    "functions": [
+      "NewAuditSink",
+      "*auditSink.Record"
+    ]
+  },
+  {
+    "path": "app/store/reporting/sql/store.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract"
+    ],
+    "sql_calls": [
+      "db.ExecContext",
+      "db.QueryRowContext",
+      "db.QueryRowContext",
+      "db.ExecContext",
+      "tx.QueryRowContext",
+      "tx.QueryRowContext",
+      "tx.ExecContext",
+      "tx.ExecContext",
+      "tx.ExecContext",
+      "db.QueryRowContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.QueryRowContext",
+      "db.QueryContext",
+      "tx.QueryRowContext",
+      "tx.ExecContext",
+      "tx.QueryRowContext",
+      "db.ExecContext",
+      "tx.ExecContext",
+      "tx.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.QueryRowContext",
+      "db.QueryContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.QueryContext",
+      "queryer.QueryRowContext",
+      "queryer.QueryRowContext",
+      "queryer.QueryRowContext",
+      "db.QueryRowContext"
+    ],
+    "functions": [
+      "WithInternalAccess",
+      "hasInternalAccess",
+      "New",
+      "*Store.init",
+      "*Store.dbHandle",
+      "*Store.CreateReportRun",
+      "*Store.GetReportRun",
+      "*Store.GetReportRunByRequestID",
+      "*Store.UpdateReportRunCAS",
+      "*Store.AdoptReportRunAndContextCAS",
+      "adoptionSQLError",
+      "*Store.GetConversationReportContext",
+      "*Store.PutConversationReportContextCAS",
+      "scanReportRun",
+      "*Store.CreateJob",
+      "*Store.GetJob",
+      "*Store.ListJobs",
+      "*Store.SubmitJobFromRun",
+      "*Store.ClaimJob",
+      "*Store.CompleteJobWithArtifact",
+      "*Store.FailJob",
+      "*Store.ReconcileRunningJobs",
+      "*Store.UpdateJob",
+      "*Store.PutArtifact",
+      "*Store.GetArtifact",
+      "*Store.ListArtifacts",
+      "*Store.CreateSharedArtifact",
+      "*Store.GetSharedArtifact",
+      "*Store.ListSharedArtifacts",
+      "*Store.UpdateSharedArtifact",
+      "*Store.DeleteSharedArtifact",
+      "*Store.upsertSharedArtifact",
+      "*Store.importFilesystemState",
+      "*Store.importSharedArtifacts",
+      "*Store.importJobs",
+      "*Store.importArtifacts",
+      "*Store.importAudits",
+      "normalizeConnectorRef",
+      "effectiveOwnerID",
+      "toForgeSharedArtifact",
+      "toSharedArtifactRecord",
+      "hasColumns",
+      "getJobFromExecutor",
+      "getJobByExportRequest",
+      "getArtifactByJob",
+      "sameRunExportRequest",
+      "sameArtifactJob",
+      "cloneArtifact",
+      "isDuplicateError",
+      "jobSelect",
+      "scanJob",
+      "scanJobs",
+      "scanArtifact",
+      "scanArtifacts",
+      "nullableTime",
+      "nullIfEmpty",
+      "durationSeconds",
+      "clonedBytes",
+      "requireRowsAffected",
+      "wrapDuplicateErr",
+      "rowExists"
+    ]
+  },
+  {
+    "path": "internal/datlycompat/service.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/datly/view",
+      "github.com/viant/xdatly/handler"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "AddComponent",
+      "AddHandler"
+    ]
+  },
+  {
+    "path": "internal/service/conversation/memory/client.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/state"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "New",
+      "*Client.DeleteConversation",
+      "*Client.DeleteMessage",
+      "*Client.GetConversations",
+      "*Client.GetConversation",
+      "*Client.GetGeneratedFiles",
+      "*Client.PatchGeneratedFile",
+      "*Client.attachToolMessages",
+      "*Client.aggregateUsage",
+      "*Client.PatchConversations",
+      "*Client.GetPayload",
+      "*Client.PatchPayload",
+      "*Client.GetMessage",
+      "*Client.GetMessageByElicitation",
+      "*Client.GetMessageByParentAndElicitation",
+      "*Client.GetMessageByLinkedConversationAndElicitation",
+      "*Client.PatchMessage",
+      "*Client.PatchModelCall",
+      "*Client.PatchToolCall",
+      "*Client.PatchTurn",
+      "buildInput",
+      "cloneConversationView",
+      "copyMessage",
+      "copyPayload",
+      "findOrCreateTurn",
+      "messageInTurn",
+      "toClientConversation",
+      "stringValue",
+      "toClientMessage",
+      "applySinceFilter",
+      "applyIncludeFlags",
+      "defaultTurnID",
+      "applyConversationPatch",
+      "applyMessagePatch",
+      "applyModelCallPatch",
+      "applyToolCallPatch",
+      "applyTurnPatch",
+      "applyPayloadPatch",
+      "*Client.EnsureConversation",
+      "*Client.PatchToolApprovalQueue",
+      "*Client.ListToolApprovalQueues",
+      "*Client.CountToolApprovalQueues",
+      "*Client.ListToolApprovalOutcomes",
+      "*Client.ListToolApprovalQueuesWithSelectors",
+      "applyQueueSelector",
+      "enforceMemoryToolApprovalQueueUserScope",
+      "enforceMemoryToolApprovalOutcomeUserScope",
+      "queueTransitionTimeForOutcome"
+    ]
+  },
+  {
+    "path": "internal/service/conversation/service.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler/state"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Service.SetStreamPublisher",
+      "New",
+      "*Service.init",
+      "*Service.withWriteGate",
+      "*Service.PatchConversations",
+      "*Service.GetConversations",
+      "*Service.GetConversation",
+      "latestTranscriptStatus",
+      "latestTranscriptStage",
+      "pruneBlankAssistantPlaceholders",
+      "shouldDropBlankAssistantPlaceholder",
+      "*Service.GetPayload",
+      "*Service.PatchPayload",
+      "*Service.GetGeneratedFiles",
+      "*Service.PatchGeneratedFile",
+      "*Service.GetMessage",
+      "*Service.GetMessageByElicitation",
+      "*Service.GetMessageByParentAndElicitation",
+      "*Service.GetMessageByLinkedConversationAndElicitation",
+      "*Service.PatchMessage",
+      "*Service.publishMessagePatchEvent",
+      "*Service.emitMessageAppendedEvent",
+      "*Service.publishConversationMetaEvent",
+      "conversationMetaPatch",
+      "*Service.publishConversationUsageEvent",
+      "intValuePtr",
+      "shouldSuppressMessagePatchEvent",
+      "isToolMessage",
+      "isToolStatusMessage",
+      "messagePatchPayload",
+      "patchEventCreatedAt",
+      "turnEventCreatedAt",
+      "valueOrZeroInt",
+      "applyIterationPage",
+      "modelEventPhase",
+      "requestModeForEvent",
+      "firstNonEmpty",
+      "timelineDebugFields",
+      "*Service.emitTimelineEvent",
+      "toolCallEvent",
+      "valueOrEmpty",
+      "valueOrEmptyStr",
+      "*Service.PatchModelCall",
+      "*Service.PatchToolCall",
+      "sanitizeMutableToolCallErrorMessage",
+      "*Service.PatchToolApprovalQueue",
+      "*Service.ListToolApprovalQueues",
+      "*Service.ListToolApprovalQueuesWithSelectors",
+      "*Service.CountToolApprovalQueues",
+      "*Service.ListToolApprovalOutcomes",
+      "enforceToolApprovalQueueUserScope",
+      "*Service.ToolCallTraceByOp",
+      "*Service.PatchTurn",
+      "*Service.publishTurnEvent",
+      "*Service.emitCanonicalAssistantEvents",
+      "*Service.emitCanonicalModelEvent",
+      "modelCallUsageSnapshot",
+      "intPointerValue",
+      "resolveTurnID",
+      "*Service.DeleteConversation",
+      "*Service.DeleteMessage"
+    ]
+  },
+  {
+    "path": "internal/service/sqlite/service.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.QueryRowContext",
+      "db.QueryContext",
+      "db.ExecContext"
+    ],
+    "functions": [
+      "New",
+      "*Service.WithPath",
+      "*Service.Ensure",
+      "*Service.EnsureInMemory",
+      "*Service.ensureSchema",
+      "*Service.ensureSchemaInMemory",
+      "applyCompatibilityMigrations",
+      "ensureLegacyToolApprovalQueueColumns",
+      "ensureLegacyGoalColumns",
+      "ensureLegacyScheduleColumns",
+      "ensureLegacyTurnColumns",
+      "ensureLegacyReportExportJobColumns",
+      "sqliteTableExists",
+      "sqliteColumnExists",
+      "loadSchema",
+      "isDuplicateSQLiteColumnError"
+    ]
+  },
+  {
+    "path": "internal/tool/executionprotection/repository.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "db.ExecContext",
+      "db.QueryRowContext",
+      "db.ExecContext"
+    ],
+    "functions": [
+      "NewDAORepository",
+      "*unavailableRepository.Claim",
+      "*unavailableRepository.Finish",
+      "*daoRepository.Claim",
+      "claimKeyExists",
+      "*daoRepository.Finish",
+      "*daoRepository.database",
+      "isSQLiteDriver",
+      "isMySQLDuplicate"
+    ]
+  },
+  {
+    "path": "pkg/agently/conversation/conversation.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineConversationComponent",
+      "*ConversationInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/conversation/delete/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/conversation/delete/init.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/conversation/delete/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/conversation/list/list.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineConversationRowsComponent",
+      "*ConversationRowsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/conversation/write/delete.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*DeleteHandler.Exec",
+      "DefineDeleteComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/conversation/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec",
+      "mergeConversationPatch"
+    ]
+  },
+  {
+    "path": "pkg/agently/conversation/write/init.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/conversation/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDb.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/conversation/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/generatedfile/read/generated_file.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent",
+      "*Input.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/generatedfile/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/generatedfile/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/generatedfile/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDb.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/generatedfile/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/goal/goal.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineGoalComponent",
+      "*GoalInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/goal/write/delete.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*DeleteHandler.Exec",
+      "DefineDeleteComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/goal/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/goal/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/goal/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/delete/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/delete/init.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/delete/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/elicitation/message_by_elicitation.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineMessageComponent",
+      "*MessageInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/elicitationCount/elicitation_count.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineElicitationPendingComponent",
+      "*ElicitationPendingInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/list/list.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineMessageRowsComponent",
+      "*MessageRowsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/message.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineMessageComponent",
+      "*MessageInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/read/message.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineMessageComponent",
+      "*MessageInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/read/message_by_linked_elicitation.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineMessageByLinkedConversationAndElicitationComponent",
+      "*MessageByLinkedConversationAndElicitationInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/read/message_by_parent_elicitation.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineMessageByParentAndElicitationComponent",
+      "*MessageByParentAndElicitationInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/write/delete.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*DeleteHandler.Exec",
+      "DefineDeleteComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sql.Db",
+      "db.QueryRowContext"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec",
+      "upsertMessageWithSequenceRetry",
+      "*turnSequencer.next",
+      "maxSequenceForTurn",
+      "isMessageTurnSequenceConflict",
+      "nextSequenceForTurn"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDb.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/message/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/modelcall/write/delete.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*DeleteHandler.Exec",
+      "DefineDeleteComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/modelcall/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDB.Db",
+      "db.ExecContext",
+      "db.ExecContext"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec",
+      "insertModelCall",
+      "updateModelCall"
+    ]
+  },
+  {
+    "path": "pkg/agently/modelcall/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/modelcall/write/input_init.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlxService.Db",
+      "db.QueryContext"
+    ],
+    "functions": [
+      "*Input.Init",
+      "*Input.indexSlice",
+      "*Input.indexCurrent",
+      "*Input.loadCurrentModelCalls",
+      "scanModelCall"
+    ]
+  },
+  {
+    "path": "pkg/agently/modelcall/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDb.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/modelcall/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/payload/payload.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefinePayloadRowsComponent",
+      "*PayloadRowsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/payload/read/payload.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent",
+      "*Input.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/payload/write/delete.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*DeleteHandler.Exec",
+      "DefineDeleteComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/payload/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/payload/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/payload/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDb.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/payload/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/run/active/run_active.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineActiveRunsComponent",
+      "*ActiveRunsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/run/run.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineRunRowsComponent",
+      "*RunRowsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/run/stale/run_stale.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineStaleRunsComponent",
+      "*StaleRunsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/run/steps/steps.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineRunStepsComponent",
+      "*RunStepsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/run/write/delete.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*DeleteHandler.Exec",
+      "DefineDeleteComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/run/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/run/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/run/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDb.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/run/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/run/lease/claim.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlx.Db",
+      "db.ExecContext",
+      "db.QueryRowContext"
+    ],
+    "functions": [
+      "init",
+      "DefineClaimLeaseComponent",
+      "*ClaimLeaseHandler.Exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/run/lease/release.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlx.Db",
+      "db.ExecContext"
+    ],
+    "functions": [
+      "init",
+      "DefineReleaseLeaseComponent",
+      "*ReleaseLeaseHandler.Exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/run/list.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineRunListComponent",
+      "*RunListInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/run/run.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineRunComponent",
+      "*RunInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/run/run_rundue.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineRunDueComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/run/total.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineRunTotalComponent",
+      "*RunTotalInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/delete/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/delete/init.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/delete/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/lease/claim.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlx.Db",
+      "db.ExecContext",
+      "db.QueryRowContext"
+    ],
+    "functions": [
+      "init",
+      "DefineClaimLeaseComponent",
+      "*ClaimLeaseHandler.Exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/lease/release.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlx.Db",
+      "db.ExecContext"
+    ],
+    "functions": [
+      "init",
+      "DefineReleaseLeaseComponent",
+      "*ReleaseLeaseHandler.Exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/schedule.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineScheduleComponent",
+      "*ScheduleInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/schedule_list.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineScheduleListComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/schedule_list_internal.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineScheduleRunDueListComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlx.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/scheduler/schedule/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolapprovalqueue/count/count.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineQueueTotalComponent",
+      "*QueueTotalInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolapprovalqueue/outcome/outcome.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineOutcomeRowsComponent",
+      "*OutcomeRowsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolapprovalqueue/pendingCount/pending_count.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefinePendingTotalComponent",
+      "*PendingTotalInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolapprovalqueue/read/list.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineQueueRowsComponent",
+      "*QueueRowsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolapprovalqueue/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec",
+      "mergeToolApprovalQueuePatch"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolapprovalqueue/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolapprovalqueue/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDb.Db"
+    ],
+    "functions": [
+      "*Input.Validate"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolapprovalqueue/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolcall/byOp/toolcall_by_op.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineToolCallRowsComponent",
+      "*ToolCallRowsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolcall/byTurn/toolcall_by_turn.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineToolCallRowsComponent",
+      "*ToolCallRowsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolcall/read/toolcall_by_op.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineComponent",
+      "*ByOpInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolcall/write/delete.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*DeleteHandler.Exec",
+      "DefineDeleteComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolcall/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolcall/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolcall/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDb.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/toolcall/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/active/active.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineActiveTurnsComponent",
+      "*ActiveTurnsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/byId/by_id.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineTurnLookupComponent",
+      "*TurnLookupInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/controllerCount/controller_count.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineControllerTotalComponent",
+      "*ControllerTotalInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/list/list.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineTurnRowsComponent",
+      "*TurnRowsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/nextQueued/next_queued.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineQueuedTurnComponent",
+      "*QueuedTurnInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/queuedCount/queued_count.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineQueuedTotalComponent",
+      "*QueuedTotalInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/queuedList/queued_list.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineQueuedTurnsComponent",
+      "*QueuedTurnsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/write/delete.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*DeleteHandler.Exec",
+      "DefineDeleteComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDb.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/turn/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/turnqueue/read/list.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineQueueRowsComponent",
+      "*QueueRowsInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/turnqueue/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sess.Db",
+      "sessionDb.Db",
+      "db.ExecContext"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec",
+      "*Handler.updateByID"
+    ]
+  },
+  {
+    "path": "pkg/agently/turnqueue/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/turnqueue/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sessionDb.Db"
+    ],
+    "functions": [
+      "*Input.Validate"
+    ]
+  },
+  {
+    "path": "pkg/agently/turnqueue/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/linkstate/consume/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlx.Db",
+      "db.ExecContext",
+      "db.QueryRowContext"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec",
+      "classifyFailure"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/linkstate/consume/init.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/linkstate/consume/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/linkstate/deleteexpired/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlx.Db",
+      "db.QueryRowContext",
+      "db.ExecContext"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/linkstate/deleteexpired/init.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/linkstate/deleteexpired/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/linkstate/read.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineLinkStateComponent",
+      "*LinkStateInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/linkstate/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlx.Db",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.QueryRowContext"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec",
+      "validateState",
+      "stampCreated",
+      "isPending",
+      "parseStateTime",
+      "loadByFlowHash"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/linkstate/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/linkstate/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/token.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineTokenComponent",
+      "*TokenInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlx.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/oauth/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/session/delete/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/session/delete/init.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/session/delete/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/session/session.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineSessionComponent",
+      "*SessionInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/session/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/session/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/session/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/user.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "init",
+      "DefineUserComponent",
+      "*UserInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/write/input_validate.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlx.Db"
+    ],
+    "functions": [
+      "*Input.Validate",
+      "*Input.canUseMarkerProvider"
+    ]
+  },
+  {
+    "path": "pkg/agently/user/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/xdatly/handler/validator"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "pkg/forge/reporting/list/list.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent",
+      "*Input.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/forge/reporting/read.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository",
+      "github.com/viant/xdatly/handler/response",
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineSharedArtifactComponent",
+      "*SharedArtifactInput.EmbedFS"
+    ]
+  },
+  {
+    "path": "pkg/forge/reporting/write/handler.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler",
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [
+      "sess.Db",
+      "sqlSvc.Db",
+      "db.QueryRowContext"
+    ],
+    "functions": [
+      "*Handler.Exec",
+      "*Handler.exec",
+      "cloneSharedArtifact"
+    ]
+  },
+  {
+    "path": "pkg/forge/reporting/write/index.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract",
+      "github.com/viant/datly/repository"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "DefineComponent"
+    ]
+  },
+  {
+    "path": "pkg/forge/reporting/write/output.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/response"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Output.setError"
+    ]
+  },
+  {
+    "path": "protocol/tool/service/llm/agents/run_support.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/state"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*Service.tryExternalRun",
+      "*Service.runInternal",
+      "*Service.executeChildRun",
+      "inheritDelegatedAuthContext",
+      "*Service.resolveChildRunError",
+      "*Service.cancelMethod",
+      "delegatedToolAllowList",
+      "normalizedDelegatedObjective",
+      "stringValue",
+      "boolValue",
+      "*Service.isCanceledConversation",
+      "*Service.failedChildRunSummary",
+      "isSuccessfulStatus",
+      "*Service.completedChildRunOutcome",
+      "*Service.childConversationState",
+      "*Service.childConversationStateFromConversation",
+      "*Service.terminalizeTimedOutChildConversation",
+      "*Service.statusItemFromConversation",
+      "*Service.getConversationForStatus",
+      "assistantContentPreview",
+      "ptrString",
+      "firstNonEmptyString",
+      "*Service.statusMethod",
+      "statusItemMessage",
+      "normalizeStatusItem",
+      "*Service.collectStatusItems",
+      "assistantPreviewState",
+      "shouldAcceptLatestAssistantText",
+      "normalizeChildConversationState",
+      "isTerminalChildStatus",
+      "childConversationTimedOut",
+      "latestChildFailureSummary",
+      "*Service.prepareLinkedRun",
+      "*Service.validatePromptProfile",
+      "*Service.setChildConversationStatus",
+      "*Service.failChildConversationShell",
+      "turnMetaFromContext",
+      "*Service.agentConversationScope",
+      "*Service.agentConversationScopeForRun",
+      "*Service.resolveReusableChildConversation",
+      "*Service.createChildConversation",
+      "*Service.assignConversationAgent",
+      "*Service.startRunStatus",
+      "*Service.finalizeRunStatus",
+      "*Service.surfaceAsyncCompletion",
+      "*Service.parentConversationModel"
+    ]
+  },
+  {
+    "path": "script/oauth_debug.go",
+    "legacy_imports": [],
+    "sql_calls": [
+      "db.QueryRowContext"
+    ],
+    "functions": [
+      "main",
+      "fail",
+      "loadRow",
+      "decryptToken",
+      "summarizeJWT",
+      "printSummary",
+      "emptyDash",
+      "fingerprint",
+      "decodeSegment",
+      "claimString",
+      "claimStrings",
+      "claimUnix",
+      "base64RawURLDecode",
+      "issueJSONRPC",
+      "issueSessionA2A"
+    ]
+  },
+  {
+    "path": "sdk/embedded.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/state"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "newBackend",
+      "NewEmbedded",
+      "NewEmbeddedFromRuntime",
+      "newBackendFromRuntime",
+      "*backendClient.Mode",
+      "*backendClient.Query",
+      "*backendClient.GetConversation",
+      "*backendClient.UpdateConversation",
+      "*backendClient.DeleteConversation",
+      "ensureGoalsFeatureEnabled",
+      "*backendClient.GetGoal",
+      "*backendClient.ListAsyncOperations",
+      "*backendClient.CreateGoal",
+      "*backendClient.UpdateGoal",
+      "*backendClient.ClearGoal",
+      "*backendClient.cancelGoalWakeups",
+      "*backendClient.attachGoalControllerSchedule",
+      "*backendClient.GetMessages",
+      "normalizeMessagePage",
+      "*backendClient.StreamEvents",
+      "*backendClient.CreateConversation",
+      "*backendClient.ListConversations",
+      "*backendClient.ListLinkedConversations",
+      "paginateLinkedConversationEntries",
+      "*backendClient.GetRun",
+      "principalDataOpts",
+      "*backendClient.authorizeTurnAccess",
+      "*backendClient.CancelTurn",
+      "*backendClient.SteerTurn",
+      "*backendClient.CancelQueuedTurn",
+      "*backendClient.MoveQueuedTurn",
+      "*backendClient.EditQueuedTurn",
+      "*backendClient.ForceSteerQueuedTurn",
+      "*backendClient.ResolveElicitation",
+      "*backendClient.ListPendingElicitations",
+      "*backendClient.ListPendingToolApprovals",
+      "*backendClient.DecideToolApproval",
+      "*backendClient.ListToolDefinitions",
+      "*backendClient.ListSkills",
+      "*backendClient.ActivateSkill",
+      "*backendClient.GetSkillDiagnostics",
+      "*backendClient.ExecuteTool",
+      "*backendClient.ReadMCPUIResource",
+      "*backendClient.readMCPUIResourceByServerScope",
+      "*backendClient.readMCPUIResourceByScanningServers",
+      "*backendClient.ListTemplates",
+      "*backendClient.GetTemplate",
+      "*backendClient.templateService",
+      "templateMaps",
+      "isToolApprovalQueueDuplicateErr",
+      "isTurnLookupUnavailable",
+      "valueOrEmpty",
+      "generateID"
+    ]
+  },
+  {
+    "path": "sdk/embedded_queue.go",
+    "legacy_imports": [
+      "github.com/viant/xdatly/handler/state"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "moveQueuedTurn",
+      "editQueuedTurn",
+      "forceSteerQueuedTurn",
+      "resolveElicitation",
+      "listPendingElicitations",
+      "listPendingToolApprovals",
+      "listToolApprovalRows",
+      "valueOrEmptyOutcomeSince",
+      "pendingToolApprovalFromRow",
+      "expireTimedOutToolApprovals",
+      "collectApprovalOutcomesSince",
+      "mergeApprovalOutcomes",
+      "isTerminalApprovalStatus",
+      "approvalOutcomeTransitionTime",
+      "approvalOutcomeFromRow",
+      "approvalOutcomeFromOutcomeRow",
+      "approvalOutcomeSortKey",
+      "timeoutToolApproval",
+      "decideToolApproval",
+      "canonicalDecideAction",
+      "parseToolApprovalMetadata",
+      "persistToolApprovalOutcomeMetadata",
+      "approvalEditorsFromMeta",
+      "decisionPatchFromMeta",
+      "syntheticToolStepID",
+      "resolvedQueueToolResult",
+      "synthesizeQueueDecisionResult",
+      "continueQueueConversation",
+      "buildQueueContinuationInstruction",
+      "buildQueueTimeoutInstruction",
+      "isSystemOSEnvTool",
+      "persistSystemOSEnvAssistantResult",
+      "persistSystemOSEnvDeniedAssistantResult",
+      "persistSystemOSEnvTimedOutAssistantResult",
+      "persistQueueAssistantResult",
+      "formatSystemOSEnvResult",
+      "formatSystemOSEnvDeniedResult",
+      "formatSystemOSEnvTimedOutResult",
+      "completeResolvedQueueTurn",
+      "lookupQueueTurnAgentID",
+      "ensureToolApprovalStatus",
+      "toolApprovalHasStatus",
+      "fallbackToolApprovalUpdate",
+      "nullableString",
+      "listToolDefinitions",
+      "executeTool"
+    ]
+  },
+  {
+    "path": "service/augmenter/local_upstream.go",
+    "legacy_imports": [
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "WithLocalRoots",
+      "localRootsFromContext",
+      "normalizeLocalRoots",
+      "normalizeLocalUpstreams",
+      "normalizeLocalMatchKey",
+      "normalizeLocalLocation",
+      "normalizeLocalPathKey",
+      "isUnderLocalPath",
+      "workspaceToFile",
+      "isLocalUpstreamEnabled",
+      "*Service.resolveLocalRootID",
+      "*Service.resolveLocalRoot",
+      "*Service.indexRefreshInterval",
+      "*Service.resolveLocalUpstream",
+      "*Service.upstreamDBLocal"
+    ]
+  },
+  {
+    "path": "service/augmenter/service.go",
+    "legacy_imports": [
+      "github.com/viant/datly/view"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "New",
+      "WithMCPManager",
+      "WithMCPSnapshotResolver",
+      "WithMCPSnapshotManifestResolver",
+      "WithMCPSnapshotCacheRoot",
+      "WithIndexPathTemplate",
+      "WithUpstreamSyncConcurrency",
+      "WithMatchConcurrency",
+      "WithIndexAsync",
+      "WithLocalUpstreams",
+      "*Service.Name",
+      "*Service.withIndexPath",
+      "*Service.Methods",
+      "*Service.Method",
+      "*Service.augmentDocs",
+      "*Service.AugmentDocs",
+      "*Service.upstreamSyncConfig",
+      "*Service.upstreamDB",
+      "formatSecretRef",
+      "*Service.pingDB",
+      "*Service.resolveUpstream",
+      "*Service.includeDocuments",
+      "*Service.includeDocFileContent",
+      "*Service.addDocumentContent",
+      "getStringFromMetadata"
+    ]
+  },
+  {
+    "path": "service/auth/oauth_state_store.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "*OAuthStateRecord.Pending",
+      "NewOAuthStateStoreDatly",
+      "DefineOAuthLinkStateComponents",
+      "*OAuthStateStoreDatly.CreateOrGetPending",
+      "*OAuthStateStoreDatly.Consume",
+      "*OAuthStateStoreDatly.DeleteExpired",
+      "*OAuthStateStoreDatly.GetPending",
+      "recordFromWrite",
+      "recordFromView",
+      "parseLinkStateTime"
+    ]
+  },
+  {
+    "path": "service/auth/sessionstore_datly.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract"
+    ],
+    "sql_calls": [
+      "db.QueryRowContext",
+      "db.ExecContext"
+    ],
+    "functions": [
+      "NewSessionStoreDAO",
+      "*SessionStoreDAO.Get",
+      "*SessionStoreDAO.dbHandle",
+      "*SessionStoreDAO.Upsert",
+      "*SessionStoreDAO.Delete"
+    ]
+  },
+  {
+    "path": "service/auth/tokenstore_datly.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract"
+    ],
+    "sql_calls": [
+      "db.QueryContext",
+      "db.QueryRowContext",
+      "db.QueryContext",
+      "db.QueryRowContext",
+      "db.ExecContext",
+      "db.QueryContext",
+      "db.ExecContext",
+      "db.ExecContext",
+      "db.QueryRowContext",
+      "db.ExecContext",
+      "db.ExecContext"
+    ],
+    "functions": [
+      "WithDelegatedSalt",
+      "WithPreviousSalts",
+      "NewTokenStoreDAO",
+      "*TokenStoreDAO.addPreviousSalt",
+      "canonicalTokenStoreSalt",
+      "*TokenStoreDAO.saltFor",
+      "*TokenStoreDAO.encrypt",
+      "*TokenStoreDAO.decrypt",
+      "*TokenStoreDAO.decryptWithPrevious",
+      "decodeEncryptedToken",
+      "*TokenStoreDAO.Get",
+      "chooseTokenRow",
+      "*TokenStoreDAO.GetExact",
+      "*TokenStoreDAO.ListDelegated",
+      "*TokenStoreDAO.ValidateProviderColumnWidth",
+      "*TokenStoreDAO.Put",
+      "*TokenStoreDAO.Delete",
+      "*TokenStoreDAO.ScanExpiring",
+      "*TokenStoreDAO.decryptRow",
+      "*TokenStoreDAO.migrateCiphertext",
+      "*TokenStoreDAO.db",
+      "*TokenStoreDAO.dbDialect",
+      "detectDBDialect",
+      "refreshLeaseSQL",
+      "casPutSQL",
+      "migrateTokenEncryptionSQL",
+      "deleteTokenSQL",
+      "*TokenStoreDAO.TryAcquireRefreshLease",
+      "*TokenStoreDAO.ReleaseRefreshLease",
+      "*TokenStoreDAO.CASPut",
+      "base64RawURL",
+      "base64RawURLDecode"
+    ]
+  },
+  {
+    "path": "service/auth/user_datly.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract"
+    ],
+    "sql_calls": [
+      "db.QueryRowContext"
+    ],
+    "functions": [
+      "NewDatlyUserService",
+      "*DatlyUserService.GetByUsername",
+      "*DatlyUserService.GetByID",
+      "*DatlyUserService.GetBySubjectAndProvider",
+      "*DatlyUserService.Upsert",
+      "*DatlyUserService.UpsertWithProvider",
+      "*DatlyUserService.UpdateHashIPByID",
+      "*DatlyUserService.UpdatePreferences",
+      "*DatlyUserService.upsert",
+      "userMatchesDesired",
+      "subjectIdentityReusable",
+      "*DatlyUserService.write",
+      "*DatlyUserService.lookupByID",
+      "*DatlyUserService.lookupByUsername",
+      "*DatlyUserService.lookup",
+      "stringValue"
+    ]
+  },
+  {
+    "path": "service/scheduler/store.go",
+    "legacy_imports": [
+      "github.com/viant/datly/repository/contract"
+    ],
+    "sql_calls": [],
+    "functions": [
+      "NewDatlyStore",
+      "*datlyStore.init",
+      "*datlyStore.Get",
+      "*datlyStore.List",
+      "*datlyStore.ListRuns",
+      "cloneRunInputs",
+      "containsPattern",
+      "computePageCount",
+      "*datlyStore.ListForRunDue",
+      "*datlyStore.PatchSchedule",
+      "*datlyStore.DeleteSchedule",
+      "*datlyStore.DeleteScheduledRun",
+      "*datlyStore.PatchRuns",
+      "*datlyStore.ListRunsForDue",
+      "*datlyStore.TryClaimSchedule",
+      "*datlyStore.ReleaseScheduleLease",
+      "*datlyStore.TryClaimRun",
+      "*datlyStore.ReleaseRunLease"
+    ]
+  }
+]

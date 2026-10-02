@@ -751,7 +751,7 @@ describe('chatStore/reducer — merge rule', () => {
         const fixtureURL = new URL('../../../testdata/rendered_content_progressive.json', import.meta.url);
         const renderedContent = JSON.parse(readFileSync(fixtureURL, 'utf8')) as CanonicalRenderedContent;
 
-        const report = renderedContent.reports[0];
+        const report = renderedContent.reports?.[0]!;
         expect(report.scope).toBe('campaign');
         expect(report.id).toBe('delivery');
         expect(report.grammar).toBe('dashboard-v1');
@@ -760,8 +760,8 @@ describe('chatStore/reducer — merge rule', () => {
         expect(report.resetVersion).toBe(1);
         expect((report.source as any).title).toBe('Delivery');
         expect((report.source as any).blocks).toHaveLength(1);
-        expect(report.dataSources.rows.reportRef).toBe('delivery');
-        expect((report.dataSources.rows.payload as any[])[0].channel).toBe('CTV');
+        expect(report.dataSources?.rows.reportRef).toBe('delivery');
+        expect((report.dataSources?.rows.payload as any[])[0].channel).toBe('CTV');
     });
 
     it('does not surface intake/router model_completed JSON as page content without an explicit final response', () => {

@@ -1,0 +1,66 @@
+#package('github.com/viant/agently-core/internal/datly/run/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/run/{id}','GET'))
+#setting($_ = $input_type('RunRowsInput'))
+#setting($_ = $output_type('RunRowsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Id<string>(path/id).Optional().WithPredicate(0,'equal','t','id'))
+#define($_ = $Ids<[]string>(query/ids).Optional().WithPredicate(0,'in','t','id'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','t','turn_id'))
+#define($_ = $TurnIds<[]string>(query/turnIds).Optional().WithPredicate(0,'in','t','turn_id'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','t','conversation_id'))
+#define($_ = $ConversationIds<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','t','conversation_id'))
+#define($_ = $ScheduleId<string>(query/scheduleId).Optional().WithPredicate(0,'equal','t','schedule_id'))
+#define($_ = $ScheduleIds<[]string>(query/scheduleIds).Optional().WithPredicate(0,'in','t','schedule_id'))
+#define($_ = $ResumedFromRunIds<[]string>(query/resumedFromRunIds).Optional().WithPredicate(0,'in','t','resumed_from_run_id'))
+#define($_ = $WorkerId<string>(query/workerId).Optional().WithPredicate(0,'equal','t','worker_id'))
+#define($_ = $RunStatus<string>(query/status).Optional().WithPredicate(0,'equal','t','status'))
+#define($_ = $ExcludeStatuses<[]string>(query/excludeStatuses).Optional().WithPredicate(0,'not_in','t','status'))
+#define($_ = $InternalMode<bool>(runAccess/internal).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $ReadMode<string>(runAccess/mode).Required())
+#define($_ = $HeartbeatBefore<time.Time>(query/heartbeatBefore).Optional().WithPredicate(0,'expr','(t.last_heartbeat_at IS NULL OR t.last_heartbeat_at < ?)'))
+#define($_ = $WorkerHost<string>(query/workerHost).Optional().WithPredicate(0,'expr','(t.worker_host IS NULL OR t.worker_host = ?)'))
+#define($_ = $LeaseExpiredBefore<time.Time>(query/leaseExpiredBefore).Optional().WithPredicate(0,'expr','(t.lease_until IS NOT NULL AND t.lease_until < ?)'))
+#define($_ = $ActivityAfter<time.Time>(query/activityAfter).Optional().WithPredicate(0,'expr','((CASE WHEN t.last_heartbeat_at IS NOT NULL THEN t.last_heartbeat_at WHEN t.started_at IS NOT NULL THEN t.started_at ELSE t.created_at END) >= ?)'))
+#define($_ = $ConversationKind<string>(query/conversationKind).Optional().WithPredicate(0,'equal','t','conversation_kind'))
+#define($_ = $RootInteractive<bool>(query/rootInteractive).Optional().WithPredicate(0,'expr',"(? AND t.schedule_id IS NULL AND NOT EXISTS (SELECT 1 FROM conversation c WHERE c.id = t.conversation_id AND c.conversation_parent_id IS NOT NULL AND c.conversation_parent_id <> ''))"))
+#define($_ = $ScheduledFor<time.Time>(query/scheduledFor).Optional().WithPredicate(0,'equal','t','scheduled_for'))
+#define($_ = $SinceTurn<string>(query/sinceTurn).Optional().WithPredicate(0,'expr','t.created_at >= (SELECT created_at FROM turn WHERE id=?)'))
+#define($_ = $StatusPattern<string>(query/statusPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.status,'')) LIKE LOWER(?)"))
+#define($_ = $ConversationPattern<string>(query/conversationPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.conversation_id,'')) LIKE LOWER(?)"))
+#define($_ = $ErrorPattern<string>(query/errorPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.error_message,'')) LIKE LOWER(?)"))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $MaintenanceBefore<time.Time>(query/maintenanceBefore).Optional())
+#define($_ = $MaintenanceBeforeSecond<string>(query/maintenanceBeforeSecond).Optional())
+#define($_ = $MaintenanceBeforeNano<int64>(query/maintenanceBeforeNano).Optional())
+#define($_ = $MaintenanceAfterNano<int64>(query/maintenanceAfterNano).Optional())
+#define($_ = $MaintenanceAfterActivity<string>(query/maintenanceAfterActivity).Optional())
+#define($_ = $MaintenanceAfterId<string>(query/maintenanceAfterId).Optional())
+#define($_ = $Data<[]*RunRowsView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true"'))
+
+SELECT run_rows.*,
+       row_lock(run_rows,'run t','t.id'),
+       CAST(run_rows.lease_until_raw AS *string),
+       internal(run_rows.lease_until_raw),
+       tag(run_rows.lease_until_raw,'json:"-"'),
+       CAST(run_rows.heartbeat_raw AS *string),
+       internal(run_rows.heartbeat_raw),
+       tag(run_rows.heartbeat_raw,'json:"-"'),
+       CAST(run_rows.activity_raw AS *string),
+       tag(run_rows.activity_raw,'internal:"true" json:"-"'),
+       CAST(run_rows.maintenance_owner_id AS string),
+       tag(run_rows.maintenance_owner_id,'internal:"true" json:"-"'),
+       type(run_rows,'RunRowsView'),
+       required(run_rows.attempt),
+       required(run_rows.conversation_kind),
+       required(run_rows.created_at),
+       required(run_rows.id),
+       required(run_rows.iteration),
+       required(run_rows.status)
+FROM (${embed:sql/run.sql}) run_rows

@@ -140,7 +140,7 @@ func TestServiceFailsClosedBeforeRepository(t *testing.T) {
 }
 
 func TestServiceRepositoryUnavailableAndFinishFailureRemainFailClosed(t *testing.T) {
-	service, err := New(protectionConfig(nil), NewDAORepository(nil))
+	service, err := New(protectionConfig(nil), NewComponentRepository(nil))
 	if err != nil {
 		t.Fatal(err)
 	}

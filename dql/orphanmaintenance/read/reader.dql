@@ -1,0 +1,44 @@
+#package('github.com/viant/agently-core/internal/datly/orphanmaintenance/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/orphan-maintenance/report','GET'))
+#setting($_ = $input_type('ReportInput'))
+#setting($_ = $output_type('ReportOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(orphanAccess/internal).Required())
+#define($_ = $MySQLContract<bool>(orphanAccess/mysql).Required())
+#define($_ = $OlderThan<time.Time>(query/olderThan).Required())
+#define($_ = $RuleID<string>(query/ruleId).Optional().WithPredicate(0,'equal','data_rows','rule_id'))
+#define($_ = $RecordID<string>(query/recordId).Optional().WithPredicate(0,'equal','data_rows','record_id'))
+#define($_ = $AfterPriority<int>(query/afterPriority).Optional())
+#define($_ = $AfterRule<string>(query/afterRule).Optional())
+#define($_ = $AfterRecord<string>(query/afterRecord).Optional())
+#define($_ = $HasCursor<bool>(query/hasCursor).Optional())
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*OrphanRow>(output/view).WithTag('view:"reader,selectorLimit=true"'))
+SELECT
+ data_rows.rule_id,
+ CAST(data_rows.rule_id AS string),
+ data_rows.action,
+ CAST(data_rows.action AS string),
+ data_rows.priority,
+ CAST(data_rows.priority AS int),
+ data_rows.table_name,
+ CAST(data_rows.table_name AS string),
+ data_rows.record_id,
+ CAST(data_rows.record_id AS string),
+ data_rows.reference_table,
+ CAST(data_rows.reference_table AS string),
+ data_rows.reference_id,
+ CAST(data_rows.reference_id AS string),
+ data_rows.observed_at_raw,
+ CAST(data_rows.observed_at_raw AS string),
+ type(data_rows,'OrphanRow')
+FROM (${embed:sql/orphanmaintenance.sql}) data_rows
+WHERE $Trusted
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+ AND (NOT $HasCursor OR data_rows.priority > $AfterPriority
+      OR (data_rows.priority = $AfterPriority AND HEX(data_rows.rule_id) > HEX($AfterRule))
+      OR (data_rows.priority = $AfterPriority AND data_rows.rule_id = $AfterRule AND HEX(data_rows.record_id) > HEX($AfterRecord)))
+ORDER BY data_rows.priority ASC, HEX(data_rows.rule_id) ASC, HEX(data_rows.record_id) ASC

@@ -1,0 +1,26 @@
+{
+  "scope": "Datly 1.0 OAuth link-state application adapter in the nested module",
+  "adapter": "datlyv1/application/oauthlinkstate/store.go",
+  "component_contracts": [
+    "datlyv1/generated/agently/user/oauth/linkstate/current/reader",
+    "datlyv1/generated/agently/user/oauth/linkstate/write"
+  ],
+  "persistence_boundary": "The adapter holds only a typed ComponentInvoker; reader and writer supply every database operation, predicate, CAS, and transaction.",
+  "data_driven_cases": 7,
+  "cases": [
+    "new flow created and consumed once",
+    "pending flow adopted",
+    "expired flow replaced",
+    "consumed flow replaced",
+    "wrong owner rejected",
+    "cleanup deletes at expiry boundary",
+    "cleanup retains future row"
+  ],
+  "legacy_comparison": "The generated reader and writer have separate data-driven E2E comparisons against the isolated original-Core SDK0 probe; adapter cases exercise their combined caller behavior.",
+  "verification": {
+    "focused": "go test ./tests -run '^TestOAuthStateStoreNativeLifecycle$' -count=1: pass",
+    "full_endly": "endly from datlyv1/e2e: success; transcribe, byte-stable regeneration, nested tests (142.836s), host build"
+  },
+  "root_caller_cutover_complete": false,
+  "current_mysql_acceptance": "PASS published-dependency root token and native state independent-pool tests; see oauth-mysql-acceptance-validation.json. Earlier pending/SQLite-only statements retain historical scope."
+}

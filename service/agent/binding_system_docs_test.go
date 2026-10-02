@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/binding"
 	"github.com/viant/agently-core/service/shared/toolexec"
 )
@@ -25,7 +25,7 @@ func TestTranscriptSystemDocuments(t *testing.T) {
 		Role:    "system",
 		Content: strPtr(content),
 	}
-	turnDup := &apiconv.Turn{Id: "turn-1", Message: []*agconv.MessageView{(*agconv.MessageView)(msg), (*agconv.MessageView)(dup)}}
+	turnDup := &apiconv.Turn{Id: "turn-1", Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(msg), (*conversationmodel.MessageView)(dup)}}
 	docs := transcriptSystemDocuments(apiconv.Transcript{turnDup})
 
 	require.Len(t, docs, 1)
@@ -50,7 +50,7 @@ func TestExtractSystemDocSourceFallback(t *testing.T) {
 		Content: strPtr(content),
 		Tags:    strPtr(toolexec.SystemDocumentTag),
 	}
-	turn := &apiconv.Turn{Id: "turn-2", Message: []*agconv.MessageView{(*agconv.MessageView)(msg)}}
+	turn := &apiconv.Turn{Id: "turn-2", Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(msg)}}
 	docs := transcriptSystemDocuments(apiconv.Transcript{turn})
 	require.Len(t, docs, 1)
 	assert.Equal(t, "workspace://fallback/doc.txt", docs[0].SourceURI)

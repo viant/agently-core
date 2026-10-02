@@ -1,0 +1,42 @@
+#package('github.com/viant/agently-core/internal/datly/toolapprovalqueue/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/tool-approval','GET'))
+#setting($_ = $input_type('ApprovalRowsInput'))
+#setting($_ = $output_type('ApprovalRowsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'equal','q','id'))
+#define($_ = $UserId<string>(query/userId).Optional().WithPredicate(0,'equal','q','user_id'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','q','conversation_id'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','q','turn_id'))
+#define($_ = $MessageId<string>(query/messageId).Optional().WithPredicate(0,'equal','q','message_id'))
+#define($_ = $ConversationIds<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','q','conversation_id'))
+#define($_ = $TurnIds<[]string>(query/turnIds).Optional().WithPredicate(0,'in','q','turn_id'))
+#define($_ = $MessageIds<[]string>(query/messageIds).Optional().WithPredicate(0,'in','q','message_id'))
+#define($_ = $ToolName<string>(query/toolName).Optional().WithPredicate(0,'equal','q','tool_name'))
+#define($_ = $QueueStatus<string>(query/status).Optional().WithPredicate(0,'equal','q','status'))
+#define($_ = $Internal<bool>(approvalAccess/internal).Required())
+#define($_ = $ReadMode<string>(approvalAccess/mode).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $Since<time.Time>(query/since).Optional().WithPredicate(0,'expr','q.transition_at > ?'))
+#define($_ = $Until<time.Time>(query/until).Optional().WithPredicate(0,'expr','q.transition_at <= ?'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $OrderBy<string>(query/orderBy).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*ApprovalView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true,selectorOrderBy=true"'))
+
+SELECT queue_rows.*,
+       row_lock(queue_rows,'tool_approval_queue q'),
+       CAST(queue_rows.transition_at AS *string),
+       type(queue_rows,'ApprovalView'),
+       required(queue_rows.id),
+       required(queue_rows.user_id),
+       required(queue_rows.tool_name),
+       CAST(queue_rows.arguments AS []byte),
+       CAST(queue_rows.metadata AS *[]byte),
+       required(queue_rows.status),
+       required(queue_rows.created_at)
+FROM (${embed:sql/toolapprovalqueue.sql}) queue_rows

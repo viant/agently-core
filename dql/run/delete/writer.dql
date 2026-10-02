@@ -1,0 +1,20 @@
+#package('github.com/viant/agently-core/internal/datly/run/delete')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/run/delete','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $Runs<[]*RunDelete>(body/data))
+#define($_ = $Data<[]*RunDelete>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'RunDelete'),
+       required(t.id),
+       tag(t.id,'validate:"required" sqlx:"id,primaryKey"'),
+       tag(t.id,'json:","')
+FROM (${embed:sql/run.sql}) t

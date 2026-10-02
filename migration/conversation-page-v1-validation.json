@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-30",
+  "scope": "Canonical conversation list pagination and native data-facade branch",
+  "changes": [
+    "The v1 conversation reader now compares cursor rows with COALESCE(last_activity, updated_at, created_at) and uses ID as the tie-break, matching the root list order",
+    "The list projection now derives stage and status from the latest turn when present",
+    "Host-only ascending order and visibility inputs support the after-cursor window and trusted internal list behavior",
+    "The data facade routes paged conversation lists through the canonical reader when the shared native host is present"
+  ],
+  "verified": [
+    "Focused reader parity and activity-cursor/latest-turn tests passed",
+    "Linked-host page test passed two-row limit, before/after cursors, latest-turn status, scoped owner visibility and trusted unscoped list",
+    "Full app/store/native package passed after fixing direct host list visibility",
+    "Full nested Endly passed 60/60 transcription, stable regeneration, boundary audit, nested tests (168.999s) and linked-host build"
+  ],
+  "remaining": [
+    "The root app/store/data package still fails setup on SDK0 Datly and split-xdatly DTO/registration imports, so the new caller branch has not compiled or run through application routes",
+    "The old direct-SQL list body remains as a temporary fallback for unmigrated DAO-only callers and tests; it must be removed after full root cutover",
+    "MySQL and public pagination parity remain unverified"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-conversation-page.log"
+}

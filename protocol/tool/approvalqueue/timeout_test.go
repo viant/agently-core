@@ -7,31 +7,31 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
+
 	"github.com/viant/agently-core/sdk/api"
 )
 
 type fakeTimeoutStore struct {
 	mu   sync.Mutex
-	rows map[string]*queuew.ToolApprovalQueue
+	rows map[string]*toolapprovalqueuemodel.ToolApprovalQueue
 }
 
 func newFakeTimeoutStore() *fakeTimeoutStore {
-	return &fakeTimeoutStore{rows: map[string]*queuew.ToolApprovalQueue{}}
+	return &fakeTimeoutStore{rows: map[string]*toolapprovalqueuemodel.ToolApprovalQueue{}}
 }
 
-func (f *fakeTimeoutStore) seed(rec *queuew.ToolApprovalQueue) {
+func (f *fakeTimeoutStore) seed(rec *toolapprovalqueuemodel.ToolApprovalQueue) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	cp := *rec
 	f.rows[rec.Id] = &cp
 }
 
-func (f *fakeTimeoutStore) ListToolApprovalQueues(_ context.Context, in *queueread.QueueRowsInput) ([]*queueread.QueueRowView, error) {
+func (f *fakeTimeoutStore) ListToolApprovalQueues(_ context.Context, in *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	var out []*queueread.QueueRowView
+	var out []*toolapprovalqueuemodel.QueueRowView
 	for _, r := range f.rows {
 		if in != nil && in.Has != nil {
 			if in.Has.Id && r.Id != in.Id {
@@ -49,7 +49,7 @@ func (f *fakeTimeoutStore) ListToolApprovalQueues(_ context.Context, in *queuere
 				}
 			}
 		}
-		row := &queueread.QueueRowView{
+		row := &toolapprovalqueuemodel.QueueRowView{
 			Id:         r.Id,
 			UserId:     r.UserId,
 			ToolName:   r.ToolName,
@@ -80,7 +80,7 @@ func (f *fakeTimeoutStore) ListToolApprovalQueues(_ context.Context, in *queuere
 	return out, nil
 }
 
-func (f *fakeTimeoutStore) PatchToolApprovalQueue(_ context.Context, q *queuew.ToolApprovalQueue) error {
+func (f *fakeTimeoutStore) PatchToolApprovalQueue(_ context.Context, q *toolapprovalqueuemodel.ToolApprovalQueue) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	cur, ok := f.rows[q.Id]
@@ -113,14 +113,14 @@ func (f *fakeTimeoutStore) PatchToolApprovalQueue(_ context.Context, q *queuew.T
 	return nil
 }
 
-func mustTimeoutQueueRow(id, userID string, expiresAt *time.Time) *queuew.ToolApprovalQueue {
-	row := &queuew.ToolApprovalQueue{
+func mustTimeoutQueueRow(id, userID string, expiresAt *time.Time) *toolapprovalqueuemodel.ToolApprovalQueue {
+	row := &toolapprovalqueuemodel.ToolApprovalQueue{
 		Id:        id,
 		UserId:    userID,
 		ToolName:  "system/os/getEnv",
 		Arguments: []byte(`{"names":["LOGNAME"]}`),
 		Status:    "pending",
-		Has:       &queuew.ToolApprovalQueueHas{},
+		Has:       &toolapprovalqueuemodel.ToolApprovalQueueHas{},
 	}
 	if expiresAt != nil {
 		row.ExpiresAt = expiresAt
@@ -154,9 +154,9 @@ func TestSweeper_TransitionsExpiredPendingRowsAndEmitsCanonicalOutcome(t *testin
 	require.NotNil(t, o.TimedOutAt)
 	require.True(t, o.TimedOutAt.Equal(now))
 
-	rows, err := store.ListToolApprovalQueues(context.Background(), &queueread.QueueRowsInput{
+	rows, err := store.ListToolApprovalQueues(context.Background(), &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  "expired-1",
-		Has: &queueread.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -180,9 +180,9 @@ func TestSweeper_LeavesPendingRowWithFutureDeadlineAlone(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, out.Outcomes)
 
-	rows, err := store.ListToolApprovalQueues(context.Background(), &queueread.QueueRowsInput{
+	rows, err := store.ListToolApprovalQueues(context.Background(), &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  "future-1",
-		Has: &queueread.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -202,9 +202,9 @@ func TestSweeper_LeavesPendingRowWithoutDeadlineAlone(t *testing.T) {
 	require.NoError(t, err)
 	require.Empty(t, out.Outcomes)
 
-	rows, err := store.ListToolApprovalQueues(context.Background(), &queueread.QueueRowsInput{
+	rows, err := store.ListToolApprovalQueues(context.Background(), &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  "no-deadline-1",
-		Has: &queueread.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
@@ -251,9 +251,9 @@ func TestSweeper_ScopesByUserAndConversation(t *testing.T) {
 	require.Len(t, out.Outcomes, 1)
 	require.Equal(t, "a-1", out.Outcomes[0].ApprovalID)
 
-	rows, err := store.ListToolApprovalQueues(context.Background(), &queueread.QueueRowsInput{
+	rows, err := store.ListToolApprovalQueues(context.Background(), &toolapprovalqueuemodel.QueueRowsInput{
 		Id:  "b-1",
-		Has: &queueread.QueueRowsInputHas{Id: true},
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true},
 	})
 	require.NoError(t, err)
 	require.Len(t, rows, 1)

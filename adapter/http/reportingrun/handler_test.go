@@ -3,14 +3,17 @@ package reportingrun
 import (
 	"bytes"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
+	"runtime"
 	"testing"
 
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/app/store/data"
+	"github.com/viant/agently-core/app/store/native"
 	reportstore "github.com/viant/agently-core/app/store/reporting"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
 	authctx "github.com/viant/agently-core/internal/auth"
@@ -109,22 +112,26 @@ func TestHandler_AdoptionIsSeparatelyDefaultClosed(t *testing.T) {
 
 func TestHandler_ProductionSQLConversationClientEnforcesExactOwner(t *testing.T) {
 	ctx := context.Background()
-	dao, err := data.NewDatlyInMemory(ctx)
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
+	t.Setenv("AGENTLY_DB_PATH", "")
+	t.Setenv("AGENTLY_DB_SECRETS", "")
+	_, file, _, _ := runtime.Caller(0)
+	workspaceRoot := t.TempDir()
+	server, err := native.New(ctx, native.Options{SourceRoot: filepath.Join(filepath.Dir(file), "..", "..", ".."), WorkspaceRoot: workspaceRoot})
 	if err != nil {
-		t.Fatalf("NewDatlyInMemory() error = %v", err)
+		t.Fatalf("native.New() error = %v", err)
 	}
-	conversations, err := conversationsql.New(ctx, dao)
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	conversations, err := conversationsql.New(ctx, server)
 	if err != nil {
 		t.Fatalf("conversation.New() error = %v", err)
 	}
-	connector, err := dao.Resource().Connector("agently")
-	if err != nil {
-		t.Fatalf("Connector() error = %v", err)
-	}
-	db, err := connector.DB()
+	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	if err != nil {
 		t.Fatalf("DB() error = %v", err)
 	}
+	t.Cleanup(func() { _ = db.Close() })
 	for _, row := range []struct {
 		id      string
 		ownerID interface{}

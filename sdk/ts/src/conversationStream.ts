@@ -24,6 +24,7 @@ export interface PlannerStreamState {
 }
 
 export interface ProjectedConversationTurn extends Partial<Turn> {
+    sequence?: number;
     turnId: string;
     conversationId: string;
     status: string;
@@ -134,12 +135,12 @@ function selectExplicitLiveAssistantRowsForTurn(
         .sort(compareTemporalEntries);
 }
 
-function explicitAssistantRowPriority(row: Partial<CanonicalLiveAssistantRow & LiveAssistantTransientOverlay> = {}): number {
+function explicitAssistantRowPriority(row: Partial<CanonicalLiveAssistantRow> | LiveAssistantTransientOverlay = {}): number {
     const content = String(row?.content || row?._streamContent || '').trim();
     const narration = String(row?.narration || '').trim();
     const hasRenderableContent = content !== '' || narration !== '';
     const executionGroupCount = Array.isArray(row?.executionGroups) ? row.executionGroups.length : 0;
-    const bubbleSource = String(row?._bubbleSource || '').trim().toLowerCase();
+    const bubbleSource = String(('_bubbleSource' in row ? row._bubbleSource : undefined) || '').trim().toLowerCase();
     const interim = Number(row?.interim ?? 1);
     if (bubbleSource === 'message_add' && hasRenderableContent) return 4;
     if (executionGroupCount === 0 && hasRenderableContent && interim === 0) return 3;
@@ -724,8 +725,8 @@ export function projectLiveAssistantRows(
     const groupsById = snapshot?.liveExecutionGroupsById || {};
     return collectLiveAssistantMessageIds(snapshot, targetConversationId)
         .map((messageId) => projectLiveAssistantRow(bufferedById, groupsById, targetConversationId, messageId))
-        .filter(Boolean)
-        .sort(compareTemporalEntries) as CanonicalLiveAssistantRow[];
+        .filter((row): row is CanonicalLiveAssistantRow => row !== null)
+        .sort(compareTemporalEntries);
 }
 
 export function overlayLiveAssistantTransientState(

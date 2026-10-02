@@ -9,11 +9,11 @@ import (
 
 	"github.com/stretchr/testify/require"
 	reportstore "github.com/viant/agently-core/app/store/reporting"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
-	reportshareartifact "github.com/viant/agently-core/pkg/agently/reportshareartifact"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
+	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
 	authsvc "github.com/viant/agently-core/service/auth"
 	fsstate "github.com/viant/agently-core/workspace/store/fs"
 )
@@ -24,7 +24,7 @@ func TestStore_PersistsAcrossInstances(t *testing.T) {
 
 	first := New(stateStore)
 	now := time.Date(2026, 6, 13, 15, 0, 0, 0, time.UTC)
-	job := &reportjob.Record{
+	job := &reportjobmodel.Record{
 		JobID:       "job-1",
 		ArtifactRef: "report://draft/demo",
 		OwnerID:     "user-1",
@@ -35,7 +35,7 @@ func TestStore_PersistsAcrossInstances(t *testing.T) {
 		SubmittedAt: now,
 	}
 	require.NoError(t, first.CreateJob(context.Background(), job))
-	require.NoError(t, first.PutArtifact(context.Background(), &reportartifact.Record{
+	require.NoError(t, first.PutArtifact(context.Background(), &reportartifactmodel.Record{
 		ArtifactID:  "artifact-1",
 		JobID:       "job-1",
 		ArtifactRef: "report://draft/demo",
@@ -45,7 +45,7 @@ func TestStore_PersistsAcrossInstances(t *testing.T) {
 		Data:        []byte("%PDF"),
 		CreatedAt:   now,
 	}))
-	require.NoError(t, first.CreateSharedArtifact(context.Background(), &reportshareartifact.Record{
+	require.NoError(t, first.CreateSharedArtifact(context.Background(), &reportshareartifactmodel.Record{
 		ArtifactID:       "shared-1",
 		ArtifactRef:      "reportBuilder.savedView://saved_view_capacity_q3",
 		OwnerID:          "user-1",
@@ -94,12 +94,12 @@ func TestStore_ReportRunAndActivePointerPersistAcrossInstances(t *testing.T) {
 	ctx := authsvc.InjectUser(context.Background(), "user-1")
 	now := time.Date(2026, 7, 29, 12, 0, 0, 0, time.UTC)
 	completedAt := now.Add(time.Second)
-	run := &reportrun.Record{
+	run := &reportrunmodel.Record{
 		ReportRunID:    "run-persisted-1",
 		OwnerID:        "user-1",
 		ConversationID: "conv-1",
-		Materializer:   reportrun.MaterializerLegacyBrowser,
-		Status:         reportrun.StatusCompleted,
+		Materializer:   reportrunmodel.MaterializerLegacyBrowser,
+		Status:         reportrunmodel.StatusCompleted,
 		Revision:       2,
 		UIRunRequestID: "ui-request-persisted-1",
 		ReportSpec:     []byte(`{"kind":"reportSpec"}`),
@@ -111,7 +111,7 @@ func TestStore_ReportRunAndActivePointerPersistAcrossInstances(t *testing.T) {
 		UpdatedAt:      completedAt,
 	}
 	require.NoError(t, first.CreateReportRun(ctx, run))
-	require.NoError(t, first.PutConversationReportContextCAS(ctx, &reportcontext.Record{
+	require.NoError(t, first.PutConversationReportContextCAS(ctx, &reportcontextmodel.Record{
 		OwnerID:           "user-1",
 		ConversationID:    "conv-1",
 		ActiveReportRunID: "run-persisted-1",
@@ -125,7 +125,7 @@ func TestStore_ReportRunAndActivePointerPersistAcrossInstances(t *testing.T) {
 	require.True(t, ok)
 	got, err := second.GetReportRun(ctx, "run-persisted-1")
 	require.NoError(t, err)
-	require.Equal(t, reportrun.StatusCompleted, got.Status)
+	require.Equal(t, reportrunmodel.StatusCompleted, got.Status)
 	require.Equal(t, []byte(`{"kind":"reportPrint"}`), []byte(got.ReportPrint))
 	byRequest, err := second.GetReportRunByRequestID(ctx, "ui-request-persisted-1")
 	require.NoError(t, err)
@@ -150,7 +150,7 @@ func TestStore_AdoptionCASIsCompositeAcrossInstances(t *testing.T) {
 
 	prior := completedFSRun("prior-run", "owner-adopt", "conv-stale", now)
 	require.NoError(t, first.CreateReportRun(ctx, prior))
-	require.NoError(t, first.PutConversationReportContextCAS(ctx, &reportcontext.Record{
+	require.NoError(t, first.PutConversationReportContextCAS(ctx, &reportcontextmodel.Record{
 		OwnerID:           "owner-adopt",
 		ConversationID:    "conv-stale",
 		ActiveReportRunID: prior.ReportRunID,
@@ -266,15 +266,15 @@ func TestStore_AdoptionCASIsCompositeAcrossInstances(t *testing.T) {
 	}
 }
 
-func completedFSRun(id, ownerID, conversationID string, now time.Time) *reportrun.Record {
+func completedFSRun(id, ownerID, conversationID string, now time.Time) *reportrunmodel.Record {
 	completedAt := now
-	return &reportrun.Record{
+	return &reportrunmodel.Record{
 		ReportRunID:    id,
 		OwnerID:        ownerID,
 		ConversationID: conversationID,
-		Materializer:   reportrun.MaterializerLegacyBrowser,
+		Materializer:   reportrunmodel.MaterializerLegacyBrowser,
 		Origin:         "prompt",
-		Status:         reportrun.StatusCompleted,
+		Status:         reportrunmodel.StatusCompleted,
 		Revision:       2,
 		UIRunRequestID: "request-" + id,
 		ReportSpec:     []byte(`{"kind":"reportSpec"}`),
@@ -287,7 +287,7 @@ func completedFSRun(id, ownerID, conversationID string, now time.Time) *reportru
 	}
 }
 
-func adoptedFSRun(current *reportrun.Record, conversationID string, now time.Time) *reportrun.Record {
+func adoptedFSRun(current *reportrunmodel.Record, conversationID string, now time.Time) *reportrunmodel.Record {
 	next := *current
 	next.ConversationID = conversationID
 	next.AdoptionSource = "adopt"
@@ -297,8 +297,8 @@ func adoptedFSRun(current *reportrun.Record, conversationID string, now time.Tim
 	return &next
 }
 
-func adoptedFSContext(run *reportrun.Record, expectedRevision int64, now time.Time) *reportcontext.Record {
-	return &reportcontext.Record{
+func adoptedFSContext(run *reportrunmodel.Record, expectedRevision int64, now time.Time) *reportcontextmodel.Record {
+	return &reportcontextmodel.Record{
 		OwnerID:           run.OwnerID,
 		ConversationID:    run.ConversationID,
 		ActiveReportRunID: run.ReportRunID,
@@ -323,7 +323,7 @@ func TestStore_RejectsDuplicateRecords(t *testing.T) {
 	store := New(fsstate.NewStateStore(root))
 	now := time.Date(2026, 6, 13, 15, 30, 0, 0, time.UTC)
 
-	job := &reportjob.Record{
+	job := &reportjobmodel.Record{
 		JobID:       "job-1",
 		ArtifactRef: "report://draft/demo",
 		OwnerID:     "user-1",
@@ -341,7 +341,7 @@ func TestStore_RejectsDuplicateRecords(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "queued", gotJob.Status)
 
-	artifact := &reportartifact.Record{
+	artifact := &reportartifactmodel.Record{
 		ArtifactID:  "artifact-1",
 		JobID:       "job-1",
 		ArtifactRef: "report://draft/demo",
@@ -365,7 +365,7 @@ func TestStore_RejectsDuplicateRecords(t *testing.T) {
 	require.Len(t, artifacts, 1)
 	require.Equal(t, "artifact-1", artifacts[0].ArtifactID)
 
-	sharedArtifact := &reportshareartifact.Record{
+	sharedArtifact := &reportshareartifactmodel.Record{
 		ArtifactID:       "shared-1",
 		ArtifactRef:      "reportBuilder.savedView://saved_view_capacity_q3",
 		OwnerID:          "user-1",

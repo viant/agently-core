@@ -1,0 +1,40 @@
+#package('github.com/viant/agently-core/internal/datly/terminalartifact/snapshot/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/terminal-artifacts/snapshot','GET'))
+#setting($_ = $input_type('SnapshotInput'))
+#setting($_ = $output_type('SnapshotOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $TerminalSince<time.Time>(query/terminalSince).Required())
+#define($_ = $TerminalTurnLimit<int>(query/terminalTurnLimit).Required())
+#define($_ = $Internal<bool>(terminalArtifactAccess/internal).Required())
+#define($_ = $Data<[]*CandidateRow>(output/view).WithTag('view:"reader"'))
+SELECT
+ data_rows.artifact_kind,
+ CAST(data_rows.artifact_kind AS string),
+ data_rows.artifact_id,
+ required(data_rows.artifact_id),
+ data_rows.conversation_id,
+ required(data_rows.conversation_id),
+ data_rows.turn_id,
+ required(data_rows.turn_id),
+ data_rows.link_mode,
+ CAST(data_rows.link_mode AS string),
+ data_rows.expected_link,
+ CAST(data_rows.expected_link AS string),
+ data_rows.expected_run,
+ CAST(data_rows.expected_run AS string),
+ data_rows.terminal_status,
+ required(data_rows.terminal_status),
+ data_rows.terminal_error,
+ CAST(data_rows.terminal_error AS string),
+ data_rows.link_rank,
+ CAST(data_rows.link_rank AS int),
+ data_rows.terminal_created_at,
+ required(data_rows.terminal_created_at),
+ tag(data_rows.terminal_created_at,'internal:"true" json:"-"'),
+ type(data_rows,'CandidateRow')
+FROM (${embed:sql/snapshot.sql}) data_rows
+WHERE $Internal
+ORDER BY data_rows.artifact_kind ASC, data_rows.artifact_id ASC, data_rows.link_rank ASC, data_rows.terminal_created_at DESC, data_rows.turn_id DESC

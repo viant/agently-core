@@ -3,14 +3,12 @@ package scheduler
 import (
 	"context"
 	"fmt"
+	runmodel "github.com/viant/agently-core/model/run"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
 	"log"
 	"strings"
 	"time"
-
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
-	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
 )
 
 type staleRunDetails struct {
@@ -65,7 +63,7 @@ func (d staleRunDetails) message(status string) string {
 	}
 }
 
-func (s *Service) isDue(ctx context.Context, row *schedulepkg.ScheduleView, now time.Time) (bool, time.Time, error) {
+func (s *Service) isDue(ctx context.Context, row *schedulemodel.ScheduleView, now time.Time) (bool, time.Time, error) {
 	if row == nil {
 		return false, now, nil
 	}
@@ -86,7 +84,7 @@ func (s *Service) isDue(ctx context.Context, row *schedulepkg.ScheduleView, now 
 		}
 		if row.NextRunAt == nil || row.NextRunAt.IsZero() {
 			computedNext := nextCronAfter(spec, scheduleRecomputeBase(row).In(loc), now.In(loc)).UTC()
-			mut := &schedwrite.Schedule{}
+			mut := &schedulemodel.Schedule{}
 			mut.SetId(row.Id)
 			mut.SetNextRunAt(computedNext)
 			if err := s.store.PatchSchedule(ctx, mut); err != nil {
@@ -105,7 +103,7 @@ func (s *Service) isDue(ctx context.Context, row *schedulepkg.ScheduleView, now 
 			return false, now, nil
 		}
 		next := nextIntervalAfter(scheduleRecomputeBase(row), interval, now)
-		mut := &schedwrite.Schedule{}
+		mut := &schedulemodel.Schedule{}
 		mut.SetId(row.Id)
 		mut.SetNextRunAt(next)
 		if err := s.store.PatchSchedule(ctx, mut); err != nil {
@@ -116,7 +114,7 @@ func (s *Service) isDue(ctx context.Context, row *schedulepkg.ScheduleView, now 
 	return false, now, nil
 }
 
-func scheduleRecomputeBase(row *schedulepkg.ScheduleView) time.Time {
+func scheduleRecomputeBase(row *schedulemodel.ScheduleView) time.Time {
 	if row == nil {
 		return time.Now().UTC()
 	}
@@ -160,11 +158,11 @@ func truncateToMinute(t time.Time) time.Time {
 	return time.Date(t.Year(), t.Month(), t.Day(), t.Hour(), t.Minute(), 0, 0, t.Location())
 }
 
-func (s *Service) cleanupStaleRuns(ctx context.Context, row *schedulepkg.ScheduleView, runs []*schrun.RunView, now time.Time) ([]*schrun.RunView, error) {
+func (s *Service) cleanupStaleRuns(ctx context.Context, row *schedulemodel.ScheduleView, runs []*scheduledrunmodel.RunView, now time.Time) ([]*scheduledrunmodel.RunView, error) {
 	if len(runs) == 0 {
 		return runs, nil
 	}
-	result := make([]*schrun.RunView, 0, len(runs))
+	result := make([]*scheduledrunmodel.RunView, 0, len(runs))
 	for _, run := range runs {
 		if run == nil {
 			continue
@@ -188,7 +186,7 @@ func (s *Service) cleanupStaleRuns(ctx context.Context, row *schedulepkg.Schedul
 	return result, nil
 }
 
-func (s *Service) stalePendingRunReason(row *schedulepkg.ScheduleView, run *schrun.RunView, now time.Time) (string, bool) {
+func (s *Service) stalePendingRunReason(row *schedulemodel.ScheduleView, run *scheduledrunmodel.RunView, now time.Time) (string, bool) {
 	if run == nil || !strings.EqualFold(strings.TrimSpace(run.Status), "pending") || (run.CompletedAt != nil && !run.CompletedAt.IsZero()) {
 		return "", false
 	}
@@ -220,7 +218,7 @@ func (s *Service) stalePendingRunReason(row *schedulepkg.ScheduleView, run *schr
 	return fmt.Sprintf("stale pending run detected: pending without conversation/start for %s", age.Round(time.Second)), true
 }
 
-func (s *Service) staleActiveRunReason(row *schedulepkg.ScheduleView, run *schrun.RunView, now time.Time) (string, bool) {
+func (s *Service) staleActiveRunReason(row *schedulemodel.ScheduleView, run *scheduledrunmodel.RunView, now time.Time) (string, bool) {
 	details, stale := s.isStaleRun(row, run, now)
 	if !stale {
 		return "", false
@@ -228,7 +226,7 @@ func (s *Service) staleActiveRunReason(row *schedulepkg.ScheduleView, run *schru
 	return details.message(valueOrEmpty(&run.Status)), true
 }
 
-func (s *Service) isStaleRun(row *schedulepkg.ScheduleView, run *schrun.RunView, now time.Time) (staleRunDetails, bool) {
+func (s *Service) isStaleRun(row *schedulemodel.ScheduleView, run *scheduledrunmodel.RunView, now time.Time) (staleRunDetails, bool) {
 	if run == nil || (run.CompletedAt != nil && !run.CompletedAt.IsZero()) {
 		return staleRunDetails{}, false
 	}
@@ -277,7 +275,7 @@ func maxDuration(a, b time.Duration) time.Duration {
 	return b
 }
 
-func failedRunCopy(run *schrun.RunView, reason string, now time.Time) *schrun.RunView {
+func failedRunCopy(run *scheduledrunmodel.RunView, reason string, now time.Time) *scheduledrunmodel.RunView {
 	if run == nil {
 		return nil
 	}
@@ -291,18 +289,18 @@ func failedRunCopy(run *schrun.RunView, reason string, now time.Time) *schrun.Ru
 	return &copyValue
 }
 
-func (s *Service) failStaleRun(ctx context.Context, row *schedulepkg.ScheduleView, run *schrun.RunView, reason string, now time.Time) error {
+func (s *Service) failStaleRun(ctx context.Context, row *schedulemodel.ScheduleView, run *scheduledrunmodel.RunView, reason string, now time.Time) error {
 	if run == nil {
 		return nil
 	}
-	patch := &agrunwrite.MutableRunView{}
+	patch := &runmodel.MutableRunView{}
 	patch.SetId(run.Id)
 	patch.SetStatus("failed")
 	patch.SetCompletedAt(now)
 	if strings.TrimSpace(reason) != "" {
 		patch.SetErrorMessage(reason)
 	}
-	if err := s.store.PatchRuns(ctx, []*agrunwrite.MutableRunView{patch}); err != nil {
+	if err := s.store.PatchRuns(ctx, []*runmodel.MutableRunView{patch}); err != nil {
 		return fmt.Errorf("patch stale run %s: %w", run.Id, err)
 	}
 	conversationID := strings.TrimSpace(valueOrEmpty(run.ConversationId))

@@ -1,0 +1,1 @@
+SELECT t.* FROM  (SELECT c.* , 0 AS should_delete, 0 AS response_overflow FROM tool_call c)  t

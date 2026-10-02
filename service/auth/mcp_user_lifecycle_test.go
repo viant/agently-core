@@ -8,7 +8,6 @@ import (
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
-	oauthwrite "github.com/viant/agently-core/pkg/agently/user/oauth/write"
 )
 
 // fakeUserLookup implements UserByIDLookup for lifecycle tests.
@@ -71,16 +70,14 @@ func TestDelegatedResolver_DisabledUserFailsClosed(t *testing.T) {
 
 func TestCleanupDelegatedCredentials(t *testing.T) {
 	ctx := context.Background()
-	dao := newMCPLinkTestDAO(t)
-	if _, err := oauthwrite.DefineComponent(ctx, dao); err != nil {
-		t.Fatalf("oauth write DefineComponent() error = %v", err)
-	}
+	_, dbPath := newMCPLinkTestDBWithPath(t)
 	cfg := &Config{Enabled: true, TokenEncryptionKey: "cleanup-test-key"}
-	delegated := NewDelegatedMCPAuth(cfg, dao)
+	nativeServer := newMCPLinkTestNative(t, dbPath)
+	delegated := NewDelegatedMCPAuth(cfg, nativeServer)
 	if delegated == nil {
 		t.Fatalf("NewDelegatedMCPAuth() = nil")
 	}
-	users := NewDatlyUserService(dao)
+	users := NewDatlyUserService(nativeServer)
 	canonical, err := users.UpsertWithProvider(ctx, "cleanup-user", "Cleanup", "cleanup@example.test", "oauth", "cleanup-subject")
 	if err != nil || canonical == "" {
 		t.Fatalf("UpsertWithProvider() = %q, %v", canonical, err)

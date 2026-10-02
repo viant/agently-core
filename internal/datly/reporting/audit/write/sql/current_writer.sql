@@ -1,0 +1,1 @@
+SELECT r.event_id, r.event_type, r.artifact_ref, r.version, r.actor_id, r.metadata_json, r.job_id, r.artifact_id, r.actor_ref, r.occurred_at FROM (SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM report_audit_event c)  t) r WHERE $criteria.CompositeIn("r", $WriterKeys)

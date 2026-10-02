@@ -482,7 +482,7 @@ describe('Auth', () => {
         const call = lastCall(f);
         expect(call.method).toBe('POST');
         expect(call.url).toBe('http://localhost:8585/v1/api/auth/mcp/catalog/initiate?returnURL=%2Fconversation%2Fconv-1');
-        expect(call.headers['X-Agently-Csrf']).toBe('csrf-1');
+        expect(call.headers?.['X-Agently-Csrf']).toBe('csrf-1');
 
 		await c.initiateMCPAuth('catalog', 'csrf-1', {
 			returnURL: '/conversation/conv-1',

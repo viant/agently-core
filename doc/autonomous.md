@@ -15,7 +15,8 @@ implementation in `agently-core`.
 |---|---|
 | [service/goal/](../service/goal/) | Goal domain model, controller policy, runtime evaluation |
 | [protocol/tool/service/system/goal/](../protocol/tool/service/system/goal/) | Internal `system/goal:*` tool service |
-| [pkg/agently/goal/](../pkg/agently/goal/) | Datly-backed goal persistence |
+| [service/goal/records.go](../service/goal/records.go) | Domain goal repository over linked Datly v1 components |
+| [datlyv1/generated/agently/goal/](../datlyv1/generated/agently/goal/) | Transcribed Datly v1 goal reader and writer |
 | [service/agent/goal_runtime.go](../service/agent/goal_runtime.go) | Agent-side continuation enqueue bridge + controller snapshot signal gathering |
 | [service/agent/run_query.go](../service/agent/run_query.go) | Post-turn hook into goal runtime |
 | [pkg/agently/turn/controllerCount/](../pkg/agently/turn/controllerCount/) | Count of controller-owned turns (AutonomousTurnsUsed) |

@@ -1,6 +1,6 @@
 package skill
 
-import mcpname "github.com/viant/agently-core/pkg/mcpname"
+import mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 
 const (
 	ServiceName      = "llm/skills"
@@ -10,6 +10,6 @@ const (
 )
 
 var (
-	ListToolNameCanonical     = mcpname.Canonical(ListToolName)
-	ActivateToolNameCanonical = mcpname.Canonical(ActivateToolName)
+	ListToolNameCanonical     = mcpname2.Canonical(ListToolName)
+	ActivateToolNameCanonical = mcpname2.Canonical(ActivateToolName)
 )

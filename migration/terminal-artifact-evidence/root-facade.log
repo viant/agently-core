@@ -1,0 +1,6 @@
+# github.com/viant/agently-core/app/store/data
+app/store/data/factory.go:44:2: cannot find module providing package github.com/viant/datly: import lookup disabled by -mod=readonly
+# github.com/viant/agently-core/app/store/data
+app/store/data/factory.go:45:2: cannot find module providing package github.com/viant/datly/view: import lookup disabled by -mod=readonly
+FAIL	github.com/viant/agently-core/app/store/data [setup failed]
+FAIL

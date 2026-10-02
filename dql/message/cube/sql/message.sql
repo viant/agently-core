@@ -1,0 +1,15 @@
+
+SELECT m.conversation_id,
+       m.role,
+       m.type,
+       m.status,
+       m.phase,
+       m.iteration,
+       COUNT(*) AS record_count,
+       COUNT(CASE WHEN m.elicitation_id IS NOT NULL AND m.status='pending' THEN 1 END) AS pending_count,
+       COUNT(CASE WHEN m.role='user' THEN 1 END) AS user_count,
+       COUNT(CASE WHEN m.role='assistant' THEN 1 END) AS assistant_count
+FROM message m WHERE ($Internal OR EXISTS(SELECT 1 FROM conversation c WHERE c.id=m.conversation_id
+ AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,''))))
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+GROUP BY m.conversation_id,m.role,m.type,m.status,m.phase,m.iteration

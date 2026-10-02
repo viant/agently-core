@@ -4,8 +4,6 @@ import (
 	"context"
 	"strings"
 	"sync"
-
-	"github.com/viant/datly"
 )
 
 var (
@@ -13,20 +11,17 @@ var (
 	gates   = map[string]chan struct{}{}
 )
 
-func Key(dao *datly.Service, connectorName string) string {
-	if dao == nil || dao.Resource() == nil {
+// KeyForConnector identifies SQLite connections that share a write gate.
+// Callers supply connector metadata; this package does not depend on a Datly
+// service or open a database.
+func KeyForConnector(driver, dsn, name string) string {
+	driver = strings.TrimSpace(driver)
+	if !strings.EqualFold(driver, "sqlite") && !strings.EqualFold(driver, "sqlite3") {
 		return ""
 	}
-	conn, err := dao.Resource().Connector(strings.TrimSpace(connectorName))
-	if err != nil || conn == nil {
-		return ""
-	}
-	if !strings.EqualFold(strings.TrimSpace(conn.Driver), "sqlite") {
-		return ""
-	}
-	dsn := strings.TrimSpace(conn.DSN)
+	dsn = strings.TrimSpace(dsn)
 	if dsn == "" {
-		dsn = strings.TrimSpace(conn.Name)
+		dsn = strings.TrimSpace(name)
 	}
 	if dsn == "" {
 		dsn = "default"

@@ -3,11 +3,10 @@ package sdk
 import (
 	"encoding/json"
 	"fmt"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	"github.com/viant/agently-core/runtime/streaming"
 	"strings"
 	"time"
-
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/runtime/streaming"
 )
 
 func normalizeExecutionRole(value string) string {
@@ -516,7 +515,7 @@ func applyPlannerEvent(turn *TurnState, event *streaming.Event) {
 	}
 }
 
-func applyPlannerTranscriptMessage(turn *TurnState, message *agconv.MessageView) {
+func applyPlannerTranscriptMessage(turn *TurnState, message *conversationmodel.MessageView) {
 	if turn == nil || message == nil || message.Content == nil {
 		return
 	}

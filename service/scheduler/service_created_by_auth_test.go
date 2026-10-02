@@ -8,7 +8,7 @@ import (
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
@@ -89,7 +89,7 @@ func (f *fakeSchedulerTokenProvider) Invalidate(context.Context, token.Key) erro
 
 func TestService_preloadCreatedByUserTokens_UsesTranslatedUserID(t *testing.T) {
 	subject := "agently_scheduler"
-	row := &schedulepkg.ScheduleView{
+	row := &schedulemodel.ScheduleView{
 		Id:              "sched-1",
 		CreatedByUserId: &subject,
 	}
@@ -166,7 +166,7 @@ func TestService_executeRun_CreatedByAuthFailureContinuesWithoutTokens(t *testin
 		}
 		return nil
 	}
-	row := &schedulepkg.ScheduleView{
+	row := &schedulemodel.ScheduleView{
 		Id:              scheduleID,
 		Name:            "Created-by auth failure",
 		CreatedByUserId: &subject,
@@ -228,7 +228,7 @@ func TestService_executeRun_CreatedByOwnerLookupMissContinuesWithoutTokens(t *te
 		}
 		return nil
 	}
-	row := &schedulepkg.ScheduleView{
+	row := &schedulemodel.ScheduleView{
 		Id:              scheduleID,
 		Name:            "Created-by owner lookup miss",
 		CreatedByUserId: stringPtr(subject),
@@ -304,7 +304,7 @@ func TestService_executeRun_UsesSchedulerModeAndCreatedByAuth(t *testing.T) {
 		}
 		return nil
 	}
-	row := &schedulepkg.ScheduleView{
+	row := &schedulemodel.ScheduleView{
 		Id:              "sched-created-by",
 		Name:            "Created-by auth",
 		CreatedByUserId: &subject,

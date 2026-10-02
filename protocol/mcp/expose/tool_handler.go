@@ -8,9 +8,9 @@ import (
 
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/tool/matcher"
-	"github.com/viant/agently-core/pkg/mcpname"
 	intent "github.com/viant/agently-core/protocol/intent"
 	"github.com/viant/agently-core/protocol/mcp/uifallback"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	"github.com/viant/jsonrpc"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpuimeta "github.com/viant/mcp-ui/meta"
@@ -268,8 +268,8 @@ func resolveToolName(raw string, defs []llm.ToolDefinition) (string, bool, error
 	// Method-only fallback: match a single allowed tool by method name.
 	var matched string
 	for i := range defs {
-		can := mcpname.Canonical(defs[i].Name)
-		method := mcpname.Name(can).Method()
+		can := mcpname2.Canonical(defs[i].Name)
+		method := mcpname2.Name(can).Method()
 		if strings.EqualFold(method, name) {
 			if matched != "" && matched != defs[i].Name {
 				return "", false, fmt.Errorf("ambiguous tool %q: provide fully qualified name", raw)

@@ -9,7 +9,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
@@ -21,7 +21,7 @@ func TestBuildHistory_UsesProjectionHiddenTurnsAndMessages(t *testing.T) {
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-1",
 					TurnId:    strPtr("turn-1"),
@@ -42,7 +42,7 @@ func TestBuildHistory_UsesProjectionHiddenTurnsAndMessages(t *testing.T) {
 		},
 		&apiconv.Turn{
 			Id: "turn-2",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-3",
 					TurnId:    strPtr("turn-2"),
@@ -79,7 +79,7 @@ func TestBuildHistory_PopulatesProjectionStateFromSupersession(t *testing.T) {
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-user-1",
 					TurnId:    strPtr("turn-1"),
@@ -87,15 +87,15 @@ func TestBuildHistory_PopulatesProjectionStateFromSupersession(t *testing.T) {
 					Type:      "text",
 					Content:   strPtr("read file once"),
 					CreatedAt: now,
-					ToolMessage: []*agconv.ToolMessageView{
+					ToolMessage: []*conversationmodel.ToolMessageView{
 						{
 							Id:        "tool-msg-1",
 							CreatedAt: now.Add(time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:           "op-1",
 								ToolName:       "resources/read",
-								RequestPayload: &agconv.ModelCallStreamPayloadView{InlineBody: args},
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{
+								RequestPayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: args},
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 									InlineBody: strPtr("old content"),
 								},
 							},
@@ -106,7 +106,7 @@ func TestBuildHistory_PopulatesProjectionStateFromSupersession(t *testing.T) {
 		},
 		&apiconv.Turn{
 			Id: "turn-2",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-user-2",
 					TurnId:    strPtr("turn-2"),
@@ -114,15 +114,15 @@ func TestBuildHistory_PopulatesProjectionStateFromSupersession(t *testing.T) {
 					Type:      "text",
 					Content:   strPtr("read file again"),
 					CreatedAt: now.Add(2 * time.Second),
-					ToolMessage: []*agconv.ToolMessageView{
+					ToolMessage: []*conversationmodel.ToolMessageView{
 						{
 							Id:        "tool-msg-2",
 							CreatedAt: now.Add(3 * time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:           "op-2",
 								ToolName:       "resources/read",
-								RequestPayload: &agconv.ModelCallStreamPayloadView{InlineBody: args},
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{
+								RequestPayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: args},
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 									InlineBody: strPtr("new content"),
 								},
 							},
@@ -180,7 +180,7 @@ func TestBuildHistory_ProjectionAndSupersessionCompose(t *testing.T) {
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-user-1",
 					TurnId:    strPtr("turn-1"),
@@ -204,15 +204,15 @@ func TestBuildHistory_ProjectionAndSupersessionCompose(t *testing.T) {
 					Type:      "text",
 					Content:   strPtr("read file once"),
 					CreatedAt: now.Add(2 * time.Second),
-					ToolMessage: []*agconv.ToolMessageView{
+					ToolMessage: []*conversationmodel.ToolMessageView{
 						{
 							Id:        "tool-msg-1",
 							CreatedAt: now.Add(3 * time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:           "op-1",
 								ToolName:       "resources/read",
-								RequestPayload: &agconv.ModelCallStreamPayloadView{InlineBody: args},
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{
+								RequestPayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: args},
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 									InlineBody: strPtr("old content"),
 								},
 							},
@@ -223,7 +223,7 @@ func TestBuildHistory_ProjectionAndSupersessionCompose(t *testing.T) {
 		},
 		&apiconv.Turn{
 			Id: "turn-2",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-user-tool-2",
 					TurnId:    strPtr("turn-2"),
@@ -231,15 +231,15 @@ func TestBuildHistory_ProjectionAndSupersessionCompose(t *testing.T) {
 					Type:      "text",
 					Content:   strPtr("read file again"),
 					CreatedAt: now.Add(4 * time.Second),
-					ToolMessage: []*agconv.ToolMessageView{
+					ToolMessage: []*conversationmodel.ToolMessageView{
 						{
 							Id:        "tool-msg-2",
 							CreatedAt: now.Add(5 * time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:           "op-2",
 								ToolName:       "resources/read",
-								RequestPayload: &agconv.ModelCallStreamPayloadView{InlineBody: args},
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{
+								RequestPayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: args},
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 									InlineBody: strPtr("new content"),
 								},
 							},
@@ -294,7 +294,7 @@ func TestBuildHistory_SetsProjectionScopeFromToolExposure(t *testing.T) {
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-1",
 					TurnId:    strPtr("turn-1"),
@@ -335,10 +335,10 @@ func TestBuildBinding_ExposesProjectionInContext(t *testing.T) {
 	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{TurnID: "turn-1"})
 
 	convClient := &stubProjectionBindingConversationClient{
-		conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*agconv.TranscriptView{
+		conversation: &apiconv.Conversation{Id: "conv-1", Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id: "turn-1",
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{Id: "msg-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("query"), CreatedAt: now},
 				},
 			},
@@ -419,19 +419,19 @@ func TestBuildHistory_PopulatesProjectionStateFromRelevanceSelector(t *testing.T
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{Id: "msg-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("old irrelevant"), CreatedAt: now},
 			},
 		},
 		&apiconv.Turn{
 			Id: "turn-2",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{Id: "msg-2", TurnId: strPtr("turn-2"), Role: "user", Type: "text", Content: strPtr("recent protected"), CreatedAt: now.Add(time.Second)},
 			},
 		},
 		&apiconv.Turn{
 			Id: "turn-3",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{Id: "msg-3", TurnId: strPtr("turn-3"), Role: "user", Type: "text", Content: strPtr("current task"), CreatedAt: now.Add(2 * time.Second)},
 			},
 		},
@@ -500,9 +500,9 @@ func TestBuildHistory_PopulatesProjectionStateFromRelevanceSelector(t *testing.T
 func TestBuildRelevanceSelectorInput_ProtectedRecentTurns(t *testing.T) {
 	now := time.Now().UTC()
 	transcript := apiconv.Transcript{
-		&apiconv.Turn{Id: "turn-1", Message: []*agconv.MessageView{{Id: "msg-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("first"), CreatedAt: now}}},
-		&apiconv.Turn{Id: "turn-2", Message: []*agconv.MessageView{{Id: "msg-2", TurnId: strPtr("turn-2"), Role: "user", Type: "text", Content: strPtr("second"), CreatedAt: now.Add(time.Second)}}},
-		&apiconv.Turn{Id: "turn-3", Message: []*agconv.MessageView{{Id: "msg-3", TurnId: strPtr("turn-3"), Role: "user", Type: "text", Content: strPtr("third"), CreatedAt: now.Add(2 * time.Second)}}},
+		&apiconv.Turn{Id: "turn-1", Message: []*conversationmodel.MessageView{{Id: "msg-1", TurnId: strPtr("turn-1"), Role: "user", Type: "text", Content: strPtr("first"), CreatedAt: now}}},
+		&apiconv.Turn{Id: "turn-2", Message: []*conversationmodel.MessageView{{Id: "msg-2", TurnId: strPtr("turn-2"), Role: "user", Type: "text", Content: strPtr("second"), CreatedAt: now.Add(time.Second)}}},
+		&apiconv.Turn{Id: "turn-3", Message: []*conversationmodel.MessageView{{Id: "msg-3", TurnId: strPtr("turn-3"), Role: "user", Type: "text", Content: strPtr("third"), CreatedAt: now.Add(2 * time.Second)}}},
 	}
 
 	candidates, protected, total := buildRelevanceSelectorInput(transcript, "turn-3", 1)

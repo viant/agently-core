@@ -5,8 +5,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"github.com/viant/agently-core/app/store/data"
 )
 
 // TestChooseTokenRowNeverFallsBackToDelegatedRow proves fix semantics for the
@@ -172,16 +170,14 @@ func TestTokenStorePreviousSaltRead_MigratesWithCiphertextCAS(t *testing.T) {
 	relative := "idp_viant.enc|blowfish://default"
 	absolute := filepath.Join(home, ".secret", "idp_viant.enc") + "|blowfish://default"
 	ctx := context.Background()
-	dao, err := data.NewDatlyInMemory(ctx)
-	if err != nil {
-		t.Fatalf("NewDatlyInMemory: %v", err)
-	}
-	users := NewDatlyUserService(dao)
+	_, dbPath := newMCPLinkTestDBWithPath(t)
+	nativeServer := newMCPLinkTestNative(t, dbPath)
+	users := NewDatlyUserService(nativeServer)
 	userID, err := users.UpsertWithProvider(ctx, "salt-user", "salt-user", "salt@example.test", "oauth", "salt-subject")
 	if err != nil {
 		t.Fatalf("create user: %v", err)
 	}
-	store := NewTokenStoreDAO(dao, absolute, WithPreviousSalts(relative))
+	store := NewTokenStoreDAO(nativeServer, absolute, WithPreviousSalts(relative))
 	tok := &OAuthToken{Username: userID, Provider: "oauth", AccessToken: "access", RefreshToken: "refresh"}
 	if err := store.Put(ctx, tok); err != nil {
 		t.Fatalf("Put: %v", err)
@@ -191,10 +187,7 @@ func TestTokenStorePreviousSaltRead_MigratesWithCiphertextCAS(t *testing.T) {
 	if err != nil {
 		t.Fatalf("legacy encrypt: %v", err)
 	}
-	db, err := store.db()
-	if err != nil {
-		t.Fatalf("db: %v", err)
-	}
+	db := authTokenTestDB(t, dbPath)
 	if _, err := db.ExecContext(ctx, `UPDATE user_oauth_token SET enc_token = ? WHERE user_id = ? AND provider = ?`, legacyEnc, userID, "oauth"); err != nil {
 		t.Fatalf("seed legacy ciphertext: %v", err)
 	}

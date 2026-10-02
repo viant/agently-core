@@ -1,0 +1,22 @@
+{
+  "date": "2026-09-30",
+  "scope": "Generated-reader conversation-tree discovery for future atomic deletion",
+  "changes": [
+    "The canonical conversation reader gained host-only graph mode and batch identity, parent-ID and parent-turn-ID predicates",
+    "The canonical turn and message readers gained batch conversation-ID predicates",
+    "A typed Discoverer traverses parent, parent-turn and linked-message edges in bounded batches using only generated readers"
+  ],
+  "verified": [
+    "Linked-host traversal found direct children, parent-turn children, a linked conversation, a grandchild and a cycle without including an unrelated conversation",
+    "A missing root returns a typed not-found result; an empty frontier cannot trigger a full conversation scan",
+    "Focused conversation/message/turn reader tests passed",
+    "Full app/store/native package passed with the v1 scratch modfile",
+    "Full nested Endly passed 60/60 transcription, stable regeneration, boundary audit, nested tests (169.535s) and linked-host build"
+  ],
+  "remaining": [
+    "This is discovery only: owner authorization, live-run/reference policy, payload retention, generated mutation ordering and one managed transaction are not implemented in the v1 delete orchestrator",
+    "Root schedule, scheduled-run and conversation-tree delete callers still use direct SQL",
+    "MySQL contention and rebuilt application-route deletion are unverified"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-graph-discovery.log"
+}

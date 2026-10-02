@@ -11,8 +11,8 @@ import (
 
 	"github.com/google/uuid"
 	convcli "github.com/viant/agently-core/app/store/conversation"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
-	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
+
 	"github.com/viant/agently-core/service/shared/convterm"
 )
 
@@ -190,11 +190,11 @@ func (s *Service) cancelConversationTreeAndMark(ctx context.Context, conversatio
 	return errors.Join(errs...)
 }
 
-func (s *Service) patchScheduleResult(ctx context.Context, row *schedulepkg.ScheduleView, lastStatus string, lastError string, lastRunAt *time.Time, updateNext bool, now time.Time) error {
+func (s *Service) patchScheduleResult(ctx context.Context, row *schedulemodel.ScheduleView, lastStatus string, lastError string, lastRunAt *time.Time, updateNext bool, now time.Time) error {
 	if s == nil || row == nil {
 		return nil
 	}
-	mut := &schedwrite.Schedule{}
+	mut := &schedulemodel.Schedule{}
 	mut.SetId(row.Id)
 	if lastRunAt != nil && !lastRunAt.IsZero() {
 		mut.SetLastRunAt(lastRunAt.UTC())
@@ -217,7 +217,7 @@ func (s *Service) patchScheduleResult(ctx context.Context, row *schedulepkg.Sche
 	return s.store.PatchSchedule(ctx, mut)
 }
 
-func (s *Service) setNextRunAt(row *schedulepkg.ScheduleView, mut *schedwrite.Schedule, now time.Time) error {
+func (s *Service) setNextRunAt(row *schedulemodel.ScheduleView, mut *schedulemodel.Schedule, now time.Time) error {
 	switch {
 	case strings.EqualFold(strings.TrimSpace(row.ScheduleType), "cron") && row.CronExpr != nil && strings.TrimSpace(*row.CronExpr) != "":
 		loc, _ := time.LoadLocation(strings.TrimSpace(row.Timezone))

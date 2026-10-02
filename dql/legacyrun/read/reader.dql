@@ -1,0 +1,43 @@
+#package('github.com/viant/agently-core/internal/datly/legacyrun/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/scheduler/legacy-run','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(scheduleRunAccess/internal).Required())
+#define($_ = $ID<string>(query/id).Optional().WithPredicate(0,'equal','r','id'))
+#define($_ = $IDs<[]string>(query/ids).Optional().WithPredicate(0,'in','r','id'))
+#define($_ = $ScheduleID<string>(query/scheduleId).Optional().WithPredicate(0,'equal','r','schedule_id'))
+#define($_ = $ScheduleIDs<[]string>(query/scheduleIds).Optional().WithPredicate(0,'in','r','schedule_id'))
+#define($_ = $ConversationID<string>(query/conversationId).Optional().WithPredicate(0,'equal','r','conversation_id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','r','conversation_id'))
+#define($_ = $Status<string>(query/status).Optional().WithPredicate(0,'equal','r','status'))
+#define($_ = $MaintenanceMode<bool>(scheduleRunAccess/maintenance).Optional())
+#define($_ = $MaintenanceBefore<time.Time>(query/maintenanceBefore).Optional())
+#define($_ = $MaintenanceBeforeSecond<string>(query/maintenanceBeforeSecond).Optional())
+#define($_ = $MaintenanceBeforeNano<int64>(query/maintenanceBeforeNano).Optional())
+#define($_ = $MaintenanceAfterNano<int64>(query/maintenanceAfterNano).Optional())
+#define($_ = $MaintenanceAfterActivity<string>(query/maintenanceAfterActivity).Optional())
+#define($_ = $MaintenanceAfterId<string>(query/maintenanceAfterId).Optional())
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*LegacyRun>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true"'))
+
+SELECT data_rows.*,
+       row_lock(data_rows,'schedule_run r','r.id'),
+       CAST(data_rows.lease_until_raw AS *string),
+       internal(data_rows.lease_until_raw),
+       tag(data_rows.lease_until_raw,'json:"-"'),
+       CAST(data_rows.activity_raw AS *string),
+       tag(data_rows.activity_raw,'internal:"true" json:"-"'),
+       CAST(data_rows.maintenance_owner_id AS string),
+       tag(data_rows.maintenance_owner_id,'internal:"true" json:"-"'),
+       type(data_rows,'LegacyRun'),
+       required(data_rows.id),
+       required(data_rows.schedule_id),
+       required(data_rows.created_at),
+       required(data_rows.status),
+       required(data_rows.conversation_kind)
+FROM (${embed:sql/legacyrun.sql}) data_rows

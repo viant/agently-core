@@ -2,8 +2,7 @@ package modelcall
 
 import (
 	"context"
-
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
@@ -13,7 +12,7 @@ type streamPublisherKey struct{}
 // It is not persisted; consumers should treat it as ephemeral.
 type StreamEvent struct {
 	ConversationID string
-	Message        *agconv.MessageView
+	Message        *conversationmodel.MessageView
 	ContentType    string
 	Content        interface{}
 	Event          *streaming.Event

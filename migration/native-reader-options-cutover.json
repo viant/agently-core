@@ -1,0 +1,122 @@
+{
+  "status": "private_caller_source_migrated; local_framework_compile_and_option_preservation_pass; actual_regenerated_runtime_gates_pending",
+  "date": "2026-10-01",
+  "provider_sites_removed": 10,
+  "request_sites": 18,
+  "callers": [
+    {
+      "path": "internal/store/reporting/exportsubmit/component.go",
+      "line": 119,
+      "request": "value, err := deps.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: runReaderTarget, Input: runLookup, Providers: lockedReportingReads()})"
+    },
+    {
+      "path": "internal/store/reporting/exportsubmit/component.go",
+      "line": 221,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: jobReaderTarget, Input: input, Providers: lockedReportingReads()})"
+    },
+    {
+      "path": "internal/store/reporting/exportcomplete/component.go",
+      "line": 198,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: jobReaderTarget, Input: input, Providers: lockedReportingReads()})"
+    },
+    {
+      "path": "internal/store/reporting/exportcomplete/component.go",
+      "line": 210,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: artifactReaderTarget, Input: input, Providers: lockedReportingReads()})"
+    },
+    {
+      "path": "internal/store/terminalartifact/operations.go",
+      "line": 59,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: modelReader, Input: input, Providers: readProviders(\"modelcallaccess\", []string{\"message_id\", \"status\", \"cleanup_status\", \"turn_id\", \"run_id\"})})"
+    },
+    {
+      "path": "internal/store/terminalartifact/operations.go",
+      "line": 78,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: toolReader, Input: input, Providers: readProviders(\"toolcallaccess\", []string{\"message_id\", \"status\", \"cleanup_status\", \"turn_id\", \"run_id\"})})"
+    },
+    {
+      "path": "internal/store/terminalartifact/operations.go",
+      "line": 100,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: messageReader, Input: input, Providers: readProviders(\"messageaccess\", []string{\"id\", \"status\", \"cleanup_status\", \"turn_id\"})})"
+    },
+    {
+      "path": "internal/store/terminalartifact/operations.go",
+      "line": 120,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: turnReader, Input: input, Providers: readProviders(\"turnaccess\", []string{\"id\", \"status\", \"cleanup_status\", \"conversation_id\", \"run_id\"})})"
+    },
+    {
+      "path": "internal/store/technicalmaintenance/store.go",
+      "line": 186,
+      "request": "value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, lock), Target: target, Input: input, Providers: bindings})"
+    },
+    {
+      "path": "internal/store/orphanmaintenance/records.go",
+      "line": 69,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: componentTarget(typ, \"GET\", path), Input: input, Providers: lockedProviders(kind, fields)})"
+    },
+    {
+      "path": "internal/store/scheduledmaintenance/read.go",
+      "line": 134,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, lock), Target: target, Input: input, Providers: providers})"
+    },
+    {
+      "path": "internal/store/scheduledelete/read.go",
+      "line": 54,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: scheduleTarget, Input: input, Providers: providers})"
+    },
+    {
+      "path": "internal/store/scheduledelete/read.go",
+      "line": 72,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, lock), Target: runTarget, Input: input, Providers: trustedProviders(\"runaccess\", owner)})"
+    },
+    {
+      "path": "internal/store/scheduledelete/read.go",
+      "line": 83,
+      "request": "value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, lock), Target: legacyTarget, Input: input, Providers: trustedProviders(\"schedulerunaccess\", owner)})"
+    },
+    {
+      "path": "internal/store/conversationtree/plan.go",
+      "line": 497,
+      "request": "value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, len(lock) > 0 && lock[0]), Target: target, Input: input, Providers: providers})"
+    },
+    {
+      "path": "internal/store/conversationtree/locking.go",
+      "line": 41,
+      "request": "value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: conversationReaderTarget, Input: input, Providers: lockProviders(\"conversationaccess\", d.OwnerID(ctx))})"
+    },
+    {
+      "path": "internal/store/conversationtree/locking.go",
+      "line": 69,
+      "request": "value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: runReaderTarget, Input: input, Providers: lockProviders(\"runaccess\", d.OwnerID(ctx))})"
+    },
+    {
+      "path": "internal/store/conversationtree/locking.go",
+      "line": 86,
+      "request": "value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: legacyReaderTarget, Input: input, Providers: lockProviders(\"schedulerunaccess\", d.OwnerID(ctx))})"
+    }
+  ],
+  "api": "exec.ComponentRequest.ReaderOptions = cloned exec.ReaderOptions with ForUpdate []string{exec.RootView} only on original true decisions",
+  "invariants": [
+    "Runtime input has no lock boolean; no HTTP activation.",
+    "Original owner/reference/liveness/lease checks remain in place.",
+    "ForUpdate applies after binding to the target result graph, avoiding new locks on binding dependencies.",
+    "Existing RefreshCache, CacheOnly, and QueryScope options are retained; ordinary discovery paths explicitly clear ForUpdate.",
+    "Caller context and original ForUpdate slices are not mutated.",
+    "Private writer invocations carry no reader lock options."
+  ],
+  "checks": [
+    {
+      "command": "go test -mod=mod -modfile=/tmp/agently-single-module-framework/go.mod ./internal/store/... ./internal/datly/queryselectors -run ^$",
+      "result": "PASS",
+      "log": "/tmp/agently-native-lock-callers-compile.log"
+    },
+    {
+      "command": "go test -mod=mod -modfile=/tmp/agently-single-module-framework/go.mod ./internal/datly/queryselectors -run ^TestForUpdateOptions -count=1",
+      "result": "PASS",
+      "seconds": 0.61,
+      "log": "/tmp/agently-native-lock-options-tests.log"
+    }
+  ],
+  "dql_capabilities": "migration/reader-row-lock-capabilities.json",
+  "framework_native_mysql_proof": "Separate framework lane reports actual independent-pool row lock/current-read/rollback proof; this file does not claim Core runtime proof before regeneration."
+}

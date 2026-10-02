@@ -1,0 +1,1 @@
+SELECT c.* , NULL AS `condition`, 0 AS should_delete FROM run c

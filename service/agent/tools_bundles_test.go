@@ -15,8 +15,8 @@ import (
 	"github.com/stretchr/testify/require"
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	planner "github.com/viant/agently-core/service/planner"
@@ -52,11 +52,11 @@ func matchPattern(pattern, name string) bool {
 	switch {
 	case strings.HasSuffix(raw, "/*"):
 		root := strings.TrimSuffix(raw, "/*")
-		service := mcpname.Name(mcpname.Canonical(name)).Service()
+		service := mcpname2.Name(mcpname2.Canonical(name)).Service()
 		return service == root || strings.HasPrefix(service, root+"/")
 	case strings.HasSuffix(raw, ":*"):
 		root := strings.TrimSuffix(raw, ":*")
-		service := mcpname.Name(mcpname.Canonical(name)).Service()
+		service := mcpname2.Name(mcpname2.Canonical(name)).Service()
 		return service == root
 	}
 	pcanon := canon(pattern)
@@ -83,7 +83,7 @@ func canon(s string) string {
 	if s == "" {
 		return ""
 	}
-	return mcpname.Canonical(s)
+	return mcpname2.Canonical(s)
 }
 
 func (r *fakeRegistry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
@@ -566,7 +566,7 @@ func TestResolveToolControl_MergesAgentProfileAndRuntimeSelections(t *testing.T)
 		actual.Bundles,
 	)
 	assert.EqualValues(t,
-		[]string{mcpname.Canonical("system/os:getEnv"), mcpname.Canonical("llm/skills:list"), mcpname.Canonical("llm/skills:get"), mcpname.Canonical("llm/skills:activate")},
+		[]string{mcpname2.Canonical("system/os:getEnv"), mcpname2.Canonical("llm/skills:list"), mcpname2.Canonical("llm/skills:get"), mcpname2.Canonical("llm/skills:activate")},
 		actual.Tools,
 	)
 }
@@ -592,7 +592,7 @@ func TestResolveToolControl_AutoSelectedRuntimeBundlesNarrowAgentDefaults(t *tes
 	require.NoError(t, err)
 	assert.EqualValues(t, []string{"workspace-ui"}, actual.Bundles)
 	assert.EqualValues(t,
-		[]string{mcpname.Canonical("system/os:getEnv"), mcpname.Canonical("llm/skills:list"), mcpname.Canonical("llm/skills:get"), mcpname.Canonical("llm/skills:activate")},
+		[]string{mcpname2.Canonical("system/os:getEnv"), mcpname2.Canonical("llm/skills:list"), mcpname2.Canonical("llm/skills:get"), mcpname2.Canonical("llm/skills:activate")},
 		actual.Tools,
 	)
 }

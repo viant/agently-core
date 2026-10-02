@@ -11,13 +11,13 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	"github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 func persistNativeResource(ctx context.Context, conv apiconv.Client, turn requestctx.TurnMeta, toolMsgID, toolName string, args map[string]interface{}, result string) error {
-	if strings.ToLower(mcpname.Canonical(toolName)) != "resources-read" && strings.ToLower(mcpname.Canonical(toolName)) != "resources.read" {
+	if strings.ToLower(mcpname2.Canonical(toolName)) != "resources-read" && strings.ToLower(mcpname2.Canonical(toolName)) != "resources.read" {
 		return nil
 	}
 	if args["representation"] != "native" {

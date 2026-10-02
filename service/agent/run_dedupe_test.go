@@ -7,7 +7,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -52,12 +52,12 @@ func TestShouldSkipFinalAssistantPersist(t *testing.T) {
 	makeConversation := func(messageContent string, interim int) *apiconv.Conversation {
 		return &apiconv.Conversation{
 			Id: "conv-1",
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id:             turnID,
 					ConversationId: "conv-1",
 					CreatedAt:      now,
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:             "msg-1",
 							ConversationId: "conv-1",

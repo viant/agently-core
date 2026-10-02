@@ -1,35 +1,48 @@
 package data
 
 import (
+	"context"
 	"testing"
 
-	"github.com/viant/datly/view"
+	"github.com/viant/agently-core/internal/sqlitewrite"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
-func TestApplySQLitePoolDefaults_SetsSingleConnectionDefaults(t *testing.T) {
-	conn := view.NewConnector("agently", "sqlite", "file:test.db")
-
-	applySQLitePoolDefaults(conn)
-
-	if conn.MaxOpenConns != defaultSQLiteMaxOpenConns {
-		t.Fatalf("MaxOpenConns = %d, want %d", conn.MaxOpenConns, defaultSQLiteMaxOpenConns)
+func TestNativeInMemoryFactoryGeneratedReadWriteAndOwnership(t *testing.T) {
+	ctx := context.Background()
+	server, err := NewRuntimeInMemory(ctx)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if conn.MaxIdleConns != defaultSQLiteMaxIdleConns {
-		t.Fatalf("MaxIdleConns = %d, want %d", conn.MaxIdleConns, defaultSQLiteMaxIdleConns)
+	t.Cleanup(func() { _ = server.Shutdown(ctx) })
+	service := NewService(server).(*datlyService)
+	if service.native != server {
+		t.Fatal("facade did not retain shared native invoker")
 	}
-}
-
-func TestApplySQLitePoolDefaults_PreservesExplicitPoolConfig(t *testing.T) {
-	conn := view.NewConnector("agently", "sqlite", "file:test.db")
-	conn.MaxOpenConns = 3
-	conn.MaxIdleConns = 2
-
-	applySQLitePoolDefaults(conn)
-
-	if conn.MaxOpenConns != 3 {
-		t.Fatalf("MaxOpenConns = %d, want 3", conn.MaxOpenConns)
+	driver, err := server.ConfiguredDriver(ctx, "agently")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if conn.MaxIdleConns != 2 {
-		t.Fatalf("MaxIdleConns = %d, want 2", conn.MaxIdleConns)
+	identity, err := server.ConnectionIdentity(ctx, "agently")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if service.writeGate != sqlitewrite.KeyForConnector(driver, identity, "agently") || service.writeGate == "" {
+		t.Fatal("native SQLite facade lost coordinated write gate")
+	}
+	row := conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("factory-native-memory"), conversationmodel.WithConversationStatus("active"))
+	if _, err = service.PatchConversations(ctx, []*conversationmodel.MutableConversationView{row}); err != nil {
+		t.Fatal(err)
+	}
+	stored, err := service.GetConversation(ctx, row.Id, nil)
+	if err != nil || stored == nil || stored.Id != row.Id {
+		t.Fatalf("generated in-memory round trip: %#v %v", stored, err)
+	}
+	if err = CloseService(ctx, service); err != nil {
+		t.Fatal(err)
+	}
+	stored, err = service.GetConversation(ctx, row.Id, nil)
+	if err != nil || stored == nil {
+		t.Fatalf("borrowed facade shut down caller runtime: %#v %v", stored, err)
 	}
 }

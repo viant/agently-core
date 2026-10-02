@@ -13,7 +13,7 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -365,10 +365,10 @@ func (s *Service) ensureChainConversation(ctx context.Context, chainCtx ChainCon
 	if policy == "link" {
 		conversationID = uuid.New().String()
 
-		conversation := convw.Conversation{Has: &convw.ConversationHas{}}
+		conversation := conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 		conversation.SetId(conversationID)
 		conversation.SetStatus("")
-		conversation.SetVisibility(convw.VisibilityPublic)
+		conversation.SetVisibility(conversationmodel.VisibilityPublic)
 		conversation.SetConversationParentId(parentTurn.ConversationID)
 		conversation.SetConversationParentTurnId(parentTurn.TurnID)
 		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&conversation)); err != nil {

@@ -1,0 +1,1 @@
+SELECT r.enc_token, r.user_id, r.provider, r.created_at, r.updated_at, r.version, r.refresh_status, r.lease_owner, r.lease_until FROM (SELECT t.* FROM  (SELECT c.* FROM user_oauth_token c)  t) r WHERE $criteria.CompositeIn("r", $WriterKeys)

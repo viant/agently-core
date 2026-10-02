@@ -1,0 +1,12 @@
+SELECT data_rows.* FROM  (SELECT `message_id`, `turn_id`, `op_id`, `attempt`, `tool_name`, `tool_kind`, `status`, `request_hash`, `error_code`, `error_message`, `retriable`, `started_at`, `completed_at`, `latency_ms`, `cost`, `trace_id`, `span_id`, `request_payload_id`, `response_payload_id`, `run_id`, `iteration`, LOWER(TRIM(COALESCE(status,''))) AS cleanup_status FROM tool_call data_rows
+WHERE 1=1
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+ AND ($Internal OR EXISTS(SELECT 1 FROM message m JOIN conversation c ON c.id=m.conversation_id WHERE m.id=data_rows.message_id
+  AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,''))))
+ AND ($ReadMode<>'byOp' OR EXISTS(SELECT 1 FROM message m WHERE m.id=data_rows.message_id))
+ AND ($ReadMode<>'scopedByOp' OR EXISTS(SELECT 1 FROM message m WHERE m.id=data_rows.message_id AND m.conversation_id=$ConversationId))
+ AND ($ReadMode<>'byTurn' OR EXISTS(SELECT 1 FROM turn tr JOIN message m ON m.id=data_rows.message_id
+  AND m.turn_id=tr.id AND m.conversation_id=tr.conversation_id
+  WHERE tr.id=data_rows.turn_id AND tr.id=$TurnId AND tr.conversation_id=$ConversationId))
+ AND ($ReadMode<>'transcript' OR EXISTS(SELECT 1 FROM message m WHERE m.id=data_rows.message_id AND (m.type='tool_op' OR m.role='tool')))
+)  data_rows ORDER BY CASE WHEN $ReadMode='byTurn' THEN data_rows.op_id END ASC, CASE WHEN $ReadMode='byTurn' THEN data_rows.attempt END DESC, CASE WHEN $ReadMode='byTurn' THEN data_rows.message_id END DESC, CASE WHEN $ReadMode NOT IN ('byOp','scopedByOp','byTurn') THEN data_rows.started_at END DESC, CASE WHEN $ReadMode NOT IN ('byOp','scopedByOp','byTurn') THEN data_rows.message_id END ASC

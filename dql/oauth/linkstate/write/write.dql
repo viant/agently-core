@@ -1,0 +1,32 @@
+#package('github.com/viant/agently-core/internal/datly/oauth/linkstate/write')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/user/oauth/linkstate/write','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Mode<string>(query/mode).Optional().Value('create'))
+#define($_ = $States<[]*LinkState>(body/data))
+#define($_ = $Data<[]*LinkState>(output/body))
+#define($_ = $Deleted<int>(output/deleted))
+#define($_ = $OldestExpiresAt<string>(output/oldestExpiresAt))
+#define($_ = $Created<bool>(output/created))
+#define($_ = $Outcome<string>(output/outcome))
+#define($_ = $ObservedState<string>(query/observedState).Optional().WithPredicate(7,'equal','oauth_link_state','state_hash'))
+#define($_ = $Now<string>(query/now).Optional().WithPredicate(7,'expr','(oauth_link_state.consumed_at IS NOT NULL OR oauth_link_state.expires_at <= ?)'))
+#define($_ = $ExpectedState<string>(query/expectedState).Optional().WithPredicate(7,'equal','oauth_link_state','state_hash'))
+#define($_ = $ExpectedUser<string>(query/expectedUser).Optional().WithPredicate(7,'equal','oauth_link_state','user_id'))
+#define($_ = $ExpectedSession<string>(query/expectedSession).Optional().WithPredicate(7,'equal','oauth_link_state','session_hash'))
+#define($_ = $Unconsumed<bool>(query/unconsumed).Optional().WithPredicate(7,'is_null','oauth_link_state','consumed_at'))
+#define($_ = $NotExpiredAfter<string>(query/notExpiredAfter).Optional().WithPredicate(7,'expr','oauth_link_state.expires_at > ?'))
+#define($_ = $Before<string>(query/before).Optional().WithPredicate(7,'expr','oauth_link_state.expires_at <= ?'))
+SELECT states.*,
+       type(states,'LinkState'), lifecycle_type(states,'Lifecycle'), mutation_predicate(states,7),
+       CAST(states.should_delete AS bool), tag(states.should_delete,'json:",omitempty"'), delete_marker(states.should_delete), delete_not_found(states,'ignore'),
+       required(states.state_hash), tag(states.state_hash,'sqlx:"state_hash,primaryKey=false"'),
+       required(states.flow_hash), tag(states.flow_hash,'sqlx:"flow_hash,primaryKey=true"'),
+       required(states.user_id), required(states.session_hash),
+       required(states.provider), CAST(states.expires_at AS string),
+       CAST(states.consumed_at AS *string), CAST(states.created_at AS string), required(states.now), tag(states.now,'sqlx:"-"')
+FROM (${embed:sql/linkstate.sql}) states

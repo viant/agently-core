@@ -1,9 +1,9 @@
 package turnqueue
 
-import queuew "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+import turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
 
 // NewTurnQueue allocates a mutable queue row with Has marker populated.
 func NewTurnQueue() *MutableTurnQueue {
-	v := &queuew.TurnQueue{Has: &queuew.TurnQueueHas{}}
+	v := &turnqueuemodel.TurnQueue{Has: &turnqueuemodel.TurnQueueHas{}}
 	return (*MutableTurnQueue)(v)
 }

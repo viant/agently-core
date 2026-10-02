@@ -1,0 +1,29 @@
+{
+  "source": "datlyv1/dql/agently/modelcall/cube/reader.dql",
+  "destination": "datlyv1/generated/agently/modelcall/cube",
+  "legacy_sources": [
+    "pkg/agently/conversation/conversation/usage.sql",
+    "pkg/agently/conversation/conversation/model.sql"
+  ],
+  "legacy_cases": 9,
+  "native_cases": 12,
+  "focused": "PASS",
+  "logs": [
+    "/tmp/agently-modelcall-cube-parity.log",
+    "/tmp/agently-modelcall-cube-native-final.log"
+  ],
+  "semantics": [
+    "Any unknown contributing cost makes aggregate cost NULL",
+    "Nine token sums coalesce NULL input values to zero",
+    "Empty aggregate retains NULL sums and count zero",
+    "Execution-role precedence and grouping matches legacy",
+    "Host internal/subject cannot be supplied as request filters"
+  ],
+  "full_endly": {
+    "status": "SUCCESS",
+    "log": "/tmp/agently-modelcall-cube-endly.log",
+    "test_seconds": 532.823,
+    "workflow_ms": 577908
+  },
+  "caller_cutover": "Pending; existing conversation usage composition remains active"
+}

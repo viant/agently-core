@@ -2,15 +2,15 @@ package memory
 
 import (
 	convcli "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	msgw "github.com/viant/agently-core/pkg/agently/message/write"
-	mcallw "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	payloadw "github.com/viant/agently-core/pkg/agently/payload/write"
-	toolw "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	turnw "github.com/viant/agently-core/pkg/agently/turn/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
+	modelcallmodel "github.com/viant/agently-core/model/modelcall"
+	payloadmodel "github.com/viant/agently-core/model/payload"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
-func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableConversation) {
+func applyConversationPatch(dst *conversationmodel.ConversationView, src *convcli.MutableConversation) {
 	if src.Has == nil {
 		return
 	}
@@ -94,7 +94,7 @@ func applyConversationPatch(dst *agconv.ConversationView, src *convcli.MutableCo
 	}
 }
 
-func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
+func applyMessagePatch(dst *conversationmodel.MessageView, src *messagemodel.Message) {
 	if src.Has == nil {
 		return
 	}
@@ -175,7 +175,7 @@ func applyMessagePatch(dst *agconv.MessageView, src *msgw.Message) {
 	}
 }
 
-func applyModelCallPatch(dst *agconv.ModelCallView, src *mcallw.ModelCall) {
+func applyModelCallPatch(dst *conversationmodel.ModelCallView, src *modelcallmodel.ModelCall) {
 	if src.Has == nil {
 		return
 	}
@@ -247,7 +247,7 @@ func applyModelCallPatch(dst *agconv.ModelCallView, src *mcallw.ModelCall) {
 	}
 }
 
-func applyToolCallPatch(dst *agconv.ToolCallView, src *toolw.ToolCall) {
+func applyToolCallPatch(dst *conversationmodel.ToolCallView, src *toolcallmodel.ToolCall) {
 	if src.Has == nil {
 		return
 	}
@@ -307,7 +307,7 @@ func applyToolCallPatch(dst *agconv.ToolCallView, src *toolw.ToolCall) {
 	}
 }
 
-func applyTurnPatch(dst *agconv.TranscriptView, src *turnw.Turn) {
+func applyTurnPatch(dst *conversationmodel.TranscriptView, src *turnmodel.Turn) {
 	if src.Has == nil {
 		return
 	}
@@ -321,7 +321,7 @@ func applyTurnPatch(dst *agconv.TranscriptView, src *turnw.Turn) {
 		dst.Origin = src.Origin
 	}
 	if src.Has.GoalID {
-		dst.GoalID = src.GoalID
+		dst.GoalId = src.GoalID
 	}
 	if src.Has.StatusReason {
 		dst.StatusReason = src.StatusReason
@@ -352,7 +352,7 @@ func applyTurnPatch(dst *agconv.TranscriptView, src *turnw.Turn) {
 	}
 }
 
-func applyPayloadPatch(dst *convcli.Payload, src *payloadw.Payload) {
+func applyPayloadPatch(dst *convcli.Payload, src *payloadmodel.Payload) {
 	if src.Has == nil {
 		return
 	}

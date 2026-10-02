@@ -1,0 +1,55 @@
+#package('github.com/viant/agently-core/internal/datly/modelcall/cube')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/model-call/report','GET'))
+#setting($_ = $input_type('ModelCallReportInput'))
+#setting($_ = $output_type('ModelCallReportOutput'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $cube())
+#define($_ = $Internal<bool>(modelCallAccess/internal).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','f','conversation_id'))
+#define($_ = $Provider<string>(query/provider).Optional().WithPredicate(0,'equal','f','provider'))
+#define($_ = $Model<string>(query/model).Optional().WithPredicate(0,'equal','f','model'))
+#define($_ = $Statuses<[]string>(query/statuses).Optional().WithPredicate(0,'in','f','status'))
+#define($_ = $ExecutionRole<string>(query/executionRole).Optional().WithPredicate(0,'equal','f','execution_role'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*ModelCallReportView>(output/view))
+SELECT f.*,
+       groupable(f),
+       type(f,'ModelCallReportView'),
+       required(f.conversation_id),
+       tag(f.conversation_id,'groupable:"true"'),
+       required(f.provider),
+       tag(f.provider,'groupable:"true"'),
+       required(f.model),
+       tag(f.model,'groupable:"true"'),
+       required(f.model_kind),
+       tag(f.model_kind,'groupable:"true"'),
+       required(f.status),
+       tag(f.status,'groupable:"true"'),
+       CAST(f.execution_role AS string),
+       tag(f.execution_role,'groupable:"true"'),
+       CAST(f.record_count AS int),
+       tag(f.record_count,'groupable:"false"'),
+       CAST(f.cost AS *float64),
+       tag(f.cost,'groupable:"false"'),
+       CAST(f.prompt_tokens AS *int),
+       tag(f.prompt_tokens,'groupable:"false"'),
+       CAST(f.prompt_cached_tokens AS *int),
+       tag(f.prompt_cached_tokens,'groupable:"false"'),
+       CAST(f.prompt_audio_tokens AS *int),
+       tag(f.prompt_audio_tokens,'groupable:"false"'),
+       CAST(f.completion_tokens AS *int),
+       tag(f.completion_tokens,'groupable:"false"'),
+       CAST(f.completion_reasoning_tokens AS *int),
+       tag(f.completion_reasoning_tokens,'groupable:"false"'),
+       CAST(f.completion_audio_tokens AS *int),
+       tag(f.completion_audio_tokens,'groupable:"false"'),
+       CAST(f.completion_accepted_prediction_tokens AS *int),
+       tag(f.completion_accepted_prediction_tokens,'groupable:"false"'),
+       CAST(f.completion_rejected_prediction_tokens AS *int),
+       tag(f.completion_rejected_prediction_tokens,'groupable:"false"'),
+       CAST(f.total_tokens AS *int),
+       tag(f.total_tokens,'groupable:"false"')
+FROM (${embed:sql/modelcall.sql}) f

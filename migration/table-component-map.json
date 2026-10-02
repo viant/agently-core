@@ -1,0 +1,535 @@
+{
+  "authority": "Generated reader output/root writer input view table tags; nested JOIN/FROM is not treated as the root table.",
+  "target": "One canonical physical reader and writer per persistence table. Auxiliary decoded, reference and composed views may share source tables and are classified separately; this is not a claim of one total reader.",
+  "layout": "Root dql and internal/datly canonical leaves; input/output structs explicitly declared for every contract",
+  "tables": {
+    "call_payload": {
+      "readers": [
+        {
+          "source": "dql/payload/read",
+          "destination": "internal/datly/payload/read",
+          "status": "sqlite-legacy-parity",
+          "role": "canonical_physical_raw_reader",
+          "purpose": "Raw physical payload shape, including storage/byte columns, used for orphan records and canonical table lookups."
+        },
+        {
+          "source": "dql/payload/reference",
+          "destination": "internal/datly/payload/reference",
+          "status": "sqlite-legacy-parity",
+          "role": "auxiliary_decoded_reference_reader",
+          "purpose": "Decoded payload and reference view with different byte shape and codecs; it legitimately shares call_payload without being the canonical raw table reader."
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/payload/write",
+          "destination": "internal/datly/payload/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    },
+    "conversation": {
+      "readers": [
+        {
+          "source": "dql/conversation/read",
+          "destination": "internal/datly/conversation/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/conversation/write",
+          "destination": "internal/datly/conversation/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    },
+    "conversation_report_context": {
+      "readers": [
+        {
+          "source": "dql/reporting/context/read",
+          "destination": "internal/datly/reporting/context/read",
+          "status": "sqlite-legacy-parity-and-owner-scope"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/reporting/context/write",
+          "destination": "internal/datly/reporting/context/write",
+          "status": "sqlite-legacy-cas-parity"
+        }
+      ]
+    },
+    "generated_file": {
+      "readers": [
+        {
+          "source": "dql/generatedfile/read",
+          "destination": "internal/datly/generatedfile/read",
+          "status": "sqlite-legacy-parity-with-documented-status-filter-fix"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/generatedfile/write",
+          "destination": "internal/datly/generatedfile/write",
+          "status": "sqlite-legacy-parity-with-documented-status-filter-fix"
+        }
+      ]
+    },
+    "goal": {
+      "readers": [
+        {
+          "source": "dql/goal/read",
+          "destination": "internal/datly/goal/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/goal/write",
+          "destination": "internal/datly/goal/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    },
+    "investigation": {
+      "readers": [
+        {
+          "source": "dql/investigation/read",
+          "destination": "internal/datly/investigation/read",
+          "status": "sqlite-legacy-delete-parity-and-native-scope"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/investigation/write",
+          "destination": "internal/datly/investigation/write",
+          "status": "sqlite-legacy-delete-parity-and-native-crud"
+        }
+      ]
+    },
+    "maintenance_lease": {
+      "readers": [
+        {
+          "source": "dql/maintenancelease/read",
+          "destination": "internal/datly/maintenancelease/read",
+          "status": "sqlite-native-lease-lifecycle"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/maintenancelease/write",
+          "destination": "internal/datly/maintenancelease/write",
+          "status": "sqlite-native-lease-lifecycle"
+        }
+      ]
+    },
+    "message": {
+      "writers": [
+        {
+          "source": "dql/message/write",
+          "destination": "internal/datly/message/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "readers": [
+        {
+          "source": "dql/message/read",
+          "destination": "internal/datly/message/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "cubes": [
+        {
+          "source": "dql/message/cube",
+          "destination": "internal/datly/message/cube",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    },
+    "model_call": {
+      "cubes": [
+        {
+          "source": "dql/modelcall/cube",
+          "destination": "internal/datly/modelcall/cube",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "readers": [
+        {
+          "source": "dql/modelcall/read",
+          "destination": "internal/datly/modelcall/read",
+          "status": "sqlite-legacy-parity",
+          "role": "canonical_physical_reader"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/modelcall/write",
+          "destination": "internal/datly/modelcall/write",
+          "status": "sqlite-legacy-parity-with-documented-rollback-fix"
+        }
+      ]
+    },
+    "oauth_link_state": {
+      "readers": [
+        {
+          "source": "dql/oauth/linkstate/read",
+          "destination": "internal/datly/oauth/linkstate/read",
+          "status": "sqlite-legacy-pending-parity-and-native-state-lookup"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/oauth/linkstate/write",
+          "authored_dql": "dql/oauth/linkstate/write/write.dql",
+          "destination": "internal/datly/oauth/linkstate/write",
+          "role": "canonical_physical_writer",
+          "evidence": "Input.States view tag table=oauth_link_state; create/consume/purge modes with guarded predicates. SQLite wrapper and native contract proof exists; final MySQL evidence belongs to the reporting/auth lane."
+        }
+      ]
+    },
+    "report_audit_event": {
+      "readers": [
+        {
+          "source": "dql/reporting/audit/read",
+          "destination": "internal/datly/reporting/audit/read",
+          "status": "sqlite-legacy-delete-parity-and-native-scope"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/reporting/audit/write",
+          "destination": "internal/datly/reporting/audit/write",
+          "status": "sqlite-legacy-delete-parity-and-native-crud"
+        }
+      ]
+    },
+    "report_export_artifact": {
+      "readers": [
+        {
+          "source": "dql/reporting/artifact/read",
+          "destination": "internal/datly/reporting/artifact/read",
+          "status": "sqlite-full-field-legacy-parity-and-owner-scope"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/reporting/artifact/write",
+          "destination": "internal/datly/reporting/artifact/write",
+          "status": "sqlite-legacy-put-parity-and-guarded-delete"
+        }
+      ]
+    },
+    "report_export_job": {
+      "readers": [
+        {
+          "source": "dql/reporting/job/read",
+          "destination": "internal/datly/reporting/job/read",
+          "status": "sqlite-full-field-legacy-parity-and-owner-scope"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/reporting/job/write",
+          "destination": "internal/datly/reporting/job/write",
+          "status": "sqlite-legacy-basic-transition-parity"
+        }
+      ]
+    },
+    "report_run": {
+      "readers": [
+        {
+          "source": "dql/reporting/run/read",
+          "destination": "internal/datly/reporting/run/read",
+          "status": "sqlite-full-field-legacy-parity-and-owner-scope"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/reporting/run/write",
+          "destination": "internal/datly/reporting/run/write",
+          "status": "sqlite-legacy-create-update-cas-parity"
+        }
+      ]
+    },
+    "report_shared_artifact": {
+      "writers": [
+        {
+          "source": "dql/reporting/sharedartifact/write",
+          "destination": "internal/datly/reporting/sharedartifact/write",
+          "status": "sqlite-legacy-parity-with-sparse-and-ownership-corrections"
+        }
+      ],
+      "readers": [
+        {
+          "source": "dql/reporting/sharedartifact/read",
+          "destination": "internal/datly/reporting/sharedartifact/read",
+          "status": "sqlite-legacy-parity-with-owner-scope"
+        }
+      ]
+    },
+    "run": {
+      "cubes": [
+        {
+          "source": "dql/run/cube",
+          "destination": "internal/datly/run/cube",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "readers": [
+        {
+          "source": "dql/run/read",
+          "destination": "internal/datly/run/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/run/write",
+          "destination": "internal/datly/run/write",
+          "status": "sqlite-legacy-parity"
+        },
+        {
+          "source": "dql/run/delete",
+          "destination": "internal/datly/run/delete",
+          "status": "generated-key-only-mutation-delete",
+          "role": "private_key_only_delete_writer",
+          "purpose": "Auxiliary identity-only deletion operation; ordinary run mutations remain owned by canonical run/write. No duplicate general table writer."
+        }
+      ]
+    },
+    "schedule": {
+      "readers": [
+        {
+          "source": "dql/schedule/read",
+          "destination": "internal/datly/schedule/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/schedule/write",
+          "destination": "internal/datly/schedule/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    },
+    "schedule_run": {
+      "readers": [
+        {
+          "source": "dql/legacyrun/read",
+          "destination": "internal/datly/legacyrun/read",
+          "status": "sqlite-legacy-delete-parity-and-native-scope"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/legacyrun/write",
+          "destination": "internal/datly/legacyrun/write",
+          "status": "sqlite-legacy-delete-parity-and-native-crud"
+        }
+      ]
+    },
+    "session": {
+      "readers": [
+        {
+          "source": "dql/session/read",
+          "destination": "internal/datly/session/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/session/write",
+          "destination": "internal/datly/session/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    },
+    "tool_approval_queue": {
+      "writers": [
+        {
+          "source": "dql/toolapprovalqueue/write",
+          "destination": "internal/datly/toolapprovalqueue/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "readers": [
+        {
+          "source": "dql/toolapprovalqueue/read",
+          "destination": "internal/datly/toolapprovalqueue/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "cubes": [
+        {
+          "source": "dql/toolapprovalqueue/cube",
+          "destination": "internal/datly/toolapprovalqueue/cube",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    },
+    "tool_call": {
+      "cubes": [
+        {
+          "source": "dql/toolcall/cube",
+          "destination": "internal/datly/toolcall/cube",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "readers": [
+        {
+          "source": "dql/toolcall/read",
+          "destination": "internal/datly/toolcall/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/toolcall/write",
+          "destination": "internal/datly/toolcall/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    },
+    "tool_execution_claim": {
+      "readers": [
+        {
+          "source": "dql/toolexecutionclaim/read",
+          "destination": "internal/datly/toolexecutionclaim/read",
+          "status": "sqlite-legacy-delete-parity-and-native-predicates"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/toolexecutionclaim/write",
+          "destination": "internal/datly/toolexecutionclaim/write",
+          "status": "sqlite-legacy-delete-parity-and-native-crud"
+        }
+      ]
+    },
+    "turn": {
+      "cubes": [
+        {
+          "source": "dql/turn/cube",
+          "destination": "internal/datly/turn/cube",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "readers": [
+        {
+          "source": "dql/turn/read",
+          "destination": "internal/datly/turn/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/turn/write",
+          "destination": "internal/datly/turn/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    },
+    "turn_queue": {
+      "readers": [
+        {
+          "source": "dql/turnqueue/read",
+          "destination": "internal/datly/turnqueue/read",
+          "status": "sqlite-legacy-parity-with-documented-rollback-fix"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/turnqueue/write",
+          "destination": "internal/datly/turnqueue/write",
+          "status": "sqlite-legacy-parity-with-documented-rollback-fix"
+        }
+      ]
+    },
+    "user_oauth_token": {
+      "readers": [
+        {
+          "source": "dql/oauth/token/read",
+          "destination": "internal/datly/oauth/token/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/oauth/token/write",
+          "destination": "internal/datly/oauth/token/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    },
+    "users": {
+      "readers": [
+        {
+          "source": "dql/user/read",
+          "destination": "internal/datly/user/read",
+          "status": "sqlite-legacy-parity"
+        }
+      ],
+      "writers": [
+        {
+          "source": "dql/user/write",
+          "destination": "internal/datly/user/write",
+          "status": "sqlite-legacy-parity"
+        }
+      ]
+    }
+  },
+  "computed_roots": [
+    {
+      "source": "dql/terminalartifact/snapshot/read",
+      "root_view": "candidate_rows",
+      "reason": "Computed view root, not a physical table in discovery schema"
+    }
+  ],
+  "unresolved_root_graphs": [],
+  "historical_retired_graphs": [
+    {
+      "source": "dql/agently/message/elicitation/message_by_elicitation/reader",
+      "reason": "Root table not declared in emitted view tag; review computed/source graph before assigning ownership"
+    },
+    {
+      "source": "dql/agently/message/message/reader",
+      "reason": "Root table not declared in emitted view tag; review computed/source graph before assigning ownership"
+    },
+    {
+      "source": "dql/agently/message/read/message_by_linked_elicitation/reader",
+      "reason": "Root table not declared in emitted view tag; review computed/source graph before assigning ownership"
+    },
+    {
+      "source": "dql/agently/message/read/message_by_parent_elicitation/reader",
+      "reason": "Root table not declared in emitted view tag; review computed/source graph before assigning ownership"
+    }
+  ],
+  "unmapped_required_delete_tables": [],
+  "cube_inventory": "Six current fact cubes: message, model_call, run, tool_approval_queue, tool_call and turn. Additional fact classifications remain separate from physical reader/writer ownership.",
+  "implemented_consolidation": "Goal reader/writer: 13 real legacy comparisons plus required-input/private exposure checks; old delete component removed.",
+  "composed_views": [
+    {
+      "source": "dql/runsteps/read",
+      "authored_dql": "dql/runsteps/read/reader.dql",
+      "destination": "internal/datly/runsteps/read",
+      "role": "composed_run_step_union",
+      "source_tables": [
+        "model_call",
+        "tool_call"
+      ],
+      "reason": "A UNION step projection with run ID, step type and cursor predicates; not a second physical model_call reader."
+    }
+  ],
+  "current_review": {
+    "date": "2026-09-30",
+    "stock_contracts": 62,
+    "oauth_link_state_writer_accounted": true,
+    "runsteps_is_composed": true,
+    "payload_reader_purposes_distinct": true,
+    "all_required_table_coverage": "Table ownership classification corrected. Central required-table acceptance flag is owned by the root agent.",
+    "source_edits": false
+  }
+}

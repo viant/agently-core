@@ -1,0 +1,1 @@
+SELECT c.* FROM user_oauth_token c

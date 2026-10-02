@@ -1,0 +1,114 @@
+{
+  "status": "PARTIAL: goal store verified; default root runtime factory and full agent build pending",
+  "repository": "/Users/awitas/go/src/github.com/viant/agently-core-v1",
+  "branch": "datly_1",
+  "changes": [
+    "Goal store tests now invoke canonical v1 reader/writer contracts.",
+    "Root store linked-runtime test checks absent goals, zero usage, empty controller fingerprint, sparse transitions and pause reasons, all unchanged domain fields, and invalid missing-goal updates.",
+    "Runtime.Current shares the same store as AfterTurn mutations.",
+    "Agent WithGoalStore and executor Builder.WithGoalStore inject the domain persistence boundary.",
+    "Agent prompt, async-policy, and autonomous wakeup reads use the injected runtime; seven wakeup/async fixtures now seed through linked generated writers.",
+    "A shared datlyv1/host bootstrap now owns command and in-process linked contracts and private operation exports.",
+    "app/store/native opens stock standalone.Server from explicit or application environment connectors; executor Builder.WithNativeRuntime feeds its goal invoker.",
+    "service/goal.Repository now exposes domain records and presence-aware mutations for public goal CRUD; linked tests cover insert, sparse update, explicit NULL and delete.",
+    "protocol/tool/service/system/goal now uses service/goal.Record and presence-aware Mutation for get/create/update/pause/resume/clear; its test stub uses domain types.",
+    "Embedded SDK goal read/create/update/clear now use service/goal.Repository supplied from executor.Native; system goal tool uses the same repository.",
+    "Removed app/store/data goal facade methods and SDK0 goal registration, and deleted 14 obsolete pkg/agently/goal files after migrating production callers. Linked repository tests cover omitted fields, explicit NULL, duplicate conversation and missing parent.",
+    "Retired the SDK0 goal registration and facade from app/store/data and removed its 14 tracked component files after replacing production goal callers.",
+    "app/store/native.AccessProviders binds declared private Datly access fields from trusted Go context and verified visibility subject; RequireVisibleConversation uses the generated scoped conversation reader before embedded SDK goal operations."
+  ],
+  "validation": {
+    "goal_package": {
+      "command": "go test -mod=readonly -modfile=<scratch copy of root go.mod> -count=1 ./service/goal",
+      "status": "passed against upstream strict-delete contract and regenerated artifacts",
+      "duration_seconds": 1.456,
+      "scope": "All domain/controller/store tests, linked SQLite sparse mutation cases, and AfterTurn usage plus budget transition persistence. Public CRUD through the shared native runtime includes insert, sparse update, explicit NULL, and delete."
+    },
+    "agent_package": {
+      "command": "go test -mod=readonly -modfile=<scratch copy of root go.mod> -count=1 ./service/agent -run 'Test(GoalStoreWiring|ObserveDetachedAsyncGoalCompletion|MaybeContinueActiveGoal)'",
+      "status": "setup failed",
+      "reason": "Remaining SDK0 Datly root/repository/view and split xdatly imports, plus missing dependency sums. No agent test executed.",
+      "log": "/tmp/agently-v1-agent-validation.log"
+    },
+    "datly_writer": {
+      "command": "go test -mod=readonly ./runtime/handler/writer",
+      "status": "passed against upstream 37431d0b strict-delete contract",
+      "duration_seconds": 1.027
+    },
+    "endly": {
+      "status": "passed",
+      "elapsed_ms": 203084,
+      "nested_test_seconds": 163.015,
+      "log": "/tmp/agently-v1-endly-host-validation.log",
+      "scope": "58-contract nested transcription/regeneration, boundary audit, nested package tests, and host build after shared host change."
+    },
+    "native_host": {
+      "tests": [
+        "GOWORK=off go test -mod=readonly -count=1 ./tests -run ^TestLinkedHostGoalReaderWriter$",
+        "go test -mod=readonly -modfile=<scratch root module> -count=1 ./app/store/native",
+        "go test -mod=readonly -modfile=<scratch root module> -count=1 ./service/goal"
+      ],
+      "status": "passed",
+      "scope": "Linked private goal read/write and application workspace SQLite provisioning plus persisted goal round trip."
+    },
+    "system_goal_tool": {
+      "command": "go test -mod=readonly -modfile=<scratch root module> ./protocol/tool/service/system/goal",
+      "status": "setup failed before package compilation",
+      "reason": "SDK0 Datly and split xdatly imports remain in the transitive root dependency graph; missing scratch-module sums also reported.",
+      "log": "/tmp/agently-v1-system-goal-validation.log"
+    },
+    "sdk_goal": {
+      "command": "go test -mod=readonly -modfile=<scratch root module> ./sdk",
+      "status": "setup failed before package compilation",
+      "reason": "Other SDK0 Datly and split xdatly imports remain in the transitive root graph.",
+      "log": "/tmp/agently-v1-sdk-goal-validation.log",
+      "scope": "The SDK source now authorizes get/create/update/clear through the native scoped conversation reader; its private-owner SDK test is pending root dependency cutover."
+    },
+    "retirement": {
+      "source_audit": "No production Go import of pkg/agently/goal and no production call to app/store/data.GetGoal/PatchGoals/DeleteGoals outside the SDK public GetGoal API. migration/legacyprobe remains an isolated SDK0 comparison module against published original Core.",
+      "focused_nested": "GOWORK=off go test -mod=readonly -count=1 ./tests -run ^(TestGoalLegacyV1Parity|TestLinkedHostGoalReaderWriter)$",
+      "focused_status": "passed, 16.683 s",
+      "root_native_and_goal": "go test -mod=readonly -modfile=<scratch root module> -count=1 ./app/store/native ./service/goal",
+      "root_status": "passed, 2.831 s and 2.054 s"
+    },
+    "native_visibility": {
+      "command": "go test -mod=readonly -modfile=<scratch root module> -count=1 ./app/store/native",
+      "status": "passed",
+      "scope": "Private conversation owned by u1 is visible to u1 and denied to u2; missing access context fails binding; missing and unauthorized conversations yield the same not-found result. The embedded SDK source now invokes this check before get/create/update/clear; its package test remains blocked by other SDK0 imports."
+    }
+  },
+  "root_module_policy": "Real root go.mod/go.sum were not updated by diagnostic resolution; scratch modfile used.",
+  "remaining": [
+    "Switch default executor creation from SDK0 datly.Service to the shared native runtime, install request-derived trusted owner/internal/IdP providers, make shutdown own native server, and migrate remaining legacy callers.",
+    "Validate system goal tool and public SDK goal routes after root SDK0 dependency removal; compare JSON/error/auth semantics against the SDK0 baseline.",
+    "Run full agent tests after removing their SDK0 dependency graph; test changes are currently unverified at package scope.",
+    "Complete all hand-off.md runtime, SQL, transaction, MySQL, SDK/app, IdP and backfill requirements.",
+    "Eliminate remaining SDK0 Datly and split xdatly source imports; current root package setup still fails before system goal tool, SDK, or app route tests can run. Keep production module pins on Datly and unified xdatly v1.",
+    "Finish root SDK0 import cleanup to execute the updated public SDK goal authorization/JSON/error tests. A source-level change alone is not route verification."
+  ],
+  "checkouts": {
+    "datly": {
+      "branch": "v1",
+      "head": "d02ccad8"
+    },
+    "xdatly": {
+      "branch": "v1",
+      "head": "ff38d5bca9b6d55116d5a85ab772e3839e887bb5"
+    },
+    "sqlx": {
+      "branch": "main",
+      "head": "0df7f08c492674d5e56338925b5683ebff222525"
+    },
+    "agently": {
+      "branch": "main",
+      "head": "ad6370b194ed7f8ec0c09c7885712998ccda40f1"
+    }
+  },
+  "endly_install": {
+    "source": "/Users/awitas/go/src/github.com/viant/endly",
+    "binary": "/Users/awitas/.local/bin/endly",
+    "version": "0.88.0"
+  },
+  "agently_untracked_backup": "/var/folders/ls/826gfzj54blcn50nycp3zjq80000gn/T/agently-pull-backup-z8x9nzjv/sync-deployment-ui.sh",
+  "pushed": false
+}

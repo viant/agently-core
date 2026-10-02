@@ -6,7 +6,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/binding"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	agruntime "github.com/viant/agently-core/runtime"
@@ -48,10 +48,10 @@ func TestLatestInlineSkillContextForTurn_ExtractsMostRecentInlineActivation(t *t
 	contentDetach := `{"name":"beta","body":"loaded beta","mode":"detach","args":"x"}`
 	contentInline := `{"name":"forecast","body":"loaded forecast","mode":"inline","args":"y"}`
 	conv := &apiconv.Conversation{
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id: "turn-1",
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{ToolName: skillStrPtr("llm/skills:activate"), Content: skillStrPtr(contentDetach)},
 					{ToolName: skillStrPtr("llm_skills-activate"), Content: skillStrPtr(contentInline)},
 				},

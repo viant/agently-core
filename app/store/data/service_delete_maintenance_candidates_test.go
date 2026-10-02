@@ -13,7 +13,7 @@ import (
 func TestListConversationMaintenanceCandidates_InteractiveKeysetAndFilters(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	cutoff := old.Add(24 * time.Hour)
-	svc, _ := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, _ := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"old-a", old, old, "running", "owner-1"}},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"old-b", old, old, "succeeded", "owner-2"}},
@@ -73,7 +73,7 @@ func TestListConversationMaintenanceCandidates_InteractiveKeysetAndFilters(t *te
 
 func TestListConversationMaintenanceCandidates_ScheduledMarkers(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc, _ := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, _ := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, created_by_user_id) VALUES (?, ?, ?, ?)`, Params: []interface{}{"interactive", old, old, "owner-1"}},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, created_by_user_id, schedule_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"scheduled-a", old, old, "owner-1", "schedule-1"}},
@@ -95,7 +95,7 @@ func TestListConversationMaintenanceCandidates_ScheduledMarkers(t *testing.T) {
 func TestListConversationMaintenanceCandidates_ScheduledFallbackOnlyReturnsOldShellsWithoutRuns(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	cutoff := old.Add(24 * time.Hour)
-	svc, _ := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, _ := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, schedule_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"fallback-ownerless", old, old, "succeeded", "schedule-1"}},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id, schedule_kind) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"fallback-owned", old, old, "succeeded", "owner-1", "cron"}},

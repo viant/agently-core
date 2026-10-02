@@ -5,41 +5,26 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"github.com/viant/agently-core/app/store/native"
+	"github.com/viant/datly/bootstrap/connector"
+	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/viant/agently-core/internal/testutil/dbtest"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
-	agconvwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
-	agmessage "github.com/viant/agently-core/pkg/agently/message"
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
-	agmessagewrite "github.com/viant/agently-core/pkg/agently/message/write"
-	agmodelcallwrite "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	agpayload "github.com/viant/agently-core/pkg/agently/payload"
-	agpayloadwrite "github.com/viant/agently-core/pkg/agently/payload/write"
-	agrun "github.com/viant/agently-core/pkg/agently/run"
-	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
-	agrunstale "github.com/viant/agently-core/pkg/agently/run/stale"
-	agrunsteps "github.com/viant/agently-core/pkg/agently/run/steps"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	agtoolcall "github.com/viant/agently-core/pkg/agently/toolcall/byOp"
-	agtoolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
-	agturnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
-	agturnlistall "github.com/viant/agently-core/pkg/agently/turn/list"
-	agturnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
-	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
-	agturnlist "github.com/viant/agently-core/pkg/agently/turn/queuedList"
-	agturnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
-	"github.com/viant/datly"
-	"github.com/viant/datly/repository/contract"
-	"github.com/viant/datly/view"
-	hstate "github.com/viant/xdatly/handler/state"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	messagemodel "github.com/viant/agently-core/model/message"
+	modelcallmodel "github.com/viant/agently-core/model/modelcall"
+	payloadmodel "github.com/viant/agently-core/model/payload"
+	runmodel "github.com/viant/agently-core/model/run"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnmodel "github.com/viant/agently-core/model/turn"
+
+	hstate "github.com/viant/xdatly/state"
 	_ "modernc.org/sqlite"
 )
 
@@ -50,7 +35,7 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	cases := []struct {
 		name    string
 		id      string
-		input   *agconv.ConversationInput
+		input   *conversationmodel.ConversationInput
 		wantNil bool
 	}{
 		{
@@ -65,102 +50,102 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 		{
 			name: "agent id match",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				AgentId: "agent-1",
-				Has:     &agconv.ConversationInputHas{AgentId: true},
+				Has:     &conversationmodel.ConversationInputHas{AgentId: true},
 			},
 		},
 		{
 			name: "agent id mismatch",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				AgentId: "agent-x",
-				Has:     &agconv.ConversationInputHas{AgentId: true},
+				Has:     &conversationmodel.ConversationInputHas{AgentId: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "parent id match",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				ParentId: "parent-conv-1",
-				Has:      &agconv.ConversationInputHas{ParentId: true},
+				Has:      &conversationmodel.ConversationInputHas{ParentId: true},
 			},
 		},
 		{
 			name: "parent id mismatch",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				ParentId: "parent-conv-x",
-				Has:      &agconv.ConversationInputHas{ParentId: true},
+				Has:      &conversationmodel.ConversationInputHas{ParentId: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "parent turn id match",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				ParentTurnId: "parent-turn-1",
-				Has:          &agconv.ConversationInputHas{ParentTurnId: true},
+				Has:          &conversationmodel.ConversationInputHas{ParentTurnId: true},
 			},
 		},
 		{
 			name: "parent turn id mismatch",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				ParentTurnId: "parent-turn-x",
-				Has:          &agconv.ConversationInputHas{ParentTurnId: true},
+				Has:          &conversationmodel.ConversationInputHas{ParentTurnId: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "schedule id match",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				ScheduleId: "sch-1",
-				Has:        &agconv.ConversationInputHas{ScheduleId: true},
+				Has:        &conversationmodel.ConversationInputHas{ScheduleId: true},
 			},
 		},
 		{
 			name: "schedule id mismatch",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				ScheduleId: "sch-x",
-				Has:        &agconv.ConversationInputHas{ScheduleId: true},
+				Has:        &conversationmodel.ConversationInputHas{ScheduleId: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "schedule run id match",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				ScheduleRunId: "sch-run-1",
-				Has:           &agconv.ConversationInputHas{ScheduleRunId: true},
+				Has:           &conversationmodel.ConversationInputHas{ScheduleRunId: true},
 			},
 		},
 		{
 			name: "schedule run id mismatch",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				ScheduleRunId: "sch-run-x",
-				Has:           &agconv.ConversationInputHas{ScheduleRunId: true},
+				Has:           &conversationmodel.ConversationInputHas{ScheduleRunId: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "has schedule id true on scheduled conversation",
 			id:   "c-main",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				HasScheduleId: true,
-				Has:           &agconv.ConversationInputHas{HasScheduleId: true},
+				Has:           &conversationmodel.ConversationInputHas{HasScheduleId: true},
 			},
 		},
 		{
 			name: "has schedule id true on unscheduled conversation",
 			id:   "c-other",
-			input: &agconv.ConversationInput{
+			input: &conversationmodel.ConversationInput{
 				HasScheduleId: true,
-				Has:           &agconv.ConversationInputHas{HasScheduleId: true},
+				Has:           &conversationmodel.ConversationInputHas{HasScheduleId: true},
 			},
 			wantNil: true,
 		},
@@ -188,9 +173,9 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	}
 
 	t.Run("since filter narrows transcript", func(t *testing.T) {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			Since: "t-anchor",
-			Has: &agconv.ConversationInputHas{
+			Has: &conversationmodel.ConversationInputHas{
 				Since: true,
 			},
 		}
@@ -206,9 +191,9 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	})
 
 	t.Run("include transcript false", func(t *testing.T) {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			IncludeTranscript: false,
-			Has:               &agconv.ConversationInputHas{IncludeTranscript: true},
+			Has:               &conversationmodel.ConversationInputHas{IncludeTranscript: true},
 		}
 		got, err := svc.GetConversation(ctx, "c-main", in)
 		if err != nil {
@@ -223,9 +208,9 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	})
 
 	t.Run("include transcript true", func(t *testing.T) {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			IncludeTranscript: true,
-			Has:               &agconv.ConversationInputHas{IncludeTranscript: true},
+			Has:               &conversationmodel.ConversationInputHas{IncludeTranscript: true},
 		}
 		got, err := svc.GetConversation(ctx, "c-main", in)
 		if err != nil {
@@ -246,10 +231,10 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	})
 
 	t.Run("include model call false", func(t *testing.T) {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			IncludeTranscript: true,
 			IncludeModelCal:   false,
-			Has: &agconv.ConversationInputHas{
+			Has: &conversationmodel.ConversationInputHas{
 				IncludeTranscript: true,
 				IncludeModelCal:   true,
 			},
@@ -268,10 +253,10 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	})
 
 	t.Run("include model call true", func(t *testing.T) {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			IncludeTranscript: true,
 			IncludeModelCal:   true,
-			Has: &agconv.ConversationInputHas{
+			Has: &conversationmodel.ConversationInputHas{
 				IncludeTranscript: true,
 				IncludeModelCal:   true,
 			},
@@ -290,10 +275,10 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	})
 
 	t.Run("include tool call false", func(t *testing.T) {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			IncludeTranscript: true,
 			IncludeToolCall:   false,
-			Has: &agconv.ConversationInputHas{
+			Has: &conversationmodel.ConversationInputHas{
 				IncludeTranscript: true,
 				IncludeToolCall:   true,
 			},
@@ -315,10 +300,10 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	})
 
 	t.Run("include tool call true", func(t *testing.T) {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			IncludeTranscript: true,
 			IncludeToolCall:   true,
-			Has: &agconv.ConversationInputHas{
+			Has: &conversationmodel.ConversationInputHas{
 				IncludeTranscript: true,
 				IncludeToolCall:   true,
 			},
@@ -342,10 +327,10 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	})
 
 	t.Run("orphan tool message is not attached to assistant parent", func(t *testing.T) {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			IncludeTranscript: true,
 			IncludeToolCall:   true,
-			Has: &agconv.ConversationInputHas{
+			Has: &conversationmodel.ConversationInputHas{
 				IncludeTranscript: true,
 				IncludeToolCall:   true,
 			},
@@ -367,10 +352,10 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 	})
 
 	t.Run("json shape includes toolMessage and nested toolCall", func(t *testing.T) {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			IncludeTranscript: true,
 			IncludeToolCall:   true,
-			Has: &agconv.ConversationInputHas{
+			Has: &conversationmodel.ConversationInputHas{
 				IncludeTranscript: true,
 				IncludeToolCall:   true,
 			},
@@ -391,7 +376,10 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 		if err := json.Unmarshal(raw, &doc); err != nil {
 			t.Fatalf("Unmarshal() error: %v", err)
 		}
-		toolMessages, ok := doc["ToolMessage"].([]interface{})
+		if _, exists := doc["ToolMessage"]; exists {
+			t.Fatal("unexpected PascalCase ToolMessage JSON key")
+		}
+		toolMessages, ok := doc["toolMessage"].([]interface{})
 		if !ok || len(toolMessages) == 0 {
 			t.Fatalf("expected toolMessage array in json shape")
 		}
@@ -399,23 +387,11 @@ func TestDataService_ConversationPredicates(t *testing.T) {
 		if !ok {
 			t.Fatalf("expected first toolMessage object")
 		}
-		if _, ok := tm["ToolCall"].(map[string]interface{}); !ok {
+		if _, exists := tm["ToolCall"]; exists {
+			t.Fatal("unexpected PascalCase ToolCall JSON key")
+		}
+		if _, ok := tm["toolCall"].(map[string]interface{}); !ok {
 			t.Fatalf("expected nested toolCall object in json shape")
-		}
-	})
-}
-
-func TestDataService_GoalPredicates(t *testing.T) {
-	svc := newSeededService(t, seedForPatchBaseline)
-	ctx := context.Background()
-
-	t.Run("current goal by conversation", func(t *testing.T) {
-		got, err := svc.GetGoal(ctx, "c-base", nil)
-		if err != nil {
-			t.Fatalf("GetGoal() error: %v", err)
-		}
-		if got == nil || got.Id != "g-base" {
-			t.Fatalf("expected g-base, got %#v", got)
 		}
 	})
 }
@@ -424,8 +400,8 @@ func TestDataService_MessageAndElicitation(t *testing.T) {
 	svc := newSeededService(t, seedForMessageAndElicitation)
 	ctx := context.Background()
 
-	msg, err := svc.GetMessage(ctx, "m-main", &agmessage.MessageInput{
-		Has: &agmessage.MessageInputHas{Id: true},
+	msg, err := svc.GetMessage(ctx, "m-main", &messagemodel.MessageInput{
+		Has: &messagemodel.MessageInputHas{Id: true},
 	})
 	if err != nil {
 		t.Fatalf("GetMessage() error: %v", err)
@@ -465,110 +441,110 @@ func TestDataService_RunPredicates(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		input   *agrun.RunRowsInput
+		input   *runmodel.RunRowsInput
 		wantNil bool
 	}{
 		{name: "no extra filters"},
 		{
 			name: "turn id match",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				TurnId: "t-run-main",
-				Has:    &agrun.RunRowsInputHas{TurnId: true},
+				Has:    &runmodel.RunRowsInputHas{TurnId: true},
 			},
 		},
 		{
 			name: "turn id mismatch",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				TurnId: "t-other-run",
-				Has:    &agrun.RunRowsInputHas{TurnId: true},
+				Has:    &runmodel.RunRowsInputHas{TurnId: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "conversation id match",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				ConversationId: "c-main",
-				Has:            &agrun.RunRowsInputHas{ConversationId: true},
+				Has:            &runmodel.RunRowsInputHas{ConversationId: true},
 			},
 		},
 		{
 			name: "conversation id mismatch",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				ConversationId: "c-other",
-				Has:            &agrun.RunRowsInputHas{ConversationId: true},
+				Has:            &runmodel.RunRowsInputHas{ConversationId: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "schedule id match",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				ScheduleId: "sch-1",
-				Has:        &agrun.RunRowsInputHas{ScheduleId: true},
+				Has:        &runmodel.RunRowsInputHas{ScheduleId: true},
 			},
 		},
 		{
 			name: "schedule id mismatch",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				ScheduleId: "sch-x",
-				Has:        &agrun.RunRowsInputHas{ScheduleId: true},
+				Has:        &runmodel.RunRowsInputHas{ScheduleId: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "worker id match",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				WorkerId: "worker-1",
-				Has:      &agrun.RunRowsInputHas{WorkerId: true},
+				Has:      &runmodel.RunRowsInputHas{WorkerId: true},
 			},
 		},
 		{
 			name: "worker id mismatch",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				WorkerId: "worker-x",
-				Has:      &agrun.RunRowsInputHas{WorkerId: true},
+				Has:      &runmodel.RunRowsInputHas{WorkerId: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "status match",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				RunStatus: "running",
-				Has:       &agrun.RunRowsInputHas{RunStatus: true},
+				Has:       &runmodel.RunRowsInputHas{RunStatus: true},
 			},
 		},
 		{
 			name: "status mismatch",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				RunStatus: "failed",
-				Has:       &agrun.RunRowsInputHas{RunStatus: true},
+				Has:       &runmodel.RunRowsInputHas{RunStatus: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "exclude statuses excludes row",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				ExcludeStatuses: []string{"running", "queued"},
-				Has:             &agrun.RunRowsInputHas{ExcludeStatuses: true},
+				Has:             &runmodel.RunRowsInputHas{ExcludeStatuses: true},
 			},
 			wantNil: true,
 		},
 		{
 			name: "exclude statuses allows row",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				ExcludeStatuses: []string{"failed"},
-				Has:             &agrun.RunRowsInputHas{ExcludeStatuses: true},
+				Has:             &runmodel.RunRowsInputHas{ExcludeStatuses: true},
 			},
 		},
 		{
 			name: "combined positive filters",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				TurnId:          "t-run-main",
 				ConversationId:  "c-main",
 				ScheduleId:      "sch-1",
 				WorkerId:        "worker-1",
 				RunStatus:       "running",
 				ExcludeStatuses: []string{"failed", "queued"},
-				Has: &agrun.RunRowsInputHas{
+				Has: &runmodel.RunRowsInputHas{
 					TurnId:          true,
 					ConversationId:  true,
 					ScheduleId:      true,
@@ -580,11 +556,11 @@ func TestDataService_RunPredicates(t *testing.T) {
 		},
 		{
 			name: "combined negative mismatch status",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				TurnId:         "t-run-main",
 				ConversationId: "c-main",
 				RunStatus:      "queued",
-				Has: &agrun.RunRowsInputHas{
+				Has: &runmodel.RunRowsInputHas{
 					TurnId:         true,
 					ConversationId: true,
 					RunStatus:      true,
@@ -594,12 +570,12 @@ func TestDataService_RunPredicates(t *testing.T) {
 		},
 		{
 			name: "combined negative excluded by status list",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				TurnId:          "t-run-main",
 				ConversationId:  "c-main",
 				RunStatus:       "running",
 				ExcludeStatuses: []string{"running"},
-				Has: &agrun.RunRowsInputHas{
+				Has: &runmodel.RunRowsInputHas{
 					TurnId:          true,
 					ConversationId:  true,
 					RunStatus:       true,
@@ -610,12 +586,12 @@ func TestDataService_RunPredicates(t *testing.T) {
 		},
 		{
 			name: "combined negative worker mismatch",
-			input: &agrun.RunRowsInput{
+			input: &runmodel.RunRowsInput{
 				TurnId:         "t-run-main",
 				ConversationId: "c-main",
 				WorkerId:       "worker-missing",
 				RunStatus:      "running",
-				Has: &agrun.RunRowsInputHas{
+				Has: &runmodel.RunRowsInputHas{
 					TurnId:         true,
 					ConversationId: true,
 					WorkerId:       true,
@@ -650,7 +626,7 @@ func TestDataService_RunPredicates(t *testing.T) {
 	t.Run("query selector pagination for run rows", func(t *testing.T) {
 		type testCase struct {
 			name          string
-			selector      *hstate.NamedQuerySelector
+			selector      *hstate.NamedSelector
 			expectNil     bool
 			expectRunID   string
 			expectedError string
@@ -658,9 +634,9 @@ func TestDataService_RunPredicates(t *testing.T) {
 		cases := []testCase{
 			{
 				name: "limit one offset zero returns run",
-				selector: &hstate.NamedQuerySelector{
+				selector: &hstate.NamedSelector{
 					Name: "RunRows",
-					QuerySelector: hstate.QuerySelector{
+					Selector: hstate.Selector{
 						Limit:  1,
 						Offset: 0,
 					},
@@ -669,9 +645,9 @@ func TestDataService_RunPredicates(t *testing.T) {
 			},
 			{
 				name: "limit one offset one returns nil",
-				selector: &hstate.NamedQuerySelector{
+				selector: &hstate.NamedSelector{
 					Name: "RunRows",
-					QuerySelector: hstate.QuerySelector{
+					Selector: hstate.Selector{
 						Limit:  1,
 						Offset: 1,
 					},
@@ -718,9 +694,9 @@ func TestDataService_ActiveAndStaleRuns(t *testing.T) {
 	svc := newSeededService(t, seedForActiveAndStaleRuns)
 	ctx := context.Background()
 
-	active, err := svc.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+	active, err := svc.GetActiveRun(ctx, &runmodel.ActiveRunsInput{
 		TurnId: "t-run-main",
-		Has:    &agrunactive.ActiveRunsInputHas{TurnId: true},
+		Has:    &runmodel.ActiveRunsInputHas{TurnId: true},
 	})
 	if err != nil {
 		t.Fatalf("GetActiveRun() error: %v", err)
@@ -729,9 +705,9 @@ func TestDataService_ActiveAndStaleRuns(t *testing.T) {
 		t.Fatalf("expected run-2 as latest active run for t-run-main, got %#v", active)
 	}
 
-	activeNone, err := svc.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+	activeNone, err := svc.GetActiveRun(ctx, &runmodel.ActiveRunsInput{
 		TurnId: "t-missing",
-		Has:    &agrunactive.ActiveRunsInputHas{TurnId: true},
+		Has:    &runmodel.ActiveRunsInputHas{TurnId: true},
 	})
 	if err != nil {
 		t.Fatalf("GetActiveRun() error: %v", err)
@@ -740,9 +716,9 @@ func TestDataService_ActiveAndStaleRuns(t *testing.T) {
 		t.Fatalf("expected nil for missing turn active run")
 	}
 
-	activeByConversation, err := svc.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+	activeByConversation, err := svc.GetActiveRun(ctx, &runmodel.ActiveRunsInput{
 		ConversationId: "c-other",
-		Has:            &agrunactive.ActiveRunsInputHas{ConversationId: true},
+		Has:            &runmodel.ActiveRunsInputHas{ConversationId: true},
 	})
 	if err != nil {
 		t.Fatalf("GetActiveRun() error: %v", err)
@@ -751,10 +727,10 @@ func TestDataService_ActiveAndStaleRuns(t *testing.T) {
 		t.Fatalf("expected run-4 for c-other, got %#v", activeByConversation)
 	}
 
-	stale, err := svc.ListStaleRuns(ctx, &agrunstale.StaleRunsInput{
+	stale, err := svc.ListStaleRuns(ctx, &runmodel.StaleRunsInput{
 		HeartbeatBefore: mustTime("2026-01-01T09:20:00Z"),
 		WorkerHost:      "host-a",
-		Has: &agrunstale.StaleRunsInputHas{
+		Has: &runmodel.StaleRunsInputHas{
 			HeartbeatBefore: true,
 			WorkerHost:      true,
 		},
@@ -764,10 +740,10 @@ func TestDataService_ActiveAndStaleRuns(t *testing.T) {
 	}
 	assertRunIDs(t, stale, []string{"run-1", "run-6"})
 
-	staleHostB, err := svc.ListStaleRuns(ctx, &agrunstale.StaleRunsInput{
+	staleHostB, err := svc.ListStaleRuns(ctx, &runmodel.StaleRunsInput{
 		HeartbeatBefore: mustTime("2026-01-01T09:20:00Z"),
 		WorkerHost:      "host-b",
-		Has: &agrunstale.StaleRunsInputHas{
+		Has: &runmodel.StaleRunsInputHas{
 			HeartbeatBefore: true,
 			WorkerHost:      true,
 		},
@@ -777,10 +753,10 @@ func TestDataService_ActiveAndStaleRuns(t *testing.T) {
 	}
 	assertRunIDs(t, staleHostB, []string{"run-5"})
 
-	staleNone, err := svc.ListStaleRuns(ctx, &agrunstale.StaleRunsInput{
+	staleNone, err := svc.ListStaleRuns(ctx, &runmodel.StaleRunsInput{
 		HeartbeatBefore: mustTime("2026-01-01T09:05:00Z"),
 		WorkerHost:      "host-a",
-		Has: &agrunstale.StaleRunsInputHas{
+		Has: &runmodel.StaleRunsInputHas{
 			HeartbeatBefore: true,
 			WorkerHost:      true,
 		},
@@ -797,9 +773,9 @@ func TestDataService_TurnPredicates(t *testing.T) {
 	svc := newSeededService(t, seedForTurnPredicates)
 	ctx := context.Background()
 
-	active, err := svc.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
+	active, err := svc.GetActiveTurn(ctx, &turnmodel.ActiveTurnsInput{
 		ConversationID: "c-main",
-		Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+		Has:            &turnmodel.ActiveTurnsInputHas{ConversationID: true},
 	})
 	if err != nil {
 		t.Fatalf("GetActiveTurn() error: %v", err)
@@ -808,10 +784,10 @@ func TestDataService_TurnPredicates(t *testing.T) {
 		t.Fatalf("expected t-wait-main, got %#v", active)
 	}
 
-	turnByID, err := svc.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+	turnByID, err := svc.GetTurnByID(ctx, &turnmodel.TurnLookupInput{
 		ID:             "t-run-main",
 		ConversationID: "c-main",
-		Has: &agturnbyid.TurnLookupInputHas{
+		Has: &turnmodel.TurnLookupInputHas{
 			ID:             true,
 			ConversationID: true,
 		},
@@ -823,10 +799,10 @@ func TestDataService_TurnPredicates(t *testing.T) {
 		t.Fatalf("expected t-run-main, got %#v", turnByID)
 	}
 
-	turnByIDNone, err := svc.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{
+	turnByIDNone, err := svc.GetTurnByID(ctx, &turnmodel.TurnLookupInput{
 		ID:             "t-run-main",
 		ConversationID: "c-other",
-		Has: &agturnbyid.TurnLookupInputHas{
+		Has: &turnmodel.TurnLookupInputHas{
 			ID:             true,
 			ConversationID: true,
 		},
@@ -838,9 +814,9 @@ func TestDataService_TurnPredicates(t *testing.T) {
 		t.Fatalf("expected nil turn for mismatched conversation filter")
 	}
 
-	nextQueued, err := svc.GetNextQueuedTurn(ctx, &agturnnext.QueuedTurnInput{
+	nextQueued, err := svc.GetNextQueuedTurn(ctx, &turnmodel.QueuedTurnInput{
 		ConversationID: "c-main",
-		Has:            &agturnnext.QueuedTurnInputHas{ConversationID: true},
+		Has:            &turnmodel.QueuedTurnInputHas{ConversationID: true},
 	})
 	if err != nil {
 		t.Fatalf("GetNextQueuedTurn() error: %v", err)
@@ -849,18 +825,18 @@ func TestDataService_TurnPredicates(t *testing.T) {
 		t.Fatalf("expected t-queued-main-1, got %#v", nextQueued)
 	}
 
-	listQueued, err := svc.ListQueuedTurns(ctx, &agturnlist.QueuedTurnsInput{
+	listQueued, err := svc.ListQueuedTurns(ctx, &turnmodel.QueuedTurnsInput{
 		ConversationID: "c-main",
-		Has:            &agturnlist.QueuedTurnsInputHas{ConversationID: true},
+		Has:            &turnmodel.QueuedTurnsInputHas{ConversationID: true},
 	})
 	if err != nil {
 		t.Fatalf("ListQueuedTurns() error: %v", err)
 	}
 	assertTurnIDsInOrder(t, listQueued, []string{"t-queued-main-1", "t-anchor"})
 
-	countQueued, err := svc.CountQueuedTurns(ctx, &agturncount.QueuedTotalInput{
+	countQueued, err := svc.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{
 		ConversationID: "c-main",
-		Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
+		Has:            &turnmodel.QueuedTotalInputHas{ConversationID: true},
 	})
 	if err != nil {
 		t.Fatalf("CountQueuedTurns() error: %v", err)
@@ -869,9 +845,9 @@ func TestDataService_TurnPredicates(t *testing.T) {
 		t.Fatalf("expected queued count 2, got %d", countQueued)
 	}
 
-	countQueuedMissing, err := svc.CountQueuedTurns(ctx, &agturncount.QueuedTotalInput{
+	countQueuedMissing, err := svc.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{
 		ConversationID: "c-missing",
-		Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
+		Has:            &turnmodel.QueuedTotalInputHas{ConversationID: true},
 	})
 	if err != nil {
 		t.Fatalf("CountQueuedTurns() error: %v", err)
@@ -885,27 +861,27 @@ func TestDataService_ToolCallAndPayloadPredicates(t *testing.T) {
 	svc := newSeededService(t, seedForToolCallAndPayloadPredicates)
 	ctx := context.Background()
 
-	toolRows, err := svc.GetToolCallByOp(ctx, "op-byop", &agtoolcall.ToolCallRowsInput{
+	toolRows, err := svc.GetToolCallByOp(ctx, "op-byop", &toolcallmodel.ToolCallByOpInput{
 		ConversationId: "c-main",
-		Has:            &agtoolcall.ToolCallRowsInputHas{ConversationId: true, OpId: true},
+		Has:            &toolcallmodel.ToolCallByOpInputHas{ConversationId: true, OpId: true},
 	})
 	if err != nil {
 		t.Fatalf("GetToolCallByOp() error: %v", err)
 	}
 	assertToolCallMessageIDs(t, toolRows, []string{"m-tool-main"})
 
-	toolRowsOther, err := svc.GetToolCallByOp(ctx, "op-byop", &agtoolcall.ToolCallRowsInput{
+	toolRowsOther, err := svc.GetToolCallByOp(ctx, "op-byop", &toolcallmodel.ToolCallByOpInput{
 		ConversationId: "c-other",
-		Has:            &agtoolcall.ToolCallRowsInputHas{ConversationId: true, OpId: true},
+		Has:            &toolcallmodel.ToolCallByOpInputHas{ConversationId: true, OpId: true},
 	})
 	if err != nil {
 		t.Fatalf("GetToolCallByOp() error: %v", err)
 	}
 	assertToolCallMessageIDs(t, toolRowsOther, []string{"m-tool-other"})
 
-	toolRowsMissing, err := svc.GetToolCallByOp(ctx, "op-missing", &agtoolcall.ToolCallRowsInput{
+	toolRowsMissing, err := svc.GetToolCallByOp(ctx, "op-missing", &toolcallmodel.ToolCallByOpInput{
 		ConversationId: "c-main",
-		Has:            &agtoolcall.ToolCallRowsInputHas{ConversationId: true, OpId: true},
+		Has:            &toolcallmodel.ToolCallByOpInputHas{ConversationId: true, OpId: true},
 	})
 	if err != nil {
 		t.Fatalf("GetToolCallByOp() error: %v", err)
@@ -916,78 +892,78 @@ func TestDataService_ToolCallAndPayloadPredicates(t *testing.T) {
 
 	payloadCases := []struct {
 		name    string
-		input   *agpayload.PayloadRowsInput
+		input   *payloadmodel.PayloadRowsInput
 		wantIDs []string
 	}{
 		{
 			name: "tenant id",
-			input: &agpayload.PayloadRowsInput{
+			input: &payloadmodel.PayloadRowsInput{
 				TenantID: "tenant-1",
-				Has:      &agpayload.PayloadRowsInputHas{TenantID: true},
+				Has:      &payloadmodel.PayloadRowsInputHas{TenantID: true},
 			},
 			wantIDs: []string{"p1", "p2"},
 		},
 		{
 			name: "single id",
-			input: &agpayload.PayloadRowsInput{
+			input: &payloadmodel.PayloadRowsInput{
 				Id:  "p1",
-				Has: &agpayload.PayloadRowsInputHas{Id: true},
+				Has: &payloadmodel.PayloadRowsInputHas{Id: true},
 			},
 			wantIDs: []string{"p1"},
 		},
 		{
 			name: "ids list",
-			input: &agpayload.PayloadRowsInput{
+			input: &payloadmodel.PayloadRowsInput{
 				Ids: []string{"p1", "p3"},
-				Has: &agpayload.PayloadRowsInputHas{Ids: true},
+				Has: &payloadmodel.PayloadRowsInputHas{Ids: true},
 			},
 			wantIDs: []string{"p1", "p3"},
 		},
 		{
 			name: "kind",
-			input: &agpayload.PayloadRowsInput{
+			input: &payloadmodel.PayloadRowsInput{
 				Kind: "request",
-				Has:  &agpayload.PayloadRowsInputHas{Kind: true},
+				Has:  &payloadmodel.PayloadRowsInputHas{Kind: true},
 			},
 			wantIDs: []string{"p1", "p3"},
 		},
 		{
 			name: "digest",
-			input: &agpayload.PayloadRowsInput{
+			input: &payloadmodel.PayloadRowsInput{
 				Digest: "dig-2",
-				Has:    &agpayload.PayloadRowsInputHas{Digest: true},
+				Has:    &payloadmodel.PayloadRowsInputHas{Digest: true},
 			},
 			wantIDs: []string{"p2"},
 		},
 		{
 			name: "storage",
-			input: &agpayload.PayloadRowsInput{
+			input: &payloadmodel.PayloadRowsInput{
 				Storage: "inline",
-				Has:     &agpayload.PayloadRowsInputHas{Storage: true},
+				Has:     &payloadmodel.PayloadRowsInputHas{Storage: true},
 			},
 			wantIDs: []string{"p1", "p3"},
 		},
 		{
 			name: "mime type",
-			input: &agpayload.PayloadRowsInput{
+			input: &payloadmodel.PayloadRowsInput{
 				MimeType: "text/plain",
-				Has:      &agpayload.PayloadRowsInputHas{MimeType: true},
+				Has:      &payloadmodel.PayloadRowsInputHas{MimeType: true},
 			},
 			wantIDs: []string{"p1", "p3"},
 		},
 		{
 			name: "since",
-			input: &agpayload.PayloadRowsInput{
+			input: &payloadmodel.PayloadRowsInput{
 				Since: mustTime("2026-01-01T09:15:00Z"),
-				Has:   &agpayload.PayloadRowsInputHas{Since: true},
+				Has:   &payloadmodel.PayloadRowsInputHas{Since: true},
 			},
 			wantIDs: []string{"p2", "p3"},
 		},
 		{
 			name: "negative no rows",
-			input: &agpayload.PayloadRowsInput{
+			input: &payloadmodel.PayloadRowsInput{
 				TenantID: "tenant-missing",
-				Has:      &agpayload.PayloadRowsInputHas{TenantID: true},
+				Has:      &payloadmodel.PayloadRowsInputHas{TenantID: true},
 			},
 			wantIDs: []string{},
 		},
@@ -1046,13 +1022,13 @@ func TestDataService_QuerySelectorPagination(t *testing.T) {
 	t.Run("queued turns limit offset", func(t *testing.T) {
 		rows, err := svc.ListQueuedTurns(
 			ctx,
-			&agturnlist.QueuedTurnsInput{
+			&turnmodel.QueuedTurnsInput{
 				ConversationID: "c-main",
-				Has:            &agturnlist.QueuedTurnsInputHas{ConversationID: true},
+				Has:            &turnmodel.QueuedTurnsInputHas{ConversationID: true},
 			},
-			WithQuerySelector(&hstate.NamedQuerySelector{
+			WithQuerySelector(&hstate.NamedSelector{
 				Name: "QueuedTurns",
-				QuerySelector: hstate.QuerySelector{
+				Selector: hstate.Selector{
 					Limit:  1,
 					Offset: 1,
 				},
@@ -1067,13 +1043,13 @@ func TestDataService_QuerySelectorPagination(t *testing.T) {
 	t.Run("payload rows limit", func(t *testing.T) {
 		rows, err := svc.ListPayloadRows(
 			ctx,
-			&agpayload.PayloadRowsInput{
+			&payloadmodel.PayloadRowsInput{
 				TenantID: "tenant-1",
-				Has:      &agpayload.PayloadRowsInputHas{TenantID: true},
+				Has:      &payloadmodel.PayloadRowsInputHas{TenantID: true},
 			},
-			WithQuerySelector(&hstate.NamedQuerySelector{
+			WithQuerySelector(&hstate.NamedSelector{
 				Name: "PayloadRows",
-				QuerySelector: hstate.QuerySelector{
+				Selector: hstate.Selector{
 					Limit: 1,
 				},
 			}),
@@ -1087,10 +1063,10 @@ func TestDataService_QuerySelectorPagination(t *testing.T) {
 	})
 
 	t.Run("conversation nested transcript and message selectors", func(t *testing.T) {
-		in := &agconv.ConversationInput{
+		in := &conversationmodel.ConversationInput{
 			IncludeTranscript: true,
 			IncludeToolCall:   true,
-			Has: &agconv.ConversationInputHas{
+			Has: &conversationmodel.ConversationInputHas{
 				IncludeTranscript: true,
 				IncludeToolCall:   true,
 			},
@@ -1100,9 +1076,9 @@ func TestDataService_QuerySelectorPagination(t *testing.T) {
 			"c-main",
 			in,
 			WithQuerySelector(
-				&hstate.NamedQuerySelector{Name: "Transcript", QuerySelector: hstate.QuerySelector{Limit: 1}},
-				&hstate.NamedQuerySelector{Name: "Message", QuerySelector: hstate.QuerySelector{Limit: 1}},
-				&hstate.NamedQuerySelector{Name: "ToolMessage", QuerySelector: hstate.QuerySelector{Limit: 1}},
+				&hstate.NamedSelector{Name: "Transcript", Selector: hstate.Selector{Limit: 1}},
+				&hstate.NamedSelector{Name: "Message", Selector: hstate.Selector{Limit: 1}},
+				&hstate.NamedSelector{Name: "ToolMessage", Selector: hstate.Selector{Limit: 1}},
 			),
 		)
 		if err != nil {
@@ -1157,14 +1133,14 @@ func TestDataService_QuerySelectorPagination(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				page, err := svc.GetMessagesPage(
 					ctx,
-					&agmessagelist.MessageRowsInput{
+					&messagemodel.MessageRowsInput{
 						ConversationId: "c-main",
-						Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true},
+						Has:            &messagemodel.MessageRowsInputHas{ConversationId: true},
 					},
 					&PageInput{Limit: 10, Direction: DirectionLatest},
-					WithQuerySelector(&hstate.NamedQuerySelector{
+					WithQuerySelector(&hstate.NamedSelector{
 						Name: "message_rows",
-						QuerySelector: hstate.QuerySelector{
+						Selector: hstate.Selector{
 							Limit:   tc.limit,
 							Offset:  tc.offset,
 							OrderBy: tc.orderBy,
@@ -1192,7 +1168,7 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 	t.Run("conversation list", func(t *testing.T) {
 		cases := []struct {
 			name      string
-			input     *agconvlist.ConversationRowsInput
+			input     *conversationmodel.ConversationRowsInput
 			page      *PageInput
 			wantIDs   []string
 			wantMore  bool
@@ -1201,7 +1177,7 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 		}{
 			{
 				name:      "first page latest",
-				input:     &agconvlist.ConversationRowsInput{Has: &agconvlist.ConversationRowsInputHas{}},
+				input:     &conversationmodel.ConversationRowsInput{Has: &conversationmodel.ConversationRowsInputHas{}},
 				page:      &PageInput{Limit: 1, Direction: DirectionLatest},
 				wantIDs:   []string{"c-page-2"},
 				wantMore:  true,
@@ -1210,9 +1186,9 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 			},
 			{
 				name: "filter by agent",
-				input: &agconvlist.ConversationRowsInput{
+				input: &conversationmodel.ConversationRowsInput{
 					AgentId: "agent-1",
-					Has:     &agconvlist.ConversationRowsInputHas{AgentId: true},
+					Has:     &conversationmodel.ConversationRowsInputHas{AgentId: true},
 				},
 				page:      &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs:   []string{"c-page-2", "c-page-1"},
@@ -1221,8 +1197,8 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 			},
 			{
 				name: "cursor before",
-				input: &agconvlist.ConversationRowsInput{
-					Has: &agconvlist.ConversationRowsInputHas{},
+				input: &conversationmodel.ConversationRowsInput{
+					Has: &conversationmodel.ConversationRowsInputHas{},
 				},
 				page:      &PageInput{Limit: 10, Direction: DirectionBefore, Cursor: "c-page-2"},
 				wantIDs:   []string{"c-page-1"},
@@ -1231,8 +1207,8 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 			},
 			{
 				name: "cursor after",
-				input: &agconvlist.ConversationRowsInput{
-					Has: &agconvlist.ConversationRowsInputHas{},
+				input: &conversationmodel.ConversationRowsInput{
+					Has: &conversationmodel.ConversationRowsInputHas{},
 				},
 				page:      &PageInput{Limit: 10, Direction: DirectionAfter, Cursor: "c-page-1"},
 				wantIDs:   []string{"c-page-2"},
@@ -1241,9 +1217,9 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 			},
 			{
 				name: "filter by status",
-				input: &agconvlist.ConversationRowsInput{
+				input: &conversationmodel.ConversationRowsInput{
 					StatusFilter: "active",
-					Has:          &agconvlist.ConversationRowsInputHas{StatusFilter: true},
+					Has:          &conversationmodel.ConversationRowsInputHas{StatusFilter: true},
 				},
 				page:      &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs:   []string{"c-page-2", "c-page-1"},
@@ -1252,9 +1228,9 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 			},
 			{
 				name: "filter by query",
-				input: &agconvlist.ConversationRowsInput{
+				input: &conversationmodel.ConversationRowsInput{
 					Query: "c-page-1",
-					Has:   &agconvlist.ConversationRowsInputHas{Query: true},
+					Has:   &conversationmodel.ConversationRowsInputHas{Query: true},
 				},
 				page:      &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs:   []string{"c-page-1"},
@@ -1292,17 +1268,17 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 	t.Run("message page", func(t *testing.T) {
 		cases := []struct {
 			name     string
-			input    *agmessagelist.MessageRowsInput
+			input    *messagemodel.MessageRowsInput
 			page     *PageInput
 			wantIDs  []string
 			wantMore bool
 		}{
 			{
 				name: "turn scoped latest first page",
-				input: &agmessagelist.MessageRowsInput{
+				input: &messagemodel.MessageRowsInput{
 					ConversationId: "c-page-1",
 					TurnId:         "t-page-1",
-					Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true, TurnId: true},
+					Has:            &messagemodel.MessageRowsInputHas{ConversationId: true, TurnId: true},
 				},
 				page:     &PageInput{Limit: 2, Direction: DirectionLatest},
 				wantIDs:  []string{"m-page-1-3", "m-page-1-2"},
@@ -1310,93 +1286,93 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 			},
 			{
 				name: "interim filter positive",
-				input: &agmessagelist.MessageRowsInput{
+				input: &messagemodel.MessageRowsInput{
 					ConversationId: "c-page-1",
 					TurnId:         "t-page-1",
 					Interim:        1,
-					Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true, TurnId: true, Interim: true},
+					Has:            &messagemodel.MessageRowsInputHas{ConversationId: true, TurnId: true, Interim: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs: []string{"m-page-1-3", "m-page-1-2"},
 			},
 			{
 				name: "interim filter negative",
-				input: &agmessagelist.MessageRowsInput{
+				input: &messagemodel.MessageRowsInput{
 					ConversationId: "c-page-1",
 					TurnId:         "t-page-1",
 					Interim:        2,
-					Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true, TurnId: true, Interim: true},
+					Has:            &messagemodel.MessageRowsInputHas{ConversationId: true, TurnId: true, Interim: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs: []string{},
 			},
 			{
 				name: "phase filter positive",
-				input: &agmessagelist.MessageRowsInput{
+				input: &messagemodel.MessageRowsInput{
 					ConversationId: "c-page-1",
 					TurnId:         "t-page-1",
 					Phase:          "pending",
-					Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true, TurnId: true, Phase: true},
+					Has:            &messagemodel.MessageRowsInputHas{ConversationId: true, TurnId: true, Phase: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs: []string{"m-page-1-2"},
 			},
 			{
 				name: "phase filter negative",
-				input: &agmessagelist.MessageRowsInput{
+				input: &messagemodel.MessageRowsInput{
 					ConversationId: "c-page-1",
 					TurnId:         "t-page-1",
 					Phase:          "streaming",
-					Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true, TurnId: true, Phase: true},
+					Has:            &messagemodel.MessageRowsInputHas{ConversationId: true, TurnId: true, Phase: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs: []string{},
 			},
 			{
 				name: "types filter positive",
-				input: &agmessagelist.MessageRowsInput{
+				input: &messagemodel.MessageRowsInput{
 					ConversationId: "c-page-1",
 					TurnId:         "t-page-1",
 					Types:          []string{"text"},
-					Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true, TurnId: true, Types: true},
+					Has:            &messagemodel.MessageRowsInputHas{ConversationId: true, TurnId: true, Types: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs: []string{"m-page-1-3", "m-page-1-2", "m-page-1-1"},
 			},
 			{
 				name: "types filter negative",
-				input: &agmessagelist.MessageRowsInput{
+				input: &messagemodel.MessageRowsInput{
 					ConversationId: "c-page-1",
 					TurnId:         "t-page-1",
 					Types:          []string{"tool_op"},
-					Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true, TurnId: true, Types: true},
+					Has:            &messagemodel.MessageRowsInputHas{ConversationId: true, TurnId: true, Types: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs: []string{},
 			},
 			{
 				name: "cursor before",
-				input: &agmessagelist.MessageRowsInput{
+				input: &messagemodel.MessageRowsInput{
 					ConversationId: "c-page-1",
-					Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true},
+					Has:            &messagemodel.MessageRowsInputHas{ConversationId: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionBefore, Cursor: "m-page-1-3"},
 				wantIDs: []string{"m-page-1-2", "m-page-1-1"},
 			},
 			{
 				name: "cursor after",
-				input: &agmessagelist.MessageRowsInput{
+				input: &messagemodel.MessageRowsInput{
 					ConversationId: "c-page-1",
-					Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true},
+					Has:            &messagemodel.MessageRowsInputHas{ConversationId: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionAfter, Cursor: "m-page-1-2"},
 				wantIDs: []string{"m-page-1-3"},
 			},
 			{
 				name: "latest ignores cursor",
-				input: &agmessagelist.MessageRowsInput{
+				input: &messagemodel.MessageRowsInput{
 					ConversationId: "c-page-1",
-					Has:            &agmessagelist.MessageRowsInputHas{ConversationId: true},
+					Has:            &messagemodel.MessageRowsInputHas{ConversationId: true},
 				},
 				page:     &PageInput{Limit: 2, Direction: DirectionLatest, Cursor: "m-page-1-1"},
 				wantIDs:  []string{"m-page-1-3", "m-page-1-2"},
@@ -1427,34 +1403,34 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 	t.Run("turn page", func(t *testing.T) {
 		cases := []struct {
 			name    string
-			input   *agturnlistall.TurnRowsInput
+			input   *turnmodel.TurnRowsInput
 			page    *PageInput
 			wantIDs []string
 		}{
 			{
 				name: "conversation latest",
-				input: &agturnlistall.TurnRowsInput{
+				input: &turnmodel.TurnRowsInput{
 					ConversationID: "c-page-1",
-					Has:            &agturnlistall.TurnRowsInputHas{ConversationID: true},
+					Has:            &turnmodel.TurnRowsInputHas{ConversationID: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs: []string{"t-page-2", "t-page-1"},
 			},
 			{
 				name: "status filter",
-				input: &agturnlistall.TurnRowsInput{
+				input: &turnmodel.TurnRowsInput{
 					ConversationID: "c-page-1",
 					Statuses:       []string{"queued"},
-					Has:            &agturnlistall.TurnRowsInputHas{ConversationID: true, Statuses: true},
+					Has:            &turnmodel.TurnRowsInputHas{ConversationID: true, Statuses: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionLatest},
 				wantIDs: []string{"t-page-2"},
 			},
 			{
 				name: "cursor before",
-				input: &agturnlistall.TurnRowsInput{
+				input: &turnmodel.TurnRowsInput{
 					ConversationID: "c-page-1",
-					Has:            &agturnlistall.TurnRowsInputHas{ConversationID: true},
+					Has:            &turnmodel.TurnRowsInputHas{ConversationID: true},
 				},
 				page:    &PageInput{Limit: 10, Direction: DirectionBefore, Cursor: "t-page-2"},
 				wantIDs: []string{"t-page-1"},
@@ -1482,199 +1458,36 @@ func TestDataService_PagedReads_DataDriven(t *testing.T) {
 func TestDataService_Patch_DataDriven(t *testing.T) {
 	ctx := context.Background()
 
-	t.Run("goal patch", func(t *testing.T) {
-		svc := newSeededService(t, seedForPatchBaseline)
-		cases := []struct {
-			name    string
-			rows    []*aggoalwrite.MutableGoalView
-			wantErr bool
-		}{
-			{
-				name: "insert",
-				rows: []*aggoalwrite.MutableGoalView{
-					aggoalwrite.NewMutableGoalView(
-						aggoalwrite.WithGoalID("g-patch"),
-						aggoalwrite.WithGoalConversationID("c-goal-insert"),
-						aggoalwrite.WithGoalObjective("reduce p95"),
-						aggoalwrite.WithGoalStatus("active"),
-					),
-				},
-			},
-			{
-				name: "update",
-				rows: []*aggoalwrite.MutableGoalView{
-					aggoalwrite.NewMutableGoalView(
-						aggoalwrite.WithGoalID("g-base"),
-						aggoalwrite.WithGoalStatus("paused"),
-					),
-				},
-			},
-			{
-				name: "missing conversation for insert",
-				rows: []*aggoalwrite.MutableGoalView{
-					aggoalwrite.NewMutableGoalView(
-						aggoalwrite.WithGoalID("g-bad"),
-						aggoalwrite.WithGoalObjective("broken"),
-						aggoalwrite.WithGoalStatus("active"),
-					),
-				},
-				wantErr: true,
-			},
-		}
-		for _, tc := range cases {
-			t.Run(tc.name, func(t *testing.T) {
-				_, err := svc.PatchGoals(ctx, tc.rows)
-				if tc.wantErr {
-					if err == nil {
-						t.Fatalf("expected error")
-					}
-					return
-				}
-				if err != nil {
-					t.Fatalf("PatchGoals() error: %v", err)
-				}
-			})
-		}
-		inserted, err := svc.GetGoal(ctx, "c-goal-insert", nil)
-		if err != nil {
-			t.Fatalf("GetGoal(inserted) error: %v", err)
-		}
-		if inserted == nil || inserted.Id != "g-patch" || inserted.Objective != "reduce p95" {
-			t.Fatalf("expected inserted goal, got %#v", inserted)
-		}
-		updated, err := svc.GetGoal(ctx, "c-base", nil)
-		if err != nil {
-			t.Fatalf("GetGoal() error: %v", err)
-		}
-		if updated == nil || updated.Status != "paused" {
-			t.Fatalf("expected paused goal, got %#v", updated)
-		}
-	})
-
-	t.Run("goal patch honors Has markers on update", func(t *testing.T) {
-		svc := newSeededService(t, seedForPatchBaseline)
-
-		t.Run("unmarked fields are ignored", func(t *testing.T) {
-			row := aggoalwrite.NewMutableGoalView(
-				aggoalwrite.WithGoalID("g-base"),
-			)
-			status := "paused"
-			objective := "should-not-apply"
-			row.Status = &status
-			row.Objective = &objective
-
-			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
-				t.Fatalf("PatchGoals(unmarked) error: %v", err)
-			}
-			got, err := svc.GetGoal(ctx, "c-base", nil)
-			if err != nil {
-				t.Fatalf("GetGoal() error: %v", err)
-			}
-			if got == nil {
-				t.Fatalf("expected goal row")
-			}
-			if got.Status != "active" {
-				t.Fatalf("expected status to remain active, got %#v", got)
-			}
-			if got.Objective != "seed-goal" {
-				t.Fatalf("expected objective to remain seed-goal, got %#v", got)
-			}
-		})
-
-		t.Run("marked fields update while unmarked fields are ignored", func(t *testing.T) {
-			row := aggoalwrite.NewMutableGoalView(
-				aggoalwrite.WithGoalID("g-base"),
-				aggoalwrite.WithGoalStatus("paused"),
-			)
-			objective := "should-not-apply"
-			row.Objective = &objective
-
-			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
-				t.Fatalf("PatchGoals(marked+unmarked) error: %v", err)
-			}
-			got, err := svc.GetGoal(ctx, "c-base", nil)
-			if err != nil {
-				t.Fatalf("GetGoal() error: %v", err)
-			}
-			if got == nil {
-				t.Fatalf("expected goal row")
-			}
-			if got.Status != "paused" {
-				t.Fatalf("expected status to update to paused, got %#v", got)
-			}
-			if got.Objective != "seed-goal" {
-				t.Fatalf("expected objective to remain seed-goal, got %#v", got)
-			}
-		})
-
-		t.Run("status reason persists when marked", func(t *testing.T) {
-			row := aggoalwrite.NewMutableGoalView(
-				aggoalwrite.WithGoalID("g-base"),
-				aggoalwrite.WithGoalStatus("blocked"),
-				aggoalwrite.WithGoalStatusReason("waiting for credentials"),
-			)
-
-			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err != nil {
-				t.Fatalf("PatchGoals(statusReason) error: %v", err)
-			}
-			got, err := svc.GetGoal(ctx, "c-base", nil)
-			if err != nil {
-				t.Fatalf("GetGoal() error: %v", err)
-			}
-			if got == nil {
-				t.Fatalf("expected goal row")
-			}
-			if got.Status != "blocked" {
-				t.Fatalf("expected status to update to blocked, got %#v", got)
-			}
-			if got.StatusReason == nil || *got.StatusReason != "waiting for credentials" {
-				t.Fatalf("expected status reason to persist, got %#v", got)
-			}
-		})
-
-		t.Run("second goal for same conversation is rejected by unique constraint", func(t *testing.T) {
-			row := aggoalwrite.NewMutableGoalView(
-				aggoalwrite.WithGoalID("g-duplicate"),
-				aggoalwrite.WithGoalConversationID("c-base"),
-				aggoalwrite.WithGoalObjective("duplicate"),
-				aggoalwrite.WithGoalStatus("active"),
-			)
-			if _, err := svc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{row}); err == nil {
-				t.Fatalf("expected unique conversation goal insert to fail")
-			}
-		})
-	})
-
 	t.Run("conversation patch", func(t *testing.T) {
 		svc := newSeededService(t, seedForPatchBaseline)
 		cases := []struct {
 			name    string
-			rows    []*agconvwrite.MutableConversationView
+			rows    []*conversationmodel.MutableConversationView
 			wantErr bool
 		}{
 			{
 				name: "insert",
-				rows: []*agconvwrite.MutableConversationView{
-					agconvwrite.NewMutableConversationView(
-						agconvwrite.WithConversationID("c-patch"),
-						agconvwrite.WithConversationStatus("active"),
+				rows: []*conversationmodel.MutableConversationView{
+					conversationmodel.NewMutableConversationView(
+						conversationmodel.WithConversationID("c-patch"),
+						conversationmodel.WithConversationStatus("active"),
 					),
 				},
 			},
 			{
 				name: "update",
-				rows: []*agconvwrite.MutableConversationView{
-					agconvwrite.NewMutableConversationView(
-						agconvwrite.WithConversationID("c-base"),
-						agconvwrite.WithConversationSummary("updated-summary"),
+				rows: []*conversationmodel.MutableConversationView{
+					conversationmodel.NewMutableConversationView(
+						conversationmodel.WithConversationID("c-base"),
+						conversationmodel.WithConversationSummary("updated-summary"),
 					),
 				},
 			},
 			{
 				name: "missing id",
-				rows: []*agconvwrite.MutableConversationView{
-					agconvwrite.NewMutableConversationView(
-						agconvwrite.WithConversationStatus("broken"),
+				rows: []*conversationmodel.MutableConversationView{
+					conversationmodel.NewMutableConversationView(
+						conversationmodel.WithConversationStatus("broken"),
 					),
 				},
 				wantErr: true,
@@ -1707,34 +1520,34 @@ func TestDataService_Patch_DataDriven(t *testing.T) {
 		svc := newSeededService(t, seedForPatchBaseline)
 		cases := []struct {
 			name    string
-			rows    []*agturnwrite.MutableTurnView
+			rows    []*turnmodel.MutableTurnView
 			wantErr bool
 		}{
 			{
 				name: "insert",
-				rows: []*agturnwrite.MutableTurnView{
-					agturnwrite.NewMutableTurnView(
-						agturnwrite.WithTurnID("t-patch"),
-						agturnwrite.WithTurnConversationID("c-base"),
-						agturnwrite.WithTurnStatus("queued"),
+				rows: []*turnmodel.MutableTurnView{
+					turnmodel.NewMutableTurnView(
+						turnmodel.WithTurnID("t-patch"),
+						turnmodel.WithTurnConversationID("c-base"),
+						turnmodel.WithTurnStatus("queued"),
 					),
 				},
 			},
 			{
 				name: "update",
-				rows: []*agturnwrite.MutableTurnView{
-					agturnwrite.NewMutableTurnView(
-						agturnwrite.WithTurnID("t-base"),
-						agturnwrite.WithTurnStatus("running"),
+				rows: []*turnmodel.MutableTurnView{
+					turnmodel.NewMutableTurnView(
+						turnmodel.WithTurnID("t-base"),
+						turnmodel.WithTurnStatus("running"),
 					),
 				},
 			},
 			{
 				name: "missing required status",
-				rows: []*agturnwrite.MutableTurnView{
-					agturnwrite.NewMutableTurnView(
-						agturnwrite.WithTurnID("t-bad-status"),
-						agturnwrite.WithTurnConversationID("c-base"),
+				rows: []*turnmodel.MutableTurnView{
+					turnmodel.NewMutableTurnView(
+						turnmodel.WithTurnID("t-bad-status"),
+						turnmodel.WithTurnConversationID("c-base"),
 					),
 				},
 				wantErr: true,
@@ -1760,39 +1573,39 @@ func TestDataService_Patch_DataDriven(t *testing.T) {
 		svc := newSeededService(t, seedForPatchBaseline)
 		cases := []struct {
 			name    string
-			rows    []*agmessagewrite.MutableMessageView
+			rows    []*messagemodel.MutableMessageView
 			wantErr bool
 		}{
 			{
 				name: "insert",
-				rows: []*agmessagewrite.MutableMessageView{
-					agmessagewrite.NewMutableMessageView(
-						agmessagewrite.WithMessageID("m-patch"),
-						agmessagewrite.WithMessageConversationID("c-base"),
-						agmessagewrite.WithMessageTurnID("t-base"),
-						agmessagewrite.WithMessageRole("assistant"),
-						agmessagewrite.WithMessageType("text"),
-						agmessagewrite.WithMessageContent("new"),
+				rows: []*messagemodel.MutableMessageView{
+					messagemodel.NewMutableMessageView(
+						messagemodel.WithMessageID("m-patch"),
+						messagemodel.WithMessageConversationID("c-base"),
+						messagemodel.WithMessageTurnID("t-base"),
+						messagemodel.WithMessageRole("assistant"),
+						messagemodel.WithMessageType("text"),
+						messagemodel.WithMessageContent("new"),
 					),
 				},
 			},
 			{
 				name: "update",
-				rows: []*agmessagewrite.MutableMessageView{
-					agmessagewrite.NewMutableMessageView(
-						agmessagewrite.WithMessageID("m-base"),
-						agmessagewrite.WithMessageContent("updated"),
+				rows: []*messagemodel.MutableMessageView{
+					messagemodel.NewMutableMessageView(
+						messagemodel.WithMessageID("m-base"),
+						messagemodel.WithMessageContent("updated"),
 					),
 				},
 			},
 			{
 				name: "missing required role",
-				rows: []*agmessagewrite.MutableMessageView{
-					agmessagewrite.NewMutableMessageView(
-						agmessagewrite.WithMessageID("m-bad-role"),
-						agmessagewrite.WithMessageConversationID("c-base"),
-						agmessagewrite.WithMessageType("text"),
-						agmessagewrite.WithMessageContent("bad"),
+				rows: []*messagemodel.MutableMessageView{
+					messagemodel.NewMutableMessageView(
+						messagemodel.WithMessageID("m-bad-role"),
+						messagemodel.WithMessageConversationID("c-base"),
+						messagemodel.WithMessageType("text"),
+						messagemodel.WithMessageContent("bad"),
 					),
 				},
 				wantErr: true,
@@ -1825,29 +1638,29 @@ func TestDataService_Patch_DataDriven(t *testing.T) {
 		svc := newSeededService(t, seedForPatchBaseline)
 		cases := []struct {
 			name    string
-			rows    []*agpayloadwrite.MutablePayloadView
+			rows    []*payloadmodel.MutablePayloadView
 			wantErr bool
 		}{
 			{
 				name: "insert",
-				rows: []*agpayloadwrite.MutablePayloadView{
-					agpayloadwrite.NewMutablePayloadView(
-						agpayloadwrite.WithPayloadID("p-patch"),
-						agpayloadwrite.WithPayloadKind("request"),
-						agpayloadwrite.WithPayloadMimeType("application/json"),
-						agpayloadwrite.WithPayloadSizeBytes(2),
-						agpayloadwrite.WithPayloadStorage("inline"),
-						agpayloadwrite.WithPayloadInlineBody([]byte("{}")),
+				rows: []*payloadmodel.MutablePayloadView{
+					payloadmodel.NewMutablePayloadView(
+						payloadmodel.WithPayloadID("p-patch"),
+						payloadmodel.WithPayloadKind("request"),
+						payloadmodel.WithPayloadMimeType("application/json"),
+						payloadmodel.WithPayloadSizeBytes(2),
+						payloadmodel.WithPayloadStorage("inline"),
+						payloadmodel.WithPayloadInlineBody([]byte("{}")),
 					),
 				},
 			},
 			{
 				name: "update",
-				rows: []*agpayloadwrite.MutablePayloadView{
-					func() *agpayloadwrite.MutablePayloadView {
-						ret := agpayloadwrite.NewMutablePayloadView(
-							agpayloadwrite.WithPayloadID("p-base"),
-							agpayloadwrite.WithPayloadStorage("object"),
+				rows: []*payloadmodel.MutablePayloadView{
+					func() *payloadmodel.MutablePayloadView {
+						ret := payloadmodel.NewMutablePayloadView(
+							payloadmodel.WithPayloadID("p-base"),
+							payloadmodel.WithPayloadStorage("object"),
 						)
 						ret.SetURI("s3://bucket/item")
 						return ret
@@ -1856,12 +1669,12 @@ func TestDataService_Patch_DataDriven(t *testing.T) {
 			},
 			{
 				name: "missing required kind",
-				rows: []*agpayloadwrite.MutablePayloadView{
-					agpayloadwrite.NewMutablePayloadView(
-						agpayloadwrite.WithPayloadID("p-bad"),
-						agpayloadwrite.WithPayloadMimeType("text/plain"),
-						agpayloadwrite.WithPayloadSizeBytes(1),
-						agpayloadwrite.WithPayloadStorage("inline"),
+				rows: []*payloadmodel.MutablePayloadView{
+					payloadmodel.NewMutablePayloadView(
+						payloadmodel.WithPayloadID("p-bad"),
+						payloadmodel.WithPayloadMimeType("text/plain"),
+						payloadmodel.WithPayloadSizeBytes(1),
+						payloadmodel.WithPayloadStorage("inline"),
 					),
 				},
 				wantErr: true,
@@ -1881,7 +1694,7 @@ func TestDataService_Patch_DataDriven(t *testing.T) {
 				}
 			})
 		}
-		rows, err := svc.ListPayloadRows(ctx, &agpayload.PayloadRowsInput{Id: "p-base", Has: &agpayload.PayloadRowsInputHas{Id: true}})
+		rows, err := svc.ListPayloadRows(ctx, &payloadmodel.PayloadRowsInput{Id: "p-base", Has: &payloadmodel.PayloadRowsInputHas{Id: true}})
 		if err != nil {
 			t.Fatalf("ListPayloadRows() error: %v", err)
 		}
@@ -1894,28 +1707,28 @@ func TestDataService_Patch_DataDriven(t *testing.T) {
 		svc := newSeededService(t, seedForPatchBaseline)
 		cases := []struct {
 			name    string
-			rows    []*agmodelcallwrite.MutableModelCallView
+			rows    []*modelcallmodel.MutableModelCallView
 			wantErr bool
 		}{
 			{
 				name: "insert",
-				rows: []*agmodelcallwrite.MutableModelCallView{
-					agmodelcallwrite.NewMutableModelCallView(
-						agmodelcallwrite.WithModelCallMessageID("m-base"),
-						agmodelcallwrite.WithModelCallTurnID("t-base"),
-						agmodelcallwrite.WithModelCallProvider("openai"),
-						agmodelcallwrite.WithModelCallModel("gpt-5-mini"),
-						agmodelcallwrite.WithModelCallModelKind("chat"),
-						agmodelcallwrite.WithModelCallStatus("completed"),
+				rows: []*modelcallmodel.MutableModelCallView{
+					modelcallmodel.NewMutableModelCallView(
+						modelcallmodel.WithModelCallMessageID("m-base"),
+						modelcallmodel.WithModelCallTurnID("t-base"),
+						modelcallmodel.WithModelCallProvider("openai"),
+						modelcallmodel.WithModelCallModel("gpt-5-mini"),
+						modelcallmodel.WithModelCallModelKind("chat"),
+						modelcallmodel.WithModelCallStatus("completed"),
 					),
 				},
 			},
 			{
 				name: "update",
-				rows: []*agmodelcallwrite.MutableModelCallView{
-					func() *agmodelcallwrite.MutableModelCallView {
-						ret := agmodelcallwrite.NewMutableModelCallView(
-							agmodelcallwrite.WithModelCallMessageID("m-base"),
+				rows: []*modelcallmodel.MutableModelCallView{
+					func() *modelcallmodel.MutableModelCallView {
+						ret := modelcallmodel.NewMutableModelCallView(
+							modelcallmodel.WithModelCallMessageID("m-base"),
 						)
 						ret.SetErrorMessage("warn")
 						return ret
@@ -1924,12 +1737,12 @@ func TestDataService_Patch_DataDriven(t *testing.T) {
 			},
 			{
 				name: "missing required model kind",
-				rows: []*agmodelcallwrite.MutableModelCallView{
-					agmodelcallwrite.NewMutableModelCallView(
-						agmodelcallwrite.WithModelCallMessageID("m-bad-model"),
-						agmodelcallwrite.WithModelCallProvider("openai"),
-						agmodelcallwrite.WithModelCallModel("gpt"),
-						agmodelcallwrite.WithModelCallStatus("completed"),
+				rows: []*modelcallmodel.MutableModelCallView{
+					modelcallmodel.NewMutableModelCallView(
+						modelcallmodel.WithModelCallMessageID("m-bad-model"),
+						modelcallmodel.WithModelCallProvider("openai"),
+						modelcallmodel.WithModelCallModel("gpt"),
+						modelcallmodel.WithModelCallStatus("completed"),
 					),
 				},
 				wantErr: true,
@@ -1959,15 +1772,15 @@ func TestDataService_Patch_DataDriven(t *testing.T) {
 
 	t.Run("tool call patch", func(t *testing.T) {
 		svc := newSeededService(t, seedForPatchBaseline)
-		_, err := svc.PatchMessages(ctx, []*agmessagewrite.MutableMessageView{
-			agmessagewrite.NewMutableMessageView(
-				agmessagewrite.WithMessageID("m-tool"),
-				agmessagewrite.WithMessageConversationID("c-base"),
-				agmessagewrite.WithMessageTurnID("t-base"),
-				agmessagewrite.WithMessageParentID("m-base"),
-				agmessagewrite.WithMessageRole("assistant"),
-				agmessagewrite.WithMessageType("tool_op"),
-				agmessagewrite.WithMessageContent("tool op"),
+		_, err := svc.PatchMessages(ctx, []*messagemodel.MutableMessageView{
+			messagemodel.NewMutableMessageView(
+				messagemodel.WithMessageID("m-tool"),
+				messagemodel.WithMessageConversationID("c-base"),
+				messagemodel.WithMessageTurnID("t-base"),
+				messagemodel.WithMessageParentID("m-base"),
+				messagemodel.WithMessageRole("assistant"),
+				messagemodel.WithMessageType("tool_op"),
+				messagemodel.WithMessageContent("tool op"),
 			),
 		})
 		if err != nil {
@@ -1976,39 +1789,39 @@ func TestDataService_Patch_DataDriven(t *testing.T) {
 
 		cases := []struct {
 			name    string
-			rows    []*agtoolcallwrite.MutableToolCallView
+			rows    []*toolcallmodel.MutableToolCallView
 			wantErr bool
 		}{
 			{
 				name: "insert",
-				rows: []*agtoolcallwrite.MutableToolCallView{
-					agtoolcallwrite.NewMutableToolCallView(
-						agtoolcallwrite.WithToolCallMessageID("m-tool"),
-						agtoolcallwrite.WithToolCallTurnID("t-base"),
-						agtoolcallwrite.WithToolCallOpID("op-1"),
-						agtoolcallwrite.WithToolCallToolName("sql/query"),
-						agtoolcallwrite.WithToolCallToolKind("mcp"),
-						agtoolcallwrite.WithToolCallStatus("completed"),
+				rows: []*toolcallmodel.MutableToolCallView{
+					toolcallmodel.NewMutableToolCallView(
+						toolcallmodel.WithToolCallMessageID("m-tool"),
+						toolcallmodel.WithToolCallTurnID("t-base"),
+						toolcallmodel.WithToolCallOpID("op-1"),
+						toolcallmodel.WithToolCallToolName("sql/query"),
+						toolcallmodel.WithToolCallToolKind("mcp"),
+						toolcallmodel.WithToolCallStatus("completed"),
 					),
 				},
 			},
 			{
 				name: "update",
-				rows: []*agtoolcallwrite.MutableToolCallView{
-					agtoolcallwrite.NewMutableToolCallView(
-						agtoolcallwrite.WithToolCallMessageID("m-tool"),
-						agtoolcallwrite.WithToolCallErrorMessage("tool warning"),
+				rows: []*toolcallmodel.MutableToolCallView{
+					toolcallmodel.NewMutableToolCallView(
+						toolcallmodel.WithToolCallMessageID("m-tool"),
+						toolcallmodel.WithToolCallErrorMessage("tool warning"),
 					),
 				},
 			},
 			{
 				name: "missing required tool name",
-				rows: []*agtoolcallwrite.MutableToolCallView{
-					agtoolcallwrite.NewMutableToolCallView(
-						agtoolcallwrite.WithToolCallMessageID("m-tool-bad"),
-						agtoolcallwrite.WithToolCallOpID("op-x"),
-						agtoolcallwrite.WithToolCallToolKind("mcp"),
-						agtoolcallwrite.WithToolCallStatus("completed"),
+				rows: []*toolcallmodel.MutableToolCallView{
+					toolcallmodel.NewMutableToolCallView(
+						toolcallmodel.WithToolCallMessageID("m-tool-bad"),
+						toolcallmodel.WithToolCallOpID("op-x"),
+						toolcallmodel.WithToolCallToolKind("mcp"),
+						toolcallmodel.WithToolCallStatus("completed"),
 					),
 				},
 				wantErr: true,
@@ -2053,13 +1866,13 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 		{
 			name: "conversation",
 			create: func(t *testing.T, svc Service) {
-				row := agconvwrite.NewMutableConversationView(
-					agconvwrite.WithConversationID("c-crud"),
-					agconvwrite.WithConversationStatus("active"),
-					agconvwrite.WithConversationVisibility("private"),
+				row := conversationmodel.NewMutableConversationView(
+					conversationmodel.WithConversationID("c-crud"),
+					conversationmodel.WithConversationStatus("active"),
+					conversationmodel.WithConversationVisibility("private"),
 				)
 				row.SetCreatedByUserID("user-crud")
-				if _, err := svc.PatchConversations(ctx, []*agconvwrite.MutableConversationView{row}); err != nil {
+				if _, err := svc.PatchConversations(ctx, []*conversationmodel.MutableConversationView{row}); err != nil {
 					t.Fatalf("PatchConversations(create) error: %v", err)
 				}
 			},
@@ -2070,10 +1883,10 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 				}
 			},
 			update: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchConversations(ctx, []*agconvwrite.MutableConversationView{
-					agconvwrite.NewMutableConversationView(
-						agconvwrite.WithConversationID("c-crud"),
-						agconvwrite.WithConversationSummary("updated"),
+				if _, err := svc.PatchConversations(ctx, []*conversationmodel.MutableConversationView{
+					conversationmodel.NewMutableConversationView(
+						conversationmodel.WithConversationID("c-crud"),
+						conversationmodel.WithConversationSummary("updated"),
 					),
 				}); err != nil {
 					t.Fatalf("PatchConversations(update) error: %v", err)
@@ -2103,14 +1916,14 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 		{
 			name: "message",
 			create: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchMessages(ctx, []*agmessagewrite.MutableMessageView{
-					agmessagewrite.NewMutableMessageView(
-						agmessagewrite.WithMessageID("m-crud"),
-						agmessagewrite.WithMessageConversationID("c-base"),
-						agmessagewrite.WithMessageTurnID("t-base"),
-						agmessagewrite.WithMessageRole("assistant"),
-						agmessagewrite.WithMessageType("text"),
-						agmessagewrite.WithMessageContent("created"),
+				if _, err := svc.PatchMessages(ctx, []*messagemodel.MutableMessageView{
+					messagemodel.NewMutableMessageView(
+						messagemodel.WithMessageID("m-crud"),
+						messagemodel.WithMessageConversationID("c-base"),
+						messagemodel.WithMessageTurnID("t-base"),
+						messagemodel.WithMessageRole("assistant"),
+						messagemodel.WithMessageType("text"),
+						messagemodel.WithMessageContent("created"),
 					),
 				}); err != nil {
 					t.Fatalf("PatchMessages(create) error: %v", err)
@@ -2123,10 +1936,10 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 				}
 			},
 			update: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchMessages(ctx, []*agmessagewrite.MutableMessageView{
-					agmessagewrite.NewMutableMessageView(
-						agmessagewrite.WithMessageID("m-crud"),
-						agmessagewrite.WithMessageContent("updated"),
+				if _, err := svc.PatchMessages(ctx, []*messagemodel.MutableMessageView{
+					messagemodel.NewMutableMessageView(
+						messagemodel.WithMessageID("m-crud"),
+						messagemodel.WithMessageContent("updated"),
 					),
 				}); err != nil {
 					t.Fatalf("PatchMessages(update) error: %v", err)
@@ -2156,34 +1969,34 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 		{
 			name: "turn",
 			create: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchTurns(ctx, []*agturnwrite.MutableTurnView{
-					agturnwrite.NewMutableTurnView(
-						agturnwrite.WithTurnID("t-crud"),
-						agturnwrite.WithTurnConversationID("c-base"),
-						agturnwrite.WithTurnStatus("queued"),
+				if _, err := svc.PatchTurns(ctx, []*turnmodel.MutableTurnView{
+					turnmodel.NewMutableTurnView(
+						turnmodel.WithTurnID("t-crud"),
+						turnmodel.WithTurnConversationID("c-base"),
+						turnmodel.WithTurnStatus("queued"),
 					),
 				}); err != nil {
 					t.Fatalf("PatchTurns(create) error: %v", err)
 				}
 			},
 			readCreated: func(t *testing.T, svc Service) {
-				created, err := svc.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{ID: "t-crud", Has: &agturnbyid.TurnLookupInputHas{ID: true}})
+				created, err := svc.GetTurnByID(ctx, &turnmodel.TurnLookupInput{ID: "t-crud", Has: &turnmodel.TurnLookupInputHas{ID: true}})
 				if err != nil || created == nil {
 					t.Fatalf("GetTurnByID(create) err=%v value=%#v", err, created)
 				}
 			},
 			update: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchTurns(ctx, []*agturnwrite.MutableTurnView{
-					agturnwrite.NewMutableTurnView(
-						agturnwrite.WithTurnID("t-crud"),
-						agturnwrite.WithTurnStatus("running"),
+				if _, err := svc.PatchTurns(ctx, []*turnmodel.MutableTurnView{
+					turnmodel.NewMutableTurnView(
+						turnmodel.WithTurnID("t-crud"),
+						turnmodel.WithTurnStatus("running"),
 					),
 				}); err != nil {
 					t.Fatalf("PatchTurns(update) error: %v", err)
 				}
 			},
 			readUpdated: func(t *testing.T, svc Service) {
-				updated, err := svc.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{ID: "t-crud", Has: &agturnbyid.TurnLookupInputHas{ID: true}})
+				updated, err := svc.GetTurnByID(ctx, &turnmodel.TurnLookupInput{ID: "t-crud", Has: &turnmodel.TurnLookupInputHas{ID: true}})
 				if err != nil || updated == nil || updated.Status != "running" {
 					t.Fatalf("GetTurnByID(update) err=%v value=%#v", err, updated)
 				}
@@ -2194,7 +2007,7 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 				}
 			},
 			readRemoved: func(t *testing.T, svc Service) {
-				deleted, err := svc.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{ID: "t-crud", Has: &agturnbyid.TurnLookupInputHas{ID: true}})
+				deleted, err := svc.GetTurnByID(ctx, &turnmodel.TurnLookupInput{ID: "t-crud", Has: &turnmodel.TurnLookupInputHas{ID: true}})
 				if err != nil {
 					t.Fatalf("GetTurnByID(delete) error: %v", err)
 				}
@@ -2206,39 +2019,39 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 		{
 			name: "payload",
 			create: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchPayloads(ctx, []*agpayloadwrite.MutablePayloadView{
-					agpayloadwrite.NewMutablePayloadView(
-						agpayloadwrite.WithPayloadID("p-crud"),
-						agpayloadwrite.WithPayloadKind("request"),
-						agpayloadwrite.WithPayloadMimeType("application/json"),
-						agpayloadwrite.WithPayloadSizeBytes(2),
-						agpayloadwrite.WithPayloadStorage("inline"),
-						agpayloadwrite.WithPayloadInlineBody([]byte("{}")),
+				if _, err := svc.PatchPayloads(ctx, []*payloadmodel.MutablePayloadView{
+					payloadmodel.NewMutablePayloadView(
+						payloadmodel.WithPayloadID("p-crud"),
+						payloadmodel.WithPayloadKind("request"),
+						payloadmodel.WithPayloadMimeType("application/json"),
+						payloadmodel.WithPayloadSizeBytes(2),
+						payloadmodel.WithPayloadStorage("inline"),
+						payloadmodel.WithPayloadInlineBody([]byte("{}")),
 					),
 				}); err != nil {
 					t.Fatalf("PatchPayloads(create) error: %v", err)
 				}
 			},
 			readCreated: func(t *testing.T, svc Service) {
-				rows, err := svc.ListPayloadRows(ctx, &agpayload.PayloadRowsInput{Id: "p-crud", Has: &agpayload.PayloadRowsInputHas{Id: true}})
+				rows, err := svc.ListPayloadRows(ctx, &payloadmodel.PayloadRowsInput{Id: "p-crud", Has: &payloadmodel.PayloadRowsInputHas{Id: true}})
 				if err != nil || len(rows) != 1 {
 					t.Fatalf("ListPayloadRows(create) err=%v rows=%#v", err, rows)
 				}
 			},
 			update: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchPayloads(ctx, []*agpayloadwrite.MutablePayloadView{
-					agpayloadwrite.NewMutablePayloadView(
-						agpayloadwrite.WithPayloadID("p-crud"),
-						agpayloadwrite.WithPayloadMimeType("text/plain"),
-						agpayloadwrite.WithPayloadSizeBytes(7),
-						agpayloadwrite.WithPayloadInlineBody([]byte("updated")),
+				if _, err := svc.PatchPayloads(ctx, []*payloadmodel.MutablePayloadView{
+					payloadmodel.NewMutablePayloadView(
+						payloadmodel.WithPayloadID("p-crud"),
+						payloadmodel.WithPayloadMimeType("text/plain"),
+						payloadmodel.WithPayloadSizeBytes(7),
+						payloadmodel.WithPayloadInlineBody([]byte("updated")),
 					),
 				}); err != nil {
 					t.Fatalf("PatchPayloads(update) error: %v", err)
 				}
 			},
 			readUpdated: func(t *testing.T, svc Service) {
-				rows, err := svc.ListPayloadRows(ctx, &agpayload.PayloadRowsInput{Id: "p-crud", Has: &agpayload.PayloadRowsInputHas{Id: true}})
+				rows, err := svc.ListPayloadRows(ctx, &payloadmodel.PayloadRowsInput{Id: "p-crud", Has: &payloadmodel.PayloadRowsInputHas{Id: true}})
 				if err != nil || len(rows) != 1 || rows[0].MimeType != "text/plain" || rows[0].SizeBytes != 7 {
 					t.Fatalf("ListPayloadRows(update) err=%v rows=%#v", err, rows)
 				}
@@ -2249,7 +2062,7 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 				}
 			},
 			readRemoved: func(t *testing.T, svc Service) {
-				rows, err := svc.ListPayloadRows(ctx, &agpayload.PayloadRowsInput{Id: "p-crud", Has: &agpayload.PayloadRowsInputHas{Id: true}})
+				rows, err := svc.ListPayloadRows(ctx, &payloadmodel.PayloadRowsInput{Id: "p-crud", Has: &payloadmodel.PayloadRowsInputHas{Id: true}})
 				if err != nil {
 					t.Fatalf("ListPayloadRows(delete) error: %v", err)
 				}
@@ -2261,14 +2074,14 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 		{
 			name: "model call",
 			create: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchModelCalls(ctx, []*agmodelcallwrite.MutableModelCallView{
-					agmodelcallwrite.NewMutableModelCallView(
-						agmodelcallwrite.WithModelCallMessageID("m-base"),
-						agmodelcallwrite.WithModelCallTurnID("t-base"),
-						agmodelcallwrite.WithModelCallProvider("openai"),
-						agmodelcallwrite.WithModelCallModel("gpt-5-mini"),
-						agmodelcallwrite.WithModelCallModelKind("chat"),
-						agmodelcallwrite.WithModelCallStatus("completed"),
+				if _, err := svc.PatchModelCalls(ctx, []*modelcallmodel.MutableModelCallView{
+					modelcallmodel.NewMutableModelCallView(
+						modelcallmodel.WithModelCallMessageID("m-base"),
+						modelcallmodel.WithModelCallTurnID("t-base"),
+						modelcallmodel.WithModelCallProvider("openai"),
+						modelcallmodel.WithModelCallModel("gpt-5-mini"),
+						modelcallmodel.WithModelCallModelKind("chat"),
+						modelcallmodel.WithModelCallStatus("completed"),
 					),
 				}); err != nil {
 					t.Fatalf("PatchModelCalls(create) error: %v", err)
@@ -2282,10 +2095,10 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 				}
 			},
 			update: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchModelCalls(ctx, []*agmodelcallwrite.MutableModelCallView{
-					agmodelcallwrite.NewMutableModelCallView(
-						agmodelcallwrite.WithModelCallMessageID("m-base"),
-						agmodelcallwrite.WithModelCallStatus("failed"),
+				if _, err := svc.PatchModelCalls(ctx, []*modelcallmodel.MutableModelCallView{
+					modelcallmodel.NewMutableModelCallView(
+						modelcallmodel.WithModelCallMessageID("m-base"),
+						modelcallmodel.WithModelCallStatus("failed"),
 					),
 				}); err != nil {
 					t.Fatalf("PatchModelCalls(update) error: %v", err)
@@ -2314,27 +2127,27 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 		{
 			name: "tool call",
 			create: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchMessages(ctx, []*agmessagewrite.MutableMessageView{
-					agmessagewrite.NewMutableMessageView(
-						agmessagewrite.WithMessageID("m-tool-crud"),
-						agmessagewrite.WithMessageConversationID("c-base"),
-						agmessagewrite.WithMessageTurnID("t-base"),
-						agmessagewrite.WithMessageParentID("m-base"),
-						agmessagewrite.WithMessageRole("assistant"),
-						agmessagewrite.WithMessageType("tool_op"),
-						agmessagewrite.WithMessageContent("tool"),
+				if _, err := svc.PatchMessages(ctx, []*messagemodel.MutableMessageView{
+					messagemodel.NewMutableMessageView(
+						messagemodel.WithMessageID("m-tool-crud"),
+						messagemodel.WithMessageConversationID("c-base"),
+						messagemodel.WithMessageTurnID("t-base"),
+						messagemodel.WithMessageParentID("m-base"),
+						messagemodel.WithMessageRole("assistant"),
+						messagemodel.WithMessageType("tool_op"),
+						messagemodel.WithMessageContent("tool"),
 					),
 				}); err != nil {
 					t.Fatalf("PatchMessages(tool seed) error: %v", err)
 				}
-				if _, err := svc.PatchToolCalls(ctx, []*agtoolcallwrite.MutableToolCallView{
-					agtoolcallwrite.NewMutableToolCallView(
-						agtoolcallwrite.WithToolCallMessageID("m-tool-crud"),
-						agtoolcallwrite.WithToolCallTurnID("t-base"),
-						agtoolcallwrite.WithToolCallOpID("op-crud"),
-						agtoolcallwrite.WithToolCallToolName("sql/query"),
-						agtoolcallwrite.WithToolCallToolKind("mcp"),
-						agtoolcallwrite.WithToolCallStatus("completed"),
+				if _, err := svc.PatchToolCalls(ctx, []*toolcallmodel.MutableToolCallView{
+					toolcallmodel.NewMutableToolCallView(
+						toolcallmodel.WithToolCallMessageID("m-tool-crud"),
+						toolcallmodel.WithToolCallTurnID("t-base"),
+						toolcallmodel.WithToolCallOpID("op-crud"),
+						toolcallmodel.WithToolCallToolName("sql/query"),
+						toolcallmodel.WithToolCallToolKind("mcp"),
+						toolcallmodel.WithToolCallStatus("completed"),
 					),
 				}); err != nil {
 					t.Fatalf("PatchToolCalls(create) error: %v", err)
@@ -2349,11 +2162,11 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 				}
 			},
 			update: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchToolCalls(ctx, []*agtoolcallwrite.MutableToolCallView{
-					agtoolcallwrite.NewMutableToolCallView(
-						agtoolcallwrite.WithToolCallMessageID("m-tool-crud"),
-						agtoolcallwrite.WithToolCallStatus("failed"),
-						agtoolcallwrite.WithToolCallErrorMessage("tool failed"),
+				if _, err := svc.PatchToolCalls(ctx, []*toolcallmodel.MutableToolCallView{
+					toolcallmodel.NewMutableToolCallView(
+						toolcallmodel.WithToolCallMessageID("m-tool-crud"),
+						toolcallmodel.WithToolCallStatus("failed"),
+						toolcallmodel.WithToolCallErrorMessage("tool failed"),
 					),
 				}); err != nil {
 					t.Fatalf("PatchToolCalls(update) error: %v", err)
@@ -2384,13 +2197,13 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 		{
 			name: "run",
 			create: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{
-					agrunwrite.NewMutableRunView(
-						agrunwrite.WithRunID("run-crud"),
-						agrunwrite.WithRunTurnID("t-base"),
-						agrunwrite.WithRunConversationID("c-base"),
-						agrunwrite.WithRunStatus("running"),
-						agrunwrite.WithRunIteration(1),
+				if _, err := svc.PatchRuns(ctx, []*runmodel.MutableRunView{
+					runmodel.NewMutableRunView(
+						runmodel.WithRunID("run-crud"),
+						runmodel.WithRunTurnID("t-base"),
+						runmodel.WithRunConversationID("c-base"),
+						runmodel.WithRunStatus("running"),
+						runmodel.WithRunIteration(1),
 					),
 				}); err != nil {
 					t.Fatalf("PatchRuns(create) error: %v", err)
@@ -2403,11 +2216,11 @@ func TestDataService_CRUD_DataDriven(t *testing.T) {
 				}
 			},
 			update: func(t *testing.T, svc Service) {
-				if _, err := svc.PatchRuns(ctx, []*agrunwrite.MutableRunView{
-					agrunwrite.NewMutableRunView(
-						agrunwrite.WithRunID("run-crud"),
-						agrunwrite.WithRunStatus("completed"),
-						agrunwrite.WithRunIteration(2),
+				if _, err := svc.PatchRuns(ctx, []*runmodel.MutableRunView{
+					runmodel.NewMutableRunView(
+						runmodel.WithRunID("run-crud"),
+						runmodel.WithRunStatus("completed"),
+						runmodel.WithRunIteration(2),
 					),
 				}); err != nil {
 					t.Fatalf("PatchRuns(update) error: %v", err)
@@ -2454,7 +2267,7 @@ func TestDataService_ConversationPermissions(t *testing.T) {
 	ctx := context.Background()
 	svc := newSeededService(t, seedForConversationPermissions)
 
-	page, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{Has: &agconvlist.ConversationRowsInputHas{}}, &PageInput{Limit: 20}, WithPrincipal("u1"))
+	page, err := svc.ListConversations(ctx, &conversationmodel.ConversationRowsInput{Has: &conversationmodel.ConversationRowsInputHas{}}, &PageInput{Limit: 20}, WithPrincipal("u1"))
 	if err != nil {
 		t.Fatalf("ListConversations(u1) error: %v", err)
 	}
@@ -2514,9 +2327,9 @@ func TestDataService_ConversationPermissions_PagedVisibleRows_DataDriven(t *test
 		t.Run(tc.name, func(t *testing.T) {
 			page, err := svc.ListConversations(
 				ctx,
-				&agconvlist.ConversationRowsInput{
+				&conversationmodel.ConversationRowsInput{
 					ExcludeScheduled: true,
-					Has:              &agconvlist.ConversationRowsInputHas{ExcludeScheduled: true},
+					Has:              &conversationmodel.ConversationRowsInputHas{ExcludeScheduled: true},
 				},
 				tc.page,
 				WithPrincipal(tc.principal),
@@ -2540,8 +2353,8 @@ func TestDataService_ConversationList_ComputesStageFromStatus(t *testing.T) {
 	ctx := context.Background()
 	svc := newSeededService(t, seedForConversationListStage)
 
-	page, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		Has: &agconvlist.ConversationRowsInputHas{},
+	page, err := svc.ListConversations(ctx, &conversationmodel.ConversationRowsInput{
+		Has: &conversationmodel.ConversationRowsInputHas{},
 	}, &PageInput{Limit: 10, Direction: DirectionLatest})
 	if err != nil {
 		t.Fatalf("ListConversations() error: %v", err)
@@ -2570,22 +2383,22 @@ func TestDataService_LinkedConversationList_ExcludesOrphans(t *testing.T) {
 
 	testCases := []struct {
 		name  string
-		input *agconvlist.ConversationRowsInput
+		input *conversationmodel.ConversationRowsInput
 		want  []string
 	}{
 		{
 			name: "by parent",
-			input: &agconvlist.ConversationRowsInput{
+			input: &conversationmodel.ConversationRowsInput{
 				ParentId: "parent-1",
-				Has:      &agconvlist.ConversationRowsInputHas{ParentId: true},
+				Has:      &conversationmodel.ConversationRowsInputHas{ParentId: true},
 			},
 			want: []string{"child-valid"},
 		},
 		{
 			name: "by parent turn",
-			input: &agconvlist.ConversationRowsInput{
+			input: &conversationmodel.ConversationRowsInput{
 				ParentTurnId: "parent-turn-1",
-				Has:          &agconvlist.ConversationRowsInputHas{ParentTurnId: true},
+				Has:          &conversationmodel.ConversationRowsInputHas{ParentTurnId: true},
 			},
 			want: []string{"child-valid"},
 		},
@@ -2610,9 +2423,9 @@ func TestDataService_GetConversation_IgnoresBlankLinkedConversationIDs(t *testin
 	ctx := context.Background()
 	svc := newSeededService(t, seedForBlankLinkedConversationIDs)
 
-	in := &agconv.ConversationInput{
+	in := &conversationmodel.ConversationInput{
 		IncludeTranscript: true,
-		Has: &agconv.ConversationInputHas{
+		Has: &conversationmodel.ConversationInputHas{
 			IncludeTranscript: true,
 		},
 	}
@@ -2630,7 +2443,7 @@ func TestDataService_GetConversation_IgnoresBlankLinkedConversationIDs(t *testin
 		t.Fatalf("expected 2 messages, got %d", len(got.Transcript[0].Message))
 	}
 
-	byID := map[string]*agconv.MessageView{}
+	byID := map[string]*conversationmodel.MessageView{}
 	for _, msg := range got.Transcript[0].Message {
 		if msg == nil {
 			continue
@@ -2663,7 +2476,7 @@ func TestDataService_ReadPermissions_MessageTurnRun(t *testing.T) {
 	if _, err := svc.GetMessage(ctx, "m-u2", nil, WithPrincipal("u1")); !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("expected message permission denied, got %v", err)
 	}
-	if _, err := svc.GetTurnByID(ctx, &agturnbyid.TurnLookupInput{ID: "t-u2", Has: &agturnbyid.TurnLookupInputHas{ID: true}}, WithPrincipal("u1")); !errors.Is(err, ErrPermissionDenied) {
+	if _, err := svc.GetTurnByID(ctx, &turnmodel.TurnLookupInput{ID: "t-u2", Has: &turnmodel.TurnLookupInputHas{ID: true}}, WithPrincipal("u1")); !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("expected turn permission denied, got %v", err)
 	}
 	if _, err := svc.GetRun(ctx, "run-u2", nil, WithPrincipal("u1")); !errors.Is(err, ErrPermissionDenied) {
@@ -2680,7 +2493,7 @@ func TestDataService_RunStepsPage(t *testing.T) {
 	ctx := context.Background()
 	svc := newSeededService(t, seedForPermissionReadArtifacts)
 
-	page, err := svc.GetRunStepsPage(ctx, &agrunsteps.RunStepsInput{RunID: "run-u2", Has: &agrunsteps.RunStepsInputHas{RunID: true}}, &PageInput{Limit: 10}, WithAdminPrincipal("admin"))
+	page, err := svc.GetRunStepsPage(ctx, &runmodel.RunStepsInput{RunID: "run-u2", Has: &runmodel.RunStepsInputHas{RunID: true}}, &PageInput{Limit: 10}, WithAdminPrincipal("admin"))
 	if err != nil {
 		t.Fatalf("GetRunStepsPage() error: %v", err)
 	}
@@ -2690,90 +2503,97 @@ func TestDataService_RunStepsPage(t *testing.T) {
 	if page.Rows[0].RunId == nil || *page.Rows[0].RunId != "run-u2" {
 		t.Fatalf("unexpected run id in steps: %#v", page.Rows[0])
 	}
-	if _, err := svc.GetRunStepsPage(ctx, &agrunsteps.RunStepsInput{RunID: "run-u2", Has: &agrunsteps.RunStepsInputHas{RunID: true}}, &PageInput{Limit: 10}, WithPrincipal("u1")); !errors.Is(err, ErrPermissionDenied) {
+	if _, err := svc.GetRunStepsPage(ctx, &runmodel.RunStepsInput{RunID: "run-u2", Has: &runmodel.RunStepsInputHas{RunID: true}}, &PageInput{Limit: 10}, WithPrincipal("u1")); !errors.Is(err, ErrPermissionDenied) {
 		t.Fatalf("expected run steps permission denied, got %v", err)
 	}
 }
 
-func TestPatchDeleteHandlerContracts(t *testing.T) {
+func TestDataService_NativeBatchRollbackAndSparseNull(t *testing.T) {
 	ctx := context.Background()
 	svc := newSeededService(t, seedForPatchBaseline)
-	dao := svc.Raw()
-
-	t.Run("patch wrong method", func(t *testing.T) {
-		in := &agmessagewrite.Input{Messages: []*agmessagewrite.MutableMessageView{
-			agmessagewrite.NewMutableMessageView(
-				agmessagewrite.WithMessageID("m-contract"),
-				agmessagewrite.WithMessageConversationID("c-base"),
-				agmessagewrite.WithMessageTurnID("t-base"),
-				agmessagewrite.WithMessageRole("assistant"),
-				agmessagewrite.WithMessageType("text"),
-				agmessagewrite.WithMessageContent("x"),
-			),
-		}}
-		out := &agmessagewrite.Output{}
-		_, err := dao.Operate(ctx,
-			datly.WithPath(contract.NewPath("GET", agmessagewrite.PathURI)),
-			datly.WithInput(in),
-			datly.WithOutput(out),
-		)
-		if err == nil {
-			t.Fatalf("expected method/path mismatch error")
-		}
-	})
-
-	t.Run("patch invalid body", func(t *testing.T) {
-		in := &agmessagewrite.Input{Messages: []*agmessagewrite.MutableMessageView{
-			agmessagewrite.NewMutableMessageView(
-				agmessagewrite.WithMessageID("m-contract-invalid"),
-				agmessagewrite.WithMessageConversationID("c-base"),
-				agmessagewrite.WithMessageType("text"),
-			),
-		}}
-		out := &agmessagewrite.Output{}
-		_, err := dao.Operate(ctx,
-			datly.WithPath(contract.NewPath("PATCH", agmessagewrite.PathURI)),
-			datly.WithInput(in),
-			datly.WithOutput(out),
-		)
-		if err == nil {
-			t.Fatalf("expected validation error for invalid patch body")
-		}
-	})
-
-	t.Run("delete wrong method", func(t *testing.T) {
-		in := &agmessagewrite.DeleteInput{Rows: []*agmessagewrite.MutableMessageView{
-			agmessagewrite.NewMutableMessageView(agmessagewrite.WithMessageID("m-base")),
-		}}
-		out := &agmessagewrite.DeleteOutput{}
-		_, err := dao.Operate(ctx,
-			datly.WithPath(contract.NewPath("GET", agmessagewrite.PathURI)),
-			datly.WithInput(in),
-			datly.WithOutput(out),
-		)
-		if err == nil {
-			t.Fatalf("expected method mismatch for delete contract")
-		}
-	})
+	before, err := svc.GetMessage(ctx, "m-base", nil)
+	if err != nil || before == nil {
+		t.Fatalf("read baseline: %v %#v", err, before)
+	}
+	changed := messagemodel.NewMutableMessageView(messagemodel.WithMessageID("m-base"), messagemodel.WithMessageContent("must roll back"))
+	invalid := messagemodel.NewMutableMessageView(messagemodel.WithMessageID("late-invalid"))
+	if _, err = svc.PatchMessages(ctx, []*messagemodel.MutableMessageView{changed, invalid}); err == nil {
+		t.Fatal("expected late validation failure")
+	}
+	after, err := svc.GetMessage(ctx, "m-base", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("failed batch changed existing message: before %#v after %#v", before, after)
+	}
+	cleared := messagemodel.NewMutableMessageView(messagemodel.WithMessageID("m-base"))
+	cleared.Content = nil
+	cleared.Has.Content = true
+	if _, err = svc.PatchMessages(ctx, []*messagemodel.MutableMessageView{cleared}); err != nil {
+		t.Fatal(err)
+	}
+	after, err = svc.GetMessage(ctx, "m-base", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if after.Content != nil {
+		t.Fatalf("explicit null was lost: %#v", after.Content)
+	}
+	before.Content = nil
+	before.UpdatedAt = after.UpdatedAt
+	if !reflect.DeepEqual(before, after) {
+		t.Fatalf("sparse clear changed omitted columns: before %#v after %#v", before, after)
+	}
 }
 
-func TestMutableViews_SettersMarkHas(t *testing.T) {
-	cases := []struct {
-		name string
-		dst  interface{}
-	}{
-		{name: "conversation", dst: agconvwrite.NewMutableConversationView()},
-		{name: "message", dst: agmessagewrite.NewMutableMessageView()},
-		{name: "turn", dst: agturnwrite.NewMutableTurnView()},
-		{name: "model_call", dst: agmodelcallwrite.NewMutableModelCallView()},
-		{name: "tool_call", dst: agtoolcallwrite.NewMutableToolCallView()},
-		{name: "payload", dst: agpayloadwrite.NewMutablePayloadView()},
-		{name: "run", dst: agrunwrite.NewMutableRunView()},
+func TestDataService_NativeMutationCallerDefaults(t *testing.T) {
+	ctx := context.Background()
+	svc := newSeededService(t, seedForPatchBaseline)
+	row := messagemodel.NewMutableMessageView(messagemodel.WithMessageID("m-default"), messagemodel.WithMessageConversationID("c-base"), messagemodel.WithMessageTurnID("t-base"), messagemodel.WithMessageRole("assistant"), messagemodel.WithMessageType("text"))
+	result, err := svc.PatchMessages(ctx, []*messagemodel.MutableMessageView{row})
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, tc := range cases {
+	if len(result) != 1 || result[0] != row || row.CreatedAt == nil || row.Sequence == nil || row.Interim == nil || row.Has == nil || !row.Has.CreatedAt || !row.Has.Sequence || !row.Has.Interim {
+		t.Fatalf("successful defaults/identity were not published: %#v %#v", row, result)
+	}
+	stored, err := svc.GetMessage(ctx, row.Id, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stored == nil || stored.Sequence == nil || *stored.Sequence != *row.Sequence {
+		t.Fatalf("allocated caller sequence differs from storage: %#v %#v", row, stored)
+	}
+}
+func TestDataService_NativeGuardCounts(t *testing.T) {
+	svc := newSeededService(t, func(t *testing.T, db *sql.DB) {
+		seedForPatchBaseline(t, db)
+		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
+			{SQL: `INSERT INTO users(id,username) VALUES('owner','owner')`},
+			{SQL: `UPDATE conversation SET created_by_user_id='owner' WHERE id='c-base'`},
+			{SQL: `UPDATE turn SET origin='controller' WHERE id='t-base'`},
+			{SQL: `UPDATE message SET elicitation_id='e',status='pending' WHERE id='m-base'`},
+			{SQL: `INSERT INTO tool_approval_queue(id,user_id,conversation_id,tool_name,title,arguments,status,created_at) VALUES('approval','owner','c-base','tool','title','{}','pending','2026-01-01')`},
+		})
+	}).(*datlyService)
+	ctx := context.Background()
+	for _, tc := range []struct {
+		name string
+		call func(...Option) (int, error)
+	}{
+		{"controller", func(opts ...Option) (int, error) { return svc.CountControllerTurns(ctx, "c-base", opts...) }},
+		{"approval", func(opts ...Option) (int, error) { return svc.CountPendingApprovals(ctx, "c-base", opts...) }},
+		{"elicitation", func(opts ...Option) (int, error) { return svc.CountPendingElicitations(ctx, "c-base", opts...) }},
+	} {
 		t.Run(tc.name, func(t *testing.T) {
-			assertSettersMarkHas(t, tc.dst)
+			count, err := tc.call(WithPrincipal("owner"))
+			if err != nil || count != 1 {
+				t.Fatalf("guard count: %d %v", count, err)
+			}
+			if _, err = tc.call(WithPrincipal("other")); !errors.Is(err, ErrPermissionDenied) {
+				t.Fatalf("guard owner scope: %v", err)
+			}
 		})
 	}
 }
@@ -2790,18 +2610,14 @@ func newSeededService(t *testing.T, seeds ...seedFn) Service {
 	}
 
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
+	_, file, _, _ := runtime.Caller(0)
+	server, err := native.New(ctx, native.Options{SourceRoot: filepath.Join(filepath.Dir(file), "..", "..", ".."), Connectors: []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: dbPath}}})
 	if err != nil {
-		t.Fatalf("datly.New() error: %v", err)
+		t.Fatalf("native.New: %v", err)
 	}
-	connector := view.NewConnector("agently", "sqlite", dbPath)
-	if err = dao.AddConnectors(ctx, connector); err != nil {
-		t.Fatalf("AddConnectors() error: %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents() error: %v", err)
-	}
-	return NewService(dao)
+	t.Cleanup(func() { _ = server.Shutdown(context.Background()) })
+	return &datlyService{native: server}
+
 }
 
 func seedForConversationPredicates(t *testing.T, db *sql.DB) {
@@ -3115,7 +2931,7 @@ func setterArgValue(t reflect.Type) (reflect.Value, bool) {
 	return reflect.Value{}, false
 }
 
-func findMessage(turns []*agconv.TranscriptView, messageID string) *agconv.MessageView {
+func findMessage(turns []*conversationmodel.TranscriptView, messageID string) *conversationmodel.MessageView {
 	for _, turn := range turns {
 		for _, msg := range turn.Message {
 			if msg.Id == messageID {
@@ -3126,12 +2942,12 @@ func findMessage(turns []*agconv.TranscriptView, messageID string) *agconv.Messa
 	return nil
 }
 
-func mustGetConversationWithModelCalls(t *testing.T, ctx context.Context, svc Service, id string) *agconv.ConversationView {
+func mustGetConversationWithModelCalls(t *testing.T, ctx context.Context, svc Service, id string) *conversationmodel.ConversationView {
 	t.Helper()
-	conv, err := svc.GetConversation(ctx, id, &agconv.ConversationInput{
+	conv, err := svc.GetConversation(ctx, id, &conversationmodel.ConversationInput{
 		IncludeTranscript: true,
 		IncludeModelCal:   true,
-		Has: &agconv.ConversationInputHas{
+		Has: &conversationmodel.ConversationInputHas{
 			IncludeTranscript: true,
 			IncludeModelCal:   true,
 		},
@@ -3142,12 +2958,12 @@ func mustGetConversationWithModelCalls(t *testing.T, ctx context.Context, svc Se
 	return conv
 }
 
-func mustGetConversationWithToolCalls(t *testing.T, ctx context.Context, svc Service, id string) *agconv.ConversationView {
+func mustGetConversationWithToolCalls(t *testing.T, ctx context.Context, svc Service, id string) *conversationmodel.ConversationView {
 	t.Helper()
-	conv, err := svc.GetConversation(ctx, id, &agconv.ConversationInput{
+	conv, err := svc.GetConversation(ctx, id, &conversationmodel.ConversationInput{
 		IncludeTranscript: true,
 		IncludeToolCall:   true,
-		Has: &agconv.ConversationInputHas{
+		Has: &conversationmodel.ConversationInputHas{
 			IncludeTranscript: true,
 			IncludeToolCall:   true,
 		},
@@ -3158,7 +2974,7 @@ func mustGetConversationWithToolCalls(t *testing.T, ctx context.Context, svc Ser
 	return conv
 }
 
-func findToolMessage(msg *agconv.MessageView, toolMessageID string) *agconv.ToolMessageView {
+func findToolMessage(msg *conversationmodel.MessageView, toolMessageID string) *conversationmodel.ToolMessageView {
 	if msg == nil {
 		return nil
 	}
@@ -3170,7 +2986,7 @@ func findToolMessage(msg *agconv.MessageView, toolMessageID string) *agconv.Tool
 	return nil
 }
 
-func hasAnyToolCall(msg *agconv.MessageView) bool {
+func hasAnyToolCall(msg *conversationmodel.MessageView) bool {
 	if msg == nil {
 		return false
 	}
@@ -3182,7 +2998,7 @@ func hasAnyToolCall(msg *agconv.MessageView) bool {
 	return false
 }
 
-func toolMessageIDs(items []*agconv.ToolMessageView) []string {
+func toolMessageIDs(items []*conversationmodel.ToolMessageView) []string {
 	result := make([]string, 0, len(items))
 	for _, item := range items {
 		if item == nil {
@@ -3193,7 +3009,7 @@ func toolMessageIDs(items []*agconv.ToolMessageView) []string {
 	return result
 }
 
-func transcriptIDs(items []*agconv.TranscriptView) []string {
+func transcriptIDs(items []*conversationmodel.TranscriptView) []string {
 	result := make([]string, 0, len(items))
 	for _, item := range items {
 		result = append(result, item.Id)
@@ -3201,7 +3017,7 @@ func transcriptIDs(items []*agconv.TranscriptView) []string {
 	return result
 }
 
-func assertRunIDs(t *testing.T, items []*agrunstale.StaleRunsView, want []string) {
+func assertRunIDs(t *testing.T, items []*runmodel.StaleRunsView, want []string) {
 	t.Helper()
 	got := make([]string, 0, len(items))
 	for _, item := range items {
@@ -3210,7 +3026,7 @@ func assertRunIDs(t *testing.T, items []*agrunstale.StaleRunsView, want []string
 	assertIDs(t, got, want)
 }
 
-func assertTurnIDsInOrder(t *testing.T, items []*agturnlist.QueuedTurnsView, want []string) {
+func assertTurnIDsInOrder(t *testing.T, items []*turnmodel.QueuedTurnsView, want []string) {
 	t.Helper()
 	got := make([]string, 0, len(items))
 	for _, item := range items {
@@ -3226,7 +3042,7 @@ func assertTurnIDsInOrder(t *testing.T, items []*agturnlist.QueuedTurnsView, wan
 	}
 }
 
-func assertToolCallMessageIDs(t *testing.T, items []*agtoolcall.ToolCallRowsView, want []string) {
+func assertToolCallMessageIDs(t *testing.T, items []*toolcallmodel.ToolCallByOpView, want []string) {
 	t.Helper()
 	got := make([]string, 0, len(items))
 	for _, item := range items {

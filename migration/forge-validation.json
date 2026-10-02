@@ -1,0 +1,32 @@
+{
+  "status": "verified-and-linked",
+  "writer_checks": 29,
+  "reader_checks": 20,
+  "retired_reader_drafts": [
+    "dql/forge/reporting/list/list/reader",
+    "dql/forge/reporting/read/reader"
+  ],
+  "legacy_correction": "Legacy SQLX full-row updates overwrite omitted artifact fields. Native sparse updates preserve them; the test proves the before/after difference. Empty nullable string defaults on insert and explicit empty updates remain compatible.",
+  "authorization": "Host-bound owner scope in private reader and writer; writer uses native mutation_predicate on owner_id and rejects a mismatched loaded owner. Unknown deletion remains strict.",
+  "binary_output": "Finalize business hook clones all seven JSON byte slices, matching legacy clone semantics.",
+  "validation": "Legacy comparisons plus native owner, deletion, selector, caller-transaction and byte-clone cases passed.",
+  "focused_endly": {
+    "status": "SUCCESS",
+    "log": "/tmp/agently-forge-checks.log",
+    "tests_seconds": 18.696,
+    "workflow_ms": 22087
+  },
+  "full_endly": "The latest full Endly gate passed transcription, byte-stable regeneration, boundary audit, all nested tests and standalone host build. See forge-store-adapter-validation.json.",
+  "app_cutover": "The root SQL reporting store now delegates shared-artifact CRUD/import to the canonical native adapter and no longer imports SDK0 Forge components. The root reporting package still uses the SDK0 datly.Service DAO for other direct-SQL methods, so it cannot yet build with Datly v1.",
+  "endly_regeneration": {
+    "status": "SUCCESS",
+    "artifacts": 591,
+    "log": "/tmp/agently-forge-endly-regeneration.log"
+  },
+  "endly_full_verify": {
+    "status": "SUCCESS",
+    "tests_seconds": 141.991,
+    "workflow_ms": 145335,
+    "log": "/tmp/agently-forge-endly-verify-full.log"
+  }
+}
