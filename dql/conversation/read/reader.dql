@@ -1,0 +1,220 @@
+#package('github.com/viant/agently-core/internal/datly/conversation/read')
+#import('time','time')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#import('codec','github.com/viant/agently-core/internal/datly/codec')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/conversation/{id}','GET'))
+#setting($_ = $input_type('ConversationInput'))
+#setting($_ = $client_input_type('ConversationRequest'))
+#setting($_ = $output_type('ConversationOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Id<string>(path/id).Optional().WithPredicate(0,'equal','t','id'))
+#define($_ = $Ids<[]string>(query/ids).Optional().WithPredicate(0,'in','t','id'))
+#define($_ = $Since<string>(query/since).Optional().WithPredicate(1,'expr','EXISTS (SELECT 1 FROM turn a WHERE a.id = ? AND (t.created_at >= a.created_at OR (t.queue_seq IS NOT NULL AND a.queue_seq IS NOT NULL AND t.queue_seq >= a.queue_seq)))'))
+#define($_ = $IncludeTranscript<bool>(query/includeTranscript).Optional().Value('true').WithPredicate(1,'expr','?'))
+#define($_ = $IncludeModelCal<bool>(query/includeModelCall).Optional().Value('false').WithPredicate(2,'expr','?'))
+#define($_ = $IncludeToolCall<bool>(query/includeToolCall).Optional().Value('false').WithPredicate(3,'expr','?'))
+#define($_ = $AgentId<string>(query/agentId).Optional().WithPredicate(0,'expr','t.agent_id = ?'))
+#define($_ = $ParentId<string>(query/parentId).Optional().WithPredicate(0,'expr','t.conversation_parent_id = ?'))
+#define($_ = $ParentTurnId<string>(query/parentTurnId).Optional().WithPredicate(0,'expr','t.conversation_parent_turn_id = ?'))
+#define($_ = $ParentIds<[]string>(query/parentIds).Optional().WithPredicate(0,'in','t','conversation_parent_id'))
+#define($_ = $ParentTurnIds<[]string>(query/parentTurnIds).Optional().WithPredicate(0,'in','t','conversation_parent_turn_id'))
+#define($_ = $ExcludeChildren<bool>(query/excludeChildren).Optional().WithPredicate(0,'expr','(NOT ? OR t.conversation_parent_id IS NULL)'))
+#define($_ = $ExcludeScheduled<bool>(query/excludeScheduled).Optional().WithPredicate(0,'expr','(NOT ? OR t.schedule_id IS NULL)'))
+#define($_ = $ScheduleId<string>(query/scheduleId).Optional().WithPredicate(0,'expr','t.schedule_id = ?'))
+#define($_ = $ScheduleRunId<string>(query/scheduleRunId).Optional().WithPredicate(0,'expr','t.schedule_run_id = ?'))
+#define($_ = $Query<string>(query/q).Optional().WithPredicate(0,'handler','predicate.ConversationSearch'))
+#define($_ = $StatusFilter<string>(query/status).Optional().WithPredicate(0,'expr','t.status = ?'))
+#define($_ = $HasScheduleId<bool>(query/hasScheduleId).Optional().WithPredicate(0,'expr','(NOT ? OR t.schedule_id IS NOT NULL)'))
+#define($_ = $ListMode<bool>(conversationAccess/list).Required())
+#define($_ = $GraphMode<bool>(conversationAccess/graph).Optional())
+#define($_ = $ListAscending<bool>(conversationAccess/ascending).Optional())
+#define($_ = $EnforceVisibility<bool>(conversationAccess/enforceVisibility).Optional())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $CreatedSince<time.Time>(query/createdSince).Optional().WithPredicate(0,'greater_or_equal','t','created_at'))
+#define($_ = $CreatedBefore<time.Time>(query/createdBefore).Optional().WithPredicate(0,'less_or_equal','t','created_at'))
+#define($_ = $CursorBefore<string>(query/cursorBefore).Optional().WithPredicate(0,'expr','EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (COALESCE(t.last_activity,t.updated_at,t.created_at) < COALESCE(x.last_activity,x.updated_at,x.created_at) OR (COALESCE(t.last_activity,t.updated_at,t.created_at) = COALESCE(x.last_activity,x.updated_at,x.created_at) AND t.id < x.id)))'))
+#define($_ = $CursorAfter<string>(query/cursorAfter).Optional().WithPredicate(0,'expr','EXISTS (SELECT 1 FROM conversation x WHERE x.id = ? AND (COALESCE(t.last_activity,t.updated_at,t.created_at) > COALESCE(x.last_activity,x.updated_at,x.created_at) OR (COALESCE(t.last_activity,t.updated_at,t.created_at) = COALESCE(x.last_activity,x.updated_at,x.created_at) AND t.id > x.id)))'))
+#define($_ = $MaintenanceMode<bool>(conversationAccess/maintenance).Optional())
+#define($_ = $MaintenanceKind<string>(conversationAccess/kind).Optional())
+#define($_ = $MaintenanceLegacy<bool>(conversationAccess/legacyRuns).Optional())
+#define($_ = $MaintenanceBefore<time.Time>(query/maintenanceBefore).Optional())
+#define($_ = $MaintenanceBeforeSecond<string>(query/maintenanceBeforeSecond).Optional())
+#define($_ = $MaintenanceBeforeNano<int64>(query/maintenanceBeforeNano).Optional())
+#define($_ = $MaintenanceAfterNano<int64>(query/maintenanceAfterNano).Optional())
+#define($_ = $MaintenanceAfterActivity<string>(query/maintenanceAfterActivity).Optional())
+#define($_ = $MaintenanceAfterRootId<string>(query/maintenanceAfterRootId).Optional())
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*ConversationView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true"'))
+
+SELECT conversation.*,
+       row_lock(conversation,'conversation t','t.id'),
+       CAST(conversation.created_at_raw AS *string),
+       tag(conversation.created_at_raw,'internal:"true" json:"-"'),
+       CAST(conversation.activity_raw AS *string),
+       tag(conversation.activity_raw,'internal:"true" json:"-"'),
+       CAST(conversation.list_mode AS bool),
+       tag(conversation.list_mode,'json:"-"'),
+       CAST(conversation.last_turn_id AS *string),
+       CAST(conversation.status AS *string),
+       type(conversation,'ConversationView'),
+       CAST(conversation.stage AS string),
+       required(conversation.id),
+       required(conversation.created_at),
+       required(conversation.visibility),
+       required(conversation.shareable),
+       transcript.*,
+       transcript.goal_id AS GoalID,
+       type(transcript,'TranscriptView'),
+       required(transcript.elapsedInSec),
+       CAST(transcript.stage AS string),
+       required(transcript.id),
+       required(transcript.conversation_id),
+       required(transcript.created_at),
+       required(transcript.status),
+       message.*,
+       CAST(message.linked_conversation_id AS *string),
+       message.preamble AS narration,
+       type(message,'MessageView'),
+       CAST(message.ELICITATION AS codec.JSON),
+       required(message.id),
+       required(message.conversation_id),
+       required(message.created_at),
+       required(message.role),
+       required(message.type),
+       required(message.interim),
+       messageToolCall.*,
+       type(messageToolCall,'MessageToolCallView'),
+       required(messageToolCall.message_id),
+       required(messageToolCall.op_id),
+       required(messageToolCall.attempt),
+       required(messageToolCall.tool_name),
+       required(messageToolCall.tool_kind),
+       required(messageToolCall.status),
+       messageRequestPayload.*,
+       type(messageRequestPayload,'ModelCallStreamPayloadView'),
+       required(messageRequestPayload.id),
+       required(messageRequestPayload.compression),
+       messageResponsePayload.*,
+       type(messageResponsePayload,'ModelCallStreamPayloadView'),
+       required(messageResponsePayload.id),
+       required(messageResponsePayload.compression),
+       toolMessage.*,
+       type(toolMessage,'ToolMessageView'),
+       required(toolMessage.id),
+       required(toolMessage.created_at),
+       required(toolMessage.type),
+       CAST(toolMessage.linked_conversation_id AS *string),
+       toolCall.*,
+       type(toolCall,'ToolCallView'),
+       required(toolCall.message_id),
+       required(toolCall.op_id),
+       required(toolCall.attempt),
+       required(toolCall.tool_name),
+       required(toolCall.tool_kind),
+       required(toolCall.status),
+       requestPayload.*,
+       type(requestPayload,'ModelCallStreamPayloadView'),
+       required(requestPayload.id),
+       required(requestPayload.compression),
+       responsePayload.*,
+       type(responsePayload,'ModelCallStreamPayloadView'),
+       required(responsePayload.id),
+       required(responsePayload.compression),
+       userElicitationData.*,
+       type(userElicitationData,'UserElicitationDataView'),
+       required(userElicitationData.compression),
+       required(userElicitationData.message_id),
+       linkedConversation.*,
+       type(linkedConversation,'LinkedConversationView'),
+       required(linkedConversation.id),
+       required(linkedConversation.created_at),
+       attachment.*,
+       type(attachment,'AttachmentView'),
+       CAST(attachment.inline_body AS *[]uint8),
+       required(attachment.compression),
+       required(attachment.mime_type),
+       modelCall.*,
+       type(modelCall,'ModelCallView'),
+       required(modelCall.message_id),
+       required(modelCall.model),
+       required(modelCall.model_kind),
+       required(modelCall.provider),
+       required(modelCall.status),
+       modelCallRequestPayload.*,
+       type(modelCallRequestPayload,'ModelCallStreamPayloadView'),
+       required(modelCallRequestPayload.id),
+       required(modelCallRequestPayload.compression),
+       modelCallProviderRequestPayload.*,
+       type(modelCallProviderRequestPayload,'ModelCallStreamPayloadView'),
+       required(modelCallProviderRequestPayload.id),
+       required(modelCallProviderRequestPayload.compression),
+       modelCallResponsePayload.*,
+       type(modelCallResponsePayload,'ModelCallStreamPayloadView'),
+       required(modelCallResponsePayload.id),
+       required(modelCallResponsePayload.compression),
+       modelCallProviderResponsePayload.*,
+       type(modelCallProviderResponsePayload,'ModelCallStreamPayloadView'),
+       required(modelCallProviderResponsePayload.id),
+       required(modelCallProviderResponsePayload.compression),
+       toolCallLinks.*,
+       type(toolCallLinks,'ToolCallLinksView'),
+       required(toolCallLinks.message_id),
+       required(toolCallLinks.op_id),
+       modelCallStreamPayload.*,
+       type(modelCallStreamPayload,'ModelCallStreamPayloadView'),
+       required(modelCallStreamPayload.id),
+       required(modelCallStreamPayload.compression),
+       u.*,
+       CAST(u.cost AS *float64),
+       CAST(u.prompt_tokens AS *int),
+       CAST(u.prompt_cached_tokens AS *int),
+       CAST(u.prompt_audio_tokens AS *int),
+       CAST(u.completion_tokens AS *int),
+       CAST(u.completion_reasoning_tokens AS *int),
+       CAST(u.completion_audio_tokens AS *int),
+       CAST(u.completion_accepted_prediction_tokens AS *int),
+       CAST(u.completion_rejected_prediction_tokens AS *int),
+       CAST(u.total_tokens AS *int),
+       type(u,'UsageView','Usage'),
+       required(u.conversation_id),
+       model.*,
+       CAST(model.prompt_tokens AS *int),
+       CAST(model.prompt_cached_tokens AS *int),
+       CAST(model.prompt_audio_tokens AS *int),
+       CAST(model.completion_tokens AS *int),
+       CAST(model.completion_reasoning_tokens AS *int),
+       CAST(model.completion_audio_tokens AS *int),
+       CAST(model.completion_accepted_prediction_tokens AS *int),
+       CAST(model.completion_rejected_prediction_tokens AS *int),
+       CAST(model.total_tokens AS *int),
+       CAST(model.cost AS *float64),
+       type(model,'ModelView'),
+       required(model.conversation_id),
+       required(model.provider),
+       required(model.model),
+       CAST(model.execution_role AS string)
+FROM (${embed:sql/conversation.sql}) conversation
+LEFT JOIN (${embed:sql/transcript.sql}) transcript ON transcript.conversation_id = conversation.id
+LEFT JOIN (${embed:sql/message.sql}) message ON message.turn_id = transcript.id
+LEFT JOIN (${embed:sql/tool_call.sql}) messageToolCall ON messageToolCall.message_id = message.id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) messageRequestPayload ON messageRequestPayload.id = messageToolCall.request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) messageResponsePayload ON messageResponsePayload.id = messageToolCall.response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_message.sql}) toolMessage ON toolMessage.parent_message_id = message.id
+LEFT JOIN (${embed:sql/tool_call.sql}) toolCall ON toolCall.message_id = toolMessage.id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) requestPayload ON requestPayload.id = toolCall.request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) responsePayload ON responsePayload.id = toolCall.response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/elicitation.sql}) userElicitationData ON userElicitationData.message_id = message.id AND 1=1
+LEFT JOIN (${embed:sql/linked_conversation.sql}) linkedConversation ON linkedConversation.id = message.linked_conversation_id AND 1=1
+LEFT JOIN (${embed:sql/attachment.sql}) attachment ON attachment.parent_message_id = message.id
+LEFT JOIN (${embed:sql/model_call.sql}) modelCall ON modelCall.message_id = message.id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallRequestPayload ON modelCallRequestPayload.id = modelCall.request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallProviderRequestPayload ON modelCallProviderRequestPayload.id = modelCall.provider_request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallResponsePayload ON modelCallResponsePayload.id = modelCall.response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallProviderResponsePayload ON modelCallProviderResponsePayload.id = modelCall.provider_response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_call_links.sql}) toolCallLinks ON toolCallLinks.trace_id = modelCall.trace_id
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallStreamPayload ON modelCallStreamPayload.id = modelCall.stream_payload_id AND 1=1
+LEFT JOIN (${embed:sql/usage.sql}) u ON u.conversation_id = conversation.id AND 1=1
+LEFT JOIN (${embed:sql/model.sql}) model ON model.conversation_id = u.conversation_id

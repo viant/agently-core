@@ -1,0 +1,52 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/sharedartifact/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/forge/reporting/shared-artifact','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $Internal<bool>(artifactAccess/internal).Required())
+#define($_ = $WriteIntent<string>(query/intent).Optional())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Optional().WithPredicate(9,'equal','report_shared_artifact','owner_id'))
+#define($_ = $Artifact<*SharedArtifact>(body/data))
+#define($_ = $Data<*SharedArtifact>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       type(t,'SharedArtifact'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,9),
+       required(t.artifact_id),
+       tag(t.artifact_id,'sqlx:"artifact_id,primaryKey"'),
+       required(t.artifact_ref),
+       required(t.owner_id),
+       CAST(t.owner_ref AS string),
+       required(t.kind),
+       required(t.lifecycle),
+       required(t.version),
+       CAST(t.report_id AS string),
+       CAST(t.title AS string),
+       CAST(t.source_artifact_id AS string),
+       CAST(t.base_artifact_ref AS string),
+       CAST(t.policy_ref AS string),
+       required(t.document_version),
+       CAST(t.report_document_json AS []byte),
+       tag(t.report_document_json,'json:"document,omitempty"'),
+       CAST(t.report_spec_json AS []byte),
+       tag(t.report_spec_json,'json:"reportSpec,omitempty"'),
+       CAST(t.compile_state_json AS []byte),
+       tag(t.compile_state_json,'json:"compileState,omitempty"'),
+       CAST(t.report_fill_json AS []byte),
+       tag(t.report_fill_json,'json:"reportFill,omitempty"'),
+       CAST(t.report_print_json AS []byte),
+       tag(t.report_print_json,'json:"reportPrint,omitempty"'),
+       CAST(t.saved_view_overlay_json AS []byte),
+       tag(t.saved_view_overlay_json,'json:"savedViewOverlay,omitempty"'),
+       CAST(t.metadata_json AS []byte),
+       tag(t.metadata_json,'json:"metadata,omitempty"'),
+       required(t.created_at)
+-- Keep six nullable string columns normalized with COALESCE: direct NULL-to-string reads fail, and wildcard plus same-name overrides is ambiguous.
+FROM (${embed:sql/sharedartifact.sql}) t

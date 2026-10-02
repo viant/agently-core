@@ -1,0 +1,46 @@
+{
+  "scope": "Native technical report run, export job, audit event and session retention under managed serializable units",
+  "runtime_tests": [
+    {
+      "command": "go test -mod=mod -modfile=/tmp/conv-framework/go.mod ./app/store/native ./app/store/data -run ^(TestWorkspaceRuntimeFullConversationTree|TestNativeTechnicalMaintenance_|TestTechnicalMaintenance_) -count=1",
+      "result": "PASS",
+      "native_seconds": 83.414,
+      "root_data_seconds": 7.221,
+      "dependencies": "private scratch local framework; official module manifests remain published dependencies"
+    },
+    {
+      "command": "go test ./tests -run ^(TestReportArtifactDedicatedOrphanDelete|TestReportOrphanDetachPreservesMetadata)$ -count=1",
+      "directory": "datlyv1",
+      "result": "PASS",
+      "seconds": 3.453,
+      "dependencies": "official nested published dependencies"
+    }
+  ],
+  "verified": [
+    "candidate age, cursor, limit, priority and scope parity",
+    "TTL and session retention",
+    "historical owner independent system retention",
+    "context, job, artifact and audit activity guards",
+    "dry run and transactional eligibility recheck",
+    "held lease loss and final mutation rollback including lease state",
+    "dedicated reporting orphan delete and sparse detach preserve ordinary guards and metadata",
+    "tree malformed lease fails closed and malformed heartbeat remains stale",
+    "complete ordered tree deletion and snapshot rollback"
+  ],
+  "limitations": [
+    "SQLite functional runtime gates do not prove MySQL row locking",
+    "MySQL opt-in retention fixture migrated to native host but not run in this gate"
+  ],
+  "current_layout": {
+    "module": "github.com/viant/agently-core",
+    "dql": "dql/",
+    "generated": "internal/datly/",
+    "compositions": "internal/store/",
+    "contract_tests": "internal/datly/contracttest/",
+    "stock_tooling": "scripts/datly/",
+    "schema_tool": "tools/schema/",
+    "host_command": "cmd/datly/",
+    "relocation_map": "migration/package-relocation-map.json"
+  },
+  "recorded_execution_layout": "Pre-relocation namespace. Original commands/results retained as historical proof; new-root caller rerun recorded separately."
+}

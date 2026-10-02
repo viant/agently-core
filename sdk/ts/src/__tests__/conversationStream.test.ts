@@ -337,6 +337,7 @@ describe('ConversationStreamTracker', () => {
         tracker.applyTranscript([
             {
                 id: 'turn-history',
+                message: [],
                 conversationId: 'conv-1',
                 status: 'completed',
                 createdAt: '2026-01-01T00:00:00Z',

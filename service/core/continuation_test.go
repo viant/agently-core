@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -379,24 +379,24 @@ func TestTryGenerateContinuationByAnchor_ReplaysAllToolOutputsForSharedParentMes
 	respID := "resp-123"
 	call1 := "call-1"
 	call2 := "call-2"
-	convView := &agconv.ConversationView{
+	convView := &conversationmodel.ConversationView{
 		Id: "conv-1",
-		Transcript: []*agconv.TranscriptView{{
+		Transcript: []*conversationmodel.TranscriptView{{
 			Id:             "turn-1",
 			ConversationId: "conv-1",
-			Message: []*agconv.MessageView{{
+			Message: []*conversationmodel.MessageView{{
 				Id:             "assistant-1",
 				ConversationId: "conv-1",
 				Role:           "assistant",
 				Type:           "text",
 				CreatedAt:      time.Now(),
-				ModelCall: &agconv.ModelCallView{
+				ModelCall: &conversationmodel.ModelCallView{
 					TraceId: &respID,
 					Status:  "completed",
 				},
-				ToolMessage: []*agconv.ToolMessageView{
-					{Id: "tool-msg-1", ToolCall: &agconv.ToolCallView{MessageId: "tool-msg-1", OpId: call1, TraceId: &respID, Status: "completed"}},
-					{Id: "tool-msg-2", ToolCall: &agconv.ToolCallView{MessageId: "tool-msg-2", OpId: call2, TraceId: &respID, Status: "completed"}},
+				ToolMessage: []*conversationmodel.ToolMessageView{
+					{Id: "tool-msg-1", ToolCall: &conversationmodel.ToolCallView{MessageId: "tool-msg-1", OpId: call1, TraceId: &respID, Status: "completed"}},
+					{Id: "tool-msg-2", ToolCall: &conversationmodel.ToolCallView{MessageId: "tool-msg-2", OpId: call2, TraceId: &respID, Status: "completed"}},
 				},
 			}},
 		}},
@@ -524,8 +524,8 @@ func TestGroupMessagesByAnchor_IncludesAssistantMessages(t *testing.T) {
 	timeRef := time.Date(2025, 1, 1, 12, 0, 0, 0, time.UTC)
 	toolTrace := respID
 	traces := apiconv.IndexedMessages{
-		"call-1": {ToolMessage: []*agconv.ToolMessageView{{ToolCall: &agconv.ToolCallView{TraceId: &toolTrace}}}},
-		respID:   {ModelCall: &agconv.ModelCallView{TraceId: &respID}, CreatedAt: timeRef},
+		"call-1": {ToolMessage: []*conversationmodel.ToolMessageView{{ToolCall: &conversationmodel.ToolCallView{TraceId: &toolTrace}}}},
+		respID:   {ModelCall: &conversationmodel.ModelCallView{TraceId: &respID}, CreatedAt: timeRef},
 	}
 	testCases := []struct {
 		name     string

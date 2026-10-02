@@ -13,10 +13,10 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/logx"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
 	intent "github.com/viant/agently-core/protocol/intent"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	tpldef "github.com/viant/agently-core/protocol/template"
 	toolbundledef "github.com/viant/agently-core/protocol/tool/bundle"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -334,14 +334,14 @@ func (s *Service) allowedDirectActionToolNames(ctx context.Context, cfg *agentmd
 	if cfg.ModelDirectAction != nil {
 		modelAllow = map[string]bool{}
 		for _, name := range cfg.ModelDirectAction.AllowedTools {
-			modelAllow[strings.ToLower(strings.TrimSpace(mcpname.Canonical(name)))] = true
+			modelAllow[strings.ToLower(strings.TrimSpace(mcpname2.Canonical(name)))] = true
 		}
 	}
 	seen := map[string]bool{}
 	names := make([]string, 0)
 	add := func(name string) {
 		raw := strings.TrimSpace(name)
-		canon := strings.TrimSpace(mcpname.Canonical(raw))
+		canon := strings.TrimSpace(mcpname2.Canonical(raw))
 		if raw == "" || canon == "" || seen[canon] || (modelAllow != nil && !modelAllow[strings.ToLower(canon)]) {
 			return
 		}

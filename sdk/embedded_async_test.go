@@ -6,7 +6,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/data"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 )
 
@@ -14,8 +14,8 @@ func TestBackendClient_ListAsyncOperations_ReturnsConversationScopedPendingOps(t
 	ctx := context.Background()
 	dataSvc, err := data.NewThinServiceInMemory(ctx)
 	require.NoError(t, err)
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{
-		convw.NewMutableConversationView(convw.WithConversationID("conv-1")),
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{
+		conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-1")),
 	})
 	require.NoError(t, err)
 

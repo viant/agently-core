@@ -12,7 +12,7 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/logx"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	intent "github.com/viant/agently-core/protocol/intent"
@@ -855,7 +855,7 @@ func attachLinkedConversation(ctx context.Context, conv apiconv.Client, parent r
 	}
 }
 
-func (s *Service) lookupReusableChildConversation(ctx context.Context, in *agconv.ConversationInput) string {
+func (s *Service) lookupReusableChildConversation(ctx context.Context, in *conversationmodel.ConversationInput) string {
 	if s == nil || s.conv == nil || in == nil {
 		return ""
 	}

@@ -2,11 +2,10 @@ package asyncconfig
 
 import (
 	"context"
+	asynccfg "github.com/viant/agently-core/protocol/async"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	"strings"
 	"sync"
-
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
-	asynccfg "github.com/viant/agently-core/protocol/async"
 )
 
 type stateKey struct{}
@@ -69,5 +68,5 @@ func ConfigFor(ctx context.Context, name string) (*asynccfg.Config, bool) {
 }
 
 func normalizedKey(name string) string {
-	return strings.ToLower(strings.TrimSpace(mcpname.Canonical(name)))
+	return strings.ToLower(strings.TrimSpace(mcpname2.Canonical(name)))
 }

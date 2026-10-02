@@ -1,0 +1,27 @@
+{
+  "source": "datlyv1/dql/agently/turn/cube/reader.dql",
+  "legacy_count_cases": 8,
+  "native_cube_cases": 7,
+  "focused": "PASS",
+  "focused_logs": [
+    "/tmp/agently-turn-cube-parity.log",
+    "/tmp/agently-turn-cube-native-final.log"
+  ],
+  "full_endly": {
+    "status": "SUCCESS",
+    "log": "/tmp/agently-turn-cube-endly.log",
+    "test_seconds": 450.493,
+    "workflow_ms": 494369
+  },
+  "removed_drafts": [
+    "dql/agently/turn/controllercount/controller_count/reader",
+    "dql/agently/turn/queuedcount/queued_count/reader"
+  ],
+  "catalog": {
+    "verified": 25,
+    "pending": 0,
+    "drafts": 26,
+    "total": 51
+  },
+  "caller_cutover": "Pending; root store continues to use original count components."
+}

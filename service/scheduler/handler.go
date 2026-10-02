@@ -10,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/app/store/data"
-	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
 	svcauth "github.com/viant/agently-core/service/auth"
 )
 
@@ -110,7 +110,7 @@ func (h *Handler) handleListRuns() http.HandlerFunc {
 		if requireScheduleID && scheduleID == "" {
 			httpJSON(w, http.StatusOK, map[string]interface{}{
 				"status": "ok",
-				"data":   []*schrun.RunView{},
+				"data":   []*scheduledrunmodel.RunView{},
 				"info": map[string]interface{}{
 					"pageCount":  1,
 					"totalCount": 0,
@@ -118,7 +118,11 @@ func (h *Handler) handleListRuns() http.HandlerFunc {
 			})
 			return
 		}
-		input := &schrun.RunListInput{Has: &schrun.RunListInputHas{}}
+		input := &scheduledrunmodel.RunListInput{Has: &scheduledrunmodel.RunListInputHas{}}
+		if query.Has("since") {
+			input.Since = query.Get("since")
+			input.Has.Since = true
+		}
 		if userID := strings.TrimSpace(svcauth.EffectiveUserID(r.Context())); userID != "" {
 			input.EffectiveUserID = userID
 			input.Has.EffectiveUserID = true

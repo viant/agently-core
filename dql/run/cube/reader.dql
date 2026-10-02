@@ -1,0 +1,35 @@
+#package('github.com/viant/agently-core/internal/datly/run/cube')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/run/report','GET'))
+#setting($_ = $input_type('RunReportInput'))
+#setting($_ = $output_type('RunReportOutput'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $cube())
+#define($_ = $InternalMode<bool>(runAccess/internal).Required())
+#define($_ = $ReportMode<string>(runAccess/reportMode).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $ScheduleId<string>(query/scheduleId).Optional().WithPredicate(0,'equal','t','schedule_id'))
+#define($_ = $StatusPattern<string>(query/statusPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.status,'')) LIKE LOWER(?)"))
+#define($_ = $ConversationPattern<string>(query/conversationPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.conversation_id,'')) LIKE LOWER(?)"))
+#define($_ = $ErrorPattern<string>(query/errorPattern).Optional().WithPredicate(0,'expr',"LOWER(COALESCE(t.error_message,'')) LIKE LOWER(?)"))
+#define($_ = $SinceTurn<string>(query/sinceTurn).Optional().WithPredicate(0,'expr','t.created_at >= (SELECT created_at FROM turn WHERE id=?)'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*RunReportView>(output/view))
+SELECT t.*,
+       groupable(t),
+       type(t,'RunReportView'),
+       tag(t.schedule_id,'groupable:"true"'),
+       required(t.status),
+       tag(t.status,'groupable:"true"'),
+       required(t.conversation_kind),
+       tag(t.conversation_kind,'groupable:"true"'),
+       tag(t.effective_user_id,'groupable:"true"'),
+       CAST(t.record_count AS int),
+       tag(t.record_count,'groupable:"false"'),
+       CAST(t.total_tokens AS *int),
+       tag(t.total_tokens,'groupable:"false"'),
+       CAST(t.total_cost AS *float64),
+       tag(t.total_cost,'groupable:"false"')
+FROM (${embed:sql/run.sql}) t

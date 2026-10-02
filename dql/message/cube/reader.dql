@@ -1,0 +1,37 @@
+#package('github.com/viant/agently-core/internal/datly/message/cube')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/message/report','GET'))
+#setting($_ = $input_type('MessageReportInput'))
+#setting($_ = $output_type('MessageReportOutput'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $cube())
+#define($_ = $Internal<bool>(messageAccess/internal).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','m','conversation_id'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','m','turn_id'))
+#define($_ = $Roles<[]string>(query/roles).Optional().WithPredicate(0,'in','m','role'))
+#define($_ = $Statuses<[]string>(query/statuses).Optional().WithPredicate(0,'in','m','status'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*MessageReportView>(output/view))
+SELECT m.*,
+       groupable(m),
+       type(m,'MessageReportView'),
+       required(m.conversation_id),
+       tag(m.conversation_id,'groupable:"true"'),
+       required(m.role),
+       tag(m.role,'groupable:"true"'),
+       required(m.type),
+       tag(m.type,'groupable:"true"'),
+       tag(m.status,'groupable:"true"'),
+       tag(m.phase,'groupable:"true"'),
+       tag(m.iteration,'groupable:"true"'),
+       CAST(m.record_count AS int),
+       tag(m.record_count,'groupable:"false"'),
+       CAST(m.pending_count AS int),
+       tag(m.pending_count,'groupable:"false"'),
+       CAST(m.user_count AS int),
+       tag(m.user_count,'groupable:"false"'),
+       CAST(m.assistant_count AS int),
+       tag(m.assistant_count,'groupable:"false"')
+FROM (${embed:sql/message.sql}) m

@@ -18,9 +18,9 @@ import (
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/binding"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
@@ -803,7 +803,7 @@ func (s *Service) startNestedToolCall(ctx context.Context, toolName string, args
 		apiconv.WithType("tool_op"),
 		apiconv.WithStatus("running"),
 		apiconv.WithCreatedAt(startedAt),
-		apiconv.WithToolName(mcpname.Display(toolName)),
+		apiconv.WithToolName(mcpname2.Display(toolName)),
 	}
 	if parentMessageID != "" {
 		opts = append(opts, apiconv.WithParentMessageID(parentMessageID))
@@ -818,7 +818,7 @@ func (s *Service) startNestedToolCall(ctx context.Context, toolName string, args
 	tc := apiconv.NewToolCall()
 	tc.SetMessageID(toolMsgID)
 	tc.SetOpID(toolCallID)
-	tc.SetToolName(mcpname.Display(toolName))
+	tc.SetToolName(mcpname2.Display(toolName))
 	tc.SetToolKind("general")
 	tc.SetStatus("running")
 	tc.SetTurnID(turn.TurnID)
@@ -859,7 +859,7 @@ func (s *Service) finishNestedToolCall(ctx context.Context, rec *nestedToolCallR
 	updTC := apiconv.NewToolCall()
 	updTC.SetMessageID(rec.ToolMessageID)
 	updTC.SetOpID(rec.ToolCallID)
-	updTC.SetToolName(mcpname.Display(toolName))
+	updTC.SetToolName(mcpname2.Display(toolName))
 	updTC.SetStatus(status)
 	done := time.Now()
 	updTC.CompletedAt = &done
@@ -1469,7 +1469,7 @@ func ActiveSkillsFromHistory(history *binding.History) []string {
 			if msg == nil || msg.Kind != binding.MessageKindToolResult {
 				continue
 			}
-			if !strings.EqualFold(strings.TrimSpace(mcpname.Canonical(msg.ToolName)), skillproto.ActivateToolNameCanonical) {
+			if !strings.EqualFold(strings.TrimSpace(mcpname2.Canonical(msg.ToolName)), skillproto.ActivateToolNameCanonical) {
 				if remoteOnly {
 					continue
 				}

@@ -1,0 +1,18 @@
+#package('github.com/viant/agently-core/internal/datly/maintenancelease/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/maintenance-lease','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(maintenanceAccess/internal).Required())
+#define($_ = $Mode<string>(query/mode).Optional().Value('rows'))
+#define($_ = $LeaseKey<string>(query/leaseKey).Optional().WithPredicate(0,'equal','l','lease_key'))
+#define($_ = $ExpiresBefore<time.Time>(query/expiresBefore).Optional().WithPredicate(0,'less_or_equal','l','lease_until'))
+#define($_ = $Data<[]*LeaseSnapshot>(output/view))
+
+SELECT snapshot.*,
+       type(snapshot,'LeaseSnapshot'),
+       CAST(snapshot.db_now AS string)
+FROM (${embed:sql/maintenancelease.sql}) snapshot

@@ -1,0 +1,43 @@
+#package('github.com/viant/agently-core/internal/datly/toolcall/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/toolcall','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $ToolCalls<[]*ToolCall>(body/data))
+#define($_ = $Data<[]*ToolCall>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       CAST(t.response_overflow AS bool),
+       tag(t.response_overflow,'sqlx:"-"'),
+       type(t,'ToolCall'),
+       lifecycle_type(t,'Lifecycle'),
+       required(t.message_id),
+       tag(t.message_id,'validate:"required" sqlx:"message_id,primaryKey"'),
+       required(t.op_id),
+       tag(t.op_id,'validate:"required"'),
+       required(t.attempt),
+       required(t.tool_name),
+       tag(t.tool_name,'validate:"required"'),
+       required(t.tool_kind),
+       tag(t.tool_kind,'validate:"required"'),
+       required(t.status),
+       tag(t.status,'validate:"required"'),
+       CAST(t.cost AS *float64),
+       tag(t.message_id,'json:","'),
+       tag(t.op_id,'json:","'),
+       tag(t.attempt,'json:","'),
+       tag(t.tool_name,'json:","'),
+       tag(t.tool_kind,'json:","'),
+       tag(t.status,'json:","'),
+       tag(t.request_payload_id,'json:","'),
+       tag(t.response_payload_id,'json:","')
+FROM (${embed:sql/toolcall.sql}) t

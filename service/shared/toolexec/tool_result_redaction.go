@@ -2,9 +2,8 @@ package toolexec
 
 import (
 	"encoding/json"
+	jsonrepair2 "github.com/viant/agently-core/internal/jsonrepair"
 	"strings"
-
-	"github.com/viant/agently-core/pkg/jsonrepair"
 )
 
 // normalizeBareRedactionMarkers repairs upstream safety filters that replace a
@@ -13,7 +12,7 @@ import (
 // embedded in ordinary text. The repaired value is accepted only when the
 // complete result is valid JSON.
 func normalizeBareRedactionMarkers(result string) (string, bool) {
-	return jsonrepair.NormalizeBareRedactionMarkers(result)
+	return jsonrepair2.NormalizeBareRedactionMarkers(result)
 }
 
 // redactToolResultIfNeeded removes large binary data (for example, base64 images) from a tool result

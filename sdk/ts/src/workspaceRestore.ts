@@ -124,8 +124,8 @@ function hostedWorkspaceWindowsFromListPayload(raw: unknown): WorkspaceWindowSna
     const payload = firstParsedPayload(raw);
     const items = Array.isArray(payload?.items) ? payload.items : [];
     return items
-        .map((item) => normalizeHostedWorkspaceWindow(item))
-        .filter((item): item is WorkspaceWindowSnapshot => !!item);
+        .map((item: unknown) => normalizeHostedWorkspaceWindow(item))
+        .filter((item: WorkspaceWindowSnapshot | null): item is WorkspaceWindowSnapshot => !!item);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -176,8 +176,8 @@ function hostedWorkspaceWindowsFromViewOpenStep(step: any): WorkspaceWindowSnaps
     const items = Array.isArray(responsePayload?.items) ? responsePayload.items : [];
     if (items.length > 0) {
         return items
-            .map((item) => normalizeHostedWorkspaceWindow(item))
-            .filter((item): item is WorkspaceWindowSnapshot => !!item);
+            .map((item: unknown) => normalizeHostedWorkspaceWindow(item))
+            .filter((item: WorkspaceWindowSnapshot | null): item is WorkspaceWindowSnapshot => !!item);
     }
     const normalized = normalizeHostedWorkspaceWindow({
         workspaceObject: responsePayload?.workspaceObject,

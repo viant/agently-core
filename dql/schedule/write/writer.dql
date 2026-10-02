@@ -1,0 +1,50 @@
+#package('github.com/viant/agently-core/internal/datly/schedule/write')
+#import('time','time')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/scheduler/','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $LeaseMode<string>(query/leaseMode).Optional().WithPredicate(7,'handler','predicate.LeasePredicate'))
+#define($_ = $LeaseOwner<string>(query/leaseOwner).Optional())
+#define($_ = $LeaseNow<time.Time>(query/leaseNow).Optional())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $Schedules<[]*Schedule>(body/data))
+#define($_ = $Data<[]*Schedule>(output/body))
+#define($_ = $LeaseResult<bool>(output/leaseResult))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'Schedule'),
+       mutation_predicate(t,7),
+       lifecycle_type(t,'Lifecycle'),
+       required(t.id),
+       tag(t.id,'validate:"required" sqlx:"id,primaryKey"'),
+       required(t.name),
+       tag(t.name,'validate:"required"'),
+       required(t.visibility),
+       CAST(t.internal AS *bool),
+       required(t.agent_ref),
+       tag(t.agent_ref,'validate:"required"'),
+       CAST(t.enabled AS bool),
+       required(t.schedule_type),
+       tag(t.schedule_type,'validate:"required"'),
+       required(t.timezone),
+       tag(t.timezone,'validate:"required"'),
+       required(t.timeout_seconds),
+       tag(t.id,'json:","'),
+       tag(t.name,'json:","'),
+       tag(t.visibility,'json:","'),
+       tag(t.agent_ref,'json:","'),
+       tag(t.enabled,'json:","'),
+       tag(t.schedule_type,'json:","'),
+       tag(t.timezone,'json:","'),
+       tag(t.timeout_seconds,'json:","')
+FROM (${embed:sql/schedule.sql}) t

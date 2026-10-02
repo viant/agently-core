@@ -1,0 +1,29 @@
+{
+  "writer_cases": 20,
+  "caller_transaction_cases": 2,
+  "batch_failure_cases": 2,
+  "result": "PASS",
+  "log": "/tmp/agently-modelcall-writer-compat-parity.log",
+  "legacy_batch_behavior": "Raw *sql.DB updates commit earlier rows before a later rejection; native writer restores the full batch. Both outcomes asserted.",
+  "timestamp_behavior": "Legacy modernc storage uses time.String text. Datly SQL initialization now accepts that format in the native SQLite driver, preserving exact dates and default write formatting.",
+  "datly_commit": "6507cebbc1d3bd71c9a01d1d9ea1eb624923b462",
+  "framework_checks": [
+    "PASS full ./sql ./sql/dml",
+    "PASS CGO_ENABLED=0 SQL package compilation"
+  ],
+  "linked": true,
+  "remaining": [
+    "Native canonical reader and one ModelCall fact cube",
+    "Root/application caller cutover"
+  ],
+  "deletion_cases": 7,
+  "mixed_transaction_cases": 4,
+  "full_endly": {
+    "status": "SUCCESS",
+    "log": "/tmp/agently-modelcall-writer-endly.log",
+    "test_seconds": 497.513,
+    "workflow_ms": 542209
+  },
+  "focused_log": "/tmp/agently-modelcall-canonical-writer-tests.log",
+  "focused_seconds": 46.491
+}

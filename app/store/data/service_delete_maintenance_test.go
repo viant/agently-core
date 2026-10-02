@@ -14,7 +14,7 @@ func TestMaintainConversationTree_DryRunThenDeleteWholeInteractiveGraph(t *testi
 	rootActivity := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	childActivity := rootActivity.Add(time.Hour)
 	cutoff := childActivity.Add(time.Hour)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, updated_at, last_activity, status, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"maintenance-root", rootActivity, rootActivity, rootActivity, "unknown_legacy_state", "owner-1"}},
 			{SQL: `INSERT INTO conversation (id, created_at, updated_at, last_activity, status, created_by_user_id, conversation_parent_id) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"maintenance-child", rootActivity, childActivity, childActivity, "running", "owner-1", "maintenance-root"}},
@@ -60,7 +60,7 @@ func TestMaintainConversationTree_DryRunThenDeleteWholeInteractiveGraph(t *testi
 
 func TestMaintainConversationTree_RollsBackDeleteOnFailure(t *testing.T) {
 	activityAt := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `CREATE TABLE investigation (id TEXT PRIMARY KEY, conversation_id TEXT)`},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"maintenance-rollback", activityAt, activityAt, "succeeded", "owner-1"}},
@@ -94,7 +94,7 @@ func TestMaintainConversationTree_RollsBackDeleteOnFailure(t *testing.T) {
 
 func TestMaintainConversationTree_RejectsSupersededLeaseWithoutDeleting(t *testing.T) {
 	activityAt := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"maintenance-fenced", activityAt, activityAt, "succeeded", "owner-1"}},
 		})
@@ -123,7 +123,7 @@ func TestMaintainConversationTree_RejectsSupersededLeaseWithoutDeleting(t *testi
 func TestMaintainConversationTree_SkipsGraphWithRecentChild(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	recent := old.Add(48 * time.Hour)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"old-root", old, old, "succeeded", "owner-1"}},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id, conversation_parent_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"recent-child", old, recent, "succeeded", "owner-1", "old-root"}},
@@ -146,7 +146,7 @@ func TestMaintainConversationTree_SkipsGraphWithRecentChild(t *testing.T) {
 
 func TestMaintainConversationTree_DeletesMixedOwnerGraph(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, status, created_by_user_id) VALUES (?, ?, ?, ?)`, Params: []interface{}{"owner-root", old, "succeeded", "owner-1"}},
 			{SQL: `INSERT INTO conversation (id, created_at, status, created_by_user_id, conversation_parent_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"other-owner-child", old, "succeeded", "owner-2", "owner-root"}},
@@ -165,7 +165,7 @@ func TestMaintainConversationTree_DeletesMixedOwnerGraph(t *testing.T) {
 
 func TestMaintainConversationTree_DeletesOwnerlessGraphWithoutExpectedOwner(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status) VALUES (?, ?, ?, ?)`, Params: []interface{}{"ownerless-root", old, old, "succeeded"}},
 		})
@@ -186,7 +186,7 @@ func TestMaintainConversationTree_DeletesOwnerlessGraphWithoutExpectedOwner(t *t
 func TestMaintainConversationTree_SkipsLiveRun(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
 	now := time.Now().UTC()
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"live-root", old, old, "running", "owner-1"}},
 			{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"live-turn", "live-root", "running"}},
@@ -206,7 +206,7 @@ func TestMaintainConversationTree_SkipsLiveRun(t *testing.T) {
 
 func TestMaintainConversationTree_VerifiesKindAndRoot(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc, _ := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, _ := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id, schedule_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"scheduled-root", old, old, "succeeded", "owner-1", "schedule-1"}},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id, conversation_parent_id) VALUES (?, ?, ?, ?, ?, ?)`, Params: []interface{}{"scheduled-child", old, old, "succeeded", "owner-1", "scheduled-root"}},
@@ -234,7 +234,7 @@ func TestMaintainConversationTree_VerifiesKindAndRoot(t *testing.T) {
 
 func TestMaintainConversationTree_ScheduledFallbackDeletesOwnerlessShellAndPreservesSchedule(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO schedule (id, name, created_by_user_id, agent_ref) VALUES (?, ?, ?, ?)`, Params: []interface{}{"fallback-schedule", "fallback-schedule", "schedule-owner", "agent"}},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, schedule_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"fallback-shell", old, old, "succeeded", "fallback-schedule"}},
@@ -263,7 +263,7 @@ func TestMaintainConversationTree_ScheduledFallbackDeletesOwnerlessShellAndPrese
 
 func TestMaintainConversationTree_ScheduledFallbackRechecksWholeGraphForRuns(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, schedule_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"fallback-root", old, old, "succeeded", "schedule-1"}},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, conversation_parent_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"fallback-child", old, old, "succeeded", "fallback-root"}},
@@ -287,7 +287,7 @@ func TestMaintainConversationTree_ScheduledFallbackRechecksWholeGraphForRuns(t *
 
 func TestMaintainConversationTree_SkipsInteractiveGraphWithScheduledDescendant(t *testing.T) {
 	old := time.Date(2026, 1, 1, 9, 0, 0, 0, time.UTC)
-	svc, _ := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, _ := newScheduledMaintenanceServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"interactive-root", old, old, "succeeded", "owner-1"}},
 			{SQL: `INSERT INTO conversation (id, created_at, last_activity, status, created_by_user_id, conversation_parent_id, schedule_kind) VALUES (?, ?, ?, ?, ?, ?, ?)`, Params: []interface{}{"scheduled-descendant", old, old, "succeeded", "owner-1", "interactive-root", "cron"}},

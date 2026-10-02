@@ -1,0 +1,67 @@
+#package('github.com/viant/agently-core/internal/datly/toolcall/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/tool-call','GET'))
+#setting($_ = $input_type('ToolCallsInput'))
+#setting($_ = $output_type('ToolCallsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(toolCallAccess/internal).Required())
+#define($_ = $ReadMode<string>(toolCallAccess/mode).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $MessageId<string>(query/messageId).Optional().WithPredicate(0,'equal','data_rows','message_id'))
+#define($_ = $MessageIds<[]string>(query/messageIds).Optional().WithPredicate(0,'in','data_rows','message_id'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'expr','EXISTS (SELECT 1 FROM message m WHERE m.id=data_rows.message_id AND m.conversation_id=?)'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','data_rows','turn_id'))
+#define($_ = $TurnIds<[]string>(query/turnIds).Optional().WithPredicate(0,'in','data_rows','turn_id'))
+#define($_ = $OpId<string>(query/opId).Optional().WithPredicate(0,'equal','data_rows','op_id'))
+#define($_ = $Attempt<int>(query/attempt).Optional().WithPredicate(0,'equal','data_rows','attempt'))
+#define($_ = $RunId<string>(query/runId).Optional().WithPredicate(0,'equal','data_rows','run_id'))
+#define($_ = $ToolName<string>(query/toolName).Optional().WithPredicate(0,'equal','data_rows','tool_name'))
+#define($_ = $ToolKind<string>(query/toolKind).Optional().WithPredicate(0,'equal','data_rows','tool_kind'))
+#define($_ = $Statuses<[]string>(query/statuses).Optional().WithPredicate(0,'in','data_rows','status'))
+#define($_ = $StartedAfter<time.Time>(query/startedAfter).Optional().WithPredicate(0,'greater_or_equal','data_rows','started_at'))
+#define($_ = $StartedBefore<time.Time>(query/startedBefore).Optional().WithPredicate(0,'less_or_equal','data_rows','started_at'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*ToolCallView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true"'))
+SELECT data_rows.*,
+       row_lock(data_rows,'tool_call data_rows'),
+       CAST(data_rows.cleanup_status AS string),
+       internal(data_rows.cleanup_status),
+       tag(data_rows.cleanup_status,'json:"-"'),
+       type(data_rows,'ToolCallView'),
+       required(data_rows.message_id),
+       tag(data_rows.message_id,'validate:"required" sqlx:"message_id,primaryKey"'),
+       tag(data_rows.turn_id,'sqlx:"turn_id"'),
+       required(data_rows.op_id),
+       tag(data_rows.op_id,'validate:"required" sqlx:"op_id"'),
+       required(data_rows.attempt),
+       tag(data_rows.attempt,'sqlx:"attempt"'),
+       required(data_rows.tool_name),
+       tag(data_rows.tool_name,'validate:"required" sqlx:"tool_name"'),
+       required(data_rows.tool_kind),
+       tag(data_rows.tool_kind,'validate:"required" sqlx:"tool_kind"'),
+       required(data_rows.status),
+       tag(data_rows.status,'validate:"required" sqlx:"status"'),
+       tag(data_rows.request_hash,'sqlx:"request_hash"'),
+       tag(data_rows.error_code,'sqlx:"error_code"'),
+       tag(data_rows.error_message,'sqlx:"error_message"'),
+       tag(data_rows.retriable,'sqlx:"retriable"'),
+       tag(data_rows.started_at,'sqlx:"started_at"'),
+       tag(data_rows.completed_at,'sqlx:"completed_at"'),
+       tag(data_rows.latency_ms,'sqlx:"latency_ms"'),
+       tag(data_rows.cost,'sqlx:"cost"'),
+       tag(data_rows.trace_id,'sqlx:"trace_id"'),
+       tag(data_rows.span_id,'sqlx:"span_id"'),
+       tag(data_rows.request_payload_id,'sqlx:"request_payload_id"'),
+       tag(data_rows.response_payload_id,'sqlx:"response_payload_id"'),
+       tag(data_rows.run_id,'sqlx:"run_id"'),
+       tag(data_rows.iteration,'sqlx:"iteration"')
+FROM (${embed:sql/toolcall.sql}) data_rows
+ORDER BY CASE WHEN $ReadMode='byTurn' THEN data_rows.op_id END ASC,
+ CASE WHEN $ReadMode='byTurn' THEN data_rows.attempt END DESC,
+ CASE WHEN $ReadMode='byTurn' THEN data_rows.message_id END DESC,
+ CASE WHEN $ReadMode NOT IN ('byOp','scopedByOp','byTurn') THEN data_rows.started_at END DESC,
+ CASE WHEN $ReadMode NOT IN ('byOp','scopedByOp','byTurn') THEN data_rows.message_id END ASC

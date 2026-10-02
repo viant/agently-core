@@ -1,0 +1,24 @@
+init:
+  - name: projectRoot
+    when: $params.projectRoot
+    value: $params.projectRoot
+    else: $WorkingDirectory(../..)
+
+pipeline:
+  build:
+    action: exec:run
+    TimeoutMs: 600000
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - mkdir -p bin
+      - cp go.mod bin/datly-tool.mod
+      - cp go.sum bin/datly-tool.sum
+      - rm -rf bin/_datly_cli
+      - mkdir -p bin/_datly_cli
+      - cp $(go list -m -f '{{.Dir}}' github.com/viant/datly)/cmd/datly/*.go bin/_datly_cli/
+      - rm -f bin/_datly_cli/*_test.go
+      - printf 'package main\nimport (_ "github.com/viant/agently-core/internal/datly/predicate"; _ "github.com/viant/agently-core/internal/datly/codec")\n' > bin/_datly_cli/project_links.go
+      - env GOWORK=off go build -mod=mod -modfile=bin/datly-tool.mod -o bin/datly-stock ./bin/_datly_cli
+      - env GOWORK=off go build -o bin/agently-datly ./cmd/datly
+      - env GOWORK=off go build -o bin/datly-base-authoring ./e2e/datly/authoring

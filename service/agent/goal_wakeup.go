@@ -2,12 +2,10 @@ package agent
 
 import (
 	"context"
+	turnmodel "github.com/viant/agently-core/model/turn"
 	"strings"
 	"time"
 
-	aggoal "github.com/viant/agently-core/pkg/agently/goal"
-	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
-	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	goalruntime "github.com/viant/agently-core/service/goal"
 	"github.com/viant/agently-core/workspace"
@@ -75,19 +73,16 @@ func (s *Service) shouldSkipAutonomousGoalWakeup(ctx context.Context, input *Que
 	if goalID == "" || conversationID == "" {
 		return false
 	}
-	current, err := s.dataService.GetGoal(ctx, conversationID, &aggoal.GoalInput{
-		ConversationID: conversationID,
-		Has:            &aggoal.GoalInputHas{ConversationID: true},
-	})
+	current, err := s.goalRuntime.Current(ctx, conversationID)
 	if err != nil || current == nil {
 		return true
 	}
-	if strings.TrimSpace(current.Id) != goalID || !strings.EqualFold(strings.TrimSpace(current.Status), "active") {
+	if strings.TrimSpace(current.ID) != goalID || current.Status != goalruntime.StatusActive {
 		return true
 	}
-	activeTurn, err := s.dataService.GetActiveTurn(ctx, &agturnactive.ActiveTurnsInput{
+	activeTurn, err := s.dataService.GetActiveTurn(ctx, &turnmodel.ActiveTurnsInput{
 		ConversationID: conversationID,
-		Has:            &agturnactive.ActiveTurnsInputHas{ConversationID: true},
+		Has:            &turnmodel.ActiveTurnsInputHas{ConversationID: true},
 	})
 	if err != nil {
 		return true
@@ -95,9 +90,9 @@ func (s *Service) shouldSkipAutonomousGoalWakeup(ctx context.Context, input *Que
 	if activeTurn != nil {
 		return true
 	}
-	queuedCount, err := s.dataService.CountQueuedTurns(ctx, &agturncount.QueuedTotalInput{
+	queuedCount, err := s.dataService.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{
 		ConversationID: conversationID,
-		Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
+		Has:            &turnmodel.QueuedTotalInputHas{ConversationID: true},
 	})
 	if err != nil || queuedCount > 0 {
 		return true

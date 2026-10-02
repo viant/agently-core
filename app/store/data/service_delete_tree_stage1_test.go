@@ -3,8 +3,15 @@ package data
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	investigationread "github.com/viant/agently-core/internal/datly/investigation/read"
+	runread "github.com/viant/agently-core/internal/datly/run/read"
+	tree "github.com/viant/agently-core/internal/store/conversationtree"
+	"os"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -116,38 +123,52 @@ func TestEvaluateConversationRunDeleteDecision(t *testing.T) {
 
 	for _, testCase := range testCases {
 		t.Run(testCase.name, func(t *testing.T) {
-			decision := evaluateConversationRunDeleteDecision(testCase.status, testCase.lease, testCase.heartbeat, testCase.interval, now)
-			if decision.BlocksDelete != testCase.blocked || decision.Reason != testCase.reason {
-				t.Fatalf("decision = {blocked:%t reason:%q}, want {blocked:%t reason:%q}", decision.BlocksDelete, decision.Reason, testCase.blocked, testCase.reason)
+			interval := int(testCase.interval)
+			row := &runread.RunRowsView{Id: "test-run-evidence", Status: testCase.status, HeartbeatIntervalSec: &interval}
+			if testCase.lease.Valid {
+				raw := testCase.lease.String
+				row.LeaseUntilRaw = &raw
 			}
+			if testCase.heartbeat.Valid {
+				raw := testCase.heartbeat.String
+				row.HeartbeatRaw = &raw
+			}
+
+			err := (&tree.RunEvidence{Current: []*runread.RunRowsView{row}}).Validate(now)
+			blocked := errors.Is(err, tree.ErrConversationActive)
+			if err != nil && !blocked {
+				t.Fatalf("unexpected evidence error: %v", err)
+			}
+			if blocked != testCase.blocked {
+				t.Fatalf("blocked=%t want=%t (%s)", blocked, testCase.blocked, testCase.reason)
+			}
+
 		})
 	}
 }
 
 func TestRefreshConversationDeleteRunIDsIncludesNewlyVisibleRuns(t *testing.T) {
-	_, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
-			{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-refresh-runs", "running", "u1"}},
-			{SQL: `INSERT INTO turn (id, conversation_id, status) VALUES (?, ?, ?)`, Params: []interface{}{"turn-refresh-runs", "conv-refresh-runs", "running"}},
-			{SQL: `INSERT INTO run (id, turn_id, conversation_id, conversation_kind, status) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"run-refreshed", "turn-refresh-runs", "conv-refresh-runs", "interactive", "running"}},
+			{SQL: `INSERT INTO conversation(id,status,created_by_user_id) VALUES('conv-refresh-runs','running','u1')`},
+			{SQL: `INSERT INTO turn(id,conversation_id,status,run_id) VALUES('turn-refresh-runs','conv-refresh-runs','running','run-already-collected')`},
+			{SQL: `INSERT INTO run(id,turn_id,conversation_id,conversation_kind,status) VALUES('run-refreshed','turn-refresh-runs','conv-refresh-runs','interactive','running')`},
 		})
 	})
-	tx, err := db.BeginTx(context.Background(), nil)
+	_ = db
+	discoverer := &tree.Discoverer{Invoker: svc.(*datlyService).native, OwnerID: func(context.Context) string { return "u1" }}
+	graph, err := discoverer.DiscoverAuthorized(deleteTestContext(), "conv-refresh-runs")
 	if err != nil {
-		t.Fatalf("BeginTx() error: %v", err)
+		t.Fatal(err)
 	}
-	defer func() { _ = tx.Rollback() }()
-	graph := &conversationDeleteGraph{
-		ConversationIDs: []string{"conv-refresh-runs"},
-		TurnIDs:         []string{"turn-refresh-runs"},
-		RunIDs:          []string{"run-already-collected"},
+	ids, err := discoverer.CollectInitialRunIDs(deleteTestContext(), graph)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := refreshConversationDeleteRunIDs(context.Background(), tx, graph); err != nil {
-		t.Fatalf("refreshConversationDeleteRunIDs() error: %v", err)
+	if got, want := fmt.Sprint(ids), "[run-already-collected run-refreshed]"; got != want {
+		t.Fatalf("RunIDs=%s want %s", got, want)
 	}
-	if got, want := fmt.Sprint(graph.RunIDs), "[run-already-collected run-refreshed]"; got != want {
-		t.Fatalf("RunIDs = %s, want %s", got, want)
-	}
+
 }
 
 func TestDeleteConversationTree_AllowsWaitingForUserConversation(t *testing.T) {
@@ -545,106 +566,80 @@ func TestDeleteConversationTree_RollsBackEarlierDeletesWhenLaterDeleteFails(t *t
 }
 
 func TestApplyInvestigationDeletePolicy_DeleteModeDeletesInvestigation(t *testing.T) {
-	_, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
-		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
-			{SQL: `CREATE TABLE investigation (id TEXT PRIMARY KEY, conversation_id TEXT)`},
-			{SQL: `INSERT INTO conversation (id, status, created_by_user_id) VALUES (?, ?, ?)`, Params: []interface{}{"conv-investigation-future", "succeeded", "u1"}},
-			{SQL: `INSERT INTO investigation (id, conversation_id) VALUES (?, ?)`, Params: []interface{}{"investigation-future", "conv-investigation-future"}},
-		})
-	})
-	tx, err := db.BeginTx(context.Background(), nil)
-	if err != nil {
-		t.Fatalf("begin investigation policy transaction: %v", err)
-	}
-	capabilities, err := deleteSchemaCapabilitiesForDriver("mysql")
-	if err != nil {
-		_ = tx.Rollback()
-		t.Fatalf("create schema capabilities: %v", err)
-	}
-	graph := &conversationDeleteGraph{
-		ConversationIDs: []string{"conv-investigation-future"},
-		Capabilities:    capabilities,
-	}
-	if err := applyInvestigationDeletePolicy(context.Background(), tx, graph, investigationDelete); err != nil {
-		_ = tx.Rollback()
-		t.Fatalf("apply future investigation delete policy: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatalf("commit investigation policy transaction: %v", err)
-	}
-	assertStage1RowCount(t, db, "investigation", "id", "investigation-future", 0)
-	assertStage1RowCount(t, db, "conversation", "id", "conv-investigation-future", 1)
+	nativeInvestigationPolicy(t, tree.InvestigationDelete)
 }
-
 func TestApplyInvestigationDeletePolicy_RetainModeDetachesReference(t *testing.T) {
-	_, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
+	nativeInvestigationPolicy(t, tree.InvestigationRetainAndDetach)
+}
+func nativeInvestigationPolicy(t *testing.T, policy tree.InvestigationPolicy) {
+	svc, db := newSeededServiceWithDB(t, func(t *testing.T, db *sql.DB) {
 		dbtest.ExecAll(t, db, []dbtest.ParameterizedSQL{
-			{SQL: `CREATE TABLE investigation (id TEXT PRIMARY KEY, conversation_id TEXT)`},
-			{SQL: `INSERT INTO investigation (id, conversation_id) VALUES (?, ?)`, Params: []interface{}{"investigation-retained", "conv-investigation-retained"}},
+			{SQL: `CREATE TABLE investigation(id TEXT PRIMARY KEY,title TEXT,created_by TEXT,conversation_id TEXT,summary TEXT,ad_order_id INTEGER,verdict TEXT,created DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP)`},
+			{SQL: `INSERT INTO conversation(id,status,created_by_user_id) VALUES('conv-investigation','succeeded','u1')`},
+			{SQL: `INSERT INTO investigation(id,conversation_id,created_by) VALUES('investigation-policy','conv-investigation','u1')`},
 		})
 	})
-	tx, err := db.BeginTx(context.Background(), nil)
+	tables := map[string]bool{}
+	for _, name := range []string{"investigation", "report_audit_event", "report_export_artifact", "report_export_job", "conversation_report_context", "report_run", "schedule_run", "tool_approval_queue", "tool_execution_claim", "run", "turn_queue", "model_call", "tool_call", "generated_file", "message", "turn", "schedule", "goal", "conversation", "call_payload"} {
+		tables[name] = false
+	}
+	tables["investigation"] = true
+	convID := "conv-investigation"
+	plan := &tree.DeletePlan{Graph: &tree.Graph{Nodes: map[string]*tree.Node{}}, Tables: tables, Investigations: []*investigationread.Investigation{{Id: "investigation-policy", ConversationId: &convID}}}
+	err := (&tree.Mutator{Invoker: svc.(*datlyService).native, OwnerID: func(context.Context) string { return "u1" }}).Apply(deleteTestContext(), plan, policy)
 	if err != nil {
-		t.Fatalf("begin investigation policy transaction: %v", err)
+		t.Fatal(err)
 	}
-	capabilities, err := deleteSchemaCapabilitiesForDriver("mysql")
-	if err != nil {
-		_ = tx.Rollback()
-		t.Fatalf("create schema capabilities: %v", err)
+	assertStage1RowCount(t, db, "conversation", "id", convID, 1)
+	if policy == tree.InvestigationDelete {
+		assertStage1RowCount(t, db, "investigation", "id", "investigation-policy", 0)
+		return
 	}
-	graph := &conversationDeleteGraph{
-		ConversationIDs: []string{"conv-investigation-retained"},
-		Capabilities:    capabilities,
+	var linked sql.NullString
+	if err = db.QueryRow(`SELECT conversation_id FROM investigation WHERE id='investigation-policy'`).Scan(&linked); err != nil {
+		t.Fatal(err)
 	}
-	if err := applyInvestigationDeletePolicy(context.Background(), tx, graph, investigationRetainAndDetach); err != nil {
-		_ = tx.Rollback()
-		t.Fatalf("apply investigation retain policy: %v", err)
-	}
-	if err := tx.Commit(); err != nil {
-		t.Fatalf("commit investigation policy transaction: %v", err)
-	}
-
-	var conversationID sql.NullString
-	if err := db.QueryRow(`SELECT conversation_id FROM investigation WHERE id = ?`, "investigation-retained").Scan(&conversationID); err != nil {
-		t.Fatalf("query retained investigation: %v", err)
-	}
-	if conversationID.Valid {
-		t.Fatalf("investigation conversation_id should be detached, got %q", conversationID.String)
+	if linked.Valid {
+		t.Fatalf("retained investigation still linked: %q", linked.String)
 	}
 }
 
+type nativeTestDriver string
+
+func (d nativeTestDriver) ConfiguredDriver(context.Context, string) (string, error) {
+	return string(d), nil
+}
 func TestDeleteSchemaCapabilitiesForDriver_UsesStaticContracts(t *testing.T) {
-	mysqlCapabilities, err := deleteSchemaCapabilitiesForDriver("mysql")
-	if err != nil {
-		t.Fatalf("create MySQL schema capabilities: %v", err)
+	for _, driver := range []string{"mysql", "sqlite", "sqlite3"} {
+		schema, err := tree.MaintenanceSchema(context.Background(), nativeTestDriver(driver))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, table := range []string{"investigation", "schedule_run", "conversation"} {
+			exists, err := schema.HasTable(context.Background(), "agently", table)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := driver == "mysql" || table == "conversation"
+			if exists != want {
+				t.Fatalf("%s %s presence=%t want=%t", driver, table, exists, want)
+			}
+		}
 	}
-	if !mysqlCapabilities.hasColumn("investigation", "conversation_id") || !mysqlCapabilities.hasColumn("schedule_run", "conversation_id") {
-		t.Fatal("MySQL schema contract should include investigation and schedule_run")
-	}
-
-	sqliteCapabilities, err := deleteSchemaCapabilitiesForDriver("sqlite")
-	if err != nil {
-		t.Fatalf("create SQLite schema capabilities: %v", err)
-	}
-	if !sqliteCapabilities.hasColumn("conversation", "conversation_parent_turn_id") {
-		t.Fatal("SQLite schema contract should include current conversation columns")
-	}
-	if sqliteCapabilities.hasTable("investigation") || sqliteCapabilities.hasTable("schedule_run") {
-		t.Fatal("SQLite schema contract should exclude tables absent from the embedded schema")
-	}
-
-	if _, err := deleteSchemaCapabilitiesForDriver("postgres"); err == nil {
+	if _, err := tree.MaintenanceSchema(context.Background(), nativeTestDriver("postgres")); err == nil {
 		t.Fatal("expected unsupported driver error")
 	}
 }
 
 func TestCollectConversationTree_RejectsOversizedRootSetBeforeQuery(t *testing.T) {
-	ids := make([]string, maxConversationGraph+1)
+	svc, _ := newSeededServiceWithDB(t)
+	ids := make([]string, tree.MaxConversations+1)
 	for i := range ids {
 		ids[i] = fmt.Sprintf("conv-%05d", i)
 	}
-	_, err := collectConversationTree(context.Background(), nil, ids)
-	if !errors.Is(err, ErrConversationGraphTooLarge) {
+	discoverer := &tree.Discoverer{Invoker: svc.(*datlyService).native, OwnerID: func(context.Context) string { return "u1" }}
+	_, err := discoverer.Discover(deleteTestContext(), ids...)
+	if !errors.Is(err, tree.ErrTooLarge) {
 		t.Fatalf("expected ErrConversationGraphTooLarge, got %v", err)
 	}
 }
@@ -668,8 +663,25 @@ func TestConversationDeleteSchemaManifest_CoversCurrentSQLiteReferences(t *testi
 		t.Fatalf("close SQLite table rows: %v", err)
 	}
 
-	manifest := makeStringSet(conversationDeleteSchemaTables)
-	referenceColumns := statusSet(
+	_, source, _, _ := runtime.Caller(0)
+	body, err := os.ReadFile(filepath.Join(filepath.Dir(source), "..", "..", "..", "migration", "table-component-map.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mapping struct {
+		Tables map[string]struct {
+			Readers []json.RawMessage `json:"readers"`
+			Writers []json.RawMessage `json:"writers"`
+		} `json:"tables"`
+	}
+	if err = json.Unmarshal(body, &mapping); err != nil {
+		t.Fatal(err)
+	}
+	manifest := map[string]bool{}
+	for table, components := range mapping.Tables {
+		manifest[table] = len(components.Readers) > 0 && len(components.Writers) > 0
+	}
+	referenceColumns := nativeReferenceSet(
 		"conversation_id", "conversation_parent_id", "conversation_parent_turn_id", "linked_conversation_id",
 		"turn_id", "message_id", "parent_message_id", "started_by_message_id", "superseded_by", "checkpoint_message_id",
 		"run_id", "resumed_from_run_id", "schedule_id", "schedule_run_id", "goal_id",
@@ -691,10 +703,10 @@ func TestConversationDeleteSchemaManifest_CoversCurrentSQLiteReferences(t *testi
 				_ = columnRows.Close()
 				t.Fatalf("scan SQLite column for %s: %v", table, err)
 			}
-			if _, isReference := referenceColumns[normalizeStatus(name)]; !isReference {
+			if !referenceColumns[normalizeStatus(name)] {
 				continue
 			}
-			if _, covered := manifest[normalizeStatus(table)]; !covered {
+			if !manifest[normalizeStatus(table)] {
 				_ = columnRows.Close()
 				t.Fatalf("table %s has deletion-related column %s but is absent from conversationDeleteSchemaTables", table, name)
 			}
@@ -739,4 +751,12 @@ func seedStage1CurrentDependencies(t *testing.T, db *sql.DB) {
 		{SQL: `INSERT INTO report_shared_artifact (artifact_id, artifact_ref, owner_id, kind, lifecycle) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"shared-current", "external://shared", "u1", "report", "retained"}},
 		{SQL: `INSERT INTO report_audit_event (event_id, event_type, artifact_ref, artifact_id, actor_id) VALUES (?, ?, ?, ?, ?)`, Params: []interface{}{"audit-shared", "saved", "external://shared", "shared-current", "u1"}},
 	})
+}
+
+func nativeReferenceSet(values ...string) map[string]bool {
+	result := map[string]bool{}
+	for _, value := range values {
+		result[value] = true
+	}
+	return result
 }

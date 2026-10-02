@@ -6,7 +6,7 @@ import (
 	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
 func TestService_buildHistory_includesSteerTaskMessage(t *testing.T) {
@@ -16,22 +16,22 @@ func TestService_buildHistory_includesSteerTaskMessage(t *testing.T) {
 		{
 			Id:     turnID,
 			Status: "running",
-			Message: []*agconv.MessageView{
-				(*agconv.MessageView)(&apiconv.Message{
+			Message: []*conversationmodel.MessageView{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "user-1",
 					Role:      "user",
 					Type:      "text",
 					Content:   stringPtr("Analyze repo."),
 					CreatedAt: now,
 				}),
-				(*agconv.MessageView)(&apiconv.Message{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "assistant-1",
 					Role:      "assistant",
 					Type:      "text",
 					Content:   stringPtr("I will inspect the repository."),
 					CreatedAt: now.Add(time.Second),
 				}),
-				(*agconv.MessageView)(&apiconv.Message{
+				(*conversationmodel.MessageView)(&apiconv.Message{
 					Id:        "steer-1",
 					Role:      "user",
 					Type:      "task",

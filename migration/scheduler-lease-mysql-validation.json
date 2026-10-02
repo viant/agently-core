@@ -1,0 +1,20 @@
+{
+  "result": "PASS",
+  "test": "TestSchedulerLeaseMySQLIndependentHosts",
+  "seconds": 14.376,
+  "datly": "v1.1.1-0.20260930202444-a59b17988b72",
+  "scope": "Public root scheduler Store over two independently opened stock native hosts and connector pools; disposable MySQL8.4.11",
+  "assertions": [
+    "Exactly one simultaneous schedule lease claimant wins",
+    "Exactly one simultaneous run lease claimant wins",
+    "Losing owner cannot release or overwrite live lease",
+    "Winning owner can release",
+    "Losing contender can claim after release",
+    "Former owner cannot release newly owned lease",
+    "Direct database inspection verifies winner retained after rejected release, new owner after reclaim, and empty owner after final release"
+  ],
+  "fixture_policy": "Unique owned schedule/run IDs; cleanup by exact ID; no production jobs or schema changes",
+  "log": "migration/sdk-evidence/published-scheduler-lease-mysql.log",
+  "product_changes": "None; test-only coverage",
+  "repetitions": 5
+}

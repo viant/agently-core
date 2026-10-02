@@ -15,7 +15,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
@@ -32,11 +32,11 @@ func TestParity_NormalTurn(t *testing.T) {
 	respPID := "resp-1"
 
 	// --- Transcript path ---
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:        "turn-1",
 		Status:    "completed",
 		CreatedAt: now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "user-1",
 				Role:      "user",
@@ -51,7 +51,7 @@ func TestParity_NormalTurn(t *testing.T) {
 				Content:   &assistantContent,
 				Iteration: &iter1,
 				CreatedAt: now.Add(time.Second),
-				ModelCall: &agconv.ModelCallView{
+				ModelCall: &conversationmodel.ModelCallView{
 					MessageId:         "asst-1",
 					TraceId:           strPtr(modelCallID),
 					Status:            "completed",
@@ -60,11 +60,11 @@ func TestParity_NormalTurn(t *testing.T) {
 					RequestPayloadId:  strPtr(reqPID),
 					ResponsePayloadId: strPtr(respPID),
 				},
-				ToolMessage: []*agconv.ToolMessageView{
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:        "tool-msg-1",
 						CreatedAt: now.Add(500 * time.Millisecond),
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							OpId:              opID,
 							ToolName:          "weather/get",
 							Status:            "completed",
@@ -177,17 +177,17 @@ func TestParity_SummaryPage(t *testing.T) {
 	summaryMode := "summary"
 
 	// --- Transcript path ---
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id: "turn-1", Status: "completed", CreatedAt: now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{Id: "user-1", Role: "user", TurnId: strPtr("turn-1"), Content: strPtr("Do it"),
 				CreatedAt: now},
 			{Id: "asst-1", Role: "assistant", TurnId: strPtr("turn-1"), Content: &finalContent,
 				Iteration: &iter1, CreatedAt: now.Add(time.Second),
-				ModelCall: &agconv.ModelCallView{MessageId: "asst-1", Status: "completed"}},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "asst-1", Status: "completed"}},
 			{Id: "sum-1", Role: "assistant", TurnId: strPtr("turn-1"), Content: &summaryContent,
 				Mode: &summaryMode, CreatedAt: now.Add(2 * time.Second),
-				ModelCall: &agconv.ModelCallView{MessageId: "sum-1", Status: "completed"}},
+				ModelCall: &conversationmodel.ModelCallView{MessageId: "sum-1", Status: "completed"}},
 		},
 	}
 	state := BuildCanonicalState("conv-1", convstore.Transcript{(*convstore.Turn)(turn)})
@@ -211,11 +211,11 @@ func TestTranscriptBuild_DerivesSidecarPhaseForNonFinalToolPage(t *testing.T) {
 	iter1 := 1
 	narration := "Pulling delegated benchmark now."
 
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id:        "turn-1",
 		Status:    "completed",
 		CreatedAt: now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{
 				Id:        "user-1",
 				Role:      "user",
@@ -232,16 +232,16 @@ func TestTranscriptBuild_DerivesSidecarPhaseForNonFinalToolPage(t *testing.T) {
 				Interim:   1,
 				Iteration: &iter1,
 				CreatedAt: now.Add(time.Second),
-				ModelCall: &agconv.ModelCallView{
+				ModelCall: &conversationmodel.ModelCallView{
 					MessageId: "asst-1",
 					Status:    "completed",
 				},
-				ToolMessage: []*agconv.ToolMessageView{
+				ToolMessage: []*conversationmodel.ToolMessageView{
 					{
 						Id:        "tool-msg-1",
 						CreatedAt: now.Add(1500 * time.Millisecond),
 						Iteration: &iter1,
-						ToolCall: &agconv.ToolCallView{
+						ToolCall: &conversationmodel.ToolCallView{
 							OpId:     "op-1",
 							ToolName: "llm_agents-start",
 							Status:   "completed",
@@ -269,9 +269,9 @@ func TestParity_ElicitationTurn(t *testing.T) {
 	content := `{"message":"Pick a color","requestedSchema":{"type":"object","properties":{"color":{"type":"string"}}},"callbackUrl":"http://cb"}`
 
 	// --- Transcript path ---
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id: "turn-1", Status: "waiting_for_user", CreatedAt: now,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{Id: "user-1", Role: "user", TurnId: strPtr("turn-1"), Content: strPtr("Start"), CreatedAt: now},
 			{Id: "elic-msg-1", Role: "assistant", TurnId: strPtr("turn-1"),
 				Content: &content, Status: &pending, ElicitationId: &elicID,
@@ -324,10 +324,10 @@ func TestParity_QueuedTurn(t *testing.T) {
 	starterMsgID := "starter-1"
 
 	// --- Transcript path ---
-	turn := &agconv.TranscriptView{
+	turn := &conversationmodel.TranscriptView{
 		Id: "turn-q", Status: queuedStatus, CreatedAt: now,
 		StartedByMessageId: &starterMsgID,
-		Message: []*agconv.MessageView{
+		Message: []*conversationmodel.MessageView{
 			{Id: starterMsgID, Role: "user", TurnId: strPtr("turn-q"),
 				Content: strPtr("Run later"), CreatedAt: now},
 		},

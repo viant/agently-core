@@ -1,0 +1,85 @@
+{
+  "status": "source-cutover-complete-root-runtime-verification-pending",
+  "scope": [
+    "internal/service/conversation",
+    "pkg/agently/conversation",
+    "pkg/agently/message",
+    "pkg/agently/turn",
+    "pkg/agently/payload",
+    "pkg/agently/generatedfile",
+    "pkg/agently/modelcall",
+    "pkg/agently/toolcall",
+    "pkg/agently/toolapprovalqueue",
+    "pkg/agently/run",
+    "pkg/agently/turnqueue",
+    "pkg/agently/tool",
+    "datlyv1/application/conversation"
+  ],
+  "changes": [
+    "Required shared native ComponentInvoker; removed SDK0 service/factory/registration/fallback",
+    "Retained public DTO fields/JSON markers/setters/hooks/constructors and removed obsolete graph/SQL metadata/assets",
+    "Unified named query selectors",
+    "Returned generated typed mutation output to preserve successful public input defaults/assigned fields/presence/object identity; failed invocation does not apply output",
+    "Migrated root conversation runtime tests to individual stock hosts and added approval selector/outcome and mutable message failure/default parity cases"
+  ],
+  "dependencies": {
+    "datly": "v1.1.1-0.20260930144112-0773cf657125",
+    "sqlx": "v0.26.1-0.20260929151803-0df7f08c4926",
+    "local_datly_sqlx_replaces": false
+  },
+  "verification": [
+    {
+      "command": "go test -mod=readonly -modfile=/tmp/conv-sol61/go.mod ./pkg/agently/conversation/... ./pkg/agently/message/... ./pkg/agently/turn/... ./pkg/agently/payload/... ./pkg/agently/generatedfile/... ./pkg/agently/modelcall/... ./pkg/agently/toolcall/... ./pkg/agently/toolapprovalqueue/... ./pkg/agently/run/... ./pkg/agently/turnqueue/... ./pkg/agently/tool/...",
+      "result": "pass",
+      "note": "DTO/test packages passed again under final published Datly/SQLX pins (turnqueue native reader 2.851s), covering conversation stage and elicitation hooks, tool error sanitization, resolver and native turnqueue filtering/order."
+    },
+    {
+      "command": "(cd datlyv1 && go test ./application/conversation)",
+      "result": "pass"
+    },
+    {
+      "command": "(cd datlyv1 && go test ./tests -run ^TestMessageApplicationMutationResult$ -count=1)",
+      "result": "pass",
+      "duration_seconds": 1.173,
+      "coverage": [
+        "insert timestamp/interim/sequence defaults and presence",
+        "sparse context merge and update timestamp",
+        "omitted creation/sequence markers remain absent",
+        "failure returns no successful typed result"
+      ],
+      "dependencies": "published Datly/SQLX"
+    },
+    {
+      "command": "go test -mod=readonly -modfile=/tmp/conv-sol61/go.mod ./internal/service/conversation/...",
+      "result": "blocked",
+      "blocker": "app/store/data/factory.go still imports removed github.com/viant/datly root and github.com/viant/datly/view",
+      "memory_result": "pass"
+    },
+    {
+      "result": "pass",
+      "kind": "production source audit",
+      "scope": "assigned packages",
+      "findings": "no SDK0/split-module imports, direct Go product SQL/DML, old SQL embeds/assets or dormant SQL/predicate graph tags"
+    },
+    {
+      "command": "(cd datlyv1 && go test ./tests -run ^(TestMessageWriterTrustedTerminalCleanup|TestMessageWriterCleanupModeCannotComeFromHTTPRequest|TestMessageWriterTrustedGraphDetach|TestMessageApplicationMutationResult|TestMessageWriterLegacyParity)$ -count=1)",
+      "result": "pass",
+      "duration_seconds": 24.06,
+      "dependencies": "official published nested Datly d1e724 / SQLX 0df7",
+      "coverage": [
+        "captured repair timestamp and explicit zero timestamp preserved",
+        "only failed status and timestamp presence changed in trusted cleanup",
+        "invalid shape/non-failed status/missing timestamp/delete marker/multiple modes rejected without row changes",
+        "HTTP body/query private-mode spoof ignored",
+        "graph link detach timestamp/column preservation",
+        "successful output defaults/sequence/context/presence",
+        "ordinary message legacy parity"
+      ]
+    }
+  ],
+  "remaining": [
+    "Run full root conversation runtime/parity tests after root data factory compiles",
+    "Full nested regeneration/Endly and root/application/public caller/MySQL gates remain owned by parent task"
+  ],
+  "retired_test_coverage": "SDK0 handler/registration/filter-specific tests retired; canonical native parity suite and migrated root caller tests provide replacement behavior coverage. Root runtime tests are not yet claimed passing."
+}

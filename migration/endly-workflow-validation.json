@@ -1,0 +1,17 @@
+{
+  "workflow": "datlyv1/e2e/run.yaml",
+  "removed": "datlyv1/scripts/transcribe.sh",
+  "commands": [
+    "endly -t=transcribe",
+    "endly -t=regeneration",
+    "endly -t=verify",
+    "endly -t=build",
+    "endly -t=verify testPackages=./tests 'testRun=^TestApproval'"
+  ],
+  "working_directory": "/Users/awitas/go/src/github.com/viant/agently-core-v1/datlyv1/e2e",
+  "selection_verified": "Only transcribe ran for -t=transcribe; focused verify expanded to go test ./tests -run ^TestApproval and passed",
+  "full_gate": "endly without task filter runs transcribe, regeneration, verify and build in order; defaults expand to ./... and run regex .",
+  "regeneration": "Calls the Python transcriber directly; no shell wrapper",
+  "full_status": "SUCCESS",
+  "full_log": "/tmp/agently-approval-endly-full.log"
+}

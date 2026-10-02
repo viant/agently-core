@@ -1,0 +1,1 @@
+SELECT * FROM  (SELECT c.* , 0 AS should_delete FROM message c)  t

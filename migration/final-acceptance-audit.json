@@ -1,0 +1,154 @@
+{
+  "objective_complete": false,
+  "published_datly": "v1.1.1-0.20260930202444-a59b17988b72",
+  "requirements": [
+    {
+      "id": "goal_store_and_agent_wiring",
+      "requirement": "service/goal, SDK, agent and injected store ownership",
+      "evidence": "migration/published-core-final-validation.json",
+      "status": "PASS goal/SDK/agent runtime and full Core/application tests"
+    },
+    {
+      "id": "stock_runtime_shared_pools",
+      "requirement": "Stock native bootstrap, scoped discovery, owned shutdown, borrowed resource retention",
+      "evidence": "migration/published-core-final-validation.json",
+      "status": "PASS focused lifetime/ownership and whole Core/Endly runtime gates"
+    },
+    {
+      "id": "transactional_product_operations",
+      "requirement": "Conversation deletion, maintenance, queues, OAuth CAS, scheduler leases, reporting/export/audit",
+      "evidence": [
+        "migration/root-layout-caller-validation.json",
+        "migration/published-core-final-validation.json",
+        "migration/scheduler-lease-mysql-validation.json",
+        "migration/oauth-mysql-acceptance-validation.json",
+        "migration/mysql-local-validation.json"
+      ],
+      "status": "PASS SQLite and actual callers; MySQL Data, reporting, scheduler and OAuth contention gates pass"
+    },
+    {
+      "id": "dql_inputs_and_shapes",
+      "requirement": "62 explicit input/output contracts;543 input fields and original parameter/predicate/default/codec mapping",
+      "evidence": "migration/dql-input-contract-audit.json",
+      "status": "PASS source audit, targeted runtime and full Endly"
+    },
+    {
+      "id": "public_sdk_contracts",
+      "requirement": "Go/TS/Kotlin/Swift actual application JSON/SSE/error/auth/report/export/queue",
+      "evidence": "migration/root-layout-caller-validation.json",
+      "status": "PASS actual server fixture; 413 TS,91 Swift,97 Android"
+    },
+    {
+      "id": "ui_android_baselines",
+      "requirement": "UI and Forge baseline reconciliation and client build/test checks",
+      "evidence": "migration/client-sdk-cutover-validation.json",
+      "status": "PASS reconciled client checks; historical failures retained separately"
+    },
+    {
+      "id": "root_full_tests",
+      "requirement": "All Core packages with published Datly/unified xdatly",
+      "evidence": "migration/published-core-final-validation.json",
+      "status": "PASS whole Core Go suite"
+    },
+    {
+      "id": "agently_full_tests_build",
+      "requirement": "Official published application Go tests/build and forced fresh CLI boot",
+      "evidence": "migration/agently-closing-validation.json",
+      "status": "PASS full published tests/build and fresh CLI startup"
+    },
+    {
+      "id": "full_endly",
+      "requirement": "Transcription/regeneration/boundary/native tests/linked command build",
+      "evidence": "migration/published-endly-final-validation.json",
+      "status": "PASS full workflow"
+    },
+    {
+      "id": "sql_dependencies",
+      "requirement": "Final classified product SQL/DML and legacy import/module audits",
+      "evidence": [
+        "migration/sql-dml-audit.json",
+        "migration/caller-cutover-audit.json"
+      ],
+      "status": "PASS classified source/import audit and official module graph"
+    },
+    {
+      "id": "main_backfill",
+      "requirement": "Latest original remote main changes accounted for without checkout modifications",
+      "evidence": "migration/latest-main-rescan.json",
+      "status": "PASS fresh main and two unique local feature commits accounted for; original checkout files preserved"
+    },
+    {
+      "id": "live_scheduler_idp",
+      "requirement": "Run only with authorized available credentials, no production jobs",
+      "evidence": [
+        "migration/idp-discovery-validation.json",
+        "migration/scheduler-auth-validation.json"
+      ],
+      "status": "DEFERRED by explicit user instruction: secret testing later. Public discovery/JWKS production verifier test PASS."
+    },
+    {
+      "id": "review_preservation",
+      "requirement": "Commit authorized Core/Agently migration changes on v1; preserve unrelated work; no push",
+      "evidence": [
+        "migration/final-review-state.json",
+        "migration/unused-code-cleanup-validation.json"
+      ],
+      "status": "PASS approved migration and cleanup commits on v1; unrelated work preserved"
+    }
+  ],
+  "rules": "Source audits prove source properties; compilation proves compilation; runtime claims require corresponding executed checks. Historical scratch runs remain explicitly scoped.",
+  "sole_remaining_requirement": null,
+  "user_scope_update": "Live IdP secret testing deferred; commit all migration changes on v1 and remove unused code.",
+  "deferred_followups": [
+    "Live scheduler IdP token exchange/authorization with secret references, explicitly deferred by user."
+  ],
+  "current_verification_date": "2026-10-01",
+  "historical_evidence_scope": "Requirement results below record the September 30 checkpoint. They do not prove the October 1 simplification/public type changes.",
+  "current_blockers": [
+    "Current authoritative checkpoint: migration/current-verification-20261001.json; prior requirement PASS records are historical.",
+    "Final66 full Core suite has exactly eight maintenance failures in Data/Native from published SQLparser limitations; dependency correction awaits approval. Application full tests pass against current local Core.",
+    "SQLite driver, malformed-heartbeat deletion and duplicate-claim compatibility failures corrected; all five product schema files remain original.",
+    "Live Datly reader skill activation followed by components invocation passes on SQLite and original-schema MySQL; both identity-routing issues are resolved.",
+    "Native HTTP queued-turn cancellation passes SQLite/MySQL; browser flow, tooltip and legacy DTO audit remain incomplete.",
+    "Final Core revision must be published and pinned in Agently."
+  ],
+  "authoritative_current_verification": "current_verification_20261002",
+  "prior_sections_scope": "Historical checkpoints; use current_verification_20261002 for current acceptance state.",
+  "current_verification_20261002": {
+    "date": "2026-10-02",
+    "authoritative": true,
+    "objective_complete": false,
+    "core_revision": "e1d5abbc",
+    "publication": {
+      "core_v1": "Local e1d5abbc; remote v1 verified d35a0af92f28f4d08c59d1664d6ecfe7786cf66e on 2026-10-02. Publication pending.",
+      "datly": "v1.1.1-0.20261002040859-26c14e55af80",
+      "sqlparser": "v0.13.1-0.20261001210110-82d5588e4251"
+    },
+    "full_core_tests": {
+      "command": "GOWORK=off go test -p=2 -timeout=20m ./...",
+      "log": "/tmp/agently-core-published-dependencies-final.log",
+      "result": "PASS; all package outcomes are successful or no-test-file entries; no FAIL entries",
+      "verified_packages": {
+        "app/executor_seconds": 111.997,
+        "app/store/data_seconds": 350.249,
+        "app/store/native_seconds": 224.912,
+        "sdk_seconds": 17.379
+      },
+      "resolved_historical_failures": "Eight published SQLparser maintenance failures resolved by published parser correction; corrected detach child-request assertion passes in the full suite."
+    },
+    "model_authority": {
+      "evidence": "migration/model-authority.json",
+      "classification": "11 generated aliases and 57 intentionally distinct concrete facade declarations in the tracked original families",
+      "acceptance": "Concrete declaration count does not constitute an unfulfilled blanket alias requirement. Public inputs, presence/control semantics, output envelopes, aggregates and narrow projections retain distinct contracts.",
+      "unused_candidates": "ScheduleListInput/ScheduleRunDueListInput and their route constants have no current Core/App references; exported API compatibility governs removal. Output envelope types with no local production references remain exported compatibility candidates."
+    },
+    "remaining": [
+      "Complete browser OAuth and tooltip acceptance; browser cancellation/live UI acceptance remains open. No new browser evidence is claimed.",
+      "Update Agently to actual final published Core/Datly/parser dependencies, run application tests/build against those dependencies, and publish the application revision.",
+      "Preserve and remove newly generated untracked runtime artifacts after final gates; verify final clean repository state.",
+      "Investigate and resolve the newly identified performance regression; measurement is in progress in the coordinating task. This gate is open."
+    ],
+    "change_scope": "No Datly changes are approved. Core JSON-copy removal uses an existing generated pointer conversion; full transcript wire snapshot is byte-identical and internal/service/conversation tests pass (22.441s). Performance regression remains open.",
+    "historical_scope": "All earlier checkpoint sections are preserved as historical evidence. Their parser failure/publication blockers and remaining blanket model-alias interpretations are superseded by this section."
+  }
+}

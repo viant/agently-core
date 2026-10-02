@@ -1,0 +1,54 @@
+{
+  "test_compile_audit": {
+    "command": "AGENTLY_WORKSPACE=<disposable> AGENTLY_DB_DRIVER=sqlite AGENTLY_DB_DSN=<disposable>/audit.db go test -mod=mod -modfile=/tmp/conv-framework/go.mod ./... -run '^$'",
+    "result": "PASS",
+    "log": "migration/sdk-evidence/core-test-compile.log",
+    "fixes": "None required; all tests compile on native constructors/types",
+    "scope": "Compile only; no full-suite execution claimed"
+  },
+  "actual_application_http": {
+    "command": "go test -mod=mod -modfile=/tmp/conv-framework/go.mod ./migration/sdkcontract -run '^Test(ActualApplicationReportingAdoptionExportAndAudit|GoSDKActualApplicationJSONAuthQueueSSEAndDeletion)$' -count=1",
+    "result": "PASS",
+    "seconds": 14.576,
+    "coverage": [
+      "JWT unauthenticated reporting begin401",
+      "manual begin retry returns same run",
+      "stale completion revision409",
+      "complete canonical snapshots",
+      "foreign adoption404",
+      "stale adoption409",
+      "successful run+context adoption and duplicate retry preserve revisions",
+      "run-reference public export submit loads persisted snapshot and header retry returns same job",
+      "public audit route writes authoritative actor and metadata verified canonical audit reader",
+      "host-only deterministic worker start/complete persists PDF artifact",
+      "public export status/artifact routes return succeeded metadata",
+      "foreign artifact access404",
+      "actual public queued turn edit persists content",
+      "authenticated real SSE usage",
+      "protected conversation delete authorization and owner deletion"
+    ]
+  },
+  "fixture_changes": [
+    "NewReporting enables existing reporting lifecycle config before actual runtime builder; default New contract unchanged",
+    "child build context canceled after builder returns to stop automatic background workers; requests use their contexts and Runtime.Close owns native resources",
+    "queued turn starter message link fixed by owner scheduler lane after message insert"
+  ],
+  "boundaries": [
+    "start_export/complete_export are explicitly internal worker APIs; tested through host service with deterministic local bytes, not claimed public routes",
+    "No dedicated public execution-claim HTTP route exists; no route invented and no component-only proof presented as HTTP proof",
+    "Direct conversation detail-read legacy owner behavior preserved; authorization followup after merge to main",
+    "Private scratch local framework dependencies used; no official module replacements added"
+  ],
+  "current_layout": {
+    "module": "github.com/viant/agently-core",
+    "dql": "dql/",
+    "generated": "internal/datly/",
+    "compositions": "internal/store/",
+    "contract_tests": "internal/datly/contracttest/",
+    "stock_tooling": "scripts/datly/",
+    "schema_tool": "tools/schema/",
+    "host_command": "cmd/datly/",
+    "relocation_map": "migration/package-relocation-map.json"
+  },
+  "recorded_execution_layout": "Pre-relocation namespace. Original commands/results retained as historical proof; new-root caller rerun recorded separately."
+}

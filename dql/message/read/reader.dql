@@ -1,0 +1,165 @@
+#package('github.com/viant/agently-core/internal/datly/message/read')
+#import('time','time')
+#import('codec','github.com/viant/agently-core/internal/datly/codec')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/message','GET'))
+#setting($_ = $input_type('MessagesInput'))
+#setting($_ = $client_input_type('MessageRequest'))
+#setting($_ = $output_type('MessagesOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(4,'equal','m','conversation_id'))
+#define($_ = $ConversationIds<[]string>(query/conversationIds).Optional().WithPredicate(4,'in','m','conversation_id'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(4,'equal','m','turn_id'))
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(4,'equal','m','id'))
+#define($_ = $Roles<[]string>(query/roles).Optional().WithPredicate(4,'in','m','role'))
+#define($_ = $Types<[]string>(query/types).Optional().WithPredicate(4,'in','m','type'))
+#define($_ = $Interim<int>(query/interim).Optional().WithPredicate(4,'equal','m','interim'))
+#define($_ = $Phase<string>(query/phase).Optional().WithPredicate(4,'equal','m','phase'))
+#define($_ = $Iteration<int>(query/iteration).Optional().WithPredicate(4,'equal','m','iteration'))
+#define($_ = $CreatedSince<time.Time>(query/createdSince).Optional().WithPredicate(4,'greater_or_equal','m','created_at'))
+#define($_ = $CreatedBefore<time.Time>(query/createdBefore).Optional().WithPredicate(4,'less_or_equal','m','created_at'))
+#define($_ = $CursorBefore<string>(query/cursorBefore).Optional().WithPredicate(4,'expr','EXISTS (SELECT 1 FROM message x WHERE x.id = ? AND (m.created_at < x.created_at OR (m.created_at = x.created_at AND m.id < x.id)))'))
+#define($_ = $CursorAfter<string>(query/cursorAfter).Optional().WithPredicate(4,'expr','EXISTS (SELECT 1 FROM message x WHERE x.id = ? AND (m.created_at > x.created_at OR (m.created_at = x.created_at AND m.id > x.id)))'))
+#define($_ = $TurnTask<bool>(query/turnTask).Optional().WithPredicate(4,'handler','predicate.MessageTurnTask'))
+#define($_ = $AssistantFinal<bool>(query/assistantFinal).Optional().WithPredicate(4,'handler','predicate.MessageAssistantFinal'))
+#define($_ = $AssistantStatus<bool>(query/assistantStatus).Optional().WithPredicate(4,'handler','predicate.MessageAssistantStatus'))
+#define($_ = $IncludeModelCal<bool>(query/includeModelCall).Optional().Value('false').WithPredicate(2,'expr','?'))
+#define($_ = $IncludeToolCall<bool>(query/includeToolCall).Optional().Value('false').WithPredicate(3,'expr','?'))
+#define($_ = $Internal<bool>(messageAccess/internal).Required())
+#define($_ = $ReadMode<string>(messageAccess/mode).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $ElicitationId<string>(query/elicitationId).Optional().WithPredicate(4,'equal','m','elicitation_id'))
+#define($_ = $LinkedConversationId<string>(query/linkedConversationId).Optional().WithPredicate(4,'equal','m','linked_conversation_id'))
+#define($_ = $LinkedConversationIds<[]string>(query/linkedConversationIds).Optional().WithPredicate(4,'in','m','linked_conversation_id'))
+#define($_ = $ParentMessageId<string>(query/parentMessageId).Optional().WithPredicate(4,'equal','m','parent_message_id'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $OrderBy<string>(query/orderBy).Optional().QuerySelector('reader'))
+#define($_ = $ParentMessageIds<[]string>(query/parentMessageIds).Optional().WithPredicate(4,'in','m','parent_message_id'))
+#define($_ = $SupersededByIds<[]string>(query/supersededByIds).Optional().WithPredicate(4,'in','m','superseded_by'))
+#define($_ = $Data<[]*MessageView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true,selectorOrderBy=true"'))
+
+SELECT data_rows.*,
+       row_lock(data_rows,'message m','m.id'),
+       CAST(data_rows.cleanup_status AS string),
+       internal(data_rows.cleanup_status),
+       tag(data_rows.cleanup_status,'json:"-"'),
+       data_rows.preamble AS Narration,
+       CAST(data_rows.read_mode AS string),
+       tag(data_rows.read_mode,'json:"-"'),
+       CAST(data_rows.elicitation_body AS []byte),
+       tag(data_rows.elicitation_body,'json:"-"'),
+       CAST(data_rows.elicitation_compression AS string),
+       tag(data_rows.elicitation_compression,'json:"-"'),
+       CAST(data_rows.elicitation AS codec.JSON),
+       type(data_rows,'MessageView'),
+       required(data_rows.conversation_id),
+       required(data_rows.created_at),
+       required(data_rows.id),
+       required(data_rows.interim),
+       required(data_rows.role),
+       required(data_rows.type),
+       messageToolCall.*,
+       type(messageToolCall,'MessageToolCallView'),
+       required(messageToolCall.message_id),
+       required(messageToolCall.op_id),
+       required(messageToolCall.attempt),
+       required(messageToolCall.tool_name),
+       required(messageToolCall.tool_kind),
+       required(messageToolCall.status),
+       messageRequestPayload.*,
+       type(messageRequestPayload,'MessageRequestPayloadView'),
+       required(messageRequestPayload.id),
+       required(messageRequestPayload.compression),
+       messageResponsePayload.*,
+       type(messageResponsePayload,'MessageResponsePayloadView'),
+       required(messageResponsePayload.id),
+       required(messageResponsePayload.compression),
+       toolMessage.*,
+       type(toolMessage,'ToolMessageView'),
+       required(toolMessage.id),
+       required(toolMessage.created_at),
+       required(toolMessage.type),
+       CAST(toolMessage.linked_conversation_id AS *string),
+       toolCall.*,
+       type(toolCall,'ToolCallView'),
+       required(toolCall.message_id),
+       required(toolCall.op_id),
+       required(toolCall.attempt),
+       required(toolCall.tool_name),
+       required(toolCall.tool_kind),
+       required(toolCall.status),
+       requestPayload.*,
+       type(requestPayload,'RequestPayloadView'),
+       required(requestPayload.id),
+       required(requestPayload.compression),
+       responsePayload.*,
+       type(responsePayload,'ResponsePayloadView'),
+       required(responsePayload.id),
+       required(responsePayload.compression),
+       userElicitationData.*,
+       type(userElicitationData,'UserElicitationDataView'),
+       required(userElicitationData.compression),
+       required(userElicitationData.message_id),
+       linkedConversation.*,
+       type(linkedConversation,'LinkedConversationView'),
+       required(linkedConversation.id),
+       required(linkedConversation.created_at),
+       attachment.*,
+       type(attachment,'AttachmentView'),
+       CAST(attachment.inline_body AS *[]uint8),
+       required(attachment.compression),
+       required(attachment.mime_type),
+       modelCall.*,
+       type(modelCall,'ModelCallView'),
+       required(modelCall.message_id),
+       required(modelCall.model),
+       required(modelCall.model_kind),
+       required(modelCall.provider),
+       required(modelCall.status),
+       modelCallRequestPayload.*,
+       type(modelCallRequestPayload,'ModelCallRequestPayloadView'),
+       required(modelCallRequestPayload.id),
+       required(modelCallRequestPayload.compression),
+       modelCallProviderRequestPayload.*,
+       type(modelCallProviderRequestPayload,'ModelCallProviderRequestPayloadView'),
+       required(modelCallProviderRequestPayload.id),
+       required(modelCallProviderRequestPayload.compression),
+       modelCallResponsePayload.*,
+       type(modelCallResponsePayload,'ModelCallResponsePayloadView'),
+       required(modelCallResponsePayload.id),
+       required(modelCallResponsePayload.compression),
+       modelCallProviderResponsePayload.*,
+       type(modelCallProviderResponsePayload,'ModelCallProviderResponsePayloadView'),
+       required(modelCallProviderResponsePayload.id),
+       required(modelCallProviderResponsePayload.compression),
+       toolCallLinks.*,
+       type(toolCallLinks,'ToolCallLinksView'),
+       required(toolCallLinks.message_id),
+       required(toolCallLinks.op_id),
+       modelCallStreamPayload.*,
+       type(modelCallStreamPayload,'ModelCallStreamPayloadView'),
+       required(modelCallStreamPayload.id),
+       required(modelCallStreamPayload.compression)
+FROM (${embed:sql/message.sql}) data_rows
+
+LEFT JOIN (${embed:sql/tool_call.sql}) messageToolCall ON messageToolCall.message_id = data_rows.id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) messageRequestPayload ON messageRequestPayload.id = messageToolCall.request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) messageResponsePayload ON messageResponsePayload.id = messageToolCall.response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_message.sql}) toolMessage ON toolMessage.parent_message_id = data_rows.id
+LEFT JOIN (${embed:sql/tool_call.sql}) toolCall ON toolCall.message_id = toolMessage.id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) requestPayload ON requestPayload.id = toolCall.request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_payload.sql}) responsePayload ON responsePayload.id = toolCall.response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/user_elicitation_data.sql}) userElicitationData ON userElicitationData.message_id = data_rows.id AND 1=1
+LEFT JOIN (${embed:sql/linked_conversation.sql}) linkedConversation ON linkedConversation.id = data_rows.linked_conversation_id AND 1=1
+LEFT JOIN (${embed:sql/attachment.sql}) attachment ON attachment.parent_message_id = data_rows.id
+LEFT JOIN (${embed:sql/model_call.sql}) modelCall ON modelCall.message_id = data_rows.id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallRequestPayload ON modelCallRequestPayload.id = modelCall.request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallProviderRequestPayload ON modelCallProviderRequestPayload.id = modelCall.provider_request_payload_id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallResponsePayload ON modelCallResponsePayload.id = modelCall.response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallProviderResponsePayload ON modelCallProviderResponsePayload.id = modelCall.provider_response_payload_id AND 1=1
+LEFT JOIN (${embed:sql/tool_call_links.sql}) toolCallLinks ON toolCallLinks.trace_id = modelCall.trace_id
+LEFT JOIN (${embed:sql/model_payload.sql}) modelCallStreamPayload ON modelCallStreamPayload.id = modelCall.stream_payload_id AND 1=1

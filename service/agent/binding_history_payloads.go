@@ -13,7 +13,7 @@ import (
 
 	"github.com/viant/afs"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/binding"
 )
 
@@ -63,13 +63,13 @@ func (s *Service) syntheticToolMessages(ctx context.Context, msg *apiconv.Messag
 			Role:            toolRole,
 			Type:            toolType,
 			Content:         &body,
-			ToolMessage:     []*agconv.ToolMessageView{normalizedToolMessage(tm, body)},
+			ToolMessage:     []*conversationmodel.ToolMessageView{normalizedToolMessage(tm, body)},
 		})
 	}
 	return out
 }
 
-func normalizedToolMessage(tm *agconv.ToolMessageView, body string) *agconv.ToolMessageView {
+func normalizedToolMessage(tm *conversationmodel.ToolMessageView, body string) *conversationmodel.ToolMessageView {
 	if tm == nil {
 		return nil
 	}
@@ -88,7 +88,7 @@ func normalizedToolMessage(tm *agconv.ToolMessageView, body string) *agconv.Tool
 	return &clone
 }
 
-func (s *Service) toolMessageResponseBody(ctx context.Context, tm *agconv.ToolMessageView) string {
+func (s *Service) toolMessageResponseBody(ctx context.Context, tm *conversationmodel.ToolMessageView) string {
 	if tm == nil || tm.ToolCall == nil || tm.ToolCall.ResponsePayload == nil {
 		if logx.Enabled() && tm != nil && tm.ToolCall != nil {
 			opID := strings.TrimSpace(tm.ToolCall.OpId)

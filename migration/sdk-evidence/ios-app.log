@@ -1,0 +1,451 @@
+Building for debugging...
+[Computing dependencies]
+[Pre-planning 1 / 214]
+[Planning deferred tasks]
+[3 / 7]
+[4 / 8] AgentlySDK
+[5 / 9] AgentlySDK
+[9 / 13] ForgeIOSUI
+[10 / 14] ForgeIOSUI
+[14 / 18] AgentlyAppFoundation
+[15 / 19] AgentlyAppFoundation
+[22 / 27] AgentlyAppFoundation
+[25 / 30] AgentlyAppFoundation
+[27 / 32] AgentlyAppFoundation
+[38 / 44] AgentlySDK
+[40 / 45] AgentlySDK
+[41 / 47] ForgeIOSUI
+[43 / 48] ForgeIOSUI
+[45 / 46] AgentlyAppFoundationTests-product
+[46 / 49] AgentlyAppFoundationTests-product
+[57 / 60] AgentlyAppFoundationTests-product
+[63 / 65] AgentlyAppFoundationTests-product
+[65 / 65] AgentlyAppFoundationTests-product
+Build complete! (78.39 sec)
+Test Suite 'All tests' started at 2026-09-30 07:22:59.771.
+Test Suite 'AgentlyAppFoundationTests.xctest' started at 2026-09-30 07:22:59.774.
+Test Suite 'AppRuntimeDeletionTests' started at 2026-09-30 07:22:59.774.
+Test Case '-[AgentlyAppFoundationTests.AppRuntimeDeletionTests testDeleteConversationClearsActiveSelectionAndRefreshesList]' started.
+Test Case '-[AgentlyAppFoundationTests.AppRuntimeDeletionTests testDeleteConversationClearsActiveSelectionAndRefreshesList]' passed (0.018 seconds).
+Test Suite 'AppRuntimeDeletionTests' passed at 2026-09-30 07:22:59.792.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.018 (0.018) seconds
+Test Suite 'AppShellBrandingTests' started at 2026-09-30 07:22:59.792.
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolvedCompactNavigationPathHonorsUserReturnedToList]' started.
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolvedCompactNavigationPathHonorsUserReturnedToList]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolvedCompactNavigationPathOpensDifferentActiveConversation]' started.
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolvedCompactNavigationPathOpensDifferentActiveConversation]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolvedCompactNavigationPathOpensPersistedConversation]' started.
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolvedCompactNavigationPathOpensPersistedConversation]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolveWorkspaceBrandTitleDoesNotDoublePrefixViant]' started.
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolveWorkspaceBrandTitleDoesNotDoublePrefixViant]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolveWorkspaceBrandTitleFallsBackToAgently]' started.
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolveWorkspaceBrandTitleFallsBackToAgently]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolveWorkspaceBrandTitlePrefixesViantForWorkspaceName]' started.
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolveWorkspaceBrandTitlePrefixesViantForWorkspaceName]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolveWorkspaceHeaderTitleUsesAppNameThenWorkspaceTitle]' started.
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testResolveWorkspaceHeaderTitleUsesAppNameThenWorkspaceTitle]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testWorkspaceHeaderUsesConfiguredAppNameOnly]' started.
+Test Case '-[AgentlyAppFoundationTests.AppShellBrandingTests testWorkspaceHeaderUsesConfiguredAppNameOnly]' passed (0.000 seconds).
+Test Suite 'AppShellBrandingTests' passed at 2026-09-30 07:22:59.794.
+	 Executed 8 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'AppStateTargetingTests' started at 2026-09-30 07:22:59.794.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testAppleTargetHelpersStayAligned]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testAppleTargetHelpersStayAligned]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testAppStateForgeRuntimeUsesExplicitIOSPlatformTargeting]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testAppStateForgeRuntimeUsesExplicitIOSPlatformTargeting]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testAppStateSeedsSharedMetadataTargetContext]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testAppStateSeedsSharedMetadataTargetContext]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testBuildAppleClientQueryContextIncludesUIClientID]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testBuildAppleClientQueryContextIncludesUIClientID]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testComposerLookupSearchSupportsIdentifierAndNameFromOneField]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testComposerLookupSearchSupportsIdentifierAndNameFromOneField]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testDeveloperInitialWorkspaceRejectsMalformedParameters]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testDeveloperInitialWorkspaceRejectsMalformedParameters]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testDeveloperInitialWorkspaceRequestIsGenericAndDevOnly]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testDeveloperInitialWorkspaceRequestIsGenericAndDevOnly]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testNormalizeAPIBaseURLRepairsSingleSlashScheme]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testNormalizeAPIBaseURLRepairsSingleSlashScheme]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapActiveConversationIDIgnoresOverridesOutsideDevMode]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapActiveConversationIDIgnoresOverridesOutsideDevMode]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapActiveConversationIDPrefersEnvironmentOverrideInDevMode]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapActiveConversationIDPrefersEnvironmentOverrideInDevMode]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapAPIBaseURLPrefersDeveloperOverrides]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapAPIBaseURLPrefersDeveloperOverrides]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapAutoOOBSignInHonorsEnvironmentAndLaunchArgs]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapAutoOOBSignInHonorsEnvironmentAndLaunchArgs]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapOOBSecretReferenceIgnoresOverridesOutsideDevMode]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapOOBSecretReferenceIgnoresOverridesOutsideDevMode]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapOOBSecretReferencePrefersDeveloperOverrides]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testResolvedBootstrapOOBSecretReferencePrefersDeveloperOverrides]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testStartNewConversationLaunchOverrideIsDevOnly]' started.
+Test Case '-[AgentlyAppFoundationTests.AppStateTargetingTests testStartNewConversationLaunchOverrideIsDevOnly]' passed (0.000 seconds).
+Test Suite 'AppStateTargetingTests' passed at 2026-09-30 07:22:59.801.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.005 (0.006) seconds
+Test Suite 'AppleUIBridgeControllerTests' started at 2026-09-30 07:22:59.801.
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testCanonicalFeedPatchesRecomputeParentsChildrenAndSelectionIdentity]' started.
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testCanonicalFeedPatchesRecomputeParentsChildrenAndSelectionIdentity]' passed (0.017 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testFeedDraftBridgeReadsAndPatchesRenderedFeed]' started.
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testFeedDraftBridgeReadsAndPatchesRenderedFeed]' passed (0.004 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testHandleSetFormDataMergesGenericWindowFormValues]' started.
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testHandleSetFormDataMergesGenericWindowFormValues]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testHandleSetFormDataPreservesForecastingPrefillContract]' started.
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testHandleSetFormDataPreservesForecastingPrefillContract]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testReportCommandsUseExactNativeMaterializationIdentity]' started.
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testReportCommandsUseExactNativeMaterializationIdentity]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testSnapshotDoesNotPublishHostedWindowsWithoutActiveConversation]' started.
+Test Case '-[AgentlyAppFoundationTests.AppleUIBridgeControllerTests testSnapshotDoesNotPublishHostedWindowsWithoutActiveConversation]' passed (0.001 seconds).
+Test Suite 'AppleUIBridgeControllerTests' passed at 2026-09-30 07:22:59.826.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.025 (0.026) seconds
+Test Suite 'ApprovalCallbacksTests' started at 2026-09-30 07:22:59.826.
+Test Case '-[AgentlyAppFoundationTests.ApprovalCallbacksTests testBuildApprovalDecisionRequestAppliesMetadataCallbacks]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalCallbacksTests testBuildApprovalDecisionRequestAppliesMetadataCallbacks]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ApprovalCallbacksTests testExecuteApprovalCallbacksFiltersSelectionsToOriginalOrder]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalCallbacksTests testExecuteApprovalCallbacksFiltersSelectionsToOriginalOrder]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ApprovalCallbacksTests testExecuteApprovalCallbacksSkipsMismatchedEvent]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalCallbacksTests testExecuteApprovalCallbacksSkipsMismatchedEvent]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ApprovalCallbacksTests testMergeCallbackResultAppliesCurrentEditedFieldsAndActionShape]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalCallbacksTests testMergeCallbackResultAppliesCurrentEditedFieldsAndActionShape]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ApprovalCallbacksTests testMergeCallbackResultTreatsLegacyPayloadActionAsControlMetadata]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalCallbacksTests testMergeCallbackResultTreatsLegacyPayloadActionAsControlMetadata]' passed (0.000 seconds).
+Test Suite 'ApprovalCallbacksTests' passed at 2026-09-30 07:22:59.829.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.002 (0.003) seconds
+Test Suite 'ApprovalComponentsSupportTests' started at 2026-09-30 07:22:59.829.
+Test Case '-[AgentlyAppFoundationTests.ApprovalComponentsSupportTests testApprovalArgumentsPreviewHidesTechnicalFieldsAndBuildsRows]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalComponentsSupportTests testApprovalArgumentsPreviewHidesTechnicalFieldsAndBuildsRows]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ApprovalComponentsSupportTests testApprovalFailureMessageExplainsEOF]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalComponentsSupportTests testApprovalFailureMessageExplainsEOF]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ApprovalComponentsSupportTests testBuildApprovalEditorSeedPreservesOriginalArgsPayload]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalComponentsSupportTests testBuildApprovalEditorSeedPreservesOriginalArgsPayload]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ApprovalComponentsSupportTests testExtractApprovalEditedFieldsFallsBackToSeededEditedFieldsWhenNoLiveFieldsExist]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalComponentsSupportTests testExtractApprovalEditedFieldsFallsBackToSeededEditedFieldsWhenNoLiveFieldsExist]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ApprovalComponentsSupportTests testExtractApprovalEditedFieldsPrefersLiveFieldsOverSeededEditedFields]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalComponentsSupportTests testExtractApprovalEditedFieldsPrefersLiveFieldsOverSeededEditedFields]' passed (0.000 seconds).
+Test Suite 'ApprovalComponentsSupportTests' passed at 2026-09-30 07:22:59.832.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.003 (0.003) seconds
+Test Suite 'ApprovalMetadataSupportTests' started at 2026-09-30 07:22:59.832.
+Test Case '-[AgentlyAppFoundationTests.ApprovalMetadataSupportTests testExtractToolApprovalMetaReadsLegacyHiddenFields]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalMetadataSupportTests testExtractToolApprovalMetaReadsLegacyHiddenFields]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ApprovalMetadataSupportTests testExtractToolApprovalMetaReadsRichHiddenApprovalMeta]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalMetadataSupportTests testExtractToolApprovalMetaReadsRichHiddenApprovalMeta]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ApprovalMetadataSupportTests testParsedApprovalMetaReadsWrappedApprovalObjectAndForgeFields]' started.
+Test Case '-[AgentlyAppFoundationTests.ApprovalMetadataSupportTests testParsedApprovalMetaReadsWrappedApprovalObjectAndForgeFields]' passed (0.000 seconds).
+Test Suite 'ApprovalMetadataSupportTests' passed at 2026-09-30 07:22:59.833.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'AuthRuntimeTests' started at 2026-09-30 07:22:59.833.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testAuthURLUsesMobileRedirectRejectsWebCallback]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testAuthURLUsesMobileRedirectRejectsWebCallback]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginDeveloperSessionLoginAttachesCookieSession]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginDeveloperSessionLoginAttachesCookieSession]' passed (0.006 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginOAuthLoginHidesCallbackConfigurationDetails]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginOAuthLoginHidesCallbackConfigurationDetails]' passed (0.003 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginOOBLoginDoesNotExposeTransportDetails]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginOOBLoginDoesNotExposeTransportDetails]' passed (0.004 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginOOBLoginDoesNotStartWhileAnotherSignInIsActive]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginOOBLoginDoesNotStartWhileAnotherSignInIsActive]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginOOBLoginRefreshesSignedInContext]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginOOBLoginRefreshesSignedInContext]' passed (0.002 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginOOBLoginRejectsMissingSecretReference]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testBeginOOBLoginRejectsMissingSecretReference]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testConfiguredWorkspaceEndpointOptionsDeduplicatesExplicitDefaults]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testConfiguredWorkspaceEndpointOptionsDeduplicatesExplicitDefaults]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testHandleOAuthCallbackDoesNotStartWhileAnotherSignInIsActive]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testHandleOAuthCallbackDoesNotStartWhileAnotherSignInIsActive]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testNormalizedDeveloperSessionCredentialAcceptsCommonPasteFormats]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testNormalizedDeveloperSessionCredentialAcceptsCommonPasteFormats]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testSettingsRuntimeCanSelectConfiguredLocalhostWorkspaceEndpoint]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testSettingsRuntimeCanSelectConfiguredLocalhostWorkspaceEndpoint]' passed (0.009 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testSettingsRuntimePersistsOOBSecretReference]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testSettingsRuntimePersistsOOBSecretReference]' passed (0.004 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testSettingsRuntimeStoresWorkspaceEndpointSelection]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testSettingsRuntimeStoresWorkspaceEndpointSelection]' passed (0.005 seconds).
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testWorkspaceEndpointOptionsHaveNoBuiltInDeployment]' started.
+Test Case '-[AgentlyAppFoundationTests.AuthRuntimeTests testWorkspaceEndpointOptionsHaveNoBuiltInDeployment]' passed (0.000 seconds).
+Test Suite 'AuthRuntimeTests' passed at 2026-09-30 07:22:59.869.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.035 (0.036) seconds
+Test Suite 'ChatRuntimeTests' started at 2026-09-30 07:22:59.870.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testActiveAssistantSuppressesIncompleteReportTransportAndKeepsNarration]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testActiveAssistantSuppressesIncompleteReportTransportAndKeepsNarration]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testBuildTranscriptForgeWindowMetadataAdaptsDashboardSummaryBlock]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testBuildTranscriptForgeWindowMetadataAdaptsDashboardSummaryBlock]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testBuildTranscriptForgeWindowMetadataAdaptsDashboardTableBlock]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testBuildTranscriptForgeWindowMetadataAdaptsDashboardTableBlock]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testBuildTranscriptForgeWindowMetadataAdaptsDashboardTimelineBlock]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testBuildTranscriptForgeWindowMetadataAdaptsDashboardTimelineBlock]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testBuildTranscriptForgeWindowMetadataAdaptsDimensionsAndMessagesBlocks]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testBuildTranscriptForgeWindowMetadataAdaptsDimensionsAndMessagesBlocks]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testBuildTranscriptForgeWindowMetadataAdaptsSummaryItemsAndReportBlocks]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testBuildTranscriptForgeWindowMetadataAdaptsSummaryItemsAndReportBlocks]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testCommitAssistantTurnKeepsSSEContentAtCompletion]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testCommitAssistantTurnKeepsSSEContentAtCompletion]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testConversationUsageIncludesSidecarModels]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testConversationUsageIncludesSidecarModels]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testDeriveHostedWorkspaceRestoreStatePreservesWorkspaceFromEarlierTurn]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testDeriveHostedWorkspaceRestoreStatePreservesWorkspaceFromEarlierTurn]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testDeriveHostedWorkspaceRestoreStateRestoresHostedWindowFromViewOpen]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testDeriveHostedWorkspaceRestoreStateRestoresHostedWindowFromViewOpen]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testDeriveHostedWorkspaceRestoreStateUsesToolContentWhenViewOpenPayloadIsGzipEnvelope]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testDeriveHostedWorkspaceRestoreStateUsesToolContentWhenViewOpenPayloadIsGzipEnvelope]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testLatestAssistantMarkdownPrefersNewestActiveAssistantMessage]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testLatestAssistantMarkdownPrefersNewestActiveAssistantMessage]' passed (0.002 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testLatestTurnHostedWorkspaceRestoreStateFiltersGenericWindowsOutsideHostedPlacement]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testLatestTurnHostedWorkspaceRestoreStateFiltersGenericWindowsOutsideHostedPlacement]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testLatestTurnHostedWorkspaceRestoreStateIgnoresStoredStateWhenLatestTurnHasNoHostedWindow]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testLatestTurnHostedWorkspaceRestoreStateIgnoresStoredStateWhenLatestTurnHasNoHostedWindow]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testLatestTurnHostedWorkspaceRestoreStateMergesStoredWindowFormWithTranscriptPrefill]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testLatestTurnHostedWorkspaceRestoreStateMergesStoredWindowFormWithTranscriptPrefill]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testParseTranscriptContentPartsExtractsForgeUIBlocks]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testParseTranscriptContentPartsExtractsForgeUIBlocks]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testParseTranscriptContentPartsLeavesMalformedLegacyMarkerPlusJSONFenceAsMarkdown]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testParseTranscriptContentPartsLeavesMalformedLegacyMarkerPlusJSONFenceAsMarkdown]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testPendingInlineReportStatusIncludesDataSourcesAndBlocks]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testPendingInlineReportStatusIncludesDataSourcesAndBlocks]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testProgressStatusAttributedTextRemovesHeadingAndBoldMarkers]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testProgressStatusAttributedTextRemovesHeadingAndBoldMarkers]' passed (0.003 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testReplaceTranscriptDoesNotDuplicateNarrationBesideFinalAnswer]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testReplaceTranscriptDoesNotDuplicateNarrationBesideFinalAnswer]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testReplaceTranscriptSeparatesNarrationFromFinalMarkdownHeading]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testReplaceTranscriptSeparatesNarrationFromFinalMarkdownHeading]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testReplaceTranscriptStripsHiddenRouterPayloadSuffix]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testReplaceTranscriptStripsHiddenRouterPayloadSuffix]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testReplaceTranscriptUsesPendingNarrationAsAssistantBubble]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testReplaceTranscriptUsesPendingNarrationAsAssistantBubble]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testSanitizeVisibleAssistantTextPreservesHumanPrefixAndStripsRouterPayloadSuffix]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testSanitizeVisibleAssistantTextPreservesHumanPrefixAndStripsRouterPayloadSuffix]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testSanitizeVisibleAssistantTextStripsPureRouterPayload]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testSanitizeVisibleAssistantTextStripsPureRouterPayload]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWindowStartsWithLatestFortyAndExpands]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWindowStartsWithLatestFortyAndExpands]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantAppendsActiveEntryWithoutMutatingHistory]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantAppendsActiveEntryWithoutMutatingHistory]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantComposesProseReportAndLaterProse]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantComposesProseReportAndLaterProse]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantIgnoresBufferedHistoryWithoutActiveTurn]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantIgnoresBufferedHistoryWithoutActiveTurn]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantPreservesReportOnlyStreamingResponse]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantPreservesReportOnlyStreamingResponse]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantStripsPureRouterPayloadMessage]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantStripsPureRouterPayloadMessage]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantUsesSingleGlobalProgressInsteadOfWaitingPlaceholder]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTranscriptWithActiveAssistantUsesSingleGlobalProgressInsteadOfWaitingPlaceholder]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTurnProgressDistinguishesQueuedToolsAndWaitingForInput]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTurnProgressDistinguishesQueuedToolsAndWaitingForInput]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTurnProgressPrefersPerModelTurnTokenDetails]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTurnProgressPrefersPerModelTurnTokenDetails]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTurnProgressSurvivesStreamGapUsingPersistedPendingTurn]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTurnProgressSurvivesStreamGapUsingPersistedPendingTurn]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTurnProgressUsesLatestNarrationAndReportingTool]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testTurnProgressUsesLatestNarrationAndReportingTool]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testVisibleQueryErrorHidesBackendAndEndpointDetails]' started.
+Test Case '-[AgentlyAppFoundationTests.ChatRuntimeTests testVisibleQueryErrorHidesBackendAndEndpointDetails]' passed (0.003 seconds).
+Test Suite 'ChatRuntimeTests' passed at 2026-09-30 07:22:59.903.
+	 Executed 37 tests, with 0 failures (0 unexpected) in 0.029 (0.033) seconds
+Test Suite 'ComposerRuntimeTests' started at 2026-09-30 07:22:59.903.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testChangingQueryPrunesStaleLookupSelections]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testChangingQueryPrunesStaleLookupSelections]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testClearDraftRemovesTextAttachmentsAndLookupSelections]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testClearDraftRemovesTextAttachmentsAndLookupSelections]' passed (0.002 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testCompactComposerHeightDoesNotOscillateForSingleLineTyping]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testCompactComposerHeightDoesNotOscillateForSingleLineTyping]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testComposerEditorHeightStartsCompactAndExpandsForPromptLength]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testComposerEditorHeightStartsCompactAndExpandsForPromptLength]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testComposerEditorProjectionHidesRawLookupTokenInsideInput]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testComposerEditorProjectionHidesRawLookupTokenInsideInput]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testComposerEditorProjectionIgnoresStaleLookupRangesFromPreviousText]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testComposerEditorProjectionIgnoresStaleLookupRangesFromPreviousText]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testLookupControlLabelMakesUnresolvedActionExplicit]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testLookupControlLabelMakesUnresolvedActionExplicit]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testLookupOccurrencesParseRegisteredSlashTokensOnly]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testLookupOccurrencesParseRegisteredSlashTokensOnly]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testLookupRowsLoaderReceivesTrimmedConversationID]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testLookupRowsLoaderReceivesTrimmedConversationID]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testRecognizedTextIsInsertedAtCaretAndPreservesSuffix]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testRecognizedTextIsInsertedAtCaretAndPreservesSuffix]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testRecognizedTextPopulatesBlankComposer]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testRecognizedTextPopulatesBlankComposer]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testRequestFocusAdvancesFocusRequestID]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testRequestFocusAdvancesFocusRequestID]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testRequiredLookupRemainsUnresolvedUntilExplicitSelection]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testRequiredLookupRemainsUnresolvedUntilExplicitSelection]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testResolvedQueryRequiresRequiredLookupSelection]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testResolvedQueryRequiresRequiredLookupSelection]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testResolvedQueryUsesSelectedLookupToken]' started.
+Test Case '-[AgentlyAppFoundationTests.ComposerRuntimeTests testResolvedQueryUsesSelectedLookupToken]' passed (0.001 seconds).
+Test Suite 'ComposerRuntimeTests' passed at 2026-09-30 07:22:59.915.
+	 Executed 15 tests, with 0 failures (0 unexpected) in 0.010 (0.012) seconds
+Test Suite 'ConversationRecencyTests' started at 2026-09-30 07:22:59.915.
+Test Case '-[AgentlyAppFoundationTests.ConversationRecencyTests testMergeConversationIntoRecentListInjectsMissingActiveConversation]' started.
+Test Case '-[AgentlyAppFoundationTests.ConversationRecencyTests testMergeConversationIntoRecentListInjectsMissingActiveConversation]' passed (0.002 seconds).
+Test Case '-[AgentlyAppFoundationTests.ConversationRecencyTests testParseConversationActivityDateHandlesGoMonotonicSuffix]' started.
+Test Case '-[AgentlyAppFoundationTests.ConversationRecencyTests testParseConversationActivityDateHandlesGoMonotonicSuffix]' passed (0.002 seconds).
+Test Case '-[AgentlyAppFoundationTests.ConversationRecencyTests testSortedRecentConversationsUsesParsedActivityDate]' started.
+Test Case '-[AgentlyAppFoundationTests.ConversationRecencyTests testSortedRecentConversationsUsesParsedActivityDate]' passed (0.001 seconds).
+Test Suite 'ConversationRecencyTests' passed at 2026-09-30 07:22:59.920.
+	 Executed 3 tests, with 0 failures (0 unexpected) in 0.005 (0.005) seconds
+Test Suite 'ElicitationOverlayValidationTests' started at 2026-09-30 07:22:59.920.
+Test Case '-[AgentlyAppFoundationTests.ElicitationOverlayValidationTests testElicitationTerminalStatusMessageRecognizesResolvedCanceledAndTimedOutStates]' started.
+Test Case '-[AgentlyAppFoundationTests.ElicitationOverlayValidationTests testElicitationTerminalStatusMessageRecognizesResolvedCanceledAndTimedOutStates]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ElicitationOverlayValidationTests testFallbackElicitationRequiresAndTrimsResponse]' started.
+Test Case '-[AgentlyAppFoundationTests.ElicitationOverlayValidationTests testFallbackElicitationRequiresAndTrimsResponse]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ElicitationOverlayValidationTests testForgePayloadValidationAcceptsRequiredDefaultPayload]' started.
+Test Case '-[AgentlyAppFoundationTests.ElicitationOverlayValidationTests testForgePayloadValidationAcceptsRequiredDefaultPayload]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ElicitationOverlayValidationTests testForgePayloadValidationAppliesFieldConstraints]' started.
+Test Case '-[AgentlyAppFoundationTests.ElicitationOverlayValidationTests testForgePayloadValidationAppliesFieldConstraints]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ElicitationOverlayValidationTests testForgePayloadValidationRequiresMissingRequiredFields]' started.
+Test Case '-[AgentlyAppFoundationTests.ElicitationOverlayValidationTests testForgePayloadValidationRequiresMissingRequiredFields]' passed (0.000 seconds).
+Test Suite 'ElicitationOverlayValidationTests' passed at 2026-09-30 07:22:59.921.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ForgeAgentlyDataSourceLoaderTests' started at 2026-09-30 07:22:59.921.
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testAuthorizedWindowMetadataIsAppliedBeforeNativeRendererReceivesIt]' started.
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testAuthorizedWindowMetadataIsAppliedBeforeNativeRendererReceivesIt]' passed (0.006 seconds).
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testDatasourceLoaderDoesNotTreatDataInfoAsMetricsWhenMetricsAreMissing]' started.
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testDatasourceLoaderDoesNotTreatDataInfoAsMetricsWhenMetricsAreMissing]' passed (0.002 seconds).
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testDatasourceLoaderStartsFromResolvedInputsAndPreservesNestedInputShape]' started.
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testDatasourceLoaderStartsFromResolvedInputsAndPreservesNestedInputShape]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testDatasourceLoaderUsesActiveConversationFallbackForRestoredWindow]' started.
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testDatasourceLoaderUsesActiveConversationFallbackForRestoredWindow]' passed (0.002 seconds).
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testLookupDatasourceLoaderSendsFlatFilterInputsAndPagingDefaults]' started.
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testLookupDatasourceLoaderSendsFlatFilterInputsAndPagingDefaults]' passed (0.002 seconds).
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testReportDatasourceLoaderPreservesNestedInputQueryShape]' started.
+Test Case '-[AgentlyAppFoundationTests.ForgeAgentlyDataSourceLoaderTests testReportDatasourceLoaderPreservesNestedInputQueryShape]' passed (0.004 seconds).
+Test Suite 'ForgeAgentlyDataSourceLoaderTests' passed at 2026-09-30 07:22:59.938.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.016 (0.017) seconds
+Test Suite 'HostedWorkspaceLayoutTests' started at 2026-09-30 07:22:59.938.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspaceLayoutTests testResolveActiveHostedWorkspaceWindowPrefersSelectedWindow]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspaceLayoutTests testResolveActiveHostedWorkspaceWindowPrefersSelectedWindow]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspaceLayoutTests testResolveDefaultHostedWorkspaceDisplayModeUsesExpandedForRegularWidth]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspaceLayoutTests testResolveDefaultHostedWorkspaceDisplayModeUsesExpandedForRegularWidth]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspaceLayoutTests testResolveHostedWorkspaceLayoutPlanHonorsLayoutHintsForExpandedMode]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspaceLayoutTests testResolveHostedWorkspaceLayoutPlanHonorsLayoutHintsForExpandedMode]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspaceLayoutTests testResolveHostedWorkspaceLayoutPlanUsesContentMeasurementFallback]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspaceLayoutTests testResolveHostedWorkspaceLayoutPlanUsesContentMeasurementFallback]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspaceLayoutTests testResolveTranscriptHeightUsesMeasuredContentWithinBounds]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspaceLayoutTests testResolveTranscriptHeightUsesMeasuredContentWithinBounds]' passed (0.000 seconds).
+Test Suite 'HostedWorkspaceLayoutTests' passed at 2026-09-30 07:22:59.940.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.001 (0.002) seconds
+Test Suite 'HostedWorkspacePolicyTests' started at 2026-09-30 07:22:59.940.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testFilterAgentlyHostedWorkspaceRestoreStateSeedsParametersIntoWindowForm]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testFilterAgentlyHostedWorkspaceRestoreStateSeedsParametersIntoWindowForm]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testHostedWorkspaceEventNoticeDescribesInvalidWorkspaceIDEvent]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testHostedWorkspaceEventNoticeDescribesInvalidWorkspaceIDEvent]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testHostedWorkspaceLoaderDoesNotReuseDifferentWindowKey]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testHostedWorkspaceLoaderDoesNotReuseDifferentWindowKey]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testHostedWorkspaceLoaderDoesNotReuseWindowWithoutMetadata]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testHostedWorkspaceLoaderDoesNotReuseWindowWithoutMetadata]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testHostedWorkspaceLoaderReusesMatchingExistingWindow]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testHostedWorkspaceLoaderReusesMatchingExistingWindow]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testRuntimeOpenSnapshotDoesNotEraseRestoredReportForm]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testRuntimeOpenSnapshotDoesNotEraseRestoredReportForm]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testShouldApplyHostedWorkspaceNoticeRequiresMatchingActiveConversationID]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePolicyTests testShouldApplyHostedWorkspaceNoticeRequiresMatchingActiveConversationID]' passed (0.000 seconds).
+Test Suite 'HostedWorkspacePolicyTests' passed at 2026-09-30 07:22:59.941.
+	 Executed 7 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'HostedWorkspacePresentationTests' started at 2026-09-30 07:22:59.941.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePresentationTests testResolveHostedWorkspacePresentationFallsBackToHumanizedWindowKey]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePresentationTests testResolveHostedWorkspacePresentationFallsBackToHumanizedWindowKey]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePresentationTests testResolveHostedWorkspacePresentationSplitsCamelCaseWindowKeys]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePresentationTests testResolveHostedWorkspacePresentationSplitsCamelCaseWindowKeys]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePresentationTests testResolveHostedWorkspacePresentationUsesNavigationMetadata]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePresentationTests testResolveHostedWorkspacePresentationUsesNavigationMetadata]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePresentationTests testResolveHostedWorkspacePresentationUsesTitleWhenAvailable]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePresentationTests testResolveHostedWorkspacePresentationUsesTitleWhenAvailable]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePresentationTests testWorkspaceOpeningToolNamesNormalizeColonAndSlashForms]' started.
+Test Case '-[AgentlyAppFoundationTests.HostedWorkspacePresentationTests testWorkspaceOpeningToolNamesNormalizeColonAndSlashForms]' passed (0.000 seconds).
+Test Suite 'HostedWorkspacePresentationTests' passed at 2026-09-30 07:22:59.943.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'NativeWorkspacePreviewTests' started at 2026-09-30 07:22:59.943.
+Test Case '-[AgentlyAppFoundationTests.NativeWorkspacePreviewTests testNestedSectionSelectionPreservesCompleteWindow]' started.
+Test Case '-[AgentlyAppFoundationTests.NativeWorkspacePreviewTests testNestedSectionSelectionPreservesCompleteWindow]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.NativeWorkspacePreviewTests testPageSizeOverridePreservesTransportAndServerPaging]' started.
+Test Case '-[AgentlyAppFoundationTests.NativeWorkspacePreviewTests testPageSizeOverridePreservesTransportAndServerPaging]' passed (0.000 seconds).
+Test Suite 'NativeWorkspacePreviewTests' passed at 2026-09-30 07:22:59.944.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.001 (0.001) seconds
+Test Suite 'ReportRuntimeExportHandlerTests' started at 2026-09-30 07:22:59.944.
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testBuildFeedReportExportRequestCompilesCurrentForgeSnapshot]' started.
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testBuildFeedReportExportRequestCompilesCurrentForgeSnapshot]' passed (0.002 seconds).
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testExportReportRuntimePDFCompilesCanonicalFencesOnGoBackend]' started.
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testExportReportRuntimePDFCompilesCanonicalFencesOnGoBackend]' passed (0.003 seconds).
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testExportReportRuntimePDFSubmitsPollsAndDownloadsArtifact]' started.
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testExportReportRuntimePDFSubmitsPollsAndDownloadsArtifact]' passed (0.011 seconds).
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testReportArtifactIDRecognizesAuthenticatedArtifactLinks]' started.
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testReportArtifactIDRecognizesAuthenticatedArtifactLinks]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testReportRuntimeExportErrorExplainsTemporaryStorageFailure]' started.
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testReportRuntimeExportErrorExplainsTemporaryStorageFailure]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testReportRuntimeExportErrorHidesTransportURL]' started.
+Test Case '-[AgentlyAppFoundationTests.ReportRuntimeExportHandlerTests testReportRuntimeExportErrorHidesTransportURL]' passed (0.000 seconds).
+Test Suite 'ReportRuntimeExportHandlerTests' passed at 2026-09-30 07:22:59.963.
+	 Executed 6 tests, with 0 failures (0 unexpected) in 0.017 (0.019) seconds
+Test Suite 'ResourceQueryTests' started at 2026-09-30 07:22:59.963.
+Test Case '-[AgentlyAppFoundationTests.ResourceQueryTests testQueryRuntimePassesResourcesAndLegacyAttachments]' started.
+Test Case '-[AgentlyAppFoundationTests.ResourceQueryTests testQueryRuntimePassesResourcesAndLegacyAttachments]' passed (0.002 seconds).
+Test Suite 'ResourceQueryTests' passed at 2026-09-30 07:22:59.965.
+	 Executed 1 test, with 0 failures (0 unexpected) in 0.002 (0.002) seconds
+Test Suite 'ToolFeedsSectionTests' started at 2026-09-30 07:22:59.965.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testInlineFeedAttachesOnlyToFinalAssistantRowForOwningTurn]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testInlineFeedAttachesOnlyToFinalAssistantRowForOwningTurn]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testMergedToolFeedsKeepsPersistedRowsWhenLiveSnapshotIsEmptyAndLetsLiveWin]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testMergedToolFeedsKeepsPersistedRowsWhenLiveSnapshotIsEmptyAndLetsLiveWin]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testNativeFeedProjectionCoversFieldsFlattenExcludeAggregateDeriveAndNumericSelectors]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testNativeFeedProjectionCoversFieldsFlattenExcludeAggregateDeriveAndNumericSelectors]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testPhoneToolFeedLauncherDefaultsFromTurnActivityAndHonorsOverride]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testPhoneToolFeedLauncherDefaultsFromTurnActivityAndHonorsOverride]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedFindsGenericDeclaredToolAction]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedFindsGenericDeclaredToolAction]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedFindsNestedMetadataDrivenFilePreview]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedFindsNestedMetadataDrivenFilePreview]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedIconComesFromPresentationNotFeedID]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedIconComesFromPresentationNotFeedID]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedMetadataDecodesTerminalAndResolvesDeclaredRows]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedMetadataDecodesTerminalAndResolvesDeclaredRows]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedSummaryLinesExtractsGenericCommandInputAndOutput]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedSummaryLinesExtractsGenericCommandInputAndOutput]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedSummaryLinesExtractsResolvedPlanPayload]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedSummaryLinesExtractsResolvedPlanPayload]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedSummaryLinesExtractsUserFacingPlanAndCommandText]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedSummaryLinesExtractsUserFacingPlanAndCommandText]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedSynthesizesRemoteLookupDependenciesFromSharedUI]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedSynthesizesRemoteLookupDependenciesFromSharedUI]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedTargetSelectsPlacementAndInlineOwner]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testToolFeedTargetSelectsPlacementAndInlineOwner]' passed (0.000 seconds).
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testVisibleToolFeedsFiltersDeveloperOnlyAndSortsLabels]' started.
+Test Case '-[AgentlyAppFoundationTests.ToolFeedsSectionTests testVisibleToolFeedsFiltersDeveloperOnlyAndSortsLabels]' passed (0.000 seconds).
+Test Suite 'ToolFeedsSectionTests' passed at 2026-09-30 07:22:59.970.
+	 Executed 14 tests, with 0 failures (0 unexpected) in 0.004 (0.005) seconds
+Test Suite 'TurnPresentationFixtureTests' started at 2026-09-30 07:22:59.970.
+Test Case '-[AgentlyAppFoundationTests.TurnPresentationFixtureTests testSharedNarrationFixtures]' started.
+Test Case '-[AgentlyAppFoundationTests.TurnPresentationFixtureTests testSharedNarrationFixtures]' passed (0.003 seconds).
+Test Case '-[AgentlyAppFoundationTests.TurnPresentationFixtureTests testSharedProgressFixtures]' started.
+Test Case '-[AgentlyAppFoundationTests.TurnPresentationFixtureTests testSharedProgressFixtures]' passed (0.001 seconds).
+Test Suite 'TurnPresentationFixtureTests' passed at 2026-09-30 07:22:59.974.
+	 Executed 2 tests, with 0 failures (0 unexpected) in 0.004 (0.004) seconds
+Test Suite 'WorkspaceThemeRuntimeTests' started at 2026-09-30 07:22:59.974.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeRuntimeTests testLateCatalogCannotRestoreClearedWorkspace]' started.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeRuntimeTests testLateCatalogCannotRestoreClearedWorkspace]' passed (0.004 seconds).
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeRuntimeTests testRemovedThemeAndManifestResetPreference]' started.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeRuntimeTests testRemovedThemeAndManifestResetPreference]' passed (0.005 seconds).
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeRuntimeTests testSelectionSurvivesOfflineRestartAndLogoutClearsPointer]' started.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeRuntimeTests testSelectionSurvivesOfflineRestartAndLogoutClearsPointer]' passed (0.004 seconds).
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeRuntimeTests testSessionOnlyDefaultSelectionSurvivesRefresh]' started.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeRuntimeTests testSessionOnlyDefaultSelectionSurvivesRefresh]' passed (0.003 seconds).
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeRuntimeTests testWorkspaceAndAccountChangesDoNotReuseAppearanceOnFailure]' started.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeRuntimeTests testWorkspaceAndAccountChangesDoNotReuseAppearanceOnFailure]' passed (0.006 seconds).
+Test Suite 'WorkspaceThemeRuntimeTests' passed at 2026-09-30 07:22:59.996.
+	 Executed 5 tests, with 0 failures (0 unexpected) in 0.022 (0.022) seconds
+Test Suite 'WorkspaceThemeTests' started at 2026-09-30 07:22:59.996.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeTests testOptionalInputColorsRemainValidated]' started.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeTests testOptionalInputColorsRemainValidated]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeTests testOptionalSemanticColorsRemainValidated]' started.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeTests testOptionalSemanticColorsRemainValidated]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeTests testRejectsInvalidCatalog]' started.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeTests testRejectsInvalidCatalog]' passed (0.001 seconds).
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeTests testSharedFixture]' started.
+Test Case '-[AgentlyAppFoundationTests.WorkspaceThemeTests testSharedFixture]' passed (0.001 seconds).
+Test Suite 'WorkspaceThemeTests' passed at 2026-09-30 07:23:00.000.
+	 Executed 4 tests, with 0 failures (0 unexpected) in 0.004 (0.004) seconds
+Test Suite 'AgentlyAppFoundationTests.xctest' passed at 2026-09-30 07:23:00.000.
+	 Executed 174 tests, with 0 failures (0 unexpected) in 0.208 (0.227) seconds
+Test Suite 'All tests' passed at 2026-09-30 07:23:00.000.
+	 Executed 174 tests, with 0 failures (0 unexpected) in 0.208 (0.230) seconds
+◇ Test run started.
+↳ Testing Library Version: 2078
+↳ Target Platform: arm64e-apple-macos14.0
+✔ Test run with 0 tests in 0 suites passed after 0.001 seconds.

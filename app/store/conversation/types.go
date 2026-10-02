@@ -1,39 +1,35 @@
 package conversation
 
 import (
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
+	messagemodel "github.com/viant/agently-core/model/message"
+	modelcallmodel "github.com/viant/agently-core/model/modelcall"
+	payloadmodel "github.com/viant/agently-core/model/payload"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
+	turnmodel "github.com/viant/agently-core/model/turn"
 	"strings"
-
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	gfwrite "github.com/viant/agently-core/pkg/agently/generatedfile/write"
-	msgw "github.com/viant/agently-core/pkg/agently/message/write"
-	mcall "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	payloadread "github.com/viant/agently-core/pkg/agently/payload/read"
-	payloadw "github.com/viant/agently-core/pkg/agently/payload/write"
-	toolcall "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	turnw "github.com/viant/agently-core/pkg/agently/turn/write"
 )
 
 type (
-	Input                = agconv.ConversationInput
-	MutableConversation  = convw.Conversation
-	MutableMessage       = msgw.Message
-	MutableModelCall     = mcall.ModelCall
-	MutableToolCall      = toolcall.ToolCall
-	MutablePayload       = payloadw.Payload
-	MutableTurn          = turnw.Turn
-	Payload              = payloadread.PayloadView
-	GeneratedFile        = gfread.GeneratedFileView
-	MutableGeneratedFile = gfwrite.GeneratedFile
-	ToolCallView         = agconv.ToolCallView
-	ResponsePayloadView  = agconv.ModelCallStreamPayloadView
+	Input                = conversationmodel.ConversationInput
+	MutableConversation  = conversationmodel.Conversation
+	MutableMessage       = messagemodel.Message
+	MutableModelCall     = modelcallmodel.ModelCall
+	MutableToolCall      = toolcallmodel.ToolCall
+	MutablePayload       = payloadmodel.Payload
+	MutableTurn          = turnmodel.Turn
+	Payload              = payloadmodel.PayloadView
+	GeneratedFile        = generatedfilemodel.GeneratedFileView
+	MutableGeneratedFile = generatedfilemodel.GeneratedFile
+	ToolCallView         = conversationmodel.ToolCallView
+	ResponsePayloadView  = conversationmodel.ModelCallStreamPayloadView
 )
 
 type (
-	Conversation agconv.ConversationView
-	Message      agconv.MessageView
-	Turn         agconv.TranscriptView
+	Conversation conversationmodel.ConversationView
+	Message      conversationmodel.MessageView
+	Turn         conversationmodel.TranscriptView
 	Transcript   []*Turn
 )
 

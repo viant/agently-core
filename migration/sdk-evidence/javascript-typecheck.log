@@ -1,0 +1,4 @@
+
+> agently-core-ui-sdk@0.1.0 typecheck
+> tsc --noEmit
+

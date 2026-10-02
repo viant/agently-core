@@ -54,6 +54,22 @@ func TestDo_SerializesByKey(t *testing.T) {
 	}
 }
 
+func TestKeyForConnector(t *testing.T) {
+	for _, tc := range []struct {
+		driver, dsn, name, expected string
+	}{
+		{"sqlite", "/tmp/agently.db", "agently", "sqlite:/tmp/agently.db"},
+		{"sqlite3", "/tmp/agently.db", "agently", "sqlite:/tmp/agently.db"},
+		{"SQLITE", "", "agently", "sqlite:agently"},
+		{"sqlite", "", "", "sqlite:default"},
+		{"mysql", "/tmp/agently.db", "agently", ""},
+	} {
+		if got := KeyForConnector(tc.driver, tc.dsn, tc.name); got != tc.expected {
+			t.Fatalf("KeyForConnector(%q,%q,%q) = %q, want %q", tc.driver, tc.dsn, tc.name, got, tc.expected)
+		}
+	}
+}
+
 func TestDo_RespectsContextWhileWaiting(t *testing.T) {
 	const key = "sqlite:test-timeout"
 	block := make(chan struct{})

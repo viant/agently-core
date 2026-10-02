@@ -4,12 +4,17 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
+
+	_ "github.com/mattn/go-sqlite3"
+	"github.com/viant/agently-core/app/store/native"
 )
 
 func TestMaintenanceLease_SQLiteAcquireRenewReleaseAndFence(t *testing.T) {
-	svc, _ := newSeededServiceWithDB(t)
+	svc, _ := newNativeLeaseServiceWithDB(t)
 	ctx := context.Background()
 
 	first := acquireTestMaintenanceLease(t, svc, "lease-test", "worker-a")
@@ -45,7 +50,7 @@ func TestMaintenanceLease_SQLiteAcquireRenewReleaseAndFence(t *testing.T) {
 }
 
 func TestMaintenanceLease_SQLiteDeletesOnlyRowsExpiredOverSevenDays(t *testing.T) {
-	svc, db := newSeededServiceWithDB(t)
+	svc, db := newNativeLeaseServiceWithDB(t)
 	ctx := context.Background()
 	guard := acquireTestMaintenanceLease(t, svc, "cleanup-guard", "worker-a")
 	now := time.Now().UTC()
@@ -76,6 +81,36 @@ VALUES (?, ?, ?, ?, ?, ?)`, row.key, "other", row.key+"-token", row.until, now.A
 	assertMaintenanceLeaseRowCount(t, db, "expired-recent", 1)
 	assertMaintenanceLeaseRowCount(t, db, "active", 1)
 	assertMaintenanceLeaseRowCount(t, db, guard.Key, 1)
+}
+
+func newNativeLeaseServiceWithDB(t *testing.T) (Service, *sql.DB) {
+	t.Helper()
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
+	t.Setenv("AGENTLY_DB_PATH", "")
+	t.Setenv("AGENTLY_DB_SECRETS", "")
+	_, file, _, _ := runtime.Caller(0)
+	sourceRoot := filepath.Join(filepath.Dir(file), "..", "..", "..")
+	workspaceRoot := t.TempDir()
+	server, err := native.New(context.Background(), native.Options{SourceRoot: sourceRoot, WorkspaceRoot: workspaceRoot})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := server.Shutdown(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	})
+	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Fatal(err)
+		}
+	})
+	return &datlyService{native: server}, db
 }
 
 func acquireTestMaintenanceLease(t *testing.T, svc Service, keyAndOwner ...string) MaintenanceLease {

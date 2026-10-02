@@ -1,0 +1,11 @@
+init:
+  repoPath: $WorkingDirectory(..)
+
+pipeline:
+  migration:
+    action: exec:run
+    TimeoutMs: 2400000
+    checkError: true
+    commands:
+      - cd $repoPath/e2e/datly
+      - endly -r=run

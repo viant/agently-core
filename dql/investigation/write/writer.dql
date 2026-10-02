@@ -1,0 +1,25 @@
+#package('github.com/viant/agently-core/internal/datly/investigation/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/investigation','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $OrphanDelete<bool>(orphanDelete/enabledDelete).Optional())
+#define($_ = $Trusted<bool>(investigationAccess/internal).Required())
+#define($_ = $ExpectedConversationID<string>(query/expectedConversationId).Optional().WithPredicate(7,'equal','investigation','conversation_id'))
+#define($_ = $Investigations<[]*Investigation>(body/data))
+#define($_ = $Data<[]*Investigation>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'Investigation'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,7),
+       required(t.id),
+       tag(t.id,'sqlx:"id,primaryKey=true,required=true"')
+FROM (${embed:sql/investigation.sql}) t

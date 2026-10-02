@@ -6,7 +6,7 @@ import (
 	"time"
 
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
 // BuildCanonicalState converts a transcript into the canonical ConversationState.
@@ -44,7 +44,7 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		ts.StartedByMessageID = strings.TrimSpace(*turn.StartedByMessageId)
 	}
 	ts.Origin = strings.TrimSpace(stringValue(turn.Origin))
-	ts.GoalID = strings.TrimSpace(stringValue(turn.GoalID))
+	ts.GoalID = strings.TrimSpace(stringValue(turn.GoalId))
 	ts.StatusReason = strings.TrimSpace(stringValue(turn.StatusReason))
 	ts.ErrorMessage = strings.TrimSpace(stringValue(turn.ErrorMessage))
 	// Extract user message, assistant messages, elicitation, linked conversations
@@ -161,13 +161,13 @@ func canonicalTurnStatus(turn *convstore.Turn) TurnStatus {
 	return turnStatusFromString(turn.Status, TurnStatusCompleted)
 }
 
-func isUserElicitationResponse(msg *agconv.MessageView) bool {
+func isUserElicitationResponse(msg *conversationmodel.MessageView) bool {
 	return msg != nil &&
 		strings.EqualFold(strings.TrimSpace(msg.Role), "user") &&
 		strings.EqualFold(strings.TrimSpace(msg.Type), "elicitation_response")
 }
 
-func buildElicitationState(msg *agconv.MessageView) *ElicitationState {
+func buildElicitationState(msg *conversationmodel.MessageView) *ElicitationState {
 	if msg == nil || msg.ElicitationId == nil {
 		return nil
 	}
@@ -273,7 +273,7 @@ func buildExecutionPages(ts *TurnState, turn *convstore.Turn) []*ExecutionPageSt
 	return pages
 }
 
-func isNarratorAssistantMessage(message *agconv.MessageView) bool {
+func isNarratorAssistantMessage(message *conversationmodel.MessageView) bool {
 	if message == nil {
 		return false
 	}
@@ -286,7 +286,7 @@ func isNarratorAssistantMessage(message *agconv.MessageView) bool {
 	return strings.EqualFold(strings.TrimSpace(stringValue(message.Mode)), "narrator")
 }
 
-func isStandaloneToolExecutionMessage(message *agconv.MessageView) bool {
+func isStandaloneToolExecutionMessage(message *conversationmodel.MessageView) bool {
 	if message == nil || message.MessageToolCall == nil {
 		return false
 	}
@@ -297,7 +297,7 @@ func isStandaloneToolExecutionMessage(message *agconv.MessageView) bool {
 	return strings.EqualFold(strings.TrimSpace(message.Type), "tool_op")
 }
 
-func buildNarratorPageFromMessage(ts *TurnState, message *agconv.MessageView) *ExecutionPageState {
+func buildNarratorPageFromMessage(ts *TurnState, message *conversationmodel.MessageView) *ExecutionPageState {
 	if ts == nil || message == nil {
 		return nil
 	}
@@ -350,7 +350,7 @@ func buildNarratorPageFromMessage(ts *TurnState, message *agconv.MessageView) *E
 	return page
 }
 
-func buildStandaloneToolPage(ts *TurnState, message *agconv.MessageView) *ExecutionPageState {
+func buildStandaloneToolPage(ts *TurnState, message *conversationmodel.MessageView) *ExecutionPageState {
 	if ts == nil || message == nil || message.MessageToolCall == nil {
 		return nil
 	}
@@ -385,7 +385,7 @@ func buildStandaloneToolPage(ts *TurnState, message *agconv.MessageView) *Execut
 	return page
 }
 
-func isPrimaryAssistantFinalMessage(message *agconv.MessageView) bool {
+func isPrimaryAssistantFinalMessage(message *conversationmodel.MessageView) bool {
 	if message == nil {
 		return false
 	}
@@ -401,7 +401,7 @@ func isPrimaryAssistantFinalMessage(message *agconv.MessageView) bool {
 	return true
 }
 
-func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.MessageView, indexed map[string][]*agconv.ToolMessageView) *ExecutionPageState {
+func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *conversationmodel.MessageView, indexed map[string][]*conversationmodel.ToolMessageView) *ExecutionPageState {
 	if message == nil || message.ModelCall == nil {
 		return nil
 	}
@@ -487,7 +487,7 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *agconv.M
 	return page
 }
 
-func shouldExposeTranscriptExecutionContent(page *ExecutionPageState, message *agconv.MessageView) bool {
+func shouldExposeTranscriptExecutionContent(page *ExecutionPageState, message *conversationmodel.MessageView) bool {
 	if message == nil {
 		return false
 	}
@@ -512,7 +512,7 @@ func isInternalTranscriptExecutionPage(page *ExecutionPageState) bool {
 	return phase == "intake" || role == "router"
 }
 
-func pageStatus(message *agconv.MessageView) string {
+func pageStatus(message *conversationmodel.MessageView) string {
 	if message == nil {
 		return ""
 	}
@@ -523,7 +523,7 @@ func pageStatus(message *agconv.MessageView) string {
 	return stepStatusFromString(status, "")
 }
 
-func buildModelStep(message *agconv.MessageView) *ModelStepState {
+func buildModelStep(message *conversationmodel.MessageView) *ModelStepState {
 	if message == nil || message.ModelCall == nil {
 		return nil
 	}
@@ -573,7 +573,7 @@ func buildModelStep(message *agconv.MessageView) *ModelStepState {
 	return step
 }
 
-func modelCallViewUsage(mc *agconv.ModelCallView) *ModelUsageState {
+func modelCallViewUsage(mc *conversationmodel.ModelCallView) *ModelUsageState {
 	if mc == nil {
 		return nil
 	}
@@ -609,7 +609,7 @@ func intPtrValue(value *int) int {
 	return *value
 }
 
-func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
+func buildToolStep(tm *conversationmodel.ToolMessageView) *ToolStepState {
 	if tm == nil || tm.ToolCall == nil {
 		return nil
 	}
@@ -649,7 +649,7 @@ func buildToolStep(tm *agconv.ToolMessageView) *ToolStepState {
 	return step
 }
 
-func buildToolStepFromMessageToolCall(message *agconv.MessageView) *ToolStepState {
+func buildToolStepFromMessageToolCall(message *conversationmodel.MessageView) *ToolStepState {
 	if message == nil || message.MessageToolCall == nil {
 		return nil
 	}
@@ -844,14 +844,14 @@ func toolStepStatusRank(status string) int {
 	}
 }
 
-func toolCallIDFromToolMessage(tm *agconv.ToolMessageView) string {
+func toolCallIDFromToolMessage(tm *conversationmodel.ToolMessageView) string {
 	if tm == nil || tm.ToolCall == nil {
 		return ""
 	}
 	return strings.TrimSpace(tm.ToolCall.OpId)
 }
 
-func firstToolCallID(items []*agconv.ToolMessageView) string {
+func firstToolCallID(items []*conversationmodel.ToolMessageView) string {
 	for _, item := range items {
 		if id := toolCallIDFromToolMessage(item); id != "" {
 			return id
@@ -895,7 +895,7 @@ func extractAssistantState(pages []*ExecutionPageState) *AssistantState {
 	return as
 }
 
-func latestTranscriptAssistantFinal(messages []*agconv.MessageView) *AssistantMessageState {
+func latestTranscriptAssistantFinal(messages []*conversationmodel.MessageView) *AssistantMessageState {
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		if msg == nil {
@@ -917,7 +917,7 @@ func latestTranscriptAssistantFinal(messages []*agconv.MessageView) *AssistantMe
 	return nil
 }
 
-func latestTranscriptAssistantNarration(messages []*agconv.MessageView) *AssistantMessageState {
+func latestTranscriptAssistantNarration(messages []*conversationmodel.MessageView) *AssistantMessageState {
 	for i := len(messages) - 1; i >= 0; i-- {
 		msg := messages[i]
 		if msg == nil {
@@ -945,7 +945,7 @@ func latestTranscriptAssistantNarration(messages []*agconv.MessageView) *Assista
 	return nil
 }
 
-func isSummaryAssistantMessage(message *agconv.MessageView) bool {
+func isSummaryAssistantMessage(message *conversationmodel.MessageView) bool {
 	if message == nil {
 		return false
 	}

@@ -146,6 +146,7 @@ export interface ListConversationsInput {
 // ─── Turn / Transcript ─────────────────────────────────────────────────────────
 
 export interface Turn {
+    assistant?: { final?: { messageId?: string; content?: string }; narration?: { messageId?: string; content?: string } };
     id: string;
     turnId?: string;
     conversationId: string;
@@ -215,6 +216,12 @@ export interface ExecutionPage {
 }
 
 export type LiveExecutionGroup = Partial<ExecutionPage> & {
+    createdAt?: string;
+    startedAt?: string;
+    completedAt?: string;
+    updatedAt?: string;
+    modelMessageId?: string;
+    error?: string;
     sequence?: number;
     errorMessage?: string;
 };
@@ -250,6 +257,7 @@ export interface ModelUsageState {
 }
 
 export interface ToolStepState {
+    id?: string;
     toolCallId: string;
     toolMessageId?: string;
     parentMessageId?: string;
@@ -464,6 +472,8 @@ export interface PlannedToolCall {
 }
 
 export interface SSEEvent {
+    startedByMessageId?: string;
+    contentOffset?: number;
     id?: string;
     streamId?: string;
     conversationId?: string;
@@ -700,6 +710,7 @@ export interface ApprovalMeta {
 }
 
 export interface ApprovalCallbackPayload {
+    action?: string;
     approval?: ApprovalMeta;
     editedFields?: JSONObject;
     originalArgs?: JSONObject;
@@ -1276,3 +1287,67 @@ export interface SkillItem { name: string; description?: string; }
 export interface ListSkillsOutput { items?: SkillItem[]; diagnostics?: string[]; }
 export interface ActivateSkillInput { name: string; conversationId: string; args?: string; }
 export interface ActivateSkillOutput { name: string; body: string; }
+
+export interface ReportRun {
+    reportRunId: string;
+    ownerId: string;
+    conversationId?: string;
+    status: string;
+    revision: number;
+    reportSpec?: JSONValue;
+    reportFill?: JSONValue;
+    reportPrint?: JSONValue;
+}
+export interface ReportContext {
+    ownerId: string;
+    conversationId: string;
+    activeReportRunId: string;
+    revision: number;
+    }
+export interface ReportRunResult {
+    run: ReportRun;
+    context?: ReportContext;
+    }
+export interface BeginReportRunInput {
+    uiRunRequestId: string;
+    conversationId?: string;
+    origin?: 'manual' | 'prompt';
+    }
+export interface CompleteReportRunInput {
+    expectedRevision: number;
+    reportSpec: JSONValue;
+    reportFill: JSONValue;
+    reportPrint: JSONValue;
+    conversationId?: string;
+    }
+export interface AdoptReportRunInput {
+    conversationId: string;
+    expectedRunRevision: number;
+    expectedContextRevision: number;
+    source?: string;
+    }
+export interface ReportExportJob {
+    jobId: string;
+    status: string;
+    ownerId?: string;
+    conversationId?: string;
+    reportRunId?: string;
+    artifactRef?: string;
+    artifactId?: string;
+    }
+export interface ReportArtifact {
+    artifactId: string;
+    jobId?: string;
+    artifactRef?: string;
+    contentType?: string;
+    data?: string;
+    }
+
+export interface ReportAuditEvent {
+    eventType: string;
+    artifactRef: string;
+    jobId?: string;
+    artifactId?: string;
+    actorId?: string;
+    metadata?: JSONObject;
+    }

@@ -1,0 +1,30 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/artifact/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/artifact','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(reportAccess/internal).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required())
+#define($_ = $ArtifactID<string>(query/artifactId).Optional().WithPredicate(0,'equal','a','artifact_id'))
+#define($_ = $JobID<string>(query/jobId).Optional().WithPredicate(0,'equal','a','job_id'))
+#define($_ = $JobIDs<[]string>(query/jobIds).Optional().WithPredicate(0,'in','a','job_id'))
+#define($_ = $ArtifactRef<string>(query/artifactRef).Optional().WithPredicate(0,'equal','a','artifact_ref'))
+#define($_ = $OwnerID<string>(query/ownerId).Optional().WithPredicate(0,'equal','a','owner_id'))
+#define($_ = $Data<[]*Artifact>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOrderBy=true"'))
+
+SELECT data_rows.*,
+       row_lock(data_rows,'report_export_artifact a'),
+       type(data_rows,'Artifact'),
+       required(data_rows.artifact_id),
+       required(data_rows.job_id),
+       required(data_rows.artifact_ref),
+       required(data_rows.owner_id),
+       required(data_rows.format),
+       required(data_rows.content_type),
+       CAST(data_rows.inline_data AS []byte),
+       required(data_rows.created_at),
+       CAST(data_rows.retention_ttl_sec AS int64)
+FROM (${embed:sql/artifact.sql}) data_rows

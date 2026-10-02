@@ -1,0 +1,37 @@
+init:
+  - name: projectRoot
+    when: $params.projectRoot
+    value: $params.projectRoot
+    else: $WorkingDirectory(../..)
+  - name: testPackages
+    when: $params.testPackages
+    value: $params.testPackages
+    else: ./internal/datly/contracttest ./internal/store/... ./app/store/native
+  - name: testRun
+    when: $params.testRun
+    value: $params.testRun
+    else: .
+
+pipeline:
+  build:
+    action: run
+    request: '@build'
+    params:
+      projectRoot: $projectRoot
+  transcribe:
+    action: run
+    request: '@transcribe'
+    params:
+      projectRoot: $projectRoot
+  regeneration:
+    action: run
+    request: '@regeneration'
+    params:
+      projectRoot: $projectRoot
+  verify:
+    action: exec:run
+    TimeoutMs: 1800000
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - env GOWORK=off go test -count=1 $testPackages -run '$testRun'

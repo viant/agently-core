@@ -1,0 +1,1 @@
+SELECT r.claim_key, r.rule_id, r.canonical_tool_name, r.turn_id, r.semantic_request_hash, r.state, r.created_at, r.updated_at, r.finished_at FROM (SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM tool_execution_claim c)  t) r WHERE $criteria.CompositeIn("r", $WriterKeys)

@@ -2,11 +2,10 @@ package scheduler
 
 import (
 	"context"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
 	"strings"
 	"time"
 
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
-	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
@@ -82,7 +81,7 @@ func (s *Service) CancelGoalWakeups(ctx context.Context, conversationID, goalID 
 		if goalID != "" && strings.TrimSpace(valueOrEmpty(row.GoalId)) != goalID {
 			continue
 		}
-		mut := &schedwrite.Schedule{}
+		mut := &schedulemodel.Schedule{}
 		mut.SetId(strings.TrimSpace(row.Id))
 		mut.SetEnabled(false)
 		mut.NextRunAt = nil
@@ -113,7 +112,7 @@ func (s *Service) CurrentGoalWakeup(ctx context.Context, conversationID, goalID 
 		return nil
 	}
 	now := time.Now().UTC()
-	var selected *schedulepkg.ScheduleView
+	var selected *schedulemodel.ScheduleView
 	for _, row := range rows {
 		if row == nil || !row.Internal || !row.Enabled || row.NextRunAt == nil {
 			continue

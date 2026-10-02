@@ -1,0 +1,23 @@
+{
+  "status": "one canonical reader and writer linked; application SDK1 cutover remains",
+  "reader": "dql/agently/user/oauth/linkstate/current/reader/reader.dql",
+  "writer": "dql/agently/user/oauth/linkstate/write/write.dql",
+  "retired": "dql/agently/user/oauth/linkstate/replace/replace.dql",
+  "modes": [
+    "create",
+    "consume",
+    "replace",
+    "cleanup"
+  ],
+  "legacy_evidence": "Creation/adoption, guarded replacement, 12 consume outcomes and six expiry-cleanup outcomes are compared with the original SDK0 components.",
+  "race_evidence": "Two independent consumers produce exactly one consumed state; changed/vanished cleanup rows cause no partial deletion and succeed after a fresh selection.",
+  "transaction_evidence": "Batch cleanup rolls back on a late DELETE failure; caller rollback/commit is retained; count/oldest are emitted only after confirmed owned commit.",
+  "correction": "At exact expiry the legacy audit label is already_consumed due mixed timestamp text formats. Native reports expired; the store continues to collapse both into the same non-enumerable rejection.",
+  "focused_endly": {
+    "status": "SUCCESS",
+    "log": "/tmp/agently-linkstate-unified-checks.log",
+    "tests_seconds": 20.418,
+    "workflow_ms": 23891
+  },
+  "application": "Root auth OAuthStateStoreDatly still invokes SDK0/direct-SQL handlers; migrate its caller and transport next."
+}

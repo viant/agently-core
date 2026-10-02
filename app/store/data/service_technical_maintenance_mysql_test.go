@@ -9,8 +9,10 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
+	"github.com/viant/agently-core/app/store/native"
+	"github.com/viant/datly/bootstrap/connector"
+	"path/filepath"
+	"runtime"
 )
 
 func TestTechnicalMaintenance_MySQLDeletesTechnicalStateAndPreservesSavedReports(t *testing.T) {
@@ -95,17 +97,17 @@ func TestTechnicalMaintenance_MySQLDeletesTechnicalStateAndPreservesSavedReports
 		}
 	}
 
-	dao, err := datly.New(ctx)
+	_, source, _, _ := runtime.Caller(0)
+	server, err := native.New(ctx, native.Options{SourceRoot: filepath.Join(filepath.Dir(source), "../../.."), Connectors: []connector.Config{{Name: "agently", Driver: "mysql", DSN: dsn}}})
 	if err != nil {
-		t.Fatalf("datly.New(): %v", err)
+		t.Fatal(err)
 	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
-		t.Fatalf("AddConnectors(): %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents(): %v", err)
-	}
-	svc := NewService(dao)
+	t.Cleanup(func() {
+		if err := server.Shutdown(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	svc := &datlyService{native: server}
 
 	// Exercise every MySQL candidate query against exact fixture IDs. This is
 	// deterministic even when the developer database contains unrelated rows.
@@ -123,23 +125,14 @@ func TestTechnicalMaintenance_MySQLDeletesTechnicalStateAndPreservesSavedReports
 		if check.kind == TechnicalMaintenanceSession {
 			scope = TechnicalMaintenanceUnclassified
 		}
-		request := TechnicalMaintenanceCandidateRequest{Scope: scope, OlderThan: cutoff, EvaluatedAt: evaluatedAt, Limit: 1}
-		page, listErr := listTechnicalMaintenanceRuleCandidates(ctx, db, "mysql", technicalMaintenanceRuleByKind(check.kind), request, "", check.id, 1)
-		if listErr != nil {
-			t.Fatalf("list exact MySQL technical candidate kind=%s: %v", check.kind, listErr)
-		}
-		if len(page) != 1 || page[0].RecordID != check.id {
-			t.Fatalf("exact MySQL candidate kind=%s = %#v, want %q", check.kind, page, check.id)
+		result, err := svc.MaintainTechnicalCandidate(ctx, TechnicalMaintenanceRequest{Kind: check.kind, Scope: scope, RecordID: check.id, OlderThan: cutoff, EvaluatedAt: evaluatedAt, Mode: ConversationMaintenanceDryRun})
+		if err != nil || result == nil || !result.Eligible {
+			t.Fatalf("exact MySQL candidate kind=%s result=%#v err=%v", check.kind, result, err)
 		}
 	}
-	recentPage, err := listTechnicalMaintenanceRuleCandidates(ctx, db, "mysql", technicalMaintenanceRuleByKind(TechnicalMaintenanceSession), TechnicalMaintenanceCandidateRequest{
-		Scope: TechnicalMaintenanceUnclassified, OlderThan: cutoff, EvaluatedAt: evaluatedAt, Limit: 1,
-	}, "", recentSessionID, 1)
-	if err != nil {
-		t.Fatalf("list recently expired MySQL session candidate: %v", err)
-	}
-	if len(recentPage) != 0 {
-		t.Fatalf("session expired within retention was selected: %#v", recentPage)
+	recent, err := svc.MaintainTechnicalCandidate(ctx, TechnicalMaintenanceRequest{Kind: TechnicalMaintenanceSession, Scope: TechnicalMaintenanceUnclassified, RecordID: recentSessionID, OlderThan: cutoff, EvaluatedAt: evaluatedAt, Mode: ConversationMaintenanceDryRun})
+	if err != nil || recent == nil || recent.Eligible {
+		t.Fatalf("recent MySQL session result=%#v err=%v", recent, err)
 	}
 
 	dryRun, err := svc.MaintainTechnicalCandidate(ctx, TechnicalMaintenanceRequest{

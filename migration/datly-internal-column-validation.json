@@ -1,0 +1,46 @@
+{
+  "feature": "internal(view.column) is an authoring shorthand for tag(view.column, 'internal:\"true\"')",
+  "datly_branch": "v1",
+  "datly_commit": "d02ccad8",
+  "pushed": false,
+  "distinct_controls": {
+    "route": "#setting($_ = $internal(true)) omits the entire component from external HTTP routing while retaining internal invocation.",
+    "field": "internal(view.column) adds a field tag without changing route visibility or the physical SQL mapping."
+  },
+  "validation": [
+    {
+      "command": "go test -mod=readonly ./transcribe/compile -run ^TestReaderColumnDeclarations$ -count=1",
+      "status": "passed",
+      "scope": "Valid shorthand, long-form equivalence, conflicts, malformed targets, and SQL stripping."
+    },
+    {
+      "command": "go test -mod=readonly ./transcribe -run ^TestGeneratorPrivateReader$ -count=1",
+      "status": "passed",
+      "scope": "Public route with hidden field and private route with ordinary fields are independent."
+    },
+    {
+      "command": "go test -mod=readonly ./transcribe -run ^TestCASTNamedPseudoViewOwnershipSQLite$ -count=1",
+      "status": "passed",
+      "scope": "Nested SQL use is rejected; annotation belongs to a named outer view."
+    },
+    {
+      "command": "go test -mod=readonly ./runtime -run ^TestRuntimeInternalRouteHiddenFromHTTPButAvailableToInternalInvocation$ -count=1",
+      "status": "passed",
+      "scope": "Global internal route excluded from HTTP yet available to in-process invocation."
+    },
+    {
+      "command": "go test -mod=readonly ./transcribe/... ./runtime/...",
+      "status": "passed",
+      "scope": "Full Datly transcribe and runtime package suites; transcribe 412.089 s, handler/golang 452.825 s."
+    },
+    {
+      "command": "endly (datlyv1/e2e)",
+      "status": "passed",
+      "log": "/tmp/agently-v1-endly-internal-shortcut.log",
+      "scope": "Full 58-contract transcribe, regeneration, boundary, nested tests, and linked host build.",
+      "elapsed_ms": 211305,
+      "nested_test_seconds": 159.508
+    }
+  ],
+  "dependency_note": "Core and nested modules still pin published Datly v1 commit 37431d0b with local replace to the Datly v1 checkout at d02ccad8. The new commit is local until separately pushed by the user."
+}

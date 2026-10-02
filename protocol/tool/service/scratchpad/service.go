@@ -2,6 +2,7 @@ package scratchpad
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -131,7 +132,7 @@ func (s *Service) memorize(ctx context.Context, in, out interface{}) error {
 	result, err := s.client(ctx).Memorize(ctx, input)
 	if err != nil {
 		output.Status = "error"
-		output.Error = err.Error()
+		output.Error = publicNoteError(err)
 		return nil
 	}
 	*output = *result
@@ -155,7 +156,7 @@ func (s *Service) append(ctx context.Context, in, out interface{}) error {
 	result, err := s.client(ctx).Append(ctx, input)
 	if err != nil {
 		output.Status = "error"
-		output.Error = err.Error()
+		output.Error = publicNoteError(err)
 		return nil
 	}
 	*output = *result
@@ -175,7 +176,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	result, err := s.client(ctx).List(ctx)
 	if err != nil {
 		output.Status = "error"
-		output.Error = err.Error()
+		output.Error = publicNoteError(err)
 		return nil
 	}
 	filtered := result.Entries[:0]
@@ -206,12 +207,34 @@ func (s *Service) fetch(ctx context.Context, in, out interface{}) error {
 	result, err := s.client(ctx).Fetch(ctx, input.Key)
 	if err != nil {
 		output.Status = "error"
-		output.Error = err.Error()
+		output.Error = publicNoteError(err)
 		return nil
 	}
 	*output = *result
 	output.Status = "ok"
 	return nil
+}
+
+// Storage locations belong to the backing provider, not the tool response.
+// Keep logical validation errors while removing provider paths and causes.
+func publicNoteError(err error) string {
+	if errors.Is(err, afsscratchpad.ErrNoteNotFound) {
+		return afsscratchpad.ErrNoteNotFound.Error()
+	}
+	message := err.Error()
+	for _, action := range []string{"scratchpad storage unavailable", "read scratchpad note failed", "write scratchpad note", "list scratchpad notes failed"} {
+		if strings.HasPrefix(message, action) {
+			if action == "write scratchpad note" {
+				return "write scratchpad note failed"
+			}
+			return action
+		}
+	}
+	var pathError *os.PathError
+	if errors.As(err, &pathError) {
+		return "scratchpad storage operation failed"
+	}
+	return message
 }
 
 func (s *Service) client(ctx context.Context) *afsscratchpad.Service {

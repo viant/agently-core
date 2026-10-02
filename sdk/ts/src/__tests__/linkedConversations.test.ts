@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { reduceLinkedConversationPreviewEvent, summarizeLinkedConversationTranscript } from '../linkedConversations';
 import type { SSEEvent, TranscriptOutput } from '../types';
 
-function transcript(input: TranscriptOutput): TranscriptOutput {
+function transcript(input: NonNullable<Parameters<typeof summarizeLinkedConversationTranscript>[0]>): NonNullable<Parameters<typeof summarizeLinkedConversationTranscript>[0]> {
     return input;
 }
 
@@ -43,13 +43,13 @@ describe('summarizeLinkedConversationTranscript', () => {
         expect(summary.status).toBe('completed');
         expect(summary.response).toBe('Analysis returned zero reach.');
         expect(summary.previewGroups).toHaveLength(2);
-        expect(summary.previewGroups[0]).toMatchObject({
+        expect(summary.previewGroups?.[0]).toMatchObject({
             title: 'Calling roots.',
             status: 'completed',
             stepKind: 'tool',
             stepLabel: 'resources/roots',
         });
-        expect(summary.previewGroups[0].detailStep).toMatchObject({
+        expect(summary.previewGroups?.[0].detailStep).toMatchObject({
             toolName: 'resources/roots',
             status: 'completed',
         });
@@ -81,7 +81,7 @@ describe('summarizeLinkedConversationTranscript', () => {
 
         expect(summary.response).toBe('');
         expect(summary.previewGroups).toHaveLength(1);
-        expect(summary.previewGroups[0]).toMatchObject({
+        expect(summary.previewGroups?.[0]).toMatchObject({
             title: '',
             stepKind: 'tool',
             stepLabel: 'analytics/SummaryCube',
@@ -105,7 +105,7 @@ describe('reduceLinkedConversationPreviewEvent', () => {
             status: 'thinking',
         }));
         expect(afterModelStart.previewGroups).toHaveLength(1);
-        expect(afterModelStart.previewGroups[0]).toMatchObject({
+        expect(afterModelStart.previewGroups?.[0]).toMatchObject({
             title: '',
             stepKind: 'model',
             stepLabel: 'gpt-5.4',
@@ -119,7 +119,7 @@ describe('reduceLinkedConversationPreviewEvent', () => {
             status: 'running',
         }));
         expect(afterTool.previewGroups).toHaveLength(2);
-        expect(afterTool.previewGroups[1]).toMatchObject({
+        expect(afterTool.previewGroups?.[1]).toMatchObject({
             title: '',
             stepKind: 'tool',
             stepLabel: 'analytics/EntityHierarchy',
@@ -150,7 +150,7 @@ describe('reduceLinkedConversationPreviewEvent', () => {
             status: 'failed',
             error: 'boom',
         }));
-        expect(afterFailed.previewGroups[0]).toMatchObject({
+        expect(afterFailed.previewGroups?.[0]).toMatchObject({
             stepKind: 'tool',
             stepLabel: 'system/exec:start',
             status: 'failed',
@@ -162,7 +162,7 @@ describe('reduceLinkedConversationPreviewEvent', () => {
             toolName: 'llm/agents:run',
             status: 'canceled',
         }));
-        expect(afterCanceled.previewGroups[1]).toMatchObject({
+        expect(afterCanceled.previewGroups?.[1]).toMatchObject({
             stepKind: 'tool',
             stepLabel: 'llm/agents:run',
             status: 'canceled',

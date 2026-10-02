@@ -18,7 +18,6 @@ import (
 	mcpuri "github.com/viant/agently-core/protocol/mcp/uri"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	mcpfs "github.com/viant/agently-core/service/augmenter/mcpfs"
-	"github.com/viant/datly/view"
 	embedius "github.com/viant/embedius"
 	embindexer "github.com/viant/embedius/indexer"
 	"github.com/viant/embedius/metadata"
@@ -55,6 +54,9 @@ type Service struct {
 	// Limits parallel matching operations across roots.
 	matchConcurrency int
 	indexAsync       bool
+	upstreamMu       sync.Mutex
+	upstreamPools    map[[32]byte]*upstreamPool
+	upstreamsClosed  bool
 }
 
 // New creates a new extractor service
@@ -418,8 +420,7 @@ func (s *Service) upstreamDB(ctx context.Context, upstream *mcpcfg.Upstream) (*s
 		}
 		dsn = sec.Expand(dsn)
 	}
-	conn := view.NewConnector("embedius_upstream", upstream.Driver, dsn)
-	db, err := conn.DB()
+	db, err := s.openUpstream(ctx, upstream.Driver, dsn)
 	if err != nil {
 		return nil, err
 	}

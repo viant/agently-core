@@ -29,12 +29,13 @@ public func openEventStream(
                 }
 
                 var dataLines: [String] = []
-                for try await line in bytes.lines {
-                    if Task.isCancelled { break }
+                var lineBytes: [UInt8] = []
+                var previousWasCR = false
+                func consumeLine() {
+                    let line = String(decoding: lineBytes, as: UTF8.self)
+                    lineBytes.removeAll(keepingCapacity: true)
                     if line.hasPrefix("data:") {
                         dataLines.append(String(line.dropFirst(5)))
-                    } else if line.hasPrefix(":") {
-                        continue
                     } else if line.isEmpty {
                         if let event = decodeSSEPayload(dataLines.joined(separator: "\n"), conversationID: conversationID) {
                             continuation.yield(event)
@@ -42,6 +43,22 @@ public func openEventStream(
                         dataLines.removeAll(keepingCapacity: true)
                     }
                 }
+                // Preserve empty lines: they delimit SSE frames, and the
+                // Foundation line sequence can omit them on live responses.
+                for try await byte in bytes {
+                    if Task.isCancelled { break }
+                    if byte == 13 {
+                        consumeLine()
+                        previousWasCR = true
+                    } else if byte == 10 {
+                        if !previousWasCR { consumeLine() }
+                        previousWasCR = false
+                    } else {
+                        previousWasCR = false
+                        lineBytes.append(byte)
+                    }
+                }
+                if !lineBytes.isEmpty { consumeLine() }
                 if let event = decodeSSEPayload(dataLines.joined(separator: "\n"), conversationID: conversationID) {
                     continuation.yield(event)
                 }

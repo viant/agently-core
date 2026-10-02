@@ -11,7 +11,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/shared"
@@ -86,9 +86,9 @@ func (s *Service) CreateLinkedConversation(ctx context.Context, parent runtimere
 	logx.Infof("conversation", "CreateLinkedConversation parent_convo=%q parent_turn=%q child_convo=%q streamPub_nil=%v", parent.ConversationID, parent.TurnID, childID, s.streamPub == nil)
 	logx.Infof("conversation", "CreateLinkedConversation start parent_convo=%q parent_turn=%q child_convo=%q clone=%v transcript_len=%d", strings.TrimSpace(parent.ConversationID), strings.TrimSpace(parent.TurnID), strings.TrimSpace(childID), cloneTranscript, len(transcript))
 	// Create child conversation and set parent ids
-	w := convw.Conversation{Has: &convw.ConversationHas{}}
+	w := conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 	w.SetId(childID)
-	w.SetVisibility(convw.VisibilityPublic)
+	w.SetVisibility(conversationmodel.VisibilityPublic)
 	if uid := strings.TrimSpace(authctx.EffectiveUserID(ctx)); uid != "" {
 		w.SetCreatedByUserID(uid)
 	}

@@ -1,0 +1,1 @@
+SELECT r.id, r.title, r.created_by, r.conversation_id, r.summary, r.ad_order_id, r.verdict, r.created FROM (SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM investigation c)  t) r WHERE $criteria.CompositeIn("r", $WriterKeys)

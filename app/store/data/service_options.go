@@ -1,12 +1,11 @@
 package data
 
 import (
-	"github.com/viant/datly"
-	hstate "github.com/viant/xdatly/handler/state"
+	hstate "github.com/viant/xdatly/state"
 )
 
 type options struct {
-	selectors []*hstate.NamedQuerySelector
+	selectors []*hstate.NamedSelector
 	principal string
 	isAdmin   bool
 }
@@ -15,7 +14,7 @@ type options struct {
 type Option func(*options)
 
 // WithQuerySelector delegates pagination/projection/order constraints to Datly selectors.
-func WithQuerySelector(selectors ...*hstate.NamedQuerySelector) Option {
+func WithQuerySelector(selectors ...*hstate.NamedSelector) Option {
 	return func(o *options) {
 		o.selectors = append(o.selectors, selectors...)
 	}
@@ -33,16 +32,6 @@ func WithAdminPrincipal(userID string) Option {
 	return func(o *options) {
 		o.principal = userID
 		o.isAdmin = true
-	}
-}
-
-func toOperateOptions(opts []Option) []datly.OperateOption {
-	callOpts := collectOptions(opts)
-	if len(callOpts.selectors) == 0 {
-		return nil
-	}
-	return []datly.OperateOption{
-		datly.WithSessionOptions(datly.WithQuerySelectors(callOpts.selectors...)),
 	}
 }
 

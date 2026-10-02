@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/json"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"testing"
 
 	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
@@ -51,7 +51,7 @@ func TestWorkspaceToolResponsePreservesCompressedJSON(t *testing.T) {
 		t.Fatal(err)
 	}
 	inline := compressed.String()
-	encoded := workspaceToolResponsePayload(&agconv.ModelCallStreamPayloadView{InlineBody: &inline, Compression: "gzip"})
+	encoded := workspaceToolResponsePayload(&conversationmodel.ModelCallStreamPayloadView{InlineBody: &inline, Compression: "gzip"})
 	if string(workspaceResponseBody(encoded)) != body {
 		t.Fatalf("compressed attachment was lost: %s", encoded)
 	}

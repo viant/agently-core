@@ -11,7 +11,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	core2 "github.com/viant/agently-core/service/core"
@@ -219,7 +219,7 @@ func estimateTokensInt(stringLength int) int {
 	return (stringLength + 3) / 4
 }
 
-func firstToolCall(m *agconv.MessageView) *apiconv.ToolCallView {
+func firstToolCall(m *conversationmodel.MessageView) *apiconv.ToolCallView {
 	if m == nil {
 		return nil
 	}

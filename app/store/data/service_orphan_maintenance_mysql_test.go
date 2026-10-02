@@ -10,8 +10,6 @@ import (
 	"time"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
 )
 
 func TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses(t *testing.T) {
@@ -103,7 +101,7 @@ func TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses(t *tes
 		{`INSERT INTO message (id, conversation_id, created_at, updated_at, role, type) VALUES (?, ?, ?, ?, ?, ?)`, []interface{}{ids.consumerMessages[1], ids.conversation, old, old, "assistant", "text"}},
 		{`INSERT INTO model_call (message_id, provider, model, model_kind, status, started_at, completed_at, request_payload_id, response_payload_id, provider_request_payload_id, provider_response_payload_id, stream_payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []interface{}{ids.consumerMessages[1], "test", "test", "chat", "completed", old, old, ids.payloadConsumers[2], ids.payloadConsumers[3], ids.payloadConsumers[4], ids.payloadConsumers[5], ids.payloadConsumers[6]}},
 		{`INSERT INTO message (id, conversation_id, created_at, updated_at, role, type) VALUES (?, ?, ?, ?, ?, ?)`, []interface{}{ids.consumerMessages[2], ids.conversation, old, old, "assistant", "text"}},
-		{`INSERT INTO tool_call (message_id, op_id, attempt, tool_name, tool_kind, status, started_at, completed_at, request_payload_id, response_payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []interface{}{ids.consumerMessages[2], "test", 1, "test", "general", "completed", old, old, ids.payloadConsumers[7], ids.payloadConsumers[8]}},
+		{`INSERT INTO tool_call (message_id, op_id, attempt, tool_name, tool_kind, status, started_at, completed_at, request_payload_id, response_payload_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, []interface{}{ids.consumerMessages[2], ids.consumerMessages[2], 1, "test", "general", "completed", old, old, ids.payloadConsumers[7], ids.payloadConsumers[8]}},
 		{`INSERT INTO generated_file (id, conversation_id, provider, mode, copy_mode, status, payload_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, []interface{}{ids.generatedFile, ids.conversation, "test", "inline", "eager", "ready", ids.payloadConsumers[9], old, old}},
 	}
 	for _, statement := range consumerStatements {
@@ -114,16 +112,7 @@ func TestMaintainOrphanCandidate_MySQLReportsRechecksAndMutatesAllClasses(t *tes
 	before := mysqlOrphanFixtureCounts(t, db, ids)
 
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New(): %v", err)
-	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
-		t.Fatalf("AddConnectors(): %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents(): %v", err)
-	}
+	dao := newNativeMySQLRuntime(t, dsn)
 	svc := NewService(dao)
 	leaseKey := "test-orphan-maintenance-" + suffix
 	lease := acquireTestMaintenanceLease(t, svc, leaseKey, "test-worker-"+suffix)
@@ -265,6 +254,7 @@ func TestMaintainOrphanCandidate_MySQLInvestigationEligibilityAndRecheck(t *test
 		"null":     "investigation-null-" + suffix,
 		"empty":    "investigation-empty-" + suffix,
 		"recent":   "investigation-recent-" + suffix,
+		"exact":    "investigation-exact-" + suffix,
 		"valid":    "investigation-valid-" + suffix,
 		"restored": "investigation-restored-" + suffix,
 	}
@@ -291,6 +281,7 @@ func TestMaintainOrphanCandidate_MySQLInvestigationEligibilityAndRecheck(t *test
 		{investigationIDs["null"], nil, old},
 		{investigationIDs["empty"], "", old},
 		{investigationIDs["recent"], "missing-recent-investigation-conversation-" + suffix, recent},
+		{investigationIDs["exact"], "missing-exact-investigation-conversation-" + suffix, cutoff},
 		{investigationIDs["valid"], validConversationID, old},
 		{investigationIDs["restored"], restoredConversationID, old},
 	} {
@@ -300,16 +291,7 @@ func TestMaintainOrphanCandidate_MySQLInvestigationEligibilityAndRecheck(t *test
 	}
 
 	ctx := context.Background()
-	dao, err := datly.New(ctx)
-	if err != nil {
-		t.Fatalf("datly.New(): %v", err)
-	}
-	if err = dao.AddConnectors(ctx, view.NewConnector("agently", "mysql", dsn)); err != nil {
-		t.Fatalf("AddConnectors(): %v", err)
-	}
-	if err = registerReadComponents(ctx, dao); err != nil {
-		t.Fatalf("registerReadComponents(): %v", err)
-	}
+	dao := newNativeMySQLRuntime(t, dsn)
 	svc := NewService(dao)
 	leaseKey := "test-investigation-orphan-maintenance-" + suffix
 	lease := acquireTestMaintenanceLease(t, svc, leaseKey, "test-worker-"+suffix)
@@ -323,6 +305,7 @@ func TestMaintainOrphanCandidate_MySQLInvestigationEligibilityAndRecheck(t *test
 		investigationIDs["missing"]:  true,
 		investigationIDs["null"]:     true,
 		investigationIDs["empty"]:    true,
+		investigationIDs["exact"]:    true,
 		investigationIDs["restored"]: true,
 	}
 	foundCandidates := map[string]bool{}
@@ -365,7 +348,7 @@ func TestMaintainOrphanCandidate_MySQLInvestigationEligibilityAndRecheck(t *test
 		}
 	}
 
-	for _, kind := range []string{"missing", "null", "empty"} {
+	for _, kind := range []string{"missing", "null", "empty", "exact"} {
 		assertStage1RowCount(t, db, "investigation", "id", investigationIDs[kind], 0)
 	}
 	for _, kind := range []string{"recent", "valid", "restored"} {

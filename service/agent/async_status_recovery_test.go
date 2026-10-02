@@ -8,7 +8,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/tool"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 )
@@ -93,13 +93,13 @@ func TestService_RepairResumedAsyncStatusRows_CompletesTerminalChildCarrier(t *t
 	parent := &apiconv.Conversation{
 		Id:     parentID,
 		Status: strPtrRecovery("running"),
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "turn-old",
 				ConversationId: parentID,
 				Status:         "failed",
 				CreatedAt:      now,
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "tool-msg-1",
 						ConversationId: parentID,
@@ -108,7 +108,7 @@ func TestService_RepairResumedAsyncStatusRows_CompletesTerminalChildCarrier(t *t
 						Type:           "tool_op",
 						Content:        strPtrRecovery(`{"conversationId":"child-1","status":"running"}`),
 						CreatedAt:      now.Add(time.Second),
-						MessageToolCall: &agconv.MessageToolCallView{
+						MessageToolCall: &conversationmodel.MessageToolCallView{
 							MessageId:        "tool-msg-1",
 							TurnId:           strPtrRecovery("turn-old"),
 							OpId:             "async-status:child-1",
@@ -117,7 +117,7 @@ func TestService_RepairResumedAsyncStatusRows_CompletesTerminalChildCarrier(t *t
 							ToolKind:         "tool",
 							Status:           "running",
 							RequestPayloadId: strPtrRecovery("req-1"),
-							MessageRequestPayload: &agconv.ModelCallStreamPayloadView{
+							MessageRequestPayload: &conversationmodel.ModelCallStreamPayloadView{
 								Id:         "req-1",
 								InlineBody: strPtrRecovery(requestPayload),
 							},

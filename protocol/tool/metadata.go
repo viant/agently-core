@@ -3,10 +3,9 @@ package tool
 import (
 	"encoding/json"
 	"errors"
-	"strings"
-
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	"github.com/viant/forge/backend/types"
+	"strings"
 )
 
 type FeedSpec struct {
@@ -122,8 +121,8 @@ type MatchSpec struct {
 	Method  string `yaml:"method,omitempty" json:"method,omitempty"`
 }
 
-func (m *MatchSpec) Name() mcpname.Name {
-	return mcpname.NewName(m.Service, m.Method)
+func (m *MatchSpec) Name() mcpname2.Name {
+	return mcpname2.NewName(m.Service, m.Method)
 }
 
 type ActivationSpec struct {
@@ -143,15 +142,15 @@ type ActivationSpec struct {
 // FeedSpecs is a convenience slice alias for helpers.
 type FeedSpecs []*FeedSpec
 
-func (s FeedSpecs) Index() map[mcpname.Name]*FeedSpec {
-	result := make(map[mcpname.Name]*FeedSpec)
+func (s FeedSpecs) Index() map[mcpname2.Name]*FeedSpec {
+	result := make(map[mcpname2.Name]*FeedSpec)
 	for _, feed := range s {
 		if feed == nil {
 			continue
 		}
 		name := feed.Match.Name()
 		result[name] = feed
-		lc := mcpname.Name(strings.ToLower(string(name)))
+		lc := mcpname2.Name(strings.ToLower(string(name)))
 		if lc != name {
 			// add lowercase alias for tolerant lookups without changing canonical form
 			result[lc] = feed
@@ -179,7 +178,7 @@ func (s FeedSpecs) MatchSpec() []MatchSpec {
 }
 
 // Matches reports whether any spec matches the provided canonical tool name.
-func (s FeedSpecs) Matches(name mcpname.Name) bool {
+func (s FeedSpecs) Matches(name mcpname2.Name) bool {
 	for _, m := range s.MatchSpec() {
 		if m.Matches(name) {
 			return true
@@ -190,7 +189,7 @@ func (s FeedSpecs) Matches(name mcpname.Name) bool {
 
 // Matches compares against a canonical tool name.
 // It supports simple wildcards: "*" in Service or Method matches any value.
-func (m MatchSpec) Matches(name mcpname.Name) bool {
+func (m MatchSpec) Matches(name mcpname2.Name) bool {
 	ms := strings.TrimSpace(m.Service)
 	mm := strings.TrimSpace(m.Method)
 	if ms == "" || mm == "" {

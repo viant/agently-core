@@ -1,0 +1,1 @@
+SELECT r.id, r.username, r.provider, r.hash_ip, r.timezone, r.display_name, r.email, r.subject, r.default_agent_ref, r.default_model_ref, r.default_embedder_ref, r.settings, r.disabled, r.created_at, r.updated_at FROM (SELECT t.* FROM  (SELECT c.* FROM users c)  t) r WHERE $criteria.CompositeIn("r", $WriterKeys)

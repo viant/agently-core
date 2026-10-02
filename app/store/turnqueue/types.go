@@ -1,7 +1,7 @@
 package turnqueue
 
-import queuew "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+import turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
 
 type (
-	MutableTurnQueue = queuew.TurnQueue
+	MutableTurnQueue = turnqueuemodel.TurnQueue
 )

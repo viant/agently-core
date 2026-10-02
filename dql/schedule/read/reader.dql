@@ -1,0 +1,34 @@
+#package('github.com/viant/agently-core/internal/datly/schedule/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/scheduler/schedule/{id}','GET'))
+#setting($_ = $input_type('ScheduleInput'))
+#setting($_ = $output_type('ScheduleOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Id<string>(path/id).Optional().WithPredicate(0,'equal','t','id'))
+#define($_ = $ConversationIds<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','t','conversation_id'))
+#define($_ = $GoalIds<[]string>(query/goalIds).Optional().WithPredicate(0,'in','t','goal_id'))
+#define($_ = $InternalMode<bool>(scheduleAccess/internal).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $Ids<[]string>(query/ids).Optional().WithPredicate(0,'in','t','id'))
+#define($_ = $Data<[]*ScheduleView>(output/view).WithTag('view:"reader,selectorProjection=true"'))
+
+SELECT schedule.*,
+       row_lock(schedule,'schedule t','t.id'),
+       CAST(schedule.lease_until_raw AS *string),
+       internal(schedule.lease_until_raw),
+       tag(schedule.lease_until_raw,'json:"-"'),
+       type(schedule,'ScheduleView'),
+       required(schedule.agent_ref),
+       required(schedule.created_at),
+       required(schedule.visibility),
+       CAST(schedule.enabled AS bool),
+       required(schedule.id),
+       CAST(schedule.internal AS bool),
+       required(schedule.name),
+       required(schedule.schedule_type),
+       required(schedule.timeout_seconds),
+       required(schedule.timezone)
+FROM (${embed:sql/schedule.sql}) schedule

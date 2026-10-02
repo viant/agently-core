@@ -1,0 +1,1 @@
+SELECT LeaseKey AS LeaseKey FROM `/`

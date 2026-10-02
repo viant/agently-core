@@ -1,9 +1,8 @@
 package matcher
 
 import (
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	"strings"
-
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 )
 
 // Canon normalizes a tool name/pattern by trimming spaces and replacing
@@ -14,7 +13,7 @@ func Canon(s string) string {
 	if s == "" {
 		return ""
 	}
-	return strings.ReplaceAll(mcpname.Canonical(s), "-", "_")
+	return strings.ReplaceAll(mcpname2.Canonical(s), "-", "_")
 }
 
 // Match returns true when pattern matches name using simple rules:

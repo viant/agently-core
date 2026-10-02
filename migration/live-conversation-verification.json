@@ -1,0 +1,65 @@
+{
+  "date": "2026-10-01",
+  "status": "SQLite live cases pass; MySQL and original comparison pending",
+  "auth": "Real Viant IdP OOB session and browser user session",
+  "model": "inceptionlabs/mercury-2",
+  "secret_resource": "/Users/awitas/.secret/mercury.json",
+  "secret_values_recorded": false,
+  "sqlite": {
+    "plain": {
+      "conversation_id": "3996d2b3-10d3-4c51-b228-5fe4699108cf",
+      "status": "succeeded",
+      "messages": 2,
+      "model_calls": 1,
+      "tool_calls": []
+    },
+    "shell": {
+      "conversation_id": "0c3d5d21-1df9-40bf-a60f-ca56c8869926",
+      "status": "succeeded",
+      "messages": 4,
+      "model_calls": 2,
+      "tool_calls": [
+        [
+          "system/exec/execute",
+          "completed",
+          null
+        ]
+      ]
+    },
+    "coder": {
+      "conversation_id": "66d9a1a9-7ac8-4d7f-9492-c9dddee03898",
+      "status": "succeeded",
+      "messages": 8,
+      "model_calls": 4,
+      "tool_calls": [
+        [
+          "system/exec/execute",
+          "completed",
+          null
+        ],
+        [
+          "system/exec/execute",
+          "completed",
+          null
+        ],
+        [
+          "system/exec/execute",
+          "completed",
+          null
+        ]
+      ]
+    },
+    "attachment": {
+      "conversation_id": "fd69365b-4128-4d8c-95e4-aac7a71453af",
+      "status": "succeeded",
+      "messages": 3,
+      "model_calls": 1,
+      "tool_calls": []
+    }
+  },
+  "coder_file_verified": "return a + b",
+  "coder_actual_test": "go test ./... PASS; independent rerun PASS0.517s",
+  "transcript_fetch": "plain, shell, coder PASS",
+  "mysql": "pending ledger schema migration",
+  "baseline_comparison": "pending"
+}
