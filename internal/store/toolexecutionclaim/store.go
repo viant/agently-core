@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mattn/go-sqlite3"
 	read "github.com/viant/agently-core/internal/datly/toolexecutionclaim/read"
 	write "github.com/viant/agently-core/internal/datly/toolexecutionclaim/write"
 	"github.com/viant/bindly/locator"
@@ -16,6 +15,8 @@ import (
 	"github.com/viant/datly/runtime/handler/provider"
 	"github.com/viant/datly/spec"
 	"github.com/viant/sqlx/io/errx"
+	moderncsqlite "modernc.org/sqlite"
+	sqlitecode "modernc.org/sqlite/lib"
 )
 
 // Store owns the claim protocol while generated components own every read and
@@ -137,6 +138,15 @@ func (s *Store) Finish(ctx context.Context, key, state string, finishedAt time.T
 func isUniqueViolation(err error) bool { return errx.IsDuplicateKey(err) }
 
 func isSQLiteLock(err error) bool {
-	var sqliteErr sqlite3.Error
-	return errors.As(err, &sqliteErr) && (sqliteErr.Code == sqlite3.ErrBusy || sqliteErr.Code == sqlite3.ErrLocked)
+	var sqliteErr *moderncsqlite.Error
+	if !errors.As(err, &sqliteErr) || sqliteErr == nil {
+		return false
+	}
+	// Extended SQLite result codes keep the primary code in the low byte.
+	switch sqliteErr.Code() & 0xff {
+	case sqlitecode.SQLITE_BUSY, sqlitecode.SQLITE_LOCKED:
+		return true
+	default:
+		return false
+	}
 }

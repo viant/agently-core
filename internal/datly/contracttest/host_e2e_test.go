@@ -27,7 +27,7 @@ func TestLinkedHostGoalReaderWriter(t *testing.T) {
 	server, err := host.New(ctx, standalone.Options{Config: &config.Config{
 		BaseDir:    project,
 		Connector:  "agently",
-		Connectors: []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: dbPath + "?_foreign_keys=on", MaxOpenConns: 2}},
+		Connectors: []connector.Config{{Name: "agently", Driver: "sqlite", DSN: dbPath + "?_pragma=foreign_keys(1)", MaxOpenConns: 2}},
 	}})
 	must(t, err)
 	t.Cleanup(func() { must(t, server.Shutdown(context.Background())) })
