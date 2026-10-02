@@ -35,7 +35,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulemodel.ScheduleVie
 		ScheduleRunID: strings.TrimSpace(runID),
 	})
 	var authErr error
-	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredURL)); cred != "" {
+	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredUrl)); cred != "" {
 		logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "user_cred detected ref_kind=%q", userCredRefKind(cred))
 		runCtx, authErr = s.applyUserCred(runCtx, cred)
 		if authErr != nil {
@@ -93,7 +93,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulemodel.ScheduleVie
 	if userID != "" {
 		runPatch.SetEffectiveUserID(userID)
 	}
-	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredURL)); cred != "" {
+	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredUrl)); cred != "" {
 		runPatch.SetUserCredURL(cred)
 	}
 	if output.ConversationID != "" {

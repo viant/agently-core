@@ -25,7 +25,7 @@ func toPublicSchedule(row *schedulemodel.ScheduleView) *Schedule {
 		GoalID:          row.GoalId,
 		AgentRef:        row.AgentRef,
 		ModelOverride:   row.ModelOverride,
-		UserCredURL:     row.UserCredURL,
+		UserCredURL:     row.UserCredUrl,
 		Enabled:         row.Enabled,
 		StartAt:         row.StartAt,
 		EndAt:           row.EndAt,

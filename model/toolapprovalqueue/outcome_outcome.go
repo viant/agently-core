@@ -1,6 +1,7 @@
 package toolapprovalqueue
 
 import (
+	read "github.com/viant/agently-core/internal/datly/toolapprovalqueue/read"
 	"time"
 
 	"github.com/viant/xdatly/response"
@@ -27,27 +28,6 @@ type OutcomeRowsOutput struct {
 	Metrics         response.Metrics
 }
 
-type OutcomeRowView struct {
-	Id               string     `sqlx:"id"`
-	UserId           string     `sqlx:"user_id"`
-	ConversationId   *string    `sqlx:"conversation_id"`
-	TurnId           *string    `sqlx:"turn_id"`
-	MessageId        *string    `sqlx:"message_id"`
-	ToolName         string     `sqlx:"tool_name"`
-	Title            *string    `sqlx:"title"`
-	Arguments        []byte     `sqlx:"arguments"`
-	Metadata         *[]byte    `sqlx:"metadata"`
-	Status           string     `sqlx:"status"`
-	Decision         *string    `sqlx:"decision"`
-	ExpiresAt        *time.Time `sqlx:"expires_at"`
-	TimedOutAt       *time.Time `sqlx:"timed_out_at"`
-	ApprovedByUserId *string    `sqlx:"approved_by_user_id"`
-	ApprovedAt       *time.Time `sqlx:"approved_at"`
-	ExecutedAt       *time.Time `sqlx:"executed_at"`
-	ErrorMessage     *string    `sqlx:"error_message"`
-	CreatedAt        time.Time  `sqlx:"created_at"`
-	UpdatedAt        *time.Time `sqlx:"updated_at"`
-	TransitionAt     *string    `sqlx:"transition_at"`
-}
+type OutcomeRowView = read.ApprovalView
 
 var OutcomeRowsPathURI = "/v1/api/agently/toolapprovalqueue/outcome/outcome"

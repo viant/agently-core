@@ -174,7 +174,15 @@
         "MessageRowsOutput": 0,
         "MessageRowsView": 13
       },
-      "status": "legacy concrete contract remains"
+      "status": "generated row alias; facade input/Has/envelope retained",
+      "generated_aliases": {
+        "MessageRowsView": "base.MessageBaseView"
+      },
+      "concrete_structs": [
+        "MessageRowsInput",
+        "MessageRowsInputHas",
+        "MessageRowsOutput"
+      ]
     },
     {
       "file": "model/message/elicitation_message_by_elicitation.go",
@@ -224,7 +232,14 @@
         "ElicitationMessageOutput": 0,
         "ElicitationMessageView": 5
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "ElicitationMessageInput",
+        "ElicitationMessageInputHas",
+        "ElicitationMessageOutput",
+        "ElicitationMessageView"
+      ]
     },
     {
       "file": "model/payload/payload.go",
@@ -289,7 +304,15 @@
         "PayloadRowsOutput": 0,
         "PayloadRowsView": 5
       },
-      "status": "row view now aliases generated type; input/has/output remain"
+      "status": "generated row alias; facade input/Has/envelope retained",
+      "generated_aliases": {
+        "PayloadRowsView": "read.PayloadRowsView"
+      },
+      "concrete_structs": [
+        "PayloadRowsInput",
+        "PayloadRowsInputHas",
+        "PayloadRowsOutput"
+      ]
     },
     {
       "file": "model/run/run.go",
@@ -394,7 +417,14 @@
         "RunRowsOutput": 0,
         "RunRowsView": 9
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "RunRowsInput",
+        "RunRowsInputHas",
+        "RunRowsOutput",
+        "RunRowsView"
+      ]
     },
     {
       "file": "model/run/active_run_active.go",
@@ -514,7 +544,14 @@
         "ActiveRunsOutput": 0,
         "ActiveRunsView": 6
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "ActiveRunsInput",
+        "ActiveRunsInputHas",
+        "ActiveRunsOutput",
+        "ActiveRunsView"
+      ]
     },
     {
       "file": "model/run/stale_run_stale.go",
@@ -639,7 +676,14 @@
         "StaleRunsOutput": 0,
         "StaleRunsView": 15
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "StaleRunsInput",
+        "StaleRunsInputHas",
+        "StaleRunsOutput",
+        "StaleRunsView"
+      ]
     },
     {
       "file": "model/run/steps_steps.go",
@@ -744,7 +788,15 @@
         "RunStepsOutput": 0,
         "RunStepsView": 7
       },
-      "status": "row view now aliases generated type; input/has/output remain"
+      "status": "generated row alias; facade input/Has/envelope retained",
+      "generated_aliases": {
+        "RunStepsView": "read.RunStepsView"
+      },
+      "concrete_structs": [
+        "RunStepsInput",
+        "RunStepsInputHas",
+        "RunStepsOutput"
+      ]
     },
     {
       "file": "model/schedule/schedule_schedule.go",
@@ -934,7 +986,15 @@
         "ScheduleOutput": 0,
         "ScheduleView": 33
       },
-      "status": "legacy concrete contract remains"
+      "status": "generated row alias; facade input/Has/envelope retained",
+      "generated_aliases": {
+        "ScheduleView": "read.ScheduleView"
+      },
+      "concrete_structs": [
+        "ScheduleInput",
+        "ScheduleInputHas",
+        "ScheduleOutput"
+      ]
     },
     {
       "file": "model/scheduledrun/run_run.go",
@@ -1099,7 +1159,14 @@
         "RunOutput": 0,
         "RunView": 27
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "RunInput",
+        "RunInputHas",
+        "RunOutput",
+        "RunView"
+      ]
     },
     {
       "file": "model/toolcall/byOp_toolcall_by_op.go",
@@ -1164,7 +1231,15 @@
         "ToolCallByOpOutput": 0,
         "ToolCallByOpView": 5
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "ToolCallByOpInput",
+        "ToolCallByOpInputHas",
+        "ToolCallByOpOutput",
+        "ToolCallByOpView"
+      ],
+      "retention_reason": "Public output is a narrower field set than the ordinary canonical reader; broad alias would add JSON fields."
     },
     {
       "file": "model/toolcall/byTurn_toolcall_by_turn.go",
@@ -1204,7 +1279,15 @@
         "ToolCallByTurnOutput": 0,
         "ToolCallByTurnView": 3
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "ToolCallByTurnInput",
+        "ToolCallByTurnInputHas",
+        "ToolCallByTurnOutput",
+        "ToolCallByTurnView"
+      ],
+      "retention_reason": "Public output is a narrower field set than the ordinary canonical reader; broad alias would add JSON fields."
     },
     {
       "file": "model/turn/active_active.go",
@@ -1319,7 +1402,14 @@
         "ActiveTurnsOutput": 0,
         "ActiveTurnsView": 4
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "ActiveTurnsInput",
+        "ActiveTurnsInputHas",
+        "ActiveTurnsOutput",
+        "ActiveTurnsView"
+      ]
     },
     {
       "file": "model/turn/byId_by_id.go",
@@ -1459,7 +1549,14 @@
         "TurnLookupOutput": 0,
         "TurnLookupView": 5
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "TurnLookupInput",
+        "TurnLookupInputHas",
+        "TurnLookupOutput",
+        "TurnLookupView"
+      ]
     },
     {
       "file": "model/turn/list_list.go",
@@ -1554,7 +1651,14 @@
         "TurnRowsOutput": 0,
         "TurnRowsView": 7
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "TurnRowsInput",
+        "TurnRowsInputHas",
+        "TurnRowsOutput",
+        "TurnRowsView"
+      ]
     },
     {
       "file": "model/turn/nextQueued_next_queued.go",
@@ -1619,7 +1723,14 @@
         "QueuedTurnOutput": 0,
         "QueuedTurnView": 4
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "QueuedTurnInput",
+        "QueuedTurnInputHas",
+        "QueuedTurnOutput",
+        "QueuedTurnView"
+      ]
     },
     {
       "file": "model/turn/queuedCount_queued_count.go",
@@ -1709,7 +1820,14 @@
         "QueuedTotalOutput": 0,
         "QueuedTotalView": 1
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "QueuedTotalInput",
+        "QueuedTotalInputHas",
+        "QueuedTotalOutput",
+        "QueuedTotalView"
+      ]
     },
     {
       "file": "model/turn/queuedList_queued_list.go",
@@ -1764,7 +1882,15 @@
         "QueuedTurnsOutput": 0,
         "QueuedTurnsView": 4
       },
-      "status": "legacy concrete contract remains"
+      "status": "distinct facade contract remains; no broad alias assumed",
+      "generated_aliases": {},
+      "concrete_structs": [
+        "QueuedTurnsInput",
+        "QueuedTurnsInputHas",
+        "QueuedTurnsOutput",
+        "QueuedTurnsView"
+      ],
+      "retention_reason": "Public output is a narrower field set than the ordinary canonical reader; broad alias would add JSON fields."
     }
   ],
   "notes": [
@@ -1811,24 +1937,275 @@
   "core_reflection": [
     {
       "file": "app/store/data/native_mutations.go",
-      "symbol": "dataMutationIdentity",
-      "classification": "Persistence metadata introspection",
-      "current_reason": "Pairs mutation inputs and outputs using sqlx primary keys across seven known families.",
-      "elimination": "Datly should own result identity and occurrence ordering. Remove the Core tag scanner while preserving duplicate identities and atomic publication."
+      "symbol": "native writer correspondence",
+      "status": "uses prepared native input pointer occurrences; no primary-key/sqlx introspection",
+      "commit": "cf6877ea"
     },
     {
       "file": "app/store/data/native_dto.go",
-      "symbol": "copyDataValue/dataColumnMatches",
-      "classification": "Legacy DTO compatibility with persistence column matching",
-      "current_reason": "Copies casing variants, pointer/value fields, and bytes/text. Preamble versus Narration is the only non-case-equivalent column match used here.",
-      "elimination": "Generate public row projections and alias them first. Keep only explicit business conversions in Core; do not transplant this compatibility mapper into Datly."
-    },
-    {
-      "file": "app/store/data/native_dto.go",
-      "symbol": "applyDataMutationResult",
-      "classification": "Business field preservation coupled to persistence tags",
-      "current_reason": "Preserves ToolCall.ResponseOverflow while applying successful defaults and presence markers.",
-      "elimination": "Keep logical field behavior in Core. Datly should own applying generated writer results without Core inspecting sqlx tags."
+      "symbol": "copyDataValue/applyDataMutationResult",
+      "status": "Go field names only; SQLx tag reads removed; explicit Preamble/Narration and caller-owned ResponseOverflow business handling",
+      "commit": "cd43f7ca"
     }
-  ]
+  ],
+  "verified_additional_generated_aliases": [
+    {
+      "file": "model/generatedfile/read_generated_file.go",
+      "type": "GeneratedFileView",
+      "canonical": "generatedfile/read.GeneratedFileView"
+    },
+    {
+      "file": "model/turnqueue/read_list.go",
+      "type": "QueueRowView",
+      "canonical": "turnqueue/read.QueueRowView"
+    },
+    {
+      "file": "model/toolapprovalqueue/outcome_outcome.go",
+      "type": "OutcomeRowView",
+      "canonical": "toolapprovalqueue/read.ApprovalView"
+    }
+  ],
+  "current_existing_shape_comparison": {
+    "ActiveRunsView": {
+      "canonical_fields": 46,
+      "canonical_file": "internal/datly/run/read/views.go",
+      "different_types": {},
+      "extra": {
+        "activityraw": "*string",
+        "heartbeatraw": "*string",
+        "leaseuntilraw": "*string",
+        "maintenanceownerid": "string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 42,
+      "old_file": "model/run/active_run_active.go"
+    },
+    "ActiveTurns": {
+      "canonical_fields": 15,
+      "canonical_file": "internal/datly/turn/read/views.go",
+      "different_types": {},
+      "extra": {
+        "cleanupstatus": "string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 14,
+      "old_file": "model/turn/active_active.go"
+    },
+    "ApprovalOutcome": {
+      "canonical_fields": 20,
+      "canonical_file": "internal/datly/toolapprovalqueue/read/views.go",
+      "different_types": {},
+      "extra": {},
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 20,
+      "old_file": "model/toolapprovalqueue/outcome_outcome.go"
+    },
+    "ApprovalRows": {
+      "canonical_fields": 20,
+      "canonical_file": "internal/datly/toolapprovalqueue/read/views.go",
+      "different_types": {},
+      "extra": {
+        "transitionat": "*string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 19,
+      "old_file": "model/toolapprovalqueue/read_list.go"
+    },
+    "ByOp": {
+      "canonical_fields": 22,
+      "canonical_file": "internal/datly/toolcall/read/views.go",
+      "different_types": {},
+      "extra": {
+        "attempt": "int",
+        "cleanupstatus": "string",
+        "completedat": "*time.Time",
+        "cost": "*float64",
+        "errorcode": "*string",
+        "errormessage": "*string",
+        "iteration": "*int",
+        "latencyms": "*int",
+        "requesthash": "*string",
+        "requestpayloadid": "*string",
+        "retriable": "*int",
+        "runid": "*string",
+        "spanid": "*string",
+        "startedat": "*time.Time",
+        "status": "string",
+        "toolkind": "string",
+        "toolname": "string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 5,
+      "old_file": "model/toolcall/byOp_toolcall_by_op.go"
+    },
+    "ByTurn": {
+      "canonical_fields": 22,
+      "canonical_file": "internal/datly/toolcall/read/views.go",
+      "different_types": {},
+      "extra": {
+        "cleanupstatus": "string",
+        "completedat": "*time.Time",
+        "cost": "*float64",
+        "errorcode": "*string",
+        "errormessage": "*string",
+        "iteration": "*int",
+        "latencyms": "*int",
+        "requesthash": "*string",
+        "requestpayloadid": "*string",
+        "responsepayloadid": "*string",
+        "retriable": "*int",
+        "runid": "*string",
+        "spanid": "*string",
+        "startedat": "*time.Time",
+        "status": "string",
+        "toolkind": "string",
+        "toolname": "string",
+        "traceid": "*string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 4,
+      "old_file": "model/toolcall/byTurn_toolcall_by_turn.go"
+    },
+    "LegacyRunView": {
+      "canonical_fields": 19,
+      "canonical_file": "internal/datly/legacyrun/read/views.go",
+      "different_types": {},
+      "extra": {
+        "activityraw": "*string",
+        "leaseuntilraw": "*string",
+        "maintenanceownerid": "string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 16,
+      "old_file": "model/scheduledrun/run_run.go"
+    },
+    "QueuedTurn": {
+      "canonical_fields": 15,
+      "canonical_file": "internal/datly/turn/read/views.go",
+      "different_types": {},
+      "extra": {
+        "cleanupstatus": "string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 14,
+      "old_file": "model/turn/nextQueued_next_queued.go"
+    },
+    "QueuedTurns": {
+      "canonical_fields": 15,
+      "canonical_file": "internal/datly/turn/read/views.go",
+      "different_types": {},
+      "extra": {
+        "agentconfigusedid": "*string",
+        "agentidused": "*string",
+        "cleanupstatus": "string",
+        "conversationid": "string",
+        "createdat": "time.Time",
+        "errormessage": "*string",
+        "modeloverride": "*string",
+        "modeloverrideprovider": "*string",
+        "modelparamsoverride": "*string",
+        "retryof": "*string",
+        "runid": "*string",
+        "startedbymessageid": "*string",
+        "status": "string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 2,
+      "old_file": "model/turn/queuedList_queued_list.go"
+    },
+    "RunRowsView": {
+      "canonical_fields": 46,
+      "canonical_file": "internal/datly/run/read/views.go",
+      "different_types": {},
+      "extra": {
+        "activityraw": "*string",
+        "heartbeatraw": "*string",
+        "leaseuntilraw": "*string",
+        "maintenanceownerid": "string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 42,
+      "old_file": "model/run/run.go"
+    },
+    "ScheduleView": {
+      "canonical_fields": 30,
+      "canonical_file": "internal/datly/schedule/read/views.go",
+      "different_types": {},
+      "extra": {
+        "leaseuntilraw": "*string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 29,
+      "old_file": "model/schedule/schedule_schedule.go"
+    },
+    "StaleRunsView": {
+      "canonical_fields": 46,
+      "canonical_file": "internal/datly/run/read/views.go",
+      "different_types": {},
+      "extra": {
+        "activityraw": "*string",
+        "heartbeatraw": "*string",
+        "leaseuntilraw": "*string",
+        "maintenanceownerid": "string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 42,
+      "old_file": "model/run/stale_run_stale.go"
+    },
+    "TurnLookup": {
+      "canonical_fields": 15,
+      "canonical_file": "internal/datly/turn/read/views.go",
+      "different_types": {},
+      "extra": {
+        "cleanupstatus": "string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 14,
+      "old_file": "model/turn/byId_by_id.go"
+    },
+    "TurnRows": {
+      "canonical_fields": 15,
+      "canonical_file": "internal/datly/turn/read/views.go",
+      "different_types": {},
+      "extra": {
+        "cleanupstatus": "string"
+      },
+      "missing": {},
+      "note": "Go names compared case-insensitively; Has type identity still requires separate marker comparison; JSON/tags not assumed equivalent",
+      "old_fields": 14,
+      "old_file": "model/turn/list_list.go"
+    }
+  },
+  "current_counts": {
+    "tracked_original_families": 17,
+    "generated_alias_types_in_tracked_families": 4,
+    "concrete_structs_in_tracked_families": 64
+  },
+  "mutation_policy": "Keep differing mutation/control DTOs and their presence/setter/nullable semantics until exact generated authority and caller proof; no blanket aliases.",
+  "latest_phase_validation": {
+    "bounded_aliases": [
+      "Approval OutcomeRowView -> ApprovalView (20 public scalar fields)",
+      "ScheduleView -> canonical ScheduleView (29 public scalars; raw helper hidden)"
+    ],
+    "pre_change_wire_comparison": "PASS /tmp/agently-approval-schedule-alias-wire.log",
+    "whole_Core_compile": "PASS /tmp/agently-approval-schedule-alias-compile.log",
+    "model_scalar_null_zero_tests": "PASS schedule0.273s/approval0.476s",
+    "actual_facade_pagination_and_outcome_tests": "PASS scheduler4.830s/conversation3.231s/SDK2.680s",
+    "log": "/tmp/agently-approval-schedule-alias-focused.log",
+    "framework_changes": false,
+    "new_contracts": 0
+  }
 }

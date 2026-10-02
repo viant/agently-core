@@ -957,7 +957,7 @@ func TestService_executeRun_UserCredAuthFailureContinuesWithoutTokens(t *testing
 	row := &schedulemodel.ScheduleView{
 		Id:           scheduleID,
 		Name:         "User credential auth failure",
-		UserCredURL:  &credRef,
+		UserCredUrl:  &credRef,
 		AgentRef:     "steward",
 		ScheduleType: "adhoc",
 		Timezone:     "UTC",

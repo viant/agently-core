@@ -139,21 +139,5 @@ func (s *Service) listApprovalOutcomesNative(ctx context.Context, in *toolapprov
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*toolapprovalqueuemodel.OutcomeRowView, 0, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		result = append(result, &toolapprovalqueuemodel.OutcomeRowView{
-			Id: row.Id, UserId: row.UserId, ConversationId: row.ConversationId,
-			TurnId: row.TurnId, MessageId: row.MessageId, ToolName: row.ToolName,
-			Title: row.Title, Arguments: row.Arguments, Metadata: row.Metadata,
-			Status: row.Status, Decision: row.Decision, ExpiresAt: row.ExpiresAt,
-			TimedOutAt: row.TimedOutAt, ApprovedByUserId: row.ApprovedByUserId,
-			ApprovedAt: row.ApprovedAt, ExecutedAt: row.ExecutedAt,
-			ErrorMessage: row.ErrorMessage, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
-			TransitionAt: row.TransitionAt,
-		})
-	}
-	return result, nil
+	return rows, nil
 }

@@ -20,22 +20,7 @@ func (s *datlyStore) listSchedulesNative(ctx context.Context, id string, interna
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*schedulemodel.ScheduleView, 0, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		encoded, err := json.Marshal(row)
-		if err != nil {
-			return nil, fmt.Errorf("encode native schedule: %w", err)
-		}
-		var mapped schedulemodel.ScheduleView
-		if err := json.Unmarshal(encoded, &mapped); err != nil {
-			return nil, fmt.Errorf("decode schedule contract: %w", err)
-		}
-		result = append(result, &mapped)
-	}
-	return result, nil
+	return rows, nil
 }
 
 func (s *datlyStore) patchScheduleNative(ctx context.Context, schedule *schedulemodel.Schedule) error {
