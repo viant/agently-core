@@ -15,11 +15,8 @@ import (
 	token "github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/authlog"
 	"github.com/viant/agently-core/internal/logx"
-	sessionread "github.com/viant/agently-core/pkg/agently/user/session"
-	sessiondelete "github.com/viant/agently-core/pkg/agently/user/session/delete"
-	sessionwrite "github.com/viant/agently-core/pkg/agently/user/session/write"
 	wscfg "github.com/viant/agently-core/workspace/config"
-	"github.com/viant/datly"
+	dexec "github.com/viant/datly/exec"
 	"github.com/viant/scy"
 	vcfg "github.com/viant/scy/auth/jwt/verifier"
 	authmeta "github.com/viant/scy/auth/metadata"
@@ -30,7 +27,7 @@ const oauthMetadataTimeout = 5 * time.Second
 
 var defaultOAuthMetadataHTTPClient = &http.Client{Timeout: oauthMetadataTimeout}
 
-func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (*Runtime, error) {
+func NewRuntime(ctx context.Context, workspaceRoot string, invoker dexec.ComponentInvoker) (*Runtime, error) {
 	cfg, err := LoadConfig(workspaceRoot)
 	if err != nil {
 		authlog.Log(ctx, authlog.Event{
@@ -62,23 +59,14 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 	}
 
 	var sessionStore SessionStore
-	if dao != nil {
-		if err := sessionread.DefineSessionComponent(ctx, dao); err != nil {
-			return nil, fmt.Errorf("failed to register session read component: %w", err)
-		}
-		if _, err := sessiondelete.DefineComponent(ctx, dao); err != nil {
-			return nil, fmt.Errorf("failed to register session delete component: %w", err)
-		}
-		if _, err := sessionwrite.DefineComponent(ctx, dao); err != nil {
-			return nil, fmt.Errorf("failed to register session write component: %w", err)
-		}
-		sessionStore = NewSessionStoreDAO(dao)
+	if invoker != nil {
+		sessionStore = NewSessionStoreNative(invoker)
 	}
 	sessions := NewManager(time.Duration(cfg.SessionTTLHours)*time.Hour, sessionStore)
 	opts := make([]HandlerOption, 0, 2)
 
 	var tokenStore TokenStore
-	if dao != nil {
+	if invoker != nil {
 		configURL := ""
 		if cfg.OAuth != nil && cfg.OAuth.Client != nil {
 			configURL = strings.TrimSpace(cfg.OAuth.Client.ConfigURL)
@@ -93,14 +81,14 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 			if cfg.OAuth != nil && cfg.OAuth.Client != nil {
 				storeOpts = append(storeOpts, WithPreviousSalts(cfg.OAuth.Client.ConfigURLPrevious...))
 			}
-			tokenStore = NewTokenStoreDAO(dao, firstNonEmpty(configURL, delegatedSalt), storeOpts...)
+			tokenStore = NewTokenStoreDAO(invoker, firstNonEmpty(configURL, delegatedSalt), storeOpts...)
 			opts = append(opts, WithTokenStore(tokenStore))
 			logx.Debugf("auth-token", "runtime token store enabled provider=%q", firstNonEmpty(strings.TrimSpace(configuredOAuthProvider(cfg)), "oauth"))
 		}
 	}
 	var users UserService
-	if dao != nil {
-		users = NewDatlyUserService(dao)
+	if invoker != nil {
+		users = NewDatlyUserService(invoker)
 	}
 
 	var jwtVerifier *vcfg.Service
@@ -161,19 +149,15 @@ func NewRuntime(ctx context.Context, workspaceRoot string, dao *datly.Service) (
 	}
 	// Enable delegated-row routing for the background watcher: without this,
 	// rows stored under delegated provider keys are skipped without mutation.
-	if delegated := NewDelegatedMCPAuth(cfg, dao); delegated != nil {
+	if delegated := NewDelegatedMCPAuth(cfg, invoker); delegated != nil {
 		if users != nil {
 			delegated.SetUserLookup(users)
 		}
 		runtime.delegatedRefresher = delegated.TokenRefresher()
-		// Delegated MCP OAuth link endpoints: register the oauth_link_state
-		// Datly components and expose the state store through the narrow
-		// OAuthStateStore adapter. HTTP handlers never touch database/sql.
-		if dao != nil && runtime.ext != nil {
-			if err := DefineOAuthLinkStateComponents(ctx, dao); err != nil {
-				return nil, err
-			}
-			if states := NewOAuthStateStoreDatly(dao); states != nil {
+		// Link-state transitions use the shared native Datly runtime. The
+		// generated writer owns CAS and the winner replay decision.
+		if invoker != nil && runtime.ext != nil {
+			if states := NewOAuthStateStoreNative(invoker); states != nil {
 				runtime.ext.mcpLink = newMCPLinkService(cfg, delegated, states, nil, users)
 			}
 		}

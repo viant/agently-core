@@ -6,12 +6,11 @@ import (
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
-	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
-	schedwrite "github.com/viant/agently-core/pkg/agently/scheduler/schedule/write"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
 )
 
-func toPublicSchedule(row *schedulepkg.ScheduleView) *Schedule {
+func toPublicSchedule(row *schedulemodel.ScheduleView) *Schedule {
 	if row == nil {
 		return nil
 	}
@@ -26,7 +25,7 @@ func toPublicSchedule(row *schedulepkg.ScheduleView) *Schedule {
 		GoalID:          row.GoalId,
 		AgentRef:        row.AgentRef,
 		ModelOverride:   row.ModelOverride,
-		UserCredURL:     row.UserCredURL,
+		UserCredURL:     row.UserCredUrl,
 		Enabled:         row.Enabled,
 		StartAt:         row.StartAt,
 		EndAt:           row.EndAt,
@@ -48,9 +47,9 @@ func toPublicSchedule(row *schedulepkg.ScheduleView) *Schedule {
 	}
 }
 
-func toMutableSchedule(schedule *Schedule, isUpdate bool) *schedwrite.Schedule {
+func toMutableSchedule(schedule *Schedule, isUpdate bool) *schedulemodel.Schedule {
 	now := time.Now().UTC()
-	mut := &schedwrite.Schedule{}
+	mut := &schedulemodel.Schedule{}
 	if id := strings.TrimSpace(schedule.ID); id != "" {
 		mut.SetId(id)
 	}
@@ -137,7 +136,7 @@ func toMutableSchedule(schedule *Schedule, isUpdate bool) *schedwrite.Schedule {
 	return mut
 }
 
-func schedulePrompt(row *schedulepkg.ScheduleView) string {
+func schedulePrompt(row *schedulemodel.ScheduleView) string {
 	if row == nil {
 		return ""
 	}
@@ -150,7 +149,7 @@ func schedulePrompt(row *schedulepkg.ScheduleView) string {
 	return ""
 }
 
-func scheduleUserID(ctx context.Context, row *schedulepkg.ScheduleView) string {
+func scheduleUserID(ctx context.Context, row *schedulemodel.ScheduleView) string {
 	userID := strings.TrimSpace(iauth.EffectiveUserID(ctx))
 	if userID != "" {
 		return userID
@@ -163,7 +162,7 @@ func scheduleUserID(ctx context.Context, row *schedulepkg.ScheduleView) string {
 	return "system"
 }
 
-func hasActiveRun(runs []*schrun.RunView) bool {
+func hasActiveRun(runs []*scheduledrunmodel.RunView) bool {
 	for _, run := range runs {
 		if run != nil && (run.CompletedAt == nil || run.CompletedAt.IsZero()) {
 			return true
@@ -172,7 +171,7 @@ func hasActiveRun(runs []*schrun.RunView) bool {
 	return false
 }
 
-func findCompletedRunForSlot(runs []*schrun.RunView, scheduledFor time.Time) *schrun.RunView {
+func findCompletedRunForSlot(runs []*scheduledrunmodel.RunView, scheduledFor time.Time) *scheduledrunmodel.RunView {
 	slot := scheduledFor.UTC()
 	for _, run := range runs {
 		if run == nil || run.ScheduledFor == nil || run.CompletedAt == nil || run.CompletedAt.IsZero() {

@@ -1,0 +1,13 @@
+{
+  "status": "IN PROGRESS: root caller source does not yet compile with Datly 1.0",
+  "checkout": "agently-core-v1 branch datly_1",
+  "root_module": "go.mod now pins local Datly 1.0, SQLX and unified xdatly v1 and replaces the nested generated datlyv1 module locally. Old split xdatly module requirements were removed.",
+  "legacy_import_inventory": {
+    "datly_api_files": 93,
+    "direct_database_call_files_in_app_service_pkg": 30,
+    "source": "migration/caller-cutover-audit.json"
+  },
+  "compile_probe": "An isolated temporary root module file, then a readonly root Go list, showed legacy source imports of removed github.com/viant/datly root, repository, repository/contract and view packages, plus old split xdatly imports. The root build is incomplete until callers are converted; a green nested datlyv1 Endly gate does not prove root/app cutover.",
+  "next_action": "Convert root application factories and callers to the generated Datly 1.0 components, remove legacy package imports and direct database calls, then tidy the root module and run root/app E2E gates.",
+  "original_core_checkout_modified": false
+}

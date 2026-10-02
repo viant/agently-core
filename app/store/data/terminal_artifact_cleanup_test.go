@@ -191,7 +191,7 @@ func TestTerminalArtifactCleanup_ConcurrentCompletionAndEligibilityChanges(t *te
 
 	mustExecCleanup(t, db, `UPDATE turn SET status = 'failed' WHERE id = ?`, candidate.TurnID)
 	base := service.(*datlyService)
-	secondStore := NewService(base.dao).(TerminalArtifactCleanupStore)
+	secondStore := &datlyService{native: base.native, writeGate: base.writeGate}
 	var (
 		wg      sync.WaitGroup
 		mu      sync.Mutex
@@ -402,4 +402,21 @@ func nullableCleanupString(value string) any {
 		return nil
 	}
 	return value
+}
+
+func TestTerminalArtifactCleanup_IgnoredUpdateRemainsUnresolved(t *testing.T) {
+	service, db := newSeededServiceWithDB(t)
+	now := time.Now().UTC()
+	seedSingleDirectCleanupCandidate(t, db, now)
+	store := service.(TerminalArtifactCleanupStore)
+	candidates, err := store.SnapshotTerminalArtifactCandidates(context.Background(), now.Add(-time.Hour), 5000)
+	if err != nil || len(candidates) != 1 {
+		t.Fatalf("snapshot=%+v err=%v", candidates, err)
+	}
+	mustExecCleanup(t, db, `CREATE TRIGGER ignore_terminal_update BEFORE UPDATE OF status ON model_call BEGIN SELECT RAISE(IGNORE); END`)
+	got, err := store.CleanupTerminalArtifactCandidates(context.Background(), candidates, now)
+	if err != nil || len(got) != 1 || got[0] != TerminalArtifactUnresolved {
+		t.Fatalf("ignored update disposition=%v err=%v", got, err)
+	}
+	assertTerminalArtifactNotCleaned(t, db, candidates[0])
 }

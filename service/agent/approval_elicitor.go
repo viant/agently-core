@@ -7,8 +7,8 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	"github.com/viant/agently-core/pkg/agently/tool/resolver"
 	"github.com/viant/agently-core/protocol/agent/execution"
+	resolver2 "github.com/viant/agently-core/protocol/tool/resolver"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	elicitation "github.com/viant/agently-core/service/elicitation"
 	elicaction "github.com/viant/agently-core/service/elicitation/action"
@@ -173,7 +173,7 @@ func applyApprovalReviewSeeds(schema map[string]interface{}, seeds []*llm.Approv
 		if !strings.HasPrefix(selector, "input.") && !strings.HasPrefix(selector, "output.") && selector != "input" && selector != "output" {
 			selector = "input." + selector
 		}
-		value := resolver.Select(selector, args, nil)
+		value := resolver2.Select(selector, args, nil)
 		if value == nil {
 			continue
 		}

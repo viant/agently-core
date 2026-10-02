@@ -1,0 +1,40 @@
+{
+  "scope": "Datly 1.0 Forge shared-artifact application adapter and strict CRUD intent",
+  "adapter": "datlyv1/application/reporting/sharedartifact/store.go",
+  "components": [
+    "datlyv1/generated/forge/reporting/read",
+    "datlyv1/generated/forge/reporting/write"
+  ],
+  "database_boundary": "The adapter holds only a typed ComponentInvoker. The one canonical reader and writer for report_shared_artifact own all database access and owner predicates.",
+  "writer_intent": "Optional intent query input on the generated writer distinguishes create-only and update-only. The lifecycle hook checks Previous after owner authorization; default upsert behavior remains for existing clients.",
+  "delete_error": "Datly runtime/handler/writer.ErrDeleteNotFound is a typed version of the existing strict-delete failure. Committed in Datly v1 as 37431d0bac20cd78b01a97c6331f701ed54a8c7a; origin/v1 still needs the user's push.",
+  "legacy_comparison": "Eleven data-driven useCase rows execute the original SDK0 reporting SQL store through an isolated process and the new adapter against independent SQLite fixtures. Legacy rows are seeded through the old store to exercise its lookup path.",
+  "cases": [
+    "create new",
+    "duplicate create",
+    "update existing",
+    "unknown update",
+    "delete existing",
+    "unknown delete",
+    "foreign update",
+    "foreign delete",
+    "anonymous list",
+    "owner list",
+    "foreign get"
+  ],
+  "authorization": "Owner subject is supplied from trusted application context and is bound to the private reader/writer. Foreign existence is returned as not found.",
+  "verification": {
+    "focused_legacy_comparison": "go test ./tests -run '^TestForgeSharedArtifactStoreLifecycle$' -count=1: pass",
+    "writer_intent": "go test ./tests -run '^TestForgeWriterIntentLegacyStoreContract$' -count=1: pass",
+    "datly_writer": "go test ./runtime/handler/writer: pass",
+    "full_endly": "endly from datlyv1/e2e: success; 42/42 transcribed, 565 artifacts byte-stable, native boundary audit passed, nested tests 155.879s, host build, workflow 202626ms"
+  },
+  "root_caller_cutover_complete": true,
+  "root_caller_cutover": {
+    "source": "app/store/reporting/sql/store.go now delegates shared-artifact create/get/list/update/delete and filesystem import to datlyv1/application/reporting/sharedartifact.Store; SDK0 Forge registrations and 11 obsolete generated files were removed.",
+    "inprocess_verification": "go test -mod=readonly with scratch modfile -count=1 ./app/store/native: pass (8.055s), including linked-host shared-artifact CRUD and owner denial.",
+    "current_build_boundary": "Root app/store/reporting/sql setup now stops only at its remaining github.com/viant/datly SDK0 DAO import; SDK0 Forge imports are gone. Root package tests and application routes have not executed. Legacy no-native test fixtures need conversion to shared native runtime.",
+    "direct_sql_remaining": "Other report_run, report_export_job, report_export_artifact and maintenance paths still contain direct SQL; full Store migration remains."
+  },
+  "current_root_reporting_status": "Superseded by migration/reporting-root-cutover-validation.json: root reporting production package now builds and its linked-host tests pass with v1 only; application/public routes and MySQL remain."
+}

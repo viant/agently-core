@@ -1,0 +1,32 @@
+#package('github.com/viant/agently-core/internal/datly/maintenancelease/write')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/maintenance-lease','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(maintenanceAccess/internal).Required())
+#define($_ = $Mode<string>(query/mode).Required())
+#define($_ = $ExpectedOwner<string>(query/expectedOwner).Optional().WithPredicate(7,'equal','maintenance_lease','owner_id'))
+#define($_ = $ExpectedToken<string>(query/expectedToken).Optional().WithPredicate(7,'equal','maintenance_lease','lease_token'))
+#define($_ = $ExpiresBefore<time.Time>(query/expiresBefore).Optional().WithPredicate(7,'less_or_equal','maintenance_lease','lease_until'))
+#define($_ = $LiveAfter<time.Time>(query/liveAfter).Optional().WithPredicate(7,'expr','maintenance_lease.lease_until > ?'))
+#define($_ = $Leases<[]*Lease>(body/data))
+#define($_ = $Data<[]*Lease>(output/body))
+
+SELECT t.*,
+       type(t,'Lease'),
+       lifecycle_type(t,'Lifecycle'),
+       mutation_predicate(t,7),
+       CAST(t.should_delete AS bool),
+       tag(t.should_delete,'json:",omitempty"'),
+       delete_marker(t.should_delete),
+       required(t.lease_key),
+       tag(t.lease_key,'sqlx:"lease_key,primaryKey=true,required=true"'),
+       required(t.owner_id),
+       required(t.lease_token),
+       required(t.lease_until),
+       required(t.created_at),
+       required(t.updated_at)
+FROM (${embed:sql/maintenancelease.sql}) t

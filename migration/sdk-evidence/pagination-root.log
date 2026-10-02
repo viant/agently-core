@@ -1,0 +1,8 @@
+go: finding module for package github.com/viant/datly/view
+go: finding module for package github.com/viant/datly
+# github.com/viant/agently-core/app/store/data
+app/store/data/factory.go:44:2: module github.com/viant/datly@latest found (v1.1.0, replaced by ../datly), but does not contain package github.com/viant/datly
+# github.com/viant/agently-core/app/store/data
+app/store/data/factory.go:45:2: module github.com/viant/datly@latest found (v1.1.0, replaced by ../datly), but does not contain package github.com/viant/datly/view
+FAIL	github.com/viant/agently-core/app/store/data [setup failed]
+FAIL

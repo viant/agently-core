@@ -1,0 +1,32 @@
+{
+  "date": "2026-09-30",
+  "scope": "Root data facade pagination source cutover",
+  "changes": [
+    "ListConversations invokes canonical native reader without direct SQL fallback; removed SQL builder/scanner/null mappers.",
+    "GetMessagesPage/GetTurnsPage/GetRunStepsPage invoke canonical native readers without SDK0 Operate fallback.",
+    "Existing DTOs, page normalizers, limit-plus-one handling, cursors, order and post-read authorization preserved."
+  ],
+  "source": "app/store/data/service_page.go",
+  "linked_runtime": {
+    "command": "go test -mod=mod -modfile=/tmp/agently-pagination-sol61/go.mod ./app/store/native -run 'TestWorkspaceRuntime(ConversationStore|ConversationListPage|TurnStore|RunStepsStore)$' -count=1",
+    "result": "pass",
+    "duration_seconds": 6.847,
+    "log": "sdk-evidence/pagination-native.log",
+    "coverage": "Actual stock in-process host tests exercise conversation visibility/activity pagination, message base projection/limit/cursor, turn cursor and run-step selector/cursor. They do not execute the root data facade methods."
+  },
+  "root_facade": {
+    "command": "go test -mod=mod -modfile=/tmp/agently-pagination-sol61/go.mod ./app/store/data -run 'Page|Pagination' -count=1",
+    "result": "setup failed",
+    "reason": "factory.go still imports unavailable SDK0 github.com/viant/datly and github.com/viant/datly/view",
+    "log": "sdk-evidence/pagination-root.log"
+  },
+  "remaining": [
+    "Remove db()/dbWithDriver() after tree/maintenance callers migrate; these remain shared SDK0 connector helpers.",
+    "Run actual root facade pagination/auth tests and public application routes after root builds."
+  ],
+  "limits": [
+    "No SDK1 public route parity claim.",
+    "No generated component authoring or runtime changes in this slice; linked reader adapters already exist."
+  ],
+  "state": "Uncommitted"
+}

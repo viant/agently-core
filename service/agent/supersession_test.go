@@ -10,7 +10,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/tool"
 )
 
@@ -40,18 +40,18 @@ var _ tool.Registry = (*stubCacheableRegistry)(nil)
 // makeTCMsg creates an apiconv.Message with tool call metadata.
 // argsJSON is the raw JSON string for the tool call arguments.
 func makeTCMsg(toolName string, argsJSON *string, content string) *apiconv.Message {
-	tc := &agconv.ToolCallView{
+	tc := &conversationmodel.ToolCallView{
 		ToolName: toolName,
 	}
 	if argsJSON != nil {
-		tc.RequestPayload = &agconv.ModelCallStreamPayloadView{
+		tc.RequestPayload = &conversationmodel.ModelCallStreamPayloadView{
 			InlineBody: argsJSON,
 		}
 	}
 	return &apiconv.Message{
 		Role:    "assistant",
 		Content: &content,
-		ToolMessage: []*agconv.ToolMessageView{{
+		ToolMessage: []*conversationmodel.ToolMessageView{{
 			ToolCall: tc,
 		}},
 	}

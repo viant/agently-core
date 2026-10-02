@@ -1,0 +1,27 @@
+#package('github.com/viant/agently-core/internal/datly/oauth/token/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/user/oauth','GET'))
+#setting($_ = $input_type('TokenInput'))
+#setting($_ = $output_type('TokenOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $StatusInfo<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $Metrics<?>(output/metrics))
+#define($_ = $Id<string>(query/user_id).Optional().WithPredicate(0,'equal','t','user_id'))
+#define($_ = $Provider<string>(query/provider).Optional().WithPredicate(0,'equal','t','provider'))
+#define($_ = $Data<[]*TokenView>(output/view))
+
+SELECT token.*,
+       internal(token.enc_token),
+       internal(token.db_now),
+       type(token,'TokenView'),
+       required(token.created_at),
+       required(token.enc_token),
+       required(token.provider),
+       required(token.user_id),
+       CAST(token.version AS int64),
+       required(token.refresh_status),
+       CAST(token.db_now AS string)
+FROM (${embed:sql/token.sql}) token

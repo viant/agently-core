@@ -1,0 +1,41 @@
+{
+  "status": "ROOT OAUTH LINK STATE SOURCE CUT OVER AND AUTH PACKAGE PASSES; APP/MYSQL PENDING",
+  "repository": "/Users/awitas/go/src/github.com/viant/agently-core-v1",
+  "changes": [
+    "service/auth/OAuthStateRecord aliases the non-secret Datly v1 record and preserves the single non-enumerable ErrOAuthStateInvalid sentinel.",
+    "service/auth/OAuthStateStoreNative delegates create/adopt, pending lookup, consume and expiry cleanup to the generated-reader/writer adapter under a trusted internal context.",
+    "Auth runtime accepts the shared native component invoker for MCP link state and no longer registers SDK0 link-state handlers.",
+    "Retired 16 tracked SDK0 link-state component files after production callers were removed.",
+    "Default executor startup creates one shared native Datly host for migrated callers; Agently passes it to auth runtime and closes it during shutdown. Agently go.mod now points at agently-core-v1."
+  ],
+  "validation": {
+    "native_adapter": {
+      "command": "GOWORK=off go test -mod=readonly -count=1 ./tests -run ^TestOAuthStateStoreNativeLifecycle$",
+      "status": "passed",
+      "scope": "Generated Datly reader/writer lifecycle and non-enumerable consume/replay; does not exercise root auth route."
+    },
+    "root_auth": {
+      "command": "go test -mod=readonly -modfile=<scratch root module> -count=1 ./service/auth",
+      "status": "passed",
+      "seconds": 35.104,
+      "scope": "Full service/auth package with linked Datly v1 host; root module itself still cannot compile due unrelated SDK0 imports."
+    },
+    "endly": {
+      "command": "endly in datlyv1/e2e after d02ccad8",
+      "status": "passed",
+      "elapsed_ms": 211305,
+      "nested_test_seconds": 159.508,
+      "log": "/tmp/agently-v1-endly-internal-shortcut.log",
+      "scope": "58-contract transcription, regeneration, boundary, nested tests and linked host build. This predates root auth caller edits."
+    }
+  },
+  "remaining": [
+    "Replace SDK0 auth user, token, session and delegated stores so the root auth package and Agently app compile on Datly v1.",
+    "Execute root auth and MCP link HTTP lifecycle tests, plus MySQL contention and retry semantics.",
+    "Remove the temporary SDK0 DAO pool after all callers use the native host, leaving one connector pool per application runtime."
+  ],
+  "core_and_agently_commits": false,
+  "datly_commit": "d02ccad8",
+  "pushed": false,
+  "current_mysql_acceptance": "PASS published-dependency root token and native state independent-pool tests; see oauth-mysql-acceptance-validation.json. Earlier pending/SQLite-only statements retain historical scope."
+}

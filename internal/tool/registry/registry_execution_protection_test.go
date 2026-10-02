@@ -516,7 +516,7 @@ func TestRegistryExecutionProtectionUnavailableRepositoryPreventsDispatch(t *tes
 		}},
 		virtualTimeout:      map[string]timeoutSupport{},
 		cache:               map[string]*toolCacheEntry{},
-		executionProtection: newProtectionGuard(t, executionprotection.NewDAORepository(nil)),
+		executionProtection: newProtectionGuard(t, executionprotection.NewComponentRepository(nil)),
 	}
 	if _, err := registry.Execute(protectedTurnContext("turn"), "service/tool", map[string]interface{}{"body": "x"}); err == nil {
 		t.Fatal("Execute() with unavailable repository error = nil")

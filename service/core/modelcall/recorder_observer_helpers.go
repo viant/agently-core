@@ -11,7 +11,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -136,7 +136,7 @@ func (o *recorderObserver) publishStreamDeltaNow(ctx context.Context, data []byt
 	if convID == "" || msgID == "" {
 		return
 	}
-	msg := &agconv.MessageView{
+	msg := &conversationmodel.MessageView{
 		Id:             msgID,
 		ConversationId: convID,
 		Role:           "assistant",

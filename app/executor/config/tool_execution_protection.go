@@ -2,11 +2,10 @@ package config
 
 import (
 	"fmt"
+	mcpname "github.com/viant/agently-core/protocol/mcpname"
+	"gopkg.in/yaml.v3"
 	"strings"
 	"unicode/utf8"
-
-	mcpnames "github.com/viant/agently-core/pkg/mcpname"
-	"gopkg.in/yaml.v3"
 )
 
 const ToolExecutionProtectionModeAtMostOnce = "atMostOnce"
@@ -129,12 +128,12 @@ func CanonicalProtectedToolName(raw string) (string, error) {
 	if strings.Contains(name, "|") {
 		return "", fmt.Errorf("tool %q must not contain a selector", raw)
 	}
-	canonical := strings.TrimSpace(mcpnames.Canonical(name))
-	parsed := mcpnames.Name(canonical)
+	canonical := strings.TrimSpace(mcpname.Canonical(name))
+	parsed := mcpname.Name(canonical)
 	if strings.TrimSpace(parsed.Service()) == "" || strings.TrimSpace(parsed.Method()) == "" {
 		return "", fmt.Errorf("tool %q has invalid canonical identity", raw)
 	}
-	return mcpnames.Display(canonical), nil
+	return mcpname.Display(canonical), nil
 }
 
 func validateSemanticArguments(ruleIndex int, semantic *ToolExecutionSemanticArguments) error {

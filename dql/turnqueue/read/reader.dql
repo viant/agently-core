@@ -1,0 +1,28 @@
+#package('github.com/viant/agently-core/internal/datly/turnqueue/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/turnqueue/list','GET'))
+#setting($_ = $input_type('QueueRowsInput'))
+#setting($_ = $output_type('QueueRowsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'equal','q','id'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','q','conversation_id'))
+#define($_ = $ConversationIds<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','q','conversation_id'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','q','turn_id'))
+#define($_ = $MessageId<string>(query/messageId).Optional().WithPredicate(0,'equal','q','message_id'))
+#define($_ = $QueueStatus<string>(query/status).Optional().WithPredicate(0,'equal','q','status'))
+#define($_ = $Data<[]*QueueRowView>(output/view))
+
+SELECT queue_rows.*,
+       row_lock(queue_rows,'turn_queue q'),
+       type(queue_rows,'QueueRowView'),
+       required(queue_rows.id),
+       required(queue_rows.conversation_id),
+       required(queue_rows.turn_id),
+       required(queue_rows.message_id),
+       CAST(queue_rows.queue_seq AS int64),
+       required(queue_rows.status),
+       required(queue_rows.created_at)
+FROM (${embed:sql/turnqueue.sql}) queue_rows

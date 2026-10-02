@@ -1,0 +1,25 @@
+#package('github.com/viant/agently-core/internal/datly/conversation/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/conversation','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $Conversations<[]*MutableConversationView>(body/data))
+#define($_ = $Data<[]*MutableConversationView>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'MutableConversationView'),
+       lifecycle_type(t,'Lifecycle'),
+       required(t.id),
+       tag(t.id,'validate:"required" sqlx:"id,primaryKey"'),
+       required(t.shareable),
+       tag(t.id,'json:","')
+FROM (${embed:sql/conversation.sql}) t

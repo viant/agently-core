@@ -1,0 +1,38 @@
+{
+  "core": {
+    "branch": "datly_1",
+    "head": "44b8887846c22dfd47f7d788c34ea12ceaa5c5ae",
+    "tracked_change_count": 502
+  },
+  "agently": {
+    "branch": "main",
+    "head": "ad6370b194ed7f8ec0c09c7885712998ccda40f1",
+    "tracked_change_count": 21
+  },
+  "datly": {
+    "branch": "v1",
+    "head": "a59b17988b725c2424ae7a22d58eab87d828c7ac",
+    "tracked_change_count": 0
+  },
+  "xdatly": {
+    "branch": "v1",
+    "head": "ff38d5bca9b6d55116d5a85ab772e3839e887bb5",
+    "tracked_change_count": 0
+  },
+  "preservation": {
+    "core_migration_committed": true,
+    "agently_migration_committed": true,
+    "agent_pushed_datly": false,
+    "original_checkout_source_modified_by_final_audit": false,
+    "layout": "Root DQL and one production Core module; frozen legacyprobe remains isolated test-only"
+  },
+  "snapshot_scope": "Source heads previously recorded before authorized commits; current commit policy supersedes uncommitted preservation.",
+  "commit_authorization": {
+    "user_requested": true,
+    "branch": "v1",
+    "core_base_commit": "af3f5913",
+    "agently_base_commit": "d89cffa0",
+    "agently_cleanup_commit": "195fe386",
+    "core_cleanup": "Included with this final record"
+  }
+}

@@ -1,0 +1,33 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/audit/read')
+#import('time','time')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/audit','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(reportAuditAccess/internal).Required())
+#define($_ = $EventID<string>(query/eventId).Optional().WithPredicate(0,'equal','a','event_id'))
+#define($_ = $JobID<string>(query/jobId).Optional().WithPredicate(0,'equal','a','job_id'))
+#define($_ = $ArtifactID<string>(query/artifactId).Optional().WithPredicate(0,'equal','a','artifact_id'))
+#define($_ = $ActorID<string>(query/actorId).Optional().WithPredicate(0,'equal','a','actor_id'))
+#define($_ = $JobIDs<[]string>(query/jobIds).Optional().WithPredicate(0,'in','a','job_id'))
+#define($_ = $ArtifactIDs<[]string>(query/artifactIds).Optional().WithPredicate(0,'in','a','artifact_id'))
+#define($_ = $TechnicalRetention<*predicate.TechnicalRetention>(technicalMaintenance/policy).Optional().WithPredicate(0,'handler','predicate.TechnicalReportAuditRetention'))
+#define($_ = $Data<[]*AuditEvent>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOrderBy=true"'))
+
+SELECT data_rows.*,
+       row_lock(data_rows,'report_audit_event a'),
+       CAST(data_rows.maintenance_observed_at AS string),
+       internal(data_rows.maintenance_observed_at),
+       tag(data_rows.maintenance_observed_at,'json:"-"'),
+       type(data_rows,'AuditEvent'),
+       required(data_rows.event_id),
+       required(data_rows.event_type),
+       required(data_rows.artifact_ref),
+       CAST(data_rows.version AS int64),
+       required(data_rows.actor_id),
+       required(data_rows.occurred_at),
+       CAST(data_rows.metadata_json AS []byte)
+FROM (${embed:sql/audit.sql}) data_rows

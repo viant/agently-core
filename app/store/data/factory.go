@@ -2,375 +2,59 @@ package data
 
 import (
 	"context"
-	"fmt"
 	"os"
+	"path/filepath"
+	"runtime"
 	"strings"
-	"sync"
-	"time"
 
-	"github.com/viant/agently-core/internal/dbconfig"
+	"github.com/viant/agently-core/app/store/native"
 	sqlitesvc "github.com/viant/agently-core/internal/service/sqlite"
-	conversation "github.com/viant/agently-core/pkg/agently/conversation"
-	conversationlist "github.com/viant/agently-core/pkg/agently/conversation/list"
-	conversationwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	goal "github.com/viant/agently-core/pkg/agently/goal"
-	goalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
-	message "github.com/viant/agently-core/pkg/agently/message"
-	elicitationmsg "github.com/viant/agently-core/pkg/agently/message/elicitation"
-	elicitationcount "github.com/viant/agently-core/pkg/agently/message/elicitationCount"
-	messagelist "github.com/viant/agently-core/pkg/agently/message/list"
-	messagewrite "github.com/viant/agently-core/pkg/agently/message/write"
-	modelcallwrite "github.com/viant/agently-core/pkg/agently/modelcall/write"
-	payload "github.com/viant/agently-core/pkg/agently/payload"
-	payloadwrite "github.com/viant/agently-core/pkg/agently/payload/write"
-	run "github.com/viant/agently-core/pkg/agently/run"
-	runactive "github.com/viant/agently-core/pkg/agently/run/active"
-	runstale "github.com/viant/agently-core/pkg/agently/run/stale"
-	runsteps "github.com/viant/agently-core/pkg/agently/run/steps"
-	runwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	approvalcount "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/pendingCount"
-	toolcallbyop "github.com/viant/agently-core/pkg/agently/toolcall/byOp"
-	toolcallbyturn "github.com/viant/agently-core/pkg/agently/toolcall/byTurn"
-	toolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
-	turn "github.com/viant/agently-core/pkg/agently/turn/active"
-	turnbyid "github.com/viant/agently-core/pkg/agently/turn/byId"
-	turnctrlcount "github.com/viant/agently-core/pkg/agently/turn/controllerCount"
-	turnlistall "github.com/viant/agently-core/pkg/agently/turn/list"
-	turnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
-	turncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
-	turnlist "github.com/viant/agently-core/pkg/agently/turn/queuedList"
-	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
-	turnqueueread "github.com/viant/agently-core/pkg/agently/turnqueue/read"
-	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
-	userread "github.com/viant/agently-core/pkg/agently/user"
-	oauthread "github.com/viant/agently-core/pkg/agently/user/oauth"
-	oauthwrite "github.com/viant/agently-core/pkg/agently/user/oauth/write"
-	userwrite "github.com/viant/agently-core/pkg/agently/user/write"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
-	"github.com/viant/scy"
+	"github.com/viant/datly/bootstrap/connector"
+	"github.com/viant/datly/standalone"
 )
 
-const (
-	defaultConnMaxLifetime = 55 * time.Minute
-	defaultConnMaxIdle     = 5 * time.Minute
-	defaultMaxIdleConns    = 4
-	// defaultSQLiteMaxOpenConns caps concurrent SQLite connections.
-	// Agently runs multiple Datly-backed services against the same local
-	// SQLite file (conversation store, run store, auth/session store). Under
-	// resumed multi-tool traffic, allowing each service to fan out its own
-	// SQLite pool creates write-lock storms: many goroutines hold or wait on
-	// separate connections to the same file, while fresh turn reads block in
-	// database/sql waiting for another connection. A single connection per
-	// SQLite-backed service keeps those writes serialized and prevents local
-	// query admission from deadlocking behind unrelated resumed-run writes,
-	// while still leaving one extra lane for a fresh read to get through.
-	// This tuning is SQLite-only; MySQL keeps its own pool settings below.
-	defaultSQLiteMaxOpenConns = 2
-	defaultSQLiteMaxIdleConns = 2
-)
-
-// applySQLitePoolDefaults configures the datly Connector with a
-// bounded connection pool for SQLite. Only applied when the driver
-// is SQLite — MySQL uses its own tuning block above. Caller-set
-// values are preserved; this only fills zero defaults.
-func applySQLitePoolDefaults(conn *view.Connector) {
-	if conn == nil {
-		return
+func sourceRoot() string {
+	if configured := strings.TrimSpace(os.Getenv("AGENTLY_DATLY_SOURCE_ROOT")); configured != "" {
+		return configured
 	}
-	if conn.MaxOpenConns == 0 {
-		conn.MaxOpenConns = defaultSQLiteMaxOpenConns
-	}
-	if conn.MaxIdleConns == 0 {
-		conn.MaxIdleConns = defaultSQLiteMaxIdleConns
-	}
+	_, file, _, _ := runtime.Caller(0)
+	return filepath.Join(filepath.Dir(file), "..", "..", "..")
 }
 
-var (
-	sharedDAO *datly.Service
-	daoOnce   sync.Once
-)
-
-// NewDatly creates a singleton datly service with configured connector.
-// It prefers AGENTLY_DB_DSN and falls back to AGENTLY_DB_PATH for SQLite.
-func NewDatly(ctx context.Context) (*datly.Service, error) {
-	var initErr error
-	daoOnce.Do(func() {
-		var svc *datly.Service
-		svc, initErr = datly.New(ctx)
-		if initErr != nil {
-			return
-		}
-
-		driver := strings.TrimSpace(os.Getenv("AGENTLY_DB_DRIVER"))
-		if driver == "" {
-			driver = "sqlite"
-		}
-		dsn := strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN"))
-		secrets := strings.TrimSpace(os.Getenv("AGENTLY_DB_SECRETS"))
-		dbPath := strings.TrimSpace(os.Getenv("AGENTLY_DB_PATH"))
-		if dsn == "" {
-			if dbPath == "" {
-				initErr = fmt.Errorf("AGENTLY_DB_DSN is required")
-				return
-			}
-			sqlite := sqlitesvc.New("")
-			sqlite = sqlite.WithPath(dbPath)
-			var err error
-			if dsn, err = sqlite.Ensure(ctx); err != nil {
-				initErr = err
-				return
-			}
-			driver = "sqlite"
-		}
-		secretResource, err := func() (*scy.Resource, error) {
-			expanded, resource, err := dbconfig.ExpandDSN(ctx, dsn, secrets)
-			if err != nil {
-				return nil, err
-			}
-			dsn = expanded
-			return resource, nil
-		}()
-		if err != nil {
-			initErr = err
-			return
-		}
-
-		conn := view.NewConnector("agently", driver, dsn)
-		if secretResource != nil {
-			conn.Secret = secretResource
-		}
-		if strings.EqualFold(driver, "mysql") {
-			if conn.ConnMaxLifetimeMs == 0 {
-				conn.ConnMaxLifetimeMs = int(defaultConnMaxLifetime / time.Millisecond)
-			}
-			if conn.ConnMaxIdleTimeMs == 0 {
-				conn.ConnMaxIdleTimeMs = int(defaultConnMaxIdle / time.Millisecond)
-			}
-			if conn.MaxIdleConns == 0 {
-				conn.MaxIdleConns = defaultMaxIdleConns
-			}
-		} else if strings.EqualFold(driver, "sqlite") {
-			applySQLitePoolDefaults(conn)
-		}
-
-		if err := svc.AddConnectors(ctx, conn); err != nil {
-			initErr = err
-			return
-		}
-		if err := registerReadComponents(ctx, svc); err != nil {
-			initErr = err
-			return
-		}
-		sharedDAO = svc
-	})
-	if initErr != nil {
-		return nil, initErr
-	}
-	return sharedDAO, nil
+// NewRuntime opens one application-owned stock runtime and connector pool.
+// The caller shares it across stores and owns Shutdown.
+func NewRuntime(ctx context.Context) (*standalone.Server, error) {
+	return native.New(ctx, native.Options{SourceRoot: sourceRoot()})
+}
+func NewRuntimeFromWorkspace(ctx context.Context, root string) (*standalone.Server, error) {
+	return native.New(ctx, native.Options{SourceRoot: sourceRoot(), WorkspaceRoot: root})
 }
 
-// NewDatlyServiceFromEnv is an alias kept for compatibility with existing patterns.
-func NewDatlyServiceFromEnv(ctx context.Context) (*datly.Service, error) { return NewDatly(ctx) }
-
-// NewDatlyFromWorkspace creates a datly service backed by file-based SQLite
-// in the given workspace root directory ({root}/db/agently-core.db).
-// Data persists across restarts.
-func NewDatlyFromWorkspace(ctx context.Context, root string) (*datly.Service, error) {
-	svc, err := datly.New(ctx)
-	if err != nil {
-		return nil, err
-	}
-	dsn, err := sqlitesvc.New(root).Ensure(ctx)
-	if err != nil {
-		return nil, err
-	}
-	conn := view.NewConnector("agently", "sqlite", dsn)
-	applySQLitePoolDefaults(conn)
-	if err := svc.AddConnectors(ctx, conn); err != nil {
-		return nil, err
-	}
-	if err := registerReadComponents(ctx, svc); err != nil {
-		return nil, err
-	}
-	return svc, nil
-}
-
-// NewDatlyInMemory creates a non-singleton datly service backed by in-memory sqlite.
-func NewDatlyInMemory(ctx context.Context) (*datly.Service, error) {
-	svc, err := datly.New(ctx)
-	if err != nil {
-		return nil, err
-	}
+// NewRuntimeInMemory shares the initialized modernc memory database with the
+// stock runtime through the registered sqlite driver. An sqlite3 connection
+// would be a separate in-memory engine with an uninitialized schema.
+func NewRuntimeInMemory(ctx context.Context) (*standalone.Server, error) {
 	dsn, err := sqlitesvc.New("").EnsureInMemory(ctx)
 	if err != nil {
 		return nil, err
 	}
-	conn := view.NewConnector("agently", "sqlite", dsn)
-	applySQLitePoolDefaults(conn)
-	if err := svc.AddConnectors(ctx, conn); err != nil {
-		return nil, err
-	}
-	if err := registerReadComponents(ctx, svc); err != nil {
-		return nil, err
-	}
-	return svc, nil
+	return native.New(ctx, native.Options{SourceRoot: sourceRoot(), Connectors: []connector.Config{{Name: "agently", Driver: "sqlite", DSN: dsn, MaxOpenConns: 2, MaxIdleConns: 2}}})
 }
-
-// NewThinServiceFromEnv creates a thin data.Service backed by env-configured Datly.
 func NewThinServiceFromEnv(ctx context.Context) (Service, error) {
-	dao, err := NewDatly(ctx)
+	server, err := NewRuntime(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return NewService(dao), nil
+	service := NewService(server).(*datlyService)
+	service.closeOwned = server.Shutdown
+	return service, nil
 }
-
-// NewThinServiceInMemory creates a thin data.Service backed by in-memory sqlite.
 func NewThinServiceInMemory(ctx context.Context) (Service, error) {
-	dao, err := NewDatlyInMemory(ctx)
+	server, err := NewRuntimeInMemory(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return NewService(dao), nil
-}
-
-func registerReadComponents(ctx context.Context, svc *datly.Service) error {
-	if err := conversation.DefineConversationComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := goal.DefineGoalComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := conversationlist.DefineConversationRowsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := message.DefineMessageComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := messagelist.DefineMessageRowsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := elicitationmsg.DefineMessageComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := turn.DefineActiveTurnsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := turnbyid.DefineTurnLookupComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := turnlistall.DefineTurnRowsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := turnnext.DefineQueuedTurnComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := turnlist.DefineQueuedTurnsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := turncount.DefineQueuedTotalComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := turnctrlcount.DefineControllerTotalComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := approvalcount.DefinePendingTotalComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := elicitationcount.DefineElicitationPendingComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := turnqueueread.DefineQueueRowsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := run.DefineRunRowsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := runactive.DefineActiveRunsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := runstale.DefineStaleRunsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := runsteps.DefineRunStepsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := toolcallbyop.DefineToolCallRowsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := toolcallbyturn.DefineToolCallRowsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := payload.DefinePayloadRowsComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := gfread.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := conversationwrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := goalwrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := messagewrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := turnwrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := turnqueuewrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := modelcallwrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := toolcallwrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := payloadwrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := conversationwrite.DefineDeleteComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := goalwrite.DefineDeleteComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := messagewrite.DefineDeleteComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := turnwrite.DefineDeleteComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := modelcallwrite.DefineDeleteComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := toolcallwrite.DefineDeleteComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := payloadwrite.DefineDeleteComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := runwrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := runwrite.DefineDeleteComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := userread.DefineUserComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := userwrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	if err := oauthread.DefineTokenComponent(ctx, svc); err != nil {
-		return err
-	}
-	if _, err := oauthwrite.DefineComponent(ctx, svc); err != nil {
-		return err
-	}
-	return nil
+	service := NewService(server).(*datlyService)
+	service.closeOwned = server.Shutdown
+	return service, nil
 }

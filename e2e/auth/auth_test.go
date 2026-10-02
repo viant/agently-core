@@ -119,6 +119,9 @@ func setupAuthServer(t *testing.T, pubPath string, privPath string) *httptest.Se
 		Build(ctx)
 	require.NoError(t, err)
 
+	require.NotNil(t, rt.Store)
+	require.NoError(t, rt.Store.Save(ctx, "agents", "auth-resource-agent", []byte("id: auth-resource-agent\nname: Auth resource fixture\n")))
+
 	client, err := sdkbackend.FromRuntime(rt)
 	require.NoError(t, err)
 
@@ -590,6 +593,11 @@ func TestJWTAuth_MultipleEndpoints(t *testing.T) {
 			resp := doRequest(t, ep.method, srv.URL+ep.path, "", authHeaders)
 			defer resp.Body.Close()
 			assert.Equal(t, http.StatusOK, resp.StatusCode, "%s %s should succeed with valid token", ep.method, ep.path)
+			if strings.Contains(ep.path, "workspace/resources") && resp.StatusCode == http.StatusOK {
+				var result sdk.ListResourcesOutput
+				require.NoError(t, json.NewDecoder(resp.Body).Decode(&result))
+				assert.Contains(t, result.Names, "auth-resource-agent", "listing must use the runtime workspace store")
+			}
 		})
 	}
 

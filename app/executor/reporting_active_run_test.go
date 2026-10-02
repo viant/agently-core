@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/executor"
 	execconfig "github.com/viant/agently-core/app/executor/config"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	authsvc "github.com/viant/agently-core/service/auth"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
@@ -40,11 +41,18 @@ func TestBuilderBuild_ActiveReportRunRegistryPersistsAcrossRuntimeRebuild(t *tes
 		WithDefaults(defaults).
 		Build(firstCtx)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, first.Close(context.Background())) })
 	require.NotNil(t, first.Reporting)
 	require.NotNil(t, first.ReportRuns)
 	requireRegistryTool(t, first, "reporting/get_active_report_run", true)
 
 	ownerCtx := authsvc.InjectUser(context.Background(), "restart-owner")
+	conversation := &conversationmodel.MutableConversationView{}
+	conversation.SetId("restart-conversation")
+	conversation.SetCreatedByUserID("restart-owner")
+	conversation.SetStatus("succeeded")
+	_, err = first.Data.PatchConversations(ownerCtx, []*conversationmodel.MutableConversationView{conversation})
+	require.NoError(t, err)
 	begun, err := first.ReportRuns.Begin(ownerCtx, &reportingrunsvc.BeginInput{
 		ConversationID:  "restart-conversation",
 		Origin:          "prompt",
@@ -96,6 +104,7 @@ func TestBuilderBuild_ActiveReportRunRegistryPersistsAcrossRuntimeRebuild(t *tes
 	})
 	require.NoError(t, err)
 	cancelFirst()
+	require.NoError(t, first.Close(context.Background()))
 
 	secondCtx, cancelSecond := context.WithCancel(context.Background())
 	defer cancelSecond()
@@ -105,6 +114,7 @@ func TestBuilderBuild_ActiveReportRunRegistryPersistsAcrossRuntimeRebuild(t *tes
 		WithDefaults(defaults).
 		Build(secondCtx)
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, second.Close(context.Background())) })
 	require.NotNil(t, second.ReportRuns)
 	requireRegistryTool(t, second, "reporting/get_active_report_run", true)
 

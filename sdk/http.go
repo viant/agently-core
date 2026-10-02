@@ -19,7 +19,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/viant/agently-core/app/store/conversation"
-	agrun "github.com/viant/agently-core/pkg/agently/run"
+	runmodel "github.com/viant/agently-core/model/run"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/a2a"
 	agentsvc "github.com/viant/agently-core/service/agent"
@@ -551,8 +551,8 @@ func (c *HTTPClient) ListLinkedConversations(ctx context.Context, input *ListLin
 	return &out, nil
 }
 
-func (c *HTTPClient) GetRun(ctx context.Context, id string) (*agrun.RunRowsView, error) {
-	var out agrun.RunRowsView
+func (c *HTTPClient) GetRun(ctx context.Context, id string) (*runmodel.RunRowsView, error) {
+	var out runmodel.RunRowsView
 	path := strings.TrimRight(c.runsPath, "/") + "/" + url.PathEscape(strings.TrimSpace(id))
 	if err := c.doJSON(ctx, http.MethodGet, path, nil, &out); err != nil {
 		return nil, err

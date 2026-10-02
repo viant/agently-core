@@ -1,0 +1,70 @@
+#package('github.com/viant/agently-core/internal/datly/modelcall/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/model-call','GET'))
+#setting($_ = $input_type('ModelCallsInput'))
+#setting($_ = $output_type('ModelCallsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(modelCallAccess/internal).Required())
+#define($_ = $ReadMode<string>(modelCallAccess/mode).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $MessageId<string>(query/messageId).Optional().WithPredicate(0,'equal','data_rows','message_id'))
+#define($_ = $MessageIds<[]string>(query/messageIds).Optional().WithPredicate(0,'in','data_rows','message_id'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'expr','EXISTS (SELECT 1 FROM message m WHERE m.id=data_rows.message_id AND m.conversation_id=?)'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','data_rows','turn_id'))
+#define($_ = $TurnIds<[]string>(query/turnIds).Optional().WithPredicate(0,'in','data_rows','turn_id'))
+#define($_ = $RunId<string>(query/runId).Optional().WithPredicate(0,'equal','data_rows','run_id'))
+#define($_ = $Provider<string>(query/provider).Optional().WithPredicate(0,'equal','data_rows','provider'))
+#define($_ = $Model<string>(query/model).Optional().WithPredicate(0,'equal','data_rows','model'))
+#define($_ = $Statuses<[]string>(query/statuses).Optional().WithPredicate(0,'in','data_rows','status'))
+#define($_ = $StartedAfter<time.Time>(query/startedAfter).Optional().WithPredicate(0,'greater_or_equal','data_rows','started_at'))
+#define($_ = $StartedBefore<time.Time>(query/startedBefore).Optional().WithPredicate(0,'less_or_equal','data_rows','started_at'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*ModelCallView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true"'))
+SELECT data_rows.*,
+       row_lock(data_rows,'model_call data_rows'),
+       CAST(data_rows.cleanup_status AS string),
+       internal(data_rows.cleanup_status),
+       tag(data_rows.cleanup_status,'json:"-"'),
+       type(data_rows,'ModelCallView'),
+       required(data_rows.message_id),
+       tag(data_rows.message_id,'validate:"required" sqlx:"message_id,primaryKey"'),
+       tag(data_rows.turn_id,'sqlx:"turn_id"'),
+       required(data_rows.provider),
+       tag(data_rows.provider,'validate:"required" sqlx:"provider"'),
+       required(data_rows.model),
+       tag(data_rows.model,'validate:"required" sqlx:"model"'),
+       required(data_rows.model_kind),
+       tag(data_rows.model_kind,'validate:"required" sqlx:"model_kind"'),
+       required(data_rows.status),
+       tag(data_rows.status,'validate:"required" sqlx:"status"'),
+       tag(data_rows.error_code,'sqlx:"error_code"'),
+       tag(data_rows.error_message,'sqlx:"error_message"'),
+       tag(data_rows.prompt_tokens,'sqlx:"prompt_tokens"'),
+       tag(data_rows.prompt_cached_tokens,'sqlx:"prompt_cached_tokens"'),
+       tag(data_rows.completion_tokens,'sqlx:"completion_tokens"'),
+       tag(data_rows.total_tokens,'sqlx:"total_tokens"'),
+       tag(data_rows.prompt_audio_tokens,'sqlx:"prompt_audio_tokens"'),
+       tag(data_rows.completion_reasoning_tokens,'sqlx:"completion_reasoning_tokens"'),
+       tag(data_rows.completion_audio_tokens,'sqlx:"completion_audio_tokens"'),
+       tag(data_rows.completion_accepted_prediction_tokens,'sqlx:"completion_accepted_prediction_tokens"'),
+       tag(data_rows.completion_rejected_prediction_tokens,'sqlx:"completion_rejected_prediction_tokens"'),
+       tag(data_rows.finish_reason,'sqlx:"finish_reason"'),
+       tag(data_rows.started_at,'sqlx:"started_at"'),
+       tag(data_rows.completed_at,'sqlx:"completed_at"'),
+       tag(data_rows.latency_ms,'sqlx:"latency_ms"'),
+       tag(data_rows.cost,'sqlx:"cost"'),
+       tag(data_rows.trace_id,'sqlx:"trace_id"'),
+       tag(data_rows.span_id,'sqlx:"span_id"'),
+       tag(data_rows.request_payload_id,'sqlx:"request_payload_id"'),
+       tag(data_rows.response_payload_id,'sqlx:"response_payload_id"'),
+       tag(data_rows.provider_request_payload_id,'sqlx:"provider_request_payload_id"'),
+       tag(data_rows.provider_response_payload_id,'sqlx:"provider_response_payload_id"'),
+       tag(data_rows.stream_payload_id,'sqlx:"stream_payload_id"'),
+       tag(data_rows.run_id,'sqlx:"run_id"'),
+       tag(data_rows.iteration,'sqlx:"iteration"')
+FROM (${embed:sql/modelcall.sql}) data_rows
+ORDER BY data_rows.started_at DESC,data_rows.message_id ASC

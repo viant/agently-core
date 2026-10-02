@@ -29,6 +29,12 @@ pipeline:
       description: init database
       request: '@database/database'
 
+  rule:
+    native:
+      action: run
+      description: generate and verify the native v1 contracts
+      request: '@rule/native'
+
   build:
     binaries:
       action: run
@@ -48,37 +54,6 @@ pipeline:
     request: '@app/app'
     params:
       serverPort: $serverPort
-
-  rule:
-    cleanup:
-      action: exec:run
-      TimeoutMs: 120000
-      checkError: true
-      commands:
-        - cd $repoPath
-        - rm -rf repo/
-
-    conversation:
-      action: run
-      request: '@rule/conversation'
-    message:
-      action: run
-      request: '@rule/message'
-    turn:
-      action: run
-      request: '@rule/turn'
-    run:
-      action: run
-      request: '@rule/run'
-    toolcall:
-      action: run
-      request: '@rule/toolcall'
-    payload:
-      action: run
-      request: '@rule/payload'
-    toolApprovalQueue:
-      action: run
-      request: '@rule/tool_approval_queue'
 
   test:
     action: run

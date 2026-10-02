@@ -1,0 +1,7 @@
+SELECT data_rows.* FROM  (SELECT `message_id`, `turn_id`, `provider`, `model`, `model_kind`, `status`, `error_code`, `error_message`, `prompt_tokens`, `prompt_cached_tokens`, `completion_tokens`, `total_tokens`, `prompt_audio_tokens`, `completion_reasoning_tokens`, `completion_audio_tokens`, `completion_accepted_prediction_tokens`, `completion_rejected_prediction_tokens`, `finish_reason`, `started_at`, `completed_at`, `latency_ms`, `cost`, `trace_id`, `span_id`, `request_payload_id`, `response_payload_id`, `provider_request_payload_id`, `provider_response_payload_id`, `stream_payload_id`, `run_id`, `iteration`, LOWER(TRIM(COALESCE(status,''))) AS cleanup_status FROM model_call data_rows
+WHERE 1=1
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+ AND ($Internal OR EXISTS (SELECT 1 FROM message m JOIN conversation c ON c.id=m.conversation_id
+  WHERE m.id=data_rows.message_id AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,''))))
+ AND ($ReadMode<>'transcript' OR EXISTS(SELECT 1 FROM message m WHERE m.id=data_rows.message_id AND m.role='assistant'))
+)  data_rows ORDER BY data_rows.started_at DESC, data_rows.message_id ASC

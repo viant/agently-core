@@ -52,6 +52,14 @@ func NewRuntime(store Store) *Runtime {
 	}
 }
 
+// Current uses the same durable store as controller transitions and usage.
+func (r *Runtime) Current(ctx context.Context, conversationID string) (*Goal, error) {
+	if r == nil || r.store == nil {
+		return nil, nil
+	}
+	return r.store.Current(ctx, conversationID)
+}
+
 func (r *Runtime) SetDeactivateHook(fn func(ctx context.Context, conversationID, goalID string)) {
 	if r == nil {
 		return

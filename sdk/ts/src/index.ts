@@ -238,3 +238,5 @@ export type {
     RenderRow,
     UserRenderRow,
 } from './chatStore';
+
+export type { ReportRun, ReportContext, ReportRunResult, BeginReportRunInput, CompleteReportRunInput, AdoptReportRunInput, ReportExportJob, ReportArtifact, ReportAuditEvent } from "./types";

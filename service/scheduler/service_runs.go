@@ -7,14 +7,14 @@ import (
 	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	schrun "github.com/viant/agently-core/pkg/agently/scheduler/run"
-	schedulepkg "github.com/viant/agently-core/pkg/agently/scheduler/schedule"
+	runmodel "github.com/viant/agently-core/model/run"
+	schedulemodel "github.com/viant/agently-core/model/schedule"
+	scheduledrunmodel "github.com/viant/agently-core/model/scheduledrun"
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	agentsvc "github.com/viant/agently-core/service/agent"
 )
 
-func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView, runID string, scheduledFor time.Time) {
+func (s *Service) executeRun(ctx context.Context, row *schedulemodel.ScheduleView, runID string, scheduledFor time.Time) {
 	if s == nil || row == nil || s.agent == nil {
 		return
 	}
@@ -35,7 +35,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 		ScheduleRunID: strings.TrimSpace(runID),
 	})
 	var authErr error
-	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredURL)); cred != "" {
+	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredUrl)); cred != "" {
 		logAuthRunf(row.Id, runID, scheduleUserID(runCtx, row), "user_cred detected ref_kind=%q", userCredRefKind(cred))
 		runCtx, authErr = s.applyUserCred(runCtx, cred)
 		if authErr != nil {
@@ -84,7 +84,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	err := runQuery(queryCtx, input, output)
 	queryCancel()
 
-	runPatch := &agrunwrite.MutableRunView{}
+	runPatch := &runmodel.MutableRunView{}
 	runPatch.SetId(runID)
 	runPatch.SetScheduleID(row.Id)
 	runPatch.SetConversationKind("scheduled")
@@ -93,7 +93,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	if userID != "" {
 		runPatch.SetEffectiveUserID(userID)
 	}
-	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredURL)); cred != "" {
+	if cred := strings.TrimSpace(valueOrEmpty(row.UserCredUrl)); cred != "" {
 		runPatch.SetUserCredURL(cred)
 	}
 	if output.ConversationID != "" {
@@ -101,7 +101,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	}
 	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), schedulerCleanupTimeout)
 	defer cleanupCancel()
-	if patchErr := s.store.PatchRuns(cleanupCtx, []*agrunwrite.MutableRunView{runPatch}); patchErr != nil {
+	if patchErr := s.store.PatchRuns(cleanupCtx, []*runmodel.MutableRunView{runPatch}); patchErr != nil {
 		log.Printf("scheduler: patch run metadata schedule=%s run=%s: %v", row.Id, runID, patchErr)
 	}
 
@@ -110,12 +110,12 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	if err != nil {
 		status = "failed"
 		errMsg = err.Error()
-		failPatch := &agrunwrite.MutableRunView{}
+		failPatch := &runmodel.MutableRunView{}
 		failPatch.SetId(runID)
 		failPatch.SetStatus(status)
 		failPatch.SetErrorMessage(errMsg)
 		failPatch.SetCompletedAt(time.Now().UTC())
-		if patchErr := s.store.PatchRuns(cleanupCtx, []*agrunwrite.MutableRunView{failPatch}); patchErr != nil {
+		if patchErr := s.store.PatchRuns(cleanupCtx, []*runmodel.MutableRunView{failPatch}); patchErr != nil {
 			log.Printf("scheduler: patch failed run schedule=%s run=%s: %v", row.Id, runID, patchErr)
 		}
 		log.Printf("scheduler: execute schedule=%s run=%s: %v", row.Id, runID, err)
@@ -129,7 +129,7 @@ func (s *Service) executeRun(ctx context.Context, row *schedulepkg.ScheduleView,
 	}
 }
 
-func scheduleQueryInput(row *schedulepkg.ScheduleView, runID, userID string) *agentsvc.QueryInput {
+func scheduleQueryInput(row *schedulemodel.ScheduleView, runID, userID string) *agentsvc.QueryInput {
 	input := &agentsvc.QueryInput{
 		MessageID:     runID,
 		AgentID:       strings.TrimSpace(row.AgentRef),
@@ -157,10 +157,10 @@ func scheduleQueryInput(row *schedulepkg.ScheduleView, runID, userID string) *ag
 	return input
 }
 
-func (s *Service) getRunsForDueCheck(ctx context.Context, scheduleID string, scheduledFor time.Time, includeScheduledSlot bool) ([]*schrun.RunView, error) {
-	var runs []*schrun.RunView
+func (s *Service) getRunsForDueCheck(ctx context.Context, scheduleID string, scheduledFor time.Time, includeScheduledSlot bool) ([]*scheduledrunmodel.RunView, error) {
+	var runs []*scheduledrunmodel.RunView
 	seen := map[string]struct{}{}
-	add := func(items []*schrun.RunView) {
+	add := func(items []*scheduledrunmodel.RunView) {
 		for _, item := range items {
 			if item == nil {
 				continue

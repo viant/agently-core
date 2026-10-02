@@ -18,7 +18,7 @@ import (
 	reportstore "github.com/viant/agently-core/app/store/reporting"
 	iauth "github.com/viant/agently-core/internal/auth"
 	tokenctx "github.com/viant/agently-core/internal/auth/token"
-	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -842,7 +842,7 @@ func (s *Service) submitExportFromRun(ctx context.Context, request *SubmitExport
 	if ownerID == "" {
 		return nil, fmt.Errorf("reporting export: effective user id is required")
 	}
-	exportRequestID := exportrequest.ID(ctx)
+	exportRequestID := exportrequestmodel.ID(ctx)
 	if exportRequestID == "" {
 		return nil, fmt.Errorf("reporting export: trusted export request identity is required")
 	}

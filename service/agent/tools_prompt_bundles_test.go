@@ -8,9 +8,9 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
 	registry "github.com/viant/agently-core/internal/tool/registry"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
@@ -54,6 +54,6 @@ func TestResolveTools_WithPromptBundle(t *testing.T) {
 		names = append(names, tool.Definition.Name)
 	}
 
-	assert.Contains(t, names, mcpname.Canonical("prompt/list"))
-	assert.Contains(t, names, mcpname.Canonical("prompt/get"))
+	assert.Contains(t, names, mcpname2.Canonical("prompt/list"))
+	assert.Contains(t, names, mcpname2.Canonical("prompt/get"))
 }

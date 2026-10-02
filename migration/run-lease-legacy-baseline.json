@@ -1,0 +1,223 @@
+[
+  {
+    "desc": "unleased enabled schedule",
+    "input": {
+      "action": "claim",
+      "previousOwner": null,
+      "previousUntil": null,
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "lease"
+      },
+      "completedAt": null
+    },
+    "expect": {
+      "result": true,
+      "owner": "worker",
+      "until": "2026-01-03 00:00:00 +0000 UTC"
+    }
+  },
+  {
+    "desc": "completed run",
+    "input": {
+      "action": "claim",
+      "previousOwner": null,
+      "previousUntil": null,
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "lease"
+      },
+      "completedAt": "2026-01-01 00:00:00"
+    },
+    "expect": {
+      "result": false,
+      "owner": null,
+      "until": null
+    }
+  },
+  {
+    "desc": "expired other owner",
+    "input": {
+      "action": "claim",
+      "previousOwner": "other",
+      "previousUntil": "2026-01-01 00:00:00",
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "lease"
+      },
+      "completedAt": null
+    },
+    "expect": {
+      "result": true,
+      "owner": "worker",
+      "until": "2026-01-03 00:00:00 +0000 UTC"
+    }
+  },
+  {
+    "desc": "live other owner",
+    "input": {
+      "action": "claim",
+      "previousOwner": "other",
+      "previousUntil": "2026-01-03 00:00:00",
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "lease"
+      },
+      "completedAt": null
+    },
+    "expect": {
+      "result": false,
+      "owner": "other",
+      "until": "2026-01-03 00:00:00"
+    }
+  },
+  {
+    "desc": "SQLite mixed-format nominal expiry boundary",
+    "input": {
+      "action": "claim",
+      "previousOwner": "other",
+      "previousUntil": "2026-01-02 00:00:00",
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "lease"
+      },
+      "completedAt": null
+    },
+    "expect": {
+      "result": true,
+      "owner": "worker",
+      "until": "2026-01-03 00:00:00 +0000 UTC"
+    },
+    "limitation": "SQLite legacy compares stored text against driver-formatted time; nominally equal instants in different string representations can compare unequal. This is observed legacy behavior, not proof of strict semantic expiry."
+  },
+  {
+    "desc": "same owner renews live lease",
+    "input": {
+      "action": "claim",
+      "previousOwner": "worker",
+      "previousUntil": "2026-01-04 00:00:00",
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "lease"
+      },
+      "completedAt": null
+    },
+    "expect": {
+      "result": true,
+      "owner": "worker",
+      "until": "2026-01-03 00:00:00 +0000 UTC"
+    }
+  },
+  {
+    "desc": "identical own lease is still claimed",
+    "input": {
+      "action": "claim",
+      "previousOwner": "worker",
+      "previousUntil": "2026-01-03 00:00:00",
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "lease"
+      },
+      "completedAt": null
+    },
+    "expect": {
+      "result": true,
+      "owner": "worker",
+      "until": "2026-01-03 00:00:00 +0000 UTC"
+    }
+  },
+  {
+    "desc": "missing schedule cannot be claimed",
+    "input": {
+      "action": "claim",
+      "previousOwner": null,
+      "previousUntil": null,
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "missing"
+      },
+      "completedAt": null
+    },
+    "expect": {
+      "result": false,
+      "owner": null,
+      "until": null
+    }
+  },
+  {
+    "desc": "matching owner releases completed run",
+    "input": {
+      "action": "release",
+      "previousOwner": "worker",
+      "previousUntil": "2026-01-03 00:00:00",
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "lease"
+      },
+      "completedAt": "2026-01-01 00:00:00"
+    },
+    "expect": {
+      "result": true,
+      "owner": null,
+      "until": null
+    }
+  },
+  {
+    "desc": "other owner cannot release",
+    "input": {
+      "action": "release",
+      "previousOwner": "other",
+      "previousUntil": "2026-01-03 00:00:00",
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "lease"
+      },
+      "completedAt": null
+    },
+    "expect": {
+      "result": false,
+      "owner": "other",
+      "until": "2026-01-03 00:00:00"
+    }
+  },
+  {
+    "desc": "unleased schedule is not released",
+    "input": {
+      "action": "release",
+      "previousOwner": null,
+      "previousUntil": null,
+      "request": {
+        "leaseOwner": "worker",
+        "now": "2026-01-02T00:00:00Z",
+        "leaseUntil": "2026-01-03T00:00:00Z",
+        "runId": "lease"
+      },
+      "completedAt": null
+    },
+    "expect": {
+      "result": false,
+      "owner": null,
+      "until": null
+    }
+  }
+]

@@ -2,10 +2,9 @@ package conversation
 
 import (
 	"context"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	toolmodel "github.com/viant/agently-core/model/tool"
 	"unsafe"
-
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/pkg/agently/tool"
 )
 
 func (c *Conversation) GetTranscript() Transcript {
@@ -66,7 +65,7 @@ func WithSince(since string) Option {
 	return func(input *Input) {
 		input.Since = since
 		if input.Has == nil {
-			input.Has = &agconv.ConversationInputHas{}
+			input.Has = &conversationmodel.ConversationInputHas{}
 		}
 		input.Has.Since = true
 	}
@@ -76,7 +75,7 @@ func WithIncludeTranscript(include bool) Option {
 	return func(input *Input) {
 		input.IncludeTranscript = include
 		if input.Has == nil {
-			input.Has = &agconv.ConversationInputHas{}
+			input.Has = &conversationmodel.ConversationInputHas{}
 		}
 		input.Has.IncludeTranscript = true
 	}
@@ -86,7 +85,7 @@ func WithIncludeToolCall(include bool) Option {
 	return func(input *Input) {
 		input.IncludeToolCall = include
 		if input.Has == nil {
-			input.Has = &agconv.ConversationInputHas{}
+			input.Has = &conversationmodel.ConversationInputHas{}
 		}
 		input.Has.IncludeToolCall = true
 	}
@@ -96,7 +95,7 @@ func WithIncludeModelCall(include bool) Option {
 	return func(input *Input) {
 		input.IncludeModelCal = include
 		if input.Has == nil {
-			input.Has = &agconv.ConversationInputHas{}
+			input.Has = &conversationmodel.ConversationInputHas{}
 		}
 		input.Has.IncludeModelCal = true
 	}
@@ -104,7 +103,7 @@ func WithIncludeModelCall(include bool) Option {
 
 // WithToolFeedSpec populates the transient FeedSpec list on the input
 // so that OnRelation hooks can compute tool executions based on metadata.
-func WithToolFeedSpec(ext []*tool.FeedSpec) Option {
+func WithToolFeedSpec(ext []*toolmodel.FeedSpec) Option {
 	return func(input *Input) {
 		_ = ext
 	}

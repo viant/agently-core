@@ -8,11 +8,11 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/textutil"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
-func firstToolCallForCandidate(m *agconv.MessageView) *agconv.ToolCallView {
+func firstToolCallForCandidate(m *conversationmodel.MessageView) *conversationmodel.ToolCallView {
 	if m == nil {
 		return nil
 	}

@@ -6,14 +6,14 @@ import (
 	"strings"
 
 	convstore "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
-func indexToolMessagesByParentAndIteration(turn *convstore.Turn) map[string][]*agconv.ToolMessageView {
+func indexToolMessagesByParentAndIteration(turn *convstore.Turn) map[string][]*conversationmodel.ToolMessageView {
 	if turn == nil || len(turn.Message) == 0 {
 		return nil
 	}
-	out := map[string][]*agconv.ToolMessageView{}
+	out := map[string][]*conversationmodel.ToolMessageView{}
 	for _, message := range turn.Message {
 		if message == nil || len(message.ToolMessage) == 0 {
 			continue
@@ -33,7 +33,7 @@ func indexToolMessagesByParentAndIteration(turn *convstore.Turn) map[string][]*a
 	return out
 }
 
-func executionNarration(message *agconv.MessageView) string {
+func executionNarration(message *conversationmodel.MessageView) string {
 	if message == nil {
 		return ""
 	}
@@ -46,7 +46,7 @@ func executionNarration(message *agconv.MessageView) string {
 	return ""
 }
 
-func isFinalExecutionMessage(message *agconv.MessageView) bool {
+func isFinalExecutionMessage(message *conversationmodel.MessageView) bool {
 	if message == nil {
 		return false
 	}
@@ -59,11 +59,11 @@ func isFinalExecutionMessage(message *agconv.MessageView) bool {
 	return strings.TrimSpace(stringValue(message.Content)) != ""
 }
 
-func collectToolChildren(turn *convstore.Turn, message *agconv.MessageView, indexed map[string][]*agconv.ToolMessageView) ([]*agconv.ToolMessageView, []*agconv.ToolCallView) {
+func collectToolChildren(turn *convstore.Turn, message *conversationmodel.MessageView, indexed map[string][]*conversationmodel.ToolMessageView) ([]*conversationmodel.ToolMessageView, []*conversationmodel.ToolCallView) {
 	if message == nil {
 		return nil, nil
 	}
-	toolMessages := make([]*agconv.ToolMessageView, 0, len(message.ToolMessage))
+	toolMessages := make([]*conversationmodel.ToolMessageView, 0, len(message.ToolMessage))
 	for _, toolMessage := range message.ToolMessage {
 		if toolMessage != nil {
 			toolMessages = append(toolMessages, toolMessage)
@@ -74,7 +74,7 @@ func collectToolChildren(turn *convstore.Turn, message *agconv.MessageView, inde
 		parentID = strings.TrimSpace(message.Id)
 	}
 	key := toolMessageGroupKey(parentID, message.Iteration)
-	appendToolMessage := func(toolMessage *agconv.ToolMessageView) {
+	appendToolMessage := func(toolMessage *conversationmodel.ToolMessageView) {
 		if toolMessage == nil {
 			return
 		}
@@ -99,7 +99,7 @@ func collectToolChildren(turn *convstore.Turn, message *agconv.MessageView, inde
 	sort.SliceStable(toolMessages, func(i, j int) bool {
 		return lessToolMessage(toolMessages[i], toolMessages[j])
 	})
-	toolCalls := make([]*agconv.ToolCallView, 0, len(toolMessages))
+	toolCalls := make([]*conversationmodel.ToolCallView, 0, len(toolMessages))
 	for _, toolMessage := range toolMessages {
 		if toolMessage.ToolCall != nil {
 			toolCalls = append(toolCalls, toolMessage.ToolCall)

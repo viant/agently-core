@@ -12,7 +12,7 @@ import (
 	"github.com/viant/afs"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
-	"github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -83,7 +83,7 @@ func persistToolImageAttachmentIfNeeded(ctx context.Context, conv apiconv.Client
 }
 
 func isReadImageTool(toolName string) bool {
-	can := strings.ToLower(strings.TrimSpace(mcpname.Canonical(toolName)))
+	can := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(toolName)))
 	switch can {
 	case "resources-readimage", "resources.readimage", "system_image-readimage", "system.image.readimage":
 		return true

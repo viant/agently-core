@@ -1,0 +1,1 @@
+SELECT MessageId AS MessageId FROM `/`

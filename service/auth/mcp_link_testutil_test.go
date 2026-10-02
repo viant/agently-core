@@ -2,40 +2,55 @@ package auth
 
 import (
 	"context"
+	"database/sql"
+	"path/filepath"
+	"runtime"
 	"testing"
 
+	"github.com/viant/agently-core/app/store/native"
 	"github.com/viant/agently-core/internal/testutil/dbtest"
-	userread "github.com/viant/agently-core/pkg/agently/user"
-	userwrite "github.com/viant/agently-core/pkg/agently/user/write"
-	"github.com/viant/datly"
-	"github.com/viant/datly/view"
+	"github.com/viant/datly/bootstrap/connector"
+	"github.com/viant/datly/standalone"
 )
 
-// newMCPLinkTestDAO builds an isolated file-backed SQLite datly service with
-// the full Agently schema and only the components the MCP link tests need
-// (users, oauth token write, oauth link state). Registering the entire
-// application component set (data.NewDatlyInMemory) is avoided deliberately:
-// it shares one in-memory database across the process and its unrelated
-// component registrations carry a latent datly-internal registration race.
-func newMCPLinkTestDAO(t *testing.T) *datly.Service {
+// newMCPLinkTestDBWithPath provisions only an isolated schema fixture.
+func newMCPLinkTestDBWithPath(t *testing.T) (*sql.DB, string) {
 	t.Helper()
-	ctx := context.Background()
 	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "mcp-link-auth")
 	t.Cleanup(cleanup)
 	dbtest.LoadSQLiteSchema(t, db)
-	dao, err := datly.New(ctx)
+	return db, dbPath
+}
+
+func newMCPLinkTestNative(t *testing.T, dbPath string) *standalone.Server {
+	t.Helper()
+	_, file, _, _ := runtime.Caller(0)
+	project := filepath.Join(filepath.Dir(file), "..", "..")
+	server, err := native.New(context.Background(), native.Options{
+		SourceRoot: project,
+		Connectors: []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: dbPath + "?_foreign_keys=on&_busy_timeout=5000", MaxOpenConns: 2}},
+	})
 	if err != nil {
-		t.Fatalf("datly.New() error = %v", err)
+		t.Fatal(err)
 	}
-	connector := view.NewConnector("agently", "sqlite", dbPath)
-	if err := dao.AddConnectors(ctx, connector); err != nil {
-		t.Fatalf("AddConnectors() error = %v", err)
+	t.Cleanup(func() {
+		if err := server.Shutdown(context.Background()); err != nil {
+			t.Error(err)
+		}
+	})
+	return server
+}
+
+func authTokenTestDB(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite3", path+"?_foreign_keys=on&_busy_timeout=5000")
+	if err != nil {
+		t.Fatal(err)
 	}
-	if err := userread.DefineUserComponent(ctx, dao); err != nil {
-		t.Fatalf("DefineUserComponent() error = %v", err)
-	}
-	if _, err := userwrite.DefineComponent(ctx, dao); err != nil {
-		t.Fatalf("user write DefineComponent() error = %v", err)
-	}
-	return dao
+	t.Cleanup(func() {
+		if err := db.Close(); err != nil {
+			t.Error(err)
+		}
+	})
+	return db
 }

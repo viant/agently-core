@@ -1,0 +1,37 @@
+#package('github.com/viant/agently-core/internal/datly/modelcall/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/modelcall','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $ModelCalls<[]*ModelCall>(body/data))
+#define($_ = $Data<[]*ModelCall>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'ModelCall'),
+       lifecycle_type(t,'Lifecycle'),
+       required(t.message_id),
+       tag(t.message_id,'validate:"required" sqlx:"message_id,primaryKey"'),
+       required(t.provider),
+       tag(t.provider,'validate:"required"'),
+       required(t.model),
+       tag(t.model,'validate:"required"'),
+       required(t.model_kind),
+       tag(t.model_kind,'validate:"required"'),
+       required(t.status),
+       tag(t.status,'validate:"required"'),
+       CAST(t.cost AS *float64),
+       tag(t.message_id,'json:","'),
+       tag(t.provider,'json:","'),
+       tag(t.model,'json:","'),
+       tag(t.model_kind,'json:","'),
+       tag(t.status,'json:","')
+FROM (${embed:sql/modelcall.sql}) t

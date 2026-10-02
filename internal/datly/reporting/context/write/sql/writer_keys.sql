@@ -1,0 +1,1 @@
+SELECT OwnerId AS OwnerId, ConversationId AS ConversationId FROM `/`

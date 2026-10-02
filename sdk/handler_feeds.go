@@ -4,9 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	jsonrepair2 "github.com/viant/agently-core/internal/jsonrepair"
 	"net/http"
-
-	"github.com/viant/agently-core/pkg/jsonrepair"
 )
 
 func normalizeFeedResponseData(value interface{}) interface{} {
@@ -24,7 +23,7 @@ func normalizeFeedResponseData(value interface{}) interface{} {
 	if len(raw) == 0 || json.Valid(raw) {
 		return raw
 	}
-	if repaired, ok := jsonrepair.NormalizeBareRedactionMarkers(string(raw)); ok {
+	if repaired, ok := jsonrepair2.NormalizeBareRedactionMarkers(string(raw)); ok {
 		return json.RawMessage(repaired)
 	}
 	return nil

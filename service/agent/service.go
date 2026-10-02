@@ -34,10 +34,12 @@ import (
 	"github.com/viant/agently-core/service/reactor"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
+	"github.com/viant/agently-core/workspace"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	bundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
+	"github.com/viant/datly/standalone"
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
 )
 
@@ -45,12 +47,15 @@ import (
 type Option func(*Service)
 
 type Service struct {
-	llm          *core.Service
-	registry     tool.Registry
-	fs           afs.Service
-	agentFinder  agent.Finder
-	augmenter    *augmenter.Service
-	orchestrator *reactor.Service
+	ownedNative      *standalone.Server
+	closeNativeOnce  sync.Once
+	closeNativeError error
+	llm              *core.Service
+	registry         tool.Registry
+	fs               afs.Service
+	agentFinder      agent.Finder
+	augmenter        *augmenter.Service
+	orchestrator     *reactor.Service
 
 	defaults *config.Defaults
 
@@ -207,6 +212,18 @@ func WithDataService(d data.Service) Option {
 	return func(s *Service) { s.dataService = d }
 }
 
+// WithGoalStore injects the durable goal store backed by the application's
+// shared Datly component runtime. Goal reads and controller writes use it alike.
+func WithGoalStore(store goalruntime.Store) Option {
+	return func(s *Service) {
+		if store == nil {
+			s.goalRuntime = nil
+			return
+		}
+		s.goalRuntime = goalruntime.NewRuntime(store)
+	}
+}
+
 // WithRelevanceSelector overrides the relevance selector used to populate
 // ContextProjection.HiddenTurnIDs. Intended primarily for testing or custom
 // selector integrations.
@@ -288,12 +305,28 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	// Instantiate default conversation API only when caller did not inject one.
 	// Preserving injected clients is required for in-memory/e2e runtimes.
 	if srv.conversation == nil {
-		if dao, err := implconv.NewDatly(context.Background()); err == nil {
-			if cli, err := implconv.New(context.Background(), dao); err == nil {
+		ctx := context.Background()
+		var server *standalone.Server
+		var err error
+		if strings.TrimSpace(os.Getenv("AGENTLY_DB_DSN")) == "" && strings.TrimSpace(os.Getenv("AGENTLY_DB_PATH")) == "" {
+			server, err = data.NewRuntimeFromWorkspace(ctx, workspace.RuntimeRoot())
+		} else {
+			server, err = data.NewRuntime(ctx)
+		}
+		if err == nil {
+			cli, err := implconv.New(ctx, server)
+			if err == nil {
 				srv.conversation = cli
+				srv.ownedNative = server
+				if srv.dataService == nil {
+					srv.dataService = data.NewService(server)
+				}
+			} else {
+				_ = server.Shutdown(ctx)
 			}
 		}
 	}
+
 	if srv.asyncManager == nil {
 		srv.asyncManager = asynccfg.NewManager()
 	}
@@ -377,9 +410,6 @@ func New(llm *core.Service, agentFinder agent.Finder, augmenter *augmenter.Servi
 	if srv.skillSvc != nil {
 		srv.skillSvc.SetToolRegistry(srv.registry)
 	}
-	if srv.dataService != nil {
-		srv.goalRuntime = goalruntime.NewRuntime(goalruntime.NewStore(srv.dataService))
-	}
 
 	return srv
 }
@@ -404,4 +434,17 @@ func (s *Service) ResolveElicitation(ctx context.Context, conversationID, elicit
 		return fmt.Errorf("elicitation service not configured")
 	}
 	return s.elicitation.Resolve(ctx, conversationID, elicitationID, action, payload, "")
+}
+
+// Close releases persistence opened by the standalone service constructor.
+func (s *Service) Close(ctx context.Context) error {
+	if s == nil {
+		return nil
+	}
+	s.closeNativeOnce.Do(func() {
+		if s.ownedNative != nil {
+			s.closeNativeError = s.ownedNative.Shutdown(ctx)
+		}
+	})
+	return s.closeNativeError
 }

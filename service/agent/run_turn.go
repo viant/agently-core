@@ -20,12 +20,11 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	authctx "github.com/viant/agently-core/internal/auth"
 	token "github.com/viant/agently-core/internal/auth/token"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
-	agmessagelist "github.com/viant/agently-core/pkg/agently/message/list"
-	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
-	agrunwrite "github.com/viant/agently-core/pkg/agently/run/write"
-	queueRead "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
+	messagemodel "github.com/viant/agently-core/model/message"
+	runmodel "github.com/viant/agently-core/model/run"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
 	"github.com/viant/agently-core/protocol/binding"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
@@ -182,10 +181,10 @@ func (s *Service) resolveUploadedAttachment(ctx context.Context, turn runtimereq
 	if !ok {
 		return nil
 	}
-	files, err := gfc.GetGeneratedFiles(ctx, &gfread.Input{
+	files, err := gfc.GetGeneratedFiles(ctx, &generatedfilemodel.Input{
 		ConversationID: conversationID,
 		ID:             fileID,
-		Has: &gfread.Has{
+		Has: &generatedfilemodel.Has{
 			ConversationID: true,
 			ID:             true,
 		},
@@ -194,10 +193,10 @@ func (s *Service) resolveUploadedAttachment(ctx context.Context, turn runtimereq
 		return fmt.Errorf("resolve uploaded attachment %s: %w", fileID, err)
 	}
 	for _, file := range files {
-		if file == nil || strings.TrimSpace(file.ID) != fileID || file.PayloadID == nil {
+		if file == nil || strings.TrimSpace(file.Id) != fileID || file.PayloadId == nil {
 			continue
 		}
-		payloadID := strings.TrimSpace(*file.PayloadID)
+		payloadID := strings.TrimSpace(*file.PayloadId)
 		if payloadID == "" {
 			continue
 		}
@@ -401,13 +400,13 @@ func (s *Service) patchConversationStatus(ctx context.Context, conversationID, s
 	if conversationID == "" || status == "" {
 		return nil
 	}
-	err := s.conversation.PatchConversations(ctx, convw.NewConversationStatus(conversationID, status))
+	err := s.conversation.PatchConversations(ctx, conversationmodel.NewConversationStatus(conversationID, status))
 	if err != nil {
 		return err
 	}
 	if s.dataService != nil {
-		if _, dsErr := s.dataService.PatchConversations(ctx, []*convw.Conversation{
-			convw.NewConversationStatus(conversationID, status),
+		if _, dsErr := s.dataService.PatchConversations(ctx, []*conversationmodel.Conversation{
+			conversationmodel.NewConversationStatus(conversationID, status),
 		}); dsErr != nil {
 			logx.Warnf("conversation", "agent.patchConversationStatus data-service failed convo=%q status=%q err=%v", conversationID, status, dsErr)
 		}
@@ -419,11 +418,11 @@ func (s *Service) updateDefaultModel(ctx context.Context, turn runtimerequestctx
 	if strings.TrimSpace(output.Model) == "" {
 		return nil
 	}
-	w := &convw.Conversation{Has: &convw.ConversationHas{}}
+	w := &conversationmodel.Conversation{Has: &conversationmodel.ConversationHas{}}
 	w.SetId(turn.ConversationID)
 	w.SetDefaultModel(output.Model)
 	if s.conversation != nil {
-		mw := convw.Conversation(*w)
+		mw := conversationmodel.Conversation(*w)
 		if err := s.conversation.PatchConversations(ctx, (*apiconv.MutableConversation)(&mw)); err != nil {
 			// Updating the default model is a best-effort write; the turn has
 			// already succeeded, so log and continue rather than unwind.
@@ -447,7 +446,7 @@ func (s *Service) captureSecurityContext(ctx context.Context, input *QueryInput)
 	if runID == "" {
 		return
 	}
-	run := &agrunwrite.MutableRunView{}
+	run := &runmodel.MutableRunView{}
 	run.SetId(runID)
 	if secData, err := token.MarshalSecurityContext(ctx); err == nil && secData != "" {
 		run.SetSecurityContext(secData)
@@ -462,7 +461,7 @@ func (s *Service) captureSecurityContext(ctx context.Context, input *QueryInput)
 	if userID == "" && run.SecurityContext == nil {
 		return
 	}
-	_, _ = s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
+	_, _ = s.dataService.PatchRuns(ctx, []*runmodel.MutableRunView{run})
 }
 
 func valueOrEmpty(v *string) string {
@@ -477,7 +476,7 @@ func (s *Service) ensureRunRecord(ctx context.Context, turn runtimerequestctx.Tu
 		return nil
 	}
 	now := runLeaseTimestamp(time.Now())
-	run := &agrunwrite.MutableRunView{}
+	run := &runmodel.MutableRunView{}
 	run.SetId(turn.TurnID)
 	run.SetTurnID(turn.TurnID)
 	run.SetConversationID(turn.ConversationID)
@@ -496,7 +495,7 @@ func (s *Service) ensureRunRecord(ctx context.Context, turn runtimerequestctx.Tu
 		// Admission writes the unique per-turn lease token in the same PATCH.
 		run.SetLeaseOwner(lease.Owner())
 	}
-	_, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
+	_, err := s.dataService.PatchRuns(ctx, []*runmodel.MutableRunView{run})
 	return err
 }
 
@@ -504,7 +503,7 @@ func (s *Service) updateRunIteration(ctx context.Context, turn runtimerequestctx
 	if s == nil || s.dataService == nil || iteration <= 0 {
 		return
 	}
-	run := &agrunwrite.MutableRunView{}
+	run := &runmodel.MutableRunView{}
 	run.SetId(turn.TurnID)
 	run.SetIteration(iteration)
 	run.SetStatus("running")
@@ -515,7 +514,7 @@ func (s *Service) updateRunIteration(ctx context.Context, turn runtimerequestctx
 		s.touchInteractiveRunHeartbeat(run, time.Now())
 		s.applyRunLease(ctx, run)
 	}
-	if _, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run}); err != nil {
+	if _, err := s.dataService.PatchRuns(ctx, []*runmodel.MutableRunView{run}); err != nil {
 		logx.Warnf("conversation", "agent.updateRunIteration failed convo=%q turn_id=%q iter=%d err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), iteration, err)
 	}
 }
@@ -551,7 +550,7 @@ func (s *Service) startRunHeartbeat(ctx context.Context, turn runtimerequestctx.
 				if lease != nil && !lease.Active() {
 					return
 				}
-				run := &agrunwrite.MutableRunView{}
+				run := &runmodel.MutableRunView{}
 				run.SetId(turn.TurnID)
 				s.touchInteractiveRunHeartbeat(run, time.Now())
 				proposedOwner := ""
@@ -559,9 +558,9 @@ func (s *Service) startRunHeartbeat(ctx context.Context, turn runtimerequestctx.
 					expectedOwner := lease.Owner()
 					proposedOwner = s.newRunLeaseOwner()
 					run.SetLeaseOwner(proposedOwner)
-					run.SetCondition(agrunwrite.RunPatchCondition{LeaseOwner: &expectedOwner})
+					run.SetCondition(runmodel.RunPatchCondition{LeaseOwner: &expectedOwner})
 				}
-				if _, err := s.dataService.PatchRuns(heartbeatCtx, []*agrunwrite.MutableRunView{run}); err != nil {
+				if _, err := s.dataService.PatchRuns(heartbeatCtx, []*runmodel.MutableRunView{run}); err != nil {
 					logx.Warnf("conversation", "agent.runHeartbeat failed convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), err)
 					continue
 				}
@@ -580,7 +579,7 @@ func (s *Service) startRunHeartbeat(ctx context.Context, turn runtimerequestctx.
 	}
 }
 
-func (s *Service) populateInteractiveRunRuntime(run *agrunwrite.MutableRunView, now time.Time) {
+func (s *Service) populateInteractiveRunRuntime(run *runmodel.MutableRunView, now time.Time) {
 	if s == nil || run == nil {
 		return
 	}
@@ -598,7 +597,7 @@ func (s *Service) populateInteractiveRunRuntime(run *agrunwrite.MutableRunView, 
 	run.SetLastHeartbeatAt(now)
 }
 
-func (s *Service) touchInteractiveRunHeartbeat(run *agrunwrite.MutableRunView, now time.Time) {
+func (s *Service) touchInteractiveRunHeartbeat(run *runmodel.MutableRunView, now time.Time) {
 	if s == nil || run == nil {
 		return
 	}
@@ -850,7 +849,7 @@ func (s *Service) patchRunTerminalState(ctx context.Context, turn runtimerequest
 	if s == nil || s.dataService == nil {
 		return nil
 	}
-	run := &agrunwrite.MutableRunView{}
+	run := &runmodel.MutableRunView{}
 	run.SetId(turn.TurnID)
 	runStatus := status
 	if strings.EqualFold(strings.TrimSpace(status), "waiting_for_user") {
@@ -863,7 +862,7 @@ func (s *Service) patchRunTerminalState(ctx context.Context, turn runtimerequest
 	}
 	// Finalization only lands when this execution still owns the run.
 	s.applyRunLease(ctx, run)
-	_, err := s.dataService.PatchRuns(ctx, []*agrunwrite.MutableRunView{run})
+	_, err := s.dataService.PatchRuns(ctx, []*runmodel.MutableRunView{run})
 	return err
 }
 
@@ -1023,7 +1022,7 @@ func runLeaseTimestamp(value time.Time) time.Time {
 
 // applyRunLease carries the execution's lease token in an existing run PATCH
 // and makes that PATCH conditional on still owning the run.
-func (s *Service) applyRunLease(ctx context.Context, run *agrunwrite.MutableRunView) {
+func (s *Service) applyRunLease(ctx context.Context, run *runmodel.MutableRunView) {
 	lease := runLeaseFromContext(ctx)
 	if lease == nil || run == nil {
 		return
@@ -1032,7 +1031,7 @@ func (s *Service) applyRunLease(ctx context.Context, run *agrunwrite.MutableRunV
 	if run.Has != nil && run.Has.LeaseOwner {
 		run.SetLeaseOwner(owner)
 	}
-	run.SetCondition(agrunwrite.RunPatchCondition{LeaseOwner: &owner})
+	run.SetCondition(runmodel.RunPatchCondition{LeaseOwner: &owner})
 }
 
 // verifyRunLease is the heartbeat's authoritative ownership check: the
@@ -1042,9 +1041,9 @@ func (s *Service) verifyRunLease(ctx context.Context, turn runtimerequestctx.Tur
 	if s == nil || s.dataService == nil || lease == nil {
 		return
 	}
-	row, err := s.dataService.GetActiveRun(ctx, &agrunactive.ActiveRunsInput{
+	row, err := s.dataService.GetActiveRun(ctx, &runmodel.ActiveRunsInput{
 		TurnId: strings.TrimSpace(turn.TurnID),
-		Has:    &agrunactive.ActiveRunsInputHas{TurnId: true},
+		Has:    &runmodel.ActiveRunsInputHas{TurnId: true},
 	})
 	if err != nil || row == nil {
 		return
@@ -1103,10 +1102,10 @@ func (s *Service) turnAwaitingUserAction(ctx context.Context, turn runtimereques
 }
 
 func (s *Service) turnAwaitingUserActionData(ctx context.Context, conversationID, turnID string) (bool, error) {
-	page, err := s.dataService.GetMessagesPage(context.Background(), &agmessagelist.MessageRowsInput{
+	page, err := s.dataService.GetMessagesPage(context.Background(), &messagemodel.MessageRowsInput{
 		ConversationId: conversationID,
 		TurnId:         turnID,
-		Has: &agmessagelist.MessageRowsInputHas{
+		Has: &messagemodel.MessageRowsInputHas{
 			ConversationId: true,
 			TurnId:         true,
 		},
@@ -1130,7 +1129,7 @@ type proxyElicitationPairGetter interface {
 }
 
 type toolApprovalQueueLister interface {
-	ListToolApprovalQueues(ctx context.Context, in *queueRead.QueueRowsInput) ([]*queueRead.QueueRowView, error)
+	ListToolApprovalQueues(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error)
 }
 
 type toolApprovalQueueMetadata struct {
@@ -1145,11 +1144,11 @@ func (s *Service) normalizeDetachedQueueWaiting(ctx context.Context, conversatio
 	if !ok || lister == nil {
 		return waiting, nil
 	}
-	rows, err := lister.ListToolApprovalQueues(ctx, &queueRead.QueueRowsInput{
+	rows, err := lister.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
 		ConversationId: strings.TrimSpace(conversationID),
 		TurnId:         strings.TrimSpace(turnID),
 		QueueStatus:    "pending",
-		Has: &queueRead.QueueRowsInputHas{
+		Has: &toolapprovalqueuemodel.QueueRowsInputHas{
 			ConversationId: true,
 			TurnId:         true,
 			QueueStatus:    true,
@@ -1197,14 +1196,14 @@ func messageAwaitingUserAction(msg *apiconv.Message) bool {
 	return false
 }
 
-func messageRowAwaitingUserAction(msg *agmessagelist.MessageRowsView) bool {
+func messageRowAwaitingUserAction(msg *messagemodel.MessageRowsView) bool {
 	if msg == nil {
 		return false
 	}
 	return statusIndicatesAwaitingUser(valueOrEmpty(msg.Status))
 }
 
-func (s *Service) messageRowAwaitingUserAction(ctx context.Context, msg *agmessagelist.MessageRowsView) bool {
+func (s *Service) messageRowAwaitingUserAction(ctx context.Context, msg *messagemodel.MessageRowsView) bool {
 	if msg == nil || !messageRowAwaitingUserAction(msg) {
 		return false
 	}

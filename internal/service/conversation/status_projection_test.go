@@ -7,10 +7,8 @@ import (
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	turnwrite "github.com/viant/agently-core/pkg/agently/turn/write"
-	"github.com/viant/datly"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *testing.T) {
@@ -21,10 +19,7 @@ func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *test
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -32,7 +27,7 @@ func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *test
 
 	convID := "conv_status_projection"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
@@ -41,7 +36,7 @@ func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *test
 	}
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn_status_projection")
 	turn.SetConversationID(convID)
 	turn.SetStatus("succeeded")
@@ -62,7 +57,7 @@ func TestGetConversation_UsesLatestTurnStatusOverStaleConversationStatus(t *test
 	}
 }
 
-func TestConversationOutput_DatlyAlreadyReturnsRelationAppliedStage_SQLite(t *testing.T) {
+func TestConversationOutput_NativeReturnsRelationAppliedStage_SQLite(t *testing.T) {
 	ctx := context.Background()
 
 	tmp := t.TempDir()
@@ -70,10 +65,7 @@ func TestConversationOutput_DatlyAlreadyReturnsRelationAppliedStage_SQLite(t *te
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -81,7 +73,7 @@ func TestConversationOutput_DatlyAlreadyReturnsRelationAppliedStage_SQLite(t *te
 
 	convID := "conv_manual_on_relation"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
@@ -90,7 +82,7 @@ func TestConversationOutput_DatlyAlreadyReturnsRelationAppliedStage_SQLite(t *te
 	}
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn_manual_on_relation")
 	turn.SetConversationID(convID)
 	turn.SetStatus("succeeded")
@@ -99,21 +91,20 @@ func TestConversationOutput_DatlyAlreadyReturnsRelationAppliedStage_SQLite(t *te
 		t.Fatalf("PatchTurn: %v", err)
 	}
 
-	in := agconv.ConversationInput{Id: convID, Has: &agconv.ConversationInputHas{Id: true, IncludeTranscript: true}}
-	in.IncludeTranscript = true
-	out := &agconv.ConversationOutput{}
-	uri := strings.ReplaceAll(agconv.ConversationPathURI, "{id}", convID)
-	if _, err := dao.Operate(ctx, datly.WithOutput(out), datly.WithURI(uri), datly.WithInput(&in)); err != nil {
-		t.Fatalf("dao.Operate: %v", err)
+	row, err := svc.GetConversation(ctx, convID, convcli.WithIncludeTranscript(true))
+	if err != nil {
+		t.Fatal(err)
 	}
+	out := &conversationmodel.ConversationOutput{Data: []*conversationmodel.ConversationView{(*conversationmodel.ConversationView)(row)}}
+
 	if len(out.Data) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(out.Data))
 	}
 	if got := strings.TrimSpace(out.Data[0].Stage); got != "done" {
-		t.Fatalf("expected raw datly output stage to already be done, got %q", got)
+		t.Fatalf("expected native conversation output stage to already be done, got %q", got)
 	}
 	if out.Data[0].Status == nil || *out.Data[0].Status != "succeeded" {
-		t.Fatalf("expected raw datly output status to already be succeeded, got %#v", out.Data[0].Status)
+		t.Fatalf("expected native conversation output status to already be succeeded, got %#v", out.Data[0].Status)
 	}
 
 	beforeStage := out.Data[0].Stage
@@ -135,10 +126,7 @@ func TestGetConversation_PrunesBlankAssistantPlaceholderMessages(t *testing.T) {
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -146,7 +134,7 @@ func TestGetConversation_PrunesBlankAssistantPlaceholderMessages(t *testing.T) {
 
 	convID := "conv_blank_placeholder"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
@@ -155,7 +143,7 @@ func TestGetConversation_PrunesBlankAssistantPlaceholderMessages(t *testing.T) {
 	}
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn_blank_placeholder")
 	turn.SetConversationID(convID)
 	turn.SetStatus("running")
@@ -195,10 +183,7 @@ func TestGetConversation_PreservesWhitespaceOnlyAssistantChunks(t *testing.T) {
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -206,7 +191,7 @@ func TestGetConversation_PreservesWhitespaceOnlyAssistantChunks(t *testing.T) {
 
 	convID := "conv_whitespace_chunk"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
@@ -215,7 +200,7 @@ func TestGetConversation_PreservesWhitespaceOnlyAssistantChunks(t *testing.T) {
 	}
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn_whitespace_chunk")
 	turn.SetConversationID(convID)
 	turn.SetStatus("running")
@@ -256,10 +241,7 @@ func TestGetConversation_PreservesParentedAssistantAndToolMessages(t *testing.T)
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -267,7 +249,7 @@ func TestGetConversation_PreservesParentedAssistantAndToolMessages(t *testing.T)
 
 	convID := "conv_parented_rows"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetStatus("running")
 	conv.SetVisibility("private")
@@ -276,7 +258,7 @@ func TestGetConversation_PreservesParentedAssistantAndToolMessages(t *testing.T)
 	}
 
 	turn := convcli.NewTurn()
-	turn.Has = &turnwrite.TurnHas{}
+	turn.Has = &turnmodel.TurnHas{}
 	turn.SetId("turn_parented_rows")
 	turn.SetConversationID(convID)
 	turn.SetStatus("succeeded")

@@ -6,15 +6,15 @@ import (
 	"testing"
 
 	"github.com/viant/agently-core/internal/testutil/dbtest"
-	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 )
 
 func TestDataService_ListConversations_UsesConversationOrderKeyForCursors(t *testing.T) {
 	svc := newSeededService(t, seedForConversationPageOrder)
 	ctx := context.Background()
 
-	latest, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		Has: &agconvlist.ConversationRowsInputHas{},
+	latest, err := svc.ListConversations(ctx, &conversationmodel.ConversationRowsInput{
+		Has: &conversationmodel.ConversationRowsInputHas{},
 	}, &PageInput{Limit: 1, Direction: DirectionLatest})
 	if err != nil {
 		t.Fatalf("ListConversations(latest) error: %v", err)
@@ -29,8 +29,8 @@ func TestDataService_ListConversations_UsesConversationOrderKeyForCursors(t *tes
 		t.Fatalf("unexpected latest flags: older=%v newer=%v", latest.HasOlder, latest.HasNewer)
 	}
 
-	older, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		Has: &agconvlist.ConversationRowsInputHas{},
+	older, err := svc.ListConversations(ctx, &conversationmodel.ConversationRowsInput{
+		Has: &conversationmodel.ConversationRowsInputHas{},
 	}, &PageInput{Limit: 1, Direction: DirectionBefore, Cursor: latest.NextCursor})
 	if err != nil {
 		t.Fatalf("ListConversations(before) error: %v", err)
@@ -45,8 +45,8 @@ func TestDataService_ListConversations_UsesConversationOrderKeyForCursors(t *tes
 		t.Fatalf("unexpected older flags: older=%v newer=%v", older.HasOlder, older.HasNewer)
 	}
 
-	newer, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		Has: &agconvlist.ConversationRowsInputHas{},
+	newer, err := svc.ListConversations(ctx, &conversationmodel.ConversationRowsInput{
+		Has: &conversationmodel.ConversationRowsInputHas{},
 	}, &PageInput{Limit: 1, Direction: DirectionAfter, Cursor: older.PrevCursor})
 	if err != nil {
 		t.Fatalf("ListConversations(after) error: %v", err)
@@ -66,40 +66,40 @@ func TestDataService_ListConversations_NewerReturnsAdjacentPage(t *testing.T) {
 	svc := newSeededService(t, seedForConversationPagerSequence)
 	ctx := context.Background()
 
-	latest, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		Has: &agconvlist.ConversationRowsInputHas{},
+	latest, err := svc.ListConversations(ctx, &conversationmodel.ConversationRowsInput{
+		Has: &conversationmodel.ConversationRowsInputHas{},
 	}, &PageInput{Limit: 2, Direction: DirectionLatest})
 	if err != nil {
 		t.Fatalf("ListConversations(latest) error: %v", err)
 	}
 	assertConversationPage(t, latest, []string{"c-seq-5", "c-seq-4"}, false, true)
 
-	middle, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		Has: &agconvlist.ConversationRowsInputHas{},
+	middle, err := svc.ListConversations(ctx, &conversationmodel.ConversationRowsInput{
+		Has: &conversationmodel.ConversationRowsInputHas{},
 	}, &PageInput{Limit: 2, Direction: DirectionBefore, Cursor: latest.NextCursor})
 	if err != nil {
 		t.Fatalf("ListConversations(before middle) error: %v", err)
 	}
 	assertConversationPage(t, middle, []string{"c-seq-3", "c-seq-2"}, true, true)
 
-	oldest, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		Has: &agconvlist.ConversationRowsInputHas{},
+	oldest, err := svc.ListConversations(ctx, &conversationmodel.ConversationRowsInput{
+		Has: &conversationmodel.ConversationRowsInputHas{},
 	}, &PageInput{Limit: 2, Direction: DirectionBefore, Cursor: middle.NextCursor})
 	if err != nil {
 		t.Fatalf("ListConversations(before oldest) error: %v", err)
 	}
 	assertConversationPage(t, oldest, []string{"c-seq-1"}, true, false)
 
-	backToMiddle, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		Has: &agconvlist.ConversationRowsInputHas{},
+	backToMiddle, err := svc.ListConversations(ctx, &conversationmodel.ConversationRowsInput{
+		Has: &conversationmodel.ConversationRowsInputHas{},
 	}, &PageInput{Limit: 2, Direction: DirectionAfter, Cursor: oldest.PrevCursor})
 	if err != nil {
 		t.Fatalf("ListConversations(after middle) error: %v", err)
 	}
 	assertConversationPage(t, backToMiddle, []string{"c-seq-3", "c-seq-2"}, true, true)
 
-	backToNewest, err := svc.ListConversations(ctx, &agconvlist.ConversationRowsInput{
-		Has: &agconvlist.ConversationRowsInputHas{},
+	backToNewest, err := svc.ListConversations(ctx, &conversationmodel.ConversationRowsInput{
+		Has: &conversationmodel.ConversationRowsInputHas{},
 	}, &PageInput{Limit: 2, Direction: DirectionAfter, Cursor: backToMiddle.PrevCursor})
 	if err != nil {
 		t.Fatalf("ListConversations(after newest) error: %v", err)
@@ -110,9 +110,9 @@ func TestDataService_ListConversations_NewerReturnsAdjacentPage(t *testing.T) {
 func TestDataService_ListConversations_QueryCombinesWithCursor(t *testing.T) {
 	svc := newSeededService(t, seedForConversationPagerSequence)
 	ctx := context.Background()
-	input := &agconvlist.ConversationRowsInput{
+	input := &conversationmodel.ConversationRowsInput{
 		Query: "c-seq",
-		Has: &agconvlist.ConversationRowsInputHas{
+		Has: &conversationmodel.ConversationRowsInputHas{
 			Query: true,
 		},
 	}

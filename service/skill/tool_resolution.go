@@ -7,7 +7,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 )
@@ -35,12 +35,12 @@ func matchSkillTool(ctx context.Context, reg tool.Registry, pattern string) []*l
 		if i := strings.LastIndex(name, ":"); i >= 0 {
 			method = name[i+1:]
 		} else {
-			method = mcpname.Name(mcpname.Canonical(name)).Method()
+			method = mcpname2.Name(mcpname2.Canonical(name)).Method()
 		}
 		if !strings.EqualFold(method, pattern) {
 			continue
 		}
-		key := strings.ToLower(mcpname.Canonical(name))
+		key := strings.ToLower(mcpname2.Canonical(name))
 		if seen[key] {
 			continue
 		}

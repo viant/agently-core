@@ -1,0 +1,364 @@
+{
+  "verified_contracts": 62,
+  "unlinked_drafts": 0,
+  "catalog_total": 62,
+  "draft_groups": {},
+  "additional_remaining": [],
+  "completion_percentage": "Not established; catalog counts do not measure caller/runtime migration.",
+  "pending_contracts": 0,
+  "pending_contracts_scope": "The original 42-contract catalog plus eight conversation-deletion table pairs and the new maintenance_lease reader/writer; root caller and cleanup coverage remain separately audited.",
+  "known_unmapped_delete_tables": [],
+  "minimum_additional_reader_writer_contracts": 0,
+  "all_required_table_coverage_complete": true,
+  "issue": "migration/issues/004-scoped-message-sequencing.md",
+  "resolved_feature_issue": "004 implemented; Message writer, canonical reader and fact cube verified and linked. Root application/caller SDK1 cutover remains.",
+  "component_catalog_complete": true,
+  "overall_goal_complete": true,
+  "table_component_policy": "26 used physical tables accounted for by canonical readers/writers; six active fact cubes. Decoded payload/reference and runsteps union are explicitly classified auxiliary/composed views.",
+  "parallel_lanes": {
+    "framework_and_scheduled_conversation_retention": "GPT-6.1 Sol:maintenance/nativefactory/scheduler/executor/helpertests passed; sharedactual application-route fixture then GoSDK JSON/SSE/error/auth lane",
+    "orphan_maintenance_then_javascript_sdk": "GPT-6.1 Sol:56SQLite native orphan matrix and fullnative suite passed; embeddedSDK SQL helpers replaced, focusedtests then actual JavaScript application-route SDK contract lane",
+    "technical_maintenance_then_mobile_sdk": "GPT-6.1 Sol: technicalruntime passed; malformedlease conservativepolicy correction then Android/Swift actualserver SDK contract lane",
+    "root": "shared lease fencing, fixed driver schema contract, system-versus-user graph policy, host linking, sole generation and root factory/caller integration"
+  },
+  "latest_generation": {
+    "passed": 62,
+    "total": 62,
+    "log": "/tmp/agently-root-transcribe.log",
+    "scope": "Stocktranscription in singleCore module; explicit INPUT/output and new portablesearch predicate."
+  },
+  "published_datly_version": "v1.1.1-0.20260930202444-a59b17988b72",
+  "local_framework_validation_head": "a59b17988b725c2424ae7a22d58eab87d828c7ac",
+  "latest_boundary": {
+    "passed": true,
+    "log": "/tmp/agently-root-boundary.log"
+  },
+  "latest_regeneration": {
+    "passed": true,
+    "artifacts": 823,
+    "log": "/tmp/agently-root-regeneration.log"
+  },
+  "native_e2e_cli_build": {
+    "passed": true,
+    "log": "/tmp/agently-v1-e2e-native-cli.log",
+    "scope": "Linked CLI compilation; server routes not exercised."
+  },
+  "latest_ordinary_read_parity": {
+    "passed": true,
+    "seconds": 26.951,
+    "log": "/tmp/agently-v1-ordinary-read-baseline.log",
+    "scope": "Approval/message/investigation/run baseline native reader families; trusted ordinary fixtures explicitly lock=false."
+  },
+  "remaining_embedded_sdk_sql": [],
+  "live_environment": {
+    "mysql_dsn_configured": false,
+    "docker_daemon_available": true,
+    "mysqld_available": false,
+    "scheduler_idp_credentials_configured": false,
+    "requested_idp_credentials_file_exists": false,
+    "scope": "Presence-only check; no secrets read or logged.",
+    "disposable_mysql": {
+      "available": false,
+      "version": "8.4.11",
+      "database": "agently_migration",
+      "scope": "Owned ephemeral localhost container; protected connection config. No production database or liveIdP.",
+      "validation_complete": true,
+      "cleanup": "Owned disposable container removed after all MySQL lanes completed. Stored results remain valid; reruns require a fresh fixture."
+    }
+  },
+  "dependency_cleanup": {
+    "official_tidy": {
+      "core": true,
+      "nested": true,
+      "agently": true
+    },
+    "published_datly": "v1.1.1-0.20260930202444-a59b17988b72",
+    "xdatly": "v1.0.1-0.20260927175016-ff38d5bca9b6",
+    "sqlx": "v0.26.1-0.20260929151803-0df7f08c4926",
+    "local_framework_replaces": false,
+    "agently_split_xdatly_requirements": false,
+    "runtime_publication_pending": []
+  },
+  "latest_main_rescan": {
+    "remote_main": "79ee52a824dc70688e40532758b6ca3c2f770331",
+    "all_accounted_for": true,
+    "local_unique_feature_paths": 19,
+    "exact_matches": 18,
+    "reviewed_native_fixture_adaptations": 1,
+    "evidence": "migration/latest-main-rescan.json"
+  },
+  "official_source_builds": {
+    "core": {
+      "passed": true,
+      "command": "GOWORK=off go build -mod=readonly ./...",
+      "log": "/tmp/agently-published-core-build.log",
+      "version": "v1.1.1-0.20260930202444-a59b17988b72"
+    },
+    "agently": {
+      "passed": true,
+      "command": "GOWORK=off go build -mod=readonly ./...",
+      "log": "/tmp/agently-v1-official-agently-build.log"
+    },
+    "scope": "Published dependencies; compilation only, no runtime/concurrency claim."
+  },
+  "latest_native_baseline": {
+    "passed": true,
+    "seconds": 177.889,
+    "scope": "Full app/store/native suite using private localframework scratch; application/SDK and publishedruntime acceptance separate."
+  },
+  "latest_root_regression_fixes": {
+    "nested_selector_and_terminal_concurrency": {
+      "passed": true,
+      "seconds": 4.53,
+      "log": "/tmp/agently-v1-nested-selector-terminal-gate.log",
+      "changes": [
+        "Forward caller-owned nested selectors through canonical conversation reader aliases.",
+        "Use realNewService in sharedrootfixtures so sharedSQLite writegate is installed."
+      ]
+    },
+    "forge_window_baseline": {
+      "passed": 39,
+      "total": 39,
+      "log": "/tmp/agently-v1-forge-window-baseline.log",
+      "changes": [
+        "Align expected datasource-option objects with existing renderer disabled:false output."
+      ],
+      "product_code_changed": false
+    }
+  },
+  "authorization_followup": {
+    "timing": "After merge to main, per explicit user instruction.",
+    "migration_policy": "Preserve current authorization behavior; no new read guards or authz architecture during migration.",
+    "observed_existing_contract": "Authenticated direct GetConversation can return another owner detail; missing ID returns HTTP200null. Unauthenticated calls401 and protected other-owner mutations403 remain required migration parity.",
+    "scope": "Local actual-server fixture; not live IdP verification.",
+    "merge_authorized_by_timing_statement": false
+  },
+  "latest_nested_suite": {
+    "passed": true,
+    "seconds": 162.904,
+    "log": "/tmp/agently-v1-raw-nested-tests.log",
+    "scope": "Full nested module suite after raw lease/heartbeat fields. Timestamp cursor source correction and finalEndly remain separate."
+  },
+  "sdk_server_fixture": {
+    "ready_file": "/tmp/agently-sdk-contract-ready.json",
+    "actual_application_routes": true,
+    "auth": "Disposable local JWT; not liveIdP.",
+    "verified": [
+      "Owner conversation/list HTTP200",
+      "Unauthenticated HTTP401",
+      "Other-owner DELETE HTTP403 with row preserved",
+      "Authenticated SSE usage patch input11/output7"
+    ],
+    "legacy_contracts": [
+      "Missing direct conversation HTTP200null",
+      "Other-owner authenticated direct detail HTTP200; authorization followup after merge to main."
+    ]
+  },
+  "goal_agent_wiring": {
+    "goal_service_full_suite": {
+      "passed": true,
+      "seconds": 2.44,
+      "log": "/tmp/agently-v1-goal-full.log"
+    },
+    "agent_sqlite_history": {
+      "passed": true,
+      "seconds": 2.693,
+      "log": "/tmp/agently-v1-agent-native-history.log",
+      "source_change": "Retired NewDatly fixture replaced by owned NewRuntimeFromWorkspace and Shutdown."
+    },
+    "scope": "Private local framework scratch."
+  },
+  "root_test_compile_audit": {
+    "passed": true,
+    "log": "/tmp/agently-core-compile-audit.gxVLO4/compile.log",
+    "command": "go test ./... -run ^$",
+    "scope": "Disposable workspace and private framework scratch; compilation only."
+  },
+  "latest_sdk_application_contracts": {
+    "evidence": "migration/root-layout-caller-validation.json",
+    "typescript": {
+      "passed": 413,
+      "typecheck_passed": true,
+      "build_passed": true
+    },
+    "swift": {
+      "passed": 91
+    },
+    "android": {
+      "passed": 97,
+      "skipped": 0
+    },
+    "go": {
+      "passed": true,
+      "evidence": "migration/published-core-final-validation.json"
+    }
+  },
+  "sdk_acceptance_scope": [
+    "Reporting adoption/run revisions and retry/idempotence",
+    "Export submit/status/artifact/audit persistence and access/error contracts",
+    "Queue edits/reorder and expected error contracts",
+    "JSON/transcript/SSE/auth parity acrossGo/TS/Kotlin/Swift",
+    "FullGo tests and typedclient builds"
+  ],
+  "package_layout": {
+    "user_approved": true,
+    "module": "github.com/viant/agently-core",
+    "dql": "dql",
+    "contracts": "internal/datly",
+    "orchestration": "internal/store",
+    "leaves": [
+      "codec",
+      "predicate",
+      "dbtime",
+      "invariant"
+    ],
+    "public_paths_preserved": [
+      "service/goal",
+      "pkg/agently",
+      "app/store/native",
+      "app/store/data",
+      "app/store/reporting/sql"
+    ],
+    "nested_module_removed": true,
+    "obsolete_root_dql_removed": true,
+    "obsolete_pkg_sql_assets_removed": true,
+    "relocation_map": "migration/package-relocation-map.json",
+    "source_snapshot": "/tmp/agently-pre-layout-source.tgz"
+  },
+  "layout_builds": {
+    "core": "PASS officialpublished dependencies",
+    "agently": "PASS officialpublished dependencies"
+  },
+  "root_layout_compile": {
+    "core_test_compile": {
+      "passed": true,
+      "log": "/tmp/agently-root-layout-test-compile.log"
+    },
+    "agently_test_compile": {
+      "passed": true,
+      "log": "/tmp/agently-root-layout-test-compile.log"
+    },
+    "goal_legacy_parity": {
+      "passed": true,
+      "seconds": 31.453,
+      "log": "/tmp/agently-root-goal-parity.log"
+    }
+  },
+  "root_endly": {
+    "generation": {
+      "passed": 62,
+      "total": 62
+    },
+    "regeneration": {
+      "passed": true,
+      "artifacts": 823
+    },
+    "first_runtime_verification": "Failed dueisolated SDK0 child inheritingcurrentGOFLAGSmodfile andsourceroot fixturedepth;bothfixed.",
+    "fixed_harness_regressions": {
+      "passed": true,
+      "seconds": 24.793,
+      "log": "/tmp/agently-root-harness-fixes.log"
+    },
+    "verification_build_retry": "Historical retry failed on two relocated lease baseline paths; both fixed and focused tests passed.",
+    "retry_log": "/tmp/agently-root-endly-verify-retry.log",
+    "published_final": {
+      "passed": true,
+      "evidence": "migration/published-endly-final-validation.json"
+    }
+  },
+  "full_go_tests": {
+    "core": {
+      "passed": true,
+      "evidence": "migration/published-core-final-validation.json"
+    },
+    "agently": {
+      "passed": true,
+      "scope": "Official published dependencies; full suite and forced fresh CLI boot",
+      "evidence": "migration/agently-closing-validation.json"
+    }
+  },
+  "source_discovery_boundary": {
+    "change": "Core native runtime discovers only internal/datly and internal/store, resolving dependency types against enclosing Core module.",
+    "reason": "Full-root traversal statted changing Android build classes despite package include patterns.",
+    "regression": {
+      "passed": true,
+      "seconds": 2.407,
+      "log": "/tmp/agently-scoped-source-regressions.log"
+    },
+    "scope": "Core factory only; no globalx/Datly walker change, customstock APIs retained."
+  },
+  "since_input_mapping": {
+    "old_semantics": "since is turnID anchor created_at>=turn.created_at, not timestamp parsing.",
+    "source": "Publicquery binding/presence +list/count adapters +canonical countcube predicate",
+    "generation": {
+      "passed": 62,
+      "total": 62,
+      "log": "/tmp/agently-since-transcribe.log"
+    },
+    "actual_proof": "PASS SQLite actual HTTP/store/count and MySQL; full scheduler passed. See migration/dql-input-contract-audit.json."
+  },
+  "historical_additional_remaining": [
+    "Verify stock Data/Executor factory ownership, root/application builds and real callers after native bootstrap and dead SQL helper retirement. Remaining legacy augmenter connector and Endly CLI imports need cutover; root public behavior tests need native fixture conversion.",
+    "Application SDK1 cutover and native factory/providers",
+    "Verify public Go, TypeScript, Kotlin/Android and Swift/iOS JSON/SSE/error/auth contracts through the rebuilt SDK1 application routes. Client source links now resolve V1; UI 1020 tests/build, TS 404, Swift SDK 87/app 174 and Android SDK/app/Forge suites pass locally. Root Go SDK and live SDK1 caller integration remain; one broader Forge datasource-option baseline is still red",
+    "Verify full managed tree and schedule/run deletion against corrected generated lock SQL (local Datly commits0473dd86/87f65641 preserve clauses and valid MySQL order). Linked functional/full-tree rollback and private lock-boundary tests pass with local framework scratch; published pins remain d1e724 until new commits published. Live MySQL contention, rebuilt public application routes and end-to-end queue/transcript/usage integration remain",
+    "Verify report adoption through the rebuilt application/public route and MySQL contention; root reporting package source and tests now use native v1",
+    "Verify export submit/completion through rebuilt application/public routes, MySQL contention and caller retry behavior; root reporting package source and tests now use native v1",
+    "Remove all direct product SQL and legacy persistence; re-audit root codebase",
+    "Validate tool-execution claim/finish through the rebuilt application and MySQL contention; the repository now uses native v1 components and linked-host SQLite contention passes",
+    "Live scheduler IdP authorization (credential path pending)",
+    "Final main-Core rescan and package hygiene after the migration; the two commits through e9958d1a were backfilled on 2026-09-30 and all 19 changed paths matched main, but final state must be checked again before completion",
+    "Verify native audit sink/import through the rebuilt public reporting route and MySQL concurrency; the root reporting package no longer has a direct-SQL fallback",
+    "Migrate the remaining conversation/scheduled/orphan/technical maintenance workflows and lease guard helpers to native components, then validate MySQL contention and application callers",
+    "Scheduler product Store source now uses only native components and passed data.Service delegation; SDK0 registrations and scheduler DTO runtime wiring were retired. Focused native scheduler access/write/list/count/due/lease checks pass. Full scheduler/root build, cascade deletion routes, live IdP authorization and MySQL contention remain"
+  ],
+  "final_mysql_data": {
+    "passed": true,
+    "seconds": 110.146,
+    "command": "GOWORK=off go test -mod=readonly ./app/store/data -run MySQL -count=1 -timeout=15m -v",
+    "version": "v1.1.1-0.20260930202444-a59b17988b72",
+    "log": "migration/sdk-evidence/published-mysql-data-final.log",
+    "scope": "All12 MySQL-named Data tests, disposable MySQL8.4.11; local root/dev authorized. No overlapping regeneration."
+  },
+  "active_final_runs": {
+    "note": "All test and audit lanes terminal; no test processes active. Live IdP references are the only remaining acceptance input."
+  },
+  "scheduler_lease_mysql": {
+    "passed": true,
+    "evidence": "migration/scheduler-lease-mysql-validation.json"
+  },
+  "oauth_mysql": {
+    "passed": true,
+    "evidence": "migration/oauth-mysql-acceptance-validation.json"
+  },
+  "final_audits": {
+    "product_sql_legacy_imports": "PASS migration/sql-dml-audit.json",
+    "dependency_callers": "PASS migration/caller-cutover-audit.json",
+    "backfill": "PASS migration/latest-main-rescan.json",
+    "table_ownership": "PASS migration/table-component-map.json",
+    "requirements": "migration/final-acceptance-audit.json"
+  },
+  "external_acceptance_wait": {
+    "status": "Deferred by user; no longer blocks migration acceptance."
+  },
+  "deferred_followups": [
+    {
+      "item": "Live scheduler IdP token exchange and user authorization using secrets",
+      "reason": "User explicitly deferred secret testing until later while authorizing v1 commits.",
+      "public_check": "PASS migration/idp-discovery-validation.json"
+    }
+  ],
+  "commit_authorization": {
+    "core_branch": "v1",
+    "agently_branch": "v1",
+    "requested": true,
+    "status": "Migration and unused-code cleanup committed; IntelliJ publishing follows",
+    "core_migration_commit": "af3f5913",
+    "agently_migration_commit": "d89cffa0",
+    "agently_cleanup_commit": "195fe386"
+  },
+  "unused_cleanup": {
+    "passed": true,
+    "evidence": "migration/unused-code-cleanup-validation.json"
+  }
+}

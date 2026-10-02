@@ -14,7 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
 	authctx "github.com/viant/agently-core/internal/auth"
-	gfread "github.com/viant/agently-core/pkg/agently/generatedfile/read"
+	generatedfilemodel "github.com/viant/agently-core/model/generatedfile"
 	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 )
 
@@ -82,19 +82,19 @@ func TestAttachArtifactToConversationDoesNotRepublishIt(t *testing.T) {
 	require.Len(t, artifacts, 1)
 	require.Equal(t, descriptor.ID, artifacts[0].ID)
 
-	files, err := store.GetGeneratedFiles(ctx, &gfread.Input{ConversationID: "conv"})
+	files, err := store.GetGeneratedFiles(ctx, &generatedfilemodel.Input{ConversationID: "conv"})
 	require.NoError(t, err)
 	require.Len(t, files, 1)
 	file := files[0]
-	require.Equal(t, out.ID, file.ID)
+	require.Equal(t, out.ID, file.Id)
 	require.Equal(t, "scratchpad", file.Provider)
-	require.NotNil(t, file.ProviderFileID)
-	require.Equal(t, descriptor.ID, *file.ProviderFileID)
+	require.NotNil(t, file.ProviderFileId)
+	require.Equal(t, descriptor.ID, *file.ProviderFileId)
 	require.NotNil(t, file.Checksum)
 	require.Equal(t, descriptor.SHA256, *file.Checksum)
-	require.NotNil(t, file.PayloadID)
+	require.NotNil(t, file.PayloadId)
 
-	payload, err := store.GetPayload(ctx, *file.PayloadID)
+	payload, err := store.GetPayload(ctx, *file.PayloadId)
 	require.NoError(t, err)
 	require.NotNil(t, payload)
 	require.NotNil(t, payload.InlineBody)
@@ -111,7 +111,7 @@ func TestAttachArtifactRejectsOtherUsersArtifact(t *testing.T) {
 	store := convmem.New()
 	_, err = (&backendClient{conv: store}).UploadFile(bob, &UploadFileInput{ConversationID: "conv", ResourceURI: descriptor.URI})
 	require.ErrorContains(t, err, "artifact unavailable")
-	files, listErr := store.GetGeneratedFiles(bob, &gfread.Input{ConversationID: "conv"})
+	files, listErr := store.GetGeneratedFiles(bob, &generatedfilemodel.Input{ConversationID: "conv"})
 	require.NoError(t, listErr)
 	require.Empty(t, files)
 }

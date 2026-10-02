@@ -1,0 +1,39 @@
+#package('github.com/viant/agently-core/internal/datly/toolapprovalqueue/cube')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/tool-approval/report','GET'))
+#setting($_ = $input_type('ApprovalReportInput'))
+#setting($_ = $output_type('ApprovalReportOutput'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $cube())
+#define($_ = $Internal<bool>(approvalAccess/internal).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'equal','q','id'))
+#define($_ = $UserId<string>(query/userId).Optional().WithPredicate(0,'equal','q','user_id'))
+#define($_ = $ConversationId<string>(query/conversationId).Optional().WithPredicate(0,'equal','q','conversation_id'))
+#define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','q','turn_id'))
+#define($_ = $MessageId<string>(query/messageId).Optional().WithPredicate(0,'equal','q','message_id'))
+#define($_ = $ToolName<string>(query/toolName).Optional().WithPredicate(0,'equal','q','tool_name'))
+#define($_ = $QueueStatus<string>(query/status).Optional().WithPredicate(0,'equal','q','status'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*ApprovalReportView>(output/view))
+SELECT q.*,
+       groupable(q),
+       type(q,'ApprovalReportView'),
+       required(q.user_id),
+       tag(q.user_id,'groupable:"true"'),
+       tag(q.conversation_id,'groupable:"true"'),
+       required(q.tool_name),
+       tag(q.tool_name,'groupable:"true"'),
+       required(q.status),
+       tag(q.status,'groupable:"true"'),
+       tag(q.decision,'groupable:"true"'),
+       CAST(q.total_count AS int),
+       tag(q.total_count,'groupable:"false"'),
+       CAST(q.pending_count AS int),
+       tag(q.pending_count,'groupable:"false"'),
+       CAST(q.outcome_count AS int),
+       tag(q.outcome_count,'groupable:"false"'),
+       CAST(q.timed_out_count AS int),
+       tag(q.timed_out_count,'groupable:"false"')
+FROM (${embed:sql/toolapprovalqueue.sql}) q

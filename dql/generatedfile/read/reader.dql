@@ -1,0 +1,31 @@
+#package('github.com/viant/agently-core/internal/datly/generatedfile/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v2/api/agently/generated-file','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $StatusInfo<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $Metrics<?>(output/metrics))
+#define($_ = $ConversationID<string>(query/conversationId).Optional().WithPredicate(0,'equal','gf','conversation_id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','gf','conversation_id'))
+#define($_ = $TurnID<string>(query/turnId).Optional().WithPredicate(0,'equal','gf','turn_id'))
+#define($_ = $MessageID<string>(query/messageId).Optional().WithPredicate(0,'equal','gf','message_id'))
+#define($_ = $ID<string>(query/id).Optional().WithPredicate(0,'equal','gf','id'))
+#define($_ = $Provider<string>(query/provider).Optional().WithPredicate(0,'equal','gf','provider'))
+#define($_ = $Status<string>(query/status).Optional().WithPredicate(0,'equal','gf','status'))
+#define($_ = $Since<*time.Time>(query/since).Optional().WithPredicate(0,'greater_or_equal','gf','created_at'))
+#define($_ = $Data<[]*GeneratedFileView>(output/view))
+
+SELECT generated_file.*,
+       row_lock(generated_file,'generated_file gf'),
+       type(generated_file,'GeneratedFileView'),
+       required(generated_file.id),
+       required(generated_file.conversation_id),
+       required(generated_file.provider),
+       required(generated_file.mode),
+       required(generated_file.copy_mode),
+       required(generated_file.status)
+FROM (${embed:sql/generatedfile.sql}) generated_file

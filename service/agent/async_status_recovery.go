@@ -10,8 +10,8 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	"github.com/viant/agently-core/pkg/mcpname"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 )
 
@@ -74,7 +74,7 @@ func (s *Service) repairResumedAsyncStatusRows(ctx context.Context, input *Query
 }
 
 func sameCanonicalTool(actual, expected string) bool {
-	return strings.EqualFold(strings.TrimSpace(mcpname.Canonical(actual)), strings.TrimSpace(mcpname.Canonical(expected)))
+	return strings.EqualFold(strings.TrimSpace(mcpname2.Canonical(actual)), strings.TrimSpace(mcpname2.Canonical(expected)))
 }
 
 func isTerminalToolStatus(status string) bool {
@@ -96,7 +96,7 @@ func stringArgValue(args map[string]interface{}, key string) string {
 	return ""
 }
 
-func childConversationIDFromToolMessage(msg *agconv.MessageView) string {
+func childConversationIDFromToolMessage(msg *conversationmodel.MessageView) string {
 	if msg == nil || msg.MessageToolCall == nil || msg.MessageToolCall.MessageRequestPayload == nil || msg.MessageToolCall.MessageRequestPayload.InlineBody == nil {
 		return ""
 	}
@@ -137,7 +137,7 @@ func terminalToolStatusFromStatusResult(raw string) (status string, terminal boo
 	}
 }
 
-func (s *Service) patchRecoveredAsyncStatusMessage(ctx context.Context, msg *agconv.MessageView, tc *agconv.MessageToolCallView, raw, toolStatus, errMsg string) error {
+func (s *Service) patchRecoveredAsyncStatusMessage(ctx context.Context, msg *conversationmodel.MessageView, tc *conversationmodel.MessageToolCallView, raw, toolStatus, errMsg string) error {
 	if s == nil || s.conversation == nil || msg == nil || tc == nil {
 		return nil
 	}

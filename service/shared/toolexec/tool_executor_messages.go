@@ -9,8 +9,8 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -21,7 +21,7 @@ import (
 // ParentMessageID when the model message ID is not in context.
 func createToolMessage(ctx context.Context, conv apiconv.Client, turn runtimerequestctx.TurnMeta, startedAt time.Time, toolName string) (string, error) {
 	toolMsgID := uuid.New().String()
-	displayName := mcpname.Display(toolName)
+	displayName := mcpname2.Display(toolName)
 	opts := []apiconv.MessageOption{
 		apiconv.WithId(toolMsgID),
 		apiconv.WithRole("tool"),
@@ -119,7 +119,7 @@ func persistCoalescedToolResult(ctx context.Context, conv apiconv.Client, turn r
 
 // initToolCall initializes and persists a new tool call in a 'running' state for the given tool message.
 func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID string, turn runtimerequestctx.TurnMeta, toolName string, startedAt time.Time, traceID string) error {
-	displayName := mcpname.Display(toolName)
+	displayName := mcpname2.Display(toolName)
 	tc := apiconv.NewToolCall()
 	tc.SetMessageID(toolMsgID)
 	if opID != "" {
@@ -155,7 +155,7 @@ func initToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID stri
 		return fmt.Errorf("persist tool call start: %w", err)
 	}
 
-	if err := conv.PatchConversations(ctx, convw.NewConversationStatus(turn.ConversationID, "running")); err != nil {
+	if err := conv.PatchConversations(ctx, conversationmodel.NewConversationStatus(turn.ConversationID, "running")); err != nil {
 		return fmt.Errorf("failed to update conversation: %w", err)
 	}
 	return nil
@@ -169,7 +169,7 @@ func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID,
 		updTC.SetOpID(opID)
 	}
 	if strings.TrimSpace(toolName) != "" {
-		updTC.SetToolName(mcpname.Display(toolName))
+		updTC.SetToolName(mcpname2.Display(toolName))
 	}
 	// Propagate turn so the SSE event carries it for UI matching.
 	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
@@ -255,7 +255,7 @@ func updateAsyncToolCallState(ctx context.Context, conv apiconv.Client, toolMsgI
 		updTC.SetOpID(opID)
 	}
 	if strings.TrimSpace(toolName) != "" {
-		updTC.SetToolName(mcpname.Display(toolName))
+		updTC.SetToolName(mcpname2.Display(toolName))
 	}
 	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok && strings.TrimSpace(turn.TurnID) != "" {
 		updTC.SetTurnID(turn.TurnID)

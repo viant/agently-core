@@ -1,0 +1,37 @@
+#package('github.com/viant/agently-core/internal/datly/runsteps/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/run/steps','GET'))
+#setting($_ = $input_type('RunStepsInput'))
+#setting($_ = $output_type('RunStepsOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $InternalMode<bool>(runAccess/internal).Required())
+#define($_ = $VisibilitySubject<*string>(visibility/subject).Required())
+#define($_ = $RunID<string>(query/runId).Optional().WithPredicate(0,'equal','run_steps','run_id'))
+#define($_ = $Iteration<int>(query/iteration).Optional().WithPredicate(0,'equal','run_steps','iteration'))
+#define($_ = $StepTypes<[]string>(query/stepTypes).Optional().WithPredicate(0,'in','run_steps','step_type'))
+#define($_ = $CursorBefore<string>(query/cursorBefore).Optional().WithPredicate(0,'expr','run_steps.message_id < ?'))
+#define($_ = $CursorAfter<string>(query/cursorAfter).Optional().WithPredicate(0,'expr','run_steps.message_id > ?'))
+#define($_ = $Fields<[]string>(query/fields).Optional().QuerySelector('reader'))
+#define($_ = $Limit<int>(query/limit).Optional().QuerySelector('reader'))
+#define($_ = $Offset<int>(query/offset).Optional().QuerySelector('reader'))
+#define($_ = $OrderBy<string>(query/orderBy).Optional().QuerySelector('reader'))
+#define($_ = $Data<[]*RunStepsView>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOffset=true,selectorOrderBy=true"'))
+
+SELECT run_steps.*,
+       type(run_steps,'RunStepsView'),
+       CAST(run_steps.step_type AS string),
+       required(run_steps.message_id),
+       required(run_steps.name),
+       required(run_steps.status)
+FROM (${embed:sql/runsteps.sql}) run_steps
+
+WHERE 1=1
+ ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
+ AND ($InternalMode OR EXISTS(
+   SELECT 1 FROM run r JOIN conversation c ON c.id=r.conversation_id
+   WHERE r.id=run_steps.run_id
+   AND (COALESCE(r.effective_user_id,'')='' OR r.effective_user_id=NULLIF($VisibilitySubject,''))
+   AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,''))))

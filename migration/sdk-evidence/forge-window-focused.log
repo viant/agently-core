@@ -1,0 +1,11 @@
+[33mThe CJS build of Vite's Node API is deprecated. See https://vite.dev/guide/troubleshooting.html#vite-cjs-node-api-deprecated for more details.[39m
+
+ RUN  v2.1.9 /Users/awitas/go/src/github.com/viant/forge
+
+ ✓ src/components/WindowContent.test.jsx (39 tests | 32 skipped) 10ms
+
+ Test Files  1 passed (1)
+      Tests  7 passed | 32 skipped (39)
+   Start at  07:28:42
+   Duration  6.29s (transform 1.70s, setup 0ms, collect 5.83s, tests 10ms, environment 0ms, prepare 92ms)
+

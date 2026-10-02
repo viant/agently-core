@@ -19,11 +19,10 @@ import (
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
-	exportrequest "github.com/viant/agently-core/pkg/agently/exportrequest"
-	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
-	mcpname "github.com/viant/agently-core/pkg/mcpname"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
 	asynccfg "github.com/viant/agently-core/protocol/async"
+	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
@@ -110,7 +109,7 @@ func (c *toolStepCoalescer) finish(key string, call *toolStepCall, toolResult st
 
 func toolStepCoalesceKey(ctx context.Context, turn runtimerequestctx.TurnMeta, step StepInfo, args map[string]interface{}) string {
 	turnID := strings.TrimSpace(turn.TurnID)
-	toolName := strings.TrimSpace(mcpname.Canonical(step.Name))
+	toolName := strings.TrimSpace(mcpname2.Canonical(step.Name))
 	if turnID == "" || toolName == "" {
 		return ""
 	}
@@ -195,7 +194,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	// The tool-call operation ID is runtime transport state, not a
 	// model-visible reporting argument. Retries of this step retain it.
-	ctx = exportrequest.WithID(ctx, step.ID)
+	ctx = exportrequestmodel.WithID(ctx, step.ID)
 	ctx = WithAsyncConversation(ctx, conv)
 
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
@@ -788,7 +787,7 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv api
 }
 
 func isSkillActivateTool(name string) bool {
-	return strings.EqualFold(strings.TrimSpace(mcpname.Canonical(name)), skillproto.ActivateToolNameCanonical)
+	return strings.EqualFold(strings.TrimSpace(mcpname2.Canonical(name)), skillproto.ActivateToolNameCanonical)
 }
 
 // promptToolApproval creates an inline elicitation for prompt-mode approval and
@@ -912,11 +911,11 @@ func looksLikeAuthElicitation(result string) bool {
 }
 
 type toolApprovalQueueWriter interface {
-	PatchToolApprovalQueue(ctx context.Context, queue *queuew.ToolApprovalQueue) error
+	PatchToolApprovalQueue(ctx context.Context, queue *toolapprovalqueuemodel.ToolApprovalQueue) error
 }
 
 type toolApprovalQueueReader interface {
-	ListToolApprovalQueues(ctx context.Context, in *queueread.QueueRowsInput) ([]*queueread.QueueRowView, error)
+	ListToolApprovalQueues(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error)
 }
 
 func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo) (string, error) {
@@ -938,12 +937,12 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 	}
 	queueToolName := displayQueueToolName(step.Name)
 	if reader, ok := conv.(toolApprovalQueueReader); ok && reader != nil {
-		in := &queueread.QueueRowsInput{
+		in := &toolapprovalqueuemodel.QueueRowsInput{
 			UserId:         userID,
 			ConversationId: turn.ConversationID,
 			TurnId:         turn.TurnID,
 			QueueStatus:    "pending",
-			Has: &queueread.QueueRowsInputHas{
+			Has: &toolapprovalqueuemodel.QueueRowsInputHas{
 				UserId:         true,
 				ConversationId: true,
 				TurnId:         true,
@@ -951,12 +950,12 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 			},
 		}
 		if rows, err := reader.ListToolApprovalQueues(ctx, in); err == nil && len(rows) > 0 {
-			want := strings.ToLower(strings.TrimSpace(mcpname.Canonical(step.Name)))
+			want := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(step.Name)))
 			for _, row := range rows {
 				if row == nil {
 					continue
 				}
-				got := strings.ToLower(strings.TrimSpace(mcpname.Canonical(row.ToolName)))
+				got := strings.ToLower(strings.TrimSpace(mcpname2.Canonical(row.ToolName)))
 				if got == want {
 					return "queued for user approval", nil
 				}
@@ -978,7 +977,7 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 	}
 	metadata, _ := json.Marshal(metadataFields)
 
-	rec := &queuew.ToolApprovalQueue{Has: &queuew.ToolApprovalQueueHas{}}
+	rec := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	rec.SetId(uuid.NewString())
 	rec.SetUserId(userID)
 	rec.SetToolName(queueToolName)
@@ -1005,5 +1004,5 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 }
 
 func displayQueueToolName(name string) string {
-	return mcpname.Display(name)
+	return mcpname2.Display(name)
 }

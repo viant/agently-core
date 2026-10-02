@@ -6,8 +6,8 @@ import (
 	"time"
 
 	convcli "github.com/viant/agently-core/app/store/conversation"
-	convwrite "github.com/viant/agently-core/pkg/agently/conversation/write"
-	toolcallwrite "github.com/viant/agently-core/pkg/agently/toolcall/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	toolcallmodel "github.com/viant/agently-core/model/toolcall"
 )
 
 func TestGetMessage_IncludeToolCall_PreservesMessageToolCall(t *testing.T) {
@@ -18,10 +18,7 @@ func TestGetMessage_IncludeToolCall_PreservesMessageToolCall(t *testing.T) {
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 
-	dao, err := NewDatly(ctx)
-	if err != nil {
-		t.Fatalf("NewDatly: %v", err)
-	}
+	dao := testNativeInvoker(t, "")
 	svc, err := New(ctx, dao)
 	if err != nil {
 		t.Fatalf("conversation.New: %v", err)
@@ -29,7 +26,7 @@ func TestGetMessage_IncludeToolCall_PreservesMessageToolCall(t *testing.T) {
 
 	convID := "conv_msg_relation"
 	conv := &convcli.MutableConversation{}
-	conv.Has = &convwrite.ConversationHas{}
+	conv.Has = &conversationmodel.ConversationHas{}
 	conv.SetId(convID)
 	conv.SetVisibility("private")
 	if err := svc.PatchConversations(ctx, conv); err != nil {
@@ -57,7 +54,7 @@ func TestGetMessage_IncludeToolCall_PreservesMessageToolCall(t *testing.T) {
 	tc.SetToolName(toolName)
 	tc.SetToolKind("general")
 	tc.SetStatus("completed")
-	tc.Has = &toolcallwrite.ToolCallHas{
+	tc.Has = &toolcallmodel.ToolCallHas{
 		MessageID: true,
 		OpID:      true,
 		Attempt:   true,

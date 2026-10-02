@@ -1,0 +1,116 @@
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_approval_queue.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_approval_queue.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_approval_queue.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_provider_request_payload
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_provider_response_payload
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_request_payload
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_response_payload
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_run
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_stream_payload
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_call.missing_request_payload
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_call.missing_response_payload
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_call.missing_run
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_call.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/generated_file.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/generated_file.missing_payload
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/generated_file.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_attachment_payload
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_elicitation_payload
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_linked_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_parent
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_superseded_by
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/run.missing_checkpoint_message
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/run.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/run.missing_resumed_from
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/run.missing_schedule
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/run.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/turn.missing_goal
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/turn.missing_retry_of
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/turn.missing_run
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/turn.missing_started_by_message
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/report_export_job.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/report_run.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/schedule.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/schedule.missing_goal
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation.missing_parent_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation.missing_parent_turn
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation.missing_schedule
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation.missing_schedule_run
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_execution_claim.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/turn_queue.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/turn_queue.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/turn_queue.missing_turn
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_call.missing_message
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/generated_file.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/report_export_artifact.missing_job
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation_report_context.missing_active_report_run
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation_report_context.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/turn.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/goal.missing_conversation
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/call_payload.unused
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/report_export_job.missing_artifact
+=== RUN   TestWorkspaceRuntimeOrphanEverySQLiteRule/report_export_job.missing_report_run
+--- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule (8.71s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_approval_queue.missing_conversation (1.19s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_approval_queue.missing_message (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_approval_queue.missing_turn (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_provider_request_payload (0.24s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_provider_response_payload (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_request_payload (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_response_payload (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_run (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_stream_payload (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_turn (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_call.missing_request_payload (0.24s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_call.missing_response_payload (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_call.missing_run (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_call.missing_turn (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/generated_file.missing_message (0.23s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/generated_file.missing_payload (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/generated_file.missing_turn (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_attachment_payload (0.31s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_elicitation_payload (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_linked_conversation (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_parent (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_superseded_by (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_turn (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/run.missing_checkpoint_message (0.29s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/run.missing_conversation (0.07s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/run.missing_resumed_from (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/run.missing_schedule (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/run.missing_turn (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/turn.missing_goal (0.24s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/turn.missing_retry_of (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/turn.missing_run (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/turn.missing_started_by_message (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/report_export_job.missing_conversation (0.27s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/report_run.missing_conversation (0.26s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/schedule.missing_conversation (0.25s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/schedule.missing_goal (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation.missing_parent_conversation (0.32s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation.missing_parent_turn (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation.missing_schedule (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation.missing_schedule_run (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_execution_claim.missing_turn (0.23s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/turn_queue.missing_conversation (0.21s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/turn_queue.missing_message (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/turn_queue.missing_turn (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/model_call.missing_message (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/tool_call.missing_message (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/generated_file.missing_conversation (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/report_export_artifact.missing_job (0.25s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation_report_context.missing_active_report_run (0.22s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/conversation_report_context.missing_conversation (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/message.missing_conversation (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/turn.missing_conversation (0.06s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/goal.missing_conversation (0.22s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/call_payload.unused (0.22s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/report_export_job.missing_artifact (0.05s)
+    --- PASS: TestWorkspaceRuntimeOrphanEverySQLiteRule/report_export_job.missing_report_run (0.05s)
+PASS
+ok  	github.com/viant/agently-core/app/store/native	9.769s

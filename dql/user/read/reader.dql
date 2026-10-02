@@ -1,0 +1,26 @@
+#package('github.com/viant/agently-core/internal/datly/user/read')
+#import('time','time')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/user','GET'))
+#setting($_ = $input_type('UserInput'))
+#setting($_ = $output_type('UserOutput'))
+#setting($_ = $case_format('lc'))
+#define($_ = $StatusInfo<?>(output/status).WithTag('anonymous:"true"'))
+#define($_ = $Metrics<?>(output/metrics))
+#define($_ = $Id<string>(query/id).Optional().WithPredicate(0,'equal','t','id'))
+#define($_ = $Username<string>(query/username).Optional().WithPredicate(0,'equal','t','username'))
+#define($_ = $Subject<string>(query/subject).Optional().WithPredicate(0,'equal','t','subject'))
+#define($_ = $Provider<string>(query/provider).Optional().WithPredicate(0,'equal','t','provider'))
+#define($_ = $Data<[]*UserView>(output/view))
+
+SELECT user.*,
+       type(user,'UserView'),
+       required(user.created_at),
+       required(user.disabled),
+       required(user.id),
+       required(user.provider),
+       required(user.timezone),
+       required(user.username)
+FROM (${embed:sql/user.sql}) user

@@ -1,0 +1,31 @@
+{
+  "application": "/Users/awitas/go/src/github.com/viant/agently",
+  "core_replace": "../agently-core-v1",
+  "executable": "/tmp/agently-datly1-current",
+  "build": "PASS actual ./agently main package against local ../agently-core-v1; --version exits 0; --help renders usage (CLI exits 1 for help)",
+  "binary_datly_version": "v0.37.1-0.20260409194131-e40dcc4467ab",
+  "interpretation": "Current pushed Agently integrates with the upgraded Core checkout, while root persistence still uses SDK0/Datly v0.37.1. Native generated components run separately in datlyv1; this is not proof of SDK1 app cutover.",
+  "focused_core_tests": "PASS sdk, app/store/conversation, app/store/data; transcript/queue/conversation/pagination/deletion selection; live/E2E/MySQL tests excluded",
+  "application_unit_packages": "PASS current cmd/agently, runtime, server, bootstrap with -short -count=1",
+  "audit": "sql-dml-audit.json records 78 files / 447 evidence lines from 1115 non-test files; not 78 tests or proven violations",
+  "commit_policy": "All application/Core changes uncommitted for user review.",
+  "previous_live_e2e_failures_not_rerun": [
+    "TestServerBootDoesNotBlockOnRemoteMCPConfigs",
+    "TestTerminalQueryImageAttachment",
+    "TestTerminalQueryGeneratedImageOutput",
+    "TestTerminalQueryJWTInvalidToken",
+    "TestTerminalQueryCoderRepoAnalysisLiveTranscript"
+  ],
+  "application_commit": "0c940a9f3f0c662ef6295bffaa57535ae2608c6a",
+  "application_branch": "main",
+  "core_branch": "datly_1",
+  "binary_sqlx_version": "v0.25.0",
+  "app_worktree_changes": "Only go.mod local Core replacement re-enabled; go.sum unchanged; preexisting untracked files preserved",
+  "logs": [
+    "/tmp/agently-current-core-build.log",
+    "/tmp/agently-current-core-focused.log",
+    "/tmp/agently-current-app-unit.log",
+    "/tmp/agently-current-build-info.log",
+    "/tmp/agently-current-version.log"
+  ]
+}

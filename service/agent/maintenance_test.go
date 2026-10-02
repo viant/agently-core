@@ -12,13 +12,9 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
-	agconvlist "github.com/viant/agently-core/pkg/agently/conversation/list"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	agrunactive "github.com/viant/agently-core/pkg/agently/run/active"
-	agturnactive "github.com/viant/agently-core/pkg/agently/turn/active"
-	agturnnext "github.com/viant/agently-core/pkg/agently/turn/nextQueued"
-	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	runmodel "github.com/viant/agently-core/model/run"
+	turnmodel "github.com/viant/agently-core/model/turn"
 )
 
 type testCancelRegistry struct {
@@ -77,9 +73,9 @@ func (m *terminateConversationClient) PatchTurn(_ context.Context, patch *apicon
 }
 
 func TestServiceTerminatePersistsNonTerminalTurnsAsCanceled(t *testing.T) {
-	client := &terminateConversationClient{conversation: (*apiconv.Conversation)(&agconv.ConversationView{
+	client := &terminateConversationClient{conversation: (*apiconv.Conversation)(&conversationmodel.ConversationView{
 		Id: "conv-1",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{Id: "running", ConversationId: "conv-1", Status: "running"},
 			{Id: "queued", ConversationId: "conv-1", Status: "queued"},
 			{Id: "done", ConversationId: "conv-1", Status: "succeeded"},
@@ -105,20 +101,20 @@ type maintenanceDataService struct {
 	data.Service
 
 	mu                   sync.Mutex
-	rows                 []*agconvlist.ConversationRowsView
+	rows                 []*conversationmodel.ConversationRowsView
 	listCalls            int
 	listLimit            int
 	activeRunErrors      map[string]error
-	activeRunSequences   map[string][]*agrunactive.ActiveRunsView
+	activeRunSequences   map[string][]*runmodel.ActiveRunsView
 	activeRunCalls       map[string]int
-	activeTurns          map[string]*agturnactive.ActiveTurnsView
+	activeTurns          map[string]*turnmodel.ActiveTurnsView
 	queuedCounts         map[string]int
-	conversations        map[string]*agconv.ConversationView
-	patchedConversations []*convw.Conversation
+	conversations        map[string]*conversationmodel.ConversationView
+	patchedConversations []*conversationmodel.Conversation
 	queueDrainCalled     chan string
 }
 
-func (s *maintenanceDataService) ListConversations(_ context.Context, _ *agconvlist.ConversationRowsInput, page *data.PageInput, _ ...data.Option) (*data.ConversationPage, error) {
+func (s *maintenanceDataService) ListConversations(_ context.Context, _ *conversationmodel.ConversationRowsInput, page *data.PageInput, _ ...data.Option) (*data.ConversationPage, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.listCalls++
@@ -128,7 +124,7 @@ func (s *maintenanceDataService) ListConversations(_ context.Context, _ *agconvl
 	return &data.ConversationPage{Rows: s.rows}, nil
 }
 
-func (s *maintenanceDataService) GetActiveRun(_ context.Context, input *agrunactive.ActiveRunsInput, _ ...data.Option) (*agrunactive.ActiveRunsView, error) {
+func (s *maintenanceDataService) GetActiveRun(_ context.Context, input *runmodel.ActiveRunsInput, _ ...data.Option) (*runmodel.ActiveRunsView, error) {
 	conversationID := strings.TrimSpace(input.ConversationId)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -144,32 +140,32 @@ func (s *maintenanceDataService) GetActiveRun(_ context.Context, input *agrunact
 	return sequence[call], nil
 }
 
-func (s *maintenanceDataService) GetActiveTurn(_ context.Context, input *agturnactive.ActiveTurnsInput, _ ...data.Option) (*agturnactive.ActiveTurnsView, error) {
+func (s *maintenanceDataService) GetActiveTurn(_ context.Context, input *turnmodel.ActiveTurnsInput, _ ...data.Option) (*turnmodel.ActiveTurnsView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.activeTurns[strings.TrimSpace(input.ConversationID)], nil
 }
 
-func (s *maintenanceDataService) CountQueuedTurns(_ context.Context, input *agturncount.QueuedTotalInput, _ ...data.Option) (int, error) {
+func (s *maintenanceDataService) CountQueuedTurns(_ context.Context, input *turnmodel.QueuedTotalInput, _ ...data.Option) (int, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.queuedCounts[strings.TrimSpace(input.ConversationID)], nil
 }
 
-func (s *maintenanceDataService) GetConversation(_ context.Context, id string, _ *agconv.ConversationInput, _ ...data.Option) (*agconv.ConversationView, error) {
+func (s *maintenanceDataService) GetConversation(_ context.Context, id string, _ *conversationmodel.ConversationInput, _ ...data.Option) (*conversationmodel.ConversationView, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.conversations[strings.TrimSpace(id)], nil
 }
 
-func (s *maintenanceDataService) PatchConversations(_ context.Context, rows []*convw.Conversation) ([]*convw.Conversation, error) {
+func (s *maintenanceDataService) PatchConversations(_ context.Context, rows []*conversationmodel.Conversation) ([]*conversationmodel.Conversation, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.patchedConversations = append(s.patchedConversations, rows...)
 	return rows, nil
 }
 
-func (s *maintenanceDataService) GetNextQueuedTurn(_ context.Context, input *agturnnext.QueuedTurnInput, _ ...data.Option) (*agturnnext.QueuedTurnView, error) {
+func (s *maintenanceDataService) GetNextQueuedTurn(_ context.Context, input *turnmodel.QueuedTurnInput, _ ...data.Option) (*turnmodel.QueuedTurnView, error) {
 	if s.queueDrainCalled != nil {
 		select {
 		case s.queueDrainCalled <- strings.TrimSpace(input.ConversationID):
@@ -201,15 +197,15 @@ func (c *maintenanceConversationClient) PatchConversations(_ context.Context, co
 	return nil
 }
 
-func newMaintenanceDataService(rows ...*agconvlist.ConversationRowsView) *maintenanceDataService {
+func newMaintenanceDataService(rows ...*conversationmodel.ConversationRowsView) *maintenanceDataService {
 	return &maintenanceDataService{
 		rows:               rows,
 		activeRunErrors:    map[string]error{},
-		activeRunSequences: map[string][]*agrunactive.ActiveRunsView{},
+		activeRunSequences: map[string][]*runmodel.ActiveRunsView{},
 		activeRunCalls:     map[string]int{},
-		activeTurns:        map[string]*agturnactive.ActiveTurnsView{},
+		activeTurns:        map[string]*turnmodel.ActiveTurnsView{},
 		queuedCounts:       map[string]int{},
-		conversations:      map[string]*agconv.ConversationView{},
+		conversations:      map[string]*conversationmodel.ConversationView{},
 	}
 }
 
@@ -229,11 +225,11 @@ func captureMaintenanceLogs(buffer *bytes.Buffer) func() {
 
 func TestReconcileRunningConversationStatuses_ContinuesAfterConversationErrorAndCapsLimit(t *testing.T) {
 	store := newMaintenanceDataService(
-		&agconvlist.ConversationRowsView{Id: "conversation-error"},
-		&agconvlist.ConversationRowsView{Id: "conversation-ok"},
+		&conversationmodel.ConversationRowsView{Id: "conversation-error"},
+		&conversationmodel.ConversationRowsView{Id: "conversation-ok"},
 	)
 	store.activeRunErrors["conversation-error"] = errors.New("active run unavailable")
-	store.conversations["conversation-ok"] = &agconv.ConversationView{Id: "conversation-ok", Status: strptr("succeeded")}
+	store.conversations["conversation-ok"] = &conversationmodel.ConversationView{Id: "conversation-ok", Status: strptr("succeeded")}
 	conversationClient := &maintenanceConversationClient{}
 	service := &Service{dataService: store, conversation: conversationClient}
 	var logs bytes.Buffer
@@ -259,17 +255,17 @@ func TestReconcileRunningConversationStatuses_ContinuesAfterConversationErrorAnd
 
 func TestReconcileRunningConversationStatuses_UsesGracePeriodForOrphanTurns(t *testing.T) {
 	store := newMaintenanceDataService(
-		&agconvlist.ConversationRowsView{Id: "conversation-fresh"},
-		&agconvlist.ConversationRowsView{Id: "conversation-old"},
+		&conversationmodel.ConversationRowsView{Id: "conversation-fresh"},
+		&conversationmodel.ConversationRowsView{Id: "conversation-old"},
 	)
 	now := time.Now()
-	store.activeTurns["conversation-fresh"] = &agturnactive.ActiveTurnsView{
+	store.activeTurns["conversation-fresh"] = &turnmodel.ActiveTurnsView{
 		Id:             "turn-fresh",
 		ConversationId: "conversation-fresh",
 		CreatedAt:      now,
 		Status:         "running",
 	}
-	store.activeTurns["conversation-old"] = &agturnactive.ActiveTurnsView{
+	store.activeTurns["conversation-old"] = &turnmodel.ActiveTurnsView{
 		Id:             "turn-old",
 		ConversationId: "conversation-old",
 		CreatedAt:      now.Add(-orphanActiveTurnGracePeriod - time.Second),
@@ -306,14 +302,14 @@ func TestReconcileRunningConversationStatuses_UsesGracePeriodForOrphanTurns(t *t
 }
 
 func TestReconcileRunningConversationStatuses_RechecksActiveRunBeforeMutation(t *testing.T) {
-	store := newMaintenanceDataService(&agconvlist.ConversationRowsView{Id: "conversation-race"})
-	store.activeTurns["conversation-race"] = &agturnactive.ActiveTurnsView{
+	store := newMaintenanceDataService(&conversationmodel.ConversationRowsView{Id: "conversation-race"})
+	store.activeTurns["conversation-race"] = &turnmodel.ActiveTurnsView{
 		Id:             "turn-race",
 		ConversationId: "conversation-race",
 		CreatedAt:      time.Now().Add(-orphanActiveTurnGracePeriod - time.Second),
 		Status:         "running",
 	}
-	store.activeRunSequences["conversation-race"] = []*agrunactive.ActiveRunsView{
+	store.activeRunSequences["conversation-race"] = []*runmodel.ActiveRunsView{
 		nil,
 		{Id: "new-active-run"},
 	}

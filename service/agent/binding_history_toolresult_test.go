@@ -11,7 +11,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
@@ -25,19 +25,19 @@ func TestBuildHistory_PreservesUserMessageAndToolResult(t *testing.T) {
 	testCases := []struct {
 		name         string
 		service      *Service
-		responseBody *agconv.ModelCallStreamPayloadView
+		responseBody *conversationmodel.ModelCallStreamPayloadView
 	}{
 		{
 			name:    "inline response payload",
 			service: &Service{},
-			responseBody: &agconv.ModelCallStreamPayloadView{
+			responseBody: &conversationmodel.ModelCallStreamPayloadView{
 				InlineBody: strPtr(body),
 			},
 		},
 		{
 			name:    "gzip inline response payload",
 			service: &Service{},
-			responseBody: &agconv.ModelCallStreamPayloadView{
+			responseBody: &conversationmodel.ModelCallStreamPayloadView{
 				InlineBody:  strPtr(gzipString(t, body)),
 				Compression: "gzip",
 			},
@@ -54,7 +54,7 @@ func TestBuildHistory_PreservesUserMessageAndToolResult(t *testing.T) {
 					},
 				},
 			},
-			responseBody: &agconv.ModelCallStreamPayloadView{
+			responseBody: &conversationmodel.ModelCallStreamPayloadView{
 				Id: "payload-1",
 			},
 		},
@@ -71,7 +71,7 @@ func TestBuildHistory_PreservesUserMessageAndToolResult(t *testing.T) {
 					},
 				},
 			},
-			responseBody: &agconv.ModelCallStreamPayloadView{
+			responseBody: &conversationmodel.ModelCallStreamPayloadView{
 				Id: "payload-gzip",
 			},
 		},
@@ -87,7 +87,7 @@ func TestBuildHistory_PreservesUserMessageAndToolResult(t *testing.T) {
 					},
 				},
 			},
-			responseBody: &agconv.ModelCallStreamPayloadView{
+			responseBody: &conversationmodel.ModelCallStreamPayloadView{
 				Id:          "payload-inline-corrupt",
 				InlineBody:  strPtr("not-a-valid-gzip-payload"),
 				Compression: "gzip",
@@ -100,7 +100,7 @@ func TestBuildHistory_PreservesUserMessageAndToolResult(t *testing.T) {
 			transcript := apiconv.Transcript{
 				&apiconv.Turn{
 					Id: turnID,
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:             parentID,
 							ConversationId: "conv-1",
@@ -109,15 +109,15 @@ func TestBuildHistory_PreservesUserMessageAndToolResult(t *testing.T) {
 							Type:           "text",
 							Content:        strPtr("Call system_os-getEnv to retrieve USER"),
 							CreatedAt:      now,
-							ToolMessage: []*agconv.ToolMessageView{
+							ToolMessage: []*conversationmodel.ToolMessageView{
 								{
 									Id:        "tool-msg-1",
 									CreatedAt: now.Add(time.Second),
-									ToolCall: &agconv.ToolCallView{
+									ToolCall: &conversationmodel.ToolCallView{
 										OpId:            "op-1",
 										ToolName:        "system_os-getEnv",
 										ResponsePayload: testCase.responseBody,
-										RequestPayload:  &agconv.ModelCallStreamPayloadView{InlineBody: strPtr("{\"names\":[\"USER\"]}")},
+										RequestPayload:  &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr("{\"names\":[\"USER\"]}")},
 									},
 								},
 							},
@@ -151,7 +151,7 @@ func TestBuildHistory_PreservesChildToolResultAlongsideUpdatePlan(t *testing.T) 
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:             "msg-user",
 					ConversationId: "conv-1",
@@ -160,23 +160,23 @@ func TestBuildHistory_PreservesChildToolResultAlongsideUpdatePlan(t *testing.T) 
 					Type:           "text",
 					Content:        strPtr("Recommend resource lists for workspace 7180287"),
 					CreatedAt:      now,
-					ToolMessage: []*agconv.ToolMessageView{
+					ToolMessage: []*conversationmodel.ToolMessageView{
 						{
 							Id:        "tool-msg-plan",
 							CreatedAt: now.Add(time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:            "op-plan",
 								ToolName:        "orchestration/updatePlan",
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"plan":[{"step":"Inspect targeting","status":"in_progress"}]}`)},
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"plan":[{"step":"Inspect targeting","status":"in_progress"}]}`)},
 							},
 						},
 						{
 							Id:        "tool-msg-child",
 							CreatedAt: now.Add(2 * time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:            "op-child",
 								ToolName:        "llm/agents/run",
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"answer":"Child agent found target site list 117385 but matching failed due to access constraints."}`)},
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"answer":"Child agent found target site list 117385 but matching failed due to access constraints."}`)},
 							},
 						},
 					},
@@ -205,7 +205,7 @@ func TestBuildHistory_DoesNotDuplicateToolResultsWhenToolOpsExistAsRealMessages(
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:             "msg-user",
 					ConversationId: "conv-1",
@@ -223,14 +223,14 @@ func TestBuildHistory_DoesNotDuplicateToolResultsWhenToolOpsExistAsRealMessages(
 					Type:           "text",
 					Content:        strPtr("I’ll inspect targeting first."),
 					CreatedAt:      now.Add(time.Second),
-					ToolMessage: []*agconv.ToolMessageView{
+					ToolMessage: []*conversationmodel.ToolMessageView{
 						{
 							Id:        "tool-msg-plan",
 							CreatedAt: now.Add(2 * time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:            "op-plan",
 								ToolName:        "orchestration/updatePlan",
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"plan":[{"step":"Inspect targeting","status":"in_progress"}]}`)},
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"plan":[{"step":"Inspect targeting","status":"in_progress"}]}`)},
 							},
 						},
 					},
@@ -244,14 +244,14 @@ func TestBuildHistory_DoesNotDuplicateToolResultsWhenToolOpsExistAsRealMessages(
 					Type:            "tool_op",
 					Content:         strPtr(`{"plan":[{"step":"Inspect targeting","status":"in_progress"}]}`),
 					CreatedAt:       now.Add(2 * time.Second),
-					ToolMessage: []*agconv.ToolMessageView{
+					ToolMessage: []*conversationmodel.ToolMessageView{
 						{
 							Id:        "tool-msg-plan",
 							CreatedAt: now.Add(2 * time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:            "op-plan",
 								ToolName:        "orchestration/updatePlan",
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"plan":[{"step":"Inspect targeting","status":"in_progress"}]}`)},
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"plan":[{"step":"Inspect targeting","status":"in_progress"}]}`)},
 							},
 						},
 					},
@@ -283,7 +283,7 @@ func TestBuildHistory_DedupesRepeatedMessageIDs(t *testing.T) {
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-dup",
 					TurnId:    strPtr("turn-1"),
@@ -327,7 +327,7 @@ func TestBuildHistory_PrefersConcreteToolResultOverAssistantWrapperWithStaleStat
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:             "msg-user",
 					ConversationId: "conv-1",
@@ -345,14 +345,14 @@ func TestBuildHistory_PrefersConcreteToolResultOverAssistantWrapperWithStaleStat
 					Type:           "text",
 					Content:        strPtr("I’m continuing the blocker cross-check."),
 					CreatedAt:      now.Add(time.Second),
-					ToolMessage: []*agconv.ToolMessageView{
+					ToolMessage: []*conversationmodel.ToolMessageView{
 						{
 							Id:        "tool-msg-status",
 							CreatedAt: now.Add(2 * time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:            "op-status",
 								ToolName:        "llm/agents/status",
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`The order has some display delivery but almost no video/CTV`)},
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`The order has some display delivery but almost no video/CTV`)},
 							},
 						},
 					},
@@ -366,14 +366,14 @@ func TestBuildHistory_PrefersConcreteToolResultOverAssistantWrapperWithStaleStat
 					Type:            "tool_op",
 					Content:         strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=analyst-MetricsCube -->"}`),
 					CreatedAt:       now.Add(3 * time.Second),
-					ToolMessage: []*agconv.ToolMessageView{
+					ToolMessage: []*conversationmodel.ToolMessageView{
 						{
 							Id:        "tool-msg-status",
 							CreatedAt: now.Add(3 * time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:            "op-status",
 								ToolName:        "llm/agents/status",
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=analyst-MetricsCube -->"}`)},
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"<!-- DATA:delivery_by_day rows=13 source=analyst-MetricsCube -->"}`)},
 							},
 						},
 					},
@@ -414,7 +414,7 @@ func TestBuildHistory_RecognizesDirectToolCallOnConcreteToolRow(t *testing.T) {
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-1",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:             "msg-user",
 					ConversationId: "conv-1",
@@ -433,11 +433,11 @@ func TestBuildHistory_RecognizesDirectToolCallOnConcreteToolRow(t *testing.T) {
 					Type:            "tool_op",
 					Content:         strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"config result"}`),
 					CreatedAt:       now.Add(time.Second),
-					MessageToolCall: &agconv.MessageToolCallView{
+					MessageToolCall: &conversationmodel.MessageToolCallView{
 						OpId:                   "async-status:child-1",
 						ToolName:               "llm/agents/status",
-						MessageRequestPayload:  &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1"}`)},
-						MessageResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"config result"}`)},
+						MessageRequestPayload:  &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1"}`)},
+						MessageResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-1","hasFinalResponse":true,"message":"config result"}`)},
 					},
 				},
 				{
@@ -449,11 +449,11 @@ func TestBuildHistory_RecognizesDirectToolCallOnConcreteToolRow(t *testing.T) {
 					Type:            "tool_op",
 					Content:         strPtr(`{"conversationId":"child-2","hasFinalResponse":true,"message":"inventory result"}`),
 					CreatedAt:       now.Add(2 * time.Second),
-					MessageToolCall: &agconv.MessageToolCallView{
+					MessageToolCall: &conversationmodel.MessageToolCallView{
 						OpId:                   "async-status:child-2",
 						ToolName:               "llm/agents/status",
-						MessageRequestPayload:  &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-2"}`)},
-						MessageResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-2","hasFinalResponse":true,"message":"inventory result"}`)},
+						MessageRequestPayload:  &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-2"}`)},
+						MessageResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-2","hasFinalResponse":true,"message":"inventory result"}`)},
 					},
 				},
 				{
@@ -465,11 +465,11 @@ func TestBuildHistory_RecognizesDirectToolCallOnConcreteToolRow(t *testing.T) {
 					Type:            "tool_op",
 					Content:         strPtr(`{"conversationId":"child-3","hasFinalResponse":true,"message":"performance result"}`),
 					CreatedAt:       now.Add(3 * time.Second),
-					MessageToolCall: &agconv.MessageToolCallView{
+					MessageToolCall: &conversationmodel.MessageToolCallView{
 						OpId:                   "async-status:child-3",
 						ToolName:               "llm/agents/status",
-						MessageRequestPayload:  &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-3"}`)},
-						MessageResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-3","hasFinalResponse":true,"message":"performance result"}`)},
+						MessageRequestPayload:  &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-3"}`)},
+						MessageResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"conversationId":"child-3","hasFinalResponse":true,"message":"performance result"}`)},
 					},
 				},
 			},
@@ -504,7 +504,7 @@ func TestBuildHistory_SkipsInjectedDocumentToolResultWhenMessagesArePersisted(t 
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: turnID,
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:             "msg-user",
 					ConversationId: "conv-1",
@@ -513,14 +513,14 @@ func TestBuildHistory_SkipsInjectedDocumentToolResultWhenMessagesArePersisted(t 
 					Type:           "text",
 					Content:        strPtr("Use prompt profile performance_analysis"),
 					CreatedAt:      now,
-					ToolMessage: []*agconv.ToolMessageView{
+					ToolMessage: []*conversationmodel.ToolMessageView{
 						{
 							Id:        "tool-msg-prompt",
 							CreatedAt: now.Add(time.Second),
-							ToolCall: &agconv.ToolCallView{
+							ToolCall: &conversationmodel.ToolCallView{
 								OpId:     "op-prompt",
 								ToolName: "prompt-get",
-								ResponsePayload: &agconv.ModelCallStreamPayloadView{
+								ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{
 									InlineBody: strPtr(`{"id":"performance_analysis","injected":true,"messages":[{"role":"system","text":"You are a systems analyst."},{"role":"user","text":"Analyze the provided metrics."}]}`),
 								},
 							},
@@ -598,7 +598,7 @@ func TestBuildHistory_PlacesCurrentTurnInCurrentNotPast(t *testing.T) {
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: "turn-past",
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-past",
 					TurnId:    strPtr("turn-past"),
@@ -611,7 +611,7 @@ func TestBuildHistory_PlacesCurrentTurnInCurrentNotPast(t *testing.T) {
 		},
 		&apiconv.Turn{
 			Id: turnID,
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-current-user",
 					TurnId:    strPtr(turnID),
@@ -657,7 +657,7 @@ func TestBuildHistory_CurrentTurnSkipsAssistantMessageAddedByMessageAddReplay(t 
 	transcript := apiconv.Transcript{
 		&apiconv.Turn{
 			Id: turnID,
-			Message: []*agconv.MessageView{
+			Message: []*conversationmodel.MessageView{
 				{
 					Id:        "msg-user",
 					TurnId:    strPtr(turnID),
@@ -682,7 +682,7 @@ func TestBuildHistory_CurrentTurnSkipsAssistantMessageAddedByMessageAddReplay(t 
 					Type:            "tool_op",
 					Content:         strPtr(`{"conversationId":"conv-1","messageId":"` + noteID + `","parentMessageId":"msg-user","sequence":5,"turnId":"` + turnID + `"}`),
 					CreatedAt:       now.Add(2 * time.Second),
-					MessageToolCall: &agconv.MessageToolCallView{
+					MessageToolCall: &conversationmodel.MessageToolCallView{
 						OpId:     "call-message-add",
 						ToolName: "message-add",
 					},
@@ -751,14 +751,14 @@ func TestBuildHistory_PreservesPastOrderWindowAssistantContextAcrossTurns(t *tes
 			ToolName:        strPtr("ui/window/list"),
 			ParentMessageId: strPtr(interim.Id),
 			CreatedAt:       createdAt.Add(2 * time.Second),
-			ToolMessage: []*agconv.ToolMessageView{
+			ToolMessage: []*conversationmodel.ToolMessageView{
 				{
 					Id:        turnID + "-tool",
 					CreatedAt: createdAt.Add(2 * time.Second),
-					ToolCall: &agconv.ToolCallView{
+					ToolCall: &conversationmodel.ToolCallView{
 						OpId:            turnID + "-tool-op",
 						ToolName:        "ui/window/list",
-						ResponsePayload: &agconv.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1"}`)},
+						ResponsePayload: &conversationmodel.ModelCallStreamPayloadView{InlineBody: strPtr(`{"clientId":"client-1"}`)},
 					},
 				},
 			},
@@ -776,11 +776,11 @@ func TestBuildHistory_PreservesPastOrderWindowAssistantContextAcrossTurns(t *tes
 			Id:        turnID,
 			Status:    "succeeded",
 			CreatedAt: createdAt,
-			Message: []*agconv.MessageView{
-				(*agconv.MessageView)(user),
-				(*agconv.MessageView)(interim),
-				(*agconv.MessageView)(tool),
-				(*agconv.MessageView)(finalAssistant),
+			Message: []*conversationmodel.MessageView{
+				(*conversationmodel.MessageView)(user),
+				(*conversationmodel.MessageView)(interim),
+				(*conversationmodel.MessageView)(tool),
+				(*conversationmodel.MessageView)(finalAssistant),
 			},
 		}
 	}
@@ -861,11 +861,11 @@ func TestBuildHistoryWithLimit_PreservesPastOrderWindowAssistantContextWithCache
 			Id:        turnID,
 			Status:    "succeeded",
 			CreatedAt: createdAt,
-			Message: []*agconv.MessageView{
-				(*agconv.MessageView)(user),
-				(*agconv.MessageView)(interim),
-				(*agconv.MessageView)(tool),
-				(*agconv.MessageView)(finalAssistant),
+			Message: []*conversationmodel.MessageView{
+				(*conversationmodel.MessageView)(user),
+				(*conversationmodel.MessageView)(interim),
+				(*conversationmodel.MessageView)(tool),
+				(*conversationmodel.MessageView)(finalAssistant),
 			},
 		}
 	}
@@ -975,12 +975,12 @@ func TestBuildHistoryWithLimit_PreservesAssistantContextWhenTurnStartsWithRouter
 			Id:        turnID,
 			Status:    "succeeded",
 			CreatedAt: createdAt,
-			Message: []*agconv.MessageView{
-				(*agconv.MessageView)(router),
-				(*agconv.MessageView)(user),
-				(*agconv.MessageView)(interim),
-				(*agconv.MessageView)(tool),
-				(*agconv.MessageView)(finalAssistant),
+			Message: []*conversationmodel.MessageView{
+				(*conversationmodel.MessageView)(router),
+				(*conversationmodel.MessageView)(user),
+				(*conversationmodel.MessageView)(interim),
+				(*conversationmodel.MessageView)(tool),
+				(*conversationmodel.MessageView)(finalAssistant),
 			},
 		}
 	}

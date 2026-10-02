@@ -1,0 +1,73 @@
+[
+  {
+    "principal": "",
+    "filters": {
+      "mode": "list"
+    },
+    "ids": [
+      "public"
+    ],
+    "failed": false
+  },
+  {
+    "principal": "u1",
+    "filters": {
+      "mode": "list"
+    },
+    "ids": [
+      "owned",
+      "public"
+    ],
+    "failed": false
+  },
+  {
+    "principal": "u2",
+    "filters": {
+      "mode": "list"
+    },
+    "ids": [
+      "other",
+      "public"
+    ],
+    "failed": false
+  },
+  {
+    "principal": "",
+    "filters": {
+      "mode": "due"
+    },
+    "ids": [
+      "internal",
+      "other",
+      "owned",
+      "public"
+    ],
+    "failed": false
+  },
+  {
+    "principal": "u2",
+    "filters": {
+      "id": "owned"
+    },
+    "ids": [],
+    "failed": false
+  },
+  {
+    "principal": "u1",
+    "filters": {
+      "id": "owned"
+    },
+    "ids": [
+      "owned"
+    ],
+    "failed": false
+  },
+  {
+    "principal": "u1",
+    "filters": {
+      "id": "internal"
+    },
+    "ids": [],
+    "failed": false
+  }
+]

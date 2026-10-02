@@ -1,0 +1,16 @@
+{
+  "result": "PASS",
+  "command": "GOWORK=off go test -mod=readonly ./... -count=1 -timeout=15m",
+  "datly": "v1.1.1-0.20260930202444-a59b17988b72",
+  "scope": "All root Core Go packages, including migration/sdkcontract actual application HTTP and embedded SDK; MySQL and live IdP opt-in tests have separate gates",
+  "log": "migration/sdk-evidence/published-core-full-tests.log",
+  "package_seconds": {
+    "app/store/data": 478.732,
+    "migration/sdkcontract": 22.727,
+    "sdk": 38.432,
+    "service/auth": 109.342,
+    "service/goal": 5.006,
+    "service/scheduler": 181.215
+  },
+  "new_test_coverage_note": "Scheduler MySQL independent-host test added after whole suite compile; executed separately PASS5.619s. OAuth MySQL additions remain pending."
+}

@@ -53,4 +53,3 @@ func TestRuntimeFailsClosed(t *testing.T) {
 		t.Fatalf("Authorize() error = %v", err)
 	}
 }
-

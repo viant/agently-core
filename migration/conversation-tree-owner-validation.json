@@ -1,0 +1,20 @@
+{
+  "date": "2026-09-30",
+  "scope": "Conversation-tree discovery authorization and graph-size guard",
+  "changes": [
+    "DiscoverAuthorized applies the legacy exact-owner rule to every discovered node before a future deletion orchestrator may mutate rows",
+    "The graph reader rejects anonymous and mismatched owners, including a linked descendant owned by another user",
+    "Oversized root requests fail before any generated reader invocation"
+  ],
+  "verified": [
+    "Linked-host test passed owned graph, anonymous denial, other-owner denial, linked-descendant owner denial, and a request with 10,001 roots returning ErrTooLarge",
+    "Full app/store/native package passed with the v1 scratch modfile",
+    "Full nested Endly passed 60/60 transcription, stable regeneration, boundary audit, nested tests (172.844s) and linked-host build"
+  ],
+  "remaining": [
+    "The v1 deletion transaction still needs generated reads for run liveness and external references, retention decisions, ordered generated writes, and one managed transaction",
+    "Root DeleteConversationTree, DeleteScheduleCascade and DeleteScheduledRun still use direct SQL",
+    "MySQL contention and rebuilt application-route deletion remain unverified"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-graph-owner-gate.log"
+}

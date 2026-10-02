@@ -1,0 +1,19 @@
+{
+  "scope": "Canonical v1 conversation get/list and sparse writer adapter, plus root list/get/patch caller branches",
+  "adapter": "datlyv1/application/conversation/store.go",
+  "root_caller": "internal/service/conversation/native_list.go and native_conversation.go; GetConversations, GetConversation and PatchConversations use the native adapter when the shared host is present; app/executor/builder.go passes that host.",
+  "dql_fix": "The three boolean filters excludeChildren, excludeScheduled and hasScheduleId now bind an explicit ? and treat false as no filter. A linked-host test exposed the previous zero-placeholder/one-argument failure.",
+  "verification": {
+    "parity": "Focused TestConversationLegacyV1Parity, TestConversationListVisibilityLegacyV1, TestConversationListRequiresVerifiedVisibilityProvider and TestConversationCallerTransactionOwnership: pass (19.196s).",
+    "linked_host": "go test -mod=readonly with scratch modfile -count=1 ./app/store/native: pass, including private owner denial, base-only list, rich internal transcript, sparse title update, and true/false list filters.",
+    "full_endly": "endly from datlyv1/e2e: SUCCESS; 60/60 transcribed, byte-stable regeneration, native boundary audit, nested tests 167.090s, linked host build, workflow 218574ms.",
+    "source_map": "29 root list output fields checked against old and generated view definitions; no missing field names.",
+    "sparse_marker_map": "All 26 non-identity SDK0 ConversationHas markers map to v1 generated writer setters, including explicit nil pointers and zero shareable; source names checked against generated types."
+  },
+  "limits": [
+    "The root conversation package still imports SDK0 Datly DTOs and cannot compile with the v1-only module graph; list/get/patch branches have not run in an application route.",
+    "The rich-get public DTO codec is transitional and needs root route JSON/transcript parity once the package builds.",
+    "Message/turn/payload/generated-file, queue auxiliary and deletion callers remain on SDK0.",
+    "MySQL and public Go/TypeScript/Kotlin/Swift behavior remain unverified."
+  ]
+}

@@ -1,0 +1,28 @@
+#package('github.com/viant/agently-core/internal/datly/session/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/user/session','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $Session<[]*Session>(body/data))
+#define($_ = $Data<[]*Session>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'Session'),
+       lifecycle_type(t,'Lifecycle'),
+       required(t.id),
+       tag(t.id,'sqlx:"id,primaryKey"'),
+       required(t.user_id),
+       required(t.provider),
+       required(t.created_at),
+       tag(t.created_at,'format:"2006-01-02 15:04:05"'),
+       tag(t.updated_at,'format:"2006-01-02 15:04:05"'),
+       required(t.expires_at),
+       tag(t.expires_at,'format:"2006-01-02 15:04:05"')
+FROM (${embed:sql/session.sql}) t

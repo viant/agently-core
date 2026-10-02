@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	goalsys "github.com/viant/agently-core/service/goal"
 )
@@ -19,12 +19,12 @@ func TestService_latestTurnTaskCheckpoint(t *testing.T) {
 	now := time.Now()
 	conversation := &apiconv.Conversation{
 		Id: "conv-1",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "turn-1",
 				ConversationId: "conv-1",
 				CreatedAt:      now,
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "user-1",
 						ConversationId: "conv-1",
@@ -55,7 +55,7 @@ func TestService_latestTurnTaskCheckpoint(t *testing.T) {
 				Id:             "turn-2",
 				ConversationId: "conv-1",
 				CreatedAt:      now,
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "other-turn-task",
 						ConversationId: "conv-1",
@@ -86,12 +86,12 @@ func TestService_latestTurnTaskCheckpoint_ModeTaskFallback(t *testing.T) {
 	now := time.Now()
 	conversation := &apiconv.Conversation{
 		Id: "conv-1",
-		Transcript: []*agconv.TranscriptView{
+		Transcript: []*conversationmodel.TranscriptView{
 			{
 				Id:             "turn-1",
 				ConversationId: "conv-1",
 				CreatedAt:      now,
-				Message: []*agconv.MessageView{
+				Message: []*conversationmodel.MessageView{
 					{
 						Id:             "user-1",
 						ConversationId: "conv-1",
@@ -133,12 +133,12 @@ func TestService_hasNewTurnTaskSince(t *testing.T) {
 	makeConversation := func(latestID string, latestAt time.Time) *apiconv.Conversation {
 		return &apiconv.Conversation{
 			Id: "conv-1",
-			Transcript: []*agconv.TranscriptView{
+			Transcript: []*conversationmodel.TranscriptView{
 				{
 					Id:             "turn-1",
 					ConversationId: "conv-1",
 					CreatedAt:      now,
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{
 							Id:             "user-1",
 							ConversationId: "conv-1",
@@ -190,12 +190,12 @@ func TestService_hasNewTurnTaskSince(t *testing.T) {
 			checkpoint: turnTaskCheckpoint{MessageID: "user-1", CreatedAt: now.Add(-time.Minute), Found: true},
 			conv: &apiconv.Conversation{
 				Id: "conv-1",
-				Transcript: []*agconv.TranscriptView{
+				Transcript: []*conversationmodel.TranscriptView{
 					{
 						Id:             "turn-1",
 						ConversationId: "conv-1",
 						CreatedAt:      now,
-						Message: []*agconv.MessageView{
+						Message: []*conversationmodel.MessageView{
 							{
 								Id:             "user-1",
 								ConversationId: "conv-1",

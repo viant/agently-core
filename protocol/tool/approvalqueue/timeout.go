@@ -3,11 +3,10 @@ package approvalqueue
 import (
 	"context"
 	"errors"
+	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
 	"strings"
 	"time"
 
-	queueread "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/read"
-	queuew "github.com/viant/agently-core/pkg/agently/toolapprovalqueue/write"
 	"github.com/viant/agently-core/sdk/api"
 )
 
@@ -15,12 +14,12 @@ import (
 // queue-read surface so timeout production stays attached to approvalqueue
 // semantics instead of depending on higher-level SDK wiring.
 type TimeoutLister interface {
-	ListToolApprovalQueues(ctx context.Context, in *queueread.QueueRowsInput) ([]*queueread.QueueRowView, error)
+	ListToolApprovalQueues(ctx context.Context, in *toolapprovalqueuemodel.QueueRowsInput) ([]*toolapprovalqueuemodel.QueueRowView, error)
 }
 
 // TimeoutPatcher applies queue-row patches.
 type TimeoutPatcher interface {
-	PatchToolApprovalQueue(ctx context.Context, queue *queuew.ToolApprovalQueue) error
+	PatchToolApprovalQueue(ctx context.Context, queue *toolapprovalqueuemodel.ToolApprovalQueue) error
 }
 
 // TimeoutNow is a clock factory used by Sweeper.
@@ -68,9 +67,9 @@ func (s *Sweeper) Sweep(ctx context.Context, in *SweepInput) (*SweepOutput, erro
 	if now.IsZero() {
 		now = time.Now().UTC()
 	}
-	query := &queueread.QueueRowsInput{
+	query := &toolapprovalqueuemodel.QueueRowsInput{
 		QueueStatus: "pending",
-		Has:         &queueread.QueueRowsInputHas{QueueStatus: true},
+		Has:         &toolapprovalqueuemodel.QueueRowsInputHas{QueueStatus: true},
 	}
 	if in != nil {
 		if id := strings.TrimSpace(in.UserID); id != "" {
@@ -102,7 +101,7 @@ func (s *Sweeper) Sweep(ctx context.Context, in *SweepInput) (*SweepOutput, erro
 // IsTimedOut reports whether a queue row is still pending and its expires_at
 // deadline has elapsed at the given instant. Rows without expires_at are never
 // treated as timed out by the canonical producer.
-func IsTimedOut(row *queueread.QueueRowView, now time.Time) bool {
+func IsTimedOut(row *toolapprovalqueuemodel.QueueRowView, now time.Time) bool {
 	if row == nil {
 		return false
 	}
@@ -117,8 +116,8 @@ func IsTimedOut(row *queueread.QueueRowView, now time.Time) bool {
 
 // NewTimedOutPatch builds the canonical queue-row patch for a timeout
 // transition.
-func NewTimedOutPatch(row *queueread.QueueRowView, now time.Time) *queuew.ToolApprovalQueue {
-	upd := &queuew.ToolApprovalQueue{Has: &queuew.ToolApprovalQueueHas{}}
+func NewTimedOutPatch(row *toolapprovalqueuemodel.QueueRowView, now time.Time) *toolapprovalqueuemodel.ToolApprovalQueue {
+	upd := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	if row == nil {
 		return upd
 	}
@@ -135,7 +134,7 @@ func NewTimedOutPatch(row *queueread.QueueRowView, now time.Time) *queuew.ToolAp
 }
 
 // NewTimedOutOutcome builds the canonical timeout outcome for a queue row.
-func NewTimedOutOutcome(row *queueread.QueueRowView, now time.Time) *api.DecideToolApprovalOutcome {
+func NewTimedOutOutcome(row *toolapprovalqueuemodel.QueueRowView, now time.Time) *api.DecideToolApprovalOutcome {
 	if row == nil {
 		return nil
 	}

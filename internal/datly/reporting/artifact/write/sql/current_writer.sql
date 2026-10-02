@@ -1,0 +1,1 @@
+SELECT r.artifact_id, r.job_id, r.artifact_ref, r.owner_id, r.format, r.content_type, r.inline_data, r.created_at, r.retention_ttl_sec FROM (SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM report_export_artifact c)  t) r WHERE $criteria.CompositeIn("r", $WriterKeys)

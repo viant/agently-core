@@ -15,11 +15,11 @@ import (
 
 	reportstore "github.com/viant/agently-core/app/store/reporting"
 	authctx "github.com/viant/agently-core/internal/auth"
-	reportartifact "github.com/viant/agently-core/pkg/agently/reportartifact"
-	reportcontext "github.com/viant/agently-core/pkg/agently/reportcontext"
-	reportjob "github.com/viant/agently-core/pkg/agently/reportjob"
-	reportrun "github.com/viant/agently-core/pkg/agently/reportrun"
-	reportshareartifact "github.com/viant/agently-core/pkg/agently/reportshareartifact"
+	reportartifactmodel "github.com/viant/agently-core/model/reportartifact"
+	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
+	reportjobmodel "github.com/viant/agently-core/model/reportjob"
+	reportrunmodel "github.com/viant/agently-core/model/reportrun"
+	reportshareartifactmodel "github.com/viant/agently-core/model/reportshareartifact"
 	"github.com/viant/agently-core/workspace"
 )
 
@@ -40,7 +40,7 @@ func New(stateStore workspace.StateStore) reportstore.Client {
 
 // CreateReportRun persists a new browser run and enforces owner-scoped
 // uiRunRequestId uniqueness.
-func (s *Store) CreateReportRun(ctx context.Context, run *reportrun.Record) error {
+func (s *Store) CreateReportRun(ctx context.Context, run *reportrunmodel.Record) error {
 	if run == nil || !s.authenticates(ctx, run.OwnerID) {
 		return reportstore.ErrNotFound
 	}
@@ -65,7 +65,7 @@ func (s *Store) CreateReportRun(ctx context.Context, run *reportrun.Record) erro
 }
 
 // GetReportRun loads an authenticated owner's browser run.
-func (s *Store) GetReportRun(ctx context.Context, reportRunID string) (*reportrun.Record, error) {
+func (s *Store) GetReportRun(ctx context.Context, reportRunID string) (*reportrunmodel.Record, error) {
 	stateLock, err := s.reportingStateLock(ctx)
 	if err != nil {
 		return nil, err
@@ -78,7 +78,7 @@ func (s *Store) GetReportRun(ctx context.Context, reportRunID string) (*reportru
 	if err != nil {
 		return nil, err
 	}
-	record := &reportrun.Record{}
+	record := &reportrunmodel.Record{}
 	if err := readJSON(path, record); err != nil {
 		if errors.Is(err, errNotFound) {
 			return nil, reportstore.ErrNotFound
@@ -92,7 +92,7 @@ func (s *Store) GetReportRun(ctx context.Context, reportRunID string) (*reportru
 }
 
 // GetReportRunByRequestID resolves an authenticated transport retry.
-func (s *Store) GetReportRunByRequestID(ctx context.Context, uiRunRequestID string) (*reportrun.Record, error) {
+func (s *Store) GetReportRunByRequestID(ctx context.Context, uiRunRequestID string) (*reportrunmodel.Record, error) {
 	stateLock, err := s.reportingStateLock(ctx)
 	if err != nil {
 		return nil, err
@@ -104,7 +104,7 @@ func (s *Store) GetReportRunByRequestID(ctx context.Context, uiRunRequestID stri
 	return s.getReportRunByRequestID(ctx, uiRunRequestID)
 }
 
-func (s *Store) getReportRunByRequestID(ctx context.Context, uiRunRequestID string) (*reportrun.Record, error) {
+func (s *Store) getReportRunByRequestID(ctx context.Context, uiRunRequestID string) (*reportrunmodel.Record, error) {
 	ownerID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	requestID := strings.TrimSpace(uiRunRequestID)
 	if ownerID == "" || requestID == "" || s == nil || s.stateStore == nil {
@@ -125,7 +125,7 @@ func (s *Store) getReportRunByRequestID(ctx context.Context, uiRunRequestID stri
 		if entry.IsDir() || !strings.HasSuffix(strings.ToLower(entry.Name()), ".json") {
 			continue
 		}
-		record := &reportrun.Record{}
+		record := &reportrunmodel.Record{}
 		if err := readJSON(filepath.Join(dir, entry.Name()), record); err != nil {
 			return nil, err
 		}
@@ -137,7 +137,7 @@ func (s *Store) getReportRunByRequestID(ctx context.Context, uiRunRequestID stri
 }
 
 // UpdateReportRunCAS atomically replaces one file after revision validation.
-func (s *Store) UpdateReportRunCAS(ctx context.Context, run *reportrun.Record, expectedRevision int64) error {
+func (s *Store) UpdateReportRunCAS(ctx context.Context, run *reportrunmodel.Record, expectedRevision int64) error {
 	if run == nil || !s.authenticates(ctx, run.OwnerID) {
 		return reportstore.ErrNotFound
 	}
@@ -153,7 +153,7 @@ func (s *Store) UpdateReportRunCAS(ctx context.Context, run *reportrun.Record, e
 	if err != nil {
 		return err
 	}
-	current := &reportrun.Record{}
+	current := &reportrunmodel.Record{}
 	if err := readJSON(path, current); err != nil {
 		if errors.Is(err, errNotFound) {
 			return reportstore.ErrNotFound
@@ -176,7 +176,7 @@ func (s *Store) UpdateReportRunCAS(ctx context.Context, run *reportrun.Record, e
 }
 
 // GetConversationReportContext loads an owner+conversation active pointer.
-func (s *Store) GetConversationReportContext(ctx context.Context, conversationID string) (*reportcontext.Record, error) {
+func (s *Store) GetConversationReportContext(ctx context.Context, conversationID string) (*reportcontextmodel.Record, error) {
 	ownerID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	if ownerID == "" {
 		return nil, reportstore.ErrNotFound
@@ -193,7 +193,7 @@ func (s *Store) GetConversationReportContext(ctx context.Context, conversationID
 	if err != nil {
 		return nil, err
 	}
-	record := &reportcontext.Record{}
+	record := &reportcontextmodel.Record{}
 	if err := readJSON(path, record); err != nil {
 		if errors.Is(err, errNotFound) {
 			return nil, reportstore.ErrNotFound
@@ -208,7 +208,7 @@ func (s *Store) GetConversationReportContext(ctx context.Context, conversationID
 
 // PutConversationReportContextCAS creates or updates an active pointer at an
 // exact expected revision.
-func (s *Store) PutConversationReportContextCAS(ctx context.Context, record *reportcontext.Record, expectedRevision int64) error {
+func (s *Store) PutConversationReportContextCAS(ctx context.Context, record *reportcontextmodel.Record, expectedRevision int64) error {
 	if record == nil || !s.authenticates(ctx, record.OwnerID) {
 		return reportstore.ErrNotFound
 	}
@@ -224,7 +224,7 @@ func (s *Store) PutConversationReportContextCAS(ctx context.Context, record *rep
 	if err != nil {
 		return err
 	}
-	current := &reportcontext.Record{}
+	current := &reportcontextmodel.Record{}
 	err = readJSON(path, current)
 	switch {
 	case errors.Is(err, errNotFound):
@@ -244,7 +244,7 @@ func (s *Store) PutConversationReportContextCAS(ctx context.Context, record *rep
 // AdoptReportRunAndContextCAS validates both revisions before changing either
 // file. The process-wide keyed lock also serializes separate Store instances
 // backed by the same state directory.
-func (s *Store) AdoptReportRunAndContextCAS(ctx context.Context, run *reportrun.Record, expectedRunRevision int64, record *reportcontext.Record, expectedContextRevision int64) error {
+func (s *Store) AdoptReportRunAndContextCAS(ctx context.Context, run *reportrunmodel.Record, expectedRunRevision int64, record *reportcontextmodel.Record, expectedContextRevision int64) error {
 	if run == nil || record == nil || !s.authenticates(ctx, run.OwnerID) || !s.authenticates(ctx, record.OwnerID) {
 		return reportstore.ErrNotFound
 	}
@@ -264,7 +264,7 @@ func (s *Store) AdoptReportRunAndContextCAS(ctx context.Context, run *reportrun.
 	if err != nil {
 		return err
 	}
-	current := &reportrun.Record{}
+	current := &reportrunmodel.Record{}
 	if err := readJSON(runPath, current); err != nil {
 		if errors.Is(err, errNotFound) {
 			return reportstore.ErrNotFound
@@ -277,7 +277,7 @@ func (s *Store) AdoptReportRunAndContextCAS(ctx context.Context, run *reportrun.
 	if current.Revision != expectedRunRevision {
 		return reportstore.ErrCASMismatch
 	}
-	currentContext := &reportcontext.Record{}
+	currentContext := &reportcontextmodel.Record{}
 	contextErr := readJSON(contextPath, currentContext)
 	switch {
 	case errors.Is(contextErr, errNotFound) && expectedContextRevision != 0:
@@ -334,7 +334,7 @@ func (s *Store) contextPath(ctx context.Context, ownerID, conversationID string)
 }
 
 // CreateJob persists a new export job.
-func (s *Store) CreateJob(ctx context.Context, job *reportjob.Record) error {
+func (s *Store) CreateJob(ctx context.Context, job *reportjobmodel.Record) error {
 	if job == nil {
 		return errNotFound
 	}
@@ -348,7 +348,7 @@ func (s *Store) CreateJob(ctx context.Context, job *reportjob.Record) error {
 	return writeJSONCreateOnly(path, job, "reporting fs store: job %s already exists: %w", strings.TrimSpace(job.JobID), reportstore.ErrAlreadyExists)
 }
 
-func (s *Store) SubmitJobFromRun(ctx context.Context, candidate *reportjob.Record) (*reportjob.Record, bool, error) {
+func (s *Store) SubmitJobFromRun(ctx context.Context, candidate *reportjobmodel.Record) (*reportjobmodel.Record, bool, error) {
 	if candidate == nil || !s.authenticates(ctx, candidate.OwnerID) {
 		return nil, false, reportstore.ErrNotFound
 	}
@@ -383,7 +383,7 @@ func (s *Store) SubmitJobFromRun(ctx context.Context, candidate *reportjob.Recor
 	if err != nil {
 		return nil, false, err
 	}
-	run := &reportrun.Record{}
+	run := &reportrunmodel.Record{}
 	if err := readJSON(runPath, run); err != nil {
 		if errors.Is(err, errNotFound) {
 			return nil, false, reportstore.ErrNotFound
@@ -393,7 +393,7 @@ func (s *Store) SubmitJobFromRun(ctx context.Context, candidate *reportjob.Recor
 	if !s.authenticates(ctx, run.OwnerID) {
 		return nil, false, reportstore.ErrNotFound
 	}
-	if run.Status != reportrun.StatusCompleted || run.Revision < 1 ||
+	if run.Status != reportrunmodel.StatusCompleted || run.Revision < 1 ||
 		len(bytes.TrimSpace(run.ReportSpec)) == 0 || len(bytes.TrimSpace(run.ReportFill)) == 0 || len(bytes.TrimSpace(run.ReportPrint)) == 0 {
 		return nil, false, reportstore.ErrInvalidTransition
 	}
@@ -422,7 +422,7 @@ func (s *Store) SubmitJobFromRun(ctx context.Context, candidate *reportjob.Recor
 	return cloneJob(job), false, nil
 }
 
-func (s *Store) ClaimJob(ctx context.Context, jobID string, startedAt time.Time) (*reportjob.Record, error) {
+func (s *Store) ClaimJob(ctx context.Context, jobID string, startedAt time.Time) (*reportjobmodel.Record, error) {
 	stateLock, err := s.reportingStateLock(ctx)
 	if err != nil {
 		return nil, err
@@ -435,7 +435,7 @@ func (s *Store) ClaimJob(ctx context.Context, jobID string, startedAt time.Time)
 	if err != nil {
 		return nil, err
 	}
-	job := &reportjob.Record{}
+	job := &reportjobmodel.Record{}
 	if err := readJSON(path, job); err != nil {
 		return nil, translateNotFound(err)
 	}
@@ -451,7 +451,7 @@ func (s *Store) ClaimJob(ctx context.Context, jobID string, startedAt time.Time)
 	return cloneJob(job), nil
 }
 
-func (s *Store) CompleteJobWithArtifact(ctx context.Context, jobID string, artifact *reportartifact.Record, diagnostics []byte, completedAt time.Time, retentionTTL time.Duration) (*reportjob.Record, error) {
+func (s *Store) CompleteJobWithArtifact(ctx context.Context, jobID string, artifact *reportartifactmodel.Record, diagnostics []byte, completedAt time.Time, retentionTTL time.Duration) (*reportjobmodel.Record, error) {
 	if artifact == nil {
 		return nil, reportstore.ErrNotFound
 	}
@@ -467,7 +467,7 @@ func (s *Store) CompleteJobWithArtifact(ctx context.Context, jobID string, artif
 	if err != nil {
 		return nil, err
 	}
-	job := &reportjob.Record{}
+	job := &reportjobmodel.Record{}
 	if err := readJSON(jobPath, job); err != nil {
 		return nil, translateNotFound(err)
 	}
@@ -508,7 +508,7 @@ func (s *Store) CompleteJobWithArtifact(ctx context.Context, jobID string, artif
 	return s.completeJobFromArtifact(ctx, jobPath, job, nextArtifact, diagnostics, completedAt, retentionTTL)
 }
 
-func (s *Store) completeJobFromArtifact(_ context.Context, jobPath string, job *reportjob.Record, artifact *reportartifact.Record, diagnostics []byte, completedAt time.Time, retentionTTL time.Duration) (*reportjob.Record, error) {
+func (s *Store) completeJobFromArtifact(_ context.Context, jobPath string, job *reportjobmodel.Record, artifact *reportartifactmodel.Record, diagnostics []byte, completedAt time.Time, retentionTTL time.Duration) (*reportjobmodel.Record, error) {
 	next := cloneJob(job)
 	next.Status = "succeeded"
 	next.ArtifactID = strings.TrimSpace(artifact.ArtifactID)
@@ -523,7 +523,7 @@ func (s *Store) completeJobFromArtifact(_ context.Context, jobPath string, job *
 	return cloneJob(next), nil
 }
 
-func (s *Store) FailJob(ctx context.Context, jobID, errorText string, diagnostics []byte, completedAt time.Time) (*reportjob.Record, error) {
+func (s *Store) FailJob(ctx context.Context, jobID, errorText string, diagnostics []byte, completedAt time.Time) (*reportjobmodel.Record, error) {
 	stateLock, err := s.reportingStateLock(ctx)
 	if err != nil {
 		return nil, err
@@ -536,7 +536,7 @@ func (s *Store) FailJob(ctx context.Context, jobID, errorText string, diagnostic
 	if err != nil {
 		return nil, err
 	}
-	job := &reportjob.Record{}
+	job := &reportjobmodel.Record{}
 	if err := readJSON(path, job); err != nil {
 		return nil, translateNotFound(err)
 	}
@@ -554,7 +554,7 @@ func (s *Store) FailJob(ctx context.Context, jobID, errorText string, diagnostic
 	return cloneJob(job), nil
 }
 
-func (s *Store) ReconcileRunningJobs(ctx context.Context, staleBefore, reconciledAt time.Time, errorText string) ([]*reportjob.Record, error) {
+func (s *Store) ReconcileRunningJobs(ctx context.Context, staleBefore, reconciledAt time.Time, errorText string) ([]*reportjobmodel.Record, error) {
 	stateLock, err := s.reportingStateLock(ctx)
 	if err != nil {
 		return nil, err
@@ -571,7 +571,7 @@ func (s *Store) ReconcileRunningJobs(ctx context.Context, staleBefore, reconcile
 	if err != nil {
 		return nil, err
 	}
-	artifactByJob := map[string]*reportartifact.Record{}
+	artifactByJob := map[string]*reportartifactmodel.Record{}
 	for _, artifact := range artifacts {
 		jobID := strings.TrimSpace(artifact.JobID)
 		if prior := artifactByJob[jobID]; prior != nil && strings.TrimSpace(prior.ArtifactID) != strings.TrimSpace(artifact.ArtifactID) {
@@ -579,7 +579,7 @@ func (s *Store) ReconcileRunningJobs(ctx context.Context, staleBefore, reconcile
 		}
 		artifactByJob[jobID] = artifact
 	}
-	result := []*reportjob.Record{}
+	result := []*reportjobmodel.Record{}
 	for _, job := range jobs {
 		if strings.TrimSpace(job.Status) != "running" || (job.StartedAt != nil && job.StartedAt.After(staleBefore)) {
 			continue
@@ -613,12 +613,12 @@ func (s *Store) ReconcileRunningJobs(ctx context.Context, staleBefore, reconcile
 }
 
 // GetJob loads a persisted export job.
-func (s *Store) GetJob(ctx context.Context, jobID string) (*reportjob.Record, error) {
+func (s *Store) GetJob(ctx context.Context, jobID string) (*reportjobmodel.Record, error) {
 	path, err := s.recordPath(ctx, "jobs", jobID)
 	if err != nil {
 		return nil, err
 	}
-	record := &reportjob.Record{}
+	record := &reportjobmodel.Record{}
 	if err := readJSON(path, record); err != nil {
 		return nil, err
 	}
@@ -626,7 +626,7 @@ func (s *Store) GetJob(ctx context.Context, jobID string) (*reportjob.Record, er
 }
 
 // ListJobs loads all persisted export jobs in unspecified order.
-func (s *Store) ListJobs(ctx context.Context) ([]*reportjob.Record, error) {
+func (s *Store) ListJobs(ctx context.Context) ([]*reportjobmodel.Record, error) {
 	if s == nil || s.stateStore == nil {
 		return nil, fmt.Errorf("reporting fs store: state store is required")
 	}
@@ -637,11 +637,11 @@ func (s *Store) ListJobs(ctx context.Context) ([]*reportjob.Record, error) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return []*reportjob.Record{}, nil
+			return []*reportjobmodel.Record{}, nil
 		}
 		return nil, err
 	}
-	result := make([]*reportjob.Record, 0, len(entries))
+	result := make([]*reportjobmodel.Record, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -650,7 +650,7 @@ func (s *Store) ListJobs(ctx context.Context) ([]*reportjob.Record, error) {
 		if !strings.HasSuffix(strings.ToLower(name), ".json") {
 			continue
 		}
-		record := &reportjob.Record{}
+		record := &reportjobmodel.Record{}
 		if err := readJSON(filepath.Join(dir, name), record); err != nil {
 			return nil, err
 		}
@@ -660,7 +660,7 @@ func (s *Store) ListJobs(ctx context.Context) ([]*reportjob.Record, error) {
 }
 
 // UpdateJob replaces a persisted export job.
-func (s *Store) UpdateJob(ctx context.Context, job *reportjob.Record) error {
+func (s *Store) UpdateJob(ctx context.Context, job *reportjobmodel.Record) error {
 	if job == nil {
 		return errNotFound
 	}
@@ -676,7 +676,7 @@ func (s *Store) UpdateJob(ctx context.Context, job *reportjob.Record) error {
 	if err != nil {
 		return err
 	}
-	current := &reportjob.Record{}
+	current := &reportjobmodel.Record{}
 	if err := readJSON(path, current); err != nil {
 		return translateNotFound(err)
 	}
@@ -687,7 +687,7 @@ func (s *Store) UpdateJob(ctx context.Context, job *reportjob.Record) error {
 }
 
 // PutArtifact persists an export artifact.
-func (s *Store) PutArtifact(ctx context.Context, artifact *reportartifact.Record) error {
+func (s *Store) PutArtifact(ctx context.Context, artifact *reportartifactmodel.Record) error {
 	if artifact == nil {
 		return errNotFound
 	}
@@ -703,7 +703,7 @@ func (s *Store) PutArtifact(ctx context.Context, artifact *reportartifact.Record
 	if err != nil {
 		return err
 	}
-	job := &reportjob.Record{}
+	job := &reportjobmodel.Record{}
 	if err := readJSON(jobPath, job); err != nil {
 		return translateNotFound(err)
 	}
@@ -730,12 +730,12 @@ func (s *Store) PutArtifact(ctx context.Context, artifact *reportartifact.Record
 }
 
 // GetArtifact loads a persisted export artifact.
-func (s *Store) GetArtifact(ctx context.Context, artifactID string) (*reportartifact.Record, error) {
+func (s *Store) GetArtifact(ctx context.Context, artifactID string) (*reportartifactmodel.Record, error) {
 	path, err := s.recordPath(ctx, "artifacts", artifactID)
 	if err != nil {
 		return nil, err
 	}
-	record := &reportartifact.Record{}
+	record := &reportartifactmodel.Record{}
 	if err := readJSON(path, record); err != nil {
 		return nil, err
 	}
@@ -743,7 +743,7 @@ func (s *Store) GetArtifact(ctx context.Context, artifactID string) (*reportarti
 }
 
 // ListArtifacts loads all persisted export artifacts in unspecified order.
-func (s *Store) ListArtifacts(ctx context.Context) ([]*reportartifact.Record, error) {
+func (s *Store) ListArtifacts(ctx context.Context) ([]*reportartifactmodel.Record, error) {
 	if s == nil || s.stateStore == nil {
 		return nil, fmt.Errorf("reporting fs store: state store is required")
 	}
@@ -754,11 +754,11 @@ func (s *Store) ListArtifacts(ctx context.Context) ([]*reportartifact.Record, er
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return []*reportartifact.Record{}, nil
+			return []*reportartifactmodel.Record{}, nil
 		}
 		return nil, err
 	}
-	result := make([]*reportartifact.Record, 0, len(entries))
+	result := make([]*reportartifactmodel.Record, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -767,7 +767,7 @@ func (s *Store) ListArtifacts(ctx context.Context) ([]*reportartifact.Record, er
 		if !strings.HasSuffix(strings.ToLower(name), ".json") {
 			continue
 		}
-		record := &reportartifact.Record{}
+		record := &reportartifactmodel.Record{}
 		if err := readJSON(filepath.Join(dir, name), record); err != nil {
 			return nil, err
 		}
@@ -777,7 +777,7 @@ func (s *Store) ListArtifacts(ctx context.Context) ([]*reportartifact.Record, er
 }
 
 // CreateSharedArtifact persists a new shared reporting artifact.
-func (s *Store) CreateSharedArtifact(ctx context.Context, artifact *reportshareartifact.Record) error {
+func (s *Store) CreateSharedArtifact(ctx context.Context, artifact *reportshareartifactmodel.Record) error {
 	if artifact == nil {
 		return errNotFound
 	}
@@ -789,12 +789,12 @@ func (s *Store) CreateSharedArtifact(ctx context.Context, artifact *reportsharea
 }
 
 // GetSharedArtifact loads a persisted shared reporting artifact.
-func (s *Store) GetSharedArtifact(ctx context.Context, artifactID string) (*reportshareartifact.Record, error) {
+func (s *Store) GetSharedArtifact(ctx context.Context, artifactID string) (*reportshareartifactmodel.Record, error) {
 	path, err := s.recordPath(ctx, "shared_artifacts", artifactID)
 	if err != nil {
 		return nil, err
 	}
-	record := &reportshareartifact.Record{}
+	record := &reportshareartifactmodel.Record{}
 	if err := readJSON(path, record); err != nil {
 		return nil, err
 	}
@@ -803,7 +803,7 @@ func (s *Store) GetSharedArtifact(ctx context.Context, artifactID string) (*repo
 
 // ListSharedArtifacts loads all persisted shared reporting artifacts in
 // unspecified order.
-func (s *Store) ListSharedArtifacts(ctx context.Context) ([]*reportshareartifact.Record, error) {
+func (s *Store) ListSharedArtifacts(ctx context.Context) ([]*reportshareartifactmodel.Record, error) {
 	if s == nil || s.stateStore == nil {
 		return nil, fmt.Errorf("reporting fs store: state store is required")
 	}
@@ -814,11 +814,11 @@ func (s *Store) ListSharedArtifacts(ctx context.Context) ([]*reportshareartifact
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return []*reportshareartifact.Record{}, nil
+			return []*reportshareartifactmodel.Record{}, nil
 		}
 		return nil, err
 	}
-	result := make([]*reportshareartifact.Record, 0, len(entries))
+	result := make([]*reportshareartifactmodel.Record, 0, len(entries))
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
@@ -827,7 +827,7 @@ func (s *Store) ListSharedArtifacts(ctx context.Context) ([]*reportshareartifact
 		if !strings.HasSuffix(strings.ToLower(name), ".json") {
 			continue
 		}
-		record := &reportshareartifact.Record{}
+		record := &reportshareartifactmodel.Record{}
 		if err := readJSON(filepath.Join(dir, name), record); err != nil {
 			return nil, err
 		}
@@ -837,7 +837,7 @@ func (s *Store) ListSharedArtifacts(ctx context.Context) ([]*reportshareartifact
 }
 
 // UpdateSharedArtifact replaces a persisted shared reporting artifact.
-func (s *Store) UpdateSharedArtifact(ctx context.Context, artifact *reportshareartifact.Record) error {
+func (s *Store) UpdateSharedArtifact(ctx context.Context, artifact *reportshareartifactmodel.Record) error {
 	if artifact == nil {
 		return errNotFound
 	}
@@ -946,7 +946,7 @@ func translateNotFound(err error) error {
 	return err
 }
 
-func cloneJob(input *reportjob.Record) *reportjob.Record {
+func cloneJob(input *reportjobmodel.Record) *reportjobmodel.Record {
 	if input == nil {
 		return nil
 	}
@@ -967,14 +967,14 @@ func cloneJob(input *reportjob.Record) *reportjob.Record {
 	return &out
 }
 
-func sameRunExportRequest(existing, candidate *reportjob.Record) bool {
+func sameRunExportRequest(existing, candidate *reportjobmodel.Record) bool {
 	return existing != nil && candidate != nil &&
 		strings.TrimSpace(existing.ReportRunID) == strings.TrimSpace(candidate.ReportRunID) &&
 		strings.TrimSpace(existing.Format) == strings.TrimSpace(candidate.Format) &&
 		strings.TrimSpace(existing.Scope) == strings.TrimSpace(candidate.Scope)
 }
 
-func sameArtifactJob(artifact *reportartifact.Record, job *reportjob.Record) bool {
+func sameArtifactJob(artifact *reportartifactmodel.Record, job *reportjobmodel.Record) bool {
 	return artifact != nil && job != nil &&
 		strings.TrimSpace(artifact.JobID) == strings.TrimSpace(job.JobID) &&
 		strings.TrimSpace(artifact.OwnerID) == strings.TrimSpace(job.OwnerID) &&
@@ -982,7 +982,7 @@ func sameArtifactJob(artifact *reportartifact.Record, job *reportjob.Record) boo
 		strings.EqualFold(strings.TrimSpace(artifact.Format), strings.TrimSpace(job.Format))
 }
 
-func cloneArtifact(input *reportartifact.Record) *reportartifact.Record {
+func cloneArtifact(input *reportartifactmodel.Record) *reportartifactmodel.Record {
 	if input == nil {
 		return nil
 	}

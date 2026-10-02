@@ -8,8 +8,8 @@ import (
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
-	agturncount "github.com/viant/agently-core/pkg/agently/turn/queuedCount"
-	turnqueuewrite "github.com/viant/agently-core/pkg/agently/turnqueue/write"
+	turnmodel "github.com/viant/agently-core/model/turn"
+	turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -27,9 +27,9 @@ func (s *Service) maybeContinueActiveGoal(ctx context.Context, input *QueryInput
 	if conversationID == "" {
 		return
 	}
-	queuedCount, err := s.dataService.CountQueuedTurns(ctx, &agturncount.QueuedTotalInput{
+	queuedCount, err := s.dataService.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{
 		ConversationID: conversationID,
-		Has:            &agturncount.QueuedTotalInputHas{ConversationID: true},
+		Has:            &turnmodel.QueuedTotalInputHas{ConversationID: true},
 	})
 	if err != nil {
 		return
@@ -182,9 +182,9 @@ func (s *Service) enqueueGoalContinuation(ctx context.Context, input *QueryInput
 		return err
 	}
 	if patcher, ok := s.dataService.(interface {
-		PatchTurnQueue(ctx context.Context, in *turnqueuewrite.TurnQueue) error
+		PatchTurnQueue(ctx context.Context, in *turnqueuemodel.TurnQueue) error
 	}); ok {
-		q := &turnqueuewrite.TurnQueue{Has: &turnqueuewrite.TurnQueueHas{}}
+		q := &turnqueuemodel.TurnQueue{Has: &turnqueuemodel.TurnQueueHas{}}
 		q.SetId(turnID)
 		q.SetConversationId(conversationID)
 		q.SetTurnId(turnID)
@@ -226,7 +226,7 @@ func (s *Service) hasQueuedControllerTurnForGoal(ctx context.Context, conversati
 		if !strings.EqualFold(strings.TrimSpace(valueOrEmpty(item.Origin)), "controller") {
 			continue
 		}
-		if strings.TrimSpace(valueOrEmpty(item.GoalID)) != goalID {
+		if strings.TrimSpace(valueOrEmpty(item.GoalId)) != goalID {
 			continue
 		}
 		return true

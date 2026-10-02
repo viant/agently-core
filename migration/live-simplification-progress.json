@@ -1,0 +1,74 @@
+{
+  "task": "Live IdP-authenticated Agently UI/query/transcript/speech on SQLite and MySQL plus user-directed full DQL simplification and pkg/legacy removal",
+  "idp_live_scheduler": {
+    "passed": true,
+    "seconds": 1.877,
+    "credentials_ref": "/Users/awitas/.secret/awitas_dsp_ui.enc|blowfish://default",
+    "client_ref": "/Users/awitas/.secret/idp_viant.enc|blowfish://default",
+    "secret_values_recorded": false
+  },
+  "build": {
+    "binary": "/tmp/agently-live-v1",
+    "entrypoint": "./agently",
+    "passed": true,
+    "needs_rebuild_after_generation": true
+  },
+  "fixture_pointer": "/tmp/agently-live-dualdb-root-path",
+  "fixture": {
+    "sqlite_url": "http://127.0.0.1:53702",
+    "mysql_url": "http://127.0.0.1:53703",
+    "mysql_database": "agently_live",
+    "mysql_schema_initialized": true,
+    "native_servers_started": false
+  },
+  "speech_scope_question": "CLI has transcript command, speech-to-text server endpoint; clarification pending.",
+  "lanes": {
+    "reader": "All 36 readers simplified; all SQL sources extracted to adjacent sql assets.",
+    "writer_framework": "All 26 writers audited and simplified; trusted native row locking implemented.",
+    "legacy_models": "Entire pkg directory removed; Conversation/Message generated aliases and client projections implemented. Remaining model authority audit pending."
+  },
+  "datly_framework": {
+    "required": "Already supported",
+    "optional": "Root added Column.Optional+annotation, preservesphysicalconstraints; testsPASS",
+    "holder": "Root added type(view,GoType,GoHolder) optinthirdargument forrelatedviews; testsPASS",
+    "wildcard_runtime": "Astra strictcomputed/nested preparedcolumns fix; testsPASS",
+    "type_reuse": "Astra identicalexplicitreaderleafshapes reuse; testsPASS",
+    "json_policy": "Writer scalarJSONcasing from caseformat and generation-only writer_omit_empty; readerLC update in progress",
+    "skill_update": "Bothreader/writerSKILL Simplifyprojections sections+grammar docs updated; official skillvalidatorPASS",
+    "row_lock": "Metadata/trustedReaderOptions/physicalSQL locks and SQLite/MySQL tests pass; Corecaller/DQLcapabilitymigration in progress."
+  },
+  "sqlx": {
+    "branch": "main",
+    "head": "c707e294db3b",
+    "datly_pin": "v0.26.1-0.20261001153633-c707e294db3b"
+  },
+  "scratch_modfile": "/tmp/agently-current-framework/go.mod",
+  "stock_cli": "/Users/awitas/go/src/github.com/viant/agently-core-v1/bin/datly",
+  "generation_barrier": "No native server/fixture discovery during active generation. All source/frameworkchanges must be stable before sole combined62transcription/regeneration.",
+  "current_branch": "v1",
+  "commit_push": "Core v1 commit requested now; live UI/query/transcript and final runtime acceptance remain pending.",
+  "runtime_pending": true,
+  "live_model": {
+    "id": "mercury_live_smoke",
+    "provider": "inceptionlabs",
+    "model": "mercury-2",
+    "credential_reference": "/Users/awitas/.secret/mercury.txt",
+    "max_tokens": 256,
+    "provider_metadata_check": "PASS Mercury models API"
+  },
+  "speech_status": "OpenAI-backed speech endpoint has no matching credential reference; CLI transcript path will be tested. No invented transcribe CLI.",
+  "ui_production_build": {
+    "passed": true,
+    "seconds": 16.37,
+    "log": "/tmp/agently-live-ui-build.log"
+  },
+  "generation_result": {
+    "contracts": 62,
+    "artifacts": 827,
+    "transcription": "PASS",
+    "regeneration": "PASS",
+    "framework_commit": "875036c7",
+    "framework_source": "local scratch modfile",
+    "published_pin": "fedaf20d2a5e"
+  }
+}

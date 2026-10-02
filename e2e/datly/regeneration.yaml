@@ -1,0 +1,25 @@
+init:
+  - name: projectRoot
+    when: $params.projectRoot
+    value: $params.projectRoot
+    else: $WorkingDirectory(../..)
+
+pipeline:
+  snapshot:
+    action: exec:run
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - rm -rf bin/_datly_regeneration_before
+      - cp -R internal/datly bin/_datly_regeneration_before
+  transcribe:
+    action: run
+    request: '@transcribe'
+    params:
+      projectRoot: $projectRoot
+  compare:
+    action: exec:run
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - diff -ru bin/_datly_regeneration_before internal/datly

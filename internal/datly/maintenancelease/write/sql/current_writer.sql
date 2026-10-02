@@ -1,0 +1,1 @@
+SELECT r.lease_key, r.owner_id, r.lease_token, r.lease_until, r.created_at, r.updated_at FROM (SELECT t.* FROM  (SELECT c.* , 0 AS should_delete FROM maintenance_lease c)  t) r WHERE $criteria.CompositeIn("r", $WriterKeys)

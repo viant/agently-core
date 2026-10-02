@@ -1,0 +1,12 @@
+init:
+  - name: projectRoot
+    value: $WorkingDirectory(../..)
+
+pipeline:
+  core:
+    action: exec:run
+    TimeoutMs: 2400000
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - env GOWORK=off go test -count=1 ./...

@@ -12,8 +12,7 @@ import (
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
-	convw "github.com/viant/agently-core/pkg/agently/conversation/write"
-	aggoalwrite "github.com/viant/agently-core/pkg/agently/goal/write"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -46,9 +45,9 @@ func TestMaybeContinueActiveGoal_SchedulesWakeupWhenControllerRequestsDelay(t *t
 	ctx := context.Background()
 	dataSvc, err := data.NewThinServiceInMemory(ctx)
 	require.NoError(t, err)
-	convRow := convw.NewMutableConversationView(convw.WithConversationID("conv-wakeup"))
+	convRow := conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-wakeup"))
 	convRow.SetAgentId("coder")
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{convRow})
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{convRow})
 	require.NoError(t, err)
 
 	spec, err := (&goalsys.ControllerSpec{
@@ -58,23 +57,14 @@ func TestMaybeContinueActiveGoal_SchedulesWakeupWhenControllerRequestsDelay(t *t
 		WakeDelaySeconds: intPtr(90),
 	}).Encode()
 	require.NoError(t, err)
-	_, err = dataSvc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{
-		aggoalwrite.NewMutableGoalView(
-			aggoalwrite.WithGoalID("goal-conv-wakeup"),
-			aggoalwrite.WithGoalConversationID("conv-wakeup"),
-			aggoalwrite.WithGoalObjective("finish cleanup"),
-			aggoalwrite.WithGoalStatus("active"),
-			aggoalwrite.WithGoalControllerSpec(spec),
-		),
-	})
-	require.NoError(t, err)
+	goalStore := newLinkedGoalStore(t, "goal-conv-wakeup", "conv-wakeup", "finish cleanup", spec)
 
 	wakeups := &captureGoalWakeupScheduler{}
 	pub := &captureGoalEventPublisher{}
 	svc := &Service{
 		dataService:  dataSvc,
 		conversation: convmem.New(),
-		goalRuntime:  goalsys.NewRuntime(goalsys.NewStore(dataSvc)),
+		goalRuntime:  goalsys.NewRuntime(goalStore),
 		goalWakeups:  wakeups,
 		streamPub:    pub,
 	}
@@ -123,9 +113,9 @@ features:
 	ctx := context.Background()
 	dataSvc, err := data.NewThinServiceInMemory(ctx)
 	require.NoError(t, err)
-	convRow := convw.NewMutableConversationView(convw.WithConversationID("conv-wakeup"))
+	convRow := conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-wakeup"))
 	convRow.SetAgentId("coder")
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{convRow})
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{convRow})
 	require.NoError(t, err)
 
 	spec, err := (&goalsys.ControllerSpec{
@@ -135,22 +125,13 @@ features:
 		WakeDelaySeconds: intPtr(90),
 	}).Encode()
 	require.NoError(t, err)
-	_, err = dataSvc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{
-		aggoalwrite.NewMutableGoalView(
-			aggoalwrite.WithGoalID("goal-conv-wakeup"),
-			aggoalwrite.WithGoalConversationID("conv-wakeup"),
-			aggoalwrite.WithGoalObjective("finish cleanup"),
-			aggoalwrite.WithGoalStatus("active"),
-			aggoalwrite.WithGoalControllerSpec(spec),
-		),
-	})
-	require.NoError(t, err)
+	goalStore := newLinkedGoalStore(t, "goal-conv-wakeup", "conv-wakeup", "finish cleanup", spec)
 
 	wakeups := &captureGoalWakeupScheduler{}
 	svc := &Service{
 		dataService:  dataSvc,
 		conversation: convmem.New(),
-		goalRuntime:  goalsys.NewRuntime(goalsys.NewStore(dataSvc)),
+		goalRuntime:  goalsys.NewRuntime(goalStore),
 		goalWakeups:  wakeups,
 	}
 
@@ -183,8 +164,8 @@ features:
 	ctx := context.Background()
 	dataSvc, err := data.NewThinServiceInMemory(ctx)
 	require.NoError(t, err)
-	_, err = dataSvc.PatchConversations(ctx, []*convw.Conversation{
-		convw.NewMutableConversationView(convw.WithConversationID("conv-goal")),
+	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{
+		conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-goal")),
 	})
 	require.NoError(t, err)
 
@@ -195,16 +176,7 @@ features:
 		WakeDelaySeconds: intPtr(120),
 	}).Encode()
 	require.NoError(t, err)
-	_, err = dataSvc.PatchGoals(ctx, []*aggoalwrite.MutableGoalView{
-		aggoalwrite.NewMutableGoalView(
-			aggoalwrite.WithGoalID("goal-conv-goal"),
-			aggoalwrite.WithGoalConversationID("conv-goal"),
-			aggoalwrite.WithGoalObjective("finish parser cleanup"),
-			aggoalwrite.WithGoalStatus("active"),
-			aggoalwrite.WithGoalControllerSpec(spec),
-		),
-	})
-	require.NoError(t, err)
+	goalStore := newLinkedGoalStore(t, "goal-conv-goal", "conv-goal", "finish parser cleanup", spec)
 
 	convClient := convmem.New()
 	conv := convcli.NewConversation()
@@ -216,7 +188,7 @@ features:
 	svc := &Service{
 		dataService:  dataSvc,
 		conversation: convClient,
-		goalRuntime:  goalsys.NewRuntime(goalsys.NewStore(dataSvc)),
+		goalRuntime:  goalsys.NewRuntime(goalStore),
 		goalWakeups:  wakeups,
 	}
 

@@ -1,0 +1,17 @@
+{
+  "datly_repository": "/Users/awitas/go/src/github.com/viant/datly",
+  "branch": "v1",
+  "commit": "832049dfd8c02144b3b61ad87382f1976669187d",
+  "base": "e4bdda213366c6ddff9ba3b186f3c227387b3a59",
+  "source_repository": "/Users/awitas/go/src/github.com/viant/datly-conditions",
+  "source_commit": "772d31ea1469be130287f8c9f48fe83c7e2b38fa",
+  "sqlx_version": "v0.26.1-0.20260928224516-716a37c8ca40",
+  "preserved_existing_user_work": "Tracked and nonignored untracked file hashes matched before/after backfill; no overlap in staged paths. Existing auth-context docs, bundled copies, remote-component test and untracked binaries/e2e remain uncommitted.",
+  "verification": {
+    "agently_endly": "SUCCESS: 63/63 transcribed; deterministic regeneration, full tests, runtime build",
+    "direct_original_datly_oauth_parity": "PASS: ten sequential, deterministic and second-connection recovery comparisons",
+    "affected_native_packages": "PASS: bootstrap, spec, tag, typecatalog, predicate/velty, handler engine/writer, DML, transcribe compile/generate/compiler",
+    "broad_transcribe": "Two cube reload fixture-linkage failures; both reproduced at unchanged baseline e4bdda21"
+  },
+  "agently_commit_policy": "User requested Agently changes stay uncommitted for review when migration finishes; Datly commit allowed."
+}

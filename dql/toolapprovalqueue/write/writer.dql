@@ -1,0 +1,37 @@
+#package('github.com/viant/agently-core/internal/datly/toolapprovalqueue/write')
+
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/api/agently/toolapprovalqueue','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
+#define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
+#define($_ = $Queues<[]*ToolApprovalQueue>(body/data))
+#define($_ = $Data<[]*ToolApprovalQueue>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       delete_not_found(t,'ignore'),
+       type(t,'ToolApprovalQueue'),
+       lifecycle_type(t,'Lifecycle'),
+       required(t.id),
+       tag(t.id,'validate:"required" sqlx:"id,primaryKey"'),
+       required(t.user_id),
+       tag(t.user_id,'validate:"required"'),
+       required(t.tool_name),
+       tag(t.tool_name,'validate:"required"'),
+       CAST(t.arguments AS []byte),
+       tag(t.arguments,'validate:"required"'),
+       CAST(t.metadata AS *[]byte),
+       required(t.status),
+       tag(t.status,'validate:"required"'),
+       tag(t.id,'json:","'),
+       tag(t.user_id,'json:","'),
+       tag(t.tool_name,'json:","'),
+       tag(t.arguments,'json:","'),
+       tag(t.status,'json:","')
+FROM (${embed:sql/toolapprovalqueue.sql}) t

@@ -13,7 +13,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/logx"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
@@ -1188,8 +1188,8 @@ type transcriptToolStep struct {
 	ToolName        string
 	Status          string
 	Content         string
-	RequestPayload  *agconv.ModelCallStreamPayloadView
-	ResponsePayload *agconv.ModelCallStreamPayloadView
+	RequestPayload  *conversationmodel.ModelCallStreamPayloadView
+	ResponsePayload *conversationmodel.ModelCallStreamPayloadView
 	CreatedAt       time.Time
 	Sequence        int
 }
@@ -1310,7 +1310,7 @@ func normalizeWorkspaceToolName(raw string) string {
 	return strings.ToLower(strings.ReplaceAll(strings.TrimSpace(raw), ":", "/"))
 }
 
-func payloadBodyMap(payload *agconv.ModelCallStreamPayloadView) map[string]interface{} {
+func payloadBodyMap(payload *conversationmodel.ModelCallStreamPayloadView) map[string]interface{} {
 	if payload == nil || payload.InlineBody == nil {
 		return nil
 	}
@@ -1320,7 +1320,7 @@ func payloadBodyMap(payload *agconv.ModelCallStreamPayloadView) map[string]inter
 	return parseWorkspacePayload(strings.TrimSpace(*payload.InlineBody))
 }
 
-func firstWorkspacePayloadMap(content string, payload *agconv.ModelCallStreamPayloadView) map[string]interface{} {
+func firstWorkspacePayloadMap(content string, payload *conversationmodel.ModelCallStreamPayloadView) map[string]interface{} {
 	if parsed := parseWorkspacePayload(strings.TrimSpace(content)); len(parsed) > 0 {
 		return parsed
 	}

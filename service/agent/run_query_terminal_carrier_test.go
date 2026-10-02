@@ -11,7 +11,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	base "github.com/viant/agently-core/genai/llm/provider/base"
-	agconv "github.com/viant/agently-core/pkg/agently/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/protocol/binding"
@@ -207,14 +207,14 @@ func TestServiceRunPlanLoop_TerminalCarrierSnapshotControlsGeneratedRequest(t *t
 			stale := `{"jobId":"job-1","status":"queued"}`
 			conv := &apiconv.Conversation{
 				Id: "conv-1",
-				Transcript: []*agconv.TranscriptView{{
+				Transcript: []*conversationmodel.TranscriptView{{
 					Id:             "turn-1",
 					ConversationId: "conv-1",
-					Message: []*agconv.MessageView{
+					Message: []*conversationmodel.MessageView{
 						{Id: "user-1", ConversationId: "conv-1", TurnId: cancelPtr("turn-1"), Role: "user", Type: "text", Mode: cancelPtr("task"), Content: cancelPtr("export it"), CreatedAt: now},
 						{
 							Id: "tool-msg-1", ConversationId: "conv-1", TurnId: cancelPtr("turn-1"), Role: "tool", Type: "tool_op", Content: &stale, CreatedAt: now.Add(time.Second),
-							MessageToolCall: &agconv.MessageToolCallView{MessageId: "tool-msg-1", TurnId: cancelPtr("turn-1"), OpId: "call-1", ToolName: "export:start", Status: "completed"},
+							MessageToolCall: &conversationmodel.MessageToolCallView{MessageId: "tool-msg-1", TurnId: cancelPtr("turn-1"), OpId: "call-1", ToolName: "export:start", Status: "completed"},
 						},
 					},
 				}},

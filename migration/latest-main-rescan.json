@@ -1,0 +1,279 @@
+{
+  "date": "2026-09-30",
+  "original_checkout_head": "e9958d1a4b0175b6214153ee4d57153151fd4ae6",
+  "remote_main": "79ee52a824dc70688e40532758b6ca3c2f770331",
+  "compared_from": "44b8887846c22dfd47f7d788c34ea12ceaa5c5ae",
+  "fetch": "git fetch origin main completed; original checkout branch/files untouched",
+  "remote_main_changed_paths": 9,
+  "original_remote_merge_base": "9903be31a48db283f45a0220c14df8ae008abbba",
+  "local_unique_commits": [
+    "e9958d1a4b0175b6214153ee4d57153151fd4ae6 Expose typed delegated MCP link outcome to hosts",
+    "73f3c6c07be6d2281fce86bfe5abd07708c1ed23 Add MCP-backed report definitions and activated report contract"
+  ],
+  "local_feature_changed_paths": 19,
+  "paths": [
+    {
+      "path": "go.sum",
+      "remote_main_change": true,
+      "local_feature_change": false,
+      "classification": "dependency_graph_owned_by_migrated_module_not_backfilled_verbatim",
+      "local_sha256": "e9a911d7743194fc89fdde62fa4718e4dde45be6e11369093981e05b1a932424",
+      "main_sha256": "615c7289fa3590c42907ff54fabe8d6d6bf429c10762eee753445a7a7ec836ca",
+      "original_head_sha256": "aadc7b467fb92328017de0c8013f95f3d2f167b04a7d9d8cd8b79c3b13b92339"
+    },
+    {
+      "path": "protocol/datasource/datasource.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "678471de28b59d92f8fc6ce1f51bf2ab639c6fc30e3dbae308dd8ea3971651a2",
+      "main_sha256": "36d4260c901e02b9af1726896f392280e9a706877a75838b259062271f7f752f",
+      "original_head_sha256": "678471de28b59d92f8fc6ce1f51bf2ab639c6fc30e3dbae308dd8ea3971651a2"
+    },
+    {
+      "path": "protocol/mcp/manager/link_error.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "ccd48054f2b428e3eb13f8dcc0ac8a967e26fac0f9acbc917b15c0c9e0782b7b",
+      "main_sha256": null,
+      "original_head_sha256": "ccd48054f2b428e3eb13f8dcc0ac8a967e26fac0f9acbc917b15c0c9e0782b7b"
+    },
+    {
+      "path": "protocol/mcp/manager/link_error_test.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "8877a0ac1e1353121b12db4cef1f450971bee6d746474434fdf5c40068b2c328",
+      "main_sha256": null,
+      "original_head_sha256": "8877a0ac1e1353121b12db4cef1f450971bee6d746474434fdf5c40068b2c328"
+    },
+    {
+      "path": "protocol/tool/service/ui/window/service.go",
+      "remote_main_change": true,
+      "local_feature_change": false,
+      "classification": "matches_remote_main",
+      "local_sha256": "542a8057e3aa8e886eacbd96df39e10d2e78ebc6bda00c477f4cf358a7f92796",
+      "main_sha256": "542a8057e3aa8e886eacbd96df39e10d2e78ebc6bda00c477f4cf358a7f92796",
+      "original_head_sha256": "e6e0e4553de6009e4d8017369aa80a10d104d290dd7d0e606ffc076e4a99091f"
+    },
+    {
+      "path": "sdk/canonical_workspace.go",
+      "remote_main_change": true,
+      "local_feature_change": false,
+      "classification": "matches_remote_main",
+      "local_sha256": "fe076bee84dcacd389e82f3c67b6bc9a63ced1e92b5ffc8141b6d66072cfbde1",
+      "main_sha256": "fe076bee84dcacd389e82f3c67b6bc9a63ced1e92b5ffc8141b6d66072cfbde1",
+      "original_head_sha256": "fd520d3d457be590b650c8c8f3542bf0e873175545838b051057c2889deb154d"
+    },
+    {
+      "path": "sdk/canonical_workspace_test.go",
+      "remote_main_change": true,
+      "local_feature_change": false,
+      "classification": "matches_remote_main",
+      "local_sha256": "59b1c59f4b5c2e416a6ffc23b005202a0c004508c94e8c889a09dfccea7dc96d",
+      "main_sha256": "59b1c59f4b5c2e416a6ffc23b005202a0c004508c94e8c889a09dfccea7dc96d",
+      "original_head_sha256": "7cefa8e0fea321a2fed140261a2ca591c0e1f4730aba20da87a4e3f8ff7f976e"
+    },
+    {
+      "path": "service/agent/binding_options_test.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "original_feature_assertions_preserved_with_native_fixture_migration",
+      "local_sha256": "e23ddff8122fc1732fccae952f721f6f095390d0afe33abd92d0269203332c76",
+      "main_sha256": "def780bc880ab3854808f8f2c64d822908f72fcbf5afd515bdbf99cf72eebb93",
+      "original_head_sha256": "def780bc880ab3854808f8f2c64d822908f72fcbf5afd515bdbf99cf72eebb93",
+      "review": "Compared the full diff: only data runtime import, explicit DB path isolation, native runtime construction and Shutdown cleanup differ. Original feature assertions are unchanged."
+    },
+    {
+      "path": "service/agent/intake_query.go",
+      "remote_main_change": true,
+      "local_feature_change": false,
+      "classification": "matches_remote_main",
+      "local_sha256": "1d2158ca812de290ba211e13bd2516f5d140470dc5333b8e7713457c48ceb4c5",
+      "main_sha256": "1d2158ca812de290ba211e13bd2516f5d140470dc5333b8e7713457c48ceb4c5",
+      "original_head_sha256": "2f1ac50c02f34a75fb14700bd0097373eb1739bc2f1ff2ee7cb84f8a82562743"
+    },
+    {
+      "path": "service/reportdefinition/README.md",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "ddcfeb31c7dff54a701cce75d99c3de1fcd6765b1c2ecf746bc15a98edc18eae",
+      "main_sha256": null,
+      "original_head_sha256": "ddcfeb31c7dff54a701cce75d99c3de1fcd6765b1c2ecf746bc15a98edc18eae"
+    },
+    {
+      "path": "service/reportdefinition/activation.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "d716c45a3cec502eb2304c748e003dfca01f79d878bc681d602576d05bc2f18d",
+      "main_sha256": null,
+      "original_head_sha256": "d716c45a3cec502eb2304c748e003dfca01f79d878bc681d602576d05bc2f18d"
+    },
+    {
+      "path": "service/reportdefinition/activation_test.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "90052acdb081c17af5d03f19ea2b4edb993ada16854ebb573622cbbb3d033b1e",
+      "main_sha256": null,
+      "original_head_sha256": "90052acdb081c17af5d03f19ea2b4edb993ada16854ebb573622cbbb3d033b1e"
+    },
+    {
+      "path": "service/reportdefinition/bounded_test.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "345ea0a05fd677f6ea1a7f5be8da1dddafaf031d01273313197ca086e4a95a0c",
+      "main_sha256": null,
+      "original_head_sha256": "345ea0a05fd677f6ea1a7f5be8da1dddafaf031d01273313197ca086e4a95a0c"
+    },
+    {
+      "path": "service/reportdefinition/compiler.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "0f394fb7e5649a347211231aa5d8e7414c62d655259a6348a8672f4e22dc77f3",
+      "main_sha256": null,
+      "original_head_sha256": "0f394fb7e5649a347211231aa5d8e7414c62d655259a6348a8672f4e22dc77f3"
+    },
+    {
+      "path": "service/reportdefinition/compiler_test.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "c6b2f85c0e907776c8b62085e92e01ca78b0ec50eaeac5dbbb3178c8a29a9eb9",
+      "main_sha256": null,
+      "original_head_sha256": "c6b2f85c0e907776c8b62085e92e01ca78b0ec50eaeac5dbbb3178c8a29a9eb9"
+    },
+    {
+      "path": "service/reportdefinition/mcp_binding_test.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "db55033eed5d1d1263cab1dd0cc3bb8cd07ae477cd3e2ece14b9a36e896d24ae",
+      "main_sha256": null,
+      "original_head_sha256": "db55033eed5d1d1263cab1dd0cc3bb8cd07ae477cd3e2ece14b9a36e896d24ae"
+    },
+    {
+      "path": "service/reportdefinition/mcp_result.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "aea4052d386935a830d3dd2e7b0944e7268959e290786c24118e8770631cc128",
+      "main_sha256": null,
+      "original_head_sha256": "aea4052d386935a830d3dd2e7b0944e7268959e290786c24118e8770631cc128"
+    },
+    {
+      "path": "service/reportdefinition/mcp_result_test.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "36b4c75839f061b200ad6a8e2db6c38cde85f93ede29bace5bed2df93b6e4adc",
+      "main_sha256": null,
+      "original_head_sha256": "36b4c75839f061b200ad6a8e2db6c38cde85f93ede29bace5bed2df93b6e4adc"
+    },
+    {
+      "path": "service/reportdefinition/model.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "7295beca39bb69bfb11078d053838a3cd6b3d566de6b555bc12c6913ebaa92a1",
+      "main_sha256": null,
+      "original_head_sha256": "7295beca39bb69bfb11078d053838a3cd6b3d566de6b555bc12c6913ebaa92a1"
+    },
+    {
+      "path": "service/reportdefinition/native.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "99e34a7b6baf7d765e817725519c0e9c0a0d9b5ed10042d22af8a8ab8a0b1903",
+      "main_sha256": null,
+      "original_head_sha256": "99e34a7b6baf7d765e817725519c0e9c0a0d9b5ed10042d22af8a8ab8a0b1903"
+    },
+    {
+      "path": "service/reportdefinition/native_test.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "4fbdf2ce0792117b77a44d951e52247559e7a5769c2f5b21a1e2a3151c375e65",
+      "main_sha256": null,
+      "original_head_sha256": "4fbdf2ce0792117b77a44d951e52247559e7a5769c2f5b21a1e2a3151c375e65"
+    },
+    {
+      "path": "service/reportdefinition/preview.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "92503e7582b0075ecdad8f8e9d59f54686b645d7b5c8f889ee5c661e766a0b43",
+      "main_sha256": null,
+      "original_head_sha256": "92503e7582b0075ecdad8f8e9d59f54686b645d7b5c8f889ee5c661e766a0b43"
+    },
+    {
+      "path": "service/reportdefinition/preview_test.go",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "3f9d8ec95ad2408acafc9244a54519e3d9dacf1c9ddf5508d87901d4130d2a15",
+      "main_sha256": null,
+      "original_head_sha256": "3f9d8ec95ad2408acafc9244a54519e3d9dacf1c9ddf5508d87901d4130d2a15"
+    },
+    {
+      "path": "service/reportdefinition/testdata/report.yaml",
+      "remote_main_change": false,
+      "local_feature_change": true,
+      "classification": "matches_original_local_feature_head",
+      "local_sha256": "4fd53ab9baa45912f73984d469ae60cb7c80646679767ab39b88599de687bd58",
+      "main_sha256": null,
+      "original_head_sha256": "4fd53ab9baa45912f73984d469ae60cb7c80646679767ab39b88599de687bd58"
+    },
+    {
+      "path": "service/ui/window/assignment_test.go",
+      "remote_main_change": true,
+      "local_feature_change": false,
+      "classification": "matches_remote_main",
+      "local_sha256": "02342073c94111fc546959e8f628e1018ea18bf095e01018c19ca1537699cca9",
+      "main_sha256": "02342073c94111fc546959e8f628e1018ea18bf095e01018c19ca1537699cca9",
+      "original_head_sha256": null
+    },
+    {
+      "path": "service/ui/window/merge.go",
+      "remote_main_change": true,
+      "local_feature_change": false,
+      "classification": "matches_remote_main",
+      "local_sha256": "e605f05b6fd69faf74d739045cb36671a3f775c4f4d9e1a6cb837185be9ca244",
+      "main_sha256": "e605f05b6fd69faf74d739045cb36671a3f775c4f4d9e1a6cb837185be9ca244",
+      "original_head_sha256": null
+    },
+    {
+      "path": "service/ui/window/registry/events.go",
+      "remote_main_change": true,
+      "local_feature_change": false,
+      "classification": "matches_remote_main",
+      "local_sha256": "2e41a87be2b6f985ab83b4ea00ee0b15450c8a9abe1d2da3c4eae99daff98faa",
+      "main_sha256": "2e41a87be2b6f985ab83b4ea00ee0b15450c8a9abe1d2da3c4eae99daff98faa",
+      "original_head_sha256": "d386dce4f290893e62e28dc39e8e2310d4cffdf19631fd22ff9a9198b035c137"
+    },
+    {
+      "path": "service/ui/window/registry/registry_test.go",
+      "remote_main_change": true,
+      "local_feature_change": false,
+      "classification": "matches_remote_main",
+      "local_sha256": "4a790a8637593dd163b55de4147a34154bf1a7f018ada8ee0c0f1c9cdc59ad06",
+      "main_sha256": "4a790a8637593dd163b55de4147a34154bf1a7f018ada8ee0c0f1c9cdc59ad06",
+      "original_head_sha256": "ad83cd3ce9a43eef259f70d7a0fe973c7dcc05f7162af3289153e59d5861adf8"
+    }
+  ],
+  "go_sum": "Migrated official dependency graph is authoritative; historical checksum changes are not copied verbatim.",
+  "scope": "Remote main changes since migration base and the two original local unique commits since their merge base. Reverse differences from newer remote UI commits are excluded. Exact hash equality is separated from migration modifications.",
+  "review_required": [],
+  "status": "Fresh remote main is accounted for. All 19 paths from the two unique local feature commits are backfilled: 18 match exactly and one has only the reviewed native test fixture adaptation.",
+  "local_feature_verification": {
+    "paths": 19,
+    "exact_matches": 18,
+    "reviewed_fixture_adaptations": 1,
+    "missing_paths": 0
+  }
+}

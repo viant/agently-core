@@ -35,11 +35,12 @@ import (
 )
 
 type RuntimeOptions struct {
-	WorkspaceRoot     string
-	Defaults          *execconfig.Defaults
-	SchedulerHeadless bool
-	RecordOOBAuthURL  func(context.Context, string) error
-	ConfigureRuntime  func(context.Context, *executor.Runtime, string)
+	WorkspaceRoot          string
+	Defaults               *execconfig.Defaults
+	SchedulerHeadless      bool
+	SkipRegistryInitialize bool
+	RecordOOBAuthURL       func(context.Context, string) error
+	ConfigureRuntime       func(context.Context, *executor.Runtime, string)
 }
 
 type oobAuthRecorder interface {
@@ -120,6 +121,7 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 		WithEmbedderFinder(embedderFndr).
 		WithCancelRegistry(cancelRegistry).
 		WithDefaults(defaults).
+		WithSkipRegistryInitialize(opts.SkipRegistryInitialize).
 		WithMCPAuthRTProvider(authRTProvider).
 		WithMCPCookieJarProvider(jarProvider).
 		WithMCPUserIDExtractor(func(ctx context.Context) string {
@@ -137,6 +139,7 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 	}
 	client, err := sdkbackend.FromRuntime(rt)
 	if err != nil {
+		_ = rt.Close(context.Background())
 		return nil, nil, nil, err
 	}
 	if value, ok := client.(oobAuthRecorder); ok {

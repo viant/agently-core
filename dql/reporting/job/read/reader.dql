@@ -1,0 +1,52 @@
+#package('github.com/viant/agently-core/internal/datly/reporting/job/read')
+#import('time','time')
+#import('predicate','github.com/viant/agently-core/internal/datly/predicate')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/forge/reporting/job','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Internal<bool>(reportAccess/internal).Required())
+#define($_ = $OwnerSubject<*string>(visibility/subject).Required())
+#define($_ = $JobID<string>(query/jobId).Optional().WithPredicate(0,'equal','j','job_id'))
+#define($_ = $JobIDs<[]string>(query/jobIds).Optional().WithPredicate(0,'in','j','job_id'))
+#define($_ = $OwnerID<string>(query/ownerId).Optional().WithPredicate(0,'equal','j','owner_id'))
+#define($_ = $ConversationID<string>(query/conversationId).Optional().WithPredicate(0,'equal','j','conversation_id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','j','conversation_id'))
+#define($_ = $ReportRunID<string>(query/reportRunId).Optional().WithPredicate(0,'equal','j','report_run_id'))
+#define($_ = $ReportRunIDs<[]string>(query/reportRunIds).Optional().WithPredicate(0,'in','j','report_run_id'))
+#define($_ = $ExportRequestID<string>(query/exportRequestId).Optional().WithPredicate(0,'equal','j','export_request_id'))
+#define($_ = $ArtifactRef<string>(query/artifactRef).Optional().WithPredicate(0,'equal','j','artifact_ref'))
+#define($_ = $Status<string>(query/status).Optional().WithPredicate(0,'equal','j','status'))
+#define($_ = $TechnicalRetention<*predicate.TechnicalRetention>(technicalMaintenance/policy).Optional().WithPredicate(0,'handler','predicate.TechnicalReportJobRetention'))
+#define($_ = $Data<[]*Job>(output/view).WithTag('view:"reader,selectorProjection=true,selectorLimit=true,selectorOrderBy=true"'))
+
+SELECT data_rows.*,
+       row_lock(data_rows,'report_export_job j'),
+       CAST(data_rows.maintenance_observed_at AS string),
+       internal(data_rows.maintenance_observed_at),
+       tag(data_rows.maintenance_observed_at,'json:"-"'),
+       type(data_rows,'Job'),
+       required(data_rows.job_id),
+       required(data_rows.artifact_ref),
+       required(data_rows.owner_id),
+       CAST(data_rows.conversation_id AS string),
+       CAST(data_rows.workspace_id AS string),
+       CAST(data_rows.auth_context_ref AS string),
+       required(data_rows.format),
+       required(data_rows.scope),
+       required(data_rows.status),
+       CAST(data_rows.report_spec_json AS []byte),
+       CAST(data_rows.report_fill_json AS []byte),
+       CAST(data_rows.report_print_json AS []byte),
+       CAST(data_rows.metadata_json AS []byte),
+       CAST(data_rows.artifact_id AS string),
+       CAST(data_rows.error_text AS string),
+       CAST(data_rows.diagnostics_json AS []byte),
+       required(data_rows.submitted_at),
+       CAST(data_rows.retention_ttl_sec AS int64),
+       CAST(data_rows.report_run_id AS string),
+       CAST(data_rows.report_run_revision AS int64),
+       CAST(data_rows.export_request_id AS string)
+FROM (${embed:sql/job.sql}) data_rows

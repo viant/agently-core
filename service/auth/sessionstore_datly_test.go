@@ -6,127 +6,68 @@ import (
 	"testing"
 	"time"
 
-	"github.com/viant/agently-core/app/store/data"
-	sessionwrite "github.com/viant/agently-core/pkg/agently/user/session/write"
+	"github.com/viant/agently-core/internal/testutil/dbtest"
 )
 
-func TestSessionStoreDAO_Get_PrefersFriendlyUserIdentity(t *testing.T) {
+func newSessionStoreNativeFixture(t *testing.T) (*SessionStoreNative, *sql.DB) {
+	t.Helper()
+	db, dbPath, cleanup := dbtest.CreateTempSQLiteDB(t, "session-store-v1")
+	t.Cleanup(cleanup)
+	dbtest.LoadSQLiteSchema(t, db)
+	_, err := db.Exec(`INSERT INTO users(id,username,display_name,email,provider,subject)
+		VALUES('u1','localuser','Local User','user@example.test','oauth','oauth_subject_test')`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := newMCPLinkTestNative(t, dbPath)
+	return NewSessionStoreNative(server), db
+}
+
+func TestSessionStoreNative_FriendlyUserIdentityAndDelete(t *testing.T) {
 	ctx := context.Background()
-	dao, err := data.NewDatlyInMemory(ctx)
-	if err != nil {
-		t.Fatalf("NewDatlyInMemory() error = %v", err)
-	}
-	if _, err := sessionwrite.DefineComponent(ctx, dao); err != nil {
-		t.Fatalf("DefineComponent() error = %v", err)
-	}
-
-	users := NewDatlyUserService(dao)
-	if users == nil {
-		t.Fatalf("NewDatlyUserService() = nil")
-	}
-	userID, err := users.UpsertWithProvider(ctx, "localuser", "Local User", "user@example.test", "oauth", "oauth_subject_test")
-	if err != nil {
-		t.Fatalf("UpsertWithProvider() error = %v", err)
-	}
-	if userID == "" {
-		t.Fatalf("UpsertWithProvider() returned empty userID")
-	}
-
-	store := NewSessionStoreDAO(dao)
+	store, _ := newSessionStoreNativeFixture(t)
 	rec := &SessionRecord{
-		ID:        "sess-friendly",
-		UserID:    userID,
-		Provider:  "session",
-		CreatedAt: time.Now().UTC(),
-		ExpiresAt: time.Now().UTC().Add(time.Hour),
+		ID: "sess-friendly", UserID: "u1", Provider: "session",
+		CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour),
 	}
-	conn, err := dao.Resource().Connector("agently")
-	if err != nil {
-		t.Fatalf("Connector() error = %v", err)
+	if err := store.Upsert(ctx, rec); err != nil {
+		t.Fatal(err)
 	}
-	db, err := conn.DB()
-	if err != nil {
-		t.Fatalf("DB() error = %v", err)
-	}
-	if _, err := db.ExecContext(
-		ctx,
-		`INSERT INTO session(id, user_id, provider, created_at, updated_at, expires_at) VALUES(?, ?, ?, ?, ?, ?)`,
-		rec.ID,
-		rec.UserID,
-		rec.Provider,
-		rec.CreatedAt,
-		sql.NullTime{},
-		rec.ExpiresAt,
-	); err != nil {
-		t.Fatalf("insert session error = %v", err)
-	}
-
 	got, err := store.Get(ctx, rec.ID)
 	if err != nil {
-		t.Fatalf("store.Get() error = %v", err)
+		t.Fatal(err)
 	}
-	if got == nil {
-		t.Fatalf("store.Get() = nil")
+	if got == nil || got.Username != "Local User" || got.Email != "user@example.test" || got.Subject != "oauth_subject_test" {
+		t.Fatalf("joined session identity = %+v", got)
 	}
-	if got.Username != "Local User" {
-		t.Fatalf("got.Username = %q, want %q", got.Username, "Local User")
+	if err := store.Delete(ctx, rec.ID); err != nil {
+		t.Fatal(err)
 	}
-	if got.Email != "user@example.test" {
-		t.Fatalf("got.Email = %q, want %q", got.Email, "user@example.test")
+	if err := store.Delete(ctx, rec.ID); err != nil {
+		t.Fatalf("idempotent delete: %v", err)
 	}
-	if got.Subject != "oauth_subject_test" {
-		t.Fatalf("got.Subject = %q, want %q", got.Subject, "oauth_subject_test")
+	got, err = store.Get(ctx, rec.ID)
+	if err != nil || got != nil {
+		t.Fatalf("deleted session = %+v, %v", got, err)
 	}
 }
 
-func TestSessionStoreDAO_ManagerPutIgnoresCanceledCallerContext(t *testing.T) {
+func TestSessionStoreNative_ManagerPutIgnoresCanceledCallerContext(t *testing.T) {
 	ctx := context.Background()
-	dao, err := data.NewDatlyInMemory(ctx)
-	if err != nil {
-		t.Fatalf("NewDatlyInMemory() error = %v", err)
-	}
-	if _, err := sessionwrite.DefineComponent(ctx, dao); err != nil {
-		t.Fatalf("DefineComponent() error = %v", err)
-	}
-
-	users := NewDatlyUserService(dao)
-	userID, err := users.UpsertWithProvider(ctx, "localuser", "Local User", "user@example.test", "oauth", "oauth_subject_test")
-	if err != nil {
-		t.Fatalf("UpsertWithProvider() error = %v", err)
-	}
-	if userID == "" {
-		t.Fatalf("UpsertWithProvider() returned empty userID")
-	}
-
-	store := NewSessionStoreDAO(dao)
+	store, db := newSessionStoreNativeFixture(t)
 	manager := NewManager(time.Hour, store)
-	canceledCtx, cancel := context.WithCancel(context.Background())
+	canceledCtx, cancel := context.WithCancel(ctx)
 	cancel()
-
 	manager.Put(canceledCtx, &Session{
-		ID:        "sess-canceled-datly-write",
-		UserID:    userID,
-		Username:  "localuser",
-		Email:     "user@example.test",
-		Subject:   "oauth_subject_test",
-		Provider:  "oauth",
-		CreatedAt: time.Now().UTC(),
-		ExpiresAt: time.Now().UTC().Add(time.Hour),
+		ID: "sess-canceled-datly-write", UserID: "u1", Username: "localuser",
+		Email: "user@example.test", Subject: "oauth_subject_test", Provider: "oauth",
+		CreatedAt: time.Now().UTC(), ExpiresAt: time.Now().UTC().Add(time.Hour),
 	})
-
-	conn, err := dao.Resource().Connector("agently")
-	if err != nil {
-		t.Fatalf("Connector() error = %v", err)
-	}
-	db, err := conn.DB()
-	if err != nil {
-		t.Fatalf("DB() error = %v", err)
-	}
 	var gotUserID string
 	if err := db.QueryRowContext(ctx, `SELECT user_id FROM session WHERE id = ?`, "sess-canceled-datly-write").Scan(&gotUserID); err != nil {
 		t.Fatalf("session was not persisted after canceled caller context: %v", err)
 	}
-	if gotUserID != userID {
-		t.Fatalf("session user_id = %q, want %q", gotUserID, userID)
+	if gotUserID != "u1" {
+		t.Fatalf("session user_id = %q, want u1", gotUserID)
 	}
 }

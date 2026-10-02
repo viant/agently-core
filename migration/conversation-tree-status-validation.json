@@ -1,0 +1,19 @@
+{
+  "date": "2026-09-30",
+  "scope": "Nonterminal conversation status gate for tree deletion",
+  "changes": [
+    "The canonical turn-queue reader gained a batched conversation-ID predicate",
+    "The graph validator gathers activity from the ten legacy tables through generated readers, with SQLX metadata checks for optional tables",
+    "The status policy allows terminal, known-active and empty statuses to proceed; an unknown nonempty status blocks only when the conversation has dependent activity"
+  ],
+  "verified": [
+    "Linked-host test passed unknown status without activity, denied turn and export-job activity, and allowed known-active, terminal and empty statuses",
+    "Focused turn-queue reader parity, full app/store/native and service/goal package suites passed with the v1 scratch modfile",
+    "Full nested Endly passed 60/60 transcription, stable regeneration, boundary audit, nested tests (177.004s) and linked-host build"
+  ],
+  "remaining": [
+    "Payload retention, graph locks, remaining references, ordered generated writers and one managed transaction remain",
+    "Root conversation/schedule/scheduled-run deletion still uses direct SQL; MySQL and rebuilt application-route deletion remain unverified"
+  ],
+  "endly_log": "/tmp/agently-v1-endly-nonterminal-status.log"
+}
