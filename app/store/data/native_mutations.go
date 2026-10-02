@@ -136,7 +136,12 @@ func (s *datlyService) invokeDataWriter(ctx context.Context, input any, field, p
 	has := value.FieldByName("Has")
 	has.Set(reflect.New(has.Type().Elem()))
 	has.Elem().FieldByName(field).SetBool(true)
-	return s.native.InvokeComponent(ctx, dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: value.Type().PkgPath(), Name: "writer"}, Route: spec.RouteRef{Method: "PATCH", Path: path}}, Input: input})
+	target := dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: value.Type().PkgPath(), Name: "writer"}, Route: spec.RouteRef{Method: "PATCH", Path: path}}
+	if _, message := input.(*msgwrite.Input); message {
+		target.Component.Name = "CoreWrite"
+		target.Route.Path = "/v1/internal/agently/message/write"
+	}
+	return s.native.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: input})
 }
 func (s *datlyService) deleteDataNative(ctx context.Context, kind string, ids ...string) error {
 	var input any

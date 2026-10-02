@@ -13,55 +13,6 @@ import (
 
 type WriterHandlerCurrentWriterSlice []*CurrentWriterView
 
-func WriterHandlerCurrentWriterIndexBySequenceKey(value *CurrentWriterView) (int, bool) {
-	var zero int
-	if value == nil {
-		return zero, false
-	}
-	if value.Sequence == nil {
-		return zero, false
-	}
-	return *value.Sequence, true
-}
-
-type WriterHandlerCurrentWriterIndexedBySequence map[int]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexBySequence() (WriterHandlerCurrentWriterIndexedBySequence, error) {
-	result := make(WriterHandlerCurrentWriterIndexedBySequence)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexBySequenceKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySequence")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedBySequence) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedBySequence map[int][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupBySequence() WriterHandlerCurrentWriterGroupedBySequence {
-	result := make(WriterHandlerCurrentWriterGroupedBySequence)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexBySequenceKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedBySequence) Has(key int) bool {
-	_, ok := index[key]
-	return ok
-}
 func WriterHandlerCurrentWriterIndexByIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -488,6 +439,55 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByArchived() WriterHandlerCurre
 	return result
 }
 func (index WriterHandlerCurrentWriterGroupedByArchived) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySequenceKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	if value.Sequence == nil {
+		return zero, false
+	}
+	return *value.Sequence, true
+}
+
+type WriterHandlerCurrentWriterIndexedBySequence map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexBySequence() (WriterHandlerCurrentWriterIndexedBySequence, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySequence)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySequenceKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySequence")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedBySequence) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedBySequence map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupBySequence() WriterHandlerCurrentWriterGroupedBySequence {
+	result := make(WriterHandlerCurrentWriterGroupedBySequence)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySequenceKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedBySequence) Has(key int) bool {
 	_, ok := index[key]
 	return ok
 }
@@ -1442,9 +1442,6 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if err != nil {
 				return nil, err
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Sequence") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Sequence")
-			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Id") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Id")
 			}
@@ -1474,6 +1471,9 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Archived") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Archived")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Sequence") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Sequence")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("CreatedAt") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.CreatedAt")

@@ -9,7 +9,6 @@ import (
 // Message is generated canonical view metadata for writer.
 type Message struct {
 	ShouldDelete         bool        `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
-	Sequence             *int        `sequenceScope:"turn_id" sequenceOnNull:"allocate" sqlx:"sequence" json:"sequence,omitempty"`
 	Id                   string      `validate:"required" sqlx:"id,primaryKey" json:"id"`
 	ConversationId       string      `validate:"required" json:"conversationId" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
 	Role                 string      `validate:"required" json:"role" sqlx:"role,required=true"`
@@ -20,6 +19,7 @@ type Message struct {
 	Narration            *string     `sqlx:"preamble" json:"narration,omitempty"`
 	TurnId               *string     `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
 	Archived             *int        `sqlx:"archived" json:"archived,omitempty"`
+	Sequence             *int        `sqlx:"sequence" json:"sequence,omitempty"`
 	CreatedAt            *time.Time  `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
 	UpdatedAt            *time.Time  `sqlx:"updated_at" json:"updatedAt,omitempty"`
 	CreatedByUserId      *string     `sqlx:"created_by_user_id" json:"createdByUserId,omitempty"`
@@ -43,7 +43,6 @@ type Message struct {
 
 type MessageHas struct {
 	ShouldDelete         bool
-	Sequence             bool
 	Id                   bool
 	ConversationId       bool
 	Role                 bool
@@ -54,6 +53,7 @@ type MessageHas struct {
 	Narration            bool
 	TurnId               bool
 	Archived             bool
+	Sequence             bool
 	CreatedAt            bool
 	UpdatedAt            bool
 	CreatedByUserId      bool
@@ -76,7 +76,6 @@ type MessageHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Sequence             *int       `sequenceScope:"turn_id" sequenceOnNull:"allocate" sqlx:"sequence" json:"sequence,omitempty"`
 	Id                   string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
 	ConversationId       string     `validate:"required" json:"conversationId" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
 	Role                 string     `validate:"required" json:"role" sqlx:"role,required=true"`
@@ -87,6 +86,7 @@ type CurrentWriterView struct {
 	Narration            *string    `sqlx:"preamble" json:"narration,omitempty"`
 	TurnId               *string    `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
 	Archived             *int       `sqlx:"archived" json:"archived,omitempty"`
+	Sequence             *int       `sqlx:"sequence" json:"sequence,omitempty"`
 	CreatedAt            *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
 	UpdatedAt            *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
 	CreatedByUserId      *string    `sqlx:"created_by_user_id" json:"createdByUserId,omitempty"`

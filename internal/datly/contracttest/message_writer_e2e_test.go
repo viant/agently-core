@@ -5,6 +5,10 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
+	base "github.com/viant/agently-core/internal/datly/message/base"
+	read "github.com/viant/agently-core/internal/datly/message/read"
+	"github.com/viant/datly/bootstrap"
 	"net/http/httptest"
 	"os/exec"
 	"path/filepath"
@@ -12,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	write "github.com/viant/agently-core/internal/datly/message/write"
 	"github.com/viant/bindly/locator"
@@ -57,8 +62,10 @@ func TestMessageWriterLegacyParity(t *testing.T) {
 		{"null batch", `{"data":null}`, false},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
-			oldDB, path := messageFixture(t, project)
-			db, _ := messageFixture(t, project)
+			prefix := fmt.Sprintf("message-parity-%d-", time.Now().UnixNano())
+			oldDB, path := messageFixture(t, project, prefix)
+			db, _ := messageFixture(t, project, prefix)
+			tc.input = strings.ReplaceAll(strings.ReplaceAll(tc.input, `"t1"`, `"`+prefix+`t1"`), `"t2"`, `"`+prefix+`t2"`)
 			payload, err := json.Marshal(map[string]any{"Component": "message", "DBPath": path, "Body": tc.input})
 			must(t, err)
 			process := exec.Command(legacy)
@@ -116,26 +123,54 @@ func TestMessageWriterLegacyParity(t *testing.T) {
 	}
 }
 
-func messageFixture(t *testing.T, project string) (*sql.DB, string) {
+func messageFixture(t *testing.T, project string, prefix ...string) (*sql.DB, string) {
 	db, path := goalFixture(t, project)
-	_, err := db.Exec(`INSERT INTO turn(id,conversation_id,status) VALUES ('t1','c1','running'),('t2','c1','running');
- INSERT INTO message(id,conversation_id,turn_id,sequence,role,type,content,status,mode,phase,iteration,interim,created_at) VALUES ('existing','c1','t1',3,'assistant','text','original','thinking','react','answer',2,1,'2026-01-01 00:00:00');`)
+	turnPrefix := ""
+	if len(prefix) > 0 {
+		turnPrefix = prefix[0]
+	}
+	_, err := db.Exec("INSERT INTO turn(id,conversation_id,status) VALUES (?,'c1','running'),(?,'c1','running')", turnPrefix+"t1", turnPrefix+"t2")
+	must(t, err)
+	_, err = db.Exec("INSERT INTO message(id,conversation_id,turn_id,sequence,role,type,content,status,mode,phase,iteration,interim,created_at) VALUES ('existing','c1',?,3,'assistant','text','original','thinking','react','answer',2,1,'2026-01-01 00:00:00')", turnPrefix+"t1")
 	must(t, err)
 	return db, path
 }
 func messageWriterRuntime(t *testing.T, db *sql.DB, supplied ...*sql.Tx) *druntime.Runtime {
 	resources := resource.New()
 	must(t, resources.Register(write.WriterDatlyResourceNamespace, write.WriterDatlyResources))
-	artifact := payloadArtifact(t, resources, reflect.TypeFor[write.WriterComponent](), reflect.TypeFor[write.Input](), reflect.TypeFor[write.Output]())
-	views, err := viewprovider.New(viewprovider.Config{Dependencies: artifact.ViewDependencies, Input: artifact.Input, SQL: &dsql.SQLComponent{DB: db}})
-	must(t, err)
-	handler, err := writer.New(artifact.Component, reflect.TypeFor[write.Input](), reflect.TypeFor[write.Output](), "patch")
-	must(t, err)
+	must(t, resources.Register(base.ReaderDatlyResourceNamespace, base.ReaderDatlyResources))
+	canonical := payloadArtifact(t, resources, reflect.TypeFor[write.WriterComponent](), reflect.TypeFor[write.Input](), reflect.TypeFor[write.Output]())
 	var tx *sql.Tx
 	if len(supplied) > 0 {
 		tx = supplied[0]
 	}
-	rt, err := druntime.NewRuntime([]*registry.RegisteredComponent{{Component: artifact.Component, Input: artifact.Input, Output: artifact.Output, OutputType: reflect.TypeFor[write.Output](), Handler: handler, Providers: []locator.Provider{views}, DataSource: dml.Source{DB: db, Tx: tx}}}, druntime.WithResources(resources))
+	sqlComponent := &dsql.SQLComponent{DB: db, Tx: tx}
+	nativeHandler, err := writer.New(canonical.Component, reflect.TypeFor[write.Input](), reflect.TypeFor[write.Output](), "patch")
+	must(t, err)
+	canonicalViews, err := viewprovider.New(viewprovider.Config{Dependencies: canonical.ViewDependencies, Input: canonical.Input, SQL: sqlComponent})
+	must(t, err)
+	facade := canonical.Component.Clone()
+	facade.Name = "CoreWrite"
+	facade.Key.Name = "CoreWrite"
+	facade.Settings.Mutation = ""
+	facade.Routes[0].Name = "CoreWrite"
+	facade.Routes[0].Path = "/v1/internal/agently/message/write"
+	facade.Routes[0].Handler = "CoreWrite"
+	coreHandler, err := write.CoreWriterComponent{}.DatlyHandler("CoreWrite")()
+	must(t, err)
+	facadeArtifact, err := bootstrap.BuildArtifact(bootstrap.ArtifactInput{Component: facade, InputType: reflect.TypeFor[write.Input](), OutputType: reflect.TypeFor[write.Output](), Handler: coreHandler, HandlerOwnedOutput: true, Resources: resources})
+	must(t, err)
+	facadeViews, err := viewprovider.New(viewprovider.Config{Dependencies: facadeArtifact.ViewDependencies, Input: facadeArtifact.Input, SQL: sqlComponent})
+	must(t, err)
+	readerArtifact := payloadArtifact(t, resources, reflect.TypeFor[base.ReaderComponent](), reflect.TypeFor[read.MessagesInput](), reflect.TypeFor[base.MessagesOutput]())
+	readerExecution, err := readerArtifact.ReaderCompilation().NewExecution(bootstrap.ReaderRuntimeConfig{SQL: sqlComponent})
+	must(t, err)
+	registered := []*registry.RegisteredComponent{
+		{Component: canonical.Component, Input: canonical.Input, Output: canonical.Output, OutputType: reflect.TypeFor[write.Output](), Handler: nativeHandler, Providers: []locator.Provider{canonicalViews}, DataSource: dml.Source{DB: db, Tx: tx}},
+		{Component: facadeArtifact.Component, Input: facadeArtifact.Input, Output: facadeArtifact.Output, OutputType: reflect.TypeFor[write.Output](), Handler: coreHandler, Providers: []locator.Provider{facadeViews}, DataSource: dml.Source{DB: db, Tx: tx}},
+		{Component: readerArtifact.Component, Input: readerArtifact.Input, Output: readerArtifact.Output, OutputType: reflect.TypeFor[base.MessagesOutput](), Reader: readerExecution},
+	}
+	rt, err := druntime.NewRuntime(registered, druntime.WithResources(resources))
 	must(t, err)
 	return rt
 }
@@ -173,22 +208,20 @@ func messageStoredRows(t *testing.T, db *sql.DB) []map[string]any {
 func TestMessageWriterCallerTransaction(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
-	type useCase struct {
-		desc   string
-		input  bool
-		expect int
-	}
-	for _, tc := range []useCase{{"caller rollback restores row and counter", false, 0}, {"caller commit retains row and counter", true, 1}} {
-		t.Run(tc.desc, func(t *testing.T) {
-			db, _ := messageFixture(t, project)
-			// Provision the fixture ledger before observing the caller's transaction.
-			_, err := db.Exec(`CREATE TABLE sqlx_scoped_sequences(scope_key TEXT PRIMARY KEY,value BIGINT NOT NULL)`)
-			must(t, err)
+	prefix := fmt.Sprintf("message-caller-%d-", time.Now().UnixNano())
+	db, _ := messageFixture(t, project, prefix)
+	for attempt, commit := range []bool{false, true} {
+		name := "rollback preserves allocation gap"
+		if commit {
+			name = "commit retains row after gap"
+		}
+		t.Run(name, func(t *testing.T) {
 			tx, err := db.BeginTx(context.Background(), nil)
 			must(t, err)
 			defer tx.Rollback()
 			rt := messageWriterRuntime(t, db, tx)
-			request := httptest.NewRequest("PATCH", "/v1/api/agently/message", strings.NewReader(`{"data":[{"id":"new","conversationId":"c1","turnId":"t1","sequence":null,"role":"assistant","type":"text"}]}`))
+			body := fmt.Sprintf(`{"data":[{"id":"new","conversationId":"c1","turnId":%q,"sequence":null,"role":"assistant","type":"text"}]}`, prefix+"t1")
+			request := httptest.NewRequest("PATCH", "/v1/api/agently/message", strings.NewReader(body))
 			request.Header.Set("Content-Type", "application/json")
 			scope, err := requestprovider.New(request)
 			must(t, err)
@@ -197,20 +230,24 @@ func TestMessageWriterCallerTransaction(t *testing.T) {
 			must(t, err)
 			var sequence int
 			must(t, tx.QueryRow("SELECT sequence FROM message WHERE id='new'").Scan(&sequence))
-			if sequence != 4 {
-				t.Fatalf("pending sequence=%d", sequence)
+			if sequence != 4+attempt {
+				t.Fatalf("pending sequence=%d expected=%d", sequence, 4+attempt)
 			}
-			if tc.input {
+			expected := 0
+			if commit {
 				must(t, tx.Commit())
+				expected = 1
 			} else {
 				must(t, tx.Rollback())
 			}
-			for _, query := range []string{"SELECT COUNT(*) FROM message WHERE id='new'", "SELECT COUNT(*) FROM sqlx_scoped_sequences"} {
-				var count int
-				must(t, db.QueryRow(query).Scan(&count))
-				if count != tc.expect {
-					t.Fatalf("%s=%d expected=%d", query, count, tc.expect)
-				}
+			var count int
+			must(t, db.QueryRow("SELECT COUNT(*) FROM message WHERE id='new'").Scan(&count))
+			if count != expected {
+				t.Fatalf("message count=%d expected=%d", count, expected)
+			}
+			must(t, db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE name='sqlx_scoped_sequences'").Scan(&count))
+			if count != 0 {
+				t.Fatal("transient allocation created a ledger")
 			}
 		})
 	}
