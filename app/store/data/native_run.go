@@ -2,8 +2,6 @@ package data
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	read "github.com/viant/agently-core/internal/datly/run/read"
@@ -49,35 +47,12 @@ func (s *datlyService) getRunNative(ctx context.Context, id string, input *runmo
 	if err != nil || row == nil {
 		return nil, err
 	}
-	encoded, err := json.Marshal(row)
-	if err != nil {
-		return nil, fmt.Errorf("encode native run: %w", err)
-	}
-	var mapped runmodel.RunRowsView
-	if err := json.Unmarshal(encoded, &mapped); err != nil {
-		return nil, fmt.Errorf("decode run contract: %w", err)
-	}
-	if mapped.ConversationId != nil {
-		if err := s.authorizeConversationID(ctx, *mapped.ConversationId, opts, nil); err != nil {
+	if row.ConversationId != nil {
+		if err := s.authorizeConversationID(ctx, *row.ConversationId, opts, nil); err != nil {
 			return nil, err
 		}
 	}
-	return &mapped, nil
-}
-
-func mapRunRow[T any](row *read.RunRowsView) (*T, error) {
-	if row == nil {
-		return nil, nil
-	}
-	encoded, err := json.Marshal(row)
-	if err != nil {
-		return nil, fmt.Errorf("encode native run row: %w", err)
-	}
-	var mapped T
-	if err := json.Unmarshal(encoded, &mapped); err != nil {
-		return nil, fmt.Errorf("decode run row contract: %w", err)
-	}
-	return &mapped, nil
+	return row, nil
 }
 
 func (s *datlyService) getActiveRunNative(ctx context.Context, input *runmodel.ActiveRunsInput, opts *options) (*runmodel.ActiveRunsView, error) {
@@ -95,10 +70,7 @@ func (s *datlyService) getActiveRunNative(ctx context.Context, input *runmodel.A
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
-	mapped, err := mapRunRow[runmodel.ActiveRunsView](rows[0])
-	if err != nil {
-		return nil, err
-	}
+	mapped := rows[0]
 	if mapped != nil && mapped.ConversationId != nil {
 		if err := s.authorizeConversationID(ctx, *mapped.ConversationId, opts, nil); err != nil {
 			return nil, err
@@ -138,10 +110,7 @@ func (s *datlyService) listStaleRunsNative(ctx context.Context, input *runmodel.
 	result := make([]*runmodel.StaleRunsView, 0, len(rows))
 	cache := newAuthCache()
 	for _, row := range rows {
-		mapped, err := mapRunRow[runmodel.StaleRunsView](row)
-		if err != nil {
-			return nil, err
-		}
+		mapped := row
 		if mapped == nil {
 			continue
 		}

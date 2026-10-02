@@ -2,8 +2,6 @@ package data
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 
 	read "github.com/viant/agently-core/internal/datly/turn/read"
 	store "github.com/viant/agently-core/internal/store/conversation"
@@ -50,20 +48,5 @@ func (s *datlyService) queryTurnRowsNative(ctx context.Context, input *turnmodel
 	if err != nil {
 		return nil, err
 	}
-	result := make([]*turnmodel.TurnRowsView, 0, len(rows))
-	for _, row := range rows {
-		if row == nil {
-			continue
-		}
-		encoded, err := json.Marshal(row)
-		if err != nil {
-			return nil, fmt.Errorf("encode native turn row: %w", err)
-		}
-		var mapped turnmodel.TurnRowsView
-		if err := json.Unmarshal(encoded, &mapped); err != nil {
-			return nil, fmt.Errorf("decode turn row contract: %w", err)
-		}
-		result = append(result, &mapped)
-	}
-	return result, nil
+	return rows, nil
 }

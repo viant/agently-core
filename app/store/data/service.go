@@ -167,7 +167,7 @@ func (s *datlyService) GetActiveTurn(ctx context.Context, in *turnmodel.ActiveTu
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
-	return mapDataDTO[turnmodel.ActiveTurnsView](rows[0])
+	return rows[0], nil
 }
 
 func (s *datlyService) GetTurnByID(ctx context.Context, in *turnmodel.TurnLookupInput, opts ...Option) (*turnmodel.TurnLookupView, error) {
@@ -175,7 +175,7 @@ func (s *datlyService) GetTurnByID(ctx context.Context, in *turnmodel.TurnLookup
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
-	return mapDataDTO[turnmodel.TurnLookupView](rows[0])
+	return rows[0], nil
 }
 
 func (s *datlyService) GetNextQueuedTurn(ctx context.Context, in *turnmodel.QueuedTurnInput, opts ...Option) (*turnmodel.QueuedTurnView, error) {
@@ -183,7 +183,7 @@ func (s *datlyService) GetNextQueuedTurn(ctx context.Context, in *turnmodel.Queu
 	if err != nil || len(rows) == 0 {
 		return nil, err
 	}
-	return mapDataDTO[turnmodel.QueuedTurnView](rows[0])
+	return rows[0], nil
 }
 
 func (s *datlyService) ListQueuedTurns(ctx context.Context, in *turnmodel.QueuedTurnsInput, opts ...Option) ([]*turnmodel.QueuedTurnsView, error) {
