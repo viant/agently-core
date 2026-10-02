@@ -28,6 +28,7 @@ import (
 	_ "github.com/viant/sqlx/metadata/product/mysql"
 	_ "github.com/viant/sqlx/metadata/product/sqlite"
 	"github.com/viant/x"
+	_ "modernc.org/sqlite"
 )
 
 func exports() (*x.Registry, []any, error) {

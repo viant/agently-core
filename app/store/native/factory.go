@@ -96,13 +96,14 @@ func connectorFromEnvironment(ctx context.Context, workspaceRoot string) (connec
 		if dsn, err = sqlite.Ensure(ctx); err != nil {
 			return connector.Config{}, err
 		}
-		// The existing schema provisioner returns a modernc SQLite DSN. The
-		// linked Datly fixture uses sqlite3, so retain its pragmas explicitly.
-		dsn, err = sqlite3DSN(dsn)
-		if err != nil {
-			return connector.Config{}, err
+		// Keep the application's original SQLite driver and its provisioned
+		// pragmas. Translate them only when the caller explicitly chose sqlite3.
+		if strings.EqualFold(driver, "sqlite3") {
+			dsn, err = sqlite3DSN(dsn)
+			if err != nil {
+				return connector.Config{}, err
+			}
 		}
-		driver = "sqlite3"
 	}
 	expanded, _, err := dbconfig.ExpandDSN(ctx, dsn, os.Getenv("AGENTLY_DB_SECRETS"))
 	if err != nil {
