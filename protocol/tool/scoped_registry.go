@@ -28,7 +28,11 @@ func WithConversation(inner Registry, convID string) Registry {
 		// to preserve backward compatibility.
 		return inner
 	}
-	return &scopedRegistry{inner: inner, convID: convID}
+	scoped := &scopedRegistry{inner: inner, convID: convID}
+	if _, ok := inner.(MCPIdentityResolver); ok {
+		return &scopedMCPRegistry{scopedRegistry: scoped}
+	}
+	return scoped
 }
 
 // Definitions delegates to the underlying registry with the scoped conversation.
@@ -96,6 +100,15 @@ func (s *scopedRegistry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 func (s *scopedRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	ctx = s.withConversation(ctx)
 	return s.inner.Execute(ctx, name, args)
+}
+
+type scopedMCPRegistry struct{ *scopedRegistry }
+
+func (s *scopedMCPRegistry) ResolveMCPIdentity(ctx context.Context, name string) (string, string, bool, error) {
+	if resolver, ok := s.inner.(MCPIdentityResolver); ok {
+		return resolver.ResolveMCPIdentity(s.withConversation(ctx), name)
+	}
+	return "", "", false, nil
 }
 
 func (s *scopedRegistry) PreflightCredential(ctx context.Context, name string) error {

@@ -74,6 +74,12 @@ type ContextDefinitionGetter interface {
 	GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool)
 }
 
+// MCPIdentityResolver exposes the literal identity from a caller-visible catalog.
+// Unknown or ambiguous aliases do not establish a server identity.
+type MCPIdentityResolver interface {
+	ResolveMCPIdentity(ctx context.Context, name string) (server, method string, found bool, err error)
+}
+
 // CredentialPreflighter resolves any request-scoped delegated credential
 // before execution protection is claimed or a remote tool is contacted.
 type CredentialPreflighter interface {
