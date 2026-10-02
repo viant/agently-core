@@ -174,15 +174,27 @@
         "MessageRowsOutput": 0,
         "MessageRowsView": 13
       },
-      "status": "generated row alias; facade input/Has/envelope retained",
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
       "generated_aliases": {
-        "MessageRowsView": "base.MessageBaseView"
+        "MessageRowsView": "internal/datly/message/base.MessageBaseView"
       },
       "concrete_structs": [
         "MessageRowsInput",
         "MessageRowsInputHas",
         "MessageRowsOutput"
-      ]
+      ],
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "generated row alias; facade input/Has/envelope retained",
+        "generated_aliases": {
+          "MessageRowsView": "base.MessageBaseView"
+        },
+        "concrete_structs": [
+          "MessageRowsInput",
+          "MessageRowsInputHas",
+          "MessageRowsOutput"
+        ]
+      }
     },
     {
       "file": "model/message/elicitation_message_by_elicitation.go",
@@ -304,15 +316,27 @@
         "PayloadRowsOutput": 0,
         "PayloadRowsView": 5
       },
-      "status": "generated row alias; facade input/Has/envelope retained",
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
       "generated_aliases": {
-        "PayloadRowsView": "read.PayloadRowsView"
+        "PayloadRowsView": "internal/datly/payload/read.PayloadRowsView"
       },
       "concrete_structs": [
         "PayloadRowsInput",
         "PayloadRowsInputHas",
         "PayloadRowsOutput"
-      ]
+      ],
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "generated row alias; facade input/Has/envelope retained",
+        "generated_aliases": {
+          "PayloadRowsView": "read.PayloadRowsView"
+        },
+        "concrete_structs": [
+          "PayloadRowsInput",
+          "PayloadRowsInputHas",
+          "PayloadRowsOutput"
+        ]
+      }
     },
     {
       "file": "model/run/run.go",
@@ -417,18 +441,30 @@
         "RunRowsOutput": 0,
         "RunRowsView": 9
       },
-      "status": "distinct facade contract remains; no broad alias assumed",
-      "generated_aliases": {},
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
+      "generated_aliases": {
+        "RunRowsView": "internal/datly/run/read.RunRowsView"
+      },
       "concrete_structs": [
         "RunRowsInput",
         "RunRowsInputHas",
-        "RunRowsOutput",
-        "RunRowsView"
+        "RunRowsOutput"
       ],
       "canonical_read_aliases": {
         "RunRowsView": "internal/datly/run/read.RunRowsView"
       },
-      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log"
+      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log",
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "distinct facade contract remains; no broad alias assumed",
+        "generated_aliases": {},
+        "concrete_structs": [
+          "RunRowsInput",
+          "RunRowsInputHas",
+          "RunRowsOutput",
+          "RunRowsView"
+        ]
+      }
     },
     {
       "file": "model/run/active_run_active.go",
@@ -548,18 +584,30 @@
         "ActiveRunsOutput": 0,
         "ActiveRunsView": 6
       },
-      "status": "distinct facade contract remains; no broad alias assumed",
-      "generated_aliases": {},
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
+      "generated_aliases": {
+        "ActiveRunsView": "internal/datly/run/read.RunRowsView"
+      },
       "concrete_structs": [
         "ActiveRunsInput",
         "ActiveRunsInputHas",
-        "ActiveRunsOutput",
-        "ActiveRunsView"
+        "ActiveRunsOutput"
       ],
       "canonical_read_aliases": {
         "ActiveRunsView": "internal/datly/run/read.RunRowsView"
       },
-      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log"
+      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log",
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "distinct facade contract remains; no broad alias assumed",
+        "generated_aliases": {},
+        "concrete_structs": [
+          "ActiveRunsInput",
+          "ActiveRunsInputHas",
+          "ActiveRunsOutput",
+          "ActiveRunsView"
+        ]
+      }
     },
     {
       "file": "model/run/stale_run_stale.go",
@@ -684,18 +732,30 @@
         "StaleRunsOutput": 0,
         "StaleRunsView": 15
       },
-      "status": "distinct facade contract remains; no broad alias assumed",
-      "generated_aliases": {},
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
+      "generated_aliases": {
+        "StaleRunsView": "internal/datly/run/read.RunRowsView"
+      },
       "concrete_structs": [
         "StaleRunsInput",
         "StaleRunsInputHas",
-        "StaleRunsOutput",
-        "StaleRunsView"
+        "StaleRunsOutput"
       ],
       "canonical_read_aliases": {
         "StaleRunsView": "internal/datly/run/read.RunRowsView"
       },
-      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log"
+      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log",
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "distinct facade contract remains; no broad alias assumed",
+        "generated_aliases": {},
+        "concrete_structs": [
+          "StaleRunsInput",
+          "StaleRunsInputHas",
+          "StaleRunsOutput",
+          "StaleRunsView"
+        ]
+      }
     },
     {
       "file": "model/run/steps_steps.go",
@@ -800,15 +860,27 @@
         "RunStepsOutput": 0,
         "RunStepsView": 7
       },
-      "status": "generated row alias; facade input/Has/envelope retained",
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
       "generated_aliases": {
-        "RunStepsView": "read.RunStepsView"
+        "RunStepsView": "internal/datly/runsteps/read.RunStepsView"
       },
       "concrete_structs": [
         "RunStepsInput",
         "RunStepsInputHas",
         "RunStepsOutput"
-      ]
+      ],
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "generated row alias; facade input/Has/envelope retained",
+        "generated_aliases": {
+          "RunStepsView": "read.RunStepsView"
+        },
+        "concrete_structs": [
+          "RunStepsInput",
+          "RunStepsInputHas",
+          "RunStepsOutput"
+        ]
+      }
     },
     {
       "file": "model/schedule/schedule_schedule.go",
@@ -998,15 +1070,27 @@
         "ScheduleOutput": 0,
         "ScheduleView": 33
       },
-      "status": "generated row alias; facade input/Has/envelope retained",
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
       "generated_aliases": {
-        "ScheduleView": "read.ScheduleView"
+        "ScheduleView": "internal/datly/schedule/read.ScheduleView"
       },
       "concrete_structs": [
         "ScheduleInput",
         "ScheduleInputHas",
         "ScheduleOutput"
-      ]
+      ],
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "generated row alias; facade input/Has/envelope retained",
+        "generated_aliases": {
+          "ScheduleView": "read.ScheduleView"
+        },
+        "concrete_structs": [
+          "ScheduleInput",
+          "ScheduleInputHas",
+          "ScheduleOutput"
+        ]
+      }
     },
     {
       "file": "model/scheduledrun/run_run.go",
@@ -1414,18 +1498,30 @@
         "ActiveTurnsOutput": 0,
         "ActiveTurnsView": 4
       },
-      "status": "distinct facade contract remains; no broad alias assumed",
-      "generated_aliases": {},
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
+      "generated_aliases": {
+        "ActiveTurnsView": "internal/datly/turn/read.TurnRowsView"
+      },
       "concrete_structs": [
         "ActiveTurnsInput",
         "ActiveTurnsInputHas",
-        "ActiveTurnsOutput",
-        "ActiveTurnsView"
+        "ActiveTurnsOutput"
       ],
       "canonical_read_aliases": {
         "ActiveTurnsView": "internal/datly/turn/read.TurnRowsView"
       },
-      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log"
+      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log",
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "distinct facade contract remains; no broad alias assumed",
+        "generated_aliases": {},
+        "concrete_structs": [
+          "ActiveTurnsInput",
+          "ActiveTurnsInputHas",
+          "ActiveTurnsOutput",
+          "ActiveTurnsView"
+        ]
+      }
     },
     {
       "file": "model/turn/byId_by_id.go",
@@ -1565,18 +1661,30 @@
         "TurnLookupOutput": 0,
         "TurnLookupView": 5
       },
-      "status": "distinct facade contract remains; no broad alias assumed",
-      "generated_aliases": {},
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
+      "generated_aliases": {
+        "TurnLookupView": "internal/datly/turn/read.TurnRowsView"
+      },
       "concrete_structs": [
         "TurnLookupInput",
         "TurnLookupInputHas",
-        "TurnLookupOutput",
-        "TurnLookupView"
+        "TurnLookupOutput"
       ],
       "canonical_read_aliases": {
         "TurnLookupView": "internal/datly/turn/read.TurnRowsView"
       },
-      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log"
+      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log",
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "distinct facade contract remains; no broad alias assumed",
+        "generated_aliases": {},
+        "concrete_structs": [
+          "TurnLookupInput",
+          "TurnLookupInputHas",
+          "TurnLookupOutput",
+          "TurnLookupView"
+        ]
+      }
     },
     {
       "file": "model/turn/list_list.go",
@@ -1671,18 +1779,30 @@
         "TurnRowsOutput": 0,
         "TurnRowsView": 7
       },
-      "status": "distinct facade contract remains; no broad alias assumed",
-      "generated_aliases": {},
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
+      "generated_aliases": {
+        "TurnRowsView": "internal/datly/turn/read.TurnRowsView"
+      },
       "concrete_structs": [
         "TurnRowsInput",
         "TurnRowsInputHas",
-        "TurnRowsOutput",
-        "TurnRowsView"
+        "TurnRowsOutput"
       ],
       "canonical_read_aliases": {
         "TurnRowsView": "internal/datly/turn/read.TurnRowsView"
       },
-      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log"
+      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log",
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "distinct facade contract remains; no broad alias assumed",
+        "generated_aliases": {},
+        "concrete_structs": [
+          "TurnRowsInput",
+          "TurnRowsInputHas",
+          "TurnRowsOutput",
+          "TurnRowsView"
+        ]
+      }
     },
     {
       "file": "model/turn/nextQueued_next_queued.go",
@@ -1747,18 +1867,30 @@
         "QueuedTurnOutput": 0,
         "QueuedTurnView": 4
       },
-      "status": "distinct facade contract remains; no broad alias assumed",
-      "generated_aliases": {},
+      "status": "canonical generated read aliases; distinct input/output facade structs remain",
+      "generated_aliases": {
+        "QueuedTurnView": "internal/datly/turn/read.TurnRowsView"
+      },
       "concrete_structs": [
         "QueuedTurnInput",
         "QueuedTurnInputHas",
-        "QueuedTurnOutput",
-        "QueuedTurnView"
+        "QueuedTurnOutput"
       ],
       "canonical_read_aliases": {
         "QueuedTurnView": "internal/datly/turn/read.TurnRowsView"
       },
-      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log"
+      "read_alias_wire_proof": "/tmp/core-run-turn-independent-wire.log",
+      "historical_declaration_inventory": {
+        "scope": "Before current declaration reconciliation; earlier facade status is historical",
+        "status": "distinct facade contract remains; no broad alias assumed",
+        "generated_aliases": {},
+        "concrete_structs": [
+          "QueuedTurnInput",
+          "QueuedTurnInputHas",
+          "QueuedTurnOutput",
+          "QueuedTurnView"
+        ]
+      }
     },
     {
       "file": "model/turn/queuedCount_queued_count.go",
@@ -1933,9 +2065,9 @@
   ],
   "compatibility_gaps": {
     "message": [
-      "MessageRows is flat; native MessageView adds graph relations. Generate a flat public projection.",
-      "ElicitationMessage exposes Preamble; canonical MessageView exposes Narration. Specify the public field name in DQL.",
-      "Do not borrow writer CurrentWriterView: its nullability and byte fields differ from the public reader."
+      "MessageRowsView already aliases canonical message/base.MessageBaseView; flat projection need is resolved.",
+      "ElicitationMessage remains distinct: public Preamble differs from canonical Narration.",
+      "Message mutation/control and transport input/output compatibility are separate from resolved readonly aliases."
     ],
     "payload": [
       "PayloadRowsView now aliases payload/read.PayloadRowsView with identical field names and types.",
@@ -1943,12 +2075,12 @@
       "The separate reference PayloadView has byte fields, pointer timestamps and decoding hooks. It is not interchangeable with PayloadRowsView."
     ],
     "run": [
-      "RunRows, ActiveRuns and StaleRuns match native public fields, but native RunRowsView adds four hidden maintenance fields. Generate a public projection that omits those Go fields.",
-      "RunStepsView now aliases runsteps/read.RunStepsView. Its input must exclude native visibility and internal controls."
+      "RunRows/ActiveRuns/StaleRuns already alias canonical run/read.RunRowsView. Four maintenance helpers are json:-; no public projection blocker remains for these readonly views.",
+      "RunStepsView aliases runsteps/read.RunStepsView; input controls and output envelopes remain distinct."
     ],
     "schedule": [
-      "UserCredURL differs from generated UserCredUrl; the native view also adds hidden LeaseUntilRaw.",
-      "Authored ScheduleListInput and ScheduleRunDueListInput have no Core production uses; check external callers before deletion."
+      "ScheduleView already aliases canonical schedule/read.ScheduleView; callers use generated UserCredUrl spelling and LeaseUntilRaw stays json:-.",
+      "Authored ScheduleListInput and ScheduleRunDueListInput have no Core production uses; external callers still require review before deletion."
     ],
     "scheduledrun": [
       "The relevant legacyrun/read.LegacyRun retains required string ScheduleId and matching public fields. It adds three hidden maintenance fields.",
@@ -1958,8 +2090,8 @@
       "ByOp and ByTurn are distinct narrower projections. Aliasing the full tool call or links view would change the output fields."
     ],
     "turn": [
-      "Full row variants differ by native hidden CleanupStatus; a public projection can omit it.",
-      "QueuedTotal is an aggregate count. QueuedTurns is an id/queue projection. Both need their own generated shapes."
+      "TurnRows/ActiveTurns/TurnLookup/QueuedTurn already alias canonical turn/read.TurnRowsView; CleanupStatus is json:-.",
+      "QueuedTotal aggregate and narrow QueuedTurns id/queueSeq projection remain separate contracts. Input/control/output envelopes remain distinct."
     ]
   },
   "core_reflection": [
@@ -2271,5 +2403,50 @@
       "framework_changes": false,
       "new_contracts": 0
     }
-  ]
+  ],
+  "declaration_validation": {
+    "method": "Go AST TypeSpec.Assign/StructType scan and imported selector resolution; every tracked type classified exactly once",
+    "scan": "/tmp/model-authority-current-declarations.json",
+    "counts": {
+      "aliases": 11,
+      "concrete": 57,
+      "total": 68
+    },
+    "result": "PASS",
+    "scope": "Current declarations; earlier reference counts/line numbers and existing-shape comparisons are historical snapshots."
+  },
+  "historical_compatibility_gaps": {
+    "scope": "Before the readonly alias/base-reader cutovers; resolved statements are not current blockers",
+    "items": {
+      "message": [
+        "MessageRowsView already aliases canonical message/base.MessageBaseView; flat projection need is resolved.",
+        "ElicitationMessage remains distinct: public Preamble differs from canonical Narration.",
+        "Message mutation/control and transport input/output compatibility are separate from resolved readonly aliases."
+      ],
+      "payload": [
+        "PayloadRowsView now aliases payload/read.PayloadRowsView with identical field names and types.",
+        "Inputs need a generated public projection; output envelope compatibility remains.",
+        "The separate reference PayloadView has byte fields, pointer timestamps and decoding hooks. It is not interchangeable with PayloadRowsView."
+      ],
+      "run": [
+        "RunRows/ActiveRuns/StaleRuns already alias canonical run/read.RunRowsView. Four maintenance helpers are json:-; no public projection blocker remains for these readonly views.",
+        "RunStepsView aliases runsteps/read.RunStepsView; input controls and output envelopes remain distinct."
+      ],
+      "schedule": [
+        "ScheduleView already aliases canonical schedule/read.ScheduleView; callers use generated UserCredUrl spelling and LeaseUntilRaw stays json:-.",
+        "Authored ScheduleListInput and ScheduleRunDueListInput have no Core production uses; external callers still require review before deletion."
+      ],
+      "scheduledrun": [
+        "The relevant legacyrun/read.LegacyRun retains required string ScheduleId and matching public fields. It adds three hidden maintenance fields.",
+        "Use a generated public projection of this reader, not the broader run reader or a writer snapshot."
+      ],
+      "toolcall": [
+        "ByOp and ByTurn are distinct narrower projections. Aliasing the full tool call or links view would change the output fields."
+      ],
+      "turn": [
+        "TurnRows/ActiveTurns/TurnLookup/QueuedTurn already alias canonical turn/read.TurnRowsView; CleanupStatus is json:-.",
+        "QueuedTotal aggregate and narrow QueuedTurns id/queueSeq projection remain separate contracts. Input/control/output envelopes remain distinct."
+      ]
+    }
+  }
 }
