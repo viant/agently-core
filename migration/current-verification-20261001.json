@@ -28,6 +28,20 @@
     "failure": "Existing SQLite maintenance expressions cannot be parsed by the published SQLparser dependency; proposed dependency correction awaits approval",
     "other_packages": "PASS, including executor, message contracts and scheduler"
   },
+  "latest_full_core_tests": {
+    "core_code_revision": "3f83088b",
+    "command": "GOWORK=off go test ./...",
+    "result": "FAIL; 12 tests across executor, Data, Native and SDK",
+    "log": "/tmp/agently-core-current-final-full-tests.log",
+    "known_parser_failures": 8,
+    "additional_failures": [
+      "Fork skill test mistakes parent history for a child request; corrected assertion identifies conversation, system instructions and advertised tools",
+      "Malformed run heartbeat timestamp cannot scan into CurrentWriter time field during deletion with original SQLite driver",
+      "Duplicate tool claim requires Core to recognize existing SQLX duplicate-key classification for modernc SQLite",
+      "GetRun assertion expects original PascalCase JSON; generated alias emits lower camel case; endpoint policy decision requested"
+    ],
+    "fork_assertion_rerun": "PASS; /tmp/agently-fork-child-identity-final.log; no runtime change"
+  },
   "application_build": {
     "command": "GOWORK=off go build -modfile=/tmp/agently-current-core-build/go.mod -mod=readonly -o /tmp/agently-current-core-v1 ./agently",
     "result": "PASS",
@@ -81,10 +95,21 @@
     "scope": "Owned Datly authoring fixture with existing wildcard permission configuration; no production workspace changes",
     "model_limit": "Mercury also produced unknown shell and llm/skills/call names; completed calls are verified from transcripts rather than assistant claims"
   },
+  "latest_live_datly_tools": {
+    "dispatch_fix_commit": "3f83088b",
+    "sqlite_completed_call": "0d2c4f2a-b7e9-486d-ad64-76e32e0a324d; transcript confirms completed datly/datly/components",
+    "original_mysql_completed_call": "047f1ccf-3faa-42c9-a47a-f00d4b997bc2; transcript confirms completed datly/datly/components",
+    "returned_routes": ["GET /records/get", "PATCH /records/patch"],
+    "original_mysql_ledger_after_run": "Absent; information_schema count remains zero",
+    "skill_activation": "Completed in original MySQL conversation",
+    "post_activation_call": "FAIL; skill origin gate still reparses datly/datly/components as a different server; exact discovered identity must be reused without widening permissions"
+  },
   "remaining": [
     "Finish post-driver-restoration live checks and final test gates",
+    "Resolve original SQLite malformed-heartbeat deletion and duplicate-claim compatibility failures",
+    "Confirm SDK run endpoint casing contract and apply matching checks",
     "Approve/publish the SQLparser dependency correction and rerun maintenance/full-suite gates",
-    "Correct Datly MCP tool-name dispatch, then repeat live tool invocation; tooltip and browser cancellation flow remain unverified",
+    "Correct post-activation MCP skill origin lookup; bare components dispatch now passes; tooltip and browser cancellation flow remain unverified",
     "Refresh expired UI OAuth session and finish browser verification",
     "Finish legacy DTO authority/unused-code audit",
     "Publish final Core revision and pin Agently to it; current remote Core v1 is 8dc2927f"
