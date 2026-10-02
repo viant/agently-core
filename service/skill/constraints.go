@@ -219,7 +219,7 @@ func ExpandDefinitionsForConstraintsWithContext(ctx context.Context, defs []*llm
 	if c != nil && len(c.RemoteServers) > 0 {
 		filtered := make([]*llm.ToolDefinition, 0, len(defs))
 		for _, def := range defs {
-			if def != nil && remoteToolAllowed(def.Name, c.RemoteServers) {
+			if def != nil && remoteToolAllowedWithRegistry(ctx, reg, def.Name, c.RemoteServers) {
 				filtered = append(filtered, def)
 			}
 		}
@@ -285,9 +285,14 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 	if c.Denied {
 		return fmt.Errorf("active skill authorization is no longer available")
 	}
+	var registry tool.Registry
+	if state, ok := RuntimeStateFromContext(ctx); ok && state != nil && state.service != nil {
+		registry = state.service.toolRegistry
+	}
+	rawName := toolName
 	toolName = strings.TrimSpace(mcpname2.Canonical(toolName))
 	if len(c.RemoteServers) > 0 {
-		if !remoteToolAllowed(toolName, c.RemoteServers) {
+		if !remoteToolAllowedWithRegistry(ctx, registry, rawName, c.RemoteServers) {
 			return fmt.Errorf("MCP skill does not grant local execution or cross-origin tool access")
 		}
 	}
@@ -337,6 +342,26 @@ func ValidateExecution(ctx context.Context, toolName string, args map[string]int
 		}
 	}
 	return nil
+}
+
+func remoteToolAllowedWithRegistry(ctx context.Context, registry tool.Registry, name string, servers []string) bool {
+	canonical := mcpname2.Canonical(name)
+	if canonical == mcpname2.Canonical("llm/skills:list") || canonical == mcpname2.Canonical("llm/skills:get") {
+		return true
+	}
+	if resolver, ok := registry.(tool.MCPIdentityResolver); ok {
+		server, _, found, err := resolver.ResolveMCPIdentity(ctx, name)
+		if err != nil || !found {
+			return false
+		}
+		for _, allowed := range servers {
+			if server == allowed {
+				return true
+			}
+		}
+		return false
+	}
+	return remoteToolAllowed(name, servers)
 }
 
 func remoteToolAllowed(name string, servers []string) bool {

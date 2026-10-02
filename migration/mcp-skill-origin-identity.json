@@ -1,0 +1,26 @@
+{
+  "status": "focused_runtime_and_whole_core_compile_pass",
+  "problem": "Remote MCP skill origin check reparsed dotted literal tool name into the wrong server.",
+  "implementation": "Optional resolver delegates to existing caller-scoped discovered catalog identity; conversation wrapper preserves capability; surface and execution gates compare exact server.",
+  "authorization": "No new permission grants. Unknown or ambiguous catalog identity denied when resolver exists; list/get exceptions and legacy non-resolver behavior retained.",
+  "tests": {
+    "registry": "PASS 3.299s",
+    "skill": "PASS 1.230s",
+    "protocol_tool": "PASS 1.852s",
+    "toolexec": "PASS 3.333s",
+    "log": "/tmp/agently-mcp-skill-identity-broad.log",
+    "coverage": [
+      "real registry and MCP manager catalog discovery",
+      "same-server dotted and mixed punctuation tool names",
+      "cross-server/local/unknown rejection",
+      "private principal isolation",
+      "existing token fingerprint and ambiguous alias rejection tests",
+      "existing remote activation inline/fork/detach origin tests"
+    ],
+    "whole_core_compile": "PASS go test ./... -run ^$",
+    "compile_log": "/tmp/agently-mcp-skill-identity-compile.log"
+  },
+  "limitations": [
+    "Fresh live MCP skill call awaits rebuilt application."
+  ]
+}

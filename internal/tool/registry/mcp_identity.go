@@ -10,6 +10,11 @@ import (
 	"github.com/viant/agently-core/protocol/mcpname"
 )
 
+// ResolveMCPIdentity shares the catalog identity used by dispatch with policy gates.
+func (r *Registry) ResolveMCPIdentity(ctx context.Context, name string) (string, string, bool, error) {
+	return r.discoveredMCPIdentity(ctx, name)
+}
+
 // discoveredMCPIdentity resolves an advertised alias from the existing catalogs.
 // A provider name is lossy; the catalog owns the server and literal tool name.
 func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (server, method string, found bool, err error) {
