@@ -29,6 +29,7 @@ type RemoteExecutor interface {
 type RemoteProvider struct {
 	ID          string `json:"id" yaml:"id"`
 	Type        string `json:"type" yaml:"type"`
+	Trusted     bool   `json:"trusted,omitempty" yaml:"trusted,omitempty"`
 	ServerRef   string `json:"serverRef" yaml:"serverRef"`
 	CatalogTool string `json:"catalogTool" yaml:"catalogTool"`
 	WindowTool  string `json:"windowTool" yaml:"windowTool"`
@@ -254,15 +255,17 @@ func loadRemoteDefinition(ctx context.Context, providerID, key string) (*remoteD
 	if payload.ContractVersion != 1 || payload.Window == nil || payload.Window.View.Content == nil {
 		return nil, fmt.Errorf("invalid remote window definition")
 	}
-	if payload.Window.Actions != nil && strings.TrimSpace(payload.Window.Actions.Code) != "" {
-		return nil, fmt.Errorf("remote window executable actions are unsupported")
-	}
-	if len(payload.Window.ActionRefs) != 0 {
-		return nil, fmt.Errorf("remote window action references are unsupported")
-	}
-	for id, source := range payload.Window.DataSource {
-		if source.Service != nil {
-			return nil, fmt.Errorf("remote window datasource %q must use an inline MCP backend", id)
+	if !provider.Trusted {
+		if payload.Window.Actions != nil && strings.TrimSpace(payload.Window.Actions.Code) != "" {
+			return nil, fmt.Errorf("remote window executable actions are unsupported")
+		}
+		if len(payload.Window.ActionRefs) != 0 {
+			return nil, fmt.Errorf("remote window action references are unsupported")
+		}
+		for id, source := range payload.Window.DataSource {
+			if source.Service != nil {
+				return nil, fmt.Errorf("remote window datasource %q must use an inline MCP backend", id)
+			}
 		}
 	}
 	return &payload, nil

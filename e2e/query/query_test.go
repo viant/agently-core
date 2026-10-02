@@ -244,7 +244,13 @@ func TestQueryWithForcedToolUsage(t *testing.T) {
 	responseText := strings.TrimSpace(out.Content)
 	assert.Equal(t, "USER="+expectedUser, responseText, "response should come from actual tool result")
 
-	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
+	// Execution pages are opt-in because loading model and tool calls adds work
+	// to transcript reads; this test inspects both relations explicitly.
+	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{
+		ConversationID:    out.ConversationID,
+		IncludeModelCalls: true,
+		IncludeToolCalls:  true,
+	})
 	require.NoError(t, err)
 	pages := collectExecutionPages(transcript)
 	require.NotEmpty(t, pages, "expected execution pages in transcript")
@@ -291,7 +297,11 @@ func TestQueryWithToolUsage(t *testing.T) {
 	responseText := strings.TrimSpace(out.Content)
 	assert.Contains(t, responseText, expectedHome, "response should include HOME value; got: %s", truncate(out.Content, 300))
 
-	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
+	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{
+		ConversationID:    out.ConversationID,
+		IncludeModelCalls: true,
+		IncludeToolCalls:  true,
+	})
 	require.NoError(t, err)
 	pages := collectExecutionPages(transcript)
 	require.NotEmpty(t, pages, "expected execution pages in transcript")
@@ -865,7 +875,11 @@ func TestQueryLinkedConversationCriticReview(t *testing.T) {
 	require.NotNil(t, out)
 	assert.Equal(t, compactText("A dog named Comet found a blue ball in the park and carried it home proudly."), compactText(out.Content))
 
-	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: out.ConversationID})
+	transcript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{
+		ConversationID:    out.ConversationID,
+		IncludeModelCalls: true,
+		IncludeToolCalls:  true,
+	})
 	require.NoError(t, err)
 	parentPages := collectExecutionPages(transcript)
 	require.NotEmpty(t, parentPages, "expected execution pages in parent transcript")
@@ -884,7 +898,11 @@ func TestQueryLinkedConversationCriticReview(t *testing.T) {
 	assert.NotEmpty(t, linkedPage.Rows[0].Status)
 	assert.Contains(t, compactText(linkedPage.Rows[0].Response), compactText("A dog named Comet found a blue ball in the park and carried it home proudly."))
 
-	childTranscript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{ConversationID: linkedConversationID})
+	childTranscript, err := client.GetTranscript(ctx, &sdk.GetTranscriptInput{
+		ConversationID:    linkedConversationID,
+		IncludeModelCalls: true,
+		IncludeToolCalls:  true,
+	})
 	require.NoError(t, err)
 	childPages := collectExecutionPages(childTranscript)
 	require.NotEmpty(t, childPages, "expected execution pages in child transcript")
