@@ -58,6 +58,7 @@ type MutableRunView struct {
 
 type MutableRunViewHas struct {
 	ShouldDelete          bool
+	Condition             bool
 	Id                    bool
 	Status                bool
 	UsageCost             bool

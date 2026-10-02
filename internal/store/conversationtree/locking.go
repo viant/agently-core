@@ -10,6 +10,7 @@ import (
 	legacyread "github.com/viant/agently-core/internal/datly/legacyrun/read"
 	"github.com/viant/agently-core/internal/datly/queryselectors"
 	runread "github.com/viant/agently-core/internal/datly/run/read"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
@@ -28,7 +29,9 @@ var runReaderTarget = dexec.ComponentTarget{
 	Route:     spec.RouteRef{Method: "GET", Path: "/v1/api/agently/run/{id}"},
 }
 
-func (d *Discoverer) LockConversationGraph(ctx context.Context, graph *Graph) error {
+func (d *Discoverer) LockConversationGraph(ctx context.Context, graph *Graph) (retErr error) {
+	done := maintenancediag.Phase(ctx, "lock_conversations")
+	defer func() { done(retErr, "") }()
 	if d == nil || d.Invoker == nil || d.OwnerID == nil {
 		return fmt.Errorf("conversation graph reader is not configured")
 	}
@@ -53,7 +56,9 @@ func (d *Discoverer) LockConversationGraph(ctx context.Context, graph *Graph) er
 	})
 }
 
-func (d *Discoverer) LockDeletePlanRuns(ctx context.Context, plan *DeletePlan) error {
+func (d *Discoverer) LockDeletePlanRuns(ctx context.Context, plan *DeletePlan) (retErr error) {
+	done := maintenancediag.Phase(ctx, "lock_runs")
+	defer func() { done(retErr, "") }()
 	if d == nil || d.Invoker == nil || d.OwnerID == nil || plan == nil {
 		return fmt.Errorf("conversation deletion plan is required")
 	}

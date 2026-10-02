@@ -119,7 +119,7 @@ func (d *Discoverer) ValidateExportReferences(ctx context.Context, graph *Graph)
 }
 
 func (d *Discoverer) exportJobs(ctx context.Context, input *jobread.Input, owner string) ([]*jobread.Job, error) {
-	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: exportJobReaderTarget, Input: input, Providers: reportProviders(owner)})
+	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: exportJobReaderTarget, Input: input, Providers: planProviders("reportaccess", owner, "job_id", "owner_id", "status")})
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func (d *Discoverer) exportJobs(ctx context.Context, input *jobread.Input, owner
 }
 
 func (d *Discoverer) exportArtifacts(ctx context.Context, input *artifactread.Input, owner string) ([]*artifactread.Artifact, error) {
-	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: exportArtifactReaderTarget, Input: input, Providers: reportProviders(owner)})
+	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: exportArtifactReaderTarget, Input: input, Providers: planProviders("reportaccess", owner, "artifact_id", "owner_id", "job_id")})
 	if err != nil {
 		return nil, err
 	}

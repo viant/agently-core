@@ -18,6 +18,7 @@ import (
 	runwrite "github.com/viant/agently-core/internal/datly/reporting/run/write"
 	sessionread "github.com/viant/agently-core/internal/datly/session/read"
 	sessionwrite "github.com/viant/agently-core/internal/datly/session/write"
+	"github.com/viant/agently-core/internal/store/maintenancebatch"
 
 	datlypredicate "github.com/viant/agently-core/internal/datly/predicate"
 	"github.com/viant/bindly/locator"
@@ -199,43 +200,78 @@ func (s *Store) deleteJobs(ctx context.Context, jobs []*jobread.Job, policy *dat
 	}
 	sort.Strings(auditIDs)
 	var deleted int64
-	for _, id := range auditIDs {
-		row := &auditwrite.AuditEvent{}
-		row.SetEventId(id)
-		row.SetShouldDelete(true)
-		input := &auditwrite.Input{}
-		input.SetEvents([]*auditwrite.AuditEvent{row})
-		if err := retentionWrite[auditwrite.Output](ctx, s, input, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", policy)...); err != nil {
-			return 0, err
+	err = maintenancebatch.Groups(ctx, auditIDs, func(id string) (bool, error) { return true, nil }, func(_ bool, ids []string) error {
+		rows := make([]*auditwrite.AuditEvent, 0, len(ids))
+		for _, id := range ids {
+			row := &auditwrite.AuditEvent{}
+			row.SetEventId(id)
+			row.SetShouldDelete(true)
+			rows = append(rows, row)
 		}
-		deleted++
+		input := &auditwrite.Input{}
+		input.SetEvents(rows)
+		if err := retentionWrite[auditwrite.Output](ctx, s, input, "/v1/internal/forge/reporting/audit", providers("reportauditaccess", policy)...); err != nil {
+			return err
+		}
+		deleted += int64(len(rows))
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
-	for _, snapshot := range artifacts.Data {
-		row := &artifactwrite.Artifact{}
-		row.SetArtifactId(snapshot.ArtifactId)
-		row.SetOwnerId(snapshot.OwnerId)
-		row.SetShouldDelete(true)
+	type artifactGuard struct{ OwnerID, JobID string }
+	err = maintenancebatch.Groups(ctx, artifacts.Data, func(snapshot *artifactread.Artifact) (artifactGuard, error) {
+		if snapshot == nil {
+			return artifactGuard{}, fmt.Errorf("nil technical export artifact")
+		}
+		return artifactGuard{snapshot.OwnerId, snapshot.JobId}, nil
+	}, func(guard artifactGuard, snapshots []*artifactread.Artifact) error {
+		rows := make([]*artifactwrite.Artifact, 0, len(snapshots))
+		for _, snapshot := range snapshots {
+			row := &artifactwrite.Artifact{}
+			row.SetArtifactId(snapshot.ArtifactId)
+			row.SetOwnerId(snapshot.OwnerId)
+			row.SetShouldDelete(true)
+			rows = append(rows, row)
+		}
 		input := &artifactwrite.Input{}
 		input.SetMode("delete")
-		input.SetExpectedJobID(snapshot.JobId)
-		input.SetArtifacts([]*artifactwrite.Artifact{row})
-		if err := retentionWrite[artifactwrite.Output](ctx, s, input, "/v1/internal/forge/reporting/artifact", ownerProviders(snapshot.OwnerId)...); err != nil {
-			return 0, err
+		input.SetExpectedJobID(guard.JobID)
+		input.SetArtifacts(rows)
+		if err := retentionWrite[artifactwrite.Output](ctx, s, input, "/v1/internal/forge/reporting/artifact", ownerProviders(guard.OwnerID)...); err != nil {
+			return err
 		}
-		deleted++
+		deleted += int64(len(rows))
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
-	for _, snapshot := range jobs {
-		row := &jobwrite.Job{}
-		row.SetJobId(snapshot.JobId)
-		row.SetOwnerId(snapshot.OwnerId)
-		row.SetShouldDelete(true)
+	err = maintenancebatch.Groups(ctx, jobs, func(snapshot *jobread.Job) (string, error) {
+		if snapshot == nil {
+			return "", fmt.Errorf("nil technical export job")
+		}
+		return snapshot.OwnerId, nil
+	}, func(owner string, snapshots []*jobread.Job) error {
+		rows := make([]*jobwrite.Job, 0, len(snapshots))
+		for _, snapshot := range snapshots {
+			row := &jobwrite.Job{}
+			row.SetJobId(snapshot.JobId)
+			row.SetOwnerId(snapshot.OwnerId)
+			row.SetShouldDelete(true)
+			rows = append(rows, row)
+		}
 		input := &jobwrite.Input{}
 		input.SetMode("delete")
-		input.SetJobs([]*jobwrite.Job{row})
-		if err := retentionWrite[jobwrite.Output](ctx, s, input, "/v1/internal/forge/reporting/job", ownerProviders(snapshot.OwnerId)...); err != nil {
-			return 0, err
+		input.SetJobs(rows)
+		if err := retentionWrite[jobwrite.Output](ctx, s, input, "/v1/internal/forge/reporting/job", ownerProviders(owner)...); err != nil {
+			return err
 		}
-		deleted++
+		deleted += int64(len(rows))
+		return nil
+	})
+	if err != nil {
+		return 0, err
 	}
 	return deleted, nil
 }

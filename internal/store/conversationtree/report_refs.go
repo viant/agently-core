@@ -126,7 +126,7 @@ func reportProviders(owner string) []locator.Provider {
 }
 
 func (d *Discoverer) reportRuns(ctx context.Context, input *runread.Input, owner string) ([]*runread.Run, error) {
-	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: reportRunReaderTarget, Input: input, Providers: reportProviders(owner)})
+	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: reportRunReaderTarget, Input: input, Providers: planProviders("reportaccess", owner, "report_run_id", "owner_id", "revision")})
 	if err != nil {
 		return nil, err
 	}
@@ -138,7 +138,7 @@ func (d *Discoverer) reportRuns(ctx context.Context, input *runread.Input, owner
 }
 
 func (d *Discoverer) reportContexts(ctx context.Context, input *contextread.Input, owner string) ([]*contextread.Context, error) {
-	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: reportContextReaderTarget, Input: input, Providers: reportProviders(owner)})
+	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: reportContextReaderTarget, Input: input, Providers: planProviders("reportaccess", owner, "owner_id", "conversation_id", "active_report_run_id", "revision")})
 	if err != nil {
 		return nil, err
 	}

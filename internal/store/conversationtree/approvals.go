@@ -26,7 +26,7 @@ func (d *Discoverer) CollectApprovalIDs(ctx context.Context, graph *Graph) ([]st
 	conversationIDs := sortedMapKeys(graph.Nodes)
 	turnQuery := &turnread.TurnRowsInput{}
 	turnQuery.SetConversationIDs(conversationIDs)
-	turnRows, err := (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnQuery, nil)
+	turnRows, err := (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnQuery, deleteSelectors("id"))
 	if err != nil {
 		return nil, err
 	}
@@ -39,7 +39,7 @@ func (d *Discoverer) CollectApprovalIDs(ctx context.Context, graph *Graph) ([]st
 	messageQuery := &msgread.MessagesInput{}
 	messageQuery.SetConversationIds(conversationIDs)
 	messages, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery,
-		nil)
+		deleteSelectors("id"))
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +66,7 @@ func (d *Discoverer) CollectApprovalIDs(ctx context.Context, graph *Graph) ([]st
 	store := &conversation.ApprovalStore{Invoker: d.Invoker, OwnerID: d.OwnerID}
 	ids := []string{}
 	for _, query := range queries {
-		rows, err := store.List(ctx, "rows", query, nil)
+		rows, err := store.List(ctx, "rows", query, deleteSelectors("id"))
 		if err != nil {
 			return nil, err
 		}
