@@ -37,6 +37,7 @@ pipeline:
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/run/read
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/runsteps/read
       - bin/datly-stock transcribe patch -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/run/write
+      - bin/datly-stock transcribe patch -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/run/delete
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/legacyrun/read
       - bin/datly-stock transcribe patch -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/legacyrun/write
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/schedule/read
