@@ -1,5 +1,6 @@
 import { AgUiClient, agentlyCommandProps, type AgentCapabilities, type HttpAgentConfig } from './agui';
 import { parseSSEStream } from '@ag-ui/client';
+import { boundedSSEFrames, preserveSSEFrames } from './aguiSSEFrames';
 import { Subject, type Observable } from 'rxjs';
 import type { Event, Message, State, RunAgentInput, ResumeEntry } from '@ag-ui/core';
 import { MessageSchema } from '@ag-ui/core/schemas';
@@ -134,11 +135,11 @@ export class AgUiCommands {
         let disposeTap = () => {};
         const fetchImpl = this.config.fetch!;
         const client = new AgUiClient({ ...this.config, threadId, initialMessages: [], initialState: {}, fetch: async (url, init) => {
-            const response = await fetchImpl(url, init);
+            const response = boundedSSEFrames(await fetchImpl(url, init));
             if (!response.ok || !response.body || !response.headers.get('content-type')?.includes('text/event-stream')) return response;
             // Upstream's compatibility shim erases result:null. Observe only the raw
             // command result through its official parser; validated reduction stays
-            // in HttpAgent and the bytes passed to it are completely unchanged.
+            // in HttpAgent; the tap passes those same framed bytes through.
             const tap = tapCommandResult(response, init.signal, threadId, runId, value => { rawResultSeen = true; rawResult = value; });
             disposeTap = tap.dispose;
             return tap.response;
@@ -240,5 +241,5 @@ function tapCommandResult(response: Response, signal: AbortSignal | null | undef
         },
         flush() { dispose(); },
     }));
-    return { response: new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers }), dispose };
+    return { response: preserveSSEFrames(new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers }), response), dispose };
 }

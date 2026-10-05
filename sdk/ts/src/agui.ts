@@ -1,4 +1,5 @@
 import { HttpAgent, type HttpAgentConfig, type RunAgentParameters, type AgentSubscriber, buildResumeArray, isInterruptExpired } from '@ag-ui/client';
+import { boundedSSEFrames } from './aguiSSEFrames';
 import { ToolMessageSchema, AgentCapabilitiesSchema, RunAgentInputSchema } from '@ag-ui/core/schemas';
 import type { AgentCapabilities, Message, Tool, ToolCall, ToolMessage, ResumeEntry, Interrupt, RunAgentInput } from '@ag-ui/core';
 
@@ -120,7 +121,7 @@ export class AgUiClient {
 
     constructor(config: HttpAgentConfig) {
         const configuredFetch = config.fetch ?? globalThis.fetch.bind(globalThis);
-        this.transportConfig = { ...config, fetch: async (url, init) => safeReaderDisposal(await configuredFetch(url, init)) };
+        this.transportConfig = { ...config, fetch: async (url, init) => safeReaderDisposal(boundedSSEFrames(await configuredFetch(url, init))) };
         this.agent = new ReplayableHttpAgent(this.transportConfig);
         this.agent.subscribe({
             onRunStartedEvent: () => { this.pendingClientToolIds = []; },
