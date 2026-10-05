@@ -1,6 +1,6 @@
 import type { AgentSubscriber } from '@ag-ui/client';
 import type { Message, State } from '@ag-ui/core';
-import { AgUiCommands, type AgUiConversationBootstrapResult } from './aguiCommands';
+import { AgUiCommands, type AgUiConversationBootstrapResult, type AgUiConversationBootstrapInput } from './aguiCommands';
 import { readAgentlyPresentation } from './aguiPresentation';
 import type { AgUiViewOutcome, AgUiViewDescriptor } from './aguiViewProjection';
 import type { AgUiSession } from './aguiSession';
@@ -44,6 +44,7 @@ interface RunSlot {
 }
 interface Entry {
     protocolThreadId?: string;
+    reads: Set<{ abortTransport(): void }>;
     id: string;
     generation: number;
     listeners: Set<AgUiConversationHandlers>;
@@ -191,12 +192,30 @@ export class AgUiConversationTransport {
         return wire;
     }
 
+    /** Selected history is a read result, never a replacement for full coordinator state. */
+    async readSnapshot(conversationId: string, input: AgUiConversationBootstrapInput): Promise<TranscriptOutput> {
+        const entry = this.entry(conversationId);
+        const threadId = await this.resolveProtocolThread(entry);
+        if (!this.current(entry)) throw new Error('Conversation session was invalidated');
+        const runId = crypto.randomUUID();
+        const command = new AgUiCommands(this.host.agUiTransport()).start('conversation.bootstrap', input, {threadId, runId, requestId:runId});
+        entry.reads.add(command);
+        try {
+            const result = await command.result;
+            if (!result || !this.current(entry) || result.threadId !== threadId || result.transcript.conversation.conversationId !== entry.id) {
+                throw new Error('Conversation bootstrap was invalidated');
+            }
+            return transcriptDTO(result.transcript);
+        } finally { entry.reads.delete(command); }
+    }
+
     /** Account/logout boundary: detach transport, leave authorized backend work running. */
     reset() {
         this.generation++;
         for (const entry of this.entries.values()) {
             entry.listeners.clear();
             entry.bootstrapHandle?.abortTransport();
+            for (const read of entry.reads) read.abortTransport();
             for (const run of entry.runs.values()) { run.stopProjection(); run.session.detach(); }
         }
         this.entries.clear();
@@ -206,7 +225,7 @@ export class AgUiConversationTransport {
         if (!id) throw new Error('A conversation identity is required');
         let entry = this.entries.get(id);
         if (!entry) {
-            entry = { id, generation: this.generation, listeners: new Set(), runs: new Map(), terminalTurns: new Set(), state: {}, hostActivities: new Map(), unavailableHostActivityIds: [] };
+            entry = { reads: new Set(), id, generation: this.generation, listeners: new Set(), runs: new Map(), terminalTurns: new Set(), state: {}, hostActivities: new Map(), unavailableHostActivityIds: [] };
             this.entries.set(id, entry);
         }
         return entry;

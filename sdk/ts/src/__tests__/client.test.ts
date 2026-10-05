@@ -48,7 +48,7 @@ function mockFetch(status: number, body: unknown, headers?: Record<string, strin
 }
 
 function client(fetchImpl: FetchImplementation, baseURL = 'http://localhost:8585/v1'): AgentlyClient {
-    return new AgentlyClient({ baseURL, fetchImpl, timeoutMs: 0, interactionProtocol: 'legacy' });
+    return new AgentlyClient({ baseURL, fetchImpl, timeoutMs: 0, });
 }
 
 function normalizeHeaders(headers?: HeadersInit): Record<string, string> | undefined {
@@ -206,7 +206,7 @@ describe('Transcript', () => {
     it('getTranscript with tool and model calls', async () => {
         const f = mockFetch(200, { schemaVersion: '2', conversation: { turns: [] } });
         const c = client(f);
-        await c.getTranscript({
+        await c.readConversationHistory({
             conversationId: 'conv_1',
             since: 'turn_5',
             includeToolCalls: true,
@@ -223,7 +223,7 @@ describe('Transcript', () => {
     it('getTranscript serializes execution-group selector helpers', async () => {
         const f = mockFetch(200, { schemaVersion: '2', conversation: { turns: [] } });
         const c = client(f);
-        await c.getTranscript(
+        await c.readConversationHistory(
             { conversationId: 'conv_1' },
             {
                 executionGroupLimit: 5,
@@ -242,7 +242,7 @@ describe('Transcript', () => {
     it('getLiveState loads the stream bootstrap snapshot', async () => {
         const f = mockFetch(200, { schemaVersion: '2', eventCursor: 'cursor-1', conversation: { turns: [] } });
         const c = client(f);
-        await c.getLiveState({ conversationId: 'conv_1', includeFeeds: true });
+        await c.readApplicationState({ conversationId: 'conv_1', includeFeeds: true });
         const call = lastCall(f);
         expect(call.url).toContain('/conversations/conv_1/live-state');
         expect(call.url).toContain('includeFeeds=true');
@@ -250,42 +250,6 @@ describe('Transcript', () => {
 });
 
 // ─── Query ─────────────────────────────────────────────────────────────────────
-
-describe('Query', () => {
-    it('sends POST /agent/query with full input', async () => {
-        const f = mockFetch(200, {
-            conversationId: 'conv_1',
-            content: 'Hello',
-            turnId: 'turn_1',
-            messageId: 'msg_1',
-            projection: {
-                scope: 'conversation',
-                hiddenTurnIds: ['turn_1'],
-                hiddenMessageIds: ['msg_9'],
-                reason: 'tool call supersession',
-                tokensFreed: 42,
-            },
-        });
-        const c = client(f);
-        const res = await c.query({
-            conversationId: 'conv_1',
-            query: 'Analyze sales',
-            agentId: 'coder',
-            model: 'gpt-5.3-codex',
-            toolBundles: ['system/exec'],
-        });
-
-        expect(res.content).toBe('Hello');
-        expect(res.turnId).toBe('turn_1');
-        expect(res.projection?.scope).toBe('conversation');
-        expect(res.projection?.hiddenTurnIds).toEqual(['turn_1']);
-        const call = lastCall(f);
-        expect(call.method).toBe('POST');
-        expect(call.url).toBe('http://localhost:8585/v1/agent/query');
-        expect(call.body.query).toBe('Analyze sales');
-        expect(call.body.agentId).toBe('coder');
-    });
-});
 
 describe('Streaming', () => {
     it('dispatches callbacks based on the JSON payload type', () => {
@@ -299,7 +263,7 @@ describe('Streaming', () => {
         const turns: string[] = [];
         const feeds: string[] = [];
 
-        const sub = c.streamEvents('conv_1', {
+        const sub = c.observeNativeEvents('conv_1', {
             onEvent: (event) => {
                 seen.push(event.type);
                 seenConversationIds.push(String(event.conversationId || ''));
@@ -313,7 +277,7 @@ describe('Streaming', () => {
 
         expect(MockEventSource.instances).toHaveLength(1);
         const es = MockEventSource.instances[0];
-        expect(es.url).toBe('http://localhost:8585/v1/stream?conversationId=conv_1');
+        expect(es.url).toBe('http://localhost:8585/v1/stream?conversationId=conv_1&compatibilityScope=native-and-application');
         expect(es.withCredentials).toBe(false);
 
         es.emit({ type: 'text_delta', streamId: 'conv_1', content: 'hello' });
