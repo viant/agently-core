@@ -36,18 +36,11 @@ ALTER TABLE call_payload
   ADD COLUMN run_id VARCHAR(255) NULL,
   ADD COLUMN sequence BIGINT NULL;
 
-DELIMITER $$
-CREATE PROCEDURE agently_agui_payload_kind_upgrade()
-BEGIN
-  ALTER TABLE call_payload DROP CHECK call_payload_chk_1;
-  ALTER TABLE call_payload ADD CONSTRAINT call_payload_chk_1
-    CHECK (kind IN ('model_request','model_response','provider_request',
-      'provider_response','model_stream','tool_request','tool_response',
-      'elicitation_request','elicitation_response','attachment','agui.event'));
-END $$
-CALL agently_agui_payload_kind_upgrade() $$
-DROP PROCEDURE agently_agui_payload_kind_upgrade $$
-DELIMITER ;
+ALTER TABLE call_payload DROP CHECK call_payload_chk_1;
+ALTER TABLE call_payload ADD CONSTRAINT call_payload_chk_1
+  CHECK (kind IN ('model_request','model_response','provider_request',
+    'provider_response','model_stream','tool_request','tool_response',
+    'elicitation_request','elicitation_response','attachment','agui.event'));
 
 CREATE UNIQUE INDEX ux_conversation_protocol_thread ON conversation (protocol_thread_key);
 CREATE UNIQUE INDEX ux_run_protocol_key ON run (protocol_key);
