@@ -2,6 +2,7 @@ package modelcall
 
 import (
 	"context"
+	"github.com/viant/agently-core/runtime/evidence"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -110,6 +111,23 @@ func (o *recorderObserver) drainStreamPublishBufferLocked(stopTimer bool) []byte
 }
 
 func (o *recorderObserver) publishStreamDeltaNow(ctx context.Context, data []byte) {
+	if len(data) == 0 {
+		return
+	}
+	if guard := evidence.PublicationFromContext(ctx); guard != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		canonical, err := guard.Stream(ctx, runtimerequestctx.ModelMessageIDFromContext(ctx), string(data), false)
+		if err != nil {
+			return
+		} // Finalization surfaces the sticky guard error after saving raw provider audit.
+		data = []byte(canonical)
+	}
+	o.publishCanonicalStreamDeltaNow(ctx, data)
+}
+
+func (o *recorderObserver) publishCanonicalStreamDeltaNow(ctx context.Context, data []byte) {
 	if len(data) == 0 {
 		return
 	}

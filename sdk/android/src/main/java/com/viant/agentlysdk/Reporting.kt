@@ -46,7 +46,8 @@ data class BeginReportRunInput(
     val sourceKind: String? = null,
     val sourceId: String? = null,
     val requestedParams: JsonElement? = null,
-    val effectiveParams: JsonElement? = null
+    val effectiveParams: JsonElement? = null,
+    val reportAdmissionRef: String? = null
 )
 @Serializable
 data class CompleteReportRunInput(

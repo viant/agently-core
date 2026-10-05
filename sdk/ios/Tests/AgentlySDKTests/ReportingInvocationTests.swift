@@ -31,12 +31,14 @@ final class ReportingInvocationTests: XCTestCase {
 
   func testBeginRetainsAdmittedBuilderAndScope() throws {
     let params: JSONValue = .object(["filters": .object(["adOrderId": .array([.number(2659534)])])])
-    let input = BeginReportRunInput(uiRunRequestId: "request", conversationId: "conversation", origin: "prompt", builderRef: "delivery", presetId: "preset", sourceKind: "preset", sourceId: "source", requestedParams: params, effectiveParams: params)
+    let input = BeginReportRunInput(uiRunRequestId: "request", conversationId: "conversation", origin: "prompt", builderRef: "delivery", presetId: "preset", sourceKind: "preset", sourceId: "source", requestedParams: params, effectiveParams: params, reportAdmissionRef: "opaque ref")
     let json = try JSONDecoder().decode([String: JSONValue].self, from: JSONEncoder().encode(input))
     XCTAssertEqual(json["builderRef"], .string("delivery"))
     XCTAssertEqual(json["requestedParams"], params)
     XCTAssertEqual(json["effectiveParams"], params)
     XCTAssertEqual(json["sourceId"], .string("source"))
+    XCTAssertEqual(json["reportAdmissionRef"], .string("opaque ref"))
+    if case .object(let requested)? = json["requestedParams"] { XCTAssertNil(requested["_agentlyForecastCommand"]) } else { XCTFail("Expected original request object") }
     let legacy = try JSONDecoder().decode([String: JSONValue].self, from: JSONEncoder().encode(BeginReportRunInput(uiRunRequestId: "old")))
     XCTAssertNil(legacy["builderRef"])
   }

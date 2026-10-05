@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/runtime/evidence"
 	"net/url"
 	"path"
 	"strings"
@@ -649,6 +650,11 @@ func (s *Service) persistFinalAssistantMessage(ctx context.Context, turn *runtim
 		return nil
 	}
 	messageID = strings.TrimSpace(messageID)
+	var err error
+	content, err = evidence.RewriteContent(ctx, content)
+	if err != nil {
+		return err
+	}
 	rewritten := strings.TrimSpace(s.rewriteGeneratedFileLinks(ctx, turn.ConversationID, turn.TurnID, messageID, content))
 	if messageID == "" {
 		messageID = uuid.NewString()

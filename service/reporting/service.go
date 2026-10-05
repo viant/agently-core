@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/runtime/evidence"
 	"reflect"
 	"sort"
 	"strconv"
@@ -43,9 +44,10 @@ const Name = "reporting"
 
 // Options configures a reporting Service.
 type Options struct {
-	Compiler Compiler
-	Exporter Exporter
-	Store    Store
+	ReportCompilation evidence.ReportCompilation
+	Compiler          Compiler
+	Exporter          Exporter
+	Store             Store
 	// ActiveRunResolver is wired only when durable browser-run persistence and
 	// reporting orchestration are both enabled.
 	ActiveRunResolver ActiveReportRunResolver
@@ -68,6 +70,7 @@ type Options struct {
 // Service is the agently-core runtime boundary for reporting compile and
 // export job orchestration.
 type Service struct {
+	reportCompilation           evidence.ReportCompilation
 	compiler                    Compiler
 	exporter                    Exporter
 	store                       Store
@@ -98,12 +101,13 @@ func New(opts Options) *Service {
 		newIDFn = func() string { return uuid.NewString() }
 	}
 	return &Service{
-		compiler:      opts.Compiler,
-		exporter:      opts.Exporter,
-		store:         opts.Store,
-		audit:         opts.Audit,
-		scratchpad:    opts.Scratchpad,
-		tokenProvider: opts.TokenProvider,
+		reportCompilation: opts.ReportCompilation,
+		compiler:          opts.Compiler,
+		exporter:          opts.Exporter,
+		store:             opts.Store,
+		audit:             opts.Audit,
+		scratchpad:        opts.Scratchpad,
+		tokenProvider:     opts.TokenProvider,
 		scratchpadFS: func() afs.Service {
 			if opts.ScratchpadFS != nil {
 				return opts.ScratchpadFS

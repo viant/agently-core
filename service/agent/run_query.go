@@ -9,6 +9,7 @@ import (
 	"github.com/viant/agently-core/protocol/agent/execution"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/runtime/clienttool"
+	"github.com/viant/agently-core/runtime/evidence"
 	"path"
 	"regexp"
 	"sort"
@@ -408,6 +409,10 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if input != nil && strings.TrimSpace(input.MessageID) == "" {
 		input.MessageID = uuid.New().String()
 	}
+	pendingEvidence, evidenceErr := s.captureEvidence(ctx, input, queryStarted)
+	if evidenceErr != nil {
+		return evidenceErr
+	}
 	envStarted := time.Now()
 	if err := s.ensureEnvironment(ctx, input); err != nil {
 		return err
@@ -653,6 +658,12 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
 	ctx = runtimerequestctx.WithTurnMeta(ctx, turn)
+	if pendingEvidence != nil {
+		ctx, evidenceErr = pendingEvidence.Begin(ctx, evidenceTurn(ctx, turn))
+		if evidenceErr != nil {
+			return evidenceErr
+		}
+	}
 
 	// Intake can take several seconds and may read the authoritative
 	// transcript. Run it only after the visible user row is durable so a
@@ -1529,6 +1540,11 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 				queryOutput.Content = ""
 				continue
 			}
+			canonicalContent, evidenceErr := evidence.RewriteContent(ctx, genOutput.Content)
+			if evidenceErr != nil {
+				return evidenceErr
+			}
+			genOutput.Content = canonicalContent
 			if strings.TrimSpace(genOutput.Content) != "" {
 				modelcallctx.WaitFinish(ctx, 1500*time.Millisecond)
 				msgID := strings.TrimSpace(genOutput.MessageID)
@@ -1545,6 +1561,9 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 					msgID, turn.ConversationID, turn.TurnID, len(genOutput.Content))
 				if err := s.persistFinalAssistantMessage(ctx, &turn, msgID, genOutput.Content); err != nil {
 					logx.Errorf("conversation", "runPlan-final patching msg=%q err=%v", msgID, err)
+					if evidence.IsRejection(err) {
+						return err
+					}
 				}
 			}
 			pending, pErr := s.hasNewTurnTaskSince(ctx, turn, checkpoint)

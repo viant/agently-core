@@ -6,6 +6,7 @@ import (
 	"fmt"
 	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	"github.com/viant/agently-core/runtime/evidence"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
@@ -182,13 +183,31 @@ func (s *Service) execute(ctx context.Context, action, eventKind string, in, out
 	if err != nil {
 		return err
 	}
+	params := map[string]interface{}{"windowId": strings.TrimSpace(window.WindowID)}
+	if action == "run" {
+		if issuer := evidence.ReportCommandsFromContext(ctx); issuer != nil {
+			workspace, marshalErr := json.Marshal(window.WorkspaceObject)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			command, issueErr := issuer.IssueReportCommand(ctx, evidence.ReportCommandTarget{WindowID: window.WindowID, Workspace: workspace})
+			if issueErr != nil {
+				return issueErr
+			}
+			if command != nil {
+				if command.RequestID == "" || command.AdmissionRef == "" {
+					return fmt.Errorf("report command receipt incomplete")
+				}
+				params["requestId"] = command.RequestID
+				params["reportAdmissionRef"] = command.AdmissionRef
+			}
+		}
+	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
 		Method:    "ui.report." + action,
-		Params: map[string]interface{}{
-			"windowId": strings.TrimSpace(window.WindowID),
-		},
+		Params:    params,
 	})
 	if err != nil {
 		return err

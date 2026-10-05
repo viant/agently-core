@@ -33,10 +33,11 @@ public struct BeginReportRunInput: Codable, Sendable {
   public var sourceId: String?
   public var requestedParams: JSONValue?
   public var effectiveParams: JSONValue?
+  public var reportAdmissionRef: String?
   public init(
     uiRunRequestId: String, conversationId: String? = nil, origin: String? = nil,
     builderRef: String? = nil, presetId: String? = nil, sourceKind: String? = nil,
-    sourceId: String? = nil, requestedParams: JSONValue? = nil, effectiveParams: JSONValue? = nil
+    sourceId: String? = nil, requestedParams: JSONValue? = nil, effectiveParams: JSONValue? = nil, reportAdmissionRef: String? = nil
   ) {
     self.uiRunRequestId = uiRunRequestId
     self.conversationId = conversationId
@@ -47,6 +48,7 @@ public struct BeginReportRunInput: Codable, Sendable {
     self.sourceId = sourceId
     self.requestedParams = requestedParams
     self.effectiveParams = effectiveParams
+    self.reportAdmissionRef = reportAdmissionRef
   }
 }
 public struct CompleteReportRunInput: Codable, Sendable {

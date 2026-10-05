@@ -286,6 +286,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 			}
 		}
 	}
+	step, retErr = prepareEvidenceRequest(ctx, step)
+	if retErr != nil {
+		return
+	}
+	out.Arguments = step.Args
 	argsJSON := ""
 	if logx.Enabled() && len(step.Args) > 0 {
 		if b, jErr := json.Marshal(step.Args); jErr == nil {

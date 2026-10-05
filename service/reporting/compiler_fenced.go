@@ -7,20 +7,42 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/viant/agently-core/runtime/evidence"
 	forgefenced "github.com/viant/forge/backend/reporting/fenced"
 )
 
 // CompileFencedReport compiles progressive Forge fences into an export-ready
 // canonical reporting envelope.
-func (s *Service) CompileFencedReport(_ context.Context, request *CompileFencedReportRequest) (*CompileFencedReportResult, error) {
+func (s *Service) CompileFencedReport(ctx context.Context, request *CompileFencedReportRequest) (*CompileFencedReportResult, error) {
 	if request == nil {
 		return nil, fmt.Errorf("reporting fenced compile: request is required")
+	}
+	if request.ReportAdmissionRef != "" {
+		if s.reportCompilation == nil {
+			return nil, fmt.Errorf("report command compilation is not configured")
+		}
+		var admissionErr error
+		ctx, admissionErr = s.reportCompilation.CompileContext(ctx, request.ReportAdmissionRef, request.ReportID)
+		if admissionErr != nil {
+			return nil, admissionErr
+		}
+	}
+	content, err := evidence.RewriteContent(ctx, request.Content)
+	if err != nil {
+		return nil, err
 	}
 	fences := make([]forgefenced.Fence, 0, len(request.Fences))
 	for _, fence := range request.Fences {
 		payload, err := normalizeFencedPayload(fence.Payload)
 		if err != nil {
 			return nil, fmt.Errorf("reporting fenced compile: fence %d payload: %w", fence.Index, err)
+		}
+		if guard := evidence.PublicationFromContext(ctx); guard != nil {
+			guarded, guardErr := guard.Fence(ctx, strings.TrimSpace(fence.Kind), string(payload))
+			if guardErr != nil {
+				return nil, &evidence.Rejection{Cause: guardErr}
+			}
+			payload = json.RawMessage(guarded)
 		}
 		fences = append(fences, forgefenced.Fence{
 			Kind: strings.TrimSpace(fence.Kind), Index: fence.Index, Payload: payload,
@@ -36,7 +58,7 @@ func (s *Service) CompileFencedReport(_ context.Context, request *CompileFencedR
 	}
 	compiled, err := forgefenced.Compile(&forgefenced.CompileRequest{
 		Invocation: invocation,
-		Content:    request.Content, Fences: fences, ReportID: strings.TrimSpace(request.ReportID),
+		Content:    content, Fences: fences, ReportID: strings.TrimSpace(request.ReportID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("reporting fenced compile: %w", err)
@@ -85,6 +107,11 @@ func (s *Service) CompileFencedReport(_ context.Context, request *CompileFencedR
 			Code: item.Code, Severity: item.Severity, Path: item.Path,
 			Message: item.Message, SuggestedFix: item.SuggestedFix,
 		})
+	}
+	if request.ReportAdmissionRef != "" {
+		if err = s.reportCompilation.RecordCompiled(ctx, request.ReportAdmissionRef, evidence.ReportArtifacts{Spec: compiled.ReportSpec, Fill: compiled.ReportFill, Print: compiled.ReportPrint}); err != nil {
+			return nil, err
+		}
 	}
 	return &CompileFencedReportResult{
 		ReportID: reportID, ReportDocument: cloneJSON(compiled.ReportDocument),

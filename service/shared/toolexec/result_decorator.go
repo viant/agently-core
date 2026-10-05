@@ -6,6 +6,7 @@ import (
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/mcpname"
+	"github.com/viant/agently-core/runtime/evidence"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/reporting/forecastbinding"
 )
@@ -22,6 +23,12 @@ func WithDurableResultDecorator(ctx context.Context, fn DurableResultDecorator) 
 	return context.WithValue(ctx, durableResultDecoratorKey{}, fn)
 }
 func decorateDurableResult(ctx context.Context, step StepInfo, body string) (string, bool, error) {
+	if hook := evidence.ToolsFromContext(ctx); hook != nil {
+		body, handled, err := hook.Completed(ctx, step.Name, step.ID)
+		if handled || err != nil {
+			return string(body), handled, err
+		}
+	}
 	fn, _ := ctx.Value(durableResultDecoratorKey{}).(DurableResultDecorator)
 	if fn == nil {
 		return body, false, nil

@@ -145,6 +145,10 @@ func (s *Service) resumeTurn(ctx context.Context, req resumeTurnRequest) error {
 			return s.finalizeTurn(ctx, turn, status, runErr)
 		})
 	}
+	ctx, err = s.restoreEvidence(ctx, turn)
+	if err != nil {
+		return finalize("failed", err)
+	}
 	waiting, err := s.turnAwaitingUserAction(ctx, turn)
 	if err != nil {
 		return finalize("failed", err)

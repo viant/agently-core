@@ -119,7 +119,7 @@ func (*Manage) Exec(ctx context.Context, session handler.Session, input *store.R
 	}
 	if input.Operation == "load" {
 		if existing == nil {
-			return fmt.Errorf("evidence document not found")
+			return store.ErrNotFound
 		}
 		output.Body = append(json.RawMessage(nil), existing.InlineBody...)
 		return nil
