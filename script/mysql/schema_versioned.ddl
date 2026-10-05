@@ -2859,22 +2859,12 @@ CALL schema_upgrade_39() $$
 DROP PROCEDURE schema_upgrade_39 $$
 
 
--- Version 41 was an unreleased AG-UI POC. Protocol storage now reuses existing tables.
+-- Version 41 adds AG-UI protocol storage by reusing existing application tables.
 DROP PROCEDURE IF EXISTS schema_upgrade_40 $$
 CREATE PROCEDURE schema_upgrade_40()
 BEGIN
-    IF get_schema_version() = 40 THEN
-        CALL set_schema_version(41);
-    END IF;
-END $$
-CALL schema_upgrade_40() $$
-DROP PROCEDURE schema_upgrade_40 $$
-
-DROP PROCEDURE IF EXISTS schema_upgrade_41 $$
-CREATE PROCEDURE schema_upgrade_41()
-BEGIN
     DECLARE payload_kind_check VARCHAR(255) DEFAULT NULL;
-    IF get_schema_version() = 41 THEN
+    IF get_schema_version() = 40 THEN
         IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='conversation' AND COLUMN_NAME='protocol_only') THEN
             ALTER TABLE conversation ADD COLUMN protocol_only TINYINT NOT NULL DEFAULT 0;
         END IF;
@@ -3001,15 +2991,10 @@ BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.TABLE_CONSTRAINTS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='call_payload' AND CONSTRAINT_NAME='fk_payload_protocol_run') THEN
             ALTER TABLE call_payload ADD CONSTRAINT fk_payload_protocol_run FOREIGN KEY (run_id) REFERENCES run(id) ON DELETE CASCADE;
         END IF;
-        -- Explicitly disposable local POC journals; no application conversation/report rows are removed.
-        DROP TABLE IF EXISTS agui_lease;
-        DROP TABLE IF EXISTS agui_event;
-        DROP TABLE IF EXISTS agui_run;
-        DROP TABLE IF EXISTS agui_thread;
-        CALL set_schema_version(42);
+        CALL set_schema_version(41);
     END IF;
 END $$
-CALL schema_upgrade_41() $$
-DROP PROCEDURE schema_upgrade_41 $$
+CALL schema_upgrade_40() $$
+DROP PROCEDURE schema_upgrade_40 $$
 
 DELIMITER ;
