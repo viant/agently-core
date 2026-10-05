@@ -67,10 +67,31 @@ function fixture(active: Array<Record<string, unknown>> = [], beforeAdmission?: 
         controller.enqueue(frame({ type: 'RUN_FINISHED', threadId: wireThreadId ?? 'thread', runId }));
         controller.close();
     };
-    return { transport, posted, controls, finish, metadataReads: () => metadataReads };
+    return { host, transport, posted, controls, finish, metadataReads: () => metadataReads };
 }
 
 describe('native web conversation orchestration', () => {
+    it('preserves selected history flags and pagination through AG-UI without replacing full coordinator state', async () => {
+        const f = fixture();
+        const result = await f.host.getTranscript({conversationId:'thread',since:'previous',includeModelCalls:false,includeToolCalls:true,includeFeeds:false}, {executionGroupLimit:5,executionGroupOffset:2});
+        expect(result.turns).toEqual([]);
+        expect(f.posted).toHaveLength(1);
+        expect(f.posted[0].forwardedProps.agently.payload).toEqual({mode:'transcript',since:'previous',includeModelCalls:false,includeToolCalls:true,includeFeeds:false,selectors:{ExecutionGroup:{limit:5,offset:2}}});
+        await f.transport.refresh('thread');
+        expect(f.posted[1].forwardedProps.agently.payload).toMatchObject({mode:'live',includeModelCalls:true,includeToolCalls:true,includeFeeds:true});
+        f.host.resetAgUiInteractions(); f.transport.reset();
+    });
+    it('rejects selected history arriving after account reset', async () => {
+        let release!: () => void;
+        const waiting = new Promise<void>(resolve=>{release=resolve;});
+        const f=fixture([],undefined,[],()=>waiting);
+        const reading=f.transport.readSnapshot('thread',{mode:'transcript',selectors:{ExecutionGroup:{limit:1}}});
+        const rejection=expect(reading).rejects.toThrow(/invalidated|abort|cancel/i);
+        await vi.waitFor(()=>expect(f.posted).toHaveLength(1));
+        f.transport.reset(); release(); await rejection;
+        f.host.resetAgUiInteractions();
+    });
+
     it('reopens native history with the authenticated exact opaque wire binding', async () => {
         const wire = '  Wire-雪\t';
         const f = fixture([], undefined, [], undefined, () => [], wire);
