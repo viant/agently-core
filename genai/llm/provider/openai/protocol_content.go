@@ -18,8 +18,8 @@ func (c *Client) protocolContent(item llm.ContentItem) (ContentItem, bool, error
 		}
 		kind := "file"
 		if item.Type == llm.ContentTypeImage {
-			if !isContextContinuationEnabled(c) {
-				return ContentItem{}, true, fmt.Errorf("OpenAI image file handles require Responses API")
+			if !supportsUploadedImageResponses(c) {
+				return ContentItem{}, true, fmt.Errorf("OpenAI image file handles require a Responses-capable endpoint")
 			}
 			kind = "image_file"
 		}
