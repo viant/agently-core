@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/runtime/evidence"
 	"os"
 	"strings"
 	"sync"
@@ -200,7 +201,12 @@ func (o *recorderObserver) markEnded(msgID string) {
 }
 
 func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, info Info) error {
-	o.flushPendingStreamDelta(context.WithoutCancel(ctx))
+	if evidence.PublicationFromContext(ctx) != nil && ctx.Err() != nil {
+		o.resetStreamPublishBuffer()
+	} else {
+		o.flushPendingStreamDelta(context.WithoutCancel(ctx))
+	}
+	publicationErr := o.finishEvidenceStream(ctx, msgID)
 
 	persistCtx, cancelPersist := context.WithTimeout(context.WithoutCancel(ctx), finalizePersistTimeout)
 	defer cancelPersist()
@@ -215,7 +221,7 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 
 	// Persist assistant content. Use stream text as fallback when the LLM
 	// response object doesn't have content (typed streaming providers).
-	{
+	if publicationErr == nil {
 		infoWithStream := info
 		if strings.TrimSpace(infoWithStream.StreamText) == "" {
 			infoWithStream.StreamText = streamTxt
@@ -223,6 +229,9 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 		madeVisible, err := o.patchAssistantMessageFromInfo(persistCtx, msgID, infoWithStream)
 		if err != nil {
 			logx.Warnf("conversation", "patchAssistantMessageFromInfo failed message=%q err=%v", strings.TrimSpace(msgID), err)
+			if evidence.IsRejection(err) {
+				publicationErr = err
+			}
 		} else if !madeVisible {
 			if err := o.patchInterimFlag(persistCtx, msgID); err != nil {
 				logx.Warnf("conversation", "patchInterimFlag failed message=%q err=%v", strings.TrimSpace(msgID), err)
@@ -246,7 +255,13 @@ func (o *recorderObserver) finalizeOpenCall(ctx context.Context, msgID string, i
 		}
 	}
 
+	if publicationErr != nil && status == "completed" {
+		status = "failed"
+	}
 	errs := make([]error, 0, 1)
+	if publicationErr != nil {
+		errs = append(errs, publicationErr)
+	}
 	if err := o.finishModelCall(persistCtx, msgID, status, info, streamTxt); err != nil {
 		errs = append(errs, fmt.Errorf("finish model call: %w", err))
 	}
@@ -293,7 +308,17 @@ func (o *recorderObserver) patchAssistantMessageFromInfo(ctx context.Context, ms
 	if hasToolCalls && o.isLikelyUserEcho(ctx, content) {
 		content = ""
 	}
+	var publicationErr error
+	content, publicationErr = evidence.RewriteContent(ctx, content)
+	if publicationErr != nil {
+		return false, publicationErr
+	}
 	preamble := strings.TrimSpace(AssistantPreambleFromResponse(resp, content))
+	preamble, publicationErr = evidence.RewriteContent(ctx, preamble)
+	if publicationErr != nil {
+		return false, publicationErr
+	}
+
 	if content == "" && preamble != "" {
 		content = preamble
 	}

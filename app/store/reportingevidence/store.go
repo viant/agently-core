@@ -7,14 +7,19 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
 )
 
+var ErrNotFound = errors.New("evidence document not found")
+
 const Admission = "agently.forecast.admission.v1"
 const Plan = "agently.forecast.plan.v1"
+const Command = "agently.forecast.report-command.v1"
+const Artifact = "agently.forecast.report-artifact.v1"
 
 type Scope struct{ OwnerID, ConversationID, TurnID, RunID string }
 type Request struct {
@@ -49,7 +54,7 @@ func Validate(r *Request) error {
 	if r == nil || r.OwnerID == "" || r.ConversationID == "" || r.TurnID == "" || r.RunID == "" {
 		return fmt.Errorf("evidence scope required")
 	}
-	if (r.Subtype != Admission && r.Subtype != Plan) || (r.Subtype == Admission && r.PlanID != "") || (r.Subtype == Plan && r.PlanID == "") {
+	if (r.Subtype != Admission && r.Subtype != Plan && r.Subtype != Command && r.Subtype != Artifact) || (r.Subtype == Admission && r.PlanID != "") || (r.Subtype != Admission && r.PlanID == "") {
 		return fmt.Errorf("evidence document identity invalid")
 	}
 	if r.Operation != "load" && r.Operation != "save" {

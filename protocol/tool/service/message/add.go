@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	"github.com/viant/agently-core/runtime/evidence"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -54,6 +55,11 @@ func (s *Service) add(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("content is required")
 	}
 
+	var err error
+	content, err = evidence.RewriteContent(ctx, content)
+	if err != nil {
+		return err
+	}
 	interim := 0
 	if input.Interim != nil && *input.Interim {
 		interim = 1

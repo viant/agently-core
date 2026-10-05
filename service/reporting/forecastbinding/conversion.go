@@ -26,6 +26,10 @@ func (r *Runtime) PrepareConversion(ctx context.Context, scope Scope, profileOp 
 	if e != nil {
 		return nil, e
 	}
+	return prepareConversion(a, c, scope, raw)
+}
+
+func prepareConversion(a *Admission, c *Call, scope Scope, raw json.RawMessage) (json.RawMessage, error) {
 	if c == nil || c.Scope != scope || c.Status != "completed" || c.Tool != "steward/AdTargetingProfile" {
 		return nil, reject("authorized profile unavailable")
 	}
@@ -118,7 +122,7 @@ type ExpectedRequest struct {
 	Request     json.RawMessage `json:"request"`
 }
 
-// AdvertisePlan only uses a confirmed immutable checkpoint plan, supplying the
+// AdvertisePlan only uses a confirmed immutable saved plan, supplying the
 // exact request hashes/templates to the model instead of asking it to compute them.
 func (r *Runtime) AdvertisePlan(ctx context.Context, scope Scope, id string) (*PlanReceipt, error) {
 	p, e := r.store.LoadPlan(ctx, scope, id)

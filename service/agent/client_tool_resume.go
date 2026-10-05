@@ -159,6 +159,10 @@ func (s *Service) ResumeContinuation(ctx context.Context, input *QueryInput, tur
 	finalize := func(status string, cause error) error {
 		return errors.Join(cause, stopRunHeartbeatThen(stopHeartbeat, func() error { return s.finalizeTurn(ctx, turn, status, cause) }))
 	}
+	ctx, err = s.restoreEvidence(ctx, turn)
+	if err != nil {
+		return finalize("failed", err)
+	}
 	reopen := apiconv.NewTurn()
 	reopen.SetId(turnID)
 	reopen.SetStatus("running")

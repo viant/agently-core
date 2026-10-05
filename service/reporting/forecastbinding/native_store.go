@@ -57,10 +57,14 @@ func (s *NativeSourceStore) scopedRun(ctx context.Context, scope Scope) (*runmod
 	return r, nil
 }
 func (s *NativeSourceStore) LoadCompletedCall(ctx context.Context, scope Scope, op string) (*Call, error) {
+	return s.loadNativeCall(ctx, scope, op, "", true)
+}
+
+func (s *NativeSourceStore) loadNativeCall(ctx context.Context, scope Scope, op, messageID string, completed bool) (*Call, error) {
 	if e := checkPrincipal(ctx, scope); e != nil {
 		return nil, e
 	}
-	if s.conversations == nil || op == "" {
+	if s.conversations == nil || (op == "" && messageID == "") {
 		return nil, reject("source store unavailable")
 	}
 	c, e := s.conversations.GetConversation(ctx, scope.ConversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true))
@@ -84,21 +88,24 @@ func (s *NativeSourceStore) LoadCompletedCall(ctx context.Context, scope Scope, 
 				continue
 			}
 			tc := m.MessageToolCall
-			if tc == nil || tc.OpId != op {
+			if tc == nil || (op != "" && tc.OpId != op) || (messageID != "" && m.Id != messageID) {
 				continue
 			}
 			if found != nil {
 				return nil, reject("ambiguous source op")
 			}
-			if tc.Status != "completed" || tc.TurnId == nil || *tc.TurnId != scope.TurnID || tc.MessageRequestPayload == nil || tc.MessageResponsePayload == nil || tc.MessageRequestPayload.InlineBody == nil || tc.MessageResponsePayload.InlineBody == nil {
+			if tc.TurnId == nil || *tc.TurnId != scope.TurnID || tc.MessageRequestPayload == nil || tc.MessageRequestPayload.InlineBody == nil || (completed && (tc.Status != "completed" || tc.MessageResponsePayload == nil || tc.MessageResponsePayload.InlineBody == nil)) {
 				return nil, reject("incomplete source evidence")
 			}
 			request := apiconv.DecodeInlineBody(*tc.MessageRequestPayload.InlineBody, tc.MessageRequestPayload.Compression)
-			response := apiconv.DecodeInlineBody(*tc.MessageResponsePayload.InlineBody, tc.MessageResponsePayload.Compression)
-			if !json.Valid([]byte(request)) || !json.Valid([]byte(response)) {
+			response := ""
+			if tc.MessageResponsePayload != nil && tc.MessageResponsePayload.InlineBody != nil {
+				response = apiconv.DecodeInlineBody(*tc.MessageResponsePayload.InlineBody, tc.MessageResponsePayload.Compression)
+			}
+			if !json.Valid([]byte(request)) || (response != "" && !json.Valid([]byte(response))) {
 				return nil, reject("invalid source payload")
 			}
-			found = &Call{Scope: scope, MessageID: m.Id, OpID: op, Tool: tc.ToolName, Status: tc.Status, Request: json.RawMessage(request), Response: json.RawMessage(response)}
+			found = &Call{Scope: scope, MessageID: m.Id, OpID: tc.OpId, Tool: tc.ToolName, Status: tc.Status, Request: json.RawMessage(request), Response: json.RawMessage(response)}
 		}
 	}
 	if found == nil {
@@ -216,25 +223,28 @@ func (s *NativeSourceStore) PublishCompletedProjection(ctx context.Context, scop
 	if e != nil {
 		return e
 	}
-	receiptRaw, e := json.Marshal(value[ReceiptKey])
-	if e != nil {
-		return e
+	var expected json.RawMessage
+	runtime := &Runtime{store: s}
+	switch {
+	case value[ReceiptKey] != nil:
+		receiptRaw, _ := json.Marshal(value[ReceiptKey])
+		var receipt Receipt
+		if e = json.Unmarshal(receiptRaw, &receipt); e != nil || receipt.OpID != op {
+			return reject("projection receipt identity mismatch")
+		}
+		expected, e = runtime.DecorateCompleted(ctx, scope, receipt.PlanID, op)
+	case value[PlanReceiptKey] != nil:
+		receiptRaw, _ := json.Marshal(value[PlanReceiptKey])
+		var receipt PlanReceipt
+		if e = json.Unmarshal(receiptRaw, &receipt); e != nil {
+			return e
+		}
+		expected, e = runtime.planProjection(ctx, call, receipt.PlanID)
+	case value[SourceReceiptKey] != nil || value[ProfileReceiptKey] != nil:
+		expected, e = sourceProjection(call)
+	default:
+		return reject("projection receipt missing")
 	}
-	var receipt Receipt
-	if e = json.Unmarshal(receiptRaw, &receipt); e != nil || receipt.OpID != op {
-		return reject("projection receipt identity mismatch")
-	}
-	original, e := object(call.Response)
-	if e != nil {
-		return e
-	}
-	delete(value, ReceiptKey)
-	a, _ := json.Marshal(value)
-	b, _ := json.Marshal(original)
-	if string(a) != string(b) {
-		return reject("projection modifies source data")
-	}
-	expected, e := (&Runtime{store: s}).DecorateCompleted(ctx, scope, receipt.PlanID, op)
 	if e != nil {
 		return e
 	}
@@ -269,4 +279,49 @@ func (s *NativeSourceStore) PublishCompletedProjection(ctx context.Context, scop
 		return reject("source projection write unconfirmed")
 	}
 	return nil
+}
+
+// CompletedOperations advertises identifiers only; the selected operation is
+// subsequently reloaded with its immutable payloads before it can authorize a
+// request. Neither transcript order nor a foreign turn can select a source.
+func (s *NativeSourceStore) CompletedOperations(ctx context.Context, scope Scope, tool string) ([]string, error) {
+	if e := checkPrincipal(ctx, scope); e != nil {
+		return nil, e
+	}
+	if s.conversations == nil {
+		return nil, reject("source store unavailable")
+	}
+	conversation, e := s.conversations.GetConversation(ctx, scope.ConversationID, apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true))
+	if e != nil {
+		return nil, e
+	}
+	owner := authctx.CanonicalUserID(ctx)
+	if owner == "" {
+		owner = scope.OwnerID
+	}
+	if conversation == nil || conversation.Id != scope.ConversationID || conversation.CreatedByUserId == nil || (*conversation.CreatedByUserId != owner && *conversation.CreatedByUserId != scope.OwnerID) {
+		return nil, reject("conversation owner mismatch")
+	}
+	var result []string
+	seen := map[string]bool{}
+	for _, turn := range conversation.GetTranscript() {
+		if turn == nil || turn.Id != scope.TurnID || turn.ConversationId != scope.ConversationID {
+			continue
+		}
+		for _, message := range turn.Message {
+			if message == nil || message.ConversationId != scope.ConversationID || message.TurnId == nil || *message.TurnId != scope.TurnID {
+				continue
+			}
+			call := message.MessageToolCall
+			if call == nil || call.ToolName != tool || call.Status != "completed" || call.TurnId == nil || *call.TurnId != scope.TurnID {
+				continue
+			}
+			if call.OpId == "" || seen[call.OpId] {
+				return nil, reject("ambiguous source op")
+			}
+			seen[call.OpId] = true
+			result = append(result, call.OpId)
+		}
+	}
+	return result, nil
 }

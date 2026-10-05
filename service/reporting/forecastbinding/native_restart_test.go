@@ -19,6 +19,8 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	convservice "github.com/viant/agently-core/internal/service/conversation"
 	runmodel "github.com/viant/agently-core/model/run"
+	runtimeevidence "github.com/viant/agently-core/runtime/evidence"
+	requestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
 // This is a replay of captured evidence into a disposable native store. No tool,
@@ -74,7 +76,15 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	_, err = nativeData.PatchRuns(ctx, []*runmodel.MutableRunView{run})
 	require.NoError(t, err)
 	store := fb.NewNativeSourceStore(conv, nativeData, evidence.New(server))
-	require.NoError(t, store.SaveAdmission(ctx, admission, "fixture-worker"))
+	factory, err := fb.NewFactory(fb.ProjectionPolicyProducer{}, store, admission.TimeZone)
+	require.NoError(t, err)
+	pending, err := factory.Capture(ctx, runtimeevidence.Input{ReceivedAt: admission.ReceivedAt})
+	require.NoError(t, err)
+	ctx = requestctx.WithTurnMeta(ctx, requestctx.TurnMeta{ConversationID: admission.ConversationID, TurnID: admission.TurnID, ParentMessageID: admission.StarterMessageID})
+	lifecycleTurn := runtimeevidence.Turn{ConversationID: admission.ConversationID, TurnID: admission.TurnID, StarterMessageID: admission.StarterMessageID, LeaseOwner: func() string { return "fixture-worker" }}
+	ctx, err = pending.Begin(ctx, lifecycleTurn)
+	require.NoError(t, err)
+	require.NotNil(t, runtimeevidence.ToolsFromContext(ctx))
 	sources := actualSources(t)
 	all := append([]fb.Call{sources.Profile, sources.Conversion}, fixture.Records...)
 	require.Len(t, fixture.Records, 20)
@@ -104,6 +114,17 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	require.Equal(t, planID, receipt.PlanID)
 	require.Equal(t, fb.SelectionToolEvidence, receipt.SelectionOrigin)
 	require.Equal(t, fb.DateToolEvidence, receipt.DateOrigin)
+	// Generic profile/cube receipts are also persisted separately from payload
+	// truth and survive restart; grouped cube reads do not acquire a plan claim.
+	projected := map[string]json.RawMessage{}
+	for _, op := range []string{sources.Profile.OpID, fixture.Records[1].OpID} {
+		projected[op], err = runtime.ProjectCompleted(ctx, admission.Scope, op, "fixture-worker")
+		require.NoError(t, err)
+	}
+	catalog, err := store.CompletedOperations(ctx, admission.Scope, "steward/ForecastingCube")
+	require.NoError(t, err)
+	require.Len(t, catalog, 20)
+	commandProof := exerciseNativeCommand(t, ctx, conv, store, runtime, admission, sources, fixture.Bindings)
 	// A normal checkpoint update is independent from the immutable evidence docs.
 	patch := &runmodel.MutableRunView{}
 	patch.SetId(admission.TurnID)
@@ -119,6 +140,11 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	require.NoError(t, err)
 	restartedData := data.NewService(restarted)
 	restored := fb.NewNativeSourceStore(restartedConv, restartedData, evidence.New(restarted))
+	restoredFactory, err := fb.NewFactory(fb.ProjectionPolicyProducer{}, restored, "Asia/Tokyo")
+	require.NoError(t, err)
+	ctx, err = restoredFactory.Restore(ctx, lifecycleTurn)
+	require.NoError(t, err)
+	require.NotNil(t, runtimeevidence.ToolsFromContext(ctx))
 	loadedAdmission, err := restored.LoadAdmission(ctx, admission.Scope)
 	require.NoError(t, err)
 	require.Equal(t, admission, *loadedAdmission)
@@ -132,6 +158,22 @@ func TestActualTwentyCallsMaterializeAfterNativeEvidenceRestart(t *testing.T) {
 	message, err := restartedConv.GetMessage(ctx, loadedCall.MessageID)
 	require.NoError(t, err)
 	require.JSONEq(t, string(decorated), message.GetContentPreferContent(), "receipt survives resumed history without replacing original payload")
+	for op, body := range projected {
+		source, readErr := restored.LoadCompletedCall(ctx, admission.Scope, op)
+		require.NoError(t, readErr)
+		restoredMessage, readErr := restartedConv.GetMessage(ctx, source.MessageID)
+		require.NoError(t, readErr)
+		require.JSONEq(t, string(body), restoredMessage.GetContentPreferContent())
+		var original map[string]json.RawMessage
+		require.NoError(t, json.Unmarshal(source.Response, &original))
+		require.NotContains(t, original, fb.SourceReceiptKey)
+		require.NotContains(t, original, fb.ProfileReceiptKey)
+	}
+	restoredRuntime, err := fb.NewRuntime(fb.ProjectionPolicyProducer{}, restored)
+	require.NoError(t, err)
+	commandBackend, err := fb.NewReportCommandBackend(restoredRuntime, restored)
+	require.NoError(t, err)
+	require.NoError(t, commandBackend.VerifyReport(ctx, admission.ConversationID, commandProof.link, commandProof.artifacts), "command artifact proof survives native restart")
 	foreign := admission.Scope
 	foreign.OwnerID = "other-owner"
 	_, err = restored.LoadPlan(ctx, foreign, planID)

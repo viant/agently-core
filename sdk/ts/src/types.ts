@@ -1341,6 +1341,8 @@ export interface ReportRunResult {
     }
 export interface BeginReportRunInput {
     uiRunRequestId: string;
+    /** Opaque host-issued admission reference; never a client-authored proof. */
+    reportAdmissionRef?: string;
     conversationId?: string;
     origin?: 'manual' | 'prompt';
     }
