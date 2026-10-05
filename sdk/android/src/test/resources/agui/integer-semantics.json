@@ -1,0 +1,665 @@
+[
+  {
+    "name": "Event 0",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":0}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "0"
+  },
+  {
+    "name": "Event -0",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":-0}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "-0"
+  },
+  {
+    "name": "Event 0.0",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":0.0}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "0.0"
+  },
+  {
+    "name": "Event 1.0",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":1.0}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "1.0"
+  },
+  {
+    "name": "Event 1e3",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "1e3"
+  },
+  {
+    "name": "Event 1.234e3",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":1.234e3}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "1.234e3"
+  },
+  {
+    "name": "Event 10000e-1",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":10000e-1}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "10000e-1"
+  },
+  {
+    "name": "Event 9007199254740991.0",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":9007199254740991.0}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "9007199254740991.0"
+  },
+  {
+    "name": "Event 9.007199254740991e15",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":9.007199254740991e15}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "9.007199254740991e15"
+  },
+  {
+    "name": "Event 0.000e-999999999999999999999999999999999999999",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":0.000e-999999999999999999999999999999999999999}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "0.000e-999999999999999999999999999999999999999"
+  },
+  {
+    "name": "Event 1.5",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":1.5}",
+    "accepted": false,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "1.5"
+  },
+  {
+    "name": "Event 1e-3",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":1e-3}",
+    "accepted": false,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "1e-3"
+  },
+  {
+    "name": "Event 9007199254740992",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":9007199254740992}",
+    "accepted": false,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "9007199254740992"
+  },
+  {
+    "name": "Event 9.007199254740992e15",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":9.007199254740992e15}",
+    "accepted": false,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "9.007199254740992e15"
+  },
+  {
+    "name": "Event 9007199254740990.5",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":9007199254740990.5}",
+    "accepted": false,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "9007199254740990.5"
+  },
+  {
+    "name": "Event 9.0071992547409905e15",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":9.0071992547409905e15}",
+    "accepted": false,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "9.0071992547409905e15"
+  },
+  {
+    "name": "Event 9007199254740991.00000000000000000000001",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":9007199254740991.00000000000000000000001}",
+    "accepted": false,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "9007199254740991.00000000000000000000001"
+  },
+  {
+    "name": "Event 1e999999999999999999999999999999999",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":1e999999999999999999999999999999999}",
+    "accepted": false,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "1e999999999999999999999999999999999"
+  },
+  {
+    "name": "Event -1.0",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":-1.0}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "-1.0"
+  },
+  {
+    "name": "Event -9.007199254740991e15",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":-9.007199254740991e15}",
+    "accepted": true,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "-9.007199254740991e15"
+  },
+  {
+    "name": "Event -9.007199254740992e15",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.fixture\",\"value\":{},\"timestamp\":-9.007199254740992e15}",
+    "accepted": false,
+    "probePath": [
+      "timestamp"
+    ],
+    "expectedToken": "-9.007199254740992e15"
+  },
+  {
+    "name": "TokenUsage 0",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":0,\"outputTokens\":0.0,\"totalTokens\":0}",
+    "accepted": true,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "0"
+  },
+  {
+    "name": "TokenUsage -0",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":-0,\"outputTokens\":0.0,\"totalTokens\":-0}",
+    "accepted": true,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "-0"
+  },
+  {
+    "name": "TokenUsage 0.0",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":0.0,\"outputTokens\":0.0,\"totalTokens\":0.0}",
+    "accepted": true,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "0.0"
+  },
+  {
+    "name": "TokenUsage 1.0",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":1.0,\"outputTokens\":0.0,\"totalTokens\":1.0}",
+    "accepted": true,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "1.0"
+  },
+  {
+    "name": "TokenUsage 1e3",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":1e3,\"outputTokens\":0.0,\"totalTokens\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "1e3"
+  },
+  {
+    "name": "TokenUsage 1.234e3",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":1.234e3,\"outputTokens\":0.0,\"totalTokens\":1.234e3}",
+    "accepted": true,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "1.234e3"
+  },
+  {
+    "name": "TokenUsage 10000e-1",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":10000e-1,\"outputTokens\":0.0,\"totalTokens\":10000e-1}",
+    "accepted": true,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "10000e-1"
+  },
+  {
+    "name": "TokenUsage 9007199254740991.0",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":9007199254740991.0,\"outputTokens\":0.0,\"totalTokens\":9007199254740991.0}",
+    "accepted": true,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "9007199254740991.0"
+  },
+  {
+    "name": "TokenUsage 9.007199254740991e15",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":9.007199254740991e15,\"outputTokens\":0.0,\"totalTokens\":9.007199254740991e15}",
+    "accepted": true,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "9.007199254740991e15"
+  },
+  {
+    "name": "TokenUsage 0.000e-999999999999999999999999999999999999999",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":0.000e-999999999999999999999999999999999999999,\"outputTokens\":0.0,\"totalTokens\":0.000e-999999999999999999999999999999999999999}",
+    "accepted": true,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "0.000e-999999999999999999999999999999999999999"
+  },
+  {
+    "name": "TokenUsage 1.5",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":1.5,\"outputTokens\":0.0,\"totalTokens\":1.5}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "1.5"
+  },
+  {
+    "name": "TokenUsage 1e-3",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":1e-3,\"outputTokens\":0.0,\"totalTokens\":1e-3}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "1e-3"
+  },
+  {
+    "name": "TokenUsage 9007199254740992",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":9007199254740992,\"outputTokens\":0.0,\"totalTokens\":9007199254740992}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "9007199254740992"
+  },
+  {
+    "name": "TokenUsage 9.007199254740992e15",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":9.007199254740992e15,\"outputTokens\":0.0,\"totalTokens\":9.007199254740992e15}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "9.007199254740992e15"
+  },
+  {
+    "name": "TokenUsage 9007199254740990.5",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":9007199254740990.5,\"outputTokens\":0.0,\"totalTokens\":9007199254740990.5}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "9007199254740990.5"
+  },
+  {
+    "name": "TokenUsage 9.0071992547409905e15",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":9.0071992547409905e15,\"outputTokens\":0.0,\"totalTokens\":9.0071992547409905e15}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "9.0071992547409905e15"
+  },
+  {
+    "name": "TokenUsage 9007199254740991.00000000000000000000001",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":9007199254740991.00000000000000000000001,\"outputTokens\":0.0,\"totalTokens\":9007199254740991.00000000000000000000001}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "9007199254740991.00000000000000000000001"
+  },
+  {
+    "name": "TokenUsage 1e999999999999999999999999999999999",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":1e999999999999999999999999999999999,\"outputTokens\":0.0,\"totalTokens\":1e999999999999999999999999999999999}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "1e999999999999999999999999999999999"
+  },
+  {
+    "name": "TokenUsage -1.0",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":-1.0,\"outputTokens\":0.0,\"totalTokens\":-1.0}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "-1.0"
+  },
+  {
+    "name": "TokenUsage -9.007199254740991e15",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":-9.007199254740991e15,\"outputTokens\":0.0,\"totalTokens\":-9.007199254740991e15}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "-9.007199254740991e15"
+  },
+  {
+    "name": "TokenUsage -9.007199254740992e15",
+    "definition": "TokenUsage",
+    "raw": "{\"provider\":\"fixture\",\"model\":\"test\",\"inputTokens\":-9.007199254740992e15,\"outputTokens\":0.0,\"totalTokens\":-9.007199254740992e15}",
+    "accepted": false,
+    "probePath": [
+      "inputTokens"
+    ],
+    "expectedToken": "-9.007199254740992e15"
+  },
+  {
+    "name": "ExecutionCapabilities 0",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":0,\"maxExecutionTime\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "0"
+  },
+  {
+    "name": "ExecutionCapabilities -0",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":-0,\"maxExecutionTime\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "-0"
+  },
+  {
+    "name": "ExecutionCapabilities 0.0",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":0.0,\"maxExecutionTime\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "0.0"
+  },
+  {
+    "name": "ExecutionCapabilities 1.0",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":1.0,\"maxExecutionTime\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "1.0"
+  },
+  {
+    "name": "ExecutionCapabilities 1e3",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":1e3,\"maxExecutionTime\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "1e3"
+  },
+  {
+    "name": "ExecutionCapabilities 1.234e3",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":1.234e3,\"maxExecutionTime\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "1.234e3"
+  },
+  {
+    "name": "ExecutionCapabilities 10000e-1",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":10000e-1,\"maxExecutionTime\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "10000e-1"
+  },
+  {
+    "name": "ExecutionCapabilities 9007199254740991.0",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":9007199254740991.0,\"maxExecutionTime\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "9007199254740991.0"
+  },
+  {
+    "name": "ExecutionCapabilities 9.007199254740991e15",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":9.007199254740991e15,\"maxExecutionTime\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "9.007199254740991e15"
+  },
+  {
+    "name": "ExecutionCapabilities 0.000e-999999999999999999999999999999999999999",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":0.000e-999999999999999999999999999999999999999,\"maxExecutionTime\":1e3}",
+    "accepted": true,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "0.000e-999999999999999999999999999999999999999"
+  },
+  {
+    "name": "ExecutionCapabilities 1.5",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":1.5,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "1.5"
+  },
+  {
+    "name": "ExecutionCapabilities 1e-3",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":1e-3,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "1e-3"
+  },
+  {
+    "name": "ExecutionCapabilities 9007199254740992",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":9007199254740992,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "9007199254740992"
+  },
+  {
+    "name": "ExecutionCapabilities 9.007199254740992e15",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":9.007199254740992e15,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "9.007199254740992e15"
+  },
+  {
+    "name": "ExecutionCapabilities 9007199254740990.5",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":9007199254740990.5,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "9007199254740990.5"
+  },
+  {
+    "name": "ExecutionCapabilities 9.0071992547409905e15",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":9.0071992547409905e15,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "9.0071992547409905e15"
+  },
+  {
+    "name": "ExecutionCapabilities 9007199254740991.00000000000000000000001",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":9007199254740991.00000000000000000000001,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "9007199254740991.00000000000000000000001"
+  },
+  {
+    "name": "ExecutionCapabilities 1e999999999999999999999999999999999",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":1e999999999999999999999999999999999,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "1e999999999999999999999999999999999"
+  },
+  {
+    "name": "ExecutionCapabilities -1.0",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":-1.0,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "-1.0"
+  },
+  {
+    "name": "ExecutionCapabilities -9.007199254740991e15",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":-9.007199254740991e15,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "-9.007199254740991e15"
+  },
+  {
+    "name": "ExecutionCapabilities -9.007199254740992e15",
+    "definition": "ExecutionCapabilities",
+    "raw": "{\"maxIterations\":-9.007199254740992e15,\"maxExecutionTime\":1e3}",
+    "accepted": false,
+    "probePath": [
+      "maxIterations"
+    ],
+    "expectedToken": "-9.007199254740992e15"
+  },
+  {
+    "name": "opaque unbounded 9007199254740993",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.opaque\",\"timestamp\":1.0,\"value\":{\"opaque\":9007199254740993}}",
+    "accepted": true,
+    "probePath": [
+      "value",
+      "opaque"
+    ],
+    "expectedToken": "9007199254740993"
+  },
+  {
+    "name": "opaque unbounded 9007199254740993.0000000000000001",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.opaque\",\"timestamp\":1.0,\"value\":{\"opaque\":9007199254740993.0000000000000001}}",
+    "accepted": true,
+    "probePath": [
+      "value",
+      "opaque"
+    ],
+    "expectedToken": "9007199254740993.0000000000000001"
+  },
+  {
+    "name": "opaque unbounded 1e999999999999999999999999999999999",
+    "definition": "Event",
+    "raw": "{\"type\":\"CUSTOM\",\"name\":\"integer.opaque\",\"timestamp\":1.0,\"value\":{\"opaque\":1e999999999999999999999999999999999}}",
+    "accepted": true,
+    "probePath": [
+      "value",
+      "opaque"
+    ],
+    "expectedToken": "1e999999999999999999999999999999999"
+  }
+]

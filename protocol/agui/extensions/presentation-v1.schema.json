@@ -1,0 +1,541 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agently.dev/ag-ui/extensions/presentation/1",
+  "$defs": {
+    "Presentation": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "nativeTurnId": {
+          "type": "string"
+        },
+        "nativeMessageId": {
+          "type": "string"
+        },
+        "parentMessageId": {
+          "type": "string"
+        },
+        "pageId": {
+          "type": "string"
+        },
+        "modelCallId": {
+          "type": "string"
+        },
+        "nativeToolCallId": {
+          "type": "string"
+        },
+        "toolMessageId": {
+          "type": "string"
+        },
+        "executionRole": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "mode": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "agentId": {
+          "type": "string"
+        },
+        "agentName": {
+          "type": "string"
+        },
+        "provider": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "requestPayloadId": {
+          "type": "string"
+        },
+        "responsePayloadId": {
+          "type": "string"
+        },
+        "providerRequestPayloadId": {
+          "type": "string"
+        },
+        "providerResponsePayloadId": {
+          "type": "string"
+        },
+        "streamPayloadId": {
+          "type": "string"
+        },
+        "createdAt": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string"
+        },
+        "completedAt": {
+          "type": "string"
+        },
+        "usageScope": {
+          "type": "string"
+        },
+        "iteration": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "pageIndex": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "pageCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "inputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "outputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cachedInputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "reasoningTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "embeddingTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "totalTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "cacheWriteInputTokens": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "latestPage": {
+          "type": "boolean"
+        },
+        "protocolRunId": {
+          "type": "string"
+        },
+        "clientMessageId": {
+          "type": "string"
+        },
+        "clientRequestId": {
+          "type": "string"
+        },
+        "nativeUserMessageId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version"
+      ],
+      "additionalProperties": false
+    },
+    "agently.turn": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "nativeTurnId": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "queueSequence": {
+          "type": "string"
+        },
+        "startedByMessageId": {
+          "type": "string"
+        },
+        "origin": {
+          "type": "string"
+        },
+        "goalId": {
+          "type": "string"
+        },
+        "statusReason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "nativeTurnId",
+        "status",
+        "queueSequence"
+      ],
+      "additionalProperties": false
+    },
+    "agently.feed": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "feedId": {
+          "type": "string"
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string"
+        },
+        "developerOnly": {
+          "type": "boolean"
+        },
+        "itemCount": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "presentation": {
+          "type": "object",
+          "properties": {
+            "icon": {
+              "type": "string"
+            },
+            "accent": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "additionalProperties": false
+        },
+        "data": {},
+        "activationAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "activationSource": {
+          "$ref": "#/$defs/FeedActivationSource"
+        }
+      },
+      "required": [
+        "version",
+        "feedId",
+        "active",
+        "title",
+        "developerOnly",
+        "itemCount"
+      ],
+      "additionalProperties": false
+    },
+    "agently.planner": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "status": {
+          "type": "string"
+        },
+        "trigger": {
+          "type": "string"
+        },
+        "staticProfile": {
+          "type": "string"
+        },
+        "strategyFamily": {
+          "type": "string"
+        },
+        "secondPolicy": {
+          "type": "string"
+        },
+        "outputPayloadId": {
+          "type": "string"
+        },
+        "attempt": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "validated": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "version",
+        "status",
+        "attempt",
+        "trigger",
+        "staticProfile",
+        "strategyFamily",
+        "secondPolicy"
+      ],
+      "additionalProperties": false
+    },
+    "agently.tools-planned": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "toolCallId": {
+                "type": "string"
+              },
+              "toolName": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "toolCallId",
+              "toolName"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "required": [
+        "version",
+        "calls"
+      ],
+      "additionalProperties": false
+    },
+    "agently.narration": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "text": {
+          "type": "string"
+        },
+        "source": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "toolCallId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "text",
+        "source",
+        "status",
+        "toolCallId"
+      ],
+      "additionalProperties": false
+    },
+    "agently.user-identity": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "protocolRunId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clientMessageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "clientRequestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nativeUserMessageId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "nativeTurnId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "version",
+        "protocolRunId",
+        "clientMessageId",
+        "clientRequestId",
+        "nativeUserMessageId",
+        "nativeTurnId"
+      ],
+      "additionalProperties": false
+    },
+    "agently.tool": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "toolCallId": {
+          "type": "string"
+        },
+        "phase": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "toolMessageId": {
+          "type": "string"
+        },
+        "startedAt": {
+          "type": "string"
+        },
+        "completedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "version",
+        "toolCallId",
+        "phase",
+        "status"
+      ],
+      "additionalProperties": false
+    },
+    "FeedActivationSource": {
+      "type": "object",
+      "properties": {
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "runId",
+        "sequence"
+      ],
+      "additionalProperties": false
+    },
+    "FeedActivationFact": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "feedId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "active": {
+          "type": "boolean"
+        },
+        "activationAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "activationSource": {
+          "$ref": "#/$defs/FeedActivationSource"
+        }
+      },
+      "required": [
+        "version",
+        "feedId",
+        "active",
+        "activationSource"
+      ],
+      "additionalProperties": false
+    },
+    "FeedActivationSnapshot": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "feed": {
+          "type": "object",
+          "properties": {
+            "feedId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "feedId"
+          ],
+          "additionalProperties": true
+        },
+        "active": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "activationKnown": {
+          "type": "boolean"
+        },
+        "activationAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "activationSource": {
+          "$ref": "#/$defs/FeedActivationSource"
+        },
+        "activationFact": {
+          "$ref": "#/$defs/FeedActivationFact"
+        }
+      },
+      "required": [
+        "version",
+        "feed",
+        "active",
+        "activationKnown"
+      ],
+      "additionalProperties": false,
+      "if": {
+        "properties": {
+          "activationKnown": {
+            "const": true
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "active": {
+            "type": "boolean"
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "active": {
+            "type": "null"
+          }
+        }
+      }
+    }
+  }
+}

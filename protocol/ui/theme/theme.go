@@ -27,6 +27,7 @@ const maxFontFaces = 32
 type Tokens map[string]interface{}
 type FontFace struct {
 	File         string `json:"file" yaml:"file"`
+	NativeFile   string `json:"nativeFile,omitempty" yaml:"nativeFile,omitempty"`
 	Style        string `json:"style" yaml:"style"`
 	Weight       string `json:"weight" yaml:"weight"`
 	UnicodeRange string `json:"unicodeRange,omitempty" yaml:"unicodeRange,omitempty"`
@@ -65,11 +66,33 @@ type ResolvedTheme struct {
 	Modes        map[string]Tokens `json:"modes"`
 }
 type Catalog struct {
-	Version        int             `json:"version"`
-	PaletteVersion int             `json:"paletteVersion"`
-	DefaultTheme   string          `json:"defaultTheme"`
-	DefaultMode    string          `json:"defaultMode"`
-	Themes         []ResolvedTheme `json:"themes"`
+	Fonts          []PublishedFontFamily `json:"fonts,omitempty"`
+	Version        int                   `json:"version"`
+	PaletteVersion int                   `json:"paletteVersion"`
+	DefaultTheme   string                `json:"defaultTheme"`
+	DefaultMode    string                `json:"defaultMode"`
+	Themes         []ResolvedTheme       `json:"themes"`
+}
+
+// PublishedFontAsset is a contained, authenticated, content-addressed asset.
+type PublishedFontAsset struct {
+	Href      string `json:"href"`
+	Format    string `json:"format"`
+	SHA256    string `json:"sha256"`
+	SizeBytes int    `json:"sizeBytes"`
+}
+type PublishedFontFace struct {
+	Style        string              `json:"style"`
+	Weight       string              `json:"weight"`
+	UnicodeRange string              `json:"unicodeRange,omitempty"`
+	Web          PublishedFontAsset  `json:"web"`
+	Native       *PublishedFontAsset `json:"native,omitempty"`
+}
+type PublishedFontFamily struct {
+	Role     string              `json:"role"`
+	Name     string              `json:"name"`
+	Fallback string              `json:"fallback,omitempty"`
+	Faces    []PublishedFontFace `json:"faces"`
 }
 
 var identifier = regexp.MustCompile(`^[a-z][a-z0-9-]{0,63}$`)

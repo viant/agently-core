@@ -944,6 +944,108 @@
       ],
       "role": "private_key_only_delete_writer",
       "purpose": "Reads only actual run identity before delete; unrelated malformed historical timestamps cannot block an already-authorized deletion. Core orchestration retains owner/liveness/lease/reference guards. Full ordinary/conditional/mixed mutations use canonical run/write."
+    },
+    {
+      "operation": "get",
+      "source": "dql/agui/cleanup/run/read",
+      "destination": "internal/datly/agui/cleanup/run/read",
+      "route": "/v1/internal/agently/ag-ui/cleanup/run",
+      "status": "sqlite-native-scoped-deletion",
+      "hooks": "Private conversation-tree transaction supplies exact native thread scope; explicit key-only deletion, no external/native run ID conflation.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "run"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/agui/cleanup/run/delete",
+      "destination": "internal/datly/agui/cleanup/run/delete",
+      "route": "/v1/internal/agently/ag-ui/cleanup/run/delete",
+      "status": "sqlite-native-scoped-deletion",
+      "hooks": "Private conversation-tree transaction supplies exact native thread scope; explicit key-only deletion, no external/native run ID conflation.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "run"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/agui/cleanup/event/read",
+      "destination": "internal/datly/agui/cleanup/event/read",
+      "route": "/v1/internal/agently/ag-ui/cleanup/event",
+      "status": "sqlite-native-scoped-deletion",
+      "hooks": "Private conversation-tree transaction supplies exact native thread scope; explicit key-only deletion, no external/native run ID conflation.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "call_payload"
+      ]
+    },
+    {
+      "operation": "patch",
+      "source": "dql/agui/cleanup/event/delete",
+      "destination": "internal/datly/agui/cleanup/event/delete",
+      "route": "/v1/internal/agently/ag-ui/cleanup/event/delete",
+      "status": "sqlite-native-scoped-deletion",
+      "hooks": "Private conversation-tree transaction supplies exact native thread scope; explicit key-only deletion, no external/native run ID conflation.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "call_payload"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/agui/thread/native/read",
+      "route": "/v1/internal/agently/ag-ui/thread/native",
+      "destination": "internal/datly/agui/thread/native/read",
+      "root_tables": [
+        "conversation"
+      ],
+      "status": "authored"
+    },
+    {
+      "operation": "get",
+      "source": "dql/reportingevidence/run/read",
+      "destination": "internal/datly/reportingevidence/run/read",
+      "route": "/v1/internal/agently/reporting-evidence/run",
+      "status": "native-tested-startup-disabled",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "run"
+      ],
+      "hooks": "Private immutable forecast JSON attachments owned by an authenticated execution run; orchestration validates active lease before insert. No checkpoint mutation."
+    },
+    {
+      "operation": "get",
+      "source": "dql/reportingevidence/document/read",
+      "destination": "internal/datly/reportingevidence/document/read",
+      "route": "/v1/internal/agently/reporting-evidence/document",
+      "status": "native-tested-startup-disabled",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "call_payload",
+        "run"
+      ],
+      "hooks": "Private immutable forecast JSON attachments owned by an authenticated execution run; orchestration validates active lease before insert. No checkpoint mutation."
+    },
+    {
+      "operation": "post",
+      "source": "dql/reportingevidence/document/write",
+      "destination": "internal/datly/reportingevidence/document/write",
+      "route": "/v1/internal/agently/reporting-evidence/document",
+      "status": "native-tested-startup-disabled",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "call_payload"
+      ],
+      "hooks": "Private immutable forecast JSON attachments owned by an authenticated execution run; orchestration validates active lease before insert. No checkpoint mutation."
     }
   ],
   "blocked": [

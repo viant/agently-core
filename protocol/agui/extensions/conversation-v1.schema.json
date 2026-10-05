@@ -1,0 +1,241 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agently.dev/ag-ui/extensions/conversation/1",
+  "title": "Agently read-only conversation bootstrap version 1",
+  "$defs": {
+    "Selector": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "orderBy": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "conversation.bootstrap": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "enum": [
+            "transcript",
+            "live"
+          ]
+        },
+        "since": {
+          "type": "string"
+        },
+        "includeModelCalls": {
+          "type": "boolean"
+        },
+        "includeToolCalls": {
+          "type": "boolean"
+        },
+        "includeFeeds": {
+          "type": "boolean"
+        },
+        "selectors": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/Selector"
+          }
+        }
+      },
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "mode": {
+                "const": "live"
+              }
+            },
+            "required": [
+              "mode"
+            ]
+          },
+          "then": {
+            "not": {
+              "required": [
+                "since"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "Run": {
+      "type": "object",
+      "properties": {
+        "threadId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "runId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "parentRunId": {
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "admitted",
+            "running",
+            "interrupted",
+            "finished",
+            "error",
+            "cancelled"
+          ]
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "lastSequence": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "kind": {
+          "enum": [
+            "chat",
+            "resource",
+            "mcp-app"
+          ]
+        }
+      },
+      "required": [
+        "threadId",
+        "runId",
+        "status",
+        "revision",
+        "lastSequence"
+      ],
+      "additionalProperties": false
+    },
+    "Result": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "threadId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "transcript": {
+          "type": "object",
+          "description": "Exact existing authorized ConversationStateResponse; no reduced DTO."
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          },
+          "description": "Standard messages, separately validated by the pinned AG-UI message schema."
+        },
+        "hostActivities": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {"type": "string", "minLength": 1},
+              "role": {"const": "activity"},
+              "activityType": {"const": "mcp-apps"},
+              "content": {"type": "object"}
+            },
+            "required": ["id", "role", "activityType", "content"]
+          },
+          "description": "Owner-authorized host-only renderer data. Never include in model messages."
+        },
+        "unavailableHostActivityIds": {
+          "type": "array", "items": {"type": "string"}
+        },
+        "state": {},
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Run"
+          }
+        },
+        "projection": {
+          "type": "object",
+          "properties": {
+            "lossless": {
+              "type": "boolean"
+            },
+            "unavailableMessageIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "uniqueItems": true
+            }
+          },
+          "required": [
+            "lossless",
+            "unavailableMessageIds"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "threadId",
+        "transcript",
+        "messages",
+        "state",
+        "runs",
+        "projection"
+      ],
+      "additionalProperties": false
+    },
+    "Envelope": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "operation": {
+          "const": "conversation.bootstrap"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "threadId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "threadId"
+          ],
+          "additionalProperties": false
+        },
+        "payload": {
+          "$ref": "#/$defs/conversation.bootstrap"
+        }
+      },
+      "required": [
+        "version",
+        "operation",
+        "requestId"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

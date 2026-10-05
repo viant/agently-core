@@ -10,6 +10,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
+	"github.com/viant/agently-core/runtime/mcpapps"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
@@ -66,8 +67,12 @@ func (s *Service) RunGuestToolCall(ctx context.Context, input *GuestToolCallInpu
 	canonical := mcpname2.Canonical(name)
 	ctx = toolapprovalqueue.WithState(ctx)
 	toolapprovalqueue.MarkSource(ctx, GuestToolSourceUI)
+	policy, prepared := ctx.Value(mcpAppToolPolicyKey{}).(mcpAppToolPolicy)
+	if prepared && (policy.service != s || policy.name != canonical) {
+		return nil, fmt.Errorf("MCP app prepared tool scope differs from native guest call")
+	}
 	bundles := normalizeBundleIDs(input.ToolBundles)
-	if len(bundles) > 0 {
+	if !prepared && len(bundles) > 0 {
 		entry, err := s.resolveBundleResult(ctx, bundles)
 		if err != nil {
 			return nil, fmt.Errorf("resolve tool bundles: %w", err)
@@ -112,27 +117,49 @@ func (s *Service) RunGuestToolCall(ctx context.Context, input *GuestToolCallInpu
 		if out.Result == "" {
 			out.Result = "queued for user approval"
 		}
-		return out, nil
+		waiting := apiconv.NewTurn()
+		waiting.SetId(turnID)
+		waiting.SetConversationID(conversationID)
+		waiting.SetStatus("waiting_for_user")
+		return out, s.conversation.PatchTurn(ctx, waiting)
 	case execErr != nil:
 		out.Status = GuestToolStatusFailed
 		out.Result = strings.TrimSpace(call.Result)
-		return out, execErr
+		return out, errors.Join(execErr, s.CompleteGuestToolCall(ctx, conversationID, turnID, "failed", execErr))
 	default:
 		out.Status = GuestToolStatusOK
 		out.Result = call.Result
-		return out, nil
+		return out, s.CompleteGuestToolCall(ctx, conversationID, turnID, "succeeded", nil)
 	}
 }
 
 func (s *Service) ensureGuestTurn(ctx context.Context, conversationID string) (string, error) {
-	turnID := "guest-" + uuid.NewString()
+	turnID := mcpapps.TurnID(ctx)
+	if turnID == "" {
+		turnID = "guest-" + uuid.NewString()
+	}
 	turn := apiconv.NewTurn()
 	turn.SetId(turnID)
 	turn.SetConversationID(conversationID)
 	turn.SetStatus("running")
 	turn.SetStartedByMessageID(turnID)
+	turn.SetOrigin("host_request")
 	if err := s.conversation.PatchTurn(ctx, turn); err != nil {
 		return "", fmt.Errorf("persist guest turn: %w", err)
+	}
+	// Canonical tool messages and approval queues require an actual native
+	// parent message. This interim host marker creates no user prompt or model
+	// invocation and never contains the captured host response.
+	parent := apiconv.NewMessage()
+	parent.SetId(turnID)
+	parent.SetConversationID(conversationID)
+	parent.SetTurnID(turnID)
+	parent.SetRole("assistant")
+	parent.SetType("host_request")
+	parent.SetInterim(1)
+	parent.SetContent("MCP UI host tool request")
+	if err := s.conversation.PatchMessage(ctx, parent); err != nil {
+		return "", fmt.Errorf("persist guest host request parent: %w", err)
 	}
 	return turnID, nil
 }

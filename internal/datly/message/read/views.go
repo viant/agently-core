@@ -81,16 +81,16 @@ type MessageToolCallView struct {
 
 // MessageRequestPayloadView is generated canonical view metadata for reader.
 type MessageRequestPayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
-	Compression string  `sqlx:"compression,required=true" json:"compression"`
-	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
+	InlineBody  *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Id          string   `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string   `sqlx:"compression,required=true" json:"compression"`
 }
 
 // MessageResponsePayloadView is generated canonical view metadata for reader.
 type MessageResponsePayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
-	Compression string  `sqlx:"compression,required=true" json:"compression"`
-	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
+	InlineBody  *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Id          string   `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string   `sqlx:"compression,required=true" json:"compression"`
 }
 
 // ToolMessageView is generated canonical view metadata for reader.
@@ -137,23 +137,23 @@ type ToolCallView struct {
 
 // RequestPayloadView is generated canonical view metadata for reader.
 type RequestPayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
-	Compression string  `sqlx:"compression,required=true" json:"compression"`
-	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
+	InlineBody  *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Id          string   `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string   `sqlx:"compression,required=true" json:"compression"`
 }
 
 // ResponsePayloadView is generated canonical view metadata for reader.
 type ResponsePayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
-	Compression string  `sqlx:"compression,required=true" json:"compression"`
-	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
+	InlineBody  *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Id          string   `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string   `sqlx:"compression,required=true" json:"compression"`
 }
 
 // UserElicitationDataView is generated canonical view metadata for reader.
 type UserElicitationDataView struct {
-	Compression string  `sqlx:"compression" json:"compression"`
-	MessageId   string  `sqlx:"id|message_id,primaryKey=true" json:"messageId"`
-	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
+	InlineBody  *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Compression string   `sqlx:"compression" json:"compression"`
+	MessageId   string   `sqlx:"id|message_id,primaryKey=true" json:"messageId"`
 }
 
 // LinkedConversationView is generated canonical view metadata for reader.
@@ -216,30 +216,30 @@ type ModelCallView struct {
 
 // ModelCallRequestPayloadView is generated canonical view metadata for reader.
 type ModelCallRequestPayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
-	Compression string  `sqlx:"compression,required=true" json:"compression"`
-	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
+	InlineBody  *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Id          string   `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string   `sqlx:"compression,required=true" json:"compression"`
 }
 
 // ModelCallProviderRequestPayloadView is generated canonical view metadata for reader.
 type ModelCallProviderRequestPayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
-	Compression string  `sqlx:"compression,required=true" json:"compression"`
-	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
+	InlineBody  *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Id          string   `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string   `sqlx:"compression,required=true" json:"compression"`
 }
 
 // ModelCallResponsePayloadView is generated canonical view metadata for reader.
 type ModelCallResponsePayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
-	Compression string  `sqlx:"compression,required=true" json:"compression"`
-	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
+	InlineBody  *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Id          string   `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string   `sqlx:"compression,required=true" json:"compression"`
 }
 
 // ModelCallProviderResponsePayloadView is generated canonical view metadata for reader.
 type ModelCallProviderResponsePayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
-	Compression string  `sqlx:"compression,required=true" json:"compression"`
-	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
+	InlineBody  *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Id          string   `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string   `sqlx:"compression,required=true" json:"compression"`
 }
 
 // ToolCallLinksView is generated canonical view metadata for reader.
@@ -251,7 +251,7 @@ type ToolCallLinksView struct {
 
 // ModelCallStreamPayloadView is generated canonical view metadata for reader.
 type ModelCallStreamPayloadView struct {
-	Id          string  `sqlx:"id,primaryKey=true" json:"id"`
-	Compression string  `sqlx:"compression,required=true" json:"compression"`
-	InlineBody  *string `sqlx:"inline_body" json:"inlineBody"`
+	InlineBody  *[]uint8 `sqlx:"inline_body" json:"inlineBody"`
+	Id          string   `sqlx:"id,primaryKey=true" json:"id"`
+	Compression string   `sqlx:"compression,required=true" json:"compression"`
 }

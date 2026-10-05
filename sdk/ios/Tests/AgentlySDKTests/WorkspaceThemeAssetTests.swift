@@ -1,4 +1,5 @@
 import XCTest
+import CryptoKit
 @testable import AgentlySDK
 
 final class WorkspaceThemeAssetTests: XCTestCase {
@@ -36,6 +37,35 @@ final class WorkspaceThemeAssetTests: XCTestCase {
             XCTFail("arbitrary URL accepted")
         } catch {}
     }
+    func testNativeFontUsesAuthenticationAndRejectsHashMismatchAndForeignURL() async throws {
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ProtocolStub.self]
+        let session = URLSession(configuration: config)
+        let data = Data("font fixture".utf8)
+        let digest = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        let href = "/v1/workspace/ui/fonts/\(digest).ttf"
+        ProtocolStub.handler = { request in
+            XCTAssertEqual(request.url?.path, href)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer fixture")
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "font/ttf"])!, data)
+        }
+        defer { ProtocolStub.handler = nil; session.invalidateAndCancel() }
+        let client = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "https://workspace.example")!, headers: ["Authorization": "Bearer fixture"])], session: session, metadataSession: session)
+        let loaded = try await client.getWorkspaceNativeFont(href: href, sha256: digest, sizeBytes: data.count, format: "ttf")
+        XCTAssertEqual(loaded, data)
+        do {
+            _ = try await client.getWorkspaceNativeFont(href: "https://other.example/font.ttf", sha256: digest, sizeBytes: data.count, format: "ttf")
+            XCTFail("foreign font URL accepted")
+        } catch {}
+        ProtocolStub.handler = { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: [:])!, Data(repeating: 0, count: data.count))
+        }
+        do {
+            _ = try await client.getWorkspaceNativeFont(href: href, sha256: digest, sizeBytes: data.count, format: "ttf")
+            XCTFail("corrupt font accepted")
+        } catch {}
+    }
+
     func testSparseMetadataPreservesThemeDescriptors() async throws {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [ProtocolStub.self]

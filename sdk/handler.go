@@ -35,6 +35,9 @@ type handlerConfig struct {
 
 	mcpUIResourceReader MCPUIResourceReader
 	mcpUIToolCaller     MCPUIToolCaller
+	mcpAppsHost         *AGUIMCPAppsHost
+	aguiDemoBackends    []AGUIDemoBackend
+	aguiDemoRegistry    *aguiDemoRegistry
 }
 
 // SchedulerOptions controls scheduler behavior at the SDK level.
@@ -116,6 +119,21 @@ func NewHandlerWithContext(ctx context.Context, client Backend, opts ...HandlerO
 			o(cfg)
 		}
 	}
+	// Install explicitly configured host authority for the same backend's
+	// inbox/restart coordinator as well as request-bound proxy operations.
+	if backend, ok := client.(*backendClient); ok && cfg.mcpAppsHost != nil {
+		backend.approvalMCPHost = cfg.mcpAppsHost
+	}
+	var registryErr error
+	cfg.aguiDemoRegistry, registryErr = newAGUIDemoRegistry(cfg.aguiDemoBackends)
+	if registryErr != nil {
+		return nil, registryErr
+	}
+	if cfg.mcpAppsHost == nil {
+		if provider, ok := client.(interface{ aguiMCPAppsHost() *AGUIMCPAppsHost }); ok {
+			cfg.mcpAppsHost = provider.aguiMCPAppsHost()
+		}
+	}
 	if cfg.mcpUIResourceReader == nil {
 		if reader, ok := client.(interface {
 			ReadMCPUIResource(ctx context.Context, uri string) (*mcpschema.ReadResourceResult, error)
@@ -166,16 +184,23 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	mux.HandleFunc("POST /upload", handleStagedUpload())
 
 	mux.HandleFunc("POST /v1/agent/query", handleQuery(client, cfg.authCfg))
+	mux.HandleFunc("POST /v1/ag-ui/run", handleAGUIRun(client, cfg.authCfg, AGUIWorkspaceBindings{Metadata: cfg.metadataHandler, MCPApps: cfg.mcpAppsHost}))
+	if cfg.aguiDemoRegistry != nil {
+		if runtime, ok := client.(aguiRuntime); ok && runtime.aguiStore() != nil {
+			cfg.aguiDemoRegistry.localReplay = true
+		}
+		cfg.aguiDemoRegistry.register(mux)
+	}
 
-	mux.HandleFunc("POST /v1/conversations", handleCreateConversation(client))
+	mux.HandleFunc("POST /v1/conversations", handleCreateConversation(client, cfg.authCfg))
 	mux.HandleFunc("GET /v1/conversations/{id}", handleGetConversation(client))
 	mux.HandleFunc("PATCH /v1/conversations/{id}", handleUpdateConversation(client))
 	mux.HandleFunc("DELETE /v1/conversations/{id}", handleDeleteConversation(client))
-	mux.HandleFunc("GET /v1/conversations/{id}/goal", handleGetGoal(client))
+	mux.HandleFunc("GET /v1/conversations/{id}/goal", handleGetGoal(client, cfg.authCfg))
 	mux.HandleFunc("GET /v1/conversations/{id}/async", handleListAsyncOperations(client))
-	mux.HandleFunc("POST /v1/conversations/{id}/goal", handleCreateGoal(client))
-	mux.HandleFunc("PATCH /v1/conversations/{id}/goal", handleUpdateGoal(client))
-	mux.HandleFunc("DELETE /v1/conversations/{id}/goal", handleClearGoal(client))
+	mux.HandleFunc("POST /v1/conversations/{id}/goal", handleCreateGoal(client, cfg.authCfg))
+	mux.HandleFunc("PATCH /v1/conversations/{id}/goal", handleUpdateGoal(client, cfg.authCfg))
+	mux.HandleFunc("DELETE /v1/conversations/{id}/goal", handleClearGoal(client, cfg.authCfg))
 	mux.HandleFunc("GET /v1/conversations", handleListConversations(client))
 	mux.HandleFunc("GET /v1/conversations/linked", handleListLinkedConversations(client))
 	mux.HandleFunc("GET /v1/conversations/{id}/transcript", handleGetTranscript(client))
@@ -196,13 +221,13 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	mux.HandleFunc("GET /v1/files/{id}", handleDownloadFile(client))
 	mux.HandleFunc("GET /v1/feeds", handleListFeeds(client))
 	mux.HandleFunc("GET /v1/feeds/{id}/data", handleGetFeedData(client))
-	mux.HandleFunc("GET /v1/stream", handleStreamEvents(client))
+	mux.HandleFunc("GET /v1/stream", handleStreamEvents(client, cfg.authCfg))
 
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", handleCancelTurn(client))
 	mux.HandleFunc("POST /v1/elicitations/{conversationId}/{elicitationId}/resolve", handleResolveElicitation(client))
 	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/steer", handleSteerTurn(client))
 	mux.HandleFunc("DELETE /v1/conversations/{id}/turns/{turnId}", handleDeleteQueuedTurn(client))
-	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/move", handleMoveQueuedTurn(client))
+	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/move", handleMoveQueuedTurn(client, cfg.authCfg))
 	mux.HandleFunc("PATCH /v1/conversations/{id}/turns/{turnId}", handleEditQueuedTurn(client))
 	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/force-steer", handleForceSteerQueuedTurn(client))
 
@@ -218,8 +243,8 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 		handleExecuteTool(client)(w, r)
 	})
 	mux.HandleFunc("POST /v1/tools/execute", handleExecuteToolByName(client))
-	mux.HandleFunc("GET /v1/tool-approvals/pending", handleListPendingToolApprovals(client))
-	mux.HandleFunc("POST /v1/tool-approvals/{id}/decision", handleDecideToolApproval(client))
+	mux.HandleFunc("GET /v1/tool-approvals/pending", handleListPendingToolApprovals(client, cfg.authCfg))
+	mux.HandleFunc("POST /v1/tool-approvals/{id}/decision", handleDecideToolApproval(client, cfg.authCfg))
 
 	mux.HandleFunc("POST /v1/workspace/resources/export", handleExportResources(client))
 	mux.HandleFunc("POST /v1/workspace/resources/import", handleImportResources(client))

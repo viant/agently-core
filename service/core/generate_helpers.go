@@ -12,6 +12,8 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/genai/llm/provider/base"
+	"github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -57,7 +59,7 @@ func isTransientNetworkError(err error) bool {
 }
 
 func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm.Model, request *llm.GenerateRequest) (*llm.GenerateResponse, bool, error) {
-	if !IsContextContinuationEnabled(model) {
+	if recovery.FullHistoryRequired(ctx) || !IsContextContinuationEnabled(model) {
 		return nil, false, nil
 	}
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
@@ -228,6 +230,31 @@ func (s *Service) enforceAttachmentPolicy(ctx context.Context, input *GenerateIn
 		}
 		newItems := make([]llm.ContentItem, 0, len(m.Items))
 		for _, it := range m.Items {
+			if it.Metadata != nil && it.Metadata["ag-ui.contentPart"] == true && it.Type != llm.ContentTypeText {
+				if !isMM {
+					return fmt.Errorf("AG-UI media content unsupported by selected model")
+				}
+				if model == nil || !model.Implements(base.SupportsProtocolMedia) {
+					return fmt.Errorf("selected provider does not implement ordered AG-UI media mapping")
+				}
+				if it.Source == llm.SourceFile && !model.Implements(base.SupportsProviderFiles) {
+					return fmt.Errorf("selected provider does not support provider-owned file handles")
+				}
+				size := int64(0)
+				if it.Source == llm.SourceBase64 {
+					decoded, err := base64.StdEncoding.DecodeString(it.Data)
+					if err != nil {
+						return err
+					}
+					size = int64(len(decoded))
+				}
+				if limit > 0 && keptBytes+size > limit {
+					return fmt.Errorf("AG-UI media content exceeds model attachment limit")
+				}
+				newItems = append(newItems, it)
+				keptBytes += size
+				continue
+			}
 			if it.Type != llm.ContentTypeBinary {
 				newItems = append(newItems, it)
 				continue

@@ -22,6 +22,7 @@ import type { WorkspaceAttachmentState } from './types';
  */
 
 import type {
+    HostTrust,
     ClientConversationState,
     CanonicalRenderedContent,
     ClientElicitation,
@@ -46,7 +47,7 @@ import type { JSONValue } from '../types';
 
 export type RenderRowKind = 'user' | 'assistant' | 'iteration' | 'mcpui';
 
-export interface UserRenderRow {
+export interface UserRenderRow extends HostTrust {
     kind: 'user';
     renderKey: string;
     turnId: string;
@@ -57,7 +58,7 @@ export interface UserRenderRow {
     sequence?: number;
 }
 
-export interface AssistantRenderRow {
+export interface AssistantRenderRow extends HostTrust {
     attachments?: WorkspaceAttachmentState[];
     kind: 'assistant';
     renderKey: string;
@@ -71,7 +72,7 @@ export interface AssistantRenderRow {
     status?: string;
 }
 
-export interface MCPUIRenderRow {
+export interface MCPUIRenderRow extends HostTrust {
     historical?: boolean;
     kind: 'mcpui';
     renderKey: string;
@@ -84,7 +85,7 @@ export interface MCPUIRenderRow {
     sequence?: number;
 }
 
-export interface ModelStepRenderView {
+export interface ModelStepRenderView extends HostTrust {
     renderKey: string;
     modelCallId?: string;
     assistantMessageId?: string;
@@ -103,7 +104,7 @@ export interface ModelStepRenderView {
     usage?: ModelUsageState;
 }
 
-export interface ToolCallRenderView {
+export interface ToolCallRenderView extends HostTrust {
     renderKey: string;
     toolCallId?: string;
     toolName?: string;
@@ -120,7 +121,7 @@ export interface ToolCallRenderView {
     completedAt?: string;
 }
 
-export interface LifecycleEntryRenderView {
+export interface LifecycleEntryRenderView extends HostTrust {
     renderKey: string;
     kind: ClientLifecycleEntry['kind'];
     createdAt: string;
@@ -128,7 +129,7 @@ export interface LifecycleEntryRenderView {
     errorMessage?: string;
 }
 
-export interface RoundRenderView {
+export interface RoundRenderView extends HostTrust {
     renderKey: string;
     pageId?: string;
     iteration: number;
@@ -146,7 +147,7 @@ export interface RoundRenderView {
     hasContent: boolean;
 }
 
-export interface ElicitationRenderView {
+export interface ElicitationRenderView extends HostTrust {
     renderKey: string;
     elicitationId?: string;
     status?: ClientElicitation['status'];
@@ -156,7 +157,7 @@ export interface ElicitationRenderView {
     responsePayload?: ClientElicitation['responsePayload'];
 }
 
-export interface LinkedConversationRenderView {
+export interface LinkedConversationRenderView extends HostTrust {
     renderKey: string;
     conversationId: string;
     agentId?: string;
@@ -164,7 +165,7 @@ export interface LinkedConversationRenderView {
     status?: string;
 }
 
-export interface IterationRenderRow {
+export interface IterationRenderRow extends HostTrust {
     attachments?: WorkspaceAttachmentState[];
     kind: 'iteration';
     renderKey: string;
@@ -313,6 +314,8 @@ function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
             seenUris.add(uri);
             rows.push({
                 kind: 'mcpui',
+            connectionProfile: turn.connectionProfile,
+            hostEffectsAllowed: turn.hostEffectsAllowed,
                 renderKey: `${tool.renderKey}:mcpui`,
             historical: getFieldProvenance(tool, 'uiResourceUri') !== 'event',
                 turnId: turn.turnId,
@@ -331,6 +334,8 @@ function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
         seenUris.add(pageURI);
         rows.push({
             kind: 'mcpui',
+            connectionProfile: turn.connectionProfile,
+            hostEffectsAllowed: turn.hostEffectsAllowed,
             renderKey: `${page.renderKey}:mcpui`,
             historical: getFieldProvenance(page, 'content') !== 'event',
             turnId: turn.turnId,
@@ -349,6 +354,8 @@ function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
         seenUris.add(uri);
         rows.push({
             kind: 'mcpui',
+            connectionProfile: turn.connectionProfile,
+            hostEffectsAllowed: turn.hostEffectsAllowed,
             renderKey: `${message.renderKey}:mcpui`,
             historical: getFieldProvenance(message, 'content') !== 'event',
             turnId: turn.turnId,
@@ -365,6 +372,8 @@ function projectMCPUITurnRows(turn: ClientTurnState): MCPUIRenderRow[] {
         seenUris.add(assistantFinalUri);
         rows.push({
             kind: 'mcpui',
+            connectionProfile: turn.connectionProfile,
+            hostEffectsAllowed: turn.hostEffectsAllowed,
             renderKey: `${turn.assistantFinal?.renderKey || turn.turnId}:mcpui`,
             historical: getFieldProvenance(turn.assistantFinal || {}, 'content') !== 'event',
             turnId: turn.turnId,
@@ -410,6 +419,8 @@ function userToRow(user: ClientUserMessage, turn: ClientTurnState): UserRenderRo
     return {
         kind: 'user',
         renderKey: user.renderKey,
+        connectionProfile: user.connectionProfile,
+        hostEffectsAllowed: user.hostEffectsAllowed,
         turnId: turn.turnId,
         messageId: user.messageId,
         clientRequestId: user.clientRequestId,
@@ -424,6 +435,8 @@ function messageToRow(message: ClientStandaloneMessage, turn: ClientTurnState): 
         return {
             kind: 'user',
             renderKey: message.renderKey,
+        connectionProfile: message.connectionProfile,
+        hostEffectsAllowed: message.hostEffectsAllowed,
             turnId: turn.turnId,
             messageId: message.messageId,
             content: message.content ?? '',
@@ -435,6 +448,8 @@ function messageToRow(message: ClientStandaloneMessage, turn: ClientTurnState): 
         kind: 'assistant',
         attachments: message.attachments,
         renderKey: message.renderKey,
+        connectionProfile: message.connectionProfile,
+        hostEffectsAllowed: message.hostEffectsAllowed,
         turnId: turn.turnId,
         messageId: message.messageId,
         content: message.content ?? '',
@@ -458,6 +473,8 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
         kind: 'iteration',
         attachments: turn.assistantFinal?.attachments,
         renderKey: turn.renderKey,
+        connectionProfile: turn.connectionProfile,
+        hostEffectsAllowed: turn.hostEffectsAllowed,
         turnId: turn.turnId,
         lifecycle: turn.lifecycle,
         errorMessage: turn.errorMessage,
@@ -540,6 +557,8 @@ function projectRound(page: ClientExecutionPage): RoundRenderView {
     const lifecycleEntries = (page.lifecycleEntries ?? []).map(projectLifecycleEntry);
     const round: RoundRenderView = {
         renderKey: page.renderKey,
+        connectionProfile: page.connectionProfile,
+        hostEffectsAllowed: page.hostEffectsAllowed,
         pageId: page.pageId,
         iteration: typeof page.iteration === 'number' ? page.iteration : 0,
         phase: deriveRoundPhase(page),
@@ -582,6 +601,8 @@ function projectModelStep(step: ClientModelStep): ModelStepRenderView {
 function projectToolCall(tool: ClientToolCall): ToolCallRenderView {
     return {
         renderKey: tool.renderKey,
+        connectionProfile: tool.connectionProfile,
+        hostEffectsAllowed: tool.hostEffectsAllowed,
         toolCallId: tool.toolCallId,
         toolName: tool.toolName,
         uiResourceUri: tool.uiResourceUri,
@@ -638,4 +659,15 @@ function projectLinkedConversation(lc: ClientLinkedConversation): LinkedConversa
         title: lc.title,
         status: lc.status,
     };
+}
+
+/** Existing Queue feed DTO from canonical admission state; optimistic drafts
+ * are excluded and the native sequence string retains integer precision. */
+export function projectQueuedTurns(state: ClientConversationState) {
+    const rows=state.turns.filter(turn=>turn.lifecycle==='pending'&&turn.nativeStatus==='queued'&&!!turn.turnId).map(turn=>{
+        const content=turn.users[0]?.content ?? turn.messages.find(message=>message.role==='user')?.content ?? '';
+        return {id:turn.turnId,conversationId:state.conversationId,status:'queued',queueSeq:turn.queueSequence ?? turn.queueSeq ?? null,content,preview:content.slice(0,220),createdAt:turn.createdAt ?? '',overrides:{agent:'',model:'',tools:[] as string[]}};
+    });
+    const sequence=(value:unknown)=>{try{return BigInt(String(value ?? 0));}catch{return 0n;}};
+    return rows.sort((left,right)=>{const a=sequence(left.queueSeq),b=sequence(right.queueSeq);return a<b?-1:a>b?1:left.id.localeCompare(right.id);});
 }

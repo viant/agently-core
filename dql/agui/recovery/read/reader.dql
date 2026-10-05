@@ -1,0 +1,23 @@
+#package('github.com/viant/agently-core/internal/datly/agui/recovery/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/recovery','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $AfterKey<string>(query/afterKey).Required())
+#define($_ = $Before<time.Time>(query/before).Required())
+#define($_ = $Data<[]*Candidate>(output/view))
+SELECT agui_data.*,
+       agui_data.protocol_key AS RunKey,
+       agui_data.protocol_run_id AS RunId,
+       agui_data.protocol_thread_id AS ThreadId,
+       agui_data.effective_user_id AS Principal,
+       agui_data.protocol_turn_id AS TurnId,
+       type(agui_data,'Candidate'),
+       set_limit(agui_data,0),
+       CAST(agui_data.RunId AS string),
+       CAST(agui_data.ThreadId AS string),
+       CAST(agui_data.TurnId AS string)
+FROM (${embed:sql/rows.sql}) agui_data

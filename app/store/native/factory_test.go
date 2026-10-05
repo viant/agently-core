@@ -1562,7 +1562,7 @@ func TestWorkspaceRuntimePayloadStore(t *testing.T) {
 	got, err := store.Get(context.Background(), row.Id)
 	require.NoError(t, err)
 	require.NotNil(t, got.InlineBody)
-	require.Equal(t, bytes.TrimSpace(body), *got.InlineBody)
+	require.Equal(t, body, *got.InlineBody)
 	require.Empty(t, got.Compression)
 	uri := "payload://old"
 	patch := &payloadwrite.Payload{}

@@ -26,6 +26,8 @@ import (
 // Watchdog periodically detects stale runs and either marks them failed
 // or resumes them (when the conversation still has pending work).
 type Watchdog struct {
+	protocolReconcile       func(context.Context) error
+	approvalRecoveryOwned   func(context.Context, string, string) (bool, error)
 	data                    data.Service
 	agent                   *Service
 	tokenProvider           token.Provider
@@ -88,6 +90,20 @@ func WithWatchdogRecoveryLookback(d time.Duration) WatchdogOption {
 	}
 }
 
+// WithWatchdogProtocolRecovery integrates durable approval coordination into
+// this lifecycle. Ownership is phase-specific; initial and already executing
+// native workers retain their existing lease-recovery path.
+func WithWatchdogProtocolRecovery(reconcile func(context.Context) error, ownsTurn func(context.Context, string, string) (bool, error)) WatchdogOption {
+	return func(w *Watchdog) { w.protocolReconcile = reconcile; w.approvalRecoveryOwned = ownsTurn }
+}
+func (w *Watchdog) reconcileProtocol(ctx context.Context) {
+	if w.protocolReconcile != nil {
+		if err := w.protocolReconcile(ctx); err != nil {
+			log.Printf("[watchdog] protocol approval recovery: %v", err)
+		}
+	}
+}
+
 // NewWatchdog creates a watchdog for stale run detection and resume.
 func NewWatchdog(data data.Service, agent *Service, opts ...WatchdogOption) *Watchdog {
 	hostname, _ := os.Hostname()
@@ -114,6 +130,7 @@ func NewWatchdog(data data.Service, agent *Service, opts ...WatchdogOption) *Wat
 // Start begins the watchdog polling loop. It blocks until ctx is canceled.
 func (w *Watchdog) Start(ctx context.Context) {
 	w.captureTerminalArtifactCleanupOnce(ctx)
+	w.reconcileProtocol(ctx)
 	w.sweep(ctx)
 	w.runTerminalArtifactCleanup(ctx)
 	ticker := time.NewTicker(w.interval)
@@ -123,6 +140,7 @@ func (w *Watchdog) Start(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
+			w.reconcileProtocol(ctx)
 			w.sweep(ctx)
 			if w.terminalArtifactCleanupRemaining() > 0 {
 				w.runTerminalArtifactCleanup(ctx)
@@ -392,6 +410,19 @@ func (w *Watchdog) handleRun(ctx context.Context, run *runmodel.StaleRunsView) e
 		runCtx, cancel = context.WithTimeout(runCtx, w.handleTimeout)
 	}
 	defer cancel()
+	if w.approvalRecoveryOwned != nil && run != nil && run.ConversationId != nil {
+		turnID := strings.TrimSpace(valueOrEmpty(run.TurnId))
+		if turnID == "" {
+			turnID = run.Id
+		}
+		owned, err := w.approvalRecoveryOwned(runCtx, *run.ConversationId, turnID)
+		if err != nil {
+			return err
+		}
+		if owned {
+			return nil
+		}
+	}
 	if w.handleFn != nil {
 		return w.handleFn(runCtx, run)
 	}

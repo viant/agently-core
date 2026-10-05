@@ -26,6 +26,8 @@ import (
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	"github.com/viant/agently-core/protocol/tool"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
+	"github.com/viant/agently-core/runtime/clienttool"
+	"github.com/viant/agently-core/runtime/mcpapps"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
 	skillsvc "github.com/viant/agently-core/service/skill"
@@ -175,6 +177,23 @@ func equalOptionalInt(left, right *int) bool {
 	}
 }
 
+// InfrastructureError reports a call that cannot safely be replayed to the model.
+// Unwrap retains the original execution or persistence cause for callers.
+type InfrastructureError struct{ Cause error }
+
+func (e *InfrastructureError) Error() string { return e.Cause.Error() }
+func (e *InfrastructureError) Unwrap() error { return e.Cause }
+func infrastructureError(err error, replayable bool) error {
+	if err == nil || replayable {
+		return err
+	}
+	var infrastructure *InfrastructureError
+	if errors.As(err, &infrastructure) {
+		return err
+	}
+	return &InfrastructureError{Cause: err}
+}
+
 // StepInfo carries the tool step data needed for execution.
 type StepInfo struct {
 	ID   string
@@ -192,6 +211,42 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if strings.TrimSpace(step.ID) == "" {
 		step.ID = "tool-" + uuid.NewString()
 	}
+	out = plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args}
+	replayable := false
+	durablyCompleted := false
+	toolMsgID := ""
+	defer func() {
+		// Some helper paths return an empty call on failure. Preserve model identity
+		// on every exit without manufacturing a tool result.
+		out.ID = step.ID
+		if out.Name == "" {
+			out.Name = step.Name
+		}
+		if out.Arguments == nil {
+			out.Arguments = step.Args
+		}
+		if out.ResultMessageID == "" {
+			out.ResultMessageID = toolMsgID
+		}
+		// Decoration may read only durably completed source records. It runs
+		// after each branch (including coalesced results) has finalized its own
+		// op ID, never before persistence or from an overflow preview alone.
+		if retErr == nil && durablyCompleted {
+			projected, handled, err := decorateDurableResult(ctx, step, out.Result)
+			if err != nil {
+				out.Result = ""
+				out.Error = err.Error()
+				retErr = &InfrastructureError{Cause: err}
+			} else if handled {
+				out.Result = projected
+			}
+		}
+		retErr = infrastructureError(retErr, replayable)
+	}()
+	if strings.TrimSpace(step.Name) == "" {
+		retErr = fmt.Errorf("tool name is required for call %s", step.ID)
+		return
+	}
 	// The tool-call operation ID is runtime transport state, not a
 	// model-visible reporting argument. Retries of this step retain it.
 	ctx = exportrequestmodel.WithID(ctx, step.ID)
@@ -201,6 +256,13 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if !ok {
 		retErr = fmt.Errorf("turn meta not found")
 		return
+	}
+	if session := clienttool.FromContext(ctx); session != nil {
+		if definition, declared := session.Lookup(step.Name); declared {
+			step.Name = definition.Name
+			out, retErr = deferClientTool(ctx, session, step, conv, turn, span.StartedAt)
+			return
+		}
 	}
 	if err := waitForAsyncRecallPollWindow(ctx, reg, step, turn); err != nil {
 		retErr = err
@@ -258,6 +320,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	if call, owner, sharedResult, sharedErr, handled := activeToolStepCoalescer.begin(ctx, coalesceKey); handled {
 		span.SetEnd(time.Now())
+		var infrastructure *InfrastructureError
+		if errors.As(sharedErr, &infrastructure) {
+			retErr = sharedErr
+			return
+		}
 		if pErr := persistCoalescedToolResult(ctx, conv, turn, span.StartedAt, step, coalesceArgs, sharedResult, sharedErr); pErr != nil {
 			retErr = pErr
 			return out, span, retErr
@@ -266,13 +333,14 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		if sharedErr != nil {
 			out.Error = sharedErr.Error()
 		}
+		replayable = true
+		durablyCompleted = sharedErr == nil
 		return out, span, sharedErr
 	} else if owner {
 		defer func() {
-			activeToolStepCoalescer.finish(coalesceKey, call, toolResult, retErr)
+			activeToolStepCoalescer.finish(coalesceKey, call, toolResult, infrastructureError(retErr, replayable))
 		}()
 	}
-	toolMsgID := ""
 	toolCallStarted := false
 	toolCallClosed := false
 	toolCallManagedAsync := false
@@ -313,11 +381,13 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}()
 
 	// 1) Create tool message (parent derived from ModelMessageIDFromContext)
-	toolMsgID, err := createToolMessage(ctx, conv, turn, span.StartedAt, step.Name)
+	var err error
+	toolMsgID, err = createToolMessage(ctx, conv, turn, span.StartedAt, step.Name)
 	if err != nil {
 		retErr = err
 		return
 	}
+	out.ResultMessageID = toolMsgID
 	ctx = runtimerequestctx.WithToolMessageID(ctx, toolMsgID)
 
 	// 2) Initialize tool call (running) with LLM op id
@@ -330,12 +400,28 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	toolCallStarted = true
 
 	// 3) Persist request payload
+	requestPayloadID := ""
 	if len(step.Args) > 0 {
-		if _, pErr := persistRequestPayload(ctx, conv, toolMsgID, step.Args); pErr != nil {
-			errs = append(errs, fmt.Errorf("persist request payload: %w", pErr))
+		var pErr error
+		requestPayloadID, pErr = persistRequestPayload(ctx, conv, toolMsgID, step.Args)
+		if pErr != nil {
+			retErr = fmt.Errorf("persist request payload: %w", pErr)
+			return
 		}
 	}
+	if clienttool.FromContext(ctx) != nil {
+		assistantID := runtimerequestctx.ModelMessageIDFromContext(ctx)
+		if assistantID == "" {
+			assistantID = runtimerequestctx.TurnModelMessageID(turn.TurnID)
+		}
+		iteration := 0
+		if meta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok {
+			iteration = meta.Iteration
+		}
+		ctx = clienttool.WithExecutingCall(ctx, clienttool.PendingCall{ID: step.ID, Name: step.Name, Arguments: step.Args, ToolMessageID: toolMsgID, AssistantMessageID: assistantID, ConversationID: turn.ConversationID, TurnID: turn.TurnID, Iteration: iteration})
+	}
 	var execErr error
+	executionErrorCount := 0
 	callStep := step
 	callStep.Args = coalesceArgs
 	activatedStatusPolling := false
@@ -395,6 +481,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	}
 	if execErr != nil {
 		errs = append(errs, fmt.Errorf("execute tool: %w", execErr))
+		executionErrorCount = 1
 		cause := classifyTimeoutCause(ctx, nil, execErr)
 		logx.WarnCtxf(ctx, "conversation", "tool execute error convo=%q turn=%q op_id=%q tool=%q cause=%q err=%q parent_ctx_err=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(step.ID), strings.TrimSpace(step.Name), strings.TrimSpace(cause), strings.TrimSpace(execErr.Error()), strings.TrimSpace(formatContextErr(ctx)))
 	} else if isSkillActivateTool(step.Name) {
@@ -455,6 +542,32 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		debugtrace.LogToolCall(step.Name, step.ID, status, len(traceResult), traceResult, errStr)
 	}
 
+	if session := clienttool.FromContext(ctx); session != nil && execErr == nil && session.WaitingOnCall(turn.ConversationID, turn.TurnID, step.ID) {
+		waiting := apiconv.NewToolCall()
+		waiting.SetMessageID(toolMsgID)
+		waiting.SetOpID(step.ID)
+		waiting.SetTurnID(turn.TurnID)
+		waiting.SetToolName(step.Name)
+		waiting.SetStatus("waiting_for_user")
+		if requestPayloadID != "" {
+			waiting.RequestPayloadID = &requestPayloadID
+			waiting.Has.RequestPayloadID = true
+		}
+		if err := conv.PatchToolCall(ctx, waiting); err != nil {
+			session.RecordErrorForTurn(turn.ConversationID, turn.TurnID, err)
+			retErr = err
+			return
+		}
+		if err := updateToolMessageStatus(ctx, conv, toolMsgID, "waiting_for_user"); err != nil {
+			session.RecordErrorForTurn(turn.ConversationID, turn.TurnID, err)
+			retErr = err
+			return
+		}
+		toolCallClosed = true
+		out = plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, ResultMessageID: toolMsgID}
+		span.EndedAt = time.Time{}
+		return
+	}
 	// 5) Persist side effects + response payload.
 	// When the parent context is already cancelled (e.g. user cancelled the turn),
 	// fall back to a detached context so the tool result is still persisted for
@@ -516,6 +629,8 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		notifier.NotifyToolCompleted(ctx, step.Name, step.Args, toolResult)
 	}
 
+	replayable = toolCallClosed && len(errs) == executionErrorCount
+	durablyCompleted = replayable && status == "completed"
 	if len(errs) > 0 {
 		retErr = errors.Join(errs...)
 	}
@@ -936,6 +1051,9 @@ func enqueueToolApproval(ctx context.Context, conv apiconv.Client, step StepInfo
 		return "", fmt.Errorf("approval queue writer not configured")
 	}
 	queueToolName := displayQueueToolName(step.Name)
+	if server, method, scoped := mcpapps.Scope(ctx); scoped {
+		queueToolName = server + "/" + method
+	}
 	if reader, ok := conv.(toolApprovalQueueReader); ok && reader != nil {
 		in := &toolapprovalqueuemodel.QueueRowsInput{
 			UserId:         userID,

@@ -48,7 +48,7 @@ function mockFetch(status: number, body: unknown, headers?: Record<string, strin
 }
 
 function client(fetchImpl: FetchImplementation, baseURL = 'http://localhost:8585/v1'): AgentlyClient {
-    return new AgentlyClient({ baseURL, fetchImpl, timeoutMs: 0 });
+    return new AgentlyClient({ baseURL, fetchImpl, timeoutMs: 0, interactionProtocol: 'legacy' });
 }
 
 function normalizeHeaders(headers?: HeadersInit): Record<string, string> | undefined {

@@ -17,7 +17,7 @@ import (
 	"github.com/viant/xdatly/state"
 )
 
-func TestPayloadSelectorProxyLegacyParity(t *testing.T) {
+func TestPayloadSelectorProxyContracts(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
 	type input struct {
@@ -35,11 +35,13 @@ func TestPayloadSelectorProxyLegacyParity(t *testing.T) {
 	for _, tc := range []useCase{
 		{"descending order with bound limit", input{selector: state.Selector{OrderBy: "id DESC", Limit: 1}}, expect{ids: []string{"p1"}}},
 		{"offset within authorized tenant", input{selector: state.Selector{OrderBy: "id", Limit: 1, Offset: 1}}, expect{ids: []string{"p1"}}},
-		{"field selection retains declared IDs", input{selector: state.Selector{Fields: []string{"id"}, OrderBy: "id"}}, expect{ids: []string{"p-malformed", "p1"}}},
+		{"field selection retains declared IDs", input{selector: state.Selector{Fields: []string{"id"}, OrderBy: "id"}}, expect{ids: []string{"p-criteria", "p1"}}},
 		{"raw reader uses explicit legacy name mapping", input{raw: true, selector: state.Selector{OrderBy: "id DESC", Limit: 1}}, expect{ids: []string{"p1"}}},
-		{"trusted bound criteria", input{selector: state.Selector{Criteria: "size_bytes >= ?", Placeholders: []any{15}, OrderBy: "id"}}, expect{ids: []string{"p-malformed"}}},
+		{"trusted bound criteria", input{selector: state.Selector{Criteria: "size_bytes >= ?", Placeholders: []any{15}, OrderBy: "id"}}, expect{ids: []string{"p-criteria"}}},
 	} {
 		t.Run(tc.desc, func(t *testing.T) {
+			// Healthy size-15 payload isolates selector/tenant semantics from the
+			// explicitly tested corrupt-gzip failure contract.
 			db, _ := payloadFixture(t, project)
 			rt, binaryKey, rawKey := payloadRuntime(t, db)
 			name := "payload"
@@ -85,7 +87,7 @@ func TestPayloadSelectorProxyLegacyParity(t *testing.T) {
 				return result
 			}
 			if !reflect.DeepEqual(ids(actual), tc.expect.ids) {
-				t.Fatalf("v1=%v expected=%v", ids(actual), tc.expect.ids)
+				t.Fatalf("selected IDs=%v expected=%v", ids(actual), tc.expect.ids)
 			}
 			newRows := normalizeRowsInOrder(t, actual)
 			for _, row := range newRows {
@@ -96,7 +98,7 @@ func TestPayloadSelectorProxyLegacyParity(t *testing.T) {
 						}
 					}
 					if row["inlinebody"] != nil || row["tenantid"] != nil {
-						t.Fatalf("v1 overfetched unselected columns: %s", pretty(row))
+						t.Fatalf("selector overfetched unselected columns: %s", pretty(row))
 					}
 				} else if row["kind"] != "request" {
 					t.Fatalf("row %s kind=%v, want fixture kind request", row["id"], row["kind"])

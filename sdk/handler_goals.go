@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+
+	svcauth "github.com/viant/agently-core/service/auth"
 )
 
 func statusForGoalError(err error) int {
@@ -32,8 +34,13 @@ func statusForGoalError(err error) int {
 	return http.StatusInternalServerError
 }
 
-func handleGetGoal(client Client) http.HandlerFunc {
+func handleGetGoal(client Client, authConfigs ...*svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var ok bool
+		r, ok = applicationRequestPrincipal(w, r, "", authConfigs)
+		if !ok {
+			return
+		}
 		id := strings.TrimSpace(r.PathValue("id"))
 		if id == "" {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
@@ -48,8 +55,13 @@ func handleGetGoal(client Client) http.HandlerFunc {
 	}
 }
 
-func handleCreateGoal(client Client) http.HandlerFunc {
+func handleCreateGoal(client Client, authConfigs ...*svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var ok bool
+		r, ok = applicationRequestPrincipal(w, r, "", authConfigs)
+		if !ok {
+			return
+		}
 		id := strings.TrimSpace(r.PathValue("id"))
 		if id == "" {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
@@ -70,8 +82,13 @@ func handleCreateGoal(client Client) http.HandlerFunc {
 	}
 }
 
-func handleUpdateGoal(client Client) http.HandlerFunc {
+func handleUpdateGoal(client Client, authConfigs ...*svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var ok bool
+		r, ok = applicationRequestPrincipal(w, r, "", authConfigs)
+		if !ok {
+			return
+		}
 		id := strings.TrimSpace(r.PathValue("id"))
 		if id == "" {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
@@ -92,8 +109,13 @@ func handleUpdateGoal(client Client) http.HandlerFunc {
 	}
 }
 
-func handleClearGoal(client Client) http.HandlerFunc {
+func handleClearGoal(client Client, authConfigs ...*svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var ok bool
+		r, ok = applicationRequestPrincipal(w, r, "", authConfigs)
+		if !ok {
+			return
+		}
 		id := strings.TrimSpace(r.PathValue("id"))
 		if id == "" {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))

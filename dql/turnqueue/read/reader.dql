@@ -13,6 +13,7 @@
 #define($_ = $TurnId<string>(query/turnId).Optional().WithPredicate(0,'equal','q','turn_id'))
 #define($_ = $MessageId<string>(query/messageId).Optional().WithPredicate(0,'equal','q','message_id'))
 #define($_ = $QueueStatus<string>(query/status).Optional().WithPredicate(0,'equal','q','status'))
+#define($_ = $NativeQueuedOnly<bool>(query/nativeQueuedOnly).Optional())
 #define($_ = $Data<[]*QueueRowView>(output/view))
 
 SELECT queue_rows.*,

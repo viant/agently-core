@@ -69,6 +69,7 @@ func decodeNativeMessage(row *read.MessageView) (*convcli.Message, error) {
 	if err := json.Unmarshal(encoded, &result); err != nil {
 		return nil, fmt.Errorf("decode message contract: %w", err)
 	}
+	restoreNativePayloadBytes(&result, row)
 	return &result, nil
 }
 

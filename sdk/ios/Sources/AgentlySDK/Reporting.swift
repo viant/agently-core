@@ -6,6 +6,9 @@ public struct ReportRun: Codable, Sendable {
   public let conversationId: String?
   public let status: String
   public let revision: Int64
+  public let builderRef: String?
+  public let effectiveParams: JSONValue?
+  public let requestedParams: JSONValue?
   public let reportSpec: JSONValue?
   public let reportFill: JSONValue?
   public let reportPrint: JSONValue?
@@ -24,10 +27,26 @@ public struct BeginReportRunInput: Codable, Sendable {
   public var uiRunRequestId: String
   public var conversationId: String?
   public var origin: String?
-  public init(uiRunRequestId: String, conversationId: String? = nil, origin: String? = nil) {
+  public var builderRef: String?
+  public var presetId: String?
+  public var sourceKind: String?
+  public var sourceId: String?
+  public var requestedParams: JSONValue?
+  public var effectiveParams: JSONValue?
+  public init(
+    uiRunRequestId: String, conversationId: String? = nil, origin: String? = nil,
+    builderRef: String? = nil, presetId: String? = nil, sourceKind: String? = nil,
+    sourceId: String? = nil, requestedParams: JSONValue? = nil, effectiveParams: JSONValue? = nil
+  ) {
     self.uiRunRequestId = uiRunRequestId
     self.conversationId = conversationId
     self.origin = origin
+    self.builderRef = builderRef
+    self.presetId = presetId
+    self.sourceKind = sourceKind
+    self.sourceId = sourceId
+    self.requestedParams = requestedParams
+    self.effectiveParams = effectiveParams
   }
 }
 public struct CompleteReportRunInput: Codable, Sendable {
@@ -45,6 +64,30 @@ public struct CompleteReportRunInput: Codable, Sendable {
     self.reportFill = reportFill
     self.reportPrint = reportPrint
     self.conversationId = conversationId
+  }
+}
+public struct FailReportRunInput: Codable, Sendable {
+  public var expectedRevision: Int64
+  public var conversationId: String?
+  public var failureCode: String?
+  public var failureText: String?
+  public init(expectedRevision: Int64, conversationId: String? = nil, failureCode: String? = nil, failureText: String? = nil) {
+    self.expectedRevision = expectedRevision
+    self.conversationId = conversationId
+    self.failureCode = failureCode
+    self.failureText = failureText
+  }
+}
+public struct ActivateReportRunInput: Codable, Sendable {
+  public var conversationId: String
+  public var expectedRunRevision: Int64
+  public var expectedContextRevision: Int64
+  public var source: String?
+  public init(conversationId: String, expectedRunRevision: Int64, expectedContextRevision: Int64, source: String? = nil) {
+    self.conversationId = conversationId
+    self.expectedRunRevision = expectedRunRevision
+    self.expectedContextRevision = expectedContextRevision
+    self.source = source
   }
 }
 public struct AdoptReportRunInput: Codable, Sendable {
@@ -99,6 +142,14 @@ extension AgentlyClient {
     try await post(
       "/v1/api/report-runs/\(agentlyPercentEncodedPathSegment(id))/complete", body: input,
       as: ReportRun.self)
+  }
+  public func failReportRun(id: String, input: FailReportRunInput) async throws -> ReportRun {
+    try await post(
+      "/v1/api/report-runs/\(agentlyPercentEncodedPathSegment(id))/fail", body: input,
+      as: ReportRun.self)
+  }
+  public func activateReportRun(id: String, input: ActivateReportRunInput) async throws -> ReportContext {
+    try await post("/v1/api/report-runs/\(agentlyPercentEncodedPathSegment(id))/activate", body: input, as: ReportContext.self)
   }
   public func adoptReportRun(id: String, input: AdoptReportRunInput) async throws -> ReportRunResult
   {

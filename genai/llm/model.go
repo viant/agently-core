@@ -24,3 +24,9 @@ type BackoffAdvisor interface {
 	// the error should not be retried by this advisor.
 	AdviseBackoff(err error, attempt int) (delay time.Duration, retry bool)
 }
+
+// InputTokenCounter counts the full provider input, including tools and formatting.
+// Providers that cannot count reliably must return an error.
+type InputTokenCounter interface {
+	CountInputTokens(context.Context, *GenerateRequest) (int, error)
+}

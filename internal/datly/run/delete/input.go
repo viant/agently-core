@@ -4,7 +4,8 @@ package delete
 
 // Input is the generated input scaffold for writer.
 type Input struct {
-	Runs                      []*RunDelete              `parameter:"Runs,kind=body,in=data,dataType=[]*RunDelete" view:"writer,onDeleteNotFound=ignore,type=RunDelete,table=run" sql:"uri=datly_run_delete_writer:sql/writer.sql"`
+	ExecutionRunOnly          bool                      `parameter:"ExecutionRunOnly,kind=const,in=executionRunOnly,dataType=bool,value=true,required=true" predicate:"expr,group=7,'(? AND COALESCE(run.run_kind,\\'execution\\')=\\'execution\\')'"`
+	Runs                      []*RunDelete              `parameter:"Runs,kind=body,in=data,dataType=[]*RunDelete" view:"writer,onDeleteNotFound=ignore,type=RunDelete,table=run,mutationPredicate=7" sql:"uri=datly_run_delete_writer:sql/writer.sql"`
 	WriterKeys                []WriterKeysRow           `parameter:"WriterKeys,kind=param,in=Runs,cardinality=Many" codec:"structql,'uri=datly_run_delete_writer:sql/writer_keys.sql'"`
 	CurrentWriter             []*CurrentWriterView      `parameter:"CurrentWriter,kind=view,in=CurrentWriter,cardinality=Many" view:"CurrentWriter,table=run" sql:"uri=datly_run_delete_writer:sql/current_writer.sql"`
 	_writerHandlerReadIndexes *WriterHandlerReadIndexes `json:"-" sqlx:"-"`
@@ -12,7 +13,8 @@ type Input struct {
 }
 
 type InputHas struct {
-	Runs          bool
-	WriterKeys    bool
-	CurrentWriter bool
+	ExecutionRunOnly bool
+	Runs             bool
+	WriterKeys       bool
+	CurrentWriter    bool
 }

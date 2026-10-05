@@ -22,8 +22,10 @@ it('reconnects with last event ID and refreshed headers, then cancels retry on c
         return new Response(new ReadableStream({ start() {} }));
     });
     const source = new FetchEventSource('https://example.test/stream', fetcher as typeof fetch, async () => ({ Authorization: calls ? 'Bearer refreshed' : 'Bearer initial' }), 'same-origin');
+    const opened = vi.fn(); source.onopen = opened;
     const events: string[] = []; source.onmessage = e => events.push(e.data);
     await vi.waitFor(() => expect(calls).toBe(2));
+    await vi.waitFor(() => expect(opened).toHaveBeenCalledTimes(2));
     expect(events).toEqual(['first']); source.close();
     await new Promise(resolve => setTimeout(resolve, 10)); expect(calls).toBe(2);
 });

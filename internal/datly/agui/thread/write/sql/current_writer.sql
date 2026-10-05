@@ -1,0 +1,2 @@
+SELECT r.id, r.protocol_revision, r.protocol_thread_id, r.protocol_principal, r.protocol_state_json, r.protocol_messages_json, r.protocol_only, r.protocol_thread_key, r.created_by_user_id FROM (SELECT * FROM  (SELECT c.id, c.created_by_user_id, c.protocol_thread_key, c.protocol_thread_id, c.protocol_principal, c.protocol_revision, c.protocol_state_json, c.protocol_messages_json, c.protocol_only FROM conversation c WHERE c.created_by_user_id = $Principal
+)  agui_data) r WHERE $criteria.CompositeIn("r", $WriterKeys)

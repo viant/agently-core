@@ -1,0 +1,24 @@
+#package('github.com/viant/agently-core/internal/datly/agui/cleanup/run/delete')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/cleanup/run/delete','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(conversationtreeScope/internal).Required())
+#define($_ = $ThreadIDs<[]string>(query/threadIds).Required().WithPredicate(0,'in','c','conversation_id'))
+#define($_ = $DeleteThreadIDs<[]string>(query/deleteThreadIds).Required().WithPredicate(7,'in','run','conversation_id'))
+#define($_ = $ProtocolOnly<bool>(const/protocolOnly).Value(true).Required().WithPredicate(7,'expr',"(? AND run.run_kind='agui')"))
+#define($_ = $Rows<[]*RunDelete>(body/data))
+#define($_ = $Data<[]*RunDelete>(output/body))
+SELECT agui_data.*,
+       agui_data.id AS RunKey,
+       type(agui_data,'RunDelete'),
+       tag(agui_data.RunKey,'sqlx:"id,primaryKey=true,required=true"'),
+       required(agui_data.RunKey),
+       CAST(agui_data.RunKey AS string),
+       mutation_predicate(agui_data,7),
+       CAST(agui_data.should_delete AS bool),
+       delete_marker(agui_data.should_delete)
+FROM (${embed:sql/rows.sql}) agui_data

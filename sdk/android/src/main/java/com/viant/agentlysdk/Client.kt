@@ -41,7 +41,8 @@ import java.nio.charset.StandardCharsets
 class AgentlyClient(
     endpoints: EndpointRegistry,
     internal val endpointName: String = "appAPI",
-    internal val json: Json = Json { ignoreUnknownKeys = true }
+    internal val json: Json = Json { ignoreUnknownKeys = true },
+    val conversationTransportMode: com.viant.agentlysdk.agui.ConversationTransportMode = com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI
 ) {
     internal val endpointRegistry = endpoints
 
@@ -49,8 +50,26 @@ class AgentlyClient(
         endpoints: Map<String, EndpointConfig>,
         endpointName: String = "appAPI",
         json: Json = Json { ignoreUnknownKeys = true },
-        sessionDebug: SessionDebugOptions? = null
-    ) : this(EndpointRegistry(applySessionDebug(endpoints, sessionDebug)), endpointName, json)
+        sessionDebug: SessionDebugOptions? = null,
+        conversationTransportMode: com.viant.agentlysdk.agui.ConversationTransportMode = com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI
+    ) : this(EndpointRegistry(applySessionDebug(endpoints, sessionDebug)), endpointName, json, conversationTransportMode)
+
+    private val agUiConversations by lazy {
+        val endpoint = requireNotNull(endpointRegistry.resolve(endpointName)) { "Endpoint not found: $endpointName" }
+        com.viant.agentlysdk.agui.AgUiConversationTransport(this, com.viant.agentlysdk.agui.AgUiClient(endpoint, "/v1/ag-ui/run"), endpoint)
+    }
+    /** Call before changing the authenticated account/cookie identity. Detach is never backend cancellation. */
+    fun resetConversationTransport() {
+        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) agUiConversations.reset()
+    }
+    suspend fun reconcileConversation(conversationId: String): ConversationStateResponse =
+        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) agUiConversations.reconcile(conversationId)
+        else getLiveState(conversationId, includeFeeds = true)
+
+    suspend fun isConversationRequestAdmitted(conversationId: String, clientRequestId: String): Boolean {
+        check(conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI)
+        return agUiConversations.requestAdmitted(conversationId, clientRequestId)
+    }
 
     private val restClient = RestClient(endpoints)
     private val themeFallbackClient = okhttp3.OkHttpClient()
@@ -73,6 +92,7 @@ class AgentlyClient(
     }
 
     suspend fun logout(): Unit = withContext(Dispatchers.IO) {
+        resetConversationTransport()
         post("/v1/api/auth/logout", emptyMap<String, JsonElement>(), EmptyResponse.serializer())
     }
 
@@ -172,6 +192,36 @@ class AgentlyClient(
         }
     }
 
+    /** Registered native fonts only, using the same authenticated endpoint and cookie client. */
+    suspend fun getWorkspaceFont(asset: WorkspaceFontAsset): ByteArray = withContext(Dispatchers.IO) {
+        require(asset.isNative) { "Invalid workspace native font asset" }
+        val endpoint = requireNotNull(endpointRegistry.resolve(endpointName))
+        val request = Request.Builder().url(endpoint.baseUrl.trimEnd('/') + asset.href)
+            .applyEndpointConfig(endpoint).header("Accept", "font/ttf, font/otf").get().build()
+        val client = (endpoint.httpClient ?: themeFallbackClient).newBuilder()
+            .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) { continuation.resumeWithException(e) }
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    response.use {
+                        try {
+                            if (!it.isSuccessful) throw WorkspaceThemeRequestException(it.code)
+                            require(it.header("Content-Type").orEmpty().substringBefore(';') in setOf("font/ttf", "font/otf")) { "Invalid native font content type" }
+                            val bytes = readResponseBytes(it.body, 1048576)
+                            require(bytes.size == asset.sizeBytes) { "Native font size mismatch" }
+                            val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { b -> "%02x".format(b) }
+                            require(digest == asset.sha256) { "Native font digest mismatch" }
+                            continuation.resume(bytes)
+                        } catch (error: Exception) { continuation.resumeWithException(error) }
+                    }
+                }
+            })
+        }
+    }
+
     suspend fun getWorkspaceMetadata(targetContext: MetadataTargetContext? = null): WorkspaceMetadata = withContext(Dispatchers.IO) {
         val query = targetContext.toTargetQuery()
         val path = appendRepeatedQuery("/v1/workspace/metadata", query)
@@ -190,6 +240,7 @@ class AgentlyClient(
     }
 
     suspend fun query(input: QueryInput): QueryOutput = withContext(Dispatchers.IO) {
+        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.query(input)
         postLongRunning("/v1/agent/query", input, QueryOutput.serializer())
     }
 
@@ -295,6 +346,7 @@ class AgentlyClient(
         input: GetTranscriptInput,
         maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
     ): ConversationStateResponse = withContext(Dispatchers.IO) {
+        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.transcript(input.conversationId)
         get(buildTranscriptPath(input), ConversationStateResponse.serializer(), maxResponseBytes)
     }
 
@@ -304,6 +356,7 @@ class AgentlyClient(
         includeExecutionDetails: Boolean = true,
         maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
     ): ConversationStateResponse = withContext(Dispatchers.IO) {
+        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.transcript(conversationId)
         val query = linkedMapOf<String, String>()
         if (includeFeeds) {
             query["includeFeeds"] = "true"
@@ -339,11 +392,13 @@ class AgentlyClient(
     }
 
     suspend fun resolveElicitation(input: ResolveElicitationInput): Unit = withContext(Dispatchers.IO) {
+        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.resolve(input)
         val path = "/v1/elicitations/${encodePath(input.conversationId)}/${encodePath(input.elicitationId)}/resolve"
         post(path, input, EmptyResponse.serializer())
     }
 
     suspend fun terminateConversation(conversationId: String): Unit = withContext(Dispatchers.IO) {
+        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.cancel(conversationId)
         post("/v1/conversations/${encodePath(conversationId)}/terminate", emptyMap<String, JsonElement>(), EmptyResponse.serializer())
     }
 
@@ -379,6 +434,7 @@ class AgentlyClient(
     }
 
     suspend fun decideToolApproval(input: DecideToolApprovalInput): DecideToolApprovalOutput = withContext(Dispatchers.IO) {
+        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.decide(input)
         val path = "/v1/tool-approvals/${encodePath(input.id)}/decision"
         post(path, input, DecideToolApprovalOutput.serializer())
     }
@@ -693,7 +749,7 @@ class AgentlyClient(
     fun trackConversation(
         conversationId: String,
         maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
-    ): Flow<ConversationStreamSnapshot> = channelFlow {
+    ): Flow<ConversationStreamSnapshot> = if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) agUiConversations.track(conversationId) else channelFlow {
         val tracker = ConversationStreamTracker(conversationId)
         var reconnectDelayMs = 500L
         while (true) {

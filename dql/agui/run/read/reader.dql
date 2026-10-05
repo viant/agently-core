@@ -1,0 +1,42 @@
+#package('github.com/viant/agently-core/internal/datly/agui/run/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/run','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Principal<string>(query/principal).Required())
+#define($_ = $Key<string>(query/key).Required())
+#define($_ = $Data<[]*Run>(output/view))
+SELECT agui_data.*,
+       agui_data.effective_user_id AS Principal,
+       agui_data.protocol_key AS RunKey,
+       agui_data.protocol_run_id AS RunId,
+       agui_data.protocol_parent_run_id AS ParentRunId,
+       agui_data.protocol_prior_run_id AS PriorRunId,
+       agui_data.protocol_client_message_id AS ClientMessageId,
+       agui_data.protocol_turn_id AS TurnId,
+       agui_data.protocol_status AS Status,
+       agui_data.protocol_input_hash AS InputHash,
+       agui_data.protocol_input_json AS InputJson,
+       agui_data.protocol_revision AS Revision,
+       agui_data.protocol_last_sequence AS LastSequence,
+       agui_data.protocol_pending_json AS PendingJson,
+       agui_data.protocol_resumed_by_run_id AS ResumedByRunId,
+       agui_data.protocol_source_key AS SourceKey,
+       agui_data.protocol_initial_turn_key AS InitialTurnKey,
+       type(agui_data,'Run'),
+       tag(agui_data.id,'sqlx:"id,primaryKey=true,required=true"'),
+       row_lock(agui_data,'run c'),
+       CAST(agui_data.RunId AS string),
+       CAST(agui_data.ParentRunId AS string),
+       CAST(agui_data.PriorRunId AS string),
+       CAST(agui_data.ClientMessageId AS string),
+       CAST(agui_data.TurnId AS string),
+       CAST(agui_data.ResumedByRunId AS string),
+       CAST(agui_data.InputJson AS []byte),
+       CAST(agui_data.PendingJson AS []byte),
+       CAST(agui_data.Revision AS int64),
+       CAST(agui_data.LastSequence AS int64)
+FROM (${embed:sql/rows.sql}) agui_data

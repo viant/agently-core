@@ -24,6 +24,14 @@ var (
 )
 
 func (hooks *Lifecycle) Init(ctx context.Context, entity *MutableConversationView, state xhandler.LifecycleContext[MutableConversationView, xhandler.NoParent, Output]) error {
+	if err := invariant.ValidateNativeProtocolFields(entity, state.Previous != nil); err != nil {
+		return err
+	}
+	if entity != nil && state.Previous == nil {
+		zero := 0
+		entity.SetProtocolOnly(&zero)
+		entity.SetProtocolRevision(&zero)
+	}
 	if hooks.Input != nil && hooks.Input.OrphanDetach {
 
 		return invariant.ValidateOrphanDetach(entity, state.Previous, hooks.Input.OrphanColumn, []string{"conversation_parent_id", "conversation_parent_turn_id", "schedule_id", "schedule_run_id"}, "Id")

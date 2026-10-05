@@ -62,6 +62,8 @@ export class FeedTracker {
         if (event.type === 'tool_feed_active' && event.feedId) {
             this.setActive({
                 feedId: event.feedId,
+                active: true,
+                activationKnown: true,
                 title: event.feedTitle || event.feedId,
                 developerOnly: event.feedDeveloperOnly === true,
                 presentation: event.feedIcon || event.feedAccent || event.feedTarget
@@ -72,6 +74,9 @@ export class FeedTracker {
                 turnId: resolveEventTurnId(event),
                 updatedAt: Date.now(),
             });
+        } else if (event.type === 'tool_feed_unknown' && event.feedId) {
+            const existing = this.get(event.feedId);
+            if (existing) this.setActive({ ...existing, active: null, activationKnown: false });
         } else if (event.type === 'goal.updated') {
             const conversationId = resolveEventConversationId(event);
             const feedId = event.feedId || 'goal';

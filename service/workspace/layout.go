@@ -153,72 +153,79 @@ func (h *MetadataHandler) SetLayoutDefault(data []byte) {
 func (h *MetadataHandler) handleLayout() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Cache-Control", "private, no-store")
-		root := ws.Root()
-		cfg, err := config.Load(root)
+		result, err := h.Layout(r.Context(), &LayoutRequest{})
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			writeMetadataError(w, err)
 			return
 		}
-		ref := "ui/layout.yaml"
-		explicit := false
-		if cfg != nil {
-			if ui, ok := cfg.Raw["ui"].(map[string]any); ok {
-				if layout, ok := ui["layout"].(map[string]any); ok {
-					if value, ok := layout["ref"].(string); ok && strings.TrimSpace(value) != "" {
-						ref, explicit = value, true
-					}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(result)
+	}
+}
+
+// LayoutResponse retains the exact version/revision/catalog envelope.
+type LayoutResponse = layoutResponse
+
+// LayoutRequest reserves the typed request boundary; current layout policy is
+// entirely supplied by authenticated context, as on the native GET endpoint.
+type LayoutRequest struct{}
+
+func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*LayoutResponse, error) {
+	root := ws.Root()
+	cfg, err := config.Load(root)
+	if err != nil {
+		return nil, metadataFailure(http.StatusInternalServerError, err.Error(), nil)
+	}
+	ref := "ui/layout.yaml"
+	explicit := false
+	if cfg != nil {
+		if ui, ok := cfg.Raw["ui"].(map[string]any); ok {
+			if layout, ok := ui["layout"].(map[string]any); ok {
+				if value, ok := layout["ref"].(string); ok && strings.TrimSpace(value) != "" {
+					ref, explicit = value, true
 				}
 			}
 		}
-		layoutPath, pathErr := ws.ResolveChildPath(root, ref)
-		if pathErr != nil {
-			http.Error(w, pathErr.Error(), http.StatusBadRequest)
-			return
-		}
-		data, err := os.ReadFile(layoutPath)
-		source := ref
-		if os.IsNotExist(err) && !explicit {
-			data, err, source = h.layoutDefault, nil, "embedded"
-		}
-		if err != nil {
-			http.Error(w, "load workspace layout: "+err.Error(), http.StatusInternalServerError)
-			return
-		}
-		if len(data) == 0 {
-			http.Error(w, "layout default is unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		var node yaml.Node
-		if err = yaml.Unmarshal(data, &node); err != nil {
-			http.Error(w, "invalid layout YAML: "+err.Error(), http.StatusBadRequest)
-			return
-		}
-		if err = validateLayoutYAML(&node); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		var layout Layout
-		decoder := yaml.NewDecoder(bytes.NewReader(data))
-		decoder.KnownFields(true)
-		if err = decoder.Decode(&layout); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		if err = validateLayout(&layout); err != nil {
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
-		permitted, err := filterLayout(r, &layout)
-		if err != nil {
-			http.Error(w, "layout authorization unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		digest := sha256.Sum256(append(append([]byte(source), 0), data...))
-		catalogRevisions := permitted.CatalogRevisions
-		permitted.CatalogRevisions = nil
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(layoutResponse{SchemaVersion: 1, LayoutRevision: hex.EncodeToString(digest[:]), WorkspaceID: root, CatalogRevisions: catalogRevisions, Layout: permitted})
 	}
+	layoutPath, pathErr := ws.ResolveChildPath(root, ref)
+	if pathErr != nil {
+		return nil, metadataFailure(http.StatusBadRequest, pathErr.Error(), nil)
+	}
+	data, err := os.ReadFile(layoutPath)
+	source := ref
+	if os.IsNotExist(err) && !explicit {
+		data, err, source = h.layoutDefault, nil, "embedded"
+	}
+	if err != nil {
+		return nil, metadataFailure(http.StatusInternalServerError, "load workspace layout: "+err.Error(), nil)
+	}
+	if len(data) == 0 {
+		return nil, metadataFailure(http.StatusServiceUnavailable, "layout default is unavailable", nil)
+	}
+	var node yaml.Node
+	if err = yaml.Unmarshal(data, &node); err != nil {
+		return nil, metadataFailure(http.StatusBadRequest, "invalid layout YAML: "+err.Error(), nil)
+	}
+	if err = validateLayoutYAML(&node); err != nil {
+		return nil, metadataFailure(http.StatusBadRequest, err.Error(), nil)
+	}
+	var layout Layout
+	decoder := yaml.NewDecoder(bytes.NewReader(data))
+	decoder.KnownFields(true)
+	if err = decoder.Decode(&layout); err != nil {
+		return nil, metadataFailure(http.StatusBadRequest, err.Error(), nil)
+	}
+	if err = validateLayout(&layout); err != nil {
+		return nil, metadataFailure(http.StatusBadRequest, err.Error(), nil)
+	}
+	permitted, err := filterLayoutContext(ctx, &layout)
+	if err != nil {
+		return nil, metadataFailure(http.StatusServiceUnavailable, "layout authorization unavailable", nil)
+	}
+	digest := sha256.Sum256(append(append([]byte(source), 0), data...))
+	catalogRevisions := permitted.CatalogRevisions
+	permitted.CatalogRevisions = nil
+	return &layoutResponse{SchemaVersion: 1, LayoutRevision: hex.EncodeToString(digest[:]), WorkspaceID: root, CatalogRevisions: catalogRevisions, Layout: permitted}, nil
 }
 
 func validateLayoutYAML(node *yaml.Node) error {
@@ -462,6 +469,10 @@ func validateCondition(value any) error {
 }
 
 func filterLayout(r *http.Request, layout *Layout) (*Layout, error) {
+	return filterLayoutContext(r.Context(), layout)
+}
+
+func filterLayoutContext(ctx context.Context, layout *Layout) (*Layout, error) {
 	result := *layout
 	result.Applications = nil
 	result.WindowProviders = nil
@@ -476,7 +487,7 @@ func filterLayout(r *http.Request, layout *Layout) (*Layout, error) {
 	}
 	var prepared []preparedApp
 	for _, app := range layout.Applications {
-		allowed, snapshot, err := resolveNode(r, app.Authorization, app.VisibleWhen, nil)
+		allowed, snapshot, err := resolveNodeContext(ctx, app.Authorization, app.VisibleWhen, nil)
 		if err != nil {
 			return nil, err
 		}
@@ -492,7 +503,7 @@ func filterLayout(r *http.Request, layout *Layout) (*Layout, error) {
 		app.Disabled = app.DisabledWhen != nil && evalSnapshotCondition(app.DisabledWhen, snapshot)
 		app.ReadOnly = app.ReadOnlyWhen != nil && evalSnapshotCondition(app.ReadOnlyWhen, snapshot)
 		if app.WindowCatalog != nil {
-			entries, catalogErr := windowloader.ListRemoteWindows(r.Context(), app.WindowCatalog.Provider, app.ID, app.WindowCatalog.Group)
+			entries, catalogErr := windowloader.ListRemoteWindows(ctx, app.WindowCatalog.Provider, app.ID, app.WindowCatalog.Group)
 			if catalogErr != nil {
 				return nil, catalogErr
 			}
@@ -541,7 +552,7 @@ func filterLayout(r *http.Request, layout *Layout) (*Layout, error) {
 		}
 		allowedWindows = map[string]bool{}
 		if len(candidates) > 0 {
-			allowed, err := runtime.Filter(r.Context(), policy.OperationWindowView, "", candidates, nil)
+			allowed, err := runtime.Filter(ctx, policy.OperationWindowView, "", candidates, nil)
 			if errors.Is(err, policy.ErrDenied) {
 				allowed = nil
 			} else if err != nil {
@@ -555,7 +566,7 @@ func filterLayout(r *http.Request, layout *Layout) (*Layout, error) {
 	for _, preparedApp := range prepared {
 		app, snapshot := preparedApp.app, preparedApp.snapshot
 		var err error
-		app.Menus, err = filterMenus(r, app.Menus, snapshot, app.Disabled, app.ReadOnly, allowedWindows)
+		app.Menus, err = filterMenusContext(ctx, app.Menus, snapshot, app.Disabled, app.ReadOnly, allowedWindows)
 		if err != nil {
 			return nil, err
 		}
@@ -567,7 +578,7 @@ func filterLayout(r *http.Request, layout *Layout) (*Layout, error) {
 	if layout.Topbar != nil {
 		topbar := *layout.Topbar
 		var err error
-		topbar.Actions, err = filterMenus(r, layout.Topbar.Actions, nil, false, false, allowedWindows)
+		topbar.Actions, err = filterMenusContext(ctx, layout.Topbar.Actions, nil, false, false, allowedWindows)
 		if err != nil {
 			return nil, err
 		}
@@ -600,9 +611,13 @@ func collectLayoutWindowCandidates(menus []LayoutMenu, candidates *[]policy.Cand
 }
 
 func filterMenus(r *http.Request, menus []LayoutMenu, inherited *permittedview.Snapshot, inheritedDisabled, inheritedReadOnly bool, allowedWindows map[string]bool) ([]LayoutMenu, error) {
+	return filterMenusContext(r.Context(), menus, inherited, inheritedDisabled, inheritedReadOnly, allowedWindows)
+}
+
+func filterMenusContext(ctx context.Context, menus []LayoutMenu, inherited *permittedview.Snapshot, inheritedDisabled, inheritedReadOnly bool, allowedWindows map[string]bool) ([]LayoutMenu, error) {
 	var result []LayoutMenu
 	for _, menu := range menus {
-		allowed, snapshot, err := resolveNode(r, menu.Authorization, menu.VisibleWhen, inherited)
+		allowed, snapshot, err := resolveNodeContext(ctx, menu.Authorization, menu.VisibleWhen, inherited)
 		if err != nil {
 			return nil, err
 		}
@@ -618,7 +633,7 @@ func filterMenus(r *http.Request, menus []LayoutMenu, inherited *permittedview.S
 		menu.Disabled = inheritedDisabled || (menu.DisabledWhen != nil && evalSnapshotCondition(menu.DisabledWhen, snapshot))
 		menu.ReadOnly = inheritedReadOnly || (menu.ReadOnlyWhen != nil && evalSnapshotCondition(menu.ReadOnlyWhen, snapshot))
 		if len(menu.Children) > 0 {
-			menu.Children, err = filterMenus(r, menu.Children, snapshot, menu.Disabled, menu.ReadOnly, allowedWindows)
+			menu.Children, err = filterMenusContext(ctx, menu.Children, snapshot, menu.Disabled, menu.ReadOnly, allowedWindows)
 			if err != nil {
 				return nil, err
 			}
@@ -644,6 +659,10 @@ func evalSnapshotCondition(condition any, snapshot *permittedview.Snapshot) bool
 }
 
 func resolveNode(r *http.Request, spec *forgetypes.AuthorizationSpec, condition any, inherited *permittedview.Snapshot) (bool, *permittedview.Snapshot, error) {
+	return resolveNodeContext(r.Context(), spec, condition, inherited)
+}
+
+func resolveNodeContext(ctx context.Context, spec *forgetypes.AuthorizationSpec, condition any, inherited *permittedview.Snapshot) (bool, *permittedview.Snapshot, error) {
 	snapshot := inherited
 	if spec != nil {
 		runtime := permittedview.DefaultRuntime()
@@ -657,7 +676,7 @@ func resolveNode(r *http.Request, spec *forgetypes.AuthorizationSpec, condition 
 			return false, nil, fmt.Errorf("authorization resource type required")
 		}
 		var err error
-		snapshot, err = runtime.Resolver.Resolve(r.Context(), &permittedview.Request{ResourceType: spec.ResourceType, RequestedGlobalCapabilities: spec.RequestedGlobalCapabilities, IncludePrincipal: true})
+		snapshot, err = runtime.Resolver.Resolve(ctx, &permittedview.Request{ResourceType: spec.ResourceType, RequestedGlobalCapabilities: spec.RequestedGlobalCapabilities, IncludePrincipal: true})
 		if err != nil {
 			return false, nil, err
 		}

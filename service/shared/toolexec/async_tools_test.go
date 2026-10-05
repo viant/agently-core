@@ -2534,3 +2534,22 @@ func TestPollAsyncOperation_StopsWhenTurnCanceled(t *testing.T) {
 }
 
 var _ apiconv.Client = (*stubConv)(nil)
+
+func TestPublishAsyncUpdateUsesPersistedStatusCarrierIdentity(t *testing.T) {
+	pub := &captureStreamPublisher{}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "parent", TurnID: "turn"})
+	ctx = memory.WithToolMessageID(ctx, "start-message")
+	ctx = modelcallctx.WithStreamPublisher(ctx, pub)
+	rec := &asynccfg.OperationRecord{ToolCallID: "async-status:child", ToolMessageID: "status-message", ToolName: "llm/agents/status", State: asynccfg.StateCompleted}
+	publishAsyncUpdateEvent(ctx, "llm/agents/start", "start-call", "child", &asynccfg.Extracted{Status: "succeeded", Message: "Completed"}, rec)
+	require.Len(t, pub.events, 1)
+	event := pub.events[0]
+	require.Equal(t, "parent", event.ConversationID)
+	require.Equal(t, "turn", event.TurnID)
+	require.Equal(t, "status-message", event.MessageID)
+	require.Equal(t, "status-message", event.ToolMessageID)
+	require.Equal(t, "async-status:child", event.ToolCallID)
+	require.Equal(t, "llm/agents/status", event.ToolName)
+	require.Equal(t, streaming.EventTypeToolCallCompleted, event.Type)
+	require.Equal(t, "start-message", memory.ToolMessageIDFromContext(ctx))
+}

@@ -1,7 +1,7 @@
 SELECT run_rows.* FROM  (
 SELECT t.*,CAST(t.lease_until AS CHAR) AS lease_until_raw,CAST(t.last_heartbeat_at AS CHAR) AS heartbeat_raw,CAST(COALESCE(t.completed_at,t.updated_at,t.created_at) AS CHAR) AS activity_raw,
  TRIM(COALESCE((SELECT NULLIF(TRIM(s.created_by_user_id),'') FROM schedule s WHERE s.id=t.schedule_id),t.effective_user_id,'')) AS maintenance_owner_id
-    FROM run t WHERE 1=1
+    FROM run t WHERE COALESCE(t.run_kind,'execution')='execution'
     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
     AND ($InternalMode OR COALESCE(t.effective_user_id,'')='' OR t.effective_user_id=NULLIF($VisibilitySubject,''))
     AND ($ReadMode <> 'schedulerList' OR (t.schedule_id IS NOT NULL AND EXISTS (
@@ -19,7 +19,7 @@ SELECT t.*,CAST(t.lease_until AS CHAR) AS lease_until_raw,CAST(t.last_heartbeat_
     #end
     AND ($ReadMode <> 'stale'   OR t.status='running')
     AND ($ReadMode <> 'active' OR t.id=(
-       SELECT t.id FROM run t WHERE t.status IN ('running','queued','pending')
+       SELECT t.id FROM run t WHERE COALESCE(t.run_kind,'execution')='execution' AND t.status IN ('running','queued','pending')
        ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
        ORDER BY t.created_at DESC LIMIT 1))
     ORDER BY 

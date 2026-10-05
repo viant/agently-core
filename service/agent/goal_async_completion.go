@@ -76,7 +76,11 @@ func (s *Service) observeDetachedAsyncGoalCompletion(ctx context.Context, rec *a
 			Continuation:          continuation,
 			ProgressFingerprint:   buildGoalProgressFingerprint(asyncOutput, continuation),
 		})
-		if err != nil || action.Continuation == nil {
+		if err != nil {
+			return
+		}
+		s.emitGoalAfterAccounting(context.Background(), conversationID, strings.TrimSpace(seed.ParentTurnID), goal)
+		if action.Continuation == nil {
 			return
 		}
 		goalID := ""

@@ -7,6 +7,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/viant/agently-core/internal/datly/queryselectors"
 	turnwrite "github.com/viant/agently-core/internal/datly/turn/write"
 	queueread "github.com/viant/agently-core/internal/datly/turnqueue/read"
 	queuewrite "github.com/viant/agently-core/internal/datly/turnqueue/write"
@@ -83,7 +84,8 @@ func (*Reorder) Exec(ctx context.Context, session handler.Session, input *Input,
 	query := &queueread.QueueRowsInput{}
 	query.SetConversationId(conversationID)
 	query.SetQueueStatus("queued")
-	value, err := deps.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: readerTarget, Input: query})
+	query.SetNativeQueuedOnly(true)
+	value, err := deps.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: readerTarget, Input: query, ReaderOptions: queryselectors.ForUpdateOptions(ctx, true)})
 	if err != nil {
 		return err
 	}

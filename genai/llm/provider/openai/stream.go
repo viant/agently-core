@@ -270,14 +270,15 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			// Detect function_call item and start tracking
 			var e struct {
 				Item struct {
-					ID        string `json:"id"`
-					Type      string `json:"type"`
-					Role      string `json:"role"`
-					Name      string `json:"name"`
-					CallID    string `json:"call_id"`
-					Arguments string `json:"arguments"`
-					Status    string `json:"status"`
-					Content   []struct {
+					ID               string `json:"id"`
+					EncryptedContent string `json:"encrypted_content"`
+					Type             string `json:"type"`
+					Role             string `json:"role"`
+					Name             string `json:"name"`
+					CallID           string `json:"call_id"`
+					Arguments        string `json:"arguments"`
+					Status           string `json:"status"`
+					Content          []struct {
 						Type string `json:"type"`
 						Text string `json:"text"`
 					} `json:"content"`
@@ -329,14 +330,15 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 			// Finalize a function_call
 			var e struct {
 				Item struct {
-					ID        string `json:"id"`
-					Type      string `json:"type"`
-					Role      string `json:"role"`
-					Name      string `json:"name"`
-					CallID    string `json:"call_id"`
-					Arguments string `json:"arguments"`
-					Status    string `json:"status"`
-					Content   []struct {
+					ID               string `json:"id"`
+					EncryptedContent string `json:"encrypted_content"`
+					Type             string `json:"type"`
+					Role             string `json:"role"`
+					Name             string `json:"name"`
+					CallID           string `json:"call_id"`
+					Arguments        string `json:"arguments"`
+					Status           string `json:"status"`
+					Content          []struct {
 						Type string `json:"type"`
 						Text string `json:"text"`
 					} `json:"content"`
@@ -344,6 +346,13 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 				OutputIndex int `json:"output_index"`
 			}
 			if err := json.Unmarshal([]byte(data), &e); err == nil {
+				if strings.EqualFold(e.Item.Type, "reasoning") {
+					if e.Item.EncryptedContent != "" {
+						p.events <- llm.StreamEvent{Kind: llm.StreamEventReasoningEncrypted, ResponseID: p.state.lastResponseID, ItemID: e.Item.ID, ReasoningMessageID: e.Item.ID, ReasoningSpanID: e.Item.ID + "/span", EncryptedEntityID: e.Item.ID, EncryptedSubtype: "message", EncryptedValue: e.Item.EncryptedContent}
+					}
+					p.events <- llm.StreamEvent{Kind: llm.StreamEventItemCompleted, ResponseID: p.state.lastResponseID, ItemID: e.Item.ID, ReasoningMessageID: e.Item.ID, ReasoningSpanID: e.Item.ID + "/span"}
+					return true
+				}
 				if strings.EqualFold(e.Item.Type, "message") {
 					// This is a completed item snapshot, not an incremental text
 					// delta. response.output_text.delta is the sole text stream.
@@ -382,6 +391,17 @@ func (p *streamProcessor) handleEvent(eventName string, data string) bool {
 					}
 				}
 			}
+			return true
+		case "response.reasoning_summary_text.delta":
+			var part struct {
+				ItemID string `json:"item_id"`
+				Delta  string `json:"delta"`
+			}
+			if err := json.Unmarshal([]byte(data), &part); err != nil {
+				p.events <- llm.StreamEvent{Err: err}
+				return false
+			}
+			p.events <- llm.StreamEvent{Kind: llm.StreamEventReasoningDelta, ResponseID: p.state.lastResponseID, ItemID: part.ItemID, ReasoningMessageID: part.ItemID, ReasoningSpanID: part.ItemID + "/span", Delta: part.Delta}
 			return true
 		case "response.output_text.delta":
 			var d struct {

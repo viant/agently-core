@@ -7,6 +7,17 @@ import (
 	time "time"
 )
 
+func (input *Input) SetExecutionRunOnly(value bool) {
+	if input == nil {
+		return
+	}
+	input.ExecutionRunOnly = value
+	if input.Has == nil {
+		input.Has = &InputHas{}
+	}
+	input.Has.ExecutionRunOnly = true
+}
+
 func (input *Input) SetOrphanDetach(value bool) {
 	if input == nil {
 		return

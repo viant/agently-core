@@ -16,11 +16,16 @@ import (
 	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	svcauth "github.com/viant/agently-core/service/auth"
 )
 
 func handleListToolDefinitions(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		defs, err := client.ListToolDefinitions(r.Context())
+		ctx := r.Context()
+		if convID := strings.TrimSpace(r.URL.Query().Get("conversationId")); convID != "" {
+			ctx = runtimerequestctx.WithConversationID(ctx, convID)
+		}
+		defs, err := client.ListToolDefinitions(ctx)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
@@ -179,9 +184,14 @@ func resourcePathRef(r *http.Request) (*ResourceRef, error) {
 	return &ResourceRef{Kind: kind, Name: name}, nil
 }
 
-func handleListPendingToolApprovals(client Client) http.HandlerFunc {
+func handleListPendingToolApprovals(client Client, authConfigs ...*svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
+		var authorized bool
+		r, authorized = applicationRequestPrincipal(w, r, q.Get("userId"), authConfigs)
+		if !authorized {
+			return
+		}
 		userID, ok := scopedToolApprovalUserID(r.Context(), strings.TrimSpace(q.Get("userId")))
 		if !ok {
 			httpError(w, http.StatusForbidden, fmt.Errorf("permission denied"))
@@ -220,7 +230,7 @@ func isToolApprovalQueueNotConfiguredErr(err error) bool {
 	return strings.Contains(msg, "tool approval queue not configured")
 }
 
-func handleDecideToolApproval(client Client) http.HandlerFunc {
+func handleDecideToolApproval(client Client, authConfigs ...*svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimSpace(r.PathValue("id"))
 		if id == "" {
@@ -230,6 +240,11 @@ func handleDecideToolApproval(client Client) http.HandlerFunc {
 		var body DecideToolApprovalInput
 		if err := decodeJSON(r, &body); err != nil {
 			httpError(w, http.StatusBadRequest, err)
+			return
+		}
+		var authorized bool
+		r, authorized = applicationRequestPrincipal(w, r, body.UserID, authConfigs)
+		if !authorized {
 			return
 		}
 		userID, ok := scopedToolApprovalUserID(r.Context(), strings.TrimSpace(body.UserID))
@@ -244,7 +259,7 @@ func handleDecideToolApproval(client Client) http.HandlerFunc {
 			httpError(w, statusForToolApprovalErr(err), err)
 			return
 		}
-		if out != nil && out.Outcome != nil && strings.EqualFold(strings.TrimSpace(out.Outcome.Status), "failed") {
+		if out != nil && out.Protocol == nil && out.Outcome != nil && strings.EqualFold(strings.TrimSpace(out.Outcome.Status), "failed") {
 			message := strings.TrimSpace(out.Outcome.ErrorMessage)
 			if message == "" {
 				message = "tool approval execution failed"
@@ -254,6 +269,24 @@ func handleDecideToolApproval(client Client) http.HandlerFunc {
 		}
 		httpJSON(w, http.StatusOK, out)
 	}
+}
+
+func applicationRequestPrincipal(w http.ResponseWriter, r *http.Request, explicit string, configs []*svcauth.Config) (*http.Request, bool) {
+	if iauth.EffectiveUserID(r.Context()) != "" {
+		return r, true
+	}
+	var config *svcauth.Config
+	if len(configs) > 0 {
+		config = configs[0]
+	}
+	if config != nil && config.Enabled {
+		httpError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
+		return r, false
+	}
+	// Local mode retains explicit-user compatibility. Browser requests without
+	// one share the same anonymous cookie principal as conversation/AG-UI routes.
+	principal := resolveQueryUserID(w, r, explicit, config)
+	return r.WithContext(iauth.WithUserInfo(r.Context(), &iauth.UserInfo{Subject: principal})), true
 }
 
 func scopedToolApprovalUserID(ctx context.Context, explicit string) (string, bool) {

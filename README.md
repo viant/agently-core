@@ -3,42 +3,39 @@
 [![Go Reference](https://pkg.go.dev/badge/github.com/viant/agently-core.svg)](https://pkg.go.dev/github.com/viant/agently-core)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
-`agently-core` is the embeddable Go runtime for building AI agent systems. It provides
-the complete backend for agent query execution, conversation management, tool
-orchestration, and workspace-driven configuration — designed to be embedded in your
-own Go services or exposed as a standalone HTTP API.
+Agently Core is an embeddable Go framework for agentic applications. It combines
+model execution, tools, durable conversations, recovery, approvals, goals and
+workspace configuration. Applications can call it in process or expose its HTTP
+and AG-UI interfaces, then build their own web, mobile or command-line experience.
 
-## Features
+Use [Agently](https://github.com/viant/agently) for the assembled server, CLI and
+application shells. Use this module when your service needs to own the runtime,
+authentication, integrations or presentation.
 
-- **Agent query execution** — multi-turn conversation, tool calling, streaming, and elicitation
-- **Multi-LLM support** — OpenAI, Vertex AI (Gemini + Claude), Bedrock Converse and Claude, Grok, InceptionLabs, Ollama
-- **MCP integration** — connect MCP servers as tool providers with secure BFF/bearer auth injection
-- **A2A protocol** — agent-to-agent communication endpoints (`/.well-known/agent.json`, `/v1/api/a2a/*`)
-- **MCP tool exposure** — expose workspace tools as an MCP HTTP server (`protocol/mcp/expose`)
-- **Authentication** — JWT (RSA/HMAC), OAuth BFF/SPA/bearer/mixed, local sessions, distributed token refresh
-- **Workspace-driven config** — agents, models, embedders, MCP clients, tools and policies as YAML files
-- **Composable workspace metadata** — `$import(path.yaml)`, keyed
-  `$import(path.yaml:key)`, and scoped parameterized
-  `'$import(path.yaml:key, {"name":"value"})'` fragments. Imported YAML uses
-  `$param(name)`; exact values preserve YAML types while embedded scalar values
-  interpolate into IDs, handlers, selectors, and state keys. Nested scopes inherit
-  and override without leaking to siblings.
-- **Persistent conversations** — SQL-backed (SQLite/MySQL) via Datly; auto-creates workspace SQLite DB
-- **Scheduler** — cron/interval/adhoc schedule execution with distributed lease coordination
-- **Parallel tool calls** — enabled by default for models that support it
-- **Embedded and HTTP SDKs** — use in-process or as a remote HTTP client
+## What the framework provides
 
-## Installation
+| Area | Capabilities |
+| --- | --- |
+| Execution | Agent selection, prompt binding, model/tool loops, parallel tools, streaming, reasoning and linked agent invocations |
+| Models | Adapters for OpenAI, Vertex AI Gemini/Claude, Bedrock Converse/Claude, Grok, InceptionLabs and Ollama |
+| Tools | Internal services, MCP clients, tool bundles, policy, skills, resources and optional MCP tool exposure |
+| Durable interaction | Conversation, turn, message, model/tool-call and payload persistence; queued turns, deferred elicitation, approval receipts and continuation |
+| Recovery | Observer reattachment, admitted-run replay, native outcome reconstruction, cancellation and context-limit recovery |
+| Goals and scheduling | Objective/budget accounting, pause/resume, scheduled wakeups, cron/interval/adhoc execution and distributed leases |
+| Authentication | Local sessions, JWT RSA/HMAC, OAuth BFF/SPA/bearer/mixed modes and per-user MCP credentials |
+| Presentation | Canonical transcripts, hosted workspace metadata, Forge content, feeds, layouts, themes, CSS and native font assets |
+| Reporting | Authored report documents, scoped dataset requests, durable report lifecycle, frozen results and explicit export/publication operations |
 
-```bash
-go get github.com/viant/agently-core
-```
+Model availability and capabilities depend on the selected provider and adapter.
+A provider adapter does not imply universal multimodal, streaming or exact
+token-count support. See [provider configuration](doc/llm-providers.md).
 
-Requires Go 1.25+.
+## Start with an embedded runtime
 
-## Quick Start (Embedded Runtime)
+The module requires Go 1.25.8 or newer. An application supplies configured agent
+and model finders; the runtime owns the execution loop.
 
-```go
+~~~go
 ctx := context.Background()
 
 rt, err := executor.NewBuilder().
@@ -48,356 +45,283 @@ rt, err := executor.NewBuilder().
 if err != nil {
     log.Fatal(err)
 }
+defer rt.Close(ctx)
 
 client, err := sdk.NewEmbeddedFromRuntime(rt)
 if err != nil {
     log.Fatal(err)
 }
-
 out, err := client.Query(ctx, &agentsvc.QueryInput{
-    ConversationID: "conv_123",
-    Request:        "Summarize workspace resources",
+    ConversationID: "conversation-id",
+    UserId:         "authenticated-user-id",
+    Query:          "Summarize the project documentation",
 })
-```
+~~~
 
-## Quick Start (HTTP Server)
+This is a Go usage fragment: import the application/runtime types and provide
+the finders and authenticated caller identity. Embedded Go Client.Query and the
+internal executor remain native calls. They do not recursively POST through
+AG-UI. See [SDK usage](doc/sdk.md) and [architecture](doc/architecture.md).
 
-```go
-handler, _ := sdk.NewHandlerWithContext(ctx, client)
-log.Fatal(http.ListenAndServe(":8090", handler))
-```
+To expose the runtime over HTTP:
 
-Health check: `GET /healthz` → `{"status":"ok"}`.
-
-## HTTP API
-
-Core endpoints mounted by `sdk.NewHandler`:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| POST | `/v1/agent/query` | Execute agent query |
-| POST | `/v1/conversations` | Create conversation |
-| GET | `/v1/conversations` | List conversations |
-| GET | `/v1/conversations/{id}` | Get conversation |
-| PATCH | `/v1/conversations/{id}` | Update conversation |
-| GET | `/v1/conversations/{id}/transcript` | Get canonical transcript |
-| POST | `/v1/conversations/{id}/terminate` | Terminate conversation |
-| POST | `/v1/conversations/{id}/compact` | Compact conversation |
-| POST | `/v1/conversations/{id}/prune` | Prune conversation |
-| GET | `/v1/messages` | Get messages |
-| GET | `/v1/elicitations` | List pending elicitations |
-| POST | `/v1/elicitations/{conversationId}/{elicitationId}/resolve` | Resolve elicitation |
-| GET | `/v1/stream` | SSE event stream |
-| POST | `/v1/turns/{id}/cancel` | Cancel turn |
-| GET | `/v1/tools` | List tool definitions |
-| POST | `/v1/tools/{name}/execute` | Execute tool |
-| POST | `/v1/tools/execute` | Execute tool (name in body) |
-| GET | `/v1/tool-approvals/pending` | List pending tool approvals |
-| POST | `/v1/tool-approvals/{id}/decision` | Approve/reject tool |
-| GET | `/v1/workspace/resources` | List resources |
-| GET | `/v1/workspace/resources/{kind}/{name}` | Get resource |
-| PUT | `/v1/workspace/resources/{kind}/{name}` | Save resource |
-| DELETE | `/v1/workspace/resources/{kind}/{name}` | Delete resource |
-| POST | `/v1/workspace/resources/export` | Export resources |
-| POST | `/v1/workspace/resources/import` | Import resources |
-
-Optional handlers add auth, scheduler, speech, workflow, metadata, file browser, and A2A endpoints.
-
-### Auth Endpoints
-
-When `WithAuth` is configured:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/v1/api/auth/providers` | List configured auth providers (public) |
-| GET | `/v1/api/auth/me` | Current user identity |
-| POST | `/v1/api/auth/local/login` | Local username login |
-| POST | `/v1/api/auth/logout` | Logout |
-| GET | `/v1/api/auth/idp/login` | Redirect to IDP (OAuth BFF) |
-| GET | `/v1/api/auth/oauth/callback` | OAuth callback |
-| POST | `/v1/api/auth/jwt/keypair` | Generate RSA keypair |
-| POST | `/v1/api/auth/jwt/mint` | Mint JWT |
-
-### A2A Endpoints
-
-When `WithA2AHandler` is configured:
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/.well-known/agent.json` | Well-known agent card |
-| GET | `/v1/api/a2a/agents` | List A2A-enabled agents |
-| GET | `/v1/api/a2a/agents/{id}/card` | Get agent card |
-| POST | `/v1/api/a2a/agents/{id}/message` | Send message to agent |
-
-## Authentication
-
-Configure JWT or OAuth BFF via `WithAuth` using the public [`service/auth`](./service/auth) types:
-
-```go
-authCfg := &auth.Config{
-    Enabled:    true,
-    CookieName: "agently_session",
-    IpHashKey:  "your-hmac-salt",
-    Local:      &auth.Local{Enabled: true},
-    JWT: &auth.JWT{
-        Enabled:       true,
-        RSA:           []string{"/path/to/public.pem"},
-        RSAPrivateKey: "/path/to/private.pem",
-    },
+~~~go
+handler, err := sdk.NewHandlerWithContext(ctx, client)
+if err != nil {
+    log.Fatal(err)
 }
-sessions := svcauth.NewManager(7*24*time.Hour, nil)
-jwtSvc := svcauth.NewJWTService(authCfg.JWT)
-jwtSvc.Init(ctx)
+log.Fatal(http.ListenAndServe(":8090", handler))
+~~~
 
-handler, _ := sdk.NewHandlerWithContext(ctx, client, sdk.WithAuth(authCfg, sessions))
-protected := svcauth.Protect(authCfg, sessions, svcauth.WithJWTService(jwtSvc))(handler)
-```
+Configure authentication for the deployment; the handler's health endpoint is
+GET /healthz. The [auth guide](doc/auth-system.md) covers session managers,
+JWT verification, OAuth configuration and middleware.
 
-Supported auth modes: `local`, `bff`, `spa`, `bearer`, `mixed`, `jwt`.
+## Conversation APIs and outward SDKs
 
-When `JWTService` is provided, valid JWT Bearer tokens are always accepted regardless of the primary auth mode.
+TypeScript, Swift and Kotlin SDKs default to **AG-UI** for outward conversation
+submission, bootstrap, observation, attach, cancellation and continuation. Their
+workspace, layout, upload, reporting and application APIs continue to use the
+same configured BFF client.
 
-## Parallel Tool Calls
+Standard AG-UI requests/events carry runs, messages, tools, state, frontend tool
+results, interrupts, resumes and subagent attribution. Versioned **Agently
+extensions** add application commands and presentation, including native turn
+identity, goals, approvals, queue controls, workspaces, feeds and MCP Apps.
+Keep the extension contract explicit when integrating a generic AG-UI client.
 
-Parallel tool calls are **enabled by default** for models that support it (e.g. OpenAI).
-To disable for a specific agent, set `parallelToolCalls: false` in the agent YAML:
+| Endpoint family | Purpose |
+| --- | --- |
+| POST /v1/ag-ui/run | AG-UI run input and durable SSE output |
+| /v1/conversations | Native conversation creation, metadata and canonical history |
+| /v1/turns, /v1/elicitations, /v1/tool-approvals | Native turn controls and typed interaction services |
+| /v1/tools, /v1/workspace/resources | Tool discovery/execution and workspace resource management |
+| /v1/stream | Supporting native/application event observation |
+| POST /v1/agent/query | Explicit native/legacy HTTP query API |
 
-```yaml
-# my-agent.yaml
-parallelToolCalls: false  # disable parallel, use sequential
-```
+An admitted run can outlive an HTTP connection or view. Reopening attaches to
+the existing journal rather than sending the prompt again. An observer loss
+does not itself mean the native execution failed.
 
-When omitted, the agent inherits the default (true).
+Public thread/run identifiers are opaque and byte-preserved. Native
+conversation/turn identities are separate. An authorized existing conversation
+may bind its exact ID; an unknown public thread receives an internal conversation
+ID. Authenticated native history exposes an optional aguiThreadId reference so
+SDKs keep the native UI/history identity while reopening the original wire
+thread. Account changes invalidate old cached bindings and transport responses.
 
-## Async Mechanism
+Explicit compatibility settings remain available:
 
-`agently-core` has a built-in async tool mechanism for tools that return an
-operation handle immediately and then require status polling to finish. This is
-used today by the internal `system/exec` and `llm/agents` services.
+~~~ts
+const client = new AgentlyClient({ baseURL: "/bff", useCookies: true });
+const legacy = new AgentlyClient({
+  baseURL: "/bff", useCookies: true, interactionProtocol: "legacy"
+});
+~~~
 
-The mechanism has four parts:
+Swift selects interactionProtocol: .legacy; Kotlin selects
+conversationTransportMode = ConversationTransportMode.LEGACY. An AG-UI failure
+does not automatically resubmit through a legacy query. Current cookies,
+authentication headers and injected networking remain in use across both
+protocol and supporting APIs.
 
-1. Tool async config
-   A tool declares a `run` tool, `status` tool, optional `cancel` tool, and the
-   extraction rules for operation id, status, progress, result data, and errors.
-2. Runtime operation manager
-   When the `run` tool returns, the executor registers an operation record keyed
-   by the extracted operation id and associates it with the parent
-   conversation/turn and tool call.
-3. Polling / held-turn behavior
-   For true `start/status/cancel` tools where `run.tool != status.tool`,
-   `async.start` activates a runtime poller immediately. Same-tool reuse
-   patterns remain model-mediated unless explicitly extended later.
-4. Transcript + canonical state integration
-   Async updates are persisted back into tool-call rows and emitted as tool
-   lifecycle SSE events so transcript snapshots and live UI state stay aligned.
+Read [TypeScript](sdk/ts/AG-UI.md), [Swift](sdk/ios/AG-UI.md),
+[Kotlin](sdk/android/AG-UI.md), [approval coordination](doc/ag-ui-approval-coordination.md)
+and the [operation matrix](doc/ag-ui-operation-matrix.md). Protocol/SDK tests
+are not a claim of full product-shell parity or universal conformance.
 
-Current internal async-configured tools:
+## Configure and extend a workspace
 
-| Tool family | Start | Status | Cancel | Operation id |
-|-------------|-------|--------|--------|--------------|
-| Shell exec | `system/exec:start` | `system/exec:status` | `system/exec:cancel` | `sessionId` |
-| Child agents | `llm/agents:start` | `llm/agents:status` | `llm/agents:cancel` | `conversationId` |
+The embedded workspace defaults to .agently in the working directory;
+AGENTLY_WORKSPACE selects another root. Resource repositories hold agents,
+models, embedders, MCP clients, tool bundles, workflows, OAuth configuration,
+feeds and A2A definitions.
 
-Runtime behavior:
+~~~text
+.agently/
+  agents/
+  models/
+  embedders/
+  mcp/
+  tools/bundles/
+  intents/
+  templates/
+  workflows/
+  feeds/
+~~~
 
-- `start` registers the async operation
-- distinct `status` tools start one runtime poller per operation
-- status changes update persisted tool-call state
-- active wait ops can keep the parent ReAct turn open
-- async reinforcement is driven by operation state changes, not by the start
-  call itself
-- previous-response continuation is unaffected because continuation anchors come
-  from persisted transcript trace ids, not async SSE identity
+Agent definitions connect a model selection, prompt, tools and policies.
+Intent profiles combine scenario instructions, scoped knowledge, bundles,
+templates and evidence requirements. They live in intents/ and retain a
+documented migration path from legacy prompts/. Invalid profiles fail rather
+than silently selecting another definition.
 
-Detailed documentation: [async.md](./doc/async.md)
+Workspace YAML supports imported fragments, keyed imports and scoped parameters.
+Exact parameter values retain YAML types; nested scopes inherit/override without
+leaking into siblings. Use the workspace APIs to manage resources, or version
+the authored files with your application.
 
-## Workspace
+Extend the framework by providing finders, registering internal tool services,
+connecting MCP servers, selecting bundles/policies and adding application-owned
+handlers or native Datly compositions. Per-user auth and approved origins remain
+the boundary for MCP credential reuse. A2A and MCP exposure are optional
+capabilities, not implicit public access to every internal service.
 
-Intent profiles combine scenario instructions, tool bundles, scoped knowledge,
-output templates, and evidence requirements. Define them in
-`intents/<id>.yaml`; profiles not
-present there fall back to legacy `prompts/<id>.yaml`. Catalogs merge by name,
-with `intents` taking precedence. Invalid intent definitions fail rather than
-silently falling back. See [intake profiles](doc/prompts.md) for migration details.
+See [workspace configuration](doc/workspace-system.md), [intents](doc/prompts.md),
+[tools](doc/tool-system.md), [MCP integration](doc/mcp-integration.md),
+[skills](doc/skills.md), [templates](doc/templates.md) and [A2A](doc/a2a-protocol.md).
 
+## Durable execution and interaction
 
-Workspace root defaults to `.agently` under the current directory unless overridden
-by `AGENTLY_WORKSPACE`.
+Deferred elicitation and approvals preserve the original native turn and tool
+operation. Approval decisions use persisted receipts; continuation validates
+ownership and admitted scope before supplying a result or resuming. Queued
+requests retain their own identity. Cancellation and recovery reconcile native
+state rather than inventing a successful terminal result.
 
-Predefined resource kinds: `agents`, `models`, `embedders`, `mcp`, `workflows`,
-`tools` (bundles, hints), `oauth`, `feeds`, `a2a`.
+Async tools declare start/status/cancel behavior and extraction rules. Distinct
+status tools use one runtime poller per operation; updates remain associated
+with the persisted original tool/message identity. Linked agents retain parent,
+child and invocation attribution, including detached execution.
 
-| Env var | Purpose |
-|---------|---------|
-| `AGENTLY_WORKSPACE` | Workspace root path |
-| `AGENTLY_RUNTIME_ROOT` | Runtime root (defaults to workspace root) |
-| `AGENTLY_STATE_PATH` | Runtime state root |
-| `AGENTLY_SCRATCHPAD_URI` | User-scoped scratchpad URI template; defaults to `mem://localhost/scratchpad/${userID}` and must include `${userID}` or `${user}` |
-| `AGENTLY_WORKSPACE_NO_DEFAULTS` | Skip default bootstrapping |
+Goals retain objective, budget/accounting and scheduler state independently of
+transport observation. Management commands use domain services rather than a
+model round trip. Scheduler API and runner deployment can be separated with
+AGENTLY_SCHEDULER_API and AGENTLY_SCHEDULER_RUNNER.
 
-## Persistence
+Read [async execution](doc/async.md), [elicitation](doc/elicitation-system.md),
+[approvals](doc/approval.md), [autonomous goals](doc/autonomous.md),
+[scheduler](doc/scheduler.md) and [recovery](doc/conversation-model.md).
 
-SQL-backed persistence via Datly. Falls back to workspace SQLite when `AGENTLY_DB_*` not set.
-For workspace SQLite, the embedded `internal/script/sqlite/schema.ddl` is applied on startup.
-For MySQL, apply `script/mysql/schema_versioned.ddl` before starting Agently. Runtime reporting
-stores do not create or migrate their schema.
+## Presentation, workspaces and reports
 
-| Env var | Default | Purpose |
-|---------|---------|---------|
-| `AGENTLY_DB_DRIVER` | `sqlite` | Database driver |
-| `AGENTLY_DB_DSN` | (auto, workspace SQLite) | Connection string |
+Applications retain three scopes: app navigation, conversation-owned hosted
+workspaces and message/turn-owned inline content. Layouts and controls belong
+to their authored workspace; AG-UI transports their state and progress without
+requiring a replacement application UI. Tool feeds can be inline or detached,
+while canonical history retains their actual tool identity.
 
-SQLite DB location: `$AGENTLY_WORKSPACE/db/agently-core.db`
+Theme manifests, scoped CSS and authenticated native font assets support
+application and workspace appearance. Forge remains the generic renderer;
+applications own policy, admission and their BFF integration.
 
-## Scheduler
+Reports capture authored documents and exact dataset requests before execution.
+Begin, compile, complete and activate are separate phases. Saved completion and
+active conversation context are distinct outcomes. Verified frozen rows can
+restore a completed report without an implicit dataset rerun. Export and
+publication remain explicit actions.
 
-Supports cron, interval, and adhoc schedules with distributed lease coordination.
+See [UI ownership](doc/ui-ownership-model.md), [feeds](doc/feed-system.md),
+[MCP UI](doc/mcp-ui.md) and [native contracts](doc/datly-sdk-contract.md).
+Application-specific forecast evidence binding remains gated and is not enabled
+by default at startup.
 
-**Serverless deployment** (suppress scheduler):
-```bash
-AGENTLY_SCHEDULER_API=false AGENTLY_SCHEDULER_RUNNER=false ./agently serve
-```
+## Optional proactive context compaction
 
-**Dedicated scheduler runner** (watchdog only):
-```bash
-AGENTLY_SCHEDULER_RUNNER=true AGENTLY_SCHEDULER_API=false ./agently serve
-```
+Proactive compaction is off unless an agent explicitly opts in:
 
-| Env var | Default | Purpose |
-|---------|---------|---------|
-| `AGENTLY_SCHEDULER_API` | `true` | Mount scheduler CRUD endpoints |
-| `AGENTLY_SCHEDULER_RUN_NOW` | `true` | Enable run-now endpoint |
-| `AGENTLY_SCHEDULER_RUNNER` | `false` | Enable scheduler watchdog in-process (scheduled runs only) |
+~~~yaml
+# Agent
+contextCompactionPercent: 80
+~~~
 
-## SDK Modes
+The selected model must declare its actual positive capacity separately:
 
-| Mode | Constructor | Use case |
-|------|-------------|----------|
-| Embedded | `sdk.NewEmbeddedFromRuntime(rt)` | In-process calls, no HTTP overhead |
-| HTTP | `sdk.NewHTTP(baseURL, opts...)` | Remote client for deployed services |
+~~~yaml
+# Model configuration; substitute this model/provider's actual capacity.
+options:
+  contextWindow: 400000
+~~~
 
-Both implement `sdk.Client`.
+The percentage must be finite and in (0, 100]. Output-token limits are not
+context capacity. At or above the threshold, the runtime compacts eligible
+completed history, rebuilds/recounts the request and continues. The threshold
+is a trigger, not a hard cap. Latest-user and pending-operation protections,
+completed tool identities and durable full-history barriers cover continuation
+after failures and restarts.
 
-## Package Layout
+Exact prepared-input counting is implemented by the OpenAI Responses API
+adapter through /responses/input_tokens with its normal HTTP client and
+credentials. Input messages, instructions, tools and supported multimodal
+content are retained; generation-only fields are excluded from the count
+request. Chat Completions, the ChatGPT backend and other providers are not
+implicitly exact-counter compatible. Unsupported configuration/counting and
+endpoint failures produce actionable errors, without a character-count
+approximation. Ordinary reactive provider-limit recovery remains available.
 
-```
-agently-core/
-  sdk/                      Public SDK surface (Client, Handler, HTTP, Embedded)
-  app/                      Application plumbing
-    executor/               Runtime builder (Builder, Runtime, Defaults config)
-    store/
-      conversation/         Conversation domain types and helpers
-      data/                 Datly-backed persistence facade
-  service/                  Business logic services
-    agent/                  Agent query orchestration
-    auth/                   OAuth/JWT auth, sessions, token refresh, chatgpt provider
-    a2a/                    Agent-to-agent protocol
-    scheduler/              Schedule CRUD, watchdog, execution
-    workspace/              Workspace metadata and file browser
-  protocol/                 Domain models
-    agent/                  Agent definition, finder, loader
-    mcp/
-      auth/integrate/       MCP OAuth round-tripper factory (BFF/bearer)
-      config/               MCP client config
-      cookies/              Per-user cookie jar provider
-      expose/               Expose workspace tools as MCP HTTP server
-      manager/              MCP client lifecycle manager
-    tool/                   Tool registry, bundles, policies, system tools
-    prompt/                 Prompt/system template types
-  genai/                    LLM and embedder providers
-    llm/                    OpenAI, Vertex AI, Bedrock, Grok, Ollama, InceptionLabs
-    embedder/               Embedder provider abstraction
-  workspace/                Workspace domain
-    repository/             YAML resource repositories (agents, models, mcp, ...)
-    loader/                 Config loaders
-    service/                Metadata/YAML parsing
-  internal/                 Private implementation details
-    auth/                   Auth context helpers, JWT token manager
-    script/                 DDL schemas (SQLite, MySQL)
-  pkg/                      Datly DAO layer
-    agently/                Read/write components for conversations, turns, messages, sessions, tokens
-  e2e/                      End-to-end test infrastructure
-```
+See [compaction configuration and tests](doc/proactive-context-compaction.md).
+Live provider verification is opt-in; unit and HTTP failure tests use fixtures.
 
-## LLM Providers
+## Persistence and Datly authoring
 
-| Provider | Models |
-|----------|--------|
-| OpenAI | GPT-4, GPT-4o, o1, o3, o4-mini, GPT-5.x series |
-| Vertex AI (Gemini) | Gemini 2.0+, Gemini Flash |
-| Vertex AI (Claude) | Claude 3.x, 4.x |
-| Bedrock | Provider-neutral Converse API (including Qwen and other open-weight models) |
-| Bedrock (Claude) | Claude via AWS Bedrock's Anthropic-native API |
-| InceptionLabs | Mercury series |
-| Grok (xAI) | Grok 4+ |
-| Ollama | Local open-source models |
+SQLite and MySQL store native conversations, turns, messages, model/tool calls,
+payloads, goals, schedules and reports. Workspace SQLite is bootstrapped by the
+configured schema/upgrade path. Provision the versioned MySQL schema before
+deployment; reporting stores do not create their own schema.
 
-## Testing
+AG-UI reuses **conversation, run and call_payload**. Conversation columns hold
+the protocol projection/revision; run_kind='agui' rows hold protocol admission
+and observer leases; call_payload.kind='agui.event' stores ordered journal
+events by internal run and sequence. Native execution remains isolated to
+run_kind='execution'. Native writes cannot overwrite protocol identity/state.
+Owned deletion follows journal payloads, protocol runs and conversation
+projections in the existing managed transaction; ordinary GC retains run-owned
+payloads. There is no separate four-table protocol storage layer.
 
-```bash
-# Unit and integration tests
-go test ./...
+| Setting | Purpose |
+| --- | --- |
+| AGENTLY_WORKSPACE | Workspace root |
+| AGENTLY_DB_DRIVER | sqlite or mysql |
+| AGENTLY_DB_DSN | Configured connection string |
+| AGENTLY_RUNTIME_ROOT / AGENTLY_STATE_PATH | Runtime/state roots |
+| AGENTLY_WORKSPACE_NO_DEFAULTS | Skip default workspace seeding |
 
-# Extended live-LLM e2e/query coverage (opt-in)
-AGENTLY_E2E_EXTENDED=1 go test ./e2e/query -count=1
+DQL under dql/ and adjacent SQL are the reader/writer/cube source of truth.
+Generated contracts/resources live under internal/datly/; managed application
+compositions live under internal/store/. Prefer ordinary outer view wildcards;
+keep explicit aliases/conversions/keys for genuine contract requirements.
+Application lifecycle changes belong in authored create-once hooks.
 
-# E2E tests (Endly-driven)
-cd e2e && endly -t=build && endly -t=test
+~~~bash
+cd e2e/datly
+endly -t=transcribe
+~~~
 
-# Auth E2E tests
-go test ./e2e/auth/ -v
+The pinned stock Datly tool transcribes the local schema fixture and overwrites
+generated artifacts. Do not repair an authoring error by hand-patching generated
+Go. This is the authoring workflow; no separate regeneration workflow is needed.
+Linked native runtime components embed their SQL/resources and do not require a
+source checkout or authoring command at application startup.
 
-# SDK unit tests (including auth guard)
-go test ./sdk/ -v
-```
+See [storage/schema upgrades](doc/ag-ui-storage-reuse.md),
+[deletion](doc/conversation-deletion.md), [maintenance](doc/database-maintenance.md)
+and the [transcribe task](e2e/datly/transcribe.yaml).
 
-Debug logging is controlled globally by `AGENTLY_DEBUG`. When enabled, all debug
-components are shown by default. To narrow output, optionally set
-`AGENTLY_DEBUG_COMPONENTS` to a comma-separated list of component names such as
-`conversation,sse`.
+## Build, test and deploy
 
-For SDK callers, request-scoped logging is also available without changing
-global process state:
+This branch requires Go 1.25.8+ and the compatible module graph in go.mod.
+Its local fork replacements select sibling mcp-protocol-ag-ui, mcp-ag-ui and
+forge-ag-ui checkouts. Preserve those paths/revisions when building this branch;
+an application's module/workspace must select its own complete dependency graph.
 
-- Go HTTP SDK: `sdk.WithSessionDebug("trace", "conversation", "reactor")`
-- TypeScript SDK: `new AgentlyClient({ ..., sessionDebug: { level: "trace", components: ["conversation", "reactor"] } })`
-- iOS SDK: `AgentlyClient(..., sessionDebug: SessionDebugOptions(level: "trace", components: ["conversation", "reactor"]))`
-- Android SDK: `AgentlyClient(..., sessionDebug = SessionDebugOptions(level = "trace", components = listOf("conversation", "reactor")))`
+~~~bash
+# From the repository root
+go test ./sdk ./internal/datly/contracttest ./app/store/data
+(cd sdk/ts && npm ci && npm run typecheck && npm test)
+swift test --package-path sdk/ios
+(cd sdk/android && ./gradlew testDebugUnitTest testReleaseUnitTest)
+~~~
 
-These SDK options emit request-scoped headers:
+Android requires JDK 17 and the configured Android SDK. Live LLM/MCP/device
+tests need explicit environment setup and credentials; ordinary unit checks do
+not establish service-connected UI acceptance. The [startup profiler](e2e/startup/README.md)
+separates runtime initialization from launch and first-query materialization.
 
-- `X-Agently-Debug`
-- `X-Agently-Debug-Level`
-- `X-Agently-Debug-Components`
+Deploy a protected HTTP handler with the selected workspace, schema, provider
+configuration and supporting resource/assets. Retain current BFF/session auth
+for supporting APIs. Debugging can be global via AGENTLY_DEBUG, or
+request-scoped through SDK SessionDebug options and X-Agently-Debug headers;
+avoid placing credentials or private input in diagnostics.
 
-The server maps those headers into context-scoped debug logging for that
-client/session without requiring `AGENTLY_DEBUG` for the whole process.
-
-## Related Projects
-
-- [agently](https://github.com/viant/agently) — CLI and HTTP server built on agently-core
-- [mcp-sqlkit](https://github.com/viant/mcp-sqlkit) — MCP server for database operations
-- [datly](https://github.com/viant/datly) — Data access layer for persistence
-- [forge](https://github.com/viant/forge) — React UI framework used by the embedded web UI
-
-## License
-
-Apache License 2.0 — see [LICENSE](./LICENSE) and [NOTICE](./NOTICE).
-
-## Datly persistence
-
-Canonical contracts live in `dql/`; generated readers, writers, and cubes live
-in `internal/datly/`. Managed business compositions live in `internal/store/`.
-
-The embedded runtime selects linked Go packages with
-`GoBootstrap.LinkedOnly`. It discovers component tags and types in parallel,
-then compiles each component on first use using its embedded SQL/resources.
-It needs no Go source checkout, source hashes, or application registration list.
-Custom holders expose their typed handler through `DatlyHandler`.
-
-Transcription is a separate authoring step that reads local DQL, SQL, and Go
-shapes; see [authoring commands](scripts/datly/README.md).
-The [startup profiler](e2e/startup/README.md) measures runtime initialization
-separately from process launch and first-query materialization. Native contract
-tests use fixed expectations and fixtures without a legacy Datly dependency.
+Further documentation is indexed in [doc/README.md](doc/README.md).
+Apache License 2.0: [LICENSE](LICENSE), [NOTICE](NOTICE).

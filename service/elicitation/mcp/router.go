@@ -118,3 +118,10 @@ func (r *Router) RemoveByElicitation(convID, elicID string) {
 	}
 	r.mu.Unlock()
 }
+
+// HasWaiter inspects an existing scoped waiter without consuming or waking it.
+func (r *Router) HasWaiter(conversationID, elicitationID string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.byEID[conversationID] != nil && r.byEID[conversationID][elicitationID] != nil
+}

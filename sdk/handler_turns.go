@@ -6,6 +6,8 @@ import (
 	"log"
 	"net/http"
 	"strings"
+
+	svcauth "github.com/viant/agently-core/service/auth"
 )
 
 func conversationAndTurnIDs(r *http.Request) (string, string, error) {
@@ -78,8 +80,13 @@ func handleDeleteQueuedTurn(client Client) http.HandlerFunc {
 	}
 }
 
-func handleMoveQueuedTurn(client Client) http.HandlerFunc {
+func handleMoveQueuedTurn(client Client, authConfigs ...*svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var ok bool
+		r, ok = applicationRequestPrincipal(w, r, "", authConfigs)
+		if !ok {
+			return
+		}
 		conversationID, turnID, err := conversationAndTurnIDs(r)
 		if err != nil {
 			httpError(w, http.StatusBadRequest, err)

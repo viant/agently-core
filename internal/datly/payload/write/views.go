@@ -25,6 +25,8 @@ type Payload struct {
 	Redacted               *int        `sqlx:"redacted,required=true" json:"redacted,omitempty"`
 	CreatedAt              *time.Time  `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
 	SchemaRef              *string     `sqlx:"schema_ref" json:"schemaRef,omitempty"`
+	RunId                  *string     `sqlx:"run_id,refTable=run,refColumn=id" json:"runId,omitempty"`
+	Sequence               *int        `sqlx:"sequence" json:"sequence,omitempty"`
 	Has                    *PayloadHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"PayloadHas"`
 }
 
@@ -46,6 +48,8 @@ type PayloadHas struct {
 	Redacted               bool
 	CreatedAt              bool
 	SchemaRef              bool
+	RunId                  bool
+	Sequence               bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
@@ -66,6 +70,8 @@ type CurrentWriterView struct {
 	Redacted               *int       `sqlx:"redacted,required=true" json:"redacted,omitempty"`
 	CreatedAt              *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
 	SchemaRef              *string    `sqlx:"schema_ref" json:"schemaRef,omitempty"`
+	RunId                  *string    `sqlx:"run_id,refTable=run,refColumn=id" json:"runId,omitempty"`
+	Sequence               *int       `sqlx:"sequence" json:"sequence,omitempty"`
 }
 
 type WriterKeysRow struct {

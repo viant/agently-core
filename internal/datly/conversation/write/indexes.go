@@ -105,6 +105,349 @@ func (index WriterHandlerCurrentWriterGroupedByShareable) Has(key int) bool {
 	_, ok := index[key]
 	return ok
 }
+func WriterHandlerCurrentWriterIndexByProtocolOnlyKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	if value.ProtocolOnly == nil {
+		return zero, false
+	}
+	return *value.ProtocolOnly, true
+}
+
+type WriterHandlerCurrentWriterIndexedByProtocolOnly map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByProtocolOnly() (WriterHandlerCurrentWriterIndexedByProtocolOnly, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByProtocolOnly)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolOnlyKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByProtocolOnly")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByProtocolOnly) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByProtocolOnly map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByProtocolOnly() WriterHandlerCurrentWriterGroupedByProtocolOnly {
+	result := make(WriterHandlerCurrentWriterGroupedByProtocolOnly)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolOnlyKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByProtocolOnly) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByProtocolThreadKeyKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.ProtocolThreadKey == nil {
+		return zero, false
+	}
+	return *value.ProtocolThreadKey, true
+}
+
+type WriterHandlerCurrentWriterIndexedByProtocolThreadKey map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByProtocolThreadKey() (WriterHandlerCurrentWriterIndexedByProtocolThreadKey, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByProtocolThreadKey)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolThreadKeyKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByProtocolThreadKey")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByProtocolThreadKey) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByProtocolThreadKey map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByProtocolThreadKey() WriterHandlerCurrentWriterGroupedByProtocolThreadKey {
+	result := make(WriterHandlerCurrentWriterGroupedByProtocolThreadKey)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolThreadKeyKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByProtocolThreadKey) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByProtocolThreadIdKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.ProtocolThreadId == nil {
+		return zero, false
+	}
+	return *value.ProtocolThreadId, true
+}
+
+type WriterHandlerCurrentWriterIndexedByProtocolThreadId map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByProtocolThreadId() (WriterHandlerCurrentWriterIndexedByProtocolThreadId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByProtocolThreadId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolThreadIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByProtocolThreadId")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByProtocolThreadId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByProtocolThreadId map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByProtocolThreadId() WriterHandlerCurrentWriterGroupedByProtocolThreadId {
+	result := make(WriterHandlerCurrentWriterGroupedByProtocolThreadId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolThreadIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByProtocolThreadId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByProtocolPrincipalKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.ProtocolPrincipal == nil {
+		return zero, false
+	}
+	return *value.ProtocolPrincipal, true
+}
+
+type WriterHandlerCurrentWriterIndexedByProtocolPrincipal map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByProtocolPrincipal() (WriterHandlerCurrentWriterIndexedByProtocolPrincipal, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByProtocolPrincipal)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolPrincipalKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByProtocolPrincipal")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByProtocolPrincipal) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByProtocolPrincipal map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByProtocolPrincipal() WriterHandlerCurrentWriterGroupedByProtocolPrincipal {
+	result := make(WriterHandlerCurrentWriterGroupedByProtocolPrincipal)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolPrincipalKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByProtocolPrincipal) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByProtocolRevisionKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	if value.ProtocolRevision == nil {
+		return zero, false
+	}
+	return *value.ProtocolRevision, true
+}
+
+type WriterHandlerCurrentWriterIndexedByProtocolRevision map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByProtocolRevision() (WriterHandlerCurrentWriterIndexedByProtocolRevision, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByProtocolRevision)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolRevisionKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByProtocolRevision")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByProtocolRevision) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByProtocolRevision map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByProtocolRevision() WriterHandlerCurrentWriterGroupedByProtocolRevision {
+	result := make(WriterHandlerCurrentWriterGroupedByProtocolRevision)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolRevisionKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByProtocolRevision) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByProtocolStateJsonKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.ProtocolStateJson == nil {
+		return zero, false
+	}
+	return *value.ProtocolStateJson, true
+}
+
+type WriterHandlerCurrentWriterIndexedByProtocolStateJson map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByProtocolStateJson() (WriterHandlerCurrentWriterIndexedByProtocolStateJson, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByProtocolStateJson)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolStateJsonKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByProtocolStateJson")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByProtocolStateJson) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByProtocolStateJson map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByProtocolStateJson() WriterHandlerCurrentWriterGroupedByProtocolStateJson {
+	result := make(WriterHandlerCurrentWriterGroupedByProtocolStateJson)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolStateJsonKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByProtocolStateJson) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByProtocolMessagesJsonKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.ProtocolMessagesJson == nil {
+		return zero, false
+	}
+	return *value.ProtocolMessagesJson, true
+}
+
+type WriterHandlerCurrentWriterIndexedByProtocolMessagesJson map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByProtocolMessagesJson() (WriterHandlerCurrentWriterIndexedByProtocolMessagesJson, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByProtocolMessagesJson)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolMessagesJsonKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByProtocolMessagesJson")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByProtocolMessagesJson) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByProtocolMessagesJson map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByProtocolMessagesJson() WriterHandlerCurrentWriterGroupedByProtocolMessagesJson {
+	result := make(WriterHandlerCurrentWriterGroupedByProtocolMessagesJson)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByProtocolMessagesJsonKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByProtocolMessagesJson) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
 func WriterHandlerCurrentWriterIndexBySummaryKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -1404,6 +1747,27 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Shareable") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Shareable")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ProtocolOnly") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ProtocolOnly")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ProtocolThreadKey") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ProtocolThreadKey")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ProtocolThreadId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ProtocolThreadId")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ProtocolPrincipal") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ProtocolPrincipal")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ProtocolRevision") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ProtocolRevision")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ProtocolStateJson") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ProtocolStateJson")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ProtocolMessagesJson") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ProtocolMessagesJson")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Summary") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Summary")

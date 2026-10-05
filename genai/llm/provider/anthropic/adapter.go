@@ -10,7 +10,7 @@ import (
 // ToRequest converts the generic llm request into the direct Anthropic
 // Messages API payload while reusing the existing Claude content mapping.
 func ToRequest(ctx context.Context, model string, request *llm.GenerateRequest) (*Request, error) {
-	baseReq, err := vclaude.ToRequest(ctx, request)
+	baseReq, err := vclaude.ToRequest(vclaude.WithDirectAPI(ctx), request)
 	if err != nil {
 		return nil, err
 	}

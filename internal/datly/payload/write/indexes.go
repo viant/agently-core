@@ -730,6 +730,104 @@ func (index WriterHandlerCurrentWriterGroupedBySchemaRef) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
+func WriterHandlerCurrentWriterIndexByRunIdKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	if value.RunId == nil {
+		return zero, false
+	}
+	return *value.RunId, true
+}
+
+type WriterHandlerCurrentWriterIndexedByRunId map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByRunId() (WriterHandlerCurrentWriterIndexedByRunId, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByRunId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByRunIdKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByRunId")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByRunId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByRunId map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByRunId() WriterHandlerCurrentWriterGroupedByRunId {
+	result := make(WriterHandlerCurrentWriterGroupedByRunId)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByRunIdKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByRunId) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexBySequenceKey(value *CurrentWriterView) (int, bool) {
+	var zero int
+	if value == nil {
+		return zero, false
+	}
+	if value.Sequence == nil {
+		return zero, false
+	}
+	return *value.Sequence, true
+}
+
+type WriterHandlerCurrentWriterIndexedBySequence map[int]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexBySequence() (WriterHandlerCurrentWriterIndexedBySequence, error) {
+	result := make(WriterHandlerCurrentWriterIndexedBySequence)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySequenceKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexBySequence")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedBySequence) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedBySequence map[int][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupBySequence() WriterHandlerCurrentWriterGroupedBySequence {
+	result := make(WriterHandlerCurrentWriterGroupedBySequence)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexBySequenceKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedBySequence) Has(key int) bool {
+	_, ok := index[key]
+	return ok
+}
 
 type WriterHandlerReadIndexes struct {
 	CurrentWriter     WriterHandlerCurrentWriterSlice
@@ -846,6 +944,12 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("SchemaRef") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.SchemaRef")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("RunId") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.RunId")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Sequence") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Sequence")
 			}
 		}
 		cloned, err := (xshape.Runtime{}).CloneValue(rows, xshape.CloneOptions{})

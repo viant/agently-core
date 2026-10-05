@@ -9,7 +9,7 @@
     FROM schedule_run r
     WHERE $Trusted
     ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
-    AND (NOT $MaintenanceMode OR (TRIM(COALESCE(r.schedule_id,''))<>'' AND EXISTS(SELECT 1 FROM schedule s WHERE s.id=r.schedule_id) AND NOT EXISTS(SELECT 1 FROM run current_run WHERE current_run.id=r.id)))
+    AND (NOT $MaintenanceMode OR (TRIM(COALESCE(r.schedule_id,''))<>'' AND EXISTS(SELECT 1 FROM schedule s WHERE s.id=r.schedule_id) AND NOT EXISTS(SELECT 1 FROM run current_run WHERE current_run.id=r.id AND COALESCE(current_run.run_kind,'execution')='execution')))
     #if($MaintenanceMode)
     AND (${View.TimestampSecondsUTC("COALESCE(r.completed_at,r.updated_at,r.created_at)")} < $MaintenanceBeforeSecond OR (${View.TimestampSecondsUTC("COALESCE(r.completed_at,r.updated_at,r.created_at)")} = $MaintenanceBeforeSecond AND ${View.TimestampNanoseconds("COALESCE(r.completed_at,r.updated_at,r.created_at)")} <= $MaintenanceBeforeNano))
     #if($Has.MaintenanceAfterId)

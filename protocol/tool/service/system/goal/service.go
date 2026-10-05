@@ -210,7 +210,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.Goal = s.projectGoal(convID, current)
+	output.Goal = s.projectGoalContext(ctx, convID, current)
 	return nil
 }
 
@@ -260,7 +260,7 @@ func (s *Service) create(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.Goal = s.projectGoal(convID, created)
+	output.Goal = s.projectGoalContext(ctx, convID, created)
 	s.publishGoalEvent(ctx, streaming.EventTypeGoalUpdated, output.Goal)
 	return nil
 }
@@ -310,7 +310,7 @@ func (s *Service) update(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.Goal = s.projectGoal(convID, updated)
+	output.Goal = s.projectGoalContext(ctx, convID, updated)
 	s.publishGoalEvent(ctx, streaming.EventTypeGoalUpdated, output.Goal)
 	return nil
 }
@@ -347,7 +347,7 @@ func (s *Service) pause(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.Goal = s.projectGoal(convID, updated)
+	output.Goal = s.projectGoalContext(ctx, convID, updated)
 	s.publishGoalEvent(ctx, streaming.EventTypeGoalUpdated, output.Goal)
 	return nil
 }
@@ -380,7 +380,7 @@ func (s *Service) resume(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	output.Goal = s.projectGoal(convID, updated)
+	output.Goal = s.projectGoalContext(ctx, convID, updated)
 	s.publishGoalEvent(ctx, streaming.EventTypeGoalUpdated, output.Goal)
 	return nil
 }
@@ -459,11 +459,15 @@ func defaultGoalID(conversationID string) string {
 }
 
 func (s *Service) projectGoal(conversationID string, in *goalsys.Record) *Goal {
+	return s.projectGoalContext(context.Background(), conversationID, in)
+}
+
+func (s *Service) projectGoalContext(ctx context.Context, conversationID string, in *goalsys.Record) *Goal {
 	goal := projectGoal(in)
 	if s == nil || s.schedules == nil || goal == nil {
 		return goal
 	}
-	wakeup := s.schedules.CurrentGoalWakeup(context.Background(), strings.TrimSpace(conversationID), strings.TrimSpace(goal.ID))
+	wakeup := s.schedules.CurrentGoalWakeup(ctx, strings.TrimSpace(conversationID), strings.TrimSpace(goal.ID))
 	if wakeup == nil {
 		return goal
 	}

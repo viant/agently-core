@@ -1,0 +1,8 @@
+id: openai_gpt5_nano_proactive_private
+name: GPT-5 nano proactive compaction test
+options:
+  provider: openai
+  model: gpt-5-nano
+  envKey: OPENAI_API_KEY
+  contextWindow: 400000
+  contextContinuation: true

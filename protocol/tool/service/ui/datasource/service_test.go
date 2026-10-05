@@ -86,14 +86,19 @@ func TestRefreshUsesRequestClientWithDuplicateConversationWindows(t *testing.T) 
 	for _, requested := range []string{"client-a", "client-b"} {
 		t.Run(requested, func(t *testing.T) {
 			bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+			service := New(bridge)
 			seedClientWindow(t, bridge, "client-a")
 			seedClientWindow(t, bridge, "client-b")
+			// UI commands require an attached polling transport, not only a
+			// published snapshot. Establish both client heartbeats before dispatch.
+			postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-a", "timeoutMs": 1})
+			postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": "client-b", "timeoutMs": 1})
 			ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
 			ctx = runtimerequestctx.WithPreferredUIClientID(ctx, requested)
 			done := make(chan error, 1)
 			go func() {
 				out := &CommandOutput{}
-				err := New(bridge).refresh(ctx, &RefreshInput{WindowID: "genericBuilder__conv-1", DataSourceRef: "forecast_rows"}, out)
+				err := service.refresh(ctx, &RefreshInput{WindowID: "genericBuilder__conv-1", DataSourceRef: "forecast_rows"}, out)
 				if err == nil && (!out.OK || out.ClientID != requested) {
 					err = fmt.Errorf("wrong client: %+v", out)
 				}
@@ -102,6 +107,11 @@ func TestRefreshUsesRequestClientWithDuplicateConversationWindows(t *testing.T) 
 			result := postUIRPC(t, bridge, "ui.poll", map[string]interface{}{"clientId": requested, "timeoutMs": 1000})
 			command, ok := result["params"].(map[string]interface{})
 			if !ok || command["method"] != "ui.data.fetch" {
+				select {
+				case err := <-done:
+					t.Fatalf("refresh returned before delivery to %s: %v", requested, err)
+				default:
+				}
 				t.Fatalf("refresh not delivered to requesting client: %#v", result)
 			}
 			postUIRPC(t, bridge, "ui.response", map[string]interface{}{"id": command["id"], "ok": true})

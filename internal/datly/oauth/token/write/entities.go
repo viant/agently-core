@@ -6,16 +6,6 @@ import (
 	time "time"
 )
 
-func (entity *Token) GetEncToken() string {
-	return entity.EncToken
-}
-func (entity *Token) SetEncToken(value string) {
-	entity.EncToken = value
-	if entity.Has == nil {
-		entity.Has = &TokenHas{}
-	}
-	entity.Has.EncToken = true
-}
 func (entity *Token) GetUserId() string {
 	return entity.UserId
 }
@@ -35,6 +25,16 @@ func (entity *Token) SetProvider(value string) {
 		entity.Has = &TokenHas{}
 	}
 	entity.Has.Provider = true
+}
+func (entity *Token) GetEncToken() string {
+	return entity.EncToken
+}
+func (entity *Token) SetEncToken(value string) {
+	entity.EncToken = value
+	if entity.Has == nil {
+		entity.Has = &TokenHas{}
+	}
+	entity.Has.EncToken = true
 }
 func (entity *Token) GetCreatedAt() time.Time {
 	return entity.CreatedAt

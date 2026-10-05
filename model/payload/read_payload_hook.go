@@ -1,31 +1,16 @@
 package payload
 
 import (
-	"bytes"
-	"compress/gzip"
 	"context"
+	"github.com/viant/agently-core/internal/datly/payload/reference"
 )
 
+// OnFetch shares the canonical byte-preserving decoder with native readers.
 func (p *PayloadView) OnFetch(ctx context.Context) error {
-	if p.InlineBody == nil {
-		return nil
+	payload := &reference.PayloadView{Id: p.Id, InlineBody: p.InlineBody, Compression: p.Compression}
+	if err := payload.OnFetch(ctx); err != nil {
+		return err
 	}
-	inline := []byte(*p.InlineBody)
-	uncompressIfNeeded(&p.Compression, &inline)
-	*p.InlineBody = bytes.TrimSpace(inline)
+	p.InlineBody, p.Compression = payload.InlineBody, payload.Compression
 	return nil
-}
-
-func uncompressIfNeeded(compression *string, inlineBody *[]byte) {
-	if *compression == "gzip" && inlineBody != nil {
-		gr, err := gzip.NewReader(bytes.NewReader([]byte(*inlineBody)))
-		if err == nil {
-			var buf bytes.Buffer
-			_, _ = buf.ReadFrom(gr)
-			_ = gr.Close()
-			b := buf.Bytes()
-			*inlineBody = b
-			*compression = ""
-		}
-	}
 }

@@ -52,16 +52,18 @@ type (
 	}
 
 	Message struct {
-		Kind       MessageKind   `yaml:"kind,omitempty" json:"kind,omitempty"`
-		Role       string        `yaml:"role,omitempty" json:"role,omitempty"`
-		MimeType   string        `yaml:"mimeType,omitempty" json:"mimeType,omitempty"`
-		Content    string        `yaml:"content,omitempty" json:"content,omitempty"`
-		Attachment []*Attachment `yaml:"attachment,omitempty" json:"attachment,omitempty"`
-		CreatedAt  time.Time     `yaml:"createdAt,omitempty" json:"createdAt,omitempty"`
+		ContentItems []llm.ContentItem `yaml:"contentItems,omitempty" json:"contentItems,omitempty"`
+		Kind         MessageKind       `yaml:"kind,omitempty" json:"kind,omitempty"`
+		Role         string            `yaml:"role,omitempty" json:"role,omitempty"`
+		MimeType     string            `yaml:"mimeType,omitempty" json:"mimeType,omitempty"`
+		Content      string            `yaml:"content,omitempty" json:"content,omitempty"`
+		Attachment   []*Attachment     `yaml:"attachment,omitempty" json:"attachment,omitempty"`
+		CreatedAt    time.Time         `yaml:"createdAt,omitempty" json:"createdAt,omitempty"`
 
 		ID string `yaml:"id,omitempty" json:"id,omitempty"`
 
 		// Optional tool metadata for tool result messages.
+		ToolError   string                 `yaml:"toolError,omitempty" json:"toolError,omitempty"`
 		ToolOpID    string                 `yaml:"toolOpId,omitempty" json:"toolOpId,omitempty"`
 		ToolName    string                 `yaml:"toolName,omitempty" json:"toolName,omitempty"`
 		ToolArgs    map[string]interface{} `yaml:"toolArgs,omitempty" json:"toolArgs,omitempty"`
@@ -135,8 +137,9 @@ const (
 
 type (
 	Task struct {
-		Prompt      string        `yaml:"prompt,omitempty" json:"prompt,omitempty"`
-		Attachments []*Attachment `yaml:"attachments,omitempty" json:"attachments,omitempty"`
+		ContentItems []llm.ContentItem `yaml:"contentItems,omitempty" json:"contentItems,omitempty"`
+		Prompt       string            `yaml:"prompt,omitempty" json:"prompt,omitempty"`
+		Attachments  []*Attachment     `yaml:"attachments,omitempty" json:"attachments,omitempty"`
 	}
 
 	Meta struct {
@@ -456,6 +459,9 @@ func (m *Message) ToLLM() llm.Message {
 	if strings.EqualFold(strings.TrimSpace(m.Role), "tool") {
 		role = llm.RoleAssistant
 	}
+	if m.ContentItems != nil {
+		return llm.Message{ID: strings.TrimSpace(m.ID), Role: role, Content: m.Content, Items: append([]llm.ContentItem(nil), m.ContentItems...)}
+	}
 	if len(m.Attachment) == 0 {
 		msg := llm.NewTextMessage(role, m.Content)
 		msg.ID = strings.TrimSpace(m.ID)
@@ -613,12 +619,24 @@ func ToolResultLLMMessages(msg *Message) []llm.Message {
 	if name == "" {
 		name = rawName
 	}
-	result := strings.TrimSpace(msg.Content)
+	result := msg.Content
 	call := llm.NewToolCall(opID, name, msg.ToolArgs, result)
 	call.ResultMessageID = strings.TrimSpace(msg.ID)
 	assistant := llm.NewAssistantMessageWithToolCalls(call)
 	assistant.ID = strings.TrimSpace(msg.ID)
 	tool := newToolResultMessageWithAttachments(call, msg.Attachment)
+	if msg.ContentItems != nil {
+		tool.Items = append([]llm.ContentItem(nil), msg.ContentItems...)
+		tool.ContentItems = nil
+	}
+	if msg.ToolError != "" {
+		diagnostic := llm.NewTextContent("Tool failed: " + msg.ToolError)
+		if len(tool.Items) > 0 {
+			tool.Items = append([]llm.ContentItem{diagnostic}, tool.Items...)
+		} else {
+			tool.Content = call.Result + "\nTool failed: " + msg.ToolError
+		}
+	}
 	tool.ID = strings.TrimSpace(msg.ID)
 	return []llm.Message{assistant, tool}
 }

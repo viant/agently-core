@@ -48,7 +48,9 @@ func (s *Service) ensureRunTrackedLLMContext(ctx context.Context, conversationID
 		if helperOwnsTurnLifecycle {
 			rec.SetStatus("running")
 		}
-		if strings.TrimSpace(assistant) != "" {
+		// A helper owns its diagnostic model call, not the main turn's routing
+		// identity. Overwriting an existing turn loses cross-turn continuity.
+		if helperOwnsTurnLifecycle && strings.TrimSpace(assistant) != "" {
 			rec.SetAgentIDUsed(strings.TrimSpace(assistant))
 		}
 		_ = s.conversation.PatchTurn(ctx, rec)
