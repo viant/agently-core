@@ -41,18 +41,17 @@ import java.nio.charset.StandardCharsets
 class AgentlyClient(
     endpoints: EndpointRegistry,
     internal val endpointName: String = "appAPI",
-    internal val json: Json = Json { ignoreUnknownKeys = true },
-    val conversationTransportMode: com.viant.agentlysdk.agui.ConversationTransportMode = com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI
+    internal val json: Json = Json { ignoreUnknownKeys = true }
 ) {
+    private val applicationGeneration = java.util.concurrent.atomic.AtomicLong(0)
     internal val endpointRegistry = endpoints
 
     constructor(
         endpoints: Map<String, EndpointConfig>,
         endpointName: String = "appAPI",
         json: Json = Json { ignoreUnknownKeys = true },
-        sessionDebug: SessionDebugOptions? = null,
-        conversationTransportMode: com.viant.agentlysdk.agui.ConversationTransportMode = com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI
-    ) : this(EndpointRegistry(applySessionDebug(endpoints, sessionDebug)), endpointName, json, conversationTransportMode)
+        sessionDebug: SessionDebugOptions? = null
+    ) : this(EndpointRegistry(applySessionDebug(endpoints, sessionDebug)), endpointName, json)
 
     private val agUiConversations by lazy {
         val endpoint = requireNotNull(endpointRegistry.resolve(endpointName)) { "Endpoint not found: $endpointName" }
@@ -60,14 +59,13 @@ class AgentlyClient(
     }
     /** Call before changing the authenticated account/cookie identity. Detach is never backend cancellation. */
     fun resetConversationTransport() {
-        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) agUiConversations.reset()
+        applicationGeneration.incrementAndGet()
+        agUiConversations.reset()
     }
     suspend fun reconcileConversation(conversationId: String): ConversationStateResponse =
-        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) agUiConversations.reconcile(conversationId)
-        else getLiveState(conversationId, includeFeeds = true)
+        agUiConversations.reconcile(conversationId)
 
     suspend fun isConversationRequestAdmitted(conversationId: String, clientRequestId: String): Boolean {
-        check(conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI)
         return agUiConversations.requestAdmitted(conversationId, clientRequestId)
     }
 
@@ -240,8 +238,7 @@ class AgentlyClient(
     }
 
     suspend fun query(input: QueryInput): QueryOutput = withContext(Dispatchers.IO) {
-        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.query(input)
-        postLongRunning("/v1/agent/query", input, QueryOutput.serializer())
+        agUiConversations.query(input)
     }
 
     suspend fun createConversation(input: CreateConversationInput): Conversation = withContext(Dispatchers.IO) {
@@ -342,21 +339,28 @@ class AgentlyClient(
         get(buildMessagesPath(input), MessagePage.serializer())
     }
 
-    suspend fun getTranscript(
+    suspend fun getTranscript(input: GetTranscriptInput, maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES): ConversationStateResponse = withContext(Dispatchers.IO) {
+        try { agUiConversations.transcript(input.conversationId) }
+        catch(error: com.viant.agentlysdk.agui.AgUiHttpException) { if(error.statusCode!=403) throw error; readConversationHistory(input,maxResponseBytes) }
+    }
+    suspend fun getLiveState(conversationId: String, includeFeeds: Boolean = false, includeExecutionDetails: Boolean = true, maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES): ConversationStateResponse = withContext(Dispatchers.IO) {
+        try { agUiConversations.transcript(conversationId) }
+        catch(error: com.viant.agentlysdk.agui.AgUiHttpException) { if(error.statusCode!=403) throw error; readApplicationState(conversationId,includeFeeds,includeExecutionDetails,maxResponseBytes) }
+    }
+
+    suspend fun readConversationHistory(
         input: GetTranscriptInput,
         maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
     ): ConversationStateResponse = withContext(Dispatchers.IO) {
-        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.transcript(input.conversationId)
         get(buildTranscriptPath(input), ConversationStateResponse.serializer(), maxResponseBytes)
     }
 
-    suspend fun getLiveState(
+    suspend fun readApplicationState(
         conversationId: String,
         includeFeeds: Boolean = false,
         includeExecutionDetails: Boolean = true,
         maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
     ): ConversationStateResponse = withContext(Dispatchers.IO) {
-        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.transcript(conversationId)
         val query = linkedMapOf<String, String>()
         if (includeFeeds) {
             query["includeFeeds"] = "true"
@@ -392,14 +396,11 @@ class AgentlyClient(
     }
 
     suspend fun resolveElicitation(input: ResolveElicitationInput): Unit = withContext(Dispatchers.IO) {
-        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.resolve(input)
-        val path = "/v1/elicitations/${encodePath(input.conversationId)}/${encodePath(input.elicitationId)}/resolve"
-        post(path, input, EmptyResponse.serializer())
+        agUiConversations.resolve(input)
     }
 
     suspend fun terminateConversation(conversationId: String): Unit = withContext(Dispatchers.IO) {
-        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.cancel(conversationId)
-        post("/v1/conversations/${encodePath(conversationId)}/terminate", emptyMap<String, JsonElement>(), EmptyResponse.serializer())
+        agUiConversations.cancel(conversationId)
     }
 
     suspend fun compactConversation(conversationId: String): Unit = withContext(Dispatchers.IO) {
@@ -434,9 +435,7 @@ class AgentlyClient(
     }
 
     suspend fun decideToolApproval(input: DecideToolApprovalInput): DecideToolApprovalOutput = withContext(Dispatchers.IO) {
-        if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) return@withContext agUiConversations.decide(input)
-        val path = "/v1/tool-approvals/${encodePath(input.id)}/decision"
-        post(path, input, DecideToolApprovalOutput.serializer())
+        agUiConversations.decide(input)
     }
 
     suspend fun listResources(input: ListResourcesInput): ListResourcesOutput = withContext(Dispatchers.IO) {
@@ -730,26 +729,25 @@ class AgentlyClient(
         get("/v1/api/a2a/agents?ids=${urlEncode(ids)}", A2AAgentsEnvelope.serializer()).agents
     }
 
-    fun streamEvents(conversationId: String): Flow<SSEEvent> =
-        streamEvents(conversationId, onOpen = null)
-
-    private fun streamEvents(conversationId: String, onOpen: (() -> Unit)?): Flow<SSEEvent> {
-        val endpoint = requireNotNull(endpointRegistry.resolve(endpointName)) {
-            "Endpoint not found: $endpointName"
+    /** Explicit native/application background observation; it does not submit a conversation run. */
+    fun streamApplicationEvents(conversationId: String, onOpen: (() -> Unit)? = null): Flow<SSEEvent> {
+        val endpoint = requireNotNull(endpointRegistry.resolve(endpointName)) { "Endpoint not found: $endpointName" }
+        val generation = applicationGeneration.get()
+        return kotlinx.coroutines.flow.flow {
+            openEventStream(endpoint, appendQuery("/v1/application-events", linkedMapOf("conversationId" to conversationId)), conversationId, json, onOpen).collect { event ->
+                if (generation != applicationGeneration.get()) throw CancellationException("Application account changed")
+                emit(event)
+            }
         }
-        return openEventStream(
-            endpoint = endpoint,
-            path = appendQuery("/v1/stream", linkedMapOf("conversationId" to conversationId)),
-            conversationId = conversationId,
-            json = json,
-            onOpen = onOpen
-        )
     }
 
-    fun trackConversation(
+    fun trackConversation(conversationId: String, maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES): Flow<ConversationStreamSnapshot> = agUiConversations.track(conversationId)
+
+    fun trackApplicationState(
         conversationId: String,
         maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
-    ): Flow<ConversationStreamSnapshot> = if (conversationTransportMode == com.viant.agentlysdk.agui.ConversationTransportMode.AG_UI) agUiConversations.track(conversationId) else channelFlow {
+    ): Flow<ConversationStreamSnapshot> = channelFlow {
+        val generation = applicationGeneration.get()
         val tracker = ConversationStreamTracker(conversationId)
         var reconnectDelayMs = 500L
         while (true) {
@@ -757,7 +755,7 @@ class AgentlyClient(
             val events = Channel<SSEEvent>(Channel.BUFFERED)
             val streamJob = launch(start = CoroutineStart.UNDISPATCHED) {
                 try {
-                    streamEvents(
+                    streamApplicationEvents(
                         conversationId,
                         onOpen = {
                             if (!streamReady.isCompleted) {
@@ -781,11 +779,12 @@ class AgentlyClient(
             }
             val retryAfterMs = try {
                 streamReady.await()
-                val initialState = getLiveState(
+                val initialState = readApplicationState(
                     conversationId,
                     includeFeeds = true,
                     maxResponseBytes = maxResponseBytes
                 )
+                if (generation != applicationGeneration.get()) throw CancellationException("Application account changed")
                 tracker.hydrate(initialState)
                 send(tracker.snapshot())
                 for (event in events) {

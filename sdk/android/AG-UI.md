@@ -2,7 +2,7 @@
 
 ## Default conversation transport
 
-AG-UI is the default for outward SDK conversation interactions. Select `interactionProtocol: 'legacy'` (TypeScript), `interactionProtocol: .legacy` (Swift), or `conversationTransportMode = ConversationTransportMode.LEGACY` (Kotlin) only for an explicitly legacy server. The configured BFF authentication, cookies, headers and injected networking remain in use. There is no automatic replay through a legacy route after an AG-UI failure. Supporting workspace, report, layout and application APIs remain available; this SDK default is not proof of completed UI parity.
+AG-UI is the outward SDK conversation interaction path. Protocol selectors and legacy conversation transports are removed. The configured BFF authentication, cookies, headers and injected networking remain in use. Supporting workspace, report, layout and application APIs remain available. Dedicated readConversationHistory/readApplicationState helpers provide authorized native read-only history without a query or stream fallback; SDK checks do not establish full product UI parity.
 
 
 The backend has advanced beyond the original phase-one adapter: the current
@@ -65,7 +65,7 @@ The native suites also consume all 35 cases from `protocol/agui/testdata/reducer
 
 ## Native conversation coordinator
 
-`AgentlyClient` accepts `conversationTransportMode = ConversationTransportMode.AG_UI`.
+AgentlyClient uses the SDK-owned AG-UI coordinator without a protocol or transport-mode parameter.
 The default is `AG_UI`; `LEGACY` remains explicit. The coordinator routes query, canonical transcript/live-state
 bootstrap, tracking, explicit cancellation, interrupt resume and approval decisions
 through the SDK-owned coordinator without automatic legacy fallback. It reuses the

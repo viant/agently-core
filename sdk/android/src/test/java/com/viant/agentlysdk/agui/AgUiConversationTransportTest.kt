@@ -25,7 +25,7 @@ class AgUiConversationTransportTest {
         val prior = server.dispatcher
         server.dispatcher = object : okhttp3.mockwebserver.Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
-                if (request.method == "GET" && request.path?.contains("/conversations/") == true) {
+                if (request.method == "GET" && request.path?.substringBefore('?')?.matches(Regex("/v1/conversations/[^/]+")) == true) {
                     assertEquals("test", request.getHeader("X-App-Client"))
                     val id = request.path!!.substringAfterLast('/').substringBefore('?')
                     val metadata = buildJsonObject { put("id", id); wireThreadId?.let { put("aguiThreadId", it) } }
@@ -58,17 +58,53 @@ class AgUiConversationTransportTest {
         } finally { server.shutdown() }
     }
 
-    @Test fun legacyRemainsExplicitEscape() = runBlocking {
-        val server = MockWebServer(); server.start()
+    @Test fun sharedReaderUsesDedicatedHistoryOnlyAfterForbiddenJournal() = runBlocking {
+        val server=MockWebServer();server.start()
+        val requests=mutableListOf<String>()
+        server.dispatcher=object:okhttp3.mockwebserver.Dispatcher(){
+            override fun dispatch(request:RecordedRequest):MockResponse{
+                requests+=request.path.orEmpty()
+                return when{
+                    request.path=="/v1/conversations/thread" -> MockResponse().setBody("""{"id":"thread"}""")
+                    request.path=="/v1/ag-ui/run" -> MockResponse().setResponseCode(403)
+                    request.path?.startsWith("/v1/conversations/thread/transcript")==true -> MockResponse().setBody("""{"schemaVersion":"2","conversation":{"conversationId":"thread","turns":[]}}""")
+                    else -> MockResponse().setResponseCode(500)
+                }
+            }
+        }
+        try{
+            val host=client(server)
+            val history=host.getTranscript(GetTranscriptInput("thread"))
+            assertEquals("thread",history.conversation?.conversationId)
+            assertEquals(listOf("/v1/ag-ui/run","/v1/conversations/thread/transcript"),requests)
+            assertTrue(requests.none{it.contains("/agent/query")})
+        }finally{server.shutdown()}
+    }
+
+    @Test fun sharedReaderObservationHydratesHistoryWithoutProtocolRunProjection() = runBlocking {
+        val server=MockWebServer();server.start()
+        val requests=java.util.Collections.synchronizedList(mutableListOf<String>())
+        server.dispatcher=object:okhttp3.mockwebserver.Dispatcher(){
+            override fun dispatch(request:RecordedRequest):MockResponse{
+                requests+=request.path.orEmpty()
+                return when {
+                    request.path=="/v1/ag-ui/run" -> MockResponse().setResponseCode(403)
+                    request.path?.startsWith("/v1/conversations/thread/transcript")==true -> MockResponse().setBody("""{"schemaVersion":"2","conversation":{"conversationId":"thread","turns":[]}}""")
+                    request.path?.startsWith("/v1/application-events?conversationId=thread")==true -> MockResponse().setHeader("Content-Type","text/event-stream").setBody("")
+                    else -> MockResponse().setResponseCode(500)
+                }
+            }
+        }
+        val host=client(server)
         try {
-            server.enqueue(MockResponse().setBody("{\"content\":\"legacy\"}"))
-            val defaultHost = AgentlyClient(mapOf("appAPI" to EndpointConfig(server.url("/").toString().removeSuffix("/"))))
-            assertEquals(ConversationTransportMode.AG_UI, defaultHost.conversationTransportMode)
-            val host = AgentlyClient(mapOf("appAPI" to EndpointConfig(server.url("/").toString().removeSuffix("/"))), conversationTransportMode = ConversationTransportMode.LEGACY)
-            assertEquals(ConversationTransportMode.LEGACY, host.conversationTransportMode)
-            assertEquals("legacy", host.query(QueryInput(conversationId = "thread", query = "hello")).content)
-            assertEquals("/v1/agent/query", server.takeRequest().path)
-        } finally { server.shutdown() }
+            val snapshot=withTimeout(5000){host.trackConversation("thread").first{it.canonicalTranscript!=null}}
+            assertEquals("thread",snapshot.conversationId)
+            assertEquals("thread",snapshot.canonicalTranscript?.conversation?.conversationId)
+            assertTrue(snapshot.protocolRuns.isEmpty())
+            assertNull(snapshot.rawCanonicalTranscript)
+            assertNull(snapshot.transportError)
+            assertTrue(requests.none{it.contains("/agent/query")})
+        } finally {host.resetConversationTransport();server.shutdown()}
     }
 
     @Test fun queryBootstrapShareInjectedCookiesHeadersAndUseOnlyAgUi() = runBlocking {
@@ -162,7 +198,7 @@ class AgUiConversationTransportTest {
             val snapshot = withTimeout(5000) { host.trackConversation("thread").first { it.canonicalTranscript != null } }
             assertEquals("Report 0", snapshot.feeds.single().title); assertEquals("host", snapshot.hostActivities.single().id)
             assertEquals(listOf("missing"), snapshot.unavailableHostActivityIds); assertTrue(snapshot.bufferedMessages.none { it.id == "host" })
-            assertTrue(synchronized(paths) { paths.filter { it.startsWith("/v1/stream") }.all { it.contains("compatibilityScope=native-and-application") } })
+            assertTrue(synchronized(paths) { paths.filter { it.startsWith("/v1/application-events") }.all { it.contains("conversationId=thread") } })
         } finally { host.resetConversationTransport(); server.shutdown() }
     }
 

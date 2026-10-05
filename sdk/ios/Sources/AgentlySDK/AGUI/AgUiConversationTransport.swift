@@ -1,7 +1,6 @@
 import Foundation
 import OSLog
 
-public enum AgentlyInteractionProtocol: Sendable { case legacy, agUI }
 
 public struct AgUiConversationBootstrap: Sendable {
     public let value: AgUiValue
@@ -57,6 +56,7 @@ public actor AgUiConversationTransport {
         var bootstrap: AgUiConversationBootstrap?
         var loading: Task<AgUiConversationBootstrap, Error>?
         var readRevision = 0
+        var publicationRevision = 0
         var listeners: [UUID: AsyncThrowingStream<ConversationStreamSnapshot, Error>.Continuation] = [:]
         var runs: [String: Task<Void, Never>] = [:]
         var terminalNativeTurns: Set<String> = []
@@ -166,6 +166,7 @@ public actor AgUiConversationTransport {
         let bootstrap = try AgUiConversationBootstrap(value: result, conversationID: entry.id, protocolThreadID: entry.protocolThreadID)
         guard current(entry) else { throw CancellationError() }
         entry.terminalNativeTurns = Set((bootstrap.transcript.conversation?.turns ?? []).filter { ["completed", "succeeded", "failed", "canceled", "cancelled"].contains($0.status ?? "") }.map { $0.turnID })
+        entry.publicationRevision += 1
         entry.bootstrap = bootstrap; entry.hostActivities = bootstrap.hostActivities
         entry.unavailableHostActivityIDs = bootstrap.unavailableHostActivityIDs
         await entry.tracker.hydrate(bootstrap.transcript)
@@ -187,7 +188,7 @@ public actor AgUiConversationTransport {
         do {
             let entry = try entry(conversationID); entry.listeners[id] = continuation
             if entry.bootstrap != nil { continuation.yield(await entry.tracker.currentSnapshot()) }
-            _ = try await refresh(conversationID: conversationID)
+            try await refreshObservation(entry)
             guard current(entry), entry.listeners[id] != nil else { return }
             startNotifications(entry)
         } catch { continuation.finish(throwing: error) }
@@ -196,6 +197,21 @@ public actor AgUiConversationTransport {
         guard let entry = entries[conversationID] else { return }; entry.listeners.removeValue(forKey: id)
         if entry.listeners.isEmpty { entry.notifications?.cancel(); entry.notifications = nil }
         // Submitted runs are owned by the coordinator, not this view.
+    }
+    private func refreshObservation(_ entry: Entry, fresh: Bool = false) async throws {
+        let revision = entry.publicationRevision
+        do {
+            if fresh { _ = try await reconcile(conversationID: entry.id) }
+            else { _ = try await refresh(conversationID: entry.id) }
+        } catch AgUiError.httpStatus(403) {
+            guard let host else { throw CancellationError() }
+            let transcript = try await host.readConversationHistory(GetTranscriptInput(conversationID: entry.id))
+            guard current(entry), entry.publicationRevision == revision, transcript.conversation?.conversationID == entry.id else { throw CancellationError() }
+            entry.publicationRevision += 1
+            entry.bootstrap = nil; entry.hostActivities = []; entry.unavailableHostActivityIDs = []
+            await entry.tracker.hydrate(transcript)
+            await publish(entry)
+        }
     }
     private func publish(_ entry: Entry) async {
         let snapshot = await entry.tracker.currentSnapshot()
@@ -297,7 +313,7 @@ public actor AgUiConversationTransport {
                     guard self.current(entry), !Task.isCancelled else { return }
                     guard let value = try? AgUiValue.parse(event.data), let type = value["type"]?.string else { continue }
                     if type == "compatibility_reconcile" || (["turn_completed", "turn_failed", "turn_canceled"].contains(type)) || (type == "conversation_meta_updated" && value["patch"]?["aguiUpdated"] == .bool(true)) {
-                        _ = try await self.reconcile(conversationID: entry.id)
+                        try await self.refreshObservation(entry, fresh: true)
                     } else { _ = await entry.tracker.apply(event); await self.publish(entry) }
                 }
             } catch { if self.current(entry), !Task.isCancelled { self.fail(entry, error) } }
