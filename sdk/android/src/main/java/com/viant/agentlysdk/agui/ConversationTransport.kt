@@ -10,8 +10,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.*
 import java.util.UUID
 
-/** AG-UI is the default; LEGACY remains an explicit compatibility option. */
-enum class ConversationTransportMode { LEGACY, AG_UI }
 
 data class AgUiConversationRun(val runId: String, val status: String, val parentRunId: String? = null, val kind: String? = null)
 
@@ -36,6 +34,8 @@ internal class AgUiConversationTransport(private val host: AgentlyClient, privat
         val hostActivities = linkedMapOf<String, AgUiMessage>()
         val aliases = linkedMapOf<String, String>()
         var bootstrap: AgUiConversationBootstrap? = null
+        var readOnlyTranscript: ConversationStateResponse? = null
+        var publicationRevision = 0L
         var error: String? = null
         var observation: Job? = null
         var listeners = 0
@@ -65,7 +65,7 @@ internal class AgUiConversationTransport(private val host: AgentlyClient, privat
         val e = entry(conversationId)
         e.mutation.withLock { e.listeners++; ensureObservation(e) }
         val delivery = launch { e.updates.collect { if (current(e)) send(it) } }
-        val initial = launch { try { refresh(e) } catch (error: Throwable) { if (error is CancellationException) throw error; failRead(e, error) } }
+        val initial = launch { try { refreshObservation(e) } catch (error: Throwable) { if (error is CancellationException) throw error; failRead(e, error) } }
         awaitClose {
             delivery.cancel(); initial.cancel()
             scope.launch { e.mutation.withLock { e.listeners--; if (e.listeners == 0) { e.observation?.cancel(); e.observation = null } } }
@@ -114,7 +114,7 @@ internal class AgUiConversationTransport(private val host: AgentlyClient, privat
         val bootstrap = decodeBootstrap(result, e.id, e.protocolThreadId ?: e.id)
         e.mutation.withLock {
             check(current(e)) { "Conversation bootstrap invalidated" }
-            e.bootstrap = bootstrap; e.error = null
+            e.publicationRevision++; e.bootstrap = bootstrap; e.readOnlyTranscript = null; e.error = null
             e.hostActivities.clear(); bootstrap.hostActivities.forEach { e.hostActivities[it.id] = it }
             // Replace canonical history authoritatively; reduced live runs can subsequently overlay newer snapshots.
             e.tracker.clear(); e.tracker.hydrate(bootstrap.transcript)
@@ -257,14 +257,30 @@ internal class AgUiConversationTransport(private val host: AgentlyClient, privat
         e.observation = scope.launch {
             while (current(e) && e.listeners > 0) {
                 try {
-                    openEventStream(endpoint, "/v1/stream?conversationId=${java.net.URLEncoder.encode(e.id, "UTF-8")}&compatibilityScope=native-and-application", e.id, host.json).collect { event ->
+                    openEventStream(endpoint, "/v1/application-events?conversationId=${java.net.URLEncoder.encode(e.id, "UTF-8")}", e.id, host.json).collect { event ->
                         if (!current(e) || event.conversationId != e.id) return@collect
                         if (event.type == "compatibility_reconcile" || event.type in setOf("turn_completed", "turn_failed", "turn_canceled") || event.type == "conversation_meta_updated" && event.patch?.bool("aguiUpdated") == true) {
-                            scope.launch { try { reconcile(e.id) } catch (error: Throwable) { if (error !is CancellationException) failRead(e, error) } }
+                            scope.launch { try { refreshObservation(e, true) } catch (error: Throwable) { if (error !is CancellationException) failRead(e, error) } }
                         } else e.mutation.withLock { if (current(e)) { e.tracker.applyEvent(event); publish(e) } }
                     }
                 } catch (error: Throwable) { if (error is CancellationException) throw error; failRead(e, error) }
                 delay(1000)
+            }
+        }
+    }
+
+    private suspend fun refreshObservation(e: Entry, fresh: Boolean = false) {
+        val revision = e.mutation.withLock { e.publicationRevision }
+        try { refresh(e, fresh) }
+        catch (error: AgUiHttpException) {
+            if (error.statusCode != 403) throw error
+            val transcript = host.readConversationHistory(GetTranscriptInput(e.id))
+            check(transcript.conversation?.conversationId == e.id) { "Read-only conversation identity mismatch" }
+            e.mutation.withLock {
+                check(current(e) && e.publicationRevision == revision) { "Read-only conversation snapshot invalidated" }
+                e.publicationRevision++; e.bootstrap = null; e.readOnlyTranscript = transcript; e.error = null
+                e.hostActivities.clear(); e.aliases.clear()
+                e.tracker.clear(); e.tracker.hydrate(transcript); publish(e)
             }
         }
     }
@@ -275,7 +291,7 @@ internal class AgUiConversationTransport(private val host: AgentlyClient, privat
     private fun publish(e: Entry) {
         if (!current(e)) return
         val b = e.bootstrap
-        e.updates.tryEmit(e.tracker.snapshot().copy(canonicalTranscript = b?.transcript, rawCanonicalTranscript = b?.rawTranscript, hostActivities = e.hostActivities.values.toList(),
+        e.updates.tryEmit(e.tracker.snapshot().copy(canonicalTranscript = b?.transcript ?: e.readOnlyTranscript, rawCanonicalTranscript = b?.rawTranscript, hostActivities = e.hostActivities.values.toList(),
             unavailableHostActivityIds = b?.unavailableHostActivityIds.orEmpty(), userMessageAliases = e.aliases.toMap(), protocolRuns = b?.runs.orEmpty(), transportError = e.error))
     }
 

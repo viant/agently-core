@@ -70,6 +70,7 @@ private final class FakeConversationCookies: AgentlySessionCookieStoring, @unche
 private final class ConversationURLProtocol: URLProtocol, @unchecked Sendable {
     static let lock = NSLock()
     static var requests: [URLRequest] = []
+    static var readOnlyHistory = false
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
@@ -77,15 +78,17 @@ private final class ConversationURLProtocol: URLProtocol, @unchecked Sendable {
         let metadata = request.httpMethod == "GET"
         let response = HTTPURLResponse(url: request.url!, statusCode: metadata ? 200 : 403, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": metadata ? "application/json" : "text/event-stream"])!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: metadata ? Data(#"{"id":"thread"}"#.utf8) : Data("forbidden".utf8))
+        let history = Self.readOnlyHistory && request.url?.path.hasSuffix("/transcript") == true
+        let data = history ? Data(#"{"schemaVersion":"2","conversation":{"conversationId":"thread","turns":[]}}"#.utf8) : (metadata ? Data(#"{"id":"thread"}"#.utf8) : Data("forbidden".utf8))
+        client?.urlProtocol(self, didLoad: data)
         client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
 }
 
 final class AgUiConversationTransportTests: XCTestCase {
-    private func client(_ protocolValue: AgentlyInteractionProtocol = .agUI, cookies: AgentlySessionCookieStoring? = nil, session: URLSession = .shared) -> AgentlyClient {
-        AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "https://fixture.invalid/bff")!, headers: ["X-Fixture": "test"])], interactionProtocol: protocolValue, session: session, sessionCookieStore: cookies)
+    private func client(cookies: AgentlySessionCookieStoring? = nil, session: URLSession = .shared) -> AgentlyClient {
+        AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "https://fixture.invalid/bff")!, headers: ["X-Fixture": "test"])], session: session, sessionCookieStore: cookies)
     }
     private func waitUntil(_ predicate: () -> Bool) async throws {
         for _ in 0..<300 { if predicate() { return }; try await Task.sleep(nanoseconds: 1_000_000) }
@@ -102,13 +105,9 @@ final class AgUiConversationTransportTests: XCTestCase {
         await transport.reset()
     }
 
-    func testDefaultAgUiAndExplicitLegacyBFFClientShareSessionAndCurrentCookies() throws {
+    func testAgUiBFFClientSharesSessionAndCurrentCookies() throws {
         let cookies = FakeConversationCookies(), configuration = URLSessionConfiguration.ephemeral
         let session = URLSession(configuration: configuration)
-        let defaultClient = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "https://fixture.invalid")!)])
-        XCTAssertEqual(defaultClient.interactionProtocol, .agUI)
-        let legacy = AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "https://fixture.invalid")!)], interactionProtocol: .legacy)
-        XCTAssertEqual(legacy.interactionProtocol, .legacy)
         let host = client(cookies: cookies, session: session), first = try host.agUiClient()
         XCTAssertTrue(first.session === session)
         XCTAssertEqual(first.endpoint.absoluteString, "https://fixture.invalid/bff/v1/ag-ui/run")
@@ -193,18 +192,43 @@ final class AgUiConversationTransportTests: XCTestCase {
         gate.continuation.yield(()); gate.continuation.finish()
         await transport.reset()
     }
-    func testUnauthorizedAGUIBootstrapDoesNotFallbackToLegacyRoutes() async throws {
+    func testSharedReaderUsesDedicatedHistoryWithoutQueryOrRefreshRecursion() async throws {
+        ConversationURLProtocol.lock.withLock { ConversationURLProtocol.requests=[];ConversationURLProtocol.readOnlyHistory=true }
+        defer { ConversationURLProtocol.lock.withLock { ConversationURLProtocol.readOnlyHistory=false } }
+        let configuration=URLSessionConfiguration.ephemeral;configuration.protocolClasses=[ConversationURLProtocol.self]
+        let host=client(session:URLSession(configuration:configuration))
+        let snapshot=try await host.getTranscript(GetTranscriptInput(conversationID:"thread"))
+        XCTAssertEqual(snapshot.conversation?.conversationID,"thread")
+        let requests=ConversationURLProtocol.lock.withLock{ConversationURLProtocol.requests}
+        XCTAssertEqual(requests.map{$0.httpMethod},["GET","POST","GET"])
+        XCTAssertTrue(requests.last?.url?.path.hasSuffix("/transcript")==true)
+        XCTAssertFalse(requests.contains{$0.url?.path.contains("/agent/query")==true})
+    }
+    func testSharedReaderObservationHydratesAuthorizedHistoryWithoutQuery() async throws {
+        ConversationURLProtocol.lock.withLock { ConversationURLProtocol.requests=[];ConversationURLProtocol.readOnlyHistory=true }
+        defer { ConversationURLProtocol.lock.withLock { ConversationURLProtocol.readOnlyHistory=false } }
+        let configuration=URLSessionConfiguration.ephemeral;configuration.protocolClasses=[ConversationURLProtocol.self]
+        let host=client(session:URLSession(configuration:configuration))
+        var observed: ConversationStreamSnapshot?
+        for try await snapshot in host.trackConversation(conversationID: "thread") { observed=snapshot; break }
+        XCTAssertEqual(observed?.conversationID,"thread")
+        let requests=ConversationURLProtocol.lock.withLock{ConversationURLProtocol.requests}
+        XCTAssertTrue(requests.contains{$0.url?.path.hasSuffix("/transcript")==true})
+        XCTAssertFalse(requests.contains{$0.url?.path.contains("/agent/query")==true})
+        host.clearSessionCookies()
+    }
+    func testUnauthorizedAGUIBootstrapDoesNotResubmitQuery() async throws {
         ConversationURLProtocol.lock.withLock { ConversationURLProtocol.requests = [] }
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [ConversationURLProtocol.self]
         let host = client(session: URLSession(configuration: configuration))
         do { _ = try await host.getLiveState(conversationID: "thread"); XCTFail("Expected authorization failure") }
-        catch { XCTAssertEqual(error as? AgUiError, .httpStatus(403)) }
+        catch { XCTAssertTrue(error is AgentlySDKError, "malformed read-only history must not be accepted") }
         let requests = ConversationURLProtocol.lock.withLock { ConversationURLProtocol.requests }
-        XCTAssertEqual(requests.count, 2)
+        XCTAssertEqual(requests.count, 3)
         XCTAssertEqual(requests.first?.httpMethod, "GET")
-        XCTAssertEqual(requests.last?.url?.path, "/bff/v1/ag-ui/run")
-        XCTAssertEqual(requests.last?.httpMethod, "POST")
+        XCTAssertEqual(requests[1].url?.path, "/bff/v1/ag-ui/run")
+        XCTAssertEqual(requests[1].httpMethod, "POST")
     }
     func testMalformedForeignBootstrapRejected() throws {
         let value = try AgUiValue.parse(#"{"version":"1","threadId":"foreign","transcript":{},"messages":[],"state":{},"runs":[],"projection":{"lossless":true,"unavailableMessageIds":[]}}"#)

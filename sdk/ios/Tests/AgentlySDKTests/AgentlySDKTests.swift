@@ -1853,7 +1853,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
-        let client = AgentlyClient(endpoints: ["appAPI": endpoint], interactionProtocol: .legacy, session: session)
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
 
         let expectation = expectation(description: "transcript request captured")
         URLProtocolStub.requestHandler = { request in
@@ -1891,7 +1891,7 @@ final class AgentlySDKTests: XCTestCase {
             return (response, data)
         }
 
-        _ = try await client.getTranscript(
+        _ = try await client.readConversationHistory(
             GetTranscriptInput(
                 conversationID: "conv-1",
                 includeModelCalls: true,
@@ -1909,7 +1909,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
-        let client = AgentlyClient(endpoints: ["appAPI": endpoint], interactionProtocol: .legacy, session: session)
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
 
         URLProtocolStub.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -1925,7 +1925,7 @@ final class AgentlySDKTests: XCTestCase {
         }
 
         do {
-            _ = try await client.getTranscript(
+            _ = try await client.readConversationHistory(
                 GetTranscriptInput(conversationID: "large-conversation"),
                 maxResponseBytes: 64
             )
@@ -1941,7 +1941,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
-        let client = AgentlyClient(endpoints: ["appAPI": endpoint], interactionProtocol: .legacy, session: session)
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
 
         URLProtocolStub.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -1954,7 +1954,7 @@ final class AgentlySDKTests: XCTestCase {
         }
 
         do {
-            _ = try await client.getTranscript(
+            _ = try await client.readConversationHistory(
                 GetTranscriptInput(conversationID: "streamed-large-conversation"),
                 maxResponseBytes: 64
             )
@@ -2071,7 +2071,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
-        let client = AgentlyClient(endpoints: ["appAPI": endpoint], interactionProtocol: .legacy, session: session)
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
 
         URLProtocolStub.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
@@ -2121,7 +2121,7 @@ final class AgentlySDKTests: XCTestCase {
         let linked = try await client.listLinkedConversations(
             ListLinkedConversationsInput(parentConversationID: "conv-1", parentTurnID: "turn-1")
         )
-        let live = try await client.getLiveState(conversationID: "conv-1", includeFeeds: true)
+        let live = try await client.readApplicationState(conversationID: "conv-1", includeFeeds: true)
         let feed = try await client.getFeedData(feedID: "feed-1", conversationID: "conv-1")
 
         XCTAssertEqual(messages.rows.first?.id, "msg-1")
@@ -2323,7 +2323,7 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = { request in
             let url = try XCTUnwrap(request.url)
             let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
-            XCTAssertEqual(components.percentEncodedPath, "/v1/stream")
+            XCTAssertEqual(components.percentEncodedPath, "/v1/application-events")
             XCTAssertEqual(components.percentEncodedQuery, "conversationId=conv%2B1%2Fmain")
             expectation.fulfill()
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: [
@@ -2336,7 +2336,7 @@ final class AgentlySDKTests: XCTestCase {
             return (response, data)
         }
 
-        var iterator = client.streamEvents(conversationID: "conv+1/main").makeAsyncIterator()
+        var iterator = client.streamApplicationEvents(conversationID: "conv+1/main").makeAsyncIterator()
         _ = try await iterator.next()
 
         await fulfillment(of: [expectation], timeout: 2.0)
@@ -2378,7 +2378,7 @@ final class AgentlySDKTests: XCTestCase {
         }
         defer { URLProtocolStub.requestHandler = nil }
 
-        var iterator = client.streamEvents(conversationID: "conversation-1").makeAsyncIterator()
+        var iterator = client.streamApplicationEvents(conversationID: "conversation-1").makeAsyncIterator()
         _ = try await iterator.next()
 
         await fulfillment(of: [expectation], timeout: 2.0)
@@ -2863,7 +2863,7 @@ final class AgentlySDKTests: XCTestCase {
             continuation.finish()
         }
 
-        let stream = client.trackConversation(
+        let stream = client.trackApplicationState(
             conversationID: "conv-1",
             initialStateLoader: { id in
                 XCTAssertEqual(id, "conv-1")
@@ -2911,7 +2911,7 @@ final class AgentlySDKTests: XCTestCase {
             continuation.finish()
         }
 
-        let stream = client.trackConversation(
+        let stream = client.trackApplicationState(
             conversationID: "conv-1",
             initialStateLoader: { id in
                 XCTAssertEqual(id, "conv-1")
@@ -3129,7 +3129,7 @@ final class AgentlySDKTests: XCTestCase {
             from: XCTUnwrap(initialJSON.data(using: .utf8))
         )
 
-        let stream = client.trackConversation(
+        let stream = client.trackApplicationState(
             conversationID: "conv-1",
             initialStateLoader: { id in
                 XCTAssertEqual(id, "conv-1")
@@ -3188,7 +3188,7 @@ final class AgentlySDKTests: XCTestCase {
             continuation.finish()
         }
 
-        let stream = client.trackConversation(
+        let stream = client.trackApplicationState(
             conversationID: "conv-1",
             initialStateLoader: { id in
                 XCTAssertEqual(id, "conv-1")
