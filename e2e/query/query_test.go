@@ -7,6 +7,8 @@ import (
 	"image"
 	"image/color"
 	"image/png"
+	"net/http/cookiejar"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -22,6 +24,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	"github.com/viant/agently-core/genai/llm/provider"
 	modelfinder "github.com/viant/agently-core/internal/finder/model"
+	"github.com/viant/agently-core/internal/sdkbackend"
 	agentfinder "github.com/viant/agently-core/protocol/agent/finder"
 	agentloader "github.com/viant/agently-core/protocol/agent/loader"
 	"github.com/viant/agently-core/protocol/binding"
@@ -116,10 +119,22 @@ func setupSDK(t *testing.T) *sdk.HTTPClient {
 	require.NoError(t, err, "build runtime")
 	tool.AddInternalService(rt.Registry, llmagents.New(rt.Agent, llmagents.WithConversationClient(rt.Conversation)))
 
-	// 7. Endpoint-backed local SDK client
-	client, closeClient, err := sdk.NewLocalHTTPFromRuntime(ctx, rt)
+	// 7. A real anonymous browser-style session: TLS permits the secure
+	// anonymous identity cookie, and a cookie jar preserves the same owner
+	// across AG-UI admission, history, files and supporting application APIs.
+	backend, err := sdkbackend.FromRuntime(rt)
+	require.NoError(t, err)
+	handler, err := sdk.NewHandlerWithContext(ctx, backend)
+	require.NoError(t, err)
+	server := httptest.NewTLSServer(handler)
+	t.Cleanup(server.Close)
+	jar, err := cookiejar.New(nil)
+	require.NoError(t, err)
+	httpClient := server.Client()
+	httpClient.Jar = jar
+	client, err := sdk.NewHTTP(server.URL, sdk.WithHTTPClient(httpClient))
 	require.NoError(t, err, "create local HTTP SDK client")
-	t.Cleanup(closeClient)
+	t.Cleanup(func() { require.NoError(t, rt.Close(context.Background())) })
 	return client
 }
 
@@ -168,12 +183,15 @@ func TestQuerySimple(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "simple",
 		Query:   "Hi, how are you?",
-		UserId:  "e2e-test",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
 	assert.NotEmpty(t, out.Content, "expected non-empty response content")
 	assert.NotEmpty(t, out.ConversationID, "expected conversation ID")
+	conversation, err := client.GetConversation(ctx, out.ConversationID)
+	require.NoError(t, err)
+	require.NotNil(t, conversation.CreatedByUserId)
+	require.True(t, strings.HasPrefix(*conversation.CreatedByUserId, "anonymous:"))
 	fmt.Printf("[simple] content: %s\n", truncate(out.Content, 200))
 }
 
@@ -186,7 +204,6 @@ func TestQueryWithLocalKnowledge(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "knowledge_local",
 		Query:   "What products does Viant make?",
-		UserId:  "e2e-test",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -209,7 +226,6 @@ func TestQueryWithSystemKnowledge(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "knowledge_system",
 		Query:   "What are the Go error handling best practices?",
-		UserId:  "e2e-test",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -234,7 +250,6 @@ func TestQueryWithForcedToolUsage(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "tool_env_seed_user_only",
 		Query:   "Please return USER only.",
-		UserId:  "e2e-test",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -287,7 +302,6 @@ func TestQueryWithToolUsage(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "chatter_system_os",
 		Query:   "What is the value of the HOME environment variable? Reply with the exact value only.",
-		UserId:  "e2e-test",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -373,8 +387,8 @@ func TestQueryAsyncExecReporter(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		ConversationID: conv.Id,
 		AgentID:        "async_exec_reporter",
-		UserId:         "e2e-test",
-		Query:          "Watch for the report readiness signal and tell me when it is done.",
+
+		Query: "Watch for the report readiness signal and tell me when it is done.",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -474,8 +488,8 @@ func TestQueryAsyncExecCanceler(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		ConversationID: conv.Id,
 		AgentID:        "async_exec_canceler",
-		UserId:         "e2e-test",
-		Query:          "Start the shell heartbeat watcher, then cancel it after the async update arrives.",
+
+		Query: "Start the shell heartbeat watcher, then cancel it after the async update arrives.",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -594,8 +608,8 @@ func TestQueryAsyncExecFailure(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		ConversationID: conv.Id,
 		AgentID:        "async_exec_failer",
-		UserId:         "e2e-test",
-		Query:          "Start the async shell job that should eventually fail.",
+
+		Query: "Start the async shell job that should eventually fail.",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -675,7 +689,6 @@ func TestQueryMultiTurn(t *testing.T) {
 	out1, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "simple",
 		Query:   "My name is Alice. Please remember that.",
-		UserId:  "e2e-test",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out1)
@@ -688,7 +701,6 @@ func TestQueryMultiTurn(t *testing.T) {
 		AgentID:        "simple",
 		ConversationID: out1.ConversationID,
 		Query:          "What is my name?",
-		UserId:         "e2e-test",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out2)
@@ -710,7 +722,6 @@ func TestQueryLLMSourcedElicitationFavoriteColor(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "elicitation_favorite_color",
 		Query:   "describe my favourite color in 3 sentences",
-		UserId:  "e2e-test",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -760,7 +771,7 @@ func TestQueryOpenAIResponsesImageAttachment(t *testing.T) {
 		AgentID:       "simple",
 		ModelOverride: "openai_gpt-5.2_responses",
 		Query:         "The attached image is a single solid-color square. What color is it? Answer with one word.",
-		UserId:        "e2e-image",
+
 		Attachments: []*binding.Attachment{
 			{Name: "red-square.png", Mime: "image/png", Data: imageData},
 		},
@@ -798,7 +809,7 @@ func TestQueryOpenAIResponsesPDFInlineAttachment(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "pdf_inline",
 		Query:   "What exact token appears in the attached PDF? Answer only with the token.",
-		UserId:  "e2e-pdf-inline",
+
 		Attachments: []*binding.Attachment{
 			{Name: "token.pdf", Mime: "application/pdf", Data: pdfData},
 		},
@@ -818,7 +829,7 @@ func TestQueryOpenAIResponsesPDFRefAttachment(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "pdf_ref",
 		Query:   "What exact token appears in the attached PDF? Answer only with the token.",
-		UserId:  "e2e-pdf-ref",
+
 		Attachments: []*binding.Attachment{
 			{Name: "token.pdf", Mime: "application/pdf", Data: pdfData},
 		},
@@ -837,7 +848,6 @@ func TestQueryOpenAIResponsesGeneratedImageOutput(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "image_generator",
 		Query:   "Generate a tiny red square PNG image and reply with only the filename.",
-		UserId:  "e2e-file",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
@@ -869,7 +879,6 @@ func TestQueryLinkedConversationCriticReview(t *testing.T) {
 	out, err := client.Query(ctx, &agentsvc.QueryInput{
 		AgentID: "linked_story_chatter",
 		Query:   "Write a story about a dog.",
-		UserId:  "e2e-linked",
 	})
 	require.NoError(t, err)
 	require.NotNil(t, out)
