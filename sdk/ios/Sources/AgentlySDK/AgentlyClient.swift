@@ -4,7 +4,6 @@ import CryptoKit
 
 public final class AgentlyClient: Sendable {
     private static let routeLogger = Logger(subsystem: "com.viant.agently.sdk", category: "RequestRoute")
-    public let interactionProtocol: AgentlyInteractionProtocol
     private let agUiAuthEpoch = AgUiTransportEpoch()
     private let agUiStorage = AgUiConversationTransportStorage()
     public var agUiConversations: AgUiConversationTransport { agUiStorage.get(client: self) }
@@ -20,7 +19,6 @@ public final class AgentlyClient: Sendable {
     public init(
         endpoints: [String: EndpointConfig],
         endpointName: String = "appAPI",
-        interactionProtocol: AgentlyInteractionProtocol = .agUI,
         sessionDebug: SessionDebugOptions? = nil,
         session: URLSession = .shared,
         metadataSession: URLSession? = nil,
@@ -28,7 +26,6 @@ public final class AgentlyClient: Sendable {
         decoder: JSONDecoder = .agently(),
         encoder: JSONEncoder = .agently()
     ) {
-        self.interactionProtocol = interactionProtocol
         if let sessionDebug {
             self.endpoints = endpoints.mapValues { endpoint in
                 var copy = endpoint
@@ -211,9 +208,7 @@ public final class AgentlyClient: Sendable {
     }
 
     public func query(_ input: QueryInput) async throws -> QueryOutput {
-        if interactionProtocol == .agUI { return try await agUiConversations.query(input) }
-        Self.routeLogger.info("POST /v1/agent/query legacy interaction")
-        return try await post("/v1/agent/query", body: input, as: QueryOutput.self)
+        try await agUiConversations.query(input)
     }
 
     public func createConversation(_ input: CreateConversationInput) async throws -> Conversation {
@@ -279,20 +274,30 @@ public final class AgentlyClient: Sendable {
     }
 
     public func getLiveState(conversationID: String, includeFeeds: Bool = false, includeExecutionDetails: Bool = true) async throws -> ConversationStateResponse {
-        if interactionProtocol == .agUI { return try await agUiConversations.reconcile(conversationID: conversationID).transcript }
+        do { return try await agUiConversations.reconcile(conversationID: conversationID).transcript }
+        catch AgUiError.httpStatus(403) { return try await readApplicationState(conversationID: conversationID, includeFeeds: includeFeeds, includeExecutionDetails: includeExecutionDetails) }
+    }
+
+    public func getTranscript(_ input: GetTranscriptInput, maxResponseBytes: Int64? = nil) async throws -> ConversationStateResponse {
+        do { return try await agUiConversations.refresh(conversationID: input.conversationID).transcript }
+        catch AgUiError.httpStatus(403) { return try await readConversationHistory(input, maxResponseBytes: maxResponseBytes) }
+    }
+
+    public func readApplicationState(conversationID: String, includeFeeds: Bool = false, includeExecutionDetails: Bool = true) async throws -> ConversationStateResponse {
         var query = includeFeeds ? [URLQueryItem(name: "includeFeeds", value: "true")] : []
         if includeExecutionDetails {
             query.append(URLQueryItem(name: "includeModelCalls", value: "true"))
             query.append(URLQueryItem(name: "includeToolCalls", value: "true"))
         }
-        return try await get("/v1/conversations/\(encodePath(conversationID))/live-state", query: query, as: ConversationStateResponse.self)
+        let state: ConversationStateResponse = try await get("/v1/conversations/\(encodePath(conversationID))/live-state", query: query, as: ConversationStateResponse.self)
+        guard state.conversation?.conversationID == conversationID else { throw AgentlySDKError.invalidResponse }
+        return state
     }
 
-    public func getTranscript(
+    public func readConversationHistory(
         _ input: GetTranscriptInput,
         maxResponseBytes: Int64? = nil
     ) async throws -> ConversationStateResponse {
-        if interactionProtocol == .agUI { return try await agUiConversations.refresh(conversationID: input.conversationID).transcript }
         let encodedConversationID = encodePath(input.conversationID)
         var query: [URLQueryItem] = []
         if let since = input.since?.trimmingCharacters(in: .whitespacesAndNewlines), !since.isEmpty {
@@ -307,12 +312,14 @@ public final class AgentlyClient: Sendable {
         if input.includeFeeds == true {
             query.append(URLQueryItem(name: "includeFeeds", value: "true"))
         }
-        return try await get(
+        let state: ConversationStateResponse = try await get(
             "/v1/conversations/\(encodedConversationID)/transcript",
             query: query,
             maxResponseBytes: maxResponseBytes,
             as: ConversationStateResponse.self
         )
+        guard state.conversation?.conversationID == input.conversationID else { throw AgentlySDKError.invalidResponse }
+        return state
     }
 
     public func listPendingElicitations(_ input: ListPendingElicitationsInput) async throws -> [PendingElicitationRecord] {
@@ -324,13 +331,13 @@ public final class AgentlyClient: Sendable {
     }
 
     public func resolveElicitation(_ input: ResolveElicitationInput) async throws {
-        let transport = interactionProtocol == .agUI ? agUiConversations : nil
+        let transport = agUiConversations
         let _: EmptyResponse = try await post(
             "/v1/elicitations/\(input.conversationID)/\(input.elicitationID)/resolve",
             body: input,
             as: EmptyResponse.self
         )
-        if let transport { _ = try? await transport.reconcile(conversationID: input.conversationID) }
+        _ = try? await transport.reconcile(conversationID: input.conversationID)
     }
 
     public func listPendingToolApprovals(_ input: ListPendingToolApprovalsInput = ListPendingToolApprovalsInput()) async throws -> [PendingToolApproval] {
@@ -352,10 +359,10 @@ public final class AgentlyClient: Sendable {
     }
 
     public func decideToolApproval(_ input: DecideToolApprovalInput) async throws -> DecideToolApprovalOutput {
-        let transport = interactionProtocol == .agUI ? agUiConversations : nil
+        let transport = agUiConversations
         let data = try await rawDataRequest(path: "/v1/tool-approvals/\(input.id)/decision", method: "POST", body: encoder.encode(input))
         let output = try decoder.decode(DecideToolApprovalOutput.self, from: data)
-        if let transport, let value = try? AgUiValue.parse(data) {
+        if let value = try? AgUiValue.parse(data) {
             let receipt = value["protocol"] ?? value["outcome"]?["protocol"]
             if receipt?["version"]?.string == "1", let id = receipt?[receipt?["kind"]?.string == "mcp-app" ? "nativeConversationId" : "threadId"]?.string {
                 _ = try? await transport.reconcile(conversationID: id)
@@ -835,56 +842,37 @@ public final class AgentlyClient: Sendable {
 
     /// Availability/native application lifecycle only; AG-UI owns chat runs.
     public func streamApplicationEvents(conversationID: String) -> AsyncThrowingStream<SSEEvent, Error> {
+        let generation = agUiAuthEpoch.value
         do {
             var endpoint = try endpoint()
             if let cookie = sessionCookieStore?.cookieHeader(for: endpoint.baseURL) { endpoint.headers["Cookie"] = cookie }
-            let query = agentlyPercentEncodedQuery([URLQueryItem(name: "conversationId", value: conversationID), URLQueryItem(name: "compatibilityScope", value: "native-and-application")])
-            Self.routeLogger.info("GET /v1/stream compatibilityScope=native-and-application")
-            return openEventStream(endpoint: endpoint, path: "/v1/stream?\(query)", conversationID: conversationID, session: session)
+            let query = agentlyPercentEncodedQuery([URLQueryItem(name: "conversationId", value: conversationID)])
+            Self.routeLogger.info("GET /v1/application-events scoped application observation")
+            let events = openEventStream(endpoint: endpoint, path: "/v1/application-events?\(query)", conversationID: conversationID, session: session)
+            return AsyncThrowingStream { continuation in
+                let task = Task {
+                    do {
+                        for try await event in events {
+                            guard self.agUiAuthEpoch.value == generation else { throw CancellationError() }
+                            continuation.yield(event)
+                        }
+                        continuation.finish()
+                    } catch { continuation.finish(throwing: error) }
+                }
+                continuation.onTermination = { _ in task.cancel() }
+            }
         } catch { return AsyncThrowingStream { $0.finish(throwing: error) } }
     }
 
     public func reconcileAgUiConversation(conversationID: String) async throws {
-        guard interactionProtocol == .agUI else { return }
         _ = try await agUiConversations.reconcile(conversationID: conversationID)
     }
 
-    public func streamEvents(conversationID: String) -> AsyncThrowingStream<SSEEvent, Error> {
-        Self.routeLogger.info("GET /v1/stream unscoped legacy interaction")
-        guard var endpoint = endpoints[endpointName] else {
-            return AsyncThrowingStream { continuation in
-                continuation.finish(throwing: AgentlySDKError.missingEndpoint(endpointName))
-            }
-        }
-        if let cookieHeader = sessionCookieStore?.cookieHeader(for: endpoint.baseURL),
-           !cookieHeader.isEmpty {
-            endpoint.headers["Cookie"] = cookieHeader
-        }
-        let query = agentlyPercentEncodedQuery([
-            URLQueryItem(name: "conversationId", value: conversationID)
-        ])
-        return openEventStream(
-            endpoint: endpoint,
-            path: "/v1/stream?\(query)",
-            conversationID: conversationID,
-            session: session
-        )
-    }
-
     public func trackConversation(conversationID: String) -> AsyncThrowingStream<ConversationStreamSnapshot, Error> {
-        if interactionProtocol == .agUI { return agUiConversations.subscribe(conversationID: conversationID) }
-        return trackConversation(
-            conversationID: conversationID,
-            initialStateLoader: { [self] id in
-                try await getLiveState(conversationID: id, includeFeeds: true)
-            },
-            eventStream: { [self] id in
-                streamEvents(conversationID: id)
-            }
-        )
+        agUiConversations.subscribe(conversationID: conversationID)
     }
 
-    func trackConversation(
+    func trackApplicationState(
         conversationID: String,
         initialStateLoader: @escaping @Sendable (String) async throws -> ConversationStateResponse,
         eventStream: @escaping @Sendable (String) -> AsyncThrowingStream<SSEEvent, Error>

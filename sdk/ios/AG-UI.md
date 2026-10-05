@@ -2,7 +2,7 @@
 
 ## Default conversation transport
 
-AG-UI is the default for outward SDK conversation interactions. Select `interactionProtocol: 'legacy'` (TypeScript), `interactionProtocol: .legacy` (Swift), or `conversationTransportMode = ConversationTransportMode.LEGACY` (Kotlin) only for an explicitly legacy server. The configured BFF authentication, cookies, headers and injected networking remain in use. There is no automatic replay through a legacy route after an AG-UI failure. Supporting workspace, report, layout and application APIs remain available; this SDK default is not proof of completed UI parity.
+AG-UI is the outward SDK conversation interaction path. Protocol selectors and legacy conversation transports are removed. The configured BFF authentication, cookies, headers and injected networking remain in use. Supporting workspace, report, layout and application APIs remain available. Dedicated readConversationHistory/readApplicationState helpers provide authorized native read-only history without a query or stream fallback; SDK checks do not establish full product UI parity.
 
 
 The backend has advanced beyond the original phase-one adapter: the current
@@ -65,7 +65,7 @@ The native suites also consume all 35 cases from `protocol/agui/testdata/reducer
 
 ## Native conversation integration
 
-`AgentlyClient(interactionProtocol: .agUI)` opts into the SDK-owned `AgUiConversationTransport`. The default is `.agUI`; `.legacy` is available explicitly. The coordinator uses the client's BFF URLSession, current endpoint headers and persistent session cookies; account invalidation fences old responses and cookie writes. Query submission, canonical transcript/live-state bootstrap and conversation observation use AG-UI together, without a legacy query or conversation-stream fallback. Supporting workspace, layout, styles, themes, report, lookup and UI bridge APIs remain on the BFF client.
+AgentlyClient uses the SDK-owned AG-UI coordinator without a protocol or transport-mode parameter.
 
 Canonical `conversation.bootstrap` results retain the complete native transcript, feeds, protocol run references, projection quality and state. Authorized host activities remain separate from model-visible messages. `AgUiPresentationProjector` reads the standard reducer's complete graph into existing presentation DTOs; it does not accumulate a second protocol history or deduplicate by text. Admission uses the owned protocol run/native turn identity. Navigation detaches views while submitted work continues. Transport drops replay the same immutable input once; restored runs attach through `run.attach` without chat resubmission. Interrupt boundaries remain waiting; committed approval/elicitation decisions reconcile fresh canonical state and discover successor runs. A scoped native-and-application availability subscription observes other clients' work.
 

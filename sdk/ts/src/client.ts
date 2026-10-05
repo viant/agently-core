@@ -59,8 +59,6 @@ export interface SessionDebugOptions {
 }
 
 export interface ClientOptions {
-    /** Conversation interactions use AG-UI by default; legacy is an explicit escape. */
-    interactionProtocol?: 'legacy' | 'ag-ui';
     /** Observe native mobile/CLI/scheduler work through the explicitly scoped application channel. */
     observeNativeWork?: boolean;
     /** Base URL including /v1 prefix, e.g. "http://localhost:8585/v1" */
@@ -125,7 +123,7 @@ export class AgentlyClient {
     private onErrorHook?: (error: HttpError) => void;
     private onUnauthorizedHook?: (error: HttpError) => void;
     private sessionDebug?: SessionDebugOptions;
-    private agUiInteractions?: AgUiConversationTransport;
+    private agUiInteractions: AgUiConversationTransport;
     private observeNativeWork = false;
     private nativeObservers = new Set<{ close(): void }>();
     private protocolSessionGeneration = 0;
@@ -134,14 +132,14 @@ export class AgentlyClient {
     resetAgUiInteractions() {
         this.protocolSessionGeneration++;
         this.observedApprovalOutcomes.clear();
-        this.agUiInteractions?.reset();
+        this.agUiInteractions.reset();
         for (const observer of this.nativeObservers) observer.close();
         this.nativeObservers.clear();
     }
 
-    refreshAgUiConversation(conversationId: string) { return this.agUiInteractions?.refresh(conversationId); }
+    refreshAgUiConversation(conversationId: string) { return this.agUiInteractions.refresh(conversationId); }
     /** Read after a committed application command, including when an older refresh is in flight. */
-    reconcileAgUiConversation(conversationId: string) { return this.agUiInteractions?.reconcile(conversationId); }
+    reconcileAgUiConversation(conversationId: string) { return this.agUiInteractions.reconcile(conversationId); }
     observesNativeWork() { return this.observeNativeWork; }
 
     async listAgUiBackends(): Promise<AgUiBackendDescriptor[]> {
@@ -217,10 +215,8 @@ export class AgentlyClient {
         this.onErrorHook = opts.onError;
         this.onUnauthorizedHook = opts.onUnauthorized;
         this.sessionDebug = opts.sessionDebug;
-        if ((opts.interactionProtocol ?? 'ag-ui') === 'ag-ui') {
-            this.observeNativeWork = opts.observeNativeWork === true;
-            this.agUiInteractions = new AgUiConversationTransport(this, options => new AgUiViewProjection(options));
-        }
+        this.observeNativeWork = opts.observeNativeWork === true;
+        this.agUiInteractions = new AgUiConversationTransport(this, options => new AgUiViewProjection(options));
     }
 
     // ── Conversations ────────────────────────────────────────────────────────
@@ -345,7 +341,7 @@ export class AgentlyClient {
     // ── Transcript ───────────────────────────────────────────────────────────
 
     /** Get structured turn-based transcript with optional tool/model call details. */
-    async getTranscript(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+    async readConversationHistory(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
         const q = new URLSearchParams();
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
@@ -377,7 +373,7 @@ export class AgentlyClient {
     }
 
     /** Get the compact authoritative live snapshot and event cursor before joining SSE. */
-    async getLiveState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+    async readApplicationState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
         const q = new URLSearchParams();
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
@@ -388,6 +384,32 @@ export class AgentlyClient {
         return transcriptDTO(await this.get<TranscriptOutput>(`/conversations/${enc(input.conversationId)}/live-state`, q));
     }
 
+    private transcriptSelectors(options?: GetTranscriptOptions): Record<string, QuerySelector> {
+        const selectors = {...options?.selectors};
+        if (options?.executionGroupSelector) selectors.ExecutionGroup = {...selectors.ExecutionGroup, ...options.executionGroupSelector};
+        if (Number.isFinite(options?.executionGroupLimit)) selectors.ExecutionGroup = {...selectors.ExecutionGroup, limit:Number(options!.executionGroupLimit)};
+        if (Number.isFinite(options?.executionGroupOffset)) selectors.ExecutionGroup = {...selectors.ExecutionGroup, offset:Number(options!.executionGroupOffset)};
+        return selectors;
+    }
+
+    async getTranscript(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+        try { return await this.agUiInteractions.readSnapshot(input.conversationId, {
+            mode:'transcript', since:input.since, includeModelCalls:input.includeModelCalls === true,
+            includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
+            selectors:this.transcriptSelectors(options),
+        }); }
+        catch (error) { if ((error as {status?:number})?.status === 403) return this.readConversationHistory(input, options); throw error; }
+    }
+
+    async getLiveState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+        try { return await this.agUiInteractions.readSnapshot(input.conversationId, {
+            mode:'live', includeModelCalls:input.includeModelCalls === true,
+            includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
+            selectors:this.transcriptSelectors(options),
+        }); }
+        catch (error) { if ((error as {status?:number})?.status === 403) return this.readApplicationState(input, options); throw error; }
+    }
+
     // ── Query ────────────────────────────────────────────────────────────────
 
     /**
@@ -395,8 +417,7 @@ export class AgentlyClient {
      * If a turn is already running, the new turn is automatically queued.
      */
     async query(input: QueryInput): Promise<QueryOutput> {
-        if (this.agUiInteractions) return this.agUiInteractions.query(input);
-        return this.post<QueryOutput>('/agent/query', input);
+        return this.agUiInteractions.query(input);
     }
 
     // ── Turns ────────────────────────────────────────────────────────────────
@@ -502,54 +523,51 @@ export class AgentlyClient {
             onHostActivities?: import('./aguiConversationTransport').AgUiConversationHandlers['onHostActivities'];
         },
     ): { close: () => void } {
-        if (this.agUiInteractions) {
-            const primary = this.agUiInteractions.subscribe(conversationId, handlers);
-            if (!this.observeNativeWork) return primary;
-            let active = true;
-            const generation = this.protocolSessionGeneration;
-            const current = () => active && generation === this.protocolSessionGeneration;
-            const reconcile = () => {
-                void this.agUiInteractions?.reconcile(conversationId).catch(async error => {
-                    if (!current()) return;
-                    if (error?.status === 403) {
-                        // Shared readers use authorized native history, without
-                        // access to the owner's private protocol journal.
-                        const snapshot = await this.getTranscript({ conversationId, includeModelCalls: true, includeToolCalls: true, includeFeeds: true });
-                        if (current()) handlers.onSnapshot?.(snapshot);
-                        return;
-                    }
-                    throw error;
-                }).catch(error => { if (current()) handlers.onError?.(String(error?.message || error)); });
-            };
-            const application = this.observeNativeEvents(conversationId, {
-                ...handlers,
-                onEvent: event => {
-                    if (String(event.type) === 'compatibility_reconcile') {
-                        reconcile();
-                        return;
-                    }
-                    handlers.onEvent?.(event);
-                    // Native deltas need not carry the originating user's text.
-                    // Reconcile once on completion to recover its canonical row.
-                    if (['turn_completed', 'turn_failed', 'turn_canceled'].includes(event.type)) reconcile();
-                    if (event.type === 'conversation_meta_updated' && event.patch?.aguiUpdated === true) reconcile();
-                },
-            });
-            return { close: () => { active = false; primary.close(); application.close(); } };
-        }
-        return this.streamNativeEvents(conversationId, handlers);
+        const primary = this.agUiInteractions.subscribe(conversationId, handlers);
+        if (!this.observeNativeWork) return primary;
+        let active = true;
+        const generation = this.protocolSessionGeneration;
+        const current = () => active && generation === this.protocolSessionGeneration;
+        const reconcile = () => {
+            void this.agUiInteractions.reconcile(conversationId).catch(async error => {
+                if (!current()) return;
+                if (error?.status === 403) {
+                    // Shared readers use authorized native history, without
+                    // access to the owner's private protocol journal.
+                    const snapshot = await this.readConversationHistory({ conversationId, includeModelCalls: true, includeToolCalls: true, includeFeeds: true });
+                    if (current()) handlers.onSnapshot?.(snapshot);
+                    return;
+                }
+                throw error;
+            }).catch(error => { if (current()) handlers.onError?.(String(error?.message || error)); });
+        };
+        const application = this.observeNativeEvents(conversationId, {
+            ...handlers,
+            onEvent: event => {
+                if (String(event.type) === 'compatibility_reconcile') {
+                    reconcile();
+                    return;
+                }
+                handlers.onEvent?.(event);
+                // Native deltas need not carry the originating user's text.
+                // Reconcile once on completion to recover its canonical row.
+                if (['turn_completed', 'turn_failed', 'turn_canceled'].includes(event.type)) reconcile();
+                if (event.type === 'conversation_meta_updated' && event.patch?.aguiUpdated === true) reconcile();
+            },
+        });
+        return { close: () => { active = false; primary.close(); application.close(); } };
     }
 
     /** Native application observation is separate from primary AG-UI execution. */
     observeNativeEvents(conversationId: string, handlers: import('./aguiConversationTransport').AgUiConversationHandlers) {
-        const inner = this.streamNativeEvents(conversationId, handlers, 'native-and-application');
+        const inner = this.streamApplicationEvents(conversationId, handlers);
         const observer = { close: () => { inner.close(); this.nativeObservers.delete(observer); } };
         this.nativeObservers.add(observer);
         return observer;
     }
 
-    private streamNativeEvents(conversationId: string, handlers: import('./aguiConversationTransport').AgUiConversationHandlers, scope?: 'native-and-application'): { close(): void } {
-        const url = `${this.baseURL}/stream?conversationId=${enc(conversationId)}${scope ? `&compatibilityScope=${scope}` : ''}`;
+    private streamApplicationEvents(conversationId: string, handlers: import('./aguiConversationTransport').AgUiConversationHandlers): { close(): void } {
+        const url = `${this.baseURL}/stream?conversationId=${enc(conversationId)}&compatibilityScope=native-and-application`;
         const es = this.tokenProvider || Object.keys(this.staticHeaders).length > 0
             ? new FetchEventSource(url, this.fetchImpl, () => this.authHeaders(), this.useCookies ? 'include' : 'same-origin')
             : new EventSource(url, { withCredentials: this.useCookies });
@@ -751,7 +769,7 @@ export class AgentlyClient {
     }
 
     private reconcileApproval(protocol?: import('./types').ApprovalProtocolReferences) {
-        if (!this.agUiInteractions || protocol?.version !== '1' || !protocol.threadId) return;
+        if (protocol?.version !== '1' || !protocol.threadId) return;
         const conversationId = protocol.kind === 'mcp-app' ? protocol.nativeConversationId : protocol.threadId;
         if (!conversationId) return;
         // A replayed decision receipt may predate successor admission. Discover

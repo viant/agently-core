@@ -38,7 +38,7 @@ class AgUiClient(private val endpoint: EndpointConfig, private val path: String 
         val worker = thread(name = "agui-${input.runId}", isDaemon = true) {
             try {
                 call.execute().use { response ->
-                    if (!response.isSuccessful) fail("AG-UI POST failed: HTTP ${response.code}")
+                    if (!response.isSuccessful) throw AgUiHttpException(response.code)
                     if (response.header("Content-Type")?.substringBefore(';')?.trim()?.lowercase() != "text/event-stream") fail("AG-UI response must be text/event-stream")
                     val body = response.body ?: fail("Missing response body")
                     val store = AgUiStore(input); val parser = AgUiSSEParser(maxFrameBytes)
@@ -75,3 +75,5 @@ internal class AgUiSessionCookies : okhttp3.CookieJar {
         stored.removeAll{it.expiresAt<=System.currentTimeMillis()};return stored.filter{it.matches(url)}
     }
 }
+
+class AgUiHttpException(val statusCode: Int) : java.io.IOException("AG-UI POST failed: HTTP $statusCode")
