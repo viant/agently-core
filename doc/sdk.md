@@ -6,7 +6,7 @@ interaction and retain the supporting authenticated application APIs. The Go
 native execution event bus consumed by the AG-UI coordinator. That backend bus
 is not an alternative HTTP conversation transport.
 
-For the Datly 1.0 server migration and cross-platform compatibility gate, see
+For persistence boundaries and cross-platform application contracts, see
 [datly-sdk-contract.md](datly-sdk-contract.md).
 
 ## Packages
