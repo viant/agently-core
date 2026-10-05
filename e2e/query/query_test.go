@@ -66,8 +66,8 @@ func skipIfNoExtendedE2E(t *testing.T) {
 	t.Skip("AGENTLY_E2E_EXTENDED not set; skipping long-running live LLM e2e")
 }
 
-// setupSDK creates an in-memory embedded SDK client backed by the testdata workspace.
-func setupSDK(t *testing.T) sdk.Client {
+// setupSDK creates a local HTTP SDK client backed by the testdata workspace.
+func setupSDK(t *testing.T) *sdk.HTTPClient {
 	t.Helper()
 	ctx := context.Background()
 
@@ -343,7 +343,7 @@ func TestQueryAsyncExecReporter(t *testing.T) {
 	require.NotEmpty(t, conv.Id)
 	attachAsyncFailureDebug(t, ctx, client, conv.Id, nil)
 
-	sub, err := client.StreamEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
+	sub, err := client.ObserveApplicationEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
 	require.NoError(t, err)
 	defer sub.Close()
 
@@ -444,7 +444,7 @@ func TestQueryAsyncExecCanceler(t *testing.T) {
 	require.NotEmpty(t, conv.Id)
 	attachAsyncFailureDebug(t, ctx, client, conv.Id, nil)
 
-	sub, err := client.StreamEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
+	sub, err := client.ObserveApplicationEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
 	require.NoError(t, err)
 	defer sub.Close()
 
@@ -564,7 +564,7 @@ func TestQueryAsyncExecFailure(t *testing.T) {
 	require.NotEmpty(t, conv.Id)
 	attachAsyncFailureDebug(t, ctx, client, conv.Id, nil)
 
-	sub, err := client.StreamEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
+	sub, err := client.ObserveApplicationEvents(ctx, &sdk.StreamEventsInput{ConversationID: conv.Id})
 	require.NoError(t, err)
 	defer sub.Close()
 

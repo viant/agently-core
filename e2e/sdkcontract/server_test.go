@@ -58,7 +58,7 @@ func TestGoSDKActualApplicationJSONAuthQueueSSEAndDeletion(t *testing.T) {
 	require.Equal(t, "edited through actual HTTP", *queued.Transcript[0].Message[0].Content)
 	streamCtx, stop := context.WithTimeout(ctx, 5*time.Second)
 	defer stop()
-	subscription, err := owner.StreamEvents(streamCtx, &sdk.StreamEventsInput{ConversationID: sdkcontract.ConversationID})
+	subscription, err := owner.ObserveApplicationEvents(streamCtx, &sdk.StreamEventsInput{ConversationID: sdkcontract.ConversationID})
 	require.NoError(t, err)
 	defer subscription.Close()
 	require.NoError(t, fixture.Publish(ctx, 1))

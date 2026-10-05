@@ -211,5 +211,5 @@ func seed(ctx context.Context, rt *executor.Runtime, reportingLifecycle bool) er
 }
 
 func (s *Server) Publish(ctx context.Context, seq int64) error {
-	return s.Runtime.Streaming.Publish(ctx, &streaming.Event{ID: fmt.Sprintf("sdk-contract-event-%d", seq), EventSeq: seq, ConversationID: ConversationID, StreamID: ConversationID, Type: streaming.EventTypeUsage, Patch: map[string]interface{}{"inputTokens": 11, "outputTokens": 7}})
+	return s.Runtime.Streaming.Publish(ctx, &streaming.Event{ID: fmt.Sprintf("sdk-contract-event-%d", seq), EventSeq: seq, ConversationID: ConversationID, StreamID: ConversationID, TurnID: "sdk-contract-turn", Type: streaming.EventTypeUsage, Patch: map[string]interface{}{"inputTokens": 11, "outputTokens": 7}})
 }

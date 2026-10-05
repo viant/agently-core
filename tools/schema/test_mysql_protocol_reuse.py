@@ -16,7 +16,9 @@ MYSQL = ["docker", "exec", "-i", CONTAINER, "sh", "-c",
 
 
 def query(sql):
-    result = subprocess.run(MYSQL, input=sql, text=True, capture_output=True)
+    # Some development containers disable checks globally; acceptance must
+    # exercise the migration's real referential behavior in every connection.
+    result = subprocess.run(MYSQL, input="SET SESSION foreign_key_checks=1;\n" + sql, text=True, capture_output=True)
     if result.returncode:
         raise RuntimeError(result.stderr)
     return result.stdout.strip()
@@ -25,7 +27,7 @@ def query(sql):
 def check_versioned(filename, original_name):
     name = "agui_schema_test_" + uuid.uuid4().hex
     full = (ROOT / "script/mysql" / filename).read_text()
-    marker = "-- Version 41 was an unreleased AG-UI POC."
+    marker = "-- Version 41 adds AG-UI protocol storage by reusing existing application tables."
     assert marker in full, "Missing pre-protocol migration boundary"
     full = full.replace("`" + original_name + "`", "`" + name + "`")
     old = full.split(marker)[0] + "\nDELIMITER ;\n"
@@ -36,14 +38,10 @@ INSERT INTO conversation(id,title,created_by_user_id) VALUES('keep','Original','
 INSERT INTO turn(id,conversation_id,status) VALUES('turn','keep','succeeded');
 INSERT INTO run(id,conversation_id,turn_id,status,checkpoint_data) VALUES('execution','keep','turn','completed','checkpoint');
 INSERT INTO call_payload(id,kind,mime_type,size_bytes,storage,inline_body) VALUES('payload','tool_response','application/json',2,'inline','{{}}');
-CREATE TABLE agui_thread(id INT PRIMARY KEY);
-CREATE TABLE agui_run(id INT PRIMARY KEY);
-CREATE TABLE agui_event(id INT PRIMARY KEY);
-CREATE TABLE agui_lease(id INT PRIMARY KEY);
 """)
         query(full)
         query(full)
-        assert query(f"SELECT version_number FROM `{name}`.schema_version;") == "42"
+        assert query(f"SELECT version_number FROM `{name}`.schema_version;") == "41"
         assert query(f"SELECT title,protocol_only FROM `{name}`.conversation WHERE id='keep';") == "Original\t0"
         assert query(f"SELECT status,run_kind,checkpoint_data FROM `{name}`.run WHERE id='execution';") == "completed\texecution\tcheckpoint"
         assert query(f"SELECT kind,inline_body FROM `{name}`.call_payload WHERE id='payload';") == "tool_response\t{}"

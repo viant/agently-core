@@ -49,16 +49,23 @@ func TestProtocolProviderMediaMatrix(t *testing.T) {
 						case "openai-responses", "openai-chat":
 							responses := provider == "openai-responses"
 							client := openai.NewClient("fixture", "gpt-fixture", openai.WithContextContinuation(&responses))
-							supported = (kind == "image" && (responses || source != "file") || kind == "document" && (responses || source != "url") || kind == "audio" && !responses && source == "data") && (role != llm.RoleTool || responses)
+							// Standard OpenAI accepts user image file IDs through Responses,
+							// even when ordinary requests use Chat Completions.
+							imageFileRoute := kind == "image" && source == "file" && role == llm.RoleUser
+							supported = (kind == "image" && (responses || source != "file" || imageFileRoute) || kind == "document" && (responses || source != "url") || kind == "audio" && !responses && source == "data") && (role != llm.RoleTool || responses)
 							request, e := client.ToRequest(input)
 							err = e
 							if e == nil {
-								if responses {
+								if responses || imageFileRoute {
 									wire := openai.ToResponsesPayload(request)
 									if role == llm.RoleTool {
 										parts = objects(t, wire.Input[0].OutputParts)
 									} else {
 										parts = objects(t, wire.Input[0].Content)
+									}
+									if imageFileRoute {
+										require.Equal(t, "input_image", parts[1]["type"])
+										require.Equal(t, value, parts[1]["file_id"])
 									}
 								} else {
 									parts = objects(t, request.Messages[0].Content)
