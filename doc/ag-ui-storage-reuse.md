@@ -1,6 +1,6 @@
 # AG-UI storage in existing tables
 
-AG-UI persistence reuses `conversation`, `run`, and `call_payload`. No separate protocol tables are required. The four unreleased POC tables (`agui_thread`, `agui_run`, `agui_event`, `agui_lease`) are removed during sandbox schema upgrade; their contents are intentionally not imported.
+AG-UI persistence uses `conversation`, `run`, and `call_payload` for protocol projections, run admission and ordered journal events. Protocol and native execution state have distinct ownership within the application's existing persistence graph.
 
 Schema changes are additive for existing application records. Existing conversations default to `protocol_only=0`; existing runs default to `run_kind='execution'`. Protocol runs have `run_kind='agui'` and their own `protocol_status`, revision, admission keys and lease fields. Their native status and execution checkpoint fields are separate. Execution readers, writers and recovery must filter by execution kind.
 
@@ -13,7 +13,7 @@ DQL under `dql/` is authoritative for application readers and writers. Outer vie
 ## Validation on 2026-10-05
 
 - SQLite: public `Ensure` upgrades the pre-protocol schema twice, preserving conversation, turn, message, run checkpoint, payload and report records. Foreign-key validation passes and the four POC tables are removed.
-- MySQL 8.4.11: fresh bootstrap and the full versioned schema execute successfully in disposable databases. Both core and Steward versioned upgrades from version 40 to 42 preserve seeded conversation, turn, run checkpoint and tool payload records. The core upgrade also executes twice successfully.
+- MySQL 8.0.46: both current core and Steward versioned schemas upgrade from version 40 to 41 and execute twice successfully in disposable databases. Original conversation, turn, run checkpoint and tool payload records are preserved. The repeatable test enables session foreign-key checks explicitly and verifies byte-exact opaque IDs, journal sequence uniqueness and cascading event deletion.
 - MySQL protocol event insertion succeeds; a raw ID with a trailing space remains byte-exact. Deleting its protocol run removes its event, within a rolled-back verification transaction.
 - MySQL `EXPLAIN` uses `ux_payload_run_sequence` for replay, `ix_run_protocol_scope` for scoped status lookup, `ix_run_protocol_turn` for global authorized turn lookup with a representative population, and `ix_run_protocol_recovery` for ordered global recovery. Recovery needs no filesort. Existing native indexes are retained.
 
