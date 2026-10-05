@@ -1,1 +1,1 @@
-SELECT RunKey AS RunKey FROM `/`
+SELECT RunKey AS Id FROM `/`

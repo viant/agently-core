@@ -20,5 +20,5 @@ type CurrentWriterView struct {
 }
 
 type WriterKeysRow struct {
-	RunKey string `sqlx:"id"`
+	Id string `sqlx:"id"`
 }
