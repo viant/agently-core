@@ -66,9 +66,11 @@ type Backend struct {
 	// mcp_tool
 	Service string `json:"service,omitempty" yaml:"service,omitempty"`
 	Method  string `json:"method,omitempty" yaml:"method,omitempty"`
+	// RequestMetadata names literal top-level logical request keys omitted only
+	// from MCP transport arguments. Cache and admission identity retain these keys.
+	RequestMetadata []string `json:"requestMetadata,omitempty" yaml:"requestMetadata,omitempty"`
 	// MCPRequest declares where an authored report query is placed in tool
-	// arguments. It is optional for ordinary datasource Fetch calls, but report
-	// compilers require an explicit mapping rather than guessing tool schemas.
+	// arguments. Report compilers require an explicit mapping.
 	MCPRequest *MCPRequestBinding `json:"mcpRequest,omitempty" yaml:"mcpRequest,omitempty"`
 	Calls      []MCPCall          `json:"calls,omitempty" yaml:"calls,omitempty"`
 	Fanout     *MCPFanout         `json:"fanout,omitempty" yaml:"fanout,omitempty"`

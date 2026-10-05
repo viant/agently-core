@@ -215,7 +215,7 @@ func (s *Service) runBackend(ctx context.Context, ds *dsproto.DataSource, args m
 			return nil, fmt.Errorf("datasource %q: mcp_tool backend missing service/method", ds.ID)
 		}
 		name := ds.Backend.Service + ":" + ds.Backend.Method
-		raw, err := s.executor.Execute(ctx, name, args)
+		raw, err := s.executor.Execute(ctx, name, transportArguments(args, ds.Backend.RequestMetadata))
 		if err != nil {
 			return nil, err
 		}
