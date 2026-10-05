@@ -39,26 +39,11 @@ ALTER TABLE call_payload
 DELIMITER $$
 CREATE PROCEDURE agently_agui_payload_kind_upgrade()
 BEGIN
-  DECLARE old_check VARCHAR(255) DEFAULT NULL;
-  SELECT tc.CONSTRAINT_NAME INTO old_check
-  FROM information_schema.TABLE_CONSTRAINTS tc
-  JOIN information_schema.CHECK_CONSTRAINTS cc
-    ON cc.CONSTRAINT_SCHEMA=tc.CONSTRAINT_SCHEMA
-   AND cc.CONSTRAINT_NAME=tc.CONSTRAINT_NAME
-  WHERE tc.TABLE_SCHEMA=DATABASE() AND tc.TABLE_NAME='call_payload'
-    AND cc.CHECK_CLAUSE LIKE '%model_request%'
-    AND cc.CHECK_CLAUSE NOT LIKE '%agui.event%'
-  LIMIT 1;
-  IF old_check IS NOT NULL THEN
-    SET @agui_kind_sql=CONCAT('ALTER TABLE call_payload DROP CHECK `',REPLACE(old_check,'`','``'),'`');
-    PREPARE agui_kind_stmt FROM @agui_kind_sql;
-    EXECUTE agui_kind_stmt;
-    DEALLOCATE PREPARE agui_kind_stmt;
-    ALTER TABLE call_payload ADD CONSTRAINT ck_call_payload_kind
-      CHECK (kind IN ('model_request','model_response','provider_request',
-        'provider_response','model_stream','tool_request','tool_response',
-        'elicitation_request','elicitation_response','attachment','agui.event'));
-  END IF;
+  ALTER TABLE call_payload DROP CHECK call_payload_chk_1;
+  ALTER TABLE call_payload ADD CONSTRAINT call_payload_chk_1
+    CHECK (kind IN ('model_request','model_response','provider_request',
+      'provider_response','model_stream','tool_request','tool_response',
+      'elicitation_request','elicitation_response','attachment','agui.event'));
 END $$
 CALL agently_agui_payload_kind_upgrade() $$
 DROP PROCEDURE agently_agui_payload_kind_upgrade $$

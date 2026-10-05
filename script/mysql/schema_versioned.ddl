@@ -2863,7 +2863,6 @@ DROP PROCEDURE schema_upgrade_39 $$
 DROP PROCEDURE IF EXISTS schema_upgrade_40 $$
 CREATE PROCEDURE schema_upgrade_40()
 BEGIN
-    DECLARE payload_kind_check VARCHAR(255) DEFAULT NULL;
     IF get_schema_version() = 40 THEN
         IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='conversation' AND COLUMN_NAME='protocol_only') THEN
             ALTER TABLE conversation ADD COLUMN protocol_only TINYINT NOT NULL DEFAULT 0;
@@ -2950,20 +2949,8 @@ BEGIN
             ALTER TABLE call_payload ADD COLUMN sequence BIGINT NULL;
         END IF;
         -- Preserve all existing payload kinds, extending only the protocol event class.
-        SELECT tc.CONSTRAINT_NAME INTO payload_kind_check
-        FROM information_schema.TABLE_CONSTRAINTS tc
-        JOIN information_schema.CHECK_CONSTRAINTS cc
-          ON cc.CONSTRAINT_SCHEMA=tc.CONSTRAINT_SCHEMA AND cc.CONSTRAINT_NAME=tc.CONSTRAINT_NAME
-        WHERE tc.TABLE_SCHEMA=DATABASE() AND tc.TABLE_NAME='call_payload'
-          AND cc.CHECK_CLAUSE LIKE '%model_request%' AND cc.CHECK_CLAUSE NOT LIKE '%agui.event%'
-        LIMIT 1;
-        IF payload_kind_check IS NOT NULL THEN
-            SET @protocol_schema_sql=CONCAT('ALTER TABLE call_payload DROP CHECK `', REPLACE(payload_kind_check,'`','``'), '`');
-            PREPARE protocol_schema_stmt FROM @protocol_schema_sql;
-            EXECUTE protocol_schema_stmt;
-            DEALLOCATE PREPARE protocol_schema_stmt;
-            ALTER TABLE call_payload ADD CONSTRAINT ck_call_payload_kind CHECK (kind IN ('model_request','model_response','provider_request','provider_response','model_stream','tool_request','tool_response','elicitation_request','elicitation_response','attachment','agui.event'));
-        END IF;
+        ALTER TABLE call_payload DROP CHECK call_payload_chk_1;
+        ALTER TABLE call_payload ADD CONSTRAINT call_payload_chk_1 CHECK (kind IN ('model_request','model_response','provider_request','provider_response','model_stream','tool_request','tool_response','elicitation_request','elicitation_response','attachment','agui.event'));
         IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='conversation' AND INDEX_NAME='ux_conversation_protocol_thread') THEN
             CREATE UNIQUE INDEX ux_conversation_protocol_thread ON conversation (protocol_thread_key);
         END IF;
