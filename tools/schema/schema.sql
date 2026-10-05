@@ -10,6 +10,13 @@ CREATE TABLE IF NOT EXISTS maintenance_lease (
 );
 
 CREATE TABLE IF NOT EXISTS conversation (
+    protocol_only INTEGER NOT NULL DEFAULT 0,
+    protocol_thread_key TEXT,
+    protocol_thread_id BLOB,
+    protocol_principal BLOB,
+    protocol_revision INTEGER NOT NULL DEFAULT 0,
+    protocol_state_json BLOB,
+    protocol_messages_json BLOB,
     id TEXT PRIMARY KEY,
     summary TEXT,
     last_activity DATETIME,
@@ -127,7 +134,9 @@ CREATE TABLE IF NOT EXISTS call_payload (
     redaction_policy_version TEXT,
     redacted INTEGER NOT NULL DEFAULT 0,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    schema_ref TEXT
+    schema_ref TEXT,
+    run_id TEXT REFERENCES run(id) ON DELETE CASCADE,
+    sequence INTEGER
 );
 
 CREATE INDEX IF NOT EXISTS idx_payload_tenant_kind ON call_payload(tenant_id, kind, created_at);
@@ -347,6 +356,25 @@ CREATE INDEX IF NOT EXISTS idx_schedule_enabled_next ON schedule(enabled, next_r
 CREATE INDEX IF NOT EXISTS idx_schedule_enabled_next_lease ON schedule(enabled, next_run_at, lease_until);
 
 CREATE TABLE IF NOT EXISTS run (
+    run_kind TEXT NOT NULL DEFAULT 'execution',
+    protocol_key TEXT,
+    protocol_status TEXT,
+    protocol_turn_id TEXT,
+    protocol_run_id BLOB,
+    protocol_parent_run_id BLOB,
+    protocol_prior_run_id BLOB,
+    protocol_client_message_id BLOB,
+    protocol_resumed_by_run_id BLOB,
+    protocol_source_key TEXT,
+    protocol_initial_turn_key TEXT,
+    protocol_input_hash TEXT,
+    protocol_input_json BLOB,
+    protocol_pending_json BLOB,
+    protocol_revision INTEGER NOT NULL DEFAULT 0,
+    protocol_last_sequence INTEGER NOT NULL DEFAULT 0,
+    protocol_lease_owner BLOB,
+    protocol_lease_until DATETIME,
+    protocol_lease_revision INTEGER NOT NULL DEFAULT 0,
     id TEXT PRIMARY KEY,
     turn_id TEXT,
     schedule_id TEXT,
@@ -710,3 +738,15 @@ CREATE TABLE IF NOT EXISTS investigation (
 CREATE INDEX IF NOT EXISTS idx_investigation_created_by ON investigation(created_by);
 CREATE INDEX IF NOT EXISTS idx_investigation_created ON investigation(created);
 CREATE INDEX IF NOT EXISTS idx_investigation_conversation_id ON investigation(conversation_id);
+
+-- Protocol storage reuses conversation, run, and call_payload.
+
+-- Protocol identities remain exact-byte hashes; native execution IDs are unchanged.
+CREATE UNIQUE INDEX IF NOT EXISTS ux_conversation_protocol_thread ON conversation(protocol_thread_key);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_run_protocol_key ON run(protocol_key);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_run_protocol_source ON run(protocol_source_key);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_run_protocol_initial_turn ON run(protocol_initial_turn_key);
+CREATE INDEX IF NOT EXISTS ix_run_protocol_scope ON run(run_kind, conversation_id, effective_user_id, protocol_status, id);
+CREATE INDEX IF NOT EXISTS ix_run_protocol_turn ON run(run_kind, effective_user_id, protocol_turn_id, conversation_id, protocol_key);
+CREATE INDEX IF NOT EXISTS ix_run_protocol_recovery ON run(run_kind, protocol_key, protocol_status);
+CREATE UNIQUE INDEX IF NOT EXISTS ux_payload_run_sequence ON call_payload(run_id, sequence);

@@ -1853,7 +1853,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
-        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], interactionProtocol: .legacy, session: session)
 
         let expectation = expectation(description: "transcript request captured")
         URLProtocolStub.requestHandler = { request in
@@ -1909,7 +1909,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
-        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], interactionProtocol: .legacy, session: session)
 
         URLProtocolStub.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -1941,7 +1941,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
-        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], interactionProtocol: .legacy, session: session)
 
         URLProtocolStub.requestHandler = { request in
             let response = HTTPURLResponse(
@@ -2071,7 +2071,7 @@ final class AgentlySDKTests: XCTestCase {
         configuration.protocolClasses = [URLProtocolStub.self]
         let session = URLSession(configuration: configuration)
         let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
-        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], interactionProtocol: .legacy, session: session)
 
         URLProtocolStub.requestHandler = { request in
             let url = try XCTUnwrap(request.url)

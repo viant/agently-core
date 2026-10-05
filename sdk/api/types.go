@@ -68,10 +68,11 @@ type LinkedConversationPage struct {
 }
 
 type SteerTurnInput struct {
-	ConversationID string `json:"conversationId"`
-	TurnID         string `json:"turnId"`
-	Content        string `json:"content"`
-	Role           string `json:"role,omitempty"`
+	ClientRequestID string `json:"clientRequestId,omitempty"`
+	ConversationID  string `json:"conversationId"`
+	TurnID          string `json:"turnId"`
+	Content         string `json:"content"`
+	Role            string `json:"role,omitempty"`
 }
 
 type SteerTurnOutput struct {
@@ -471,10 +472,22 @@ type DecideToolApprovalInput struct {
 	Payload       map[string]interface{} `json:"payload,omitempty"`
 }
 
+type ApprovalProtocolReferences struct {
+	Kind                  string   `json:"kind,omitempty"`
+	NativeConversationID  string   `json:"nativeConversationId,omitempty"`
+	Version               string   `json:"version"`
+	ThreadID              string   `json:"threadId"`
+	OriginalRunID         string   `json:"originalRunId"`
+	CommandRunID          string   `json:"commandRunId"`
+	ContinuationRunID     string   `json:"continuationRunId,omitempty"`
+	RemainingInterruptIDs []string `json:"remainingInterruptIds"`
+}
+
 type DecideToolApprovalOutput struct {
-	Status  string                     `json:"status"`
-	Message string                     `json:"message,omitempty"`
-	Outcome *DecideToolApprovalOutcome `json:"outcome,omitempty"`
+	Protocol *ApprovalProtocolReferences `json:"protocol,omitempty"`
+	Status   string                      `json:"status"`
+	Message  string                      `json:"message,omitempty"`
+	Outcome  *DecideToolApprovalOutcome  `json:"outcome,omitempty"`
 }
 
 // DecideToolApprovalOutcome describes the resolved approval outcome after the
@@ -488,18 +501,19 @@ type DecideToolApprovalOutput struct {
 // Decision are both "timeout", Status is "timed_out", and TimedOutAt
 // carries the instant at which the producer recorded the transition.
 type DecideToolApprovalOutcome struct {
-	ApprovalID     string     `json:"approvalId"`
-	Action         string     `json:"action"`
-	Status         string     `json:"status,omitempty"`
-	Decision       string     `json:"decision,omitempty"`
-	ConversationID string     `json:"conversationId,omitempty"`
-	TurnID         string     `json:"turnId,omitempty"`
-	MessageID      string     `json:"messageId,omitempty"`
-	ToolName       string     `json:"toolName,omitempty"`
-	Result         string     `json:"result,omitempty"`
-	ErrorMessage   string     `json:"errorMessage,omitempty"`
-	ExpiresAt      *time.Time `json:"expiresAt,omitempty"`
-	TimedOutAt     *time.Time `json:"timedOutAt,omitempty"`
+	Protocol       *ApprovalProtocolReferences `json:"protocol,omitempty"`
+	ApprovalID     string                      `json:"approvalId"`
+	Action         string                      `json:"action"`
+	Status         string                      `json:"status,omitempty"`
+	Decision       string                      `json:"decision,omitempty"`
+	ConversationID string                      `json:"conversationId,omitempty"`
+	TurnID         string                      `json:"turnId,omitempty"`
+	MessageID      string                      `json:"messageId,omitempty"`
+	ToolName       string                      `json:"toolName,omitempty"`
+	Result         string                      `json:"result,omitempty"`
+	ErrorMessage   string                      `json:"errorMessage,omitempty"`
+	ExpiresAt      *time.Time                  `json:"expiresAt,omitempty"`
+	TimedOutAt     *time.Time                  `json:"timedOutAt,omitempty"`
 }
 
 // ApprovalTimeoutOutcomeStatus is the canonical Status value for a

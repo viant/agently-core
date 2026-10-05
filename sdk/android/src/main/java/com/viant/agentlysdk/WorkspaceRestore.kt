@@ -17,7 +17,7 @@ fun deriveHostedWorkspaceRestoreState(
     return deriveHostedWorkspaceRestoreStateFromToolSteps(
         state.conversation?.turns.orEmpty().flatMap { turn ->
             turn.execution?.pages.orEmpty().flatMap { it.toolSteps }
-        }
+        },state.conversation?.conversationId
     )
 }
 
@@ -43,12 +43,12 @@ fun deriveHostedWorkspaceRestoreState(
         return null
     }
     return deriveHostedWorkspaceRestoreStateFromToolSteps(
-        groups.flatMap { group -> group.toolSteps.mapNotNull(::liveToolStepToToolStepState) }
+        groups.flatMap { group -> group.toolSteps.mapNotNull(::liveToolStepToToolStepState) },snapshot.conversationId
     )
 }
 
 private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
-    toolSteps: List<ToolStepState>
+    toolSteps: List<ToolStepState>,expectedConversationId:String?=null
 ): HostedWorkspaceRestoreState? {
     val completedToolSteps = toolSteps
         .filter { it.status?.trim()?.lowercase() == "completed" }
@@ -61,6 +61,7 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
                     (payload?.get("window") as? JsonObject) ?: payload
                 )
                 if (latestWindow != null) {
+                    if(!hostedWorkspaceConversationMatches(latestWindow,expectedConversationId)) continue
                     val window = completedToolSteps.take(index + 1)
                         .asSequence()
                         .filter { normalizeToolName(it.toolName) == "ui/window/get" }
@@ -71,12 +72,13 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
                             )
                         }
                         .filter { it.windowId == latestWindow.windowId }
+                        .filter { hostedWorkspaceConversationMatches(it,expectedConversationId) }
                         .fold<WorkspaceWindowSnapshot, WorkspaceWindowSnapshot?>(null) { merged, snapshot ->
                             merged?.let { mergeHostedWorkspaceSnapshots(it, snapshot) } ?: snapshot
                         } ?: latestWindow
                     val restoredWindows = applyWindowFormDataPatches(
                         windows = listOf(window),
-                        toolSteps = completedToolSteps.drop(index + 1)
+                        toolSteps = completedToolSteps,expectedConversationId=expectedConversationId
                     )
                     return HostedWorkspaceRestoreState(
                         windows = restoredWindows,
@@ -86,11 +88,17 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
             }
             "ui/context/get" -> {
                 val payload = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
-                val windows = hostedWorkspaceWindowsFromContextPayload(payload)
+                val known=completedToolSteps.take(index).flatMap { prior -> when(normalizeToolName(prior.toolName)) {
+                    "ui/view/open","ui/window/open" -> hostedWorkspaceWindowsFromViewOpenStep(prior)
+                    "ui/window/get" -> listOfNotNull(normalizeHostedWorkspaceWindow((firstParsedPayload(prior.responsePayload,prior.content) as? JsonObject)?.let { (it["window"] as? JsonObject)?:it }))
+                    "ui/window/list" -> hostedWorkspaceWindowsFromListPayload(firstParsedPayload(prior.responsePayload,prior.content))
+                    else -> emptyList()
+                } }.filter { hostedWorkspaceConversationMatches(it,expectedConversationId) }.map { it.windowId }.toSet()
+                val windows = hostedWorkspaceWindowsFromContextPayload(payload).filter { (expectedConversationId.isNullOrBlank() || it.conversationId==expectedConversationId || it.windowId=="chat/new") && (known.isEmpty() || it.windowId in known || it.windowId=="chat/new") }
                 if (windows.isNotEmpty()) {
                     val restoredWindows = applyWindowFormDataPatches(
                         windows = windows,
-                        toolSteps = completedToolSteps
+                        toolSteps = completedToolSteps,expectedConversationId=expectedConversationId
                     )
                     val selected = jsonString((payload?.get("selected") as? JsonObject)?.get("windowId"))
                         .ifBlank { jsonString(payload?.get("focusedWindowId")) }
@@ -102,11 +110,11 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
             "ui/window/list" -> {
                 val windows = hostedWorkspaceWindowsFromListPayload(
                     firstParsedPayload(step.responsePayload, step.content)
-                )
+                ).filter { hostedWorkspaceConversationMatches(it,expectedConversationId) }
                 if (windows.isNotEmpty()) {
                     val restoredWindows = applyWindowFormDataPatches(
                         windows = windows,
-                        toolSteps = completedToolSteps
+                        toolSteps = completedToolSteps,expectedConversationId=expectedConversationId
                     )
                     return HostedWorkspaceRestoreState(
                         windows = restoredWindows,
@@ -117,11 +125,11 @@ private fun deriveHostedWorkspaceRestoreStateFromToolSteps(
                 }
             }
             "ui/view/open", "ui/window/open" -> {
-                val windows = hostedWorkspaceWindowsFromViewOpenStep(step)
+                val windows = hostedWorkspaceWindowsFromViewOpenStep(step).filter { hostedWorkspaceConversationMatches(it,expectedConversationId) }
                 if (windows.isNotEmpty()) {
                     val restoredWindows = applyWindowFormDataPatches(
                         windows = windows,
-                        toolSteps = completedToolSteps
+                        toolSteps = completedToolSteps,expectedConversationId=expectedConversationId
                     )
                     val response = parseHostedWorkspaceObject(step)
                     val selectedWindowId = jsonString(response?.get("selectedWindowId"))
@@ -322,15 +330,29 @@ private fun parseHostedWorkspaceObject(step: ToolStepState): JsonObject? {
 
 private fun applyWindowFormDataPatches(
     windows: List<WorkspaceWindowSnapshot>,
-    toolSteps: List<ToolStepState>
+    toolSteps: List<ToolStepState>,expectedConversationId:String?=null
 ): List<WorkspaceWindowSnapshot> {
     var restored = windows
     toolSteps.forEach { step ->
+        val name=normalizeToolName(step.toolName)
+        if(name=="ui/context/get" || name=="ui/window/get") {
+            val payload=firstParsedPayload(step.responsePayload,step.content) as? JsonObject
+            val snapshots=if(name=="ui/context/get") hostedWorkspaceWindowsFromContextPayload(payload) else listOfNotNull(normalizeHostedWorkspaceWindow((payload?.get("window") as? JsonObject)?:payload))
+            restored=restored.map { known ->
+                val currentConversation=known.conversationId?.takeIf(String::isNotBlank) ?: expectedConversationId?.takeIf(String::isNotBlank)
+                val overlay=snapshots.singleOrNull { candidate -> candidate.windowId==known.windowId && candidate.windowKey==known.windowKey &&
+                    currentConversation!=null && candidate.conversationId==currentConversation && hostedWorkspaceConversationMatches(candidate,expectedConversationId) }
+                if(overlay==null) known else mergeHostedWorkspaceSnapshots(known,overlay)
+            }
+            return@forEach
+        }
         if (normalizeToolName(step.toolName) != "ui/window/setformdata") {
             return@forEach
         }
         val request = firstParsedPayload(step.requestPayload, null) as? JsonObject
         val response = firstParsedPayload(step.responsePayload, step.content) as? JsonObject
+        val patchConversation=jsonString(response?.get("conversationId")).ifBlank { jsonString(request?.get("conversationId")) }
+        if(patchConversation.isNotBlank() && !expectedConversationId.isNullOrBlank() && patchConversation!=expectedConversationId) return@forEach
         val windowId = jsonString(response?.get("windowId"))
             .ifBlank { jsonString(request?.get("windowId")) }
         val windowKey = jsonString(response?.get("windowKey"))
@@ -363,6 +385,8 @@ private fun applyWindowFormDataPatches(
     }
     return restored
 }
+
+private fun hostedWorkspaceConversationMatches(window:WorkspaceWindowSnapshot,expected:String?):Boolean = expected.isNullOrBlank() || window.conversationId.isNullOrBlank() || window.conversationId==expected
 
 private fun invalidateDerivedReportBuilderState(
     current: JsonObject?,

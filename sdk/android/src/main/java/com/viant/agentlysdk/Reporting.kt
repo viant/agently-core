@@ -19,7 +19,10 @@ data class ReportRun(
     val conversationId: String? = null,
     val reportSpec: JsonElement? = null,
     val reportFill: JsonElement? = null,
-    val reportPrint: JsonElement? = null
+    val reportPrint: JsonElement? = null,
+    val builderRef: String? = null,
+    val effectiveParams: JsonElement? = null,
+    val requestedParams: JsonElement? = null
 )
 @Serializable
 data class ReportContext(
@@ -37,7 +40,13 @@ data class ReportRunResult(
 data class BeginReportRunInput(
     val uiRunRequestId: String,
     val conversationId: String? = null,
-    val origin: String? = null
+    val origin: String? = null,
+    val builderRef: String? = null,
+    val presetId: String? = null,
+    val sourceKind: String? = null,
+    val sourceId: String? = null,
+    val requestedParams: JsonElement? = null,
+    val effectiveParams: JsonElement? = null
 )
 @Serializable
 data class CompleteReportRunInput(
@@ -46,6 +55,20 @@ data class CompleteReportRunInput(
     val reportFill: JsonElement,
     val reportPrint: JsonElement,
     val conversationId: String? = null
+)
+@Serializable
+data class FailReportRunInput(
+    val expectedRevision: Long,
+    val conversationId: String? = null,
+    val failureCode: String? = null,
+    val failureText: String? = null
+)
+@Serializable
+data class ActivateReportRunInput(
+    val conversationId: String,
+    val expectedRunRevision: Long,
+    val expectedContextRevision: Long,
+    val source: String? = null
 )
 @Serializable
 data class AdoptReportRunInput(
@@ -87,6 +110,12 @@ suspend fun AgentlyClient.getReportRun(id: String, conversationId: String? = nul
 }
 suspend fun AgentlyClient.completeReportRun(id: String, input: CompleteReportRunInput): ReportRun = withContext(Dispatchers.IO) {
     post("/v1/api/report-runs/${reportSegment(id)}/complete", json.encodeToJsonElement(input).jsonObject.toMap(), ReportRun.serializer())
+}
+suspend fun AgentlyClient.failReportRun(id: String, input: FailReportRunInput): ReportRun = withContext(Dispatchers.IO) {
+    post("/v1/api/report-runs/${reportSegment(id)}/fail", json.encodeToJsonElement(input).jsonObject.toMap(), ReportRun.serializer())
+}
+suspend fun AgentlyClient.activateReportRun(id: String, input: ActivateReportRunInput): ReportContext = withContext(Dispatchers.IO) {
+    post("/v1/api/report-runs/${reportSegment(id)}/activate", json.encodeToJsonElement(input).jsonObject.toMap(), ReportContext.serializer())
 }
 suspend fun AgentlyClient.adoptReportRun(id: String, input: AdoptReportRunInput): ReportRunResult = withContext(Dispatchers.IO) {
     post("/v1/api/report-runs/${reportSegment(id)}/adopt", json.encodeToJsonElement(input).jsonObject.toMap(), ReportRunResult.serializer())

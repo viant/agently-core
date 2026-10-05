@@ -55,6 +55,7 @@ func (s *Service) maybeContinueActiveGoal(ctx context.Context, input *QueryInput
 	if err != nil {
 		return
 	}
+	s.emitGoalAfterAccounting(ctx, conversationID, turn.TurnID, goal)
 	if action.Continuation == nil {
 		return
 	}

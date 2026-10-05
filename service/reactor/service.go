@@ -14,6 +14,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/agent/execution"
 	"github.com/viant/agently-core/protocol/tool"
+	"github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/agent/prompts"
 	core2 "github.com/viant/agently-core/service/core"
@@ -62,6 +63,7 @@ const (
 )
 
 func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOutput *core2.GenerateOutput) (*execution.Plan, error) {
+	ctx, failures := withToolFailures(ctx)
 	aPlan := execution.New()
 
 	var wg sync.WaitGroup
@@ -99,7 +101,8 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 					}
 				}
 			}
-			return nil, fmt.Errorf("failed to stream: %w", err)
+			wg.Wait()
+			return aPlan, errors.Join(fmt.Errorf("failed to stream: %w", err), failures.err())
 		}
 		logx.Debugf("reactor", "Run waiting for tool goroutines")
 		wg.Wait()
@@ -159,6 +162,9 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 		}
 	}
 
+	if err := failures.err(); err != nil && ctx.Err() == nil {
+		return aPlan, err
+	}
 	RefinePlan(aPlan)
 
 	// Debug trace: log plan summary to /tmp/agently-debug.log
@@ -177,7 +183,7 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 	}
 
 	// If this turn executed message:remove, perform one retry generation automatically
-	if hasRemovalTool(aPlan) {
+	if hasRemovalTool(aPlan) && !recovery.IsProactive(ctx) {
 		// Retry once to produce final assistant content with reduced context
 		if err := s.llm.Generate(ctx, genInput, genOutput); err != nil {
 			return nil, fmt.Errorf("retry after removal failed: %w", err)
@@ -187,6 +193,10 @@ func (s *Service) Run(ctx context.Context, genInput *core2.GenerateInput, genOut
 			if err2 := s.streamPlanSteps(ctx, streamId, aPlan); err2 != nil {
 				return nil, fmt.Errorf("failed to stream plan steps (retry): %w", err2)
 			}
+		}
+		wg.Wait()
+		if err := failures.err(); err != nil && ctx.Err() == nil {
+			return aPlan, err
 		}
 	}
 	return aPlan, nil

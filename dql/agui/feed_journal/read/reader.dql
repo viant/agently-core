@@ -1,0 +1,29 @@
+#package('github.com/viant/agently-core/internal/datly/agui/feed_journal/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/feed_journal','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Principal<string>(query/principal).Required())
+#define($_ = $ThreadKey<string>(query/threadKey).Required())
+#define($_ = $AfterKey<string>(query/afterKey).Required())
+#define($_ = $AfterSequence<int64>(query/afterSequence).Required())
+#define($_ = $Data<[]*FeedEvent>(output/view))
+SELECT agui_data.*,
+       agui_data.id AS EventKey,
+       agui_data.run_id AS InternalRunId,
+       agui_data.protocol_key AS RunKey,
+       agui_data.protocol_run_id AS RunId,
+       agui_data.protocol_thread_id AS ThreadId,
+       agui_data.effective_user_id AS Principal,
+       agui_data.inline_body AS EventJson,
+       type(agui_data,'FeedEvent'),
+       tag(agui_data.EventKey,'sqlx:"id,primaryKey=true,required=true"'),
+       set_limit(agui_data,0),
+       CAST(agui_data.RunId AS string),
+       CAST(agui_data.ThreadId AS string),
+       CAST(agui_data.EventJson AS []byte),
+       CAST(agui_data.sequence AS int64)
+FROM (${embed:sql/rows.sql}) agui_data

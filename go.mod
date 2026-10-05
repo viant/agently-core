@@ -23,8 +23,8 @@ require (
 	github.com/tdewolff/parse/v2 v2.8.16
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
-	github.com/viant/bindly v0.2.1-0.20260915164201-7cf35da5bd9a
-	github.com/viant/datly v1.1.1-0.20261002181801-e0634731ef99
+	github.com/viant/bindly v0.3.1-0.20261005154615-b7ad422ba78f
+	github.com/viant/datly v1.1.1-0.20261005160740-9d3954dbb2c4
 	github.com/viant/embedius v0.5.6
 	github.com/viant/forge v0.3.40-0.20260918225638-e53002b12147
 	github.com/viant/gds v0.6.0
@@ -32,13 +32,13 @@ require (
 	github.com/viant/jsonrpc v0.25.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.24.0
-	github.com/viant/mcp-protocol v0.19.0
+	github.com/viant/mcp-protocol v0.19.1-0.20261005144737-c504db7a02bb
 	github.com/viant/mcp-ui v0.2.0
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
 	github.com/viant/toolbox v0.39.0
 	github.com/viant/velty v0.4.1-0.20260915052314-fca47c0595f8
-	github.com/viant/xdatly v1.0.1-0.20261001162605-e2b68d4babd9
+	github.com/viant/xdatly v1.0.1-0.20261005144549-60dd64a21442
 	github.com/xeipuuv/gojsonschema v1.2.0
 	github.com/xuri/excelize/v2 v2.10.0
 	golang.org/x/crypto v0.53.0
@@ -48,10 +48,13 @@ require (
 	modernc.org/sqlite v1.45.0
 )
 
+require github.com/evanphx/json-patch/v5 v5.9.11 // indirect
+
 require (
 	github.com/aws/aws-sdk-go-v2/service/signin v1.1.1 // indirect
 	github.com/cenkalti/backoff/v5 v5.0.3 // indirect
 	github.com/grpc-ecosystem/grpc-gateway/v2 v2.29.0 // indirect
+	github.com/santhosh-tekuri/jsonschema/v6 v6.0.3
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.44.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.44.0 // indirect
 	go.opentelemetry.io/proto/otlp v1.10.0 // indirect
@@ -139,8 +142,8 @@ require (
 	github.com/viant/govalidator v0.3.4-0.20260913213120-027a9dd54d73 // indirect
 	github.com/viant/igo v0.2.0 // indirect
 	github.com/viant/sqlite-vec v0.3.0 // indirect
-	github.com/viant/sqlparser v0.13.1-0.20261001210110-82d5588e4251 // indirect
-	github.com/viant/sqlx v0.26.1-0.20261001153633-c707e294db3b
+	github.com/viant/sqlparser v0.13.1-0.20261003124328-b8c0b54602af // indirect
+	github.com/viant/sqlx v0.26.1-0.20261003124505-e725e2a580af
 	github.com/viant/structology v0.10.1-0.20260925145657-42c5a7e1d1d7
 	github.com/viant/structql v0.5.4 // indirect
 	github.com/viant/tagly v0.3.1-0.20260914020630-eadee36c3630 // indirect
@@ -183,3 +186,9 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
+
+replace github.com/viant/mcp-protocol => ../mcp-protocol-ag-ui
+
+replace github.com/viant/mcp => ../mcp-ag-ui
+
+replace github.com/viant/forge => ../forge-ag-ui

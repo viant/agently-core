@@ -49,6 +49,9 @@ type ActionResult struct {
 	Materialized      *bool                  `json:"materialized,omitempty"`
 	MaterializationID string                 `json:"materializationId,omitempty"`
 	Status            string                 `json:"status,omitempty"`
+	ContextStatus     string                 `json:"contextStatus,omitempty"`
+	Active            *bool                  `json:"active,omitempty"`
+	ActivationError   string                 `json:"activationError,omitempty"`
 	Durable           *bool                  `json:"durable,omitempty"`
 	ReportRunID       string                 `json:"reportRunId,omitempty"`
 	Revision          *int64                 `json:"revision,omitempty"`
@@ -62,6 +65,9 @@ type MaterializationResult struct {
 	RequestID         string           `json:"requestId,omitempty"`
 	MaterializationID string           `json:"materializationId,omitempty"`
 	Status            string           `json:"status,omitempty"`
+	ContextStatus     string           `json:"contextStatus,omitempty"`
+	Active            *bool            `json:"active,omitempty"`
+	ActivationError   string           `json:"activationError,omitempty"`
 	DatasetRefs       []string         `json:"datasetRefs,omitempty"`
 	RowCounts         map[string]int64 `json:"rowCounts,omitempty"`
 	Errors            []string         `json:"errors,omitempty"`
@@ -329,10 +335,13 @@ func (s *Service) waitForNativeMaterialization(ctx context.Context, output *Acti
 			output.OK = true
 			output.Error = ""
 			if err := output.mergeResult(ActionResult{
-				Materialized: boolResultPointer(true),
-				Status:       status,
-				DatasetRefs:  materialization.DatasetRefs,
-				RowCounts:    materialization.RowCounts,
+				Materialized:    boolResultPointer(true),
+				Status:          status,
+				ContextStatus:   materialization.ContextStatus,
+				Active:          materialization.Active,
+				ActivationError: materialization.ActivationError,
+				DatasetRefs:     materialization.DatasetRefs,
+				RowCounts:       materialization.RowCounts,
 			}); err != nil {
 				return fmt.Errorf("update native report materialization %q: %w", expectedID, err)
 			}

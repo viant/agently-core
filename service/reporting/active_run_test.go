@@ -45,7 +45,7 @@ func TestServiceGetActiveReportRunSanitizesAndScopesExactPromptRun(t *testing.T)
 		PresetID:        "performance_inventory_brief",
 		SourceKind:      "preset",
 		SourceID:        "performance_inventory_brief",
-		RequestedParams: json.RawMessage(`{"orderId":2676946}`),
+		RequestedParams: json.RawMessage(`{"orderId":2676946,"_agentlyReportAdmission":{"version":1,"documentHash":"admission-private"}}`),
 		EffectiveParams: json.RawMessage(`{"orderId":2676946,"timezone":"UTC"}`),
 		UIRunRequestID:  "ui-request-1",
 	})
@@ -81,12 +81,14 @@ func TestServiceGetActiveReportRunSanitizesAndScopesExactPromptRun(t *testing.T)
 	require.Equal(t, "metricReportBuilder", output.BuilderRef)
 	require.Equal(t, "performance_inventory_brief", output.PresetID)
 	require.JSONEq(t, `2676946`, string(output.RequestedParams["orderId"]))
+	require.NotContains(t, output.RequestedParams, "_agentlyReportAdmission")
+	require.Contains(t, string(begun.Run.RequestedParams), "_agentlyReportAdmission")
 	require.JSONEq(t, `"UTC"`, string(output.EffectiveParams["timezone"]))
 	require.NotEmpty(t, output.CompletedAt)
 
 	payload, err := json.Marshal(output)
 	require.NoError(t, err)
-	for _, forbidden := range []string{"owner-1", "ownerId", "reportSpec", "reportFill", "reportPrint", "must-not-leak", "private"} {
+	for _, forbidden := range []string{"owner-1", "ownerId", "reportSpec", "reportFill", "reportPrint", "must-not-leak", "private", "_agentlyReportAdmission", "admission-private"} {
 		require.NotContains(t, string(payload), forbidden)
 	}
 

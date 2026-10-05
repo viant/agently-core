@@ -1,0 +1,2 @@
+SELECT r.id FROM (SELECT * FROM  (SELECT c.id,0 AS should_delete FROM run c WHERE c.run_kind='agui' ${predicate.Builder().CombineAnd($predicate.FilterGroup(0, "AND")).Build("AND")}
+)  agui_data) r WHERE $criteria.CompositeIn("r", $WriterKeys)

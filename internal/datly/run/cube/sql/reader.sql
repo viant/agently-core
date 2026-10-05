@@ -6,7 +6,7 @@ SELECT t.schedule_id,
        COUNT(*) AS record_count,
        SUM(t.usage_total_tokens) AS total_tokens,
        SUM(t.usage_cost) AS total_cost
-FROM run t WHERE 1=1
+FROM run t WHERE COALESCE(t.run_kind,'execution')='execution'
  ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
  AND ($InternalMode OR COALESCE(t.effective_user_id,'')='' OR t.effective_user_id=NULLIF($VisibilitySubject,''))
  AND ($ReportMode<>'scheduler' OR (t.schedule_id IS NOT NULL AND EXISTS(

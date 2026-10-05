@@ -149,6 +149,26 @@ func (hooks *Lifecycle) Recover(ctx context.Context, input *Input, out *Output, 
 }
 
 func (hooks *Lifecycle) Init(ctx context.Context, entity *MutableRunView, state xhandler.LifecycleContext[MutableRunView, xhandler.NoParent, Output]) error {
+	if err := invariant.ValidateNativeProtocolFields(entity, state.Previous != nil); err != nil {
+		return err
+	}
+	if entity != nil && state.Previous == nil {
+		zero := 0
+		entity.SetProtocolRevision(&zero)
+		entity.SetProtocolLastSequence(&zero)
+		entity.SetProtocolLeaseRevision(&zero)
+	}
+	if entity != nil {
+		if entity.Has != nil && entity.Has.RunKind && entity.RunKind != "execution" {
+			return fmt.Errorf("native run kind cannot be cleared or changed")
+		}
+		if entity.RunKind != "" && entity.RunKind != "execution" {
+			return fmt.Errorf("native run writer only accepts execution runs")
+		}
+		if state.Previous == nil {
+			entity.SetRunKind("execution")
+		}
+	}
 	if hooks.Input != nil && hooks.Input.OrphanDetach {
 		if hooks.Input.LeaseMode != "" {
 			return fmt.Errorf("maintenance modes are mutually exclusive")
@@ -197,6 +217,9 @@ func (hooks *Lifecycle) Init(ctx context.Context, entity *MutableRunView, state 
 	return nil
 }
 func (hooks *Lifecycle) Validate(ctx context.Context, entity *MutableRunView, state xhandler.LifecycleContext[MutableRunView, xhandler.NoParent, Output]) error {
+	if entity != nil && entity.RunKind != "" && entity.RunKind != "execution" {
+		return fmt.Errorf("native run writer only accepts execution runs")
+	}
 	return nil
 }
 func (hooks *Lifecycle) AfterSequence(ctx context.Context, entity *MutableRunView, state xhandler.LifecycleContext[MutableRunView, xhandler.NoParent, Output]) error {

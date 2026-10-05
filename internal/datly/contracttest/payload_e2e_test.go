@@ -1,6 +1,8 @@
 package tests
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
 	"database/sql"
 	"encoding/base64"
@@ -30,7 +32,10 @@ import (
 	dtag "github.com/viant/datly/tag"
 )
 
-func TestPayloadLegacyV1Parity(t *testing.T) {
+// Payload decoding intentionally supersedes legacy text trimming and silent
+// gzip fallback. Writer defaults, sparse mutations, access predicates and
+// transactional rollback continue to use the same authored Datly contracts.
+func TestPayloadFidelityAndWriterContracts(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
 	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
 	type input struct {
@@ -66,7 +71,7 @@ func TestPayloadLegacyV1Parity(t *testing.T) {
 		{desc: "tenant predicate excludes a foreign tenant and missing identity", input: input{filters: map[string]any{"tenantID": "tenant-a", "ids": []string{"p1", "p-foreign", "absent"}}}, expect: expected{rows: map[string]map[string]any{"p1": seed}}},
 		{desc: "optional tenant path is absent for an internal ID lookup", input: input{filters: map[string]any{"ids": []string{"p1"}}}, expect: expected{rows: map[string]map[string]any{"p1": seed}}},
 		{desc: "empty reader result", input: input{filters: map[string]any{"tenantID": "tenant-a", "ids": []string{"absent"}}}, expect: expected{rows: map[string]map[string]any{}}},
-		{desc: "small insertion applies defaults and reader trimming", input: input{body: body("p2", "  small  ")}, expect: expected{rows: map[string]map[string]any{"p1": seed, "p2": {"inlinebody": encoded("small"), "compression": "none", "redacted": float64(0), "sizebytes": float64(9)}}, rawRows: map[string]map[string]any{"p2": {"inlinebody": "  small  ", "compression": "none"}}}},
+		{desc: "small insertion applies writer defaults and preserves exact whitespace", input: input{body: body("p2", "  small  ")}, expect: expected{rows: map[string]map[string]any{"p1": seed, "p2": {"inlinebody": encoded("  small  "), "compression": "none", "redacted": float64(0), "sizebytes": float64(9)}}, rawRows: map[string]map[string]any{"p2": {"inlinebody": "  small  ", "compression": "none"}}}},
 		{desc: "1024 byte insertion remains uncompressed", input: input{body: body("p2", strings.Repeat("x", 1024))}, expect: expected{rows: map[string]map[string]any{"p1": seed, "p2": {"inlinebody": encoded(strings.Repeat("x", 1024)), "compression": "none", "sizebytes": float64(1024)}}, rawRows: map[string]map[string]any{"p2": {"compression": "none", "sizebytes": float64(1024)}}}},
 		{desc: "1025 byte insertion compresses and reader restores binary content", input: input{body: body("p2", strings.Repeat("x", 1025))}, expect: expected{rows: map[string]map[string]any{"p1": seed, "p2": {"inlinebody": encoded(strings.Repeat("x", 1025)), "compression": ""}}, rawRows: map[string]map[string]any{"p2": {"compression": "gzip"}}}},
 		{desc: "sparse metadata change preserves binary content and omitted fields", input: input{body: `{"data":[{"id":"p1","digest":null,"subtype":"changed"}]}`}, expect: expected{rows: map[string]map[string]any{"p1": {"inlinebody": encoded("seed body"), "kind": "request", "digest": nil, "subtype": "changed", "sizebytes": float64(9), "redacted": float64(1)}}}},
@@ -80,7 +85,6 @@ func TestPayloadLegacyV1Parity(t *testing.T) {
 		{desc: "explicit numeric zero is rejected by the authored required rule", input: input{body: `{"data":[{"id":"p1","sizeBytes":0}]}`}, expect: expected{failed: true, rows: map[string]map[string]any{"p1": seed}}},
 		{desc: "missing insertion kind fails before mutation", input: input{body: `{"data":[{"id":"p2","tenantId":"tenant-a","mimeType":"text/plain","sizeBytes":1,"storage":"inline"}]}`}, expect: expected{failed: true, rows: map[string]map[string]any{"p1": seed}}},
 		{desc: "late database error rolls back an earlier sparse update", input: input{body: `{"data":[{"id":"p1","digest":"changed"},{"id":"p-reject","tenantId":"tenant-a","kind":"request","mimeType":"text/plain","sizeBytes":1,"storage":"inline"}]}`, filters: map[string]any{"tenantID": "tenant-a", "ids": []string{"p1", "p-reject"}}}, expect: expected{failed: true, rows: map[string]map[string]any{"p1": seed}}},
-		{desc: "malformed gzip keeps the legacy fallback and trimming behavior", input: input{filters: map[string]any{"tenantID": "tenant-a", "ids": []string{"p-malformed"}}}, expect: expected{rows: map[string]map[string]any{"p-malformed": {"inlinebody": encoded("broken gzip"), "compression": "gzip"}}, rawRows: map[string]map[string]any{"p-malformed": {"inlinebody": "  broken gzip  ", "compression": "gzip"}}}},
 	}
 	for _, test := range cases {
 		t.Run(test.desc, func(t *testing.T) {
@@ -157,7 +161,7 @@ func payloadFixture(t *testing.T, project string) (*sql.DB, string) {
 	_, err := db.Exec(`INSERT INTO call_payload(id,tenant_id,kind,mime_type,size_bytes,digest,storage,inline_body,uri,compression,redacted,created_at)
  VALUES ('p1','tenant-a','request','text/plain',9,'seed-digest','inline','seed body','object://seed','none',1,'2026-01-01 00:00:00'),
  ('p-foreign','tenant-b','response','text/plain',7,NULL,'inline','foreign',NULL,'none',0,'2026-01-01 00:00:00'),
- ('p-malformed','tenant-a','request','text/plain',15,NULL,'inline','  broken gzip  ',NULL,'gzip',0,'2026-01-01 00:00:00');
+ ('p-criteria','tenant-a','request','text/plain',15,NULL,'inline','criteria value!',NULL,'none',0,'2026-01-01 00:00:00');
  CREATE TRIGGER reject_payload BEFORE INSERT ON call_payload WHEN NEW.id='p-reject' BEGIN SELECT RAISE(ABORT,'fixture payload rejection'); END;`)
 	must(t, err)
 	return db, path
@@ -264,4 +268,58 @@ func payloadArtifact(t *testing.T, resources *resource.Store, holder, input, out
 	artifact, err := bootstrap.BuildArtifact(bootstrap.ArtifactInput{Component: component, InputType: input, OutputType: output, Resources: resources})
 	must(t, err)
 	return artifact
+}
+
+func TestPayloadReferenceRejectsCorruptGzipWithoutReturningFallback(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
+	var compressed bytes.Buffer
+	zip := gzip.NewWriter(&compressed)
+	_, err := zip.Write([]byte("complete payload"))
+	must(t, err)
+	must(t, zip.Close())
+	truncated := bytes.Clone(compressed.Bytes()[:compressed.Len()-8])
+	for _, test := range []struct {
+		name  string
+		bytes []byte
+	}{
+		{name: "invalid gzip header", bytes: []byte("  broken gzip  ")},
+		{name: "truncated gzip header", bytes: []byte{0x1f, 0x8b, 0x08}},
+		{name: "truncated gzip body or checksum", bytes: truncated},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			db, _ := payloadFixture(t, project)
+			// Corruption is a fixture-only insert, not a production SQL persistence
+			// path. It must not poison unrelated selector/access/writer cases.
+			_, err := db.Exec(`INSERT INTO call_payload(id,tenant_id,kind,mime_type,size_bytes,storage,inline_body,compression,redacted,created_at) VALUES ('p-corrupt','tenant-a','response','application/octet-stream',?,'inline',?,'gzip',0,'2026-01-01 00:00:00')`, len(test.bytes), test.bytes)
+			must(t, err)
+			rt, binaryKey, rawKey := payloadRuntime(t, db)
+			input := &binaryread.Input{}
+			input.SetTenantID("tenant-a")
+			input.SetIds([]string{"p-corrupt"})
+			_, err = rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: binaryKey, Route: spec.RouteRef{Method: "GET", Path: "/v2/api/agently/payload"}}, Input: input})
+			if err == nil {
+				t.Fatal("corrupt gzip silently returned a fallback payload")
+			}
+			if !strings.Contains(err.Error(), "decode gzip payload") || !strings.Contains(err.Error(), "p-corrupt") {
+				t.Fatalf("missing payload-scoped gzip error: %v", err)
+			}
+			// The error must not mutate its stored representation or reinterpret raw
+			// bytes as text. Raw storage remains inspectable through its own contract.
+			stored := &rawread.PayloadRowsInput{}
+			stored.SetTenantID("tenant-a")
+			stored.SetIds([]string{"p-corrupt"})
+			result, readErr := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{Target: dexec.ComponentTarget{Component: rawKey, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/payload"}}, Input: stored})
+			must(t, readErr)
+			rows := result.(*rawread.PayloadRowsOutput).Data
+			if len(rows) != 1 || rows[0].InlineBody == nil || !bytes.Equal([]byte(*rows[0].InlineBody), test.bytes) {
+				t.Fatal("failed decode changed stored corruption bytes")
+			}
+			filters := map[string]json.RawMessage{"tenantID": json.RawMessage(`"tenant-a"`), "ids": json.RawMessage(`["p-corrupt"]`)}
+			rawRows := payloadRead(t, rt, rawKey, filters, true)
+			assertPayloadRows(t, normalizeRows(t, rawRows), map[string]map[string]any{"p-corrupt": {"compression": "gzip", "sizebytes": float64(len(test.bytes))}}, true)
+			healthy := payloadRead(t, rt, binaryKey, map[string]json.RawMessage{"tenantID": json.RawMessage(`"tenant-a"`), "ids": json.RawMessage(`["p1"]`)}, false)
+			assertPayloadRows(t, normalizeRows(t, healthy), map[string]map[string]any{"p1": {"inlinebody": base64.StdEncoding.EncodeToString([]byte("seed body")), "compression": "none"}}, true)
+		})
+	}
 }

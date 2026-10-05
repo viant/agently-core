@@ -219,10 +219,13 @@ func TestServiceRunOrchestrationWaitsForAcceptedNativeMaterialization(t *testing
 		"result": map[string]interface{}{
 			"ok": true,
 			"materialization": map[string]interface{}{
-				"id":          "native-run-async-1",
-				"status":      "completed",
-				"datasetRefs": []interface{}{"summary", "daily"},
-				"rowCounts":   map[string]interface{}{"summary": float64(1), "daily": float64(8)},
+				"id":              "native-run-async-1",
+				"status":          "completed",
+				"contextStatus":   "superseded",
+				"active":          false,
+				"activationError": "Another report became current.",
+				"datasetRefs":     []interface{}{"summary", "daily"},
+				"rowCounts":       map[string]interface{}{"summary": float64(1), "daily": float64(8)},
 			},
 		},
 	})
@@ -230,6 +233,9 @@ func TestServiceRunOrchestrationWaitsForAcceptedNativeMaterialization(t *testing
 	require.True(t, output.OK)
 	require.Equal(t, true, output.Result["materialized"])
 	require.Equal(t, "completed", output.Result["status"])
+	require.Equal(t, "superseded", output.Result["contextStatus"])
+	require.Equal(t, false, output.Result["active"])
+	require.Equal(t, "Another report became current.", output.Result["activationError"])
 	require.Equal(t, []interface{}{"summary", "daily"}, output.Result["datasetRefs"])
 	require.Empty(t, waiter.reportRunID)
 }

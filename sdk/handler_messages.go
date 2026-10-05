@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	iauth "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/runtime/streaming"
 	authctx "github.com/viant/agently-core/service/auth"
@@ -88,11 +89,48 @@ func handleListPendingElicitations(client Client) http.HandlerFunc {
 	}
 }
 
-func handleStreamEvents(client Client) http.HandlerFunc {
+func handleStreamEvents(client Client, authConfigs ...*authctx.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		convID := r.URL.Query().Get("conversationId")
+		var compatibility *compatibilityObserver
+		scope := strings.TrimSpace(r.URL.Query().Get("compatibilityScope"))
+		if scope != "" {
+			if scope != NativeAndApplicationCompatibilityScope || strings.TrimSpace(convID) == "" {
+				httpError(w, http.StatusBadRequest, fmt.Errorf("invalid compatibility observation scope"))
+				return
+			}
+			var authConfig *authctx.Config
+			if len(authConfigs) > 0 {
+				authConfig = authConfigs[0]
+			}
+			userID := resolveQueryUserID(w, r, "", authConfig)
+			if userID == "" {
+				httpError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
+				return
+			}
+			ctx := r.Context()
+			if iauth.EffectiveUserID(ctx) == "" {
+				ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: userID})
+				r = r.WithContext(ctx)
+			}
+			backend, ok := client.(compatibilityObserverBackend)
+			if !ok || backend.compatibilityExecutionProvenance() == nil {
+				httpError(w, http.StatusNotImplemented, fmt.Errorf("native compatibility observation unavailable"))
+				return
+			}
+			if err := backend.authorizeCompatibilityConversation(ctx, convID); err != nil {
+				httpError(w, http.StatusForbidden, fmt.Errorf("conversation unavailable"))
+				return
+			}
+			compatibility = newCompatibilityObserver(backend.compatibilityExecutionProvenance(), convID)
+		}
 		logx.DebugCtxf(r.Context(), "sse", "client connected convo=%q", convID)
 		input := &StreamEventsInput{ConversationID: convID}
+		if compatibility != nil {
+			input.Filter = func(event *streaming.Event) bool {
+				return event != nil && (event.ConversationID == convID || (event.ConversationID == "" && event.StreamID == convID))
+			}
+		}
 		sub, err := client.StreamEvents(r.Context(), input)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
@@ -144,6 +182,12 @@ func handleStreamEvents(client Client) http.HandlerFunc {
 						logx.DebugCtxf(ctx, "sse", "channel closed convo=%q reason=%q", convID, sub.Reason())
 					}
 					return
+				}
+				if compatibility != nil {
+					ev = compatibility.project(ctx, ev)
+					if ev == nil {
+						continue
+					}
 				}
 				outEvent := enrichStreamingRenderedContentWithCatalog(ctx, ev, assistantContent, client)
 				startedAt := ""

@@ -8,6 +8,7 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 #setting($_ = $writer_omit_empty(true))
+#define($_ = $ExecutionRunOnly<bool>(const/executionRunOnly).Value(true).Required().WithPredicate(7,'expr',"(? AND COALESCE(run.run_kind,'execution')='execution')"))
 #define($_ = $OrphanDetach<bool>(orphanDetach/enabledDetach).Optional())
 #define($_ = $OrphanColumn<string>(orphanDetach/column).Optional())
 #define($_ = $LeaseMode<string>(query/leaseMode).Optional())
@@ -29,6 +30,7 @@ SELECT t.*,
        lifecycle_type(t,'Lifecycle'),
        required(t.id),
        tag(t.id,'validate:"required" sqlx:"id,primaryKey"'),
+       required(t.run_kind),
        required(t.status),
        tag(t.status,'validate:"required"'),
        CAST(t.usage_cost AS *float64),

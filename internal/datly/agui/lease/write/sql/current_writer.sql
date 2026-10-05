@@ -1,0 +1,2 @@
+SELECT r.id, r.protocol_lease_revision, r.protocol_lease_owner, r.protocol_lease_until, r.protocol_key, r.effective_user_id, r.run_kind FROM (SELECT * FROM  (SELECT c.id, c.protocol_key, c.effective_user_id, c.run_kind, c.protocol_lease_owner, c.protocol_lease_until, c.protocol_lease_revision FROM run c WHERE c.run_kind = 'agui' AND c.effective_user_id = $Principal
+)  agui_data) r WHERE $criteria.CompositeIn("r", $WriterKeys)

@@ -1,0 +1,1 @@
+SELECT p.id,p.run_id,p.sequence,p.inline_body,r.protocol_run_id,c.protocol_thread_id FROM call_payload p JOIN run r ON r.id=p.run_id JOIN conversation c ON c.id=r.conversation_id WHERE p.kind='agui.event' AND r.run_kind='agui' AND r.effective_user_id=$Principal AND p.run_id=$RunKey AND p.sequence>$After AND p.sequence <= ($After + $Limit) ORDER BY p.sequence

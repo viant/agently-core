@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"github.com/viant/agently-core/runtime/clienttool"
 	"strings"
 	"time"
 
@@ -18,7 +19,8 @@ import (
 
 // QueryInput represents the input for querying an agent's knowledge
 type QueryInput struct {
-	RequestTime time.Time `json:"requestTime,omitempty"`
+	ContentItems []llm.ContentItem `json:"-"`
+	RequestTime  time.Time         `json:"requestTime,omitempty"`
 
 	// ConversationID is an optional identifier for the conversation session.
 	// If provided, conversation history will be tracked and reused.
@@ -179,17 +181,20 @@ func (i *QueryInput) UnmarshalYAML(node *yaml.Node) error {
 
 // QueryOutput represents the result of an agent knowledge query
 type QueryOutput struct {
-	ConversationID string                               `json:"conversationId,omitempty"`
-	Agent          *agentmdl.Agent                      `json:"agent"`                 // Agent used for the query
-	Content        string                               `json:"content"`               // Generated content from the agent
-	Elicitation    *execution.Elicitation               `json:"elicitation,omitempty"` // structured missing input request
-	Plan           *execution.Plan                      `json:"plan,omitempty"`        // current execution plan (optional)
-	Usage          *usage.Aggregator                    `json:"usage,omitempty"`
-	Model          string                               `json:"model,omitempty"`
-	TurnID         string                               `json:"turnId,omitempty"`    // canonical turn identity for this query
-	MessageID      string                               `json:"messageId,omitempty"` // legacy alias for turn identity; kept for compatibility
-	Warnings       []string                             `json:"warnings,omitempty"`
-	Projection     *runtimeprojection.ContextProjection `json:"projection,omitempty"`
+	ExecutionStatus        string                               `json:"-"`
+	ClientToolDependencies []clienttool.Dependency              `json:"clientToolDependencies,omitempty"`
+	ClientToolCalls        []clienttool.PendingCall             `json:"clientToolCalls,omitempty"`
+	ConversationID         string                               `json:"conversationId,omitempty"`
+	Agent                  *agentmdl.Agent                      `json:"agent"`                 // Agent used for the query
+	Content                string                               `json:"content"`               // Generated content from the agent
+	Elicitation            *execution.Elicitation               `json:"elicitation,omitempty"` // structured missing input request
+	Plan                   *execution.Plan                      `json:"plan,omitempty"`        // current execution plan (optional)
+	Usage                  *usage.Aggregator                    `json:"usage,omitempty"`
+	Model                  string                               `json:"model,omitempty"`
+	TurnID                 string                               `json:"turnId,omitempty"`    // canonical turn identity for this query
+	MessageID              string                               `json:"messageId,omitempty"` // legacy alias for turn identity; kept for compatibility
+	Warnings               []string                             `json:"warnings,omitempty"`
+	Projection             *runtimeprojection.ContextProjection `json:"projection,omitempty"`
 
 	lastTaskCheckpoint      turnTaskCheckpoint
 	nextSteerCheckpoint     turnTaskCheckpoint

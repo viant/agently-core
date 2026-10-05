@@ -8,16 +8,17 @@ import (
 type StreamEventKind string
 
 const (
-	StreamEventTurnStarted       StreamEventKind = "turn_started"
-	StreamEventTextDelta         StreamEventKind = "text_delta"
-	StreamEventReasoningDelta    StreamEventKind = "reasoning_delta"
-	StreamEventToolCallStarted   StreamEventKind = "tool_call_started"
-	StreamEventToolCallDelta     StreamEventKind = "tool_call_delta"
-	StreamEventToolCallCompleted StreamEventKind = "tool_call_completed"
-	StreamEventUsage             StreamEventKind = "usage"
-	StreamEventItemCompleted     StreamEventKind = "item_completed"
-	StreamEventTurnCompleted     StreamEventKind = "turn_completed"
-	StreamEventError             StreamEventKind = "error"
+	StreamEventTurnStarted        StreamEventKind = "turn_started"
+	StreamEventTextDelta          StreamEventKind = "text_delta"
+	StreamEventReasoningDelta     StreamEventKind = "reasoning_delta"
+	StreamEventReasoningEncrypted StreamEventKind = "reasoning_encrypted_value"
+	StreamEventToolCallStarted    StreamEventKind = "tool_call_started"
+	StreamEventToolCallDelta      StreamEventKind = "tool_call_delta"
+	StreamEventToolCallCompleted  StreamEventKind = "tool_call_completed"
+	StreamEventUsage              StreamEventKind = "usage"
+	StreamEventItemCompleted      StreamEventKind = "item_completed"
+	StreamEventTurnCompleted      StreamEventKind = "turn_completed"
+	StreamEventError              StreamEventKind = "error"
 )
 
 // StreamEvent represents a partial or complete event in a streaming LLM response.
@@ -25,6 +26,11 @@ const (
 // Providers should populate Kind and the typed delta fields. Providers that
 // have not yet been migrated to typed deltas may still set Response directly.
 type StreamEvent struct {
+	ReasoningMessageID string
+	ReasoningSpanID    string
+	EncryptedValue     string
+	EncryptedEntityID  string
+	EncryptedSubtype   string
 	// Kind classifies this delta. When empty, consumers fall back to Response.
 	Kind StreamEventKind
 

@@ -8,9 +8,9 @@ import (
 
 // Token is generated canonical view metadata for writer.
 type Token struct {
-	EncToken      string     `internal:"true" json:"encToken,omitempty" sqlx:"enc_token,required=true"`
 	UserId        string     `sqlx:"user_id,primaryKey,refTable=users,refColumn=id,required=true" json:"userId,omitempty"`
 	Provider      string     `sqlx:"provider,primaryKey,required=true" json:"provider,omitempty"`
+	EncToken      string     `json:"encToken,omitempty" sqlx:"enc_token,required=true"`
 	CreatedAt     time.Time  `format:"2006-01-02 15:04:05" sqlx:"created_at,required=true" json:"createdAt,omitempty"`
 	UpdatedAt     *time.Time `format:"2006-01-02 15:04:05" sqlx:"updated_at" json:"updatedAt,omitempty"`
 	Version       int64      `json:"version" sqlx:"version,required=true"`
@@ -21,9 +21,9 @@ type Token struct {
 }
 
 type TokenHas struct {
-	EncToken      bool
 	UserId        bool
 	Provider      bool
+	EncToken      bool
 	CreatedAt     bool
 	UpdatedAt     bool
 	Version       bool
@@ -34,9 +34,9 @@ type TokenHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	EncToken      string     `internal:"true" json:"encToken,omitempty" sqlx:"enc_token,required=true"`
 	UserId        string     `sqlx:"user_id,primaryKey,refTable=users,refColumn=id,required=true" json:"userId,omitempty"`
 	Provider      string     `sqlx:"provider,primaryKey,required=true" json:"provider,omitempty"`
+	EncToken      string     `json:"encToken,omitempty" sqlx:"enc_token,required=true"`
 	CreatedAt     time.Time  `format:"2006-01-02 15:04:05" sqlx:"created_at,required=true" json:"createdAt,omitempty"`
 	UpdatedAt     *time.Time `format:"2006-01-02 15:04:05" sqlx:"updated_at" json:"updatedAt,omitempty"`
 	Version       int64      `json:"version" sqlx:"version,required=true"`

@@ -26,8 +26,17 @@ func (s *Service) CompileFencedReport(_ context.Context, request *CompileFencedR
 			Kind: strings.TrimSpace(fence.Kind), Index: fence.Index, Payload: payload,
 		})
 	}
+	var invocation *forgefenced.InvocationBinding
+	if len(request.Invocation) > 0 {
+		decoder := json.NewDecoder(bytes.NewReader(request.Invocation))
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&invocation); err != nil {
+			return nil, fmt.Errorf("reporting fenced compile invocation: %w", err)
+		}
+	}
 	compiled, err := forgefenced.Compile(&forgefenced.CompileRequest{
-		Content: request.Content, Fences: fences, ReportID: strings.TrimSpace(request.ReportID),
+		Invocation: invocation,
+		Content:    request.Content, Fences: fences, ReportID: strings.TrimSpace(request.ReportID),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("reporting fenced compile: %w", err)

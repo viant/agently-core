@@ -92,3 +92,13 @@ func (entity *LinkState) SetCreatedAt(value string) {
 	}
 	entity.Has.CreatedAt = true
 }
+func (entity *LinkState) GetNow() string {
+	return entity.Now
+}
+func (entity *LinkState) SetNow(value string) {
+	entity.Now = value
+	if entity.Has == nil {
+		entity.Has = &LinkStateHas{}
+	}
+	entity.Has.Now = true
+}

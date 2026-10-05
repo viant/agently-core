@@ -277,6 +277,13 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 			content.Parts = append(content.Parts, part)
 			// Append binary image parts for vision.
 			for _, item := range msg.Items {
+				if mapped, handled, err := protocolContent(item); handled {
+					if err != nil {
+						return nil, err
+					}
+					content.Parts = append(content.Parts, mapped)
+					continue
+				}
 				switch item.Type {
 				case llm.ContentTypeBinary:
 					if item.Data == "" {
@@ -319,6 +326,13 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		if len(msg.Items) > 0 {
 			// Convert Items to Gemini format
 			for _, item := range msg.Items {
+				if mapped, handled, err := protocolContent(item); handled {
+					if err != nil {
+						return nil, err
+					}
+					content.Parts = append(content.Parts, mapped)
+					continue
+				}
 				switch item.Type {
 				case llm.ContentTypeText:
 					// Use Data field first, fall back to Text field

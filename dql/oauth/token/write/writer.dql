@@ -16,7 +16,6 @@
 #define($_ = $Data<*Token>(output/body))
 
 SELECT t.*,
-       internal(t.enc_token),
        type(t,'Token'),
        mutation_predicate(t,7),
        lifecycle_type(t,'Lifecycle'),

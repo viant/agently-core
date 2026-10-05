@@ -44,6 +44,16 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		ts.StartedByMessageID = strings.TrimSpace(*turn.StartedByMessageId)
 	}
 	ts.Origin = strings.TrimSpace(stringValue(turn.Origin))
+	// Earlier guest records omitted Origin. Only the exact server-owned host
+	// parent marker establishes compatibility provenance; never match text.
+	if ts.Origin == "" && turn.StartedByMessageId != nil && *turn.StartedByMessageId == turn.Id {
+		for _, message := range turn.Message {
+			if message != nil && message.Id == turn.Id && message.Role == "assistant" && message.Type == "host_request" && message.Interim == 1 {
+				ts.Origin = "host_request"
+				break
+			}
+		}
+	}
 	ts.GoalID = strings.TrimSpace(stringValue(turn.GoalId))
 	ts.StatusReason = strings.TrimSpace(stringValue(turn.StatusReason))
 	ts.ErrorMessage = strings.TrimSpace(stringValue(turn.ErrorMessage))
@@ -64,19 +74,21 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 			}
 			if ts.User == nil && msg.Interim == 0 {
 				ts.User = &UserMessageState{
-					MessageID: msg.Id,
-					Content:   content,
+					MessageID:       msg.Id,
+					ClientRequestID: steeringClientRequestID(msg.Tags),
+					Content:         content,
 				}
 			} else if msg.Interim == 0 && strings.TrimSpace(content) != "" {
 				ts.Messages = append(ts.Messages, &TurnMessageState{
-					MessageID: msg.Id,
-					Role:      "user",
-					Content:   content,
-					CreatedAt: msg.CreatedAt,
-					Sequence:  intValue(msg.Sequence),
-					Interim:   msg.Interim,
-					Mode:      strings.TrimSpace(stringValue(msg.Mode)),
-					Status:    strings.TrimSpace(stringValue(msg.Status)),
+					MessageID:       msg.Id,
+					ClientRequestID: steeringClientRequestID(msg.Tags),
+					Role:            "user",
+					Content:         content,
+					CreatedAt:       msg.CreatedAt,
+					Sequence:        intValue(msg.Sequence),
+					Interim:         msg.Interim,
+					Mode:            strings.TrimSpace(stringValue(msg.Mode)),
+					Status:          strings.TrimSpace(stringValue(msg.Status)),
 				})
 			}
 		case "assistant":

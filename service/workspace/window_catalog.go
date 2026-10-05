@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/viant/agently-core/service/policy"
@@ -52,55 +51,22 @@ func catalogAuthorizationError(w http.ResponseWriter, err error) bool {
 
 func (h *MetadataHandler) handleWorkspaceTools() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if catalogAuthorizationError(w, h.authorizeBuiltInWindow(r, "tool")) {
-			return
-		}
-		if h.toolDefinitions == nil {
-			http.Error(w, "tool catalog unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		definitions, err := h.toolDefinitions(r.Context())
+		result, err := h.Tools(r.Context(), r.URL.Query().Get("pattern"))
 		if err != nil {
-			http.Error(w, "tool catalog unavailable", http.StatusServiceUnavailable)
+			writeMetadataError(w, err)
 			return
 		}
-		pattern := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("pattern")))
-		filtered := make([]ToolDefinition, 0, len(definitions))
-		for _, definition := range definitions {
-			if pattern == "" || strings.Contains(strings.ToLower(definition.Name+" "+definition.Description), pattern) {
-				filtered = append(filtered, definition)
-			}
-		}
-		sort.Slice(filtered, func(i, j int) bool { return filtered[i].Name < filtered[j].Name })
-		writeCatalogJSON(w, http.StatusOK, map[string]any{"data": filtered})
+		writeCatalogJSON(w, http.StatusOK, result)
 	}
 }
-
 func (h *MetadataHandler) handleWorkspaceModels() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if catalogAuthorizationError(w, h.authorizeBuiltInWindow(r, "model")) {
-			return
-		}
-		if h.store == nil {
-			http.Error(w, "model catalog unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		names, err := h.store.List(r.Context(), ws.KindModel)
+		result, err := h.Models(r.Context())
 		if err != nil {
-			http.Error(w, "model catalog unavailable", http.StatusServiceUnavailable)
+			writeMetadataError(w, err)
 			return
 		}
-		sort.Strings(names)
-		models := make([]map[string]any, 0, len(names))
-		for _, name := range names {
-			model, loadErr := h.loadWorkspaceModel(r.Context(), name)
-			if loadErr != nil {
-				http.Error(w, "model catalog unavailable", http.StatusServiceUnavailable)
-				return
-			}
-			models = append(models, model)
-		}
-		writeCatalogJSON(w, http.StatusOK, map[string]any{"data": models})
+		writeCatalogJSON(w, http.StatusOK, result)
 	}
 }
 
@@ -140,19 +106,12 @@ func (h *MetadataHandler) loadWorkspaceModel(ctx context.Context, name string) (
 
 func (h *MetadataHandler) handleGetWorkspaceModel() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if catalogAuthorizationError(w, h.authorizeBuiltInWindow(r, "model")) {
-			return
-		}
-		if h.store == nil {
-			http.Error(w, "model catalog unavailable", http.StatusServiceUnavailable)
-			return
-		}
-		model, err := h.loadWorkspaceModel(r.Context(), r.PathValue("id"))
+		result, err := h.Model(r.Context(), r.PathValue("id"))
 		if err != nil {
-			http.Error(w, "model not found", http.StatusNotFound)
+			writeMetadataError(w, err)
 			return
 		}
-		writeCatalogJSON(w, http.StatusOK, map[string]any{"data": model})
+		writeCatalogJSON(w, http.StatusOK, result)
 	}
 }
 
@@ -173,23 +132,25 @@ func mergeModelFields(target, update map[string]any) {
 
 func (h *MetadataHandler) handleSaveWorkspaceModel() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if catalogAuthorizationError(w, h.authorizeBuiltInWindow(r, "model")) {
+		// Preserve the native authorization/identity error order before parsing data.
+		if err := h.authorizeCatalog(r.Context(), "model"); err != nil {
+			writeMetadataError(w, err)
 			return
 		}
 		if h.store == nil {
-			http.Error(w, "model catalog unavailable", http.StatusServiceUnavailable)
+			writeMetadataError(w, metadataFailure(http.StatusServiceUnavailable, "model catalog unavailable", nil))
 			return
 		}
 		id := r.PathValue("id")
 		if !validModelID(id) {
-			http.Error(w, "invalid model id", http.StatusBadRequest)
+			writeMetadataError(w, metadataFailure(http.StatusBadRequest, "invalid model id", nil))
 			return
 		}
-		model, err := h.loadWorkspaceModel(r.Context(), id)
-		if err != nil {
-			http.Error(w, "model not found", http.StatusNotFound)
+		if _, err := h.loadWorkspaceModel(r.Context(), id); err != nil {
+			writeMetadataError(w, metadataFailure(http.StatusNotFound, "model not found", err))
 			return
 		}
+
 		body, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
 		if err != nil {
 			http.Error(w, "invalid model body", http.StatusBadRequest)
@@ -200,22 +161,12 @@ func (h *MetadataHandler) handleSaveWorkspaceModel() http.HandlerFunc {
 			http.Error(w, "invalid model JSON", http.StatusBadRequest)
 			return
 		}
-		if updateID, ok := update["id"].(string); ok && updateID != id {
-			http.Error(w, "model id mismatch", http.StatusBadRequest)
-			return
-		}
-		mergeModelFields(model, update)
-		model["id"] = id
-		encoded, err := yaml.Marshal(model)
+		result, err := h.SaveModel(r.Context(), r.PathValue("id"), update)
 		if err != nil {
-			http.Error(w, "invalid model configuration", http.StatusBadRequest)
+			writeMetadataError(w, err)
 			return
 		}
-		if err = h.store.Save(r.Context(), ws.KindModel, id, encoded); err != nil {
-			http.Error(w, "save model failed", http.StatusInternalServerError)
-			return
-		}
-		writeCatalogJSON(w, http.StatusOK, map[string]any{"data": model})
+		writeCatalogJSON(w, http.StatusOK, result)
 	}
 }
 

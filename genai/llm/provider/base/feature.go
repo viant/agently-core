@@ -1,6 +1,8 @@
 package base
 
 const (
+	SupportsProtocolMedia  string = "supports-protocol-media"
+	SupportsProviderFiles  string = "supports-provider-files"
 	CanUseTools            string = "can-use-tools"
 	CanStream              string = "can-stream"
 	IsMultimodal           string = "is-multimodal"

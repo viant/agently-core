@@ -128,12 +128,21 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 		}
 		for _, m := range t.Message {
 			order++
+			if m != nil {
+				if scope := runtimerecovery.ProactiveScope(ctx); scope != nil && !scope.EligibleIDs[m.Id] {
+					continue
+				}
+			}
 			if m == nil || m.Id == lastUserID || m.Interim != 0 || (m.Archived != nil && *m.Archived == 1) {
 				continue
 			}
 			typ := strings.ToLower(strings.TrimSpace(m.Type))
 			role := strings.ToLower(strings.TrimSpace(m.Role))
 			tc := firstToolCall(m)
+			if runtimerecovery.IsProactive(ctx) && tc == nil && m.MessageToolCall != nil {
+				tc = &apiconv.ToolCallView{OpId: m.MessageToolCall.OpId, ToolName: m.MessageToolCall.ToolName, Status: m.MessageToolCall.Status, RequestPayload: m.MessageToolCall.MessageRequestPayload, ResponsePayload: m.MessageToolCall.MessageResponsePayload}
+			}
+
 			if typ != "text" && tc == nil {
 				continue
 			}
@@ -158,6 +167,12 @@ func (s *Service) buildRemovalCandidates(ctx context.Context, conv *apiconv.Conv
 				}
 				sz := len(body)
 				line = fmt.Sprintf("messageId: %s, type: tool, tool: %s, args_preview: \"%s\", size: %d bytes (~%d tokens)", m.Id, toolName, ap, sz, estimateTokens(body))
+				if runtimerecovery.IsProactive(ctx) && body == "" && m.Content != nil {
+					body = *m.Content
+				}
+				if runtimerecovery.IsProactive(ctx) {
+					line = fmt.Sprintf("messageId: %s, operationId: %s, status: %s, type: tool, tool: %s, args_preview: %q, result_preview: %q", m.Id, tc.OpId, tc.Status, toolName, ap, textutil.RuneTruncate(body, previewLen))
+				}
 				cands = append(cands, cand{line: line, id: m.Id, kind: 0, size: sz, order: order})
 			} else if role == "user" || role == "assistant" {
 				body := ""

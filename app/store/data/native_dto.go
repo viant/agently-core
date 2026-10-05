@@ -119,7 +119,16 @@ func applyDataMutationResult(target, source reflect.Value) error {
 	if target.CanAddr() {
 		if tool, ok := target.Addr().Interface().(*toolcallmodel.ToolCall); ok {
 			overflow := tool.ResponseOverflow
-			defer func() { tool.ResponseOverflow = overflow }()
+			overflowSupplied := tool.Has != nil && tool.Has.ResponseOverflow
+			defer func() {
+				tool.ResponseOverflow = overflow
+				if overflowSupplied {
+					if tool.Has == nil {
+						tool.Has = &toolcallmodel.ToolCallHas{}
+					}
+					tool.Has.ResponseOverflow = true
+				}
+			}()
 		}
 	}
 	for i := 0; i < target.NumField(); i++ {

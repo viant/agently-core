@@ -254,7 +254,8 @@ class AgentlyClientTest {
                     httpClient = shortClient,
                     longRunningHttpClient = longRunningClient
                 )
-            )
+            ),
+            conversationTransportMode = com.viant.agentlysdk.agui.ConversationTransportMode.LEGACY
         )
 
         val output = client.query(QueryInput(conversationId = "conv-1", query = "hello"))
@@ -645,7 +646,8 @@ class AgentlyClientTest {
                     httpClient = shortClient,
                     streamHttpClient = streamClient
                 )
-            )
+            ),
+            conversationTransportMode = com.viant.agentlysdk.agui.ConversationTransportMode.LEGACY
         )
 
         val snapshots = client.trackConversation("conv-1").take(1).toList()
@@ -1139,6 +1141,21 @@ class AgentlyClientTest {
         assertTrue(body.contains("name=\"file\""))
         assertTrue(body.contains("fixture.txt"))
         assertTrue(body.contains("hello from test"))
+    }
+
+    @Test
+    fun `createConversation decodes native camelCase response without legacy query dispatch`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"id":"conv-native","agentId":"steward","title":"Native plan","lastTurnId":null,"createdByUserId":"owner","createdAt":"2026-10-04T21:00:00Z"}"""))
+        server.start()
+        val result = client().createConversation(CreateConversationInput(agentId = "steward", title = "Native plan"))
+        assertEquals("conv-native", result.id)
+        assertEquals("steward", result.agentId)
+        assertEquals("Native plan", result.title)
+        assertEquals("owner", result.createdByUserId)
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/v1/conversations", request.path)
+        assertEquals(1, server.requestCount)
     }
 
     @Test
@@ -1996,7 +2013,8 @@ class AgentlyClientTest {
         return AgentlyClient(
             endpoints = mapOf(
                 "appAPI" to EndpointConfig(baseUrl = server.url("/").toString().trimEnd('/'))
-            )
+            ),
+            conversationTransportMode = com.viant.agentlysdk.agui.ConversationTransportMode.LEGACY
         )
     }
 

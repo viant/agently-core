@@ -1,0 +1,1514 @@
+{
+  "profile": {
+    "ownerId": "awitas_viant_devtest",
+    "conversationId": "ac0973a1-9c3e-4c96-bd5b-cfeddac8b610",
+    "turnId": "46f1335c-9c6b-48df-9a9c-5f583c325b66",
+    "opId": "call_wtDShcQB6BANrh5HUbYNae2W",
+    "tool": "steward/AdTargetingProfile",
+    "status": "completed",
+    "request": {
+      "AudienceId": [
+        7366798
+      ],
+      "timeoutMs": 600000
+    },
+    "response": {
+      "status": "ok",
+      "data": [
+        {
+          "agencyId": 3387,
+          "advertiserId": 76903,
+          "campaignId": 558249,
+          "adOrderId": 2685245,
+          "audienceId": 7366798,
+          "hasCreative": true,
+          "hasFlight": true,
+          "hasBudget": true,
+          "setupReady": true,
+          "budget": 7120,
+          "maxBid": 3.45,
+          "bidPotential": 1.6993835765650533,
+          "maxBidPotential": 3.0074153108340864,
+          "averageBidPotential": 2.7189380503765843,
+          "bidFulfillmentRatio": 0.9912568306010929,
+          "agency": {
+            "id": 3387,
+            "agencyName": "Clear Channel - Direct"
+          },
+          "advertiser": {
+            "id": 76903,
+            "advertiserId": 76903,
+            "advertiserName": "San Francisco Health Plan",
+            "agencyId": 3387
+          },
+          "campaign": {
+            "id": 558249,
+            "name": "San Francisco Health Plan_1291345-OAK_Medi-Cal_20260714_20270712",
+            "status": 1,
+            "advertiserId": 76903,
+            "startdate": "2026-07-20T00:00:00Z",
+            "enddate": "2027-07-12T23:59:00Z",
+            "maxBidMultiplier": 0,
+            "minBidMultiplier": 0,
+            "isHousehold": false,
+            "brand": "",
+            "domain": "sfhp.org",
+            "iabCat": "IAB13-6,IAB7-52",
+            "campaignFlight": [
+              {
+                "campaignId": 558249,
+                "id": 342736,
+                "startDate": "2026-07-20T00:00:00Z",
+                "endDate": "2027-07-10T23:59:00Z",
+                "dailyBudget": 0,
+                "maxBudget": 7020
+              },
+              {
+                "campaignId": 558249,
+                "id": 342737,
+                "startDate": "2027-07-11T00:00:00Z",
+                "endDate": "2027-07-12T23:59:00Z",
+                "dailyBudget": 0,
+                "maxBudget": 100
+              }
+            ]
+          },
+          "debrief": [
+            {
+              "campaignId": 558249,
+              "hasAiMediaPlan": false,
+              "source": "campaign_ad_order",
+              "primaryGoal": "Clicks, Impressions",
+              "primaryObjective": "Awareness",
+              "primaryBudget": 7120,
+              "primaryStartDate": "2026-07-20T00:00:00Z",
+              "primaryEndDate": "2027-07-12T23:59:00Z",
+              "mediaPlanId": null,
+              "threadId": null,
+              "externalThreadId": null,
+              "mediaPlanBrand": null,
+              "mediaPlanProductUrl": null,
+              "mediaPlanGoal": null,
+              "mediaPlanObjective": null,
+              "mediaPlanTotalBudget": null,
+              "ctvBudget": null,
+              "videoBudget": null,
+              "displayBudget": null,
+              "audioBudget": null,
+              "doohBudget": null,
+              "mediaPlanCreated": null,
+              "mediaPlanUpdated": null,
+              "campaignObjectiveId": 1,
+              "campaignObjective": "Awareness",
+              "campaignGoalId": null,
+              "campaignGoalName": null,
+              "campaignMaxBudget": 7120,
+              "campaignDailyBudget": 0,
+              "adOrderCount": 3,
+              "activeAdOrderCount": 2,
+              "adOrderGoalIds": "3,5",
+              "adOrderGoals": "Clicks, Impressions",
+              "adOrderGoalPrioritizationIds": "1,2",
+              "adOrderGoalPrioritizations": "Prioritize Performance, Prioritize Spend",
+              "adOrderMaxBudget": 0,
+              "adOrderDailyBudget": 0,
+              "ctrGoal": 0.001,
+              "cpaGoal": null,
+              "completionRateGoal": null,
+              "vcpmGoal": null,
+              "roasGoal": null
+            }
+          ],
+          "adOrder": {
+            "id": 2685245,
+            "name": "Audience Targeting",
+            "campaignId": 558249,
+            "status": 1,
+            "pricingModel": "cpm",
+            "price": 3,
+            "maxBidMultiplier": 0,
+            "minBidMultiplier": 0,
+            "pct": 0,
+            "currency": "USD",
+            "campaignRules": "",
+            "bidType": "",
+            "bidPrice": 3.45,
+            "maxBudget": 0,
+            "dailyBudget": 0,
+            "priority": 0,
+            "channelsV2": 1,
+            "adOrderChannelsV2": 3
+          },
+          "audience": {
+            "advertiserId": 76903,
+            "adOrderId": 2685245,
+            "id": 7366798,
+            "name": "Audience_A18-64_Chinese Speaking",
+            "status": 1,
+            "weight": 1,
+            "bidPrice": null,
+            "target": "user.demographic.age:[\"5\",\"6\",\"7\",\"8\",\"9\"] AND ad.site.type:[\"app\",\"web\"] AND location:[\"US\"] AND location.metrocode:[\"807\"] AND viant.taxonomy:[\"689452\"]",
+            "exclusion": "site.lists.v2:[\"11548\"]",
+            "inclusionSignals": [
+              {
+                "category": "Inventory",
+                "signals": [
+                  {
+                    "type": "ad.site.type",
+                    "leastRestrictive": {
+                      "value": "app",
+                      "seenRatio": 0.65417
+                    },
+                    "isolatedSeenRatio": {
+                      "app": 0.65417,
+                      "web": 0.25674
+                    },
+                    "values": [
+                      {
+                        "value": "app",
+                        "name": "Application",
+                        "seenRatio": 0.65417
+                      },
+                      {
+                        "value": "web",
+                        "name": "Website",
+                        "seenRatio": 0.25674
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "category": "Location",
+                "signals": [
+                  {
+                    "type": "location",
+                    "leastRestrictive": {
+                      "value": "US",
+                      "seenRatio": 0.94749
+                    },
+                    "isolatedSeenRatio": {
+                      "US": 0.94749
+                    },
+                    "values": [
+                      {
+                        "value": "US",
+                        "name": "United States",
+                        "seenRatio": 0.94749
+                      }
+                    ]
+                  },
+                  {
+                    "type": "location.metrocode",
+                    "leastRestrictive": {
+                      "value": "807",
+                      "seenRatio": 0.01908
+                    },
+                    "isolatedSeenRatio": {
+                      "807": 0.01908
+                    },
+                    "values": [
+                      {
+                        "value": "807",
+                        "name": "San Francisco-Oakland-San Jose CA",
+                        "seenRatio": 0.01908
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "category": "Data",
+                "signals": [
+                  {
+                    "type": "viant.taxonomy",
+                    "leastRestrictive": {
+                      "value": "689452",
+                      "seenRatio": 0.01624
+                    },
+                    "isolatedSeenRatio": {
+                      "689452": 0.01624
+                    },
+                    "fees": [
+                      {
+                        "provider": "529",
+                        "cost": 0.65
+                      }
+                    ],
+                    "values": [
+                      {
+                        "value": "689452",
+                        "name": "Audience_Chinese",
+                        "seenRatio": 0.01624,
+                        "fees": [
+                          {
+                            "provider": "529",
+                            "cost": 0.65
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "category": "Demographics",
+                "signals": [
+                  {
+                    "type": "user.demographic.age",
+                    "leastRestrictive": {
+                      "value": "5",
+                      "seenRatio": 0.35196
+                    },
+                    "isolatedSeenRatio": {
+                      "5": 0.35196,
+                      "6": 0.19313,
+                      "7": 0.10293,
+                      "8": 0.01639,
+                      "9": 0.01358
+                    },
+                    "values": [
+                      {
+                        "value": "5",
+                        "name": "18-24",
+                        "seenRatio": 0.35196
+                      },
+                      {
+                        "value": "6",
+                        "name": "25-34",
+                        "seenRatio": 0.19313
+                      },
+                      {
+                        "value": "7",
+                        "name": "35-44",
+                        "seenRatio": 0.10293
+                      },
+                      {
+                        "value": "8",
+                        "name": "45-54",
+                        "seenRatio": 0.01639
+                      },
+                      {
+                        "value": "9",
+                        "name": "55-64",
+                        "seenRatio": 0.01358
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "exclusionSignals": [
+              {
+                "category": "Inventory",
+                "signals": [
+                  {
+                    "type": "site.lists.v2",
+                    "leastRestrictive": {
+                      "value": "11548",
+                      "seenRatio": 2e-05
+                    },
+                    "isolatedSeenRatio": {
+                      "11548": 2e-05
+                    },
+                    "values": [
+                      {
+                        "value": "11548",
+                        "seenRatio": 2e-05
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "softIneligibilities": [
+              {
+                "eventDate": "2026-10-02T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "offer.bid.floor",
+                "indexSelectable": 3919,
+                "selectable": 2103,
+                "rejection": 1816,
+                "featureIneligibleTotal": 640,
+                "audienceIneligibleTotal": 649,
+                "featureRatio": 0.9861325115562404,
+                "estimatedRejection": 1791,
+                "rejectionShare": 0.9862334801762115
+              },
+              {
+                "eventDate": "2026-10-02T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.fraud.filter",
+                "indexSelectable": 3919,
+                "selectable": 2103,
+                "rejection": 1816,
+                "featureIneligibleTotal": 7,
+                "audienceIneligibleTotal": 649,
+                "featureRatio": 0.01078582434514638,
+                "estimatedRejection": 20,
+                "rejectionShare": 0.011013215859030838
+              },
+              {
+                "eventDate": "2026-10-02T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.ctr.optimization",
+                "indexSelectable": 3919,
+                "selectable": 2103,
+                "rejection": 1816,
+                "featureIneligibleTotal": 2,
+                "audienceIneligibleTotal": 649,
+                "featureRatio": 0.0030816640986132513,
+                "estimatedRejection": 6,
+                "rejectionShare": 0.003303964757709251
+              },
+              {
+                "eventDate": "2026-10-04T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "offer.bid.floor",
+                "indexSelectable": 20912,
+                "selectable": 2113,
+                "rejection": 18799,
+                "featureIneligibleTotal": 640,
+                "audienceIneligibleTotal": 655,
+                "featureRatio": 0.9770992366412213,
+                "estimatedRejection": 18368,
+                "rejectionShare": 0.977073248577052
+              },
+              {
+                "eventDate": "2026-10-04T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.fraud.filter",
+                "indexSelectable": 20912,
+                "selectable": 2113,
+                "rejection": 18799,
+                "featureIneligibleTotal": 8,
+                "audienceIneligibleTotal": 655,
+                "featureRatio": 0.012213740458015267,
+                "estimatedRejection": 230,
+                "rejectionShare": 0.012234693334751849
+              },
+              {
+                "eventDate": "2026-10-04T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.ctr.optimization",
+                "indexSelectable": 20912,
+                "selectable": 2113,
+                "rejection": 18799,
+                "featureIneligibleTotal": 7,
+                "audienceIneligibleTotal": 655,
+                "featureRatio": 0.010687022900763359,
+                "estimatedRejection": 201,
+                "rejectionShare": 0.01069205808819618
+              },
+              {
+                "eventDate": "2026-10-03T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "offer.bid.floor",
+                "indexSelectable": 3769,
+                "selectable": 2046,
+                "rejection": 1723,
+                "featureIneligibleTotal": 648,
+                "audienceIneligibleTotal": 658,
+                "featureRatio": 0.9848024316109423,
+                "estimatedRejection": 1697,
+                "rejectionShare": 0.9849100406268136
+              },
+              {
+                "eventDate": "2026-10-03T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.fraud.filter",
+                "indexSelectable": 3769,
+                "selectable": 2046,
+                "rejection": 1723,
+                "featureIneligibleTotal": 9,
+                "audienceIneligibleTotal": 658,
+                "featureRatio": 0.013677811550151976,
+                "estimatedRejection": 24,
+                "rejectionShare": 0.013929193267556587
+              },
+              {
+                "eventDate": "2026-10-03T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.ctr.optimization",
+                "indexSelectable": 3769,
+                "selectable": 2046,
+                "rejection": 1723,
+                "featureIneligibleTotal": 1,
+                "audienceIneligibleTotal": 658,
+                "featureRatio": 0.001519756838905775,
+                "estimatedRejection": 3,
+                "rejectionShare": 0.0017411491584445734
+              },
+              {
+                "eventDate": "2026-10-05T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "offer.bid.floor",
+                "indexSelectable": 13392,
+                "selectable": 346,
+                "rejection": 13046,
+                "featureIneligibleTotal": 155,
+                "audienceIneligibleTotal": 160,
+                "featureRatio": 0.96875,
+                "estimatedRejection": 12638,
+                "rejectionShare": 0.9687260462977157
+              },
+              {
+                "eventDate": "2026-10-05T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.ctr.optimization",
+                "indexSelectable": 13392,
+                "selectable": 346,
+                "rejection": 13046,
+                "featureIneligibleTotal": 5,
+                "audienceIneligibleTotal": 160,
+                "featureRatio": 0.03125,
+                "estimatedRejection": 408,
+                "rejectionShare": 0.031273953702284224
+              }
+            ],
+            "signalValues": [],
+            "audienceCreative": [
+              {
+                "id": 4913859,
+                "audienceId": 7366798,
+                "creativeId": 24943170,
+                "creativeName": "MC_Q2_OOH_Geo_160x600_ZH.jpg",
+                "created": "2026-07-17T21:50:22Z",
+                "updated": "2026-07-17T21:50:22Z"
+              },
+              {
+                "id": 4913860,
+                "audienceId": 7366798,
+                "creativeId": 24943173,
+                "creativeName": "MC_Q2_OOH_Geo_300x50_ZH.jpg",
+                "created": "2026-07-17T21:50:22Z",
+                "updated": "2026-07-17T21:50:22Z"
+              },
+              {
+                "id": 4913861,
+                "audienceId": 7366798,
+                "creativeId": 24943176,
+                "creativeName": "MC_Q2_OOH_Geo_300x250_ZH.jpg",
+                "created": "2026-07-17T21:50:22Z",
+                "updated": "2026-07-17T21:50:22Z"
+              },
+              {
+                "id": 4913862,
+                "audienceId": 7366798,
+                "creativeId": 24943179,
+                "creativeName": "MC_Q2_OOH_Geo_320x50_ZH.jpg",
+                "created": "2026-07-17T21:50:22Z",
+                "updated": "2026-07-17T21:50:22Z"
+              },
+              {
+                "id": 4913863,
+                "audienceId": 7366798,
+                "creativeId": 24943182,
+                "creativeName": "MC_Q2_OOH_Geo_728x90_ZH.jpg",
+                "created": "2026-07-17T21:50:22Z",
+                "updated": "2026-07-17T21:50:22Z"
+              }
+            ],
+            "iasCtv": [],
+            "adsTxtSupport": [],
+            "adsTxtDirectPub": [],
+            "ninthDecimalTaxonomy": []
+          }
+        }
+      ],
+      "metrics": []
+    }
+  },
+  "conversion": {
+    "ownerId": "awitas_viant_devtest",
+    "conversationId": "ac0973a1-9c3e-4c96-bd5b-cfeddac8b610",
+    "turnId": "46f1335c-9c6b-48df-9a9c-5f583c325b66",
+    "opId": "call_W7Pd8vbkX5C1zlyY103ttTfo",
+    "tool": "steward/ForecastingTargetingConvert",
+    "status": "completed",
+    "request": {
+      "Request": {
+        "exclusion": "site.lists.v2:[\"11548\"]",
+        "from": "2026-10-02",
+        "inclusion": "user.demographic.age:[\"5\",\"6\",\"7\",\"8\",\"9\"] AND ad.site.type:[\"app\",\"web\"] AND location:[\"US\"] AND location.metrocode:[\"807\"] AND viant.taxonomy:[\"689452\"]",
+        "to": "2026-10-04",
+        "evidenceProfile": {
+          "agencyId": 3387,
+          "advertiserId": 76903,
+          "campaignId": 558249,
+          "adOrderId": 2685245,
+          "audienceId": 7366798,
+          "hasCreative": true,
+          "hasFlight": true,
+          "hasBudget": true,
+          "setupReady": true,
+          "budget": 7120,
+          "maxBid": 3.45,
+          "bidPotential": 1.6993835765650533,
+          "maxBidPotential": 3.0074153108340864,
+          "averageBidPotential": 2.7189380503765843,
+          "bidFulfillmentRatio": 0.9912568306010929,
+          "agency": {
+            "id": 3387,
+            "agencyName": "Clear Channel - Direct"
+          },
+          "advertiser": {
+            "id": 76903,
+            "advertiserId": 76903,
+            "advertiserName": "San Francisco Health Plan",
+            "agencyId": 3387
+          },
+          "campaign": {
+            "id": 558249,
+            "name": "San Francisco Health Plan_1291345-OAK_Medi-Cal_20260714_20270712",
+            "status": 1,
+            "advertiserId": 76903,
+            "startdate": "2026-07-20T00:00:00Z",
+            "enddate": "2027-07-12T23:59:00Z",
+            "maxBidMultiplier": 0,
+            "minBidMultiplier": 0,
+            "isHousehold": false,
+            "brand": "",
+            "domain": "sfhp.org",
+            "iabCat": "IAB13-6,IAB7-52",
+            "campaignFlight": [
+              {
+                "campaignId": 558249,
+                "id": 342736,
+                "startDate": "2026-07-20T00:00:00Z",
+                "endDate": "2027-07-10T23:59:00Z",
+                "dailyBudget": 0,
+                "maxBudget": 7020
+              },
+              {
+                "campaignId": 558249,
+                "id": 342737,
+                "startDate": "2027-07-11T00:00:00Z",
+                "endDate": "2027-07-12T23:59:00Z",
+                "dailyBudget": 0,
+                "maxBudget": 100
+              }
+            ]
+          },
+          "debrief": [
+            {
+              "campaignId": 558249,
+              "hasAiMediaPlan": false,
+              "source": "campaign_ad_order",
+              "primaryGoal": "Clicks, Impressions",
+              "primaryObjective": "Awareness",
+              "primaryBudget": 7120,
+              "primaryStartDate": "2026-07-20T00:00:00Z",
+              "primaryEndDate": "2027-07-12T23:59:00Z",
+              "mediaPlanId": null,
+              "threadId": null,
+              "externalThreadId": null,
+              "mediaPlanBrand": null,
+              "mediaPlanProductUrl": null,
+              "mediaPlanGoal": null,
+              "mediaPlanObjective": null,
+              "mediaPlanTotalBudget": null,
+              "ctvBudget": null,
+              "videoBudget": null,
+              "displayBudget": null,
+              "audioBudget": null,
+              "doohBudget": null,
+              "mediaPlanCreated": null,
+              "mediaPlanUpdated": null,
+              "campaignObjectiveId": 1,
+              "campaignObjective": "Awareness",
+              "campaignGoalId": null,
+              "campaignGoalName": null,
+              "campaignMaxBudget": 7120,
+              "campaignDailyBudget": 0,
+              "adOrderCount": 3,
+              "activeAdOrderCount": 2,
+              "adOrderGoalIds": "3,5",
+              "adOrderGoals": "Clicks, Impressions",
+              "adOrderGoalPrioritizationIds": "1,2",
+              "adOrderGoalPrioritizations": "Prioritize Performance, Prioritize Spend",
+              "adOrderMaxBudget": 0,
+              "adOrderDailyBudget": 0,
+              "ctrGoal": 0.001,
+              "cpaGoal": null,
+              "completionRateGoal": null,
+              "vcpmGoal": null,
+              "roasGoal": null
+            }
+          ],
+          "adOrder": {
+            "id": 2685245,
+            "name": "Audience Targeting",
+            "campaignId": 558249,
+            "status": 1,
+            "pricingModel": "cpm",
+            "price": 3,
+            "maxBidMultiplier": 0,
+            "minBidMultiplier": 0,
+            "pct": 0,
+            "currency": "USD",
+            "campaignRules": "",
+            "bidType": "",
+            "bidPrice": 3.45,
+            "maxBudget": 0,
+            "dailyBudget": 0,
+            "priority": 0,
+            "channelsV2": 1,
+            "adOrderChannelsV2": 3
+          },
+          "audience": {
+            "advertiserId": 76903,
+            "adOrderId": 2685245,
+            "id": 7366798,
+            "name": "Audience_A18-64_Chinese Speaking",
+            "status": 1,
+            "weight": 1,
+            "bidPrice": null,
+            "target": "user.demographic.age:[\"5\",\"6\",\"7\",\"8\",\"9\"] AND ad.site.type:[\"app\",\"web\"] AND location:[\"US\"] AND location.metrocode:[\"807\"] AND viant.taxonomy:[\"689452\"]",
+            "exclusion": "site.lists.v2:[\"11548\"]",
+            "inclusionSignals": [
+              {
+                "category": "Inventory",
+                "signals": [
+                  {
+                    "type": "ad.site.type",
+                    "leastRestrictive": {
+                      "value": "app",
+                      "seenRatio": 0.65417
+                    },
+                    "isolatedSeenRatio": {
+                      "app": 0.65417,
+                      "web": 0.25674
+                    },
+                    "values": [
+                      {
+                        "value": "app",
+                        "name": "Application",
+                        "seenRatio": 0.65417
+                      },
+                      {
+                        "value": "web",
+                        "name": "Website",
+                        "seenRatio": 0.25674
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "category": "Location",
+                "signals": [
+                  {
+                    "type": "location",
+                    "leastRestrictive": {
+                      "value": "US",
+                      "seenRatio": 0.94749
+                    },
+                    "isolatedSeenRatio": {
+                      "US": 0.94749
+                    },
+                    "values": [
+                      {
+                        "value": "US",
+                        "name": "United States",
+                        "seenRatio": 0.94749
+                      }
+                    ]
+                  },
+                  {
+                    "type": "location.metrocode",
+                    "leastRestrictive": {
+                      "value": "807",
+                      "seenRatio": 0.01908
+                    },
+                    "isolatedSeenRatio": {
+                      "807": 0.01908
+                    },
+                    "values": [
+                      {
+                        "value": "807",
+                        "name": "San Francisco-Oakland-San Jose CA",
+                        "seenRatio": 0.01908
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "category": "Data",
+                "signals": [
+                  {
+                    "type": "viant.taxonomy",
+                    "leastRestrictive": {
+                      "value": "689452",
+                      "seenRatio": 0.01624
+                    },
+                    "isolatedSeenRatio": {
+                      "689452": 0.01624
+                    },
+                    "fees": [
+                      {
+                        "provider": "529",
+                        "cost": 0.65
+                      }
+                    ],
+                    "values": [
+                      {
+                        "value": "689452",
+                        "name": "Audience_Chinese",
+                        "seenRatio": 0.01624,
+                        "fees": [
+                          {
+                            "provider": "529",
+                            "cost": 0.65
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "category": "Demographics",
+                "signals": [
+                  {
+                    "type": "user.demographic.age",
+                    "leastRestrictive": {
+                      "value": "5",
+                      "seenRatio": 0.35196
+                    },
+                    "isolatedSeenRatio": {
+                      "5": 0.35196,
+                      "6": 0.19313,
+                      "7": 0.10293,
+                      "8": 0.01639,
+                      "9": 0.01358
+                    },
+                    "values": [
+                      {
+                        "value": "5",
+                        "name": "18-24",
+                        "seenRatio": 0.35196
+                      },
+                      {
+                        "value": "6",
+                        "name": "25-34",
+                        "seenRatio": 0.19313
+                      },
+                      {
+                        "value": "7",
+                        "name": "35-44",
+                        "seenRatio": 0.10293
+                      },
+                      {
+                        "value": "8",
+                        "name": "45-54",
+                        "seenRatio": 0.01639
+                      },
+                      {
+                        "value": "9",
+                        "name": "55-64",
+                        "seenRatio": 0.01358
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "exclusionSignals": [
+              {
+                "category": "Inventory",
+                "signals": [
+                  {
+                    "type": "site.lists.v2",
+                    "leastRestrictive": {
+                      "value": "11548",
+                      "seenRatio": 2e-05
+                    },
+                    "isolatedSeenRatio": {
+                      "11548": 2e-05
+                    },
+                    "values": [
+                      {
+                        "value": "11548",
+                        "seenRatio": 2e-05
+                      }
+                    ]
+                  }
+                ]
+              }
+            ],
+            "softIneligibilities": [
+              {
+                "eventDate": "2026-10-02T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "offer.bid.floor",
+                "indexSelectable": 3919,
+                "selectable": 2103,
+                "rejection": 1816,
+                "featureIneligibleTotal": 640,
+                "audienceIneligibleTotal": 649,
+                "featureRatio": 0.9861325115562404,
+                "estimatedRejection": 1791,
+                "rejectionShare": 0.9862334801762115
+              },
+              {
+                "eventDate": "2026-10-02T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.fraud.filter",
+                "indexSelectable": 3919,
+                "selectable": 2103,
+                "rejection": 1816,
+                "featureIneligibleTotal": 7,
+                "audienceIneligibleTotal": 649,
+                "featureRatio": 0.01078582434514638,
+                "estimatedRejection": 20,
+                "rejectionShare": 0.011013215859030838
+              },
+              {
+                "eventDate": "2026-10-02T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.ctr.optimization",
+                "indexSelectable": 3919,
+                "selectable": 2103,
+                "rejection": 1816,
+                "featureIneligibleTotal": 2,
+                "audienceIneligibleTotal": 649,
+                "featureRatio": 0.0030816640986132513,
+                "estimatedRejection": 6,
+                "rejectionShare": 0.003303964757709251
+              },
+              {
+                "eventDate": "2026-10-04T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "offer.bid.floor",
+                "indexSelectable": 20912,
+                "selectable": 2113,
+                "rejection": 18799,
+                "featureIneligibleTotal": 640,
+                "audienceIneligibleTotal": 655,
+                "featureRatio": 0.9770992366412213,
+                "estimatedRejection": 18368,
+                "rejectionShare": 0.977073248577052
+              },
+              {
+                "eventDate": "2026-10-04T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.fraud.filter",
+                "indexSelectable": 20912,
+                "selectable": 2113,
+                "rejection": 18799,
+                "featureIneligibleTotal": 8,
+                "audienceIneligibleTotal": 655,
+                "featureRatio": 0.012213740458015267,
+                "estimatedRejection": 230,
+                "rejectionShare": 0.012234693334751849
+              },
+              {
+                "eventDate": "2026-10-04T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.ctr.optimization",
+                "indexSelectable": 20912,
+                "selectable": 2113,
+                "rejection": 18799,
+                "featureIneligibleTotal": 7,
+                "audienceIneligibleTotal": 655,
+                "featureRatio": 0.010687022900763359,
+                "estimatedRejection": 201,
+                "rejectionShare": 0.01069205808819618
+              },
+              {
+                "eventDate": "2026-10-03T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "offer.bid.floor",
+                "indexSelectable": 3769,
+                "selectable": 2046,
+                "rejection": 1723,
+                "featureIneligibleTotal": 648,
+                "audienceIneligibleTotal": 658,
+                "featureRatio": 0.9848024316109423,
+                "estimatedRejection": 1697,
+                "rejectionShare": 0.9849100406268136
+              },
+              {
+                "eventDate": "2026-10-03T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.fraud.filter",
+                "indexSelectable": 3769,
+                "selectable": 2046,
+                "rejection": 1723,
+                "featureIneligibleTotal": 9,
+                "audienceIneligibleTotal": 658,
+                "featureRatio": 0.013677811550151976,
+                "estimatedRejection": 24,
+                "rejectionShare": 0.013929193267556587
+              },
+              {
+                "eventDate": "2026-10-03T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.ctr.optimization",
+                "indexSelectable": 3769,
+                "selectable": 2046,
+                "rejection": 1723,
+                "featureIneligibleTotal": 1,
+                "audienceIneligibleTotal": 658,
+                "featureRatio": 0.001519756838905775,
+                "estimatedRejection": 3,
+                "rejectionShare": 0.0017411491584445734
+              },
+              {
+                "eventDate": "2026-10-05T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "offer.bid.floor",
+                "indexSelectable": 13392,
+                "selectable": 346,
+                "rejection": 13046,
+                "featureIneligibleTotal": 155,
+                "audienceIneligibleTotal": 160,
+                "featureRatio": 0.96875,
+                "estimatedRejection": 12638,
+                "rejectionShare": 0.9687260462977157
+              },
+              {
+                "eventDate": "2026-10-05T00:00:00Z",
+                "orderId": 2685245,
+                "audienceId": 7366798,
+                "feature": "ml.ctr.optimization",
+                "indexSelectable": 13392,
+                "selectable": 346,
+                "rejection": 13046,
+                "featureIneligibleTotal": 5,
+                "audienceIneligibleTotal": 160,
+                "featureRatio": 0.03125,
+                "estimatedRejection": 408,
+                "rejectionShare": 0.031273953702284224
+              }
+            ],
+            "signalValues": [],
+            "audienceCreative": [
+              {
+                "id": 4913859,
+                "audienceId": 7366798,
+                "creativeId": 24943170,
+                "creativeName": "MC_Q2_OOH_Geo_160x600_ZH.jpg",
+                "created": "2026-07-17T21:50:22Z",
+                "updated": "2026-07-17T21:50:22Z"
+              },
+              {
+                "id": 4913860,
+                "audienceId": 7366798,
+                "creativeId": 24943173,
+                "creativeName": "MC_Q2_OOH_Geo_300x50_ZH.jpg",
+                "created": "2026-07-17T21:50:22Z",
+                "updated": "2026-07-17T21:50:22Z"
+              },
+              {
+                "id": 4913861,
+                "audienceId": 7366798,
+                "creativeId": 24943176,
+                "creativeName": "MC_Q2_OOH_Geo_300x250_ZH.jpg",
+                "created": "2026-07-17T21:50:22Z",
+                "updated": "2026-07-17T21:50:22Z"
+              },
+              {
+                "id": 4913862,
+                "audienceId": 7366798,
+                "creativeId": 24943179,
+                "creativeName": "MC_Q2_OOH_Geo_320x50_ZH.jpg",
+                "created": "2026-07-17T21:50:22Z",
+                "updated": "2026-07-17T21:50:22Z"
+              },
+              {
+                "id": 4913863,
+                "audienceId": 7366798,
+                "creativeId": 24943182,
+                "creativeName": "MC_Q2_OOH_Geo_728x90_ZH.jpg",
+                "created": "2026-07-17T21:50:22Z",
+                "updated": "2026-07-17T21:50:22Z"
+              }
+            ],
+            "iasCtv": [],
+            "adsTxtSupport": [],
+            "adsTxtDirectPub": [],
+            "ninthDecimalTaxonomy": []
+          }
+        },
+        "evidenceAudienceId": 7366798
+      },
+      "timeoutMs": 600000
+    },
+    "response": {
+      "status": "ok",
+      "forecastingPath": "/v1/api/steward/inventory/forecasting",
+      "body": {
+        "debug": false,
+        "from": "2026-10-02",
+        "to": "2026-10-04",
+        "date": null,
+        "byHour": false,
+        "interimHhuNiqs": "",
+        "finalHhuNiqs": "",
+        "viantSegmentLogicalConnector": "",
+        "userIdentifierType": 0,
+        "includeChannelv2": [],
+        "excludeChannelv2": [],
+        "includePublisherId": [],
+        "excludePublisherId": [],
+        "includePublisherDim": [],
+        "excludePublisherDim": [],
+        "includePubType": [],
+        "excludePubType": [],
+        "includeSiteId": [],
+        "excludeSiteId": [],
+        "includeSiteType": [
+          "app",
+          "web"
+        ],
+        "excludeSiteType": [],
+        "includeSize": [],
+        "excludeSize": [],
+        "includeMediaType": [],
+        "excludeMediaType": [],
+        "includeCarrierId": [],
+        "excludeCarrierId": [],
+        "includeCarrier": [],
+        "excludeCarrier": [],
+        "includeCountry": [
+          "US"
+        ],
+        "excludeCountry": [],
+        "includeLocationDim": [],
+        "excludeLocationDim": [],
+        "includeRegion": [],
+        "excludeRegion": [],
+        "includeCity": [],
+        "excludeCity": [],
+        "includeZip": [],
+        "excludeZip": [],
+        "includeMetrocode": [
+          807
+        ],
+        "excludeMetrocode": [],
+        "includeBrand": [],
+        "excludeBrand": [],
+        "includeModel": [],
+        "excludeModel": [],
+        "includeMarketingName": [],
+        "excludeMarketingName": [],
+        "includeOs": [],
+        "excludeOs": [],
+        "includeOsVersion": [],
+        "excludeOsVersion": [],
+        "includeDeviceType": [],
+        "excludeDeviceType": [],
+        "includeAgegroupId": [
+          5,
+          6,
+          7,
+          8,
+          9
+        ],
+        "excludeAgegroupId": [],
+        "includeAuGrouping": [],
+        "excludeAuGrouping": [],
+        "includeGenderId": [],
+        "excludeGenderId": [],
+        "includeHouseIncomeId": [],
+        "excludeHouseIncomeId": [],
+        "includeDeviceLang": [],
+        "excludeDeviceLang": [],
+        "includeDeviceBrowser": [],
+        "excludeDeviceBrowser": [],
+        "includeDeviceBrowserVersion": [],
+        "excludeDeviceBrowserVersion": [],
+        "includeDeviceAdvertisedBrowser": [],
+        "excludeDeviceAdvertisedBrowser": [],
+        "supplyHopLimit": 0,
+        "includePathHopCount": [],
+        "excludePathHopCount": [],
+        "includeUserPools": [],
+        "excludeUserPools": [],
+        "includeExternalPmpDeals": [],
+        "excludeExternalPmpDeals": [],
+        "includePeer39Weather": [],
+        "excludePeer39Weather": [],
+        "includePeer39Context": [],
+        "excludePeer39Context": [],
+        "includePeer39Safety": [],
+        "excludePeer39Safety": [],
+        "includePeer39MobileApps": [],
+        "excludePeer39MobileApps": [],
+        "includePeer39Fraud": [],
+        "excludePeer39Fraud": [],
+        "includePeer39Specialty": [],
+        "excludePeer39Specialty": [],
+        "includePeer39Sentiment": [],
+        "excludePeer39Sentiment": [],
+        "includePeer39PageSignals": [],
+        "excludePeer39PageSignals": [],
+        "includePeer39CustomStandard": [],
+        "excludePeer39CustomStandard": [],
+        "includePeer39CustomAdvanced": [],
+        "excludePeer39CustomAdvanced": [],
+        "includePeer39Language": [],
+        "excludePeer39Language": [],
+        "includePeer39SocialPredict": [],
+        "excludePeer39SocialPredict": [],
+        "includePeer39NewsGuard": [],
+        "excludePeer39NewsGuard": [],
+        "includePeer39Reticle": [],
+        "excludePeer39Reticle": [],
+        "includePeer39OttCtv": [],
+        "excludePeer39OttCtv": [],
+        "includeSupplyPaths": [],
+        "excludeSupplyPaths": [],
+        "includeSiteList2": [],
+        "excludeSiteList2": [
+          11548
+        ],
+        "includePostalCodeList": [],
+        "excludePostalCodeList": [],
+        "includeIasKeywordEid": [],
+        "excludeIasKeywordEid": [],
+        "includeFactualEid": [],
+        "excludeFactualEid": [],
+        "includeFactualAudienceEid": [],
+        "excludeFactualAudienceEid": [],
+        "includePlacedEid": [],
+        "excludePlacedEid": [],
+        "includeContext": [],
+        "excludeContext": [],
+        "includeNsseg": [],
+        "excludeNsseg": [],
+        "includeProviderTaxonomy": "",
+        "excludeProviderTaxonomy": [],
+        "includeViantSegment": [
+          689452
+        ],
+        "excludeViantSegment": [],
+        "includeComscoreDemographics": [],
+        "excludeComscoreDemographics": [],
+        "includeComscorePredictiveAudience": [],
+        "excludeComscorePredictiveAudience": [],
+        "includeComscoreVideoOrCtvContextual": [],
+        "excludeComscoreVideoOrCtvContextual": [],
+        "includeComscoreVideoOrCtvBrandSafety": [],
+        "excludeComscoreVideoOrCtvBrandSafety": [],
+        "includeLiveramp": [],
+        "excludeLiveramp": [],
+        "includeMlViewability": [],
+        "excludeMlViewability": [],
+        "includeAdobeSegment": [],
+        "excludeAdobeSegment": [],
+        "includeNinthDecimalSegment": [],
+        "excludeNinthDecimalSegment": [],
+        "includeIasBrandSafety": [],
+        "includeIasBrandSafetyGroupsJson": "",
+        "excludeIasBrandSafety": [],
+        "includeIasFraud": [],
+        "excludeIasFraud": [],
+        "includeIasTraq": [],
+        "excludeIasTraq": [],
+        "includeIasViewability": [],
+        "excludeIasViewability": [],
+        "includeGsContextual": [],
+        "excludeGsContextual": [],
+        "includeGsBrandsafety": [],
+        "excludeGsBrandsafety": [],
+        "includeGsCustom": [],
+        "excludeGsCustom": [],
+        "includeBkCustom": [],
+        "excludeBkCustom": [],
+        "includeDealsPmp": [],
+        "excludeDealsPmp": [],
+        "includeDvAuthBs": [],
+        "excludeDvAuthBs": [],
+        "includeDvViewability": [],
+        "excludeDvViewability": [],
+        "includeLocationList": [],
+        "excludeLocationList": [],
+        "includeComscoreVideoOrCtvBrandSuitability": [],
+        "excludeComscoreVideoOrCtvBrandSuitability": [],
+        "includeComscoreVideoOrCtvLanguage": [],
+        "excludeComscoreVideoOrCtvLanguage": [],
+        "includeComscoreVideoOrCtvPredictiveAudience": [],
+        "excludeComscoreVideoOrCtvPredictiveAudience": [],
+        "includeComscoreCustom": [],
+        "excludeComscoreCustom": [],
+        "includeComscoreContextual": [],
+        "excludeComscoreContextual": [],
+        "includeComscoreBrandSafety": [],
+        "excludeComscoreBrandSafety": [],
+        "includeComscoreBrandSuitability": [],
+        "excludeComscoreBrandSuitability": [],
+        "includeComscoreLanguage": [],
+        "excludeComscoreLanguage": [],
+        "includeComscoreSyndicatedRankings": [],
+        "excludeComscoreSyndicatedRankings": [],
+        "includeBluekaiEid": [],
+        "excludeBluekaiEid": [],
+        "includeIris": [],
+        "excludeIris": [],
+        "includeTriton": [],
+        "excludeTriton": [],
+        "includeMediaPlctmt": [],
+        "excludeMediaPlctmt": [],
+        "includeMediaPlayerSize": [],
+        "excludeMediaPlayerSize": [],
+        "includeMediaPodSeq": [],
+        "excludeMediaPodSeq": [],
+        "includeLat": [],
+        "excludeLat": [],
+        "includeLon": [],
+        "excludeLon": [],
+        "latLonPresent": false,
+        "includeVideoLength": [],
+        "excludeVideoLength": [],
+        "includeVideoMaxduration": [],
+        "excludeVideoMaxduration": [],
+        "includeIasIpFraud": false,
+        "excludeIasIpFraud": false,
+        "excludeDvBrandSafety": [],
+        "excludeDvFraud": [],
+        "includeVideoSkippable": false,
+        "excludeVideoSkippable": false,
+        "includeSupportsBanner": false,
+        "excludeSupportsBanner": false,
+        "includeSupportsVideo": false,
+        "excludeSupportsVideo": false,
+        "includeSupportsRichMedia": false,
+        "excludeSupportsRichMedia": false,
+        "includeSupportsNative": false,
+        "excludeSupportsNative": false,
+        "includeSupportsVpaid": false,
+        "excludeSupportsVpaid": false,
+        "includeAdsTxt": false,
+        "excludeAdsTxt": false,
+        "includeReqAuthorized": false,
+        "excludeReqAuthorized": false,
+        "includeSupportsAudio": false,
+        "excludeSupportsAudio": false,
+        "includeAudioSkippable": false,
+        "excludeAudioSkippable": false,
+        "includeHhipFlag": [],
+        "excludeHhipFlag": [],
+        "includePathComplete": false,
+        "excludePathComplete": false,
+        "includeIsPrivatePmpDeal": false,
+        "excludeIsPrivatePmpDeal": false
+      },
+      "query": {
+        "from": [
+          "2026-10-02"
+        ],
+        "include_agegroup_id": [
+          "5",
+          "6",
+          "7",
+          "8",
+          "9"
+        ],
+        "include_country": [
+          "US"
+        ],
+        "include_metrocode": [
+          "807"
+        ],
+        "include_site_type": [
+          "app",
+          "web"
+        ],
+        "include_viant_segment": [
+          "689452"
+        ],
+        "to": [
+          "2026-10-04"
+        ],
+        "exclude_sitelist2": [
+          "11548"
+        ]
+      },
+      "queryString": "exclude_sitelist2=11548&from=2026-10-02&include_agegroup_id=5&include_agegroup_id=6&include_agegroup_id=7&include_agegroup_id=8&include_agegroup_id=9&include_country=US&include_metrocode=807&include_site_type=app&include_site_type=web&include_viant_segment=689452&to=2026-10-04",
+      "includedFeatures": {
+        "viant.taxonomy": [
+          "689452"
+        ],
+        "ad.site.type": [
+          "app",
+          "web"
+        ],
+        "location": [
+          "US"
+        ],
+        "location.metrocode": [
+          "807"
+        ],
+        "user.demographic.age": [
+          "5",
+          "6",
+          "7",
+          "8",
+          "9"
+        ]
+      },
+      "excludedFeatures": {
+        "site.lists.v2": [
+          "11548"
+        ]
+      },
+      "forecastEvidence": {
+        "version": 1,
+        "producerVersion": "steward-forecast-profile-v1",
+        "audienceIds": [
+          7366798
+        ],
+        "sourceProfileHash": "1e3a165057a4d87159c62c2629ee8209e065a2483c4e48fcdd4e595847e1d923",
+        "inclusion": "user.demographic.age:[\"5\",\"6\",\"7\",\"8\",\"9\"] AND ad.site.type:[\"app\",\"web\"] AND location:[\"US\"] AND location.metrocode:[\"807\"] AND viant.taxonomy:[\"689452\"]",
+        "exclusion": "site.lists.v2:[\"11548\"]",
+        "templates": {
+          "data": {
+            "dimensions": {},
+            "filters": {
+              "excludeSiteList2": [
+                11548
+              ],
+              "includeViantSegment": [
+                689452
+              ]
+            },
+            "measures": {
+              "avails": true,
+              "deviceUniqs": true,
+              "hhUniqs": true,
+              "maxClearingPrice": true,
+              "minClearingPrice": true
+            },
+            "timeoutMs": 600000
+          },
+          "demographics": {
+            "dimensions": {},
+            "filters": {
+              "excludeSiteList2": [
+                11548
+              ],
+              "includeAgegroupId": [
+                5,
+                6,
+                7,
+                8,
+                9
+              ]
+            },
+            "measures": {
+              "avails": true,
+              "deviceUniqs": true,
+              "hhUniqs": true,
+              "maxClearingPrice": true,
+              "minClearingPrice": true
+            },
+            "timeoutMs": 600000
+          },
+          "inventory": {
+            "dimensions": {},
+            "filters": {
+              "excludeSiteList2": [
+                11548
+              ],
+              "includeSiteType": [
+                "app",
+                "web"
+              ]
+            },
+            "measures": {
+              "avails": true,
+              "deviceUniqs": true,
+              "hhUniqs": true,
+              "maxClearingPrice": true,
+              "minClearingPrice": true
+            },
+            "timeoutMs": 600000
+          },
+          "location": {
+            "dimensions": {},
+            "filters": {
+              "excludeSiteList2": [
+                11548
+              ],
+              "includeCountry": [
+                "US"
+              ],
+              "includeMetrocode": [
+                807
+              ]
+            },
+            "measures": {
+              "avails": true,
+              "deviceUniqs": true,
+              "hhUniqs": true,
+              "maxClearingPrice": true,
+              "minClearingPrice": true
+            },
+            "timeoutMs": 600000
+          },
+          "overall": {
+            "dimensions": {},
+            "filters": {
+              "excludeSiteList2": [
+                11548
+              ],
+              "includeAgegroupId": [
+                5,
+                6,
+                7,
+                8,
+                9
+              ],
+              "includeCountry": [
+                "US"
+              ],
+              "includeMetrocode": [
+                807
+              ],
+              "includeSiteType": [
+                "app",
+                "web"
+              ],
+              "includeViantSegment": [
+                689452
+              ]
+            },
+            "measures": {
+              "avails": true,
+              "deviceUniqs": true,
+              "hhUniqs": true,
+              "maxClearingPrice": true,
+              "minClearingPrice": true
+            },
+            "timeoutMs": 600000
+          }
+        }
+      }
+    }
+  }
+}

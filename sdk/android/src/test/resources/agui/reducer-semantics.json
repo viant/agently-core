@@ -1,0 +1,3555 @@
+[
+  {
+    "name": "text owner omitted and reopen",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "a"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "b",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "a"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "b",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "m",
+        "role": "assistant",
+        "content": "ab",
+        "subagentRunId": "s"
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "text wrong owner after close",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "x"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'TEXT_MESSAGE_START': subagentRunId 'x' does not match the message 'm' opener's subagent 's'."
+  },
+  {
+    "name": "tool inherits parent and reopens",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "c",
+        "toolCallName": "old",
+        "parentMessageId": "m"
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "c",
+        "delta": "{"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "c"
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "c",
+        "toolCallName": "new",
+        "parentMessageId": "m"
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "c",
+        "delta": "}",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "c"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "c",
+        "toolCallName": "old",
+        "parentMessageId": "m"
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "c",
+        "delta": "{"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "c"
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "c",
+        "toolCallName": "new",
+        "parentMessageId": "m"
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "c",
+        "delta": "}",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "c"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "m",
+        "role": "assistant",
+        "content": "",
+        "subagentRunId": "s",
+        "toolCalls": [
+          {
+            "id": "c",
+            "type": "function",
+            "function": {
+              "name": "new",
+              "arguments": "{}"
+            }
+          }
+        ]
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "tool cannot change inherited owner",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "c",
+        "toolCallName": "x",
+        "parentMessageId": "m",
+        "subagentRunId": "x"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'TOOL_CALL_START': subagentRunId 'x' does not match its parent message 'm' owner 's'. A tool call belongs to the message that carries it."
+  },
+  {
+    "name": "reason span and message shared owner",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "REASONING_START",
+        "messageId": "m",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "REASONING_MESSAGE_START",
+        "messageId": "m",
+        "role": "reasoning"
+      },
+      {
+        "type": "REASONING_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "thinking"
+      },
+      {
+        "type": "REASONING_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "REASONING_END",
+        "messageId": "m"
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "entityId": "m",
+        "subtype": "message",
+        "encryptedValue": "secret",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "REASONING_START",
+        "messageId": "m",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "REASONING_MESSAGE_START",
+        "messageId": "m",
+        "role": "reasoning"
+      },
+      {
+        "type": "REASONING_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "thinking"
+      },
+      {
+        "type": "REASONING_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "REASONING_END",
+        "messageId": "m"
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "entityId": "m",
+        "subtype": "message",
+        "encryptedValue": "secret",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "m",
+        "role": "reasoning",
+        "content": "thinking",
+        "encryptedValue": "secret"
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "reason span message wrong owner",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "REASONING_START",
+        "messageId": "m",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "REASONING_MESSAGE_START",
+        "messageId": "m",
+        "role": "reasoning",
+        "subagentRunId": "x"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'REASONING_MESSAGE_START': subagentRunId 'x' does not match the reasoning message 'm' opener's subagent 's'."
+  },
+  {
+    "name": "closed reasoning owner retained",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "REASONING_START",
+        "messageId": "m",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "REASONING_END",
+        "messageId": "m"
+      },
+      {
+        "type": "REASONING_START",
+        "messageId": "m",
+        "subagentRunId": "x"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'REASONING_START': subagentRunId 'x' does not match the reasoning message 'm' opener's subagent 's'."
+  },
+  {
+    "name": "snapshot seeds tool owner",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+          {
+            "id": "m",
+            "role": "assistant",
+            "subagentRunId": "s",
+            "toolCalls": [
+              {
+                "id": "c",
+                "type": "function",
+                "function": {
+                  "name": "tool",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "subtype": "tool-call",
+        "entityId": "c",
+        "encryptedValue": "secret",
+        "subagentRunId": "x"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'REASONING_ENCRYPTED_VALUE': subagentRunId 'x' does not match the tool call 'c' opener's subagent 's'."
+  },
+  {
+    "name": "snapshot rebuilds tools and preserves client history",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+          {
+            "id": "m",
+            "role": "assistant",
+            "toolCalls": [
+              {
+                "id": "c",
+                "type": "function",
+                "function": {
+                  "name": "tool",
+                  "arguments": "{}"
+                },
+                "encryptedValue": "secret"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "subtype": "tool-call",
+        "entityId": "c",
+        "encryptedValue": "secret"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "initialMessages": [
+      {
+        "id": "old",
+        "role": "user",
+        "content": "old"
+      },
+      {
+        "id": "a",
+        "role": "activity",
+        "activityType": "local",
+        "content": {}
+      },
+      {
+        "id": "r",
+        "role": "reasoning",
+        "content": "reason"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+          {
+            "id": "m",
+            "role": "assistant",
+            "toolCalls": [
+              {
+                "id": "c",
+                "type": "function",
+                "function": {
+                  "name": "tool",
+                  "arguments": "{}"
+                },
+                "encryptedValue": "secret"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "subtype": "tool-call",
+        "entityId": "c",
+        "encryptedValue": "secret"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "a",
+        "role": "activity",
+        "activityType": "local",
+        "content": {}
+      },
+      {
+        "id": "r",
+        "role": "reasoning",
+        "content": "reason"
+      },
+      {
+        "id": "m",
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": "c",
+            "type": "function",
+            "function": {
+              "name": "tool",
+              "arguments": "{}"
+            },
+            "encryptedValue": "secret"
+          }
+        ]
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "activity replacement returns to parent",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "a",
+        "activityType": "one",
+        "content": {},
+        "subagentRunId": "s"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "a",
+        "activityType": "two",
+        "content": {
+          "x": 1
+        }
+      },
+      {
+        "type": "ACTIVITY_DELTA",
+        "messageId": "a",
+        "activityType": "three",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/x",
+            "value": 2
+          }
+        ]
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "a",
+        "activityType": "one",
+        "content": {},
+        "subagentRunId": "s"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "a",
+        "activityType": "two",
+        "content": {
+          "x": 1
+        }
+      },
+      {
+        "type": "ACTIVITY_DELTA",
+        "messageId": "a",
+        "activityType": "three",
+        "patch": [
+          {
+            "op": "replace",
+            "path": "/x",
+            "value": 2
+          }
+        ]
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "a",
+        "role": "activity",
+        "activityType": "three",
+        "content": {
+          "x": 2
+        }
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "activity nonreplacement retains owner",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "a",
+        "activityType": "one",
+        "content": {},
+        "subagentRunId": "s"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "a",
+        "activityType": "two",
+        "content": {},
+        "replace": false,
+        "subagentRunId": "x"
+      },
+      {
+        "type": "ACTIVITY_DELTA",
+        "messageId": "a",
+        "activityType": "one",
+        "patch": [],
+        "subagentRunId": "x"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'ACTIVITY_DELTA': subagentRunId 'x' does not match the activity 'a' opener's subagent 's'."
+  },
+  {
+    "name": "orphan activity and encryption are noops",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "ACTIVITY_DELTA",
+        "messageId": "missing",
+        "activityType": "one",
+        "patch": []
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "subtype": "message",
+        "entityId": "missing",
+        "encryptedValue": "secret"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "ACTIVITY_DELTA",
+        "messageId": "missing",
+        "activityType": "one",
+        "patch": []
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "subtype": "message",
+        "entityId": "missing",
+        "encryptedValue": "secret"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [],
+    "expectedState": {}
+  },
+  {
+    "name": "tool orphan result",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TOOL_CALL_RESULT",
+        "toolCallId": "c",
+        "messageId": "result",
+        "content": "answer"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TOOL_CALL_RESULT",
+        "toolCallId": "c",
+        "messageId": "result",
+        "content": "answer"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "result",
+        "toolCallId": "c",
+        "role": "tool",
+        "content": "answer"
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "text cannot corrupt activity",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "m",
+        "activityType": "one",
+        "content": {
+          "x": 1
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "text"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "m",
+        "activityType": "one",
+        "content": {
+          "x": 1
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "text"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "m",
+        "role": "activity",
+        "activityType": "one",
+        "content": {
+          "x": 1
+        }
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "empty opaque chunk and owner",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_CHUNK",
+        "messageId": "",
+        "subagentRunId": "",
+        "delta": "empty"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "",
+        "role": "assistant",
+        "subagentRunId": ""
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "",
+        "delta": "empty",
+        "subagentRunId": ""
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "",
+        "subagentRunId": ""
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "",
+        "role": "assistant",
+        "content": "empty",
+        "subagentRunId": ""
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "snapshot explicit activity deletion",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [],
+        "metadata": {
+          "@ag-ui/client": {
+            "authoritativeActivityTypes": [
+              "owned"
+            ]
+          }
+        }
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "initialMessages": [
+      {
+        "id": "a",
+        "role": "activity",
+        "activityType": "owned",
+        "content": {}
+      },
+      {
+        "id": "b",
+        "role": "activity",
+        "activityType": "local",
+        "content": {}
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [],
+        "metadata": {
+          "@ag-ui/client": {
+            "authoritativeActivityTypes": [
+              "owned"
+            ]
+          }
+        }
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "b",
+        "role": "activity",
+        "activityType": "local",
+        "content": {}
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "snapshot activity replaces text",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "m",
+        "activityType": "status",
+        "content": {
+          "x": 1
+        }
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "m",
+        "activityType": "status",
+        "content": {
+          "x": 1
+        }
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "m",
+        "role": "activity",
+        "activityType": "status",
+        "content": {
+          "x": 1
+        }
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "all 31 protocol event variants",
+    "initialState": {
+      "initial": true
+    },
+    "initialMessages": [
+      {
+        "id": "user",
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "héllo 🌍"
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "url",
+              "value": "https://example.test/image",
+              "mimeType": "image/png"
+            },
+            "metadata": {
+              "opaque": [
+                1,
+                false
+              ]
+            }
+          },
+          {
+            "type": "audio",
+            "source": {
+              "type": "data",
+              "value": "YWJj",
+              "mimeType": "audio/wav"
+            }
+          },
+          {
+            "type": "video",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-video",
+              "provider": "openai"
+            }
+          },
+          {
+            "type": "document",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-document",
+              "mimeType": "application/pdf"
+            }
+          }
+        ],
+        "metadata": {
+          "future": {
+            "keep": true
+          }
+        },
+        "encryptedValue": "opaque-user"
+      }
+    ],
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "thread",
+        "runId": "run",
+        "protocolVersion": "1.0",
+        "input": {
+          "threadId": "thread",
+          "runId": "run",
+          "protocolVersion": "1.0",
+          "messages": [
+            {
+              "id": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "héllo 🌍"
+                },
+                {
+                  "type": "image",
+                  "source": {
+                    "type": "url",
+                    "value": "https://example.test/image",
+                    "mimeType": "image/png"
+                  },
+                  "metadata": {
+                    "opaque": [
+                      1,
+                      false
+                    ]
+                  }
+                },
+                {
+                  "type": "audio",
+                  "source": {
+                    "type": "data",
+                    "value": "YWJj",
+                    "mimeType": "audio/wav"
+                  }
+                },
+                {
+                  "type": "video",
+                  "source": {
+                    "type": "file",
+                    "value": "opaque-provider-video",
+                    "provider": "openai"
+                  }
+                },
+                {
+                  "type": "document",
+                  "source": {
+                    "type": "file",
+                    "value": "opaque-provider-document",
+                    "mimeType": "application/pdf"
+                  }
+                }
+              ],
+              "metadata": {
+                "future": {
+                  "keep": true
+                }
+              },
+              "encryptedValue": "opaque-user"
+            }
+          ],
+          "state": {
+            "initial": true
+          },
+          "tools": [
+            {
+              "name": "lookup",
+              "description": "test lookup",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          ],
+          "context": [
+            {
+              "description": "ambient",
+              "value": "opaque"
+            }
+          ],
+          "forwardedProps": {
+            "external": {
+              "keep": [
+                1,
+                2
+              ]
+            }
+          }
+        }
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+          {
+            "id": "user",
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "héllo 🌍"
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "url",
+                  "value": "https://example.test/image",
+                  "mimeType": "image/png"
+                },
+                "metadata": {
+                  "opaque": [
+                    1,
+                    false
+                  ]
+                }
+              },
+              {
+                "type": "audio",
+                "source": {
+                  "type": "data",
+                  "value": "YWJj",
+                  "mimeType": "audio/wav"
+                }
+              },
+              {
+                "type": "video",
+                "source": {
+                  "type": "file",
+                  "value": "opaque-provider-video",
+                  "provider": "openai"
+                }
+              },
+              {
+                "type": "document",
+                "source": {
+                  "type": "file",
+                  "value": "opaque-provider-document",
+                  "mimeType": "application/pdf"
+                }
+              }
+            ],
+            "metadata": {
+              "future": {
+                "keep": true
+              }
+            },
+            "encryptedValue": "opaque-user"
+          },
+          {
+            "id": "system",
+            "role": "system",
+            "content": "instructions",
+            "name": "Guide",
+            "metadata": {
+              "opaque": {
+                "a": 1
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "STATE_SNAPSHOT",
+        "snapshot": {
+          "a/b": {
+            "~key": [
+              1,
+              2
+            ]
+          },
+          "count": 1
+        }
+      },
+      {
+        "type": "STATE_DELTA",
+        "delta": [
+          {
+            "op": "add",
+            "path": "/a~1b/~0key/-",
+            "value": 3
+          },
+          {
+            "op": "replace",
+            "path": "/count",
+            "value": 2
+          },
+          {
+            "op": "copy",
+            "from": "/count",
+            "path": "/copy"
+          },
+          {
+            "op": "test",
+            "path": "/copy",
+            "value": 2
+          },
+          {
+            "op": "move",
+            "from": "/a~1b/~0key/0",
+            "path": "/a~1b/~0key/2"
+          },
+          {
+            "op": "remove",
+            "path": "/copy"
+          }
+        ]
+      },
+      {
+        "type": "STEP_STARTED",
+        "stepName": "shared"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "text",
+        "role": "assistant",
+        "name": "Agent",
+        "metadata": {
+          "ns": {
+            "start": 1
+          }
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "text",
+        "delta": "héllo 🌍",
+        "metadata": {
+          "ns": {
+            "content": 2
+          }
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "text",
+        "metadata": {
+          "ns": {
+            "end": 3
+          }
+        }
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "tool",
+        "toolCallName": "lookup",
+        "parentMessageId": "text",
+        "metadata": {
+          "tool": {
+            "keep": "start"
+          }
+        }
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "tool",
+        "delta": "{\"id\":"
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "tool",
+        "delta": "42}"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "tool"
+      },
+      {
+        "type": "TOOL_CALL_RESULT",
+        "toolCallId": "tool",
+        "messageId": "tool-result",
+        "content": [
+          {
+            "type": "text",
+            "text": "héllo 🌍"
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "url",
+              "value": "https://example.test/image",
+              "mimeType": "image/png"
+            },
+            "metadata": {
+              "opaque": [
+                1,
+                false
+              ]
+            }
+          },
+          {
+            "type": "audio",
+            "source": {
+              "type": "data",
+              "value": "YWJj",
+              "mimeType": "audio/wav"
+            }
+          },
+          {
+            "type": "video",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-video",
+              "provider": "openai"
+            }
+          },
+          {
+            "type": "document",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-document",
+              "mimeType": "application/pdf"
+            }
+          }
+        ],
+        "role": "tool",
+        "metadata": {
+          "opaque": {
+            "result": true
+          }
+        }
+      },
+      {
+        "type": "SUBAGENT_STARTED",
+        "subagentRunId": "s1",
+        "name": "Worker",
+        "description": "child",
+        "parentToolCallId": "tool",
+        "parentMessageId": "text"
+      },
+      {
+        "type": "STEP_STARTED",
+        "stepName": "shared",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_START",
+        "messageId": "span",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_START",
+        "messageId": "reason",
+        "role": "reasoning",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_CONTENT",
+        "messageId": "reason",
+        "delta": "private rationale",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_END",
+        "messageId": "reason",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "entityId": "reason",
+        "subtype": "message",
+        "encryptedValue": "opaque-reason",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_END",
+        "messageId": "span",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TOOL_CALL_CHUNK",
+        "toolCallId": "chunk-tool",
+        "toolCallName": "search",
+        "parentMessageId": "chunk-parent",
+        "delta": "{\"q\":",
+        "subagentRunId": "s1",
+        "metadata": {
+          "chunks": {
+            "one": 1
+          }
+        }
+      },
+      {
+        "type": "TOOL_CALL_CHUNK",
+        "delta": "\"abc\"}",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_CHUNK",
+        "messageId": "chunk-reason",
+        "delta": "thought ",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_CHUNK",
+        "delta": "continuation",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TEXT_MESSAGE_CHUNK",
+        "messageId": "chunk-text",
+        "role": "assistant",
+        "delta": "stream ",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TEXT_MESSAGE_CHUNK",
+        "delta": "continuation",
+        "subagentRunId": "s1",
+        "metadata": {
+          "chunks": {
+            "two": 2
+          }
+        },
+        "rawEvent": {
+          "provider": "raw"
+        }
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "activity",
+        "activityType": "progress",
+        "content": {
+          "items": [
+            1
+          ],
+          "label": "before"
+        },
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "ACTIVITY_DELTA",
+        "messageId": "activity",
+        "activityType": "progress",
+        "patch": [
+          {
+            "op": "add",
+            "path": "/items/-",
+            "value": 2
+          },
+          {
+            "op": "replace",
+            "path": "/label",
+            "value": "after"
+          }
+        ],
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "RAW",
+        "event": {
+          "provider": [
+            "opaque",
+            false
+          ]
+        },
+        "source": "fixture",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "CUSTOM",
+        "name": "agently.capabilities",
+        "value": {
+          "version": "1",
+          "capabilities": {
+            "custom": {
+              "agently": {
+                "version": "1",
+                "operations": [
+                  "chat",
+                  "capabilities"
+                ],
+                "execution": {
+                  "agentId": true,
+                  "model": true
+                }
+              }
+            }
+          }
+        },
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "entityId": "chunk-tool",
+        "subtype": "tool-call",
+        "encryptedValue": "opaque-tool",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TOOL_CALL_RESULT",
+        "toolCallId": "chunk-tool",
+        "messageId": "chunk-result",
+        "content": "{\"ok\":true}",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "STEP_FINISHED",
+        "stepName": "shared",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "SUBAGENT_FINISHED",
+        "subagentRunId": "s1",
+        "result": {
+          "keep": true
+        },
+        "outcome": {
+          "type": "success"
+        }
+      },
+      {
+        "type": "SUBAGENT_STARTED",
+        "subagentRunId": "s2",
+        "name": "Other",
+        "parentSubagentRunId": "s1"
+      },
+      {
+        "type": "SUBAGENT_ERROR",
+        "subagentRunId": "s2",
+        "message": "child failed",
+        "code": "CHILD_ERROR"
+      },
+      {
+        "type": "STEP_FINISHED",
+        "stepName": "shared"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "thread",
+        "runId": "run",
+        "outcome": {
+          "type": "success",
+          "pendingToolCallIds": []
+        },
+        "result": {
+          "opaque": "result"
+        },
+        "usage": [
+          {
+            "provider": "fixture",
+            "model": "test",
+            "inputTokens": 10,
+            "outputTokens": 20,
+            "totalTokens": 30,
+            "reasoningTokens": 2
+          }
+        ]
+      },
+      {
+        "type": "RUN_ERROR",
+        "message": "terminal correction"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "thread",
+        "runId": "run",
+        "protocolVersion": "1.0",
+        "input": {
+          "threadId": "thread",
+          "runId": "run",
+          "protocolVersion": "1.0",
+          "messages": [
+            {
+              "id": "user",
+              "role": "user",
+              "content": [
+                {
+                  "type": "text",
+                  "text": "héllo 🌍"
+                },
+                {
+                  "type": "image",
+                  "source": {
+                    "type": "url",
+                    "value": "https://example.test/image",
+                    "mimeType": "image/png"
+                  },
+                  "metadata": {
+                    "opaque": [
+                      1,
+                      false
+                    ]
+                  }
+                },
+                {
+                  "type": "audio",
+                  "source": {
+                    "type": "data",
+                    "value": "YWJj",
+                    "mimeType": "audio/wav"
+                  }
+                },
+                {
+                  "type": "video",
+                  "source": {
+                    "type": "file",
+                    "value": "opaque-provider-video",
+                    "provider": "openai"
+                  }
+                },
+                {
+                  "type": "document",
+                  "source": {
+                    "type": "file",
+                    "value": "opaque-provider-document",
+                    "mimeType": "application/pdf"
+                  }
+                }
+              ],
+              "metadata": {
+                "future": {
+                  "keep": true
+                }
+              },
+              "encryptedValue": "opaque-user"
+            }
+          ],
+          "state": {
+            "initial": true
+          },
+          "tools": [
+            {
+              "name": "lookup",
+              "description": "test lookup",
+              "parameters": {
+                "type": "object"
+              }
+            }
+          ],
+          "context": [
+            {
+              "description": "ambient",
+              "value": "opaque"
+            }
+          ],
+          "forwardedProps": {
+            "external": {
+              "keep": [
+                1,
+                2
+              ]
+            }
+          }
+        }
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+          {
+            "id": "user",
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "héllo 🌍"
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "url",
+                  "value": "https://example.test/image",
+                  "mimeType": "image/png"
+                },
+                "metadata": {
+                  "opaque": [
+                    1,
+                    false
+                  ]
+                }
+              },
+              {
+                "type": "audio",
+                "source": {
+                  "type": "data",
+                  "value": "YWJj",
+                  "mimeType": "audio/wav"
+                }
+              },
+              {
+                "type": "video",
+                "source": {
+                  "type": "file",
+                  "value": "opaque-provider-video",
+                  "provider": "openai"
+                }
+              },
+              {
+                "type": "document",
+                "source": {
+                  "type": "file",
+                  "value": "opaque-provider-document",
+                  "mimeType": "application/pdf"
+                }
+              }
+            ],
+            "metadata": {
+              "future": {
+                "keep": true
+              }
+            },
+            "encryptedValue": "opaque-user"
+          },
+          {
+            "id": "system",
+            "role": "system",
+            "content": "instructions",
+            "name": "Guide",
+            "metadata": {
+              "opaque": {
+                "a": 1
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "STATE_SNAPSHOT",
+        "snapshot": {
+          "a/b": {
+            "~key": [
+              1,
+              2
+            ]
+          },
+          "count": 1
+        }
+      },
+      {
+        "type": "STATE_DELTA",
+        "delta": [
+          {
+            "op": "add",
+            "path": "/a~1b/~0key/-",
+            "value": 3
+          },
+          {
+            "op": "replace",
+            "path": "/count",
+            "value": 2
+          },
+          {
+            "op": "copy",
+            "from": "/count",
+            "path": "/copy"
+          },
+          {
+            "op": "test",
+            "path": "/copy",
+            "value": 2
+          },
+          {
+            "op": "move",
+            "from": "/a~1b/~0key/0",
+            "path": "/a~1b/~0key/2"
+          },
+          {
+            "op": "remove",
+            "path": "/copy"
+          }
+        ]
+      },
+      {
+        "type": "STEP_STARTED",
+        "stepName": "shared"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "text",
+        "role": "assistant",
+        "name": "Agent",
+        "metadata": {
+          "ns": {
+            "start": 1
+          }
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "text",
+        "delta": "héllo 🌍",
+        "metadata": {
+          "ns": {
+            "content": 2
+          }
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "text",
+        "metadata": {
+          "ns": {
+            "end": 3
+          }
+        }
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "tool",
+        "toolCallName": "lookup",
+        "parentMessageId": "text",
+        "metadata": {
+          "tool": {
+            "keep": "start"
+          }
+        }
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "tool",
+        "delta": "{\"id\":"
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "tool",
+        "delta": "42}"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "tool"
+      },
+      {
+        "type": "TOOL_CALL_RESULT",
+        "toolCallId": "tool",
+        "messageId": "tool-result",
+        "content": [
+          {
+            "type": "text",
+            "text": "héllo 🌍"
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "url",
+              "value": "https://example.test/image",
+              "mimeType": "image/png"
+            },
+            "metadata": {
+              "opaque": [
+                1,
+                false
+              ]
+            }
+          },
+          {
+            "type": "audio",
+            "source": {
+              "type": "data",
+              "value": "YWJj",
+              "mimeType": "audio/wav"
+            }
+          },
+          {
+            "type": "video",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-video",
+              "provider": "openai"
+            }
+          },
+          {
+            "type": "document",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-document",
+              "mimeType": "application/pdf"
+            }
+          }
+        ],
+        "role": "tool",
+        "metadata": {
+          "opaque": {
+            "result": true
+          }
+        }
+      },
+      {
+        "type": "SUBAGENT_STARTED",
+        "subagentRunId": "s1",
+        "name": "Worker",
+        "description": "child",
+        "parentToolCallId": "tool",
+        "parentMessageId": "text"
+      },
+      {
+        "type": "STEP_STARTED",
+        "stepName": "shared",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_START",
+        "messageId": "span",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_START",
+        "messageId": "reason",
+        "role": "reasoning",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_CONTENT",
+        "messageId": "reason",
+        "delta": "private rationale",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_END",
+        "messageId": "reason",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "entityId": "reason",
+        "subtype": "message",
+        "encryptedValue": "opaque-reason",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_END",
+        "messageId": "span",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "chunk-tool",
+        "toolCallName": "search",
+        "parentMessageId": "chunk-parent",
+        "subagentRunId": "s1",
+        "metadata": {
+          "chunks": {
+            "one": 1
+          }
+        }
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "chunk-tool",
+        "delta": "{\"q\":",
+        "subagentRunId": "s1",
+        "metadata": {
+          "chunks": {
+            "one": 1
+          }
+        }
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "chunk-tool",
+        "delta": "\"abc\"}",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "chunk-tool",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_START",
+        "messageId": "chunk-reason",
+        "role": "reasoning",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_CONTENT",
+        "messageId": "chunk-reason",
+        "delta": "thought ",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_CONTENT",
+        "messageId": "chunk-reason",
+        "delta": "continuation",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_MESSAGE_END",
+        "messageId": "chunk-reason",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "chunk-text",
+        "role": "assistant",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "chunk-text",
+        "delta": "stream ",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "chunk-text",
+        "delta": "continuation",
+        "subagentRunId": "s1",
+        "metadata": {
+          "chunks": {
+            "two": 2
+          }
+        },
+        "rawEvent": {
+          "provider": "raw"
+        }
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "activity",
+        "activityType": "progress",
+        "content": {
+          "items": [
+            1
+          ],
+          "label": "before"
+        },
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "ACTIVITY_DELTA",
+        "messageId": "activity",
+        "activityType": "progress",
+        "patch": [
+          {
+            "op": "add",
+            "path": "/items/-",
+            "value": 2
+          },
+          {
+            "op": "replace",
+            "path": "/label",
+            "value": "after"
+          }
+        ],
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "RAW",
+        "event": {
+          "provider": [
+            "opaque",
+            false
+          ]
+        },
+        "source": "fixture",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "chunk-text",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "CUSTOM",
+        "name": "agently.capabilities",
+        "value": {
+          "version": "1",
+          "capabilities": {
+            "custom": {
+              "agently": {
+                "version": "1",
+                "operations": [
+                  "chat",
+                  "capabilities"
+                ],
+                "execution": {
+                  "agentId": true,
+                  "model": true
+                }
+              }
+            }
+          }
+        },
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "entityId": "chunk-tool",
+        "subtype": "tool-call",
+        "encryptedValue": "opaque-tool",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "TOOL_CALL_RESULT",
+        "toolCallId": "chunk-tool",
+        "messageId": "chunk-result",
+        "content": "{\"ok\":true}",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "STEP_FINISHED",
+        "stepName": "shared",
+        "subagentRunId": "s1"
+      },
+      {
+        "type": "SUBAGENT_FINISHED",
+        "subagentRunId": "s1",
+        "result": {
+          "keep": true
+        },
+        "outcome": {
+          "type": "success"
+        }
+      },
+      {
+        "type": "SUBAGENT_STARTED",
+        "subagentRunId": "s2",
+        "name": "Other",
+        "parentSubagentRunId": "s1"
+      },
+      {
+        "type": "SUBAGENT_ERROR",
+        "subagentRunId": "s2",
+        "message": "child failed",
+        "code": "CHILD_ERROR"
+      },
+      {
+        "type": "STEP_FINISHED",
+        "stepName": "shared"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "thread",
+        "runId": "run",
+        "outcome": {
+          "type": "success",
+          "pendingToolCallIds": []
+        },
+        "result": {
+          "opaque": "result"
+        },
+        "usage": [
+          {
+            "provider": "fixture",
+            "model": "test",
+            "inputTokens": 10,
+            "outputTokens": 20,
+            "totalTokens": 30,
+            "reasoningTokens": 2
+          }
+        ]
+      },
+      {
+        "type": "RUN_ERROR",
+        "message": "terminal correction"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "user",
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "héllo 🌍"
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "url",
+              "value": "https://example.test/image",
+              "mimeType": "image/png"
+            },
+            "metadata": {
+              "opaque": [
+                1,
+                false
+              ]
+            }
+          },
+          {
+            "type": "audio",
+            "source": {
+              "type": "data",
+              "value": "YWJj",
+              "mimeType": "audio/wav"
+            }
+          },
+          {
+            "type": "video",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-video",
+              "provider": "openai"
+            }
+          },
+          {
+            "type": "document",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-document",
+              "mimeType": "application/pdf"
+            }
+          }
+        ],
+        "metadata": {
+          "future": {
+            "keep": true
+          }
+        },
+        "encryptedValue": "opaque-user"
+      },
+      {
+        "id": "system",
+        "role": "system",
+        "content": "instructions",
+        "name": "Guide",
+        "metadata": {
+          "opaque": {
+            "a": 1
+          }
+        }
+      },
+      {
+        "id": "text",
+        "role": "assistant",
+        "content": "héllo 🌍",
+        "name": "Agent",
+        "metadata": {
+          "ns": {
+            "end": 3
+          }
+        },
+        "toolCalls": [
+          {
+            "id": "tool",
+            "type": "function",
+            "function": {
+              "name": "lookup",
+              "arguments": "{\"id\":42}"
+            },
+            "metadata": {
+              "tool": {
+                "keep": "start"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "tool-result",
+        "toolCallId": "tool",
+        "role": "tool",
+        "content": [
+          {
+            "type": "text",
+            "text": "héllo 🌍"
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "url",
+              "value": "https://example.test/image",
+              "mimeType": "image/png"
+            },
+            "metadata": {
+              "opaque": [
+                1,
+                false
+              ]
+            }
+          },
+          {
+            "type": "audio",
+            "source": {
+              "type": "data",
+              "value": "YWJj",
+              "mimeType": "audio/wav"
+            }
+          },
+          {
+            "type": "video",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-video",
+              "provider": "openai"
+            }
+          },
+          {
+            "type": "document",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-document",
+              "mimeType": "application/pdf"
+            }
+          }
+        ],
+        "metadata": {
+          "opaque": {
+            "result": true
+          }
+        }
+      },
+      {
+        "id": "reason",
+        "role": "reasoning",
+        "content": "private rationale",
+        "subagentRunId": "s1",
+        "encryptedValue": "opaque-reason"
+      },
+      {
+        "id": "chunk-parent",
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": "chunk-tool",
+            "type": "function",
+            "function": {
+              "name": "search",
+              "arguments": "{\"q\":\"abc\"}"
+            },
+            "metadata": {
+              "chunks": {
+                "one": 1
+              }
+            },
+            "encryptedValue": "opaque-tool"
+          }
+        ],
+        "subagentRunId": "s1"
+      },
+      {
+        "id": "chunk-result",
+        "toolCallId": "chunk-tool",
+        "role": "tool",
+        "content": "{\"ok\":true}",
+        "subagentRunId": "s1"
+      },
+      {
+        "id": "chunk-reason",
+        "role": "reasoning",
+        "content": "thought continuation",
+        "subagentRunId": "s1"
+      },
+      {
+        "id": "chunk-text",
+        "role": "assistant",
+        "content": "stream continuation",
+        "subagentRunId": "s1",
+        "metadata": {
+          "chunks": {
+            "two": 2
+          }
+        }
+      },
+      {
+        "id": "activity",
+        "role": "activity",
+        "activityType": "progress",
+        "content": {
+          "items": [
+            1,
+            2
+          ],
+          "label": "after"
+        },
+        "subagentRunId": "s1"
+      }
+    ],
+    "expectedState": {
+      "a/b": {
+        "~key": [
+          2,
+          3,
+          1
+        ]
+      },
+      "count": 2
+    }
+  },
+  {
+    "name": "opener metadata only and explicit empty delta",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_CHUNK",
+        "messageId": "m",
+        "metadata": {
+          "first": 1
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_CHUNK",
+        "metadata": {
+          "last": 2
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_CHUNK",
+        "delta": ""
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "metadata": {
+          "first": 1
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "",
+        "metadata": {
+          "last": 2
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": ""
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "m",
+        "role": "assistant",
+        "content": "",
+        "metadata": {
+          "first": 1,
+          "last": 2
+        }
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "error prevents subsequent error",
+    "events": [
+      {
+        "type": "RUN_ERROR",
+        "message": "first"
+      },
+      {
+        "type": "RUN_ERROR",
+        "message": "second"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send event type 'RUN_ERROR': The run has already errored with 'RUN_ERROR'. No further events can be sent."
+  },
+  {
+    "name": "message snapshot while tool arguments open",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "c",
+        "toolCallName": "tool"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": []
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "c",
+        "delta": "{}"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "c"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "c",
+        "toolCallName": "tool"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": []
+      },
+      {
+        "type": "TOOL_CALL_ARGS",
+        "toolCallId": "c",
+        "delta": "{}"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "c"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [],
+    "expectedState": {}
+  },
+  {
+    "name": "input echo seeds owners",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r",
+        "input": {
+          "threadId": "t",
+          "runId": "r",
+          "state": {},
+          "messages": [
+            {
+              "id": "m",
+              "role": "assistant",
+              "content": "prior",
+              "subagentRunId": "owner"
+            }
+          ],
+          "forwardedProps": {}
+        }
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "other"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'TEXT_MESSAGE_START': subagentRunId 'other' does not match the message 'm' opener's subagent 'owner'."
+  },
+  {
+    "name": "authoritative snapshot can replace owner",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "old"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+          {
+            "id": "m",
+            "role": "assistant",
+            "subagentRunId": "new",
+            "content": "snapshot"
+          }
+        ]
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "plus",
+        "subagentRunId": "new"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "old"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+          {
+            "id": "m",
+            "role": "assistant",
+            "subagentRunId": "new",
+            "content": "snapshot"
+          }
+        ]
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "plus",
+        "subagentRunId": "new"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "m",
+        "role": "assistant",
+        "subagentRunId": "new",
+        "content": "snapshotplus"
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "parent entity rejects explicit empty child",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "wrong",
+        "subagentRunId": ""
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'TEXT_MESSAGE_CONTENT': subagentRunId '' does not match the message 'm' opener's subagent '(the parent agent)'."
+  },
+  {
+    "name": "reasoning message stays open after span closes",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "REASONING_START",
+        "messageId": "m"
+      },
+      {
+        "type": "REASONING_MESSAGE_START",
+        "messageId": "m",
+        "role": "reasoning"
+      },
+      {
+        "type": "REASONING_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'RUN_FINISHED' while reasoning messages are still active: m"
+  },
+  {
+    "name": "text and reasoning have independent open sets",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant"
+      },
+      {
+        "type": "REASONING_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'REASONING_MESSAGE_END' event: No active reasoning message found with ID 'm'. Start a reasoning message with 'REASONING_MESSAGE_START' first."
+  },
+  {
+    "name": "tool reopen cannot inherit another owner",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+          {
+            "id": "a",
+            "role": "assistant",
+            "subagentRunId": "a",
+            "toolCalls": [
+              {
+                "id": "c",
+                "type": "function",
+                "function": {
+                  "name": "tool",
+                  "arguments": "{}"
+                }
+              }
+            ]
+          },
+          {
+            "id": "b",
+            "role": "assistant",
+            "subagentRunId": "b",
+            "content": ""
+          }
+        ]
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "c",
+        "toolCallName": "tool",
+        "parentMessageId": "b"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'TOOL_CALL_START': tool call 'c' is owned by 'a' but its parent message 'b' is owned by 'b'. A tool call belongs to the message that carries it."
+  },
+  {
+    "name": "encrypted closed text and tool ownership",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "c",
+        "toolCallName": "tool",
+        "parentMessageId": "m"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "c"
+      },
+      {
+        "type": "REASONING_ENCRYPTED_VALUE",
+        "subtype": "tool-call",
+        "entityId": "c",
+        "encryptedValue": "secret",
+        "subagentRunId": "other"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'REASONING_ENCRYPTED_VALUE': subagentRunId 'other' does not match the tool call 'c' opener's subagent 's'."
+  },
+  {
+    "name": "snapshot preserves order and replaces typed client history",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+          {
+            "id": "second",
+            "role": "assistant",
+            "content": "two"
+          },
+          {
+            "id": "first",
+            "role": "user",
+            "content": "one"
+          },
+          {
+            "id": "new",
+            "role": "reasoning",
+            "content": "canonical"
+          }
+        ]
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "initialMessages": [
+      {
+        "id": "first",
+        "role": "user",
+        "content": "old"
+      },
+      {
+        "id": "second",
+        "role": "assistant",
+        "content": "old"
+      },
+      {
+        "id": "oldreason",
+        "role": "reasoning",
+        "content": "oldreason"
+      },
+      {
+        "id": "local",
+        "role": "activity",
+        "activityType": "local",
+        "content": {}
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [
+          {
+            "id": "second",
+            "role": "assistant",
+            "content": "two"
+          },
+          {
+            "id": "first",
+            "role": "user",
+            "content": "one"
+          },
+          {
+            "id": "new",
+            "role": "reasoning",
+            "content": "canonical"
+          }
+        ]
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "first",
+        "role": "user",
+        "content": "one"
+      },
+      {
+        "id": "second",
+        "role": "assistant",
+        "content": "two"
+      },
+      {
+        "id": "local",
+        "role": "activity",
+        "activityType": "local",
+        "content": {}
+      },
+      {
+        "id": "new",
+        "role": "reasoning",
+        "content": "canonical"
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "nonreplacing snapshot on initial activity seeds owner",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "ACTIVITY_SNAPSHOT",
+        "messageId": "a",
+        "activityType": "status",
+        "content": {},
+        "subagentRunId": "s",
+        "replace": false
+      },
+      {
+        "type": "ACTIVITY_DELTA",
+        "messageId": "a",
+        "activityType": "status",
+        "patch": [],
+        "subagentRunId": "other"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "initialMessages": [
+      {
+        "id": "a",
+        "role": "activity",
+        "activityType": "status",
+        "content": {}
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'ACTIVITY_DELTA': subagentRunId 'other' does not match the activity 'a' opener's subagent 's'."
+  },
+  {
+    "name": "closed subagent attribution stays legal",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "SUBAGENT_STARTED",
+        "subagentRunId": "s",
+        "name": "child"
+      },
+      {
+        "type": "SUBAGENT_FINISHED",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "late"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "SUBAGENT_STARTED",
+        "subagentRunId": "s",
+        "name": "child"
+      },
+      {
+        "type": "SUBAGENT_FINISHED",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "m",
+        "role": "assistant",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "TEXT_MESSAGE_CONTENT",
+        "messageId": "m",
+        "delta": "late"
+      },
+      {
+        "type": "TEXT_MESSAGE_END",
+        "messageId": "m"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "m",
+        "role": "assistant",
+        "content": "late",
+        "subagentRunId": "s"
+      }
+    ],
+    "expectedState": {}
+  },
+  {
+    "name": "closed subagent parent remains known",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "SUBAGENT_STARTED",
+        "subagentRunId": "",
+        "name": "parent"
+      },
+      {
+        "type": "SUBAGENT_FINISHED",
+        "subagentRunId": ""
+      },
+      {
+        "type": "SUBAGENT_STARTED",
+        "subagentRunId": "child",
+        "name": "child",
+        "parentSubagentRunId": ""
+      },
+      {
+        "type": "SUBAGENT_ERROR",
+        "subagentRunId": "child",
+        "message": "failed"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "SUBAGENT_STARTED",
+        "subagentRunId": "",
+        "name": "parent"
+      },
+      {
+        "type": "SUBAGENT_FINISHED",
+        "subagentRunId": ""
+      },
+      {
+        "type": "SUBAGENT_STARTED",
+        "subagentRunId": "child",
+        "name": "child",
+        "parentSubagentRunId": ""
+      },
+      {
+        "type": "SUBAGENT_ERROR",
+        "subagentRunId": "child",
+        "message": "failed"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [],
+    "expectedState": {}
+  },
+  {
+    "name": "step separators cannot collide",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "STEP_STARTED",
+        "stepName": "a\u0000b",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "STEP_STARTED",
+        "stepName": "b",
+        "subagentRunId": "s\u0000a"
+      },
+      {
+        "type": "STEP_FINISHED",
+        "stepName": "a\u0000b",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "STEP_FINISHED",
+        "stepName": "b",
+        "subagentRunId": "s\u0000a"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "STEP_STARTED",
+        "stepName": "a\u0000b",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "STEP_STARTED",
+        "stepName": "b",
+        "subagentRunId": "s\u0000a"
+      },
+      {
+        "type": "STEP_FINISHED",
+        "stepName": "a\u0000b",
+        "subagentRunId": "s"
+      },
+      {
+        "type": "STEP_FINISHED",
+        "stepName": "b",
+        "subagentRunId": "s\u0000a"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [],
+    "expectedState": {}
+  },
+  {
+    "name": "tool result executor differs from caller",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "TOOL_CALL_START",
+        "toolCallId": "c",
+        "toolCallName": "tool",
+        "subagentRunId": "caller"
+      },
+      {
+        "type": "TOOL_CALL_END",
+        "toolCallId": "c"
+      },
+      {
+        "type": "TOOL_CALL_RESULT",
+        "toolCallId": "c",
+        "messageId": "result",
+        "content": "ok",
+        "subagentRunId": "executor"
+      },
+      {
+        "type": "TEXT_MESSAGE_START",
+        "messageId": "result",
+        "role": "assistant",
+        "subagentRunId": "caller"
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "accepted": false,
+    "error": "Cannot send 'TEXT_MESSAGE_START': subagentRunId 'caller' does not match the message 'result' opener's subagent 'executor'."
+  },
+  {
+    "name": "activity omission explicit null clears all",
+    "events": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [],
+        "metadata": {
+          "@ag-ui/client": {
+            "authoritativeActivityTypes": null
+          }
+        }
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "initialMessages": [
+      {
+        "id": "a",
+        "role": "activity",
+        "activityType": "status",
+        "content": {}
+      },
+      {
+        "id": "r",
+        "role": "reasoning",
+        "content": "reason"
+      }
+    ],
+    "accepted": true,
+    "normalized": [
+      {
+        "type": "RUN_STARTED",
+        "threadId": "t",
+        "runId": "r"
+      },
+      {
+        "type": "MESSAGES_SNAPSHOT",
+        "messages": [],
+        "metadata": {
+          "@ag-ui/client": {
+            "authoritativeActivityTypes": null
+          }
+        }
+      },
+      {
+        "type": "RUN_FINISHED",
+        "threadId": "t",
+        "runId": "r"
+      }
+    ],
+    "expectedMessages": [
+      {
+        "id": "r",
+        "role": "reasoning",
+        "content": "reason"
+      }
+    ],
+    "expectedState": {}
+  }
+]

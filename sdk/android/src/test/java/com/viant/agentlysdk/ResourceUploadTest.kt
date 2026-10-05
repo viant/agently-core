@@ -16,7 +16,7 @@ import kotlin.test.assertTrue
 
 class ResourceUploadTest {
     @Test
-    fun `upload then query preserves native resource reference and auth`() = runBlocking {
+    fun `upload then explicit legacy query preserves native resource reference and auth`() = runBlocking {
         for (conversationId in listOf("conv-1", null)) {
             val server = MockWebServer()
             server.start()
@@ -25,7 +25,7 @@ class ResourceUploadTest {
                 server.enqueue(MockResponse().setBody("""{"content":"done"}"""))
                 val client = AgentlyClient(endpoints = mapOf("appAPI" to EndpointConfig(
                     baseUrl = server.url("/").toString().trimEnd('/'), authTokenProvider = { "fixture-token" }
-                )))
+                )), conversationTransportMode = com.viant.agentlysdk.agui.ConversationTransportMode.LEGACY)
                 val bytes = byteArrayOf(0x50, 0x4b, 0, 0xff.toByte(), 1)
                 val upload = client.uploadFile(UploadFileInput(conversationId, "customers.xlsx",
                     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", bytes))

@@ -1,0 +1,1 @@
+SELECT EventKey AS EventKey FROM `/`

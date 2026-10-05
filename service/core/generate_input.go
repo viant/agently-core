@@ -16,6 +16,8 @@ import (
 )
 
 type GenerateInput struct {
+	preparedRequest *llm.GenerateRequest
+	preparedModel   llm.Model
 	llm.ModelSelection
 	SystemPrompt *binding.Prompt
 	Instruction  *binding.Prompt
@@ -125,7 +127,7 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 		for _, doc := range i.Binding.Documents.Items {
 			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole("user"), doc.PageContent))
 		}
-		msgs := historyLLMMessagesWithExpandedCurrentPrompt(&i.Binding.History, currentPrompt, i.Binding.Task.Attachments)
+		msgs := historyLLMMessagesWithExpandedCurrentPrompt(&i.Binding.History, currentPrompt, i.Binding.Task.Attachments, i.Binding.Task.ContentItems)
 		if !i.IncludeCurrentHistory && i.Binding.History.Current != nil {
 			filtered := make([]llm.Message, 0, len(msgs))
 			filtered = append(filtered, msgs...)
@@ -219,13 +221,23 @@ func appendCurrentHistoryMessages(h *binding.History, msgs ...*binding.Message) 
 	}
 }
 
-func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPrompt string, attachments []*binding.Attachment) []llm.Message {
+func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPrompt string, attachments []*binding.Attachment, ordered ...[]llm.ContentItem) []llm.Message {
+	var taskItems []llm.ContentItem
+	if len(ordered) > 0 {
+		taskItems = ordered[0]
+	}
+	expandedUser := func(prompt string, attachments []*binding.Attachment, id string) llm.Message {
+		if taskItems != nil {
+			return llm.Message{Role: llm.RoleUser, ID: id, Content: prompt, Items: append([]llm.ContentItem(nil), taskItems...)}
+		}
+		return newExpandedUserLLMMessage(prompt, attachments, id)
+	}
 	trimmedPrompt := strings.TrimSpace(expandedPrompt)
 	if h == nil {
-		if trimmedPrompt == "" {
+		if trimmedPrompt == "" && taskItems == nil {
 			return nil
 		}
-		return []llm.Message{newExpandedUserLLMMessage(trimmedPrompt, attachments, "")}
+		return []llm.Message{expandedUser(trimmedPrompt, attachments, "")}
 	}
 	if trimmedPrompt == "" {
 		return h.LLMMessages()
@@ -288,7 +300,17 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPro
 				if !replacedCurrentUser &&
 					m.Kind == binding.MessageKindChatUser &&
 					strings.EqualFold(strings.TrimSpace(m.Role), string(llm.RoleUser)) {
-					out = append(out, newExpandedUserLLMMessage(trimmedPrompt, mergePromptAttachments(attachments, m.Attachment), strings.TrimSpace(m.ID)))
+					if m.ContentItems != nil {
+						message := m.ToLLM()
+						if trimmedPrompt != strings.TrimSpace(m.Content) {
+							message.Items = append([]llm.ContentItem{llm.NewTextContent(trimmedPrompt)}, message.Items...)
+						}
+						out = append(out, message)
+					} else if taskItems != nil {
+						out = append(out, llm.Message{Role: llm.RoleUser, ID: m.ID, Content: trimmedPrompt, Items: append([]llm.ContentItem(nil), taskItems...)})
+					} else {
+						out = append(out, newExpandedUserLLMMessage(trimmedPrompt, mergePromptAttachments(attachments, m.Attachment), strings.TrimSpace(m.ID)))
+					}
 					replacedCurrentUser = true
 					continue
 				}
@@ -296,13 +318,13 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPro
 			}
 		}
 		if !replacedCurrentUser {
-			out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments, ""))
+			out = append(out, expandedUser(trimmedPrompt, attachments, ""))
 		}
 		return out
 	}
 
 	out = append(out, h.LLMMessages()...)
-	out = append(out, newExpandedUserLLMMessage(trimmedPrompt, attachments, ""))
+	out = append(out, expandedUser(trimmedPrompt, attachments, ""))
 	return out
 }
 

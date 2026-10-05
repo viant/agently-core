@@ -1,0 +1,26 @@
+#package('github.com/viant/agently-core/internal/datly/agui/cleanup/run/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/cleanup/run','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(conversationtreeScope/internal).Required())
+#define($_ = $ThreadIDs<[]string>(query/threadIds).Required().WithPredicate(0,'in','c','conversation_id'))
+#define($_ = $Data<[]*Run>(output/view))
+SELECT agui_data.*,
+       agui_data.id AS RunKey,
+       agui_data.conversation_id AS ThreadId,
+       agui_data.protocol_run_id AS RunId,
+       agui_data.protocol_status AS Status,
+       agui_data.protocol_revision AS Revision,
+       agui_data.protocol_lease_until AS LeaseUntil,
+       type(agui_data,'Run'),
+       tag(agui_data.RunKey,'sqlx:"id,primaryKey=true,required=true"'),
+       row_lock(agui_data,'run c'),
+       set_limit(agui_data,0),
+       CAST(agui_data.RunId AS string),
+       CAST(agui_data.Revision AS int64),
+       CAST(agui_data.LeaseUntil AS *time.Time)
+FROM (${embed:sql/rows.sql}) agui_data

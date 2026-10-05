@@ -11,7 +11,13 @@ FROM (
         q.created_at,
         q.updated_at
     FROM turn_queue q
-    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("WHERE")}
+    WHERE 1=1
+    ${predicate.Builder().CombineOr($predicate.FilterGroup(0, "AND")).Build("AND")}
+    #if($NativeQueuedOnly)
+    AND q.status = 'queued'
+    AND EXISTS (SELECT 1 FROM turn t WHERE t.id = q.turn_id
+                AND t.conversation_id = q.conversation_id AND t.status = 'queued')
+    #end
     ORDER BY q.queue_seq ASC, q.created_at ASC, q.id ASC
 
 ) queue_rows

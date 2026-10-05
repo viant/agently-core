@@ -13,52 +13,6 @@ import (
 
 type WriterHandlerCurrentWriterSlice []*CurrentWriterView
 
-func WriterHandlerCurrentWriterIndexByEncTokenKey(value *CurrentWriterView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	return value.EncToken, true
-}
-
-type WriterHandlerCurrentWriterIndexedByEncToken map[string]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) IndexByEncToken() (WriterHandlerCurrentWriterIndexedByEncToken, error) {
-	result := make(WriterHandlerCurrentWriterIndexedByEncToken)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByEncTokenKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByEncToken")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriterHandlerCurrentWriterIndexedByEncToken) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriterHandlerCurrentWriterGroupedByEncToken map[string][]*CurrentWriterView
-
-func (rows WriterHandlerCurrentWriterSlice) GroupByEncToken() WriterHandlerCurrentWriterGroupedByEncToken {
-	result := make(WriterHandlerCurrentWriterGroupedByEncToken)
-	for _, row := range rows {
-		key, ok := WriterHandlerCurrentWriterIndexByEncTokenKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriterHandlerCurrentWriterGroupedByEncToken) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
 func WriterHandlerCurrentWriterIndexByUserIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -148,6 +102,52 @@ func (rows WriterHandlerCurrentWriterSlice) GroupByProvider() WriterHandlerCurre
 	return result
 }
 func (index WriterHandlerCurrentWriterGroupedByProvider) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+func WriterHandlerCurrentWriterIndexByEncTokenKey(value *CurrentWriterView) (string, bool) {
+	var zero string
+	if value == nil {
+		return zero, false
+	}
+	return value.EncToken, true
+}
+
+type WriterHandlerCurrentWriterIndexedByEncToken map[string]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByEncToken() (WriterHandlerCurrentWriterIndexedByEncToken, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByEncToken)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByEncTokenKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByEncToken")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByEncToken) Has(key string) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByEncToken map[string][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByEncToken() WriterHandlerCurrentWriterGroupedByEncToken {
+	result := make(WriterHandlerCurrentWriterGroupedByEncToken)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByEncTokenKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByEncToken) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
@@ -557,14 +557,14 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			if err != nil {
 				return nil, err
 			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("EncToken") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.EncToken")
-			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("UserId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.UserId")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Provider") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Provider")
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("EncToken") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.EncToken")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("CreatedAt") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.CreatedAt")

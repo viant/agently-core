@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/runtime/clienttool"
 	"sort"
 	"strings"
 	"time"
@@ -26,7 +27,7 @@ func (s *Service) BuildHistory(ctx context.Context, transcript apiconv.Transcrip
 }
 
 func (s *Service) buildTaskBinding(input *QueryInput) binding.Task {
-	return binding.Task{Prompt: input.Query, Attachments: input.Attachments}
+	return binding.Task{Prompt: input.Query, Attachments: input.Attachments, ContentItems: input.ContentItems}
 }
 
 // buildHistory derives history from a provided conversation transcript.
@@ -256,7 +257,7 @@ func (s *Service) buildChronologicalHistory(
 		role := strings.ToLower(strings.TrimSpace(msg.Role))
 		orig := ""
 		if isConcreteToolResultMessage(msg) {
-			orig = strings.TrimSpace(msg.GetContentPreferContent())
+			orig = msg.GetContentPreferContent()
 		} else if msg.Content != nil {
 			orig = *msg.Content
 		}
@@ -346,6 +347,17 @@ func (s *Service) buildChronologicalHistory(
 			CreatedAt:  msg.CreatedAt,
 			ID:         msg.Id,
 		}
+		if msg.ContextSummary != nil && *msg.ContextSummary == clienttool.ItemsMIME {
+			if msg.RawContent == nil {
+				return nil, fmt.Errorf("ordered user content %s has no durable body", msg.Id)
+			}
+			decoder := json.NewDecoder(strings.NewReader(*msg.RawContent))
+			decoder.UseNumber()
+			if err := decoder.Decode(&pmsg.ContentItems); err != nil {
+				return nil, err
+			}
+			pmsg.Content = clienttool.ContentText(pmsg.ContentItems)
+		}
 		msgID := strings.TrimSpace(msg.Id)
 		if msgID != "" {
 			promptByMessageID[msgID] = pmsg
@@ -361,6 +373,17 @@ func (s *Service) buildChronologicalHistory(
 			pmsg.ToolOpID = tc.OpId
 			pmsg.ToolName = tc.ToolName
 			pmsg.ToolArgs = msg.ToolCallArguments()
+			if msg.ContextSummary != nil && *msg.ContextSummary == clienttool.ContentMIME {
+				items, err := clienttool.MapContent(json.RawMessage(msg.GetContent()))
+				if err != nil {
+					return nil, fmt.Errorf("decode client tool content %s: %w", tc.OpId, err)
+				}
+				pmsg.ContentItems = items
+				pmsg.Content = clienttool.ContentText(items)
+			}
+			if msg.ContextSummary != nil && (*msg.ContextSummary == clienttool.ContentMIME || *msg.ContextSummary == clienttool.ToolErrorMIME) && tc.ErrorMessage != nil {
+				pmsg.ToolError = *tc.ErrorMessage
+			}
 			if tc.TraceId != nil {
 				pmsg.ToolTraceID = strings.TrimSpace(*tc.TraceId)
 			}
@@ -519,6 +542,7 @@ func (s *Service) collectNormalizedMessages(
 			messageAddCreatedIDs = collectMessageAddCreatedMessageIDs(messages)
 		}
 		concreteToolMessageIDs := map[string]struct{}{}
+		archivedConcreteToolMessageIDs := map[string]bool{}
 		for _, candidate := range messages {
 			if candidate == nil {
 				continue
@@ -527,6 +551,9 @@ func (s *Service) collectNormalizedMessages(
 			mtype := strings.ToLower(strings.TrimSpace(candidate.Type))
 			if (mtype == "tool_op" || role == "tool") && strings.TrimSpace(candidate.Id) != "" {
 				concreteToolMessageIDs[strings.TrimSpace(candidate.Id)] = struct{}{}
+				if candidate.IsArchived() {
+					archivedConcreteToolMessageIDs[strings.TrimSpace(candidate.Id)] = true
+				}
 			}
 		}
 		for _, m := range messages {
@@ -565,6 +592,12 @@ func (s *Service) collectNormalizedMessages(
 				// preamble), its tool_op children must enter the history so the
 				// model can see prior tool results and continuation can work.
 				for _, toolMsg := range toolMsgs {
+					if toolMsg.IsArchived() {
+						continue
+					}
+					if archivedConcreteToolMessageIDs[strings.TrimSpace(toolMsg.Id)] {
+						continue
+					}
 					if body := strings.TrimSpace(toolMsg.GetContent()); body != "" {
 						appendNormalized(normalizedMsg{turnIdx: ti, msg: toolMsg})
 					}
@@ -585,7 +618,7 @@ func (s *Service) collectNormalizedMessages(
 				continue
 			}
 
-			if baseMsg.Content != nil && *baseMsg.Content != "" {
+			if (baseMsg.Content != nil && *baseMsg.Content != "") || (baseMsg.ContextSummary != nil && *baseMsg.ContextSummary == clienttool.ItemsMIME && baseMsg.RawContent != nil) {
 				mtype := strings.ToLower(strings.TrimSpace(baseMsg.Type))
 				isElicitationType := mtype == "elicitation_request" || mtype == "elicitation_response"
 				role := strings.ToLower(strings.TrimSpace(baseMsg.Role))

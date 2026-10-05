@@ -1,6 +1,14 @@
 import Foundation
+import OSLog
+import CryptoKit
 
 public final class AgentlyClient: Sendable {
+    private static let routeLogger = Logger(subsystem: "com.viant.agently.sdk", category: "RequestRoute")
+    public let interactionProtocol: AgentlyInteractionProtocol
+    private let agUiAuthEpoch = AgUiTransportEpoch()
+    private let agUiStorage = AgUiConversationTransportStorage()
+    public var agUiConversations: AgUiConversationTransport { agUiStorage.get(client: self) }
+
     let endpoints: [String: EndpointConfig]
     let endpointName: String
     let session: URLSession
@@ -12,6 +20,7 @@ public final class AgentlyClient: Sendable {
     public init(
         endpoints: [String: EndpointConfig],
         endpointName: String = "appAPI",
+        interactionProtocol: AgentlyInteractionProtocol = .agUI,
         sessionDebug: SessionDebugOptions? = nil,
         session: URLSession = .shared,
         metadataSession: URLSession? = nil,
@@ -19,6 +28,7 @@ public final class AgentlyClient: Sendable {
         decoder: JSONDecoder = .agently(),
         encoder: JSONEncoder = .agently()
     ) {
+        self.interactionProtocol = interactionProtocol
         if let sessionDebug {
             self.endpoints = endpoints.mapValues { endpoint in
                 var copy = endpoint
@@ -65,6 +75,8 @@ public final class AgentlyClient: Sendable {
     }
 
     public func clearSessionCookies() {
+        agUiAuthEpoch.invalidate()
+        agUiStorage.reset()
         sessionCookieStore?.clear()
     }
 
@@ -176,6 +188,21 @@ public final class AgentlyClient: Sendable {
         return data
     }
 
+    public func getWorkspaceNativeFont(href: String, sha256: String, sizeBytes: Int, format: String) async throws -> Data {
+        guard ["ttf", "otf"].contains(format), sizeBytes > 0, sizeBytes <= 1024 * 1024,
+              sha256.range(of: "^[a-f0-9]{64}$", options: .regularExpression) != nil,
+              href == "/v1/workspace/ui/fonts/\(sha256).\(format)" else { throw AgentlySDKError.invalidArgument("Invalid native font descriptor") }
+        let builder = RequestBuilder(endpoint: try endpoint(), encoder: encoder)
+        var request = try builder.makeRequest(path: href, method: "GET")
+        applyStoredSessionCookies(to: &request)
+        let (data, response) = try await metadataSession.data(for: request)
+        storeSessionCookies(from: response, requestURL: request.url)
+        try validate(response: response, data: data)
+        guard data.count == sizeBytes,
+              SHA256.hash(data: data).map({ String(format: "%02x", $0) }).joined() == sha256 else { throw AgentlySDKError.invalidResponse }
+        return data
+    }
+
     public func getPublicAgents() async throws -> [WorkspaceAgentInfo] {
         try await get(
             "/v1/workspace/metadata/publicagents",
@@ -184,7 +211,9 @@ public final class AgentlyClient: Sendable {
     }
 
     public func query(_ input: QueryInput) async throws -> QueryOutput {
-        try await post("/v1/agent/query", body: input, as: QueryOutput.self)
+        if interactionProtocol == .agUI { return try await agUiConversations.query(input) }
+        Self.routeLogger.info("POST /v1/agent/query legacy interaction")
+        return try await post("/v1/agent/query", body: input, as: QueryOutput.self)
     }
 
     public func createConversation(_ input: CreateConversationInput) async throws -> Conversation {
@@ -250,6 +279,7 @@ public final class AgentlyClient: Sendable {
     }
 
     public func getLiveState(conversationID: String, includeFeeds: Bool = false, includeExecutionDetails: Bool = true) async throws -> ConversationStateResponse {
+        if interactionProtocol == .agUI { return try await agUiConversations.reconcile(conversationID: conversationID).transcript }
         var query = includeFeeds ? [URLQueryItem(name: "includeFeeds", value: "true")] : []
         if includeExecutionDetails {
             query.append(URLQueryItem(name: "includeModelCalls", value: "true"))
@@ -262,6 +292,7 @@ public final class AgentlyClient: Sendable {
         _ input: GetTranscriptInput,
         maxResponseBytes: Int64? = nil
     ) async throws -> ConversationStateResponse {
+        if interactionProtocol == .agUI { return try await agUiConversations.refresh(conversationID: input.conversationID).transcript }
         let encodedConversationID = encodePath(input.conversationID)
         var query: [URLQueryItem] = []
         if let since = input.since?.trimmingCharacters(in: .whitespacesAndNewlines), !since.isEmpty {
@@ -293,11 +324,13 @@ public final class AgentlyClient: Sendable {
     }
 
     public func resolveElicitation(_ input: ResolveElicitationInput) async throws {
+        let transport = interactionProtocol == .agUI ? agUiConversations : nil
         let _: EmptyResponse = try await post(
             "/v1/elicitations/\(input.conversationID)/\(input.elicitationID)/resolve",
             body: input,
             as: EmptyResponse.self
         )
+        if let transport { _ = try? await transport.reconcile(conversationID: input.conversationID) }
     }
 
     public func listPendingToolApprovals(_ input: ListPendingToolApprovalsInput = ListPendingToolApprovalsInput()) async throws -> [PendingToolApproval] {
@@ -319,7 +352,16 @@ public final class AgentlyClient: Sendable {
     }
 
     public func decideToolApproval(_ input: DecideToolApprovalInput) async throws -> DecideToolApprovalOutput {
-        try await post("/v1/tool-approvals/\(input.id)/decision", body: input, as: DecideToolApprovalOutput.self)
+        let transport = interactionProtocol == .agUI ? agUiConversations : nil
+        let data = try await rawDataRequest(path: "/v1/tool-approvals/\(input.id)/decision", method: "POST", body: encoder.encode(input))
+        let output = try decoder.decode(DecideToolApprovalOutput.self, from: data)
+        if let transport, let value = try? AgUiValue.parse(data) {
+            let receipt = value["protocol"] ?? value["outcome"]?["protocol"]
+            if receipt?["version"]?.string == "1", let id = receipt?[receipt?["kind"]?.string == "mcp-app" ? "nativeConversationId" : "threadId"]?.string {
+                _ = try? await transport.reconcile(conversationID: id)
+            }
+        }
+        return output
     }
 
     public func listResources(_ input: ListResourcesInput) async throws -> ListResourcesOutput {
@@ -777,7 +819,38 @@ public final class AgentlyClient: Sendable {
         ).agents
     }
 
+    public func agUiClient() throws -> AgUiClient {
+        let authGeneration = agUiAuthEpoch.value
+        let builder = RequestBuilder(endpoint: try endpoint(), encoder: encoder)
+        var request = try builder.makeRequest(path: "/v1/ag-ui/run", method: "POST")
+        applyStoredSessionCookies(to: &request)
+        guard let url = request.url else { throw URLError(.badURL) }
+        return AgUiClient(endpoint: url, headers: request.allHTTPHeaderFields ?? [:], session: session,
+            onResponse: { [weak self] response in
+                guard let self, self.agUiAuthEpoch.value == authGeneration else { return }
+                if let http = response as? HTTPURLResponse { Self.routeLogger.info("POST \(url.path, privacy: .public) HTTP \(http.statusCode, privacy: .public)") }
+                self.storeSessionCookies(from: response, requestURL: url)
+            })
+    }
+
+    /// Availability/native application lifecycle only; AG-UI owns chat runs.
+    public func streamApplicationEvents(conversationID: String) -> AsyncThrowingStream<SSEEvent, Error> {
+        do {
+            var endpoint = try endpoint()
+            if let cookie = sessionCookieStore?.cookieHeader(for: endpoint.baseURL) { endpoint.headers["Cookie"] = cookie }
+            let query = agentlyPercentEncodedQuery([URLQueryItem(name: "conversationId", value: conversationID), URLQueryItem(name: "compatibilityScope", value: "native-and-application")])
+            Self.routeLogger.info("GET /v1/stream compatibilityScope=native-and-application")
+            return openEventStream(endpoint: endpoint, path: "/v1/stream?\(query)", conversationID: conversationID, session: session)
+        } catch { return AsyncThrowingStream { $0.finish(throwing: error) } }
+    }
+
+    public func reconcileAgUiConversation(conversationID: String) async throws {
+        guard interactionProtocol == .agUI else { return }
+        _ = try await agUiConversations.reconcile(conversationID: conversationID)
+    }
+
     public func streamEvents(conversationID: String) -> AsyncThrowingStream<SSEEvent, Error> {
+        Self.routeLogger.info("GET /v1/stream unscoped legacy interaction")
         guard var endpoint = endpoints[endpointName] else {
             return AsyncThrowingStream { continuation in
                 continuation.finish(throwing: AgentlySDKError.missingEndpoint(endpointName))
@@ -799,7 +872,8 @@ public final class AgentlyClient: Sendable {
     }
 
     public func trackConversation(conversationID: String) -> AsyncThrowingStream<ConversationStreamSnapshot, Error> {
-        trackConversation(
+        if interactionProtocol == .agUI { return agUiConversations.subscribe(conversationID: conversationID) }
+        return trackConversation(
             conversationID: conversationID,
             initialStateLoader: { [self] id in
                 try await getLiveState(conversationID: id, includeFeeds: true)
@@ -994,7 +1068,7 @@ public final class AgentlyClient: Sendable {
         request.setValue(cookieHeader, forHTTPHeaderField: "Cookie")
     }
 
-    private func storeSessionCookies(from response: URLResponse, requestURL: URL?) {
+    func storeSessionCookies(from response: URLResponse, requestURL: URL?) {
         guard let http = response as? HTTPURLResponse,
               let requestURL else {
             return

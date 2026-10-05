@@ -740,17 +740,17 @@ private extension ConversationStreamTracker {
 
         switch type {
         case "text_delta":
-            if let expectedOffset = payload.contentOffset,
+            if payload.contentMode != "snapshot", let expectedOffset = payload.contentOffset,
                (existing.content ?? "").utf8.count != expectedOffset {
                 return
             }
             messagesByID[messageID] = existing.with(
-                content: (existing.content ?? "") + (payload.content ?? ""),
+                content: payload.contentMode == "snapshot" ? (payload.content ?? existing.content) : (existing.content ?? "") + (payload.content ?? ""),
                 status: payload.status ?? existing.status ?? "running"
             )
         case "reasoning_delta":
             messagesByID[messageID] = existing.with(
-                narration: (existing.narration ?? "") + (payload.content ?? "")
+                narration: payload.contentMode == "snapshot" ? (payload.content ?? existing.narration) : (existing.narration ?? "") + (payload.content ?? "")
             )
         case "narration":
             messagesByID[messageID] = existing.with(
@@ -1122,7 +1122,7 @@ private extension ConversationStreamTracker {
                 return next
             }
             let narration = type == "reasoning_delta"
-                ? (current.narration ?? "") + (payload.content ?? "")
+                ? (payload.contentMode == "snapshot" ? (payload.content ?? current.narration) : (current.narration ?? "") + (payload.content ?? ""))
                 : (payload.content ?? payload.narration ?? current.narration)
             let updated = current.copy(
                 turnID: payload.turnID ?? current.turnID,
@@ -1139,7 +1139,7 @@ private extension ConversationStreamTracker {
                 return next
             }
             let content = type == "text_delta"
-                ? (current.content ?? "") + (payload.content ?? "")
+                ? (payload.contentMode == "snapshot" ? (payload.content ?? current.content) : (current.content ?? "") + (payload.content ?? ""))
                 : (payload.content ?? current.content)
             let updated = current.copy(
                 turnID: payload.turnID ?? current.turnID,

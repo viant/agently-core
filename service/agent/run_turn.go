@@ -261,6 +261,9 @@ func (s *Service) runPlanAndStatusFrom(ctx context.Context, input *QueryInput, o
 		}
 		return "failed", err
 	}
+	if output != nil && (len(output.ClientToolCalls) > 0 || len(output.ClientToolDependencies) > 0) {
+		return "waiting_for_user", nil
+	}
 	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		waitingForUser, err := s.turnAwaitingUserAction(ctx, turn)
 		if err != nil {

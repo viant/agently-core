@@ -1,0 +1,24 @@
+#package('github.com/viant/agently-core/internal/datly/agui/cleanup/event/delete')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/cleanup/event/delete','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(conversationtreeScope/internal).Required())
+#define($_ = $ThreadIDs<[]string>(query/threadIds).Required().WithPredicate(0,'in','c','conversation_id'))
+#define($_ = $RunKeys<[]string>(query/runKeys).Required().WithPredicate(7,'in','call_payload','run_id'))
+#define($_ = $ProtocolEventOnly<bool>(const/protocolEventOnly).Value(true).Required().WithPredicate(7,'expr',"(? AND call_payload.kind='agui.event')"))
+#define($_ = $Rows<[]*EventDelete>(body/data))
+#define($_ = $Data<[]*EventDelete>(output/body))
+SELECT agui_data.*,
+       agui_data.id AS EventKey,
+       type(agui_data,'EventDelete'),
+       tag(agui_data.EventKey,'sqlx:"id,primaryKey=true,required=true"'),
+       required(agui_data.EventKey),
+       CAST(agui_data.EventKey AS string),
+       mutation_predicate(agui_data,7),
+       CAST(agui_data.should_delete AS bool),
+       delete_marker(agui_data.should_delete)
+FROM (${embed:sql/rows.sql}) agui_data

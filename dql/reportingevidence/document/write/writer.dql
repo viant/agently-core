@@ -1,0 +1,14 @@
+#package('github.com/viant/agently-core/internal/datly/reportingevidence/document/write')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/reporting-evidence/document','POST'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Rows<[]*Document>(body/data))
+SELECT documents.*, type(documents,'Document'),
+       tag(documents.id,'sqlx:"id,primaryKey=true,required=true"'),
+       lifecycle_type(documents,'Lifecycle'),
+       CAST(documents.inline_body AS []byte)
+FROM (${embed:sql/rows.sql}) documents

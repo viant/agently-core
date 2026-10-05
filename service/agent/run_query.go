@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/viant/agently-core/protocol/agent/execution"
 	skillproto "github.com/viant/agently-core/protocol/skill"
+	"github.com/viant/agently-core/runtime/clienttool"
 	"path"
 	"regexp"
 	"sort"
@@ -367,6 +368,14 @@ func (s *Service) publishPresetAssistantMessage(ctx context.Context, input *Quer
 
 func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOutput) (retErr error) {
 	defer func() {
+		if output != nil && output.ExecutionStatus == "" && retErr != nil {
+			output.ExecutionStatus = "failed"
+			if errors.Is(retErr, context.Canceled) || errors.Is(retErr, context.DeadlineExceeded) {
+				output.ExecutionStatus = "canceled"
+			}
+		}
+	}()
+	defer func() {
 		if output == nil {
 			return
 		}
@@ -420,6 +429,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	// runs. Total intake-side LLM calls for the turn: exactly 1 (the
 	// classifier's).
 	if presetText, presetKind := presetAssistantFromContext(input.Context); presetText != "" {
+		output.ExecutionStatus = "succeeded"
 		output.TurnID = input.MessageID
 		output.MessageID = input.MessageID
 		output.Content = presetText
@@ -445,6 +455,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	if queued, err := s.tryQueueTurn(ctx, input); err != nil {
 		return err
 	} else if queued {
+		output.ExecutionStatus = "queued"
 		output.TurnID = input.MessageID
 		output.MessageID = input.MessageID
 		output.Content = ""
@@ -604,6 +615,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 				finalStatus = "canceled"
 			}
 		}
+		output.ExecutionStatus = finalStatus
 		if err := stopRunHeartbeatThen(stopRunHeartbeat, func() error {
 			return s.finalizeTurn(ctx, turn, finalStatus, finalErr)
 		}); err != nil {
@@ -622,6 +634,21 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 	} else {
 		if err := s.persistInitialUserMessage(ctx, &turn, input.UserId, userContent, rawUserContent); err != nil {
 			return err
+		}
+		if input.ContentItems != nil {
+			raw, err := json.Marshal(input.ContentItems)
+			if err != nil {
+				return err
+			}
+			message := apiconv.NewMessage()
+			message.SetId(turn.ParentMessageID)
+			message.SetRawContent(string(raw))
+			marker := clienttool.ItemsMIME
+			message.ContextSummary = &marker
+			message.Has.ContextSummary = true
+			if err = s.conversation.PatchMessage(ctx, message); err != nil {
+				return err
+			}
 		}
 		logx.Infof("conversation", "agent.Query addUserMessage ok convo=%q turn_id=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID))
 	}
@@ -694,6 +721,7 @@ func (s *Service) Query(ctx context.Context, input *QueryInput, output *QueryOut
 			logx.Warnf("conversation", "agent.Query steer checkpoint error convo=%q turn_id=%q err=%v", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), ckErr)
 		}
 		status, err = s.runPlanAndStatus(ctx, input, output)
+		output.ExecutionStatus = status
 
 		turnStatus = status
 		turnRunErr = err
@@ -1316,6 +1344,13 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 		if lease := runLeaseFromContext(ctx); lease != nil && !lease.Active() {
 			return errRunLeaseLost
 		}
+		if !(resumePending && iter == start.firstIteration()) {
+			var compactErr error
+			ctx, loopHistoryMsgs, compactErr = s.prepareProactiveCompaction(ctx, input, genInput, loopHistoryMsgs)
+			if compactErr != nil {
+				return compactErr
+			}
+		}
 		var aPlan *execution.Plan
 		var pErr error
 		if resumePending && iter == start.firstIteration() {
@@ -1348,6 +1383,24 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 		}
 		if pErr != nil {
 			return pErr
+		}
+		if runtimerecovery.FullHistoryRequired(ctx) {
+			ctx = runtimerecovery.WithFullHistory(ctx, false)
+		}
+		if session := clienttool.FromContext(ctx); session != nil {
+			if err := session.ErrorForTurn(turn.ConversationID, turn.TurnID); err != nil {
+				return err
+			}
+			pending := session.PendingForSubtree(turn.ConversationID, turn.TurnID)
+			dependencies := session.WaitingDependencies(turn.ConversationID, turn.TurnID)
+			if len(pending) > 0 || len(dependencies) > 0 {
+				queryOutput.ClientToolCalls = pending
+				queryOutput.ClientToolDependencies = dependencies
+				queryOutput.Plan = aPlan
+				queryOutput.Model = genInput.ModelSelection.Model
+				s.markAssistantMessageInterim(ctx, &turn, genOutput)
+				return nil
+			}
 		}
 		if s.orchestrator != nil {
 			toolCalls := s.orchestrator.TurnToolResults(strings.TrimSpace(turn.TurnID))

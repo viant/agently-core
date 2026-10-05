@@ -16,6 +16,16 @@ func (entity *ToolCall) SetShouldDelete(value bool) {
 	}
 	entity.Has.ShouldDelete = true
 }
+func (entity *ToolCall) GetResponseOverflow() bool {
+	return entity.ResponseOverflow
+}
+func (entity *ToolCall) SetResponseOverflow(value bool) {
+	entity.ResponseOverflow = value
+	if entity.Has == nil {
+		entity.Has = &ToolCallHas{}
+	}
+	entity.Has.ResponseOverflow = true
+}
 func (entity *ToolCall) GetMessageId() string {
 	return entity.MessageId
 }

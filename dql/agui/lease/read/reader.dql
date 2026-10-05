@@ -1,0 +1,24 @@
+#package('github.com/viant/agently-core/internal/datly/agui/lease/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/lease','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Principal<string>(query/principal).Required())
+#define($_ = $Key<string>(query/key).Required())
+#define($_ = $Data<[]*Lease>(output/view))
+SELECT agui_data.*,
+       agui_data.protocol_key AS RunKey,
+       agui_data.effective_user_id AS Principal,
+       agui_data.protocol_lease_owner AS Owner,
+       agui_data.protocol_lease_until AS LeaseUntil,
+       agui_data.protocol_lease_revision AS Revision,
+       type(agui_data,'Lease'),
+       tag(agui_data.id,'sqlx:"id,primaryKey=true,required=true"'),
+       row_lock(agui_data,'run c'),
+       CAST(agui_data.Owner AS *string),
+       CAST(agui_data.Revision AS int64),
+       CAST(agui_data.LeaseUntil AS *time.Time)
+FROM (${embed:sql/rows.sql}) agui_data

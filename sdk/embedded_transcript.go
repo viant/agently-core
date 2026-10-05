@@ -131,9 +131,17 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 		turns = filterTranscriptSinceMessage(turns, sinceMessageID)
 	}
 	state := BuildCanonicalState(input.ConversationID, turns)
+	if err = c.populateCanonicalQueueSequences(ctx, state); err != nil {
+		return nil, err
+	}
 	applyInlineReportWorkspaceCatalogToState(ctx, state, c)
+	threadID, err := c.aguiThreadReference(ctx, input.ConversationID)
+	if err != nil {
+		return nil, err
+	}
 	resp := &ConversationStateResponse{
 		SchemaVersion: "2",
+		AguiThreadID:  threadID,
 		Conversation:  state,
 		Usage:         usageSummaryFromConversation(conv),
 	}

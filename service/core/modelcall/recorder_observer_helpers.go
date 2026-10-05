@@ -12,6 +12,7 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	conversationmodel "github.com/viant/agently-core/model/conversation"
+	"github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -202,6 +203,9 @@ func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn 
 		apiconv.WithType("text"),
 		apiconv.WithCreatedByUserID(turn.Assistant),
 		apiconv.WithInterim(1),
+	}
+	if recovery.FullHistoryRequired(ctx) && !recovery.IsProactive(ctx) {
+		opts = append(opts, apiconv.WithContextSummary(recovery.FullHistoryResponseMarker))
 	}
 	if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
 		opts = append(opts, apiconv.WithIteration(runMeta.Iteration))

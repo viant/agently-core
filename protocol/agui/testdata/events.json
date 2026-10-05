@@ -1,0 +1,14 @@
+[
+ {"type":"RUN_STARTED","threadId":"thread","runId":"run","protocolVersion":"1.0"},
+ {"type":"TEXT_MESSAGE_START","messageId":"assistant","role":"assistant"},
+ {"type":"TEXT_MESSAGE_CONTENT","messageId":"assistant","delta":"Hello"},
+ {"type":"TOOL_CALL_START","toolCallId":"call","toolCallName":"search","parentMessageId":"assistant"},
+ {"type":"TOOL_CALL_ARGS","toolCallId":"call","delta":"{\"q\":\"abc\"}"},
+ {"type":"TOOL_CALL_END","toolCallId":"call"},
+ {"type":"TOOL_CALL_RESULT","toolCallId":"call","messageId":"result","content":""},
+ {"type":"CUSTOM","name":"agently.queue","value":{"version":"1","turnId":"turn","sequence":"9007199254740993"}},
+ {"type":"CUSTOM","name":"agently.progress","value":{"version":"1","kind":"narration","content":"working"}},
+ {"type":"TEXT_MESSAGE_END","messageId":"assistant"},
+ {"type":"RUN_FINISHED","threadId":"thread","runId":"run","outcome":{"type":"cancelled"}},
+ {"type":"RUN_ERROR","message":"broken","code":"AGENT_ERROR"}
+]

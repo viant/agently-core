@@ -1,0 +1,2 @@
+SELECT * FROM  (SELECT p.id,p.run_id,c.conversation_id,c.protocol_run_id,p.sequence FROM call_payload p JOIN run c ON c.id=p.run_id AND c.run_kind='agui' WHERE p.kind='agui.event' ${predicate.Builder().CombineAnd($predicate.FilterGroup(0, "AND")).Build("AND")}
+)  agui_data

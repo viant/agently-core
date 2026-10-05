@@ -1,0 +1,18 @@
+init:
+  - name: projectRoot
+    when: $params.projectRoot
+    value: $params.projectRoot
+    else: $WorkingDirectory(../..)
+  - name: dqlPackage
+    value: $params.dqlPackage
+  - name: method
+    value: $params.method
+
+pipeline:
+  transcribe:
+    action: exec:run
+    TimeoutMs: 180000
+    checkError: true
+    commands:
+      - cd $projectRoot
+      - bin/datly-stock transcribe $method -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db $dqlPackage

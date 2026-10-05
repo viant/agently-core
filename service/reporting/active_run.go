@@ -104,6 +104,9 @@ func (s *Service) GetActiveReportRun(ctx context.Context) (*ActiveReportRun, err
 	if !ok {
 		return nil, ErrNotFound
 	}
+	// Admission bookkeeping stays available to authenticated clients but is
+	// excluded from the model-facing query-parameter summary.
+	delete(requestedParams, "_agentlyReportAdmission")
 	effectiveParams, ok := sanitizedParams(run.EffectiveParams)
 	if !ok {
 		return nil, ErrNotFound

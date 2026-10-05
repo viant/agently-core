@@ -1,0 +1,11 @@
+id: proactive_compaction_private
+name: Proactive compaction test
+modelRef: openai_gpt5_nano_proactive_private
+contextCompactionPercent: 1
+contextRecoveryMode: compact
+systemPrompt:
+  text: |
+    Preserve user facts and operation results. Never execute a completed operation again.
+    When asked to continue a pending operation, use its existing operation identifiers.
+prompt:
+  text: '{{.Task.Prompt}}'

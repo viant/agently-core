@@ -106,7 +106,7 @@ func persistCoalescedToolResult(ctx context.Context, conv apiconv.Client, turn r
 	respPayloadID := ""
 	if payloadID, err := persistResponsePayload(ctx, conv, body); err == nil {
 		respPayloadID = payloadID
-	} else if resultErr == nil {
+	} else {
 		_ = completeToolCall(ctx, conv, toolMsgID, step.ID, step.Name, "failed", time.Now(), "", err.Error())
 		_ = updateToolMessageContent(ctx, conv, toolMsgID, err.Error())
 		return err

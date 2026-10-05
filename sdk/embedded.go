@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -17,6 +18,7 @@ import (
 	"github.com/viant/agently-core/app/store/data"
 	"github.com/viant/agently-core/app/store/native"
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/internal/auth/token"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/internal/textutil"
 	conversationmodel "github.com/viant/agently-core/model/conversation"
@@ -83,24 +85,28 @@ type turnQueuePatcher interface {
 }
 
 type backendClient struct {
-	agent          *agentsvc.Service
-	conv           conversation.Client
-	data           data.Service
-	goalRepo       goalsys.Repository
-	goalInvoker    dexec.ComponentInvoker
-	registry       tool.Registry
-	mcpMgr         *mcpmgr.Manager
-	toolPolicy     *tool.Policy
-	cancelRegistry cancels.Registry
-	elicRouter     elicrouter.ElicitationRouter
-	elicSvc        *elicsvc.Service
-	streaming      streaming.Bus
-	store          workspace.Store
-	a2aSvc         *a2a.Service
-	schedulerSvc   *scheduler.Service
-	asyncManager   *asynccfg.Manager
-	feeds          *FeedRegistry
-	skills         skillBackend
+	approvalRecoveryMu     sync.Mutex
+	approvalRecoveryCursor string
+	approvalTokenProvider  token.Provider
+	approvalMCPHost        *AGUIMCPAppsHost
+	agent                  *agentsvc.Service
+	conv                   conversation.Client
+	data                   data.Service
+	goalRepo               goalsys.Repository
+	goalInvoker            dexec.ComponentInvoker
+	registry               tool.Registry
+	mcpMgr                 *mcpmgr.Manager
+	toolPolicy             *tool.Policy
+	cancelRegistry         cancels.Registry
+	elicRouter             elicrouter.ElicitationRouter
+	elicSvc                *elicsvc.Service
+	streaming              streaming.Bus
+	store                  workspace.Store
+	a2aSvc                 *a2a.Service
+	schedulerSvc           *scheduler.Service
+	asyncManager           *asynccfg.Manager
+	feeds                  *FeedRegistry
+	skills                 skillBackend
 	// Installed by SetDatasourceStack; nil until runtime bootstrap wires
 	// them. See sdk/embedded_datasources.go.
 	datasourceSvc *dssvc.Service
@@ -159,6 +165,7 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 	}
 	c.data = rt.Data
 	c.goalInvoker = rt.Native
+	c.approvalTokenProvider = rt.TokenProvider
 	if rt.GoalStore != nil {
 		// Preserve injected storage; a controller-only Store has no CRUD surface.
 		c.goalRepo, _ = rt.GoalStore.(goalsys.Repository)
@@ -980,9 +987,6 @@ func (c *backendClient) authorizeTurnAccess(ctx context.Context, turnID string) 
 }
 
 func (c *backendClient) CancelTurn(ctx context.Context, turnID string) (bool, error) {
-	if c.cancelRegistry == nil {
-		return false, nil
-	}
 	// Verify the caller owns the conversation this turn belongs to. Without
 	// this check, any authenticated user could cancel any turn whose UUID
 	// they can guess or observe. The check only runs when there is an
@@ -994,7 +998,19 @@ func (c *backendClient) CancelTurn(ctx context.Context, turnID string) (bool, er
 			return false, err
 		}
 	}
-	return c.cancelRegistry.CancelTurn(turnID), nil
+	if c.cancelRegistry != nil && c.cancelRegistry.CancelTurn(turnID) {
+		return true, nil
+	}
+	if c.agent != nil && c.data != nil && len(principalDataOpts(ctx)) > 0 {
+		turn, err := c.authorizeTurnAccess(ctx, turnID)
+		if err != nil {
+			return false, err
+		}
+		if strings.EqualFold(strings.TrimSpace(turn.Status), "waiting_for_user") || strings.EqualFold(strings.TrimSpace(turn.Status), "canceled") {
+			return c.agent.CancelWaitingTurn(ctx, turn.ConversationId, turnID)
+		}
+	}
+	return false, nil
 }
 
 func (c *backendClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (*SteerTurnOutput, error) {
@@ -1030,11 +1046,18 @@ func (c *backendClient) SteerTurn(ctx context.Context, input *SteerTurnInput) (*
 	if role == "" {
 		role = "user"
 	}
+	clientRequestID := strings.TrimSpace(input.ClientRequestID)
+	if len(clientRequestID) > 256 {
+		return nil, errors.New("client request identity is too long")
+	}
 	msg := conversation.NewMessage()
 	msg.SetId(uuid.NewString())
 	msg.SetConversationID(strings.TrimSpace(input.ConversationID))
 	msg.SetTurnID(strings.TrimSpace(input.TurnID))
 	msg.SetRole(role)
+	if clientRequestID != "" && role == "user" {
+		msg.SetTags(steeringRequestTag(clientRequestID))
+	}
 	msg.SetType("task")
 	msg.SetContent(content)
 	msg.SetRawContent(content)

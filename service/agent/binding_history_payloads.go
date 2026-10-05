@@ -142,7 +142,7 @@ func (s *Service) messageToolResultBody(ctx context.Context, msg *apiconv.Messag
 			return body
 		}
 	}
-	return strings.TrimSpace(msg.GetContent())
+	return msg.GetContent()
 }
 
 func decodePayloadInlineBody(inline string, compression string) string {
@@ -162,7 +162,7 @@ func decodePayloadInlineBody(inline string, compression string) string {
 		if err != nil {
 			return ""
 		}
-		decoded := strings.TrimSpace(string(inflated))
+		decoded := string(inflated)
 		if nested := decodeWrappedPayloadInlineBody(decoded); nested != "" {
 			return nested
 		}
@@ -171,7 +171,7 @@ func decodePayloadInlineBody(inline string, compression string) string {
 		}
 		return ""
 	}
-	return strings.TrimSpace(inline)
+	return inline
 }
 
 type payloadWrapper struct {

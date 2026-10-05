@@ -20,12 +20,12 @@ final class ResourceUploadTests: XCTestCase {
         override func stopLoading() {}
     }
 
-    private func makeClient() -> AgentlyClient {
+    private func makeClient(_ interactionProtocol: AgentlyInteractionProtocol = .agUI) -> AgentlyClient {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [UploadProtocol.self]
         return AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "http://upload.test")!,
                              headers: ["Authorization": "Bearer fixture-token"])],
-                             session: URLSession(configuration: config))
+                             interactionProtocol: interactionProtocol, session: URLSession(configuration: config))
     }
     private func body(_ request: URLRequest) -> Data {
         if let data = request.httpBody { return data }
@@ -40,10 +40,10 @@ final class ResourceUploadTests: XCTestCase {
         return data
     }
 
-    func testUploadThenQueryUsesResourceURI() async throws {
+    func testUploadThenLegacyQueryUsesResourceURI() async throws {
         defer { UploadProtocol.handler = nil }
         for conversationID in ["conv-1", nil] as [String?] {
-            let client = makeClient()
+            let client = makeClient(.legacy)
             let payload = Data([0x50, 0x4b, 0x00, 0xff, 0x01])
             var requests = 0
             UploadProtocol.handler = { request in

@@ -58,10 +58,11 @@ const (
 )
 
 type CompileFencedReportRequest struct {
-	Content  string              `json:"content,omitempty"`
-	Fences   []FencedReportFence `json:"fences,omitempty"`
-	ReportID string              `json:"reportId,omitempty"`
-	Format   ExportFormat        `json:"format,omitempty"`
+	Invocation json.RawMessage     `json:"invocation,omitempty"`
+	Content    string              `json:"content,omitempty"`
+	Fences     []FencedReportFence `json:"fences,omitempty"`
+	ReportID   string              `json:"reportId,omitempty"`
+	Format     ExportFormat        `json:"format,omitempty"`
 }
 
 type FencedReportFence struct {

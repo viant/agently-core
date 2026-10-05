@@ -1,0 +1,7 @@
+SELECT c.id, c.conversation_id, c.run_kind, c.effective_user_id, c.protocol_key, c.protocol_run_id, c.protocol_parent_run_id, c.protocol_prior_run_id, c.protocol_client_message_id, c.protocol_turn_id, c.protocol_status, c.protocol_input_hash, c.protocol_input_json, c.protocol_revision, c.protocol_last_sequence, c.protocol_pending_json, c.protocol_resumed_by_run_id, c.protocol_source_key, c.protocol_initial_turn_key FROM run c WHERE c.run_kind = 'agui' AND c.effective_user_id = $Principal AND c.conversation_id = $ConversationID AND
+#if($Active)
+c.protocol_status IN ('admitted','running')
+#else
+c.protocol_status = 'interrupted' AND c.protocol_resumed_by_run_id = ''
+#end
+ORDER BY c.protocol_key
