@@ -87,23 +87,27 @@ Caller code never sees the raw token.
 
 ## Session-import verification boundary
 
-In a JWT-only workspace (`auth.jwt.enabled` with no configured OAuth client),
-`POST /v1/api/auth/session` verifies supplied identity/access/bearer JWTs against
-the configured JWT keys before writing a session or cookie. Missing, expired,
-invalid, differently signed, and conflicting-subject credentials are rejected.
-The session subject, email and scopes come from verified credentials; a caller's
-`username` or opaque refresh token cannot supply identity or grant scopes. Both
-auth handler implementations follow this rule. CLI commands stop when an
-explicit flag/environment token is rejected instead of logging in as another
-identity through a fallback flow.
+For auth-enabled workspaces, caller-supplied session tokens are verified before
+session persistence or cookie creation. JWT-only workspaces use their configured
+JWT keys. OAuth/mixed imports use trusted provider discovery/JWKS, expected
+issuer, client/resource audiences, token lifetime and a common verified subject.
+Client ID can come from the server-loaded OAuth client configuration; when no
+resource audiences are configured, signed access tokens must include that client
+ID. Issuer and keys never come from unverified token claims.
 
-This change does not establish verification of arbitrary raw OAuth imports.
-The current OAuth/mixed session-import path retains its existing scope checks
-and token handling; it does not apply the JWT-only verifier. In particular,
-`handleCreateSession` does not currently consume the OAuth JWKS verifier built
-by `oauthVerifierConfig`. That is a separate security boundary requiring review,
-not evidence that every imported OAuth token is verified. The next bounded
-integration should use the configured provider verifier for signed ID tokens,
-validate its issuer/audience policy, and define an explicit validation mechanism
-for opaque access-token imports. It must preserve authenticated callback/OOB
-flows and must not infer trust from decoded claims or a client-supplied subject.
+The session identity and scopes come only from verified material. Caller
+`username`, `expiresAt` and refresh-token claims cannot grant identity, extend
+signed token lifetime or add scopes. A supplied ID-token `at_hash` must match the
+access token. Public raw opaque-token imports are rejected; existing server-owned
+OAuth callback/OOB exchanges retain their separately validated flows. Local JWT
+exchange in a mixed workspace requires the configured local key authority and
+cannot replace a conflicting OAuth body identity. Explicitly auth-disabled
+development mode remains open by configuration.
+
+The legacy raw-token OOB handler uses the same import guard. CLI commands stop
+when an explicit flag/environment token is rejected rather than authenticating
+as another identity through a fallback flow. RSA/JWKS fixtures cover both handler
+implementations, invalid signatures, expiration, issuer/audience/subject mismatch,
+access-token binding, and normal config/discovery fallback. Normal protected
+Steward token shape was audited privately; no credentials or claim values belong
+in test logs or documentation.

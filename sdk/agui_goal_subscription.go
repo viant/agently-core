@@ -38,7 +38,7 @@ func observeAGUIGoal(ctx context.Context, client Client, store aguistore.Store, 
 	}
 	// Establish event observation before the authoritative snapshot. Event patches
 	// are invalidations only: they never overwrite a newer GetGoal projection.
-	subscription, err := client.StreamEvents(ctx, &StreamEventsInput{ConversationID: record.ConversationID, Filter: func(event *streaming.Event) bool {
+	subscription, err := subscribeNativeEvents(ctx, client, &StreamEventsInput{ConversationID: record.ConversationID, Filter: func(event *streaming.Event) bool {
 		return event != nil && (event.ConversationID == record.ConversationID || event.ConversationID == "" && event.StreamID == record.ConversationID) && goalSubscriptionEvent(event)
 	}})
 	if err != nil {

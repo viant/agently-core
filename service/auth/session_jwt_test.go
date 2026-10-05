@@ -37,7 +37,7 @@ func TestJWTOnlySessionImportVerifiesBeforeIssuingCookie(t *testing.T) {
 			{name: "foreign signing", body: map[string]string{"idToken": foreign}},
 			{name: "missing signed identity", body: map[string]string{"idToken": noIdentity}},
 			{name: "conflicting signed identities", body: map[string]string{"idToken": valid, "accessToken": otherIdentity}},
-			{name: "valid body ignores caller identity", body: map[string]string{"username": "spoofed-user", "idToken": valid, "refreshToken": untrustedRefresh}, valid: true},
+			{name: "valid body ignores caller identity", body: map[string]string{"username": "spoofed-user", "idToken": valid, "refreshToken": untrustedRefresh, "expiresAt": "2099-01-01T00:00:00Z"}, valid: true},
 			{name: "valid bearer", bearer: valid, valid: true},
 		} {
 			t.Run(implementation+"/"+tc.name, func(t *testing.T) {
@@ -71,6 +71,9 @@ func TestJWTOnlySessionImportVerifiesBeforeIssuingCookie(t *testing.T) {
 				require.Equal(t, "verified-user", session.Username)
 				require.Equal(t, "verified@example.test", session.Email)
 				require.Equal(t, []string{"read"}, session.Scopes)
+				if session.Tokens != nil {
+					require.True(t, session.Tokens.Expiry.Before(time.Now().Add(2*time.Hour)), "caller expiry extended signed lifetime")
+				}
 			})
 		}
 	}

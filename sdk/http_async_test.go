@@ -41,7 +41,7 @@ func TestHTTPClient_ListAsyncOperations_QueryParams(t *testing.T) {
 }
 
 type spyAsyncClient struct {
-	*HTTPClient
+	httpTestBackend
 	input *ListAsyncOperationsInput
 	out   *ListAsyncOperationsOutput
 	err   error
@@ -59,7 +59,7 @@ func TestHandleListAsyncOperations_RoutesConversationAndFilters(t *testing.T) {
 	base, err := NewHTTP("http://example.com")
 	require.NoError(t, err)
 	spy := &spyAsyncClient{
-		HTTPClient: base,
+		httpTestBackend: httpTestBackend{HTTPClient: base},
 		out: &ListAsyncOperationsOutput{
 			Ops: nil,
 		},

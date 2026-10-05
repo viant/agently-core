@@ -89,49 +89,45 @@ func handleListPendingElicitations(client Client) http.HandlerFunc {
 	}
 }
 
-func handleStreamEvents(client Client, authConfigs ...*authctx.Config) http.HandlerFunc {
+func handleApplicationEvents(client Client, authConfigs ...*authctx.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		convID := r.URL.Query().Get("conversationId")
-		var compatibility *compatibilityObserver
-		scope := strings.TrimSpace(r.URL.Query().Get("compatibilityScope"))
-		if scope != "" {
-			if scope != NativeAndApplicationCompatibilityScope || strings.TrimSpace(convID) == "" {
-				httpError(w, http.StatusBadRequest, fmt.Errorf("invalid compatibility observation scope"))
-				return
-			}
-			var authConfig *authctx.Config
-			if len(authConfigs) > 0 {
-				authConfig = authConfigs[0]
-			}
-			userID := resolveQueryUserID(w, r, "", authConfig)
-			if userID == "" {
-				httpError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
-				return
-			}
-			ctx := r.Context()
-			if iauth.EffectiveUserID(ctx) == "" {
-				ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: userID})
-				r = r.WithContext(ctx)
-			}
-			backend, ok := client.(compatibilityObserverBackend)
-			if !ok || backend.compatibilityExecutionProvenance() == nil {
-				httpError(w, http.StatusNotImplemented, fmt.Errorf("native compatibility observation unavailable"))
-				return
-			}
-			if err := backend.authorizeCompatibilityConversation(ctx, convID); err != nil {
-				httpError(w, http.StatusForbidden, fmt.Errorf("conversation unavailable"))
-				return
-			}
-			compatibility = newCompatibilityObserver(backend.compatibilityExecutionProvenance(), convID)
+		if strings.TrimSpace(convID) == "" || r.URL.Query().Has("compatibilityScope") {
+			httpError(w, http.StatusBadRequest, fmt.Errorf("application observation requires only an explicit conversation scope"))
+			return
 		}
+		var authConfig *authctx.Config
+		if len(authConfigs) > 0 {
+			authConfig = authConfigs[0]
+		}
+		userID := resolveQueryUserID(w, r, "", authConfig)
+		if userID == "" {
+			httpError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
+			return
+		}
+		ctx := r.Context()
+		if iauth.EffectiveUserID(ctx) == "" {
+			ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: userID})
+			r = r.WithContext(ctx)
+		}
+		backend, ok := client.(compatibilityObserverBackend)
+		if !ok || backend.compatibilityExecutionProvenance() == nil {
+			httpError(w, http.StatusNotImplemented, fmt.Errorf("application observation unavailable"))
+			return
+		}
+		if err := backend.authorizeCompatibilityConversation(ctx, convID); err != nil {
+			httpError(w, http.StatusForbidden, fmt.Errorf("conversation unavailable"))
+			return
+		}
+		compatibility := newCompatibilityObserver(backend.compatibilityExecutionProvenance(), convID)
 		logx.DebugCtxf(r.Context(), "sse", "client connected convo=%q", convID)
 		input := &StreamEventsInput{ConversationID: convID}
 		if compatibility != nil {
 			input.Filter = func(event *streaming.Event) bool {
-				return event != nil && (event.ConversationID == convID || (event.ConversationID == "" && event.StreamID == convID))
+				return event != nil && (event.ConversationID == convID || (event.ConversationID == "" && event.StreamID == convID) || applicationWorkspaceEvent(event))
 			}
 		}
-		sub, err := client.StreamEvents(r.Context(), input)
+		sub, err := subscribeNativeEvents(r.Context(), client, input)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
@@ -148,7 +144,7 @@ func handleStreamEvents(client Client, authConfigs ...*authctx.Config) http.Hand
 			flusher.Flush()
 		}
 
-		ctx := r.Context()
+		ctx = r.Context()
 		ticker := time.NewTicker(streamKeepaliveInterval)
 		defer ticker.Stop()
 		assistantContent := map[string]*streamingRenderedState{}

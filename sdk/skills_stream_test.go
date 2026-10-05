@@ -2,6 +2,8 @@ package sdk
 
 import (
 	"context"
+	iauth "github.com/viant/agently-core/internal/auth"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
@@ -70,6 +72,10 @@ func TestHTTPStream_ActivateSkill_EmitsSkillActivatedEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHandlerWithContext() error: %v", err)
 	}
+	ownedHandler := handler
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ownedHandler.ServeHTTP(w, r.WithContext(iauth.WithUserInfo(r.Context(), &iauth.UserInfo{Subject: "skills-owner"})))
+	})
 	client := newStreamingHandlerBackedHTTP(t, handler)
 	conv, err := client.CreateConversation(context.Background(), &CreateConversationInput{AgentID: "coder", Title: "skill event"})
 	if err != nil {
@@ -77,7 +83,7 @@ func TestHTTPStream_ActivateSkill_EmitsSkillActivatedEvent(t *testing.T) {
 	}
 	streamCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	sub, err := client.StreamEvents(streamCtx, &StreamEventsInput{ConversationID: conv.Id})
+	sub, err := client.ObserveApplicationEvents(streamCtx, &StreamEventsInput{ConversationID: conv.Id})
 	if err != nil {
 		t.Fatalf("StreamEvents() error: %v", err)
 	}
@@ -142,10 +148,18 @@ func TestHTTPStream_SkillRegistryUpdate_EmitsEvent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHandlerWithContext() error: %v", err)
 	}
+	ownedHandler := handler
+	handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ownedHandler.ServeHTTP(w, r.WithContext(iauth.WithUserInfo(r.Context(), &iauth.UserInfo{Subject: "skills-owner"})))
+	})
 	client := newStreamingHandlerBackedHTTP(t, handler)
 	streamCtx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	sub, err := client.StreamEvents(streamCtx, &StreamEventsInput{})
+	conv, err := client.CreateConversation(context.Background(), &CreateConversationInput{AgentID: "coder", Title: "registry observer"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := client.ObserveApplicationEvents(streamCtx, &StreamEventsInput{ConversationID: conv.Id})
 	if err != nil {
 		t.Fatalf("StreamEvents() error: %v", err)
 	}

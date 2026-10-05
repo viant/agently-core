@@ -90,7 +90,7 @@ func (o *aguiInvocationObserver) BeforeInvocation(ctx context.Context, inv reque
 	if !parentOK || exists {
 		return fmt.Errorf("invalid AG-UI invocation causal identity")
 	}
-	sub, err := o.client.StreamEvents(o.ctx, &StreamEventsInput{ConversationID: inv.ConversationID, Filter: func(e *streaming.Event) bool {
+	sub, err := subscribeNativeEvents(o.ctx, o.client, &StreamEventsInput{ConversationID: inv.ConversationID, Filter: func(e *streaming.Event) bool {
 		return e != nil && e.ConversationID == inv.ConversationID && e.TurnID == inv.TurnID
 	}})
 	if err != nil {

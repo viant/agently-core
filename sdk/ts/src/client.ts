@@ -567,7 +567,7 @@ export class AgentlyClient {
     }
 
     private streamApplicationEvents(conversationId: string, handlers: import('./aguiConversationTransport').AgUiConversationHandlers): { close(): void } {
-        const url = `${this.baseURL}/stream?conversationId=${enc(conversationId)}&compatibilityScope=native-and-application`;
+        const url = `${this.baseURL}/application-events?conversationId=${enc(conversationId)}`;
         const es = this.tokenProvider || Object.keys(this.staticHeaders).length > 0
             ? new FetchEventSource(url, this.fetchImpl, () => this.authHeaders(), this.useCookies ? 'include' : 'same-origin')
             : new EventSource(url, { withCredentials: this.useCookies });

@@ -99,7 +99,7 @@ func TestHTTPClient_AttachArtifact(t *testing.T) {
 }
 
 type spyUploadClient struct {
-	*HTTPClient
+	httpTestBackend
 	input *UploadFileInput
 	out   *UploadFileOutput
 	err   error
@@ -121,7 +121,7 @@ func TestHandler_UploadFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spy := &spyUploadClient{HTTPClient: base}
+	spy := &spyUploadClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	var body bytes.Buffer
@@ -184,7 +184,7 @@ func TestHandler_AttachArtifact(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spy := &spyUploadClient{HTTPClient: base}
+	spy := &spyUploadClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	var body bytes.Buffer
@@ -219,7 +219,7 @@ func TestHandler_UploadFileRequiresExactlyOneSource(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	handler := NewHandler(&spyUploadClient{HTTPClient: base})
+	handler := NewHandler(&spyUploadClient{httpTestBackend: httpTestBackend{HTTPClient: base}})
 
 	for _, tc := range []struct {
 		name        string

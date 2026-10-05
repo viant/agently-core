@@ -44,7 +44,7 @@ func observeAGUIFeed(ctx context.Context, client Client, store aguistore.Store, 
 		}
 		return false
 	}
-	subscription, err := client.StreamEvents(ctx, &StreamEventsInput{ConversationID: record.ConversationID, Filter: relevant})
+	subscription, err := subscribeNativeEvents(ctx, client, &StreamEventsInput{ConversationID: record.ConversationID, Filter: relevant})
 	if err != nil {
 		return err
 	}

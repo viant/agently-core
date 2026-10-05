@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	aguistore "github.com/viant/agently-core/app/store/agui"
 	"github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	iauth "github.com/viant/agently-core/internal/auth"
@@ -38,17 +39,38 @@ func TestNewHTTP_DefaultClientRetainsSessionCookies(t *testing.T) {
 
 func TestHTTPClient_Query(t *testing.T) {
 	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/agent/query" {
-			t.Fatalf("unexpected path: %s", r.URL.Path)
+		switch r.URL.Path {
+		case "/v1/conversations":
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "c1"})
+		case "/v1/conversations/c1":
+			_ = json.NewEncoder(w).Encode(map[string]string{"id": "c1", "aguiThreadId": "wire-thread"})
+		case "/v1/ag-ui/run":
+			var input struct{ ThreadID, RunID string }
+			if err := json.NewDecoder(r.Body).Decode(&input); err != nil {
+				t.Fatal(err)
+			}
+			if input.ThreadID != "wire-thread" {
+				t.Fatal("native/wire identity mapping lost")
+			}
+			w.Header().Set("Content-Type", "text/event-stream")
+			for _, event := range []map[string]any{
+				{"type": "RUN_STARTED", "threadId": input.ThreadID, "runId": input.RunID, "metadata": map[string]any{"agently": map[string]any{"identityVersion": "1", "nativeTurnId": "native-turn"}}},
+				{"type": "TEXT_MESSAGE_START", "messageId": "m", "role": "assistant"},
+				{"type": "TEXT_MESSAGE_CONTENT", "messageId": "m", "delta": "ok"},
+				{"type": "RUN_FINISHED", "threadId": input.ThreadID, "runId": input.RunID, "outcome": map[string]string{"type": "success"}},
+			} {
+				body, _ := json.Marshal(event)
+				_, _ = w.Write(append(append([]byte("data: "), body...), []byte("\n\n")...))
+			}
+		default:
+			t.Fatalf("unexpected legacy path %s", r.URL.Path)
 		}
-		_ = json.NewEncoder(w).Encode(&agentsvc.QueryOutput{ConversationID: "c1", Content: "ok"})
 	}))
-
 	out, err := c.Query(context.Background(), &agentsvc.QueryInput{Query: "hi"})
 	if err != nil {
-		t.Fatalf("query: %v", err)
+		t.Fatal(err)
 	}
-	if out == nil || out.Content != "ok" {
+	if out.Content != "ok" || out.ConversationID != "c1" || out.TurnID != "native-turn" {
 		t.Fatalf("unexpected output: %#v", out)
 	}
 }
@@ -586,7 +608,7 @@ func TestHTTPClient_ListConversations_QueryParams(t *testing.T) {
 }
 
 type spyConversationListClient struct {
-	*HTTPClient
+	httpTestBackend
 	gotInput *ListConversationsInput
 }
 
@@ -600,7 +622,7 @@ func TestHandler_ListConversations_ScheduleFilter(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyConversationListClient{HTTPClient: base}
+	spy := &spyConversationListClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 	req := httptest.NewRequest(http.MethodGet, "/v1/conversations?scheduleId=schedule-3", nil)
 	rec := httptest.NewRecorder()
@@ -693,7 +715,7 @@ func TestHTTPClient_GetTranscript_QueryParamsAndSelectors(t *testing.T) {
 
 func TestHTTPClient_StreamEvents_DecodesJSONPayloadType(t *testing.T) {
 	c := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/v1/stream" {
+		if r.URL.Path != "/v1/application-events" {
 			t.Fatalf("unexpected path: %s", r.URL.Path)
 		}
 		w.Header().Set("Content-Type", "text/event-stream")
@@ -702,7 +724,7 @@ func TestHTTPClient_StreamEvents_DecodesJSONPayloadType(t *testing.T) {
 		_, _ = io.WriteString(w, "data:{\"type\":\"assistant\",\"conversationId\":\"c1\",\"streamId\":\"c1\",\"turnId\":\"t1\",\"content\":\"done\"}\n\n")
 	}))
 
-	sub, err := c.StreamEvents(context.Background(), &StreamEventsInput{ConversationID: "c1"})
+	sub, err := c.ObserveApplicationEvents(context.Background(), &StreamEventsInput{ConversationID: "c1"})
 	if err != nil {
 		t.Fatalf("StreamEvents: %v", err)
 	}
@@ -761,8 +783,15 @@ func TestHandler_Healthz(t *testing.T) {
 }
 
 type spyQueryClient struct {
-	*HTTPClient
+	httpTestBackend
 	gotInput *agentsvc.QueryInput
+}
+
+func (s *spyQueryClient) GetConversation(context.Context, string) (*conversation.Conversation, error) {
+	return nil, nil
+}
+func (s *spyQueryClient) StreamEvents(ctx context.Context, input *StreamEventsInput) (streaming.Subscription, error) {
+	return streaming.NewMemoryBus(8).Subscribe(ctx, input.Filter)
 }
 
 func (s *spyQueryClient) Query(_ context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
@@ -771,7 +800,7 @@ func (s *spyQueryClient) Query(_ context.Context, input *agentsvc.QueryInput) (*
 }
 
 type spyToolApprovalClient struct {
-	*HTTPClient
+	httpTestBackend
 	gotListInput   *ListPendingToolApprovalsInput
 	gotDecideInput *DecideToolApprovalInput
 	decideOutput   *DecideToolApprovalOutput
@@ -799,11 +828,11 @@ func TestHandler_Query_AssignsAnonymousUserCookie(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyQueryClient{HTTPClient: base}
+	spy := &spyQueryClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
-	body := []byte(`{"query":"hello"}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", bytes.NewReader(body))
+	body := []byte(`{"threadId":"c1","runId":"query-test","messages":[{"id":"u1","role":"user","content":"hello"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/ag-ui/run", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -822,7 +851,7 @@ func TestHandler_Query_AssignsAnonymousUserCookie(t *testing.T) {
 }
 
 type spyMessagesClient struct {
-	*HTTPClient
+	httpTestBackend
 	gotInput *GetMessagesInput
 }
 
@@ -836,7 +865,7 @@ func TestHandler_GetMessages_ParsesPageParams(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyMessagesClient{HTTPClient: base}
+	spy := &spyMessagesClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/messages?conversationId=c1&turnId=t1&roles=user,assistant&types=text,tool&limit=3&cursor=m42&direction=before", nil)
@@ -871,7 +900,7 @@ func TestHandler_GetMessages_InvalidLimit(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyMessagesClient{HTTPClient: base}
+	spy := &spyMessagesClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/messages?conversationId=c1&limit=abc", nil)
@@ -887,7 +916,7 @@ func TestHandler_GetMessages_InvalidLimit(t *testing.T) {
 }
 
 type spyConversationUpdateClient struct {
-	*HTTPClient
+	httpTestBackend
 	gotInput *UpdateConversationInput
 	err      error
 }
@@ -901,7 +930,7 @@ func (s *spyConversationUpdateClient) UpdateConversation(_ context.Context, inpu
 }
 
 type spyConversationDeleteClient struct {
-	*HTTPClient
+	httpTestBackend
 	gotID string
 	err   error
 }
@@ -912,7 +941,7 @@ func (s *spyConversationDeleteClient) DeleteConversation(_ context.Context, id s
 }
 
 type spyRunClient struct {
-	*HTTPClient
+	httpTestBackend
 	gotID string
 	run   *runmodel.RunRowsView
 	err   error
@@ -945,7 +974,7 @@ func TestHandler_UpdateConversation_ErrorStatusMapping(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewHTTP: %v", err)
 			}
-			spy := &spyConversationUpdateClient{HTTPClient: base, err: tc.err}
+			spy := &spyConversationUpdateClient{httpTestBackend: httpTestBackend{HTTPClient: base}, err: tc.err}
 			handler := NewHandler(spy)
 
 			req := httptest.NewRequest(http.MethodPatch, "/v1/conversations/c1", strings.NewReader(`{"title":"x"}`))
@@ -964,7 +993,7 @@ func TestHandler_DeleteConversation(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyConversationDeleteClient{HTTPClient: base}
+	spy := &spyConversationDeleteClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	req := httptest.NewRequest(http.MethodDelete, "/v1/conversations/c1", nil)
@@ -985,7 +1014,7 @@ func TestHandler_GetRun(t *testing.T) {
 		t.Fatalf("NewHTTP: %v", err)
 	}
 	spy := &spyRunClient{
-		HTTPClient: base,
+		httpTestBackend: httpTestBackend{HTTPClient: base},
 		run: &runmodel.RunRowsView{
 			Id:             "run-1",
 			Status:         "running",
@@ -1042,7 +1071,7 @@ func TestHandler_DeleteConversation_ErrorStatusMapping(t *testing.T) {
 			if err != nil {
 				t.Fatalf("NewHTTP: %v", err)
 			}
-			spy := &spyConversationDeleteClient{HTTPClient: base, err: tc.err}
+			spy := &spyConversationDeleteClient{httpTestBackend: httpTestBackend{HTTPClient: base}, err: tc.err}
 			handler := NewHandler(spy)
 
 			req := httptest.NewRequest(http.MethodDelete, "/v1/conversations/c1", nil)
@@ -1057,7 +1086,7 @@ func TestHandler_DeleteConversation_ErrorStatusMapping(t *testing.T) {
 }
 
 type spyQueuedTurnMutationClient struct {
-	*HTTPClient
+	httpTestBackend
 	cancelConversationID string
 	cancelTurnID         string
 	moveInput            *MoveQueuedTurnInput
@@ -1085,7 +1114,7 @@ func TestHandler_QueuedTurnMutations_ReturnNoContent(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyQueuedTurnMutationClient{HTTPClient: base}
+	spy := &spyQueuedTurnMutationClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	t.Run("delete", func(t *testing.T) {
@@ -1126,7 +1155,7 @@ func TestHandler_QueuedTurnMutations_ReturnNoContent(t *testing.T) {
 }
 
 type spyToolResourceClient struct {
-	*HTTPClient
+	httpTestBackend
 	executeName string
 	resourceRef *ResourceRef
 	saveInput   *SaveResourceInput
@@ -1173,7 +1202,7 @@ func TestHandler_ExecuteTool_EmptyNameIsBadRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyToolResourceClient{HTTPClient: base}
+	spy := &spyToolResourceClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := handleExecuteTool(spy)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/tools//execute", strings.NewReader(`{}`))
@@ -1194,7 +1223,7 @@ func TestHandler_ResourceHandlers_EmptyPathValuesAreBadRequest(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyToolResourceClient{HTTPClient: base}
+	spy := &spyToolResourceClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 
 	t.Run("get", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/workspace/resources//", nil)
@@ -1235,7 +1264,7 @@ func TestHandler_SkillHandlers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyToolResourceClient{HTTPClient: base}
+	spy := &spyToolResourceClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 
 	t.Run("list", func(t *testing.T) {
 		req := httptest.NewRequest(http.MethodGet, "/v1/skills?conversationId=c1&agentId=coder", nil)
@@ -1285,7 +1314,7 @@ func TestHandler_SkillHandlers(t *testing.T) {
 }
 
 type spyTranscriptClient struct {
-	*HTTPClient
+	httpTestBackend
 	gotInput       *GetTranscriptInput
 	gotOptions     []TranscriptOption
 	gotLiveOptions []TranscriptOption
@@ -1328,7 +1357,7 @@ func TestHandler_GetLiveState_HonorsExecutionDetailFlags(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyTranscriptClient{HTTPClient: base}
+	spy := &spyTranscriptClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 	req := httptest.NewRequest(http.MethodGet, "/v1/conversations/c1/live-state?includeModelCalls=true&includeToolCalls=true", nil)
 	rec := httptest.NewRecorder()
@@ -1350,7 +1379,7 @@ func TestHandler_GetTranscript_AcceptsLegacyIncludeToolCallParam(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyTranscriptClient{HTTPClient: base}
+	spy := &spyTranscriptClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/conversations/c1/transcript?since=m1&includeModelCall=true&includeToolCall=true", nil)
@@ -1381,7 +1410,7 @@ func TestHandler_GetTranscript_HydratesPersistedInlineReports(t *testing.T) {
 		`{"version":1,"scope":"delivery","id":"brief","sequence":3,"mode":"commit"}` +
 		"\n```"
 	spy := &spyTranscriptClient{
-		HTTPClient: base,
+		httpTestBackend: httpTestBackend{HTTPClient: base},
 		transcript: &ConversationStateResponse{
 			SchemaVersion: "2",
 			Conversation: &ConversationState{
@@ -1420,7 +1449,7 @@ func TestHandler_GetPayloads_NormalizesBatchIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyTranscriptClient{HTTPClient: base}
+	spy := &spyTranscriptClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/api/payloads", strings.NewReader(`{"ids":["p1"," p2 ","p1",""]}`))
@@ -1449,7 +1478,7 @@ func TestHandler_GetPayloads_ShapesCompressedInlinePayloads(t *testing.T) {
 	}
 	body := []byte(gzipFeedPayload(t, `{"ok":true}`))
 	spy := &spyTranscriptClient{
-		HTTPClient: base,
+		httpTestBackend: httpTestBackend{HTTPClient: base},
 		payloads: map[string]*conversation.Payload{
 			"p1": &conversation.Payload{Id: "p1", MimeType: "application/json", InlineBody: &body, Compression: "gzip"},
 		},
@@ -1484,7 +1513,7 @@ func TestHandler_GetTranscript_ParsesSelectors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyTranscriptClient{HTTPClient: base}
+	spy := &spyTranscriptClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/conversations/c1/transcript?selectors="+url.QueryEscape(`{"Message":{"limit":1,"offset":2,"orderBy":"created_at ASC,id ASC"}}`), nil)
@@ -1510,7 +1539,7 @@ func TestHandler_GetTranscript_ParsesSelectors(t *testing.T) {
 }
 
 type spyExecuteClient struct {
-	*HTTPClient
+	httpTestBackend
 }
 
 func (s *spyExecuteClient) ExecuteTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
@@ -1521,7 +1550,7 @@ func (s *spyExecuteClient) ExecuteTool(ctx context.Context, name string, args ma
 }
 
 type exportRequestCaptureClient struct {
-	*HTTPClient
+	httpTestBackend
 	requestIDs []string
 	args       []map[string]interface{}
 }
@@ -1537,7 +1566,7 @@ func TestHandler_ExecuteToolKeepsTrustedExportRequestIdentityOutsideArgs(t *test
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &exportRequestCaptureClient{HTTPClient: base}
+	spy := &exportRequestCaptureClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 	execute := func(header string) {
 		request := httptest.NewRequest(
@@ -1580,7 +1609,7 @@ func TestHandler_ExecuteToolKeepsTrustedExportRequestIdentityOutsideArgs(t *test
 }
 
 type templateRouteClient struct {
-	*HTTPClient
+	httpTestBackend
 	listed  bool
 	gotName *GetTemplateInput
 }
@@ -1601,7 +1630,7 @@ func TestHandler_TemplatesUseDedicatedRoutesAndClientContract(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &templateRouteClient{HTTPClient: base}
+	spy := &templateRouteClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	req := httptest.NewRequest(http.MethodGet, "/v1/templates", nil)
@@ -1654,7 +1683,7 @@ func TestHandler_ExecuteToolByName_DefaultBestPathBlocksRisky(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyExecuteClient{HTTPClient: base}
+	spy := &spyExecuteClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	body := []byte(`{"name":"system/exec:execute","args":{"commands":["date"],"workdir":"/tmp"}}`)
@@ -1672,7 +1701,7 @@ func TestHandler_ExecuteToolByName_DefaultBestPathAllowsSafe(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyExecuteClient{HTTPClient: base}
+	spy := &spyExecuteClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	body := []byte(`{"name":"system/os:getEnv","args":{"names":["USER"]}}`)
@@ -1686,7 +1715,7 @@ func TestHandler_ExecuteToolByName_DefaultBestPathAllowsSafe(t *testing.T) {
 }
 
 type upstreamDeniedExecuteClient struct {
-	*HTTPClient
+	httpTestBackend
 }
 
 func (s *upstreamDeniedExecuteClient) ExecuteTool(_ context.Context, _ string, _ map[string]interface{}) (string, error) {
@@ -1694,7 +1723,7 @@ func (s *upstreamDeniedExecuteClient) ExecuteTool(_ context.Context, _ string, _
 }
 
 type partialResultExecuteClient struct {
-	*HTTPClient
+	httpTestBackend
 }
 
 func (s *partialResultExecuteClient) ExecuteTool(_ context.Context, _ string, _ map[string]interface{}) (string, error) {
@@ -1706,7 +1735,7 @@ func TestHandler_ExecuteToolByName_PreservesUpstreamAuthStatus(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &upstreamDeniedExecuteClient{HTTPClient: base}
+	spy := &upstreamDeniedExecuteClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	body := []byte(`{"name":"platform:Taxonomy","args":{"Name":"travel"}}`)
@@ -1724,7 +1753,7 @@ func TestHandler_ExecuteTool_PreservesPartialResultOnError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &partialResultExecuteClient{HTTPClient: base}
+	spy := &partialResultExecuteClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := handleExecuteTool(spy)
 
 	req := httptest.NewRequest(http.MethodPost, "/v1/tools/reporting%3Arun_export/execute", strings.NewReader(`{"jobId":"job-1"}`))
@@ -1752,7 +1781,7 @@ func TestHandler_ExecuteToolByName_PreservesPartialResultOnError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &partialResultExecuteClient{HTTPClient: base}
+	spy := &partialResultExecuteClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	handler := NewHandler(spy)
 
 	body := []byte(`{"name":"reporting:run_export","args":{"jobId":"job-1"}}`)
@@ -1789,8 +1818,23 @@ func (s *stubSubscription) Reason() string             { return s.reason }
 func (s *stubSubscription) LastSeq() int64             { return s.lastSeq }
 
 type spyStreamClient struct {
-	*HTTPClient
+	httpTestBackend
 	sub streaming.Subscription
+}
+
+type testNativeObservationReader struct{}
+
+func (testNativeObservationReader) ReadExecutionProvenance(_ context.Context, conversationID, turnID string) (*aguistore.ExecutionProvenance, error) {
+	return &aguistore.ExecutionProvenance{ThreadID: conversationID, TurnID: turnID, NativeTurnFound: true}, nil
+}
+func (s *spyStreamClient) authorizeCompatibilityConversation(_ context.Context, id string) error {
+	if id != "c1" {
+		return errors.New("unexpected conversation")
+	}
+	return nil
+}
+func (s *spyStreamClient) compatibilityExecutionProvenance() aguistore.ExecutionProvenanceReader {
+	return testNativeObservationReader{}
 }
 
 func (s *spyStreamClient) StreamEvents(_ context.Context, _ *StreamEventsInput) (streaming.Subscription, error) {
@@ -1806,7 +1850,7 @@ func TestHandler_StreamEvents_EmitsKeepaliveComments(t *testing.T) {
 		id: "sub-1",
 		ch: make(chan *streaming.Event),
 	}
-	spy := &spyStreamClient{HTTPClient: base, sub: sub}
+	spy := &spyStreamClient{httpTestBackend: httpTestBackend{HTTPClient: base}, sub: sub}
 	handler := NewHandler(spy)
 
 	prevInterval := streamKeepaliveInterval
@@ -1815,7 +1859,7 @@ func TestHandler_StreamEvents_EmitsKeepaliveComments(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	req := httptest.NewRequest(http.MethodGet, "/v1/stream?conversationId=c1", nil).WithContext(ctx)
+	req := httptest.NewRequest(http.MethodGet, "/v1/application-events?conversationId=c1", nil).WithContext(ctx)
 	rec := httptest.NewRecorder()
 
 	done := make(chan struct{})
@@ -1860,14 +1904,14 @@ func TestHandler_StreamEvents_EmitsOverflowTerminalEvent(t *testing.T) {
 		reason:  streaming.ReasonOverflow,
 		lastSeq: 7,
 	}
-	spy := &spyStreamClient{HTTPClient: base, sub: sub}
+	spy := &spyStreamClient{httpTestBackend: httpTestBackend{HTTPClient: base}, sub: sub}
 	handler := NewHandler(spy)
 
 	prevInterval := streamKeepaliveInterval
 	streamKeepaliveInterval = time.Hour // keep keepalive out of the way
 	defer func() { streamKeepaliveInterval = prevInterval }()
 
-	req := httptest.NewRequest(http.MethodGet, "/v1/stream?conversationId=c1", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/application-events?conversationId=c1", nil)
 	rec := httptest.NewRecorder()
 
 	done := make(chan struct{})
@@ -2004,7 +2048,7 @@ func TestHTTPClient_RunScheduleNow(t *testing.T) {
 
 func TestResolveQueryUserID_AuthDisabled_AssignsAnonymousCookie(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/ag-ui/run", nil)
 
 	got := resolveQueryUserID(rec, req, "", nil)
 	if got == "" {
@@ -2054,7 +2098,7 @@ func TestHTTPClient_DownloadFile_RejectsInformationalStatus(t *testing.T) {
 
 func TestResolveQueryUserID_AuthEnabled_ReturnsEmpty(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/ag-ui/run", nil)
 	cfg := &svcauth.Config{Enabled: true}
 
 	got := resolveQueryUserID(rec, req, "", cfg)
@@ -2068,7 +2112,7 @@ func TestResolveQueryUserID_AuthEnabled_ReturnsEmpty(t *testing.T) {
 
 func TestResolveQueryUserID_AuthEnabled_UsesContextUser(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/ag-ui/run", nil)
 	ctx := iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: "oauth-user-42"})
 	req = req.WithContext(ctx)
 	cfg := &svcauth.Config{Enabled: true}
@@ -2081,7 +2125,7 @@ func TestResolveQueryUserID_AuthEnabled_UsesContextUser(t *testing.T) {
 
 func TestResolveQueryUserID_ExplicitUserAlwaysWins(t *testing.T) {
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", nil)
+	req := httptest.NewRequest(http.MethodPost, "/v1/ag-ui/run", nil)
 	ctx := iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: "ctx-user"})
 	req = req.WithContext(ctx)
 	cfg := &svcauth.Config{Enabled: true}
@@ -2097,7 +2141,7 @@ func TestHandler_Query_Returns401_WhenAuthEnabledAndNoUser(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyQueryClient{HTTPClient: base}
+	spy := &spyQueryClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	sessions := svcauth.NewManager(time.Hour, nil)
 	handler, err := NewHandlerWithContext(
 		context.Background(),
@@ -2108,8 +2152,8 @@ func TestHandler_Query_Returns401_WhenAuthEnabledAndNoUser(t *testing.T) {
 		t.Fatalf("NewHandlerWithContext: %v", err)
 	}
 
-	body := []byte(`{"query":"hello"}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", bytes.NewReader(body))
+	body := []byte(`{"threadId":"c1","runId":"query-test","messages":[{"id":"u1","role":"user","content":"hello"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/ag-ui/run", bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
@@ -2126,7 +2170,7 @@ func TestHandler_Query_Succeeds_WhenAuthEnabledAndUserInContext(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyQueryClient{HTTPClient: base}
+	spy := &spyQueryClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	authCfg := &svcauth.Config{
 		Enabled:    true,
 		IpHashKey:  "test-key",
@@ -2153,8 +2197,8 @@ func TestHandler_Query_Succeeds_WhenAuthEnabledAndUserInContext(t *testing.T) {
 		t.Fatalf("NewHandlerWithContext: %v", err)
 	}
 
-	body := []byte(`{"query":"hello"}`)
-	req := httptest.NewRequest(http.MethodPost, "/v1/agent/query", bytes.NewReader(body))
+	body := []byte(`{"threadId":"c1","runId":"query-test","messages":[{"id":"u1","role":"user","content":"hello"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/ag-ui/run", bytes.NewReader(body))
 	req.AddCookie(&http.Cookie{Name: "sess", Value: "test-session"})
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -2175,7 +2219,7 @@ func TestHandler_ListPendingToolApprovals_UsesContextUserScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyToolApprovalClient{HTTPClient: base}
+	spy := &spyToolApprovalClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	authCfg := &svcauth.Config{
 		Enabled:    true,
 		IpHashKey:  "test-key",
@@ -2235,7 +2279,7 @@ func TestHandler_ListPendingToolApprovals_ForwardsOutcomeSinceCursor(t *testing.
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyToolApprovalClient{HTTPClient: base}
+	spy := &spyToolApprovalClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	authCfg := &svcauth.Config{
 		Enabled:    true,
 		IpHashKey:  "test-key",
@@ -2276,7 +2320,7 @@ func TestHandler_DecideToolApproval_UsesContextUserScope(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewHTTP: %v", err)
 	}
-	spy := &spyToolApprovalClient{HTTPClient: base}
+	spy := &spyToolApprovalClient{httpTestBackend: httpTestBackend{HTTPClient: base}}
 	authCfg := &svcauth.Config{
 		Enabled:    true,
 		IpHashKey:  "test-key",
@@ -2329,7 +2373,7 @@ func TestHandler_DecideToolApproval_ReturnsConflictWhenApprovedExecutionFails(t 
 		t.Fatalf("NewHTTP: %v", err)
 	}
 	spy := &spyToolApprovalClient{
-		HTTPClient: base,
+		httpTestBackend: httpTestBackend{HTTPClient: base},
 		decideOutput: &DecideToolApprovalOutput{
 			Status: "ok",
 			Outcome: &api.DecideToolApprovalOutcome{

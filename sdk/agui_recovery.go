@@ -111,7 +111,7 @@ func recoverAGUIDurable(ctx context.Context, client Client, runtime aguiRuntime,
 	filter := func(e *streaming.Event) bool { return rootFilter(e) || childFor(e) != nil }
 	// Subscribe before inspecting so a native terminal cannot fall between the
 	// inspection and attachment. Polling also observes other-process completion.
-	sub, err := client.StreamEvents(ctx, &StreamEventsInput{ConversationID: claimed.ConversationID, Filter: filter})
+	sub, err := subscribeNativeEvents(ctx, client, &StreamEventsInput{ConversationID: claimed.ConversationID, Filter: filter})
 	if err != nil {
 		return err
 	}

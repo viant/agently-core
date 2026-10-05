@@ -26,12 +26,12 @@ require (
 	github.com/viant/bindly v0.4.0
 	github.com/viant/datly v1.1.1-0.20261005174616-7655958a8719
 	github.com/viant/embedius v0.5.6
-	github.com/viant/forge v0.3.40-0.20260918225638-e53002b12147
+	github.com/viant/forge v0.3.45-0.20261005183733-226d32c8add6
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
 	github.com/viant/jsonrpc v0.25.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
-	github.com/viant/mcp v0.24.0
+	github.com/viant/mcp v0.24.1-0.20261005185040-e3fb56e588cd
 	github.com/viant/mcp-protocol v0.19.1-0.20261005144737-c504db7a02bb
 	github.com/viant/mcp-ui v0.2.0
 	github.com/viant/parsly v0.3.3
@@ -188,7 +188,3 @@ require (
 )
 
 replace github.com/viant/mcp-protocol => ../mcp-protocol-ag-ui
-
-replace github.com/viant/mcp => ../mcp-ag-ui
-
-replace github.com/viant/forge => ../forge-ag-ui

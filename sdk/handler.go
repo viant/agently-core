@@ -183,7 +183,6 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	mux.HandleFunc("GET /health", handleHealth())
 	mux.HandleFunc("POST /upload", handleStagedUpload())
 
-	mux.HandleFunc("POST /v1/agent/query", handleQuery(client, cfg.authCfg))
 	mux.HandleFunc("POST /v1/ag-ui/run", handleAGUIRun(client, cfg.authCfg, AGUIWorkspaceBindings{Metadata: cfg.metadataHandler, MCPApps: cfg.mcpAppsHost}))
 	if cfg.aguiDemoRegistry != nil {
 		if runtime, ok := client.(aguiRuntime); ok && runtime.aguiStore() != nil {
@@ -221,7 +220,7 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	mux.HandleFunc("GET /v1/files/{id}", handleDownloadFile(client))
 	mux.HandleFunc("GET /v1/feeds", handleListFeeds(client))
 	mux.HandleFunc("GET /v1/feeds/{id}/data", handleGetFeedData(client))
-	mux.HandleFunc("GET /v1/stream", handleStreamEvents(client, cfg.authCfg))
+	mux.HandleFunc("GET /v1/application-events", handleApplicationEvents(client, cfg.authCfg))
 
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", handleCancelTurn(client))
 	mux.HandleFunc("POST /v1/elicitations/{conversationId}/{elicitationId}/resolve", handleResolveElicitation(client))

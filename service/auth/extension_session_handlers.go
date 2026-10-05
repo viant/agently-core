@@ -235,7 +235,7 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			in.IDToken = bearerToken
 			in.AccessToken = bearerToken
 		}
-		verified, verifyErr := verifyJWTSessionImport(r.Context(), a.cfg, in.IDToken, in.AccessToken, bearerToken)
+		verified, verifyErr := verifyRawSessionImport(r.Context(), a.cfg, in.IDToken, in.AccessToken, bearerToken)
 		if verifyErr != nil {
 			runtimeError(w, http.StatusUnauthorized, verifyErr)
 			return
@@ -256,17 +256,20 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 		}
 		scopes := tokenScopesFromStrings(strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.RefreshToken))
 		if verified != nil {
-			username, subject, email = verified.Subject, verified.Subject, verified.Email
+			username, subject, email = verified.Username, verified.Subject, verified.Email
+			in.ExpiresAt = "" // Derive token lifetime from the verified material.
 			// Refresh tokens are not identity evidence and may be opaque.
-			scopes = tokenScopesFromStrings(strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken), bearerToken)
+			scopes = append([]string(nil), verified.Scopes...)
 		}
 		var oauthClient *OAuthClient
 		if a != nil && a.cfg != nil && a.cfg.OAuth != nil {
 			oauthClient = a.cfg.OAuth.Client
 		}
-		if err := validateConfiguredOAuthScopes(oauthClient, nil, strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.RefreshToken)); err != nil {
-			runtimeError(w, http.StatusUnauthorized, err)
-			return
+		if verified == nil {
+			if err := validateConfiguredOAuthScopes(oauthClient, nil, strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.RefreshToken)); err != nil {
+				runtimeError(w, http.StatusUnauthorized, err)
+				return
+			}
 		}
 		sess := &Session{
 			ID:        uuid.New().String(),
@@ -277,8 +280,14 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			Scopes:    scopes,
 			CreatedAt: time.Now(),
 		}
+		if verified != nil {
+			sess.Provider = verified.Provider
+		}
 		if strings.TrimSpace(in.AccessToken) != "" || strings.TrimSpace(in.IDToken) != "" || strings.TrimSpace(in.RefreshToken) != "" {
 			expiry := resolveTokenExpiry(strings.TrimSpace(in.ExpiresAt), strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken))
+			if verified != nil {
+				expiry = verified.Expiry
+			}
 			sess.Tokens = &scyauth.Token{
 				Token: oauth2.Token{
 					AccessToken:  strings.TrimSpace(in.AccessToken),
@@ -289,7 +298,7 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			}
 		}
 		if sess.Tokens != nil && !bearerBootstrap && a.tokenStore != nil {
-			if err := a.persistOAuthToken(r.Context(), "session_create", username, email, subject, a.oauthProviderName(), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.IDToken), strings.TrimSpace(in.RefreshToken), sess.Tokens.Expiry); err != nil {
+			if err := a.persistOAuthToken(r.Context(), "session_create", username, email, subject, sess.Provider, strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.IDToken), strings.TrimSpace(in.RefreshToken), sess.Tokens.Expiry); err != nil {
 				runtimeError(w, http.StatusServiceUnavailable, err)
 				return
 			}

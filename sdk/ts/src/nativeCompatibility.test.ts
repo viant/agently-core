@@ -22,7 +22,7 @@ describe('explicit native application observation alongside AG-UI', () => {
         const subscription = client.streamEvents('thread/one', { onEvent, onTextDelta });
         expect(Observer.instances).toHaveLength(1);
         const observer = Observer.instances[0];
-        expect(observer.url).toBe('/v1/stream?conversationId=thread%2Fone&compatibilityScope=native-and-application');
+        expect(observer.url).toBe('/v1/application-events?conversationId=thread%2Fone');
         expect(observer.options).toEqual({ withCredentials: true });
         observer.emit({ type: 'text_delta', conversationId: 'thread/one', turnId: 'native-mobile', content: 'Mobile response' });
         expect(onTextDelta).toHaveBeenCalledWith('Mobile response', expect.objectContaining({ turnId: 'native-mobile' }));
@@ -70,6 +70,6 @@ describe('explicit native application observation alongside AG-UI', () => {
         client.resetAgUiInteractions();
         expect(Observer.instances[0].close).toHaveBeenCalledOnce();
         client.observeNativeEvents('application', {});
-        expect(Observer.instances[1].url).toBe('/v1/stream?conversationId=application&compatibilityScope=native-and-application');
+        expect(Observer.instances[1].url).toBe('/v1/application-events?conversationId=application');
     });
 });

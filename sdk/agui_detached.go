@@ -108,7 +108,7 @@ func startAGUIDetached(ctx context.Context, parent *aguiInvocationObserver, inv 
 	filter := func(e *streaming.Event) bool {
 		return e != nil && e.ConversationID == inv.ConversationID && e.TurnID == inv.TurnID
 	}
-	sub, err := parent.client.StreamEvents(ctx, &StreamEventsInput{ConversationID: inv.ConversationID, Filter: filter})
+	sub, err := subscribeNativeEvents(ctx, parent.client, &StreamEventsInput{ConversationID: inv.ConversationID, Filter: filter})
 	if err != nil {
 		cancel()
 		return nil, err
