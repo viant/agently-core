@@ -46,8 +46,17 @@ func TestRunLeaseCompetingConnection(t *testing.T) {
 			must(t, err)
 			defer competitor.Close()
 			injected := false
+			var competitorErr error
+			var winningSnapshot map[string]any
 			rt, _ := runParityRuntimeWithViewHook(t, db, "", true, func(provider locator.Provider) locator.Provider {
-				return &afterScheduleView{Provider: provider, after: func() error { injected = true; _, err := competitor.Exec(tc.input.statement); return err }}
+				return &afterScheduleView{Provider: provider, after: func() error {
+					injected = true
+					_, competitorErr = competitor.Exec(tc.input.statement)
+					if competitorErr == nil {
+						winningSnapshot = sqliteRaceRowSnapshot(t, competitor, "run", "lease")
+					}
+					return competitorErr
+				}}
 			})
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/run?leaseMode="+tc.input.mode+"&leaseOwner=worker&leaseNow=2026-01-02T00:00:00Z", strings.NewReader(`{"data":[{"id":"lease","leaseUntil":"2026-01-03T00:00:00Z"}]}`))
 			request.Header.Set("Content-Type", "application/json")
@@ -55,7 +64,18 @@ func TestRunLeaseCompetingConnection(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			out, err := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/run", scope)
+			requireCommittedSQLiteSnapshotConflict(t, err, competitorErr)
+			requireSQLiteWinnerUnchanged(t, db, "run", "lease", winningSnapshot)
+			// The failed owned transaction has completed rollback before retry.
+			rt, _ = runParityRuntime(t, db, "", true)
+			freshRequest := httptest.NewRequest("PATCH", "/v1/api/agently/run?leaseMode="+tc.input.mode+"&leaseOwner=worker&leaseNow=2026-01-02T00:00:00Z", strings.NewReader(`{"data":[{"id":"lease","leaseUntil":"2026-01-03T00:00:00Z"}]}`))
+			freshRequest.Header.Set("Content-Type", "application/json")
+			freshScope, freshErr := requestprovider.New(freshRequest)
+			must(t, freshErr)
+			defer freshScope.Close()
+			out, err = rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/run", freshScope)
 			must(t, err)
+			requireSQLiteWinnerUnchanged(t, db, "run", "lease", winningSnapshot)
 			if !injected {
 				t.Fatal("competing write was not injected after Current lookup")
 			}
