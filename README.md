@@ -30,7 +30,7 @@ for metadata-driven interfaces.
   work through controller-owned turns and distributed scheduler leases.
 - **Interactive results.** Produce canonical transcripts, live tool feeds,
   hosted workspaces and reports with authored layouts, data sources and visual
-  content. Clients consume these results through AG-UI and application APIs.
+  content. Clients consume these results through [AG-UI](https://docs.ag-ui.com/spec/1.0) and application APIs.
 - **Extensible boundaries.** Supply providers, resource finders, tools,
   integrations and application handlers. Use the Go runtime directly or build
   web, mobile and CLI clients with the Go, TypeScript, Swift and Kotlin SDKs.
@@ -62,7 +62,7 @@ elicitation can suspend work until the required decision or input arrives.
 Async operations and linked agents retain their invocation relationships.
 
 Execution state and presentation are connected through persisted identities.
-AG-UI carries conversation runs, messages, tool activity, state and interrupts;
+[AG-UI](https://docs.ag-ui.com/spec/1.0) carries conversation runs, messages, tool activity, state and interrupts;
 Agently extensions carry workspace content, goals, approvals and queued-turn
 controls. Supporting BFF APIs expose history, resources and application state.
 Clients can reattach to admitted work while the runtime owns execution and

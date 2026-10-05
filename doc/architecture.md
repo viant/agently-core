@@ -1,7 +1,7 @@
 # Architecture
 
 Agently Core owns agent execution and durable state. Applications embed that
-runtime in Go or expose it to clients through AG-UI and authenticated application
+runtime in Go or expose it to clients through [AG-UI](https://docs.ag-ui.com/spec/1.0) and authenticated application
 APIs. The assembled Agently application supplies server configuration, CLI and
 web/mobile shells; Forge supplies independent data-driven UI rendering.
 
