@@ -3,11 +3,13 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"github.com/viant/agently-core/runtime/requestctx"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	aguistore "github.com/viant/agently-core/app/store/agui"
@@ -93,4 +95,71 @@ func TestAGUIAuthenticatedOpaqueHistoryReentryUsesSameBindingAndJournal(t *testi
 	require.NoError(t, err)
 	require.NoError(t, rejected.Body.Close())
 	require.NotContains(t, string(foreignRaw), "aguiThreadId")
+}
+
+func TestAGUIDetachedNativeChildWithOpaqueMappedParentKeepsLateAnswer(t *testing.T) {
+	c := &mappedHistoryClient{newDatlyObservedClient(t, 128)}
+	release := make(chan struct{})
+	completed := make(chan error, 1)
+	wireParent := "  Opaque-parent-雪\t"
+	childID := "native-detached-child"
+	child := conversation.NewConversation()
+	child.SetId(childID)
+	child.SetCreatedByUserID("owner")
+	require.NoError(t, c.conv.PatchConversations(recoveryContext(), child))
+	var nativeParent string
+	c.query = func(ctx context.Context, in *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
+		nativeParent = in.ConversationID
+		invocation := requestctx.Invocation{Detached: true, ExecutionMode: "detach", ID: "mapped-detached", ConversationID: childID, TurnID: "child-turn", Name: "background", ParentConversationID: in.ConversationID, ParentTurnID: in.MessageID}
+		go func() {
+			<-release
+			childCtx, err := requestctx.ObserveInvocation(ctx, invocation)
+			if err == nil {
+				err = requestctx.NotifyInvocationReturned(childCtx, requestctx.InvocationResult{Invocation: invocation, NativeStatus: "succeeded", Content: "late mapped child answer"})
+			}
+			completed <- err
+		}()
+		return &agentsvc.QueryOutput{Content: "parent finished"}, nil
+	}
+	handler := handleAGUIRun(c, nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { handler(w, r.WithContext(recoveryContext())) }))
+	defer server.Close()
+	body := rawAGUI(map[string]any{"threadId": wireParent, "runId": "mapped-parent", "messages": []any{map[string]any{"id": "user", "role": "user", "content": "Hello"}}})
+	status, rootWire := durablePost(t, server, string(body), nil)
+	require.Equal(t, 200, status, rootWire)
+	require.NotEqual(t, wireParent, nativeParent)
+	require.NotContains(t, rootWire, "late mapped child answer")
+	close(release)
+	select {
+	case err := <-completed:
+		require.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("detached child did not finish")
+	}
+	record, err := c.store.GetRun(recoveryContext(), "owner", childID, "mapped-detached")
+	require.NoError(t, err)
+	require.Equal(t, childID, record.ConversationID)
+	require.Equal(t, "mapped-parent", record.ParentRunID)
+	status, replay := durablePost(t, server, string(record.Input), nil)
+	require.Equal(t, 200, status, replay)
+	require.Contains(t, replay, "late mapped child answer")
+	assertAGUITerminal(t, decodeAGUISSE(t, strings.NewReader(replay)), "RUN_FINISHED")
+	require.EqualValues(t, 1, c.queries.Load())
+}
+
+func TestAGUIDetachedRejectsUnboundNativeInvocationWithoutObserving(t *testing.T) {
+	c, _ := newDurableAGUIServer(t)
+	record, _, err := c.store.Admit(recoveryContext(), aguistore.Admission{ThreadID: "thread", RunID: "parent", TurnID: "parent-turn", Principal: "owner", Input: rawAGUI(map[string]any{"threadId": "thread", "runId": "parent", "messages": []any{map[string]any{"id": "user-message", "role": "user", "content": "hello"}}})})
+	require.NoError(t, err)
+	observer := newAGUIInvocationObserver(recoveryContext(), c, record.ConversationID, record.TurnID)
+	observer.store, observer.run, observer.runtime = c.store, record, c
+	invocation := requestctx.Invocation{Detached: true, ExecutionMode: "detach", ID: "unbound-child-run", ConversationID: "missing-native-child", TurnID: "child-turn", Name: "child", ParentConversationID: record.ConversationID, ParentTurnID: record.TurnID}
+	_, err = startAGUIDetached(recoveryContext(), observer, invocation)
+	require.ErrorContains(t, err, "native binding mismatch")
+	require.False(t, c.subscribed.Load())
+	require.EqualValues(t, 0, c.queries.Load())
+	child, err := c.store.GetRun(recoveryContext(), "owner", invocation.ConversationID, invocation.ID)
+	require.NoError(t, err)
+	require.EqualValues(t, 0, child.LastSequence)
+	require.Nil(t, child.LeaseUntil)
 }

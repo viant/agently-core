@@ -120,6 +120,10 @@ func TestAGUIDetachedJournalPersistsInheritedRawFrontendDefinitions(t *testing.T
 	parent := newAGUIInvocationObserver(ctx, c, record.ThreadID, record.TurnID)
 	parent.runtime, parent.store, parent.run = c, c.store, record
 	inv := requestctx.Invocation{Detached: true, ExecutionMode: "detach", ID: "detached-tools", ConversationID: "child", TurnID: "child-turn", Name: "child", ParentConversationID: record.ThreadID, ParentTurnID: record.TurnID}
+	childShell := conversation.NewConversation()
+	childShell.SetId(inv.ConversationID)
+	childShell.SetCreatedByUserID("owner")
+	require.NoError(t, c.conv.PatchConversations(recoveryContext(), childShell))
 	nativeCtx, err := startAGUIDetached(ctx, parent, inv)
 	require.NoError(t, err)
 	actual, err := c.store.GetRun(ctx, "owner", inv.ConversationID, inv.ID)

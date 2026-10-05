@@ -84,3 +84,26 @@ Caller code never sees the raw token.
 - [doc/authorization-policy.md](authorization-policy.md) — external MCP visibility policy and legacy Forge compatibility.
 - [doc/mcp-integration.md](mcp-integration.md) — how auth reaches external tools.
 - [doc/sdk.md](sdk.md) — which SDK surfaces honour OAuth automatically.
+
+## Session-import verification boundary
+
+In a JWT-only workspace (`auth.jwt.enabled` with no configured OAuth client),
+`POST /v1/api/auth/session` verifies supplied identity/access/bearer JWTs against
+the configured JWT keys before writing a session or cookie. Missing, expired,
+invalid, differently signed, and conflicting-subject credentials are rejected.
+The session subject, email and scopes come from verified credentials; a caller's
+`username` or opaque refresh token cannot supply identity or grant scopes. Both
+auth handler implementations follow this rule. CLI commands stop when an
+explicit flag/environment token is rejected instead of logging in as another
+identity through a fallback flow.
+
+This change does not establish verification of arbitrary raw OAuth imports.
+The current OAuth/mixed session-import path retains its existing scope checks
+and token handling; it does not apply the JWT-only verifier. In particular,
+`handleCreateSession` does not currently consume the OAuth JWKS verifier built
+by `oauthVerifierConfig`. That is a separate security boundary requiring review,
+not evidence that every imported OAuth token is verified. The next bounded
+integration should use the configured provider verifier for signed ID tokens,
+validate its issuer/audience policy, and define an explicit validation mechanism
+for opaque access-token imports. It must preserve authenticated callback/OOB
+flows and must not infer trust from decoded claims or a client-supplied subject.
