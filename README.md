@@ -96,8 +96,7 @@ Keep the extension contract explicit when integrating a generic AG-UI client.
 | /v1/conversations | Native conversation creation, metadata and canonical history |
 | /v1/turns, /v1/elicitations, /v1/tool-approvals | Native turn controls and typed interaction services |
 | /v1/tools, /v1/workspace/resources | Tool discovery/execution and workspace resource management |
-| /v1/stream | Supporting native/application event observation |
-| POST /v1/agent/query | Explicit native/legacy HTTP query API |
+| /v1/application-events | Explicit scoped native/application background observation |
 
 An admitted run can outlive an HTTP connection or view. Reopening attaches to
 the existing journal rather than sending the prompt again. An observer loss
@@ -110,20 +109,12 @@ ID. Authenticated native history exposes an optional aguiThreadId reference so
 SDKs keep the native UI/history identity while reopening the original wire
 thread. Account changes invalidate old cached bindings and transport responses.
 
-Explicit compatibility settings remain available:
-
-~~~ts
-const client = new AgentlyClient({ baseURL: "/bff", useCookies: true });
-const legacy = new AgentlyClient({
-  baseURL: "/bff", useCookies: true, interactionProtocol: "legacy"
-});
-~~~
-
-Swift selects interactionProtocol: .legacy; Kotlin selects
-conversationTransportMode = ConversationTransportMode.LEGACY. An AG-UI failure
-does not automatically resubmit through a legacy query. Current cookies,
-authentication headers and injected networking remain in use across both
-protocol and supporting APIs.
+Conversation SDKs expose one AG-UI interaction path; there is no legacy
+protocol selector or automatic query/stream fallback. Current cookies,
+authentication headers and injected networking remain in use. Dedicated
+readConversationHistory/readApplicationState helpers access authorized native
+BFF history and application snapshots; a shared reader denied the owner's
+private protocol journal can use those reads without executing another query.
 
 Read [TypeScript](sdk/ts/AG-UI.md), [Swift](sdk/ios/AG-UI.md),
 [Kotlin](sdk/android/AG-UI.md), [approval coordination](doc/ag-ui-approval-coordination.md)

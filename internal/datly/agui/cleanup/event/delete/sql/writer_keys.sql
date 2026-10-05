@@ -1,1 +1,1 @@
-SELECT EventKey AS EventKey FROM `/`
+SELECT EventKey AS Id FROM `/`

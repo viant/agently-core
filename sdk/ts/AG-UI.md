@@ -1,9 +1,8 @@
 # AG-UI TypeScript transport
 
-## Default conversation transport
+## Conversation transport
 
-AG-UI is the default for outward SDK conversation interactions. Select `interactionProtocol: 'legacy'` (TypeScript), `interactionProtocol: .legacy` (Swift), or `conversationTransportMode = ConversationTransportMode.LEGACY` (Kotlin) only for an explicitly legacy server. The configured BFF authentication, cookies, headers and injected networking remain in use. There is no automatic replay through a legacy route after an AG-UI failure. Supporting workspace, report, layout and application APIs remain available; this SDK default is not proof of completed UI parity.
-
+Outward SDK conversation interactions use AG-UI exclusively. Legacy protocol options and native conversation query/stream fallback paths have been removed. Configured BFF authentication, cookies, headers and injected networking remain in use. Workspace, report, layout and application services remain separate. `readConversationHistory`, `readApplicationState` and scoped `observeNativeEvents` support authorized application/history reads and background work; they never resubmit chat. Shared/read-only snapshots use a BFF read only after a protocol permission denial (403). This cutover does not establish complete UI parity.
 
 `AgUiClient` uses exact dependencies `@ag-ui/client@1.0.1` and `@ag-ui/core@1.0.1` (protocol 1.0). Its `HttpAgent` owns POST streaming, schema enforcement, chunk normalization, lifecycle verification, and protocol reduction. `messages` and `state` retain standard message roles, multipart content, tool arguments/results, metadata, opaque continuation values and shared state. UI rows must be derived from this store; they must not reconstruct the next request.
 
@@ -41,9 +40,9 @@ Approval/graph final integration remains in progress, and interactive MCP Apps
 automatic app-scope resolution is still an architecture decision. See the
 current plan and operation matrix for the authoritative backend status.
 
-## Production shell migration gate
+## Shell verification
 
-The existing `Client`, conversation transport and presentation store remain available during migration. The initial AG-UI transport is not a replacement until the operation inventory in the repository's `ag-ui.md` has implemented extension schemas and web/iOS/Android parity checks. Cutover requires lossless history/state integration, tool and interrupt round trips, cancellation/recovery behavior, every existing feature mapping, and end-to-end proof that migrated clients no longer call retired native APIs. No AG-UI code uses those legacy endpoints.
+Web/iOS/Android applications retain their existing presentation and workspace controls. Final cutover acceptance requires lossless history/state, tool and interrupt round trips, cancellation/recovery and actual shell parity checks. See the operation inventory in `ag-ui.md`; those acceptance gates remain distinct from SDK unit tests.
 
 ## Verification
 

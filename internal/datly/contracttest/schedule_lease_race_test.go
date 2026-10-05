@@ -3,6 +3,8 @@ package tests
 import (
 	"context"
 	"database/sql"
+	"errors"
+	sqlite3 "github.com/mattn/go-sqlite3"
 	write "github.com/viant/agently-core/internal/datly/schedule/write"
 	"github.com/viant/bindly/locator"
 	requestprovider "github.com/viant/bindly/provider/request"
@@ -73,8 +75,17 @@ func TestScheduleLeaseCompetingConnection(t *testing.T) {
 			must(t, err)
 			defer competitor.Close()
 			injected := false
+			var competitorErr error
+			var winningSnapshot map[string]any
 			rt, _ := scheduleWriterRuntimeWithViewHook(t, db, "", func(provider locator.Provider) locator.Provider {
-				return &afterScheduleView{Provider: provider, after: func() error { injected = true; _, err := competitor.Exec(tc.input.statement); return err }}
+				return &afterScheduleView{Provider: provider, after: func() error {
+					injected = true
+					_, competitorErr = competitor.Exec(tc.input.statement)
+					if competitorErr == nil {
+						winningSnapshot = sqliteRaceRowSnapshot(t, competitor, "schedule", "lease")
+					}
+					return competitorErr
+				}}
 			})
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/scheduler/?leaseMode="+tc.input.mode+"&leaseOwner=worker&leaseNow=2026-01-02T00:00:00Z", strings.NewReader(`{"data":[{"id":"lease","leaseUntil":"2026-01-03T00:00:00Z"}]}`))
 			request.Header.Set("Content-Type", "application/json")
@@ -82,7 +93,18 @@ func TestScheduleLeaseCompetingConnection(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			out, err := rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/scheduler/", scope)
+			requireCommittedSQLiteSnapshotConflict(t, err, competitorErr)
+			requireSQLiteWinnerUnchanged(t, db, "schedule", "lease", winningSnapshot)
+			// The failed owned transaction has completed rollback before retry.
+			rt, _ = scheduleWriterRuntime(t, db, "")
+			freshRequest := httptest.NewRequest("PATCH", "/v1/api/agently/scheduler/?leaseMode="+tc.input.mode+"&leaseOwner=worker&leaseNow=2026-01-02T00:00:00Z", strings.NewReader(`{"data":[{"id":"lease","leaseUntil":"2026-01-03T00:00:00Z"}]}`))
+			freshRequest.Header.Set("Content-Type", "application/json")
+			freshScope, freshErr := requestprovider.New(freshRequest)
+			must(t, freshErr)
+			defer freshScope.Close()
+			out, err = rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/scheduler/", freshScope)
 			must(t, err)
+			requireSQLiteWinnerUnchanged(t, db, "schedule", "lease", winningSnapshot)
 			if !injected {
 				t.Fatal("competing write was not injected after Current lookup")
 			}
@@ -102,5 +124,61 @@ func TestScheduleLeaseCompetingConnection(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Current is now read inside the writer transaction. In WAL mode a competing
+// committed writer invalidates that snapshot: upgrading it must fail and roll
+// back, rather than acknowledge a stale mutation. A fresh invocation below
+// separately verifies the application's guarded no-op result.
+func requireCommittedSQLiteSnapshotConflict(t *testing.T, err, competitorErr error) {
+	t.Helper()
+	if competitorErr != nil {
+		t.Fatalf("competitor did not commit: %v", competitorErr)
+	}
+	var sqliteErr sqlite3.Error
+	if err == nil || !errors.As(err, &sqliteErr) {
+		t.Fatalf("expected typed SQLite snapshot conflict, got %T: %v", err, err)
+	}
+	if sqliteErr.Code != sqlite3.ErrBusy || sqliteErr.ExtendedCode != sqlite3.ErrBusySnapshot {
+		t.Fatalf("unexpected SQLite conflict code=%d extended=%d: %v", sqliteErr.Code, sqliteErr.ExtendedCode, err)
+	}
+}
+
+func sqliteRaceRowSnapshot(t *testing.T, db *sql.DB, table, id string) map[string]any {
+	t.Helper()
+	if table != "run" && table != "schedule" {
+		t.Fatal("unexpected fixture table")
+	}
+	rows, err := db.Query("SELECT * FROM "+table+" WHERE id=?", id)
+	must(t, err)
+	defer rows.Close()
+	if !rows.Next() {
+		must(t, rows.Err())
+		return nil
+	}
+	columns, err := rows.Columns()
+	must(t, err)
+	values := make([]any, len(columns))
+	dest := make([]any, len(columns))
+	for i := range values {
+		dest[i] = &values[i]
+	}
+	must(t, rows.Scan(dest...))
+	snapshot := map[string]any{}
+	for i, column := range columns {
+		value := values[i]
+		if b, ok := value.([]byte); ok {
+			value = string(b)
+		}
+		snapshot[column] = value
+	}
+	return snapshot
+}
+func requireSQLiteWinnerUnchanged(t *testing.T, db *sql.DB, table, id string, expected map[string]any) {
+	t.Helper()
+	actual := sqliteRaceRowSnapshot(t, db, table, id)
+	if !reflect.DeepEqual(actual, expected) {
+		t.Fatalf("competing winner changed: actual=%#v expected=%#v", actual, expected)
 	}
 }

@@ -72,7 +72,7 @@ final class ActualServerContractTests: XCTestCase {
         }
         let event = try await withThrowingTaskGroup(of: SSEEvent.self) { group in
             group.addTask {
-                for try await event in owner.streamEvents(conversationID: id) {
+                for try await event in owner.streamApplicationEvents(conversationID: id) {
                     return event
                 }
                 throw NSError(domain: "ActualServerContract", code: 1)

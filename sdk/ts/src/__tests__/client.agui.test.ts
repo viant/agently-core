@@ -36,10 +36,11 @@ describe('AG-UI through the existing BFF client', () => {
                 {headers:{'Content-Type':'text/event-stream'}});
         });
         const client = new AgentlyClient({baseURL:'/v1', useCookies:true, tokenProvider:()=> 'fixture-token', fetchImpl});
-        const output = await client.query({conversationId:'thread', query:'hello'});
+        const output = await client.query({conversationId:'thread', query:'hello', agentId:'chosen-agent', model:'chosen-model', toolBundles:['bundle'], resourceURIs:['workspace://file'], context:{project:'sample'}, reasoningEffort:'low'});
         expect(output.turnId).toBe('native-turn');
         expect(posted.map(input=>input.forwardedProps.agently.operation)).toEqual(['conversation.bootstrap','chat']);
         expect(posted[1].messages).toEqual([expect.objectContaining({role:'user',content:'hello'})]);
+        expect(posted[1].forwardedProps.agently.payload).toMatchObject({agentId:'chosen-agent',model:'chosen-model',toolBundles:['bundle'],resourceURIs:['workspace://file'],context:{project:'sample'},reasoningEffort:'low',useServerState:true});
         client.resetAgUiInteractions();
     });
 

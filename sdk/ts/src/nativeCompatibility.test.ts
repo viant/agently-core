@@ -16,7 +16,7 @@ describe('explicit native application observation alongside AG-UI', () => {
         const primaryClose = vi.fn();
         vi.spyOn(AgUiConversationTransport.prototype, 'subscribe').mockReturnValue({ close: primaryClose });
         const refresh = vi.spyOn(AgUiConversationTransport.prototype, 'refresh').mockResolvedValue({} as never);
-        const client = new AgentlyClient({ baseURL: '/v1', useCookies: true, interactionProtocol: 'ag-ui', observeNativeWork: true });
+        const client = new AgentlyClient({ baseURL: '/v1', useCookies: true, observeNativeWork: true });
         const onEvent = vi.fn();
         const onTextDelta = vi.fn();
         const subscription = client.streamEvents('thread/one', { onEvent, onTextDelta });
@@ -41,7 +41,7 @@ describe('explicit native application observation alongside AG-UI', () => {
     it('does not require the application observer for primary AG-UI chat', () => {
         vi.stubGlobal('EventSource', Observer);
         vi.spyOn(AgUiConversationTransport.prototype, 'subscribe').mockReturnValue({ close: vi.fn() });
-        const client = new AgentlyClient({ baseURL: '/v1', interactionProtocol: 'ag-ui' });
+        const client = new AgentlyClient({ baseURL: '/v1', });
         client.streamEvents('thread', {});
         expect(Observer.instances).toHaveLength(0);
     });
@@ -49,9 +49,9 @@ describe('explicit native application observation alongside AG-UI', () => {
         vi.stubGlobal('EventSource', Observer);
         vi.spyOn(AgUiConversationTransport.prototype, 'subscribe').mockReturnValue({ close: vi.fn() });
         vi.spyOn(AgUiConversationTransport.prototype, 'refresh').mockRejectedValue({ status: 403 });
-        const client = new AgentlyClient({ baseURL: '/v1', interactionProtocol: 'ag-ui', observeNativeWork: true });
+        const client = new AgentlyClient({ baseURL: '/v1', observeNativeWork: true });
         let release!: (value: never) => void;
-        const transcript = vi.spyOn(client, 'getTranscript').mockImplementation(() => new Promise(resolve => { release = resolve; }));
+        const transcript = vi.spyOn(client, 'readConversationHistory').mockImplementation(() => new Promise(resolve => { release = resolve; }));
         const onSnapshot = vi.fn();
         const onError = vi.fn();
         client.streamEvents('shared', { onSnapshot, onError });
@@ -63,13 +63,13 @@ describe('explicit native application observation alongside AG-UI', () => {
         expect(onSnapshot).not.toHaveBeenCalled();
         expect(onError).not.toHaveBeenCalled();
     });
-    it('closes application observers at the account boundary and retains explicit legacy routing', () => {
+    it('closes application observers at the account boundary and always requests application scope', () => {
         vi.stubGlobal('EventSource', Observer);
-        const client = new AgentlyClient({ baseURL: '/v1', interactionProtocol: 'legacy' });
+        const client = new AgentlyClient({ baseURL: '/v1', });
         client.observeNativeEvents('thread', {});
         client.resetAgUiInteractions();
         expect(Observer.instances[0].close).toHaveBeenCalledOnce();
-        client.streamEvents('legacy', {});
-        expect(Observer.instances[1].url).toBe('/v1/stream?conversationId=legacy');
+        client.observeNativeEvents('application', {});
+        expect(Observer.instances[1].url).toBe('/v1/stream?conversationId=application&compatibilityScope=native-and-application');
     });
 });
