@@ -1,6 +1,6 @@
 -- One-time additive upgrade from original Agently MySQL schema version 40.
 -- Select the existing database before executing; no application-data backfill.
--- Derived from script/mysql/schema_versioned.ddl, schema_upgrade_41.
+-- Derived from script/mysql/schema_versioned.ddl, schema_upgrade_40.
 
 ALTER TABLE conversation
   ADD COLUMN protocol_only TINYINT NOT NULL DEFAULT 0,
@@ -75,4 +75,4 @@ CREATE UNIQUE INDEX ux_payload_run_sequence ON call_payload (run_id, sequence);
 ALTER TABLE call_payload ADD CONSTRAINT fk_payload_protocol_run
   FOREIGN KEY (run_id) REFERENCES run(id) ON DELETE CASCADE;
 -- Schema bookkeeping only; original application rows remain unchanged.
-UPDATE schema_version SET version_number=42 WHERE version_number=40;
+UPDATE schema_version SET version_number=41 WHERE version_number=40;
