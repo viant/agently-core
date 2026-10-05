@@ -80,26 +80,27 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 		cfg: cfg,
 	}
 	pub := &captureStreamPublisher{}
+	conv := &stubConv{}
 	manager := asynccfg.NewManager()
 	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"})
 	ctx = memory.WithToolMessageID(ctx, "tool-msg-1")
 	ctx = memory.WithModelMessageID(ctx, "assistant-1")
 	ctx = modelcallctx.WithStreamPublisher(ctx, pub)
 	ctx = WithAsyncManager(ctx, manager)
-	ctx = WithAsyncConversation(ctx, &stubConv{})
+	ctx = WithAsyncConversation(ctx, conv)
 
 	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
 		ID:   "call-1",
 		Name: "llm/agents:start",
 		Args: map[string]interface{}{"agentId": "coder", "objective": "analyze"},
-	}, &stubConv{})
+	}, conv)
 	require.NoError(t, err)
 
 	_, _, err = ExecuteToolStep(ctx, reg, StepInfo{
 		ID:   "call-2",
 		Name: "llm/agents:status",
 		Args: map[string]interface{}{"conversationId": "child-1"},
-	}, &stubConv{})
+	}, conv)
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
@@ -124,7 +125,18 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 			require.Equal(t, "call-1", event.ToolCallID)
 			sawWaiting = true
 		case streaming.EventTypeToolCallCompleted:
-			require.Equal(t, "call-2", event.ToolCallID)
+			// Autonomous polling may have rebound to its own status carrier.
+			// The published identity must match a completed persisted call,
+			// rather than the submitting request's earlier carrier.
+			conv.mu.Lock()
+			recorded := false
+			for _, call := range conv.patchedToolCalls {
+				if call != nil && call.OpID == event.ToolCallID && call.MessageID == event.ToolMessageID && call.Status == "completed" {
+					recorded = true
+				}
+			}
+			conv.mu.Unlock()
+			require.True(t, recorded, "completed event must use its persisted status carrier")
 			sawCompleted = true
 		}
 	}

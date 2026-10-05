@@ -345,9 +345,22 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
+		bearerToken := bearerTokenFromRequest(r)
+		verified, verifyErr := verifyJWTSessionImport(r.Context(), h.cfg, body.IDToken, body.AccessToken, bearerToken)
+		if verifyErr != nil {
+			httpError(w, http.StatusUnauthorized, verifyErr)
+			return
+		}
+		if verified != nil && strings.TrimSpace(body.IDToken) == "" && strings.TrimSpace(body.AccessToken) == "" {
+			body.IDToken = bearerToken
+			body.AccessToken = bearerToken
+		}
 		username := strings.TrimSpace(body.Username)
 		if username == "" {
 			username = "anonymous:" + uuid.New().String()
+		}
+		if verified != nil {
+			username = verified.Subject
 		}
 		var oauthClient *OAuthClient
 		if h != nil && h.cfg != nil && h.cfg.OAuth != nil {
@@ -360,9 +373,13 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 		sess := &Session{
 			ID:        uuid.New().String(),
 			Username:  username,
-			Provider:  firstNonEmpty(strings.TrimSpace(h.cfg.OAuth.Name), "oauth"),
+			Provider:  configuredOAuthProvider(h.cfg),
 			Scopes:    tokenScopesFromStrings(strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)),
 			CreatedAt: time.Now(),
+		}
+		if verified != nil {
+			sess.Subject, sess.Email = verified.Subject, verified.Email
+			sess.Scopes = tokenScopesFromStrings(strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), bearerToken)
 		}
 		if body.AccessToken != "" {
 			expiry := resolveTokenExpiry("", strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken))

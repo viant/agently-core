@@ -300,6 +300,12 @@ func TestAGUIDurableNestedHandoffCarriesLeafInterrupt(t *testing.T) {
 
 func TestAGUIDurableDetachedChildOutlivesRoot(t *testing.T) {
 	c, server := newDurableAGUIServer(t)
+	nativeConversations, err := convservice.New(recoveryContext(), c.store.(*aguistore.ComponentStore).Invoker)
+	require.NoError(t, err)
+	child := conversation.NewConversation()
+	child.SetId("detached-thread")
+	child.SetCreatedByUserID("owner")
+	require.NoError(t, nativeConversations.PatchConversations(recoveryContext(), child))
 	release := make(chan struct{})
 	completed := make(chan error, 1)
 	c.query = func(ctx context.Context, in *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {

@@ -419,6 +419,10 @@ func TestAGUIDetachedOverflowKeepsNativeContextAndJournalIndependent(t *testing.
 	parent := newAGUIInvocationObserver(recoveryContext(), c, record.ThreadID, record.TurnID)
 	parent.runtime, parent.store, parent.run = c, c.store, record
 	inv := requestctx.Invocation{Detached: true, ExecutionMode: "detach", ID: "detached-run", ConversationID: "detached-thread", TurnID: "detached-turn", Name: "detached", ParentConversationID: record.ThreadID, ParentTurnID: record.TurnID}
+	childShell := conversation.NewConversation()
+	childShell.SetId(inv.ConversationID)
+	childShell.SetCreatedByUserID("owner")
+	require.NoError(t, c.conv.PatchConversations(recoveryContext(), childShell))
 	nativeCtx, err := startAGUIDetached(recoveryContext(), parent, inv)
 	require.NoError(t, err)
 	observer := requestctx.InvocationObserverFromContext(nativeCtx).(*aguiDetachedObserver)

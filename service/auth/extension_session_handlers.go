@@ -235,6 +235,11 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			in.IDToken = bearerToken
 			in.AccessToken = bearerToken
 		}
+		verified, verifyErr := verifyJWTSessionImport(r.Context(), a.cfg, in.IDToken, in.AccessToken, bearerToken)
+		if verifyErr != nil {
+			runtimeError(w, http.StatusUnauthorized, verifyErr)
+			return
+		}
 		username := strings.TrimSpace(in.Username)
 		subject := ""
 		email := ""
@@ -250,6 +255,11 @@ func (a *authExtension) handleCreateSession() http.HandlerFunc {
 			subject = username
 		}
 		scopes := tokenScopesFromStrings(strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken), strings.TrimSpace(in.RefreshToken))
+		if verified != nil {
+			username, subject, email = verified.Subject, verified.Subject, verified.Email
+			// Refresh tokens are not identity evidence and may be opaque.
+			scopes = tokenScopesFromStrings(strings.TrimSpace(in.IDToken), strings.TrimSpace(in.AccessToken), bearerToken)
+		}
 		var oauthClient *OAuthClient
 		if a != nil && a.cfg != nil && a.cfg.OAuth != nil {
 			oauthClient = a.cfg.OAuth.Client

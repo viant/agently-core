@@ -92,6 +92,10 @@ func startAGUIDetached(ctx context.Context, parent *aguiInvocationObserver, inv 
 		cancel()
 		return nil, err
 	}
+	if record == nil || record.ConversationID != inv.ConversationID || record.TurnID != inv.TurnID {
+		cancel()
+		return nil, fmt.Errorf("detached invocation native binding mismatch")
+	}
 	if !fresh {
 		cancel()
 		return nil, fmt.Errorf("detached invocation already admitted")
