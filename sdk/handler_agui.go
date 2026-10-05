@@ -118,7 +118,7 @@ func handleAGUIRun(client Client, authCfg *svcauth.Config, bindings ...AGUIWorks
 		matches := func(ev *streaming.Event) bool {
 			return ev != nil && (ev.ConversationID == input.ThreadID || (ev.ConversationID == "" && ev.StreamID == input.ThreadID)) && ev.TurnID == last.ID
 		}
-		sub, err := client.StreamEvents(ctx, &StreamEventsInput{ConversationID: input.ThreadID, Filter: matches})
+		sub, err := subscribeNativeEvents(ctx, client, &StreamEventsInput{ConversationID: input.ThreadID, Filter: matches})
 		if err != nil {
 			httpError(w, http.StatusServiceUnavailable, fmt.Errorf("stream subscription unavailable: %w", err))
 			return

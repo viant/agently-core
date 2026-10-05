@@ -1006,7 +1006,7 @@ func executeAGUIRuntime(ctx context.Context, client Client, runtime aguiRuntime,
 	filter := func(e *streaming.Event) bool {
 		return e != nil && (e.ConversationID == record.ConversationID || (e.ConversationID == "" && e.StreamID == record.ConversationID)) && e.TurnID == record.TurnID
 	}
-	sub, err := client.StreamEvents(ctx, &StreamEventsInput{ConversationID: record.ConversationID, Filter: filter})
+	sub, err := subscribeNativeEvents(ctx, client, &StreamEventsInput{ConversationID: record.ConversationID, Filter: filter})
 	if err != nil {
 		return err
 	}

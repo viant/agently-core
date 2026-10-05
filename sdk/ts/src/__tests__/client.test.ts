@@ -277,7 +277,7 @@ describe('Streaming', () => {
 
         expect(MockEventSource.instances).toHaveLength(1);
         const es = MockEventSource.instances[0];
-        expect(es.url).toBe('http://localhost:8585/v1/stream?conversationId=conv_1&compatibilityScope=native-and-application');
+        expect(es.url).toBe('http://localhost:8585/v1/application-events?conversationId=conv_1');
         expect(es.withCredentials).toBe(false);
 
         es.emit({ type: 'text_delta', streamId: 'conv_1', content: 'hello' });

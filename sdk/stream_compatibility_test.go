@@ -64,12 +64,17 @@ func admitCompatibilityRun(t *testing.T, c *datlyObservedClient, turn string) *a
 }
 func compatibilityHTTP(t *testing.T, c *compatibilityDatlyClient, principal, scope string, config *authsvc.Config) *httptest.ResponseRecorder {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/v1/stream?conversationId=thread&compatibilityScope="+scope, nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/application-events?conversationId=thread"+func() string {
+		if scope != "" {
+			return "&compatibilityScope=" + scope
+		}
+		return ""
+	}(), nil)
 	if principal != "" {
 		req = req.WithContext(iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: principal}))
 	}
 	rec := httptest.NewRecorder()
-	handleStreamEvents(c, config)(rec, req)
+	handleApplicationEvents(c, config)(rec, req)
 	return rec
 }
 func compatibilityWireEvents(t *testing.T, wire string) []*streaming.Event {
@@ -127,7 +132,7 @@ func TestCompatibilityHTTPInterleavedNativeMobileSchedulerAndApplicationEvents(t
 		compatibilityEvent(streaming.EventTypeTextDelta, "unclassified", "private speculative delta 2"),
 		{Type: streaming.EventTypeTextDelta, ConversationID: "foreign", TurnID: "mobile-turn", Content: "foreign secret"},
 	}
-	rec := compatibilityHTTP(t, c, "owner", NativeAndApplicationCompatibilityScope, nil)
+	rec := compatibilityHTTP(t, c, "owner", "", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	events := compatibilityWireEvents(t, rec.Body.String())
 	require.Len(t, events, 6)
@@ -149,7 +154,7 @@ func TestCompatibilityHTTPAuthorizationAndSharedVisibility(t *testing.T) {
 	private.SetId("thread")
 	private.SetVisibility("private")
 	require.NoError(t, c.conv.PatchConversations(recoveryContext(), private))
-	rec := compatibilityHTTP(t, c, "foreign", NativeAndApplicationCompatibilityScope, nil)
+	rec := compatibilityHTTP(t, c, "foreign", "", nil)
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	require.False(t, c.subscribed.Load())
 	public := conversation.NewConversation()
@@ -158,11 +163,11 @@ func TestCompatibilityHTTPAuthorizationAndSharedVisibility(t *testing.T) {
 	require.NoError(t, c.conv.PatchConversations(recoveryContext(), public))
 	admitCompatibilityRun(t, c.datlyObservedClient, "agui-turn")
 	c.events = []*streaming.Event{compatibilityEvent(streaming.EventTypeTextDelta, "agui-turn", "owner protocol text"), compatibilityEvent(streaming.EventTypeConversationMetaUpdated, "", "visible metadata")}
-	rec = compatibilityHTTP(t, c, "foreign", NativeAndApplicationCompatibilityScope, nil)
+	rec = compatibilityHTTP(t, c, "foreign", "", nil)
 	require.Equal(t, http.StatusOK, rec.Code)
 	require.NotContains(t, rec.Body.String(), "owner protocol text")
 	require.Contains(t, rec.Body.String(), "visible metadata")
-	rec = compatibilityHTTP(t, c, "", NativeAndApplicationCompatibilityScope, &authsvc.Config{Enabled: true})
+	rec = compatibilityHTTP(t, c, "", "", &authsvc.Config{Enabled: true})
 	require.Equal(t, http.StatusUnauthorized, rec.Code)
 	rec = compatibilityHTTP(t, c, "owner", "all", nil)
 	require.Equal(t, http.StatusBadRequest, rec.Code)
@@ -172,19 +177,20 @@ func TestCompatibilityDisconnectAndOverflowDoNotChangeExecutionAuthority(t *test
 	c := &compatibilityDatlyClient{datlyObservedClient: newDatlyObservedClient(t, 16), reason: streaming.ReasonOverflow}
 	admitCompatibilityRun(t, c.datlyObservedClient, "agui-turn")
 	c.events = []*streaming.Event{compatibilityEvent(streaming.EventTypeTextDelta, "agui-turn", "excluded during overflow")}
-	rec := compatibilityHTTP(t, c, "owner", NativeAndApplicationCompatibilityScope, nil)
+	rec := compatibilityHTTP(t, c, "owner", "", nil)
 	events := compatibilityWireEvents(t, rec.Body.String())
 	require.Len(t, events, 1)
 	require.Equal(t, streaming.EventTypeStreamOverflow, events[0].Type)
 	require.Equal(t, int64(99), events[0].EventSeq)
 	c.reason = streaming.ReasonClosed
 	c.closed = false
-	rec = compatibilityHTTP(t, c, "owner", NativeAndApplicationCompatibilityScope, nil)
+	rec = compatibilityHTTP(t, c, "owner", "", nil)
 	require.Empty(t, compatibilityWireEvents(t, rec.Body.String()))
 	require.True(t, c.closed)
-	// The legacy default remains backward compatible for mobile/CLI consumers.
-	rec = compatibilityHTTP(t, c, "owner", "", nil)
-	require.Contains(t, rec.Body.String(), "excluded during overflow")
+	// There is no legacy selector that can restore duplicate execution data.
+	rec = compatibilityHTTP(t, c, "owner", "native-and-application", nil)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.NotContains(t, rec.Body.String(), "excluded during overflow")
 }
 
 func TestCompatibilityAGUIDescendantsRemainExcluded(t *testing.T) {
@@ -286,10 +292,10 @@ func TestCompatibilityRealBusOverflowAndDisconnectNeverTransferOwnership(t *test
 func TestCompatibilityUnavailableForGenericAdapters(t *testing.T) {
 	base, err := NewHTTP("http://127.0.0.1")
 	require.NoError(t, err)
-	req := httptest.NewRequest(http.MethodGet, "/v1/stream?conversationId=thread&compatibilityScope=native-and-application", nil)
+	req := httptest.NewRequest(http.MethodGet, "/v1/application-events?conversationId=thread", nil)
 	req = req.WithContext(iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: "owner"}))
 	rec := httptest.NewRecorder()
-	handleStreamEvents(base)(rec, req)
+	handleApplicationEvents(httpTestBackend{HTTPClient: base})(rec, req)
 	require.Equal(t, http.StatusNotImplemented, rec.Code)
 }
 

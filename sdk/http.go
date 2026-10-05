@@ -48,14 +48,6 @@ func WithHTTPClient(client *http.Client) HTTPOption {
 	}
 }
 
-func WithQueryPath(path string) HTTPOption {
-	return func(c *HTTPClient) {
-		if strings.TrimSpace(path) != "" {
-			c.queryPath = path
-		}
-	}
-}
-
 func WithConversationsPath(path string) HTTPOption {
 	return func(c *HTTPClient) {
 		if strings.TrimSpace(path) != "" {
@@ -108,7 +100,6 @@ type HTTPClient struct {
 	authToken         string
 	tokenProvider     TokenProvider
 	sessionDebug      *SessionDebugConfig
-	queryPath         string
 	conversationsPath string
 	messagesPath      string
 	runsPath          string
@@ -130,14 +121,13 @@ func NewHTTP(baseURL string, opts ...HTTPOption) (*HTTPClient, error) {
 	c := &HTTPClient{
 		baseURL:           strings.TrimRight(baseURL, "/"),
 		client:            newDefaultHTTPClient(),
-		queryPath:         "/v1/agent/query",
 		conversationsPath: "/v1/conversations",
 		messagesPath:      "/v1/messages",
 		runsPath:          "/v1/runs",
 		turnsPath:         "/v1/turns",
 		elicitationsPath:  "/v1/elicitations",
 		toolsPath:         "/v1/tools",
-		streamPath:        "/v1/stream",
+		streamPath:        "/v1/application-events",
 		filesPath:         "/v1/files",
 		resourcesPath:     "/v1/workspace/resources",
 		toolApprovalsPath: "/v1/tool-approvals",
@@ -168,11 +158,14 @@ func (c *HTTPClient) HTTPClient() *http.Client {
 }
 
 func (c *HTTPClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
-	var out agentsvc.QueryOutput
-	if err := c.doJSON(ctx, http.MethodPost, c.queryPath, input, &out); err != nil {
+	result, err := c.QueryAGUI(ctx, input, nil)
+	if err != nil {
 		return nil, err
 	}
-	return &out, nil
+	if result.Outcome.Type == "interrupt" {
+		return nil, &AGUIInterruptError{Result: result}
+	}
+	return &agentsvc.QueryOutput{ConversationID: result.ConversationID, TurnID: result.TurnID, MessageID: result.TurnID, Content: result.Content, ExecutionStatus: result.Outcome.Type}, nil
 }
 
 func (c *HTTPClient) GetWorkspaceMetadata(ctx context.Context) (*WorkspaceMetadata, error) {
@@ -432,7 +425,10 @@ func (c *HTTPClient) GetMessages(ctx context.Context, input *GetMessagesInput) (
 	return &out, nil
 }
 
-func (c *HTTPClient) StreamEvents(ctx context.Context, input *StreamEventsInput) (streaming.Subscription, error) {
+func (c *HTTPClient) ObserveApplicationEvents(ctx context.Context, input *StreamEventsInput) (streaming.Subscription, error) {
+	if input == nil || strings.TrimSpace(input.ConversationID) == "" {
+		return nil, fmt.Errorf("application observation requires a conversation ID")
+	}
 	q := url.Values{}
 	if input != nil && strings.TrimSpace(input.ConversationID) != "" {
 		q.Set("conversationId", input.ConversationID)

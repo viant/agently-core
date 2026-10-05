@@ -589,14 +589,9 @@ func TestRuntimeHandleMe_DoesNotBlockWhenDisplayLookupIgnoresContext(t *testing.
 }
 
 func TestWithAuthExtensions_CreateSessionThenAuthMe(t *testing.T) {
-	runtime := &Runtime{
-		cfg: &Config{
-			Enabled:    true,
-			CookieName: "agently_session",
-			OAuth:      &OAuth{Name: "oauth", Mode: "bff"},
-		},
-		sessions: NewManager(time.Hour, nil),
-	}
+	authority := newSessionOAuthAuthority(t)
+	runtime := &Runtime{cfg: authority.config(false), sessions: NewManager(time.Hour, nil)}
+	runtime.cfg.CookieName = "agently_session"
 	runtime.ext = newAuthExtension(runtime.cfg, runtime.sessions, "", nil, nil)
 
 	base := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -604,22 +599,9 @@ func TestWithAuthExtensions_CreateSessionThenAuthMe(t *testing.T) {
 	})
 	handler := WithAuthExtensions(base, runtime)
 
-	exp := time.Now().Add(90 * time.Minute).UTC().Truncate(time.Second)
-	claims := map[string]any{
-		"sub":                "user-123",
-		"email":              "dev@example.com",
-		"preferred_username": "devuser",
-		"exp":                exp.Unix(),
-	}
-	payload, err := json.Marshal(claims)
-	if err != nil {
-		t.Fatalf("json.Marshal() error = %v", err)
-	}
-	idToken := "x." + base64.RawURLEncoding.EncodeToString(payload) + ".y"
-
-	createReq := httptest.NewRequest(http.MethodPost, "/v1/api/auth/session", strings.NewReader(
-		`{"username":"devuser","idToken":"`+idToken+`","accessToken":"token-access"}`,
-	))
+	accessToken, idToken := authority.pair(t, "resource")
+	body, _ := json.Marshal(map[string]string{"username": "untrusted-display-name", "idToken": idToken, "accessToken": accessToken})
+	createReq := httptest.NewRequest(http.MethodPost, "/v1/api/auth/session", strings.NewReader(string(body)))
 	createRec := httptest.NewRecorder()
 	handler.ServeHTTP(createRec, createReq)
 

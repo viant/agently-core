@@ -264,6 +264,9 @@ func (a *authExtension) requiresOAuthTokens() bool {
 }
 
 func requiresOAuthTokensForSession(cfg *Config, oauthProvider string, sess *Session) bool {
+	if cfg != nil && cfg.JWT != nil && cfg.JWT.Enabled && sess != nil && sess.Provider == "jwt" {
+		return false
+	}
 	if cfg == nil || cfg.OAuth == nil {
 		return false
 	}

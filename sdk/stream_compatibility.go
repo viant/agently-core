@@ -11,7 +11,6 @@ import (
 	"github.com/viant/agently-core/runtime/streaming"
 )
 
-const NativeAndApplicationCompatibilityScope = "native-and-application"
 const CompatibilityReconcileEvent streaming.EventType = "compatibility_reconcile"
 
 // compatibilityObserverBackend deliberately excludes remote/generic adapters.
@@ -95,7 +94,7 @@ func compatibilityApplicationEvent(event *streaming.Event) bool {
 	switch event.Type {
 	case streaming.EventTypeConversationMetaUpdated, streaming.EventTypeGoalUpdated, streaming.EventTypeGoalCleared, streaming.EventTypeGoalControllerScheduled:
 		return true
-	case streaming.EventTypeToolFeedActive, streaming.EventTypeToolFeedInactive:
+	case streaming.EventTypeSkillStarted, streaming.EventTypeSkillCompleted, streaming.EventTypeToolFeedActive, streaming.EventTypeToolFeedInactive:
 		return strings.TrimSpace(event.TurnID) == ""
 	}
 	return false
@@ -106,6 +105,9 @@ func compatibilityApplicationEvent(event *streaming.Event) bool {
 func (o *compatibilityObserver) project(ctx context.Context, event *streaming.Event) *streaming.Event {
 	if event == nil {
 		return nil
+	}
+	if applicationWorkspaceEvent(event) {
+		return event
 	}
 	threadID := strings.TrimSpace(event.ConversationID)
 	if threadID == "" {
@@ -131,4 +133,17 @@ func (o *compatibilityObserver) project(ctx context.Context, event *streaming.Ev
 	}
 	o.reconciliationSent[key] = true
 	return &streaming.Event{Type: CompatibilityReconcileEvent, ConversationID: threadID, StreamID: threadID, TurnID: turnID, EventSeq: event.EventSeq, CreatedAt: time.Now().UTC(), Status: "unknown", Patch: map[string]any{"reason": "execution_provenance_unavailable"}}
+}
+
+func applicationWorkspaceEvent(event *streaming.Event) bool {
+	return event != nil && event.Type == streaming.EventTypeSkillRegistryUpdated && (event.ConversationID == "" || event.ConversationID == "skills") && (event.StreamID == "" || event.StreamID == "skills") && event.TurnID == ""
+}
+func subscribeNativeEvents(ctx context.Context, client Client, input *StreamEventsInput) (streaming.Subscription, error) {
+	backend, ok := client.(interface {
+		StreamEvents(context.Context, *StreamEventsInput) (streaming.Subscription, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("native execution event subscription unavailable")
+	}
+	return backend.StreamEvents(ctx, input)
 }

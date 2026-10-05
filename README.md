@@ -59,7 +59,7 @@ out, err := client.Query(ctx, &agentsvc.QueryInput{
 ~~~
 
 This is a Go usage fragment: import the application/runtime types and provide
-the finders and authenticated caller identity. Embedded Go Client.Query and the
+the finders and authenticated caller identity. Host-side Go Backend.Query and the
 internal executor remain native calls. They do not recursively POST through
 AG-UI. See [SDK usage](doc/sdk.md) and [architecture](doc/architecture.md).
 
@@ -79,10 +79,16 @@ JWT verification, OAuth configuration and middleware.
 
 ## Conversation APIs and outward SDKs
 
-TypeScript, Swift and Kotlin SDKs default to **AG-UI** for outward conversation
-submission, bootstrap, observation, attach, cancellation and continuation. Their
+Go HTTP, TypeScript, Swift and Kotlin clients use **AG-UI** for outward
+conversation interaction. The Go client exposes RunAGUI and AttachAGUI; its Query
+convenience method also uses the run stream. The other clients provide their
+conversation coordinator surfaces for bootstrap, observation and continuation. Their
 workspace, layout, upload, reporting and application APIs continue to use the
 same configured BFF client.
+
+Go Backend.StreamEvents is an internal execution bus. HTTP clients use the
+separate, conversation-scoped ObserveApplicationEvents API for supporting
+application/background events; it is not an alternate conversation transport.
 
 Standard AG-UI requests/events carry runs, messages, tools, state, frontend tool
 results, interrupts, resumes and subagent attribution. Versioned **Agently
