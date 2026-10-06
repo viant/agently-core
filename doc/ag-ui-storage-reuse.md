@@ -15,7 +15,7 @@ DQL under `dql/` is authoritative for application readers and writers. Outer vie
 - SQLite: public `Ensure` upgrades the pre-protocol schema twice, preserving conversation, turn, message, run checkpoint, payload and report records. Foreign-key validation passes and the four POC tables are removed.
 - MySQL 8.0.46: both current core and Steward versioned schemas upgrade from version 40 to 41 and execute twice successfully in disposable databases. Original conversation, turn, run checkpoint and tool payload records are preserved. The repeatable test enables session foreign-key checks explicitly and verifies byte-exact opaque IDs, journal sequence uniqueness and cascading event deletion.
 - MySQL protocol event insertion succeeds; a raw ID with a trailing space remains byte-exact. Deleting its protocol run removes its event, within a rolled-back verification transaction.
-- MySQL `EXPLAIN` uses `ux_payload_run_sequence` for replay, `ix_run_protocol_scope` for scoped status lookup, `ix_run_protocol_turn` for global authorized turn lookup with a representative population, and `ix_run_protocol_recovery` for ordered global recovery. Recovery needs no filesort. Existing native indexes are retained.
+- MySQL `EXPLAIN` uses `ux_payload_run_sequence` for replay, `idx_run_protocol_scope` for scoped status lookup, `idx_run_protocol_turn` for global authorized turn lookup with a representative population, and `idx_run_protocol_recovery` for ordered global recovery. Recovery needs no filesort. Existing native indexes are retained.
 
 These schema checks do not replace the generated Datly store, SDK identity, deletion, and continuation integration tests. Those are required before restarting the local application against the new schema.
 

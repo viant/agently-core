@@ -2963,14 +2963,14 @@ BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='run' AND INDEX_NAME='ux_run_protocol_initial_turn') THEN
             CREATE UNIQUE INDEX ux_run_protocol_initial_turn ON run (protocol_initial_turn_key);
         END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='run' AND INDEX_NAME='ix_run_protocol_scope') THEN
-            CREATE INDEX ix_run_protocol_scope ON run (run_kind, conversation_id, effective_user_id, protocol_status);
+        IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='run' AND INDEX_NAME='idx_run_protocol_scope') THEN
+            CREATE INDEX idx_run_protocol_scope ON run (run_kind, conversation_id, effective_user_id, protocol_status);
         END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='run' AND INDEX_NAME='ix_run_protocol_turn') THEN
-            CREATE INDEX ix_run_protocol_turn ON run (run_kind, effective_user_id, protocol_turn_id, conversation_id, protocol_key);
+        IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='run' AND INDEX_NAME='idx_run_protocol_turn') THEN
+            CREATE INDEX idx_run_protocol_turn ON run (run_kind, effective_user_id, protocol_turn_id, conversation_id, protocol_key);
         END IF;
-        IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='run' AND INDEX_NAME='ix_run_protocol_recovery') THEN
-            CREATE INDEX ix_run_protocol_recovery ON run (run_kind, protocol_key, protocol_status);
+        IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='run' AND INDEX_NAME='idx_run_protocol_recovery') THEN
+            CREATE INDEX idx_run_protocol_recovery ON run (run_kind, protocol_key, protocol_status);
         END IF;
         IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='call_payload' AND INDEX_NAME='ux_payload_run_sequence') THEN
             CREATE UNIQUE INDEX ux_payload_run_sequence ON call_payload (run_id, sequence);
