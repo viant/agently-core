@@ -43,7 +43,7 @@ func (d *Discoverer) ValidateInboundLinks(ctx context.Context, graph *Graph) err
 	}
 	turnQuery := &turnread.TurnRowsInput{}
 	turnQuery.SetConversationIDs(conversationIDs)
-	turns, err := (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnQuery, nil)
+	turns, err := (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnQuery, deleteSelectors("id"))
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (d *Discoverer) ValidateInboundLinks(ctx context.Context, graph *Graph) err
 	if len(goalIDs) > 0 {
 		goalTurns := &turnread.TurnRowsInput{}
 		goalTurns.SetGoalIDs(goalIDs)
-		rows, err := (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, goalTurns, nil)
+		rows, err := (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, goalTurns, deleteSelectors("id", "conversation_id"))
 		if err != nil {
 			return err
 		}

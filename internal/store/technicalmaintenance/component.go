@@ -6,6 +6,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/agently-core/internal/store/maintenancelease"
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
@@ -30,7 +31,9 @@ func (Component) DatlyHandler(name string) func() (rh.TypedHandler, error) {
 	}
 	return custom.Factory(NewMaintain)
 }
-func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Request, output *Result) error {
+func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Request, output *Result) (retErr error) {
+	ctx, trace := maintenancediag.Begin(ctx, "technicalmaintenance")
+	defer func() { trace.Finish(retErr) }()
 	if session == nil || session.Binder() == nil || input == nil || output == nil {
 		return fmt.Errorf("technical maintenance invocation is incomplete")
 	}
@@ -51,6 +54,7 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Reque
 	if deps.Invoker == nil || deps.Starter == nil {
 		return fmt.Errorf("technical maintenance capabilities are unavailable")
 	}
+	deps.Invoker = maintenancediag.Wrap(ctx, deps.Invoker)
 	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err
@@ -99,7 +103,9 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Reque
 
 var target = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[Component]().PkgPath(), Name: "TechnicalMaintenance"}, Route: spec.RouteRef{Method: "POST", Path: "/v1/internal/agently/technical-maintenance"}}
 
-func (s *Store) Maintain(ctx context.Context, input Request) (*Result, error) {
+func (s *Store) Maintain(ctx context.Context, input Request) (result *Result, retErr error) {
+	ctx, trace := maintenancediag.Begin(ctx, "technicalmaintenance")
+	defer func() { trace.Finish(retErr) }()
 	if s == nil || s.Invoker == nil {
 		return nil, fmt.Errorf("technical maintenance invoker is required")
 	}

@@ -52,7 +52,7 @@ func TestLinkedRuntimeIncludesDeclaredContracts(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(contents, &manifest))
 	ctx := context.Background()
-	server, err := native.New(ctx, native.Options{Connectors: []connector.Config{{Name: "agently", Driver: "sqlite3", DSN: ":memory:"}}})
+	server, err := native.New(ctx, native.Options{Connectors: []connector.Config{{Name: "agently", Driver: "sqlite", DSN: ":memory:"}}})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
 	metadata, err := server.Metadata(ctx)

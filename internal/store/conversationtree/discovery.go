@@ -12,6 +12,7 @@ import (
 	msgread "github.com/viant/agently-core/internal/datly/message/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
 	conversation "github.com/viant/agently-core/internal/store/conversation"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 
 	"github.com/viant/agently-core/internal/datly/dbtime"
 	dexec "github.com/viant/datly/exec"
@@ -100,7 +101,15 @@ func (g *Graph) AuthorizeOwner(userID string) error {
 
 // Discover follows parent, parent-turn and linked-message edges in bounded
 // batches. Every database read is a canonical generated Datly component.
-func (d *Discoverer) Discover(ctx context.Context, rootIDs ...string) (*Graph, error) {
+func (d *Discoverer) Discover(ctx context.Context, rootIDs ...string) (result *Graph, retErr error) {
+	done := maintenancediag.Phase(ctx, "graph_discovery")
+	defer func() {
+		count := 0
+		if result != nil {
+			count = len(result.Nodes)
+		}
+		done(retErr, fmt.Sprintf("conversations=%d", count))
+	}()
 	if d == nil || d.Invoker == nil || d.OwnerID == nil {
 		return nil, fmt.Errorf("conversation graph reader is not configured")
 	}

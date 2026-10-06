@@ -9,6 +9,7 @@ import (
 	"time"
 
 	goalread "github.com/viant/agently-core/internal/datly/goal/read"
+	"github.com/viant/agently-core/internal/datly/queryselectors"
 	schedread "github.com/viant/agently-core/internal/datly/schedule/read"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
@@ -129,7 +130,7 @@ func (d *Discoverer) goalRows(ctx context.Context, conversationIDs []string) ([]
 		}
 		return nil, false, nil
 	})
-	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: goalReaderTarget, Input: goals, Providers: []locator.Provider{goalProvider}})
+	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: goalReaderTarget, Input: goals, Providers: []locator.Provider{goalProvider, queryselectors.Provider(deleteSelectors("id"))}})
 	if err != nil {
 		return nil, err
 	}
@@ -150,6 +151,7 @@ func (d *Discoverer) scheduleRows(ctx context.Context, input *schedread.Schedule
 		}),
 		provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil }),
 	}
+	providers = append(providers, queryselectors.Provider(deleteSelectors("id", "internal", "created_by_user_id", "conversation_id", "goal_id", "schedule_type", "name", "lease_until")))
 	value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: scheduleReaderTarget, Input: input, Providers: providers})
 	if err != nil {
 		return nil, err

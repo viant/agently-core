@@ -13,6 +13,7 @@ import (
 	runread "github.com/viant/agently-core/internal/datly/run/read"
 	schedread "github.com/viant/agently-core/internal/datly/schedule/read"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 	lease "github.com/viant/agently-core/internal/store/maintenancelease"
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
@@ -63,7 +64,9 @@ type selectedRun struct {
 	ActivityAt                             time.Time
 }
 
-func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input, output *Output) error {
+func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input, output *Output) (retErr error) {
+	ctx, trace := maintenancediag.Begin(ctx, "scheduledmaintenance")
+	defer func() { trace.Finish(retErr) }()
 	if session == nil || session.Binder() == nil || input == nil || output == nil {
 		return fmt.Errorf("scheduled maintenance invocation is incomplete")
 	}
@@ -82,6 +85,7 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	if deps.Invoker == nil || deps.Starter == nil || deps.Schema == nil {
 		return fmt.Errorf("scheduled maintenance capabilities are unavailable")
 	}
+	deps.Invoker = maintenancediag.Wrap(ctx, deps.Invoker)
 	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err

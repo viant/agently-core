@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/viant/agently-core/genai/llm"
+	base "github.com/viant/agently-core/genai/llm/provider/base"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -87,4 +88,34 @@ func TestApplyBackendSessionDefaults_PromptCacheKeyFromConversation(t *testing.T
 	ctx := memory.WithConversationID(context.Background(), "conv-xyz")
 	client.applyBackendSessionDefaults(ctx, req)
 	assert.EqualValues(t, "conv-xyz", req.PromptCacheKey)
+}
+
+func TestClientCanMultimodal(t *testing.T) {
+	testCases := []struct {
+		model string
+		want  bool
+	}{
+		{model: "gpt-6-sol", want: true},
+		{model: "gpt-6.1-sol", want: true},
+		{model: "gpt-6-luna", want: true},
+		{model: "gpt-6-astra-2026-09-01", want: true},
+		{model: "o1", want: true},
+		{model: "o1-pro-2025-03-19", want: true},
+		{model: "o3", want: true},
+		{model: "o3-pro-2025-06-10", want: true},
+		{model: "o3-deep-research", want: true},
+		{model: "o4-mini", want: true},
+		{model: "o4-mini-deep-research-2025-06-26", want: true},
+		{model: "o1-mini", want: false},
+		{model: "o3-mini", want: false},
+		{model: "gpt-oss-120b", want: false},
+		{model: "text-embedding-3-large", want: false},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.model, func(t *testing.T) {
+			client := NewClient("api-key", tc.model)
+			assert.Equal(t, tc.want, client.Implements(base.IsMultimodal))
+		})
+	}
 }

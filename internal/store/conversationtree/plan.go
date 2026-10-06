@@ -29,7 +29,7 @@ import (
 	queueread "github.com/viant/agently-core/internal/datly/turnqueue/read"
 	agentrun "github.com/viant/agently-core/internal/store/agentrun"
 	conversation "github.com/viant/agently-core/internal/store/conversation"
-	queuestore "github.com/viant/agently-core/internal/store/turnqueue"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
@@ -73,7 +73,15 @@ type DeletePlan struct {
 	DetachTurns    []*turnread.TurnRowsView
 }
 
-func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now time.Time, extraRunIDs, extraScheduleRunIDs []string) (*DeletePlan, error) {
+func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now time.Time, extraRunIDs, extraScheduleRunIDs []string) (result *DeletePlan, retErr error) {
+	done := maintenancediag.Phase(ctx, "collect_delete_plan")
+	defer func() {
+		details := ""
+		if result != nil {
+			details = fmt.Sprintf("conversations=%d messages=%d turns=%d runs=%d payloads=%d", len(result.ConversationIDs), len(result.MessageIDs), len(result.TurnIDs), len(result.RunIDs)+len(result.ScheduleRunIDs), len(result.PayloadIDs))
+		}
+		done(retErr, details)
+	}()
 	if d == nil || d.Invoker == nil || d.OwnerID == nil {
 		return nil, fmt.Errorf("conversation graph reader is not configured")
 	}
@@ -121,7 +129,7 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 		plan.GoalIDs = normalizeIDs(plan.GoalIDs)
 		turnQuery := &turnread.TurnRowsInput{}
 		turnQuery.SetConversationIDs(plan.ConversationIDs)
-		plan.Turns, err = (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnQuery, nil)
+		plan.Turns, err = (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnQuery, deleteSelectors("id", "run_id"))
 		if err != nil {
 			return nil, err
 		}
@@ -133,7 +141,7 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 		plan.TurnIDs = normalizeIDs(plan.TurnIDs)
 		messageQuery := &msgread.MessagesInput{}
 		messageQuery.SetConversationIds(plan.ConversationIDs)
-		plan.Messages, err = (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery, nil)
+		plan.Messages, err = (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery, deleteSelectors("id"))
 		if err != nil {
 			return nil, err
 		}
@@ -179,7 +187,9 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 // RefreshDeletePlanRunEvidence repeats graph run discovery after parent locks,
 // retaining the earlier set and adding runs attached through goal-wakeup
 // schedules. Its caller locks any new identities before validating liveness.
-func (d *Discoverer) RefreshDeletePlanRunEvidence(ctx context.Context, plan *DeletePlan) error {
+func (d *Discoverer) RefreshDeletePlanRunEvidence(ctx context.Context, plan *DeletePlan) (retErr error) {
+	done := maintenancediag.Phase(ctx, "refresh_run_evidence")
+	defer func() { done(retErr, "") }()
 	if plan == nil || plan.Graph == nil {
 		return fmt.Errorf("conversation deletion plan is required")
 	}
@@ -300,26 +310,26 @@ func (d *Discoverer) collectPlanChildren(ctx context.Context, plan *DeletePlan) 
 	if len(plan.MessageIDs) > 0 {
 		modelQuery := &modelread.ModelCallsInput{}
 		modelQuery.SetMessageIds(plan.MessageIDs)
-		plan.ModelCalls, err = planReaderRows[modelread.ModelCallView](ctx, d, modelQuery, "/v1/internal/agently/model-call", planProviders("modelcallaccess", owner))
+		plan.ModelCalls, err = planReaderRows[modelread.ModelCallView](ctx, d, modelQuery, "/v1/internal/agently/model-call", planProviders("modelcallaccess", owner, "message_id"))
 		if err != nil {
 			return err
 		}
 		toolQuery := &toolread.ToolCallsInput{}
 		toolQuery.SetMessageIds(plan.MessageIDs)
-		plan.ToolCalls, err = planReaderRows[toolread.ToolCallView](ctx, d, toolQuery, "/v1/internal/agently/tool-call", planProviders("toolcallaccess", owner))
+		plan.ToolCalls, err = planReaderRows[toolread.ToolCallView](ctx, d, toolQuery, "/v1/internal/agently/tool-call", planProviders("toolcallaccess", owner, "message_id", "op_id"))
 		if err != nil {
 			return err
 		}
 	}
 	queueQuery := &queueread.QueueRowsInput{}
 	queueQuery.SetConversationIds(plan.ConversationIDs)
-	plan.Queues, err = (&queuestore.Store{Invoker: d.Invoker}).List(ctx, queueQuery)
+	plan.Queues, err = planReaderRows[queueread.QueueRowView](ctx, d, queueQuery, "/v1/api/agently/turnqueue/list", []locator.Provider{queryselectors.Provider(deleteSelectors("id"))})
 	if err != nil {
 		return err
 	}
 	fileQuery := &fileread.Input{}
 	fileQuery.SetConversationIDs(plan.ConversationIDs)
-	plan.GeneratedFiles, err = (&conversation.GeneratedFileStore{Invoker: d.Invoker}).List(ctx, fileQuery)
+	plan.GeneratedFiles, err = planReaderRows[fileread.GeneratedFileView](ctx, d, fileQuery, "/v2/api/agently/generated-file", []locator.Provider{queryselectors.Provider(deleteSelectors("id"))})
 	if err != nil {
 		return err
 	}
@@ -328,7 +338,7 @@ func (d *Discoverer) collectPlanChildren(ctx context.Context, plan *DeletePlan) 
 	} else if present {
 		query := &investigationread.Input{}
 		query.SetConversationIDs(plan.ConversationIDs)
-		plan.Investigations, err = planReaderRows[investigationread.Investigation](ctx, d, query, "/v1/internal/agently/investigation", planProviders("investigationaccess", owner))
+		plan.Investigations, err = planReaderRows[investigationread.Investigation](ctx, d, query, "/v1/internal/agently/investigation", planProviders("investigationaccess", owner, "id", "conversation_id"))
 		if err != nil {
 			return err
 		}
@@ -339,7 +349,7 @@ func (d *Discoverer) collectPlanChildren(ctx context.Context, plan *DeletePlan) 
 		} else if present {
 			query := &claimread.Input{}
 			query.SetTurnIDs(plan.TurnIDs)
-			plan.Claims, err = planReaderRows[claimread.Claim](ctx, d, query, "/v1/internal/agently/tool-execution-claim", planProviders("claimaccess", owner))
+			plan.Claims, err = planReaderRows[claimread.Claim](ctx, d, query, "/v1/internal/agently/tool-execution-claim", planProviders("claimaccess", owner, "claim_key", "turn_id"))
 			if err != nil {
 				return err
 			}
@@ -405,7 +415,7 @@ func (d *Discoverer) collectPlanChildren(ctx context.Context, plan *DeletePlan) 
 			queries = append(queries, query)
 		}
 		for _, query := range queries {
-			found, err := planReaderRows[auditread.AuditEvent](ctx, d, query, "/v1/internal/forge/reporting/audit", planProviders("reportauditaccess", owner))
+			found, err := planReaderRows[auditread.AuditEvent](ctx, d, query, "/v1/internal/forge/reporting/audit", planProviders("reportauditaccess", owner, "event_id", "job_id", "artifact_id"))
 			if err != nil {
 				return err
 			}
@@ -446,7 +456,7 @@ func (d *Discoverer) collectPlanDetachRows(ctx context.Context, plan *DeletePlan
 		queries = append(queries, bySuperseded)
 		for _, query := range queries {
 			readContext := queryselectors.ForUpdateOptions(ctx, d.LockDetachRows).Context(ctx)
-			rows, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(readContext, query, nil)
+			rows, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(readContext, query, deleteSelectors("id", "parent_message_id", "superseded_by"))
 			if err != nil {
 				return err
 			}
@@ -473,7 +483,7 @@ func (d *Discoverer) collectPlanDetachRows(ctx context.Context, plan *DeletePlan
 		turnQueries = append(turnQueries, query)
 	}
 	for _, query := range turnQueries {
-		rows, err := planReaderRows[turnread.TurnRowsView](ctx, d, query, "/v1/api/agently/turn/list/list", d.planDetachProviders("turnaccess", nil), d.LockDetachRows)
+		rows, err := planReaderRows[turnread.TurnRowsView](ctx, d, query, "/v1/api/agently/turn/list/list", d.planDetachProviders("turnaccess", []string{"id", "started_by_message_id", "retry_of"}), d.LockDetachRows)
 		if err != nil {
 			return err
 		}
@@ -489,8 +499,8 @@ func (d *Discoverer) collectPlanDetachRows(ctx context.Context, plan *DeletePlan
 	return nil
 }
 
-func planProviders(kind, owner string) []locator.Provider {
-	return []locator.Provider{provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
+func planProviders(kind, owner string, fields ...string) []locator.Provider {
+	bindings := []locator.Provider{provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 		switch name {
 		case "internal":
 			return true, true, nil
@@ -499,7 +509,16 @@ func planProviders(kind, owner string) []locator.Provider {
 		}
 		return nil, false, nil
 	}), provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil })}
+	if len(fields) > 0 {
+		bindings = append(bindings, queryselectors.Provider(deleteSelectors(fields...)))
+	}
+	return bindings
 }
+
+func deleteSelectors(fields ...string) state.Selectors {
+	return state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: fields}}}
+}
+
 func planReaderRows[T any](ctx context.Context, d *Discoverer, input any, path string, providers []locator.Provider, lock ...bool) ([]*T, error) {
 	target := dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeOf(input).Elem().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: path}}
 	options := queryselectors.ForUpdateOptions(ctx, len(lock) > 0 && lock[0])

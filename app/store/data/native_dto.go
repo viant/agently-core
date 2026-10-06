@@ -104,8 +104,8 @@ func copyDataValue(target, source reflect.Value) error {
 	return fmt.Errorf("cannot map %s to %s", source.Type(), target.Type())
 }
 
-// applyDataMutationResult retains public logical fields which have no stored
-// column or generated presence marker, such as tool ResponseOverflow.
+// applyDataMutationResult retains the public tool ResponseOverflow value and
+// presence while applying stored fields and successful writer defaults.
 func applyDataMutationResult(target, source reflect.Value) error {
 	for source.Kind() == reflect.Pointer {
 		if source.IsNil() {
@@ -119,14 +119,14 @@ func applyDataMutationResult(target, source reflect.Value) error {
 	if target.CanAddr() {
 		if tool, ok := target.Addr().Interface().(*toolcallmodel.ToolCall); ok {
 			overflow := tool.ResponseOverflow
-			overflowSupplied := tool.Has != nil && tool.Has.ResponseOverflow
+			overflowPresent := tool.Has != nil && tool.Has.ResponseOverflow
 			defer func() {
 				tool.ResponseOverflow = overflow
-				if overflowSupplied {
-					if tool.Has == nil {
-						tool.Has = &toolcallmodel.ToolCallHas{}
-					}
-					tool.Has.ResponseOverflow = true
+				if tool.Has == nil && overflowPresent {
+					tool.Has = &toolcallmodel.ToolCallHas{}
+				}
+				if tool.Has != nil {
+					tool.Has.ResponseOverflow = overflowPresent
 				}
 			}()
 		}
