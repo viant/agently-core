@@ -405,9 +405,11 @@ function pageOwnedAssistantMessageIds(turn: ClientTurnState): Set<string> {
 }
 
 function projectStandaloneMessages(turn: ClientTurnState): ClientStandaloneMessage[] {
+    const toolResultIds = toolResultMessageIds(turn);
     const pageOwnedIds = pageOwnedAssistantMessageIds(turn);
     return (Array.isArray(turn.messages) ? turn.messages : []).filter((message) => {
         if (message.role !== 'assistant') return true;
+        if (toolResultIds.has(message.messageId || '')) return false;
         if (isInternalMessageMode(message.mode)) return false;
         if (Number(message.interim ?? 0) > 0) return false;
         if (String(message.content || '').trim().startsWith('ui://')) return false;
@@ -464,7 +466,8 @@ function messageToRow(message: ClientStandaloneMessage, turn: ClientTurnState): 
 }
 
 function iterationRow(turn: ClientTurnState): IterationRenderRow {
-    const rounds = turn.pages.map((p) => projectRound(p));
+    const toolResultIds = toolResultMessageIds(turn);
+    const rounds = turn.pages.map((p) => projectRound(p, toolResultIds));
     const renderableCount = rounds.filter((r) => r.hasContent).length;
     const header = describeHeader(turn.lifecycle, renderableCount);
     // A running transcript is the canonical late-join signal for work started
@@ -553,7 +556,12 @@ function compareProjectedRows(left: RenderRow & { sequence?: number; role?: stri
     );
 }
 
-function projectRound(page: ClientExecutionPage): RoundRenderView {
+function toolResultMessageIds(turn: ClientTurnState): Set<string> {
+    return new Set(turn.pages.flatMap(page => (page.toolCalls ?? []).map(tool => tool.toolMessageId).filter((id): id is string => !!id)));
+}
+
+function projectRound(page: ClientExecutionPage, toolResultIds: Set<string>): RoundRenderView {
+    const toolOwned = toolResultIds.has(page.messageId || page.pageId || '');
     const modelSteps = (page.modelSteps ?? []).map(projectModelStep);
     const toolCalls = (page.toolCalls ?? []).map(projectToolCall);
     const lifecycleEntries = (page.lifecycleEntries ?? []).map(projectLifecycleEntry);
@@ -565,8 +573,8 @@ function projectRound(page: ClientExecutionPage): RoundRenderView {
         iteration: typeof page.iteration === 'number' ? page.iteration : 0,
         phase: deriveRoundPhase(page),
         narration: page.narration,
-        content: page.content,
-        renderedContent: page.renderedContent,
+        content: toolOwned ? undefined : page.content,
+        renderedContent: toolOwned ? undefined : page.renderedContent,
         status: page.status,
         finalResponse: !!page.finalResponse,
         modelSteps,

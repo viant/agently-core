@@ -4,7 +4,7 @@ import com.viant.agentlysdk.stream.isInternalMessageMode
 
 /** User-facing assistant messages, keyed by canonical ID rather than content. */
 fun canonicalAssistantMessages(turn: TurnState): List<TurnMessageState> {
-    val internalIds = canonicalInternalAssistantMessageIds(turn)
+    val internalIds = canonicalInternalAssistantMessageIds(turn) + canonicalToolResultMessageIds(turn)
     val ordered = turn.messages.filter { it.role == "assistant" && it.messageId.isNotBlank() && it.messageId !in internalIds }.toMutableList()
     // Canonical input order is durable. Repeated projections enrich one identity.
     val messages = linkedMapOf<String, TurnMessageState>()
@@ -45,3 +45,6 @@ internal fun canonicalInternalAssistantMessageIds(turn: TurnState): Set<String> 
         page.modelSteps.filter { isInternalMessageMode(it.mode) || it.mode.isNullOrEmpty() && (hidden || isInternalMessageMode(it.executionRole)) }.forEach { it.assistantMessageId?.let(::add) }
     }
 }
+
+internal fun canonicalToolResultMessageIds(turn: TurnState): Set<String> = turn.execution?.pages.orEmpty()
+    .flatMap { it.toolSteps }.mapNotNull { it.toolMessageId?.takeIf(String::isNotBlank) }.toSet()

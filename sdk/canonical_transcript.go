@@ -369,9 +369,11 @@ func buildStandaloneToolPage(ts *TurnState, message *conversationmodel.MessageVi
 	if page == nil {
 		return nil
 	}
-	page.PageID = message.Id
-	page.AssistantMessageID = message.Id
-	page.ParentMessageID = firstNonEmpty(strings.TrimSpace(ptrString(message.ParentMessageId)), message.Id)
+	// A tool response is execution detail, never assistant prose. Iteration
+	// coalescing may return a page already owned by an assistant model call.
+	if page.AssistantMessageID == "" {
+		page.ParentMessageID = strings.TrimSpace(ptrString(message.ParentMessageId))
+	}
 	page.TurnID = stringValue(message.TurnId)
 	page.Iteration = intValue(message.Iteration)
 	page.Sequence = intValue(message.Sequence)
@@ -383,9 +385,6 @@ func buildStandaloneToolPage(ts *TurnState, message *conversationmodel.MessageVi
 	}
 	if page.Status == "" {
 		page.Status = "completed"
-	}
-	if content := visibleContentOrEmpty(message.Content); content != "" {
-		page.Content = content
 	}
 	if step := buildToolStepFromMessageToolCall(message); step != nil {
 		existing := upsertToolStep(page, step.ToolCallID)

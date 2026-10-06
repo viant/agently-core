@@ -191,6 +191,7 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 	}
 	hostTurns, hostMessageIDs := aguiCanonicalHostBoundaries(transcript)
 	internalIDs := map[string]bool{}
+	toolResultIDs := map[string]bool{}
 	for _, turn := range transcript.Conversation.Turns {
 		if turn == nil {
 			continue
@@ -204,6 +205,11 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 			for _, page := range turn.Execution.Pages {
 				if page == nil {
 					continue
+				}
+				for _, step := range page.ToolSteps {
+					if step != nil && step.ToolMessageID != "" {
+						toolResultIDs[step.ToolMessageID] = true
+					}
 				}
 				hidden := streaming.IsInternalMessageMode(page.Mode)
 				if hidden && page.AssistantMessageID != "" {
@@ -230,28 +236,28 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 			mark(id)
 			continue
 		}
-		if internalIDs[id] {
+		if internalIDs[id] || toolResultIDs[id] && message["role"] == "assistant" {
 			// Retain a tool-call container for pairing, never its internal body.
 			calls, _ := message["toolCalls"].([]any)
 			if len(calls) == 0 {
 				continue
 			}
 		}
-		if message["role"] == "activity" && message["activityType"] == "agently.rendered-content" && internalIDs[strings.TrimSuffix(id, "/activity")] {
+		if message["role"] == "activity" && message["activityType"] == "agently.rendered-content" && (internalIDs[strings.TrimSuffix(id, "/activity")] || toolResultIDs[strings.TrimSuffix(id, "/activity")]) {
 			continue
 		}
 		copy := aguistate.Object{}
 		for key, value := range message {
 			copy[key] = value
 		}
-		if internalIDs[id] {
+		if internalIDs[id] || toolResultIDs[id] && message["role"] == "assistant" {
 			copy["content"] = ""
 		}
 		byID[id] = len(result)
 		result = append(result, copy)
 	}
 	putText := func(id, role, content string, rendered *RenderedContent) {
-		if internalIDs[id] {
+		if internalIDs[id] || toolResultIDs[id] && role == "assistant" {
 			return
 		}
 		if id == "" || role != "user" && role != "assistant" && role != "system" {

@@ -42,4 +42,11 @@ final class CanonicalMessagesTests: XCTestCase {
         XCTAssertEqual(turn.execution?.pages.flatMap(\.modelSteps).count, 3)
     }
 
+    func testToolOwnedCachedAssistantProjectionIsExcludedButToolResultRemains() throws {
+        let raw = #"{"turnId":"t","messages":[{"messageId":"tool","role":"assistant","content":"contract"},{"messageId":"assistant","role":"assistant","content":"contract","mode":"task"}],"assistant":{"final":{"messageId":"tool","content":"contract"}},"execution":{"pages":[{"pageId":"tool","assistantMessageId":"tool","content":"contract","finalResponse":true,"toolSteps":[{"toolCallId":"op","toolMessageId":"tool","toolName":"template/get","content":"contract"}]}]}}"#
+        let turn = try JSONDecoder().decode(TurnState.self, from: Data(raw.utf8))
+        XCTAssertEqual(canonicalAssistantMessages(turn).map(\.messageID), ["assistant"])
+        XCTAssertEqual(turn.execution?.pages.first?.toolSteps.first?.content, "contract")
+    }
+
 }
