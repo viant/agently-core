@@ -6,7 +6,7 @@ The route authority is [`sdk/handler.go`](../sdk/handler.go). The standard inter
 
 ## Standard AG-UI interaction
 
-The durable backend accepts `RunAgentInput` and streams standard events on the POST response. Its wire authority is AG-UI 1.0 at commit `e60019d258cf43ecc5ad19e8d374f1c31cbf2b94`; the reference consumer is `@ag-ui/client` 1.0.1. Agently-specific data uses extension points rather than additional standard input fields.
+The durable backend implements [AG-UI 1.0](https://docs.ag-ui.com/spec/1.0): it accepts `RunAgentInput` and streams standard events on the POST response. Agently-specific data uses extension points rather than additional standard input fields. Reproducible schema and consumer test versions are recorded in the [schema reference](../protocol/agui/SCHEMA.md) and [conformance guide](ag-ui-reducer-conformance.md).
 
 | Surface | Implemented behavior and evidence |
 | --- | --- |

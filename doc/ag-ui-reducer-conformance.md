@@ -1,6 +1,6 @@
 # Go consumer conformance to pinned AG-UI 1.0
 
-The wire authority is the unmodified 1.0 schema at commit
+The tests use an unmodified snapshot of the upstream AG-UI 1.0 schema at commit
 `e60019d258cf43ecc5ad19e8d374f1c31cbf2b94`. The consumer oracle is the
 `@ag-ui/client` 1.0.1 implementation pinned in `sdk/ts`.
 
