@@ -923,6 +923,7 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 	var resolvedModel string
 	var loopHistoryMsgs []*bindpkg.Message
 	var activeInlineSkillNames []string
+	var templatePublication continuationTemplatePublication
 
 	turn, ok := runtimerequestctx.TurnMetaFromContext(ctx)
 	if !ok {
@@ -1371,7 +1372,12 @@ func (s *Service) runPlanLoopFrom(ctx context.Context, input *QueryInput, queryO
 			genOutput.MessageID = start.MessageID
 			aPlan, pErr = s.orchestrator.ResumePlan(ctx, start.Plan, start.Completed)
 		} else {
+			templateDigest, restoreTemplatePublication := templatePublication.prepare(genInput)
 			aPlan, pErr = s.orchestrator.Run(ctx, genInput, genOutput)
+			restoreTemplatePublication()
+			if pErr == nil {
+				templatePublication.accept(templateDigest, genOutput.Response)
+			}
 		}
 		stepCount := 0
 		if aPlan != nil {

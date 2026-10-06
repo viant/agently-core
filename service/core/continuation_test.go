@@ -422,6 +422,8 @@ func TestTryGenerateContinuationByAnchor_ReplaysAllToolOutputsForSharedParentMes
 		},
 	}
 
+	request.Messages = append([]llm.Message{{Role: llm.RoleSystem, Content: "current template", RefreshOnContinuation: true}, llm.NewSystemMessage("historical context")}, request.Messages...)
+
 	resp, used, err := svc.tryGenerateContinuationByAnchor(ctx, model, request)
 	if err != nil {
 		t.Fatalf("tryGenerateContinuationByAnchor() error: %v", err)
@@ -439,11 +441,13 @@ func TestTryGenerateContinuationByAnchor_ReplaysAllToolOutputsForSharedParentMes
 	if got.PreviousResponseID != respID {
 		t.Fatalf("expected previous_response_id=%q, got %q", respID, got.PreviousResponseID)
 	}
-	if len(got.Messages) != 3 {
+	assert.Equal(t, "current template", got.Messages[0].Content)
+
+	if len(got.Messages) != 4 {
 		t.Fatalf("expected assistant tool-call message plus two tool results, got %#v", got.Messages)
 	}
-	if len(got.Messages[0].ToolCalls) != 2 {
-		t.Fatalf("expected both tool calls to stay visible in anchored replay, got %#v", got.Messages[0].ToolCalls)
+	if len(got.Messages[1].ToolCalls) != 2 {
+		t.Fatalf("expected both tool calls to stay visible in anchored replay, got %#v", got.Messages[1].ToolCalls)
 	}
 }
 

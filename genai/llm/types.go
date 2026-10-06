@@ -89,6 +89,9 @@ func (m MessageRole) String() string {
 
 // Message is a generic message suitable for multiple content items and types.
 type Message struct {
+	// RefreshOnContinuation marks current trusted context to include with an anchor.
+	// This internal flag is never exposed to providers or restored from JSON.
+	RefreshOnContinuation bool `json:"-" yaml:"-"`
 	// ID is an optional stable message identifier from the conversation store.
 	ID string `json:"id,omitempty"`
 

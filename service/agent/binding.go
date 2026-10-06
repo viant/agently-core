@@ -458,15 +458,21 @@ func (s *Service) applySelectedTemplate(ctx context.Context, input *QueryInput, 
 		return nil
 	}
 	uri := "template://" + strings.TrimSpace(tpl.Name)
-	if !hasDocumentURI(b.SystemDocuments.Items, uri) {
-		b.SystemDocuments.Items = append(b.SystemDocuments.Items, &binding.Document{
-			Title:       strings.TrimSpace(tpl.Name),
-			PageContent: content,
-			SourceURI:   uri,
-			MimeType:    "text/markdown",
-			Metadata:    map[string]string{"kind": "template", "template": strings.TrimSpace(tpl.Name)},
-		})
+	doc := &binding.Document{
+		Title: strings.TrimSpace(tpl.Name), PageContent: content, SourceURI: uri,
+		MimeType:              "text/markdown",
+		Metadata:              map[string]string{"kind": "template", "template": strings.TrimSpace(tpl.Name)},
+		RefreshOnContinuation: true,
 	}
+	// A transcript copy of the same template must not shadow the current repository version.
+	items := b.SystemDocuments.Items[:0]
+	for _, existing := range b.SystemDocuments.Items {
+		if existing != nil && existing.SourceURI == uri {
+			continue
+		}
+		items = append(items, existing)
+	}
+	b.SystemDocuments.Items = append(items, doc)
 	return nil
 }
 
