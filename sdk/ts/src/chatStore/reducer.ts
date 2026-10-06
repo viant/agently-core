@@ -996,6 +996,7 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     const step = matched ?? appendModelStep(page, 'event');
     const explicitFinalResponse = Boolean(event.finalResponse);
     const executionRole = executionRoleFromSignals((event as any).executionRole, event.phase, event.mode);
+    if (event.mode) writeField(step, 'mode', event.mode, 'event');
     if (modelCallId) writeField(step, 'modelCallId', modelCallId, 'event');
     if (assistantMessageId) writeField(step, 'assistantMessageId', assistantMessageId, 'event');
     const derivedPhase = deriveExecutionPhase(event.phase, event.mode);
@@ -1791,6 +1792,7 @@ function mergeTranscriptModelStep(
     }
     if (snapshotStep.modelCallId) writeField(step, 'modelCallId', snapshotStep.modelCallId, 'transcript');
     if (snapshotStep.assistantMessageId) writeField(step, 'assistantMessageId', snapshotStep.assistantMessageId, 'transcript');
+    if (snapshotStep.mode) writeField(step, 'mode', snapshotStep.mode, 'transcript');
     if (snapshotStep.executionRole) writeField(step, 'executionRole', snapshotStep.executionRole, 'transcript');
     if (snapshotStep.phase) writeField(step, 'phase', snapshotStep.phase, 'transcript');
     if (snapshotStep.provider) writeField(step, 'provider', snapshotStep.provider, 'transcript');

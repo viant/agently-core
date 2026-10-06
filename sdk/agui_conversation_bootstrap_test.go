@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 	aguistore "github.com/viant/agently-core/app/store/agui"
 	"github.com/viant/agently-core/app/store/conversation"
+	convstore "github.com/viant/agently-core/app/store/conversation"
 	iauth "github.com/viant/agently-core/internal/auth"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/agui/extensions"
 	"github.com/viant/agently-core/runtime/aguistate"
 	"github.com/viant/agently-core/runtime/streaming"
@@ -318,4 +320,32 @@ func TestAGUIConversationBootstrapInternalModesAndIdentityDedupe(t *testing.T) {
 	require.NotContains(t, ids, "chain")
 	require.Equal(t, 1, ids["interim"])
 	require.Equal(t, 1, ids["final"], "same canonical final ID appears once across message and aggregate")
+}
+
+func TestAGUIBootstrapFiltersActualModelCallInclusiveCanonicalHistory(t *testing.T) {
+	for _, internalMode := range []string{"router", "chain"} {
+		t.Run(internalMode, func(t *testing.T) {
+			routerMode, taskMode := internalMode, "task"
+			routerBody, taskBody := `{"classification":true}`, "Preliminary findings"
+			transcript := convstore.Transcript{&convstore.Turn{Id: "turn", ConversationId: "thread", Message: []*conversationmodel.MessageView{
+				{Id: "router", Role: "assistant", Mode: &routerMode, Content: &routerBody, ModelCall: &conversationmodel.ModelCallView{MessageId: "router", Status: "completed"}},
+				{Id: "task", Role: "assistant", Mode: &taskMode, Content: &taskBody, ModelCall: &conversationmodel.ModelCallView{MessageId: "task", Status: "completed"}},
+			}}}
+			canonical := BuildCanonicalState("thread", transcript)
+			require.NotEmpty(t, canonical.Turns[0].Execution.Pages)
+			require.Len(t, canonical.Turns[0].Messages, 2, "model-call-bearing messages retain their canonical IDs and bodies")
+			require.Equal(t, "task", canonical.Turns[0].Messages[1].MessageID)
+			require.Equal(t, taskBody, canonical.Turns[0].Messages[1].Content)
+			journal := []aguistate.Object{{"id": "router", "role": "assistant", "content": routerBody}, {"id": "router/activity", "role": "activity", "activityType": "agently.rendered-content", "content": map[string]any{"private": true}}, {"id": "task", "role": "assistant", "content": taskBody}}
+			messages, _ := aguiBootstrapMessages(context.Background(), nil, &ConversationStateResponse{Conversation: canonical}, journal)
+			ids := map[string]bool{}
+			for _, message := range messages {
+				ids[message["id"].(string)] = true
+			}
+			require.False(t, ids["router"])
+			require.False(t, ids["router/activity"])
+			require.True(t, ids["task"])
+			require.Len(t, canonical.Turns[0].Execution.Pages[0].ModelSteps, 2, "mixed-iteration model lifecycle is preserved")
+		})
+	}
 }

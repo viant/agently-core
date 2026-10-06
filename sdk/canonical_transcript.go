@@ -92,8 +92,7 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 				})
 			}
 		case "assistant":
-			if msg.ModelCall == nil &&
-				!isSummaryAssistantMessage(msg) &&
+			if !isSummaryAssistantMessage(msg) &&
 				msg.Interim == 0 &&
 				!(msg.Mode != nil && strings.EqualFold(strings.TrimSpace(*msg.Mode), "exec")) {
 				if content := visibleContentOrEmpty(msg.Content); content != "" {
@@ -421,7 +420,8 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *conversa
 	if message.Iteration != nil {
 		iteration = *message.Iteration
 	}
-	mode := ""
+	mode := stringValue(message.Mode)
+	// Preserve per-message mode; pages can aggregate multiple model lanes.
 	// Set mode for summary passes so UI can style them distinctly.
 	if isSummaryAssistantMessage(message) {
 		mode = "summary"
@@ -437,7 +437,8 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *conversa
 	page.Iteration = iteration
 	page.Sequence = intValue(message.Sequence)
 	page.Phase = strings.TrimSpace(stringValue(message.Phase))
-	page.ExecutionRole = executionRoleFromSignals(page.ExecutionRole, page.Phase, page.Mode, "")
+	page.Mode = mode
+	page.ExecutionRole = executionRoleFromSignals("", page.Phase, page.Mode, "")
 	if narration := executionNarration(message); narration != "" {
 		page.Narration = narration
 	}
@@ -454,7 +455,7 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *conversa
 		page.FinalResponse = true
 	}
 	page.Status = pageStatus(message)
-	if mode != "" {
+	if mode == "summary" {
 		page.Mode = mode
 		page.FinalResponse = false // summary is not the final user-facing response
 	}
@@ -542,6 +543,7 @@ func buildModelStep(message *conversationmodel.MessageView) *ModelStepState {
 	mc := message.ModelCall
 	step := &ModelStepState{
 		ModelCallID:        strings.TrimSpace(stringValue(mc.TraceId)),
+		Mode:               stringValue(message.Mode),
 		AssistantMessageID: message.Id,
 		Phase:              strings.TrimSpace(stringValue(message.Phase)),
 		Provider:           strings.TrimSpace(mc.Provider),
@@ -581,7 +583,7 @@ func buildModelStep(message *conversationmodel.MessageView) *ModelStepState {
 	if mc.ModelCallStreamPayload != nil {
 		step.StreamPayload = marshalToRawJSON(mc.ModelCallStreamPayload)
 	}
-	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, step.Phase, "", "", step.RequestPayload, step.ProviderRequestPayload, step.ResponsePayload, step.ProviderResponsePayload, step.StreamPayload)
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, step.Phase, step.Mode, "", step.RequestPayload, step.ProviderRequestPayload, step.ResponsePayload, step.ProviderResponsePayload, step.StreamPayload)
 	return step
 }
 

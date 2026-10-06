@@ -200,6 +200,22 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 				internalIDs[message.MessageID] = true
 			}
 		}
+		if turn.Execution != nil {
+			for _, page := range turn.Execution.Pages {
+				if page == nil {
+					continue
+				}
+				hidden := streaming.IsInternalMessageMode(page.Mode)
+				if hidden && page.AssistantMessageID != "" {
+					internalIDs[page.AssistantMessageID] = true
+				}
+				for _, step := range page.ModelSteps {
+					if step != nil && (streaming.IsInternalMessageMode(step.Mode) || step.Mode == "" && (hidden || streaming.IsInternalMessageMode(step.ExecutionRole))) && step.AssistantMessageID != "" {
+						internalIDs[step.AssistantMessageID] = true
+					}
+				}
+			}
+		}
 	}
 	byID := map[string]int{}
 	for _, message := range journal {

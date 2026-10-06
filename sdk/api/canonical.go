@@ -145,6 +145,7 @@ type RenderedReportAssembly = rendering.RenderedReportAssembly
 type RenderedContentWarning = rendering.RenderedContentWarning
 
 type ModelStepState struct {
+	Mode                      string           `json:"mode,omitempty"`
 	ModelCallID               string           `json:"modelCallId"`
 	AssistantMessageID        string           `json:"assistantMessageId"`
 	ExecutionRole             string           `json:"executionRole,omitempty"`
