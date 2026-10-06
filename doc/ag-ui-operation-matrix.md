@@ -1,122 +1,68 @@
-# AG-UI backend operation inventory
+# AG-UI backend operation matrix
 
-This records the explicit SDK routes and their backend contract mapping. It describes the current backend milestone, not complete goal/conformance/backend parity. Production web/mobile/CLI shell migration is later.
+Agently exposes standard [AG-UI](https://docs.ag-ui.com/spec/1.0) agent interaction, versioned Agently extensions, and supporting application APIs. This matrix records their responsibilities, implemented operations, and verification limits. Conversation resource CRUD, binary upload/download, authentication, and workspace management remain application API responsibilities.
 
-`sdk/handler.go` currently declares 63 explicit method/path registrations, including two health aliases, the new AG-UI endpoint, and legacy aliases. These are route registrations, not 63 distinct missing features.
+The route authority is [`sdk/handler.go`](../sdk/handler.go). The standard interaction endpoint is `POST /v1/ag-ui/run`; application notifications use `GET /v1/application-events`. The handler does not register `/v1/agent/query` or `/v1/stream`.
 
-| Existing route | Intended AG-UI surface | Current evidence/status |
-| --- | --- | --- |
-| `GET /healthz` | Infrastructure | Outside the interaction migration |
-| `GET /health` | Infrastructure | Outside the interaction migration |
-| `POST /upload` | Artifact descriptors and explicit binary transfer binding | Pending mapping; ordinary message media is separately implemented |
-| `POST /v1/agent/query` | Standard run/messages/tools | Implemented basic and client-tool flows; remaining lifecycle gates tracked |
-| `POST /v1/ag-ui/run` | Unified AG-UI endpoint | Durable Datly 1.0 journal; all 31 pinned wire event schemas; frontend/root/nested client-tool handoff; detached `parentRunId`; focused approval/graph recovery regressions and assembled continuation checks pass; combined core/SDK, assembled protocol and authenticated Steward session/metadata checks pass; broader CLI and later route parity limits remain documented |
-| `POST /v1/conversations` | Agently conversation/run resource commands | Pending mapping |
-| `GET /v1/conversations/{id}` | Agently conversation/run resource commands | Pending mapping |
-| `PATCH /v1/conversations/{id}` | Agently conversation/run resource commands | Pending mapping |
-| `DELETE /v1/conversations/{id}` | Agently conversation/run resource commands | Pending mapping |
-| `GET /v1/conversations/{id}/goal` | Agently goal v1 commands / activity subscription | Goal resource commands implemented; goal parity and background conformance remain open |
-| `GET /v1/conversations/{id}/async` | Agently conversation/run resource commands | Pending mapping |
-| `POST /v1/conversations/{id}/goal` | Agently goal v1 commands / activity subscription | Goal resource commands implemented; goal parity and background conformance remain open |
-| `PATCH /v1/conversations/{id}/goal` | Agently goal v1 commands / activity subscription | Goal resource commands implemented; goal parity and background conformance remain open |
-| `DELETE /v1/conversations/{id}/goal` | Agently goal v1 commands / activity subscription | Goal resource commands implemented; goal parity and background conformance remain open |
-| `GET /v1/conversations` | Agently conversation/run resource commands | Pending mapping |
-| `GET /v1/conversations/linked` | Agently conversation/run resource commands | Pending mapping |
-| `GET /v1/conversations/{id}/transcript` | Standard message/state snapshots plus history management | Authoritative saved-history/recovery projection implemented; standalone history management remains pending |
-| `GET /v1/conversations/{id}/live-state` | Standard message/state snapshots plus history management | Authoritative saved-history/recovery projection implemented; standalone history management remains pending |
-| `POST /v1/conversations/{id}/terminate` | Agently targeted cancellation/steering/queue commands | Authorized cancellation, run inspection, and event paging commands wired; other controls pending |
-| `POST /v1/conversations/{id}/compact` | Agently conversation/run resource commands | Pending mapping |
-| `POST /v1/conversations/{id}/prune` | Agently conversation/run resource commands | Pending mapping |
-| `GET /v1/runs/{id}` | Agently conversation/run resource commands | Pending mapping |
-| `GET /v1/messages` | Standard message/state snapshots plus history management | Authoritative saved-history/recovery projection implemented; standalone history management remains pending |
-| `GET /v1/elicitations` | Standard interrupts/resume + typed approval extensions | Standard interrupt/resume and durable approval receipts/claims implemented; standalone list/decision resource parity remains open |
-| `POST /v1/api/payloads` | Artifact descriptors and explicit binary transfer binding | Pending mapping; ordinary message media is separately implemented |
-| `GET /v1/api/payload/{id}` | Artifact descriptors and explicit binary transfer binding | Pending mapping; ordinary message media is separately implemented |
-| `GET /v1/api/conversations/{id}/generated-files` | Artifact descriptors and explicit binary transfer binding | Pending mapping; ordinary message media is separately implemented |
-| `GET /v1/api/generated-files/{id}/download` | Artifact descriptors and explicit binary transfer binding | Pending mapping; ordinary message media is separately implemented |
-| `POST /v1/files` | Artifact descriptors and explicit binary transfer binding | Pending mapping; ordinary message media is separately implemented |
-| `GET /v1/files` | Artifact descriptors and explicit binary transfer binding | Pending mapping; ordinary message media is separately implemented |
-| `GET /v1/files/{id}` | Artifact descriptors and explicit binary transfer binding | Pending mapping; ordinary message media is separately implemented |
-| `GET /v1/feeds` | Agently feed resources and background subscriptions | Typed `feed.*` resource commands implemented; subscription/feature parity remains open |
-| `GET /v1/feeds/{id}/data` | Agently feed resources and background subscriptions | Typed `feed.*` resource commands implemented; subscription/feature parity remains open |
-| `GET /v1/stream` | Per-run standard streams and separate subscription runs | Chat journal implemented; background migration partial |
-| `POST /v1/turns/{id}/cancel` | Agently targeted cancellation/steering/queue commands | Authorized cancellation, run inspection, and event paging commands wired; other controls pending |
-| `POST /v1/elicitations/{conversationId}/{elicitationId}/resolve` | Standard interrupts/resume + typed approval extensions | Standard interrupt/resume and durable approval receipts/claims implemented; standalone list/decision resource parity remains open |
-| `POST /v1/conversations/{id}/turns/{turnId}/steer` | Agently targeted cancellation/steering/queue commands | Authorized cancellation, run inspection, and event paging commands wired; other controls pending |
-| `DELETE /v1/conversations/{id}/turns/{turnId}` | Agently targeted cancellation/steering/queue commands | Authorized cancellation, run inspection, and event paging commands wired; other controls pending |
-| `POST /v1/conversations/{id}/turns/{turnId}/move` | Agently targeted cancellation/steering/queue commands | Authorized cancellation, run inspection, and event paging commands wired; other controls pending |
-| `PATCH /v1/conversations/{id}/turns/{turnId}` | Agently targeted cancellation/steering/queue commands | Authorized cancellation, run inspection, and event paging commands wired; other controls pending |
-| `POST /v1/conversations/{id}/turns/{turnId}/force-steer` | Agently targeted cancellation/steering/queue commands | Authorized cancellation, run inspection, and event paging commands wired; other controls pending |
-| `GET /v1/tools` | Standard tool execution plus Agently catalog/direct-command operations | Standard events implemented; management operations pending |
-| `GET /v1/templates` | Agently skill/template discovery and resources | Pending mapping |
-| `GET /v1/templates/{name}` | Agently skill/template discovery and resources | Pending mapping |
-| `GET /v1/skills` | Agently skill/template discovery and resources | Pending mapping |
-| `GET /v1/skills/diagnostics` | Agently skill/template discovery and resources | Pending mapping |
-| `POST /v1/skills/{name}/activate` | Agently skill/template discovery and resources | Pending mapping |
-| `POST /v1/tools/{name}/execute` | Standard tool execution plus Agently catalog/direct-command operations | Standard events implemented; management operations pending |
-| `POST /v1/api/tools/{toolName}` | Standard tool execution plus Agently catalog/direct-command operations | Standard events implemented; management operations pending |
-| `POST /v1/tools/execute` | Standard tool execution plus Agently catalog/direct-command operations | Standard events implemented; management operations pending |
-| `GET /v1/tool-approvals/pending` | Standard interrupts/resume + typed approval extensions | Standard interrupt/resume and durable approval receipts/claims implemented; standalone list/decision resource parity remains open |
-| `POST /v1/tool-approvals/{id}/decision` | Standard interrupts/resume + typed approval extensions | Standard interrupt/resume and durable approval receipts/claims implemented; standalone list/decision resource parity remains open |
-| `POST /v1/workspace/resources/export` | Agently workspace resource commands | Typed dispatch and durable endpoint wired; domain tests pass; filesystem crash recovery reports uncertain effects without repeating writes |
-| `POST /v1/workspace/resources/import` | Agently workspace resource commands | Typed dispatch and durable endpoint wired; domain tests pass; filesystem crash recovery reports uncertain effects without repeating writes |
-| `GET /v1/workspace/resources/{kind}/{name}` | Agently workspace resource commands | Typed dispatch and durable endpoint wired; domain tests pass; filesystem crash recovery reports uncertain effects without repeating writes |
-| `PUT /v1/workspace/resources/{kind}/{name}` | Agently workspace resource commands | Typed dispatch and durable endpoint wired; domain tests pass; filesystem crash recovery reports uncertain effects without repeating writes |
-| `DELETE /v1/workspace/resources/{kind}/{name}` | Agently workspace resource commands | Typed dispatch and durable endpoint wired; domain tests pass; filesystem crash recovery reports uncertain effects without repeating writes |
-| `GET /v1/workspace/resources` | Agently workspace resource commands | Typed dispatch and durable endpoint wired; domain tests pass; filesystem crash recovery reports uncertain effects without repeating writes |
-| `POST /v1/api/datasources/{id}/fetch` | Agently datasource and lookup commands | Typed dispatch and durable endpoint wired; configured capability discovery; native fetch validation in progress |
-| `DELETE /v1/api/datasources/{id}/cache` | Agently datasource and lookup commands | Typed dispatch and durable endpoint wired; configured capability discovery; native fetch validation in progress |
-| `GET /v1/api/lookups/registry` | Agently datasource and lookup commands | Typed dispatch and durable endpoint wired; configured capability discovery; native fetch validation in progress |
-| `GET /v1/api/mcp-ui/resources/read` | Agently host-only MCP Apps resource/tool commands | Pending mapping; preserve original result envelope and approvals |
-| `POST /v1/api/mcp-ui/tools/call` | Agently host-only MCP Apps resource/tool commands | Explicit binding APIs and full host result capture exist; automatic app-scope resolution and native approval continuation are verified; current binding/configuration revocation is enforced |
+## Standard AG-UI interaction
 
-## Optional and indirect routes
+The durable backend accepts `RunAgentInput` and streams standard events on the POST response. Its wire authority is AG-UI 1.0 at commit `e60019d258cf43ecc5ad19e8d374f1c31cbf2b94`; the reference consumer is `@ag-ui/client` 1.0.1. Agently-specific data uses extension points rather than additional standard input fields.
 
-The explicit list does not include routes registered inside optional handlers. Audit these before declaring full Agently backend parity:
+| Surface | Implemented behavior and evidence |
+| --- | --- |
+| Run lifecycle and streaming | Ordered journal observation with run start and terminal outcomes; queued and preset responses are covered by [`handler_agui_durable_test.go`](../sdk/handler_agui_durable_test.go) and [`handler_agui_test.go`](../sdk/handler_agui_test.go). |
+| Messages and history | Text/tool messages and authoritative saved-history projection; client history is reconciled rather than appended as a new query. See [`agui_host_history_test.go`](../sdk/agui_host_history_test.go) and [`agui_native_history_mapping_test.go`](../sdk/agui_native_history_mapping_test.go). |
+| Tools and continuation | Backend tool events and client-tool handoff at frontend, root, and nested execution levels; dependency continuation has focused coverage in [`agui_dependency_resume_test.go`](../sdk/agui_dependency_resume_test.go). |
+| Human input | Interrupt/resume, approval receipts, and coordinated continuation. See [`agui_interrupts_test.go`](../sdk/agui_interrupts_test.go), [`agui_approval_frontend_resume_test.go`](../sdk/agui_approval_frontend_resume_test.go), and [`agui_approval_commands_test.go`](../sdk/agui_approval_commands_test.go). |
+| Shared state | State snapshots, RFC 6902 deltas, persistent state and input reconciliation. See [`agui_state_commands_test.go`](../sdk/agui_state_commands_test.go) and [`runtime/aguistate`](../runtime/aguistate). |
+| Child runs and attribution | Scoped tool identity, nested execution and detached `parentRunId` behavior. See [`agui_child_recovery_test.go`](../sdk/agui_child_recovery_test.go) and [`agui_native_identity_test.go`](../sdk/agui_native_identity_test.go). |
+| Disconnect and recovery | Disconnect detaches HTTP observation; work continues journaling. Reattachment/replay does not resubmit an admitted input. Explicit cancellation is an Agently command. See [`agui_run_attach_test.go`](../sdk/agui_run_attach_test.go) and [`agui_recovery_test.go`](../sdk/agui_recovery_test.go). |
 
-- Workspace metadata/layout/windows/themes/file browser: typed resources, renderer/device capabilities, permissions, revisions and transfer bindings.
-- UI bridge `/v1/ui/rpc`: attach/client lease, targeted commands, snapshots and acknowledgments dispatched independently of the chat queue.
-- Report runs/exports: deterministic begin/complete/adopt/export and artifact delivery with existing authorization.
-- Scheduler: schedule resources, run-now and independent update subscriptions.
-- Speech: audio input/output and streaming transfer bindings; model/media support must be explicit.
-- Authentication: remains a transport/authentication concern; never accept forwarded identity as authority.
-- A2A and backend MCP: remain backend interoperability protocols, not alternate shell interaction protocols.
+These behaviors refer to the durable runtime selected by [`handleAGUIRun`](../sdk/handler_agui.go). An injected backend without the durable runtime interface uses a more limited handler that rejects parent runs, resume, client tools, supplied context, and nonempty shared state; it does not provide durable replay.
 
-Unsupported Forge activity/custom payloads must stay outside assistant text. A generic client may ignore the extension; rich commands must be capability-gated, with acknowledgment, timeout and permission behavior defined. Native Forge code fences require a plain-text projection so raw authoring JSON does not become chat prose.
+## Versioned Agently extensions
 
-## Completion gates
+Commands use `forwardedProps.agently` with version `"1"` and a named operation. Resource commands run independently of model queries, retain authenticated scope, and return their results within standard run boundaries. Schemas reside in [`protocol/agui/extensions`](../protocol/agui/extensions); admission and dispatch are implemented in [`handler_agui_durable.go`](../sdk/handler_agui_durable.go).
 
-For each operation: publish a versioned payload/result schema; preserve authenticated authority and service semantics; prove idempotency and failure behavior; advertise only implemented capabilities; test the backend through AG-UI rather than a legacy network route. Map both desired workspace state and acknowledged device state. Goal/feed/workspace updates may outlive chat and need independent subscription lifecycles.
+| Family | Implemented operation names |
+| --- | --- |
+| Discovery and execution | `capabilities`, `chat`; typed execution selection for supported agent/model/runtime controls. |
+| Conversation bootstrap | `conversation.bootstrap`. This is not a general conversation CRUD command family. |
+| Run observation and control | `run.get`, `run.events.list`, `run.attach`, `run.cancel`. |
+| State | `state.get`, `state.patch`. |
+| Approvals | `approval.decide`. |
+| Goals | `goal.get`, `goal.create`, `goal.update`, `goal.clear`, `goal.pause`, `goal.resume`, `goal.subscribe`. |
+| Workspace metadata | `workspace.metadata.get`, `workspace.publicagents.list`, `workspace.layout.get`, `workspace.tools.list`, `workspace.models.list`, `workspace.model.get`, `workspace.model.save`. |
+| Workspace resources | `workspace.resource.list`, `workspace.resource.get`, `workspace.resource.save`, `workspace.resource.delete`, `workspace.resource.export`, `workspace.resource.import`. |
+| Datasources and lookups | `datasource.fetch`, `datasource.cache.invalidate`, `lookup.registry`. |
+| Feeds | `feed.list`, `feed.get`, `feed.subscribe`. |
 
-## Current implementation evidence
+Discovery reflects configured services, feature switches, metadata bindings and MCP Apps host bindings; availability must be read from [`aguiDurableCapabilities`](../sdk/agui_capabilities.go), not inferred from this union of operations. Goal/feed subscriptions have independent run lifecycles, with tests in [`agui_goal_subscription_test.go`](../sdk/agui_goal_subscription_test.go) and [`agui_feed_subscription_test.go`](../sdk/agui_feed_subscription_test.go).
 
-The durable endpoint accepts `workspace.*`, `datasource.*`, `lookup.*`, `feed.*`,
-`run.get`, `run.events.list`, and `run.cancel` resource commands with strict payload
-validation. Goal/state resource commands are also implemented. Metadata services
-are supplied by trusted handler configuration. Resource commands use independent
-protocol runs and do not submit model queries. The backend milestone includes
-scoped public tool IDs, client-tool handoff at frontend/root/nested levels,
-detached runs with `parentRunId`, and backend Forge fence extraction ahead of
-legacy TypeScript client parsing. The official CopilotKit shell is an
-interoperability harness; it does not establish production shell migration.
+MCP Apps use a separate scoped proxy envelope and configured host bindings. Host results, including `_meta`, are kept outside model history; authorization and approval continuation are covered by [`agui_mcp_apps_native_approval_test.go`](../sdk/agui_mcp_apps_native_approval_test.go) and [`agui_mcp_apps_host_test.go`](../sdk/agui_mcp_apps_host_test.go). Forge presentation uses versioned presentation metadata/activity rather than raw authoring JSON in assistant prose; see [`agui_rendering_test.go`](../sdk/agui_rendering_test.go).
 
-HTTP regression tests verify metadata and run resource command replay, unchanged
-chat messages/state, scoped turn-based public tool IDs, causal child-event order,
-and Forge extraction for preset responses. MySQL 8.4 `newAGUI` table two-runtime
-lease/resume race behavior and exact JSON were verified. The full legacy-schema
-bootstrap encountered a preexisting invalid `op_id` index and was not validated.
-Do not claim complete goal/conformance/backend parity: focused approval and graph
-integration checks pass, while combined repository acceptance and remaining
-operation parity are tracked separately. Interactive MCP Apps
-automatic app-scope resolution is implemented and verified as described in
-[`ag-ui-mcp-app-scope-plan.md`](ag-ui-mcp-app-scope-plan.md); explicit binding APIs
-and full host result capture exist. Keep host results and `_meta` outside model
-history. The local `../mcp-protocol-ag-ui` replacement is required until its
-wire fix is published and pinned. No commits have been made; local builds may
-need sibling worktree replacements.
+## Supporting application APIs
 
-`run.events.list` returns standard event objects plus scoped cursor and sequence;
-`run.get` omits accepted input, credentials, principal, and native execution IDs.
-Filesystem commands write a dispatch boundary before effects; recovery after
-that boundary reports uncertainty and requires inspection rather than repeating
-an operation whose first result might have committed.
+These implemented HTTP handlers serve application resources and host services alongside AG-UI interaction. Their presence does not imply that a generic AG-UI agent implements the same application features. The SDK wraps routes with authentication middleware when authentication is enabled and a session manager is configured; domain handlers also apply their own scope and ownership checks.
+
+| API family | Current registered surface |
+| --- | --- |
+| Conversations and history | `/v1/conversations` CRUD/list, linked conversations, goal CRUD, async operations, transcript, live state, terminate, compact and prune; `/v1/messages`; `/v1/runs/{id}`. |
+| Turn controls and human input | Turn cancellation; steer, queued-turn delete/move/edit/force-steer; elicitation list/resolve; pending tool approvals and decisions. |
+| Files and payloads | `/upload`, `/v1/files` upload/list/download, payload retrieval, generated-file list/download. Binary transfer uses these HTTP APIs; the AG-UI capability descriptor advertises `httpBinary: false`. |
+| Tools, templates and skills | Tool discovery/direct execution; template list/get; skill list/diagnostics/activation. |
+| Workspace resources and data | Resource list/get/save/delete/import/export; datasource fetch/cache invalidation and lookup registry. Datasource handlers return 501 when the service is not configured. |
+| Application notifications | `/v1/application-events`, independent of an individual chat run. |
+| Infrastructure | `/healthz`, `/health`. |
+
+Optional handler configuration mounts authentication/preferences, speech, scheduler, workspace metadata, file browser, A2A, callback dispatch, UI bridge (`/v1/ui/rpc`), report runs, and MCP UI resource-read/tool-call APIs. Their availability depends on the installed handler/service and its configuration; route registration is in [`registerOptionalRoutes`](../sdk/handler.go). Authentication and backend interoperability remain transport/host responsibilities.
+
+## Verification scope and limits
+
+Checked-in wire fixtures cover all 31 standard event variants. Consumer tests compare normalization, accepted/rejected sequences, messages and state against the pinned upstream reducer. This is evidence for those fixtures, not proof that every producer emits every variant or that every application feature has complete cross-client parity. [`ag-ui-reducer-conformance.md`](ag-ui-reducer-conformance.md) records the intentional stricter server validation rules.
+
+The custom command surface does not include general conversation CRUD/list/compact/prune, queued-turn steering/edit/move, file transfer, template/skill management, scheduler management, or direct arbitrary tool execution. Those operations have supporting APIs where registered above; their absence from the extension dispatch is not an AG-UI standard compliance defect.
+
+Durable recovery is operation-specific. Filesystem resource commands record a dispatch boundary before effects; recovery after an uncertain effect requires inspection instead of repeating a possibly committed write. MCP Apps tool effects likewise expose uncertainty when completion cannot be established. Runtime configuration can disable services or remove bindings, so clients must honor advertised capabilities and authorization failures.
+
+The focused tests linked here document implemented behavior and regression coverage. They are not an exhaustive interoperability certification, a record of tests executed on every deployment, or a claim of complete web/iOS/Android/CLI application parity.
