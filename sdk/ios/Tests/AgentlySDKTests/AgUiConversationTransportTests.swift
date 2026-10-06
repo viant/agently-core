@@ -87,8 +87,8 @@ private final class ConversationURLProtocol: URLProtocol, @unchecked Sendable {
 }
 
 final class AgUiConversationTransportTests: XCTestCase {
-    private func client(cookies: AgentlySessionCookieStoring? = nil, session: URLSession = .shared) -> AgentlyClient {
-        AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "https://fixture.invalid/bff")!, headers: ["X-Fixture": "test"])], session: session, sessionCookieStore: cookies)
+    private func client(cookies: AgentlySessionCookieStoring? = nil, session: URLSession = .shared, fixtureTag: String = "test") -> AgentlyClient {
+        AgentlyClient(endpoints: ["appAPI": EndpointConfig(baseURL: URL(string: "https://fixture.invalid/bff")!, headers: ["X-Fixture": fixtureTag])], session: session, sessionCookieStore: cookies)
     }
     private func waitUntil(_ predicate: () -> Bool) async throws {
         for _ in 0..<300 { if predicate() { return }; try await Task.sleep(nanoseconds: 1_000_000) }
@@ -196,11 +196,27 @@ final class AgUiConversationTransportTests: XCTestCase {
         ConversationURLProtocol.lock.withLock { ConversationURLProtocol.requests=[];ConversationURLProtocol.readOnlyHistory=true }
         defer { ConversationURLProtocol.lock.withLock { ConversationURLProtocol.readOnlyHistory=false } }
         let configuration=URLSessionConfiguration.ephemeral;configuration.protocolClasses=[ConversationURLProtocol.self]
-        let host=client(session:URLSession(configuration:configuration))
+        let host=client(session:URLSession(configuration:configuration),fixtureTag:"history-read")
         let snapshot=try await host.getTranscript(GetTranscriptInput(conversationID:"thread"))
         XCTAssertEqual(snapshot.conversation?.conversationID,"thread")
-        let requests=ConversationURLProtocol.lock.withLock{ConversationURLProtocol.requests}
+        // A preceding observation can finish cancellation after this test starts.
+        // Capture only this host's scoped requests, rather than another session.
+        let requests=ConversationURLProtocol.lock.withLock{ConversationURLProtocol.requests.filter { $0.value(forHTTPHeaderField:"X-Fixture")=="history-read" }}
         XCTAssertEqual(requests.map{$0.httpMethod},["GET","POST","GET"])
+        XCTAssertEqual(requests.map{$0.url?.path},["/bff/v1/conversations/thread","/bff/v1/ag-ui/run","/bff/v1/conversations/thread/transcript"])
+        var bootstrapBody = requests[1].httpBody ?? Data()
+        if bootstrapBody.isEmpty, let stream = requests[1].httpBodyStream {
+            stream.open(); defer { stream.close() }
+            var buffer = [UInt8](repeating: 0, count: 4096)
+            while true {
+                let count = stream.read(&buffer, maxLength: buffer.count)
+                if count <= 0 { break }
+                bootstrapBody.append(contentsOf: buffer.prefix(count))
+            }
+        }
+        XCTAssertFalse(bootstrapBody.isEmpty)
+        let bootstrap = try JSONSerialization.jsonObject(with: bootstrapBody) as? [String:Any]
+        XCTAssertEqual(bootstrap?["threadId"] as? String,"thread")
         XCTAssertTrue(requests.last?.url?.path.hasSuffix("/transcript")==true)
         XCTAssertFalse(requests.contains{$0.url?.path.contains("/agent/query")==true})
     }

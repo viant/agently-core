@@ -198,3 +198,14 @@ describe('standard authoritative message snapshots',()=>{
         expect(h.views.some(event=>event.protocolMessageId==='old')).toBe(false);
     });
 });
+
+describe('internal assistant visibility',()=>{
+ it('hides metadata-marked router text and retains task JSON plus model/tool lifecycle',async()=>{
+  const meta=(mode:string)=>({agently:{presentation:{version:'1',conversationId:'conversation',nativeTurnId:'turn',nativeMessageId:mode,modelCallId:mode,mode}}});
+  const h=harness('agently',[start,{type:'STEP_STARTED',stepName:'router',metadata:meta('router')},{type:'TEXT_MESSAGE_START',messageId:'router',role:'assistant',metadata:meta('router')},{type:'TEXT_MESSAGE_CONTENT',messageId:'router',delta:'{"classification":true}'},{type:'TEXT_MESSAGE_END',messageId:'router'},{type:'STEP_FINISHED',stepName:'router',metadata:meta('router')},{type:'TEXT_MESSAGE_START',messageId:'task',role:'assistant',metadata:meta('task')},{type:'TEXT_MESSAGE_CONTENT',messageId:'task',delta:'{"classification":true}'},{type:'TEXT_MESSAGE_END',messageId:'task'},finish]);
+  await h.run();
+  expect(h.views.filter(event=>event.type==='text_delta' && event.content).map(event=>event.messageId)).toEqual(['task']);
+  expect(h.views.some(event=>event.type==='model_started')).toBe(true);
+  expect(h.views.some(event=>event.type==='model_completed')).toBe(true);
+ });
+});

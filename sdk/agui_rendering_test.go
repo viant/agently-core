@@ -93,3 +93,18 @@ func TestAGUIRecoveryPresentationPrefillsRawOffsetsAndNeverLeaksUnknownPrefix(t 
 	require.NotContains(t, snapshot[0].Content, "secret_authoring_key")
 	require.Contains(t, snapshot[0].Content, "Done")
 }
+
+func TestAGUIPresentationInternalModesDoNotPublishBodies(t *testing.T) {
+	for _, mode := range []string{"router", "chain"} {
+		p := &aguiPresentation{}
+		start := &streaming.Event{Type: streaming.EventTypeModelStarted, ConversationID: "thread", TurnID: "turn", MessageID: "internal", Mode: mode}
+		require.Len(t, p.project(context.Background(), start, nil), 1, "model lifecycle retained")
+		require.Empty(t, p.project(context.Background(), &streaming.Event{Type: streaming.EventTypeTextDelta, ConversationID: "thread", TurnID: "turn", MessageID: "internal", Content: `{"classification":true}`}, nil), "known identity stays internal without repeated mode")
+		complete := p.project(context.Background(), &streaming.Event{Type: streaming.EventTypeModelCompleted, ConversationID: "thread", TurnID: "turn", MessageID: "internal", Mode: mode, Content: "internal prose"}, nil)
+		require.Len(t, complete, 1)
+		require.Empty(t, complete[0].Content)
+		visible := p.project(context.Background(), &streaming.Event{Type: streaming.EventTypeTextDelta, ConversationID: "thread", TurnID: "turn", MessageID: "task", Mode: "task", Content: `{"classification":true}`}, nil)
+		require.Len(t, visible, 1)
+		require.Equal(t, `{"classification":true}`, visible[0].Content)
+	}
+}

@@ -17,6 +17,7 @@ type aguiPresentationState struct {
 type aguiPresentation struct {
 	messages map[string]*aguiPresentationState
 	seen     map[string]map[int64]bool
+	internal map[string]bool
 }
 
 // project keeps authoring payloads out of standard text messages. Recognized
@@ -25,6 +26,32 @@ type aguiPresentation struct {
 func (p *aguiPresentation) project(ctx context.Context, event *streaming.Event, client Client) []*streaming.Event {
 	if event == nil {
 		return nil
+	}
+	// Keep lifecycle/usage data, but never publish internal assistant bodies.
+	id := event.AssistantMessageID
+	if id == "" {
+		id = event.MessageID
+	}
+	internalKey := event.ConversationID + "\x00" + event.TurnID + "\x00" + id
+	if streaming.IsInternalMessageMode(event.Mode) && id != "" {
+		if p.internal == nil {
+			p.internal = map[string]bool{}
+		}
+		p.internal[internalKey] = true
+	}
+	internal := streaming.IsInternalMessageMode(event.Mode) || p.internal[internalKey]
+	userPatch := event.Type == streaming.EventTypeAssistant && event.Patch["role"] == "user"
+	if internal && !userPatch {
+		switch event.Type {
+		case streaming.EventTypeTextDelta, streaming.EventTypeAssistant, streaming.EventTypeItemCompleted, streaming.EventTypeNarration:
+			return nil
+		case streaming.EventTypeModelCompleted:
+			copy := *event
+			copy.Content = ""
+			copy.Narration = ""
+			copy.RenderedContent = nil
+			return []*streaming.Event{&copy}
+		}
 	}
 	if event.Type == streaming.EventTypeNarration {
 		copy := *event
@@ -53,10 +80,6 @@ func (p *aguiPresentation) project(ctx context.Context, event *streaming.Event, 
 			return nil
 		}
 		p.seen[scope][event.EventSeq] = true
-	}
-	id := event.AssistantMessageID
-	if id == "" {
-		id = event.MessageID
 	}
 	if id == "" {
 		return []*streaming.Event{event}

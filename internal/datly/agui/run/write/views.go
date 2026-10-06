@@ -4,25 +4,25 @@ package write
 
 // Run is generated canonical view metadata for writer.
 type Run struct {
-	Id              *string `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	Revision        int64   `sqlx:"protocol_revision,required=true" writer:"concurrency" json:"revision"`
-	RunId           string  `sqlx:"protocol_run_id" json:"runId"`
-	ParentRunId     string  `sqlx:"protocol_parent_run_id" json:"parentRunId"`
-	PriorRunId      string  `sqlx:"protocol_prior_run_id" json:"priorRunId"`
-	ClientMessageId string  `sqlx:"protocol_client_message_id" json:"clientMessageId"`
-	TurnId          string  `sqlx:"protocol_turn_id" json:"turnId"`
-	ResumedByRunId  string  `sqlx:"protocol_resumed_by_run_id" json:"resumedByRunId"`
-	InputJson       []byte  `sqlx:"protocol_input_json" json:"inputJson"`
-	PendingJson     []byte  `sqlx:"protocol_pending_json" json:"pendingJson"`
-	LastSequence    int64   `sqlx:"protocol_last_sequence,required=true" json:"lastSequence"`
-	Principal       *string `sqlx:"effective_user_id" json:"principal"`
-	RunKey          *string `sqlx:"protocol_key" json:"runKey"`
-	Status          *string `sqlx:"protocol_status" json:"status"`
-	InputHash       *string `sqlx:"protocol_input_hash" json:"inputHash"`
-	SourceKey       *string `sqlx:"protocol_source_key" json:"sourceKey"`
-	InitialTurnKey  *string `sqlx:"protocol_initial_turn_key" json:"initialTurnKey"`
-	ConversationId  *string `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
-	RunKind         *string `sqlx:"run_kind,required=true" json:"runKind"`
+	Id              *string `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	Revision        int64   `sqlx:"protocol_revision,required=true" writer:"concurrency" json:"revision,omitempty"`
+	RunId           string  `sqlx:"protocol_run_id" json:"runId,omitempty"`
+	ParentRunId     string  `sqlx:"protocol_parent_run_id" json:"parentRunId,omitempty"`
+	PriorRunId      string  `sqlx:"protocol_prior_run_id" json:"priorRunId,omitempty"`
+	ClientMessageId string  `sqlx:"protocol_client_message_id" json:"clientMessageId,omitempty"`
+	TurnId          string  `sqlx:"protocol_turn_id" json:"turnId,omitempty"`
+	ResumedByRunId  string  `sqlx:"protocol_resumed_by_run_id" json:"resumedByRunId,omitempty"`
+	InputJson       []byte  `sqlx:"protocol_input_json" json:"inputJson,omitempty"`
+	PendingJson     []byte  `sqlx:"protocol_pending_json" json:"pendingJson,omitempty"`
+	LastSequence    int64   `sqlx:"protocol_last_sequence,required=true" json:"lastSequence,omitempty"`
+	Principal       *string `sqlx:"effective_user_id" json:"principal,omitempty"`
+	RunKey          *string `sqlx:"protocol_key" json:"runKey,omitempty"`
+	Status          *string `sqlx:"protocol_status" json:"status,omitempty"`
+	InputHash       *string `sqlx:"protocol_input_hash" json:"inputHash,omitempty"`
+	SourceKey       *string `sqlx:"protocol_source_key" json:"sourceKey,omitempty"`
+	InitialTurnKey  *string `sqlx:"protocol_initial_turn_key" json:"initialTurnKey,omitempty"`
+	ConversationId  *string `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
+	RunKind         *string `sqlx:"run_kind,required=true" json:"runKind,omitempty"`
 	Has             *RunHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"RunHas"`
 }
 
@@ -50,25 +50,25 @@ type RunHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id              *string `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	Revision        int64   `sqlx:"protocol_revision,required=true" json:"revision"`
-	RunId           string  `sqlx:"protocol_run_id" json:"runId"`
-	ParentRunId     string  `sqlx:"protocol_parent_run_id" json:"parentRunId"`
-	PriorRunId      string  `sqlx:"protocol_prior_run_id" json:"priorRunId"`
-	ClientMessageId string  `sqlx:"protocol_client_message_id" json:"clientMessageId"`
-	TurnId          string  `sqlx:"protocol_turn_id" json:"turnId"`
-	ResumedByRunId  string  `sqlx:"protocol_resumed_by_run_id" json:"resumedByRunId"`
-	InputJson       []byte  `sqlx:"protocol_input_json" json:"inputJson"`
-	PendingJson     []byte  `sqlx:"protocol_pending_json" json:"pendingJson"`
-	LastSequence    int64   `sqlx:"protocol_last_sequence,required=true" json:"lastSequence"`
-	Principal       *string `sqlx:"effective_user_id" json:"principal"`
-	RunKey          *string `sqlx:"protocol_key" json:"runKey"`
-	Status          *string `sqlx:"protocol_status" json:"status"`
-	InputHash       *string `sqlx:"protocol_input_hash" json:"inputHash"`
-	SourceKey       *string `sqlx:"protocol_source_key" json:"sourceKey"`
-	InitialTurnKey  *string `sqlx:"protocol_initial_turn_key" json:"initialTurnKey"`
-	ConversationId  *string `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
-	RunKind         *string `sqlx:"run_kind,required=true" json:"runKind"`
+	Id              *string `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	Revision        int64   `sqlx:"protocol_revision,required=true" json:"revision,omitempty"`
+	RunId           string  `sqlx:"protocol_run_id" json:"runId,omitempty"`
+	ParentRunId     string  `sqlx:"protocol_parent_run_id" json:"parentRunId,omitempty"`
+	PriorRunId      string  `sqlx:"protocol_prior_run_id" json:"priorRunId,omitempty"`
+	ClientMessageId string  `sqlx:"protocol_client_message_id" json:"clientMessageId,omitempty"`
+	TurnId          string  `sqlx:"protocol_turn_id" json:"turnId,omitempty"`
+	ResumedByRunId  string  `sqlx:"protocol_resumed_by_run_id" json:"resumedByRunId,omitempty"`
+	InputJson       []byte  `sqlx:"protocol_input_json" json:"inputJson,omitempty"`
+	PendingJson     []byte  `sqlx:"protocol_pending_json" json:"pendingJson,omitempty"`
+	LastSequence    int64   `sqlx:"protocol_last_sequence,required=true" json:"lastSequence,omitempty"`
+	Principal       *string `sqlx:"effective_user_id" json:"principal,omitempty"`
+	RunKey          *string `sqlx:"protocol_key" json:"runKey,omitempty"`
+	Status          *string `sqlx:"protocol_status" json:"status,omitempty"`
+	InputHash       *string `sqlx:"protocol_input_hash" json:"inputHash,omitempty"`
+	SourceKey       *string `sqlx:"protocol_source_key" json:"sourceKey,omitempty"`
+	InitialTurnKey  *string `sqlx:"protocol_initial_turn_key" json:"initialTurnKey,omitempty"`
+	ConversationId  *string `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
+	RunKind         *string `sqlx:"run_kind,required=true" json:"runKind,omitempty"`
 }
 
 type WriterKeysRow struct {

@@ -12,6 +12,7 @@ import (
 	"github.com/viant/agently-core/protocol/agui"
 	"github.com/viant/agently-core/protocol/agui/extensions"
 	"github.com/viant/agently-core/runtime/aguistate"
+	"github.com/viant/agently-core/runtime/streaming"
 )
 
 type AGUIConversationBootstrapInput struct {
@@ -189,6 +190,17 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 		quality.Lossless = false
 	}
 	hostTurns, hostMessageIDs := aguiCanonicalHostBoundaries(transcript)
+	internalIDs := map[string]bool{}
+	for _, turn := range transcript.Conversation.Turns {
+		if turn == nil {
+			continue
+		}
+		for _, message := range turn.Messages {
+			if message != nil && message.Role == "assistant" && streaming.IsInternalMessageMode(message.Mode) {
+				internalIDs[message.MessageID] = true
+			}
+		}
+	}
 	byID := map[string]int{}
 	for _, message := range journal {
 		id, _ := message["id"].(string)
@@ -202,14 +214,30 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 			mark(id)
 			continue
 		}
+		if internalIDs[id] {
+			// Retain a tool-call container for pairing, never its internal body.
+			calls, _ := message["toolCalls"].([]any)
+			if len(calls) == 0 {
+				continue
+			}
+		}
+		if message["role"] == "activity" && message["activityType"] == "agently.rendered-content" && internalIDs[strings.TrimSuffix(id, "/activity")] {
+			continue
+		}
 		copy := aguistate.Object{}
 		for key, value := range message {
 			copy[key] = value
+		}
+		if internalIDs[id] {
+			copy["content"] = ""
 		}
 		byID[id] = len(result)
 		result = append(result, copy)
 	}
 	putText := func(id, role, content string, rendered *RenderedContent) {
+		if internalIDs[id] {
+			return
+		}
 		if id == "" || role != "user" && role != "assistant" && role != "system" {
 			return
 		}
@@ -267,7 +295,7 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 			}
 		}
 		for _, message := range turn.Messages {
-			if message != nil && !strings.EqualFold(message.Mode, "chain") {
+			if message != nil && !streaming.IsInternalMessageMode(message.Mode) {
 				if message.Role != "user" && message.Role != "assistant" && message.Role != "system" {
 					if _, exists := byID[message.MessageID]; !exists {
 						mark(message.MessageID)

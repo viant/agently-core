@@ -4,16 +4,16 @@ package write
 
 // Event is generated canonical view metadata for writer.
 type Event struct {
-	EventKey    *string   `sqlx:"id,primaryKey=true,required=true" json:"eventKey"`
-	Sequence    int64     `sqlx:"sequence" json:"sequence"`
-	EventJson   []byte    `sqlx:"inline_body" json:"eventJson"`
-	RunKey      *string   `sqlx:"run_id,refTable=run,refColumn=id" json:"runKey"`
-	Kind        *string   `sqlx:"kind,required=true" json:"kind"`
-	MimeType    *string   `sqlx:"mime_type,required=true" json:"mimeType"`
-	Storage     *string   `sqlx:"storage,required=true" json:"storage"`
-	SizeBytes   *int      `sqlx:"size_bytes,required=true" json:"sizeBytes"`
-	Digest      *string   `sqlx:"digest" json:"digest"`
-	Compression *string   `sqlx:"compression,required=true" json:"compression"`
+	EventKey    *string   `sqlx:"id,primaryKey=true,required=true" json:"eventKey,omitempty"`
+	Sequence    int64     `sqlx:"sequence" json:"sequence,omitempty"`
+	EventJson   []byte    `sqlx:"inline_body" json:"eventJson,omitempty"`
+	RunKey      *string   `sqlx:"run_id,refTable=run,refColumn=id" json:"runKey,omitempty"`
+	Kind        *string   `sqlx:"kind,required=true" json:"kind,omitempty"`
+	MimeType    *string   `sqlx:"mime_type,required=true" json:"mimeType,omitempty"`
+	Storage     *string   `sqlx:"storage,required=true" json:"storage,omitempty"`
+	SizeBytes   *int      `sqlx:"size_bytes,required=true" json:"sizeBytes,omitempty"`
+	Digest      *string   `sqlx:"digest" json:"digest,omitempty"`
+	Compression *string   `sqlx:"compression,required=true" json:"compression,omitempty"`
 	Has         *EventHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"EventHas"`
 }
 

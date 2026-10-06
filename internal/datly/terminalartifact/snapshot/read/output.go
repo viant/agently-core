@@ -4,5 +4,5 @@ package read
 
 // SnapshotOutput is the generated output scaffold for reader.
 type SnapshotOutput struct {
-	Data []*CandidateRow `parameter:"Data,kind=output,in=view,dataType=[]*CandidateRow" view:"reader,type=CandidateRow,table=candidate_rows" sql:"uri=terminalartifact_snapshot_read_reader:sql/reader.sql"`
+	Data []*CandidateRow `parameter:"Data,kind=output,in=view,dataType=[]*CandidateRow" view:"reader,type=CandidateRow" sql:"uri=terminalartifact_snapshot_read_reader:sql/reader.sql"`
 }

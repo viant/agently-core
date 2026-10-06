@@ -4,7 +4,7 @@ package delete
 
 // EventDelete is generated canonical view metadata for writer.
 type EventDelete struct {
-	EventKey     string          `sqlx:"id,primaryKey=true,required=true" json:"eventKey"`
+	EventKey     string          `sqlx:"id,primaryKey=true,required=true" json:"eventKey,omitempty"`
 	ShouldDelete bool            `sqlx:"-" writer:"delete" json:"shouldDelete"`
 	Has          *EventDeleteHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"EventDeleteHas"`
 }
@@ -16,7 +16,7 @@ type EventDeleteHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	EventKey string `sqlx:"id,primaryKey=true,required=true" json:"eventKey"`
+	EventKey string `sqlx:"id,primaryKey=true,required=true" json:"eventKey,omitempty"`
 }
 
 type WriterKeysRow struct {

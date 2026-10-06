@@ -4,17 +4,17 @@ package write
 
 // Document is generated canonical view metadata for writer.
 type Document struct {
-	Id          *string      `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	InlineBody  []byte       `sqlx:"inline_body" json:"inlineBody"`
-	RunId       *string      `sqlx:"run_id,refTable=run,refColumn=id" json:"runId"`
-	Kind        *string      `sqlx:"kind,required=true" json:"kind"`
-	Subtype     *string      `sqlx:"subtype" json:"subtype"`
-	SchemaRef   *string      `sqlx:"schema_ref" json:"schemaRef"`
-	MimeType    *string      `sqlx:"mime_type,required=true" json:"mimeType"`
-	Storage     *string      `sqlx:"storage,required=true" json:"storage"`
-	Compression *string      `sqlx:"compression,required=true" json:"compression"`
-	Digest      *string      `sqlx:"digest" json:"digest"`
-	SizeBytes   *int         `sqlx:"size_bytes,required=true" json:"sizeBytes"`
+	Id          *string      `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	InlineBody  []byte       `sqlx:"inline_body" json:"inlineBody,omitempty"`
+	RunId       *string      `sqlx:"run_id,refTable=run,refColumn=id" json:"runId,omitempty"`
+	Kind        *string      `sqlx:"kind,required=true" json:"kind,omitempty"`
+	Subtype     *string      `sqlx:"subtype" json:"subtype,omitempty"`
+	SchemaRef   *string      `sqlx:"schema_ref" json:"schemaRef,omitempty"`
+	MimeType    *string      `sqlx:"mime_type,required=true" json:"mimeType,omitempty"`
+	Storage     *string      `sqlx:"storage,required=true" json:"storage,omitempty"`
+	Compression *string      `sqlx:"compression,required=true" json:"compression,omitempty"`
+	Digest      *string      `sqlx:"digest" json:"digest,omitempty"`
+	SizeBytes   *int         `sqlx:"size_bytes,required=true" json:"sizeBytes,omitempty"`
 	Has         *DocumentHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"DocumentHas"`
 }
 

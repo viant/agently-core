@@ -9,29 +9,29 @@ import (
 // Job is generated canonical view metadata for writer.
 type Job struct {
 	ShouldDelete      bool       `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
-	JobId             string     `sqlx:"job_id,primaryKey=true,required=true" json:"jobId"`
-	ArtifactRef       string     `sqlx:"artifact_ref,required=true" json:"artifactRef"`
-	OwnerId           string     `sqlx:"owner_id,required=true" json:"ownerId"`
-	Format            string     `sqlx:"format,required=true" json:"format"`
-	Scope             string     `sqlx:"scope,required=true" json:"scope"`
-	Status            string     `sqlx:"status,required=true" json:"status"`
-	ReportSpecJson    []byte     `sqlx:"report_spec_json" json:"reportSpecJson"`
-	ReportFillJson    []byte     `sqlx:"report_fill_json" json:"reportFillJson"`
-	ReportPrintJson   []byte     `sqlx:"report_print_json" json:"reportPrintJson"`
-	MetadataJson      []byte     `sqlx:"metadata_json" json:"metadataJson"`
-	DiagnosticsJson   []byte     `sqlx:"diagnostics_json" json:"diagnosticsJson"`
-	SubmittedAt       time.Time  `sqlx:"submitted_at,required=true" json:"submittedAt"`
-	RetentionTtlSec   int64      `sqlx:"retention_ttl_sec,required=true" json:"retentionTtlSec"`
-	ReportRunRevision *int64     `sqlx:"report_run_revision" json:"reportRunRevision"`
-	ConversationId    *string    `sqlx:"conversation_id" json:"conversationId"`
-	WorkspaceId       *string    `sqlx:"workspace_id" json:"workspaceId"`
-	AuthContextRef    *string    `sqlx:"auth_context_ref" json:"authContextRef"`
-	ArtifactId        *string    `sqlx:"artifact_id" json:"artifactId"`
-	ErrorText         *string    `sqlx:"error_text" json:"errorText"`
-	StartedAt         *time.Time `sqlx:"started_at" json:"startedAt"`
-	CompletedAt       *time.Time `sqlx:"completed_at" json:"completedAt"`
-	ReportRunId       *string    `sqlx:"report_run_id,refTable=report_run,refColumn=report_run_id" json:"reportRunId"`
-	ExportRequestId   *string    `sqlx:"export_request_id" json:"exportRequestId"`
+	JobId             string     `sqlx:"job_id,primaryKey=true,required=true" json:"jobId,omitempty"`
+	ArtifactRef       string     `sqlx:"artifact_ref,required=true" json:"artifactRef,omitempty"`
+	OwnerId           string     `sqlx:"owner_id,required=true" json:"ownerId,omitempty"`
+	Format            string     `sqlx:"format,required=true" json:"format,omitempty"`
+	Scope             string     `sqlx:"scope,required=true" json:"scope,omitempty"`
+	Status            string     `sqlx:"status,required=true" json:"status,omitempty"`
+	ReportSpecJson    []byte     `sqlx:"report_spec_json" json:"reportSpecJson,omitempty"`
+	ReportFillJson    []byte     `sqlx:"report_fill_json" json:"reportFillJson,omitempty"`
+	ReportPrintJson   []byte     `sqlx:"report_print_json" json:"reportPrintJson,omitempty"`
+	MetadataJson      []byte     `sqlx:"metadata_json" json:"metadataJson,omitempty"`
+	DiagnosticsJson   []byte     `sqlx:"diagnostics_json" json:"diagnosticsJson,omitempty"`
+	SubmittedAt       time.Time  `sqlx:"submitted_at,required=true" json:"submittedAt,omitempty"`
+	RetentionTtlSec   int64      `sqlx:"retention_ttl_sec,required=true" json:"retentionTtlSec,omitempty"`
+	ReportRunRevision *int64     `sqlx:"report_run_revision" json:"reportRunRevision,omitempty"`
+	ConversationId    *string    `sqlx:"conversation_id" json:"conversationId,omitempty"`
+	WorkspaceId       *string    `sqlx:"workspace_id" json:"workspaceId,omitempty"`
+	AuthContextRef    *string    `sqlx:"auth_context_ref" json:"authContextRef,omitempty"`
+	ArtifactId        *string    `sqlx:"artifact_id" json:"artifactId,omitempty"`
+	ErrorText         *string    `sqlx:"error_text" json:"errorText,omitempty"`
+	StartedAt         *time.Time `sqlx:"started_at" json:"startedAt,omitempty"`
+	CompletedAt       *time.Time `sqlx:"completed_at" json:"completedAt,omitempty"`
+	ReportRunId       *string    `sqlx:"report_run_id,refTable=report_run,refColumn=report_run_id" json:"reportRunId,omitempty"`
+	ExportRequestId   *string    `sqlx:"export_request_id" json:"exportRequestId,omitempty"`
 	Has               *JobHas    `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"JobHas"`
 }
 
@@ -64,29 +64,29 @@ type JobHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	JobId             string     `sqlx:"job_id,primaryKey=true,required=true" json:"jobId"`
-	ArtifactRef       string     `sqlx:"artifact_ref,required=true" json:"artifactRef"`
-	OwnerId           string     `sqlx:"owner_id,required=true" json:"ownerId"`
-	Format            string     `sqlx:"format,required=true" json:"format"`
-	Scope             string     `sqlx:"scope,required=true" json:"scope"`
-	Status            string     `sqlx:"status,required=true" json:"status"`
-	ReportSpecJson    []byte     `sqlx:"report_spec_json" json:"reportSpecJson"`
-	ReportFillJson    []byte     `sqlx:"report_fill_json" json:"reportFillJson"`
-	ReportPrintJson   []byte     `sqlx:"report_print_json" json:"reportPrintJson"`
-	MetadataJson      []byte     `sqlx:"metadata_json" json:"metadataJson"`
-	DiagnosticsJson   []byte     `sqlx:"diagnostics_json" json:"diagnosticsJson"`
-	SubmittedAt       time.Time  `sqlx:"submitted_at,required=true" json:"submittedAt"`
-	RetentionTtlSec   int64      `sqlx:"retention_ttl_sec,required=true" json:"retentionTtlSec"`
-	ReportRunRevision *int64     `sqlx:"report_run_revision" json:"reportRunRevision"`
-	ConversationId    *string    `sqlx:"conversation_id" json:"conversationId"`
-	WorkspaceId       *string    `sqlx:"workspace_id" json:"workspaceId"`
-	AuthContextRef    *string    `sqlx:"auth_context_ref" json:"authContextRef"`
-	ArtifactId        *string    `sqlx:"artifact_id" json:"artifactId"`
-	ErrorText         *string    `sqlx:"error_text" json:"errorText"`
-	StartedAt         *time.Time `sqlx:"started_at" json:"startedAt"`
-	CompletedAt       *time.Time `sqlx:"completed_at" json:"completedAt"`
-	ReportRunId       *string    `sqlx:"report_run_id,refTable=report_run,refColumn=report_run_id" json:"reportRunId"`
-	ExportRequestId   *string    `sqlx:"export_request_id" json:"exportRequestId"`
+	JobId             string     `sqlx:"job_id,primaryKey=true,required=true" json:"jobId,omitempty"`
+	ArtifactRef       string     `sqlx:"artifact_ref,required=true" json:"artifactRef,omitempty"`
+	OwnerId           string     `sqlx:"owner_id,required=true" json:"ownerId,omitempty"`
+	Format            string     `sqlx:"format,required=true" json:"format,omitempty"`
+	Scope             string     `sqlx:"scope,required=true" json:"scope,omitempty"`
+	Status            string     `sqlx:"status,required=true" json:"status,omitempty"`
+	ReportSpecJson    []byte     `sqlx:"report_spec_json" json:"reportSpecJson,omitempty"`
+	ReportFillJson    []byte     `sqlx:"report_fill_json" json:"reportFillJson,omitempty"`
+	ReportPrintJson   []byte     `sqlx:"report_print_json" json:"reportPrintJson,omitempty"`
+	MetadataJson      []byte     `sqlx:"metadata_json" json:"metadataJson,omitempty"`
+	DiagnosticsJson   []byte     `sqlx:"diagnostics_json" json:"diagnosticsJson,omitempty"`
+	SubmittedAt       time.Time  `sqlx:"submitted_at,required=true" json:"submittedAt,omitempty"`
+	RetentionTtlSec   int64      `sqlx:"retention_ttl_sec,required=true" json:"retentionTtlSec,omitempty"`
+	ReportRunRevision *int64     `sqlx:"report_run_revision" json:"reportRunRevision,omitempty"`
+	ConversationId    *string    `sqlx:"conversation_id" json:"conversationId,omitempty"`
+	WorkspaceId       *string    `sqlx:"workspace_id" json:"workspaceId,omitempty"`
+	AuthContextRef    *string    `sqlx:"auth_context_ref" json:"authContextRef,omitempty"`
+	ArtifactId        *string    `sqlx:"artifact_id" json:"artifactId,omitempty"`
+	ErrorText         *string    `sqlx:"error_text" json:"errorText,omitempty"`
+	StartedAt         *time.Time `sqlx:"started_at" json:"startedAt,omitempty"`
+	CompletedAt       *time.Time `sqlx:"completed_at" json:"completedAt,omitempty"`
+	ReportRunId       *string    `sqlx:"report_run_id,refTable=report_run,refColumn=report_run_id" json:"reportRunId,omitempty"`
+	ExportRequestId   *string    `sqlx:"export_request_id" json:"exportRequestId,omitempty"`
 }
 
 type WriterKeysRow struct {

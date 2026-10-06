@@ -33,6 +33,7 @@ type Translator struct {
 	tools                 map[string]*toolState
 	textOrder, toolOrder  []string
 	seen                  map[int64]bool
+	internalMessages      map[string]bool
 	seeded                bool
 	messages              []json.RawMessage
 	reasonings            map[string]*reasoningState
@@ -272,6 +273,26 @@ func (t *Translator) translate(e *streaming.Event, trustedRecovery bool) []Event
 	id := e.AssistantMessageID
 	if id == "" {
 		id = e.MessageID
+	}
+	if streaming.IsInternalMessageMode(e.Mode) && id != "" {
+		if t.internalMessages == nil {
+			t.internalMessages = map[string]bool{}
+		}
+		t.internalMessages[id] = true
+	}
+	if streaming.IsInternalMessageMode(e.Mode) || t.internalMessages[id] {
+		switch e.Type {
+		case streaming.EventTypeTextDelta, streaming.EventTypeAssistant, streaming.EventTypeItemCompleted, streaming.EventTypeNarration, streaming.EventTypeReasoningDelta:
+			if e.Type != streaming.EventTypeAssistant || e.Patch["role"] != "user" {
+				return out
+			}
+		case streaming.EventTypeModelCompleted:
+			copy := *e
+			copy.Content = ""
+			copy.Narration = ""
+			copy.RenderedContent = nil
+			e = &copy
+		}
 	}
 	if id == "" {
 		id = e.ID

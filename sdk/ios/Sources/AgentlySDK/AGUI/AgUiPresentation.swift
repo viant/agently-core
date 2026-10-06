@@ -118,7 +118,7 @@ public struct AgUiPresentationProjector: Sendable {
                 row["userMessageId"] = row["messageId"]; row["content"] = content
                 try emit(row, key: "user/" + message.id)
             case "assistant", "reasoning":
-                if content?.string != nil {
+                if content?.string != nil, !isInternalMessageMode(mp?["mode"]?.string) {
                     row["type"] = .string(message.role == "reasoning" ? "reasoning_delta" : "text_delta")
                     row["content"] = content; row["assistantMessageId"] = row["messageId"]
                     row["pageId"] = row["pageId"] ?? row["messageId"]

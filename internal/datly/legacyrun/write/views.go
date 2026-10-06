@@ -9,22 +9,22 @@ import (
 // LegacyRun is generated canonical view metadata for writer.
 type LegacyRun struct {
 	ShouldDelete       bool          `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
-	Id                 string        `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	ScheduleId         string        `sqlx:"schedule_id,refTable=schedule,refColumn=id,required=true" json:"scheduleId"`
-	Status             string        `sqlx:"status,required=true" json:"status"`
-	ConversationKind   string        `sqlx:"conversation_kind,required=true" json:"conversationKind"`
-	CreatedAt          *time.Time    `sqlx:"created_at,required=true" json:"createdAt"`
-	UpdatedAt          *time.Time    `sqlx:"updated_at" json:"updatedAt"`
-	ErrorMessage       *string       `sqlx:"error_message" json:"errorMessage"`
-	LeaseOwner         *string       `sqlx:"lease_owner" json:"leaseOwner"`
-	LeaseUntil         *time.Time    `sqlx:"lease_until" json:"leaseUntil"`
-	PreconditionRanAt  *time.Time    `sqlx:"precondition_ran_at" json:"preconditionRanAt"`
-	PreconditionPassed *int          `sqlx:"precondition_passed" json:"preconditionPassed"`
-	PreconditionResult *string       `sqlx:"precondition_result" json:"preconditionResult"`
-	ConversationId     *string       `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
-	ScheduledFor       *time.Time    `sqlx:"scheduled_for" json:"scheduledFor"`
-	StartedAt          *time.Time    `sqlx:"started_at" json:"startedAt"`
-	CompletedAt        *time.Time    `sqlx:"completed_at" json:"completedAt"`
+	Id                 string        `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	ScheduleId         string        `sqlx:"schedule_id,refTable=schedule,refColumn=id,required=true" json:"scheduleId,omitempty"`
+	Status             string        `sqlx:"status,required=true" json:"status,omitempty"`
+	ConversationKind   string        `sqlx:"conversation_kind,required=true" json:"conversationKind,omitempty"`
+	CreatedAt          *time.Time    `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt          *time.Time    `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	ErrorMessage       *string       `sqlx:"error_message" json:"errorMessage,omitempty"`
+	LeaseOwner         *string       `sqlx:"lease_owner" json:"leaseOwner,omitempty"`
+	LeaseUntil         *time.Time    `sqlx:"lease_until" json:"leaseUntil,omitempty"`
+	PreconditionRanAt  *time.Time    `sqlx:"precondition_ran_at" json:"preconditionRanAt,omitempty"`
+	PreconditionPassed *int          `sqlx:"precondition_passed" json:"preconditionPassed,omitempty"`
+	PreconditionResult *string       `sqlx:"precondition_result" json:"preconditionResult,omitempty"`
+	ConversationId     *string       `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
+	ScheduledFor       *time.Time    `sqlx:"scheduled_for" json:"scheduledFor,omitempty"`
+	StartedAt          *time.Time    `sqlx:"started_at" json:"startedAt,omitempty"`
+	CompletedAt        *time.Time    `sqlx:"completed_at" json:"completedAt,omitempty"`
 	Has                *LegacyRunHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"LegacyRunHas"`
 }
 
@@ -50,22 +50,22 @@ type LegacyRunHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id                 string     `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	ScheduleId         string     `sqlx:"schedule_id,refTable=schedule,refColumn=id,required=true" json:"scheduleId"`
-	Status             string     `sqlx:"status,required=true" json:"status"`
-	ConversationKind   string     `sqlx:"conversation_kind,required=true" json:"conversationKind"`
-	CreatedAt          *time.Time `sqlx:"created_at,required=true" json:"createdAt"`
-	UpdatedAt          *time.Time `sqlx:"updated_at" json:"updatedAt"`
-	ErrorMessage       *string    `sqlx:"error_message" json:"errorMessage"`
-	LeaseOwner         *string    `sqlx:"lease_owner" json:"leaseOwner"`
-	LeaseUntil         *time.Time `sqlx:"lease_until" json:"leaseUntil"`
-	PreconditionRanAt  *time.Time `sqlx:"precondition_ran_at" json:"preconditionRanAt"`
-	PreconditionPassed *int       `sqlx:"precondition_passed" json:"preconditionPassed"`
-	PreconditionResult *string    `sqlx:"precondition_result" json:"preconditionResult"`
-	ConversationId     *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
-	ScheduledFor       *time.Time `sqlx:"scheduled_for" json:"scheduledFor"`
-	StartedAt          *time.Time `sqlx:"started_at" json:"startedAt"`
-	CompletedAt        *time.Time `sqlx:"completed_at" json:"completedAt"`
+	Id                 string     `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	ScheduleId         string     `sqlx:"schedule_id,refTable=schedule,refColumn=id,required=true" json:"scheduleId,omitempty"`
+	Status             string     `sqlx:"status,required=true" json:"status,omitempty"`
+	ConversationKind   string     `sqlx:"conversation_kind,required=true" json:"conversationKind,omitempty"`
+	CreatedAt          *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt          *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	ErrorMessage       *string    `sqlx:"error_message" json:"errorMessage,omitempty"`
+	LeaseOwner         *string    `sqlx:"lease_owner" json:"leaseOwner,omitempty"`
+	LeaseUntil         *time.Time `sqlx:"lease_until" json:"leaseUntil,omitempty"`
+	PreconditionRanAt  *time.Time `sqlx:"precondition_ran_at" json:"preconditionRanAt,omitempty"`
+	PreconditionPassed *int       `sqlx:"precondition_passed" json:"preconditionPassed,omitempty"`
+	PreconditionResult *string    `sqlx:"precondition_result" json:"preconditionResult,omitempty"`
+	ConversationId     *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
+	ScheduledFor       *time.Time `sqlx:"scheduled_for" json:"scheduledFor,omitempty"`
+	StartedAt          *time.Time `sqlx:"started_at" json:"startedAt,omitempty"`
+	CompletedAt        *time.Time `sqlx:"completed_at" json:"completedAt,omitempty"`
 }
 
 type WriterKeysRow struct {
