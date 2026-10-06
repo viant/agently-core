@@ -26,7 +26,7 @@ require (
 	github.com/viant/bindly v0.4.1-0.20261005213521-e5944f61e2a9
 	github.com/viant/datly v1.1.1-0.20261005233219-5d0ceb9ac532
 	github.com/viant/embedius v0.5.6
-	github.com/viant/forge v0.3.45-0.20261005183733-226d32c8add6
+	github.com/viant/forge v0.3.45-0.20261006144249-3feb061490cf
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
 	github.com/viant/jsonrpc v0.25.0
@@ -186,5 +186,3 @@ require (
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.11.0 // indirect
 )
-
-replace github.com/viant/mcp-protocol => ../mcp-protocol-ag-ui
