@@ -7,35 +7,7 @@ web/mobile shells; Forge supplies independent data-driven UI rendering.
 
 ## System boundaries
 
-```mermaid
-flowchart TD
-    Client[Web · mobile · CLI · custom clients] --> Auth[Authentication and request identity]
-    Auth --> AGUI[AG-UI admission, journal and SSE]
-    Auth --> API[Application APIs: history, resources, reports and management]
-    Host[Embedded Go host] --> Backend[Native backend]
-    AGUI --> Backend
-    API --> Backend
-    Backend --> Agent[Agent service: task and turn lifecycle]
-    Workspace[Workspace repositories and finders] --> Agent
-    Agent --> Intake[Intake and prompt composition]
-    Intake --> Reactor[Reactor: model/tool loop]
-    Reactor --> Model[Model provider adapters]
-    Reactor --> Dispatch[Policy and tool dispatch]
-    Dispatch --> Internal[Internal services]
-    Dispatch --> MCP[Authenticated MCP clients]
-    Dispatch --> Linked[Linked agents and async operations]
-    Dispatch --> Human[Approval and elicitation]
-    Internal --> Reactor
-    MCP --> Reactor
-    Linked --> Reactor
-    Human --> Reactor
-    Agent --> Store[Conversation, execution and report stores]
-    Agent --> Goals[Goal accounting and controller]
-    Goals --> Queue[Queued turns and scheduler]
-    Queue --> Agent
-    Agent --> Events[Native events and canonical presentation]
-    Events --> AGUI
-```
+![Agently Core architecture: application entry points, workspace configuration, agent runtime, providers, tools and durable state](architecture.svg)
 
 | Boundary | Ownership |
 | --- | --- |

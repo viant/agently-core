@@ -37,23 +37,7 @@ for metadata-driven interfaces.
 
 ## Architecture
 
-```mermaid
-flowchart TD
-    Clients[Go HTTP · TypeScript · Swift · Kotlin clients] --> Edge[AG-UI and authenticated application APIs]
-    Host[Embedded Go application] --> Runtime[Agent runtime]
-    Edge --> Runtime
-    Workspace[Agents · models · intents · skills · templates · bundles] --> Runtime
-    Runtime --> Context[Prompt binding · knowledge retrieval · context management]
-    Context --> Reactor[Model/tool loop]
-    Reactor --> Providers[Model and embedding providers]
-    Reactor --> Policy[Tool policy · approvals · elicitation]
-    Policy --> Tools[Internal tools · MCP tools · linked agents · async operations]
-    Tools --> Reactor
-    Runtime --> Persistence[Conversations · turns · runs · calls · payloads · reports]
-    Goals[Goals and scheduler] --> Runtime
-    Runtime --> Projection[Canonical results · AG-UI events · workspace and report state]
-    Projection --> Clients
-```
+![Agently Core architecture: application entry points, workspace configuration, agent runtime, providers, tools and durable state](doc/architecture.svg)
 
 The authenticated runtime resolves the task's agent and configuration, creates
 its durable turn, builds model context and executes the model/tool loop.
