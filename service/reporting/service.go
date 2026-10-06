@@ -126,6 +126,19 @@ func New(opts Options) *Service {
 
 func (s *Service) Name() string { return Name }
 
+// ConfigureReportCompilation is a pre-serving composition seam. Do not call
+// it while requests are active; constructor options remain available to hosts.
+func (s *Service) ConfigureReportCompilation(backend evidence.ReportCompilation) error {
+	if s == nil || backend == nil {
+		return fmt.Errorf("report compilation backend required")
+	}
+	if s.reportCompilation != nil {
+		return fmt.Errorf("report compilation backend already configured")
+	}
+	s.reportCompilation = backend
+	return nil
+}
+
 func (s *Service) SetAuthorizationPolicy(runtime *policy.Runtime) {
 	if s != nil {
 		s.authorizationPolicy = runtime
