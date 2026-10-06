@@ -57,9 +57,89 @@ These implemented HTTP handlers serve application resources and host services al
 
 Optional handler configuration mounts authentication/preferences, speech, scheduler, workspace metadata, file browser, A2A, callback dispatch, UI bridge (`/v1/ui/rpc`), report runs, and MCP UI resource-read/tool-call APIs. Their availability depends on the installed handler/service and its configuration; route registration is in [`registerOptionalRoutes`](../sdk/handler.go). Authentication and backend interoperability remain transport/host responsibilities.
 
+## HTTP route matrix
+
+The following 60 method/path registrations are present in `registerCoreRoutes`. “Supporting API” means a registered application handler, not a pending AG-UI feature. Service availability, authentication, ownership and validation still apply. The extension column identifies related operations; it does not imply that HTTP and protocol-run identities or payloads are interchangeable.
+
+| HTTP route | Role / status | Related AG-UI surface |
+| --- | --- | --- |
+| `GET /healthz` | Infrastructure health | Outside agent interaction |
+| `GET /health` | Infrastructure health | Outside agent interaction |
+| `POST /upload` | Staged upload · supporting API | Application API; no dedicated extension command |
+| `POST /v1/ag-ui/run` | Standard AG-UI endpoint | `RunAgentInput` → SSE events; configured extensions |
+| `POST /v1/conversations` | Create conversation · supporting API | Application API; no dedicated extension command |
+| `GET /v1/conversations/{id}` | Read conversation · supporting API | Application API; no dedicated extension command |
+| `PATCH /v1/conversations/{id}` | Update conversation · supporting API | Application API; no dedicated extension command |
+| `DELETE /v1/conversations/{id}` | Delete conversation and owned state · supporting API | Application API; no dedicated extension command |
+| `GET /v1/conversations/{id}/goal` | Supporting API | `goal.get` (Agently extension) |
+| `GET /v1/conversations/{id}/async` | List asynchronous operations · supporting API | Application API; no dedicated extension command |
+| `POST /v1/conversations/{id}/goal` | Supporting API | `goal.create` (Agently extension) |
+| `PATCH /v1/conversations/{id}/goal` | Supporting API | `goal.update` (Agently extension) |
+| `DELETE /v1/conversations/{id}/goal` | Supporting API | `goal.clear` (Agently extension) |
+| `GET /v1/conversations` | List conversations · supporting API | Application API; no dedicated extension command |
+| `GET /v1/conversations/linked` | List linked conversations · supporting API | Application API; no dedicated extension command |
+| `GET /v1/conversations/{id}/transcript` | Read canonical transcript · supporting API | Standard message snapshots / `conversation.bootstrap` also expose admitted history |
+| `GET /v1/conversations/{id}/live-state` | Read native conversation state · supporting API | Application API; no dedicated extension command |
+| `POST /v1/conversations/{id}/terminate` | Terminate native conversation work · supporting API | `run.cancel` targets a protocol run; this API targets native work |
+| `POST /v1/conversations/{id}/compact` | Compact model context · supporting API | Application API; no dedicated extension command |
+| `POST /v1/conversations/{id}/prune` | Prune conversation context · supporting API | Application API; no dedicated extension command |
+| `GET /v1/runs/{id}` | Inspect native execution run · supporting API | `run.get` inspects protocol runs; this API inspects native execution |
+| `GET /v1/messages` | Read messages · supporting API | Standard message snapshots / `conversation.bootstrap` also expose admitted history |
+| `GET /v1/elicitations` | List pending elicitations · supporting API | Application API; no dedicated extension command |
+| `POST /v1/api/payloads` | Retrieve payload batch · supporting API | Application API; no dedicated extension command |
+| `GET /v1/api/payload/{id}` | Retrieve payload · supporting API | Application API; no dedicated extension command |
+| `GET /v1/api/conversations/{id}/generated-files` | List generated files · supporting API | Application API; no dedicated extension command |
+| `GET /v1/api/generated-files/{id}/download` | Download generated file · supporting API | Application API; no dedicated extension command |
+| `POST /v1/files` | Upload file · supporting API | Application API; no dedicated extension command |
+| `GET /v1/files` | List files · supporting API | Application API; no dedicated extension command |
+| `GET /v1/files/{id}` | Download file · supporting API | Application API; no dedicated extension command |
+| `GET /v1/feeds` | Supporting API | `feed.list` (Agently extension) |
+| `GET /v1/feeds/{id}/data` | Supporting API | `feed.get` (Agently extension) |
+| `GET /v1/application-events` | Application notification stream | Independent host notifications |
+| `POST /v1/turns/{id}/cancel` | Cancel native turn · supporting API | `run.cancel` targets a protocol run; this API targets native work |
+| `POST /v1/elicitations/{conversationId}/{elicitationId}/resolve` | Resolve elicitation · supporting API | Standard interrupt/resume also continues admitted interactions |
+| `POST /v1/conversations/{id}/turns/{turnId}/steer` | Steer turn · supporting API | Application API; no dedicated extension command |
+| `DELETE /v1/conversations/{id}/turns/{turnId}` | Delete queued turn · supporting API | Application API; no dedicated extension command |
+| `POST /v1/conversations/{id}/turns/{turnId}/move` | Move queued turn · supporting API | Application API; no dedicated extension command |
+| `PATCH /v1/conversations/{id}/turns/{turnId}` | Edit queued turn · supporting API | Application API; no dedicated extension command |
+| `POST /v1/conversations/{id}/turns/{turnId}/force-steer` | Force-steer queued turn · supporting API | Application API; no dedicated extension command |
+| `GET /v1/tools` | Discover tools · supporting API | Standard tool declarations; `workspace.tools.list` for configured workspace catalog |
+| `GET /v1/templates` | List templates · supporting API | Application API; no dedicated extension command |
+| `GET /v1/templates/{name}` | Read template · supporting API | Application API; no dedicated extension command |
+| `GET /v1/skills` | List skills · supporting API | Application API; no dedicated extension command |
+| `GET /v1/skills/diagnostics` | Inspect skill diagnostics · supporting API | Application API; no dedicated extension command |
+| `POST /v1/skills/{name}/activate` | Activate skill · supporting API | Application API; no dedicated extension command |
+| `POST /v1/tools/{name}/execute` | Execute named tool directly · supporting API | Application API; no dedicated extension command |
+| `POST /v1/api/tools/{toolName}` | Execute named tool directly · supporting API | Application API; no dedicated extension command |
+| `POST /v1/tools/execute` | Execute tool named in request · supporting API | Application API; no dedicated extension command |
+| `GET /v1/tool-approvals/pending` | List pending approvals · supporting API | Application API; no dedicated extension command |
+| `POST /v1/tool-approvals/{id}/decision` | Supporting API | `approval.decide` (Agently extension) |
+| `POST /v1/workspace/resources/export` | Supporting API | `workspace.resource.export` (Agently extension) |
+| `POST /v1/workspace/resources/import` | Supporting API | `workspace.resource.import` (Agently extension) |
+| `GET /v1/workspace/resources/{kind}/{name}` | Supporting API | `workspace.resource.get` (Agently extension) |
+| `PUT /v1/workspace/resources/{kind}/{name}` | Supporting API | `workspace.resource.save` (Agently extension) |
+| `DELETE /v1/workspace/resources/{kind}/{name}` | Supporting API | `workspace.resource.delete` (Agently extension) |
+| `GET /v1/workspace/resources` | Supporting API | `workspace.resource.list` (Agently extension) |
+| `POST /v1/api/datasources/{id}/fetch` | Supporting API | `datasource.fetch` (Agently extension) |
+| `DELETE /v1/api/datasources/{id}/cache` | Supporting API | `datasource.cache.invalidate` (Agently extension) |
+| `GET /v1/api/lookups/registry` | Supporting API | `lookup.registry` (Agently extension) |
+
+### Optional mounts
+
+These routes are registered only when the corresponding handler or binding is configured. Additional methods and subpaths are owned by the mounted handler.
+
+| Route / mount | Role / status | Related AG-UI surface |
+| --- | --- | --- |
+| `/v1/api/report-runs`, `/v1/api/report-runs/` | Configured report-run handler | Supporting report lifecycle and artifact APIs |
+| `/v1/ui/rpc` | Configured UI bridge | Host command delivery, snapshots and acknowledgments |
+| `GET /v1/api/mcp-ui/resources/read` | Configured MCP UI resource reader | Scoped MCP Apps proxy also supports `resources/read` |
+| `POST /v1/api/mcp-ui/tools/call` | Configured MCP UI tool caller | Scoped MCP Apps proxy also supports `tools/call` |
+
+The other optional handler families are listed above. Discovery/demo routes are additionally registered when their configured registry is present.
+
 ## Verification scope and limits
 
-Checked-in wire fixtures cover all 31 standard event variants. Consumer tests compare normalization, accepted/rejected sequences, messages and state against the pinned upstream reducer. This is evidence for those fixtures, not proof that every producer emits every variant or that every application feature has complete cross-client parity. [`ag-ui-reducer-conformance.md`](ag-ui-reducer-conformance.md) records the intentional stricter server validation rules.
+Checked-in wire fixtures cover all 31 standard event variants. Consumer tests compare normalization, accepted/rejected sequences, messages and state against the upstream reference reducer. This is evidence for those fixtures, not proof that every producer emits every variant or that every application feature has complete cross-client parity. [`ag-ui-reducer-conformance.md`](ag-ui-reducer-conformance.md) records the intentional stricter server validation rules.
 
 The custom command surface does not include general conversation CRUD/list/compact/prune, queued-turn steering/edit/move, file transfer, template/skill management, scheduler management, or direct arbitrary tool execution. Those operations have supporting APIs where registered above; their absence from the extension dispatch is not an AG-UI standard compliance defect.
 
