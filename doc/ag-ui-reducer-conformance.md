@@ -1,8 +1,6 @@
-# Go consumer conformance to pinned AG-UI 1.0
+# Go consumer conformance to AG-UI 1.0
 
-The tests use an unmodified snapshot of the upstream AG-UI 1.0 schema at commit
-`e60019d258cf43ecc5ad19e8d374f1c31cbf2b94`. The consumer oracle is the
-`@ag-ui/client` 1.0.1 implementation pinned in `sdk/ts`.
+The tests compare Agently’s Go consumer with the upstream [AG-UI 1.0 schema](https://docs.ag-ui.com/spec/1.0) and official `@ag-ui/client` reducer. Exact test dependency versions and schema provenance are recorded with the fixture source and TypeScript package manifest.
 
 `runtime/aguistate/reference_semantics_test.go` compares accepted/rejected
 sequences, normalized events, messages, and state against checked-in fixtures
