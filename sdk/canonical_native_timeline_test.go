@@ -25,6 +25,7 @@ func TestCanonicalModelInclusiveNativeTimelineFixture(t *testing.T) {
 	}
 	state := BuildCanonicalState("thread", convstore.Transcript{&convstore.Turn{Id: "turn", ConversationId: "thread", Status: "completed", Message: messages}})
 	require.Len(t, state.Turns[0].Messages, 3)
+	require.Equal(t, now.Add(3*time.Second), state.Turns[0].Assistant.Narration.CreatedAt)
 	data, err := json.MarshalIndent(state.Turns[0], "", "  ")
 	require.NoError(t, err)
 	for _, path := range []string{"android/src/test/resources/canonical-native-timeline.json", "ios/Tests/AgentlySDKTests/Fixtures/canonical-native-timeline.json"} {
@@ -34,5 +35,19 @@ func TestCanonicalModelInclusiveNativeTimelineFixture(t *testing.T) {
 		expected, err := os.ReadFile(path)
 		require.NoError(t, err)
 		require.JSONEq(t, string(expected), string(data))
+	}
+}
+
+func TestCanonicalNarrationRetainsStoredTimestamp(t *testing.T) {
+	now := time.Date(2026, 10, 5, 17, 32, 55, 0, time.FixedZone("captured", -7*60*60))
+	text := "Checking results"
+	for _, withNarration := range []bool{false, true} {
+		message := &conversationmodel.MessageView{Id: "narration", Role: "assistant", Interim: 1, Content: &text, CreatedAt: now}
+		if withNarration {
+			message.Narration = &text
+		}
+		actual := latestTranscriptAssistantNarration([]*conversationmodel.MessageView{message})
+		require.NotNil(t, actual)
+		require.Equal(t, now, actual.CreatedAt)
 	}
 }
