@@ -40,8 +40,7 @@ func (d *Discoverer) CollectPayloadIDs(ctx context.Context, graph *Graph) ([]str
 	payloadIDs, messageIDs := []string{}, []string{}
 	query := &msgread.MessagesInput{}
 	query.SetConversationIds(conversationIDs)
-	var selector state.Selectors
-	messages, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, query, selector)
+	messages, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, query, deleteSelectors("id", "attachment_payload_id", "elicitation_payload_id"))
 	if err != nil {
 		return nil, err
 	}
@@ -90,7 +89,7 @@ func (d *Discoverer) CollectPayloadIDs(ctx context.Context, graph *Graph) ([]str
 	}
 	fileQuery := &fileread.Input{}
 	fileQuery.SetConversationIDs(conversationIDs)
-	fileValue, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: generatedFileReaderTarget, Input: fileQuery})
+	fileValue, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: generatedFileReaderTarget, Input: fileQuery, Providers: planProviders("generatedfileaccess", d.OwnerID(ctx), "id", "payload_id")})
 	if err != nil {
 		return nil, err
 	}

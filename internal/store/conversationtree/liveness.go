@@ -70,7 +70,7 @@ func (d *Discoverer) CollectRunEvidence(ctx context.Context, graph *Graph) (*Run
 	conversationIDs, legacyIDs = normalizeIDs(conversationIDs), normalizeIDs(legacyIDs)
 	turnInput := &turnread.TurnRowsInput{}
 	turnInput.SetConversationIDs(conversationIDs)
-	turnRows, err := (&convturn.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnInput, nil)
+	turnRows, err := (&convturn.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnInput, deleteSelectors("id", "run_id"))
 	if err != nil {
 		return nil, err
 	}

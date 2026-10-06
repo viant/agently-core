@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
@@ -46,7 +47,9 @@ func (DeleteComponent) DatlyHandler(name string) func() (rh.TypedHandler, error)
 	return custom.Factory(NewDelete)
 }
 
-func (*Delete) Exec(ctx context.Context, session handler.Session, input *DeleteInput, output *DeleteOutput) error {
+func (*Delete) Exec(ctx context.Context, session handler.Session, input *DeleteInput, output *DeleteOutput) (retErr error) {
+	ctx, trace := maintenancediag.Begin(ctx, "conversationtree")
+	defer func() { trace.Finish(retErr) }()
 	if session == nil || session.Binder() == nil || input == nil || output == nil {
 		return fmt.Errorf("conversation deletion invocation is incomplete")
 	}
@@ -75,6 +78,7 @@ func (*Delete) Exec(ctx context.Context, session handler.Session, input *DeleteI
 	if owner == "" && len(roots) > 0 {
 		return ErrPermissionDenied
 	}
+	deps.Invoker = maintenancediag.Wrap(ctx, deps.Invoker)
 	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err

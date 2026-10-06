@@ -7,7 +7,6 @@ import (
 	_ "github.com/viant/agently-core/internal/datly/message/write"
 
 	_ "github.com/go-sql-driver/mysql"
-	_ "github.com/mattn/go-sqlite3"
 	_ "github.com/viant/agently-core/internal/datly/link"
 	_ "github.com/viant/agently-core/internal/store/conversationmaintenance"
 	_ "github.com/viant/agently-core/internal/store/conversationtree"
@@ -21,18 +20,12 @@ import (
 	_ "github.com/viant/agently-core/internal/store/scheduledmaintenance"
 	_ "github.com/viant/agently-core/internal/store/technicalmaintenance"
 	_ "github.com/viant/agently-core/internal/store/terminalartifact"
-	"github.com/viant/datly/cmd/command"
 	"github.com/viant/datly/standalone"
 	"github.com/viant/datly/standalone/config"
 	_ "github.com/viant/sqlx/metadata/product/mysql"
 	_ "github.com/viant/sqlx/metadata/product/sqlite"
 	_ "modernc.org/sqlite"
 )
-
-// Command uses the same package-linked contracts as the embedded application.
-func Command() (command.Service, error) {
-	return command.Service{}, nil
-}
 
 // New opens a single native runtime and its configured connector pools. It
 // publishes the initial generation without opening an HTTP or MCP listener.

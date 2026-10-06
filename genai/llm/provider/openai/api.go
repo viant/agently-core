@@ -239,14 +239,36 @@ func (c *Client) canMultimodal() bool {
 	if m == "" {
 		return false
 	}
-	// Heuristic: enable only on known vision-capable families.
-	keywords := []string{"gpt-5", "5.2", "gpt-4o", "4o", "4.1", "-omni", "vision"}
+	// Enable image input only on known vision-capable language-model families.
+	// GPT-6 variants include gpt-6-sol, gpt-6-luna, and dated snapshots.
+	keywords := []string{"gpt-6", "gpt-5", "5.2", "gpt-4o", "4o", "4.1", "-omni", "vision"}
 	for _, kw := range keywords {
 		if strings.Contains(m, kw) {
 			return true
 		}
 	}
+
+	// Do not match the whole o-series: o1-mini and o3-mini do not accept
+	// image input. These are the o-series language models with image input,
+	// including their dated snapshots.
+	for _, model := range []string{
+		"o1",
+		"o1-pro",
+		"o3",
+		"o3-pro",
+		"o3-deep-research",
+		"o4-mini",
+		"o4-mini-deep-research",
+	} {
+		if isModelOrDatedSnapshot(m, model) {
+			return true
+		}
+	}
 	return false
+}
+
+func isModelOrDatedSnapshot(model, family string) bool {
+	return model == family || strings.HasPrefix(model, family+"-20")
 }
 
 func isContextContinuationEnabled(model llm.Model) bool {

@@ -162,6 +162,38 @@ are removed by the active lease holder; the retention is intentionally fixed.
 The schema must be deployed before maintenance is enabled. Core does not create
 or migrate `maintenance_lease` at runtime.
 
+## Performance diagnostics
+
+Graph discovery and deletion planning reads project identities and fields
+needed for authorization, reference guards and liveness, rather than message
+bodies or report documents. Canonical writers' current-state reads are not
+bypassed or narrowed by this optimization.
+An orphan's transactional recheck renders only its selected rule and exact
+record predicate; full candidate scans still include all enabled rules.
+Dependent mutations share a generated writer invocation only when their owner
+and expected-reference guards match. Writer batches remain bounded at 400 rows;
+graph lock batches retain their existing 500-row bound. Transactional fencing,
+post-lock rechecks and foreign-key deletion order are unchanged.
+
+`AGENTLY_DEBUG_CONVERSATION_DELETE=1` enables phase and component timings for
+manual deletion and maintenance. Each outer operation has a trace ID and a
+final component-invocation count. This is not a SQL-query or affected-row count;
+one component can execute multiple statements. The outer completion includes
+managed commit/rollback. Inputs, payloads and SQL parameters are not logged.
+
+For a repeatable, isolated SQLite timing fixture, run:
+
+```bash
+AGENTLY_TEST_CLEANUP_PERFORMANCE=1 go test ./app/store/data \
+  -run '^TestCleanupPerformanceFixture$' -count=1 -v
+```
+
+It reports cold and warmed operation durations separately for roots with small
+and large message sets, reporting dependencies and unused orphan payloads.
+The message fixtures also report allocated bytes. Runtime construction and
+fixture seeding are excluded. No wall-clock threshold is enforced in CI;
+fewer component invocations do not guarantee lower latency for every fixture.
+
 ## Extension rules
 
 When adding a table or relationship:

@@ -93,7 +93,7 @@ func TestWorkspaceRuntimeToolExecutionClaimRepository(t *testing.T) {
 	server, err := native.New(ctx, native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -692,6 +692,11 @@ func TestWorkspaceRuntimeConversationTreeNonTerminalStatus(t *testing.T) {
 		VALUES('status-job','report://status','u1','status-root','pdf','draft','succeeded')`)
 	require.NoError(t, err)
 	require.ErrorIs(t, discoverer.ValidateNonTerminalStatuses(owner, readGraph()), conversationtree.ErrNonTerminal)
+	_, err = db.Exec(`DELETE FROM report_export_job WHERE job_id='status-job';
+        INSERT INTO report_run(report_run_id,owner_id,conversation_id,materializer,status,started_at,revision,ui_run_request_id)
+        VALUES('status-report','u1','status-root','legacy-browser','completed',CURRENT_TIMESTAMP,1,'status-request')`)
+	require.NoError(t, err)
+	require.ErrorIs(t, discoverer.ValidateNonTerminalStatuses(owner, readGraph()), conversationtree.ErrNonTerminal, "narrow report-run reads must retain conversation activity identity")
 }
 
 func TestWorkspaceRuntimeReportAuditImport(t *testing.T) {

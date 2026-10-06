@@ -21,7 +21,7 @@ func TestLinkedGoalExecutableStartsWithPrivateComponents(t *testing.T) {
 	binary := filepath.Join(t.TempDir(), "agently-datly")
 	build := exec.Command("go", "build", "-o", binary, "./cmd/datly")
 	build.Dir = project
-	build.Env = append(os.Environ(), "GOWORK=off")
+	build.Env = append(os.Environ(), "GOWORK=off", "CGO_ENABLED=0")
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("linked executable: %v\n%s", err, output)
 	}
@@ -29,7 +29,7 @@ func TestLinkedGoalExecutableStartsWithPrivateComponents(t *testing.T) {
 	configDir := t.TempDir()
 	deps := filepath.Join(configDir, "connections")
 	must(t, os.Mkdir(deps, 0700))
-	connectors := map[string]any{"Connectors": []map[string]any{{"Name": "agently", "Driver": "sqlite3", "DSN": dbPath + "?_foreign_keys=on"}}}
+	connectors := map[string]any{"Connectors": []map[string]any{{"Name": "agently", "Driver": "sqlite", "DSN": dbPath + "?_pragma=foreign_keys(1)"}}}
 	data, err := json.Marshal(connectors)
 	must(t, err)
 	must(t, os.WriteFile(filepath.Join(deps, "agently.json"), data, 0600))

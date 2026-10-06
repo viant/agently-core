@@ -7,6 +7,7 @@ import (
 
 	read "github.com/viant/agently-core/internal/datly/orphanmaintenance/read"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 	maintenance "github.com/viant/agently-core/internal/store/maintenancelease"
 	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
@@ -39,7 +40,9 @@ func (ApplyComponent) DatlyHandler(name string) func() (rh.TypedHandler, error) 
 	}
 	return custom.Factory(NewApply)
 }
-func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInput, output *ApplyOutput) error {
+func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInput, output *ApplyOutput) (retErr error) {
+	ctx, trace := maintenancediag.Begin(ctx, "orphanmaintenance")
+	defer func() { trace.Finish(retErr) }()
 	if session == nil || session.Binder() == nil || input == nil || output == nil {
 		return fmt.Errorf("orphan maintenance invocation is incomplete")
 	}
@@ -71,6 +74,7 @@ func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInp
 	if err != nil {
 		return err
 	}
+	deps.Invoker = maintenancediag.Wrap(ctx, deps.Invoker)
 	ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
 	if err := deps.Starter.Start(ctx); err != nil {
 		return err

@@ -3,32 +3,43 @@ package conversationtree
 import (
 	"context"
 	"fmt"
+	"reflect"
+	"sort"
+	"strings"
+
 	filewrite "github.com/viant/agently-core/internal/datly/generatedfile/write"
 	goalwrite "github.com/viant/agently-core/internal/datly/goal/write"
+	investigationread "github.com/viant/agently-core/internal/datly/investigation/read"
 	investigationwrite "github.com/viant/agently-core/internal/datly/investigation/write"
+	legacyread "github.com/viant/agently-core/internal/datly/legacyrun/read"
 	legacywrite "github.com/viant/agently-core/internal/datly/legacyrun/write"
 	messagewrite "github.com/viant/agently-core/internal/datly/message/write"
 	modelwrite "github.com/viant/agently-core/internal/datly/modelcall/write"
+	artifactread "github.com/viant/agently-core/internal/datly/reporting/artifact/read"
 	artifactwrite "github.com/viant/agently-core/internal/datly/reporting/artifact/write"
+	auditread "github.com/viant/agently-core/internal/datly/reporting/audit/read"
 	auditwrite "github.com/viant/agently-core/internal/datly/reporting/audit/write"
+	contextread "github.com/viant/agently-core/internal/datly/reporting/context/read"
 	contextwrite "github.com/viant/agently-core/internal/datly/reporting/context/write"
+	jobread "github.com/viant/agently-core/internal/datly/reporting/job/read"
 	jobwrite "github.com/viant/agently-core/internal/datly/reporting/job/write"
+	reportread "github.com/viant/agently-core/internal/datly/reporting/run/read"
 	reportwrite "github.com/viant/agently-core/internal/datly/reporting/run/write"
 	runwrite "github.com/viant/agently-core/internal/datly/run/write"
 	schedulewrite "github.com/viant/agently-core/internal/datly/schedule/write"
 	toolwrite "github.com/viant/agently-core/internal/datly/toolcall/write"
+	claimread "github.com/viant/agently-core/internal/datly/toolexecutionclaim/read"
 	claimwrite "github.com/viant/agently-core/internal/datly/toolexecutionclaim/write"
 	turnwrite "github.com/viant/agently-core/internal/datly/turn/write"
 	queuewrite "github.com/viant/agently-core/internal/datly/turnqueue/write"
 	"github.com/viant/agently-core/internal/store/agentrun"
 	conversation "github.com/viant/agently-core/internal/store/conversation"
+	"github.com/viant/agently-core/internal/store/maintenancebatch"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
 	"github.com/viant/datly/spec"
-	"reflect"
-	"sort"
-	"strings"
 )
 
 // InvestigationPolicy selects the explicit legacy relationship policy.
@@ -47,7 +58,9 @@ type Mutator struct {
 	OwnerID func(context.Context) string
 }
 
-func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy InvestigationPolicy) error {
+func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy InvestigationPolicy) (retErr error) {
+	done := maintenancediag.Phase(ctx, "mutations")
+	defer func() { done(retErr, "") }()
 	if m == nil || m.Invoker == nil || m.OwnerID == nil {
 		return fmt.Errorf("conversation deletion mutation phase is not configured")
 	}
@@ -75,19 +88,26 @@ func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy Investigat
 		return err
 	}
 	if plan.Tables["schedule_run"] {
-		for _, snapshot := range plan.LegacyRuns {
+		err := maintenancebatch.Groups(ctx, plan.LegacyRuns, func(snapshot *legacyread.LegacyRun) (string, error) {
 			if snapshot == nil {
-				return fmt.Errorf("deletion plan has a nil legacy run")
+				return "", fmt.Errorf("deletion plan has a nil legacy run")
 			}
-			row := &legacywrite.LegacyRun{}
-			row.SetId(snapshot.Id)
-			row.SetShouldDelete(true)
+			return snapshot.ScheduleId, nil
+		}, func(scheduleID string, snapshots []*legacyread.LegacyRun) error {
+			rows := make([]*legacywrite.LegacyRun, 0, len(snapshots))
+			for _, snapshot := range snapshots {
+				row := &legacywrite.LegacyRun{}
+				row.SetId(snapshot.Id)
+				row.SetShouldDelete(true)
+				rows = append(rows, row)
+			}
 			input := &legacywrite.Input{}
-			input.SetExpectedScheduleID(snapshot.ScheduleId)
-			input.SetRuns([]*legacywrite.LegacyRun{row})
-			if err := treeInvoke[legacywrite.Output](ctx, m, input, "/v1/internal/agently/scheduler/legacy-run", treeProviders("schedulerunaccess", m.OwnerID(ctx))...); err != nil {
-				return err
-			}
+			input.SetExpectedScheduleID(scheduleID)
+			input.SetRuns(rows)
+			return treeInvoke[legacywrite.Output](ctx, m, input, "/v1/internal/agently/scheduler/legacy-run", treeProviders("schedulerunaccess", m.OwnerID(ctx))...)
+		})
+		if err != nil {
+			return err
 		}
 	}
 	if plan.Tables["tool_approval_queue"] {
@@ -96,19 +116,26 @@ func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy Investigat
 		}
 	}
 	if plan.Tables["tool_execution_claim"] {
-		for _, snapshot := range plan.Claims {
+		err := maintenancebatch.Groups(ctx, plan.Claims, func(snapshot *claimread.Claim) (string, error) {
 			if snapshot == nil {
-				return fmt.Errorf("deletion plan has a nil tool claim")
+				return "", fmt.Errorf("deletion plan has a nil tool claim")
 			}
-			row := &claimwrite.Claim{}
-			row.SetClaimKey(snapshot.ClaimKey)
-			row.SetShouldDelete(true)
+			return snapshot.TurnId, nil
+		}, func(turnID string, snapshots []*claimread.Claim) error {
+			rows := make([]*claimwrite.Claim, 0, len(snapshots))
+			for _, snapshot := range snapshots {
+				row := &claimwrite.Claim{}
+				row.SetClaimKey(snapshot.ClaimKey)
+				row.SetShouldDelete(true)
+				rows = append(rows, row)
+			}
 			input := &claimwrite.Input{}
-			input.SetExpectedTurnID(snapshot.TurnId)
-			input.SetClaims([]*claimwrite.Claim{row})
-			if err := treeInvoke[claimwrite.Output](ctx, m, input, "/v1/internal/agently/tool-execution-claim", treeProviders("claimaccess", m.OwnerID(ctx))...); err != nil {
-				return err
-			}
+			input.SetExpectedTurnID(turnID)
+			input.SetClaims(rows)
+			return treeInvoke[claimwrite.Output](ctx, m, input, "/v1/internal/agently/tool-execution-claim", treeProviders("claimaccess", m.OwnerID(ctx))...)
+		})
+		if err != nil {
+			return err
 		}
 	}
 	if err := m.detachRuns(ctx, plan); err != nil {
@@ -275,119 +302,163 @@ func (m *Mutator) investigations(ctx context.Context, plan *DeletePlan, policy I
 	if !plan.Tables["investigation"] {
 		return nil
 	}
-	for _, snapshot := range plan.Investigations {
+	return maintenancebatch.Groups(ctx, plan.Investigations, func(snapshot *investigationread.Investigation) (string, error) {
 		if snapshot == nil || snapshot.ConversationId == nil || strings.TrimSpace(*snapshot.ConversationId) == "" {
-			return fmt.Errorf("deletion investigation has no conversation evidence")
+			return "", fmt.Errorf("deletion investigation has no conversation evidence")
 		}
-		row := &investigationwrite.Investigation{}
-		row.SetId(snapshot.Id)
-		if policy == InvestigationDelete {
-			row.SetShouldDelete(true)
-		} else {
-			row.SetConversationId(nil)
+		return *snapshot.ConversationId, nil
+	}, func(conversationID string, snapshots []*investigationread.Investigation) error {
+		rows := make([]*investigationwrite.Investigation, 0, len(snapshots))
+		for _, snapshot := range snapshots {
+			row := &investigationwrite.Investigation{}
+			row.SetId(snapshot.Id)
+			if policy == InvestigationDelete {
+				row.SetShouldDelete(true)
+			} else {
+				row.SetConversationId(nil)
+			}
+			rows = append(rows, row)
 		}
 		input := &investigationwrite.Input{}
-		input.SetExpectedConversationID(*snapshot.ConversationId)
-		input.SetInvestigations([]*investigationwrite.Investigation{row})
-		if err := treeInvoke[investigationwrite.Output](ctx, m, input, "/v1/internal/agently/investigation", treeProviders("investigationaccess", m.OwnerID(ctx))...); err != nil {
-			return err
-		}
-	}
-	return nil
+		input.SetExpectedConversationID(conversationID)
+		input.SetInvestigations(rows)
+		return treeInvoke[investigationwrite.Output](ctx, m, input, "/v1/internal/agently/investigation", treeProviders("investigationaccess", m.OwnerID(ctx))...)
+	})
 }
 
 func (m *Mutator) reporting(ctx context.Context, plan *DeletePlan) error {
 	jobs, artifacts := treeIDSet(plan.ReportJobIDs), treeIDSet(plan.ReportArtifactIDs)
 	if plan.Tables["report_audit_event"] {
-		for _, snapshot := range plan.ReportAuditEvents {
+		type auditGuard struct{ JobID, ArtifactID string }
+		err := maintenancebatch.Groups(ctx, plan.ReportAuditEvents, func(snapshot *auditread.AuditEvent) (auditGuard, error) {
 			if snapshot == nil {
-				return fmt.Errorf("deletion plan has a nil report audit event")
+				return auditGuard{}, fmt.Errorf("deletion plan has a nil report audit event")
 			}
-			row := &auditwrite.AuditEvent{}
-			row.SetEventId(snapshot.EventId)
-			row.SetShouldDelete(true)
-			input := &auditwrite.Input{}
-			input.SetEvents([]*auditwrite.AuditEvent{row})
 			if snapshot.JobId != nil && jobs[*snapshot.JobId] {
-				input.SetExpectedJobID(*snapshot.JobId)
-			} else if snapshot.ArtifactId != nil && artifacts[*snapshot.ArtifactId] {
-				input.SetExpectedArtifactID(*snapshot.ArtifactId)
+				return auditGuard{JobID: *snapshot.JobId}, nil
+			}
+			if snapshot.ArtifactId != nil && artifacts[*snapshot.ArtifactId] {
+				return auditGuard{ArtifactID: *snapshot.ArtifactId}, nil
+			}
+			return auditGuard{}, fmt.Errorf("report audit event %s has no deletion link", snapshot.EventId)
+		}, func(guard auditGuard, snapshots []*auditread.AuditEvent) error {
+			rows := make([]*auditwrite.AuditEvent, 0, len(snapshots))
+			for _, snapshot := range snapshots {
+				row := &auditwrite.AuditEvent{}
+				row.SetEventId(snapshot.EventId)
+				row.SetShouldDelete(true)
+				rows = append(rows, row)
+			}
+			input := &auditwrite.Input{}
+			input.SetEvents(rows)
+			if guard.JobID != "" {
+				input.SetExpectedJobID(guard.JobID)
 			} else {
-				return fmt.Errorf("report audit event %s has no deletion link", snapshot.EventId)
+				input.SetExpectedArtifactID(guard.ArtifactID)
 			}
-			if err := treeInvoke[auditwrite.Output](ctx, m, input, "/v1/internal/forge/reporting/audit", treeProviders("reportauditaccess", m.OwnerID(ctx))...); err != nil {
-				return err
-			}
+			return treeInvoke[auditwrite.Output](ctx, m, input, "/v1/internal/forge/reporting/audit", treeProviders("reportauditaccess", m.OwnerID(ctx))...)
+		})
+		if err != nil {
+			return err
 		}
 	}
 	if plan.Tables["report_export_artifact"] {
-		for _, snapshot := range plan.ReportArtifacts {
+		type artifactGuard struct{ OwnerID, JobID string }
+		err := maintenancebatch.Groups(ctx, plan.ReportArtifacts, func(snapshot *artifactread.Artifact) (artifactGuard, error) {
 			if snapshot == nil {
-				return fmt.Errorf("deletion plan has a nil export artifact")
+				return artifactGuard{}, fmt.Errorf("deletion plan has a nil export artifact")
 			}
-			row := &artifactwrite.Artifact{}
-			row.SetArtifactId(snapshot.ArtifactId)
-			row.SetOwnerId(snapshot.OwnerId)
-			row.SetShouldDelete(true)
+			return artifactGuard{snapshot.OwnerId, snapshot.JobId}, nil
+		}, func(guard artifactGuard, snapshots []*artifactread.Artifact) error {
+			rows := make([]*artifactwrite.Artifact, 0, len(snapshots))
+			for _, snapshot := range snapshots {
+				row := &artifactwrite.Artifact{}
+				row.SetArtifactId(snapshot.ArtifactId)
+				row.SetOwnerId(snapshot.OwnerId)
+				row.SetShouldDelete(true)
+				rows = append(rows, row)
+			}
 			input := &artifactwrite.Input{}
 			input.SetMode("delete")
-			input.SetExpectedJobID(snapshot.JobId)
-			input.SetArtifacts([]*artifactwrite.Artifact{row})
-			if err := treeInvoke[artifactwrite.Output](ctx, m, input, "/v1/internal/forge/reporting/artifact", treeProviders("reportaccess", snapshot.OwnerId)...); err != nil {
-				return err
-			}
+			input.SetExpectedJobID(guard.JobID)
+			input.SetArtifacts(rows)
+			return treeInvoke[artifactwrite.Output](ctx, m, input, "/v1/internal/forge/reporting/artifact", treeProviders("reportaccess", guard.OwnerID)...)
+		})
+		if err != nil {
+			return err
 		}
 	}
 	if plan.Tables["report_export_job"] {
-		for _, snapshot := range plan.ReportJobs {
+		err := maintenancebatch.Groups(ctx, plan.ReportJobs, func(snapshot *jobread.Job) (string, error) {
 			if snapshot == nil {
-				return fmt.Errorf("deletion plan has a nil export job")
+				return "", fmt.Errorf("deletion plan has a nil export job")
 			}
-			row := &jobwrite.Job{}
-			row.SetJobId(snapshot.JobId)
-			row.SetOwnerId(snapshot.OwnerId)
-			row.SetShouldDelete(true)
+			return snapshot.OwnerId, nil
+		}, func(owner string, snapshots []*jobread.Job) error {
+			rows := make([]*jobwrite.Job, 0, len(snapshots))
+			for _, snapshot := range snapshots {
+				row := &jobwrite.Job{}
+				row.SetJobId(snapshot.JobId)
+				row.SetOwnerId(snapshot.OwnerId)
+				row.SetShouldDelete(true)
+				rows = append(rows, row)
+			}
 			input := &jobwrite.Input{}
 			input.SetMode("delete")
-			input.SetJobs([]*jobwrite.Job{row})
-			if err := treeInvoke[jobwrite.Output](ctx, m, input, "/v1/internal/forge/reporting/job", treeProviders("reportaccess", snapshot.OwnerId)...); err != nil {
-				return err
-			}
+			input.SetJobs(rows)
+			return treeInvoke[jobwrite.Output](ctx, m, input, "/v1/internal/forge/reporting/job", treeProviders("reportaccess", owner)...)
+		})
+		if err != nil {
+			return err
 		}
 	}
 	if plan.Tables["conversation_report_context"] {
-		for _, snapshot := range plan.ReportContexts {
+		err := maintenancebatch.Groups(ctx, plan.ReportContexts, func(snapshot *contextread.Context) (string, error) {
 			if snapshot == nil {
-				return fmt.Errorf("deletion plan has a nil report context")
+				return "", fmt.Errorf("deletion plan has a nil report context")
 			}
-			row := &contextwrite.Context{}
-			row.SetOwnerId(snapshot.OwnerId)
-			row.SetConversationId(snapshot.ConversationId)
-			row.SetRevision(snapshot.Revision)
-			row.SetShouldDelete(true)
+			return snapshot.OwnerId, nil
+		}, func(owner string, snapshots []*contextread.Context) error {
+			rows := make([]*contextwrite.Context, 0, len(snapshots))
+			for _, snapshot := range snapshots {
+				row := &contextwrite.Context{}
+				row.SetOwnerId(snapshot.OwnerId)
+				row.SetConversationId(snapshot.ConversationId)
+				row.SetRevision(snapshot.Revision)
+				row.SetShouldDelete(true)
+				rows = append(rows, row)
+			}
 			input := &contextwrite.Input{}
-			input.SetContexts([]*contextwrite.Context{row})
-			if err := treeInvoke[contextwrite.Output](ctx, m, input, "/v1/internal/forge/reporting/conversation-context", treeProviders("reportaccess", snapshot.OwnerId)...); err != nil {
-				return err
-			}
+			input.SetContexts(rows)
+			return treeInvoke[contextwrite.Output](ctx, m, input, "/v1/internal/forge/reporting/conversation-context", treeProviders("reportaccess", owner)...)
+		})
+		if err != nil {
+			return err
 		}
 	}
 	if plan.Tables["report_run"] {
-		for _, snapshot := range plan.ReportRuns {
+		err := maintenancebatch.Groups(ctx, plan.ReportRuns, func(snapshot *reportread.Run) (string, error) {
 			if snapshot == nil {
-				return fmt.Errorf("deletion plan has a nil report run")
+				return "", fmt.Errorf("deletion plan has a nil report run")
 			}
-			row := &reportwrite.Run{}
-			row.SetReportRunId(snapshot.ReportRunId)
-			row.SetOwnerId(snapshot.OwnerId)
-			row.SetRevision(snapshot.Revision)
-			row.SetShouldDelete(true)
+			return snapshot.OwnerId, nil
+		}, func(owner string, snapshots []*reportread.Run) error {
+			rows := make([]*reportwrite.Run, 0, len(snapshots))
+			for _, snapshot := range snapshots {
+				row := &reportwrite.Run{}
+				row.SetReportRunId(snapshot.ReportRunId)
+				row.SetOwnerId(snapshot.OwnerId)
+				row.SetRevision(snapshot.Revision)
+				row.SetShouldDelete(true)
+				rows = append(rows, row)
+			}
 			input := &reportwrite.Input{}
 			input.SetMode("delete")
-			input.SetRuns([]*reportwrite.Run{row})
-			if err := treeInvoke[reportwrite.Output](ctx, m, input, "/v1/internal/forge/reporting/run", treeProviders("reportaccess", snapshot.OwnerId)...); err != nil {
-				return err
-			}
+			input.SetRuns(rows)
+			return treeInvoke[reportwrite.Output](ctx, m, input, "/v1/internal/forge/reporting/run", treeProviders("reportaccess", owner)...)
+		})
+		if err != nil {
+			return err
 		}
 	}
 	return nil
