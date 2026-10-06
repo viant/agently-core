@@ -294,6 +294,7 @@ func (s *Service) PlanFromResponse(resp *llm.GenerateResponse) *execution.Plan {
 // same toolexec.ExecuteToolStep path as Run, and returns the full plan. It
 // never invokes the model.
 func (s *Service) ResumePlan(ctx context.Context, aPlan *execution.Plan, completed map[string]llm.ToolCall) (*execution.Plan, error) {
+	ctx, failures := withToolFailures(ctx)
 	if aPlan == nil {
 		aPlan = execution.New()
 	}
@@ -301,7 +302,10 @@ func (s *Service) ResumePlan(ctx context.Context, aPlan *execution.Plan, complet
 	if tm, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		turnID = strings.TrimSpace(tm.TurnID)
 	}
-	for _, call := range completed {
+	for id, call := range completed {
+		if strings.TrimSpace(call.ID) != strings.TrimSpace(id) || strings.TrimSpace(call.Name) == "" {
+			return aPlan, fmt.Errorf("invalid replay result for tool call %s", id)
+		}
 		s.rememberTurnToolResult(turnID, call)
 	}
 	pending := &execution.Plan{ID: aPlan.ID, Intention: aPlan.Intention}
@@ -321,6 +325,9 @@ func (s *Service) ResumePlan(ctx context.Context, aPlan *execution.Plan, complet
 		assistantMsgID := strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(ctx))
 		s.launchPendingSteps(ctx, pending, &nextStepIdx, &wg, reg, assistantMsgID)
 		wg.Wait()
+	}
+	if err := failures.err(); err != nil && ctx.Err() == nil {
+		return aPlan, err
 	}
 	RefinePlan(aPlan)
 	return aPlan, nil

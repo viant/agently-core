@@ -8,6 +8,7 @@ import (
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/runtime/requestctx"
 	intakesvc "github.com/viant/agently-core/service/intake"
 )
 
@@ -24,11 +25,7 @@ func isAutoAgentRef(agentRef string) bool {
 }
 
 func isInternalHelperAgentID(agentID string) bool {
-	switch strings.ToLower(strings.TrimSpace(agentID)) {
-	case "agent_selector", "agent-selector", "intake_sidecar", "tool_router", "planner_pass":
-		return true
-	}
-	return false
+	return requestctx.IsInternalHelperAgentID(agentID)
 }
 
 func lastTurnAgentIDUsed(conv *apiconv.Conversation) string {

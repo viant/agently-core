@@ -11,7 +11,7 @@ final class ResourceUploadTests: XCTestCase {
             do {
                 let (code, body) = try Self.handler!(request)
                 let response = HTTPURLResponse(url: request.url!, statusCode: code, httpVersion: nil,
-                                               headerFields: ["Content-Type": "application/json"])!
+                                               headerFields: ["Content-Type": request.url?.path == "/v1/ag-ui/run" ? "text/event-stream" : "application/json"])!
                 client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
                 client?.urlProtocol(self, didLoad: body)
                 client?.urlProtocolDidFinishLoading(self)
@@ -40,7 +40,7 @@ final class ResourceUploadTests: XCTestCase {
         return data
     }
 
-    func testUploadThenQueryUsesResourceURI() async throws {
+    func testUploadThenAgUiQueryUsesResourceURI() async throws {
         defer { UploadProtocol.handler = nil }
         for conversationID in ["conv-1", nil] as [String?] {
             let client = makeClient()
@@ -59,23 +59,36 @@ final class ResourceUploadTests: XCTestCase {
                     XCTAssertEqual(text.contains("name=\"conversationId\""), conversationID != nil)
                     return (200, Data(#"{"id":"a1","uri":"scratchpad://artifact/a1","name":"customers.xlsx","size":5,"resource":{"uri":"scratchpad://artifact/a1","id":"a1","name":"customers.xlsx","mimeType":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","sizeBytes":5,"sha256":"digest"}}"#.utf8))
                 }
-                XCTAssertEqual(request.url?.path, "/v1/agent/query")
+                if request.httpMethod == "GET" { return (200, Data(#"{"id":"conv-1"}"#.utf8)) }
+                XCTAssertEqual(request.url?.path, "/v1/ag-ui/run")
                 let json = try XCTUnwrap(JSONSerialization.jsonObject(with: self.body(request)) as? [String: Any])
-                XCTAssertEqual(json["resourceURIs"] as? [String], ["scratchpad://artifact/a1"])
-                XCTAssertEqual((json["attachments"] as? [Any])?.count, 0)
-                return (200, Data(#"{"content":"done"}"#.utf8))
+                let extensionValue = try XCTUnwrap((json["forwardedProps"] as? [String: Any])?["agently"] as? [String: Any])
+                let operation = extensionValue["operation"] as? String
+                let thread = try XCTUnwrap(json["threadId"] as? String), run = try XCTUnwrap(json["runId"] as? String)
+                var events: [[String: Any]] = [["type":"RUN_STARTED","threadId":thread,"runId":run]]
+                if operation == "conversation.bootstrap" {
+                    events.append(["type":"RUN_FINISHED","threadId":thread,"runId":run,"outcome":["type":"success"],"result":["version":"1","threadId":thread,"transcript":["schemaVersion":"2","conversation":["conversationId":"conv-1","turns":[]]],"messages":[],"state":[:],"runs":[],"projection":["lossless":true,"unavailableMessageIds":[]]]])
+                } else {
+                    let payload = try XCTUnwrap(extensionValue["payload"] as? [String: Any])
+                    XCTAssertEqual(payload["resourceURIs"] as? [String], ["scratchpad://artifact/a1"])
+                    XCTAssertEqual((payload["attachments"] as? [Any])?.count ?? 0, 0)
+                    events.append(["type":"ACTIVITY_SNAPSHOT","activityType":"agently.turn","messageId":"turn","content":["version":"1","nativeTurnId":"native-turn","status":"running"]])
+                    events.append(["type":"RUN_FINISHED","threadId":thread,"runId":run,"outcome":["type":"success"]])
+                }
+                let data = try events.map { "data: " + String(decoding: try JSONSerialization.data(withJSONObject:$0),as:UTF8.self) + "\n\n" }.joined()
+                return (200,Data(data.utf8))
             }
             let upload = try await client.uploadFile(UploadFileInput(conversationID: conversationID,
                 name: "customers.xlsx", contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", data: payload))
             let resource = try XCTUnwrap(upload.resource)
             XCTAssertEqual(resource.sizeBytes, 5)
             let result = try await client.query(QueryInput(conversationID: "conv-1", query: "Inspect it", resourceURIs: [resource.uri]))
-            XCTAssertEqual(result.content, "done")
-            XCTAssertEqual(requests, 2)
+            XCTAssertEqual(result.conversationID, "conv-1")
+            XCTAssertGreaterThanOrEqual(requests, 4)
         }
     }
 
-    func testLegacyAndAnonymousUploadResponses() throws {
+    func testNativeAndAnonymousUploadResponses() throws {
         for raw in [#"{"id":"a","uri":"/v1/files/a"}"#, #"{"ID":"a","URI":"/v1/files/a"}"#] {
             let out = try JSONDecoder().decode(UploadFileOutput.self, from: Data(raw.utf8))
             XCTAssertEqual(out.id, "a"); XCTAssertEqual(out.uri, "/v1/files/a"); XCTAssertNil(out.resource)

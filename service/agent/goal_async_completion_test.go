@@ -11,7 +11,10 @@ import (
 	convcli "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
 	convmem "github.com/viant/agently-core/app/store/data/memory"
+	convservice "github.com/viant/agently-core/internal/service/conversation"
 	conversationmodel "github.com/viant/agently-core/model/conversation"
+	turnmodel "github.com/viant/agently-core/model/turn"
+	turnqueuemodel "github.com/viant/agently-core/model/turnqueue"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	"github.com/viant/agently-core/runtime/streaming"
 	goalsys "github.com/viant/agently-core/service/goal"
@@ -51,6 +54,12 @@ func TestObserveDetachedAsyncGoalCompletion_QueuesContinuationWhenIdle(t *testin
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
 	dataSvc := data.NewService(server)
+	// Resolve cold native readers before the observer timing window, and surface
+	// errors that the production observer conservatively refuses to continue on.
+	_, err = dataSvc.GetActiveTurn(ctx, &turnmodel.ActiveTurnsInput{ConversationID: "conv-goal", Has: &turnmodel.ActiveTurnsInputHas{ConversationID: true}})
+	require.NoError(t, err)
+	_, err = dataSvc.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{ConversationID: "conv-goal", Has: &turnmodel.QueuedTotalInputHas{ConversationID: true}})
+	require.NoError(t, err)
 
 	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{
 		conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-goal")),
@@ -63,14 +72,69 @@ func TestObserveDetachedAsyncGoalCompletion_QueuesContinuationWhenIdle(t *testin
 		OnAsyncCompleted: goalsys.AsyncPolicyEvaluate,
 	}).Encode()
 	require.NoError(t, err)
-	goalStore := newLinkedGoalStore(t, "goal-conv-goal", "conv-goal", "finish parser cleanup", spec)
+	goalStore := goalsys.NewStore(server)
+	goalID, conversationID, objective, status := "goal-conv-goal", "conv-goal", "finish parser cleanup", "active"
+	require.NoError(t, goalStore.(goalsys.Repository).Apply(ctx, goalsys.Mutation{ID: goalID, ConversationID: goalsys.Field[*string]{Present: true, Value: &conversationID}, Objective: goalsys.Field[*string]{Present: true, Value: &objective}, Status: goalsys.Field[*string]{Present: true, Value: &status}, ControllerSpec: goalsys.Field[*string]{Present: true, Value: &spec}}))
 
-	convClient := convmem.New()
+	// All three stores share one native runtime. A memory-only turn/message
+	// cannot prove the native turn_queue foreign-key and commit contract.
+	convClient, err := convservice.New(ctx, server)
+	require.NoError(t, err)
 	conv := convcli.NewConversation()
 	conv.SetId("conv-goal")
 	conv.SetCreatedAt(time.Now())
 	require.NoError(t, convClient.PatchConversations(ctx, conv))
 
+	// Resolve the controller's remaining cold reads synchronously. The logical
+	// callback budget below does not measure first-time component compilation.
+	current, err := goalStore.Current(ctx, conversationID)
+	require.NoError(t, err)
+	require.NotNil(t, current)
+	counter, ok := dataSvc.(controllerSignalCounter)
+	require.True(t, ok)
+	_, err = counter.CountPendingElicitations(ctx, conversationID)
+	require.NoError(t, err)
+	_, err = counter.CountPendingApprovals(ctx, conversationID)
+	require.NoError(t, err)
+	_, err = counter.CountControllerTurns(ctx, conversationID)
+	require.NoError(t, err)
+	_, err = convClient.GetConversation(ctx, conversationID, convcli.WithIncludeTranscript(true))
+	require.NoError(t, err)
+	// Warm exact native write shapes using an unrelated succeeded turn, not
+	// another queued/controller action. This leaves continuation counts at zero.
+	warmTurn := convcli.NewTurn()
+	warmTurn.SetId("goal-fixture-warm")
+	warmTurn.SetConversationID(conversationID)
+	warmTurn.SetStatus("succeeded")
+	warmTurn.SetCreatedAt(time.Now())
+	require.NoError(t, convClient.PatchTurn(ctx, warmTurn))
+	warmMessage := convcli.NewMessage()
+	warmMessage.SetId("goal-fixture-warm")
+	warmMessage.SetConversationID(conversationID)
+	warmMessage.SetTurnID("goal-fixture-warm")
+	warmMessage.SetRole("user")
+	warmMessage.SetType("task")
+	warmMessage.SetContent("fixture initialization")
+	warmMessage.SetRawContent("fixture initialization")
+	warmMessage.SetCreatedAt(time.Now())
+	require.NoError(t, convClient.PatchMessage(ctx, warmMessage))
+	queuePatcher, ok := dataSvc.(interface {
+		PatchTurnQueue(context.Context, *turnqueuemodel.TurnQueue) error
+	})
+	require.True(t, ok)
+	warmQueue := &turnqueuemodel.TurnQueue{Has: &turnqueuemodel.TurnQueueHas{}}
+	warmQueue.SetId("goal-fixture-warm")
+	warmQueue.SetConversationId(conversationID)
+	warmQueue.SetTurnId("goal-fixture-warm")
+	warmQueue.SetMessageId("goal-fixture-warm")
+	warmQueue.SetQueueSeq(1)
+	warmQueue.SetStatus("done")
+	warmQueue.SetCreatedAt(time.Now())
+	warmQueue.SetUpdatedAt(time.Now())
+	require.NoError(t, queuePatcher.PatchTurnQueue(ctx, warmQueue))
+	queuedBefore, err := dataSvc.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{ConversationID: conversationID, Has: &turnmodel.QueuedTotalInputHas{ConversationID: true}})
+	require.NoError(t, err)
+	require.Zero(t, queuedBefore)
 	manager := asynccfg.NewManager()
 	pub := &captureGoalEventPublisher{}
 	svc := &Service{
@@ -103,7 +167,7 @@ func TestObserveDetachedAsyncGoalCompletion_QueuesContinuationWhenIdle(t *testin
 	require.True(t, changed)
 
 	require.Eventually(t, func() bool {
-		got, err := convClient.GetConversation(ctx, "conv-goal")
+		got, err := convClient.GetConversation(ctx, "conv-goal", convcli.WithIncludeTranscript(true))
 		if err != nil || got == nil {
 			return false
 		}
@@ -122,6 +186,14 @@ func TestObserveDetachedAsyncGoalCompletion_QueuesContinuationWhenIdle(t *testin
 		}
 		return false
 	}, 3*time.Second, 20*time.Millisecond)
+	// Observing memory message text preceded native queue persistence in the
+	// old fixture. Wait for the real worker's completed operation and assert it.
+	require.Eventually(t, func() bool { _, exists := svc.asyncGoalWatches.Load(rec.ID); return !exists }, 3*time.Second, 10*time.Millisecond)
+	queued, err := dataSvc.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{ConversationID: conversationID, Has: &turnmodel.QueuedTotalInputHas{ConversationID: true}})
+	require.NoError(t, err)
+	require.Equal(t, 1, queued)
+	require.True(t, pub.HasEvent(streaming.EventTypeGoalUpdated))
+	require.True(t, pub.HasEvent(streaming.EventTypeGoalControllerScheduled))
 }
 
 func TestObserveDetachedAsyncGoalCompletion_RespectsAsyncPolicyWait(t *testing.T) {
@@ -184,8 +256,20 @@ func TestObserveDetachedAsyncGoalCompletion_RespectsAsyncPolicyWait(t *testing.T
 
 func TestObserveDetachedAsyncGoalCompletion_SuppressesDuplicateQueueingAcrossConcurrentCompletions(t *testing.T) {
 	ctx := context.Background()
-	dataSvc, err := data.NewThinServiceInMemory(ctx)
+	for _, name := range []string{"AGENTLY_DB_DRIVER", "AGENTLY_DB_DSN", "AGENTLY_DB_PATH", "AGENTLY_DB_SECRETS"} {
+		t.Setenv(name, "")
+	}
+	server, err := data.NewRuntimeFromWorkspace(ctx, t.TempDir())
 	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
+	dataSvc := data.NewService(server)
+	// Resolve cold native readers before the observer timing window, and surface
+	// errors that the production observer conservatively refuses to continue on.
+	_, err = dataSvc.GetActiveTurn(ctx, &turnmodel.ActiveTurnsInput{ConversationID: "conv-goal", Has: &turnmodel.ActiveTurnsInputHas{ConversationID: true}})
+	require.NoError(t, err)
+	_, err = dataSvc.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{ConversationID: "conv-goal", Has: &turnmodel.QueuedTotalInputHas{ConversationID: true}})
+	require.NoError(t, err)
+
 	_, err = dataSvc.PatchConversations(ctx, []*conversationmodel.Conversation{
 		conversationmodel.NewMutableConversationView(conversationmodel.WithConversationID("conv-goal")),
 	})
@@ -197,14 +281,69 @@ func TestObserveDetachedAsyncGoalCompletion_SuppressesDuplicateQueueingAcrossCon
 		OnAsyncCompleted: goalsys.AsyncPolicyEvaluate,
 	}).Encode()
 	require.NoError(t, err)
-	goalStore := newLinkedGoalStore(t, "goal-conv-goal", "conv-goal", "finish parser cleanup", spec)
+	goalStore := goalsys.NewStore(server)
+	goalID, conversationID, objective, status := "goal-conv-goal", "conv-goal", "finish parser cleanup", "active"
+	require.NoError(t, goalStore.(goalsys.Repository).Apply(ctx, goalsys.Mutation{ID: goalID, ConversationID: goalsys.Field[*string]{Present: true, Value: &conversationID}, Objective: goalsys.Field[*string]{Present: true, Value: &objective}, Status: goalsys.Field[*string]{Present: true, Value: &status}, ControllerSpec: goalsys.Field[*string]{Present: true, Value: &spec}}))
 
-	convClient := convmem.New()
+	// All three stores share one native runtime. A memory-only turn/message
+	// cannot prove the native turn_queue foreign-key and commit contract.
+	convClient, err := convservice.New(ctx, server)
+	require.NoError(t, err)
 	conv := convcli.NewConversation()
 	conv.SetId("conv-goal")
 	conv.SetCreatedAt(time.Now())
 	require.NoError(t, convClient.PatchConversations(ctx, conv))
 
+	// Resolve the controller's remaining cold reads synchronously. The logical
+	// callback budget below does not measure first-time component compilation.
+	current, err := goalStore.Current(ctx, conversationID)
+	require.NoError(t, err)
+	require.NotNil(t, current)
+	counter, ok := dataSvc.(controllerSignalCounter)
+	require.True(t, ok)
+	_, err = counter.CountPendingElicitations(ctx, conversationID)
+	require.NoError(t, err)
+	_, err = counter.CountPendingApprovals(ctx, conversationID)
+	require.NoError(t, err)
+	_, err = counter.CountControllerTurns(ctx, conversationID)
+	require.NoError(t, err)
+	_, err = convClient.GetConversation(ctx, conversationID, convcli.WithIncludeTranscript(true))
+	require.NoError(t, err)
+	// Warm exact native write shapes using an unrelated succeeded turn, not
+	// another queued/controller action. This leaves continuation counts at zero.
+	warmTurn := convcli.NewTurn()
+	warmTurn.SetId("goal-fixture-warm")
+	warmTurn.SetConversationID(conversationID)
+	warmTurn.SetStatus("succeeded")
+	warmTurn.SetCreatedAt(time.Now())
+	require.NoError(t, convClient.PatchTurn(ctx, warmTurn))
+	warmMessage := convcli.NewMessage()
+	warmMessage.SetId("goal-fixture-warm")
+	warmMessage.SetConversationID(conversationID)
+	warmMessage.SetTurnID("goal-fixture-warm")
+	warmMessage.SetRole("user")
+	warmMessage.SetType("task")
+	warmMessage.SetContent("fixture initialization")
+	warmMessage.SetRawContent("fixture initialization")
+	warmMessage.SetCreatedAt(time.Now())
+	require.NoError(t, convClient.PatchMessage(ctx, warmMessage))
+	queuePatcher, ok := dataSvc.(interface {
+		PatchTurnQueue(context.Context, *turnqueuemodel.TurnQueue) error
+	})
+	require.True(t, ok)
+	warmQueue := &turnqueuemodel.TurnQueue{Has: &turnqueuemodel.TurnQueueHas{}}
+	warmQueue.SetId("goal-fixture-warm")
+	warmQueue.SetConversationId(conversationID)
+	warmQueue.SetTurnId("goal-fixture-warm")
+	warmQueue.SetMessageId("goal-fixture-warm")
+	warmQueue.SetQueueSeq(1)
+	warmQueue.SetStatus("done")
+	warmQueue.SetCreatedAt(time.Now())
+	warmQueue.SetUpdatedAt(time.Now())
+	require.NoError(t, queuePatcher.PatchTurnQueue(ctx, warmQueue))
+	queuedBefore, err := dataSvc.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{ConversationID: conversationID, Has: &turnmodel.QueuedTotalInputHas{ConversationID: true}})
+	require.NoError(t, err)
+	require.Zero(t, queuedBefore)
 	manager := asynccfg.NewManager()
 	svc := &Service{
 		dataService:  dataSvc,
@@ -254,7 +393,7 @@ func TestObserveDetachedAsyncGoalCompletion_SuppressesDuplicateQueueingAcrossCon
 	require.True(t, changed2)
 
 	require.Eventually(t, func() bool {
-		got, err := convClient.GetConversation(ctx, "conv-goal")
+		got, err := convClient.GetConversation(ctx, "conv-goal", convcli.WithIncludeTranscript(true))
 		if err != nil || got == nil {
 			return false
 		}
@@ -274,6 +413,14 @@ func TestObserveDetachedAsyncGoalCompletion_SuppressesDuplicateQueueingAcrossCon
 		}
 		return count == 1
 	}, 3*time.Second, 20*time.Millisecond)
+	require.Eventually(t, func() bool {
+		_, first := svc.asyncGoalWatches.Load(rec1.ID)
+		_, second := svc.asyncGoalWatches.Load(rec2.ID)
+		return !first && !second
+	}, 3*time.Second, 10*time.Millisecond)
+	queued, err := dataSvc.CountQueuedTurns(ctx, &turnmodel.QueuedTotalInput{ConversationID: conversationID, Has: &turnmodel.QueuedTotalInputHas{ConversationID: true}})
+	require.NoError(t, err)
+	require.Equal(t, 1, queued)
 }
 
 func TestObserveDetachedAsyncGoalCompletion_DoesNotQueueWhenGoalAlreadyHasQueuedControllerTurn(t *testing.T) {
@@ -349,7 +496,7 @@ func TestObserveDetachedAsyncGoalCompletion_DoesNotQueueWhenGoalAlreadyHasQueued
 	require.True(t, changed)
 
 	time.Sleep(200 * time.Millisecond)
-	got, err := convClient.GetConversation(ctx, "conv-goal")
+	got, err := convClient.GetConversation(ctx, "conv-goal", convcli.WithIncludeTranscript(true))
 	require.NoError(t, err)
 	count := 0
 	for _, turn := range got.GetTranscript() {

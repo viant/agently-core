@@ -1,0 +1,936 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agently.dev/ag-ui/extensions/workspace/1",
+  "title": "Agently deterministic workspace/datasource/feed commands version1",
+  "description": "Identity is authenticated by the outer run; payload cannot select userId or another conversation. Resource data is base64-encoded binary content. Commands reuse typed domain APIs without an LLM. Metadata/layout/UI acknowledgment and subscriptions are separately bound capabilities. Metadata/layout result DTOs preserve the existing typed MetadataResponse/PublicAgentsResponse/LayoutResponse, including versions and issued style/theme asset URLs; these URLs use the explicitly retained binary transfer routes. Filesystem save/import/delete are not claimed to roll back with the protocol database.",
+  "x-operations": [
+    "datasource.fetch",
+    "datasource.cache.invalidate",
+    "lookup.registry",
+    "workspace.resource.list",
+    "workspace.resource.get",
+    "workspace.resource.save",
+    "workspace.resource.delete",
+    "workspace.resource.export",
+    "workspace.resource.import",
+    "feed.list",
+    "feed.get",
+    "workspace.metadata.get",
+    "workspace.publicagents.list",
+    "workspace.layout.get",
+    "workspace.tools.list",
+    "workspace.models.list",
+    "workspace.model.get",
+    "workspace.model.save",
+    "feed.subscribe"
+  ],
+  "$defs": {
+    "Resource": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data": {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "content": {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "contentType": {
+          "type": "string"
+        },
+        "updatedAt": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "datasource.fetch": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputs": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "cache": {
+          "type": "object",
+          "properties": {
+            "bypassCache": {
+              "type": "boolean"
+            },
+            "writeThrough": {
+              "type": "boolean"
+            }
+          },
+          "required": [],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "datasource.cache.invalidate": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "inputsHash": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "lookup.registry": {
+      "type": "object",
+      "properties": {
+        "context": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "context"
+      ],
+      "additionalProperties": false
+    },
+    "workspace.resource.list": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind"
+      ],
+      "additionalProperties": false
+    },
+    "workspace.resource.get": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "workspace.resource.save": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "data": {
+          "type": "string",
+          "contentEncoding": "base64"
+        }
+      },
+      "required": [
+        "kind",
+        "name",
+        "data"
+      ],
+      "additionalProperties": false
+    },
+    "workspace.resource.delete": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "kind",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "workspace.resource.export": {
+      "type": "object",
+      "properties": {
+        "kinds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "workspace.resource.import": {
+      "type": "object",
+      "properties": {
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Resource"
+          }
+        },
+        "replace": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "resources"
+      ],
+      "additionalProperties": false
+    },
+    "feed.list": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "feed.get": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "Capabilities": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "datasource.fetch",
+              "datasource.cache.invalidate",
+              "lookup.registry",
+              "workspace.resource.list",
+              "workspace.resource.get",
+              "workspace.resource.save",
+              "workspace.resource.delete",
+              "workspace.resource.export",
+              "workspace.resource.import",
+              "feed.list",
+              "feed.get",
+              "workspace.metadata.get",
+              "workspace.publicagents.list",
+              "workspace.layout.get",
+              "workspace.tools.list",
+              "workspace.models.list",
+              "workspace.model.get",
+              "workspace.model.save",
+              "feed.subscribe"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "subscriptionMaxDurationSeconds": {
+          "const": 3600
+        }
+      },
+      "required": [
+        "version",
+        "operations"
+      ],
+      "additionalProperties": false
+    },
+    "workspace.metadata.get": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "workspace.publicagents.list": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "workspace.layout.get": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "ResourceRef": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ResourceListResult": {
+      "type": "object",
+      "properties": {
+        "names": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resources": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/$defs/ResourceRef"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ResourceGetResult": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "data": {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "resource": {
+          "$ref": "#/$defs/Resource"
+        }
+      },
+      "additionalProperties": false
+    },
+    "ResourceExportResult": {
+      "type": "object",
+      "properties": {
+        "data": {
+          "type": "string",
+          "contentEncoding": "base64"
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Resource"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "ResourceImportResult": {
+      "type": "object",
+      "properties": {
+        "skipped": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "imported": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": false
+    },
+    "DatasourceResult": {
+      "type": "object",
+      "properties": {
+        "rows": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "object",
+            "additionalProperties": true
+          }
+        },
+        "dataInfo": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "metrics": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "cache": {
+          "type": "object",
+          "properties": {
+            "hit": {
+              "type": "boolean"
+            },
+            "stale": {
+              "type": "boolean"
+            },
+            "fetchedAt": {
+              "type": "string"
+            },
+            "ttlSeconds": {
+              "type": "integer"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "FeedResult": {
+      "type": "object",
+      "properties": {
+        "feedId": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "developerOnly": {
+          "type": "boolean"
+        },
+        "presentation": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": true
+        },
+        "data": {},
+        "dataSources": {},
+        "ui": {}
+      },
+      "additionalProperties": false
+    },
+    "workspace.tools.list": {
+      "type": "object",
+      "properties": {
+        "pattern": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false,
+      "required": []
+    },
+    "workspace.models.list": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false,
+      "required": []
+    },
+    "workspace.model.get": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id"
+      ]
+    },
+    "workspace.model.save": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "update": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "update"
+      ]
+    },
+    "feed.subscribe": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "default": 300
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "Envelope": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "operation": {
+          "enum": [
+            "datasource.fetch",
+            "datasource.cache.invalidate",
+            "lookup.registry",
+            "workspace.resource.list",
+            "workspace.resource.get",
+            "workspace.resource.save",
+            "workspace.resource.delete",
+            "workspace.resource.export",
+            "workspace.resource.import",
+            "feed.list",
+            "feed.get",
+            "workspace.metadata.get",
+            "workspace.publicagents.list",
+            "workspace.layout.get",
+            "workspace.tools.list",
+            "workspace.models.list",
+            "workspace.model.get",
+            "workspace.model.save",
+            "feed.subscribe"
+          ]
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "threadId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "threadId"
+          ],
+          "additionalProperties": false
+        },
+        "payload": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "version",
+        "operation",
+        "requestId"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "datasource.fetch"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/datasource.fetch"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "datasource.cache.invalidate"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/datasource.cache.invalidate"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "lookup.registry"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/lookup.registry"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.resource.list"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.resource.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.resource.get"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.resource.get"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.resource.save"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.resource.save"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.resource.delete"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.resource.delete"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.resource.export"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.resource.export"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.resource.import"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.resource.import"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "feed.list"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/feed.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "feed.get"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/feed.get"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.metadata.get"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.metadata.get"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.publicagents.list"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.publicagents.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.layout.get"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.layout.get"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.tools.list"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.tools.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.models.list"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.models.list"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.model.get"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.model.get"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "workspace.model.save"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/workspace.model.save"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "feed.subscribe"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/feed.subscribe"
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

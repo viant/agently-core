@@ -1,0 +1,473 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agently.dev/ag-ui/extensions/goal/1",
+  "title": "Agently AG-UI goal commands version 1",
+  "$defs": {
+    "ControllerSpec": {
+      "type": "object",
+      "properties": {
+        "continueMode": {
+          "enum": [
+            "idle_only",
+            "manual_only"
+          ]
+        },
+        "onTurnFinished": {
+          "enum": [
+            "evaluate",
+            "wait"
+          ]
+        },
+        "onAsyncCompleted": {
+          "enum": [
+            "evaluate",
+            "wait"
+          ]
+        },
+        "wakeDelaySeconds": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxAutonomousTurns": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "maxConsecutiveNoProgress": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "continueMode",
+        "onTurnFinished",
+        "onAsyncCompleted"
+      ],
+      "additionalProperties": false
+    },
+    "get": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "create": {
+      "type": "object",
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tokenBudget": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        },
+        "controllerSpec": {
+          "oneOf": [
+            {
+              "type": "string"
+            },
+            {
+              "$ref": "#/$defs/ControllerSpec"
+            }
+          ]
+        }
+      },
+      "required": [
+        "objective"
+      ],
+      "additionalProperties": false
+    },
+    "update": {
+      "type": "object",
+      "properties": {
+        "objective": {
+          "type": "string",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "active",
+            "paused",
+            "blocked",
+            "complete",
+            "budget_limited",
+            "usage_limited"
+          ]
+        },
+        "statusReason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tokenBudget": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [],
+      "additionalProperties": false,
+      "minProperties": 1
+    },
+    "clear": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "pause": {
+      "type": "object",
+      "properties": {
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "resume": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "Envelope": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "operation": {
+          "enum": [
+            "goal.get",
+            "goal.create",
+            "goal.update",
+            "goal.clear",
+            "goal.pause",
+            "goal.resume",
+            "goal.subscribe"
+          ]
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "type": "object"
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "threadId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "threadId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "operation",
+        "requestId"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "goal.get"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/get"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "goal.create"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/create"
+              }
+            },
+            "required": [
+              "payload"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "goal.update"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/update"
+              }
+            },
+            "required": [
+              "payload"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "goal.clear"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/clear"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "goal.pause"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/pause"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "goal.resume"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/resume"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "goal.subscribe"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/subscribe"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "Capabilities": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "goal.get",
+              "goal.create",
+              "goal.update",
+              "goal.clear",
+              "goal.pause",
+              "goal.resume",
+              "goal.subscribe"
+            ]
+          },
+          "uniqueItems": true
+        },
+        "subscriptionMaxDurationSeconds": {
+          "const": 3600
+        }
+      },
+      "required": [
+        "version",
+        "operations"
+      ],
+      "additionalProperties": false
+    },
+    "ControllerSchedule": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string"
+        },
+        "preview": {
+          "type": "string"
+        },
+        "wakeAt": {
+          "type": "string"
+        }
+      },
+      "required": [],
+      "additionalProperties": false
+    },
+    "GoalSnapshot": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "conversationId": {
+          "type": "string"
+        },
+        "objective": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "statusReason": {
+          "type": "string"
+        },
+        "pauseReason": {
+          "type": "string"
+        },
+        "controllerSpec": {
+          "type": "string"
+        },
+        "controllerSchedule": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/ControllerSchedule"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tokenBudget": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "tokensUsed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "timeUsedSeconds": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "id",
+        "conversationId",
+        "objective",
+        "status",
+        "statusReason",
+        "pauseReason",
+        "controllerSpec",
+        "controllerSchedule",
+        "tokenBudget",
+        "tokensUsed",
+        "timeUsedSeconds"
+      ],
+      "additionalProperties": false
+    },
+    "Result": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "goal": {
+          "oneOf": [
+            {
+              "$ref": "#/$defs/GoalSnapshot"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cleared": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "version",
+        "goal"
+      ],
+      "additionalProperties": false
+    },
+    "subscribe": {
+      "type": "object",
+      "properties": {
+        "durationSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600,
+          "default": 300
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "description": "Commands travel in forwardedProps.agently; target.threadId, when present, must equal the authenticated outer RunAgentInput.threadId. Results travel in the result member of agently.goal.result CUSTOM events. These deterministic commands do not themselves start agent model execution. Background goal/scheduler subscription is a separate capability. goal.subscribe is a separate bounded background run, durationSeconds defaults to300 and is at most3600, no chat turn execution. Activity snapshots use activityType agently.goal and Result-shaped content."
+}

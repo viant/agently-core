@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/runtime/evidence"
 	"net/url"
 	"path"
 	"strings"
@@ -260,6 +261,9 @@ func (s *Service) runPlanAndStatusFrom(ctx context.Context, input *QueryInput, o
 			return "canceled", err
 		}
 		return "failed", err
+	}
+	if output != nil && (len(output.ClientToolCalls) > 0 || len(output.ClientToolDependencies) > 0) {
+		return "waiting_for_user", nil
 	}
 	if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
 		waitingForUser, err := s.turnAwaitingUserAction(ctx, turn)
@@ -646,6 +650,11 @@ func (s *Service) persistFinalAssistantMessage(ctx context.Context, turn *runtim
 		return nil
 	}
 	messageID = strings.TrimSpace(messageID)
+	var err error
+	content, err = evidence.RewriteContent(ctx, content)
+	if err != nil {
+		return err
+	}
 	rewritten := strings.TrimSpace(s.rewriteGeneratedFileLinks(ctx, turn.ConversationID, turn.TurnID, messageID, content))
 	if messageID == "" {
 		messageID = uuid.NewString()

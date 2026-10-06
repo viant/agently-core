@@ -1309,6 +1309,16 @@ func publishAsyncUpdateEvent(ctx context.Context, toolName, toolCallID, opID str
 			eventType = streaming.EventTypeToolCallWaiting
 		}
 	}
+	// Autonomous polling may use a separate status carrier from the start
+	// tool. Keep the streamed call/message pair identical to the persisted
+	// carrier, rather than retaining the start message from the poll context.
+	if rec != nil && strings.TrimSpace(rec.ToolMessageID) != "" && strings.TrimSpace(rec.ToolCallID) != "" {
+		ctx = runtimerequestctx.WithToolMessageID(ctx, strings.TrimSpace(rec.ToolMessageID))
+		toolCallID = rec.ToolCallID
+		if strings.TrimSpace(rec.ToolName) != "" {
+			toolName = rec.ToolName
+		}
+	}
 	publishAsyncLifecycleEvent(ctx, toolName, toolCallID, opID, eventType, payload)
 }
 

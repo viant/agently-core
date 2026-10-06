@@ -41,6 +41,14 @@ CREATE TABLE maintenance_lease
 -- =========================
 CREATE TABLE conversation
 (
+    protocol_only TINYINT NOT NULL DEFAULT 0,
+    protocol_thread_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    protocol_thread_id LONGBLOB NULL,
+    protocol_principal LONGBLOB NULL,
+    protocol_revision BIGINT NOT NULL DEFAULT 0,
+    protocol_state_json LONGBLOB NULL,
+    protocol_messages_json LONGBLOB NULL,
+
     id                     VARCHAR(255) PRIMARY KEY,
     -- legacy-friendly columns
     summary                TEXT,
@@ -142,13 +150,16 @@ CREATE INDEX idx_turn_conv_queue_seq ON turn (conversation_id, queue_seq);
 
 CREATE TABLE call_payload
 (
+    run_id VARCHAR(255) NULL,
+    sequence BIGINT NULL,
+
     id                       VARCHAR(255) PRIMARY KEY,
     tenant_id                VARCHAR(255),
     kind                     VARCHAR(255) NOT NULL CHECK (kind IN
                                                           ('model_request', 'model_response', 'provider_request',
                                                            'provider_response', 'model_stream', 'tool_request',
                                                            'tool_response', 'elicitation_request',
-                                                           'elicitation_response', 'attachment')),
+                                                           'elicitation_response', 'attachment', 'agui.event')),
     subtype                  TEXT,
     mime_type                TEXT         NOT NULL,
     size_bytes               BIGINT       NOT NULL,
@@ -372,7 +383,6 @@ CREATE TABLE tool_call
         FOREIGN KEY (response_payload_id) REFERENCES call_payload (id) ON DELETE SET NULL
 );
 
-CREATE UNIQUE INDEX idx_tool_op_attempt ON tool_call (turn_id, op_id, attempt);
 CREATE INDEX idx_tool_call_status ON tool_call (status);
 CREATE INDEX idx_tool_call_name ON tool_call (tool_name);
 CREATE INDEX idx_tool_call_op ON tool_call (turn_id, op_id(191));
@@ -558,16 +568,16 @@ CREATE TABLE IF NOT EXISTS emb_asset (
   PRIMARY KEY (dataset_id, asset_id)
 );
 
-CREATE INDEX IF NOT EXISTS idx_emb_asset_path
+CREATE INDEX idx_emb_asset_path
   ON emb_asset(dataset_id, path(255));
 
-CREATE INDEX IF NOT EXISTS idx_emb_asset_mod
+CREATE INDEX idx_emb_asset_mod
   ON emb_asset(dataset_id, mod_time);
 
-CREATE INDEX IF NOT EXISTS idx_shadow_vec_docs_scn
+CREATE INDEX idx_shadow_vec_docs_scn
   ON shadow_vec_docs(dataset_id, scn);
 
-CREATE INDEX IF NOT EXISTS idx_shadow_vec_docs_archived
+CREATE INDEX idx_shadow_vec_docs_archived
   ON shadow_vec_docs(dataset_id, archived);
 
 CREATE TABLE IF NOT EXISTS tool_approval_queue (
@@ -593,10 +603,10 @@ CREATE TABLE IF NOT EXISTS tool_approval_queue (
     timed_out_at DATETIME
 );
 
-CREATE INDEX IF NOT EXISTS idx_taq_user_status_created ON tool_approval_queue(user_id, status, created_at);
-CREATE INDEX IF NOT EXISTS idx_taq_conversation_status ON tool_approval_queue(conversation_id, status, created_at);
-CREATE INDEX IF NOT EXISTS idx_taq_turn ON tool_approval_queue(turn_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_taq_status_expires_at ON tool_approval_queue(status, expires_at);
+CREATE INDEX idx_taq_user_status_created ON tool_approval_queue(user_id, status, created_at);
+CREATE INDEX idx_taq_conversation_status ON tool_approval_queue(conversation_id, status, created_at);
+CREATE INDEX idx_taq_turn ON tool_approval_queue(turn_id, created_at);
+CREATE INDEX idx_taq_status_expires_at ON tool_approval_queue(status, expires_at);
 
 CREATE TABLE IF NOT EXISTS report_shared_artifact (
     artifact_id VARCHAR(255) PRIMARY KEY,
@@ -623,11 +633,11 @@ CREATE TABLE IF NOT EXISTS report_shared_artifact (
     updated_at DATETIME NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE INDEX IF NOT EXISTS idx_report_shared_artifact_owner_artifact_ref
+CREATE INDEX idx_report_shared_artifact_owner_artifact_ref
     ON report_shared_artifact(owner_id(191), artifact_ref(191));
-CREATE INDEX IF NOT EXISTS idx_report_shared_artifact_owner_report_id
+CREATE INDEX idx_report_shared_artifact_owner_report_id
     ON report_shared_artifact(owner_id, report_id);
-CREATE INDEX IF NOT EXISTS idx_report_shared_artifact_owner_kind_lifecycle_updated
+CREATE INDEX idx_report_shared_artifact_owner_kind_lifecycle_updated
     ON report_shared_artifact(owner_id, kind, lifecycle, updated_at, created_at);
 
 CREATE TABLE IF NOT EXISTS report_run (
@@ -714,11 +724,11 @@ CREATE TABLE IF NOT EXISTS report_export_job (
         FOREIGN KEY (report_run_id) REFERENCES report_run(report_run_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE INDEX IF NOT EXISTS idx_report_export_job_owner_submitted_at
+CREATE INDEX idx_report_export_job_owner_submitted_at
     ON report_export_job(owner_id, submitted_at);
-CREATE INDEX IF NOT EXISTS idx_report_export_job_owner_artifact_ref
+CREATE INDEX idx_report_export_job_owner_artifact_ref
     ON report_export_job(owner_id, artifact_ref(191));
-CREATE INDEX IF NOT EXISTS idx_report_export_job_owner_status
+CREATE INDEX idx_report_export_job_owner_status
     ON report_export_job(owner_id, status);
 
 CREATE TABLE IF NOT EXISTS report_export_artifact (
@@ -736,9 +746,9 @@ CREATE TABLE IF NOT EXISTS report_export_artifact (
         FOREIGN KEY (job_id) REFERENCES report_export_job(job_id) ON DELETE RESTRICT
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_created_at
+CREATE INDEX idx_report_export_artifact_owner_created_at
     ON report_export_artifact(owner_id, created_at);
-CREATE INDEX IF NOT EXISTS idx_report_export_artifact_owner_artifact_ref
+CREATE INDEX idx_report_export_artifact_owner_artifact_ref
     ON report_export_artifact(owner_id, artifact_ref(191));
 
 CREATE TABLE IF NOT EXISTS report_audit_event (
@@ -754,15 +764,15 @@ CREATE TABLE IF NOT EXISTS report_audit_event (
     metadata_json MEDIUMBLOB NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
-CREATE INDEX IF NOT EXISTS idx_report_audit_event_actor_occurred_at
+CREATE INDEX idx_report_audit_event_actor_occurred_at
     ON report_audit_event(actor_id, occurred_at);
-CREATE INDEX IF NOT EXISTS idx_report_audit_event_artifact_ref
+CREATE INDEX idx_report_audit_event_artifact_ref
     ON report_audit_event(artifact_ref(191));
-CREATE INDEX IF NOT EXISTS idx_report_audit_event_occurred
+CREATE INDEX idx_report_audit_event_occurred
     ON report_audit_event(occurred_at, event_id);
-CREATE INDEX IF NOT EXISTS idx_report_audit_event_job
+CREATE INDEX idx_report_audit_event_job
     ON report_audit_event(job_id);
-CREATE INDEX IF NOT EXISTS idx_report_audit_event_artifact
+CREATE INDEX idx_report_audit_event_artifact
     ON report_audit_event(artifact_id);
 
 CREATE TABLE IF NOT EXISTS conversation_report_context (
@@ -799,3 +809,99 @@ CREATE TABLE IF NOT EXISTS tool_execution_claim (
     KEY idx_tool_execution_claim_rule_tool_state_updated
         (rule_id, canonical_tool_name, state, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+
+-- Durable AG-UI identity and replay. Opaque identities compare byte-for-byte.
+
+
+-- Native execution table (also defined by the existing versioned bootstrap).
+CREATE TABLE IF NOT EXISTS run
+(
+    run_kind VARCHAR(16) NOT NULL DEFAULT 'execution',
+    protocol_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    protocol_status VARCHAR(32) NULL,
+    protocol_turn_id VARBINARY(255) NULL,
+    protocol_run_id LONGBLOB NULL,
+    protocol_parent_run_id LONGBLOB NULL,
+    protocol_prior_run_id LONGBLOB NULL,
+    protocol_client_message_id LONGBLOB NULL,
+    protocol_resumed_by_run_id LONGBLOB NULL,
+    protocol_source_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    protocol_initial_turn_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    protocol_input_hash CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NULL,
+    protocol_input_json LONGBLOB NULL,
+    protocol_pending_json LONGBLOB NULL,
+    protocol_revision BIGINT NOT NULL DEFAULT 0,
+    protocol_last_sequence BIGINT NOT NULL DEFAULT 0,
+    protocol_lease_owner LONGBLOB NULL,
+    protocol_lease_until DATETIME(6) NULL,
+    protocol_lease_revision BIGINT NOT NULL DEFAULT 0,
+
+    id                      VARCHAR(255) PRIMARY KEY,
+    turn_id                 VARCHAR(255),
+    schedule_id             VARCHAR(255),
+    conversation_id         VARCHAR(255),
+    conversation_kind       VARCHAR(32)  NOT NULL DEFAULT 'interactive',
+    attempt                 INT          NOT NULL DEFAULT 1,
+    resumed_from_run_id     VARCHAR(255),
+    status                  VARCHAR(32)  NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'prechecking', 'skipped', 'queued', 'running', 'completed', 'succeeded', 'failed', 'interrupted', 'canceled')),
+    error_code              VARCHAR(255),
+    error_message           TEXT,
+    iteration               INT          NOT NULL DEFAULT 0,
+    max_iterations          INT,
+    checkpoint_response_id  VARCHAR(255),
+    checkpoint_message_id   VARCHAR(255),
+    checkpoint_data         MEDIUMTEXT,
+    agent_id                VARCHAR(255),
+    model_provider          VARCHAR(255),
+    model                   VARCHAR(255),
+    worker_id               VARCHAR(255),
+    worker_pid              INT,
+    worker_host             VARCHAR(255),
+    lease_owner             VARCHAR(255),
+    lease_until             TIMESTAMP    NULL DEFAULT NULL,
+    last_heartbeat_at       TIMESTAMP    NULL DEFAULT NULL,
+    security_context        MEDIUMTEXT,
+    effective_user_id       VARCHAR(255),
+    auth_authority          VARCHAR(255),
+    auth_audience           VARCHAR(255),
+    user_cred_url           TEXT,
+    heartbeat_interval_sec  INT DEFAULT 5,
+    scheduled_for           TIMESTAMP    NULL DEFAULT NULL,
+    precondition_ran_at     TIMESTAMP    NULL DEFAULT NULL,
+    precondition_passed     TINYINT      NULL CHECK (precondition_passed IN (0, 1)),
+    precondition_result     MEDIUMTEXT,
+    usage_prompt_tokens     BIGINT DEFAULT 0,
+    usage_completion_tokens BIGINT DEFAULT 0,
+    usage_total_tokens      BIGINT DEFAULT 0,
+    usage_cost              DOUBLE DEFAULT 0,
+    created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at              TIMESTAMP    NULL DEFAULT NULL,
+    started_at              TIMESTAMP    NULL DEFAULT NULL,
+    completed_at            TIMESTAMP    NULL DEFAULT NULL,
+
+    CONSTRAINT fk_core_run_conversation FOREIGN KEY (conversation_id)
+        REFERENCES conversation (id) ON DELETE CASCADE,
+    CONSTRAINT fk_core_run_turn FOREIGN KEY (turn_id)
+        REFERENCES turn (id) ON DELETE SET NULL,
+    CONSTRAINT fk_core_run_schedule FOREIGN KEY (schedule_id)
+        REFERENCES schedule (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_0900_ai_ci;
+
+CREATE UNIQUE INDEX ux_conversation_protocol_thread ON conversation (protocol_thread_key);
+
+CREATE UNIQUE INDEX ux_run_protocol_key ON run (protocol_key);
+
+CREATE UNIQUE INDEX ux_run_protocol_source ON run (protocol_source_key);
+
+CREATE UNIQUE INDEX ux_run_protocol_initial_turn ON run (protocol_initial_turn_key);
+
+CREATE INDEX idx_run_protocol_scope ON run (run_kind, conversation_id, effective_user_id, protocol_status);
+
+CREATE INDEX idx_run_protocol_turn ON run (run_kind, effective_user_id, protocol_turn_id, conversation_id, protocol_key);
+
+CREATE INDEX idx_run_protocol_recovery ON run (run_kind, protocol_key, protocol_status);
+
+CREATE UNIQUE INDEX ux_payload_run_sequence ON call_payload (run_id, sequence);
+
+ALTER TABLE call_payload ADD CONSTRAINT fk_payload_protocol_run FOREIGN KEY (run_id) REFERENCES run(id) ON DELETE CASCADE;

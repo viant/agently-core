@@ -43,6 +43,10 @@ import { HttpError } from './errors';
 import { FetchEventSource } from './fetchEventSource';
 import { conversationDTO, messageDTO, transcriptDTO } from './wireDTO';
 import { normalizeStreamEventIdentity } from './streamIdentity';
+import { AgUiSession, type AgUiSessionOptions } from './aguiSession';
+import type { HttpAgentConfig } from '@ag-ui/client';
+import { AgUiConversationTransport } from './aguiConversationTransport';
+import { AgUiViewProjection } from './aguiViewProjection';
 
 // ─── Options ───────────────────────────────────────────────────────────────────
 
@@ -55,6 +59,8 @@ export interface SessionDebugOptions {
 }
 
 export interface ClientOptions {
+    /** Observe native mobile/CLI/scheduler work through the explicitly scoped application channel. */
+    observeNativeWork?: boolean;
     /** Base URL including /v1 prefix, e.g. "http://localhost:8585/v1" */
     baseURL: string;
     /** Dynamic token provider (called before each request) */
@@ -81,6 +87,23 @@ export interface ClientOptions {
     sessionDebug?: SessionDebugOptions;
 }
 
+export interface AgUiBackendDescriptor {
+    id: string;
+    label: string;
+    profile: 'agently' | 'standard';
+    durableReplay: boolean;
+    publicDemo?: boolean;
+    ephemeral?: boolean;
+    inputMode?: 'text-only';
+}
+
+export interface AgUiBackendThread {
+    threadId: string;
+    connectionId: string;
+    ephemeral: boolean;
+    durableReplay: boolean;
+}
+
 // DTO interfaces need not declare a string index signature to be JSON encoded.
 type RequestBody = JSONValue | object | undefined;
 type APIResponse = JSONValue | undefined;
@@ -100,6 +123,84 @@ export class AgentlyClient {
     private onErrorHook?: (error: HttpError) => void;
     private onUnauthorizedHook?: (error: HttpError) => void;
     private sessionDebug?: SessionDebugOptions;
+    private agUiInteractions: AgUiConversationTransport;
+    private observeNativeWork = false;
+    private nativeObservers = new Set<{ close(): void }>();
+    private protocolSessionGeneration = 0;
+    private observedApprovalOutcomes = new Map<string, string>();
+
+    resetAgUiInteractions() {
+        this.protocolSessionGeneration++;
+        this.observedApprovalOutcomes.clear();
+        this.agUiInteractions.reset();
+        for (const observer of this.nativeObservers) observer.close();
+        this.nativeObservers.clear();
+    }
+
+    refreshAgUiConversation(conversationId: string) { return this.agUiInteractions.refresh(conversationId); }
+    /** Read after a committed application command, including when an older refresh is in flight. */
+    reconcileAgUiConversation(conversationId: string) { return this.agUiInteractions.reconcile(conversationId); }
+    observesNativeWork() { return this.observeNativeWork; }
+
+    async listAgUiBackends(): Promise<AgUiBackendDescriptor[]> {
+        const result = await this.get<{ backends: AgUiBackendDescriptor[] }>('/ag-ui/backends');
+        return result.backends;
+    }
+
+    /** The BFF issues and owns remote demo thread identities; caller IDs are not accepted. */
+    createAgUiBackendThread(connectionId: string): Promise<AgUiBackendThread> {
+        if (!connectionId || connectionId === 'agently') throw new Error('A configured independent backend is required');
+        return this.post(`/ag-ui/backends/${enc(connectionId)}/threads`, {});
+    }
+
+    /**
+     * Reuses this client's BFF session and error policy for streaming AG-UI.
+     * A connection ID selects a configured BFF route, never an arbitrary
+     * downstream URL. Credentials are resolved for each request and remain on
+     * the BFF hop. POSTs are not retried implicitly.
+     */
+    agUiTransport(connectionId = 'agently'): HttpAgentConfig {
+        if (!connectionId.trim()) throw new Error('A backend connection identity is required');
+        const url = connectionId === 'agently'
+            ? `${this.baseURL}/ag-ui/run`
+            : `${this.baseURL}/ag-ui/backends/${enc(connectionId)}/run`;
+        return {
+            url,
+            fetch: async (target, init) => {
+                if (target !== url) throw new Error('AG-UI transport target differs from the configured BFF route');
+                try {
+                    const headers = new Headers(await this.authHeaders());
+                    new Headers(init.headers).forEach((value, name) => {
+                        if (name.toLowerCase() !== 'authorization' && name.toLowerCase() !== 'cookie') headers.set(name, value);
+                    });
+                    const response = await this.fetchImpl(url, {
+                        ...init, headers, credentials: this.useCookies ? 'include' : 'same-origin', redirect: 'error',
+                    });
+                    if (!response.ok) {
+                        const error = await this.toHttpError(response);
+                        if (error.status === 401) this.onUnauthorizedHook?.(error);
+                        else this.onErrorHook?.(error);
+                        throw error;
+                    }
+                    return response;
+                } catch (error) {
+                    if (!(error instanceof HttpError) && !(error instanceof Error && error.name === 'AbortError')) {
+                        this.onErrorHook?.(new HttpError(0, 'NetworkError', error instanceof Error ? error.message : String(error)));
+                    }
+                    throw error;
+                }
+            },
+        };
+    }
+
+    createAgUiSession(options: Omit<AgUiSessionOptions, 'url' | 'fetch' | 'headers' | 'connectionId'> & { connectionId?: string }): AgUiSession {
+        const connectionId = options.connectionId ?? 'agently';
+        return new AgUiSession({
+            ...options, ...this.agUiTransport(connectionId), connectionId,
+            profile: options.profile ?? (connectionId === 'agently' ? 'agently' : 'standard'),
+            durableReplay: options.durableReplay ?? (connectionId === 'agently'),
+        });
+    }
 
     constructor(opts: ClientOptions) {
         this.baseURL = opts.baseURL.replace(/\/+$/, '');
@@ -114,6 +215,8 @@ export class AgentlyClient {
         this.onErrorHook = opts.onError;
         this.onUnauthorizedHook = opts.onUnauthorized;
         this.sessionDebug = opts.sessionDebug;
+        this.observeNativeWork = opts.observeNativeWork === true;
+        this.agUiInteractions = new AgUiConversationTransport(this, options => new AgUiViewProjection(options));
     }
 
     // ── Conversations ────────────────────────────────────────────────────────
@@ -238,7 +341,7 @@ export class AgentlyClient {
     // ── Transcript ───────────────────────────────────────────────────────────
 
     /** Get structured turn-based transcript with optional tool/model call details. */
-    async getTranscript(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+    async readConversationHistory(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
         const q = new URLSearchParams();
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
@@ -270,7 +373,7 @@ export class AgentlyClient {
     }
 
     /** Get the compact authoritative live snapshot and event cursor before joining SSE. */
-    async getLiveState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+    async readApplicationState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
         const q = new URLSearchParams();
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
@@ -281,6 +384,32 @@ export class AgentlyClient {
         return transcriptDTO(await this.get<TranscriptOutput>(`/conversations/${enc(input.conversationId)}/live-state`, q));
     }
 
+    private transcriptSelectors(options?: GetTranscriptOptions): Record<string, QuerySelector> {
+        const selectors = {...options?.selectors};
+        if (options?.executionGroupSelector) selectors.ExecutionGroup = {...selectors.ExecutionGroup, ...options.executionGroupSelector};
+        if (Number.isFinite(options?.executionGroupLimit)) selectors.ExecutionGroup = {...selectors.ExecutionGroup, limit:Number(options!.executionGroupLimit)};
+        if (Number.isFinite(options?.executionGroupOffset)) selectors.ExecutionGroup = {...selectors.ExecutionGroup, offset:Number(options!.executionGroupOffset)};
+        return selectors;
+    }
+
+    async getTranscript(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+        try { return await this.agUiInteractions.readSnapshot(input.conversationId, {
+            mode:'transcript', since:input.since, includeModelCalls:input.includeModelCalls === true,
+            includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
+            selectors:this.transcriptSelectors(options),
+        }); }
+        catch (error) { if ((error as {status?:number})?.status === 403) return this.readConversationHistory(input, options); throw error; }
+    }
+
+    async getLiveState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
+        try { return await this.agUiInteractions.readSnapshot(input.conversationId, {
+            mode:'live', includeModelCalls:input.includeModelCalls === true,
+            includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
+            selectors:this.transcriptSelectors(options),
+        }); }
+        catch (error) { if ((error as {status?:number})?.status === 403) return this.readApplicationState(input, options); throw error; }
+    }
+
     // ── Query ────────────────────────────────────────────────────────────────
 
     /**
@@ -288,7 +417,7 @@ export class AgentlyClient {
      * If a turn is already running, the new turn is automatically queued.
      */
     async query(input: QueryInput): Promise<QueryOutput> {
-        return this.post<QueryOutput>('/agent/query', input);
+        return this.agUiInteractions.query(input);
     }
 
     // ── Turns ────────────────────────────────────────────────────────────────
@@ -314,7 +443,7 @@ export class AgentlyClient {
     ): Promise<SteerTurnOutput> {
         return this.post<SteerTurnOutput>(
             `/conversations/${enc(conversationId)}/turns/${enc(turnId)}/steer`,
-            { content: input.content, role: input.role || 'user' },
+            { content: input.content, role: input.role || 'user', ...(input.clientRequestId ? {clientRequestId: input.clientRequestId} : {}) },
         );
     }
 
@@ -386,13 +515,65 @@ export class AgentlyClient {
             onError?: (error: string) => void;
             /** Tool feed lifecycle events. */
             onFeedEvent?: (event: SSEEvent) => void;
+            /** Authoritative canonical bootstrap/completion view, independent of streamed content. */
+            onSnapshot?: (snapshot: TranscriptOutput) => void;
+            /** Protocol completion/interrupt, separate from native turn completion. */
+            onOutcome?: (outcome: import('./aguiViewProjection').AgUiViewOutcome) => void;
+            /** Trusted native host data, separate from model-visible protocol messages. */
+            onHostActivities?: import('./aguiConversationTransport').AgUiConversationHandlers['onHostActivities'];
         },
     ): { close: () => void } {
-        const url = `${this.baseURL}/stream?conversationId=${enc(conversationId)}`;
+        const primary = this.agUiInteractions.subscribe(conversationId, handlers);
+        if (!this.observeNativeWork) return primary;
+        let active = true;
+        const generation = this.protocolSessionGeneration;
+        const current = () => active && generation === this.protocolSessionGeneration;
+        const reconcile = () => {
+            void this.agUiInteractions.reconcile(conversationId).catch(async error => {
+                if (!current()) return;
+                if (error?.status === 403) {
+                    // Shared readers use authorized native history, without
+                    // access to the owner's private protocol journal.
+                    const snapshot = await this.readConversationHistory({ conversationId, includeModelCalls: true, includeToolCalls: true, includeFeeds: true });
+                    if (current()) handlers.onSnapshot?.(snapshot);
+                    return;
+                }
+                throw error;
+            }).catch(error => { if (current()) handlers.onError?.(String(error?.message || error)); });
+        };
+        const application = this.observeNativeEvents(conversationId, {
+            ...handlers,
+            onEvent: event => {
+                if (String(event.type) === 'compatibility_reconcile') {
+                    reconcile();
+                    return;
+                }
+                handlers.onEvent?.(event);
+                // Native deltas need not carry the originating user's text.
+                // Reconcile once on completion to recover its canonical row.
+                if (['turn_completed', 'turn_failed', 'turn_canceled'].includes(event.type)) reconcile();
+                if (event.type === 'conversation_meta_updated' && event.patch?.aguiUpdated === true) reconcile();
+            },
+        });
+        return { close: () => { active = false; primary.close(); application.close(); } };
+    }
+
+    /** Native application observation is separate from primary AG-UI execution. */
+    observeNativeEvents(conversationId: string, handlers: import('./aguiConversationTransport').AgUiConversationHandlers) {
+        const inner = this.streamApplicationEvents(conversationId, handlers);
+        const observer = { close: () => { inner.close(); this.nativeObservers.delete(observer); } };
+        this.nativeObservers.add(observer);
+        return observer;
+    }
+
+    private streamApplicationEvents(conversationId: string, handlers: import('./aguiConversationTransport').AgUiConversationHandlers): { close(): void } {
+        const url = `${this.baseURL}/application-events?conversationId=${enc(conversationId)}`;
         const es = this.tokenProvider || Object.keys(this.staticHeaders).length > 0
             ? new FetchEventSource(url, this.fetchImpl, () => this.authHeaders(), this.useCookies ? 'include' : 'same-origin')
             : new EventSource(url, { withCredentials: this.useCookies });
         let closed = false;
+
+        es.onopen = () => { if (!closed) handlers.onOpen?.(); };
 
         es.onmessage = (ev: { data: string }) => {
             if (closed) return;
@@ -525,6 +706,7 @@ export class AgentlyClient {
         offset?: number;
         outcomeSince?: string;
     }): Promise<PendingToolApprovalPage> {
+        const generation = this.protocolSessionGeneration;
         const q = new URLSearchParams();
         if (input?.userId) q.set('userId', input.userId);
         if (input?.conversationId) q.set('conversationId', input.conversationId);
@@ -544,6 +726,15 @@ export class AgentlyClient {
             };
         }
         const rows = out && !Array.isArray(out) && 'rows' in out && Array.isArray(out.rows) ? out.rows : ('data' in out && Array.isArray(out.data) ? out.data : []);
+        if (generation === this.protocolSessionGeneration) {
+            for (const outcome of out?.outcomes ?? []) {
+                const signature = JSON.stringify(outcome.protocol);
+                if (!signature || this.observedApprovalOutcomes.get(outcome.approvalId) === signature) continue;
+                this.observedApprovalOutcomes.set(outcome.approvalId, signature);
+                if (this.observedApprovalOutcomes.size > 256) this.observedApprovalOutcomes.delete(this.observedApprovalOutcomes.keys().next().value!);
+                this.reconcileApproval(outcome.protocol);
+            }
+        }
         return {
             rows,
             total: Number(out?.total || rows.length) || 0,
@@ -571,7 +762,22 @@ export class AgentlyClient {
     async decideToolApproval(
         id: string, input: DecideToolApprovalInput,
     ): Promise<DecideToolApprovalOutput> {
-        return this.post<DecideToolApprovalOutput>(`/tool-approvals/${enc(id)}/decision`, input);
+        const generation = this.protocolSessionGeneration;
+        const output = await this.post<DecideToolApprovalOutput>(`/tool-approvals/${enc(id)}/decision`, input);
+        if (generation === this.protocolSessionGeneration) this.reconcileApproval(output.protocol ?? output.outcome?.protocol);
+        return output;
+    }
+
+    private reconcileApproval(protocol?: import('./types').ApprovalProtocolReferences) {
+        if (protocol?.version !== '1' || !protocol.threadId) return;
+        const conversationId = protocol.kind === 'mcp-app' ? protocol.nativeConversationId : protocol.threadId;
+        if (!conversationId) return;
+        // A replayed decision receipt may predate successor admission. Discover
+        // current runs instead of assuming the returned continuation is latest.
+        const generation = this.protocolSessionGeneration;
+        void this.agUiInteractions.reconcile(conversationId).catch(error => {
+            if (generation === this.protocolSessionGeneration) this.onErrorHook?.(error);
+        });
     }
 
     // Browser report lifecycle and reporting tools.

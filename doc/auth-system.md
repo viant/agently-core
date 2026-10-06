@@ -84,3 +84,30 @@ Caller code never sees the raw token.
 - [doc/authorization-policy.md](authorization-policy.md) — external MCP visibility policy and legacy Forge compatibility.
 - [doc/mcp-integration.md](mcp-integration.md) — how auth reaches external tools.
 - [doc/sdk.md](sdk.md) — which SDK surfaces honour OAuth automatically.
+
+## Session-import verification boundary
+
+For auth-enabled workspaces, caller-supplied session tokens are verified before
+session persistence or cookie creation. JWT-only workspaces use their configured
+JWT keys. OAuth/mixed imports use trusted provider discovery/JWKS, expected
+issuer, client/resource audiences, token lifetime and a common verified subject.
+Client ID can come from the server-loaded OAuth client configuration; when no
+resource audiences are configured, signed access tokens must include that client
+ID. Issuer and keys never come from unverified token claims.
+
+The session identity and scopes come only from verified material. Caller
+`username`, `expiresAt` and refresh-token claims cannot grant identity, extend
+signed token lifetime or add scopes. A supplied ID-token `at_hash` must match the
+access token. Public raw opaque-token imports are rejected; existing server-owned
+OAuth callback/OOB exchanges retain their separately validated flows. Local JWT
+exchange in a mixed workspace requires the configured local key authority and
+cannot replace a conflicting OAuth body identity. Explicitly auth-disabled
+development mode remains open by configuration.
+
+The legacy raw-token OOB handler uses the same import guard. CLI commands stop
+when an explicit flag/environment token is rejected rather than authenticating
+as another identity through a fallback flow. RSA/JWKS fixtures cover both handler
+implementations, invalid signatures, expiration, issuer/audience/subject mismatch,
+access-token binding, and normal config/discovery fallback. Normal protected
+Steward token shape was audited privately; no credentials or claim values belong
+in test logs or documentation.

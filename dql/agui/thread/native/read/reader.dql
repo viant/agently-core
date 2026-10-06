@@ -1,0 +1,11 @@
+#package('github.com/viant/agently-core/internal/datly/agui/thread/native/read')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/thread/native','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $NativeID<string>(query/nativeId).Required())
+#define($_ = $Data<[]*NativeIdentity>(output/view))
+SELECT identities.*, type(identities,'NativeIdentity'), row_lock(identities,'conversation c')
+FROM (${embed:sql/rows.sql}) identities

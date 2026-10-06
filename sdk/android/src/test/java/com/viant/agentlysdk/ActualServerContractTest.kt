@@ -39,7 +39,7 @@ class ActualServerContractTest {
         assertTrue(assertFails { other.deleteConversation(id) }.message.orEmpty().contains("failed: 403"))
         assertEquals(id, owner.getConversation(id).id)
         assertFails { owner.getConversation("sdk-contract-missing") } // Existing API returns 200 null; non-null SDK model rejects it.
-        val event = withTimeout(10000) { owner.streamEvents(id).first { it.type == "usage" } }
+        val event = withTimeout(10000) { owner.streamApplicationEvents(id).first { it.type == "usage" } }
         assertEquals(id, event.conversationId)
         assertEquals("11", event.patch?.get("inputTokens")?.jsonPrimitive?.content)
         assertEquals("7", event.patch?.get("outputTokens")?.jsonPrimitive?.content)

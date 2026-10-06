@@ -32,6 +32,6 @@ WHERE 1=1
  ${predicate.Builder().CombineOr($predicate.FilterGroup(0,"AND")).Build("AND")}
  AND ($InternalMode OR EXISTS(
    SELECT 1 FROM run r JOIN conversation c ON c.id=r.conversation_id
-   WHERE r.id=run_steps.run_id
+   WHERE r.id=run_steps.run_id AND COALESCE(r.run_kind,'execution')='execution'
    AND (COALESCE(r.effective_user_id,'')='' OR r.effective_user_id=NULLIF($VisibilitySubject,''))
    AND (COALESCE(c.visibility,'')<>'private' OR c.created_by_user_id=NULLIF($VisibilitySubject,''))))

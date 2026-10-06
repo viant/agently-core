@@ -15,6 +15,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	reportcontextmodel "github.com/viant/agently-core/model/reportcontext"
 	reportrunmodel "github.com/viant/agently-core/model/reportrun"
+	"github.com/viant/agently-core/runtime/evidence"
 )
 
 var (
@@ -33,18 +34,20 @@ var waitTerminalBackoff = [...]time.Duration{
 }
 
 type Options struct {
-	Store reportstore.RunClient
-	Now   func() time.Time
-	NewID func() string
+	ReportAdmissions evidence.ReportAdmissions
+	Store            reportstore.RunClient
+	Now              func() time.Time
+	NewID            func() string
 }
 
 // Service owns durable browser report-run lifecycle invariants. It is called
 // from the authenticated UI HTTP boundary and is deliberately not a tool
 // service.
 type Service struct {
-	store reportstore.RunClient
-	now   func() time.Time
-	newID func() string
+	reportAdmissions evidence.ReportAdmissions
+	store            reportstore.RunClient
+	now              func() time.Time
+	newID            func() string
 }
 
 func New(opts Options) *Service {
@@ -59,19 +62,33 @@ func New(opts Options) *Service {
 	if newID == nil {
 		newID = uuid.NewString
 	}
-	return &Service{store: opts.Store, now: now, newID: newID}
+	return &Service{store: opts.Store, now: now, newID: newID, reportAdmissions: opts.ReportAdmissions}
+}
+
+// ConfigureReportAdmissions installs the shared backend before serving requests.
+// Reconfiguration is rejected rather than replacing admitted command authority.
+func (s *Service) ConfigureReportAdmissions(backend evidence.ReportAdmissions) error {
+	if s == nil || backend == nil {
+		return fmt.Errorf("report admission backend required")
+	}
+	if s.reportAdmissions != nil {
+		return fmt.Errorf("report admission backend already configured")
+	}
+	s.reportAdmissions = backend
+	return nil
 }
 
 type BeginInput struct {
-	ConversationID  string          `json:"conversationId,omitempty"`
-	Origin          string          `json:"origin,omitempty"`
-	BuilderRef      string          `json:"builderRef,omitempty"`
-	PresetID        string          `json:"presetId,omitempty"`
-	SourceKind      string          `json:"sourceKind,omitempty"`
-	SourceID        string          `json:"sourceId,omitempty"`
-	RequestedParams json.RawMessage `json:"requestedParams,omitempty"`
-	EffectiveParams json.RawMessage `json:"effectiveParams,omitempty"`
-	UIRunRequestID  string          `json:"uiRunRequestId"`
+	ReportAdmissionRef string          `json:"reportAdmissionRef,omitempty"`
+	ConversationID     string          `json:"conversationId,omitempty"`
+	Origin             string          `json:"origin,omitempty"`
+	BuilderRef         string          `json:"builderRef,omitempty"`
+	PresetID           string          `json:"presetId,omitempty"`
+	SourceKind         string          `json:"sourceKind,omitempty"`
+	SourceID           string          `json:"sourceId,omitempty"`
+	RequestedParams    json.RawMessage `json:"requestedParams,omitempty"`
+	EffectiveParams    json.RawMessage `json:"effectiveParams,omitempty"`
+	UIRunRequestID     string          `json:"uiRunRequestId"`
 }
 
 type BeginResult struct {
@@ -141,6 +158,10 @@ func (s *Service) Begin(ctx context.Context, input *BeginInput) (*BeginResult, e
 		return nil, invalid("prompt run requires a trusted conversation")
 	}
 	requested, err := normalizeOptionalJSON(input.RequestedParams, "requestedParams")
+	if err != nil {
+		return nil, err
+	}
+	requested, err = s.admitForecastCommand(ctx, input, requested)
 	if err != nil {
 		return nil, err
 	}
@@ -230,6 +251,9 @@ func (s *Service) Complete(ctx context.Context, input *CompleteInput) (*reportru
 	switch current.Status {
 	case reportrunmodel.StatusCompleted:
 		if jsonEqual(current.ReportSpec, spec) && jsonEqual(current.ReportFill, fill) && jsonEqual(current.ReportPrint, printPayload) {
+			if err = s.verifyForecastCommand(ctx, current, evidence.ReportArtifacts{Spec: spec, Fill: fill, Print: printPayload}); err != nil {
+				return nil, err
+			}
 			return cloneRun(current), nil
 		}
 		return nil, conflict("completed report snapshot is immutable")
@@ -241,6 +265,9 @@ func (s *Service) Complete(ctx context.Context, input *CompleteInput) (*reportru
 	}
 	if input.ExpectedRevision != current.Revision {
 		return nil, ErrCAS
+	}
+	if err = s.verifyForecastCommand(ctx, current, evidence.ReportArtifacts{Spec: spec, Fill: fill, Print: printPayload}); err != nil {
+		return nil, err
 	}
 	next := cloneRun(current)
 	now := s.now().UTC()

@@ -44,8 +44,23 @@ type InputItem struct {
 	// the tool result with a prior assistant tool_call request.
 	ToolCallID string `json:"tool_call_id,omitempty"`
 	// function_call_output fields.
-	CallID string `json:"call_id,omitempty"`
-	Output string `json:"output,omitempty"`
+	CallID      string                 `json:"call_id,omitempty"`
+	Output      string                 `json:"output,omitempty"`
+	OutputParts []ResponsesContentItem `json:"-"`
+}
+
+func (item InputItem) MarshalJSON() ([]byte, error) {
+	type Alias InputItem
+	var output interface{}
+	if item.OutputParts != nil {
+		output = item.OutputParts
+	} else if item.Output != "" || item.Type == "function_call_output" {
+		output = item.Output
+	}
+	return json.Marshal(struct {
+		*Alias
+		Output interface{} `json:"output,omitempty"`
+	}{Alias: (*Alias)(&item), Output: output})
 }
 
 type ResponsesContentItem struct {
@@ -56,6 +71,7 @@ type ResponsesContentItem struct {
 	FileName string `json:"filename,omitempty"`
 	Detail   string `json:"detail,omitempty"`
 	FileID   string `json:"file_id,omitempty"`
+	FileURL  string `json:"file_url,omitempty"`
 	// Function call output back to the model
 	CallID string `json:"call_id,omitempty"`
 	Output string `json:"output,omitempty"`
@@ -225,9 +241,20 @@ func ToResponsesPayload(req *Request) *ResponsesPayload {
 		// Preserve tool results as explicit function_call_output items, even
 		// when replaying the full transcript without previous_response_id.
 		if strings.TrimSpace(m.ToolCallId) != "" || strings.ToLower(m.Role) == "tool" {
+			hasMedia := false
+			for _, item := range items {
+				if item.Type != "input_text" {
+					hasMedia = true
+					break
+				}
+			}
+			if strings.TrimSpace(m.ToolCallId) != "" && hasMedia {
+				out.Input = append(out.Input, InputItem{Type: "function_call_output", CallID: m.ToolCallId, OutputParts: items})
+				continue
+			}
 			var outTxt string
 			outTxt = strings.TrimSpace(extractMessageText(m))
-			if strings.TrimSpace(m.ToolCallId) != "" && outTxt != "" {
+			if strings.TrimSpace(m.ToolCallId) != "" {
 				out.Input = append(out.Input, InputItem{Type: "function_call_output", CallID: m.ToolCallId, Output: outTxt})
 				continue
 			}
@@ -366,7 +393,8 @@ func toResponsesContentItems(content interface{}, isAssistant bool) []ResponsesC
 				if isAssistant {
 					t = "output_text"
 				}
-				if txt := strings.TrimSpace(coalesce(it.Text)); txt != "" {
+				// Preserve whitespace in media-adjacent text.
+				if txt := coalesce(it.Text); txt != "" {
 					items = append(items, ResponsesContentItem{Type: t, Text: txt})
 				}
 			case "image_url":
@@ -386,6 +414,8 @@ func toResponsesContentItems(content interface{}, isAssistant bool) []ResponsesC
 			case "file":
 				if it.File != nil && it.File.FileID != "" {
 					items = append(items, ResponsesContentItem{Type: "input_file", FileID: it.File.FileID})
+				} else if it.File != nil && it.File.FileURL != "" {
+					items = append(items, ResponsesContentItem{Type: "input_file", FileURL: it.File.FileURL})
 				} else if it.File != nil {
 					items = append(items, ResponsesContentItem{Type: "input_file", FileName: it.File.FileName, FileData: it.File.FileData})
 				}

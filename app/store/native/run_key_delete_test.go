@@ -3,6 +3,7 @@ package native_test
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"github.com/stretchr/testify/require"
 	deleteview "github.com/viant/agently-core/internal/datly/run/delete"
 	runstore "github.com/viant/agently-core/internal/store/agentrun"
@@ -93,4 +94,24 @@ func runDeleteCallerRuntime(t *testing.T, db *sql.DB, tx *sql.Tx) *druntime.Runt
 	runtime, err := druntime.NewRuntime([]*registry.RegisteredComponent{{Component: artifact.Component, Input: artifact.Input, Output: artifact.Output, OutputType: reflect.TypeFor[deleteview.Output](), Handler: handler, Providers: []locator.Provider{views}, DataSource: dml.Source{DB: db, Tx: tx}}}, druntime.WithResources(resources))
 	require.NoError(t, err)
 	return runtime
+}
+
+func TestRunKeyDeleteSQLiteBatchesOnlyExistingExecutionIDs(t *testing.T) {
+	s, _, db := orphanFixture(t)
+	ids := []string{"missing", "protocol-preserved"}
+	_, err := db.Exec("INSERT INTO run(id,run_kind,status) VALUES('protocol-preserved','agui','pending')")
+	require.NoError(t, err)
+	for i := 0; i < 130; i++ {
+		id := fmt.Sprintf("batch-native-%03d", i)
+		_, err = db.Exec("INSERT INTO run(id,status) VALUES(?,'completed')", id)
+		require.NoError(t, err)
+		ids = append(ids, id)
+	}
+	ids = append(ids, ids[len(ids)-1])
+	require.NoError(t, (&runstore.Store{Invoker: s.Invoker}).DeleteTrusted(context.Background(), ids...))
+	var count int
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM run WHERE id LIKE 'batch-native-%'").Scan(&count))
+	require.Zero(t, count)
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM run WHERE id='protocol-preserved'").Scan(&count))
+	require.Equal(t, 1, count)
 }

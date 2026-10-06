@@ -10,6 +10,13 @@ import (
 	"strings"
 )
 
+func (c *backendClient) aguiFinishMCPGuestTurn(ctx context.Context, conversationID, turnID, status string, cause error) error {
+	if c == nil || c.agent == nil {
+		return nil
+	}
+	return c.agent.CompleteGuestToolCall(ctx, conversationID, turnID, status, cause)
+}
+
 // ExecuteMCPUIToolCall runs an MCP UI host-mediated tool call through the
 // agent service's canonical guest-tool path. The browser host hits this
 // via POST /v1/api/mcp-ui/tools/call; it never goes through

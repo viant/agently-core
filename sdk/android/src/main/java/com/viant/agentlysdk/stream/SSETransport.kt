@@ -87,10 +87,7 @@ fun openEventStream(
             flushDataLines()
             close()
         } catch (err: Throwable) {
-            val isExpectedShutdown = call.isCanceled() ||
-                err is InterruptedException ||
-                err is InterruptedIOException ||
-                err is SocketException
+            val isExpectedShutdown = call.isCanceled() || err is InterruptedException
             if (!isExpectedShutdown) {
                 close(err)
             }

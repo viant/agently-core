@@ -66,6 +66,8 @@ type ToolDefinition struct {
 
 // Source represents a source for image content
 type Source struct {
+	URL       string `json:"url,omitempty"`
+	FileID    string `json:"file_id,omitempty"`
 	Type      string `json:"type"`
 	MediaType string `json:"media_type,omitempty"`
 	Data      string `json:"data,omitempty"`

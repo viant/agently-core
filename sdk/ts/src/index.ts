@@ -8,7 +8,7 @@
 
 // Client
 export { AgentlyClient } from './client';
-export type { ClientOptions, TokenProvider, SessionDebugOptions } from './client';
+export type { ClientOptions, TokenProvider, SessionDebugOptions, AgUiBackendDescriptor, AgUiBackendThread } from './client';
 
 // Errors
 export { HttpError } from './errors';
@@ -223,6 +223,7 @@ export {
     describeHeader as chatStoreDescribeHeader,
     newConversationState as chatStoreNewConversationState,
     projectConversation as chatStoreProjectConversation,
+    projectQueuedTurns as chatStoreProjectQueuedTurns,
     statusToLifecycle as chatStoreStatusToLifecycle,
 } from './chatStore';
 export type {
@@ -240,3 +241,11 @@ export type {
 } from './chatStore';
 
 export type { ReportRun, ReportContext, ReportRunResult, BeginReportRunInput, CompleteReportRunInput, AdoptReportRunInput, ReportExportJob, ReportArtifact, ReportAuditEvent } from "./types";
+export * from './agui';
+export * from './aguiSession';
+export * from './aguiCommands';
+export * from './aguiPresentation';
+export * from './aguiViewProjection';
+export * from './aguiConversationTransport';
+
+export * from './aguiRemoteConversationTransport';

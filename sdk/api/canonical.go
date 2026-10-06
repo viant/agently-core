@@ -38,6 +38,7 @@ type TurnState struct {
 	LinkedConversations []*LinkedConversationState `json:"linkedConversations,omitempty"`
 	CreatedAt           time.Time                  `json:"createdAt,omitempty"`
 	QueueSeq            int                        `json:"queueSeq,omitempty"`
+	QueueSequence       string                     `json:"queueSequence,omitempty"`
 	StartedByMessageID  string                     `json:"startedByMessageId,omitempty"`
 	Origin              string                     `json:"origin,omitempty"`
 	GoalID              string                     `json:"goalId,omitempty"`
@@ -56,8 +57,9 @@ const (
 )
 
 type UserMessageState struct {
-	MessageID string `json:"messageId"`
-	Content   string `json:"content,omitempty"`
+	ClientRequestID string `json:"clientRequestId,omitempty"`
+	MessageID       string `json:"messageId"`
+	Content         string `json:"content,omitempty"`
 }
 
 type WorkspaceAttachment struct {
@@ -69,6 +71,7 @@ type WorkspaceAttachment struct {
 }
 
 type TurnMessageState struct {
+	ClientRequestID string                `json:"clientRequestId,omitempty"`
 	Attachments     []WorkspaceAttachment `json:"attachments,omitempty"`
 	MessageID       string                `json:"messageId"`
 	Role            string                `json:"role"`
@@ -142,6 +145,7 @@ type RenderedReportAssembly = rendering.RenderedReportAssembly
 type RenderedContentWarning = rendering.RenderedContentWarning
 
 type ModelStepState struct {
+	Mode                      string           `json:"mode,omitempty"`
 	ModelCallID               string           `json:"modelCallId"`
 	AssistantMessageID        string           `json:"assistantMessageId"`
 	ExecutionRole             string           `json:"executionRole,omitempty"`
@@ -271,6 +275,7 @@ type UsageModelSummary struct {
 }
 
 type ConversationStateResponse struct {
+	AguiThreadID  *string            `json:"aguiThreadId,omitempty"`
 	SchemaVersion string             `json:"schemaVersion"`
 	Conversation  *ConversationState `json:"conversation"`
 	Feeds         []*ActiveFeedState `json:"feeds,omitempty"`

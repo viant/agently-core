@@ -1,0 +1,2 @@
+SELECT * FROM  (SELECT p.id,0 AS should_delete FROM call_payload p WHERE p.kind='agui.event' AND EXISTS(SELECT 1 FROM run c WHERE c.id=p.run_id AND c.run_kind='agui' ${predicate.Builder().CombineAnd($predicate.FilterGroup(0, "AND")).Build("AND")})
+)  agui_data

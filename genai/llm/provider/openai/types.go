@@ -57,14 +57,20 @@ type StreamOptions struct {
 }
 
 // ContentItem represents a single content item in a message for the OpenAI API
+type InputAudio struct {
+	Data   string `json:"data"`
+	Format string `json:"format"`
+}
 type ContentItem struct {
-	Type     string    `json:"type"`
-	Text     string    `json:"text,omitempty"`
-	ImageURL *ImageURL `json:"image_url,omitempty"`
-	File     *File     `json:"file,omitempty"`
+	InputAudio *InputAudio `json:"input_audio,omitempty"`
+	Type       string      `json:"type"`
+	Text       string      `json:"text,omitempty"`
+	ImageURL   *ImageURL   `json:"image_url,omitempty"`
+	File       *File       `json:"file,omitempty"`
 }
 
 type File struct {
+	FileURL  string `json:"file_url,omitempty"`
 	FileID   string `json:"file_id,omitempty"`
 	FileName string `json:"filename,omitempty"`
 	FileData string `json:"file_data,omitempty"`

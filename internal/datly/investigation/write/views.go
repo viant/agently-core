@@ -9,14 +9,14 @@ import (
 // Investigation is generated canonical view metadata for writer.
 type Investigation struct {
 	ShouldDelete   bool              `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
-	Id             string            `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	Title          *string           `sqlx:"title" json:"title"`
-	CreatedBy      *string           `sqlx:"created_by" json:"createdBy"`
-	ConversationId *string           `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
-	Summary        *string           `sqlx:"summary" json:"summary"`
-	AdOrderId      *int              `sqlx:"ad_order_id" json:"adOrderId"`
-	Verdict        *string           `sqlx:"verdict" json:"verdict"`
-	Created        *time.Time        `sqlx:"created,required=true" json:"created"`
+	Id             string            `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	Title          *string           `sqlx:"title" json:"title,omitempty"`
+	CreatedBy      *string           `sqlx:"created_by" json:"createdBy,omitempty"`
+	ConversationId *string           `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
+	Summary        *string           `sqlx:"summary" json:"summary,omitempty"`
+	AdOrderId      *int              `sqlx:"ad_order_id" json:"adOrderId,omitempty"`
+	Verdict        *string           `sqlx:"verdict" json:"verdict,omitempty"`
+	Created        *time.Time        `sqlx:"created,required=true" json:"created,omitempty"`
 	Has            *InvestigationHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"InvestigationHas"`
 }
 
@@ -34,14 +34,14 @@ type InvestigationHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id             string     `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	Title          *string    `sqlx:"title" json:"title"`
-	CreatedBy      *string    `sqlx:"created_by" json:"createdBy"`
-	ConversationId *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
-	Summary        *string    `sqlx:"summary" json:"summary"`
-	AdOrderId      *int       `sqlx:"ad_order_id" json:"adOrderId"`
-	Verdict        *string    `sqlx:"verdict" json:"verdict"`
-	Created        *time.Time `sqlx:"created,required=true" json:"created"`
+	Id             string     `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	Title          *string    `sqlx:"title" json:"title,omitempty"`
+	CreatedBy      *string    `sqlx:"created_by" json:"createdBy,omitempty"`
+	ConversationId *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
+	Summary        *string    `sqlx:"summary" json:"summary,omitempty"`
+	AdOrderId      *int       `sqlx:"ad_order_id" json:"adOrderId,omitempty"`
+	Verdict        *string    `sqlx:"verdict" json:"verdict,omitempty"`
+	Created        *time.Time `sqlx:"created,required=true" json:"created,omitempty"`
 }
 
 type WriterKeysRow struct {

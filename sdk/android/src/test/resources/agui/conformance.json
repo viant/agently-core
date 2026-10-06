@@ -1,0 +1,945 @@
+{
+  "input": {
+    "threadId": "thread",
+    "runId": "run",
+    "protocolVersion": "1.0",
+    "messages": [
+      {
+        "id": "user",
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "héllo 🌍"
+          },
+          {
+            "type": "image",
+            "source": {
+              "type": "url",
+              "value": "https://example.test/image",
+              "mimeType": "image/png"
+            },
+            "metadata": {
+              "opaque": [
+                1,
+                false
+              ]
+            }
+          },
+          {
+            "type": "audio",
+            "source": {
+              "type": "data",
+              "value": "YWJj",
+              "mimeType": "audio/wav"
+            }
+          },
+          {
+            "type": "video",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-video",
+              "provider": "openai"
+            }
+          },
+          {
+            "type": "document",
+            "source": {
+              "type": "file",
+              "value": "opaque-provider-document",
+              "mimeType": "application/pdf"
+            }
+          }
+        ],
+        "metadata": {
+          "future": {
+            "keep": true
+          }
+        },
+        "encryptedValue": "opaque-user"
+      }
+    ],
+    "state": {
+      "initial": true
+    },
+    "tools": [
+      {
+        "name": "lookup",
+        "description": "test lookup",
+        "parameters": {
+          "type": "object"
+        }
+      }
+    ],
+    "context": [
+      {
+        "description": "ambient",
+        "value": "opaque"
+      }
+    ],
+    "forwardedProps": {
+      "external": {
+        "keep": [
+          1,
+          2
+        ]
+      }
+    }
+  },
+  "events": [
+    {
+      "type": "RUN_STARTED",
+      "threadId": "thread",
+      "runId": "run",
+      "protocolVersion": "1.0",
+      "input": {
+        "threadId": "thread",
+        "runId": "run",
+        "protocolVersion": "1.0",
+        "messages": [
+          {
+            "id": "user",
+            "role": "user",
+            "content": [
+              {
+                "type": "text",
+                "text": "héllo 🌍"
+              },
+              {
+                "type": "image",
+                "source": {
+                  "type": "url",
+                  "value": "https://example.test/image",
+                  "mimeType": "image/png"
+                },
+                "metadata": {
+                  "opaque": [
+                    1,
+                    false
+                  ]
+                }
+              },
+              {
+                "type": "audio",
+                "source": {
+                  "type": "data",
+                  "value": "YWJj",
+                  "mimeType": "audio/wav"
+                }
+              },
+              {
+                "type": "video",
+                "source": {
+                  "type": "file",
+                  "value": "opaque-provider-video",
+                  "provider": "openai"
+                }
+              },
+              {
+                "type": "document",
+                "source": {
+                  "type": "file",
+                  "value": "opaque-provider-document",
+                  "mimeType": "application/pdf"
+                }
+              }
+            ],
+            "metadata": {
+              "future": {
+                "keep": true
+              }
+            },
+            "encryptedValue": "opaque-user"
+          }
+        ],
+        "state": {
+          "initial": true
+        },
+        "tools": [
+          {
+            "name": "lookup",
+            "description": "test lookup",
+            "parameters": {
+              "type": "object"
+            }
+          }
+        ],
+        "context": [
+          {
+            "description": "ambient",
+            "value": "opaque"
+          }
+        ],
+        "forwardedProps": {
+          "external": {
+            "keep": [
+              1,
+              2
+            ]
+          }
+        }
+      }
+    },
+    {
+      "type": "MESSAGES_SNAPSHOT",
+      "messages": [
+        {
+          "id": "user",
+          "role": "user",
+          "content": [
+            {
+              "type": "text",
+              "text": "héllo 🌍"
+            },
+            {
+              "type": "image",
+              "source": {
+                "type": "url",
+                "value": "https://example.test/image",
+                "mimeType": "image/png"
+              },
+              "metadata": {
+                "opaque": [
+                  1,
+                  false
+                ]
+              }
+            },
+            {
+              "type": "audio",
+              "source": {
+                "type": "data",
+                "value": "YWJj",
+                "mimeType": "audio/wav"
+              }
+            },
+            {
+              "type": "video",
+              "source": {
+                "type": "file",
+                "value": "opaque-provider-video",
+                "provider": "openai"
+              }
+            },
+            {
+              "type": "document",
+              "source": {
+                "type": "file",
+                "value": "opaque-provider-document",
+                "mimeType": "application/pdf"
+              }
+            }
+          ],
+          "metadata": {
+            "future": {
+              "keep": true
+            }
+          },
+          "encryptedValue": "opaque-user"
+        },
+        {
+          "id": "system",
+          "role": "system",
+          "content": "instructions",
+          "name": "Guide",
+          "metadata": {
+            "opaque": {
+              "a": 1
+            }
+          }
+        }
+      ]
+    },
+    {
+      "type": "STATE_SNAPSHOT",
+      "snapshot": {
+        "a/b": {
+          "~key": [
+            1,
+            2
+          ]
+        },
+        "count": 1
+      }
+    },
+    {
+      "type": "STATE_DELTA",
+      "delta": [
+        {
+          "op": "add",
+          "path": "/a~1b/~0key/-",
+          "value": 3
+        },
+        {
+          "op": "replace",
+          "path": "/count",
+          "value": 2
+        },
+        {
+          "op": "copy",
+          "from": "/count",
+          "path": "/copy"
+        },
+        {
+          "op": "test",
+          "path": "/copy",
+          "value": 2
+        },
+        {
+          "op": "move",
+          "from": "/a~1b/~0key/0",
+          "path": "/a~1b/~0key/2"
+        },
+        {
+          "op": "remove",
+          "path": "/copy"
+        }
+      ]
+    },
+    {
+      "type": "STEP_STARTED",
+      "stepName": "shared"
+    },
+    {
+      "type": "TEXT_MESSAGE_START",
+      "messageId": "text",
+      "role": "assistant",
+      "name": "Agent",
+      "metadata": {
+        "ns": {
+          "start": 1
+        }
+      }
+    },
+    {
+      "type": "TEXT_MESSAGE_CONTENT",
+      "messageId": "text",
+      "delta": "héllo 🌍",
+      "metadata": {
+        "ns": {
+          "content": 2
+        }
+      }
+    },
+    {
+      "type": "TEXT_MESSAGE_END",
+      "messageId": "text",
+      "metadata": {
+        "ns": {
+          "end": 3
+        }
+      }
+    },
+    {
+      "type": "TOOL_CALL_START",
+      "toolCallId": "tool",
+      "toolCallName": "lookup",
+      "parentMessageId": "text",
+      "metadata": {
+        "tool": {
+          "keep": "start"
+        }
+      }
+    },
+    {
+      "type": "TOOL_CALL_ARGS",
+      "toolCallId": "tool",
+      "delta": "{\"id\":"
+    },
+    {
+      "type": "TOOL_CALL_ARGS",
+      "toolCallId": "tool",
+      "delta": "42}"
+    },
+    {
+      "type": "TOOL_CALL_END",
+      "toolCallId": "tool"
+    },
+    {
+      "type": "TOOL_CALL_RESULT",
+      "toolCallId": "tool",
+      "messageId": "tool-result",
+      "content": [
+        {
+          "type": "text",
+          "text": "héllo 🌍"
+        },
+        {
+          "type": "image",
+          "source": {
+            "type": "url",
+            "value": "https://example.test/image",
+            "mimeType": "image/png"
+          },
+          "metadata": {
+            "opaque": [
+              1,
+              false
+            ]
+          }
+        },
+        {
+          "type": "audio",
+          "source": {
+            "type": "data",
+            "value": "YWJj",
+            "mimeType": "audio/wav"
+          }
+        },
+        {
+          "type": "video",
+          "source": {
+            "type": "file",
+            "value": "opaque-provider-video",
+            "provider": "openai"
+          }
+        },
+        {
+          "type": "document",
+          "source": {
+            "type": "file",
+            "value": "opaque-provider-document",
+            "mimeType": "application/pdf"
+          }
+        }
+      ],
+      "role": "tool",
+      "metadata": {
+        "opaque": {
+          "result": true
+        }
+      }
+    },
+    {
+      "type": "SUBAGENT_STARTED",
+      "subagentRunId": "s1",
+      "name": "Worker",
+      "description": "child",
+      "parentToolCallId": "tool",
+      "parentMessageId": "text"
+    },
+    {
+      "type": "STEP_STARTED",
+      "stepName": "shared",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "REASONING_START",
+      "messageId": "span",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "REASONING_MESSAGE_START",
+      "messageId": "reason",
+      "role": "reasoning",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "REASONING_MESSAGE_CONTENT",
+      "messageId": "reason",
+      "delta": "private rationale",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "REASONING_MESSAGE_END",
+      "messageId": "reason",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "REASONING_ENCRYPTED_VALUE",
+      "entityId": "reason",
+      "subtype": "message",
+      "encryptedValue": "opaque-reason",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "REASONING_END",
+      "messageId": "span",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "TOOL_CALL_CHUNK",
+      "toolCallId": "chunk-tool",
+      "toolCallName": "search",
+      "parentMessageId": "chunk-parent",
+      "delta": "{\"q\":",
+      "subagentRunId": "s1",
+      "metadata": {
+        "chunks": {
+          "one": 1
+        }
+      }
+    },
+    {
+      "type": "TOOL_CALL_CHUNK",
+      "delta": "\"abc\"}",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "REASONING_MESSAGE_CHUNK",
+      "messageId": "chunk-reason",
+      "delta": "thought ",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "REASONING_MESSAGE_CHUNK",
+      "delta": "continuation",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "TEXT_MESSAGE_CHUNK",
+      "messageId": "chunk-text",
+      "role": "assistant",
+      "delta": "stream ",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "TEXT_MESSAGE_CHUNK",
+      "delta": "continuation",
+      "subagentRunId": "s1",
+      "metadata": {
+        "chunks": {
+          "two": 2
+        }
+      },
+      "rawEvent": {
+        "provider": "raw"
+      }
+    },
+    {
+      "type": "ACTIVITY_SNAPSHOT",
+      "messageId": "activity",
+      "activityType": "progress",
+      "content": {
+        "items": [
+          1
+        ],
+        "label": "before"
+      },
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "ACTIVITY_DELTA",
+      "messageId": "activity",
+      "activityType": "progress",
+      "patch": [
+        {
+          "op": "add",
+          "path": "/items/-",
+          "value": 2
+        },
+        {
+          "op": "replace",
+          "path": "/label",
+          "value": "after"
+        }
+      ],
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "RAW",
+      "event": {
+        "provider": [
+          "opaque",
+          false
+        ]
+      },
+      "source": "fixture",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "CUSTOM",
+      "name": "agently.capabilities",
+      "value": {
+        "version": "1",
+        "capabilities": {
+          "custom": {
+            "agently": {
+              "version": "1",
+              "operations": [
+                "chat",
+                "capabilities"
+              ],
+              "execution": {
+                "agentId": true,
+                "model": true
+              }
+            }
+          }
+        }
+      },
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "REASONING_ENCRYPTED_VALUE",
+      "entityId": "chunk-tool",
+      "subtype": "tool-call",
+      "encryptedValue": "opaque-tool",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "TOOL_CALL_RESULT",
+      "toolCallId": "chunk-tool",
+      "messageId": "chunk-result",
+      "content": "{\"ok\":true}",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "STEP_FINISHED",
+      "stepName": "shared",
+      "subagentRunId": "s1"
+    },
+    {
+      "type": "SUBAGENT_FINISHED",
+      "subagentRunId": "s1",
+      "result": {
+        "keep": true
+      },
+      "outcome": {
+        "type": "success"
+      }
+    },
+    {
+      "type": "SUBAGENT_STARTED",
+      "subagentRunId": "s2",
+      "name": "Other",
+      "parentSubagentRunId": "s1"
+    },
+    {
+      "type": "SUBAGENT_ERROR",
+      "subagentRunId": "s2",
+      "message": "child failed",
+      "code": "CHILD_ERROR"
+    },
+    {
+      "type": "STEP_FINISHED",
+      "stepName": "shared"
+    },
+    {
+      "type": "RUN_FINISHED",
+      "threadId": "thread",
+      "runId": "run",
+      "outcome": {
+        "type": "success",
+        "pendingToolCallIds": []
+      },
+      "result": {
+        "opaque": "result"
+      },
+      "usage": [
+        {
+          "provider": "fixture",
+          "model": "test",
+          "inputTokens": 10,
+          "outputTokens": 20,
+          "totalTokens": 30,
+          "reasoningTokens": 2
+        }
+      ]
+    }
+  ],
+  "errorEvents": [
+    {
+      "type": "RUN_ERROR",
+      "message": "rejected",
+      "code": "DENIED",
+      "usage": [
+        {
+          "provider": "fixture",
+          "inputTokens": 1
+        }
+      ]
+    }
+  ],
+  "expectedState": {
+    "a/b": {
+      "~key": [
+        2,
+        3,
+        1
+      ]
+    },
+    "count": 2
+  },
+  "interruptEvents": [
+    {
+      "type": "RUN_STARTED",
+      "threadId": "thread",
+      "runId": "run"
+    },
+    {
+      "type": "RUN_FINISHED",
+      "threadId": "thread",
+      "runId": "run",
+      "outcome": {
+        "type": "interrupt",
+        "interrupts": [
+          {
+            "id": "approval",
+            "reason": "approval",
+            "toolCallId": "tool"
+          }
+        ]
+      }
+    }
+  ],
+  "expectedMessages": [
+    {
+      "id": "user",
+      "role": "user",
+      "encryptedValue": "opaque-user",
+      "metadata": {
+        "future": {
+          "keep": true
+        }
+      },
+      "content": [
+        {
+          "type": "text",
+          "text": "héllo 🌍"
+        },
+        {
+          "type": "image",
+          "source": {
+            "type": "url",
+            "value": "https://example.test/image",
+            "mimeType": "image/png"
+          },
+          "metadata": {
+            "opaque": [
+              1,
+              false
+            ]
+          }
+        },
+        {
+          "type": "audio",
+          "source": {
+            "type": "data",
+            "value": "YWJj",
+            "mimeType": "audio/wav"
+          }
+        },
+        {
+          "type": "video",
+          "source": {
+            "type": "file",
+            "value": "opaque-provider-video",
+            "provider": "openai"
+          }
+        },
+        {
+          "type": "document",
+          "source": {
+            "type": "file",
+            "value": "opaque-provider-document",
+            "mimeType": "application/pdf"
+          }
+        }
+      ]
+    },
+    {
+      "id": "system",
+      "role": "system",
+      "name": "Guide",
+      "metadata": {
+        "opaque": {
+          "a": 1
+        }
+      },
+      "content": "instructions"
+    },
+    {
+      "id": "text",
+      "role": "assistant",
+      "content": "héllo 🌍",
+      "name": "Agent",
+      "metadata": {
+        "ns": {
+          "end": 3
+        }
+      },
+      "toolCalls": [
+        {
+          "id": "tool",
+          "type": "function",
+          "function": {
+            "name": "lookup",
+            "arguments": "{\"id\":42}"
+          },
+          "metadata": {
+            "tool": {
+              "keep": "start"
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "tool-result",
+      "toolCallId": "tool",
+      "role": "tool",
+      "content": [
+        {
+          "type": "text",
+          "text": "héllo 🌍"
+        },
+        {
+          "type": "image",
+          "source": {
+            "type": "url",
+            "value": "https://example.test/image",
+            "mimeType": "image/png"
+          },
+          "metadata": {
+            "opaque": [
+              1,
+              false
+            ]
+          }
+        },
+        {
+          "type": "audio",
+          "source": {
+            "type": "data",
+            "value": "YWJj",
+            "mimeType": "audio/wav"
+          }
+        },
+        {
+          "type": "video",
+          "source": {
+            "type": "file",
+            "value": "opaque-provider-video",
+            "provider": "openai"
+          }
+        },
+        {
+          "type": "document",
+          "source": {
+            "type": "file",
+            "value": "opaque-provider-document",
+            "mimeType": "application/pdf"
+          }
+        }
+      ],
+      "metadata": {
+        "opaque": {
+          "result": true
+        }
+      }
+    },
+    {
+      "id": "reason",
+      "role": "reasoning",
+      "content": "private rationale",
+      "subagentRunId": "s1",
+      "encryptedValue": "opaque-reason"
+    },
+    {
+      "id": "chunk-parent",
+      "role": "assistant",
+      "toolCalls": [
+        {
+          "id": "chunk-tool",
+          "type": "function",
+          "function": {
+            "name": "search",
+            "arguments": "{\"q\":\"abc\"}"
+          },
+          "metadata": {
+            "chunks": {
+              "one": 1
+            }
+          },
+          "encryptedValue": "opaque-tool"
+        }
+      ],
+      "subagentRunId": "s1"
+    },
+    {
+      "id": "chunk-result",
+      "toolCallId": "chunk-tool",
+      "role": "tool",
+      "content": "{\"ok\":true}",
+      "subagentRunId": "s1"
+    },
+    {
+      "id": "chunk-reason",
+      "role": "reasoning",
+      "content": "thought continuation",
+      "subagentRunId": "s1"
+    },
+    {
+      "id": "chunk-text",
+      "role": "assistant",
+      "content": "stream continuation",
+      "subagentRunId": "s1",
+      "metadata": {
+        "chunks": {
+          "two": 2
+        }
+      }
+    },
+    {
+      "id": "activity",
+      "role": "activity",
+      "activityType": "progress",
+      "content": {
+        "items": [
+          1,
+          2
+        ],
+        "label": "after"
+      },
+      "subagentRunId": "s1"
+    }
+  ],
+  "expectedNormalizedTypes": [
+    "RUN_STARTED",
+    "MESSAGES_SNAPSHOT",
+    "STATE_SNAPSHOT",
+    "STATE_DELTA",
+    "STEP_STARTED",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_END",
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "TOOL_CALL_RESULT",
+    "SUBAGENT_STARTED",
+    "STEP_STARTED",
+    "REASONING_START",
+    "REASONING_MESSAGE_START",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_END",
+    "REASONING_ENCRYPTED_VALUE",
+    "REASONING_END",
+    "TOOL_CALL_START",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_ARGS",
+    "TOOL_CALL_END",
+    "REASONING_MESSAGE_START",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_CONTENT",
+    "REASONING_MESSAGE_END",
+    "TEXT_MESSAGE_START",
+    "TEXT_MESSAGE_CONTENT",
+    "TEXT_MESSAGE_CONTENT",
+    "ACTIVITY_SNAPSHOT",
+    "ACTIVITY_DELTA",
+    "RAW",
+    "TEXT_MESSAGE_END",
+    "CUSTOM",
+    "REASONING_ENCRYPTED_VALUE",
+    "TOOL_CALL_RESULT",
+    "STEP_FINISHED",
+    "SUBAGENT_FINISHED",
+    "SUBAGENT_STARTED",
+    "SUBAGENT_ERROR",
+    "STEP_FINISHED",
+    "RUN_FINISHED"
+  ]
+}

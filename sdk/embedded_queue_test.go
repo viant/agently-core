@@ -2,7 +2,9 @@ package sdk
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"sync"
 	"testing"
 	"time"
 
@@ -419,7 +421,7 @@ func TestEmbeddedClient_ListPendingToolApprovals_BootstrapPollDoesNotReplayHisto
 func newQueueApprovalTestClient(t *testing.T, toolResult string) *backendClient {
 	t.Helper()
 
-	convClient := convmem.New()
+	convClient := &atomicQueueFixture{Client: convmem.New()}
 
 	return &backendClient{
 		conv: convClient,
@@ -432,7 +434,7 @@ func newQueueApprovalTestClient(t *testing.T, toolResult string) *backendClient 
 func newQueueApprovalTestClientWithError(t *testing.T, toolResult string, execErr error) *backendClient {
 	t.Helper()
 
-	convClient := convmem.New()
+	convClient := &atomicQueueFixture{Client: convmem.New()}
 
 	return &backendClient{
 		conv: convClient,
@@ -535,3 +537,32 @@ func queueTestStringValue(v *string) string {
 }
 
 var _ tool.Registry = (*stubRegistry)(nil)
+
+// This test fixture explicitly implements atomic personal-queue admission. The
+// production path uses the generated Datly conditional writer instead.
+type atomicQueueFixture struct {
+	*convmem.Client
+	claimMu sync.Mutex
+}
+
+func (s *atomicQueueFixture) ClaimToolApprovalDecision(ctx context.Context, previous *toolapprovalqueuemodel.QueueRowView, principal, action string) error {
+	s.claimMu.Lock()
+	defer s.claimMu.Unlock()
+	rows, err := s.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{Id: previous.Id, Has: &toolapprovalqueuemodel.QueueRowsInputHas{Id: true}})
+	if err != nil {
+		return err
+	}
+	if len(rows) != 1 || rows[0].UserId != principal || rows[0].Status != "pending" {
+		return fmt.Errorf("conditional approval conflict")
+	}
+	status := map[string]string{"approve": "approved", "reject": "rejected", "cancel": "canceled", "timeout": "timed_out"}[action]
+	if status == "" {
+		return fmt.Errorf("invalid action")
+	}
+	row := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
+	row.SetId(previous.Id)
+	row.SetUserId(principal)
+	row.SetStatus(status)
+	row.SetDecision(action)
+	return s.PatchToolApprovalQueue(ctx, row)
+}

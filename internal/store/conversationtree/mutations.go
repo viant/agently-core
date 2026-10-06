@@ -25,7 +25,6 @@ import (
 	jobwrite "github.com/viant/agently-core/internal/datly/reporting/job/write"
 	reportread "github.com/viant/agently-core/internal/datly/reporting/run/read"
 	reportwrite "github.com/viant/agently-core/internal/datly/reporting/run/write"
-	rundelete "github.com/viant/agently-core/internal/datly/run/delete"
 	runwrite "github.com/viant/agently-core/internal/datly/run/write"
 	schedulewrite "github.com/viant/agently-core/internal/datly/schedule/write"
 	toolwrite "github.com/viant/agently-core/internal/datly/toolcall/write"
@@ -33,6 +32,7 @@ import (
 	claimwrite "github.com/viant/agently-core/internal/datly/toolexecutionclaim/write"
 	turnwrite "github.com/viant/agently-core/internal/datly/turn/write"
 	queuewrite "github.com/viant/agently-core/internal/datly/turnqueue/write"
+	"github.com/viant/agently-core/internal/store/agentrun"
 	conversation "github.com/viant/agently-core/internal/store/conversation"
 	"github.com/viant/agently-core/internal/store/maintenancebatch"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
@@ -77,6 +77,9 @@ func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy Investigat
 		if _, ok := plan.Tables[table]; !ok {
 			return fmt.Errorf("deletion plan has no schema evidence for %s", table)
 		}
+	}
+	if err := m.deleteAGUI(ctx, plan); err != nil {
+		return err
 	}
 	if err := m.investigations(ctx, plan, policy); err != nil {
 		return err
@@ -139,19 +142,11 @@ func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy Investigat
 		return err
 	}
 	if plan.Tables["run"] {
-		if err := treeDeleteIDs[rundelete.RunDelete, rundelete.Output](ctx, m, plan.RunIDs, "/v1/internal/agently/run/delete", func(id string) *rundelete.RunDelete {
-			row := &rundelete.RunDelete{}
-			row.SetId(id)
-			row.SetShouldDelete(true)
-			return row
-		}, func(rows []*rundelete.RunDelete) any {
-			input := &rundelete.Input{}
-			input.SetRuns(rows)
-			return input
-		}); err != nil {
-			return err
+		if err := (&agentrun.Store{Invoker: m.Invoker, OwnerID: m.OwnerID}).DeleteTrusted(ctx, plan.RunIDs...); err != nil {
+			return fmt.Errorf("delete execution runs: %w", err)
 		}
 	}
+
 	queueIDs := []string{}
 	for _, row := range plan.Queues {
 		if row == nil {

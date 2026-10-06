@@ -5,7 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/app/store/data"
+	native "github.com/viant/agently-core/app/store/native"
 	"io"
+	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -191,8 +195,67 @@ func (c *backendClient) DownloadFile(ctx context.Context, input *DownloadFileInp
 	return nil, nil
 }
 
-func (c *backendClient) ListFiles(context.Context, *ListFilesInput) (*ListFilesOutput, error) {
-	return nil, errors.New("file listing is disabled")
+// ListFiles presents only the authorized conversation's existing generated-file
+// index. It never enumerates filesystem paths or a global file namespace.
+func (c *backendClient) ListFiles(ctx context.Context, input *ListFilesInput) (*ListFilesOutput, error) {
+	if c == nil || c.data == nil || c.goalInvoker == nil {
+		return nil, errors.New("scoped file storage is not configured")
+	}
+	if input == nil || input.ConversationID == "" {
+		return nil, errors.New("conversation ID is required")
+	}
+	if input.Page != nil && (input.Page.Limit < 0 || input.Page.Limit > 1000 || (input.Page.Direction != "" && input.Page.Direction != data.DirectionAfter && input.Page.Direction != data.DirectionBefore && input.Page.Direction != data.DirectionLatest)) {
+		return nil, errors.New("file page requires limit from 0 through 1000 and a supported direction")
+	}
+	if err := native.RequireVisibleConversation(ctx, c.goalInvoker, input.ConversationID); err != nil {
+		return nil, err
+	}
+	rows, err := c.data.ListGeneratedFiles(ctx, input.ConversationID, principalDataOpts(ctx)...)
+	if err != nil {
+		return nil, err
+	}
+	files := []*FileEntry{}
+	for _, row := range rows {
+		if row == nil || row.ConversationId != input.ConversationID {
+			return nil, errors.New("generated file conversation scope mismatch")
+		}
+		name := ptrString(row.Filename)
+		if name == "" {
+			name = row.Id
+		}
+		if input.Prefix != "" && !strings.HasPrefix(name, input.Prefix) && !strings.HasPrefix(row.Id, input.Prefix) {
+			continue
+		}
+		file := &FileEntry{ID: row.Id, Name: name, ContentType: ptrString(row.MimeType), URI: "/v1/files/" + url.PathEscape(row.Id) + "?conversationId=" + url.QueryEscape(input.ConversationID)}
+		if row.SizeBytes != nil {
+			file.Size = int64(*row.SizeBytes)
+		}
+		if row.UpdatedAt != nil {
+			file.ModifiedAt = *row.UpdatedAt
+		} else if row.CreatedAt != nil {
+			file.ModifiedAt = *row.CreatedAt
+		}
+		files = append(files, file)
+	}
+	// Stable ID ordering gives the existing cursor shape a deterministic meaning.
+	sort.Slice(files, func(i, j int) bool { return files[i].ID < files[j].ID })
+	if input.Page != nil {
+		filtered := files[:0]
+		for _, file := range files {
+			if input.Page.Cursor != "" && ((input.Page.Direction == data.DirectionBefore && file.ID >= input.Page.Cursor) || (input.Page.Direction != data.DirectionBefore && file.ID <= input.Page.Cursor)) {
+				continue
+			}
+			filtered = append(filtered, file)
+		}
+		files = filtered
+		if input.Page.Direction == data.DirectionLatest || input.Page.Direction == data.DirectionBefore {
+			sort.Slice(files, func(i, j int) bool { return files[i].ID > files[j].ID })
+		}
+		if input.Page.Limit > 0 && len(files) > input.Page.Limit {
+			files = files[:input.Page.Limit]
+		}
+	}
+	return &ListFilesOutput{Files: files, Rows: files, Page: input.Page}, nil
 }
 
 func (c *backendClient) ListResources(ctx context.Context, input *ListResourcesInput) (*ListResourcesOutput, error) {

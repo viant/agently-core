@@ -1,0 +1,330 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agently.dev/ag-ui/extensions/state/1",
+  "title": "Agently AG-UI shared state version 1",
+  "description": "State is a distinct arbitrary JSON document, including null. Hash is an opaque server-issued equality token; clients echo it rather than compute it. Commands affect only the authenticated outer thread. Patch definitions copy the pinned AG-UI 1.0 schema. Result uses CUSTOM agently.state.result and standard STATE_SNAPSHOT/STATE_DELTA events.",
+  "x-agui-schema-pin": "e60019d258cf43ecc5ad19e8d374f1c31cbf2b94",
+  "$defs": {
+    "JsonPatch": {
+      "$anchor": "JsonPatch",
+      "type": "array",
+      "description": "A JSON Patch document as defined by RFC 6902, referenced by STATE_DELTA.delta and ACTIVITY_DELTA.patch: an ordered sequence of operations applied to a target document. An empty array is a valid no-op patch. Whether the operations actually apply to the document they target is a runtime question RFC 6902 leaves to the applier; structural validity here says nothing about it.",
+      "items": {
+        "$ref": "#/$defs/JsonPatchOperation"
+      }
+    },
+    "JsonPatchOperation": {
+      "$anchor": "JsonPatchOperation",
+      "description": "A single RFC 6902 operation. Exactly one of the operation shapes must match, discriminated by op. Unlike the protocol's own objects, the operations are open: RFC 6902 section 4 requires members an operation does not define to be ignored rather than rejected, so a remove carrying a leftover value is a valid patch. Two of the RFC's rules are relations between values rather than shapes, so no static schema can express them and neither is checked here: a move whose from is a proper prefix of its path (section 4.4), and any operation whose pointer does not resolve in the target document. Both are the applier's to reject.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/AddOperation"
+        },
+        {
+          "$ref": "#/$defs/RemoveOperation"
+        },
+        {
+          "$ref": "#/$defs/ReplaceOperation"
+        },
+        {
+          "$ref": "#/$defs/MoveOperation"
+        },
+        {
+          "$ref": "#/$defs/CopyOperation"
+        },
+        {
+          "$ref": "#/$defs/TestOperation"
+        }
+      ]
+    },
+    "JsonPointer": {
+      "$anchor": "JsonPointer",
+      "type": "string",
+      "description": "A JSON Pointer as defined by RFC 6901. Either the empty string, meaning the whole document, or a sequence of slash-prefixed reference tokens in which a tilde is escaped as ~0 and a slash as ~1. A value with no leading slash, or a tilde followed by anything other than 0 or 1, is not a JSON Pointer.",
+      "pattern": "^(/([^/~]|~[01])*)*$"
+    },
+    "AddOperation": {
+      "$anchor": "AddOperation",
+      "type": "object",
+      "description": "Inserts value at path. RFC 6902 section 4.1.",
+      "properties": {
+        "op": {
+          "const": "add",
+          "description": "Discriminator for the add operation."
+        },
+        "path": {
+          "$ref": "#/$defs/JsonPointer",
+          "description": "Where to insert the value."
+        },
+        "value": {
+          "description": "The value to insert. Any JSON value, including null, which is a legitimate thing to add."
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "value"
+      ]
+    },
+    "RemoveOperation": {
+      "$anchor": "RemoveOperation",
+      "type": "object",
+      "description": "Removes the value at path. RFC 6902 section 4.2.",
+      "properties": {
+        "op": {
+          "const": "remove",
+          "description": "Discriminator for the remove operation."
+        },
+        "path": {
+          "$ref": "#/$defs/JsonPointer",
+          "description": "What to remove."
+        }
+      },
+      "required": [
+        "op",
+        "path"
+      ]
+    },
+    "ReplaceOperation": {
+      "$anchor": "ReplaceOperation",
+      "type": "object",
+      "description": "Replaces the value at path. RFC 6902 section 4.3.",
+      "properties": {
+        "op": {
+          "const": "replace",
+          "description": "Discriminator for the replace operation."
+        },
+        "path": {
+          "$ref": "#/$defs/JsonPointer",
+          "description": "What to replace."
+        },
+        "value": {
+          "description": "The replacement. Any JSON value, including null."
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "value"
+      ]
+    },
+    "MoveOperation": {
+      "$anchor": "MoveOperation",
+      "type": "object",
+      "description": "Moves the value at from to path. RFC 6902 section 4.4.",
+      "properties": {
+        "op": {
+          "const": "move",
+          "description": "Discriminator for the move operation."
+        },
+        "from": {
+          "$ref": "#/$defs/JsonPointer",
+          "description": "Where the value is moved from."
+        },
+        "path": {
+          "$ref": "#/$defs/JsonPointer",
+          "description": "Where the value is moved to."
+        }
+      },
+      "required": [
+        "op",
+        "from",
+        "path"
+      ]
+    },
+    "CopyOperation": {
+      "$anchor": "CopyOperation",
+      "type": "object",
+      "description": "Copies the value at from to path. RFC 6902 section 4.5.",
+      "properties": {
+        "op": {
+          "const": "copy",
+          "description": "Discriminator for the copy operation."
+        },
+        "from": {
+          "$ref": "#/$defs/JsonPointer",
+          "description": "Where the value is copied from."
+        },
+        "path": {
+          "$ref": "#/$defs/JsonPointer",
+          "description": "Where the value is copied to."
+        }
+      },
+      "required": [
+        "op",
+        "from",
+        "path"
+      ]
+    },
+    "TestOperation": {
+      "$anchor": "TestOperation",
+      "type": "object",
+      "description": "Asserts that the value at path equals value. RFC 6902 section 4.6.",
+      "properties": {
+        "op": {
+          "const": "test",
+          "description": "Discriminator for the test operation."
+        },
+        "path": {
+          "$ref": "#/$defs/JsonPointer",
+          "description": "What to compare."
+        },
+        "value": {
+          "description": "The value the target must equal. Any JSON value, including null."
+        }
+      },
+      "required": [
+        "op",
+        "path",
+        "value"
+      ]
+    },
+    "get": {
+      "type": "object",
+      "properties": {},
+      "required": [],
+      "additionalProperties": false
+    },
+    "patch": {
+      "type": "object",
+      "properties": {
+        "patch": {
+          "$ref": "#/$defs/JsonPatch"
+        },
+        "ifMatch": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "patch"
+      ],
+      "additionalProperties": false
+    },
+    "Result": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "hash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "state": {}
+      },
+      "required": [
+        "version",
+        "hash",
+        "state"
+      ],
+      "additionalProperties": false
+    },
+    "Capabilities": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "operations": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "state.get",
+              "state.patch"
+            ]
+          },
+          "uniqueItems": true
+        }
+      },
+      "required": [
+        "version",
+        "operations"
+      ],
+      "additionalProperties": false
+    },
+    "Envelope": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "operation": {
+          "enum": [
+            "state.get",
+            "state.patch"
+          ]
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "payload": {
+          "type": "object"
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "threadId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "threadId"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "required": [
+        "version",
+        "operation",
+        "requestId"
+      ],
+      "additionalProperties": false,
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "state.get"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/get"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "operation": {
+                "const": "state.patch"
+              }
+            },
+            "required": [
+              "operation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "payload": {
+                "$ref": "#/$defs/patch"
+              }
+            },
+            "required": [
+              "payload"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

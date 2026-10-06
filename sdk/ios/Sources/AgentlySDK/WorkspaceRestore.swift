@@ -118,6 +118,20 @@ private func applyWindowFormDataPatches(
     }
     var patchedWindows = windows
     for step in toolSteps {
+        if normalizeHostedWorkspaceToolName(step.toolName) == "ui/context/get",
+           let payload = firstParsedPayload(step.responsePayload, step.content)?.objectValue,
+           let entries = payload["windows"]?.arrayValue {
+            for entry in entries {
+                guard let object = entry.objectValue,
+                      let snapshot = normalizeHostedWorkspaceWindow(object["window"]?.objectValue ?? object) else { continue }
+                patchedWindows = patchedWindows.map { window in
+                    guard window.windowId == snapshot.windowId,
+                          window.conversationId == snapshot.conversationId else { return window }
+                    return snapshot
+                }
+            }
+            continue
+        }
         if normalizeHostedWorkspaceToolName(step.toolName) == "ui/window/get",
            let snapshot = hostedWorkspaceWindowFromGetStep(step) {
             let targets = hostedWorkspaceFormPatchTargets(

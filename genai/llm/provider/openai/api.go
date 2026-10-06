@@ -188,6 +188,8 @@ func emitTerminalResponse(out chan<- llm.StreamEvent, lr *llm.GenerateResponse) 
 
 func (c *Client) Implements(feature string) bool {
 	switch feature {
+	case base.SupportsProtocolMedia, base.SupportsProviderFiles:
+		return true
 	case base.CanUseTools:
 		return true
 	case base.CanStream:
@@ -283,7 +285,31 @@ func shouldUseResponsesAPI(model llm.Model, req *Request) bool {
 	if req == nil {
 		return false
 	}
-	return req.EnableImageGeneration || req.EnableCodeInterpreter
+	if req.EnableImageGeneration || req.EnableCodeInterpreter {
+		return true
+	}
+	client, ok := model.(*Client)
+	return ok && supportsUploadedImageResponses(client) && hasUploadedImageInput(req)
+}
+
+func supportsUploadedImageResponses(client *Client) bool {
+	return client != nil && (isContextContinuationEnabled(client) || strings.TrimRight(client.BaseURL, "/") == openAIEndpoint)
+}
+
+// Uploaded image IDs are a Responses input_image capability, not a
+// Chat Completions image_file part. Retain the provider ID and full content.
+func hasUploadedImageInput(req *Request) bool {
+	if req == nil {
+		return false
+	}
+	for _, message := range req.Messages {
+		for _, item := range toResponsesContentItems(message.Content, message.Role == "assistant") {
+			if item.Type == "input_image" && item.FileID != "" {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Generate sends a chat request to the OpenAI API and returns the response
@@ -531,6 +557,9 @@ func adaptSystemMessagesForChatGPTBackend(payload *ResponsesPayload) {
 
 // marshalChatCompletionApiRequestBody marshals a legacy chat/completions payload from Request.
 func (c *Client) marshalChatCompletionApiRequestBody(req *Request) ([]byte, error) {
+	if hasUploadedImageInput(req) {
+		return nil, fmt.Errorf("uploaded image file IDs require a Responses-capable endpoint; enable the configured Responses capability or use inline image attachments")
+	}
 	data, err := json.Marshal(req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal chat/completions request: %w", err)
@@ -863,9 +892,11 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 	// Ask OpenAI to include usage in the final stream event if supported
 	req.StreamOptions = &StreamOptions{IncludeUsage: true}
 
-	// Scrub fields unsupported by chat/completions when continuation is disabled.
+	// API representation and server-side continuation are separate capabilities.
 	if !isContextContinuationEnabled(c) {
 		req.PreviousResponseID = ""
+	}
+	if !shouldUseResponsesAPI(c, req) {
 		req.Instructions = ""
 		req.PromptCacheKey = ""
 		req.Text = nil

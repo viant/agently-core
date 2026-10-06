@@ -271,6 +271,7 @@ public struct ConversationStreamSnapshot: Sendable {
 public actor ConversationStreamTracker {
     private var snapshot = ConversationStreamSnapshot()
     private var messagesByID: [String: BufferedStreamMessage] = [:]
+    private var internalMessageIDs: Set<String> = []
     private var feedsByID: [String: ActiveFeedState] = [:]
     private var executionGroupsByID: [String: LiveExecutionGroup] = [:]
     private var plannerByTurnID: [String: PlannerState] = [:]
@@ -353,6 +354,7 @@ public actor ConversationStreamTracker {
     public func reset(conversationID: String? = nil) {
         snapshot = ConversationStreamSnapshot(conversationID: conversationID)
         messagesByID.removeAll()
+        internalMessageIDs.removeAll()
         feedsByID.removeAll()
         executionGroupsByID.removeAll()
         plannerByTurnID.removeAll()
@@ -731,6 +733,12 @@ private extension ConversationStreamTracker {
         }
 
         guard let messageID = payload.resolvedMessageID?.trimmedNonEmpty else { return }
+        if isInternalMessageMode(payload.mode) {
+            internalMessageIDs.insert(messageID)
+            messagesByID.removeValue(forKey: messageID)
+        }
+        if internalMessageIDs.contains(messageID), payload.patch?["role"]?.stringValue != "user" { return }
+
         let existing = ensureMessageEntry(
             id: messageID,
             payload: payload,
@@ -740,17 +748,17 @@ private extension ConversationStreamTracker {
 
         switch type {
         case "text_delta":
-            if let expectedOffset = payload.contentOffset,
+            if payload.contentMode != "snapshot", let expectedOffset = payload.contentOffset,
                (existing.content ?? "").utf8.count != expectedOffset {
                 return
             }
             messagesByID[messageID] = existing.with(
-                content: (existing.content ?? "") + (payload.content ?? ""),
+                content: payload.contentMode == "snapshot" ? (payload.content ?? existing.content) : (existing.content ?? "") + (payload.content ?? ""),
                 status: payload.status ?? existing.status ?? "running"
             )
         case "reasoning_delta":
             messagesByID[messageID] = existing.with(
-                narration: (existing.narration ?? "") + (payload.content ?? "")
+                narration: payload.contentMode == "snapshot" ? (payload.content ?? existing.narration) : (existing.narration ?? "") + (payload.content ?? "")
             )
         case "narration":
             messagesByID[messageID] = existing.with(
@@ -936,6 +944,11 @@ private extension ConversationStreamTracker {
     }
 
     func reconcileMessages(from turns: [ConversationTurn], activeTurnID: String?) -> [String: BufferedStreamMessage] {
+        for id in turns.flatMap({ canonicalInternalAssistantMessageIDs($0) }) {
+            internalMessageIDs.insert(id)
+            messagesByID.removeValue(forKey: id)
+        }
+
         var merged: [String: BufferedStreamMessage] = [:]
         let preserveActiveBufferedAssistant = activeTurnID.flatMap { activeTurnID in
             messagesByID.values.contains { message in
@@ -946,32 +959,11 @@ private extension ConversationStreamTracker {
             if turn.id.trimmedNonEmpty == preserveActiveBufferedAssistant {
                 continue
             }
-            if let narration = turn.assistant?.narration, let messageID = narration.messageID.trimmedNonEmpty {
-                merged[messageID] = BufferedStreamMessage(
-                    id: messageID,
-                    conversationID: snapshot.conversationID,
-                    turnID: turn.id,
-                    role: "assistant",
-                    type: "text",
-                    content: nil,
-                    narration: narration.content,
-                    status: "running",
-                    interim: 1,
-                    createdAt: turn.createdAt
-                )
-            }
-            if let final = turn.assistant?.final, let messageID = final.messageID.trimmedNonEmpty {
-                merged[messageID] = BufferedStreamMessage(
-                    id: messageID,
-                    conversationID: snapshot.conversationID,
-                    turnID: turn.id,
-                    role: "assistant",
-                    type: "text",
-                    content: final.content,
-                    narration: turn.assistant?.narration?.content,
-                    status: "completed",
-                    interim: 0,
-                    createdAt: turn.createdAt
+            for message in canonicalAssistantMessages(turn) {
+                merged[message.messageID] = BufferedStreamMessage(
+                    id: message.messageID, conversationID: snapshot.conversationID, turnID: turn.id,
+                    role: "assistant", type: "text", content: message.content, status: turn.status,
+                    interim: message.interim ?? 0, createdAt: message.createdAt ?? turn.createdAt, sequence: message.sequence
                 )
             }
         }
@@ -980,7 +972,7 @@ private extension ConversationStreamTracker {
                 merged[messageID] = message
             }
         }
-        return merged
+        return merged.filter { !internalMessageIDs.contains($0.key) }
     }
 
     func reconcileExecutionGroups(from turns: [ConversationTurn], activeTurnID: String?) -> [String: LiveExecutionGroup] {
@@ -1122,7 +1114,7 @@ private extension ConversationStreamTracker {
                 return next
             }
             let narration = type == "reasoning_delta"
-                ? (current.narration ?? "") + (payload.content ?? "")
+                ? (payload.contentMode == "snapshot" ? (payload.content ?? current.narration) : (current.narration ?? "") + (payload.content ?? ""))
                 : (payload.content ?? payload.narration ?? current.narration)
             let updated = current.copy(
                 turnID: payload.turnID ?? current.turnID,
@@ -1139,7 +1131,7 @@ private extension ConversationStreamTracker {
                 return next
             }
             let content = type == "text_delta"
-                ? (current.content ?? "") + (payload.content ?? "")
+                ? (payload.contentMode == "snapshot" ? (payload.content ?? current.content) : (current.content ?? "") + (payload.content ?? ""))
                 : (payload.content ?? current.content)
             let updated = current.copy(
                 turnID: payload.turnID ?? current.turnID,

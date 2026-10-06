@@ -1,0 +1,29 @@
+#package('github.com/viant/agently-core/internal/datly/agui/thread/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/thread','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Principal<string>(query/principal).Required())
+#define($_ = $Key<string>(query/key).Required())
+#define($_ = $NativeID<string>(query/nativeId).Optional())
+#define($_ = $Data<[]*Thread>(output/view))
+SELECT agui_data.*,
+       agui_data.protocol_thread_key AS ThreadKey,
+       agui_data.protocol_thread_id AS ThreadId,
+       agui_data.protocol_principal AS Principal,
+       agui_data.protocol_revision AS Revision,
+       agui_data.protocol_state_json AS StateJson,
+       agui_data.protocol_messages_json AS MessagesJson,
+       type(agui_data,'Thread'),
+       tag(agui_data.id,'sqlx:"id,primaryKey=true,required=true"'),
+       row_lock(agui_data,'conversation c'),
+       CAST(agui_data.ThreadId AS *string),
+       CAST(agui_data.Principal AS *string),
+       CAST(agui_data.Revision AS int64),
+       CAST(agui_data.StateJson AS []byte),
+       CAST(agui_data.MessagesJson AS []byte),
+       CAST(agui_data.protocol_only AS bool)
+FROM (${embed:sql/rows.sql}) agui_data

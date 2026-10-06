@@ -2,6 +2,7 @@ package approvalqueue
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -258,4 +259,40 @@ func TestSweeper_ScopesByUserAndConversation(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, rows, 1)
 	require.Equal(t, "pending", rows[0].Status, "out-of-scope row must remain pending")
+}
+
+func (f *fakeTimeoutStore) ClaimToolApprovalDecision(ctx context.Context, previous *toolapprovalqueuemodel.QueueRowView, principal, action string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row := f.rows[previous.Id]
+	if row == nil || row.UserId != principal || row.Status != "pending" || action != "timeout" {
+		return errors.New("conditional timeout conflict")
+	}
+	row.Status = "timed_out"
+	return nil
+}
+
+type lostTimeoutClaimStore struct {
+	*fakeTimeoutStore
+	patches int
+}
+
+func (s *lostTimeoutClaimStore) ClaimToolApprovalDecision(context.Context, *toolapprovalqueuemodel.QueueRowView, string, string) error {
+	return errors.New("lost conditional timeout claim")
+}
+func (s *lostTimeoutClaimStore) PatchToolApprovalQueue(ctx context.Context, row *toolapprovalqueuemodel.ToolApprovalQueue) error {
+	s.patches++
+	return s.fakeTimeoutStore.PatchToolApprovalQueue(ctx, row)
+}
+func TestSweeperLostClaimProducesNoTimeoutWriteOrOutcome(t *testing.T) {
+	now := time.Now().UTC()
+	expiry := now.Add(-time.Second)
+	store := &lostTimeoutClaimStore{fakeTimeoutStore: newFakeTimeoutStore()}
+	store.seed(&toolapprovalqueuemodel.ToolApprovalQueue{Id: "lost", UserId: "owner", Status: "pending", ExpiresAt: &expiry})
+	sweeper, err := NewSweeper(store, store, func() time.Time { return now })
+	require.NoError(t, err)
+	outcome, err := sweeper.Sweep(context.Background(), &SweepInput{UserID: "owner"})
+	require.Error(t, err)
+	require.Nil(t, outcome)
+	require.Zero(t, store.patches)
 }

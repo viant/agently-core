@@ -5,14 +5,14 @@ package write
 // LinkState is generated canonical view metadata for write.
 type LinkState struct {
 	ShouldDelete bool          `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
-	StateHash    string        `sqlx:"state_hash,primaryKey=false,required=true" json:"stateHash"`
-	FlowHash     string        `sqlx:"flow_hash,primaryKey=true,required=true" json:"flowHash"`
-	UserId       string        `sqlx:"user_id,required=true" json:"userId"`
-	SessionHash  string        `sqlx:"session_hash,required=true" json:"sessionHash"`
-	Provider     string        `sqlx:"provider,required=true" json:"provider"`
-	ExpiresAt    string        `sqlx:"expires_at,required=true" json:"expiresAt"`
-	ConsumedAt   *string       `sqlx:"consumed_at" json:"consumedAt"`
-	CreatedAt    string        `sqlx:"created_at,required=true" json:"createdAt"`
+	StateHash    string        `sqlx:"state_hash,primaryKey=false,required=true" json:"stateHash,omitempty"`
+	FlowHash     string        `sqlx:"flow_hash,primaryKey=true,required=true" json:"flowHash,omitempty"`
+	UserId       string        `sqlx:"user_id,required=true" json:"userId,omitempty"`
+	SessionHash  string        `sqlx:"session_hash,required=true" json:"sessionHash,omitempty"`
+	Provider     string        `sqlx:"provider,required=true" json:"provider,omitempty"`
+	ExpiresAt    string        `sqlx:"expires_at,required=true" json:"expiresAt,omitempty"`
+	ConsumedAt   *string       `sqlx:"consumed_at" json:"consumedAt,omitempty"`
+	CreatedAt    string        `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
 	Now          string        `sqlx:"-" json:"now"`
 	Has          *LinkStateHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"LinkStateHas"`
 }
@@ -32,14 +32,14 @@ type LinkStateHas struct {
 
 // CurrentWriteView is generated canonical view metadata for write.
 type CurrentWriteView struct {
-	StateHash   string  `sqlx:"state_hash,primaryKey=false,required=true" json:"stateHash"`
-	FlowHash    string  `sqlx:"flow_hash,primaryKey=true,required=true" json:"flowHash"`
-	UserId      string  `sqlx:"user_id,required=true" json:"userId"`
-	SessionHash string  `sqlx:"session_hash,required=true" json:"sessionHash"`
-	Provider    string  `sqlx:"provider,required=true" json:"provider"`
-	ExpiresAt   string  `sqlx:"expires_at,required=true" json:"expiresAt"`
-	ConsumedAt  *string `sqlx:"consumed_at" json:"consumedAt"`
-	CreatedAt   string  `sqlx:"created_at,required=true" json:"createdAt"`
+	StateHash   string  `sqlx:"state_hash,primaryKey=false,required=true" json:"stateHash,omitempty"`
+	FlowHash    string  `sqlx:"flow_hash,primaryKey=true,required=true" json:"flowHash,omitempty"`
+	UserId      string  `sqlx:"user_id,required=true" json:"userId,omitempty"`
+	SessionHash string  `sqlx:"session_hash,required=true" json:"sessionHash,omitempty"`
+	Provider    string  `sqlx:"provider,required=true" json:"provider,omitempty"`
+	ExpiresAt   string  `sqlx:"expires_at,required=true" json:"expiresAt,omitempty"`
+	ConsumedAt  *string `sqlx:"consumed_at" json:"consumedAt,omitempty"`
+	CreatedAt   string  `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
 	Now         string  `sqlx:"now" json:"now"`
 }
 

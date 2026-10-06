@@ -1,0 +1,1 @@
+SELECT r.id,r.conversation_id,r.turn_id,r.effective_user_id,r.status,r.lease_owner,r.lease_until FROM run r WHERE r.run_kind='execution' AND r.id=$RunID AND r.conversation_id=$ConversationID AND r.turn_id=$TurnID AND r.effective_user_id=$Owner

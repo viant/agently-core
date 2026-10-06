@@ -1,221 +1,139 @@
-# Architecture overview
+# Architecture
 
-One picture of how the pieces fit together. Each box links to the doc that
-covers its subsystem.
+Agently Core owns agent execution and durable state. Applications embed that
+runtime in Go or expose it to clients through [AG-UI](https://docs.ag-ui.com/spec/1.0) and authenticated application
+APIs. The assembled Agently application supplies server configuration, CLI and
+web/mobile shells; Forge supplies independent data-driven UI rendering.
 
-```
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                                    CLIENTS                                       │
-│  ┌───────────┐  ┌───────────┐  ┌───────────┐                ┌──────────────┐     │
-│  │  Web UI   │  │   iOS     │  │  Android  │                │  CLI / Tests │     │
-│  │ (agently) │  │  AgentlyS.│  │ AgentlyS. │                │  NewHTTP(..) │     │
-│  └─────┬─────┘  └─────┬─────┘  └─────┬─────┘                └──────┬───────┘     │
-│        │              │              │                              │             │
-│        │  JSON/HTTPS + Server-Sent Events  (session cookie, OAuth)  │             │
-│        ▼              ▼              ▼                              ▼             │
-└────────────────────────────────────────────────────────────────────────────────────┘
-                                        │
-                                        ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                              HTTP / SDK LAYER  (sdk.md)                          │
-│                                                                                  │
-│   ┌──────────────────────┐         ┌───────────────────────┐                     │
-│   │   HTTPClient         │◄───────►│   handler.go routes   │                     │
-│   │   (Go over HTTP)     │         │   /v1/* + /v1/api/*   │                     │
-│   └──────────────────────┘         └──────────┬────────────┘                     │
-│                                               │                                  │
-│   ┌──────────────────────┐                    │  auth middleware                 │
-│   │   backendClient      │◄──── same Client interface ──► auth-system.md         │
-│   │   (embedded)         │                    │                                  │
-│   └──────────┬───────────┘                    │                                  │
-│              │                                │                                  │
-│              └────────────────┬───────────────┘                                  │
-│                               │                                                  │
-│              Events ◄────── streaming.Bus ──────► SSE (streaming-events.md)      │
-└──────────────────────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                                 CORE SERVICES                                    │
-│                                                                                  │
-│   ┌─────────────────────────────────────────────────────────────┐                │
-│   │    Agent orchestration  (service/agent, service/reactor)    │   agent-       │
-│   │    ReAct: plan → act → observe → synthesize                 │   orchestra-   │
-│   │                                                             │   tion.md      │
-│   │   ┌──────────────┐   ┌───────────────────┐                  │                │
-│   │   │  intake      │──►│  reactor loop     │                  │                │
-│   │   │  sidecar     │   │  ┌──────────────┐ │                  │                │
-│   │   │ (planning-   │   │  │ overflow /   │ │  context-        │                │
-│   │   │  and-intake) │   │  │ pruning      │ │  management.md   │                │
-│   │   └──────────────┘   │  └──────────────┘ │                  │                │
-│   │                      │  ┌──────────────┐ │                  │                │
-│   │                      │  │ approvals    │ │                  │                │
-│   │                      │  └──────────────┘ │                  │                │
-│   │                      └──────┬────────────┘                  │                │
-│   └─────────────────────────────┼─────────────────────────────┐─┘                │
-│                                 │                             │                  │
-│        ┌────────────────────────┼──────────────────────┐      │                  │
-│        │                        ▼                      │      │                  │
-│        │          ┌──────────────────────────┐         │      │                  │
-│        │          │    Tool registry         │         │      │  tool-system.md  │
-│        │          │  service:method dispatch │         │      │  internal-tools  │
-│        │          └──────┬──────────┬────────┘         │      │                  │
-│        │                 │          │                  │      │                  │
-│        │                 ▼          ▼                  │      │                  │
-│        │   ┌──────────────────┐ ┌───────────────────┐  │      │                  │
-│        │   │ Internal tools   │ │ External MCP proxy│  │      │  mcp-integration │
-│        │   │ llm/agents       │ │ + auth token      │  │      │  a2a-protocol    │
-│        │   │ prompt, template │ │ (ctx-attached)    │  │      │                  │
-│        │   │ skills, system/* │ │                   │  │      │                  │
-│        │   │ orchestration,   │ │  MCP servers ────────┼──────┼──►   (remote)    │
-│        │   │ resources, etc.  │ │                   │  │      │                  │
-│        │   └──────────────────┘ └───────────────────┘  │      │                  │
-│        │                                               │      │                  │
-│        │   ┌─────────────────────────────────────────┐ │      │                  │
-│        │   │  Async operation manager                │ │      │  async.md        │
-│        │   │  (parent-turn gating, poller, events)   │ │      │                  │
-│        │   └─────────────────────────────────────────┘ │      │                  │
-│        │                                               │      │                  │
-│        │   ┌─────────────────────────────────────────┐ │      │                  │
-│        │   │  Elicitation                             │ │      │  elicitation-   │
-│        │   │  schema + refiner + overlay hook         │ │      │  system.md      │
-│        │   │                    │                     │ │      │  overlays.md    │
-│        │   │                    ▼                     │ │      │                  │
-│        │   │  Overlay engine (service/lookup/overlay) │ │      │                  │
-│        │   │  matcher · mode · translator · registry  │ │      │                  │
-│        │   └─────────────────────────────────────────┘ │      │                  │
-│        │                                               │      │                  │
-│        │   ┌─────────────────────────────────────────┐ │      │                  │
-│        │   │  Datasource service                     │ │      │  lookups.md      │
-│        │   │  mcp_tool / mcp_resource / feed_ref /   │ │      │                  │
-│        │   │  inline  +  per-user cache              │ │      │                  │
-│        │   └─────────────────────────────────────────┘ │      │                  │
-│        │                                               │      │                  │
-│        │   ┌──────────────────┐  ┌───────────────────┐ │      │                  │
-│        │   │  Feed registry   │  │  Augmentation /   │ │      │  feed-system     │
-│        │   │  (UI dashboards) │  │  retrieval        │ │      │  augmentation    │
-│        │   └──────────────────┘  └───────────────────┘ │      │                  │
-│        │                                               │      │                  │
-│        │   ┌──────────────────┐  ┌───────────────────┐ │      │                  │
-│        │   │  Scheduler       │  │  A2A service      │ │      │  scheduler       │
-│        │   │  (cron/interval/ │  │  (agent-to-agent) │ │      │  a2a-protocol    │
-│        │   │  adhoc,  lease)  │  │                   │ │      │                  │
-│        │   └──────────────────┘  └───────────────────┘ │      │                  │
-│        └───────────────────────────────────────────────┘      │                  │
-│                                                               │                  │
-│   ┌─────────────────────────────────────────────────────────┐ │                  │
-│   │  Prompt binder + LLM invocation (service/core, genai)   │─┘                  │
-│   │                                                         │   prompt-binding   │
-│   │  ┌────────────┐  ┌──────────────┐  ┌────────────────┐   │   llm-providers    │
-│   │  │  bindings  │  │ Model.Genera │  │ Provider adapt │   │                    │
-│   │  │ assembly   │─►│ streaming +  │◄─│ OpenAI/Claude/ │   │                    │
-│   │  │ (prompts,  │  │ tool_calls   │  │ Gemini/Ollama/ │   │                    │
-│   │  │ skills,    │  │              │  │ Grok/Inception │   │                    │
-│   │  │ knowledge) │  │              │  │                │   │                    │
-│   │  └────────────┘  └──────────────┘  └────────────────┘   │                    │
-│   └─────────────────────────────────────────────────────────┘                    │
-│                                                                                  │
-│   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────────┐               │
-│   │  Embedders       │  │  Speech          │  │  Auth service    │  embedius     │
-│   │  (embedius)      │  │  (transcribe)    │  │  (BFF/OAuth/JWT) │  speech       │
-│   └──────────────────┘  └──────────────────┘  └──────────────────┘  auth-system  │
-└──────────────────────────────────────────────────────────────────────────────────┘
-                                │
-                                ▼
-┌──────────────────────────────────────────────────────────────────────────────────┐
-│                              PERSISTENCE / STATE                                 │
-│                                                                                  │
-│   ┌─────────────────────────────────────────────────────────────┐                │
-│   │   Datly-backed tables  (pkg/agently/*)                      │  conversation  │
-│   │   conversation · turn · message · tool_call · run ·         │  -model.md     │
-│   │   turn_queue · tool_approval_queue · payload · files ·      │                │
-│   │   schedules                                                 │                │
-│   └─────────────────────────────────────────────────────────────┘                │
-│                                                                                  │
-│   ┌─────────────────────────────────────────────────────────────┐                │
-│   │   Workspace YAML  (extension/forge/*, agents/, models/, ..) │  workspace-    │
-│   │   loaded via Repository[T], hotswap-aware                   │  system.md     │
-│   └─────────────────────────────────────────────────────────────┘                │
-└──────────────────────────────────────────────────────────────────────────────────┘
+## System boundaries
+
+```mermaid
+flowchart TD
+    Client[Web · mobile · CLI · custom clients] --> Auth[Authentication and request identity]
+    Auth --> AGUI[AG-UI admission, journal and SSE]
+    Auth --> API[Application APIs: history, resources, reports and management]
+    Host[Embedded Go host] --> Backend[Native backend]
+    AGUI --> Backend
+    API --> Backend
+    Backend --> Agent[Agent service: task and turn lifecycle]
+    Workspace[Workspace repositories and finders] --> Agent
+    Agent --> Intake[Intake and prompt composition]
+    Intake --> Reactor[Reactor: model/tool loop]
+    Reactor --> Model[Model provider adapters]
+    Reactor --> Dispatch[Policy and tool dispatch]
+    Dispatch --> Internal[Internal services]
+    Dispatch --> MCP[Authenticated MCP clients]
+    Dispatch --> Linked[Linked agents and async operations]
+    Dispatch --> Human[Approval and elicitation]
+    Internal --> Reactor
+    MCP --> Reactor
+    Linked --> Reactor
+    Human --> Reactor
+    Agent --> Store[Conversation, execution and report stores]
+    Agent --> Goals[Goal accounting and controller]
+    Goals --> Queue[Queued turns and scheduler]
+    Queue --> Agent
+    Agent --> Events[Native events and canonical presentation]
+    Events --> AGUI
 ```
 
-## Request lifecycle — one turn end-to-end
+| Boundary | Ownership |
+| --- | --- |
+| SDK and HTTP | AG-UI runs/observation, authenticated application requests, typed client controls and transport state |
+| Native backend and agent service | Conversation/turn identity, execution lifecycle, orchestration and recovery |
+| Reactor and prompt composition | Model-visible history, instructions, knowledge, tool selection, provider invocation and iterative observations |
+| Tool dispatch | Registry resolution, policy, authorization, approval and execution of internal/MCP tools |
+| Durable interaction | Elicitation, approval receipts, queued work, linked invocations and async operation state |
+| Goal controller and scheduler | Goal evaluation/accounting, ordinary continuation turns, scheduled wakeups and leases |
+| Persistence | Conversations, messages, calls, run state, payloads, goals, schedules and report lifecycle |
+| Application presentation | Canonical transcript, feed/window/report descriptors; host connectors and Forge render authored views |
+| Workspace | Agent/model/tool definitions, reusable behavior resources and application configuration |
 
-```
-┌─ Web client ──────────────────────────────────────────────────────────┐
-│  1. POST /v1/agent/query          (session cookie, conversation id)   │
-│  2. Opens SSE /v1/stream          (reconnect-aware, reducer feeds UI) │
-└─────────────────────┬──────────────────────────────────────────────────┘
-                      │
-                      ▼
-┌─ HTTP handler (sdk/handler.go) ────────────────────────────────────────┐
-│  auth middleware → decodes input → calls Client.Query(ctx, input)      │
-└─────────────────────┬──────────────────────────────────────────────────┘
-                      │
-                      ▼
-┌─ backendClient.Query (sdk/embedded.go) ────────────────────────────────┐
-│  feed notifier + streaming bus attached via ctx                        │
-│  → agent.Service.Query(ctx, input, out)                                │
-└─────────────────────┬──────────────────────────────────────────────────┘
-                      │
-                      ▼
-┌─ Agent / reactor loop ─────────────────────────────────────────────────┐
-│  intake sidecar          → TurnContext {profile, bundles, confidence}  │
-│  prompt binder           → GenerateRequest                             │
-│  llm.Model.Generate      → GenerateResponse (streaming)                │
-│      │                                                                 │
-│      ├─ tool_call  → registry.Execute(ctx, "svc:method", args)         │
-│      │               ├─ internal service                               │
-│      │               └─ MCP proxy (auth attached from ctx)             │
-│      │                                                                 │
-│      ├─ child agent → llm/agents:start (A2A)                           │
-│      ├─ async op    → asynccfg manager (poll / subscribe / flush)      │
-│      ├─ elicit      → refiner + overlay → client form                  │
-│      └─ overflow    → prune + retry                                    │
-│  synthesize final assistant message                                    │
-└─────────────────────┬──────────────────────────────────────────────────┘
-                      │
-                      ▼
-┌─ Persistence + events ─────────────────────────────────────────────────┐
-│  turn + messages + tool_calls committed to Datly tables                │
-│  streaming.Bus events delivered to SSE subscribers                     │
-│  canonical reducer updates per-conversation state snapshot             │
-└────────────────────────────────────────────────────────────────────────┘
-```
+## A conversation turn
 
-## Cross-cutting lanes
+1. **Authenticate and admit.** The HTTP edge derives the caller from the
+   configured session or bearer identity. AG-UI validates the request, binds its
+   public thread/run identity to authorized durable state and records admission.
+2. **Resolve the task.** Agent orchestration resolves workspace configuration,
+   routing and intake. The runtime establishes the native conversation/turn and
+   records the starter message before executing its work.
+3. **Compose context.** Prompt binding combines instructions, intent context,
+   skills/templates, selected knowledge and conversation history. Context
+   management prepares the model-visible slice according to configured limits.
+4. **Run the model/tool loop.** The provider produces text or tool calls. The
+   dispatcher resolves tools through the common registry and applies policy.
+   Internal services and MCP tools return observations for the next model call.
+5. **Handle interaction and background work.** Approval or elicitation can wait
+   for a decision/input associated with the original operation. Async tools and
+   linked agents retain native invocation identities and completion state.
+6. **Persist and project.** Messages, calls, results and execution state are
+   persisted throughout the lifecycle. Native observations are projected into
+   the ordered AG-UI journal and canonical application presentation.
+7. **Finish or continue.** The runtime records the turn outcome. Goal accounting,
+   follow-up chains and scheduler policy can enqueue further ordinary turns.
+   Clients observe the existing run rather than owning its execution lifetime.
 
-Some concerns don't belong to any one box — they run across the whole stack:
+An embedded host calls the native backend directly. An HTTP client submits
+`POST /v1/ag-ui/run` and consumes SSE events. These entry points meet at the
+same execution services; there is no HTTP round trip inside native orchestration.
 
-```
-     Clients            SDK              Core services             External
+## Interaction and presentation
 
-auth context ──────── session ────── ctx.Context ──── MCP auth  ─── remote server
-                                                   └─ LLM token ─── LLM provider
-                                                   └─ DB auth   ─── Datly
+Standard AG-UI covers run/message/tool/state events and interrupt/resume
+interaction. Versioned Agently extensions carry goals, approval coordination,
+queue commands and application presentation. Supporting application APIs expose
+native history, metadata, files and report operations under the same configured
+authentication.
 
-event stream ──────── SSE  ◄──────── streaming.Bus ◄─ reactor / tools / async
+Navigation is application-owned; hosted windows/reports are conversation-owned;
+inline content and tool feeds retain their message/turn origin. Workspace
+metadata defines views, data bindings, actions, layout and appearance. The host
+supplies authorized connectors and renders through Forge. Closing a view or
+losing a transport connection is separate from canceling execution.
 
-hot config  ────────         ◄──── workspace hotswap ◄── YAML edits
-```
+A report captures its authored document and scoped dataset requests. Its begin,
+compile, completion and activation phases are distinct. Saved results can be
+restored after verifying their scope and identity; export/publication is an
+explicit application action.
 
-- **Auth** ([auth-system.md](auth-system.md)) — session cookie or bearer at the edge; `ctx`-attached at every hop from then on, including outbound MCP calls.
-- **Streaming** ([streaming-events.md](streaming-events.md)) — one `runtime/streaming.Bus` feeds SSE, in-process reducers, feed notifier, and debug sinks.
-- **Hotswap** ([workspace-system.md](workspace-system.md)) — YAML edits propagate without restart.
+## Workspace and extension
 
-## Where each topic doc fits
+Finders and typed repositories resolve agent, model, embedder, MCP, tool,
+intent, skill, template, workflow and UI resources. Authored YAML imports support
+shared fragments and scoped parameters. Consumers load resources through these
+boundaries, allowing applications to supply their own finders and integrations.
 
-| Layer | Docs |
-|---|---|
-| Clients + SDK | [sdk.md](sdk.md) |
-| HTTP + events | [streaming-events.md](streaming-events.md), [auth-system.md](auth-system.md) |
-| Reactor + planning | [agent-orchestration.md](agent-orchestration.md), [planning-and-intake.md](planning-and-intake.md), [context-management.md](context-management.md), [followup-chains.md](followup-chains.md), [async.md](async.md) |
-| Tools + MCP | [tool-system.md](tool-system.md), [internal-tools.md](internal-tools.md), [mcp-integration.md](mcp-integration.md), [a2a-protocol.md](a2a-protocol.md) |
-| Prompts + output | [prompts.md](prompts.md), [skills.md](skills.md), [templates.md](templates.md), [prompt-binding.md](prompt-binding.md) |
-| Schemas + UI | [elicitation-system.md](elicitation-system.md), [overlays.md](overlays.md), [lookups.md](lookups.md), [feed-system.md](feed-system.md) |
-| Models + data | [llm-providers.md](llm-providers.md), [embedius-embeddings.md](embedius-embeddings.md), [augmentation.md](augmentation.md), [speech.md](speech.md) |
-| Platform | [scheduler.md](scheduler.md), [workspace-system.md](workspace-system.md), [conversation-model.md](conversation-model.md) |
+Extend behavior by registering internal tools, connecting MCP servers,
+composing agent resources or adding model/provider adapters. Extend the
+application by supplying handlers and metadata/data/action connectors. Runtime
+code owns execution and policy; Forge owns its rendering primitives; the
+application owns domain behavior and presentation choices.
 
-## Related
+## Persistence, recovery and identity
 
-- [doc/README.md](README.md) — index + reading-order suggestion.
+SQLite or MySQL stores the durable conversation and execution graph. Protocol
+run/journal state and native execution records have distinct ownership within
+that graph. Guards protect scope, revision and admitted operation identity.
+Conversation cleanup follows owned references in managed transactions.
+
+Canonical history and model-visible context serve different purposes. Context
+management changes what is supplied to a model; saved messages and execution
+records provide the basis for history, attribution and recovery.
+
+Recovery reconciles persisted state, accepted receipts and native outcomes.
+Reattaching to a journal is an observation operation. A disconnected client must
+not assume a tool failed or repeat it merely because its response was lost.
+Goals and scheduled work use the existing turn queue rather than a separate
+execution engine.
+
+## Read further
+
+| Topic | Guides |
+| --- | --- |
+| Orchestration and context | [Agent loop](agent-orchestration.md), [intake](planning-and-intake.md), [prompt binding](prompt-binding.md), [context management](context-management.md) |
+| Tools and knowledge | [Tools](tool-system.md), [MCP](mcp-integration.md), [augmentation](augmentation.md), [embeddings](embedius-embeddings.md) |
+| Durable interaction | [Approvals](approval.md), [elicitation](elicitation-system.md), [async work](async.md), [goals](autonomous.md), [scheduler](scheduler.md) |
+| Clients and presentation | [SDKs](sdk.md), [AG-UI operations](ag-ui-operation-matrix.md), [UI ownership](ui-ownership-model.md), [feeds](feed-system.md), [MCP UI](mcp-ui.md) |
+| Configuration and state | [Workspace](workspace-system.md), [authentication](auth-system.md), [conversation model](conversation-model.md), [maintenance](database-maintenance.md) |
+
+See the [documentation index](README.md) for the complete topic list.

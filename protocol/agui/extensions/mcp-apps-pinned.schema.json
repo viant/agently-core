@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agently.dev/ag-ui/mcp-apps/pinned-1",
+  "title": "Pinned AG-UI MCP Apps middleware wire binding",
+  "description": "Exact proxy/activity vocabulary from AGUI e60019d MCPAppsMiddleware. App instance/thread/server authorization is trusted host context and not accepted from this wire object. Remote URLs/headers/credentials are never iframe inputs. Pending approvals are handoffs, not fake MCP result completions.",
+  "x-source": "https://github.com/ag-ui-protocol/ag-ui/blob/e60019d258cf43ecc5ad19e8d374f1c31cbf2b94/middlewares/mcp-apps-middleware/src/index.ts",
+  "$defs": {
+    "ProxyRequest": {
+      "type": "object",
+      "properties": {
+        "serverHash": {
+          "type": "string",
+          "minLength": 1
+        },
+        "serverId": {
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "tools/call",
+            "resources/read",
+            "notifications/message",
+            "ping"
+          ]
+        },
+        "params": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      },
+      "required": [
+        "serverHash",
+        "method"
+      ],
+      "additionalProperties": false
+    },
+    "ActivityContent": {
+      "type": "object",
+      "properties": {
+        "result": {},
+        "resourceUri": {
+          "type": "string"
+        },
+        "serverHash": {
+          "type": "string"
+        },
+        "serverId": {
+          "type": "string"
+        },
+        "toolInput": {
+          "type": "object"
+        }
+      },
+      "required": [
+        "result",
+        "resourceUri",
+        "serverHash"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

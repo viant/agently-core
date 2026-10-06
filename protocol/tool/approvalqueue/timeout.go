@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	aguistore "github.com/viant/agently-core/app/store/agui"
 	"github.com/viant/agently-core/sdk/api"
+	dexec "github.com/viant/datly/exec"
 )
 
 // TimeoutLister enumerates approval-queue rows. It mirrors the canonical
@@ -37,14 +39,20 @@ type SweepOutput struct {
 }
 
 // Sweeper transitions due pending approvals into the canonical timed_out state.
+type TimeoutRoute func(context.Context, *toolapprovalqueuemodel.QueueRowView, time.Time) (*api.DecideToolApprovalOutcome, bool, error)
+type TimeoutOption func(*Sweeper)
+
+func WithTimeoutRouter(route TimeoutRoute) TimeoutOption { return func(s *Sweeper) { s.route = route } }
+
 type Sweeper struct {
+	route   TimeoutRoute
 	lister  TimeoutLister
 	patcher TimeoutPatcher
 	now     TimeoutNow
 }
 
 // NewSweeper constructs a Sweeper.
-func NewSweeper(lister TimeoutLister, patcher TimeoutPatcher, now TimeoutNow) (*Sweeper, error) {
+func NewSweeper(lister TimeoutLister, patcher TimeoutPatcher, now TimeoutNow, opts ...TimeoutOption) (*Sweeper, error) {
 	if lister == nil {
 		return nil, errors.New("approvalqueue: lister is required")
 	}
@@ -54,7 +62,11 @@ func NewSweeper(lister TimeoutLister, patcher TimeoutPatcher, now TimeoutNow) (*
 	if now == nil {
 		now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Sweeper{lister: lister, patcher: patcher, now: now}, nil
+	result := &Sweeper{lister: lister, patcher: patcher, now: now}
+	for _, option := range opts {
+		option(result)
+	}
+	return result, nil
 }
 
 // Sweep transitions all due pending approvals in scope and returns one
@@ -89,6 +101,36 @@ func (s *Sweeper) Sweep(ctx context.Context, in *SweepInput) (*SweepOutput, erro
 	for _, row := range rows {
 		if !IsTimedOut(row, now) {
 			continue
+		}
+		if s.route != nil {
+			outcome, handled, err := s.route(ctx, row, now)
+			if err != nil {
+				return nil, err
+			}
+			if handled {
+				if outcome != nil {
+					outcomes = append(outcomes, outcome)
+				}
+				continue
+			}
+		}
+		if provider, ok := s.patcher.(interface{ NativeComponentInvoker() dexec.ComponentInvoker }); ok {
+			evidence, err := aguistore.New(provider.NativeComponentInvoker()).ReadExecutionProvenance(ctx, valueOrEmpty(row.ConversationId), valueOrEmpty(row.TurnId))
+			if err != nil {
+				return nil, err
+			}
+			if evidence.AGUIOwned || !evidence.NativeTurnFound {
+				return nil, errors.New("approvalqueue: protocol/uncertain timeout requires coordinated routing")
+			}
+		}
+		claimer, ok := s.patcher.(interface {
+			ClaimToolApprovalDecision(context.Context, *toolapprovalqueuemodel.QueueRowView, string, string) error
+		})
+		if !ok {
+			return nil, errors.New("approvalqueue: atomic timeout claim unavailable")
+		}
+		if err := claimer.ClaimToolApprovalDecision(ctx, row, row.UserId, "timeout"); err != nil {
+			return nil, err
 		}
 		if err := s.patcher.PatchToolApprovalQueue(ctx, NewTimedOutPatch(row, now)); err != nil {
 			return nil, err
@@ -163,4 +205,11 @@ func NewTimedOutOutcome(row *toolapprovalqueuemodel.QueueRowView, now time.Time)
 	timedOut := now
 	outcome.TimedOutAt = &timedOut
 	return outcome
+}
+
+func valueOrEmpty(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }

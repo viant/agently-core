@@ -2,6 +2,7 @@ package modelcall
 
 import (
 	"context"
+	"github.com/viant/agently-core/runtime/evidence"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -12,6 +13,7 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	conversationmodel "github.com/viant/agently-core/model/conversation"
+	"github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -112,6 +114,23 @@ func (o *recorderObserver) publishStreamDeltaNow(ctx context.Context, data []byt
 	if len(data) == 0 {
 		return
 	}
+	if guard := evidence.PublicationFromContext(ctx); guard != nil {
+		if ctx.Err() != nil {
+			return
+		}
+		canonical, err := guard.Stream(ctx, runtimerequestctx.ModelMessageIDFromContext(ctx), string(data), false)
+		if err != nil {
+			return
+		} // Finalization surfaces the sticky guard error after saving raw provider audit.
+		data = []byte(canonical)
+	}
+	o.publishCanonicalStreamDeltaNow(ctx, data)
+}
+
+func (o *recorderObserver) publishCanonicalStreamDeltaNow(ctx context.Context, data []byte) {
+	if len(data) == 0 {
+		return
+	}
 	if debugtrace.Enabled() {
 		turnID := ""
 		if turn, ok := runtimerequestctx.TurnMetaFromContext(ctx); ok {
@@ -202,6 +221,9 @@ func (o *recorderObserver) patchInterimRequestMessage(ctx context.Context, turn 
 		apiconv.WithType("text"),
 		apiconv.WithCreatedByUserID(turn.Assistant),
 		apiconv.WithInterim(1),
+	}
+	if recovery.FullHistoryRequired(ctx) && !recovery.IsProactive(ctx) {
+		opts = append(opts, apiconv.WithContextSummary(recovery.FullHistoryResponseMarker))
 	}
 	if runMeta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok && runMeta.Iteration > 0 {
 		opts = append(opts, apiconv.WithIteration(runMeta.Iteration))

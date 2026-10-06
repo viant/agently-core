@@ -1,0 +1,29 @@
+#package('github.com/viant/agently-core/internal/datly/agui/lease/write')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/lease','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Principal<string>(query/principal).Required().WithPredicate(7,'equal','run','effective_user_id'))
+#define($_ = $ProtocolRunOnly<bool>(const/protocolRunOnly).Value(true).Required().WithPredicate(7,'expr',"(? AND run.run_kind='agui')"))
+#define($_ = $Mode<string>(query/mode).Required())
+#define($_ = $DesiredRevision<int64>(query/desiredRevision).Optional())
+#define($_ = $Rows<[]*Lease>(body/data))
+#define($_ = $Data<[]*Lease>(output/body))
+SELECT agui_data.*,
+       agui_data.protocol_key AS RunKey,
+       agui_data.effective_user_id AS Principal,
+       agui_data.protocol_lease_owner AS Owner,
+       agui_data.protocol_lease_until AS LeaseUntil,
+       agui_data.protocol_lease_revision AS Revision,
+       type(agui_data,'Lease'),
+       tag(agui_data.id,'sqlx:"id,primaryKey=true,required=true"'),
+       lifecycle_type(agui_data,'Lifecycle'),
+       concurrency_token(agui_data.Revision),
+       mutation_predicate(agui_data,7),
+       CAST(agui_data.Owner AS *string),
+       CAST(agui_data.Revision AS int64),
+       CAST(agui_data.LeaseUntil AS *time.Time)
+FROM (${embed:sql/rows.sql}) agui_data

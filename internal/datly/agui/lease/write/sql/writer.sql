@@ -1,0 +1,2 @@
+SELECT * FROM  (SELECT c.id, c.protocol_key, c.effective_user_id, c.run_kind, c.protocol_lease_owner, c.protocol_lease_until, c.protocol_lease_revision FROM run c WHERE c.run_kind = 'agui' AND c.effective_user_id = $Principal
+)  agui_data

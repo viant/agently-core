@@ -1,0 +1,111 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agently.local/execution-v1.schema.json",
+  "title": "Agently execution selection v1",
+  "type": "object",
+  "required": [
+    "version",
+    "operation"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "version": {
+      "const": "1"
+    },
+    "operation": {
+      "enum": [
+        "chat",
+        "capabilities"
+      ]
+    },
+    "requestId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "agentId": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "backendTools": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "toolBundles": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reasoningEffort": {
+          "type": "string"
+        },
+        "displayQuery": {
+          "type": "string"
+        },
+        "context": {
+          "type": "object"
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "uri"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "name": {
+                "type": "string"
+              },
+              "uri": {
+                "type": "string",
+                "minLength": 1
+              },
+              "mime": {
+                "type": "string"
+              },
+              "stagingFolder": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "autoSelectTools": {
+          "type": "boolean"
+        },
+        "autoSummarize": {
+          "type": "boolean"
+        },
+        "disableChains": {
+          "type": "boolean"
+        },
+        "allowedChains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "resourceURIs": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "toolCallExposure": {
+          "type": "string"
+        },
+        "useServerState": {
+          "type": "boolean"
+        }
+      }
+    }
+  }
+}

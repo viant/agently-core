@@ -666,38 +666,55 @@ data class UsageInfo(
 @Serializable
 data class Conversation(
     @SerialName("Id")
+    @JsonNames("id")
     val id: String,
     @SerialName("LastTurnId")
+    @JsonNames("lastTurnId")
     val lastTurnId: String? = null,
     @SerialName("AgentId")
+    @JsonNames("agentId")
     val agentId: String? = null,
     @SerialName("Title")
+    @JsonNames("title")
     val title: String? = null,
     @SerialName("Summary")
+    @JsonNames("summary")
     val summary: String? = null,
     @SerialName("Stage")
+    @JsonNames("stage")
     val stage: String? = null,
     @SerialName("Visibility")
+    @JsonNames("visibility")
     val visibility: String? = null,
     @SerialName("Shareable")
+    @JsonNames("shareable")
     val shareable: Int? = null,
     @SerialName("ConversationParentId")
+    @JsonNames("conversationParentId")
     val conversationParentId: String? = null,
     @SerialName("ConversationParentTurnId")
+    @JsonNames("conversationParentTurnId")
     val conversationParentTurnId: String? = null,
     @SerialName("CreatedAt")
+    @JsonNames("createdAt")
     val createdAt: String? = null,
     @SerialName("LastActivity")
+    @JsonNames("lastActivity")
     val lastActivity: String? = null,
     @SerialName("CreatedByUserId")
+    @JsonNames("createdByUserId")
     val createdByUserId: String? = null,
     @SerialName("UsageInputTokens")
+    @JsonNames("usageInputTokens")
     val promptTokens: Int? = null,
     @SerialName("UsageOutputTokens")
+    @JsonNames("usageOutputTokens")
     val completionTokens: Int? = null,
     @SerialName("UsageEmbeddingTokens")
+    @JsonNames("usageEmbeddingTokens")
     val totalTokens: Int? = null,
-    val cost: Double? = null
+    val cost: Double? = null,
+    val aguiThreadId: String? = null
 )
 
 @Serializable
@@ -1336,7 +1353,8 @@ data class ConversationStateResponse(
     val conversation: ConversationState? = null,
     val feeds: List<ActiveFeedState> = emptyList(),
     val usage: UsageSummary? = null,
-    val eventCursor: String? = null
+    val eventCursor: String? = null,
+    val aguiThreadId: String? = null
 )
 
 @Serializable
@@ -1595,6 +1613,7 @@ data class ModelUsageState(
 @Serializable
 data class ModelStepState(
     val modelCallId: String,
+    val mode: String? = null,
     val assistantMessageId: String? = null,
     val executionRole: String? = null,
     val phase: String? = null,

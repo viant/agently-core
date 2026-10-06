@@ -692,6 +692,11 @@ func TestWorkspaceRuntimeConversationTreeNonTerminalStatus(t *testing.T) {
 		VALUES('status-job','report://status','u1','status-root','pdf','draft','succeeded')`)
 	require.NoError(t, err)
 	require.ErrorIs(t, discoverer.ValidateNonTerminalStatuses(owner, readGraph()), conversationtree.ErrNonTerminal)
+	_, err = db.Exec(`DELETE FROM report_export_job WHERE job_id='status-job';
+        INSERT INTO report_run(report_run_id,owner_id,conversation_id,materializer,status,started_at,revision,ui_run_request_id)
+        VALUES('status-report','u1','status-root','legacy-browser','completed',CURRENT_TIMESTAMP,1,'status-request')`)
+	require.NoError(t, err)
+	require.ErrorIs(t, discoverer.ValidateNonTerminalStatuses(owner, readGraph()), conversationtree.ErrNonTerminal, "narrow report-run reads must retain conversation activity identity")
 }
 
 func TestWorkspaceRuntimeReportAuditImport(t *testing.T) {
@@ -1562,7 +1567,7 @@ func TestWorkspaceRuntimePayloadStore(t *testing.T) {
 	got, err := store.Get(context.Background(), row.Id)
 	require.NoError(t, err)
 	require.NotNil(t, got.InlineBody)
-	require.Equal(t, bytes.TrimSpace(body), *got.InlineBody)
+	require.Equal(t, body, *got.InlineBody)
 	require.Empty(t, got.Compression)
 	uri := "payload://old"
 	patch := &payloadwrite.Payload{}

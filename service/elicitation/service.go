@@ -881,6 +881,11 @@ func (s *Service) HandleCallback(ctx context.Context, convID, elicitationID, act
 // - stores payload (when accepted)
 // - notifies any registered router waiter
 func (s *Service) Resolve(ctx context.Context, convID, elicitationID, action string, payload map[string]interface{}, reason string) error {
+	if _, native := s.client.(nativeReceiptClient); native {
+		_, err := s.ResolveChecked(ctx, convID, elicitationID, action, payload, reason)
+		return err
+	}
+
 	if strings.TrimSpace(convID) == "" || strings.TrimSpace(elicitationID) == "" {
 		return fmt.Errorf("conversation and elicitation id required")
 	}

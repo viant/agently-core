@@ -57,7 +57,10 @@ func (s *Service) Ensure(ctx context.Context) (string, error) {
 		}
 	}
 
-	dsn := "file:" + dbFile + "?cache=shared&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
+	// File-backed WAL readers do not need shared-cache table locks. Acquire
+	// the writer reservation before Datly's read/validate/write transaction,
+	// preventing deferred read-to-write upgrades from deadlocking.
+	dsn := "file:" + dbFile + "?cache=private&_txlock=immediate&_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)"
 	return s.ensureSchema(ctx, dsn)
 }
 
@@ -84,6 +87,9 @@ func (s *Service) ensureSchema(ctx context.Context, dsn string) (string, error) 
 	// Always run schema — all statements use CREATE TABLE/INDEX IF NOT EXISTS
 	// so this is idempotent and handles upgrades when new tables are added.
 	if err := loadSchema(ctx, db, iscript.SqlListScript); err != nil {
+		return "", err
+	}
+	if err := dropRetiredProtocolPOCTables(ctx, db); err != nil {
 		return "", err
 	}
 	return dsn, nil
@@ -114,10 +120,16 @@ func (s *Service) ensureSchemaInMemory(ctx context.Context, dsn string) (string,
 	if err := loadSchema(ctx, db, iscript.SqlListScript); err != nil {
 		return "", err
 	}
+	if err := dropRetiredProtocolPOCTables(ctx, db); err != nil {
+		return "", err
+	}
 	return dsn, nil
 }
 
 func applyCompatibilityMigrations(ctx context.Context, db *sql.DB) error {
+	if err := ensureProtocolReuseColumns(ctx, db); err != nil {
+		return err
+	}
 	if err := ensureLegacyToolApprovalQueueColumns(ctx, db); err != nil {
 		return err
 	}

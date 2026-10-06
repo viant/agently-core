@@ -2,12 +2,14 @@ package message
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/internal/textutil"
+	"github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -45,6 +47,77 @@ func (s *Service) remove(ctx context.Context, in, out interface{}) error {
 	if !ok || strings.TrimSpace(turn.ConversationID) == "" {
 		return fmt.Errorf("missing conversation context")
 	}
+	operationHandoffs := map[int]string{}
+	if scope := recovery.ProactiveScope(ctx); scope != nil {
+		if scope.ConversationID != turn.ConversationID {
+			return fmt.Errorf("proactive compaction conversation mismatch")
+		}
+		conv, err := s.conv.GetConversation(ctx, turn.ConversationID, apiconv.WithIncludeToolCall(true))
+		if err != nil {
+			return fmt.Errorf("validate proactive compaction scope: %w", err)
+		}
+		if conv == nil || conv.Id != scope.ConversationID {
+			return fmt.Errorf("proactive compaction conversation unavailable")
+		}
+		eligible := recovery.EligibleMessages(conv)
+		// Check every tuple before creating any summary or archiving any message.
+		seen := map[string]bool{}
+		if len(input.Tuples) == 0 {
+			return fmt.Errorf("proactive compaction requires messages to archive")
+		}
+		for tupleIndex, tuple := range input.Tuples {
+			type operation struct {
+				ID     string `json:"operationId"`
+				Tool   string `json:"tool"`
+				Status string `json:"status"`
+			}
+			var operations []operation
+			operationIDs := map[string]bool{}
+			appendOperation := func(id, tool, status string) {
+				if strings.TrimSpace(id) == "" || operationIDs[id] {
+					return
+				}
+				operationIDs[id] = true
+				operations = append(operations, operation{ID: id, Tool: tool, Status: status})
+			}
+			if len(tuple.MessageIds) == 0 {
+				return fmt.Errorf("proactive compaction tuple has no eligible message IDs")
+			}
+			if tuple.Role != "" && !strings.EqualFold(strings.TrimSpace(tuple.Role), "assistant") {
+				return fmt.Errorf("proactive compaction summary role must be assistant")
+			}
+			if strings.TrimSpace(tuple.Summary) == "" {
+				return fmt.Errorf("proactive compaction requires a handoff summary")
+			}
+			for _, rawID := range tuple.MessageIds {
+				id := strings.TrimSpace(rawID)
+				if _, err := uuid.Parse(id); err != nil {
+					return fmt.Errorf("invalid proactive compaction message ID")
+				}
+				if !scope.EligibleIDs[id] || eligible[id] == nil || seen[id] {
+					return fmt.Errorf("message %q is outside the eligible proactive compaction scope", id)
+				}
+				seen[id] = true
+				m := eligible[id]
+				if tc := m.MessageToolCall; tc != nil {
+					appendOperation(tc.OpId, tc.ToolName, tc.Status)
+				}
+				for _, tm := range m.ToolMessage {
+					if tm != nil && tm.Id == m.Id && tm.ToolCall != nil {
+						tc := tm.ToolCall
+						appendOperation(tc.OpId, tc.ToolName, tc.Status)
+					}
+				}
+			}
+			if len(operations) > 0 {
+				data, err := json.Marshal(operations)
+				if err != nil {
+					return fmt.Errorf("encode proactive operation handoff: %w", err)
+				}
+				operationHandoffs[tupleIndex] = "\n\nAuthoritative finished tool operations (these exact identities and statuses override conflicting summary text above; do not repeat successful operations):\n" + string(data)
+			}
+		}
+	}
 	// Identify and protect the last user message (do not remove)
 	lastUserID := ""
 	if conv, err := s.conv.GetConversation(ctx, turn.ConversationID, apiconv.WithIncludeToolCall(true)); err == nil && conv != nil {
@@ -68,7 +141,7 @@ func (s *Service) remove(ctx context.Context, in, out interface{}) error {
 	}
 	var created []string
 	archived := 0
-	for _, tup := range input.Tuples {
+	for tupleIndex, tup := range input.Tuples {
 		// validation before making any changes, llm can send invalid IDs (even source of them is valid)
 		for _, id := range tup.MessageIds {
 			id = strings.TrimSpace(id)
@@ -79,17 +152,22 @@ func (s *Service) remove(ctx context.Context, in, out interface{}) error {
 		}
 
 		sum := strings.TrimSpace(tup.Summary)
+		sum += operationHandoffs[tupleIndex]
 		if sum != "" {
 			role := strings.TrimSpace(tup.Role)
 			if role == "" {
 				role = "assistant"
 			}
-			if mm, err := apiconv.AddMessage(ctx, s.conv, &turn,
+			opts := []apiconv.MessageOption{
 				apiconv.WithRole(role),
 				apiconv.WithType("text"),
 				apiconv.WithStatus("summary"),
 				apiconv.WithContent(sum),
-			); err == nil && mm != nil {
+			}
+			if recovery.IsProactive(ctx) {
+				opts = append(opts, apiconv.WithContextSummary(recovery.ProactiveSummaryMarker))
+			}
+			if mm, err := apiconv.AddMessage(ctx, s.conv, &turn, opts...); err == nil && mm != nil {
 				created = append(created, mm.Id)
 			} else if err != nil {
 				return err

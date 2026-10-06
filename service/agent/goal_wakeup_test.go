@@ -91,10 +91,22 @@ func TestMaybeContinueActiveGoal_SchedulesWakeupWhenControllerRequestsDelay(t *t
 	require.True(t, pub.HasEvent(streaming.EventTypeGoalControllerScheduled))
 	pub.mu.Lock()
 	defer pub.mu.Unlock()
-	require.Len(t, pub.events, 1)
-	require.Equal(t, "scheduled", pub.events[0].Status)
-	require.Equal(t, "wakeup", pub.events[0].Patch["mode"])
-	require.NotEmpty(t, pub.events[0].Patch["wakeAt"])
+	// Accounting publishes committed goal state before the distinct scheduling
+	// notification. Neither notification represents an additional wakeup request.
+	require.Len(t, pub.events, 2)
+	updated, scheduled := pub.events[0], pub.events[1]
+	require.Equal(t, streaming.EventTypeGoalUpdated, updated.Type)
+	require.Equal(t, "conv-wakeup", updated.ConversationID)
+	require.Equal(t, "goal-conv-wakeup", updated.GoalID)
+	goal, err := goalStore.Current(ctx, "conv-wakeup")
+	require.NoError(t, err)
+	require.Equal(t, string(goal.Status), updated.Status)
+	require.Equal(t, streaming.EventTypeGoalControllerScheduled, scheduled.Type)
+	require.Equal(t, "conv-wakeup", scheduled.ConversationID)
+	require.Equal(t, "goal-conv-wakeup", scheduled.GoalID)
+	require.Equal(t, "scheduled", scheduled.Status)
+	require.Equal(t, "wakeup", scheduled.Patch["mode"])
+	require.NotEmpty(t, scheduled.Patch["wakeAt"])
 }
 
 func TestMaybeContinueActiveGoal_ClampsWakeDelayToWorkspaceMinimum(t *testing.T) {

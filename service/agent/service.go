@@ -22,6 +22,7 @@ import (
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	"github.com/viant/agently-core/protocol/tool"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
+	"github.com/viant/agently-core/runtime/evidence"
 	"github.com/viant/agently-core/runtime/streaming"
 	"github.com/viant/agently-core/service/augmenter"
 	"github.com/viant/agently-core/service/core"
@@ -47,15 +48,17 @@ import (
 type Option func(*Service)
 
 type Service struct {
-	ownedNative      *standalone.Server
-	closeNativeOnce  sync.Once
-	closeNativeError error
-	llm              *core.Service
-	registry         tool.Registry
-	fs               afs.Service
-	agentFinder      agent.Finder
-	augmenter        *augmenter.Service
-	orchestrator     *reactor.Service
+	evidenceFactory      evidence.Factory
+	proactiveCompactions sync.Map // conversation -> last eligible original-history signature
+	ownedNative          *standalone.Server
+	closeNativeOnce      sync.Once
+	closeNativeError     error
+	llm                  *core.Service
+	registry             tool.Registry
+	fs                   afs.Service
+	agentFinder          agent.Finder
+	augmenter            *augmenter.Service
+	orchestrator         *reactor.Service
 
 	defaults *config.Defaults
 

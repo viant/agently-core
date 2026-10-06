@@ -25,4 +25,6 @@ type PayloadView struct {
 	Redacted               *int       `sqlx:"redacted,required=true" json:"redacted"`
 	CreatedAt              *time.Time `sqlx:"created_at,required=true" json:"createdAt"`
 	SchemaRef              *string    `sqlx:"schema_ref" json:"schemaRef"`
+	RunId                  *string    `sqlx:"run_id,refTable=run,refColumn=id" json:"runId"`
+	Sequence               *int       `sqlx:"sequence" json:"sequence"`
 }

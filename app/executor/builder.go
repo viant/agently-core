@@ -67,6 +67,7 @@ type Runtime struct {
 	registryWarmupMu     sync.Mutex
 	registryWarmupCancel context.CancelFunc
 	registryWarmupDone   chan struct{}
+	registryRefreshDone  chan struct{}
 	closed               bool
 	ownedNative          *standalone.Server
 	ownedAugmenter       *augmenter.Service
@@ -830,6 +831,16 @@ func (r *Runtime) Close(ctx context.Context) error {
 				r.closeError = errors.Join(r.closeError, ctx.Err())
 			}
 		}
+		r.registryWarmupMu.Lock()
+		refreshDone := r.registryRefreshDone
+		r.registryWarmupMu.Unlock()
+		if refreshDone != nil {
+			select {
+			case <-refreshDone:
+			case <-ctx.Done():
+				r.closeError = errors.Join(r.closeError, ctx.Err())
+			}
+		}
 		if r.ownedReportingCancel != nil {
 			r.ownedReportingCancel()
 		}
@@ -866,8 +877,29 @@ func (r *Runtime) InitializeRegistryAsync(ctx context.Context, timeout time.Dura
 	if timeout <= 0 {
 		timeout = 15 * time.Second
 	}
-	warmupCtx, cancel := context.WithTimeout(ctx, timeout)
-	r.registryWarmupCancel = cancel
-	go func() { defer close(done); defer cancel(); r.Registry.Initialize(warmupCtx) }()
+	lifetimeCtx, cancelLifetime := context.WithCancel(ctx)
+	warmupCtx, cancelWarmup := context.WithTimeout(lifetimeCtx, timeout)
+	r.registryWarmupCancel = func() { cancelWarmup(); cancelLifetime() }
+	refreshDone := make(chan struct{})
+	r.registryRefreshDone = refreshDone
+	go func() {
+		defer close(done)
+		defer cancelWarmup()
+		if initializer, ok := r.Registry.(interface {
+			InitializeWithRefreshContext(context.Context, context.Context) <-chan struct{}
+		}); ok {
+			monitorsDone := initializer.InitializeWithRefreshContext(warmupCtx, lifetimeCtx)
+			go func() {
+				defer close(refreshDone)
+				if monitorsDone != nil {
+					<-monitorsDone
+				}
+			}()
+		} else {
+			defer close(refreshDone)
+			defer cancelLifetime()
+			r.Registry.Initialize(warmupCtx)
+		}
+	}()
 	return done
 }

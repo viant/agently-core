@@ -483,7 +483,31 @@ export function applyLocalSubmit(
  *
  * §4.3: assistant_* / model_* / tool_call_* never change turn lifecycle.
  */
-export function applyEvent(
+/** Host authority is transport-owned and denial is sticky across later events. */
+function applyHostTrust(entity: object, source: {connectionProfile?: 'standard'|'agently'; hostEffectsAllowed?: boolean}): void {
+    const target = entity as {connectionProfile?: 'standard'|'agently'; hostEffectsAllowed?: boolean};
+    if (target.connectionProfile === 'standard' || source.connectionProfile === 'standard') target.connectionProfile = 'standard';
+    else if (source.connectionProfile) target.connectionProfile = source.connectionProfile;
+    if (target.hostEffectsAllowed === false || source.hostEffectsAllowed === false || target.connectionProfile === 'standard') target.hostEffectsAllowed = false;
+    else if (source.hostEffectsAllowed !== undefined) target.hostEffectsAllowed = source.hostEffectsAllowed;
+    // Only canonical entities inherit authority, never opaque model payloads.
+    for (const [key, value] of Object.entries(entity)) {
+        if (key === 'requestPayload' || key === 'responsePayload' || key === 'renderedContent') continue;
+        for (const child of Array.isArray(value) ? value : [value]) {
+            if (child && typeof child === 'object' && 'renderKey' in child) applyHostTrust(child, target);
+        }
+    }
+}
+export function applyEvent(state: ClientConversationState, event: SSEEvent): ClientConversationState {
+    if (event.conversationId && event.conversationId !== state.conversationId) return state;
+    const result = applyEventInternal(state,event);
+    const turn = result.turns.find(item => event.turnId && item.turnId === event.turnId)
+        ?? (event.userMessageId ? result.turns.find(item => item.users.some(user => user.messageId === event.userMessageId)) : undefined);
+    if (turn) applyHostTrust(turn,event);
+    return result;
+}
+
+function applyEventInternal(
     state: ClientConversationState,
     event: SSEEvent,
 ): ClientConversationState {
@@ -493,6 +517,8 @@ export function applyEvent(
     }
 
     switch (event.type) {
+        case 'turn_queued':
+            return onTurnQueued(state,event);
         case 'turn_started':
             return onTurnStarted(state, event);
         case 'turn_completed':
@@ -623,6 +649,24 @@ function extractClientRequestId(event: SSEEvent): string {
 
 // ─── Event handlers ────────────────────────────────────────────────────────────
 
+function onTurnQueued(state: ClientConversationState, event: SSEEvent): ClientConversationState {
+    const turnId=String(event.turnId || '').trim(), clientRequestId=extractClientRequestId(event);
+    if (!turnId) return state;
+    let turn=findTurnByTurnId(state,turnId) || (clientRequestId ? findTurnByPendingClientRequestId(state,clientRequestId) : null);
+    if (!turn) { turn=newServerTurn('event',turnId,'pending',event.createdAt);state.turns.push(turn); }
+    if (!turn.turnId) writeField(turn,'turnId',turnId,'event');
+    if (turn.queueSequenceFromSnapshot && turn.nativeStatus !== 'queued') return state;
+    if (!turn || ['completed','failed','cancelled'].includes(turn.lifecycle) || (turn.lifecycle==='running' && turn.nativeStatus==='running')) return state;
+    writeField(turn,'lifecycle','pending','event');
+    writeField(turn,'nativeStatus','queued','event');
+    if (event.queueSequence !== undefined && !turn.queueSequenceFromSnapshot) writeField(turn,'queueSequence',event.queueSequence,'event');
+    if (event.createdAt) writeField(turn,'createdAt',event.createdAt,'event');
+    if (event.content && clientRequestId && !turn.users.some(user=>user.clientRequestId===clientRequestId)) {
+        turn.users.push({renderKey:allocateRenderKey(),role:'user',content:event.content,clientRequestId,createdAt:event.createdAt});
+    }
+    return state;
+}
+
 function onTurnStarted(state: ClientConversationState, event: SSEEvent): ClientConversationState {
     const turn = resolveEventTurn(state, event);
     if (!turn) return state;
@@ -633,6 +677,7 @@ function onTurnStarted(state: ClientConversationState, event: SSEEvent): ClientC
         writeField(turn, 'turnId', eventTurnId, 'event');
     }
     writeField(turn, 'lifecycle', 'running', 'event');
+    writeField(turn,'nativeStatus','running','event');
     if (event.createdAt) writeField(turn, 'createdAt', event.createdAt, 'event');
 
     // Coalesce a pending user message whose clientRequestId matches the event's.
@@ -645,7 +690,8 @@ function onTurnStarted(state: ClientConversationState, event: SSEEvent): ClientC
             content: (event as unknown as { content?: string }).content,
             createdAt: event.createdAt,
         };
-        const res = matchUserMessage(turn.users, userObservation);
+        const correlated = correlateNativeUser(turn,userMessageId,crid);
+        const res = correlated ? {matched:correlated} : matchUserMessage(turn.users, userObservation);
         if (res.matched) {
             if (userMessageId) writeField(res.matched, 'messageId', userMessageId, 'event');
             if (event.createdAt) writeField(res.matched, 'createdAt', event.createdAt, 'event');
@@ -664,7 +710,11 @@ function onTurnStarted(state: ClientConversationState, event: SSEEvent): ClientC
 }
 
 function onTurnTerminal(state: ClientConversationState, event: SSEEvent): ClientConversationState {
-    const turn = resolveEventTurn(state, event);
+    // Rejection before server admission has no native turn ID. Match only the
+    // exact optimistic request; never terminate another pending/running turn.
+    const rejectedRequest = event.type === 'turn_failed' && !(event.turnId ?? '').trim()
+        ? findTurnByPendingClientRequestId(state, extractClientRequestId(event)) : null;
+    const turn = rejectedRequest?.lifecycle === 'pending' ? rejectedRequest : resolveEventTurn(state, event);
     if (!turn) return state;
 
     const kind: ClientLifecycleEntryKind =
@@ -946,6 +996,7 @@ function onModelCompleted(state: ClientConversationState, event: SSEEvent): Clie
     const step = matched ?? appendModelStep(page, 'event');
     const explicitFinalResponse = Boolean(event.finalResponse);
     const executionRole = executionRoleFromSignals((event as any).executionRole, event.phase, event.mode);
+    if (event.mode) writeField(step, 'mode', event.mode, 'event');
     if (modelCallId) writeField(step, 'modelCallId', modelCallId, 'event');
     if (assistantMessageId) writeField(step, 'assistantMessageId', assistantMessageId, 'event');
     const derivedPhase = deriveExecutionPhase(event.phase, event.mode);
@@ -1098,7 +1149,13 @@ function onTextDelta(state: ClientConversationState, event: SSEEvent): ClientCon
     }
     const page = ensurePageForEvent(turn, event, 'event');
     const chunk = typeof event.content === 'string' ? event.content : '';
-    if (chunk !== '') {
+    if (event.contentMode === 'snapshot') {
+        // An AG-UI consumer has already reduced the stream. Replacing its
+        // projection (including an explicit empty value) avoids a second text
+        // accumulator and makes full journal replay idempotent in this view.
+        page.content = chunk;
+        setFieldProvenance(page, 'content', 'event');
+    } else if (chunk !== '') {
         const prior = typeof page.content === 'string' ? page.content : '';
         writeField(page, 'content', prior + chunk, 'event');
     }
@@ -1116,6 +1173,11 @@ function onReasoningDelta(state: ClientConversationState, event: SSEEvent): Clie
     }
     const page = ensurePageForEvent(turn, event, 'event');
     const chunk = typeof event.content === 'string' ? event.content : '';
+    if (event.contentMode === 'snapshot') {
+        page.narration = chunk;
+        setFieldProvenance(page, 'narration', 'event');
+        return state;
+    }
     if (chunk === '') return state;
     const prior = typeof page.narration === 'string' ? page.narration : '';
     writeField(page, 'narration', prior + chunk, 'event');
@@ -1256,6 +1318,20 @@ function assistantEventTargetsPage(turn: ClientTurnState, event: SSEEvent): bool
     return false;
 }
 
+/** A trusted command receipt can arrive after its native echo. Reconcile only
+ * exact IDs within this turn, retaining the optimistic render key. */
+function correlateNativeUser(turn: ClientTurnState, messageId: string, clientRequestId: string): ClientUserMessage | null {
+    if (!messageId || !clientRequestId) return null;
+    const local = turn.users.find(user => user.clientRequestId === clientRequestId);
+    // Before native identity arrives, the initial protocol user id can have
+    // been observed as messageId. That exact request-id alias is provisional.
+    if (!local || (local.messageId && local.messageId !== messageId && local.messageId !== clientRequestId)) return null;
+    const native = turn.users.filter(user => user !== local && user.messageId === messageId);
+    if (native.some(user => user.clientRequestId && user.clientRequestId !== clientRequestId)) return null;
+    if (native.length) turn.users = turn.users.filter(user => user === local || !native.includes(user));
+    return local;
+}
+
 function onAssistantMessage(state: ClientConversationState, event: SSEEvent): ClientConversationState {
     const patch = (event.patch && typeof event.patch === 'object')
         ? (event.patch as Record<string, unknown>)
@@ -1274,8 +1350,12 @@ function onAssistantMessage(state: ClientConversationState, event: SSEEvent): Cl
 
     // User messages → turn.users.
     if (role === 'user') {
-        let entry = turn.users.find((u) => (u.messageId ?? '').trim() === messageId) || null;
+        const clientRequestId = extractClientRequestId(event);
+        let entry = correlateNativeUser(turn,messageId,clientRequestId) || turn.users.find((u) => (u.messageId ?? '').trim() === messageId) || null;
+        if (!entry && clientRequestId) entry = turn.users.find(user => user.clientRequestId === clientRequestId) || null;
         if (entry) {
+            writeField(entry, 'messageId', messageId, 'event');
+            if (clientRequestId) writeField(entry, 'clientRequestId', clientRequestId, 'event');
             writeField(entry, 'content', content, 'event');
             if (event.createdAt) writeField(entry, 'createdAt', event.createdAt, 'event');
             if (typeof patch.sequence === 'number') writeField(entry, 'sequence', patch.sequence, 'event');
@@ -1284,12 +1364,14 @@ function onAssistantMessage(state: ClientConversationState, event: SSEEvent): Cl
         entry = {
             renderKey: allocateRenderKey(),
             messageId,
+            clientRequestId: clientRequestId || undefined,
             role: 'user',
             content,
             createdAt: event.createdAt,
             sequence: typeof patch.sequence === 'number' ? patch.sequence : undefined,
         };
         setFieldProvenance(entry, 'messageId', 'event');
+        if (clientRequestId) setFieldProvenance(entry, 'clientRequestId', 'event');
         setFieldProvenance(entry, 'role', 'event');
         setFieldProvenance(entry, 'content', 'event');
         if (entry.createdAt) setFieldProvenance(entry, 'createdAt', 'event');
@@ -1423,6 +1505,8 @@ export function applyTranscript(
 
     for (const snapshotTurn of snapshot.turns ?? []) {
         mergeTranscriptTurn(state, snapshotTurn);
+        const turn = state.turns.find(item => item.turnId === snapshotTurn.turnId);
+        if (turn) applyHostTrust(turn,snapshotTurn);
     }
     return state;
 }
@@ -1476,7 +1560,18 @@ function mergeTranscriptTurn(
         if (snapshotTurn.createdAt) writeField(turn, 'createdAt', snapshotTurn.createdAt, 'transcript');
     }
     dropMatchedPendingBootstrapTurn(state, turn, snapshotTurn);
-    if (snapshotTurn.queueSeq) writeField(turn, 'queueSeq', snapshotTurn.queueSeq, 'transcript');
+    // Canonical queue state is current committed state, while admission events
+    // can be historical replay. A fresh snapshot owns order and requeue status.
+    if (snapshotTurn.status === 'queued' && snapshotTurn.queueSequence !== undefined) {
+        forceTranscriptRefinement(turn, 'queueSequence', snapshotTurn.queueSequence);
+        turn.queueSequenceFromSnapshot = true;
+        forceTranscriptRefinement(turn, 'lifecycle', 'pending');
+        forceTranscriptRefinement(turn, 'nativeStatus', 'queued');
+    } else {
+        if (snapshotTurn.status !== 'queued') turn.queueSequenceFromSnapshot = true;
+        forceTranscriptRefinement(turn,'nativeStatus',snapshotTurn.status);
+    }
+    if (snapshotTurn.queueSeq !== undefined) writeField(turn, 'queueSeq', snapshotTurn.queueSeq, 'transcript');
     if (snapshotTurn.startedByMessageId) writeField(turn, 'startedByMessageId', snapshotTurn.startedByMessageId, 'transcript');
     if (snapshotTurn.errorMessage) writeField(turn, 'errorMessage', snapshotTurn.errorMessage, 'transcript');
 
@@ -1511,7 +1606,7 @@ function mergeTranscriptUser(
         createdAt: snapshotUser.createdAt,
         sequence: snapshotUser.sequence,
     };
-    let matched = matchUserMessage(turn.users, observation).matched;
+    let matched = correlateNativeUser(turn,snapshotUser.messageId,snapshotUser.clientRequestId || '') || matchUserMessage(turn.users, observation).matched;
 
     // Bootstrap coalescence for the "no echoed ids during live turn" path:
     // a completed transcript can arrive with the authoritative startedBy/
@@ -1571,6 +1666,11 @@ function mergeTranscriptTurnMessage(
 ): void {
     const messageId = (snapshotMessage.messageId ?? '').trim();
     if (!messageId) return;
+    if (snapshotMessage.role === 'user' && snapshotMessage.clientRequestId) {
+        mergeTranscriptUser(turn,{...snapshotMessage,clientRequestId:snapshotMessage.clientRequestId});
+        turn.messages = turn.messages.filter(message => message.messageId !== messageId);
+        return;
+    }
     let message = turn.messages.find((entry) => (entry.messageId ?? '').trim() === messageId) || null;
     if (message) {
         writeField(message, 'role', snapshotMessage.role, 'transcript');
@@ -1624,6 +1724,7 @@ function mergeTranscriptPage(
         page = {
             renderKey: allocateRenderKey(),
             pageId: snapshotPage.pageId,
+            messageId: snapshotPage.assistantMessageId,
             iteration: snapshotPage.iteration,
             executionRole: snapshotPage.executionRole,
             phase: normalisePhase(snapshotPage.phase),
@@ -1655,6 +1756,7 @@ function mergeTranscriptPage(
         turn.pages.push(page);
     } else {
         // Refine existing fields per §5.4.
+        if (snapshotPage.assistantMessageId) writeField(page, 'messageId', snapshotPage.assistantMessageId, 'transcript');
         if (snapshotPage.iteration !== undefined) writeField(page, 'iteration', snapshotPage.iteration, 'transcript');
         if (snapshotPage.executionRole) writeField(page, 'executionRole', snapshotPage.executionRole, 'transcript');
         if (snapshotPage.phase) writeField(page, 'phase', normalisePhase(snapshotPage.phase), 'transcript');
@@ -1692,6 +1794,7 @@ function mergeTranscriptModelStep(
     }
     if (snapshotStep.modelCallId) writeField(step, 'modelCallId', snapshotStep.modelCallId, 'transcript');
     if (snapshotStep.assistantMessageId) writeField(step, 'assistantMessageId', snapshotStep.assistantMessageId, 'transcript');
+    if (snapshotStep.mode) writeField(step, 'mode', snapshotStep.mode, 'transcript');
     if (snapshotStep.executionRole) writeField(step, 'executionRole', snapshotStep.executionRole, 'transcript');
     if (snapshotStep.phase) writeField(step, 'phase', snapshotStep.phase, 'transcript');
     if (snapshotStep.provider) writeField(step, 'provider', snapshotStep.provider, 'transcript');

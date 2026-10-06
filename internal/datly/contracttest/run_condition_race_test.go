@@ -44,8 +44,17 @@ func TestRunConditionCompetingConnection(t *testing.T) {
 			must(t, err)
 			defer competitor.Close()
 			injected := false
+			var competitorErr error
+			var winningSnapshot map[string]any
 			rt, _ := runParityRuntimeWithViewHook(t, db, "", true, func(provider locator.Provider) locator.Provider {
-				return &afterScheduleView{Provider: provider, after: func() error { injected = true; _, err := competitor.Exec(tc.statement); return err }}
+				return &afterScheduleView{Provider: provider, after: func() error {
+					injected = true
+					_, competitorErr = competitor.Exec(tc.statement)
+					if competitorErr == nil {
+						winningSnapshot = sqliteRaceRowSnapshot(t, competitor, "run", "owned")
+					}
+					return competitorErr
+				}}
 			})
 			request := httptest.NewRequest("PATCH", "/v1/api/agently/run", strings.NewReader(tc.input))
 			request.Header.Set("Content-Type", "application/json")
@@ -53,7 +62,18 @@ func TestRunConditionCompetingConnection(t *testing.T) {
 			must(t, err)
 			defer scope.Close()
 			_, err = rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/run", scope)
+			requireCommittedSQLiteSnapshotConflict(t, err, competitorErr)
+			requireSQLiteWinnerUnchanged(t, db, "run", "owned", winningSnapshot)
+			// The failed owned transaction has completed rollback before retry.
+			rt, _ = runParityRuntime(t, db, "", true)
+			freshRequest := httptest.NewRequest("PATCH", "/v1/api/agently/run", strings.NewReader(tc.input))
+			freshRequest.Header.Set("Content-Type", "application/json")
+			freshScope, freshErr := requestprovider.New(freshRequest)
+			must(t, freshErr)
+			defer freshScope.Close()
+			_, err = rt.ExecuteRoute(context.Background(), "PATCH", "/v1/api/agently/run", freshScope)
 			must(t, err)
+			requireSQLiteWinnerUnchanged(t, db, "run", "owned", winningSnapshot)
 			if !injected {
 				t.Fatal("competing write was not injected")
 			}

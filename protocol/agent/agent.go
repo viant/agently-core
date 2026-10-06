@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm"
@@ -56,6 +57,8 @@ type (
 		// ContextRecoveryMode controls how the agent handles context-limit recovery.
 		// Supported values: "compact", "pruneCompact".
 		ContextRecoveryMode string `yaml:"contextRecoveryMode,omitempty" json:"contextRecoveryMode,omitempty"`
+		// ContextCompactionPercent optionally triggers proactive history compaction.
+		ContextCompactionPercent *float64 `yaml:"contextCompactionPercent,omitempty" json:"contextCompactionPercent,omitempty"`
 
 		// UI defaults: whether to show execution details and tool feed in chat
 		ShowExecutionDetails *bool `yaml:"showExecutionDetails,omitempty" json:"showExecutionDetails,omitempty"`
@@ -497,6 +500,9 @@ func (a *Agent) EffectiveFollowUps() []*Chain {
 func (a *Agent) Validate() error {
 	if a == nil {
 		return fmt.Errorf("agent is nil")
+	}
+	if p := a.ContextCompactionPercent; p != nil && (math.IsNaN(*p) || math.IsInf(*p, 0) || *p <= 0 || *p > 100) {
+		return fmt.Errorf("contextCompactionPercent must be finite and greater than 0 and at most 100")
 	}
 	// Validate followUps (supervised post-turn follow-up definitions):
 	// target.agentId must be non-empty when follow-ups are declared.

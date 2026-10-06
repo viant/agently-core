@@ -1,14 +1,12 @@
 # SDK surface
 
-The Go embedded and HTTP clients, TypeScript, Swift and Kotlin clients share
-one public operation and wire contract (`Client` is its Go authority):
+Go HTTP, TypeScript, Swift and Kotlin use AG-UI for outward conversation
+interaction and retain the supporting authenticated application APIs. The Go
+`Client` covers caller operations; host-side `Backend` additionally owns the
+native execution event bus consumed by the AG-UI coordinator. That backend bus
+is not an alternative HTTP conversation transport.
 
-1. **Embedded** — in-process Go; direct service calls, fastest.
-2. **HTTP** — Go client over HTTP; exercises the same endpoints browser clients use.
-3. **TypeScript** — browser/Node HTTP client for the web UI.
-4. **Mobile** — Swift (iOS) and Kotlin (Android); mirror the Go `Client` method-for-method.
-
-For the Datly 1.0 server migration and cross-platform compatibility gate, see
+For persistence boundaries and cross-platform application contracts, see
 [datly-sdk-contract.md](datly-sdk-contract.md).
 
 ## Packages
@@ -31,15 +29,15 @@ For the Datly 1.0 server migration and cross-platform compatibility gate, see
 |---|---|
 | Embedded | `NewBackendFromRuntime(rt)` — wires every service including the datasource stack ([doc/lookups.md](lookups.md)) |
 | HTTP | `NewHTTP(baseURL, opts...)` |
-| Local HTTP (tests) | `NewLocalHTTPFromRuntime(rt)` — spins up the HTTP server in-process so tests exercise the wire contract |
+| Local HTTP | `NewLocalHTTPFromRuntime(ctx, rt)` — spins up the HTTP server in-process so tests exercise the wire contract |
 
 ---
 
 ## Using the client
 
 Every code example below does the same three things: open a conversation,
-send a query, stream events. The API surface is intentionally identical
-across platforms.
+send a query and observe its run. Each language exposes its own typed surface
+over the same wire protocol.
 
 ### Go — HTTP client
 
@@ -64,24 +62,23 @@ conv, err := client.CreateConversation(ctx, &agentlysdk.CreateConversationInput{
 })
 if err != nil { log.Fatal(err) }
 
-// 2. Send a query. Response includes the final assistant message; stream
-//    the events separately if you want incremental output.
-out, err := client.Query(ctx, &agentsvc.QueryInput{
-    ConversationID: conv.ID,
+// 2. Prepare one run using authenticated native metadata for thread mapping.
+prepared, err := client.PrepareAGUIChat(ctx, &agentsvc.QueryInput{
+    ConversationID: conv.Id,
     Query:          "Summarize Q4 performance",
 })
 if err != nil { log.Fatal(err) }
-log.Printf("assistant: %s", out.Content)
-
-// 3. Stream events (tool calls, token deltas, elicitations, etc.).
-sub, err := client.StreamEvents(ctx, &agentlysdk.StreamEventsInput{
-    ConversationID: conv.ID,
+stream, err := client.RunAGUI(ctx, &prepared.Input, nil)
+if err != nil { log.Fatal(err) }
+defer stream.Close()
+result, err := agentlysdk.CollectAGUI(stream, conv.Id, func(event agentlysdk.AGUIEvent) error {
+    log.Printf("event type=%s", event.Type)
+    return nil
 })
 if err != nil { log.Fatal(err) }
-defer sub.Close()
-for ev := range sub.Events() {
-    log.Printf("event type=%s turn=%s", ev.Type, ev.TurnID)
-}
+log.Printf("assistant: %s", result.Content)
+// Interrupted runs require an explicit resume entry. Interrupted transport
+// returns AGUIObservationError with IDs/cursor; attach rather than resubmit.
 
 // 4. Feature: fetch rows from a datasource-backed picker.
 rows, err := client.FetchDatasource(ctx, &api.FetchDatasourceInput{
@@ -211,7 +208,7 @@ available without automatically sending its bytes to the model:
 // client and conv are from the construction/query example above.
 // The configured client/context must carry an authenticated effective user.
 file, err := client.UploadFile(ctx, &agentlysdk.UploadFileInput{
-    ConversationID: conv.ID,
+    ConversationID: conv.Id,
     Name: "customers.csv",
     ContentType: "text/csv",
     Data: []byte("id,name\n1,Alice\n"),
@@ -220,7 +217,7 @@ if err != nil { log.Fatal(err) }
 if file.Resource == nil { log.Fatal("upload did not publish a user-scoped resource") }
 
 result, err := client.Query(ctx, &agentsvc.QueryInput{
-    ConversationID: conv.ID,
+    ConversationID: conv.Id,
     AgentID: "orchestrator",
     Query: "Inspect this customer file",
     ResourceURIs: []string{file.Resource.URI},
@@ -308,7 +305,7 @@ One Go interface captures every operation a caller can perform:
 - Files (upload / download)
 - Auth (providers, login, OAuth)
 
-Compile-time assertions at [sdk/client.go:14-18](../sdk/client.go) pin `*backendClient` and `*HTTPClient` to the full interface — any missing method fails the build.
+Compile-time assertions at [sdk/client.go:14-18](../sdk/client.go) pin `*backendClient` and `*HTTPClient` to `Client`; only the host backend must also implement native `Backend.StreamEvents`.
 
 ## Wire contract
 
@@ -318,7 +315,16 @@ Compile-time assertions at [sdk/client.go:14-18](../sdk/client.go) pin `*backend
 
 ## Streaming
 
-`Client.StreamEvents(ctx, input)` returns a Go-channel-like subscription the caller drains. The HTTP impl backs it with Server-Sent Events; the embedded impl backs it with the in-process bus. See [doc/streaming-events.md](streaming-events.md).
+`HTTPClient.RunAGUI` returns an SSE run stream whose events retain the complete
+wire JSON and opaque cursor. `AttachAGUI` observes the same admitted run without
+submitting another user message. `Query` collects a simple run response and
+returns a typed interrupt error when an explicit decision is needed. Unsupported
+native-only QueryInput controls are rejected before I/O.
+
+`ObserveApplicationEvents` requires a visible conversation and observes only
+scoped supporting application/native-background events, suppressing execution
+already carried by AG-UI. Host-side `Backend.StreamEvents` stays on the private
+in-process bus. The old query endpoint and unscoped stream route are not mounted.
 
 ## Cross-platform symmetry
 

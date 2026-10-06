@@ -37,6 +37,7 @@ type APIOptions struct {
 	SchedulerService *svcscheduler.Service
 	SchedulerOptions *sdk.SchedulerOptions
 	UIBridgeHandler  http.Handler
+	AGUIDemoBackends []sdk.AGUIDemoBackend
 }
 
 func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
@@ -69,6 +70,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		sdk.WithMetadataHandler(metadataHandler),
 		sdk.WithFileBrowser(fileBrowserHandler),
 		sdk.WithA2AHandler(a2aHandler),
+		sdk.WithAGUIDemoBackends(opts.AGUIDemoBackends...),
 	}
 	// Callback dispatcher — mounted only when the runtime built one
 	// (requires a tool registry; see executor builder). When auth is

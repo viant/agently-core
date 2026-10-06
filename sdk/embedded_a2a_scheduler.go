@@ -52,6 +52,13 @@ func (c *backendClient) ListA2AAgents(ctx context.Context, agentIDs []string) ([
 
 func (c *backendClient) SetScheduler(svc *scheduler.Service) {
 	c.schedulerSvc = svc
+	if c.agent != nil {
+		if svc == nil {
+			c.agent.SetGoalWakeupScheduler(nil)
+		} else {
+			c.agent.SetGoalWakeupScheduler(svc)
+		}
+	}
 }
 
 func (c *backendClient) GetSchedule(ctx context.Context, id string) (*scheduler.Schedule, error) {

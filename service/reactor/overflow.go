@@ -13,6 +13,8 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/binding"
+	"github.com/viant/agently-core/protocol/mcpname"
+	"github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/agent/prompts"
 	core2 "github.com/viant/agently-core/service/core"
@@ -52,20 +54,42 @@ func (s *Service) freeMessageTokensLLM(ctx context.Context, conv *apiconv.Conver
 	if genInput.Options == nil {
 		genInput.Options = &llm.Options{}
 	}
+	// The builder may reuse agent model options. Recovery controls belong to
+	// this pass only; leaking its forced tool choice makes later user turns
+	// execute removal repeatedly instead of answering.
+	options := *genInput.Options
+	options.Tools = append([]llm.Tool(nil), genInput.Options.Tools...)
+	if genInput.Options.Metadata != nil {
+		options.Metadata = make(map[string]interface{}, len(genInput.Options.Metadata))
+		for key, value := range genInput.Options.Metadata {
+			options.Metadata[key] = value
+		}
+	}
+	genInput.Options = &options
 	genInput.Options.Mode = "plan"
 
 	//// Strip system content and configure minimal tool set for recovery
 	s.stripSystemMessages(genInput)
 
 	s.adjustToolDefinitions(genInput)
-
-	// Compare old vs new request footprint and prune history if needed
-	tokenDelta, err := s.computeTokenDiff(ctx, genInput, oldGenInput)
-	if err != nil {
-		return fmt.Errorf("failed to compute token diff: %v", err)
+	if recovery.IsProactive(ctx) {
+		if len(genInput.Options.Tools) != 1 {
+			return fmt.Errorf("proactive compaction requires exactly one message removal tool")
+		}
+		choice := llm.NewFunctionToolChoice(genInput.Options.Tools[0].Definition.Name)
+		genInput.Options.ToolChoice = choice
 	}
 
-	adjustInputIfNeeded(tokenDelta, overlimit, genInput)
+	if !recovery.IsProactive(ctx) {
+		// Compare old vs new request footprint and prune history if needed
+		tokenDelta, err := s.computeTokenDiff(ctx, genInput, oldGenInput)
+		if err != nil {
+			return fmt.Errorf("failed to compute token diff: %v", err)
+		}
+
+		adjustInputIfNeeded(tokenDelta, overlimit, genInput)
+
+	}
 
 	genOutput := &core2.GenerateOutput{}
 	ctx = context.WithValue(ctx, ctxKeyContinuationMode, true)
@@ -100,8 +124,7 @@ func (s *Service) adjustToolDefinitions(genInput *core2.GenerateInput) {
 
 			if strings.Contains(def.Name, "remove") {
 				tmpDef := *def
-				tmpDef.Name = strings.Replace(tmpDef.Name, "/", "_", 1)
-				tmpDef.Name = strings.Replace(tmpDef.Name, "/", "-", 1) // should give message-remove
+				tmpDef.Name = mcpname.Canonical(tmpDef.Name)
 				genInput.Options.Tools = append(genInput.Options.Tools, llm.Tool{Type: "function", Definition: tmpDef})
 			}
 		}
@@ -288,7 +311,12 @@ func (s *Service) composeFreeTokenPrompt(errMessage string, lines []string, ids 
 
 func (s *Service) composeCompactPrompt(errMessage string, lines []string, ids []string) string {
 	var buf bytes.Buffer
-	buf.WriteString("The last LLM call failed due to context overflow. Here is the exact error:\n")
+	if strings.HasPrefix(errMessage, "Proactive context usage") {
+		buf.WriteString("History compaction was triggered before the next model call.\n")
+		buf.WriteString("Preserve exact tool operation IDs and completed results in the handoff. A candidate messageId is an archival row ID, never a replacement for its operationId. Record completed operations as completed; do not execute them again. Preserve exact user identifiers and facts rather than paraphrasing their values.\n")
+	} else {
+		buf.WriteString("The last LLM call failed due to context overflow. Here is the exact error:\n")
+	}
 	buf.WriteString("ERROR_MESSAGE: ")
 	buf.WriteString(errMessage)
 	buf.WriteString("\n\n")

@@ -26,7 +26,9 @@ func persistRequestPayload(ctx context.Context, conv apiconv.Client, toolMsgID s
 	upd.SetMessageID(toolMsgID)
 	upd.RequestPayloadID = &reqID
 	upd.Has.RequestPayloadID = true
-	_ = conv.PatchToolCall(ctx, upd)
+	if err := conv.PatchToolCall(ctx, upd); err != nil {
+		return "", err
+	}
 	return reqID, nil
 }
 

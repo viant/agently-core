@@ -23,11 +23,6 @@ pipeline:
     request: '@transcribe'
     params:
       projectRoot: $projectRoot
-  regeneration:
-    action: run
-    request: '@regeneration'
-    params:
-      projectRoot: $projectRoot
   verify:
     action: exec:run
     TimeoutMs: 1800000
