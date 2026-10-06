@@ -229,10 +229,11 @@ internal fun bufferedFromMessage(message: Message): BufferedMessage {
 internal fun assistantMessagesFromTurns(turns: List<TurnState>): List<BufferedMessage> {
     val output = linkedMapOf<String, BufferedMessage>()
     turns.forEach { turn ->
+        val toolResultIds = com.viant.agentlysdk.canonicalToolResultMessageIds(turn)
         turn.execution?.pages.orEmpty().forEach pageLoop@ { page ->
             if (page.finalResponse != true) return@pageLoop
             val messageId = firstString(page.assistantMessageId, page.pageId)
-            if (messageId.isBlank()) return@pageLoop
+            if (messageId.isBlank() || messageId in toolResultIds) return@pageLoop
             output[messageId] = BufferedMessage(
                 id = messageId,
                 conversationId = null,

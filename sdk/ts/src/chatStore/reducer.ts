@@ -1724,6 +1724,7 @@ function mergeTranscriptPage(
         page = {
             renderKey: allocateRenderKey(),
             pageId: snapshotPage.pageId,
+            messageId: snapshotPage.assistantMessageId,
             iteration: snapshotPage.iteration,
             executionRole: snapshotPage.executionRole,
             phase: normalisePhase(snapshotPage.phase),
@@ -1755,6 +1756,7 @@ function mergeTranscriptPage(
         turn.pages.push(page);
     } else {
         // Refine existing fields per §5.4.
+        if (snapshotPage.assistantMessageId) writeField(page, 'messageId', snapshotPage.assistantMessageId, 'transcript');
         if (snapshotPage.iteration !== undefined) writeField(page, 'iteration', snapshotPage.iteration, 'transcript');
         if (snapshotPage.executionRole) writeField(page, 'executionRole', snapshotPage.executionRole, 'transcript');
         if (snapshotPage.phase) writeField(page, 'phase', normalisePhase(snapshotPage.phase), 'transcript');

@@ -42,4 +42,15 @@ class CanonicalMessagesTest {
         assertEquals(3, turn.execution?.pages?.flatMap { it.modelSteps }?.size)
     }
 
+    @Test fun toolOwnedCachedAssistantProjectionIsExcludedButToolResultRemains() {
+        val turn = Json { ignoreUnknownKeys = true }.decodeFromString<TurnState>("""
+            {"turnId":"t","messages":[{"messageId":"tool","role":"assistant","content":"contract"},{"messageId":"assistant","role":"assistant","content":"contract","mode":"task"}],
+             "assistant":{"final":{"messageId":"tool","content":"contract"}},
+             "execution":{"pages":[{"pageId":"tool","assistantMessageId":"tool","content":"contract","finalResponse":true,"toolSteps":[{"toolCallId":"op","toolMessageId":"tool","toolName":"template/get","content":"contract"}]}]}}
+        """)
+        assertEquals(listOf("assistant"), canonicalAssistantMessages(turn).map { it.messageId })
+        assertEquals(listOf("assistant"), assistantMessagesFromTurns(listOf(turn)).map { it.id })
+        assertEquals("contract", turn.execution?.pages?.single()?.toolSteps?.single()?.content)
+    }
+
 }

@@ -2,7 +2,7 @@ import Foundation
 
 /// User-facing assistant messages deduplicated by exact canonical message ID.
 public func canonicalAssistantMessages(_ turn: ConversationTurn) -> [TurnMessageState] {
-    let hidden = canonicalInternalAssistantMessageIDs(turn)
+    let hidden = canonicalInternalAssistantMessageIDs(turn).union(canonicalToolResultMessageIDs(turn))
     var ordered: [TurnMessageState] = []
     func put(_ message: TurnMessageState) {
         guard !message.messageID.isEmpty, !hidden.contains(message.messageID) else { return }
@@ -43,4 +43,8 @@ func canonicalInternalAssistantMessageIDs(_ turn: ConversationTurn) -> Set<Strin
         }
     }
     return ids
+}
+
+func canonicalToolResultMessageIDs(_ turn: ConversationTurn) -> Set<String> {
+    Set((turn.execution?.pages ?? []).flatMap(\.toolSteps).compactMap(\.toolMessageID).filter { !$0.isEmpty })
 }
