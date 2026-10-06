@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	_ "embed"
 	"fmt"
-	_ "github.com/mattn/go-sqlite3"
+	_ "modernc.org/sqlite"
 	"os"
 )
 
@@ -22,7 +22,7 @@ func main() {
 	} else if !os.IsNotExist(err) {
 		panic(err)
 	}
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open("sqlite", path)
 	if err != nil {
 		panic(err)
 	}

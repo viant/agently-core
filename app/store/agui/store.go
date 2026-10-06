@@ -6,11 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/go-sql-driver/mysql"
-	"github.com/mattn/go-sqlite3"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
 	"github.com/viant/sqlx/io/errx"
 	xhandler "github.com/viant/xdatly/handler"
+	moderncsqlite "modernc.org/sqlite"
+	sqlitecode "modernc.org/sqlite/lib"
 	"time"
 )
 
@@ -120,13 +121,13 @@ var _ ActiveRunLister = (*ComponentStore)(nil)
 // Driver-coded transaction contention is eligible for a bounded fresh native
 // invocation. Error text alone is never sufficient to replay a mutation.
 func transactionContention(err error) bool {
-	var sqliteError sqlite3.Error
-	if errors.As(err, &sqliteError) && (sqliteError.Code == sqlite3.ErrBusy || sqliteError.Code == sqlite3.ErrLocked) {
-		return true
-	}
-	var modern interface{ Code() int }
-	if errors.As(err, &modern) && (modern.Code()&255 == 5 || modern.Code()&255 == 6) {
-		return true
+	var sqliteError *moderncsqlite.Error
+	if errors.As(err, &sqliteError) && sqliteError != nil {
+		// Extended result codes retain the primary code in the low byte.
+		switch sqliteError.Code() & 0xff {
+		case sqlitecode.SQLITE_BUSY, sqlitecode.SQLITE_LOCKED:
+			return true
+		}
 	}
 	var mysqlError *mysql.MySQLError
 	if errors.As(err, &mysqlError) && (mysqlError.Number == 1205 || mysqlError.Number == 1213) {

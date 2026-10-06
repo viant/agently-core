@@ -267,7 +267,7 @@ func TestDurableJournalFailureRollsBackProjectionAndRevision(t *testing.T) {
 	require.NoError(t, err)
 	// Fixture DDL deliberately fails the last generated component after earlier
 	// components have written. All application persistence still uses Datly.
-	db, err := sql.Open("sqlite3", filepath.Join(workspace, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspace, "db", "agently-core.db"))
 	require.NoError(t, err)
 	defer db.Close()
 	_, err = db.Exec(`CREATE TRIGGER reject_journal_fixture BEFORE INSERT ON call_payload WHEN NEW.kind='agui.event' AND CAST(NEW.inline_body AS TEXT) LIKE '%"name":"reject"%' BEGIN SELECT RAISE(ABORT,'journal-fixture-reject'); END`)
@@ -298,7 +298,7 @@ func TestDurableResumeFailureRollsBackConsumption(t *testing.T) {
 	require.NoError(t, err)
 	thread, err := repository.GetThread(ctx, "owner", "thread")
 	require.NoError(t, err)
-	db, err := sql.Open("sqlite3", filepath.Join(workspace, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspace, "db", "agently-core.db"))
 	require.NoError(t, err)
 	defer db.Close()
 	_, err = db.Exec(`CREATE TRIGGER reject_resume_fixture BEFORE INSERT ON run WHEN NEW.run_kind='agui' AND CAST(NEW.protocol_run_id AS TEXT)='bad-resume' BEGIN SELECT RAISE(ABORT,'resume-fixture-reject'); END`)

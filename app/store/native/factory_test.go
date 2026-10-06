@@ -11,7 +11,6 @@ import (
 	"testing"
 	"time"
 
-	_ "github.com/mattn/go-sqlite3"
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/native"
 	read "github.com/viant/agently-core/internal/datly/conversation/read"
@@ -51,6 +50,7 @@ import (
 	runstepsstore "github.com/viant/agently-core/internal/store/runsteps"
 	schedulerlease "github.com/viant/agently-core/internal/store/schedulerlease"
 	schedulerstore "github.com/viant/agently-core/internal/store/schedulerstore"
+	_ "modernc.org/sqlite"
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	datlypredicate "github.com/viant/agently-core/internal/datly/predicate"
@@ -157,7 +157,7 @@ func TestWorkspaceRuntimeApprovalStore(t *testing.T) {
 	server, err := native.New(ctx, native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.ExecContext(ctx, `INSERT INTO tool_approval_queue(id,user_id,tool_name,arguments,status,created_at) VALUES
@@ -201,7 +201,7 @@ func TestWorkspaceRuntimeConversationTreeApprovalCandidates(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id,created_by_user_id) VALUES('approval-graph','u1'),('approval-outside','u1');
@@ -252,7 +252,7 @@ func TestWorkspaceRuntimeGeneratedDeleteStores(t *testing.T) {
 	server, err := native.New(ctx, native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.ExecContext(ctx, `INSERT INTO conversation(id) VALUES ('delete-c1'),('delete-c2')`)
@@ -297,7 +297,7 @@ func TestWorkspaceRuntimeGoalRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
 	path := filepath.Join(workspaceRoot, "db", "agently-core.db")
-	db, err := sql.Open("sqlite3", path)
+	db, err := sql.Open("sqlite", path)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.ExecContext(ctx, "INSERT INTO conversation(id) VALUES (?)", "c1")
@@ -328,7 +328,7 @@ func TestWorkspaceRuntimeConversationScope(t *testing.T) {
 	server, err := native.New(ctx, native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.ExecContext(ctx, "INSERT INTO conversation(id, visibility, created_by_user_id) VALUES ('private-c1','private','u1')")
@@ -372,7 +372,7 @@ func TestWorkspaceRuntimeConversationTreeDiscovery(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id,created_by_user_id,status) VALUES('tree-root','u1','succeeded'),('tree-linked','u1','succeeded'),('tree-unrelated','u2','succeeded');
@@ -436,7 +436,7 @@ func TestWorkspaceRuntimeConversationTreeRunEvidence(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id,created_by_user_id,status) VALUES('live-root','u1','succeeded');
@@ -512,7 +512,7 @@ func TestWorkspaceRuntimeConversationTreeScheduleReferences(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id,created_by_user_id,status) VALUES('schedule-root','u1','succeeded');
@@ -567,7 +567,7 @@ func TestWorkspaceRuntimeConversationTreeReportReferences(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id,created_by_user_id,status) VALUES('report-root','u1','succeeded'),('report-outside','u1','succeeded');
@@ -607,7 +607,7 @@ func TestWorkspaceRuntimeConversationTreeExportReferences(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id,created_by_user_id,status) VALUES('export-root','u1','succeeded');
@@ -662,7 +662,7 @@ func TestWorkspaceRuntimeConversationTreeNonTerminalStatus(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id,created_by_user_id,status) VALUES('status-root','u1','legacy_busy')`)
@@ -717,7 +717,7 @@ func TestWorkspaceRuntimeReportAuditImport(t *testing.T) {
 	trusted := native.WithAccess(ctx, native.Access{Internal: true})
 	require.NoError(t, store.ImportIfAbsent(trusted, event))
 	require.NoError(t, store.ImportIfAbsent(trusted, event))
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	var count int
@@ -737,7 +737,7 @@ func TestWorkspaceRuntimeReportingTransactions(t *testing.T) {
 	server, err := native.New(ctx, native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.ExecContext(ctx, `INSERT INTO conversation(id) VALUES ('c1');
@@ -796,7 +796,7 @@ func TestWorkspaceRuntimeQueueReorder(t *testing.T) {
 	server, err := native.New(ctx, native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.ExecContext(ctx, `INSERT INTO conversation(id,visibility) VALUES('c1','public');
@@ -856,7 +856,7 @@ func TestWorkspaceRuntimeReportRunAndContextStores(t *testing.T) {
 	server, err := native.New(ctx, native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.ExecContext(ctx, "INSERT INTO conversation(id) VALUES('c1')")
@@ -1014,7 +1014,7 @@ func TestWorkspaceRuntimeMaintenanceLease(t *testing.T) {
 	require.False(t, blocked.Acquired)
 	require.Equal(t, "worker-a", blocked.Lease.OwnerID)
 	require.Empty(t, blocked.Lease.Token)
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.ExecContext(ctx, "INSERT INTO maintenance_lease(lease_key,owner_id,lease_token,lease_until) VALUES('expired','old','old-token',?)", time.Now().UTC().Add(-8*24*time.Hour))
@@ -1042,7 +1042,7 @@ func TestWorkspaceRuntimeSchedulerLeases(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec("INSERT INTO schedule(id,name,agent_ref,enabled) VALUES('schedule-1','test','agent',1); INSERT INTO run(id,schedule_id,status) VALUES('run-1','schedule-1','pending')")
@@ -1125,7 +1125,7 @@ func TestWorkspaceRuntimeSchedulerRunLists(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO schedule(id,name,agent_ref,visibility,created_by_user_id,internal) VALUES
@@ -1208,7 +1208,7 @@ func TestWorkspaceRuntimeConversationStore(t *testing.T) {
 	got, err = store.GetVisible(owner, row.Id, nil)
 	require.NoError(t, err)
 	require.Equal(t, "Second", *got.Title)
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO turn(id,conversation_id,status,created_at) VALUES('turn-1','private-conversation','succeeded','2026-01-01 00:00:00');
@@ -1355,7 +1355,7 @@ func TestWorkspaceRuntimeConversationListPage(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id,visibility,created_by_user_id,created_at,last_activity,status) VALUES
@@ -1425,7 +1425,7 @@ func TestWorkspaceRuntimeTurnStore(t *testing.T) {
 		turn.SetQueueSeq(&sequence)
 		require.NoError(t, turns.PatchTrusted(context.Background(), turn))
 	}
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	var first, second int64
@@ -1465,7 +1465,7 @@ func TestWorkspaceRuntimeRunStepsStore(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id) VALUES('steps-conversation');
@@ -1594,7 +1594,7 @@ func TestWorkspaceRuntimePayloadRetention(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id) VALUES('payload-conversation'),('outside-conversation');
@@ -1635,7 +1635,7 @@ func TestWorkspaceRuntimePayloadRetentionEveryReference(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	ids := []string{"p-attach", "p-elicitation", "p-model-request", "p-model-response", "p-provider-request", "p-provider-response", "p-stream", "p-tool-request", "p-tool-response", "p-generated"}
@@ -1693,7 +1693,7 @@ func TestWorkspaceRuntimePayloadRetentionLateReference(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`INSERT INTO conversation(id) VALUES('late-payload-conversation');
