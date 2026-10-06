@@ -297,3 +297,25 @@ func TestAGUIConversationBootstrapCorrelatesProtocolUserWithDifferentPersistedNa
 	require.Contains(t, string(rawAGUI(result.Transcript)), nativeUserID)
 	require.EqualValues(t, 1, c.queries.Load())
 }
+
+func TestAGUIConversationBootstrapInternalModesAndIdentityDedupe(t *testing.T) {
+	transcript := &ConversationStateResponse{Conversation: &ConversationState{ConversationID: "thread", Turns: []*TurnState{{TurnID: "turn", Messages: []*TurnMessageState{
+		{MessageID: "router", Role: "assistant", Mode: "router", Content: `{"classification":true}`},
+		{MessageID: "chain", Role: "assistant", Mode: "chain", Content: "internal prose"},
+		{MessageID: "interim", Role: "assistant", Mode: "task", Content: "same prose"},
+		{MessageID: "final", Role: "assistant", Mode: "task", Content: "same prose"},
+	}, Assistant: &AssistantState{Final: &AssistantMessageState{MessageID: "final", Content: "same prose"}}}}}}
+	journal := []aguistate.Object{{"id": "router", "role": "assistant", "content": `{"classification":true}`}, {"id": "router/activity", "role": "activity", "activityType": "agently.rendered-content", "content": map[string]any{"private": true}}, {"id": "interim", "role": "assistant", "content": "same prose"}}
+	messages, quality := aguiBootstrapMessages(context.Background(), nil, transcript, journal)
+	require.False(t, quality.Lossless)
+	require.Equal(t, []string{"final"}, quality.UnavailableMessageIDs)
+	ids := map[string]int{}
+	for _, message := range messages {
+		ids[message["id"].(string)]++
+	}
+	require.NotContains(t, ids, "router")
+	require.NotContains(t, ids, "router/activity")
+	require.NotContains(t, ids, "chain")
+	require.Equal(t, 1, ids["interim"])
+	require.Equal(t, 1, ids["final"], "same canonical final ID appears once across message and aggregate")
+}

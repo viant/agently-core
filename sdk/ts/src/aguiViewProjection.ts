@@ -1,3 +1,4 @@
+import { isInternalMessageMode } from './messageVisibility';
 import type { AgentSubscriber } from '@ag-ui/client';
 import type { Message, State, Interrupt } from '@ag-ui/core';
 import type { SSEEvent, JSONValue } from './types';
@@ -192,7 +193,9 @@ export class AgUiViewProjection {
             return;
         }
         if(message.role==='assistant'||message.role==='reasoning'){
-            if(typeof message.content!=='string'){
+            if(isInternalMessageMode(p?.mode)){
+                // Keep tool-call containers, never their internal message body.
+            }else if(typeof message.content!=='string'){
                 if(Array.isArray(message.content)||'encryptedValue' in message)this.descriptor(`message:${message.id}`,{kind:'protocol-message',message:structuredClone(message),hostEffectsAllowed:false});
             }else{
                 this.emit({type:message.role==='reasoning'?'reasoning_delta':'text_delta',messageId:p?.nativeMessageId??message.id,assistantMessageId:p?.nativeMessageId??message.id,content:message.content,contentMode:'snapshot',...(message.role==='assistant'&&this.options.profile==='agently'?{renderedContent:this.renderedFor(message.id)}:{}),protocolMessageId:message.id,pageId:p?.pageId??lane.pageId??p?.nativeMessageId??`${this.runId}/message/${message.id}`},lane);

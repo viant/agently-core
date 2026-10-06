@@ -898,7 +898,7 @@ func (c *backendClient) aguiInspectRun(ctx context.Context, record *aguistore.Ru
 		if row == nil || row.ConversationId != record.ConversationID || valueOrEmpty(row.TurnId) != record.TurnID {
 			return nil, fmt.Errorf("native message scope mismatch")
 		}
-		if row.Archived != nil && *row.Archived == 1 || strings.EqualFold(valueOrEmpty(row.Mode), "chain") {
+		if row.Archived != nil && *row.Archived == 1 || streaming.IsInternalMessageMode(valueOrEmpty(row.Mode)) {
 			continue
 		}
 		msg, e := c.conv.GetMessage(ctx, row.Id, conversation.WithIncludeToolCall(true), conversation.WithIncludeModelCall(true))

@@ -817,3 +817,24 @@ describe('deriveHostedWorkspaceRestoreStateFromTranscriptTurns', () => {
         });
     });
 });
+
+describe('canonical ui/context/get admission snapshot', () => {
+    it('replaces only already known same-conversation form and preserves later edits', () => {
+        const known = {windowId:'builder__conv',windowKey:'builder',conversationId:'conv',windowForm:{state:{obsolete:true}}};
+        const admitted = {prefill:{ids:[7]},__forge:{prefillRevision:3},state:{opaque:{mirror:'exact'},document:{blocks:[]}}};
+        const steps:any[] = [
+            {toolName:'ui/window/list',status:'completed',responsePayload:{items:[known]}},
+            {toolName:'ui/context:get',status:'completed',responsePayload:{conversationId:'conv',windows:[
+                {window:{...known,windowForm:admitted}},
+                {window:{windowId:'unknown',windowKey:'builder',conversationId:'conv',windowForm:{bad:true}}},
+                {window:{...known,conversationId:'foreign',windowForm:{bad:true}}},
+            ]}},
+        ];
+        const restore = () => deriveHostedWorkspaceRestoreStateFromTranscriptTurns([{turnId:'turn',execution:{pages:[{toolSteps:steps}]}} as any]);
+        expect(restore()?.windows).toHaveLength(1);
+        expect(restore()?.windows[0].windowForm).toEqual(admitted);
+        steps.push({toolName:'ui/window/setFormData',status:'completed',requestPayload:{windowId:known.windowId,values:{state:{opaque:{mirror:'edited'}}}}});
+        expect((restore()?.windows[0].windowForm as any).state.opaque.mirror).toBe('edited');
+        expect(admitted.state.opaque.mirror).toBe('exact');
+    });
+});

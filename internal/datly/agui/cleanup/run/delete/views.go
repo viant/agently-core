@@ -4,7 +4,7 @@ package delete
 
 // RunDelete is generated canonical view metadata for writer.
 type RunDelete struct {
-	RunKey       string        `sqlx:"id,primaryKey=true,required=true" json:"runKey"`
+	RunKey       string        `sqlx:"id,primaryKey=true,required=true" json:"runKey,omitempty"`
 	ShouldDelete bool          `sqlx:"-" writer:"delete" json:"shouldDelete"`
 	Has          *RunDeleteHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"RunDeleteHas"`
 }
@@ -16,7 +16,7 @@ type RunDeleteHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	RunKey string `sqlx:"id,primaryKey=true,required=true" json:"runKey"`
+	RunKey string `sqlx:"id,primaryKey=true,required=true" json:"runKey,omitempty"`
 }
 
 type WriterKeysRow struct {

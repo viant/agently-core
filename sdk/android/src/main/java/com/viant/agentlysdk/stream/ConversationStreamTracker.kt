@@ -249,6 +249,7 @@ class ConversationStreamTracker(conversationId: String = "") {
 
     fun clear() {
         messages.byId.clear()
+        messages.internalMessageIds.clear()
         messages.activeTurnId = null
         executionGroupsById = linkedMapOf()
         maxHydratedEventSeqByTurnId = linkedMapOf()
@@ -297,6 +298,7 @@ class ConversationStreamTracker(conversationId: String = "") {
         val pendingEvents = if (!hydrated) preHydrationEvents.toList() else emptyList()
         if (!hydrated && pendingEvents.isNotEmpty()) {
             messages.byId.clear()
+        messages.internalMessageIds.clear()
             messages.activeTurnId = null
             executionGroupsById.clear()
             feeds.clear()
@@ -586,6 +588,12 @@ fun applyMessageEvent(buffer: MessageBuffer, event: SSEEvent): MessageUpdate? {
     }
 
     val key = resolveEventMessageId(event)
+    if (isInternalMessageMode(event.mode) && key.isNotBlank()) {
+        buffer.internalMessageIds += key
+        buffer.byId.remove(key)
+    }
+    if (key in buffer.internalMessageIds && event.patch?.get("role")?.toString()?.trim('"') != "user") return null
+
     if (key.isBlank()) return null
 
     return when (normalizedType) {
@@ -674,6 +682,9 @@ fun reconcileMessages(buffer: MessageBuffer, serverMessages: List<Message>): Lis
 }
 
 fun reconcileFromTranscript(buffer: MessageBuffer, turns: List<TurnState>) {
+    turns.flatMap { it.messages.orEmpty() }.filter { it.role == "assistant" && isInternalMessageMode(it.mode) }
+        .forEach { buffer.internalMessageIds += it.messageId; buffer.byId.remove(it.messageId) }
+
     val activeTurnId = turns
         .lastOrNull { !isTerminalTurnStatus(it.status) }
         ?.turnId
@@ -682,7 +693,7 @@ fun reconcileFromTranscript(buffer: MessageBuffer, turns: List<TurnState>) {
     val hasActiveBufferedAssistant = activeTurnId != null && buffer.byId.values.any {
         firstString(it.turnId) == activeTurnId && firstString(it.role, "assistant").equals("assistant", true)
     }
-    assistantMessagesFromTurns(turns).forEach {
+    assistantMessagesFromTurns(turns).filterNot { it.id in buffer.internalMessageIds }.forEach {
         if (hasActiveBufferedAssistant && firstString(it.turnId) == activeTurnId) {
             return@forEach
         }

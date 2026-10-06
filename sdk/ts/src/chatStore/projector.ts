@@ -1,3 +1,4 @@
+import { isInternalMessageMode } from '../messageVisibility';
 import type { WorkspaceAttachmentState } from './types';
 /**
  * chatStore/projector.ts — pure projection from canonical client state to
@@ -407,6 +408,7 @@ function projectStandaloneMessages(turn: ClientTurnState): ClientStandaloneMessa
     const pageOwnedIds = pageOwnedAssistantMessageIds(turn);
     return (Array.isArray(turn.messages) ? turn.messages : []).filter((message) => {
         if (message.role !== 'assistant') return true;
+        if (isInternalMessageMode(message.mode)) return false;
         if (Number(message.interim ?? 0) > 0) return false;
         if (String(message.content || '').trim().startsWith('ui://')) return false;
         const messageId = String(message.messageId || '').trim();

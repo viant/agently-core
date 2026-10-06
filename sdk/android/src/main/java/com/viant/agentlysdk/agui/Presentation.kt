@@ -1,5 +1,7 @@
 package com.viant.agentlysdk.agui
 
+import com.viant.agentlysdk.stream.isInternalMessageMode
+
 import com.viant.agentlysdk.RenderedContent
 import com.viant.agentlysdk.stream.SSEEvent
 import com.viant.agentlysdk.stream.EventModel
@@ -131,7 +133,7 @@ internal class AgUiNativePresentation(
                     content = text, contentMode = "snapshot", patch = buildJsonObject { put("role", "user") }))
             }
             "assistant", "reasoning" -> {
-                if (text != null) send(base(p).copy(type = if (message.role == "reasoning") "reasoning_delta" else "text_delta",
+                if (text != null && !isInternalMessageMode(p?.string("mode"))) send(base(p).copy(type = if (message.role == "reasoning") "reasoning_delta" else "text_delta",
                     id = nativeId, messageId = nativeId, assistantMessageId = nativeId,
                     content = text, contentMode = "snapshot", renderedContent = rendered[nativeId]))
                 for (raw in (m["toolCalls"] as? JsonArray).orEmpty()) {

@@ -155,6 +155,7 @@ data class BufferedMessage(
 
 data class MessageBuffer(
     val byId: MutableMap<String, BufferedMessage> = linkedMapOf(),
+    internal val internalMessageIds: MutableSet<String> = linkedSetOf(),
     var activeTurnId: String? = null
 )
 

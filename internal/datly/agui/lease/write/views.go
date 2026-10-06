@@ -8,13 +8,13 @@ import (
 
 // Lease is generated canonical view metadata for writer.
 type Lease struct {
-	Id         *string    `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	Revision   int64      `sqlx:"protocol_lease_revision,required=true" writer:"concurrency" json:"revision"`
-	Owner      *string    `sqlx:"protocol_lease_owner" json:"owner"`
-	LeaseUntil *time.Time `sqlx:"protocol_lease_until" json:"leaseUntil"`
-	RunKey     *string    `sqlx:"protocol_key" json:"runKey"`
-	Principal  *string    `sqlx:"effective_user_id" json:"principal"`
-	RunKind    *string    `sqlx:"run_kind,required=true" json:"runKind"`
+	Id         *string    `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	Revision   int64      `sqlx:"protocol_lease_revision,required=true" writer:"concurrency" json:"revision,omitempty"`
+	Owner      *string    `sqlx:"protocol_lease_owner" json:"owner,omitempty"`
+	LeaseUntil *time.Time `sqlx:"protocol_lease_until" json:"leaseUntil,omitempty"`
+	RunKey     *string    `sqlx:"protocol_key" json:"runKey,omitempty"`
+	Principal  *string    `sqlx:"effective_user_id" json:"principal,omitempty"`
+	RunKind    *string    `sqlx:"run_kind,required=true" json:"runKind,omitempty"`
 	Has        *LeaseHas  `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"LeaseHas"`
 }
 
@@ -30,13 +30,13 @@ type LeaseHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id         *string    `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	Revision   int64      `sqlx:"protocol_lease_revision,required=true" json:"revision"`
-	Owner      *string    `sqlx:"protocol_lease_owner" json:"owner"`
-	LeaseUntil *time.Time `sqlx:"protocol_lease_until" json:"leaseUntil"`
-	RunKey     *string    `sqlx:"protocol_key" json:"runKey"`
-	Principal  *string    `sqlx:"effective_user_id" json:"principal"`
-	RunKind    *string    `sqlx:"run_kind,required=true" json:"runKind"`
+	Id         *string    `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	Revision   int64      `sqlx:"protocol_lease_revision,required=true" json:"revision,omitempty"`
+	Owner      *string    `sqlx:"protocol_lease_owner" json:"owner,omitempty"`
+	LeaseUntil *time.Time `sqlx:"protocol_lease_until" json:"leaseUntil,omitempty"`
+	RunKey     *string    `sqlx:"protocol_key" json:"runKey,omitempty"`
+	Principal  *string    `sqlx:"effective_user_id" json:"principal,omitempty"`
+	RunKind    *string    `sqlx:"run_kind,required=true" json:"runKind,omitempty"`
 }
 
 type WriterKeysRow struct {

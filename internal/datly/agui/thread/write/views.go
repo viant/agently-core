@@ -4,15 +4,15 @@ package write
 
 // Thread is generated canonical view metadata for writer.
 type Thread struct {
-	Id              *string    `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	Revision        int64      `sqlx:"protocol_revision,required=true" writer:"concurrency" json:"revision"`
-	ThreadId        *string    `sqlx:"protocol_thread_id" json:"threadId"`
-	Principal       *string    `sqlx:"protocol_principal" json:"principal"`
-	StateJson       []byte     `sqlx:"protocol_state_json" json:"stateJson"`
-	MessagesJson    []byte     `sqlx:"protocol_messages_json" json:"messagesJson"`
-	ProtocolOnly    bool       `sqlx:"protocol_only,required=true" json:"protocolOnly"`
-	ThreadKey       *string    `sqlx:"protocol_thread_key" json:"threadKey"`
-	CreatedByUserId *string    `sqlx:"created_by_user_id" json:"createdByUserId"`
+	Id              *string    `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	Revision        int64      `sqlx:"protocol_revision,required=true" writer:"concurrency" json:"revision,omitempty"`
+	ThreadId        *string    `sqlx:"protocol_thread_id" json:"threadId,omitempty"`
+	Principal       *string    `sqlx:"protocol_principal" json:"principal,omitempty"`
+	StateJson       []byte     `sqlx:"protocol_state_json" json:"stateJson,omitempty"`
+	MessagesJson    []byte     `sqlx:"protocol_messages_json" json:"messagesJson,omitempty"`
+	ProtocolOnly    bool       `sqlx:"protocol_only,required=true" json:"protocolOnly,omitempty"`
+	ThreadKey       *string    `sqlx:"protocol_thread_key" json:"threadKey,omitempty"`
+	CreatedByUserId *string    `sqlx:"created_by_user_id" json:"createdByUserId,omitempty"`
 	Has             *ThreadHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"ThreadHas"`
 }
 
@@ -30,15 +30,15 @@ type ThreadHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Id              *string `sqlx:"id,primaryKey=true,required=true" json:"id"`
-	Revision        int64   `sqlx:"protocol_revision,required=true" json:"revision"`
-	ThreadId        *string `sqlx:"protocol_thread_id" json:"threadId"`
-	Principal       *string `sqlx:"protocol_principal" json:"principal"`
-	StateJson       []byte  `sqlx:"protocol_state_json" json:"stateJson"`
-	MessagesJson    []byte  `sqlx:"protocol_messages_json" json:"messagesJson"`
-	ProtocolOnly    bool    `sqlx:"protocol_only,required=true" json:"protocolOnly"`
-	ThreadKey       *string `sqlx:"protocol_thread_key" json:"threadKey"`
-	CreatedByUserId *string `sqlx:"created_by_user_id" json:"createdByUserId"`
+	Id              *string `sqlx:"id,primaryKey=true,required=true" json:"id,omitempty"`
+	Revision        int64   `sqlx:"protocol_revision,required=true" json:"revision,omitempty"`
+	ThreadId        *string `sqlx:"protocol_thread_id" json:"threadId,omitempty"`
+	Principal       *string `sqlx:"protocol_principal" json:"principal,omitempty"`
+	StateJson       []byte  `sqlx:"protocol_state_json" json:"stateJson,omitempty"`
+	MessagesJson    []byte  `sqlx:"protocol_messages_json" json:"messagesJson,omitempty"`
+	ProtocolOnly    bool    `sqlx:"protocol_only,required=true" json:"protocolOnly,omitempty"`
+	ThreadKey       *string `sqlx:"protocol_thread_key" json:"threadKey,omitempty"`
+	CreatedByUserId *string `sqlx:"created_by_user_id" json:"createdByUserId,omitempty"`
 }
 
 type WriterKeysRow struct {

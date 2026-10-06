@@ -271,6 +271,7 @@ public struct ConversationStreamSnapshot: Sendable {
 public actor ConversationStreamTracker {
     private var snapshot = ConversationStreamSnapshot()
     private var messagesByID: [String: BufferedStreamMessage] = [:]
+    private var internalMessageIDs: Set<String> = []
     private var feedsByID: [String: ActiveFeedState] = [:]
     private var executionGroupsByID: [String: LiveExecutionGroup] = [:]
     private var plannerByTurnID: [String: PlannerState] = [:]
@@ -353,6 +354,7 @@ public actor ConversationStreamTracker {
     public func reset(conversationID: String? = nil) {
         snapshot = ConversationStreamSnapshot(conversationID: conversationID)
         messagesByID.removeAll()
+        internalMessageIDs.removeAll()
         feedsByID.removeAll()
         executionGroupsByID.removeAll()
         plannerByTurnID.removeAll()
@@ -731,6 +733,12 @@ private extension ConversationStreamTracker {
         }
 
         guard let messageID = payload.resolvedMessageID?.trimmedNonEmpty else { return }
+        if isInternalMessageMode(payload.mode) {
+            internalMessageIDs.insert(messageID)
+            messagesByID.removeValue(forKey: messageID)
+        }
+        if internalMessageIDs.contains(messageID), payload.patch?["role"]?.stringValue != "user" { return }
+
         let existing = ensureMessageEntry(
             id: messageID,
             payload: payload,
@@ -936,6 +944,11 @@ private extension ConversationStreamTracker {
     }
 
     func reconcileMessages(from turns: [ConversationTurn], activeTurnID: String?) -> [String: BufferedStreamMessage] {
+        for message in turns.flatMap({ $0.messages }) where message.role == "assistant" && isInternalMessageMode(message.mode) {
+            internalMessageIDs.insert(message.messageID)
+            messagesByID.removeValue(forKey: message.messageID)
+        }
+
         var merged: [String: BufferedStreamMessage] = [:]
         let preserveActiveBufferedAssistant = activeTurnID.flatMap { activeTurnID in
             messagesByID.values.contains { message in
@@ -980,7 +993,7 @@ private extension ConversationStreamTracker {
                 merged[messageID] = message
             }
         }
-        return merged
+        return merged.filter { !internalMessageIDs.contains($0.key) }
     }
 
     func reconcileExecutionGroups(from turns: [ConversationTurn], activeTurnID: String?) -> [String: LiveExecutionGroup] {

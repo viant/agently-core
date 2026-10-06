@@ -28,6 +28,19 @@ import kotlinx.serialization.json.put
 
 class ConversationStreamTrackerTest {
     @Test
+    fun `internal modes hide bodies while task JSON and distinct IDs stay visible`() {
+        val buffer = MessageBuffer()
+        applyMessageEvent(buffer, SSEEvent(type="model_started", conversationId="c", turnId="t", messageId="router", mode="router"))
+        applyMessageEvent(buffer, SSEEvent(type="text_delta", conversationId="c", turnId="t", messageId="router", content="private JSON"))
+        applyMessageEvent(buffer, SSEEvent(type="text_delta", conversationId="c", turnId="t", messageId="task", mode="task", content="{\"classification\":true}", contentMode="snapshot"))
+        applyMessageEvent(buffer, SSEEvent(type="text_delta", conversationId="c", turnId="t", messageId="other", mode="task", content="{\"classification\":true}", contentMode="snapshot"))
+        assertEquals(setOf("task", "other"), buffer.byId.keys)
+        assertEquals("{\"classification\":true}", buffer.byId["task"]?.content)
+        applyMessageEvent(buffer, SSEEvent(type="text_delta", conversationId="c", turnId="t", messageId="task", content="{\"classification\":true}", contentMode="snapshot"))
+        assertEquals(2, buffer.byId.size)
+    }
+
+    @Test
     fun `tool feed target and owning turn survive live and canonical tracking`() {
         val tracker = ConversationStreamTracker("conv-1")
 
