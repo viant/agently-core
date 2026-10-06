@@ -59,6 +59,7 @@ If you're new, read in this order:
 | [elicitation-system.md](elicitation-system.md) | Server-driven forms |
 | [overlays.md](overlays.md) | Schema refinement engine |
 | [lookups.md](lookups.md) | MCP-backed datasources + pickers + `/name` tokens |
+| [datasource-response-aliases.md](datasource-response-aliases.md) | Explicit producer-to-logical row aliases and cache isolation |
 | [datasource-request-metadata.md](datasource-request-metadata.md) | Explicit MCP transport exclusions for logical UI request metadata |
 | [feed-system.md](feed-system.md) | Tool-output → UI dashboard datasources |
 | [ui-ownership-model.md](ui-ownership-model.md) | Navigation, conversation workspaces, inline results and report ownership |
