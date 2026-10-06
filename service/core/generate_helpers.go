@@ -88,8 +88,7 @@ func (s *Service) tryGenerateContinuationByAnchor(ctx context.Context, model llm
 			opts := *request.Options
 			sub.Options = &opts
 		}
-		sub.Messages = make([]llm.Message, len(msgs))
-		copy(sub.Messages, msgs)
+		sub.Messages = append(currentContinuationContext(request.Messages), msgs...)
 		sub.PreviousResponseID = anchor
 		resp, gerr := model.Generate(ctx, sub)
 		if gerr != nil {

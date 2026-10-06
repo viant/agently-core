@@ -122,7 +122,9 @@ func (i *GenerateInput) Init(ctx context.Context) error {
 
 	if i.Binding != nil {
 		for _, doc := range i.Binding.SystemDocuments.Items {
-			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole("system"), doc.PageContent))
+			message := llm.NewSystemMessage(doc.PageContent)
+			message.RefreshOnContinuation = doc.RefreshOnContinuation
+			i.Message = append(i.Message, message)
 		}
 		for _, doc := range i.Binding.Documents.Items {
 			i.Message = append(i.Message, llm.NewTextMessage(llm.MessageRole("user"), doc.PageContent))

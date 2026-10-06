@@ -18,6 +18,7 @@ import (
 	conversationmodel "github.com/viant/agently-core/model/conversation"
 	turnmodel "github.com/viant/agently-core/model/turn"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/protocol/binding"
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
@@ -563,4 +564,22 @@ func (p *panicConversationClient) DeleteConversation(context.Context, string) er
 
 func (p *panicConversationClient) DeleteMessage(context.Context, string, string) error {
 	return nil
+}
+
+func TestApplySelectedTemplateReplacesStaleTranscriptCopy(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "templates"), 0755))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "templates", "dashboard.yaml"), []byte("id: dashboard\nname: dashboard\ninstructions: current template v2\n"), 0644))
+	svc := &Service{templateRepo: tplrepo.NewWithStore(fsstore.New(root))}
+	b := &binding.Binding{}
+	b.SystemDocuments.Items = []*binding.Document{
+		{SourceURI: "template://dashboard", PageContent: "stale v1"},
+		{SourceURI: "template://dashboard", PageContent: "stale duplicate"},
+		{SourceURI: "private://context", PageContent: "historical context"},
+	}
+	require.NoError(t, svc.applySelectedTemplate(context.Background(), &QueryInput{TemplateId: "dashboard"}, b))
+	require.Len(t, b.SystemDocuments.Items, 2)
+	require.Contains(t, b.SystemDocuments.Items[1].PageContent, "current template v2")
+	require.True(t, b.SystemDocuments.Items[1].RefreshOnContinuation)
+	require.False(t, b.SystemDocuments.Items[0].RefreshOnContinuation)
 }

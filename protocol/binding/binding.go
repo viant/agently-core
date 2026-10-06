@@ -39,12 +39,15 @@ type (
 	}
 
 	Document struct {
-		Title       string            `yaml:"title,omitempty" json:"title,omitempty"`
-		PageContent string            `yaml:"pageContent,omitempty" json:"pageContent,omitempty"`
-		SourceURI   string            `yaml:"sourceURI,omitempty" json:"sourceURI,omitempty"`
-		Score       float64           `yaml:"score,omitempty" json:"score,omitempty"`
-		MimeType    string            `yaml:"mimeType,omitempty" json:"mimeType,omitempty"`
-		Metadata    map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+		// RefreshOnContinuation marks current trusted documents for anchored publication.
+		// It is never restored from persisted transcript documents.
+		RefreshOnContinuation bool              `yaml:"-" json:"-"`
+		Title                 string            `yaml:"title,omitempty" json:"title,omitempty"`
+		PageContent           string            `yaml:"pageContent,omitempty" json:"pageContent,omitempty"`
+		SourceURI             string            `yaml:"sourceURI,omitempty" json:"sourceURI,omitempty"`
+		Score                 float64           `yaml:"score,omitempty" json:"score,omitempty"`
+		MimeType              string            `yaml:"mimeType,omitempty" json:"mimeType,omitempty"`
+		Metadata              map[string]string `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	}
 
 	Tools struct {

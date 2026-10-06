@@ -238,7 +238,7 @@ func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.Generat
 	} else if mode := strings.TrimSpace(runtimerequestctx.RequestModeFromContext(ctx)); mode != "" {
 		continuationRequest.Options = &llm.Options{Mode: mode}
 	}
-	continuationRequest.Messages = append(continuationRequest.Messages, selected...)
+	continuationRequest.Messages = append(currentContinuationContext(req.Messages), selected...)
 	continuationRequest.PreviousResponseID = anchorID
 	if debugtrace.Enabled() {
 		debugtrace.Write("core", "continuation_request", map[string]any{
@@ -300,4 +300,16 @@ func missingContinuationIDs(expected map[string]struct{}, actual map[string]stru
 	}
 	sort.Strings(missing)
 	return missing
+}
+
+// currentContinuationContext republishes only explicitly marked current trusted documents.
+// Ordinary system prompts and persisted history retain the existing anchor behavior.
+func currentContinuationContext(messages []llm.Message) []llm.Message {
+	var result []llm.Message
+	for _, message := range messages {
+		if message.RefreshOnContinuation && message.Role == llm.RoleSystem && message.ToolCallId == "" && len(message.ToolCalls) == 0 {
+			result = append(result, message)
+		}
+	}
+	return result
 }
