@@ -946,12 +946,14 @@ func latestTranscriptAssistantNarration(messages []*conversationmodel.MessageVie
 			return &AssistantMessageState{
 				MessageID: msg.Id,
 				Content:   text,
+				CreatedAt: msg.CreatedAt,
 			}
 		}
 		if text := strings.TrimSpace(ptrString(msg.Content)); text != "" {
 			return &AssistantMessageState{
 				MessageID: msg.Id,
 				Content:   text,
+				CreatedAt: msg.CreatedAt,
 			}
 		}
 	}
