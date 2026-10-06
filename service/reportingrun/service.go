@@ -65,6 +65,19 @@ func New(opts Options) *Service {
 	return &Service{store: opts.Store, now: now, newID: newID, reportAdmissions: opts.ReportAdmissions}
 }
 
+// ConfigureReportAdmissions installs the shared backend before serving requests.
+// Reconfiguration is rejected rather than replacing admitted command authority.
+func (s *Service) ConfigureReportAdmissions(backend evidence.ReportAdmissions) error {
+	if s == nil || backend == nil {
+		return fmt.Errorf("report admission backend required")
+	}
+	if s.reportAdmissions != nil {
+		return fmt.Errorf("report admission backend already configured")
+	}
+	s.reportAdmissions = backend
+	return nil
+}
+
 type BeginInput struct {
 	ReportAdmissionRef string          `json:"reportAdmissionRef,omitempty"`
 	ConversationID     string          `json:"conversationId,omitempty"`

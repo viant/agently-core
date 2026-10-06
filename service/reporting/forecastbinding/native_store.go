@@ -3,7 +3,9 @@ package forecastbinding
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"time"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/app/store/data"
@@ -130,6 +132,9 @@ func (s *NativeSourceStore) LoadAdmission(ctx context.Context, scope Scope) (*Ad
 		return nil, err
 	}
 	body, err := s.documents.Load(ctx, doc, evidence.Admission, "")
+	if errors.Is(err, evidence.ErrNotFound) {
+		return nil, nil
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -324,4 +329,31 @@ func (s *NativeSourceStore) CompletedOperations(ctx context.Context, scope Scope
 		}
 	}
 	return result, nil
+}
+
+// OwnedRunCreatedAt proves a legacy resume against server-owned run and
+// conversation metadata. Wire input and current clock cannot establish it.
+func (s *NativeSourceStore) OwnedRunCreatedAt(ctx context.Context, scope Scope) (time.Time, error) {
+	run, err := s.scopedRun(ctx, scope)
+	if err != nil {
+		return time.Time{}, err
+	}
+	if s.conversations == nil {
+		return time.Time{}, reject("conversation owner unavailable")
+	}
+	conversation, err := s.conversations.GetConversation(ctx, scope.ConversationID)
+	if err != nil {
+		return time.Time{}, err
+	}
+	owner := authctx.CanonicalUserID(ctx)
+	if owner == "" {
+		owner = scope.OwnerID
+	}
+	if conversation == nil || conversation.Id != scope.ConversationID || conversation.CreatedByUserId == nil || (*conversation.CreatedByUserId != owner && *conversation.CreatedByUserId != scope.OwnerID) {
+		return time.Time{}, reject("legacy conversation owner mismatch")
+	}
+	if run.CreatedAt.IsZero() {
+		return time.Time{}, reject("server run creation time missing")
+	}
+	return run.CreatedAt, nil
 }

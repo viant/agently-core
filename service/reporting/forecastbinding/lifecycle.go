@@ -18,12 +18,38 @@ type AdmissionStore interface {
 // Factory is an explicit host dependency, not enabled by package registration.
 // It captures only client.forecastIntent; routing hints cannot become intent.
 type Factory struct {
-	runtime *Runtime
-	store   AdmissionStore
-	zone    string
+	runtime       *Runtime
+	store         AdmissionStore
+	zone          string
+	rolloutCutoff time.Time
+	restoreOnly   bool
 }
 
-func NewFactory(producer PolicyProducer, store AdmissionStore, zone string) (*Factory, error) {
+type FactoryOption func(*Factory) error
+
+// WithRolloutCutoff pins legacy-resume eligibility to deployment configuration.
+// The cutoff is never inferred from boot time or missing evidence.
+func WithRolloutCutoff(cutoff time.Time) FactoryOption {
+	return func(factory *Factory) error {
+		if cutoff.IsZero() {
+			return reject("rollout cutoff is required")
+		}
+		factory.rolloutCutoff = cutoff
+		return nil
+	}
+}
+
+// WithRestoreOnly keeps persisted authority enforceable after opt-in removal,
+// while admitting no new turns or current caller intent.
+func WithRestoreOnly() FactoryOption {
+	return func(factory *Factory) error { factory.restoreOnly = true; return nil }
+}
+
+type OwnedRunCreatedAtReader interface {
+	OwnedRunCreatedAt(context.Context, Scope) (time.Time, error)
+}
+
+func NewFactory(producer PolicyProducer, store AdmissionStore, zone string, options ...FactoryOption) (*Factory, error) {
 	if _, err := time.LoadLocation(zone); err != nil {
 		return nil, err
 	}
@@ -31,7 +57,15 @@ func NewFactory(producer PolicyProducer, store AdmissionStore, zone string) (*Fa
 	if err != nil {
 		return nil, err
 	}
-	return &Factory{runtime: runtime, store: store, zone: zone}, nil
+	factory := &Factory{runtime: runtime, store: store, zone: zone}
+	for _, option := range options {
+		if option != nil {
+			if err := option(factory); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return factory, nil
 }
 
 type pendingAdmission struct {
@@ -42,6 +76,9 @@ type pendingAdmission struct {
 }
 
 func (f *Factory) Capture(ctx context.Context, input evidence.Input) (evidence.Pending, error) {
+	if f.restoreOnly {
+		return nil, nil
+	}
 	var raw json.RawMessage
 	if !input.Nested && len(input.Context) > 0 && !bytes.Equal(bytes.TrimSpace(input.Context), []byte("null")) {
 		var contextObject map[string]json.RawMessage
@@ -96,7 +133,27 @@ func (f *Factory) Restore(ctx context.Context, turn evidence.Turn) (context.Cont
 	if err != nil {
 		return ctx, err
 	}
-	if admission == nil || admission.Scope != scope {
+	if admission == nil {
+		reader, ok := f.store.(OwnedRunCreatedAtReader)
+		if !ok {
+			return ctx, reject("restored admission missing")
+		}
+		createdAt, err := reader.OwnedRunCreatedAt(ctx, scope)
+		if err != nil {
+			return ctx, err
+		}
+		if createdAt.IsZero() {
+			return ctx, reject("server run creation time missing")
+		}
+		if f.restoreOnly {
+			return ctx, nil
+		}
+		if f.rolloutCutoff.IsZero() || createdAt.IsZero() || !createdAt.Before(f.rolloutCutoff) {
+			return ctx, reject("post-rollout admission missing")
+		}
+		return ctx, nil
+	}
+	if admission.Scope != scope {
 		return ctx, reject("restored admission scope mismatch")
 	}
 	if err = admission.Validate(); err != nil {
