@@ -11,6 +11,15 @@ import (
 func TestProvisionedSQLiteRetainsOriginalDriverAndPragmas(t *testing.T) {
 	for _, driver := range []string{"", "sqlite", "sqlite3"} {
 		t.Run("driver="+driver, func(t *testing.T) {
+			if driver == "sqlite3" {
+				available := false
+				for _, registered := range sql.Drivers() {
+					available = available || registered == driver
+				}
+				if !available {
+					t.Skip("optional sqlite3 driver is not registered")
+				}
+			}
 			for _, key := range []string{"AGENTLY_DB_DRIVER", "AGENTLY_DB_DSN", "AGENTLY_DB_PATH", "AGENTLY_DB_SECRETS"} {
 				t.Setenv(key, "")
 			}

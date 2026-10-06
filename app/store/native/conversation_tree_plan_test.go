@@ -23,7 +23,7 @@ func TestWorkspaceRuntimeConversationTreeDeletionPlan(t *testing.T) {
 	server, err := native.New(context.Background(), native.Options{SourceRoot: filepath.Join(filepath.Dir(file), "..", "..", ".."), WorkspaceRoot: workspace})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(workspace, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(workspace, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`

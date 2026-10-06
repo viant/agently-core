@@ -25,7 +25,7 @@ func scheduleDeleteFixture(t *testing.T) (*scheduledelete.Store, *sql.DB, contex
 	server, err := native.New(context.Background(), native.Options{SourceRoot: filepath.Join(filepath.Dir(file), "..", "..", ".."), WorkspaceRoot: root})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(root, "db", "agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(root, "db", "agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "u1"})

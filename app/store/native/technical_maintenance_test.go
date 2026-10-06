@@ -288,7 +288,7 @@ func newTechnicalRuntime(t *testing.T, seeds ...func(*testing.T, *sql.DB)) (*tec
 	server, err := native.New(context.Background(), native.Options{SourceRoot: filepath.Join(filepath.Dir(source), "../../.."), WorkspaceRoot: root})
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
-	db, err := sql.Open("sqlite3", filepath.Join(root, "db/agently-core.db"))
+	db, err := sql.Open("sqlite", filepath.Join(root, "db/agently-core.db"))
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	for _, seed := range seeds {
