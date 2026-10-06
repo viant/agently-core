@@ -682,8 +682,9 @@ fun reconcileMessages(buffer: MessageBuffer, serverMessages: List<Message>): Lis
 }
 
 fun reconcileFromTranscript(buffer: MessageBuffer, turns: List<TurnState>) {
-    turns.flatMap { it.messages.orEmpty() }.filter { it.role == "assistant" && isInternalMessageMode(it.mode) }
-        .forEach { buffer.internalMessageIds += it.messageId; buffer.byId.remove(it.messageId) }
+    turns.flatMap { com.viant.agentlysdk.canonicalInternalAssistantMessageIds(it) }.forEach {
+        buffer.internalMessageIds += it; buffer.byId.remove(it)
+    }
 
     val activeTurnId = turns
         .lastOrNull { !isTerminalTurnStatus(it.status) }

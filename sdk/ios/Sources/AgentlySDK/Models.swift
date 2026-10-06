@@ -1365,6 +1365,12 @@ public struct TurnMessageState: Codable, Sendable {
     public let mode: String?
     public let status: String?
 
+    public init(messageID: String, role: String, content: String? = nil, renderedContent: RenderedContent? = nil,
+                createdAt: String? = nil, sequence: Int? = nil, interim: Int? = nil, mode: String? = nil, status: String? = nil) {
+        self.messageID = messageID; self.role = role; self.content = content; self.renderedContent = renderedContent
+        self.createdAt = createdAt; self.sequence = sequence; self.interim = interim; self.mode = mode; self.status = status
+    }
+
     enum CodingKeys: String, CodingKey {
         case messageID = "messageId"
         case role
@@ -1679,6 +1685,7 @@ public struct ModelUsageState: Codable, Sendable, Equatable {
 public struct ModelStepState: Codable, Sendable, Identifiable {
     public var id: String { modelCallID }
     public let modelCallID: String
+    public let mode: String?
     public let assistantMessageID: String?
     public let executionRole: String?
     public let phase: String?
@@ -1701,6 +1708,7 @@ public struct ModelStepState: Codable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case modelCallID = "modelCallId"
+        case mode
         case assistantMessageID = "assistantMessageId"
         case executionRole
         case phase

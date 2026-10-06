@@ -657,6 +657,9 @@ func applyModelStart(step *ModelStepState, event *streaming.Event) {
 	if step == nil || event == nil {
 		return
 	}
+	if event.Mode != "" {
+		step.Mode = event.Mode
+	}
 	if step.AssistantMessageID == "" {
 		step.AssistantMessageID = strings.TrimSpace(event.AssistantMessageID)
 	}
@@ -733,6 +736,9 @@ func applyToolStart(step *ToolStepState, event *streaming.Event) {
 func applyModelCompletion(step *ModelStepState, event *streaming.Event) {
 	if step == nil || event == nil {
 		return
+	}
+	if event.Mode != "" {
+		step.Mode = event.Mode
 	}
 	if step.AssistantMessageID == "" {
 		step.AssistantMessageID = strings.TrimSpace(event.AssistantMessageID)

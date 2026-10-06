@@ -90,6 +90,7 @@ export type ClientLifecycle =
 export type ClientExecutionPhase = 'intake' | 'sidecar' | 'summary' | 'bootstrap' | 'main';
 
 export interface ClientModelStep extends EntityIdentity {
+    mode?: string;
     modelCallId?: string;
     assistantMessageId?: string;
     executionRole?: string;
@@ -542,6 +543,7 @@ export interface CanonicalExecutionPageState {
 }
 
 export interface CanonicalModelStepState {
+    mode?: string;
     modelCallId: string;
     assistantMessageId?: string;
     executionRole?: string;

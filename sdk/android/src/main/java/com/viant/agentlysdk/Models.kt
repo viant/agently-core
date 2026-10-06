@@ -1613,6 +1613,7 @@ data class ModelUsageState(
 @Serializable
 data class ModelStepState(
     val modelCallId: String,
+    val mode: String? = null,
     val assistantMessageId: String? = null,
     val executionRole: String? = null,
     val phase: String? = null,

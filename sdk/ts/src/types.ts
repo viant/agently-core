@@ -231,6 +231,7 @@ export type LiveExecutionGroup = Partial<ExecutionPage> & {
 export type LiveExecutionGroupsById = Record<string, LiveExecutionGroup>;
 
 export interface ModelStepState {
+    mode?: string;
     modelCallId: string;
     assistantMessageId?: string;
     executionRole?: string;

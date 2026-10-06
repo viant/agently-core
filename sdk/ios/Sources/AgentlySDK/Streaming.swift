@@ -944,9 +944,9 @@ private extension ConversationStreamTracker {
     }
 
     func reconcileMessages(from turns: [ConversationTurn], activeTurnID: String?) -> [String: BufferedStreamMessage] {
-        for message in turns.flatMap({ $0.messages }) where message.role == "assistant" && isInternalMessageMode(message.mode) {
-            internalMessageIDs.insert(message.messageID)
-            messagesByID.removeValue(forKey: message.messageID)
+        for id in turns.flatMap({ canonicalInternalAssistantMessageIDs($0) }) {
+            internalMessageIDs.insert(id)
+            messagesByID.removeValue(forKey: id)
         }
 
         var merged: [String: BufferedStreamMessage] = [:]
@@ -959,32 +959,11 @@ private extension ConversationStreamTracker {
             if turn.id.trimmedNonEmpty == preserveActiveBufferedAssistant {
                 continue
             }
-            if let narration = turn.assistant?.narration, let messageID = narration.messageID.trimmedNonEmpty {
-                merged[messageID] = BufferedStreamMessage(
-                    id: messageID,
-                    conversationID: snapshot.conversationID,
-                    turnID: turn.id,
-                    role: "assistant",
-                    type: "text",
-                    content: nil,
-                    narration: narration.content,
-                    status: "running",
-                    interim: 1,
-                    createdAt: turn.createdAt
-                )
-            }
-            if let final = turn.assistant?.final, let messageID = final.messageID.trimmedNonEmpty {
-                merged[messageID] = BufferedStreamMessage(
-                    id: messageID,
-                    conversationID: snapshot.conversationID,
-                    turnID: turn.id,
-                    role: "assistant",
-                    type: "text",
-                    content: final.content,
-                    narration: turn.assistant?.narration?.content,
-                    status: "completed",
-                    interim: 0,
-                    createdAt: turn.createdAt
+            for message in canonicalAssistantMessages(turn) {
+                merged[message.messageID] = BufferedStreamMessage(
+                    id: message.messageID, conversationID: snapshot.conversationID, turnID: turn.id,
+                    role: "assistant", type: "text", content: message.content, status: turn.status,
+                    interim: message.interim ?? 0, createdAt: message.createdAt ?? turn.createdAt, sequence: message.sequence
                 )
             }
         }

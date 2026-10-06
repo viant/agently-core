@@ -1,0 +1,86 @@
+{
+  "turnId": "turn",
+  "status": "completed",
+  "user": {
+    "messageId": "user",
+    "content": "Summarize results"
+  },
+  "messages": [
+    {
+      "messageId": "router",
+      "role": "assistant",
+      "content": "{\"classification\":true}",
+      "createdAt": "2026-01-01T00:00:01Z",
+      "mode": "router"
+    },
+    {
+      "messageId": "interim",
+      "role": "assistant",
+      "content": "Preliminary findings",
+      "createdAt": "2026-01-01T00:00:02Z",
+      "mode": "task"
+    },
+    {
+      "messageId": "final",
+      "role": "assistant",
+      "content": "Final report",
+      "createdAt": "2026-01-01T00:00:04Z",
+      "mode": "task"
+    }
+  ],
+  "execution": {
+    "pages": [
+      {
+        "pageId": "final",
+        "assistantMessageId": "final",
+        "parentMessageId": "final",
+        "turnId": "",
+        "iteration": 0,
+        "executionRole": "react",
+        "mode": "task",
+        "status": "completed",
+        "modelSteps": [
+          {
+            "mode": "router",
+            "modelCallId": "",
+            "assistantMessageId": "router",
+            "executionRole": "router",
+            "status": "completed"
+          },
+          {
+            "mode": "task",
+            "modelCallId": "",
+            "assistantMessageId": "interim",
+            "executionRole": "react",
+            "status": "completed"
+          },
+          {
+            "mode": "task",
+            "modelCallId": "",
+            "assistantMessageId": "final",
+            "executionRole": "react",
+            "status": "completed"
+          }
+        ],
+        "finalAssistantMessageId": "final",
+        "content": "Final report",
+        "finalResponse": true
+      }
+    ],
+    "activePageIndex": 0,
+    "totalElapsedMs": 0
+  },
+  "assistant": {
+    "narration": {
+      "messageId": "narration",
+      "content": "Checking results",
+      "createdAt": "0001-01-01T00:00:00Z"
+    },
+    "final": {
+      "messageId": "final",
+      "content": "Final report",
+      "createdAt": "0001-01-01T00:00:00Z"
+    }
+  },
+  "createdAt": "0001-01-01T00:00:00Z"
+}
