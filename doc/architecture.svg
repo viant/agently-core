@@ -1,0 +1,30 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1040" height="700" viewBox="0 0 1040 700" role="img" aria-labelledby="title desc">
+<title id="title">Agently Core architecture</title>
+<desc id="desc">Applications enter through an embedded Go host or authenticated AG-UI and application APIs. Workspace configuration supplies the runtime. Agent orchestration owns context and the model/tool loop, with policy, human interaction, goals and scheduling. Provider and tool adapters connect external systems; SQLite or MySQL retains execution state. Clients consume canonical transcripts and application presentation.</desc>
+<defs><marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10Z" fill="#64748b"/></marker></defs>
+<style>text{font-family:Arial,Helvetica,sans-serif;fill:#192c40}.title{font-size:24px;font-weight:700}.label{font-size:18px;font-weight:700}.detail{font-size:15px;fill:#526176}.section{font-size:12px;font-weight:700;letter-spacing:1.4px;fill:#526176}.arrow{fill:none;stroke:#64748b;stroke-width:2;marker-end:url(#arrow)}</style>
+<rect width="1040" height="700" rx="16" fill="#fff"/>
+<text x="32" y="42" class="title">Agently Core</text><text x="32" y="68" class="detail">Embeddable agent execution, governed tools and durable state</text>
+<text x="282" y="104" class="section">APPLICATION ENTRY POINTS</text>
+<rect x="282" y="118" width="338" height="90" rx="12" fill="#edf4ff" stroke="#9bb9e1"/>
+<text x="302" y="148" class="label">SDKs and authenticated HTTP</text><text x="302" y="175" class="detail">AG-UI runs and application APIs</text><text x="302" y="195" class="detail">Web, mobile, CLI and custom clients</text>
+<rect x="638" y="118" width="370" height="90" rx="12" fill="#f1f5f9" stroke="#ccd6e2"/>
+<text x="658" y="148" class="label">Embedded Go host</text><text x="658" y="175" class="detail">Native backend calls</text><text x="658" y="195" class="detail">Application-owned integrations</text>
+<path d="M451 209V238" class="arrow"/><path d="M823 209V238" class="arrow"/>
+<rect x="32" y="248" width="210" height="260" rx="12" fill="#f6f4fc" stroke="#c9bee2"/>
+<text x="52" y="280" class="label">Workspace</text><text x="52" y="312" class="detail">Agents and models</text><text x="52" y="338" class="detail">Knowledge and skills</text><text x="52" y="364" class="detail">Intents and templates</text><text x="52" y="390" class="detail">Tools and policies</text><text x="52" y="436" class="detail">Repositories and finders</text><text x="52" y="462" class="detail">UI metadata and styles</text>
+<path d="M243 370H276" class="arrow"/>
+<rect x="282" y="248" width="726" height="260" rx="12" fill="#eef7f4" stroke="#9dbfb2"/>
+<text x="306" y="280" class="label">Agent runtime</text><text x="306" y="306" class="detail">Conversation and turn identity · admission · execution · recovery</text>
+<rect x="306" y="329" width="330" height="82" rx="10" fill="#fff" stroke="#bfd4cc"/>
+<text x="324" y="359" class="label">Context and model/tool loop</text><text x="324" y="386" class="detail">Prompt binding, knowledge and observations</text>
+<rect x="652" y="329" width="332" height="82" rx="10" fill="#fff" stroke="#bfd4cc"/>
+<text x="670" y="359" class="label">Policy and interaction</text><text x="670" y="386" class="detail">Authorization, approval and elicitation</text>
+<text x="306" y="445" class="detail">Linked agents and async work · goals · queued turns · scheduler</text><text x="306" y="477" class="detail">Canonical transcript, workspace and report state · ordered AG-UI events</text>
+<path d="M451 509V538" class="arrow"/><path d="M823 509V538" class="arrow"/>
+<rect x="282" y="548" width="338" height="96" rx="12" fill="#f8fafc" stroke="#ccd6e2"/>
+<text x="302" y="579" class="label">Providers and tools</text><text x="302" y="606" class="detail">Models and embeddings · internal services</text><text x="302" y="629" class="detail">MCP clients and connected systems</text>
+<rect x="638" y="548" width="370" height="96" rx="12" fill="#f8fafc" stroke="#ccd6e2"/>
+<text x="658" y="579" class="label">Durable state · SQLite / MySQL</text><text x="658" y="606" class="detail">Conversations, calls, runs and payloads</text><text x="658" y="629" class="detail">Goals, schedules and report lifecycle</text>
+<text x="32" y="680" class="detail">Application shells own navigation and rendering. Forge is an independent data-driven UI layer.</text>
+</svg>
