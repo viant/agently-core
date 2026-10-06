@@ -896,11 +896,11 @@ CREATE UNIQUE INDEX ux_run_protocol_source ON run (protocol_source_key);
 
 CREATE UNIQUE INDEX ux_run_protocol_initial_turn ON run (protocol_initial_turn_key);
 
-CREATE INDEX ix_run_protocol_scope ON run (run_kind, conversation_id, effective_user_id, protocol_status);
+CREATE INDEX idx_run_protocol_scope ON run (run_kind, conversation_id, effective_user_id, protocol_status);
 
-CREATE INDEX ix_run_protocol_turn ON run (run_kind, effective_user_id, protocol_turn_id, conversation_id, protocol_key);
+CREATE INDEX idx_run_protocol_turn ON run (run_kind, effective_user_id, protocol_turn_id, conversation_id, protocol_key);
 
-CREATE INDEX ix_run_protocol_recovery ON run (run_kind, protocol_key, protocol_status);
+CREATE INDEX idx_run_protocol_recovery ON run (run_kind, protocol_key, protocol_status);
 
 CREATE UNIQUE INDEX ux_payload_run_sequence ON call_payload (run_id, sequence);
 
