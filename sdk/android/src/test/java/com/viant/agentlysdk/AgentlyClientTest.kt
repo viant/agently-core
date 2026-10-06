@@ -234,38 +234,6 @@ class AgentlyClientTest {
     }
 
     @Test
-    fun `query uses long running endpoint client`() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"conversationId":"conv-1","content":"done"}"""))
-        server.start()
-        val shortClient = OkHttpClient.Builder()
-            .addInterceptor { chain ->
-                chain.proceed(chain.request().newBuilder().header("X-Test-Transport", "short").build())
-            }
-            .build()
-        val longRunningClient = OkHttpClient.Builder()
-            .addInterceptor { chain ->
-                chain.proceed(chain.request().newBuilder().header("X-Test-Transport", "long").build())
-            }
-            .build()
-        val client = AgentlyClient(
-            endpoints = mapOf(
-                "appAPI" to EndpointConfig(
-                    baseUrl = server.url("/").toString().trimEnd('/'),
-                    httpClient = shortClient,
-                    longRunningHttpClient = longRunningClient
-                )
-            )
-        )
-
-        val output = client.query(QueryInput(conversationId = "conv-1", query = "hello"))
-
-        assertEquals("done", output.content)
-        val request = server.takeRequest()
-        assertEquals("/v1/agent/query", request.path)
-        assertEquals("long", request.getHeader("X-Test-Transport"))
-    }
-
-    @Test
     fun `datasource fetch uses long running endpoint client`() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"rows":[]}"""))
         server.start()
@@ -548,7 +516,7 @@ class AgentlyClientTest {
     }
 
     @Test
-    fun `trackConversation connects stream before live state and applies post cursor event`() = runBlocking {
+    fun `trackApplicationState connects stream before live state and applies post cursor event`() = runBlocking {
         server.enqueue(
             MockResponse()
                 .setHeader("Content-Type", "text/event-stream")
@@ -597,18 +565,18 @@ class AgentlyClientTest {
         server.start()
         val client = client()
 
-        val snapshots = client.trackConversation("conv-1").take(2).toList()
+        val snapshots = client.trackApplicationState("conv-1").take(2).toList()
 
         val streamRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
         val liveStateRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
-        assertTrue(streamRequest.path.orEmpty().startsWith("/v1/stream?"))
+        assertTrue(streamRequest.path.orEmpty().startsWith("/v1/application-events?"))
         assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true&includeModelCalls=true&includeToolCalls=true", liveStateRequest.path)
         assertEquals("Hello", snapshots[0].bufferedMessages.single { it.id == "assistant-1" }.content)
         assertEquals("Hello live", snapshots[1].bufferedMessages.single { it.id == "assistant-1" }.content)
     }
 
     @Test
-    fun `trackConversation uses stream endpoint client`() = runBlocking {
+    fun `trackApplicationState uses stream endpoint client`() = runBlocking {
         server.enqueue(
             MockResponse()
                 .setHeader("Content-Type", "text/event-stream")
@@ -648,19 +616,19 @@ class AgentlyClientTest {
             )
         )
 
-        val snapshots = client.trackConversation("conv-1").take(1).toList()
+        val snapshots = client.trackApplicationState("conv-1").take(1).toList()
 
         assertEquals("conv-1", snapshots.single().conversationId)
         val streamRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
         val liveStateRequest = assertNotNull(server.takeRequest(1, TimeUnit.SECONDS))
-        assertTrue(streamRequest.path.orEmpty().startsWith("/v1/stream?"))
+        assertTrue(streamRequest.path.orEmpty().startsWith("/v1/application-events?"))
         assertEquals("stream", streamRequest.getHeader("X-Test-Transport"))
         assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true&includeModelCalls=true&includeToolCalls=true", liveStateRequest.path)
         assertEquals("short", liveStateRequest.getHeader("X-Test-Transport"))
     }
 
     @Test
-    fun `trackConversation skips pre cursor event and applies later live event`() = runBlocking {
+    fun `trackApplicationState skips pre cursor event and applies later live event`() = runBlocking {
         server.enqueue(
             MockResponse()
                 .setHeader("Content-Type", "text/event-stream")
@@ -700,7 +668,7 @@ class AgentlyClientTest {
         server.start()
         val client = client()
 
-        val snapshots = client.trackConversation("conv-1").take(3).toList()
+        val snapshots = client.trackApplicationState("conv-1").take(3).toList()
 
         assertEquals("Hello", snapshots[0].bufferedMessages.single { it.id == "assistant-1" }.content)
         assertEquals("Hello", snapshots[1].bufferedMessages.single { it.id == "assistant-1" }.content)
@@ -708,7 +676,7 @@ class AgentlyClientTest {
     }
 
     @Test
-    fun `trackConversation buffers pre hydration SSE burst without dropping deltas`() = runBlocking {
+    fun `trackApplicationState buffers pre hydration SSE burst without dropping deltas`() = runBlocking {
         val eventCount = 150
         val sseBody = (1..eventCount).joinToString(separator = "\n\n", postfix = "\n\n") { index ->
             """data: {"type":"text_delta","conversationId":"conv-1","turnId":"turn-1","messageId":"assistant-1","assistantMessageId":"assistant-1","eventSeq":$index,"content":"x","createdAt":"2026-06-05T10:00:01Z"}"""
@@ -745,7 +713,7 @@ class AgentlyClientTest {
         server.start()
         val client = client()
 
-        val snapshots = client.trackConversation("conv-1").take(eventCount + 1).toList()
+        val snapshots = client.trackApplicationState("conv-1").take(eventCount + 1).toList()
 
         assertEquals(eventCount + 1, snapshots.size)
         assertEquals(
@@ -755,7 +723,7 @@ class AgentlyClientTest {
     }
 
     @Test
-    fun `trackConversation rehydrates after stream overflow terminal event`() = runBlocking {
+    fun `trackApplicationState rehydrates after stream overflow terminal event`() = runBlocking {
         server.enqueue(
             MockResponse()
                 .setHeader("Content-Type", "text/event-stream")
@@ -824,14 +792,14 @@ class AgentlyClientTest {
         server.start()
         val client = client()
 
-        val snapshots = client.trackConversation("conv-1").take(3).toList()
+        val snapshots = client.trackApplicationState("conv-1").take(3).toList()
 
         assertEquals("Hello", snapshots[0].bufferedMessages.single { it.id == "assistant-1" }.content)
         assertEquals("Hello live", snapshots[1].bufferedMessages.single { it.id == "assistant-1" }.content)
         assertEquals("Recovered", snapshots[2].bufferedMessages.single { it.id == "assistant-1" }.content)
-        assertTrue(server.takeRequest().path.orEmpty().startsWith("/v1/stream?"))
+        assertTrue(server.takeRequest().path.orEmpty().startsWith("/v1/application-events?"))
         assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true&includeModelCalls=true&includeToolCalls=true", server.takeRequest().path)
-        assertTrue(server.takeRequest().path.orEmpty().startsWith("/v1/stream?"))
+        assertTrue(server.takeRequest().path.orEmpty().startsWith("/v1/application-events?"))
         assertEquals("/v1/conversations/conv-1/live-state?includeFeeds=true&includeModelCalls=true&includeToolCalls=true", server.takeRequest().path)
     }
 
@@ -1139,6 +1107,21 @@ class AgentlyClientTest {
         assertTrue(body.contains("name=\"file\""))
         assertTrue(body.contains("fixture.txt"))
         assertTrue(body.contains("hello from test"))
+    }
+
+    @Test
+    fun `createConversation decodes native camelCase response without legacy query dispatch`() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"id":"conv-native","agentId":"steward","title":"Native plan","lastTurnId":null,"createdByUserId":"owner","createdAt":"2026-10-04T21:00:00Z"}"""))
+        server.start()
+        val result = client().createConversation(CreateConversationInput(agentId = "steward", title = "Native plan"))
+        assertEquals("conv-native", result.id)
+        assertEquals("steward", result.agentId)
+        assertEquals("Native plan", result.title)
+        assertEquals("owner", result.createdByUserId)
+        val request = server.takeRequest()
+        assertEquals("POST", request.method)
+        assertEquals("/v1/conversations", request.path)
+        assertEquals(1, server.requestCount)
     }
 
     @Test
@@ -1563,7 +1546,6 @@ class AgentlyClientTest {
         server.enqueue(MockResponse().setBody("""{"messageId":"msg-2","turnId":"turn-queued","status":"accepted"}"""))
         server.enqueue(MockResponse().setBody("""{}"""))
         server.enqueue(MockResponse().setBody("""{}"""))
-        server.enqueue(MockResponse().setBody("""{}"""))
         server.start()
         val client = client()
 
@@ -1580,7 +1562,6 @@ class AgentlyClientTest {
         client.moveQueuedTurn(MoveQueuedTurnInput("conv-1", "turn-queued", "up"))
         client.editQueuedTurn(EditQueuedTurnInput("conv-1", "turn-queued", "edited"))
         val forced = client.forceSteerQueuedTurn("conv-1", "turn-queued")
-        client.terminateConversation("conv-1")
         client.compactConversation("conv-1")
         client.pruneConversation("conv-1")
 
@@ -1615,10 +1596,6 @@ class AgentlyClientTest {
         val r6 = server.takeRequest()
         assertEquals("/v1/conversations/conv-1/turns/turn-queued/force-steer", r6.path)
         assertEquals("POST", r6.method)
-
-        val r7 = server.takeRequest()
-        assertEquals("/v1/conversations/conv-1/terminate", r7.path)
-        assertEquals("POST", r7.method)
 
         val r8 = server.takeRequest()
         assertEquals("/v1/conversations/conv-1/compact", r8.path)
@@ -1817,60 +1794,14 @@ class AgentlyClientTest {
     }
 
     @Test
-    fun `query posts payload and decodes response`() = runBlocking {
-        server.enqueue(
-            MockResponse().setBody(
-                """
-                {
-                  "conversationId": "conv-7",
-                  "content": "Hello from backend",
-                  "model": "gpt-5.4",
-                  "messageId": "msg-7",
-                  "warnings": ["warn-1"],
-                  "projection": {
-                    "scope": "conversation",
-                    "hiddenTurnIds": ["turn-1"],
-                    "hiddenMessageIds": ["msg-9"],
-                    "reason": "tool call supersession",
-                    "tokensFreed": 42
-                  }
-                }
-                """.trimIndent()
-            )
-        )
-        server.start()
-        val client = client()
-
-        val result = client.query(
-            QueryInput(
-                conversationId = "conv-7",
-                agentId = "coder",
-                query = "hello",
-                context = mapOf("mode" to buildJsonObject { put("kind", "qa") })
-            )
-        )
-
+    fun queryDTOsRetainApplicationProjectionFields() {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }
+        val result = json.decodeFromString(QueryOutput.serializer(), """{"conversationId":"conv-7","content":"Hello","model":"configured-model","messageId":"msg-7","warnings":["warn-1"],"projection":{"scope":"conversation","hiddenTurnIds":["turn-1"],"tokensFreed":42}}""")
         assertEquals("conv-7", result.conversationId)
-        assertEquals("Hello from backend", result.content)
-        assertEquals("gpt-5.4", result.model)
-        assertEquals("msg-7", result.messageId)
         assertEquals(listOf("warn-1"), result.warnings)
-        assertNotNull(result.projection)
-        assertEquals(
-            "conversation",
-            result.projection!!.jsonObject["scope"]?.jsonPrimitive?.content
-        )
-        assertEquals(
-            "tool call supersession",
-            result.projection!!.jsonObject["reason"]?.jsonPrimitive?.content
-        )
-        val request = server.takeRequest()
-        assertEquals("/v1/agent/query", request.path)
-        assertEquals("POST", request.method)
-        val body = request.body.readUtf8()
-        assertTrue(body.contains("\"conversationId\":\"conv-7\""))
-        assertTrue(body.contains("\"agentId\":\"coder\""))
-        assertTrue(body.contains("\"query\":\"hello\""))
+        assertEquals("conversation", result.projection!!.jsonObject["scope"]!!.jsonPrimitive.content)
+        val input = json.encodeToString(QueryInput.serializer(), QueryInput(conversationId="conv-7",agentId="coder",query="hello"))
+        assertTrue(input.contains("coder"));assertTrue(input.contains("hello"))
     }
 
     @Test

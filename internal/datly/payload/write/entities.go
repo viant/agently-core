@@ -176,3 +176,23 @@ func (entity *Payload) SetSchemaRef(value *string) {
 	}
 	entity.Has.SchemaRef = true
 }
+func (entity *Payload) GetRunId() *string {
+	return entity.RunId
+}
+func (entity *Payload) SetRunId(value *string) {
+	entity.RunId = value
+	if entity.Has == nil {
+		entity.Has = &PayloadHas{}
+	}
+	entity.Has.RunId = true
+}
+func (entity *Payload) GetSequence() *int {
+	return entity.Sequence
+}
+func (entity *Payload) SetSequence(value *int) {
+	entity.Sequence = value
+	if entity.Has == nil {
+		entity.Has = &PayloadHas{}
+	}
+	entity.Has.Sequence = true
+}

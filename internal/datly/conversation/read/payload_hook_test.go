@@ -57,7 +57,7 @@ func TestEmbeddedPayloadCanonicalNilAndUncompressed(t *testing.T) {
 	if err := p.OnFetch(context.Background()); err != nil {
 		t.Fatal(err)
 	}
-	if *p.InlineBody != `{"marker":"ORANGE-42"}` || p.Compression != "none" {
-		t.Fatal("canonical trim/compression behavior changed")
+	if *p.InlineBody != body || p.Compression != "none" {
+		t.Fatal("canonical payload bytes/compression behavior changed")
 	}
 }

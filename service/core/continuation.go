@@ -8,6 +8,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/protocol/binding"
+	"github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 )
 
@@ -20,6 +21,9 @@ import (
 // emit the missing tool-call trace or tool result rather than teaching the
 // continuation layer to guess around the gap.
 func (s *Service) BuildContinuationRequest(ctx context.Context, req *llm.GenerateRequest, history *binding.History) *llm.GenerateRequest {
+	if recovery.FullHistoryRequired(ctx) {
+		return nil
+	}
 	if ctx == nil {
 		ctx = context.Background()
 	}

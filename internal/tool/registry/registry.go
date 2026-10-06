@@ -28,12 +28,14 @@ import (
 	"github.com/viant/agently-core/internal/logx"
 	tmatch "github.com/viant/agently-core/internal/tool/matcher"
 	transform "github.com/viant/agently-core/internal/transform"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
 	"github.com/viant/agently-core/protocol/agent"
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	mcpname "github.com/viant/agently-core/protocol/mcpname"
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
+	"github.com/viant/agently-core/runtime/mcpapps"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
 	mcpschema "github.com/viant/mcp-protocol/schema"
@@ -861,6 +863,17 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		baseName = strings.TrimSpace(name[:i])
 		selector = strings.TrimSpace(name[i+1:])
 	}
+	scopeServer, scopeTool, hostScoped := mcpapps.Scope(ctx)
+	if hostScoped {
+		if scopeServer == "" || scopeTool == "" {
+			return "", fmt.Errorf("MCP host scope requires exact server and tool")
+		}
+		qualified := scopeServer + "/" + scopeTool
+		if baseName != qualified && baseName != mcpname.Canonical(qualified) {
+			return "", fmt.Errorf("MCP host native tool differs from authorized scope")
+		}
+		baseName, selector = qualified, ""
+	}
 	callArgs := args
 	debugMCPExecf("registry execute start name=%s base=%s selector=%q argsKeys=%d", name, baseName, selector, len(args))
 	if r != nil {
@@ -914,7 +927,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	r.mu.RLock()
 	h, ok := r.virtualExec[baseName]
 	r.mu.RUnlock()
-	if ok {
+	if ok && !hostScoped {
 		out, err := h(ctx, callArgs)
 		if err != nil || selector == "" {
 			return out, err
@@ -922,9 +935,13 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		// Post-filter output when possible (JSON expected)
 		return r.applySelector(out, selector)
 	}
-	serviceName, literalMethod, resolvedIdentity, identityErr := r.discoveredMCPIdentity(ctx, baseName)
-	if identityErr != nil {
-		return "", identityErr
+	serviceName, literalMethod, resolvedIdentity := scopeServer, scopeTool, hostScoped
+	if !hostScoped {
+		var identityErr error
+		serviceName, literalMethod, resolvedIdentity, identityErr = r.discoveredMCPIdentity(ctx, baseName)
+		if identityErr != nil {
+			return "", identityErr
+		}
 	}
 	if !resolvedIdentity {
 		serviceName, _ = splitToolName(baseName)
@@ -1021,7 +1038,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	keyArgs, _ := json.Marshal(callArgs)
 	recentKey := userID + "|" + baseName + "|" + selector + "|" + string(keyArgs)
 	var activeRecent *recentCall
-	if !protected && r.recentTTL > 0 {
+	if !protected && !mcpapps.Active(ctx) && r.recentTTL > 0 {
 		call, owner, out, err, handled := r.beginRecentCall(ctx, convID, recentKey)
 		if handled {
 			return out, err
@@ -1041,9 +1058,20 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		debugMCPExecf("registry proxy error server=%s base=%s elapsed=%s err=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), err)
 		return "", err
 	}
+	if mcpapps.Active(ctx) {
+		options = append(options, mcpclient.WithNoRetry())
+	}
 	maxAttempts := 3 // initial + 2 retries
-	if protected {
+	if protected || mcpapps.Active(ctx) {
 		maxAttempts = 1
+	}
+	method := literalMethod
+	if method == "" {
+		_, method = splitToolName(baseName)
+	}
+	appBinding, appActivity, appErr := r.resolveMCPAppBinding(ctx, server, method)
+	if appErr != nil {
+		return "", appErr
 	}
 	var res *mcpschema.CallToolResult
 	for attempt := 0; attempt < maxAttempts; attempt++ {
@@ -1056,14 +1084,32 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 		debugMCPExecf("registry calltool done server=%s base=%s attempt=%d elapsed=%s err=%v nilResult=%v", server, baseName, attempt+1, time.Since(attemptStart).Round(time.Millisecond), err, res == nil)
 		if err == nil {
+			if res != nil {
+				if captureErr := mcpapps.Record(ctx, server, func() string {
+					if literalMethod != "" {
+						return literalMethod
+					}
+					_, method := splitToolName(baseName)
+					return method
+				}(), exportrequestmodel.ID(ctx), res); captureErr != nil {
+					return "", captureErr
+				}
+			}
 			if res == nil {
 				break
 			}
+			if appErr = publishMCPAppActivity(ctx, appBinding, res, callArgs); appErr != nil {
+				return "", appErr
+			}
+
 			if res.ResultType == mcpschema.ResultTypeInputRequired {
 				return "", &InputRequiredError{InputRequests: res.InputRequests, RequestState: res.RequestState}
 			}
 			if res.IsError != nil && *res.IsError {
 				terr := toolError(res)
+				if mcpapps.Active(ctx) || appActivity {
+					terr = errors.New("MCP app tool returned an error")
+				}
 				debugMCPExecf("registry calltool tool-error server=%s base=%s attempt=%d err=%v content=%d structured=%d", server, baseName, attempt+1, terr, len(res.Content), structuredContentSize(res.StructuredContent))
 				if r.mgr != nil && isReconnectableError(terr) && attempt < maxAttempts-1 {
 					// reconnect and retry
@@ -1119,6 +1165,33 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return "", err
 	}
 	debugMCPExecf("registry compose start server=%s base=%s elapsed=%s content=%d structured=%d isError=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), len(res.Content), structuredContentSize(res.StructuredContent), res.IsError != nil && *res.IsError)
+	// Host requests retain only plain text in native history. Full rich content,
+	// structuredContent and metadata are persisted separately by the capture.
+	if mcpapps.Active(ctx) || appActivity {
+		var texts []string
+		for _, content := range res.Content {
+			switch value := content.(type) {
+			case mcpschema.TextContent:
+				if value.Text != "" {
+					texts = append(texts, value.Text)
+				}
+			case *mcpschema.TextContent:
+				if value != nil && value.Text != "" {
+					texts = append(texts, value.Text)
+				}
+			default:
+				var plain struct {
+					Type string `json:"type"`
+					Text string `json:"text"`
+				}
+				encoded, _ := json.Marshal(content)
+				if json.Unmarshal(encoded, &plain) == nil && plain.Type == "text" && plain.Text != "" {
+					texts = append(texts, plain.Text)
+				}
+			}
+		}
+		return strings.Join(texts, "\n"), nil
+	}
 	// Compose textual result prioritising text content, then structured content.
 	for _, c := range res.Content {
 		if text := strings.TrimSpace(callToolContentText(c)); text != "" {
@@ -1126,7 +1199,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(text, selector)
 			}
-			if !protected && r.recentTTL > 0 {
+			if !protected && !mcpapps.Active(ctx) && r.recentTTL > 0 {
 				r.recentMu.Lock()
 				if r.recentResults[convID] == nil {
 					r.recentResults[convID] = map[string]recentItem{}
@@ -1143,7 +1216,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(out, selector)
 			}
-			if !protected && r.recentTTL > 0 {
+			if !protected && !mcpapps.Active(ctx) && r.recentTTL > 0 {
 				r.recentMu.Lock()
 				if r.recentResults[convID] == nil {
 					r.recentResults[convID] = map[string]recentItem{}
@@ -1159,7 +1232,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(out, selector)
 			}
-			if !protected && r.recentTTL > 0 {
+			if !protected && !mcpapps.Active(ctx) && r.recentTTL > 0 {
 				r.recentMu.Lock()
 				if r.recentResults[convID] == nil {
 					r.recentResults[convID] = map[string]recentItem{}
@@ -1176,7 +1249,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(text, selector)
 			}
-			if !protected && r.recentTTL > 0 {
+			if !protected && !mcpapps.Active(ctx) && r.recentTTL > 0 {
 				r.recentMu.Lock()
 				if r.recentResults[convID] == nil {
 					r.recentResults[convID] = map[string]recentItem{}
@@ -1788,53 +1861,85 @@ func (r *Registry) ToolExecutionProtected(name string) bool {
 // Initialize attempts to eagerly discover MCP servers and list their tools to
 // warm the local cache. It logs warnings for unreachable servers.
 func (r *Registry) Initialize(ctx context.Context) {
+	r.InitializeWithRefreshContext(ctx, ctx)
+}
+
+// InitializeWithRefreshContext bounds eager discovery independently of the
+// refresh lifetime. The returned channel closes after all owned monitors exit.
+func (r *Registry) InitializeWithRefreshContext(ctx, refreshCtx context.Context) <-chan struct{} {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if refreshCtx == nil {
+		refreshCtx = ctx
+	}
 	if r == nil {
-		return
+		done := make(chan struct{})
+		close(done)
+		return done
 	}
 	r.addInternalMcp()
 	servers, err := r.listServers(ctx)
 	if err != nil {
 		r.warnf("list servers failed: %v", err)
-		return
-	}
-	var wg sync.WaitGroup
-	for _, s := range servers {
-		server := s
-		if !r.shouldWarmServer(ctx, server) {
-			continue
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			tools, err := r.listServerTools(runtimediscovery.WithBackground(ctx), server)
-			if err != nil {
-				r.warnf("list tools failed for %s: %v", server, err)
-				return
+	} else {
+		var wg sync.WaitGroup
+		for _, server := range servers {
+			if !r.shouldWarmServer(ctx, server) {
+				continue
 			}
-			r.cacheDiscoveredServerTools(ctx, server, tools)
-		}()
+			wg.Add(1)
+			go func(server string) {
+				defer wg.Done()
+				tools, err := r.listServerTools(runtimediscovery.WithBackground(ctx), server)
+				if err != nil {
+					r.warnf("list tools failed for %s: %v", server, err)
+					return
+				}
+				r.cacheDiscoveredServerTools(ctx, server, tools)
+			}(server)
+		}
+		wg.Wait()
 	}
-	wg.Wait()
-	// Start background refresh monitors to auto-register tools when servers come online
-	r.startAutoRefresh(ctx)
-
+	return r.startAutoRefresh(refreshCtx)
 }
 
-// startAutoRefresh launches a monitor per known server that periodically attempts
-// to refresh its tool list and update the cache when connectivity is restored.
-func (r *Registry) startAutoRefresh(ctx context.Context) {
-	servers, err := r.listServers(ctx)
-	if err != nil {
-		r.warnf("refresh: list servers failed: %v", err)
-		return
-	}
-	for _, s := range servers {
-		srv := s
-		if !r.shouldWarmServer(ctx, srv) {
-			continue
+// startAutoRefresh owns monitors under the runtime lifetime, retrying server
+// enumeration when initial workspace discovery fails.
+func (r *Registry) startAutoRefresh(ctx context.Context) <-chan struct{} {
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		var servers []string
+		for {
+			if ctx.Err() != nil {
+				return
+			}
+			var err error
+			servers, err = r.listServers(ctx)
+			if err == nil {
+				break
+			}
+			r.warnf("refresh: list servers failed: %v", err)
+			timer := time.NewTimer(time.Second)
+			select {
+			case <-ctx.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
 		}
-		go r.monitorServer(ctx, srv)
-	}
+		var wg sync.WaitGroup
+		for _, server := range servers {
+			if !r.shouldWarmServer(ctx, server) {
+				continue
+			}
+			wg.Add(1)
+			go func(server string) { defer wg.Done(); r.monitorServer(ctx, server) }(server)
+		}
+		wg.Wait()
+	}()
+	return done
 }
 
 func (r *Registry) shouldWarmServer(ctx context.Context, server string) bool {
@@ -2009,6 +2114,10 @@ func (r *Registry) refreshServerTools(ctx context.Context, server string) error 
 }
 
 func (r *Registry) cacheDiscoveredServerTools(ctx context.Context, server string, tools []mcpschema.Tool) {
+	// A canceled discovery must not publish a late RPC response.
+	if ctx.Err() != nil {
+		return
+	}
 	if r.isPublicToolCatalog(ctx, server) {
 		r.mergeServerTools(server, tools)
 		return
@@ -2310,8 +2419,11 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	if err != nil {
 		if isReconnectableError(err) {
 			if retried, retryErr := r.retrySharedDiscoveryListTools(ctx, scope, server, opts); retryErr == nil {
+				if err := ctx.Err(); err != nil {
+					return nil, err
+				}
 				r.clearDiscoveryFailure(server, scope)
-				if anonymousProbe {
+				if anonymousProbe && len(retried) > 0 {
 					r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPublic)
 				}
 				return retried, nil
@@ -2331,9 +2443,15 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		r.warnDiscoveryListIssue(server, scope, "list_tools", err, userID, useID, tokenFingerprint(token))
 		return nil, err
 	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	r.clearDiscoveryFailure(server, scope)
 	if anonymousProbe {
-		r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPublic)
+		// An empty anonymous response does not establish catalog visibility.
+		if len(tools) > 0 {
+			r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPublic)
+		}
 	} else if !publicCatalog {
 		r.storePrincipalDiscoveryTools(server, userID, token, useID, tools)
 	}

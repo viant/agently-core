@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	svcauth "github.com/viant/agently-core/service/auth"
 	"github.com/viant/scy/auth/authorizer"
 	"golang.org/x/oauth2"
 )
@@ -136,10 +137,7 @@ func (c *HTTPClient) AuthLocalOOBSession(ctx context.Context, opts *LocalOOBSess
 		}
 		configURL = strings.TrimSpace(cfg.ConfigURL)
 		if len(scopes) == 0 {
-			scopes = append([]string(nil), cfg.CLIScopes...)
-			if len(scopes) == 0 {
-				scopes = append([]string(nil), cfg.Scopes...)
-			}
+			scopes = defaultCLIAuthScopes(cfg)
 		}
 	}
 	if configURL == "" {
@@ -282,4 +280,11 @@ func (c *HTTPClient) AuthOOBSession(ctx context.Context, secretsURL string, scop
 		req.Scopes = scopes
 	}
 	return c.doJSON(ctx, "POST", "/v1/api/auth/oob", req, nil)
+}
+
+func defaultCLIAuthScopes(cfg *OAuthConfigResponse) []string {
+	if cfg == nil {
+		return svcauth.OAuthScopesForHeadless(nil)
+	}
+	return svcauth.OAuthScopesForHeadless(&svcauth.OAuthClient{Scopes: cfg.Scopes, CLIScopes: cfg.CLIScopes, WebUIScopes: cfg.WebUIScopes, MobileUIScopes: cfg.MobileUIScopes})
 }

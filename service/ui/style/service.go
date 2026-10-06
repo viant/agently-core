@@ -26,7 +26,7 @@ const Directory = "extension/forge/styles"
 const MaxCSSBytes = 512 * 1024
 const maxFiles = 32
 const maxSnapshots = 8
-const compilerVersion = 1
+const compilerVersion = 2
 
 type Descriptor struct {
 	Version       int    `json:"version"`
@@ -168,7 +168,7 @@ func compile(ctx context.Context, root string) (*snapshot, error) {
 	hashPart(h, canonical)
 	var output bytes.Buffer
 	result := &snapshot{}
-	fontCSS, fontAssets, err := compileFonts(assets, manifest.Fonts, h)
+	fontCSS, fontAssets, err := compileFonts(assets, manifest.Fonts, h, catalog)
 	if err != nil {
 		return nil, err
 	}
@@ -252,7 +252,7 @@ func compile(ctx context.Context, root string) (*snapshot, error) {
 	if output.Len() > MaxCSSBytes {
 		return nil, fmt.Errorf("compiled CSS exceeds %d bytes", MaxCSSBytes)
 	}
-	if len(catalog.Themes) > 0 {
+	if len(catalog.Themes) > 0 || len(catalog.Fonts) > 0 {
 		result.catalog, err = json.Marshal(catalog)
 		if err != nil {
 			return nil, err

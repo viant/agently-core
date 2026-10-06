@@ -269,7 +269,7 @@ func (c *Client) ToRequestContext(ctx context.Context, request *llm.GenerateRequ
 				if request.Options.ToolChoice.Function != nil {
 					req.ToolChoice = map[string]interface{}{
 						"type": "function",
-						"function": map[string]string{
+						"function": map[string]interface{}{
 							"name": request.Options.ToolChoice.Function.Name,
 						},
 					}
@@ -389,6 +389,13 @@ func (c *Client) ToRequestContext(ctx context.Context, request *llm.GenerateRequ
 
 		// Handle content based on priority: Items > ContentItems > Result
 		if len(msg.Items) > 0 {
+			if msg.Role == llm.RoleTool && !isContextContinuationEnabled(c) {
+				for _, item := range msg.Items {
+					if item.Metadata["ag-ui.contentPart"] == true && item.Type != llm.ContentTypeText {
+						return nil, fmt.Errorf("OpenAI multipart tool media requires Responses API")
+					}
+				}
+			}
 			// Convert Items to OpenAI format
 			contentItems := make([]ContentItem, len(msg.Items))
 			for j, item := range msg.Items {
@@ -396,6 +403,13 @@ func (c *Client) ToRequestContext(ctx context.Context, request *llm.GenerateRequ
 					Type: string(item.Type),
 				}
 
+				if mapped, handled, err := c.protocolContent(item); handled {
+					if err != nil {
+						return nil, err
+					}
+					contentItems[j] = mapped
+					continue
+				}
 				// Handle different content types
 				switch item.Type {
 				case llm.ContentTypeText:

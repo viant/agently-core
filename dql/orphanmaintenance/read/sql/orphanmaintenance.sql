@@ -101,7 +101,7 @@ SELECT 'model_call.missing_run' AS rule_id, 'safe-detach' AS action, 40 AS prior
        'run' AS reference_table, COALESCE(CAST(mc.run_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(mc.completed_at, mc.started_at) AS CHAR) AS observed_at_raw
 FROM model_call mc
-WHERE (TRIM(COALESCE(mc.run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = mc.run_id)) AND COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(mc.run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = mc.run_id AND COALESCE(orphan_parent.run_kind,'execution')='execution')) AND COALESCE(mc.completed_at, mc.started_at) IS NOT NULL AND COALESCE(mc.completed_at, mc.started_at) <= $OlderThan
 #if($RecordID != "")
   AND mc.message_id = $RecordID
 #end
@@ -166,7 +166,7 @@ SELECT 'tool_call.missing_run' AS rule_id, 'safe-detach' AS action, 50 AS priori
        'run' AS reference_table, COALESCE(CAST(tc.run_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(tc.completed_at, tc.started_at) AS CHAR) AS observed_at_raw
 FROM tool_call tc
-WHERE (TRIM(COALESCE(tc.run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = tc.run_id)) AND COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
+WHERE (TRIM(COALESCE(tc.run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = tc.run_id AND COALESCE(orphan_parent.run_kind,'execution')='execution')) AND COALESCE(tc.completed_at, tc.started_at) IS NOT NULL AND COALESCE(tc.completed_at, tc.started_at) <= $OlderThan
 #if($RecordID != "")
   AND tc.message_id = $RecordID
 #end
@@ -309,7 +309,7 @@ SELECT 'run.missing_checkpoint_message' AS rule_id, 'safe-detach' AS action, 110
        'message' AS reference_table, COALESCE(CAST(r.checkpoint_message_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(r.completed_at, r.updated_at, r.created_at) AS CHAR) AS observed_at_raw
 FROM run r
-WHERE (TRIM(COALESCE(r.checkpoint_message_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM message orphan_parent WHERE orphan_parent.id = r.checkpoint_message_id)) AND COALESCE(r.completed_at, r.updated_at, r.created_at) IS NOT NULL AND COALESCE(r.completed_at, r.updated_at, r.created_at) <= $OlderThan
+WHERE COALESCE(r.run_kind,'execution')='execution' AND (TRIM(COALESCE(r.checkpoint_message_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM message orphan_parent WHERE orphan_parent.id = r.checkpoint_message_id)) AND COALESCE(r.completed_at, r.updated_at, r.created_at) IS NOT NULL AND COALESCE(r.completed_at, r.updated_at, r.created_at) <= $OlderThan
 #if($RecordID != "")
   AND r.id = $RecordID
 #end
@@ -322,7 +322,7 @@ SELECT 'run.missing_conversation' AS rule_id, 'safe-detach' AS action, 110 AS pr
        'conversation' AS reference_table, COALESCE(CAST(r.conversation_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(r.completed_at, r.updated_at, r.created_at) AS CHAR) AS observed_at_raw
 FROM run r
-WHERE (TRIM(COALESCE(r.conversation_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM conversation orphan_parent WHERE orphan_parent.id = r.conversation_id)) AND COALESCE(r.completed_at, r.updated_at, r.created_at) IS NOT NULL AND COALESCE(r.completed_at, r.updated_at, r.created_at) <= $OlderThan
+WHERE COALESCE(r.run_kind,'execution')='execution' AND (TRIM(COALESCE(r.conversation_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM conversation orphan_parent WHERE orphan_parent.id = r.conversation_id)) AND COALESCE(r.completed_at, r.updated_at, r.created_at) IS NOT NULL AND COALESCE(r.completed_at, r.updated_at, r.created_at) <= $OlderThan
 #if($RecordID != "")
   AND r.id = $RecordID
 #end
@@ -335,7 +335,7 @@ SELECT 'run.missing_resumed_from' AS rule_id, 'safe-detach' AS action, 110 AS pr
        'run' AS reference_table, COALESCE(CAST(r.resumed_from_run_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(r.completed_at, r.updated_at, r.created_at) AS CHAR) AS observed_at_raw
 FROM run r
-WHERE (TRIM(COALESCE(r.resumed_from_run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = r.resumed_from_run_id)) AND COALESCE(r.completed_at, r.updated_at, r.created_at) IS NOT NULL AND COALESCE(r.completed_at, r.updated_at, r.created_at) <= $OlderThan
+WHERE COALESCE(r.run_kind,'execution')='execution' AND (TRIM(COALESCE(r.resumed_from_run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = r.resumed_from_run_id AND COALESCE(orphan_parent.run_kind,'execution')='execution')) AND COALESCE(r.completed_at, r.updated_at, r.created_at) IS NOT NULL AND COALESCE(r.completed_at, r.updated_at, r.created_at) <= $OlderThan
 #if($RecordID != "")
   AND r.id = $RecordID
 #end
@@ -348,7 +348,7 @@ SELECT 'run.missing_schedule' AS rule_id, 'safe-detach' AS action, 110 AS priori
        'schedule' AS reference_table, COALESCE(CAST(r.schedule_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(r.completed_at, r.updated_at, r.created_at) AS CHAR) AS observed_at_raw
 FROM run r
-WHERE (TRIM(COALESCE(r.schedule_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM schedule orphan_parent WHERE orphan_parent.id = r.schedule_id)) AND COALESCE(r.completed_at, r.updated_at, r.created_at) IS NOT NULL AND COALESCE(r.completed_at, r.updated_at, r.created_at) <= $OlderThan
+WHERE COALESCE(r.run_kind,'execution')='execution' AND (TRIM(COALESCE(r.schedule_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM schedule orphan_parent WHERE orphan_parent.id = r.schedule_id)) AND COALESCE(r.completed_at, r.updated_at, r.created_at) IS NOT NULL AND COALESCE(r.completed_at, r.updated_at, r.created_at) <= $OlderThan
 #if($RecordID != "")
   AND r.id = $RecordID
 #end
@@ -361,7 +361,7 @@ SELECT 'run.missing_turn' AS rule_id, 'safe-detach' AS action, 110 AS priority,
        'turn' AS reference_table, COALESCE(CAST(r.turn_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(r.completed_at, r.updated_at, r.created_at) AS CHAR) AS observed_at_raw
 FROM run r
-WHERE (TRIM(COALESCE(r.turn_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM turn orphan_parent WHERE orphan_parent.id = r.turn_id)) AND COALESCE(r.completed_at, r.updated_at, r.created_at) IS NOT NULL AND COALESCE(r.completed_at, r.updated_at, r.created_at) <= $OlderThan
+WHERE COALESCE(r.run_kind,'execution')='execution' AND (TRIM(COALESCE(r.turn_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM turn orphan_parent WHERE orphan_parent.id = r.turn_id)) AND COALESCE(r.completed_at, r.updated_at, r.created_at) IS NOT NULL AND COALESCE(r.completed_at, r.updated_at, r.created_at) <= $OlderThan
 #if($RecordID != "")
   AND r.id = $RecordID
 #end
@@ -415,7 +415,7 @@ SELECT 'turn.missing_run' AS rule_id, 'safe-detach' AS action, 130 AS priority,
        'run' AS reference_table, COALESCE(CAST(t.run_id AS CHAR),'') AS reference_id,
        CAST(t.created_at AS CHAR) AS observed_at_raw
 FROM turn t
-WHERE (TRIM(COALESCE(t.run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = t.run_id)) AND t.created_at IS NOT NULL AND t.created_at <= $OlderThan
+WHERE (TRIM(COALESCE(t.run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = t.run_id AND COALESCE(orphan_parent.run_kind,'execution')='execution')) AND t.created_at IS NOT NULL AND t.created_at <= $OlderThan
 #if($RecordID != "")
   AND t.id = $RecordID
 #end
@@ -533,7 +533,7 @@ SELECT 'conversation.missing_schedule_run' AS rule_id, 'safe-detach' AS action, 
        'run|schedule_run' AS reference_table, COALESCE(CAST(c.schedule_run_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(c.last_activity, c.updated_at, c.created_at) AS CHAR) AS observed_at_raw
 FROM conversation c
-WHERE (TRIM(COALESCE(c.schedule_run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run current_run WHERE current_run.id = c.schedule_run_id) AND NOT EXISTS (SELECT 1 FROM schedule_run legacy_run WHERE legacy_run.id = c.schedule_run_id)) AND COALESCE(c.last_activity, c.updated_at, c.created_at) IS NOT NULL AND COALESCE(c.last_activity, c.updated_at, c.created_at) <= $OlderThan
+WHERE (TRIM(COALESCE(c.schedule_run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run current_run WHERE current_run.id = c.schedule_run_id AND COALESCE(current_run.run_kind,'execution')='execution') AND NOT EXISTS (SELECT 1 FROM schedule_run legacy_run WHERE legacy_run.id = c.schedule_run_id)) AND COALESCE(c.last_activity, c.updated_at, c.created_at) IS NOT NULL AND COALESCE(c.last_activity, c.updated_at, c.created_at) <= $OlderThan
 #if($RecordID != "")
   AND c.id = $RecordID
 #end
@@ -547,7 +547,7 @@ SELECT 'conversation.missing_schedule_run' AS rule_id, 'safe-detach' AS action, 
        'run' AS reference_table, COALESCE(CAST(c.schedule_run_id AS CHAR),'') AS reference_id,
        CAST(COALESCE(c.last_activity, c.updated_at, c.created_at) AS CHAR) AS observed_at_raw
 FROM conversation c
-WHERE (TRIM(COALESCE(c.schedule_run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = c.schedule_run_id)) AND COALESCE(c.last_activity, c.updated_at, c.created_at) IS NOT NULL AND COALESCE(c.last_activity, c.updated_at, c.created_at) <= $OlderThan
+WHERE (TRIM(COALESCE(c.schedule_run_id, '')) <> '' AND NOT EXISTS (SELECT 1 FROM run orphan_parent WHERE orphan_parent.id = c.schedule_run_id AND COALESCE(orphan_parent.run_kind,'execution')='execution')) AND COALESCE(c.last_activity, c.updated_at, c.created_at) IS NOT NULL AND COALESCE(c.last_activity, c.updated_at, c.created_at) <= $OlderThan
 #if($RecordID != "")
   AND c.id = $RecordID
 #end
@@ -792,7 +792,7 @@ SELECT 'call_payload.unused' AS rule_id, 'safe-delete' AS action, 1210 AS priori
        'payload_consumers' AS reference_table, COALESCE(CAST(cp.id AS CHAR),'') AS reference_id,
        CAST(cp.created_at AS CHAR) AS observed_at_raw
 FROM call_payload cp
-WHERE (NOT EXISTS (SELECT 1 FROM message m WHERE m.attachment_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM message m WHERE m.elicitation_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM model_call mc WHERE mc.request_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM model_call mc WHERE mc.response_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM model_call mc WHERE mc.provider_request_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM model_call mc WHERE mc.provider_response_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM model_call mc WHERE mc.stream_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM tool_call tc WHERE tc.request_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM tool_call tc WHERE tc.response_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM generated_file gf WHERE gf.payload_id = cp.id)) AND cp.created_at IS NOT NULL AND cp.created_at <= $OlderThan
+WHERE (NOT EXISTS (SELECT 1 FROM message m WHERE m.attachment_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM message m WHERE m.elicitation_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM model_call mc WHERE mc.request_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM model_call mc WHERE mc.response_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM model_call mc WHERE mc.provider_request_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM model_call mc WHERE mc.provider_response_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM model_call mc WHERE mc.stream_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM tool_call tc WHERE tc.request_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM tool_call tc WHERE tc.response_payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM generated_file gf WHERE gf.payload_id = cp.id) AND NOT EXISTS (SELECT 1 FROM run payload_run WHERE payload_run.id = cp.run_id)) AND cp.created_at IS NOT NULL AND cp.created_at <= $OlderThan
 #if($RecordID != "")
   AND cp.id = $RecordID
 #end

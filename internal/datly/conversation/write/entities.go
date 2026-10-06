@@ -36,6 +36,76 @@ func (entity *MutableConversationView) SetShareable(value int) {
 	}
 	entity.Has.Shareable = true
 }
+func (entity *MutableConversationView) GetProtocolOnly() *int {
+	return entity.ProtocolOnly
+}
+func (entity *MutableConversationView) SetProtocolOnly(value *int) {
+	entity.ProtocolOnly = value
+	if entity.Has == nil {
+		entity.Has = &MutableConversationViewHas{}
+	}
+	entity.Has.ProtocolOnly = true
+}
+func (entity *MutableConversationView) GetProtocolThreadKey() *string {
+	return entity.ProtocolThreadKey
+}
+func (entity *MutableConversationView) SetProtocolThreadKey(value *string) {
+	entity.ProtocolThreadKey = value
+	if entity.Has == nil {
+		entity.Has = &MutableConversationViewHas{}
+	}
+	entity.Has.ProtocolThreadKey = true
+}
+func (entity *MutableConversationView) GetProtocolThreadId() *string {
+	return entity.ProtocolThreadId
+}
+func (entity *MutableConversationView) SetProtocolThreadId(value *string) {
+	entity.ProtocolThreadId = value
+	if entity.Has == nil {
+		entity.Has = &MutableConversationViewHas{}
+	}
+	entity.Has.ProtocolThreadId = true
+}
+func (entity *MutableConversationView) GetProtocolPrincipal() *string {
+	return entity.ProtocolPrincipal
+}
+func (entity *MutableConversationView) SetProtocolPrincipal(value *string) {
+	entity.ProtocolPrincipal = value
+	if entity.Has == nil {
+		entity.Has = &MutableConversationViewHas{}
+	}
+	entity.Has.ProtocolPrincipal = true
+}
+func (entity *MutableConversationView) GetProtocolRevision() *int {
+	return entity.ProtocolRevision
+}
+func (entity *MutableConversationView) SetProtocolRevision(value *int) {
+	entity.ProtocolRevision = value
+	if entity.Has == nil {
+		entity.Has = &MutableConversationViewHas{}
+	}
+	entity.Has.ProtocolRevision = true
+}
+func (entity *MutableConversationView) GetProtocolStateJson() *string {
+	return entity.ProtocolStateJson
+}
+func (entity *MutableConversationView) SetProtocolStateJson(value *string) {
+	entity.ProtocolStateJson = value
+	if entity.Has == nil {
+		entity.Has = &MutableConversationViewHas{}
+	}
+	entity.Has.ProtocolStateJson = true
+}
+func (entity *MutableConversationView) GetProtocolMessagesJson() *string {
+	return entity.ProtocolMessagesJson
+}
+func (entity *MutableConversationView) SetProtocolMessagesJson(value *string) {
+	entity.ProtocolMessagesJson = value
+	if entity.Has == nil {
+		entity.Has = &MutableConversationViewHas{}
+	}
+	entity.Has.ProtocolMessagesJson = true
+}
 func (entity *MutableConversationView) GetSummary() *string {
 	return entity.Summary
 }

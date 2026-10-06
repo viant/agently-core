@@ -14,8 +14,8 @@ import (
 )
 
 // DataSource is a workspace resource (extension/forge/datasources/*.yaml).
-// It embeds the forge DataSource model and adds two sections: Backend (how
-// rows are fetched) and Cache (how results are memoised per-user).
+// It embeds the forge DataSource model and adds backend fetching, explicit
+// response aliases, and per-user cache policy.
 type DataSource struct {
 	// Embedded forge DataSource carries Selectors, Parameters, Paging,
 	// FilterSet, UniqueKey, Cardinality, SelectionMode, etc.
@@ -31,6 +31,10 @@ type DataSource struct {
 
 	// Backend describes the upstream source. Required.
 	Backend *Backend `json:"backend" yaml:"backend"`
+
+	// ResponseAliases maps logical top-level row keys to exact producer keys.
+	// It applies only to newly fetched rows, preserving original keys/values.
+	ResponseAliases map[string]string `json:"responseAliases,omitempty" yaml:"responseAliases,omitempty"`
 
 	// Cache policy. When nil, defaults apply (enabled=true, scope=user,
 	// ttl=30m, refreshPolicy=stale-while-revalidate, maxEntries=5000).
@@ -66,9 +70,11 @@ type Backend struct {
 	// mcp_tool
 	Service string `json:"service,omitempty" yaml:"service,omitempty"`
 	Method  string `json:"method,omitempty" yaml:"method,omitempty"`
+	// RequestMetadata names literal top-level logical request keys omitted only
+	// from MCP transport arguments. Cache and admission identity retain these keys.
+	RequestMetadata []string `json:"requestMetadata,omitempty" yaml:"requestMetadata,omitempty"`
 	// MCPRequest declares where an authored report query is placed in tool
-	// arguments. It is optional for ordinary datasource Fetch calls, but report
-	// compilers require an explicit mapping rather than guessing tool schemas.
+	// arguments. Report compilers require an explicit mapping.
 	MCPRequest *MCPRequestBinding `json:"mcpRequest,omitempty" yaml:"mcpRequest,omitempty"`
 	Calls      []MCPCall          `json:"calls,omitempty" yaml:"calls,omitempty"`
 	Fanout     *MCPFanout         `json:"fanout,omitempty" yaml:"fanout,omitempty"`

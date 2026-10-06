@@ -67,3 +67,14 @@ func (input *QueueRowsInput) SetQueueStatus(value string) {
 	}
 	input.Has.QueueStatus = true
 }
+
+func (input *QueueRowsInput) SetNativeQueuedOnly(value bool) {
+	if input == nil {
+		return
+	}
+	input.NativeQueuedOnly = value
+	if input.Has == nil {
+		input.Has = &QueueRowsInputHas{}
+	}
+	input.Has.NativeQueuedOnly = true
+}

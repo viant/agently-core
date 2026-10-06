@@ -291,6 +291,26 @@ export function deriveHostedWorkspaceRestoreStateFromTranscriptTurns(turns: Turn
             if (focused) selectedWindowId = focused;
             continue;
         }
+        if (toolName === 'ui/context/get') {
+            const response = firstParsedPayload(step?.responsePayload, step?.content);
+            const conversationId = String(response?.conversationId || '').trim();
+            if (!conversationId || !Array.isArray(response?.windows)) continue;
+            for (const entry of response.windows) {
+                const raw = entry?.window;
+                const candidate = normalizeHostedWorkspaceWindow(raw);
+                if (!candidate || candidate.conversationId !== conversationId) continue;
+                const index = windows.findIndex(window => window.windowId === candidate.windowId
+                    && window.conversationId === conversationId);
+                if (index < 0) continue; // A context snapshot never creates a new/foreign window.
+                const previous = windows[index];
+                windows[index] = {
+                    ...previous,
+                    ...(isPlainObject(raw?.windowForm) ? {windowForm: cloneValue(raw.windowForm) as Record<string, unknown>} : {}),
+                    ...(isPlainObject(raw?.parameters) ? {parameters: cloneValue(raw.parameters) as Record<string, unknown>} : {}),
+                };
+            }
+            continue;
+        }
         if (toolName === 'ui/window/get') {
             const response = firstParsedPayload(step?.responsePayload, step?.content);
             const window = normalizeHostedWorkspaceWindow(response?.window);

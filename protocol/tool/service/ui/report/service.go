@@ -6,6 +6,7 @@ import (
 	"fmt"
 	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	svc "github.com/viant/agently-core/protocol/tool/service"
+	"github.com/viant/agently-core/runtime/evidence"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/forge/backend/mcp/service"
@@ -49,6 +50,9 @@ type ActionResult struct {
 	Materialized      *bool                  `json:"materialized,omitempty"`
 	MaterializationID string                 `json:"materializationId,omitempty"`
 	Status            string                 `json:"status,omitempty"`
+	ContextStatus     string                 `json:"contextStatus,omitempty"`
+	Active            *bool                  `json:"active,omitempty"`
+	ActivationError   string                 `json:"activationError,omitempty"`
 	Durable           *bool                  `json:"durable,omitempty"`
 	ReportRunID       string                 `json:"reportRunId,omitempty"`
 	Revision          *int64                 `json:"revision,omitempty"`
@@ -62,6 +66,9 @@ type MaterializationResult struct {
 	RequestID         string           `json:"requestId,omitempty"`
 	MaterializationID string           `json:"materializationId,omitempty"`
 	Status            string           `json:"status,omitempty"`
+	ContextStatus     string           `json:"contextStatus,omitempty"`
+	Active            *bool            `json:"active,omitempty"`
+	ActivationError   string           `json:"activationError,omitempty"`
 	DatasetRefs       []string         `json:"datasetRefs,omitempty"`
 	RowCounts         map[string]int64 `json:"rowCounts,omitempty"`
 	Errors            []string         `json:"errors,omitempty"`
@@ -176,13 +183,31 @@ func (s *Service) execute(ctx context.Context, action, eventKind string, in, out
 	if err != nil {
 		return err
 	}
+	params := map[string]interface{}{"windowId": strings.TrimSpace(window.WindowID)}
+	if action == "run" {
+		if issuer := evidence.ReportCommandsFromContext(ctx); issuer != nil {
+			workspace, marshalErr := json.Marshal(window.WorkspaceObject)
+			if marshalErr != nil {
+				return marshalErr
+			}
+			command, issueErr := issuer.IssueReportCommand(ctx, evidence.ReportCommandTarget{WindowID: window.WindowID, Workspace: workspace})
+			if issueErr != nil {
+				return issueErr
+			}
+			if command != nil {
+				if command.RequestID == "" || command.AdmissionRef == "" {
+					return fmt.Errorf("report command receipt incomplete")
+				}
+				params["requestId"] = command.RequestID
+				params["reportAdmissionRef"] = command.AdmissionRef
+			}
+		}
+	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
 		Method:    "ui.report." + action,
-		Params: map[string]interface{}{
-			"windowId": strings.TrimSpace(window.WindowID),
-		},
+		Params:    params,
 	})
 	if err != nil {
 		return err
@@ -329,10 +354,13 @@ func (s *Service) waitForNativeMaterialization(ctx context.Context, output *Acti
 			output.OK = true
 			output.Error = ""
 			if err := output.mergeResult(ActionResult{
-				Materialized: boolResultPointer(true),
-				Status:       status,
-				DatasetRefs:  materialization.DatasetRefs,
-				RowCounts:    materialization.RowCounts,
+				Materialized:    boolResultPointer(true),
+				Status:          status,
+				ContextStatus:   materialization.ContextStatus,
+				Active:          materialization.Active,
+				ActivationError: materialization.ActivationError,
+				DatasetRefs:     materialization.DatasetRefs,
+				RowCounts:       materialization.RowCounts,
 			}); err != nil {
 				return fmt.Errorf("update native report materialization %q: %w", expectedID, err)
 			}

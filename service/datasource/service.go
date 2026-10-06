@@ -127,12 +127,16 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 	if ds.Backend == nil {
 		return nil, fmt.Errorf("datasource %q has no backend", id)
 	}
+	aliases, err := prepareResponseAliases(ds.ResponseAliases)
+	if err != nil {
+		return nil, fmt.Errorf("datasource %q: %w", ds.ID, err)
+	}
 	policy := dsproto.CachePolicyOrDefault(ds.Cache)
 	cacheEnabled := policy.Enabled == nil || *policy.Enabled
 	scopeID := s.scopeID(ctx, policy.Scope)
 	normalizedInputs := normalizeFilterSemantics(inputs, &ds.DataSource)
 	mergedArgs := expandNestedArgs(mergeArgs(normalizedInputs, ds.Backend.Pinned))
-	cacheKey := buildCacheKey(scopeID, ds.ID, policy.Key, mergedArgs)
+	cacheKey := responseAliasCacheKey(buildCacheKey(scopeID, ds.ID, policy.Key, mergedArgs), aliases)
 
 	if cacheEnabled && !opts.BypassCache {
 		if entry, ok := s.cache.get(cacheKey); ok {
@@ -158,6 +162,10 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		return nil, err
 	}
 	rows, dataInfo, metrics := project(raw, &ds.DataSource)
+	rows, err = applyResponseAliases(rows, aliases)
+	if err != nil {
+		return nil, fmt.Errorf("datasource %q: %w", ds.ID, err)
+	}
 	rows, dataInfo = applyPaging(rows, dataInfo, &ds.DataSource, mergedArgs)
 	result := &dsproto.FetchResult{Rows: rows, DataInfo: dataInfo, Metrics: metrics}
 
@@ -194,6 +202,7 @@ func (s *Service) InvalidateCache(ctx context.Context, id, inputsHash string) er
 		return nil
 	}
 	s.cache.drop(prefix + inputsHash)
+	s.cache.dropPrefix(prefix + inputsHash + "|response-aliases-v1:")
 	return nil
 }
 
@@ -215,7 +224,7 @@ func (s *Service) runBackend(ctx context.Context, ds *dsproto.DataSource, args m
 			return nil, fmt.Errorf("datasource %q: mcp_tool backend missing service/method", ds.ID)
 		}
 		name := ds.Backend.Service + ":" + ds.Backend.Method
-		raw, err := s.executor.Execute(ctx, name, args)
+		raw, err := s.executor.Execute(ctx, name, transportArguments(args, ds.Backend.RequestMetadata))
 		if err != nil {
 			return nil, err
 		}

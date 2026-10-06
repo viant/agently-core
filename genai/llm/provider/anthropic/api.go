@@ -19,6 +19,8 @@ import (
 
 func (c *Client) Implements(feature string) bool {
 	switch feature {
+	case base.SupportsProtocolMedia, base.SupportsProviderFiles:
+		return true
 	case base.CanUseTools:
 		return true
 	case base.CanStream:

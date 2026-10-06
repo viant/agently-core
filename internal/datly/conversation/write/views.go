@@ -11,6 +11,13 @@ type MutableConversationView struct {
 	ShouldDelete             bool                        `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
 	Id                       string                      `validate:"required" sqlx:"id,primaryKey" json:"id"`
 	Shareable                int                         `sqlx:"shareable,required=true" json:"shareable,omitempty"`
+	ProtocolOnly             *int                        `sqlx:"protocol_only,required=true" json:"protocolOnly,omitempty"`
+	ProtocolThreadKey        *string                     `sqlx:"protocol_thread_key" json:"protocolThreadKey,omitempty"`
+	ProtocolThreadId         *string                     `sqlx:"protocol_thread_id" json:"protocolThreadId,omitempty"`
+	ProtocolPrincipal        *string                     `sqlx:"protocol_principal" json:"protocolPrincipal,omitempty"`
+	ProtocolRevision         *int                        `sqlx:"protocol_revision,required=true" json:"protocolRevision,omitempty"`
+	ProtocolStateJson        *string                     `sqlx:"protocol_state_json" json:"protocolStateJson,omitempty"`
+	ProtocolMessagesJson     *string                     `sqlx:"protocol_messages_json" json:"protocolMessagesJson,omitempty"`
 	Summary                  *string                     `sqlx:"summary" json:"summary,omitempty"`
 	LastActivity             *time.Time                  `sqlx:"last_activity" json:"lastActivity,omitempty"`
 	UsageInputTokens         *int                        `sqlx:"usage_input_tokens" json:"usageInputTokens,omitempty"`
@@ -43,6 +50,13 @@ type MutableConversationViewHas struct {
 	ShouldDelete             bool
 	Id                       bool
 	Shareable                bool
+	ProtocolOnly             bool
+	ProtocolThreadKey        bool
+	ProtocolThreadId         bool
+	ProtocolPrincipal        bool
+	ProtocolRevision         bool
+	ProtocolStateJson        bool
+	ProtocolMessagesJson     bool
 	Summary                  bool
 	LastActivity             bool
 	UsageInputTokens         bool
@@ -74,6 +88,13 @@ type MutableConversationViewHas struct {
 type CurrentWriterView struct {
 	Id                       string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
 	Shareable                int        `sqlx:"shareable,required=true" json:"shareable,omitempty"`
+	ProtocolOnly             *int       `sqlx:"protocol_only,required=true" json:"protocolOnly,omitempty"`
+	ProtocolThreadKey        *string    `sqlx:"protocol_thread_key" json:"protocolThreadKey,omitempty"`
+	ProtocolThreadId         *string    `sqlx:"protocol_thread_id" json:"protocolThreadId,omitempty"`
+	ProtocolPrincipal        *string    `sqlx:"protocol_principal" json:"protocolPrincipal,omitempty"`
+	ProtocolRevision         *int       `sqlx:"protocol_revision,required=true" json:"protocolRevision,omitempty"`
+	ProtocolStateJson        *string    `sqlx:"protocol_state_json" json:"protocolStateJson,omitempty"`
+	ProtocolMessagesJson     *string    `sqlx:"protocol_messages_json" json:"protocolMessagesJson,omitempty"`
 	Summary                  *string    `sqlx:"summary" json:"summary,omitempty"`
 	LastActivity             *time.Time `sqlx:"last_activity" json:"lastActivity,omitempty"`
 	UsageInputTokens         *int       `sqlx:"usage_input_tokens" json:"usageInputTokens,omitempty"`

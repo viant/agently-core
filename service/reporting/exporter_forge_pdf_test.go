@@ -74,3 +74,51 @@ func TestForgePDFExporter_PassesOptionContextToSharedRenderer(t *testing.T) {
 	require.NoError(t, err)
 	require.NotEqual(t, without.Bytes, result.Data)
 }
+
+// Anonymous native-profile artifacts retain their exact source/hash bindings;
+// existing Core validators already accept the known optional metadata. The
+// actual strict Print decoder, not requireCanonicalFields, owns unknown fields.
+func TestForgePDFExporter_NativeV1MetadataPreservesArtifactsAndIdentity(t *testing.T) {
+	patch := func(raw string, edit func(map[string]interface{})) json.RawMessage {
+		var value map[string]interface{}
+		require.NoError(t, json.Unmarshal([]byte(raw), &value))
+		edit(value)
+		encoded, err := json.Marshal(value)
+		require.NoError(t, err)
+		return encoded
+	}
+	spec := patch(validTestReportSpecJSON(), func(value map[string]interface{}) {
+		value["subtitle"] = "Synthetic native profile"
+		value["layoutIntent"].(map[string]interface{})["items"] = []interface{}{map[string]interface{}{"blockId": "primaryTable", "size": "full"}}
+	})
+	fill := json.RawMessage(validTestReportFillJSON())
+	print := patch(validRenderableTestReportPrintJSON(), func(value map[string]interface{}) { value["subtitle"] = "Synthetic native profile" })
+	request := &SubmitExportRequest{ArtifactRef: "report://synthetic", Format: ExportFormatPDF, Scope: ExportScopeDraft, ReportSpec: spec, ReportFill: fill, ReportPrint: print}
+	require.NoError(t, validateSubmitExportRequest(request))
+	beforeSpec, beforeFill, beforePrint := string(spec), string(fill), string(print)
+	result, err := NewForgePDFExporter(nil).Export(context.Background(), &RenderRequest{Format: ExportFormatPDF, ReportSpec: spec, ReportFill: fill, ReportPrint: print})
+	require.NoError(t, err)
+	require.NotEmpty(t, result.Data)
+	require.Empty(t, result.Diagnostics)
+	require.Equal(t, beforeSpec, string(request.ReportSpec))
+	require.Equal(t, beforeFill, string(request.ReportFill))
+	require.Equal(t, beforePrint, string(request.ReportPrint))
+	// Existing source identity and required hash presence remain enforced.
+	for _, edit := range []func(map[string]interface{}){
+		func(value map[string]interface{}) { value["specHash"] = "" },
+		func(value map[string]interface{}) {
+			value["source"].(map[string]interface{})["dataSourceRef"] = "different"
+		},
+	} {
+		invalid := *request
+		invalid.ReportPrint = patch(string(print), edit)
+		require.Error(t, validateSubmitExportRequest(&invalid))
+	}
+	for _, edit := range []func(map[string]interface{}){
+		func(value map[string]interface{}) { value["extra"] = true },
+		func(value map[string]interface{}) { value["subtitle"] = map[string]interface{}{"arbitrary": true} },
+	} {
+		_, err := reportprint.DecodeJSON(patch(string(print), edit))
+		require.Error(t, err)
+	}
+}

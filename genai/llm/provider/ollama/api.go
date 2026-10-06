@@ -188,7 +188,7 @@ func (c *Client) Stream(ctx context.Context, request *llm.GenerateRequest) (<-ch
 				events <- llm.StreamEvent{Kind: llm.StreamEventTextDelta, Delta: content}
 			}
 			if choice.FinishReason != "" {
-				events <- llm.StreamEvent{Kind: llm.StreamEventTurnCompleted, FinishReason: choice.FinishReason}
+				events <- llm.StreamEvent{Kind: llm.StreamEventTurnCompleted, FinishReason: choice.FinishReason, Usage: lr.Usage}
 			}
 		}
 		endObserverOnce := func(lr *llm.GenerateResponse) {

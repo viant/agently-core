@@ -46,6 +46,10 @@ func moveQueuedTurn(c *backendClient, ctx context.Context, input *MoveQueuedTurn
 		return err
 	}
 	err := queuereorder.Move(ctx, c.goalInvoker, input.ConversationID, input.TurnID, input.Direction)
+	if err == nil {
+		notifyAGUIRunUpdated(ctx, c, input.ConversationID)
+		return nil
+	}
 	switch {
 	case errors.Is(err, queuereorder.ErrTurnNotQueued):
 		return newConflictError("queued turn not found")
@@ -651,6 +655,21 @@ func approvalOutcomeFromOutcomeRow(row *toolapprovalqueuemodel.OutcomeRowView) *
 		outcome.Status = strings.TrimSpace(row.Status)
 		outcome.Decision = valueOrEmpty(row.Decision)
 	}
+	// A completed protocol receipt remains readable after response loss even
+	// before command/public outcome metadata is recovered. This is presentation,
+	// not permission to repeat or resume the effect.
+	if row.Metadata != nil {
+		var metadata map[string]json.RawMessage
+		if json.Unmarshal(*row.Metadata, &metadata) == nil && len(metadata["aguiDecision"]) > 0 {
+			var receipt struct {
+				Status string  `json:"status"`
+				Result *string `json:"result"`
+			}
+			if json.Unmarshal(metadata["aguiOutcome"], &receipt) == nil && receipt.Result != nil && (receipt.Status == "completed" || receipt.Status == "failed") {
+				outcome.Result = *receipt.Result
+			}
+		}
+	}
 	if row.ErrorMessage != nil {
 		outcome.ErrorMessage = strings.TrimSpace(*row.ErrorMessage)
 	}
@@ -677,6 +696,18 @@ func approvalOutcomeSortKey(outcome *api.DecideToolApprovalOutcome) time.Time {
 }
 
 func timeoutToolApproval(ctx context.Context, c *backendClient, patcher toolApprovalQueuePatcher, lister toolApprovalQueueLister, row *toolapprovalqueuemodel.QueueRowView, now time.Time) (*api.DecideToolApprovalOutcome, error) {
+	if outcome, handled, err := c.RouteToolApprovalTimeout(ctx, row, now); handled {
+		return outcome, err
+	}
+	claimer, ok := c.conv.(interface {
+		ClaimToolApprovalDecision(context.Context, *toolapprovalqueuemodel.QueueRowView, string, string) error
+	})
+	if !ok {
+		return nil, errors.New("atomic approval timeout claim unavailable")
+	}
+	if err := claimer.ClaimToolApprovalDecision(ctx, row, row.UserId, "timeout"); err != nil {
+		return nil, err
+	}
 	upd := approvalqueue.NewTimedOutPatch(row, now)
 	if err := patcher.PatchToolApprovalQueue(ctx, upd); err != nil && !isToolApprovalQueueDuplicateErr(err) {
 		return nil, err
@@ -737,6 +768,9 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 		return nil, errors.New("approval request not found")
 	}
 	row := rows[0]
+	if routed, handled, err := c.routeAGUIApprovalDecision(ctx, input, row); handled {
+		return routed, err
+	}
 	action := strings.ToLower(strings.TrimSpace(input.Action))
 	if action == "" {
 		return nil, errors.New("action is required")
@@ -773,6 +807,58 @@ func decideToolApproval(c *backendClient, ctx context.Context, input *DecideTool
 	}
 	if row.MessageId != nil {
 		outcome.MessageID = strings.TrimSpace(*row.MessageId)
+	}
+	canonicalAction := canonicalDecideAction(action)
+	if canonicalAction != "approve" && canonicalAction != "reject" && canonicalAction != "cancel" {
+		return nil, errors.New("unsupported approval action")
+	}
+	if canonicalAction == "approve" {
+		var args map[string]interface{}
+		if err := decodeAGUIValue(row.Arguments, &args); err != nil {
+			return nil, err
+		}
+		meta := parseToolApprovalMetadata(row.Metadata)
+		editors := approvalEditorsFromMeta(meta)
+		allowed := map[string]bool{}
+		for _, editor := range editors {
+			if editor != nil {
+				allowed[editor.Name] = true
+			}
+		}
+		for name := range input.EditedFields {
+			if !allowed[name] {
+				return nil, fmt.Errorf("unknown approval editor %q", name)
+			}
+		}
+		if err := toolapproval.ApplyEdits(args, editors, input.EditedFields); err != nil {
+			return nil, err
+		}
+		reviewPayload := input.Payload
+		if len(reviewPayload) == 0 {
+			reviewPayload = input.EditedFields
+		}
+		if meta.Review != nil && len(reviewPayload) > 0 {
+			if err := toolapproval.ApplyReview(args, meta.Review, reviewPayload); err != nil {
+				return nil, err
+			}
+		}
+		if patch := decisionPatchFromMeta(meta, "approve"); len(patch) > 0 {
+			if err := toolapproval.ApplyDecisionPatch(args, patch); err != nil {
+				return nil, err
+			}
+		}
+	}
+	claimer, ok := c.conv.(interface {
+		ClaimToolApprovalDecision(context.Context, *toolapprovalqueuemodel.QueueRowView, string, string) error
+	})
+	if !ok {
+		return nil, errors.New("atomic approval claim is unavailable")
+	}
+	if effectiveUserID == "" {
+		effectiveUserID = strings.TrimSpace(input.UserID)
+	}
+	if err := claimer.ClaimToolApprovalDecision(ctx, row, effectiveUserID, canonicalAction); err != nil {
+		return nil, err
 	}
 	switch action {
 	case "approve", "accepted":
@@ -1367,7 +1453,29 @@ func lookupQueueTurnAgentID(ctx context.Context, c *backendClient, turnID string
 	if turn == nil {
 		return "", newConflictError("turn not found")
 	}
-	return strings.TrimSpace(valueOrEmpty(turn.AgentIdUsed)), nil
+	agentID := strings.TrimSpace(valueOrEmpty(turn.AgentIdUsed))
+	if !runtimerequestctx.IsInternalHelperAgentID(agentID) {
+		return agentID, nil
+	}
+	// Older helper calls could overwrite the turn's agent attribution. Use
+	// only its own durable main run; guessing an older conversation agent can
+	// execute this approval result under the wrong profile.
+	runID := strings.TrimSpace(valueOrEmpty(turn.RunId))
+	if runID == "" {
+		runID = strings.TrimSpace(turnID)
+	}
+	run, err := c.data.GetRun(ctx, runID, nil, principalDataOpts(ctx)...)
+	if err != nil {
+		return "", err
+	}
+	if run == nil || strings.TrimSpace(turn.ConversationId) == "" || valueOrEmpty(run.ConversationId) != turn.ConversationId {
+		return "", newConflictError("primary run agent unavailable for queue continuation")
+	}
+	agentID = strings.TrimSpace(valueOrEmpty(run.AgentId))
+	if agentID == "" || runtimerequestctx.IsInternalHelperAgentID(agentID) || strings.EqualFold(agentID, "auto") || strings.EqualFold(agentID, "agent_id") {
+		return "", newConflictError("primary run agent unavailable for queue continuation")
+	}
+	return agentID, nil
 }
 
 func ensureToolApprovalStatus(ctx context.Context, lister toolApprovalQueueLister, id, want string, fallback func() error) error {

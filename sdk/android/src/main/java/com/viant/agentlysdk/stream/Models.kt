@@ -35,6 +35,7 @@ data class SSEEvent(
     val turnId: String? = null,
     val messageId: String? = null,
     val eventSeq: Int? = null,
+    val pageId: String? = null,
     val mode: String? = null,
     val agentIdUsed: String? = null,
     val agentName: String? = null,
@@ -154,6 +155,7 @@ data class BufferedMessage(
 
 data class MessageBuffer(
     val byId: MutableMap<String, BufferedMessage> = linkedMapOf(),
+    internal val internalMessageIds: MutableSet<String> = linkedSetOf(),
     var activeTurnId: String? = null
 )
 
@@ -218,7 +220,15 @@ data class ConversationStreamSnapshot(
     val bufferedMessages: List<BufferedMessage>,
     val liveExecutionGroupsById: LiveExecutionGroupsById,
     val plannerByTurnId: Map<String, PlannerState> = emptyMap(),
-    val usage: StreamUsageState? = null
+    val usage: StreamUsageState? = null,
+    /** SDK-owned AG-UI bootstrap; renderer consumers retain the canonical native DTO. */
+    val canonicalTranscript: com.viant.agentlysdk.ConversationStateResponse? = null,
+    val rawCanonicalTranscript: JsonObject? = null,
+    val hostActivities: List<com.viant.agentlysdk.agui.AgUiMessage> = emptyList(),
+    val unavailableHostActivityIds: List<String> = emptyList(),
+    val userMessageAliases: Map<String, String> = emptyMap(),
+    val protocolRuns: List<com.viant.agentlysdk.agui.AgUiConversationRun> = emptyList(),
+    val transportError: String? = null
 )
 
 data class MessageUpdate(

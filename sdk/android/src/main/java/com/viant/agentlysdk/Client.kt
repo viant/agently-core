@@ -43,6 +43,7 @@ class AgentlyClient(
     internal val endpointName: String = "appAPI",
     internal val json: Json = Json { ignoreUnknownKeys = true }
 ) {
+    private val applicationGeneration = java.util.concurrent.atomic.AtomicLong(0)
     internal val endpointRegistry = endpoints
 
     constructor(
@@ -51,6 +52,22 @@ class AgentlyClient(
         json: Json = Json { ignoreUnknownKeys = true },
         sessionDebug: SessionDebugOptions? = null
     ) : this(EndpointRegistry(applySessionDebug(endpoints, sessionDebug)), endpointName, json)
+
+    private val agUiConversations by lazy {
+        val endpoint = requireNotNull(endpointRegistry.resolve(endpointName)) { "Endpoint not found: $endpointName" }
+        com.viant.agentlysdk.agui.AgUiConversationTransport(this, com.viant.agentlysdk.agui.AgUiClient(endpoint, "/v1/ag-ui/run"), endpoint)
+    }
+    /** Call before changing the authenticated account/cookie identity. Detach is never backend cancellation. */
+    fun resetConversationTransport() {
+        applicationGeneration.incrementAndGet()
+        agUiConversations.reset()
+    }
+    suspend fun reconcileConversation(conversationId: String): ConversationStateResponse =
+        agUiConversations.reconcile(conversationId)
+
+    suspend fun isConversationRequestAdmitted(conversationId: String, clientRequestId: String): Boolean {
+        return agUiConversations.requestAdmitted(conversationId, clientRequestId)
+    }
 
     private val restClient = RestClient(endpoints)
     private val themeFallbackClient = okhttp3.OkHttpClient()
@@ -73,6 +90,7 @@ class AgentlyClient(
     }
 
     suspend fun logout(): Unit = withContext(Dispatchers.IO) {
+        resetConversationTransport()
         post("/v1/api/auth/logout", emptyMap<String, JsonElement>(), EmptyResponse.serializer())
     }
 
@@ -172,6 +190,36 @@ class AgentlyClient(
         }
     }
 
+    /** Registered native fonts only, using the same authenticated endpoint and cookie client. */
+    suspend fun getWorkspaceFont(asset: WorkspaceFontAsset): ByteArray = withContext(Dispatchers.IO) {
+        require(asset.isNative) { "Invalid workspace native font asset" }
+        val endpoint = requireNotNull(endpointRegistry.resolve(endpointName))
+        val request = Request.Builder().url(endpoint.baseUrl.trimEnd('/') + asset.href)
+            .applyEndpointConfig(endpoint).header("Accept", "font/ttf, font/otf").get().build()
+        val client = (endpoint.httpClient ?: themeFallbackClient).newBuilder()
+            .callTimeout(30, java.util.concurrent.TimeUnit.SECONDS).build()
+        suspendCancellableCoroutine { continuation ->
+            val call = client.newCall(request)
+            continuation.invokeOnCancellation { call.cancel() }
+            call.enqueue(object : okhttp3.Callback {
+                override fun onFailure(call: okhttp3.Call, e: java.io.IOException) { continuation.resumeWithException(e) }
+                override fun onResponse(call: okhttp3.Call, response: okhttp3.Response) {
+                    response.use {
+                        try {
+                            if (!it.isSuccessful) throw WorkspaceThemeRequestException(it.code)
+                            require(it.header("Content-Type").orEmpty().substringBefore(';') in setOf("font/ttf", "font/otf")) { "Invalid native font content type" }
+                            val bytes = readResponseBytes(it.body, 1048576)
+                            require(bytes.size == asset.sizeBytes) { "Native font size mismatch" }
+                            val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes).joinToString("") { b -> "%02x".format(b) }
+                            require(digest == asset.sha256) { "Native font digest mismatch" }
+                            continuation.resume(bytes)
+                        } catch (error: Exception) { continuation.resumeWithException(error) }
+                    }
+                }
+            })
+        }
+    }
+
     suspend fun getWorkspaceMetadata(targetContext: MetadataTargetContext? = null): WorkspaceMetadata = withContext(Dispatchers.IO) {
         val query = targetContext.toTargetQuery()
         val path = appendRepeatedQuery("/v1/workspace/metadata", query)
@@ -190,7 +238,7 @@ class AgentlyClient(
     }
 
     suspend fun query(input: QueryInput): QueryOutput = withContext(Dispatchers.IO) {
-        postLongRunning("/v1/agent/query", input, QueryOutput.serializer())
+        agUiConversations.query(input)
     }
 
     suspend fun createConversation(input: CreateConversationInput): Conversation = withContext(Dispatchers.IO) {
@@ -291,14 +339,23 @@ class AgentlyClient(
         get(buildMessagesPath(input), MessagePage.serializer())
     }
 
-    suspend fun getTranscript(
+    suspend fun getTranscript(input: GetTranscriptInput, maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES): ConversationStateResponse = withContext(Dispatchers.IO) {
+        try { agUiConversations.transcript(input.conversationId) }
+        catch(error: com.viant.agentlysdk.agui.AgUiHttpException) { if(error.statusCode!=403) throw error; readConversationHistory(input,maxResponseBytes) }
+    }
+    suspend fun getLiveState(conversationId: String, includeFeeds: Boolean = false, includeExecutionDetails: Boolean = true, maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES): ConversationStateResponse = withContext(Dispatchers.IO) {
+        try { agUiConversations.transcript(conversationId) }
+        catch(error: com.viant.agentlysdk.agui.AgUiHttpException) { if(error.statusCode!=403) throw error; readApplicationState(conversationId,includeFeeds,includeExecutionDetails,maxResponseBytes) }
+    }
+
+    suspend fun readConversationHistory(
         input: GetTranscriptInput,
         maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
     ): ConversationStateResponse = withContext(Dispatchers.IO) {
         get(buildTranscriptPath(input), ConversationStateResponse.serializer(), maxResponseBytes)
     }
 
-    suspend fun getLiveState(
+    suspend fun readApplicationState(
         conversationId: String,
         includeFeeds: Boolean = false,
         includeExecutionDetails: Boolean = true,
@@ -339,12 +396,11 @@ class AgentlyClient(
     }
 
     suspend fun resolveElicitation(input: ResolveElicitationInput): Unit = withContext(Dispatchers.IO) {
-        val path = "/v1/elicitations/${encodePath(input.conversationId)}/${encodePath(input.elicitationId)}/resolve"
-        post(path, input, EmptyResponse.serializer())
+        agUiConversations.resolve(input)
     }
 
     suspend fun terminateConversation(conversationId: String): Unit = withContext(Dispatchers.IO) {
-        post("/v1/conversations/${encodePath(conversationId)}/terminate", emptyMap<String, JsonElement>(), EmptyResponse.serializer())
+        agUiConversations.cancel(conversationId)
     }
 
     suspend fun compactConversation(conversationId: String): Unit = withContext(Dispatchers.IO) {
@@ -379,8 +435,7 @@ class AgentlyClient(
     }
 
     suspend fun decideToolApproval(input: DecideToolApprovalInput): DecideToolApprovalOutput = withContext(Dispatchers.IO) {
-        val path = "/v1/tool-approvals/${encodePath(input.id)}/decision"
-        post(path, input, DecideToolApprovalOutput.serializer())
+        agUiConversations.decide(input)
     }
 
     suspend fun listResources(input: ListResourcesInput): ListResourcesOutput = withContext(Dispatchers.IO) {
@@ -674,26 +729,25 @@ class AgentlyClient(
         get("/v1/api/a2a/agents?ids=${urlEncode(ids)}", A2AAgentsEnvelope.serializer()).agents
     }
 
-    fun streamEvents(conversationId: String): Flow<SSEEvent> =
-        streamEvents(conversationId, onOpen = null)
-
-    private fun streamEvents(conversationId: String, onOpen: (() -> Unit)?): Flow<SSEEvent> {
-        val endpoint = requireNotNull(endpointRegistry.resolve(endpointName)) {
-            "Endpoint not found: $endpointName"
+    /** Explicit native/application background observation; it does not submit a conversation run. */
+    fun streamApplicationEvents(conversationId: String, onOpen: (() -> Unit)? = null): Flow<SSEEvent> {
+        val endpoint = requireNotNull(endpointRegistry.resolve(endpointName)) { "Endpoint not found: $endpointName" }
+        val generation = applicationGeneration.get()
+        return kotlinx.coroutines.flow.flow {
+            openEventStream(endpoint, appendQuery("/v1/application-events", linkedMapOf("conversationId" to conversationId)), conversationId, json, onOpen).collect { event ->
+                if (generation != applicationGeneration.get()) throw CancellationException("Application account changed")
+                emit(event)
+            }
         }
-        return openEventStream(
-            endpoint = endpoint,
-            path = appendQuery("/v1/stream", linkedMapOf("conversationId" to conversationId)),
-            conversationId = conversationId,
-            json = json,
-            onOpen = onOpen
-        )
     }
 
-    fun trackConversation(
+    fun trackConversation(conversationId: String, maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES): Flow<ConversationStreamSnapshot> = agUiConversations.track(conversationId)
+
+    fun trackApplicationState(
         conversationId: String,
         maxResponseBytes: Long = DEFAULT_MAX_TRANSCRIPT_RESPONSE_BYTES
     ): Flow<ConversationStreamSnapshot> = channelFlow {
+        val generation = applicationGeneration.get()
         val tracker = ConversationStreamTracker(conversationId)
         var reconnectDelayMs = 500L
         while (true) {
@@ -701,7 +755,7 @@ class AgentlyClient(
             val events = Channel<SSEEvent>(Channel.BUFFERED)
             val streamJob = launch(start = CoroutineStart.UNDISPATCHED) {
                 try {
-                    streamEvents(
+                    streamApplicationEvents(
                         conversationId,
                         onOpen = {
                             if (!streamReady.isCompleted) {
@@ -725,11 +779,12 @@ class AgentlyClient(
             }
             val retryAfterMs = try {
                 streamReady.await()
-                val initialState = getLiveState(
+                val initialState = readApplicationState(
                     conversationId,
                     includeFeeds = true,
                     maxResponseBytes = maxResponseBytes
                 )
+                if (generation != applicationGeneration.get()) throw CancellationException("Application account changed")
                 tracker.hydrate(initialState)
                 send(tracker.snapshot())
                 for (event in events) {

@@ -15,6 +15,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/tool"
+	"github.com/viant/agently-core/runtime/mcpapps"
 )
 
 const defaultToolCallAttempts = 2
@@ -28,6 +29,9 @@ func executeToolWithRetry(ctx context.Context, reg tool.Registry, step StepInfo,
 		if retryable, configured := resolver.ToolRetryable(step.Name); configured && !retryable {
 			attempts = 1
 		}
+	}
+	if mcpapps.Active(ctx) {
+		attempts = 1
 	}
 	if attempts < 1 {
 		attempts = 1

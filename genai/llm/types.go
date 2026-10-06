@@ -28,14 +28,17 @@ const (
 type AssetSource string
 
 const (
-	SourceURL    AssetSource = "url"
+	SourceURL AssetSource = "url"
+	// SourceFile is an opaque provider-owned handle, never a fetchable URL.
+	SourceFile   AssetSource = "file"
 	SourceBase64 AssetSource = "base64"
 	SourceRaw    AssetSource = "raw"
 )
 
 // ContentItem is a universal representation of any content asset in the message.
 type ContentItem struct {
-	Name string `json:"name,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	Name     string `json:"name,omitempty"`
 
 	// Type indicates the type of the content.
 	Type ContentType `json:"type"`

@@ -9,16 +9,16 @@ import (
 // AuditEvent is generated canonical view metadata for writer.
 type AuditEvent struct {
 	ShouldDelete bool           `json:"shouldDelete,omitempty" sqlx:"-" writer:"delete"`
-	EventId      string         `sqlx:"event_id,primaryKey=true,required=true" json:"eventId"`
-	EventType    string         `sqlx:"event_type,required=true" json:"eventType"`
-	ArtifactRef  string         `sqlx:"artifact_ref,required=true" json:"artifactRef"`
-	Version      int64          `sqlx:"version,required=true" json:"version"`
-	ActorId      string         `sqlx:"actor_id,required=true" json:"actorId"`
-	MetadataJson []byte         `sqlx:"metadata_json" json:"metadataJson"`
-	JobId        *string        `sqlx:"job_id" json:"jobId"`
-	ArtifactId   *string        `sqlx:"artifact_id" json:"artifactId"`
-	ActorRef     *string        `sqlx:"actor_ref" json:"actorRef"`
-	OccurredAt   *time.Time     `sqlx:"occurred_at,required=true" json:"occurredAt"`
+	EventId      string         `sqlx:"event_id,primaryKey=true,required=true" json:"eventId,omitempty"`
+	EventType    string         `sqlx:"event_type,required=true" json:"eventType,omitempty"`
+	ArtifactRef  string         `sqlx:"artifact_ref,required=true" json:"artifactRef,omitempty"`
+	Version      int64          `sqlx:"version,required=true" json:"version,omitempty"`
+	ActorId      string         `sqlx:"actor_id,required=true" json:"actorId,omitempty"`
+	MetadataJson []byte         `sqlx:"metadata_json" json:"metadataJson,omitempty"`
+	JobId        *string        `sqlx:"job_id" json:"jobId,omitempty"`
+	ArtifactId   *string        `sqlx:"artifact_id" json:"artifactId,omitempty"`
+	ActorRef     *string        `sqlx:"actor_ref" json:"actorRef,omitempty"`
+	OccurredAt   *time.Time     `sqlx:"occurred_at,required=true" json:"occurredAt,omitempty"`
 	Has          *AuditEventHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"AuditEventHas"`
 }
 
@@ -38,16 +38,16 @@ type AuditEventHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	EventId      string     `sqlx:"event_id,primaryKey=true,required=true" json:"eventId"`
-	EventType    string     `sqlx:"event_type,required=true" json:"eventType"`
-	ArtifactRef  string     `sqlx:"artifact_ref,required=true" json:"artifactRef"`
-	Version      int64      `sqlx:"version,required=true" json:"version"`
-	ActorId      string     `sqlx:"actor_id,required=true" json:"actorId"`
-	MetadataJson []byte     `sqlx:"metadata_json" json:"metadataJson"`
-	JobId        *string    `sqlx:"job_id" json:"jobId"`
-	ArtifactId   *string    `sqlx:"artifact_id" json:"artifactId"`
-	ActorRef     *string    `sqlx:"actor_ref" json:"actorRef"`
-	OccurredAt   *time.Time `sqlx:"occurred_at,required=true" json:"occurredAt"`
+	EventId      string     `sqlx:"event_id,primaryKey=true,required=true" json:"eventId,omitempty"`
+	EventType    string     `sqlx:"event_type,required=true" json:"eventType,omitempty"`
+	ArtifactRef  string     `sqlx:"artifact_ref,required=true" json:"artifactRef,omitempty"`
+	Version      int64      `sqlx:"version,required=true" json:"version,omitempty"`
+	ActorId      string     `sqlx:"actor_id,required=true" json:"actorId,omitempty"`
+	MetadataJson []byte     `sqlx:"metadata_json" json:"metadataJson,omitempty"`
+	JobId        *string    `sqlx:"job_id" json:"jobId,omitempty"`
+	ArtifactId   *string    `sqlx:"artifact_id" json:"artifactId,omitempty"`
+	ActorRef     *string    `sqlx:"actor_ref" json:"actorRef,omitempty"`
+	OccurredAt   *time.Time `sqlx:"occurred_at,required=true" json:"occurredAt,omitempty"`
 }
 
 type WriterKeysRow struct {

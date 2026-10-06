@@ -1,14 +1,18 @@
 package sdk
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	conversation "github.com/viant/agently-core/app/store/conversation"
 	"net/http"
 	"strconv"
 	"strings"
 
 	"github.com/viant/agently-core/app/store/data"
+	iauth "github.com/viant/agently-core/internal/auth"
+	svcauth "github.com/viant/agently-core/service/auth"
 )
 
 func statusForUpdateConversationError(err error) int {
@@ -61,14 +65,23 @@ func statusForDeleteConversationError(err error) int {
 	return http.StatusInternalServerError
 }
 
-func handleCreateConversation(client Client) http.HandlerFunc {
+func handleCreateConversation(client Client, authCfg *svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var input CreateConversationInput
 		if err := decodeJSON(r, &input); err != nil {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
-		out, err := client.CreateConversation(r.Context(), &input)
+		userID := resolveQueryUserID(w, r, "", authCfg)
+		if userID == "" {
+			httpError(w, http.StatusUnauthorized, fmt.Errorf("authorization required"))
+			return
+		}
+		ctx := r.Context()
+		if iauth.EffectiveUserID(ctx) == "" {
+			ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: userID})
+		}
+		out, err := client.CreateConversation(ctx, &input)
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
@@ -89,7 +102,24 @@ func handleGetConversation(client Client) http.HandlerFunc {
 			httpError(w, http.StatusInternalServerError, err)
 			return
 		}
-		httpJSON(w, http.StatusOK, out)
+		var threadID *string
+		if resolver, ok := client.(interface {
+			aguiThreadReference(context.Context, string) (*string, error)
+		}); ok && out != nil && out.Id == id {
+			threadID, err = resolver.aguiThreadReference(r.Context(), id)
+			if err != nil {
+				httpError(w, http.StatusInternalServerError, err)
+				return
+			}
+		}
+		if out == nil {
+			httpJSON(w, http.StatusOK, out)
+			return
+		}
+		httpJSON(w, http.StatusOK, struct {
+			*conversation.Conversation
+			AguiThreadID *string `json:"aguiThreadId,omitempty"`
+		}{out, threadID})
 	}
 }
 

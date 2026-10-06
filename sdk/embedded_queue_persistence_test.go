@@ -9,6 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/app/store/data"
 	authctx "github.com/viant/agently-core/internal/auth"
+	runmodel "github.com/viant/agently-core/model/run"
 	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
 	turnmodel "github.com/viant/agently-core/model/turn"
 )
@@ -75,7 +76,12 @@ func TestToolApprovalCanonicalFallbackRetriesAndVerifies(t *testing.T) {
 
 type queueTurnData struct {
 	data.Service
-	get func(context.Context, *turnmodel.TurnLookupInput, []data.Option) (*turnmodel.TurnLookupView, error)
+	get    func(context.Context, *turnmodel.TurnLookupInput, []data.Option) (*turnmodel.TurnLookupView, error)
+	getRun func(context.Context, string, []data.Option) (*runmodel.RunRowsView, error)
+}
+
+func (s *queueTurnData) GetRun(ctx context.Context, id string, _ *runmodel.RunRowsInput, opts ...data.Option) (*runmodel.RunRowsView, error) {
+	return s.getRun(ctx, id, opts)
 }
 
 func (s *queueTurnData) GetTurnByID(ctx context.Context, input *turnmodel.TurnLookupInput, opts ...data.Option) (*turnmodel.TurnLookupView, error) {
@@ -100,4 +106,41 @@ func TestQueueTurnAgentUsesScopedNativeDataRead(t *testing.T) {
 	}}
 	_, err = lookupQueueTurnAgentID(ctx, client, "turn-id")
 	require.ErrorIs(t, err, denied)
+}
+
+func TestQueueHelperAttributionUsesOnlyItsPrimaryRun(t *testing.T) {
+	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "owner"})
+	helper, primary, conv, foreign, runID := "intake_sidecar", "main-agent", "conversation", "foreign", "main-run"
+	for _, tc := range []struct {
+		name string
+		run  *runmodel.RunRowsView
+		fail bool
+	}{
+		{"primary", &runmodel.RunRowsView{AgentId: &primary, ConversationId: &conv}, false},
+		{"missing", nil, true},
+		{"helper", &runmodel.RunRowsView{AgentId: &helper, ConversationId: &conv}, true},
+		{"foreign", &runmodel.RunRowsView{AgentId: &primary, ConversationId: &foreign}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := &backendClient{data: &queueTurnData{
+				get: func(context.Context, *turnmodel.TurnLookupInput, []data.Option) (*turnmodel.TurnLookupView, error) {
+					return &turnmodel.TurnLookupView{AgentIdUsed: &helper, ConversationId: conv, RunId: &runID}, nil
+				},
+				getRun: func(got context.Context, id string, opts []data.Option) (*runmodel.RunRowsView, error) {
+					require.Equal(t, "owner", authctx.EffectiveUserID(got))
+					require.Equal(t, runID, id)
+					require.NotEmpty(t, opts)
+					return tc.run, nil
+				},
+			}}
+			got, err := lookupQueueTurnAgentID(ctx, client, "turn")
+			if tc.fail {
+				require.Error(t, err)
+				require.Empty(t, got)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, primary, got)
+			}
+		})
+	}
 }

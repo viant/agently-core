@@ -28,6 +28,7 @@ If you're new, read in this order:
 | [planning-and-intake.md](planning-and-intake.md) | Pre-turn classification, plan schema |
 | [planner.md](planner.md) | Light planner fallback over static profiles |
 | [context-management.md](context-management.md) | Token budgets, pruning, overflow recovery |
+| [proactive-context-compaction.md](proactive-context-compaction.md) | Optional percentage-based context setting and provider counting |
 | [followup-chains.md](followup-chains.md) | Multi-turn chains inside a conversation |
 | [autonomous.md](autonomous.md) | Durable goals + controller-owned continuation |
 | [async.md](async.md) | Long-running operations (shell, child agents, external services) |
@@ -58,13 +59,18 @@ If you're new, read in this order:
 | [elicitation-system.md](elicitation-system.md) | Server-driven forms |
 | [overlays.md](overlays.md) | Schema refinement engine |
 | [lookups.md](lookups.md) | MCP-backed datasources + pickers + `/name` tokens |
+| [datasource-response-aliases.md](datasource-response-aliases.md) | Explicit producer-to-logical row aliases and cache isolation |
+| [datasource-request-metadata.md](datasource-request-metadata.md) | Explicit MCP transport exclusions for logical UI request metadata |
 | [feed-system.md](feed-system.md) | Tool-output → UI dashboard datasources |
+| [ui-ownership-model.md](ui-ownership-model.md) | Navigation, conversation workspaces, inline results and report ownership |
+| [mcp-ui.md](mcp-ui.md) | MCP UI and MCP Apps integration |
 
 ## Platform
 
 | Doc | Topic |
 |---|---|
-| [sdk.md](sdk.md) | Embedded / HTTP / Swift / Kotlin SDKs |
+| [sdk.md](sdk.md) | Embedded backend and Go/TypeScript/Swift/Kotlin clients |
+| [ag-ui-operation-matrix.md](ag-ui-operation-matrix.md) | AG-UI and Agently extension operation contracts |
 | [streaming-events.md](streaming-events.md) | Event bus + SSE |
 | [conversation-model.md](conversation-model.md) | Persistence schema |
 | [conversation-deletion.md](conversation-deletion.md) | User-authorized conversation graph deletion |
@@ -119,9 +125,9 @@ parameter; identity propagates through ctx from the HTTP session to the
 MCP call at the edge. See [auth-system.md](auth-system.md) and
 [mcp-integration.md](mcp-integration.md).
 
-**Append-only transcript with derived views.** Persisted state is never
-mutated; what the model sees per turn is computed from the persisted state
-plus pruning rules. See [conversation-model.md](conversation-model.md) and
+**Durable history with derived model context.** Messages and execution records
+retain the conversation's history and operation identity; model-visible context
+is assembled from that state according to context and pruning rules. See [conversation-model.md](conversation-model.md) and
 [context-management.md](context-management.md).
 
 **Workspace YAML is the declarative surface.** Adding agents, tools, models,
@@ -144,5 +150,5 @@ Each doc should include:
 - Extensibility hooks.
 - Links to related docs under `doc/`.
 
-File link format: relative paths (e.g. `[foo](../protocol/foo/bar.go)`) so
+File link format: relative paths (e.g. `[agent definition](../protocol/agent/agent.go)`) so
 the doc reads the same on GitHub and in a local viewer.

@@ -17,6 +17,7 @@ import (
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	toolasyncconfig "github.com/viant/agently-core/protocol/tool/asyncconfig"
 	toolobservation "github.com/viant/agently-core/protocol/tool/service/observation"
+	"github.com/viant/agently-core/runtime/clienttool"
 	runtimeprojection "github.com/viant/agently-core/runtime/projection"
 	runtimerecovery "github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -144,6 +145,10 @@ func (s *Service) resumeTurn(ctx context.Context, req resumeTurnRequest) error {
 			return s.finalizeTurn(ctx, turn, status, runErr)
 		})
 	}
+	ctx, err = s.restoreEvidence(ctx, turn)
+	if err != nil {
+		return finalize("failed", err)
+	}
 	waiting, err := s.turnAwaitingUserAction(ctx, turn)
 	if err != nil {
 		return finalize("failed", err)
@@ -174,6 +179,12 @@ func resumeTurnQuery(turn *apiconv.Turn) string {
 		message := turn.Message[i]
 		if message == nil || !strings.EqualFold(strings.TrimSpace(message.Role), "user") {
 			continue
+		}
+		if message.ContextSummary != nil && *message.ContextSummary == clienttool.ItemsMIME && message.RawContent != nil {
+			var items []llm.ContentItem
+			if json.Unmarshal([]byte(*message.RawContent), &items) == nil {
+				return clienttool.ContentText(items)
+			}
 		}
 		if message.RawContent != nil {
 			if value := strings.TrimSpace(*message.RawContent); value != "" {

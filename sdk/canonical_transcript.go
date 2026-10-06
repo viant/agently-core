@@ -44,6 +44,16 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		ts.StartedByMessageID = strings.TrimSpace(*turn.StartedByMessageId)
 	}
 	ts.Origin = strings.TrimSpace(stringValue(turn.Origin))
+	// Earlier guest records omitted Origin. Only the exact server-owned host
+	// parent marker establishes compatibility provenance; never match text.
+	if ts.Origin == "" && turn.StartedByMessageId != nil && *turn.StartedByMessageId == turn.Id {
+		for _, message := range turn.Message {
+			if message != nil && message.Id == turn.Id && message.Role == "assistant" && message.Type == "host_request" && message.Interim == 1 {
+				ts.Origin = "host_request"
+				break
+			}
+		}
+	}
 	ts.GoalID = strings.TrimSpace(stringValue(turn.GoalId))
 	ts.StatusReason = strings.TrimSpace(stringValue(turn.StatusReason))
 	ts.ErrorMessage = strings.TrimSpace(stringValue(turn.ErrorMessage))
@@ -64,24 +74,25 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 			}
 			if ts.User == nil && msg.Interim == 0 {
 				ts.User = &UserMessageState{
-					MessageID: msg.Id,
-					Content:   content,
+					MessageID:       msg.Id,
+					ClientRequestID: steeringClientRequestID(msg.Tags),
+					Content:         content,
 				}
 			} else if msg.Interim == 0 && strings.TrimSpace(content) != "" {
 				ts.Messages = append(ts.Messages, &TurnMessageState{
-					MessageID: msg.Id,
-					Role:      "user",
-					Content:   content,
-					CreatedAt: msg.CreatedAt,
-					Sequence:  intValue(msg.Sequence),
-					Interim:   msg.Interim,
-					Mode:      strings.TrimSpace(stringValue(msg.Mode)),
-					Status:    strings.TrimSpace(stringValue(msg.Status)),
+					MessageID:       msg.Id,
+					ClientRequestID: steeringClientRequestID(msg.Tags),
+					Role:            "user",
+					Content:         content,
+					CreatedAt:       msg.CreatedAt,
+					Sequence:        intValue(msg.Sequence),
+					Interim:         msg.Interim,
+					Mode:            strings.TrimSpace(stringValue(msg.Mode)),
+					Status:          strings.TrimSpace(stringValue(msg.Status)),
 				})
 			}
 		case "assistant":
-			if msg.ModelCall == nil &&
-				!isSummaryAssistantMessage(msg) &&
+			if !isSummaryAssistantMessage(msg) &&
 				msg.Interim == 0 &&
 				!(msg.Mode != nil && strings.EqualFold(strings.TrimSpace(*msg.Mode), "exec")) {
 				if content := visibleContentOrEmpty(msg.Content); content != "" {
@@ -358,9 +369,11 @@ func buildStandaloneToolPage(ts *TurnState, message *conversationmodel.MessageVi
 	if page == nil {
 		return nil
 	}
-	page.PageID = message.Id
-	page.AssistantMessageID = message.Id
-	page.ParentMessageID = firstNonEmpty(strings.TrimSpace(ptrString(message.ParentMessageId)), message.Id)
+	// A tool response is execution detail, never assistant prose. Iteration
+	// coalescing may return a page already owned by an assistant model call.
+	if page.AssistantMessageID == "" {
+		page.ParentMessageID = strings.TrimSpace(ptrString(message.ParentMessageId))
+	}
 	page.TurnID = stringValue(message.TurnId)
 	page.Iteration = intValue(message.Iteration)
 	page.Sequence = intValue(message.Sequence)
@@ -372,9 +385,6 @@ func buildStandaloneToolPage(ts *TurnState, message *conversationmodel.MessageVi
 	}
 	if page.Status == "" {
 		page.Status = "completed"
-	}
-	if content := visibleContentOrEmpty(message.Content); content != "" {
-		page.Content = content
 	}
 	if step := buildToolStepFromMessageToolCall(message); step != nil {
 		existing := upsertToolStep(page, step.ToolCallID)
@@ -409,7 +419,8 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *conversa
 	if message.Iteration != nil {
 		iteration = *message.Iteration
 	}
-	mode := ""
+	mode := stringValue(message.Mode)
+	// Preserve per-message mode; pages can aggregate multiple model lanes.
 	// Set mode for summary passes so UI can style them distinctly.
 	if isSummaryAssistantMessage(message) {
 		mode = "summary"
@@ -425,7 +436,8 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *conversa
 	page.Iteration = iteration
 	page.Sequence = intValue(message.Sequence)
 	page.Phase = strings.TrimSpace(stringValue(message.Phase))
-	page.ExecutionRole = executionRoleFromSignals(page.ExecutionRole, page.Phase, page.Mode, "")
+	page.Mode = mode
+	page.ExecutionRole = executionRoleFromSignals("", page.Phase, page.Mode, "")
 	if narration := executionNarration(message); narration != "" {
 		page.Narration = narration
 	}
@@ -442,7 +454,7 @@ func buildPageFromMessage(ts *TurnState, turn *convstore.Turn, message *conversa
 		page.FinalResponse = true
 	}
 	page.Status = pageStatus(message)
-	if mode != "" {
+	if mode == "summary" {
 		page.Mode = mode
 		page.FinalResponse = false // summary is not the final user-facing response
 	}
@@ -530,6 +542,7 @@ func buildModelStep(message *conversationmodel.MessageView) *ModelStepState {
 	mc := message.ModelCall
 	step := &ModelStepState{
 		ModelCallID:        strings.TrimSpace(stringValue(mc.TraceId)),
+		Mode:               stringValue(message.Mode),
 		AssistantMessageID: message.Id,
 		Phase:              strings.TrimSpace(stringValue(message.Phase)),
 		Provider:           strings.TrimSpace(mc.Provider),
@@ -569,7 +582,7 @@ func buildModelStep(message *conversationmodel.MessageView) *ModelStepState {
 	if mc.ModelCallStreamPayload != nil {
 		step.StreamPayload = marshalToRawJSON(mc.ModelCallStreamPayload)
 	}
-	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, step.Phase, "", "", step.RequestPayload, step.ProviderRequestPayload, step.ResponsePayload, step.ProviderResponsePayload, step.StreamPayload)
+	step.ExecutionRole = executionRoleFromSignals(step.ExecutionRole, step.Phase, step.Mode, "", step.RequestPayload, step.ProviderRequestPayload, step.ResponsePayload, step.ProviderResponsePayload, step.StreamPayload)
 	return step
 }
 
@@ -933,12 +946,14 @@ func latestTranscriptAssistantNarration(messages []*conversationmodel.MessageVie
 			return &AssistantMessageState{
 				MessageID: msg.Id,
 				Content:   text,
+				CreatedAt: msg.CreatedAt,
 			}
 		}
 		if text := strings.TrimSpace(ptrString(msg.Content)); text != "" {
 			return &AssistantMessageState{
 				MessageID: msg.Id,
 				Content:   text,
+				CreatedAt: msg.CreatedAt,
 			}
 		}
 	}

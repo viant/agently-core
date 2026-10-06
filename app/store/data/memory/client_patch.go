@@ -138,6 +138,12 @@ func applyMessagePatch(dst *conversationmodel.MessageView, src *messagemodel.Mes
 			dst.RawContent = &val
 		}
 	}
+	if src.Has.Archived {
+		dst.Archived = src.Archived
+	}
+	if src.Has.Summary {
+		dst.Summary = src.Summary
+	}
 	if src.Has.ContextSummary {
 		dst.ContextSummary = src.ContextSummary
 	}

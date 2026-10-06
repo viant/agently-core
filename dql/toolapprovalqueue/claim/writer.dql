@@ -1,0 +1,18 @@
+#package('github.com/viant/agently-core/internal/datly/toolapprovalqueue/claim')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/toolapprovalqueue/claim','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $Principal<string>(query/principal).Required().WithPredicate(7,'equal','tool_approval_queue','user_id'))
+#define($_ = $ExpectedStatus<string>(query/expectedStatus).Required().WithPredicate(7,'equal','tool_approval_queue','status'))
+#define($_ = $ExpectedUpdatedAt<*time.Time>(query/expectedUpdatedAt).Optional().WithPredicate(7,'equal','tool_approval_queue','updated_at'))
+#define($_ = $DeadlineClock<*time.Time>(query/deadlineClock).Optional().WithPredicate(7,'greater_than','tool_approval_queue','expires_at'))
+#define($_ = $DeadlineElapsedClock<*time.Time>(query/deadlineElapsedClock).Optional().WithPredicate(7,'less_or_equal','tool_approval_queue','expires_at'))
+#define($_ = $Queues<[]*QueueClaim>(body/data))
+#define($_ = $Data<[]*QueueClaim>(output/body))
+SELECT t.*, type(t,'QueueClaim'), mutation_predicate(t,7),
+       required(t.id), required(t.user_id), required(t.status)
+FROM (${embed:sql/claim.sql}) t

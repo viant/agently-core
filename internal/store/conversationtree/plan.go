@@ -3,6 +3,8 @@ package conversationtree
 import (
 	"context"
 	"fmt"
+	aguievent "github.com/viant/agently-core/internal/datly/agui/cleanup/event/read"
+	aguirun "github.com/viant/agently-core/internal/datly/agui/cleanup/run/read"
 	"reflect"
 	"strings"
 	"time"
@@ -39,6 +41,8 @@ import (
 // Its caller owns the transaction and locks; every row comes from the existing
 // canonical reader. Extra identities are authorized by the parent operation.
 type DeletePlan struct {
+	AGUIRuns                                                     []*aguirun.Run
+	AGUIEvents                                                   []*aguievent.Event
 	Graph                                                        *Graph
 	Tables                                                       map[string]bool
 	ConversationIDs, TurnIDs, MessageIDs, RunIDs, ScheduleRunIDs []string
@@ -91,6 +95,9 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 			return nil, err
 		}
 		plan.Tables[table] = present
+	}
+	if err := d.collectAGUI(ctx, plan, now); err != nil {
+		return nil, err
 	}
 
 	for _, node := range graph.Nodes {

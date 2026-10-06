@@ -14,7 +14,7 @@ function fields(value: unknown, names: string[]): Row {
     return row;
 }
 export function conversationDTO(value: unknown): Conversation {
-    const row = fields(value, ['id','agentId','title','summary','stage','visibility','shareable','conversationParentId','createdAt','lastActivity','createdByUserId','promptTokens','completionTokens','totalTokens','cost']);
+    const row = fields(value, ['id','aguiThreadId','agentId','title','summary','stage','visibility','shareable','conversationParentId','createdAt','lastActivity','createdByUserId','promptTokens','completionTokens','totalTokens','cost']);
     if (!row) return row as unknown as Conversation;
     if (typeof row.shareable === 'number') row.shareable = row.shareable !== 0;
     if (row.promptTokens === undefined && typeof row.UsageInputTokens === 'number') row.promptTokens = row.UsageInputTokens;

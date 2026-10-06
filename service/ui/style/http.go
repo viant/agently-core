@@ -3,6 +3,7 @@ package style
 import (
 	"bytes"
 	"net/http"
+	"path"
 	"strings"
 	"time"
 )
@@ -57,8 +58,10 @@ func (s *Service) serve(w http.ResponseWriter, r *http.Request, extension string
 
 func (s *Service) serveFont(w http.ResponseWriter, r *http.Request) {
 	asset := r.PathValue("asset")
-	digest := strings.TrimSuffix(asset, ".woff2")
-	if !strings.HasSuffix(asset, ".woff2") || len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
+	ext := path.Ext(asset)
+	digest := strings.TrimSuffix(asset, ext)
+	contentType := map[string]string{".woff2": "font/woff2", ".ttf": "font/ttf", ".otf": "font/otf"}[ext]
+	if contentType == "" || len(digest) != 64 || strings.Trim(digest, "0123456789abcdef") != "" {
 		http.NotFound(w, r)
 		return
 	}
@@ -82,7 +85,7 @@ func (s *Service) serveFont(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	w.Header().Set("Content-Type", "font/woff2")
+	w.Header().Set("Content-Type", contentType)
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Cross-Origin-Resource-Policy", "same-origin")
 	w.Header().Set("Cache-Control", "private, max-age=31536000, immutable")

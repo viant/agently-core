@@ -48,7 +48,12 @@ export type Provenance = 'local' | 'event' | 'transcript' | null;
  * ids (`messageId`, `pageId`, `toolCallId`, `turnId`, `clientRequestId`) are
  * data — they may be empty on entity creation and filled in later.
  */
-export interface EntityIdentity {
+/** Set only by the selected trusted transport; denial survives hydration. */
+export interface HostTrust {
+    connectionProfile?: 'standard' | 'agently';
+    hostEffectsAllowed?: boolean;
+}
+export interface EntityIdentity extends HostTrust {
     readonly renderKey: string;
     messageId?: string;
     pageId?: string;
@@ -85,6 +90,7 @@ export type ClientLifecycle =
 export type ClientExecutionPhase = 'intake' | 'sidecar' | 'summary' | 'bootstrap' | 'main';
 
 export interface ClientModelStep extends EntityIdentity {
+    mode?: string;
     modelCallId?: string;
     assistantMessageId?: string;
     executionRole?: string;
@@ -298,6 +304,11 @@ export interface ClientTurnState extends EntityIdentity {
     linkedConversations: ClientLinkedConversation[];
     /** Optional queue sequence for queued turns. */
     queueSeq?: number;
+    /** Explicit native admission state, separate from optimistic pending. */
+    nativeStatus?: string;
+    queueSequence?: string;
+    /** Current canonical state owns queue membership and order over historical replay. */
+    queueSequenceFromSnapshot?: boolean;
     /** Message id that started this turn (for run correlation). */
     startedByMessageId?: string;
     createdAt?: string;
@@ -364,7 +375,7 @@ export type CanonicalTurnStatus =
     | 'failed'
     | 'canceled';
 
-export interface CanonicalTurnState {
+export interface CanonicalTurnState extends HostTrust {
     turnId: string;
     status: CanonicalTurnStatus;
     errorMessage?: string;
@@ -378,6 +389,8 @@ export interface CanonicalTurnState {
     linkedConversations?: CanonicalLinkedConversationState[];
     createdAt?: string;
     queueSeq?: number;
+    /** Exact persisted queue order; decimal string avoids integer precision loss. */
+    queueSequence?: string;
     startedByMessageId?: string;
     clientRequestId?: string;
 }
@@ -391,6 +404,7 @@ export interface CanonicalUserMessageState {
 }
 
 export interface CanonicalTurnMessageState {
+    clientRequestId?: string;
     attachments?: WorkspaceAttachmentState[];
     messageId: string;
     role: 'user' | 'assistant';
@@ -529,6 +543,7 @@ export interface CanonicalExecutionPageState {
 }
 
 export interface CanonicalModelStepState {
+    mode?: string;
     modelCallId: string;
     assistantMessageId?: string;
     executionRole?: string;

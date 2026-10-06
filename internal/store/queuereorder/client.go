@@ -37,6 +37,7 @@ func Move(ctx context.Context, invoker dexec.ComponentInvoker, conversationID, t
 	query := &queueread.QueueRowsInput{}
 	query.SetConversationId(conversationID)
 	query.SetQueueStatus("queued")
+	query.SetNativeQueuedOnly(true)
 	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: readerTarget, Input: query})
 	if err != nil {
 		return err

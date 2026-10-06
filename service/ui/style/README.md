@@ -21,3 +21,21 @@ Style delivery uses the existing application's auth boundary, `private, no-cache
 ```sh
 go test -race ./service/ui/style ./service/workspace ./protocol/ui/resource
 ```
+
+Native clients consume optional `fonts` in the same `uiThemes` JSON catalog.
+Each family declares `role`, `name`, `fallback`, and `faces`; each face publishes
+`style`, `weight`, optional `unicodeRange`, `web`, and optional `native` assets.
+Assets contain `href`, `format`, `sha256`, and `sizeBytes`. A manifest face may
+add `nativeFile` naming a contained TTF or OTF companion. Native sfnt files are
+parsed and bounded by the same 1 MiB per-file / 8 MiB aggregate limits; native
+bytes participate in the shared revision and authenticated immutable serving.
+The compiler does not convert fonts or fetch remote fonts at runtime.
+
+A complete native font may be referenced by several web subset faces. Clients
+must deduplicate its digest, validate size/digest on authenticated download,
+and fence caches and registration handles by workspace identity and revision.
+Select the native face by style/weight, register with native platform APIs,
+and retain the declared fallback until registration succeeds. Do not register
+multiple subset files with identical PostScript names. Publish complete native
+companions preserving authored script coverage, prepared offline from a
+verified matching source; `unicodeRange` continues to describe the web face.

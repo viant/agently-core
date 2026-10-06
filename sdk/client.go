@@ -34,9 +34,6 @@ type Client interface {
 	// GetMessages returns a cursor-paginated page of messages for a conversation.
 	GetMessages(ctx context.Context, input *GetMessagesInput) (*MessagePage, error)
 
-	// StreamEvents subscribes to real-time streaming events for a conversation.
-	StreamEvents(ctx context.Context, input *StreamEventsInput) (streaming.Subscription, error)
-
 	// CreateConversation initialises a new conversation record.
 	CreateConversation(ctx context.Context, input *CreateConversationInput) (*conversation.Conversation, error)
 
@@ -208,4 +205,7 @@ type Client interface {
 // today it currently embeds the same operation surface.
 type Backend interface {
 	Client
+	// StreamEvents is the private native execution bus consumed by AG-UI and
+	// authenticated application observers. Outward HTTP clients do not expose it.
+	StreamEvents(context.Context, *StreamEventsInput) (streaming.Subscription, error)
 }

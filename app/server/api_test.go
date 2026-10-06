@@ -16,9 +16,9 @@ import (
 	execconfig "github.com/viant/agently-core/app/executor/config"
 	reportmemory "github.com/viant/agently-core/app/store/reporting/memory"
 	"github.com/viant/agently-core/genai/llm"
+	"github.com/viant/agently-core/internal/sdkbackend"
 	agentproto "github.com/viant/agently-core/protocol/agent"
 	uiresource "github.com/viant/agently-core/protocol/ui/resource"
-	"github.com/viant/agently-core/sdk"
 	svcauth "github.com/viant/agently-core/service/auth"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
 	"github.com/viant/agently-core/workspace"
@@ -175,11 +175,10 @@ func TestNewAPIHandler_ReportRunRouteFollowsWorkspaceTransitionalGate(t *testing
 				if (rt.ReportRuns != nil) != testCase.wantRuns {
 					t.Fatalf("ReportRuns configured = %v, want %v", rt.ReportRuns != nil, testCase.wantRuns)
 				}
-				client, closeClient, err := sdk.NewLocalHTTPFromRuntime(context.Background(), rt)
+				client, err := sdkbackend.FromRuntime(rt)
 				if err != nil {
-					t.Fatalf("NewLocalHTTPFromRuntime() error = %v", err)
+					t.Fatalf("FromRuntime() error = %v", err)
 				}
-				t.Cleanup(closeClient)
 				handler, err := NewAPIHandler(context.Background(), APIOptions{
 					Version:     "test-version",
 					Runtime:     rt,
@@ -243,11 +242,10 @@ default:
 			t.Fatal("expected reporting service to be registered from workspace defaults")
 		}
 
-		client, closeClient, err := sdk.NewLocalHTTPFromRuntime(context.Background(), rt)
+		client, err := sdkbackend.FromRuntime(rt)
 		if err != nil {
-			t.Fatalf("new local http from runtime: %v", err)
+			t.Fatalf("new internal backend from runtime: %v", err)
 		}
-		t.Cleanup(closeClient)
 
 		handler, err := NewAPIHandler(context.Background(), APIOptions{
 			Version:     "test-version",
@@ -312,11 +310,10 @@ func TestNewAPIHandler_MetadataReportingCapabilityUsesRuntimeOverrideWhenDefault
 			t.Fatal("expected explicitly injected reporting service")
 		}
 
-		client, closeClient, err := sdk.NewLocalHTTPFromRuntime(context.Background(), rt)
+		client, err := sdkbackend.FromRuntime(rt)
 		if err != nil {
-			t.Fatalf("new local http from runtime: %v", err)
+			t.Fatalf("new internal backend from runtime: %v", err)
 		}
-		t.Cleanup(closeClient)
 
 		handler, err := NewAPIHandler(context.Background(), APIOptions{
 			Version:     "test-version",

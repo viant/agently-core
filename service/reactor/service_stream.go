@@ -2,6 +2,7 @@ package reactor
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -200,6 +201,9 @@ func (s *Service) registerStreamPlannerHandler(ctx context.Context, reg tool.Reg
 			}
 		}
 		eventCtx := callbackCtx
+		if failures, ok := runCtx.Value(toolFailuresKey{}).(*toolFailures); ok {
+			eventCtx = context.WithValue(eventCtx, toolFailuresKey{}, failures)
+		}
 		if strings.TrimSpace(runtimerequestctx.ModelMessageIDFromContext(eventCtx)) == "" && strings.TrimSpace(genOutput.MessageID) != "" {
 			eventCtx = context.WithValue(eventCtx, runtimerequestctx.ModelMessageIDKey, strings.TrimSpace(genOutput.MessageID))
 		}
@@ -355,8 +359,15 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *execution.Plan,
 	}
 	runStep := func(step execution.Step) {
 		modelcall.WaitFinish(toolCtx, 0)
-		call := s.executePendingToolStep(toolCtx, reg, step, turnID)
-		if turnID != "" {
+		call, err := s.executePendingToolStep(toolCtx, reg, step, turnID)
+		fatal := false
+		if failures, ok := toolCtx.Value(toolFailuresKey{}).(*toolFailures); ok {
+			fatal = failures.record(step.Name, step.ID, err)
+		} else {
+			var infrastructure *toolexec.InfrastructureError
+			fatal = errors.As(err, &infrastructure)
+		}
+		if turnID != "" && !fatal {
 			s.rememberTurnToolResult(turnID, call)
 		}
 	}
@@ -380,7 +391,7 @@ func (s *Service) launchPendingSteps(ctx context.Context, aPlan *execution.Plan,
 	}
 }
 
-func (s *Service) executePendingToolStep(toolCtx context.Context, reg tool.Registry, step execution.Step, turnID string) llm.ToolCall {
+func (s *Service) executePendingToolStep(toolCtx context.Context, reg tool.Registry, step execution.Step, turnID string) (llm.ToolCall, error) {
 	stepInfo := toolexec.StepInfo{ID: step.ID, Name: step.Name, Args: step.Args, ResponseID: step.ResponseID}
 	if debugtrace.Enabled() {
 		debugtrace.Write("reactor", "tool_step_scheduled", map[string]any{
@@ -408,7 +419,7 @@ func (s *Service) executePendingToolStep(toolCtx context.Context, reg tool.Regis
 			"error":      errorString(err),
 		})
 	}
-	return call
+	return call, err
 }
 
 func isActivationBarrierTool(name string) bool {

@@ -3,7 +3,9 @@ package agent
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
 	"strconv"
 	"strings"
 	"sync"
@@ -528,12 +530,36 @@ func (s *Service) runChainSync(ctx context.Context, childIn *QueryInput, chain *
 // fetchChainOutput executes a child supervised follow-up chain query and returns
 // trimmed content and resolved role.
 // It centralizes shared logic for sync/async chain execution without applying error policies.
-func (s *Service) fetchChainOutput(ctx context.Context, in *QueryInput, ch *agentmdl.Chain) (string, error) {
+func (s *Service) fetchChainOutput(ctx context.Context, in *QueryInput, ch *agentmdl.Chain) (content string, retErr error) {
+	var invocation *runtimerequestctx.Invocation
+	if runtimerequestctx.InvocationObserverFromContext(ctx) != nil {
+		if in.MessageID == "" {
+			in.MessageID = uuid.NewString()
+		}
+		parent, _ := runtimerequestctx.TurnMetaFromContext(ctx)
+		descriptor := runtimerequestctx.Invocation{ExecutionMode: "sync", ID: in.MessageID, ConversationID: in.ConversationID, TurnID: in.MessageID, Name: in.Actor(), ParentConversationID: parent.ConversationID, ParentTurnID: parent.TurnID, ParentToolCallID: exportrequestmodel.ID(ctx), ParentMessageID: runtimerequestctx.ModelMessageIDFromContext(ctx), ParentInvocationID: runtimerequestctx.InvocationIDFromContext(ctx)}
+		observed, err := runtimerequestctx.ObserveInvocation(ctx, descriptor)
+		if err != nil {
+			return "", err
+		}
+		ctx = observed
+		invocation = &descriptor
+	}
+
 	ctx = toolexec.WithChainMode(ctx, true)
 	var out QueryOutput
+	if invocation != nil {
+		defer func() {
+			result := runtimerequestctx.InvocationResult{Invocation: *invocation, NativeStatus: out.ExecutionStatus, Content: out.Content, ClientToolCalls: out.ClientToolCalls, ClientToolDependencies: out.ClientToolDependencies}
+			if retErr != nil {
+				result.Error = retErr.Error()
+			}
+			retErr = errors.Join(retErr, runtimerequestctx.NotifyInvocationReturned(ctx, result))
+		}()
+	}
 	if err := s.Query(ctx, in, &out); err != nil {
 		return "", fmt.Errorf("failed to run query %w", err)
 	}
-	content := strings.TrimSpace(out.Content)
+	content = strings.TrimSpace(out.Content)
 	return content, nil
 }

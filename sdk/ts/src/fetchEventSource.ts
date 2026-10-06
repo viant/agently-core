@@ -3,6 +3,7 @@
 export class FetchEventSource {
     onmessage: ((event: { data: string }) => void) | null = null;
     onerror: (() => void) | null = null;
+    onopen: (() => void) | null = null;
     private controller = new AbortController();
     private closed = false;
     private retryMs = 1000;
@@ -16,6 +17,7 @@ export class FetchEventSource {
         try {
             const response = await fetchImpl(url, { headers: { ...await headers(), Accept: 'text/event-stream', ...(this.lastEventId ? { 'Last-Event-ID': this.lastEventId } : {}) }, credentials, signal: this.controller.signal });
             if (!response.ok || !response.body) { await response.body?.cancel(); throw new Error('SSE connection failed'); }
+            if (!this.closed) this.onopen?.();
             const reader = response.body.getReader();
             const decoder = new TextDecoder();
             let buffer = '', data: string[] = [], eventType = '';

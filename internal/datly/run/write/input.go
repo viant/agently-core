@@ -9,6 +9,7 @@ import (
 
 // Input is the generated input scaffold for writer.
 type Input struct {
+	ExecutionRunOnly          bool                      `parameter:"ExecutionRunOnly,kind=const,in=executionRunOnly,dataType=bool,value=true,required=true" predicate:"expr,group=7,'(? AND COALESCE(run.run_kind,\\'execution\\')=\\'execution\\')'"`
 	OrphanDetach              bool                      `parameter:"OrphanDetach,kind=orphandetach,in=enabledDetach,dataType=bool,required=false"`
 	OrphanColumn              string                    `parameter:"OrphanColumn,kind=orphandetach,in=column,dataType=string,required=false"`
 	LeaseMode                 string                    `parameter:"LeaseMode,kind=query,in=leaseMode,dataType=string,required=false"`
@@ -23,13 +24,14 @@ type Input struct {
 }
 
 type InputHas struct {
-	OrphanDetach  bool
-	OrphanColumn  bool
-	LeaseMode     bool
-	LeaseOwner    bool
-	LeaseNow      bool
-	Expectations  bool
-	Runs          bool
-	WriterKeys    bool
-	CurrentWriter bool
+	ExecutionRunOnly bool
+	OrphanDetach     bool
+	OrphanColumn     bool
+	LeaseMode        bool
+	LeaseOwner       bool
+	LeaseNow         bool
+	Expectations     bool
+	Runs             bool
+	WriterKeys       bool
+	CurrentWriter    bool
 }

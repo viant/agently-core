@@ -43,6 +43,7 @@ export interface PageOutput {
 // ─── Conversation ──────────────────────────────────────────────────────────────
 
 export interface Conversation {
+    aguiThreadId?: string;
     id: string;
     agentId?: string;
     title?: string;
@@ -154,6 +155,7 @@ export interface Turn {
     elapsedInSec?: number;
     stage?: string;
     queueSeq?: number;
+    queueSequence?: string;
     agentIdUsed?: string;
     modelOverride?: string;
     modelOverrideProvider?: string;
@@ -229,6 +231,7 @@ export type LiveExecutionGroup = Partial<ExecutionPage> & {
 export type LiveExecutionGroupsById = Record<string, LiveExecutionGroup>;
 
 export interface ModelStepState {
+    mode?: string;
     modelCallId: string;
     assistantMessageId?: string;
     executionRole?: string;
@@ -409,6 +412,8 @@ export interface GetMessagesInput {
 // ─── Streaming ─────────────────────────────────────────────────────────────────
 
 export type SSEEventType =
+    | 'conversation_meta_updated'
+    | 'compatibility_reconcile'
     // Stream deltas
     | 'text_delta'
     | 'reasoning_delta'
@@ -416,6 +421,7 @@ export type SSEEventType =
     | 'error'
     // Turn lifecycle
     | 'turn_started'
+    | 'turn_queued'
     | 'turn_completed'
     | 'turn_failed'
     | 'turn_canceled'
@@ -448,6 +454,7 @@ export type SSEEventType =
     // Tool feed lifecycle
     | 'tool_feed_active'
     | 'tool_feed_inactive'
+    | 'tool_feed_unknown'
     // Goal lifecycle
     | 'goal.updated'
     | 'goal.cleared'
@@ -472,6 +479,12 @@ export interface PlannedToolCall {
 }
 
 export interface SSEEvent {
+    queueSequence?: string;
+    connectionProfile?: 'standard' | 'agently';
+    hostEffectsAllowed?: boolean;
+    clientRequestId?: string;
+    /** Absolute projection from an already-reduced protocol message, or a native delta. */
+    contentMode?: 'delta' | 'snapshot';
     startedByMessageId?: string;
     contentOffset?: number;
     id?: string;
@@ -561,6 +574,8 @@ export interface StreamEventsInput {
 
 export interface QueryInput {
     conversationId?: string;
+    messageId?: string;
+    displayQuery?: string;
     query: string;
     agentId?: string;
     model?: string;
@@ -610,6 +625,7 @@ export interface UsageInfo {
 // ─── Steer / Queue ─────────────────────────────────────────────────────────────
 
 export interface SteerTurnInput {
+    clientRequestId?: string;
     content: string;
     role?: string;
 }
@@ -739,7 +755,19 @@ export interface DecideToolApprovalInput {
     payload?: JSONObject;
 }
 
+export interface ApprovalProtocolReferences {
+    version: '1';
+    kind?: 'chat' | 'mcp-app';
+    nativeConversationId?: string;
+    threadId: string;
+    originalRunId: string;
+    commandRunId: string;
+    continuationRunId?: string;
+    remainingInterruptIds: string[];
+}
+
 export interface DecideToolApprovalOutcome {
+    protocol?: ApprovalProtocolReferences;
     approvalId: string;
     action: string;
     status?: string;
@@ -753,6 +781,7 @@ export interface DecideToolApprovalOutcome {
 }
 
 export interface DecideToolApprovalOutput {
+    protocol?: ApprovalProtocolReferences;
     status: string;
     message?: string;
     outcome?: DecideToolApprovalOutcome;
@@ -1237,6 +1266,9 @@ export type FeedPresentationTarget = 'auto' | 'inline' | 'rail' | 'overlay' | 'w
 
 export interface ActiveFeed {
     feedId: string;
+    /** Unknown activation retains last known content without claiming activity. */
+    active?: boolean | null;
+    activationKnown?: boolean;
     title: string;
     developerOnly?: boolean;
     presentation?: FeedPresentation;
@@ -1310,6 +1342,8 @@ export interface ReportRunResult {
     }
 export interface BeginReportRunInput {
     uiRunRequestId: string;
+    /** Opaque host-issued admission reference; never a client-authored proof. */
+    reportAdmissionRef?: string;
     conversationId?: string;
     origin?: 'manual' | 'prompt';
     }

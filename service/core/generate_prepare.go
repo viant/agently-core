@@ -12,11 +12,25 @@ import (
 	"github.com/viant/agently-core/internal/debugtrace"
 	"github.com/viant/agently-core/internal/logx"
 	"github.com/viant/agently-core/protocol/binding"
+	"github.com/viant/agently-core/runtime/recovery"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	toolexec "github.com/viant/agently-core/service/shared/toolexec"
 )
 
 func (s *Service) prepareGenerateRequest(ctx context.Context, input *GenerateInput) (*llm.GenerateRequest, llm.Model, error) {
+	if input != nil && input.preparedRequest != nil {
+		// Retry helpers may prepend a reminder after the initial count. Reuse the
+		// initialized history/tools without rerunning Init, but retain that edit.
+		request := *input.preparedRequest
+		request.Messages = input.Message
+		request.Options = input.Options
+		request.Instructions = input.Instructions
+		applyInstructionsDefaults(&request, input.preparedModel)
+		if recovery.FullHistoryRequired(ctx) {
+			request.PreviousResponseID = ""
+		}
+		return &request, input.preparedModel, nil
+	}
 	start := time.Now()
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
 	turnID := ""

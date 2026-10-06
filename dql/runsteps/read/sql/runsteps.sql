@@ -13,7 +13,7 @@ SELECT
         m.error_message AS error_message
     FROM model_call m
     JOIN run r ON r.id = m.run_id
-    WHERE m.run_id IS NOT NULL
+    WHERE m.run_id IS NOT NULL AND COALESCE(r.run_kind,'execution')='execution'
     UNION ALL
     SELECT
         'tool_call' AS step_type,
@@ -29,4 +29,4 @@ SELECT
         t.error_message AS error_message
     FROM tool_call t
     JOIN run r ON r.id = t.run_id
-    WHERE t.run_id IS NOT NULL
+    WHERE t.run_id IS NOT NULL AND COALESCE(r.run_kind,'execution')='execution'

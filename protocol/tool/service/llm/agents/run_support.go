@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
+	"github.com/viant/agently-core/runtime/clienttool"
 	"strings"
 	"time"
 
@@ -29,6 +31,8 @@ import (
 )
 
 type linkedRun struct {
+	detached            bool
+	executionMode       string
 	parent              runtimerequestctx.TurnMeta
 	childConversationID string
 	statusMessageID     string
@@ -181,6 +185,18 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 			return fmt.Errorf("resolveProfile: %w", err)
 		}
 	}
+	runCtx.executionMode = strings.TrimSpace(ri.ExecutionMode)
+	if runCtx.executionMode == "" {
+		if ri.Async != nil && *ri.Async {
+			runCtx.executionMode = "detach"
+		} else {
+			runCtx.executionMode = "sync"
+		}
+	}
+	if ri.Async == nil || !*ri.Async {
+		runCtx.executionMode = "sync"
+	}
+	runCtx.detached = ri.Async != nil && *ri.Async && runCtx.executionMode == "detach"
 	if ri.Async != nil && *ri.Async {
 		s.setChildConversationStatus(ctx, runCtx.childConversationID, "running")
 		ro.Status = "running"
@@ -222,7 +238,48 @@ func (s *Service) runInternal(ctx context.Context, ri *RunInput, ro *RunOutput, 
 	return nil
 }
 
-func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, qo *agentsvc.QueryOutput, runCtx linkedRun) childRunResult {
+func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, qo *agentsvc.QueryOutput, runCtx linkedRun) (result childRunResult) {
+	if runtimerequestctx.InvocationObserverFromContext(ctx) != nil {
+		if qi.MessageID == "" {
+			qi.MessageID = uuid.NewString()
+		}
+		invocation := runtimerequestctx.Invocation{Detached: runCtx.detached, ExecutionMode: runCtx.executionMode, ID: qi.MessageID, ConversationID: qi.ConversationID, TurnID: qi.MessageID, Name: qi.Actor(), ParentConversationID: runCtx.parent.ConversationID, ParentTurnID: runCtx.parent.TurnID, ParentToolCallID: exportrequestmodel.ID(ctx), ParentMessageID: runtimerequestctx.ModelMessageIDFromContext(ctx), ParentInvocationID: runtimerequestctx.InvocationIDFromContext(ctx)}
+		observed, err := runtimerequestctx.ObserveInvocation(ctx, invocation)
+		if err != nil {
+			return childRunResult{status: "failed", conversationID: qi.ConversationID, err: err}
+		}
+		ctx = observed
+		defer func() {
+			returned := runtimerequestctx.InvocationResult{Invocation: invocation, NativeStatus: qo.ExecutionStatus, Content: qo.Content, ClientToolCalls: qo.ClientToolCalls, ClientToolDependencies: qo.ClientToolDependencies}
+			if result.err != nil {
+				returned.Error = result.err.Error()
+			}
+			if err := runtimerequestctx.NotifyInvocationReturned(ctx, returned); err != nil {
+				result.err = errors.Join(result.err, err)
+			}
+		}()
+	}
+
+	dependencyID := ""
+	if session := clienttool.FromContext(ctx); session != nil && !runCtx.detached {
+		if parentCall, ok := clienttool.ExecutingCallFromContext(ctx); ok {
+			if qi.MessageID == "" {
+				qi.MessageID = uuid.NewString()
+			}
+			dependency := clienttool.Dependency{ID: qi.MessageID, ParentCall: parentCall, ChildConversationID: qi.ConversationID, ChildTurnID: qi.MessageID, ChildAgentID: qi.Actor(), ExecutionMode: runCtx.executionMode, ResultAdapter: clienttool.AgentRunResultV1}
+			if err := session.RegisterDependency(dependency); err != nil {
+				return childRunResult{status: "failed", conversationID: qi.ConversationID, err: err}
+			}
+			dependencyID = dependency.ID
+			defer func() {
+				if qo.ExecutionStatus == "waiting_for_user" {
+					if err := session.MarkDependencyWaiting(dependencyID); err != nil {
+						result.err = errors.Join(result.err, err)
+					}
+				}
+			}()
+		}
+	}
 	// Detach from parent's tool-execution deadline so the child agent
 	// runs with its own independent timeout. Apply a hard deadline so a
 	// hung child doesn't block the parent forever.
@@ -247,7 +304,7 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 		childCtx = runtimerequestctx.WithConversationID(childCtx, childConversationID)
 		childCtx = runtimerequestctx.WithTurnMeta(childCtx, runtimerequestctx.TurnMeta{
 			ConversationID: childConversationID,
-			TurnID:         uuid.NewString(),
+			TurnID:         qi.MessageID,
 		})
 	}
 	if qi != nil && qi.Runtime != nil && qi.Runtime.SkillActivation != nil {
@@ -269,7 +326,7 @@ func (s *Service) executeChildRun(ctx context.Context, qi *agentsvc.QueryInput, 
 	logx.Infof("conversation", "agents.run internal ok agent_id=%q child_convo=%q message_id=%q", strings.TrimSpace(qi.Actor()), strings.TrimSpace(runCtx.childConversationID), strings.TrimSpace(qo.MessageID))
 	return childRunResult{
 		answer:         qo.Content,
-		status:         "succeeded",
+		status:         firstNonEmptyString(qo.ExecutionStatus, "succeeded"),
 		conversationID: firstNonEmptyString(qo.ConversationID, runCtx.childConversationID),
 		messageID:      qo.MessageID,
 	}

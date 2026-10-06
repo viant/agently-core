@@ -1,0 +1,16 @@
+#package('github.com/viant/agently-core/internal/datly/agui/provenance/read')
+#import('time','time')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/ag-ui/provenance','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $ThreadID<string>(query/threadId).Required())
+#define($_ = $TurnID<string>(query/turnId).Required())
+#define($_ = $Data<[]*Provenance>(output/view))
+SELECT agui_data.*,
+       type(agui_data,'Provenance'),
+       set_limit(agui_data,0),
+       CAST(agui_data.agui_owned AS int)
+FROM (${embed:sql/rows.sql}) agui_data

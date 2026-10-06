@@ -229,10 +229,11 @@ internal fun bufferedFromMessage(message: Message): BufferedMessage {
 internal fun assistantMessagesFromTurns(turns: List<TurnState>): List<BufferedMessage> {
     val output = linkedMapOf<String, BufferedMessage>()
     turns.forEach { turn ->
+        val toolResultIds = com.viant.agentlysdk.canonicalToolResultMessageIds(turn)
         turn.execution?.pages.orEmpty().forEach pageLoop@ { page ->
             if (page.finalResponse != true) return@pageLoop
             val messageId = firstString(page.assistantMessageId, page.pageId)
-            if (messageId.isBlank()) return@pageLoop
+            if (messageId.isBlank() || messageId in toolResultIds) return@pageLoop
             output[messageId] = BufferedMessage(
                 id = messageId,
                 conversationId = null,
@@ -247,22 +248,13 @@ internal fun assistantMessagesFromTurns(turns: List<TurnState>): List<BufferedMe
                 sequence = page.sequence
             )
         }
-        val final = turn.assistant?.final
-        if (final != null && final.messageId.isNotBlank()) {
-            val page = output[final.messageId]
-            output[final.messageId] = BufferedMessage(
-                    id = final.messageId,
-                    conversationId = null,
-                    turnId = turn.turnId,
-                    role = "assistant",
-                    type = "text",
-                    content = final.content?.takeIf { it.isNotBlank() } ?: page?.content,
-                    narration = turn.assistant.narration?.content ?: page?.narration,
-                    status = turn.status,
-                    interim = if (turn.status.equals("completed", true)) 0 else 1,
-                    createdAt = turn.createdAt,
-                    sequence = page?.sequence
-                )
+        com.viant.agentlysdk.canonicalAssistantMessages(turn).forEach { message ->
+            output[message.messageId] = BufferedMessage(
+                id = message.messageId, turnId = turn.turnId, role = "assistant", type = "text",
+                content = message.content, status = message.status ?: turn.status,
+                interim = message.interim ?: if (turn.status.equals("completed", true)) 0 else 1,
+                createdAt = message.createdAt ?: turn.createdAt, sequence = message.sequence
+            )
         }
     }
     return output.values.toList()

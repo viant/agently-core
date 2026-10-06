@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "approval.decide": {
+      "type": "object",
+      "properties": {
+        "originalRunId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approvalId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "answer": {
+          "type": "object",
+          "properties": {
+            "interruptId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "status": {
+              "enum": [
+                "resolved",
+                "cancelled"
+              ]
+            },
+            "payload": {
+              "type": "object",
+              "properties": {
+                "action": {
+                  "enum": [
+                    "approve",
+                    "reject",
+                    "cancel"
+                  ]
+                },
+                "editedArgs": {
+                  "type": "object"
+                },
+                "editedFields": {
+                  "type": "object"
+                },
+                "payload": {
+                  "type": "object"
+                },
+                "reason": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "action"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "interruptId",
+            "status"
+          ],
+          "additionalProperties": false
+        },
+        "originalThreadId": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "originalRunId",
+        "approvalId",
+        "answer"
+      ],
+      "additionalProperties": false
+    },
+    "Envelope": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "const": "1"
+        },
+        "operation": {
+          "const": "approval.decide"
+        },
+        "requestId": {
+          "type": "string",
+          "minLength": 1
+        },
+        "target": {
+          "type": "object",
+          "properties": {
+            "threadId": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "required": [
+            "threadId"
+          ],
+          "additionalProperties": false
+        },
+        "payload": {
+          "$ref": "#/$defs/approval.decide"
+        }
+      },
+      "required": [
+        "version",
+        "operation",
+        "requestId",
+        "payload"
+      ],
+      "additionalProperties": false
+    }
+  }
+}

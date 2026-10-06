@@ -373,9 +373,18 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 			ev.ContentOffset = &offset
 		case llm.StreamEventReasoningDelta:
 			ev.Type = streaming.EventTypeReasoningDelta
+			ev.ReasoningMessageID = event.ReasoningMessageID
+			ev.ReasoningSpanID = event.ReasoningSpanID
 			ev.AssistantMessageID = strings.TrimSpace(event.ItemID)
 			ev.ModelCallID = strings.TrimSpace(event.ItemID)
 			ev.Content = event.Delta
+		case llm.StreamEventReasoningEncrypted:
+			ev.Type = streaming.EventTypeReasoningEncrypted
+			ev.ReasoningMessageID = event.ReasoningMessageID
+			ev.ReasoningSpanID = event.ReasoningSpanID
+			ev.EncryptedValue = event.EncryptedValue
+			ev.EncryptedEntityID = event.EncryptedEntityID
+			ev.EncryptedSubtype = event.EncryptedSubtype
 		case llm.StreamEventToolCallStarted:
 			ev.Type = streaming.EventTypeToolCallStarted
 			ev.AssistantMessageID = strings.TrimSpace(event.ItemID)
@@ -394,6 +403,8 @@ func (s *Service) appendStreamEvent(ctx context.Context, event *llm.StreamEvent,
 			ev.Type = streaming.EventTypeUsage
 		case llm.StreamEventItemCompleted:
 			ev.Type = streaming.EventTypeItemCompleted
+			ev.ReasoningMessageID = event.ReasoningMessageID
+			ev.ReasoningSpanID = event.ReasoningSpanID
 		case llm.StreamEventTurnCompleted:
 			ev.Type = streaming.EventTypeTurnCompleted
 			ev.Status = event.FinishReason

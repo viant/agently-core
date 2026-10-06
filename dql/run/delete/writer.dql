@@ -6,6 +6,7 @@
 #setting($_ = $output_type('Output'))
 #setting($_ = $case_format('lc'))
 #setting($_ = $writer_omit_empty(true))
+#define($_ = $ExecutionRunOnly<bool>(const/executionRunOnly).Value(true).Required().WithPredicate(7,'expr',"(? AND COALESCE(run.run_kind,'execution')='execution')"))
 #define($_ = $Runs<[]*RunDelete>(body/data))
 #define($_ = $Data<[]*RunDelete>(output/body))
 
@@ -14,6 +15,7 @@ SELECT t.*,
        delete_marker(t.should_delete),
        delete_not_found(t,'ignore'),
        type(t,'RunDelete'),
+       mutation_predicate(t,7),
        required(t.id),
        tag(t.id,'validate:"required" sqlx:"id,primaryKey"'),
        tag(t.id,'json:","')

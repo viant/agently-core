@@ -16,11 +16,13 @@ let package = Package(
     ],
     targets: [
         .target(
-            name: "AgentlySDK"
+            name: "AgentlySDK",
+            resources: [.process("Resources")]
         ),
         .testTarget(
             name: "AgentlySDKTests",
-            dependencies: ["AgentlySDK"]
+            dependencies: ["AgentlySDK"],
+            resources: [.process("Fixtures")]
         )
     ]
 )

@@ -683,3 +683,22 @@ describe('chatStore/projector — steering placement', () => {
         expect(contents).toEqual(['initial', 'follow-up', 'again']);
     });
 });
+
+
+describe('canonical tool response ownership', () => {
+    it('keeps tool detail and legitimate task JSON while suppressing tool-owned prose', () => {
+        const state = fresh();
+        applyTranscript(state, {conversationId: CONV, turns: [{turnId:'tool-ownership', status:'completed',
+            messages:[{messageId:'tool-result',role:'assistant',content:'{"name":"contract"}'}, {messageId:'legit',role:'assistant',mode:'task',content:'{"name":"contract"}'}],
+            execution:{pages:[{pageId:'tool-result',assistantMessageId:'tool-result',iteration:1,content:'{"name":"contract"}',
+                modelSteps:[{modelCallId:'model',assistantMessageId:'actual-assistant',mode:'task'}],
+                toolSteps:[{toolCallId:'op',toolMessageId:'tool-result',toolName:'template/get',responsePayload:{name:'contract'}}]}]}}]});
+        const rows = projectConversation(state);
+        const iteration = rows.find(row=>row.kind==='iteration') as IterationRenderRow;
+        expect(iteration.rounds[0].content).toBeUndefined();
+        expect(iteration.rounds[0].modelSteps).toHaveLength(1);
+        expect(iteration.rounds[0].toolCalls).toHaveLength(1);
+        expect(rows.filter(row=>row.kind==='assistant').map(row=>(row as any).messageId)).toEqual(['legit']);
+        expect(state.turns.find(turn=>turn.turnId==='tool-ownership')!.pages[0].toolCalls[0].responsePayload).toEqual({name:'contract'});
+    });
+});

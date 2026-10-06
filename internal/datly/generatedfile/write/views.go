@@ -10,7 +10,7 @@ import (
 type GeneratedFile struct {
 	ShouldDelete   bool              `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
 	Id             string            `validate:"required" sqlx:"id,primaryKey" json:"id"`
-	ConversationId string            `validate:"required" json:"conversationId" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
+	ConversationId string            "validate:\"required\" json:\"conversationId\" sqlx:\"conversation_id|`conversation_id`,refTable=conversation,refColumn=id,required=true\""
 	Provider       string            `validate:"required" json:"provider" sqlx:"provider,required=true"`
 	Mode           string            `validate:"required" json:"mode" sqlx:"mode,required=true"`
 	CopyMode       string            `validate:"required" json:"copyMode" sqlx:"copy_mode,required=true"`
@@ -57,7 +57,7 @@ type GeneratedFileHas struct {
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
 	Id             string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
-	ConversationId string     `validate:"required" json:"conversationId" sqlx:"conversation_id,refTable=conversation,refColumn=id,required=true"`
+	ConversationId string     "validate:\"required\" json:\"conversationId\" sqlx:\"conversation_id|`conversation_id`,refTable=conversation,refColumn=id,required=true\""
 	Provider       string     `validate:"required" json:"provider" sqlx:"provider,required=true"`
 	Mode           string     `validate:"required" json:"mode" sqlx:"mode,required=true"`
 	CopyMode       string     `validate:"required" json:"copyMode" sqlx:"copy_mode,required=true"`

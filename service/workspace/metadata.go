@@ -166,97 +166,26 @@ func (h *MetadataHandler) Register(mux *http.ServeMux) {
 
 func (h *MetadataHandler) handlePublicAgents() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		result := PublicAgentsResponse{AgentInfos: []AgentInfo{}}
-		if h.store != nil {
-			if agents, err := h.store.List(r.Context(), ws.KindAgent); err == nil {
-				infos, policyErr := h.filterStarterPrompts(r.Context(), h.loadAgentInfos(r.Context(), agents))
-				if policyErr != nil {
-					http.Error(w, "starter prompt authorization unavailable", http.StatusServiceUnavailable)
-					return
-				}
-				for _, agent := range infos {
-					if !agent.Internal {
-						result.AgentInfos = append(result.AgentInfos, agent)
-					}
-				}
-			}
+		result, err := h.PublicAgents(r.Context())
+		if err != nil {
+			writeMetadataError(w, err)
+			return
 		}
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 		_ = json.NewEncoder(w).Encode(result)
 	}
 }
-
 func (h *MetadataHandler) handleMetadata() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := r.Context()
-		resp := MetadataResponse{
-			WorkspaceRoot:    ws.Root(),
-			WorkspaceVersion: resolveWorkspaceVersion(ws.Root()),
-			Version:          h.version,
-			Capabilities: Capabilities{
-				WorkspaceLayout:       true,
-				AgentAutoSelection:    true,
-				ModelAutoSelection:    false,
-				ToolAutoSelection:     h.defaults != nil && h.defaults.ToolAutoSelection.Enabled,
-				CompactConversation:   true,
-				PruneConversation:     true,
-				AnonymousSession:      true,
-				MessageCursor:         true,
-				StructuredElicitation: true,
-				TurnStartedEvent:      true,
-			},
+		result, err := h.Metadata(r.Context())
+		if err != nil {
+			writeMetadataError(w, err)
+			return
 		}
-		if h.defaults != nil {
-			resp.DefaultAgent = h.defaults.Agent
-			resp.DefaultModel = h.defaults.Model
-			resp.DefaultEmbedder = h.defaults.Embedder
-			resp.AppName = h.defaults.AppName
-			resp.AppIconRef = h.defaults.AppIconRef
-			resp.Defaults = &Defaults{
-				AppName:               h.defaults.AppName,
-				AppIconRef:            h.defaults.AppIconRef,
-				Agent:                 h.defaults.Agent,
-				Model:                 h.defaults.Model,
-				Embedder:              h.defaults.Embedder,
-				AutoSelectTools:       h.defaults.ToolAutoSelection.Enabled,
-				ElicitationTimeoutSec: h.defaults.ElicitationTimeoutSec,
-			}
-			resp.Capabilities.Reporting = h.defaults.Reporting.Enabled
-		}
-		if h.reportingOverride != nil {
-			resp.Capabilities.Reporting = *h.reportingOverride
-		}
-		if h.store != nil {
-			if agents, err := h.store.List(ctx, ws.KindAgent); err == nil {
-				resp.AgentInfos = h.loadAgentInfos(ctx, agents)
-				resp.AgentInfos, err = h.filterStarterPrompts(ctx, resp.AgentInfos)
-				if err != nil {
-					http.Error(w, "starter prompt authorization unavailable", http.StatusServiceUnavailable)
-					return
-				}
-				resp.Agents = agentInfoIDs(resp.AgentInfos)
-			}
-			if models, err := h.store.List(ctx, ws.KindModel); err == nil {
-				resp.ModelInfos = h.loadModelInfos(ctx, models)
-				resp.Models = modelInfoIDs(resp.ModelInfos)
-			}
-		}
-		var composerConfig *wscfg.Root
-		if loaded, err := wscfg.Load(ws.Root()); err == nil {
-			composerConfig = loaded
-		}
-		resp.Composer = composerConfig.Composer()
-		resp.Capabilities.Goals = goalsCapabilityEnabled(resp.AgentInfos)
-		styles := h.styles.Current(ctx)
-		resp.WorkspaceID = styles.WorkspaceID
-		resp.UIStyles = styles.Styles
-		resp.UIThemes = styles.Themes
-		resp.UIStyleDiagnostics = styles.Diagnostics
-		resp.MetadataVersion = resolveMetadataVersion(resp)
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(resp)
+		_ = json.NewEncoder(w).Encode(result)
 	}
 }
 

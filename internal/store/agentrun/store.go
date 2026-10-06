@@ -62,22 +62,60 @@ func (s *Store) PatchTrusted(ctx context.Context, rows []*write.MutableRunView) 
 	return out.Data, nil
 }
 
-// DeleteTrusted submits all IDs as one generated mutation batch.
+// DeleteTrusted ignores identities that are already absent, then submits only
+// existing native execution IDs to the guarded generated writer. Missing rows
+// after this read remain a strict mutation conflict, preserving race detection.
 func (s *Store) DeleteTrusted(ctx context.Context, ids ...string) error {
-	rows := make([]*rundelete.RunDelete, 0, len(ids))
+	if s == nil || s.Invoker == nil {
+		return fmt.Errorf("run component store is not configured")
+	}
+	wanted := map[string]bool{}
+	selected := make([]string, 0, len(ids))
 	for _, id := range ids {
-		if id = strings.TrimSpace(id); id != "" {
+		id = strings.TrimSpace(id)
+		if id != "" && !wanted[id] {
+			wanted[id] = true
+			selected = append(selected, id)
+		}
+	}
+	if len(selected) == 0 {
+		return nil
+	}
+	reader := *s
+	if reader.OwnerID == nil {
+		reader.OwnerID = func(context.Context) string { return "" }
+	}
+	rows := make([]*rundelete.RunDelete, 0, len(selected))
+	// Bound each identity lookup below the reader's default page size. The id-only
+	// projection deliberately avoids parsing unrelated legacy heartbeat values.
+	for start := 0; start < len(selected); start += 64 {
+		end := start + 64
+		if end > len(selected) {
+			end = len(selected)
+		}
+		batch := map[string]bool{}
+		for _, id := range selected[start:end] {
+			batch[id] = true
+		}
+		query := &read.RunRowsInput{}
+		query.SetIds(selected[start:end])
+		found, err := reader.ListTrusted(ctx, "rows", query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id"}, Limit: 64}}})
+		if err != nil {
+			return err
+		}
+		for _, item := range found {
+			if item == nil || !batch[item.Id] {
+				return fmt.Errorf("run deletion identity read escaped scope")
+			}
+			delete(batch, item.Id)
 			row := &rundelete.RunDelete{}
-			row.SetId(id)
+			row.SetId(item.Id)
 			row.SetShouldDelete(true)
 			rows = append(rows, row)
 		}
 	}
 	if len(rows) == 0 {
 		return nil
-	}
-	if s == nil || s.Invoker == nil {
-		return fmt.Errorf("run component store is not configured")
 	}
 	input := &rundelete.Input{}
 	input.SetRuns(rows)

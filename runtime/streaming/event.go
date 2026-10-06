@@ -13,10 +13,12 @@ type EventType string
 
 const (
 	// Stream delta types — fine-grained provider output.
-	EventTypeTextDelta      EventType = "text_delta"
-	EventTypeReasoningDelta EventType = "reasoning_delta"
-	EventTypeToolCallDelta  EventType = "tool_call_delta"
-	EventTypeError          EventType = "error"
+	EventTypeTextDelta          EventType = "text_delta"
+	EventTypeReasoningDelta     EventType = "reasoning_delta"
+	EventTypeReasoningEncrypted EventType = "reasoning_encrypted_value"
+	EventTypeProtocol           EventType = "protocol_event"
+	EventTypeToolCallDelta      EventType = "tool_call_delta"
+	EventTypeError              EventType = "error"
 
 	// Control events (patch-based updates).
 	EventTypeControl EventType = "control"
@@ -163,17 +165,24 @@ type PlannedToolCall struct {
 // events use turn or conversation. Missing scope on legacy flat usage events
 // remains conversation-scoped for backward compatibility.
 type UsageSnapshot struct {
-	Scope             string `json:"scope,omitempty"`
-	InputTokens       int    `json:"inputTokens,omitempty"`
-	OutputTokens      int    `json:"outputTokens,omitempty"`
-	CachedInputTokens int    `json:"cachedInputTokens,omitempty"`
-	ReasoningTokens   int    `json:"reasoningTokens,omitempty"`
-	EmbeddingTokens   int    `json:"embeddingTokens,omitempty"`
-	TotalTokens       int    `json:"totalTokens,omitempty"`
+	CacheWriteInputTokens int    `json:"cacheWriteInputTokens,omitempty"`
+	Scope                 string `json:"scope,omitempty"`
+	InputTokens           int    `json:"inputTokens,omitempty"`
+	OutputTokens          int    `json:"outputTokens,omitempty"`
+	CachedInputTokens     int    `json:"cachedInputTokens,omitempty"`
+	ReasoningTokens       int    `json:"reasoningTokens,omitempty"`
+	EmbeddingTokens       int    `json:"embeddingTokens,omitempty"`
+	TotalTokens           int    `json:"totalTokens,omitempty"`
 }
 
 // Event is a transport-neutral streaming event.
 type Event struct {
+	ProtocolEvent             json.RawMessage            `json:"protocolEvent,omitempty"`
+	ReasoningMessageID        string                     `json:"reasoningMessageId,omitempty"`
+	ReasoningSpanID           string                     `json:"reasoningSpanId,omitempty"`
+	EncryptedValue            string                     `json:"encryptedValue,omitempty"`
+	EncryptedEntityID         string                     `json:"encryptedEntityId,omitempty"`
+	EncryptedSubtype          string                     `json:"encryptedSubtype,omitempty"`
 	ID                        string                     `json:"id,omitempty"`
 	StreamID                  string                     `json:"streamId,omitempty"`
 	ConversationID            string                     `json:"conversationId,omitempty"`
@@ -360,7 +369,16 @@ func FromLLMEvent(streamID string, in llm.StreamEvent) *Event {
 			out.Content = in.Delta
 		case llm.StreamEventReasoningDelta:
 			out.Type = EventTypeReasoningDelta
+			out.ReasoningMessageID = in.ReasoningMessageID
+			out.ReasoningSpanID = in.ReasoningSpanID
 			out.Content = in.Delta
+		case llm.StreamEventReasoningEncrypted:
+			out.Type = EventTypeReasoningEncrypted
+			out.ReasoningMessageID = in.ReasoningMessageID
+			out.ReasoningSpanID = in.ReasoningSpanID
+			out.EncryptedValue = in.EncryptedValue
+			out.EncryptedEntityID = in.EncryptedEntityID
+			out.EncryptedSubtype = in.EncryptedSubtype
 		case llm.StreamEventToolCallStarted:
 			out.Type = EventTypeToolCallStarted
 			out.ToolName = in.ToolName
@@ -376,6 +394,8 @@ func FromLLMEvent(streamID string, in llm.StreamEvent) *Event {
 			out.Type = EventTypeUsage
 		case llm.StreamEventItemCompleted:
 			out.Type = EventTypeItemCompleted
+			out.ReasoningMessageID = in.ReasoningMessageID
+			out.ReasoningSpanID = in.ReasoningSpanID
 		case llm.StreamEventTurnStarted:
 			out.Type = EventTypeTurnStarted
 		case llm.StreamEventTurnCompleted:

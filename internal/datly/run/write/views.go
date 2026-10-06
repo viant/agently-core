@@ -9,145 +9,202 @@ import (
 
 // MutableRunView is generated canonical view metadata for writer.
 type MutableRunView struct {
-	ShouldDelete          bool                         `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
-	Condition             *predicate.RunPatchCondition `sqlx:"-" json:"condition,omitempty"`
-	Id                    string                       `validate:"required" sqlx:"id,primaryKey" json:"id"`
-	Status                string                       `validate:"required" json:"status" sqlx:"status,required=true"`
-	UsageCost             *float64                     `sqlx:"usage_cost" json:"usageCost,omitempty"`
-	TurnId                *string                      `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
-	ScheduleId            *string                      `sqlx:"schedule_id,refTable=schedule,refColumn=id" json:"scheduleId,omitempty"`
-	ConversationId        *string                      `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
-	ConversationKind      *string                      `sqlx:"conversation_kind,required=true" json:"conversationKind,omitempty"`
-	Attempt               *int                         `sqlx:"attempt,required=true" json:"attempt,omitempty"`
-	ResumedFromRunId      *string                      `sqlx:"resumed_from_run_id" json:"resumedFromRunId,omitempty"`
-	ErrorCode             *string                      `sqlx:"error_code" json:"errorCode,omitempty"`
-	ErrorMessage          *string                      `sqlx:"error_message" json:"errorMessage,omitempty"`
-	Iteration             *int                         `sqlx:"iteration,required=true" json:"iteration,omitempty"`
-	MaxIterations         *int                         `sqlx:"max_iterations" json:"maxIterations,omitempty"`
-	CheckpointResponseId  *string                      `sqlx:"checkpoint_response_id" json:"checkpointResponseId,omitempty"`
-	CheckpointMessageId   *string                      `sqlx:"checkpoint_message_id" json:"checkpointMessageId,omitempty"`
-	CheckpointData        *string                      `sqlx:"checkpoint_data" json:"checkpointData,omitempty"`
-	AgentId               *string                      `sqlx:"agent_id" json:"agentId,omitempty"`
-	ModelProvider         *string                      `sqlx:"model_provider" json:"modelProvider,omitempty"`
-	Model                 *string                      `sqlx:"model" json:"model,omitempty"`
-	WorkerId              *string                      `sqlx:"worker_id" json:"workerId,omitempty"`
-	WorkerPid             *int                         `sqlx:"worker_pid" json:"workerPid,omitempty"`
-	WorkerHost            *string                      `sqlx:"worker_host" json:"workerHost,omitempty"`
-	LeaseOwner            *string                      `sqlx:"lease_owner" json:"leaseOwner,omitempty"`
-	LeaseUntil            *time.Time                   `sqlx:"lease_until" json:"leaseUntil,omitempty"`
-	LastHeartbeatAt       *time.Time                   `sqlx:"last_heartbeat_at" json:"lastHeartbeatAt,omitempty"`
-	SecurityContext       *string                      `sqlx:"security_context" json:"securityContext,omitempty"`
-	EffectiveUserId       *string                      `sqlx:"effective_user_id" json:"effectiveUserId,omitempty"`
-	AuthAuthority         *string                      `sqlx:"auth_authority" json:"authAuthority,omitempty"`
-	AuthAudience          *string                      `sqlx:"auth_audience" json:"authAudience,omitempty"`
-	UserCredUrl           *string                      `sqlx:"user_cred_url" json:"userCredUrl,omitempty"`
-	HeartbeatIntervalSec  *int                         `sqlx:"heartbeat_interval_sec" json:"heartbeatIntervalSec,omitempty"`
-	ScheduledFor          *time.Time                   `sqlx:"scheduled_for" json:"scheduledFor,omitempty"`
-	PreconditionRanAt     *time.Time                   `sqlx:"precondition_ran_at" json:"preconditionRanAt,omitempty"`
-	PreconditionPassed    *int                         `sqlx:"precondition_passed" json:"preconditionPassed,omitempty"`
-	PreconditionResult    *string                      `sqlx:"precondition_result" json:"preconditionResult,omitempty"`
-	UsagePromptTokens     *int                         `sqlx:"usage_prompt_tokens" json:"usagePromptTokens,omitempty"`
-	UsageCompletionTokens *int                         `sqlx:"usage_completion_tokens" json:"usageCompletionTokens,omitempty"`
-	UsageTotalTokens      *int                         `sqlx:"usage_total_tokens" json:"usageTotalTokens,omitempty"`
-	CreatedAt             *time.Time                   `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
-	UpdatedAt             *time.Time                   `sqlx:"updated_at" json:"updatedAt,omitempty"`
-	StartedAt             *time.Time                   `sqlx:"started_at" json:"startedAt,omitempty"`
-	CompletedAt           *time.Time                   `sqlx:"completed_at" json:"completedAt,omitempty"`
-	Has                   *MutableRunViewHas           `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"MutableRunViewHas"`
+	ShouldDelete            bool                         `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
+	Condition               *predicate.RunPatchCondition `sqlx:"-" json:"condition,omitempty"`
+	Id                      string                       `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	RunKind                 string                       `sqlx:"run_kind,required=true" json:"runKind,omitempty"`
+	Status                  string                       `validate:"required" json:"status" sqlx:"status,required=true"`
+	UsageCost               *float64                     `sqlx:"usage_cost" json:"usageCost,omitempty"`
+	ProtocolKey             *string                      `sqlx:"protocol_key" json:"protocolKey,omitempty"`
+	ProtocolStatus          *string                      `sqlx:"protocol_status" json:"protocolStatus,omitempty"`
+	ProtocolTurnId          *string                      `sqlx:"protocol_turn_id" json:"protocolTurnId,omitempty"`
+	ProtocolRunId           *string                      `sqlx:"protocol_run_id" json:"protocolRunId,omitempty"`
+	ProtocolParentRunId     *string                      `sqlx:"protocol_parent_run_id" json:"protocolParentRunId,omitempty"`
+	ProtocolPriorRunId      *string                      `sqlx:"protocol_prior_run_id" json:"protocolPriorRunId,omitempty"`
+	ProtocolClientMessageId *string                      `sqlx:"protocol_client_message_id" json:"protocolClientMessageId,omitempty"`
+	ProtocolResumedByRunId  *string                      `sqlx:"protocol_resumed_by_run_id" json:"protocolResumedByRunId,omitempty"`
+	ProtocolSourceKey       *string                      `sqlx:"protocol_source_key" json:"protocolSourceKey,omitempty"`
+	ProtocolInitialTurnKey  *string                      `sqlx:"protocol_initial_turn_key" json:"protocolInitialTurnKey,omitempty"`
+	ProtocolInputHash       *string                      `sqlx:"protocol_input_hash" json:"protocolInputHash,omitempty"`
+	ProtocolInputJson       *string                      `sqlx:"protocol_input_json" json:"protocolInputJson,omitempty"`
+	ProtocolPendingJson     *string                      `sqlx:"protocol_pending_json" json:"protocolPendingJson,omitempty"`
+	ProtocolRevision        *int                         `sqlx:"protocol_revision,required=true" json:"protocolRevision,omitempty"`
+	ProtocolLastSequence    *int                         `sqlx:"protocol_last_sequence,required=true" json:"protocolLastSequence,omitempty"`
+	ProtocolLeaseOwner      *string                      `sqlx:"protocol_lease_owner" json:"protocolLeaseOwner,omitempty"`
+	ProtocolLeaseUntil      *time.Time                   `sqlx:"protocol_lease_until" json:"protocolLeaseUntil,omitempty"`
+	ProtocolLeaseRevision   *int                         `sqlx:"protocol_lease_revision,required=true" json:"protocolLeaseRevision,omitempty"`
+	TurnId                  *string                      `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
+	ScheduleId              *string                      `sqlx:"schedule_id,refTable=schedule,refColumn=id" json:"scheduleId,omitempty"`
+	ConversationId          *string                      `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
+	ConversationKind        *string                      `sqlx:"conversation_kind,required=true" json:"conversationKind,omitempty"`
+	Attempt                 *int                         `sqlx:"attempt,required=true" json:"attempt,omitempty"`
+	ResumedFromRunId        *string                      `sqlx:"resumed_from_run_id" json:"resumedFromRunId,omitempty"`
+	ErrorCode               *string                      `sqlx:"error_code" json:"errorCode,omitempty"`
+	ErrorMessage            *string                      `sqlx:"error_message" json:"errorMessage,omitempty"`
+	Iteration               *int                         `sqlx:"iteration,required=true" json:"iteration,omitempty"`
+	MaxIterations           *int                         `sqlx:"max_iterations" json:"maxIterations,omitempty"`
+	CheckpointResponseId    *string                      `sqlx:"checkpoint_response_id" json:"checkpointResponseId,omitempty"`
+	CheckpointMessageId     *string                      `sqlx:"checkpoint_message_id" json:"checkpointMessageId,omitempty"`
+	CheckpointData          *string                      `sqlx:"checkpoint_data" json:"checkpointData,omitempty"`
+	AgentId                 *string                      `sqlx:"agent_id" json:"agentId,omitempty"`
+	ModelProvider           *string                      `sqlx:"model_provider" json:"modelProvider,omitempty"`
+	Model                   *string                      `sqlx:"model" json:"model,omitempty"`
+	WorkerId                *string                      `sqlx:"worker_id" json:"workerId,omitempty"`
+	WorkerPid               *int                         `sqlx:"worker_pid" json:"workerPid,omitempty"`
+	WorkerHost              *string                      `sqlx:"worker_host" json:"workerHost,omitempty"`
+	LeaseOwner              *string                      `sqlx:"lease_owner" json:"leaseOwner,omitempty"`
+	LeaseUntil              *time.Time                   `sqlx:"lease_until" json:"leaseUntil,omitempty"`
+	LastHeartbeatAt         *time.Time                   `sqlx:"last_heartbeat_at" json:"lastHeartbeatAt,omitempty"`
+	SecurityContext         *string                      `sqlx:"security_context" json:"securityContext,omitempty"`
+	EffectiveUserId         *string                      `sqlx:"effective_user_id" json:"effectiveUserId,omitempty"`
+	AuthAuthority           *string                      `sqlx:"auth_authority" json:"authAuthority,omitempty"`
+	AuthAudience            *string                      `sqlx:"auth_audience" json:"authAudience,omitempty"`
+	UserCredUrl             *string                      `sqlx:"user_cred_url" json:"userCredUrl,omitempty"`
+	HeartbeatIntervalSec    *int                         `sqlx:"heartbeat_interval_sec" json:"heartbeatIntervalSec,omitempty"`
+	ScheduledFor            *time.Time                   `sqlx:"scheduled_for" json:"scheduledFor,omitempty"`
+	PreconditionRanAt       *time.Time                   `sqlx:"precondition_ran_at" json:"preconditionRanAt,omitempty"`
+	PreconditionPassed      *int                         `sqlx:"precondition_passed" json:"preconditionPassed,omitempty"`
+	PreconditionResult      *string                      `sqlx:"precondition_result" json:"preconditionResult,omitempty"`
+	UsagePromptTokens       *int                         `sqlx:"usage_prompt_tokens" json:"usagePromptTokens,omitempty"`
+	UsageCompletionTokens   *int                         `sqlx:"usage_completion_tokens" json:"usageCompletionTokens,omitempty"`
+	UsageTotalTokens        *int                         `sqlx:"usage_total_tokens" json:"usageTotalTokens,omitempty"`
+	CreatedAt               *time.Time                   `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt               *time.Time                   `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	StartedAt               *time.Time                   `sqlx:"started_at" json:"startedAt,omitempty"`
+	CompletedAt             *time.Time                   `sqlx:"completed_at" json:"completedAt,omitempty"`
+	Has                     *MutableRunViewHas           `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"MutableRunViewHas"`
 }
 
 type MutableRunViewHas struct {
-	ShouldDelete          bool
-	Condition             bool
-	Id                    bool
-	Status                bool
-	UsageCost             bool
-	TurnId                bool
-	ScheduleId            bool
-	ConversationId        bool
-	ConversationKind      bool
-	Attempt               bool
-	ResumedFromRunId      bool
-	ErrorCode             bool
-	ErrorMessage          bool
-	Iteration             bool
-	MaxIterations         bool
-	CheckpointResponseId  bool
-	CheckpointMessageId   bool
-	CheckpointData        bool
-	AgentId               bool
-	ModelProvider         bool
-	Model                 bool
-	WorkerId              bool
-	WorkerPid             bool
-	WorkerHost            bool
-	LeaseOwner            bool
-	LeaseUntil            bool
-	LastHeartbeatAt       bool
-	SecurityContext       bool
-	EffectiveUserId       bool
-	AuthAuthority         bool
-	AuthAudience          bool
-	UserCredUrl           bool
-	HeartbeatIntervalSec  bool
-	ScheduledFor          bool
-	PreconditionRanAt     bool
-	PreconditionPassed    bool
-	PreconditionResult    bool
-	UsagePromptTokens     bool
-	UsageCompletionTokens bool
-	UsageTotalTokens      bool
-	CreatedAt             bool
-	UpdatedAt             bool
-	StartedAt             bool
-	CompletedAt           bool
+	ShouldDelete            bool
+	Condition               bool
+	Id                      bool
+	RunKind                 bool
+	Status                  bool
+	UsageCost               bool
+	ProtocolKey             bool
+	ProtocolStatus          bool
+	ProtocolTurnId          bool
+	ProtocolRunId           bool
+	ProtocolParentRunId     bool
+	ProtocolPriorRunId      bool
+	ProtocolClientMessageId bool
+	ProtocolResumedByRunId  bool
+	ProtocolSourceKey       bool
+	ProtocolInitialTurnKey  bool
+	ProtocolInputHash       bool
+	ProtocolInputJson       bool
+	ProtocolPendingJson     bool
+	ProtocolRevision        bool
+	ProtocolLastSequence    bool
+	ProtocolLeaseOwner      bool
+	ProtocolLeaseUntil      bool
+	ProtocolLeaseRevision   bool
+	TurnId                  bool
+	ScheduleId              bool
+	ConversationId          bool
+	ConversationKind        bool
+	Attempt                 bool
+	ResumedFromRunId        bool
+	ErrorCode               bool
+	ErrorMessage            bool
+	Iteration               bool
+	MaxIterations           bool
+	CheckpointResponseId    bool
+	CheckpointMessageId     bool
+	CheckpointData          bool
+	AgentId                 bool
+	ModelProvider           bool
+	Model                   bool
+	WorkerId                bool
+	WorkerPid               bool
+	WorkerHost              bool
+	LeaseOwner              bool
+	LeaseUntil              bool
+	LastHeartbeatAt         bool
+	SecurityContext         bool
+	EffectiveUserId         bool
+	AuthAuthority           bool
+	AuthAudience            bool
+	UserCredUrl             bool
+	HeartbeatIntervalSec    bool
+	ScheduledFor            bool
+	PreconditionRanAt       bool
+	PreconditionPassed      bool
+	PreconditionResult      bool
+	UsagePromptTokens       bool
+	UsageCompletionTokens   bool
+	UsageTotalTokens        bool
+	CreatedAt               bool
+	UpdatedAt               bool
+	StartedAt               bool
+	CompletedAt             bool
 }
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	Condition             *predicate.RunPatchCondition `sqlx:"condition" json:"condition,omitempty"`
-	Id                    string                       `validate:"required" sqlx:"id,primaryKey" json:"id"`
-	Status                string                       `validate:"required" json:"status" sqlx:"status,required=true"`
-	UsageCost             *float64                     `sqlx:"usage_cost" json:"usageCost,omitempty"`
-	TurnId                *string                      `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
-	ScheduleId            *string                      `sqlx:"schedule_id,refTable=schedule,refColumn=id" json:"scheduleId,omitempty"`
-	ConversationId        *string                      `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
-	ConversationKind      *string                      `sqlx:"conversation_kind,required=true" json:"conversationKind,omitempty"`
-	Attempt               *int                         `sqlx:"attempt,required=true" json:"attempt,omitempty"`
-	ResumedFromRunId      *string                      `sqlx:"resumed_from_run_id" json:"resumedFromRunId,omitempty"`
-	ErrorCode             *string                      `sqlx:"error_code" json:"errorCode,omitempty"`
-	ErrorMessage          *string                      `sqlx:"error_message" json:"errorMessage,omitempty"`
-	Iteration             *int                         `sqlx:"iteration,required=true" json:"iteration,omitempty"`
-	MaxIterations         *int                         `sqlx:"max_iterations" json:"maxIterations,omitempty"`
-	CheckpointResponseId  *string                      `sqlx:"checkpoint_response_id" json:"checkpointResponseId,omitempty"`
-	CheckpointMessageId   *string                      `sqlx:"checkpoint_message_id" json:"checkpointMessageId,omitempty"`
-	CheckpointData        *string                      `sqlx:"checkpoint_data" json:"checkpointData,omitempty"`
-	AgentId               *string                      `sqlx:"agent_id" json:"agentId,omitempty"`
-	ModelProvider         *string                      `sqlx:"model_provider" json:"modelProvider,omitempty"`
-	Model                 *string                      `sqlx:"model" json:"model,omitempty"`
-	WorkerId              *string                      `sqlx:"worker_id" json:"workerId,omitempty"`
-	WorkerPid             *int                         `sqlx:"worker_pid" json:"workerPid,omitempty"`
-	WorkerHost            *string                      `sqlx:"worker_host" json:"workerHost,omitempty"`
-	LeaseOwner            *string                      `sqlx:"lease_owner" json:"leaseOwner,omitempty"`
-	LeaseUntil            *time.Time                   `sqlx:"lease_until" json:"leaseUntil,omitempty"`
-	LastHeartbeatAt       *time.Time                   `sqlx:"last_heartbeat_at" json:"lastHeartbeatAt,omitempty"`
-	SecurityContext       *string                      `sqlx:"security_context" json:"securityContext,omitempty"`
-	EffectiveUserId       *string                      `sqlx:"effective_user_id" json:"effectiveUserId,omitempty"`
-	AuthAuthority         *string                      `sqlx:"auth_authority" json:"authAuthority,omitempty"`
-	AuthAudience          *string                      `sqlx:"auth_audience" json:"authAudience,omitempty"`
-	UserCredUrl           *string                      `sqlx:"user_cred_url" json:"userCredUrl,omitempty"`
-	HeartbeatIntervalSec  *int                         `sqlx:"heartbeat_interval_sec" json:"heartbeatIntervalSec,omitempty"`
-	ScheduledFor          *time.Time                   `sqlx:"scheduled_for" json:"scheduledFor,omitempty"`
-	PreconditionRanAt     *time.Time                   `sqlx:"precondition_ran_at" json:"preconditionRanAt,omitempty"`
-	PreconditionPassed    *int                         `sqlx:"precondition_passed" json:"preconditionPassed,omitempty"`
-	PreconditionResult    *string                      `sqlx:"precondition_result" json:"preconditionResult,omitempty"`
-	UsagePromptTokens     *int                         `sqlx:"usage_prompt_tokens" json:"usagePromptTokens,omitempty"`
-	UsageCompletionTokens *int                         `sqlx:"usage_completion_tokens" json:"usageCompletionTokens,omitempty"`
-	UsageTotalTokens      *int                         `sqlx:"usage_total_tokens" json:"usageTotalTokens,omitempty"`
-	CreatedAt             *time.Time                   `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
-	UpdatedAt             *time.Time                   `sqlx:"updated_at" json:"updatedAt,omitempty"`
-	StartedAt             *time.Time                   `sqlx:"started_at" json:"startedAt,omitempty"`
-	CompletedAt           *time.Time                   `sqlx:"completed_at" json:"completedAt,omitempty"`
+	Condition               *predicate.RunPatchCondition `sqlx:"condition" json:"condition,omitempty"`
+	Id                      string                       `validate:"required" sqlx:"id,primaryKey" json:"id"`
+	RunKind                 string                       `sqlx:"run_kind,required=true" json:"runKind,omitempty"`
+	Status                  string                       `validate:"required" json:"status" sqlx:"status,required=true"`
+	UsageCost               *float64                     `sqlx:"usage_cost" json:"usageCost,omitempty"`
+	ProtocolKey             *string                      `sqlx:"protocol_key" json:"protocolKey,omitempty"`
+	ProtocolStatus          *string                      `sqlx:"protocol_status" json:"protocolStatus,omitempty"`
+	ProtocolTurnId          *string                      `sqlx:"protocol_turn_id" json:"protocolTurnId,omitempty"`
+	ProtocolRunId           *string                      `sqlx:"protocol_run_id" json:"protocolRunId,omitempty"`
+	ProtocolParentRunId     *string                      `sqlx:"protocol_parent_run_id" json:"protocolParentRunId,omitempty"`
+	ProtocolPriorRunId      *string                      `sqlx:"protocol_prior_run_id" json:"protocolPriorRunId,omitempty"`
+	ProtocolClientMessageId *string                      `sqlx:"protocol_client_message_id" json:"protocolClientMessageId,omitempty"`
+	ProtocolResumedByRunId  *string                      `sqlx:"protocol_resumed_by_run_id" json:"protocolResumedByRunId,omitempty"`
+	ProtocolSourceKey       *string                      `sqlx:"protocol_source_key" json:"protocolSourceKey,omitempty"`
+	ProtocolInitialTurnKey  *string                      `sqlx:"protocol_initial_turn_key" json:"protocolInitialTurnKey,omitempty"`
+	ProtocolInputHash       *string                      `sqlx:"protocol_input_hash" json:"protocolInputHash,omitempty"`
+	ProtocolInputJson       *string                      `sqlx:"protocol_input_json" json:"protocolInputJson,omitempty"`
+	ProtocolPendingJson     *string                      `sqlx:"protocol_pending_json" json:"protocolPendingJson,omitempty"`
+	ProtocolRevision        *int                         `sqlx:"protocol_revision,required=true" json:"protocolRevision,omitempty"`
+	ProtocolLastSequence    *int                         `sqlx:"protocol_last_sequence,required=true" json:"protocolLastSequence,omitempty"`
+	ProtocolLeaseOwner      *string                      `sqlx:"protocol_lease_owner" json:"protocolLeaseOwner,omitempty"`
+	ProtocolLeaseUntil      *time.Time                   `sqlx:"protocol_lease_until" json:"protocolLeaseUntil,omitempty"`
+	ProtocolLeaseRevision   *int                         `sqlx:"protocol_lease_revision,required=true" json:"protocolLeaseRevision,omitempty"`
+	TurnId                  *string                      `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId,omitempty"`
+	ScheduleId              *string                      `sqlx:"schedule_id,refTable=schedule,refColumn=id" json:"scheduleId,omitempty"`
+	ConversationId          *string                      `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId,omitempty"`
+	ConversationKind        *string                      `sqlx:"conversation_kind,required=true" json:"conversationKind,omitempty"`
+	Attempt                 *int                         `sqlx:"attempt,required=true" json:"attempt,omitempty"`
+	ResumedFromRunId        *string                      `sqlx:"resumed_from_run_id" json:"resumedFromRunId,omitempty"`
+	ErrorCode               *string                      `sqlx:"error_code" json:"errorCode,omitempty"`
+	ErrorMessage            *string                      `sqlx:"error_message" json:"errorMessage,omitempty"`
+	Iteration               *int                         `sqlx:"iteration,required=true" json:"iteration,omitempty"`
+	MaxIterations           *int                         `sqlx:"max_iterations" json:"maxIterations,omitempty"`
+	CheckpointResponseId    *string                      `sqlx:"checkpoint_response_id" json:"checkpointResponseId,omitempty"`
+	CheckpointMessageId     *string                      `sqlx:"checkpoint_message_id" json:"checkpointMessageId,omitempty"`
+	CheckpointData          *string                      `sqlx:"checkpoint_data" json:"checkpointData,omitempty"`
+	AgentId                 *string                      `sqlx:"agent_id" json:"agentId,omitempty"`
+	ModelProvider           *string                      `sqlx:"model_provider" json:"modelProvider,omitempty"`
+	Model                   *string                      `sqlx:"model" json:"model,omitempty"`
+	WorkerId                *string                      `sqlx:"worker_id" json:"workerId,omitempty"`
+	WorkerPid               *int                         `sqlx:"worker_pid" json:"workerPid,omitempty"`
+	WorkerHost              *string                      `sqlx:"worker_host" json:"workerHost,omitempty"`
+	LeaseOwner              *string                      `sqlx:"lease_owner" json:"leaseOwner,omitempty"`
+	LeaseUntil              *time.Time                   `sqlx:"lease_until" json:"leaseUntil,omitempty"`
+	LastHeartbeatAt         *time.Time                   `sqlx:"last_heartbeat_at" json:"lastHeartbeatAt,omitempty"`
+	SecurityContext         *string                      `sqlx:"security_context" json:"securityContext,omitempty"`
+	EffectiveUserId         *string                      `sqlx:"effective_user_id" json:"effectiveUserId,omitempty"`
+	AuthAuthority           *string                      `sqlx:"auth_authority" json:"authAuthority,omitempty"`
+	AuthAudience            *string                      `sqlx:"auth_audience" json:"authAudience,omitempty"`
+	UserCredUrl             *string                      `sqlx:"user_cred_url" json:"userCredUrl,omitempty"`
+	HeartbeatIntervalSec    *int                         `sqlx:"heartbeat_interval_sec" json:"heartbeatIntervalSec,omitempty"`
+	ScheduledFor            *time.Time                   `sqlx:"scheduled_for" json:"scheduledFor,omitempty"`
+	PreconditionRanAt       *time.Time                   `sqlx:"precondition_ran_at" json:"preconditionRanAt,omitempty"`
+	PreconditionPassed      *int                         `sqlx:"precondition_passed" json:"preconditionPassed,omitempty"`
+	PreconditionResult      *string                      `sqlx:"precondition_result" json:"preconditionResult,omitempty"`
+	UsagePromptTokens       *int                         `sqlx:"usage_prompt_tokens" json:"usagePromptTokens,omitempty"`
+	UsageCompletionTokens   *int                         `sqlx:"usage_completion_tokens" json:"usageCompletionTokens,omitempty"`
+	UsageTotalTokens        *int                         `sqlx:"usage_total_tokens" json:"usageTotalTokens,omitempty"`
+	CreatedAt               *time.Time                   `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
+	UpdatedAt               *time.Time                   `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	StartedAt               *time.Time                   `sqlx:"started_at" json:"startedAt,omitempty"`
+	CompletedAt             *time.Time                   `sqlx:"completed_at" json:"completedAt,omitempty"`
 }
 
 type WriterKeysRow struct {

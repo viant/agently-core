@@ -17,7 +17,6 @@ import (
 	provider "github.com/viant/agently-core/genai/llm/provider"
 	"github.com/viant/agently-core/internal/matcher"
 	"github.com/viant/agently-core/internal/registry"
-	"github.com/viant/agently-core/runtime/usage"
 )
 
 type Finder struct {
@@ -136,21 +135,11 @@ func (d *Finder) Find(ctx context.Context, id string) (llm.Model, error) {
 		d.configRegistry.Add(config.ID, config)
 	}
 
-	// Attach context Usage Aggregator as UsageListener when present and when
-	// the config does not already define one.
-	if agg := usage.FromContext(ctx); agg != nil {
-		if config.Options.UsageListener == nil {
-			// Pass method value so it conforms to base.UsageListener (function type)
-			config.Options.UsageListener = func(model string, u *llm.Usage) {
-				agg.OnUsage(model, u)
-			}
-		}
-	}
-
 	model, err := d.modelFactory.CreateModel(ctx, &config.Options)
 	if err != nil {
 		return nil, err
 	}
+	model = withInvocationUsage(model, config.Options.Model)
 	d.models[id] = model
 	return model, nil
 }

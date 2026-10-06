@@ -1,0 +1,2 @@
+SELECT documents.* FROM  (SELECT p.id,p.run_id,p.kind,p.subtype,p.schema_ref,p.mime_type,p.storage,p.compression,p.digest,p.size_bytes,p.inline_body FROM call_payload p JOIN run r ON r.id=p.run_id WHERE r.run_kind='execution' AND r.effective_user_id=$Owner AND r.conversation_id=$ConversationID AND r.turn_id=$TurnID AND p.id=$ID AND p.run_id=$RunID AND p.kind='attachment' AND p.subtype=$Subtype
+)  documents

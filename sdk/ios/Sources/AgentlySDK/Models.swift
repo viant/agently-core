@@ -793,6 +793,7 @@ public struct PageInput: Codable, Sendable {
 }
 
 public struct Conversation: Codable, Sendable, Identifiable {
+    public let aguiThreadID: String?
     public let id: String
     public let lastTurnID: String?
     public let agentID: String?
@@ -812,6 +813,7 @@ public struct Conversation: Codable, Sendable, Identifiable {
     public let cost: Double?
 
     enum CodingKeys: String, CodingKey {
+        case aguiThreadID = "aguiThreadId"
         case id = "Id"
         case lastTurnID = "LastTurnId"
         case agentID = "AgentId"
@@ -831,6 +833,28 @@ public struct Conversation: Codable, Sendable, Identifiable {
         case cost
     }
 
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: ConversationWireKey.self)
+        aguiThreadID = try container.alias(String.self, keys: ["aguiThreadId"])
+        id = try container.requiredAlias(String.self, keys: ["Id", "id", "ID"])
+        lastTurnID = try container.alias(String.self, keys: ["LastTurnId", "lastTurnId"])
+        agentID = try container.alias(String.self, keys: ["AgentId", "agentId"])
+        title = try container.alias(String.self, keys: ["Title", "title"])
+        summary = try container.alias(String.self, keys: ["Summary", "summary"])
+        stage = try container.alias(String.self, keys: ["Stage", "stage"])
+        visibility = try container.alias(String.self, keys: ["Visibility", "visibility"])
+        shareable = try container.alias(Int.self, keys: ["Shareable", "shareable"])
+        conversationParentID = try container.alias(String.self, keys: ["ConversationParentId", "conversationParentId"])
+        conversationParentTurnID = try container.alias(String.self, keys: ["ConversationParentTurnId", "conversationParentTurnId"])
+        createdAt = try container.alias(String.self, keys: ["CreatedAt", "createdAt"])
+        lastActivity = try container.alias(String.self, keys: ["LastActivity", "lastActivity"])
+        createdByUserID = try container.alias(String.self, keys: ["CreatedByUserId", "createdByUserId"])
+        promptTokens = try container.alias(Int.self, keys: ["UsageInputTokens", "promptTokens"])
+        completionTokens = try container.alias(Int.self, keys: ["UsageOutputTokens", "completionTokens"])
+        totalTokens = try container.alias(Int.self, keys: ["UsageEmbeddingTokens", "totalTokens"])
+        cost = try container.alias(Double.self, keys: ["cost", "Cost"])
+    }
+
     public init(
         id: String,
         lastTurnID: String? = nil,
@@ -848,8 +872,10 @@ public struct Conversation: Codable, Sendable, Identifiable {
         promptTokens: Int? = nil,
         completionTokens: Int? = nil,
         totalTokens: Int? = nil,
-        cost: Double? = nil
+        cost: Double? = nil,
+        aguiThreadID: String? = nil
     ) {
+        self.aguiThreadID = aguiThreadID
         self.id = id
         self.lastTurnID = lastTurnID
         self.agentID = agentID
@@ -882,6 +908,14 @@ public struct ConversationPage: Codable, Sendable {
         case prevCursor = "PrevCursor"
         case hasMore = "HasMore"
     }
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: ConversationWireKey.self)
+        rows = try container.requiredAlias([Conversation].self, keys: ["Rows", "rows"])
+        nextCursor = try container.alias(String.self, keys: ["NextCursor", "nextCursor"])
+        prevCursor = try container.alias(String.self, keys: ["PrevCursor", "prevCursor"])
+        hasMore = try container.alias(Bool.self, keys: ["HasMore", "hasMore"]) ?? false
+    }
+
 }
 
 public struct ListConversationsInput: Codable, Sendable {
@@ -1153,6 +1187,7 @@ public struct QueryOutput: Codable, Sendable {
 }
 
 public struct ConversationStateResponse: Decodable, Sendable {
+    public let aguiThreadID: String?
     public let schemaVersion: String?
     public let conversation: ConversationState?
     public let feeds: [ActiveFeedState]
@@ -1160,6 +1195,7 @@ public struct ConversationStateResponse: Decodable, Sendable {
     public let eventCursor: String?
 
     enum CodingKeys: String, CodingKey {
+        case aguiThreadID = "aguiThreadId"
         case schemaVersion
         case conversation
         case feeds
@@ -1168,12 +1204,14 @@ public struct ConversationStateResponse: Decodable, Sendable {
     }
 
     public init(
+        aguiThreadID: String? = nil,
         schemaVersion: String? = nil,
         conversation: ConversationState? = nil,
         feeds: [ActiveFeedState] = [],
         usage: UsageSummary? = nil,
         eventCursor: String? = nil
     ) {
+        self.aguiThreadID = aguiThreadID
         self.schemaVersion = schemaVersion
         self.conversation = conversation
         self.feeds = feeds
@@ -1183,6 +1221,7 @@ public struct ConversationStateResponse: Decodable, Sendable {
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.aguiThreadID = try container.decodeIfPresent(String.self, forKey: .aguiThreadID)
         self.schemaVersion = try container.decodeIfPresent(String.self, forKey: .schemaVersion)
         self.conversation = try container.decodeIfPresent(ConversationState.self, forKey: .conversation)
         self.feeds = try container.decodeIfPresent([ActiveFeedState].self, forKey: .feeds) ?? []
@@ -1325,6 +1364,12 @@ public struct TurnMessageState: Codable, Sendable {
     public let interim: Int?
     public let mode: String?
     public let status: String?
+
+    public init(messageID: String, role: String, content: String? = nil, renderedContent: RenderedContent? = nil,
+                createdAt: String? = nil, sequence: Int? = nil, interim: Int? = nil, mode: String? = nil, status: String? = nil) {
+        self.messageID = messageID; self.role = role; self.content = content; self.renderedContent = renderedContent
+        self.createdAt = createdAt; self.sequence = sequence; self.interim = interim; self.mode = mode; self.status = status
+    }
 
     enum CodingKeys: String, CodingKey {
         case messageID = "messageId"
@@ -1640,6 +1685,7 @@ public struct ModelUsageState: Codable, Sendable, Equatable {
 public struct ModelStepState: Codable, Sendable, Identifiable {
     public var id: String { modelCallID }
     public let modelCallID: String
+    public let mode: String?
     public let assistantMessageID: String?
     public let executionRole: String?
     public let phase: String?
@@ -1662,6 +1708,7 @@ public struct ModelStepState: Codable, Sendable, Identifiable {
 
     enum CodingKeys: String, CodingKey {
         case modelCallID = "modelCallId"
+        case mode
         case assistantMessageID = "assistantMessageId"
         case executionRole
         case phase
@@ -3895,5 +3942,25 @@ public enum JSONValue: Codable, Sendable, Equatable {
         case .null:
             try container.encodeNil()
         }
+    }
+}
+
+private struct ConversationWireKey: CodingKey {
+    let stringValue: String
+    let intValue: Int? = nil
+    init?(stringValue: String) { self.stringValue = stringValue }
+    init?(intValue: Int) { return nil }
+}
+private extension KeyedDecodingContainer where Key == ConversationWireKey {
+    func alias<T: Decodable>(_ type: T.Type, keys: [String]) throws -> T? {
+        for name in keys {
+            let key = ConversationWireKey(stringValue: name)!
+            if contains(key), let value = try decodeIfPresent(type, forKey: key) { return value }
+        }
+        return nil
+    }
+    func requiredAlias<T: Decodable>(_ type: T.Type, keys: [String]) throws -> T {
+        if let value = try alias(type, keys: keys) { return value }
+        return try decode(type, forKey: ConversationWireKey(stringValue: keys[0])!)
     }
 }

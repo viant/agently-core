@@ -37,6 +37,16 @@ func (entity *MutableRunView) SetId(value string) {
 	}
 	entity.Has.Id = true
 }
+func (entity *MutableRunView) GetRunKind() string {
+	return entity.RunKind
+}
+func (entity *MutableRunView) SetRunKind(value string) {
+	entity.RunKind = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.RunKind = true
+}
 func (entity *MutableRunView) GetStatus() string {
 	return entity.Status
 }
@@ -56,6 +66,186 @@ func (entity *MutableRunView) SetUsageCost(value *float64) {
 		entity.Has = &MutableRunViewHas{}
 	}
 	entity.Has.UsageCost = true
+}
+func (entity *MutableRunView) GetProtocolKey() *string {
+	return entity.ProtocolKey
+}
+func (entity *MutableRunView) SetProtocolKey(value *string) {
+	entity.ProtocolKey = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolKey = true
+}
+func (entity *MutableRunView) GetProtocolStatus() *string {
+	return entity.ProtocolStatus
+}
+func (entity *MutableRunView) SetProtocolStatus(value *string) {
+	entity.ProtocolStatus = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolStatus = true
+}
+func (entity *MutableRunView) GetProtocolTurnId() *string {
+	return entity.ProtocolTurnId
+}
+func (entity *MutableRunView) SetProtocolTurnId(value *string) {
+	entity.ProtocolTurnId = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolTurnId = true
+}
+func (entity *MutableRunView) GetProtocolRunId() *string {
+	return entity.ProtocolRunId
+}
+func (entity *MutableRunView) SetProtocolRunId(value *string) {
+	entity.ProtocolRunId = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolRunId = true
+}
+func (entity *MutableRunView) GetProtocolParentRunId() *string {
+	return entity.ProtocolParentRunId
+}
+func (entity *MutableRunView) SetProtocolParentRunId(value *string) {
+	entity.ProtocolParentRunId = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolParentRunId = true
+}
+func (entity *MutableRunView) GetProtocolPriorRunId() *string {
+	return entity.ProtocolPriorRunId
+}
+func (entity *MutableRunView) SetProtocolPriorRunId(value *string) {
+	entity.ProtocolPriorRunId = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolPriorRunId = true
+}
+func (entity *MutableRunView) GetProtocolClientMessageId() *string {
+	return entity.ProtocolClientMessageId
+}
+func (entity *MutableRunView) SetProtocolClientMessageId(value *string) {
+	entity.ProtocolClientMessageId = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolClientMessageId = true
+}
+func (entity *MutableRunView) GetProtocolResumedByRunId() *string {
+	return entity.ProtocolResumedByRunId
+}
+func (entity *MutableRunView) SetProtocolResumedByRunId(value *string) {
+	entity.ProtocolResumedByRunId = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolResumedByRunId = true
+}
+func (entity *MutableRunView) GetProtocolSourceKey() *string {
+	return entity.ProtocolSourceKey
+}
+func (entity *MutableRunView) SetProtocolSourceKey(value *string) {
+	entity.ProtocolSourceKey = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolSourceKey = true
+}
+func (entity *MutableRunView) GetProtocolInitialTurnKey() *string {
+	return entity.ProtocolInitialTurnKey
+}
+func (entity *MutableRunView) SetProtocolInitialTurnKey(value *string) {
+	entity.ProtocolInitialTurnKey = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolInitialTurnKey = true
+}
+func (entity *MutableRunView) GetProtocolInputHash() *string {
+	return entity.ProtocolInputHash
+}
+func (entity *MutableRunView) SetProtocolInputHash(value *string) {
+	entity.ProtocolInputHash = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolInputHash = true
+}
+func (entity *MutableRunView) GetProtocolInputJson() *string {
+	return entity.ProtocolInputJson
+}
+func (entity *MutableRunView) SetProtocolInputJson(value *string) {
+	entity.ProtocolInputJson = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolInputJson = true
+}
+func (entity *MutableRunView) GetProtocolPendingJson() *string {
+	return entity.ProtocolPendingJson
+}
+func (entity *MutableRunView) SetProtocolPendingJson(value *string) {
+	entity.ProtocolPendingJson = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolPendingJson = true
+}
+func (entity *MutableRunView) GetProtocolRevision() *int {
+	return entity.ProtocolRevision
+}
+func (entity *MutableRunView) SetProtocolRevision(value *int) {
+	entity.ProtocolRevision = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolRevision = true
+}
+func (entity *MutableRunView) GetProtocolLastSequence() *int {
+	return entity.ProtocolLastSequence
+}
+func (entity *MutableRunView) SetProtocolLastSequence(value *int) {
+	entity.ProtocolLastSequence = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolLastSequence = true
+}
+func (entity *MutableRunView) GetProtocolLeaseOwner() *string {
+	return entity.ProtocolLeaseOwner
+}
+func (entity *MutableRunView) SetProtocolLeaseOwner(value *string) {
+	entity.ProtocolLeaseOwner = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolLeaseOwner = true
+}
+func (entity *MutableRunView) GetProtocolLeaseUntil() *time.Time {
+	return entity.ProtocolLeaseUntil
+}
+func (entity *MutableRunView) SetProtocolLeaseUntil(value *time.Time) {
+	entity.ProtocolLeaseUntil = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolLeaseUntil = true
+}
+func (entity *MutableRunView) GetProtocolLeaseRevision() *int {
+	return entity.ProtocolLeaseRevision
+}
+func (entity *MutableRunView) SetProtocolLeaseRevision(value *int) {
+	entity.ProtocolLeaseRevision = value
+	if entity.Has == nil {
+		entity.Has = &MutableRunViewHas{}
+	}
+	entity.Has.ProtocolLeaseRevision = true
 }
 func (entity *MutableRunView) GetTurnId() *string {
 	return entity.TurnId

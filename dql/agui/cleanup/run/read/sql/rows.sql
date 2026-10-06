@@ -1,0 +1,1 @@
+SELECT c.id,c.conversation_id,c.protocol_run_id,c.protocol_status,c.protocol_revision,c.protocol_lease_until FROM run c WHERE c.run_kind='agui' ${predicate.Builder().CombineAnd($predicate.FilterGroup(0, "AND")).Build("AND")}

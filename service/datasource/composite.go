@@ -25,7 +25,7 @@ func (s *Service) runMCPTools(ctx context.Context, backend *dsproto.Backend, inp
 		go func() {
 			defer wg.Done()
 			call := backend.Calls[index]
-			payload, err := s.executeCompositeCall(ctx, call, compositeCallArgs(call, inputs, nil, nil, nil))
+			payload, err := s.executeCompositeCall(ctx, call, compositeCallArgs(call, inputs, nil, nil, nil), backend.RequestMetadata)
 			if err != nil {
 				if call.IgnoreNotFound && isCompositeNotFound(err) {
 					results[index] = []map[string]interface{}{}
@@ -72,7 +72,7 @@ func (s *Service) runMCPFanout(ctx context.Context, backend *dsproto.Backend, in
 		return nil, fmt.Errorf("mcp_fanout backend missing fanout")
 	}
 	fanout := backend.Fanout
-	seedPayload, err := s.executeCompositeCall(ctx, fanout.Seed, compositeCallArgs(fanout.Seed, inputs, nil, nil, nil))
+	seedPayload, err := s.executeCompositeCall(ctx, fanout.Seed, compositeCallArgs(fanout.Seed, inputs, nil, nil, nil), backend.RequestMetadata)
 	if err != nil {
 		return nil, fmt.Errorf("seed %q: %w", fanout.Seed.Method, err)
 	}
@@ -114,7 +114,7 @@ func (s *Service) runMCPFanout(ctx context.Context, backend *dsproto.Backend, in
 				}
 				assignNestedArg(args, fanout.ListArgument.Target, list)
 			}
-			payload, callErr := s.executeCompositeCall(ctx, fanout.Call, args)
+			payload, callErr := s.executeCompositeCall(ctx, fanout.Call, args, backend.RequestMetadata)
 			if callErr != nil {
 				errs[index] = fmt.Errorf("fanout item %d: %w", index, callErr)
 				return
@@ -164,11 +164,11 @@ func compositeCallHasUnmappedValue(call dsproto.MCPCall, inputs, item map[string
 	return false
 }
 
-func (s *Service) executeCompositeCall(ctx context.Context, call dsproto.MCPCall, args map[string]interface{}) (interface{}, error) {
+func (s *Service) executeCompositeCall(ctx context.Context, call dsproto.MCPCall, args map[string]interface{}, metadata []string) (interface{}, error) {
 	if strings.TrimSpace(call.Service) == "" || strings.TrimSpace(call.Method) == "" {
 		return nil, fmt.Errorf("service and method are required")
 	}
-	raw, err := s.executor.Execute(ctx, call.Service+":"+call.Method, expandNestedArgs(args))
+	raw, err := s.executor.Execute(ctx, call.Service+":"+call.Method, transportArguments(expandNestedArgs(args), metadata))
 	if err != nil {
 		return nil, err
 	}

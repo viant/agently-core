@@ -249,6 +249,7 @@ class ConversationStreamTracker(conversationId: String = "") {
 
     fun clear() {
         messages.byId.clear()
+        messages.internalMessageIds.clear()
         messages.activeTurnId = null
         executionGroupsById = linkedMapOf()
         maxHydratedEventSeqByTurnId = linkedMapOf()
@@ -297,6 +298,7 @@ class ConversationStreamTracker(conversationId: String = "") {
         val pendingEvents = if (!hydrated) preHydrationEvents.toList() else emptyList()
         if (!hydrated && pendingEvents.isNotEmpty()) {
             messages.byId.clear()
+        messages.internalMessageIds.clear()
             messages.activeTurnId = null
             executionGroupsById.clear()
             feeds.clear()
@@ -586,6 +588,12 @@ fun applyMessageEvent(buffer: MessageBuffer, event: SSEEvent): MessageUpdate? {
     }
 
     val key = resolveEventMessageId(event)
+    if (isInternalMessageMode(event.mode) && key.isNotBlank()) {
+        buffer.internalMessageIds += key
+        buffer.byId.remove(key)
+    }
+    if (key in buffer.internalMessageIds && event.patch?.get("role")?.toString()?.trim('"') != "user") return null
+
     if (key.isBlank()) return null
 
     return when (normalizedType) {
@@ -595,14 +603,14 @@ fun applyMessageEvent(buffer: MessageBuffer, event: SSEEvent): MessageUpdate? {
             if (expectedOffset != null && existing.content.orEmpty().toByteArray(Charsets.UTF_8).size != expectedOffset) {
                 return null
             }
-            val updated = existing.copy(content = (existing.content ?: "") + (event.content ?: ""))
+            val updated = existing.copy(content = if (event.contentMode == "snapshot") event.content.orEmpty() else (existing.content ?: "") + (event.content ?: ""))
             storeEntry(buffer, key, updated)
             if (turnId.isNotBlank()) buffer.activeTurnId = turnId
             MessageUpdate(key, updated.content.orEmpty(), final = false)
         }
         "reasoning_delta" -> {
             val existing = ensureMessageEntry(buffer, key, event, conversationId, turnId)
-            storeEntry(buffer, key, existing.copy(narration = (existing.narration ?: "") + (event.content ?: "")))
+            storeEntry(buffer, key, existing.copy(narration = if (event.contentMode == "snapshot") event.content.orEmpty() else (existing.narration ?: "") + (event.content ?: "")))
             if (turnId.isNotBlank()) buffer.activeTurnId = turnId
             null
         }
@@ -674,6 +682,10 @@ fun reconcileMessages(buffer: MessageBuffer, serverMessages: List<Message>): Lis
 }
 
 fun reconcileFromTranscript(buffer: MessageBuffer, turns: List<TurnState>) {
+    turns.flatMap { com.viant.agentlysdk.canonicalInternalAssistantMessageIds(it) }.forEach {
+        buffer.internalMessageIds += it; buffer.byId.remove(it)
+    }
+
     val activeTurnId = turns
         .lastOrNull { !isTerminalTurnStatus(it.status) }
         ?.turnId
@@ -682,7 +694,7 @@ fun reconcileFromTranscript(buffer: MessageBuffer, turns: List<TurnState>) {
     val hasActiveBufferedAssistant = activeTurnId != null && buffer.byId.values.any {
         firstString(it.turnId) == activeTurnId && firstString(it.role, "assistant").equals("assistant", true)
     }
-    assistantMessagesFromTurns(turns).forEach {
+    assistantMessagesFromTurns(turns).filterNot { it.id in buffer.internalMessageIds }.forEach {
         if (hasActiveBufferedAssistant && firstString(it.turnId) == activeTurnId) {
             return@forEach
         }
@@ -705,7 +717,7 @@ fun applyExecutionStreamEventToGroups(
     if ((type == "narration" || type == "reasoning_delta") && assistantMessageId.isNotBlank()) {
         val current = ensureLiveExecutionGroup(next, assistantMessageId, event) ?: return next
         val narration = if (type == "reasoning_delta") {
-            "${firstString(current.narration)}${firstString(event.content)}"
+            if (event.contentMode == "snapshot") event.content.orEmpty() else "${firstString(current.narration)}${firstString(event.content)}"
         } else {
             firstString(event.content, event.narration, current.narration)
         }
@@ -725,7 +737,7 @@ fun applyExecutionStreamEventToGroups(
     if ((type == "model_completed" || type == "text_delta") && assistantMessageId.isNotBlank()) {
         val current = ensureLiveExecutionGroup(next, assistantMessageId, event) ?: return next
 		val content = if (type == "text_delta") {
-            "${firstString(current.content)}${firstString(event.content)}"
+            if (event.contentMode == "snapshot") event.content.orEmpty() else "${firstString(current.content)}${firstString(event.content)}"
         } else {
             firstString(event.content, current.content)
         }
@@ -820,7 +832,7 @@ private fun markTurnTerminal(buffer: MessageBuffer, turnId: String, terminalStat
 private fun createLiveExecutionGroup(event: SSEEvent): LiveExecutionGroup {
     val assistantMessageId = firstString(event.assistantMessageId, event.id)
     return LiveExecutionGroup(
-        pageId = assistantMessageId,
+        pageId = firstString(event.pageId, assistantMessageId),
         assistantMessageId = assistantMessageId,
         turnId = firstString(event.turnId).ifBlank { null },
         parentMessageId = firstString(event.parentMessageId).ifBlank { null },

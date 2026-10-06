@@ -66,6 +66,12 @@ func TestRunGuestToolCall_TableDriven(t *testing.T) {
 		expectQueueRow bool
 	}{
 		{
+			name:        "failed_guest_tool_finishes_its_native_turn",
+			input:       &GuestToolCallInput{ConversationID: conversationID, ToolName: "demo:show_widget"},
+			registryErr: io.ErrUnexpectedEOF,
+			expectErr:   "unexpected EOF",
+		},
+		{
 			name: "no_bundle_no_approval_executes_tool_directly",
 			input: &GuestToolCallInput{
 				ConversationID: conversationID,
@@ -173,6 +179,27 @@ func TestRunGuestToolCall_TableDriven(t *testing.T) {
 			}
 
 			out, err := svc.RunGuestToolCall(context.Background(), tc.input)
+			if out != nil && out.TurnID != "" {
+				stored, readErr := convClient.GetConversation(context.Background(), conversationID, apiconv.WithIncludeTranscript(true))
+				require.NoError(t, readErr)
+				found := false
+				for _, turn := range stored.Transcript {
+					if turn.Id != out.TurnID {
+						continue
+					}
+					found = true
+					if out.Status == GuestToolStatusOK {
+						require.Equal(t, "succeeded", turn.Status)
+					}
+					if out.Status == GuestToolStatusFailed {
+						require.Equal(t, "failed", turn.Status)
+					}
+					if out.Status == GuestToolStatusQueued {
+						require.NotContains(t, []string{"succeeded", "failed", "canceled"}, turn.Status)
+					}
+				}
+				require.True(t, found)
+			}
 			if tc.expectErr != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), tc.expectErr)

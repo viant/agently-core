@@ -244,13 +244,20 @@ func (h *Handler) handleOOB() http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("accessToken is required"))
 			return
 		}
+		verified, verifyErr := verifyRawSessionImport(r.Context(), h.cfg, body.IDToken, body.AccessToken, bearerTokenFromRequest(r))
+		if verifyErr != nil {
+			httpError(w, http.StatusUnauthorized, verifyErr)
+			return
+		}
 		var oauthClient *OAuthClient
 		if h != nil && h.cfg != nil && h.cfg.OAuth != nil {
 			oauthClient = h.cfg.OAuth.Client
 		}
-		if err := validateConfiguredOAuthScopes(oauthClient, nil, strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)); err != nil {
-			httpError(w, http.StatusUnauthorized, err)
-			return
+		if verified == nil {
+			if err := validateConfiguredOAuthScopes(oauthClient, nil, strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)); err != nil {
+				httpError(w, http.StatusUnauthorized, err)
+				return
+			}
 		}
 		username := strings.TrimSpace(body.Username)
 		derivedUsername, subject, email, _ := identityFromTokenStrings(strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken))
@@ -268,19 +275,26 @@ func (h *Handler) handleOOB() http.HandlerFunc {
 			Username:  username,
 			Email:     email,
 			Subject:   subject,
-			Provider:  firstNonEmpty(strings.TrimSpace(h.cfg.OAuth.Name), "oauth"),
+			Provider:  configuredOAuthProvider(h.cfg),
 			Scopes:    tokenScopesFromStrings(strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)),
 			CreatedAt: time.Now(),
 		}
+		if verified != nil {
+			sess.Username, sess.Subject, sess.Email, sess.Provider = verified.Username, verified.Subject, verified.Email, verified.Provider
+			sess.Scopes = append([]string(nil), verified.Scopes...)
+		}
 		sess.Tokens = newTokenBundle(body.AccessToken, body.IDToken, body.RefreshToken)
 		sess.Tokens.Expiry = resolveTokenExpiry(strings.TrimSpace(body.ExpiresAt), strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken))
+		if verified != nil {
+			sess.Tokens.Expiry = verified.Expiry
+		}
 		h.sessions.Put(r.Context(), sess)
 
 		// Store tokens in shared provider for downstream use.
 		if h.tokenProvider != nil && sess.EffectiveUserID() != "" && sess.Tokens != nil {
 			if err := h.tokenProvider.Store(r.Context(), token.Key{
 				Subject:  sess.EffectiveUserID(),
-				Provider: effectiveTokenProvider(h.cfg),
+				Provider: firstNonEmpty(sess.Provider, effectiveTokenProvider(h.cfg)),
 			}, sess.Tokens); err != nil {
 				httpError(w, http.StatusInternalServerError, fmt.Errorf("failed to store token: %w", err))
 				return
@@ -345,29 +359,51 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, err)
 			return
 		}
+		bearerToken := bearerTokenFromRequest(r)
+		verified, verifyErr := verifyRawSessionImport(r.Context(), h.cfg, body.IDToken, body.AccessToken, bearerToken)
+		if verifyErr != nil {
+			httpError(w, http.StatusUnauthorized, verifyErr)
+			return
+		}
+		if verified != nil && strings.TrimSpace(body.IDToken) == "" && strings.TrimSpace(body.AccessToken) == "" {
+			body.IDToken = bearerToken
+			body.AccessToken = bearerToken
+		}
 		username := strings.TrimSpace(body.Username)
 		if username == "" {
 			username = "anonymous:" + uuid.New().String()
+		}
+		if verified != nil {
+			username = verified.Username
 		}
 		var oauthClient *OAuthClient
 		if h != nil && h.cfg != nil && h.cfg.OAuth != nil {
 			oauthClient = h.cfg.OAuth.Client
 		}
-		if err := validateConfiguredOAuthScopes(oauthClient, nil, strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)); err != nil {
-			httpError(w, http.StatusUnauthorized, err)
-			return
+		if verified == nil {
+			if err := validateConfiguredOAuthScopes(oauthClient, nil, strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)); err != nil {
+				httpError(w, http.StatusUnauthorized, err)
+				return
+			}
 		}
 		sess := &Session{
 			ID:        uuid.New().String(),
 			Username:  username,
-			Provider:  firstNonEmpty(strings.TrimSpace(h.cfg.OAuth.Name), "oauth"),
+			Provider:  configuredOAuthProvider(h.cfg),
 			Scopes:    tokenScopesFromStrings(strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken), strings.TrimSpace(body.RefreshToken)),
 			CreatedAt: time.Now(),
+		}
+		if verified != nil {
+			sess.Subject, sess.Email, sess.Provider = verified.Subject, verified.Email, verified.Provider
+			sess.Scopes = append([]string(nil), verified.Scopes...)
 		}
 		if body.AccessToken != "" {
 			expiry := resolveTokenExpiry("", strings.TrimSpace(body.IDToken), strings.TrimSpace(body.AccessToken))
 			sess.Tokens = newTokenBundle(body.AccessToken, body.IDToken, body.RefreshToken)
 			sess.Tokens.Expiry = expiry
+			if verified != nil {
+				sess.Tokens.Expiry = verified.Expiry
+			}
 		}
 		h.sessions.Put(r.Context(), sess)
 
@@ -375,7 +411,7 @@ func (h *Handler) handleCreateSession() http.HandlerFunc {
 		if h.tokenProvider != nil && sess.EffectiveUserID() != "" && sess.Tokens != nil {
 			if err := h.tokenProvider.Store(r.Context(), token.Key{
 				Subject:  sess.EffectiveUserID(),
-				Provider: effectiveTokenProvider(h.cfg),
+				Provider: firstNonEmpty(sess.Provider, effectiveTokenProvider(h.cfg)),
 			}, sess.Tokens); err != nil {
 				httpError(w, http.StatusInternalServerError, fmt.Errorf("failed to store token: %w", err))
 				return

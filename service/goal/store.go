@@ -166,3 +166,12 @@ func toDomain(view *goalread.GoalView) (*Goal, error) {
 	}
 	return g, nil
 }
+
+// DatlyInvoker identifies the canonical native participant for transactional
+// application composition; it exposes no DB or transaction handle.
+func (s *dataStore) DatlyInvoker() dexec.ComponentInvoker {
+	if s == nil {
+		return nil
+	}
+	return s.invoker
+}

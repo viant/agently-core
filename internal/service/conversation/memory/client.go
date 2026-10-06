@@ -739,7 +739,7 @@ func (c *Client) PatchModelCall(_ context.Context, in *convcli.MutableModelCall)
 
 // PatchToolCall upserts/attaches tool-call to a message.
 func (c *Client) PatchToolCall(_ context.Context, in *convcli.MutableToolCall) error {
-	if in == nil || in.Has == nil || !in.Has.MessageID || !in.Has.OpID {
+	if in == nil || in.Has == nil || !in.Has.MessageID {
 		return errors.New("missing tool call identifiers")
 	}
 	c.mu.Lock()
@@ -750,6 +750,9 @@ func (c *Client) PatchToolCall(_ context.Context, in *convcli.MutableToolCall) e
 	}
 	tc := c.toolCalls[in.MessageID]
 	if tc == nil {
+		if !in.Has.OpID {
+			return errors.New("missing tool call identifiers")
+		}
 		tc = &conversationmodel.ToolCallView{MessageId: in.MessageID, OpId: in.OpID, Attempt: in.Attempt, ToolName: in.ToolName, ToolKind: in.ToolKind}
 		c.toolCalls[in.MessageID] = tc
 	}

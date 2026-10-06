@@ -126,7 +126,15 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		if msg.Role == llm.RoleTool && msg.ToolCallId != "" {
 			var resultContent interface{}
 			if len(msg.Items) > 0 {
-				resultContent = msg.Items[0].Data
+				var parts []ContentBlock
+				for _, item := range msg.Items {
+					part, err := toolContent(ctx, item)
+					if err != nil {
+						return nil, err
+					}
+					parts = append(parts, part)
+				}
+				resultContent = parts
 			} else if msg.Content != "" {
 				resultContent = msg.Content
 			}
@@ -145,6 +153,13 @@ func ToRequest(ctx context.Context, request *llm.GenerateRequest) (*Request, err
 		claudeMsg := Message{Role: string(msg.Role)}
 
 		for _, item := range msg.Items {
+			if mapped, handled, err := protocolContent(ctx, item); handled {
+				if err != nil {
+					return nil, err
+				}
+				claudeMsg.Content = append(claudeMsg.Content, mapped)
+				continue
+			}
 			switch item.Type {
 			case llm.ContentTypeText:
 				text := item.Text

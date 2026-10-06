@@ -1,0 +1,1617 @@
+{
+  "Event": {
+    "type": "TEXT_MESSAGE_START",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture",
+    "role": "developer",
+    "name": "fixture"
+  },
+  "BaseEvent": {
+    "type": "TEXT_MESSAGE_START",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "Attributable": {
+    "subagentRunId": "fixture"
+  },
+  "Metadata": {
+    "nested": {
+      "null": null,
+      "number": 9007199254740991
+    }
+  },
+  "TextMessageStartEvent": {
+    "type": "TEXT_MESSAGE_START",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture",
+    "role": "developer",
+    "name": "fixture"
+  },
+  "TextMessageContentEvent": {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture",
+    "delta": "fixture"
+  },
+  "TextMessageEndEvent": {
+    "type": "TEXT_MESSAGE_END",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture"
+  },
+  "TextMessageChunkEvent": {
+    "type": "TEXT_MESSAGE_CHUNK",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture",
+    "role": "developer",
+    "delta": "fixture",
+    "name": "fixture"
+  },
+  "ToolCallStartEvent": {
+    "type": "TOOL_CALL_START",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "toolCallId": "fixture",
+    "toolCallName": "fixture",
+    "parentMessageId": "fixture"
+  },
+  "ToolCallArgsEvent": {
+    "type": "TOOL_CALL_ARGS",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "toolCallId": "fixture",
+    "delta": "fixture"
+  },
+  "ToolCallEndEvent": {
+    "type": "TOOL_CALL_END",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "toolCallId": "fixture"
+  },
+  "ToolCallChunkEvent": {
+    "type": "TOOL_CALL_CHUNK",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "toolCallId": "fixture",
+    "toolCallName": "fixture",
+    "parentMessageId": "fixture",
+    "delta": "fixture"
+  },
+  "ToolCallResultEvent": {
+    "type": "TOOL_CALL_RESULT",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture",
+    "toolCallId": "fixture",
+    "content": "fixture",
+    "role": "tool"
+  },
+  "StateSnapshotEvent": {
+    "type": "STATE_SNAPSHOT",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "snapshot": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "StateDeltaEvent": {
+    "type": "STATE_DELTA",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "delta": [
+      {
+        "op": "add",
+        "path": "",
+        "value": {
+          "opaque": [
+            null,
+            false,
+            9007199254740991
+          ]
+        }
+      }
+    ]
+  },
+  "MessagesSnapshotEvent": {
+    "type": "MESSAGES_SNAPSHOT",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "messages": [
+      {
+        "subagentRunId": "fixture",
+        "id": "fixture",
+        "role": "developer",
+        "name": "fixture",
+        "encryptedValue": "fixture",
+        "metadata": {
+          "nested": {
+            "null": null,
+            "number": 9007199254740991
+          }
+        },
+        "content": "fixture"
+      }
+    ]
+  },
+  "ActivitySnapshotEvent": {
+    "type": "ACTIVITY_SNAPSHOT",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture",
+    "activityType": "fixture",
+    "content": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "replace": false
+  },
+  "ActivityDeltaEvent": {
+    "type": "ACTIVITY_DELTA",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture",
+    "activityType": "fixture",
+    "patch": [
+      {
+        "op": "add",
+        "path": "",
+        "value": {
+          "opaque": [
+            null,
+            false,
+            9007199254740991
+          ]
+        }
+      }
+    ]
+  },
+  "RawEvent": {
+    "type": "RAW",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "event": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "source": "fixture"
+  },
+  "CustomEvent": {
+    "type": "CUSTOM",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "name": "fixture",
+    "value": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "RunStartedEvent": {
+    "type": "RUN_STARTED",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "threadId": "fixture",
+    "runId": "fixture",
+    "protocolVersion": "fixture",
+    "parentRunId": "fixture",
+    "input": {
+      "threadId": "fixture",
+      "runId": "fixture",
+      "protocolVersion": "fixture",
+      "parentRunId": "fixture",
+      "state": {
+        "opaque": [
+          null,
+          false,
+          9007199254740991
+        ]
+      },
+      "messages": [
+        {
+          "subagentRunId": "fixture",
+          "id": "fixture",
+          "role": "developer",
+          "name": "fixture",
+          "encryptedValue": "fixture",
+          "metadata": {
+            "nested": {
+              "null": null,
+              "number": 9007199254740991
+            }
+          },
+          "content": "fixture"
+        }
+      ],
+      "tools": [
+        {
+          "name": "fixture",
+          "description": "fixture",
+          "parameters": {
+            "opaque": [
+              null,
+              false,
+              9007199254740991
+            ]
+          },
+          "metadata": {
+            "nested": {
+              "null": null,
+              "number": 9007199254740991
+            }
+          }
+        }
+      ],
+      "context": [
+        {
+          "description": "fixture",
+          "value": "fixture"
+        }
+      ],
+      "forwardedProps": {
+        "opaque": [
+          null,
+          false,
+          9007199254740991
+        ]
+      },
+      "resume": [
+        {
+          "interruptId": "fixture",
+          "status": "resolved",
+          "payload": {
+            "opaque": [
+              null,
+              false,
+              9007199254740991
+            ]
+          },
+          "metadata": {
+            "nested": {
+              "null": null,
+              "number": 9007199254740991
+            }
+          }
+        }
+      ]
+    }
+  },
+  "RunFinishedEvent": {
+    "type": "RUN_FINISHED",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "threadId": "fixture",
+    "runId": "fixture",
+    "result": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "outcome": {
+      "type": "success",
+      "pendingToolCallIds": [
+        "fixture"
+      ]
+    },
+    "usage": [
+      {
+        "provider": "fixture",
+        "model": "fixture",
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "totalTokens": 0,
+        "reasoningTokens": 0,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      }
+    ]
+  },
+  "RunErrorEvent": {
+    "type": "RUN_ERROR",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "message": "fixture",
+    "code": "fixture",
+    "usage": [
+      {
+        "provider": "fixture",
+        "model": "fixture",
+        "inputTokens": 0,
+        "outputTokens": 0,
+        "totalTokens": 0,
+        "reasoningTokens": 0,
+        "cachedInputTokens": 0,
+        "cacheWriteInputTokens": 0
+      }
+    ]
+  },
+  "StepStartedEvent": {
+    "type": "STEP_STARTED",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "stepName": "fixture"
+  },
+  "StepFinishedEvent": {
+    "type": "STEP_FINISHED",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "stepName": "fixture"
+  },
+  "ReasoningStartEvent": {
+    "type": "REASONING_START",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture"
+  },
+  "ReasoningMessageStartEvent": {
+    "type": "REASONING_MESSAGE_START",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture",
+    "role": "reasoning"
+  },
+  "ReasoningMessageContentEvent": {
+    "type": "REASONING_MESSAGE_CONTENT",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture",
+    "delta": "fixture"
+  },
+  "ReasoningMessageEndEvent": {
+    "type": "REASONING_MESSAGE_END",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture"
+  },
+  "ReasoningMessageChunkEvent": {
+    "type": "REASONING_MESSAGE_CHUNK",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture",
+    "delta": "fixture"
+  },
+  "ReasoningEndEvent": {
+    "type": "REASONING_END",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "messageId": "fixture"
+  },
+  "ReasoningEncryptedValueEvent": {
+    "type": "REASONING_ENCRYPTED_VALUE",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "subtype": "tool-call",
+    "entityId": "fixture",
+    "encryptedValue": "fixture"
+  },
+  "SubagentStartedEvent": {
+    "type": "SUBAGENT_STARTED",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "name": "fixture",
+    "description": "fixture",
+    "parentSubagentRunId": "fixture",
+    "parentToolCallId": "fixture",
+    "parentMessageId": "fixture"
+  },
+  "SubagentFinishedEvent": {
+    "type": "SUBAGENT_FINISHED",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "result": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "outcome": {
+      "type": "success"
+    }
+  },
+  "SubagentErrorEvent": {
+    "type": "SUBAGENT_ERROR",
+    "timestamp": 0,
+    "rawEvent": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "subagentRunId": "fixture",
+    "message": "fixture",
+    "code": "fixture"
+  },
+  "RunFinishedOutcome": {
+    "type": "success",
+    "pendingToolCallIds": [
+      "fixture"
+    ]
+  },
+  "RunFinishedSuccessOutcome": {
+    "type": "success",
+    "pendingToolCallIds": [
+      "fixture"
+    ]
+  },
+  "RunFinishedInterruptOutcome": {
+    "type": "interrupt",
+    "interrupts": [
+      {
+        "subagentRunId": "fixture",
+        "id": "fixture",
+        "reason": "fixture",
+        "message": "fixture",
+        "toolCallId": "fixture",
+        "responseSchema": {
+          "nested": {
+            "null": null,
+            "number": 9007199254740991
+          }
+        },
+        "expiresAt": "fixture",
+        "metadata": {
+          "nested": {
+            "null": null,
+            "number": 9007199254740991
+          }
+        }
+      }
+    ]
+  },
+  "RunFinishedCancelledOutcome": {
+    "type": "cancelled"
+  },
+  "SubagentFinishedOutcome": {
+    "type": "success"
+  },
+  "SubagentFinishedSuccessOutcome": {
+    "type": "success"
+  },
+  "SubagentFinishedSuspendedOutcome": {
+    "type": "suspended",
+    "interruptIds": [
+      "fixture"
+    ]
+  },
+  "Interrupt": {
+    "subagentRunId": "fixture",
+    "id": "fixture",
+    "reason": "fixture",
+    "message": "fixture",
+    "toolCallId": "fixture",
+    "responseSchema": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "expiresAt": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "ResumeEntry": {
+    "interruptId": "fixture",
+    "status": "resolved",
+    "payload": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "TokenUsage": {
+    "provider": "fixture",
+    "model": "fixture",
+    "inputTokens": 0,
+    "outputTokens": 0,
+    "totalTokens": 0,
+    "reasoningTokens": 0,
+    "cachedInputTokens": 0,
+    "cacheWriteInputTokens": 0
+  },
+  "Message": {
+    "subagentRunId": "fixture",
+    "id": "fixture",
+    "role": "developer",
+    "name": "fixture",
+    "encryptedValue": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "content": "fixture"
+  },
+  "BaseMessage": {
+    "subagentRunId": "fixture",
+    "id": "fixture",
+    "role": "fixture",
+    "name": "fixture",
+    "encryptedValue": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "DeveloperMessage": {
+    "subagentRunId": "fixture",
+    "id": "fixture",
+    "role": "developer",
+    "name": "fixture",
+    "encryptedValue": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "content": "fixture"
+  },
+  "SystemMessage": {
+    "subagentRunId": "fixture",
+    "id": "fixture",
+    "role": "system",
+    "name": "fixture",
+    "encryptedValue": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "content": "fixture"
+  },
+  "AssistantMessage": {
+    "subagentRunId": "fixture",
+    "id": "fixture",
+    "role": "assistant",
+    "name": "fixture",
+    "encryptedValue": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "content": "fixture",
+    "toolCalls": [
+      {
+        "id": "fixture",
+        "type": "function",
+        "function": {
+          "name": "fixture",
+          "arguments": "fixture"
+        },
+        "encryptedValue": "fixture",
+        "metadata": {
+          "nested": {
+            "null": null,
+            "number": 9007199254740991
+          }
+        }
+      }
+    ]
+  },
+  "UserMessage": {
+    "subagentRunId": "fixture",
+    "id": "fixture",
+    "role": "user",
+    "name": "fixture",
+    "encryptedValue": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "content": "fixture"
+  },
+  "ToolMessage": {
+    "subagentRunId": "fixture",
+    "id": "fixture",
+    "role": "tool",
+    "content": "fixture",
+    "toolCallId": "fixture",
+    "error": "fixture",
+    "encryptedValue": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "ActivityMessage": {
+    "subagentRunId": "fixture",
+    "id": "fixture",
+    "role": "activity",
+    "activityType": "fixture",
+    "content": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "ReasoningMessage": {
+    "subagentRunId": "fixture",
+    "id": "fixture",
+    "role": "reasoning",
+    "content": "fixture",
+    "encryptedValue": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "ToolCall": {
+    "id": "fixture",
+    "type": "function",
+    "function": {
+      "name": "fixture",
+      "arguments": "fixture"
+    },
+    "encryptedValue": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "FunctionCall": {
+    "name": "fixture",
+    "arguments": "fixture"
+  },
+  "ContentPart": {
+    "type": "text",
+    "id": "fixture",
+    "text": "fixture",
+    "metadata": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "TextPart": {
+    "type": "text",
+    "id": "fixture",
+    "text": "fixture",
+    "metadata": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "ImagePart": {
+    "type": "image",
+    "id": "fixture",
+    "source": {
+      "type": "data",
+      "value": "fixture",
+      "mimeType": "fixture"
+    },
+    "metadata": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "AudioPart": {
+    "type": "audio",
+    "id": "fixture",
+    "source": {
+      "type": "data",
+      "value": "fixture",
+      "mimeType": "fixture"
+    },
+    "metadata": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "VideoPart": {
+    "type": "video",
+    "id": "fixture",
+    "source": {
+      "type": "data",
+      "value": "fixture",
+      "mimeType": "fixture"
+    },
+    "metadata": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "DocumentPart": {
+    "type": "document",
+    "id": "fixture",
+    "source": {
+      "type": "data",
+      "value": "fixture",
+      "mimeType": "fixture"
+    },
+    "metadata": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "PartSource": {
+    "type": "data",
+    "value": "fixture",
+    "mimeType": "fixture"
+  },
+  "DataSource": {
+    "type": "data",
+    "value": "fixture",
+    "mimeType": "fixture"
+  },
+  "UrlSource": {
+    "type": "url",
+    "value": "fixture",
+    "mimeType": "fixture"
+  },
+  "FileSource": {
+    "type": "file",
+    "value": "fixture",
+    "provider": "fixture",
+    "mimeType": "fixture"
+  },
+  "Context": {
+    "description": "fixture",
+    "value": "fixture"
+  },
+  "Tool": {
+    "name": "fixture",
+    "description": "fixture",
+    "parameters": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "RunAgentInput": {
+    "threadId": "fixture",
+    "runId": "fixture",
+    "protocolVersion": "fixture",
+    "parentRunId": "fixture",
+    "state": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "messages": [
+      {
+        "subagentRunId": "fixture",
+        "id": "fixture",
+        "role": "developer",
+        "name": "fixture",
+        "encryptedValue": "fixture",
+        "metadata": {
+          "nested": {
+            "null": null,
+            "number": 9007199254740991
+          }
+        },
+        "content": "fixture"
+      }
+    ],
+    "tools": [
+      {
+        "name": "fixture",
+        "description": "fixture",
+        "parameters": {
+          "opaque": [
+            null,
+            false,
+            9007199254740991
+          ]
+        },
+        "metadata": {
+          "nested": {
+            "null": null,
+            "number": 9007199254740991
+          }
+        }
+      }
+    ],
+    "context": [
+      {
+        "description": "fixture",
+        "value": "fixture"
+      }
+    ],
+    "forwardedProps": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    },
+    "resume": [
+      {
+        "interruptId": "fixture",
+        "status": "resolved",
+        "payload": {
+          "opaque": [
+            null,
+            false,
+            9007199254740991
+          ]
+        },
+        "metadata": {
+          "nested": {
+            "null": null,
+            "number": 9007199254740991
+          }
+        }
+      }
+    ]
+  },
+  "SubagentInfo": {
+    "name": "fixture",
+    "description": "fixture"
+  },
+  "IdentityCapabilities": {
+    "name": "fixture",
+    "type": "fixture",
+    "description": "fixture",
+    "version": "fixture",
+    "provider": "fixture",
+    "documentationUrl": "fixture",
+    "metadata": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "TransportCapabilities": {
+    "streaming": false,
+    "websocket": false,
+    "httpBinary": false,
+    "pushNotifications": false,
+    "resumable": false
+  },
+  "ToolsCapabilities": {
+    "supported": false,
+    "items": [
+      {
+        "name": "fixture",
+        "description": "fixture",
+        "parameters": {
+          "opaque": [
+            null,
+            false,
+            9007199254740991
+          ]
+        },
+        "metadata": {
+          "nested": {
+            "null": null,
+            "number": 9007199254740991
+          }
+        }
+      }
+    ],
+    "parallelCalls": false,
+    "clientProvided": false
+  },
+  "OutputCapabilities": {
+    "structuredOutput": false,
+    "supportedMimeTypes": [
+      "fixture"
+    ]
+  },
+  "StateCapabilities": {
+    "snapshots": false,
+    "deltas": false,
+    "memory": false,
+    "persistentState": false
+  },
+  "MultiAgentCapabilities": {
+    "supported": false,
+    "delegation": false,
+    "handoffs": false,
+    "subagents": [
+      {
+        "name": "fixture",
+        "description": "fixture"
+      }
+    ]
+  },
+  "ReasoningCapabilities": {
+    "supported": false,
+    "streaming": false,
+    "encrypted": false
+  },
+  "MultimodalInputCapabilities": {
+    "image": false,
+    "audio": false,
+    "video": false,
+    "pdf": false,
+    "file": false
+  },
+  "MultimodalOutputCapabilities": {
+    "image": false,
+    "audio": false
+  },
+  "MultimodalCapabilities": {
+    "input": {
+      "image": false,
+      "audio": false,
+      "video": false,
+      "pdf": false,
+      "file": false
+    },
+    "output": {
+      "image": false,
+      "audio": false
+    }
+  },
+  "ExecutionCapabilities": {
+    "codeExecution": false,
+    "sandboxed": false,
+    "maxIterations": 0,
+    "maxExecutionTime": 0
+  },
+  "HumanInTheLoopCapabilities": {
+    "supported": false,
+    "approvals": false,
+    "interventions": false,
+    "feedback": false,
+    "interrupts": false,
+    "approveWithEdits": false
+  },
+  "AgentCapabilities": {
+    "identity": {
+      "name": "fixture",
+      "type": "fixture",
+      "description": "fixture",
+      "version": "fixture",
+      "provider": "fixture",
+      "documentationUrl": "fixture",
+      "metadata": {
+        "nested": {
+          "null": null,
+          "number": 9007199254740991
+        }
+      }
+    },
+    "transport": {
+      "streaming": false,
+      "websocket": false,
+      "httpBinary": false,
+      "pushNotifications": false,
+      "resumable": false
+    },
+    "tools": {
+      "supported": false,
+      "items": [
+        {
+          "name": "fixture",
+          "description": "fixture",
+          "parameters": {
+            "opaque": [
+              null,
+              false,
+              9007199254740991
+            ]
+          },
+          "metadata": {
+            "nested": {
+              "null": null,
+              "number": 9007199254740991
+            }
+          }
+        }
+      ],
+      "parallelCalls": false,
+      "clientProvided": false
+    },
+    "output": {
+      "structuredOutput": false,
+      "supportedMimeTypes": [
+        "fixture"
+      ]
+    },
+    "state": {
+      "snapshots": false,
+      "deltas": false,
+      "memory": false,
+      "persistentState": false
+    },
+    "multiAgent": {
+      "supported": false,
+      "delegation": false,
+      "handoffs": false,
+      "subagents": [
+        {
+          "name": "fixture",
+          "description": "fixture"
+        }
+      ]
+    },
+    "reasoning": {
+      "supported": false,
+      "streaming": false,
+      "encrypted": false
+    },
+    "multimodal": {
+      "input": {
+        "image": false,
+        "audio": false,
+        "video": false,
+        "pdf": false,
+        "file": false
+      },
+      "output": {
+        "image": false,
+        "audio": false
+      }
+    },
+    "execution": {
+      "codeExecution": false,
+      "sandboxed": false,
+      "maxIterations": 0,
+      "maxExecutionTime": 0
+    },
+    "humanInTheLoop": {
+      "supported": false,
+      "approvals": false,
+      "interventions": false,
+      "feedback": false,
+      "interrupts": false,
+      "approveWithEdits": false
+    },
+    "custom": {
+      "nested": {
+        "null": null,
+        "number": 9007199254740991
+      }
+    }
+  },
+  "JsonPatchOperation": {
+    "op": "add",
+    "path": "",
+    "value": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "AddOperation": {
+    "op": "add",
+    "path": "",
+    "value": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "RemoveOperation": {
+    "op": "remove",
+    "path": ""
+  },
+  "ReplaceOperation": {
+    "op": "replace",
+    "path": "",
+    "value": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "MoveOperation": {
+    "op": "move",
+    "from": "",
+    "path": ""
+  },
+  "CopyOperation": {
+    "op": "copy",
+    "from": "",
+    "path": ""
+  },
+  "TestOperation": {
+    "op": "test",
+    "path": "",
+    "value": {
+      "opaque": [
+        null,
+        false,
+        9007199254740991
+      ]
+    }
+  },
+  "ToolCallResultEventContent": "fixture",
+  "UserMessageContent": "fixture",
+  "ToolMessageContent": "fixture"
+}

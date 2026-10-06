@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/protocol/tool"
+	"github.com/viant/agently-core/runtime/clienttool"
 	"strconv"
 	"strings"
 	"time"
@@ -281,6 +283,38 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		b.History.LastResponse = nil
 	}
 	b.Context = input.Context
+
+	if session := clienttool.FromContext(ctx); session != nil {
+		definitions := session.Definitions()
+		if profileDisablesTools && len(definitions) > 0 {
+			return nil, fmt.Errorf("client tools are disabled by the selected prompt profile")
+		}
+		if s.registry != nil {
+			backend := s.registry.Definitions()
+			if lister, ok := s.registry.(tool.ContextDefinitionLister); ok {
+				backend = lister.DefinitionsWithContext(ctx)
+			}
+			if err := session.ValidateBackend(backend); err != nil {
+				return nil, err
+			}
+		}
+		exposed := make([]llm.ToolDefinition, 0, len(b.Tools.Signatures))
+		for _, definition := range b.Tools.Signatures {
+			if definition != nil {
+				exposed = append(exposed, *definition)
+			}
+		}
+		if err := session.ValidateBackend(exposed); err != nil {
+			return nil, err
+		}
+		for _, definition := range definitions {
+			definition := definition
+			b.Tools.Signatures = append(b.Tools.Signatures, &definition)
+		}
+		if len(definitions) > 0 && b.Model != "" && s.llm != nil {
+			b.Flags.CanUseTool = s.llm.ModelImplements(ctx, b.Model, base.CanUseTools)
+		}
+	}
 
 	// Expose tool availability flags for templates (dynamic tool selection).
 	// Avoid mutating input.Context directly by working on a copy.
