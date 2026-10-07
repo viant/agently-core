@@ -33,7 +33,7 @@ require (
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.24.1-0.20261005185040-e3fb56e588cd
 	github.com/viant/mcp-protocol v0.19.1-0.20261005144737-c504db7a02bb
-	github.com/viant/mcp-ui v0.2.0
+	github.com/viant/mcp-ui v0.2.1-0.20261007203211-e2befc0bbbaf
 	github.com/viant/parsly v0.3.3
 	github.com/viant/scy v0.35.1-0.20260914041206-699e6c909726
 	github.com/viant/toolbox v0.39.0
