@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/google/uuid"
+	"github.com/viant/agently-core/service/browsermcp"
 	"io"
 	"log"
 	"net/http"
@@ -262,6 +263,16 @@ func handleAGUIDurable(client Client, runtime aguiRuntime, authCfg *svcauth.Conf
 			httpError(w, 400, err)
 			return
 		}
+		var browserRegistry *browsermcp.Registry
+		if len(bindings) > 0 {
+			browserRegistry = bindings[0].BrowserMCP
+		}
+		verifiedBrowserTools, browserErr := browserRegistry.Validate(ctx, userID, input.ThreadID, input.Tools)
+		if browserErr != nil {
+			httpError(w, 403, browserErr)
+			return
+		}
+		ctx = browsermcp.WithDefinitions(ctx, verifiedBrowserTools)
 		session, err := aguiClientToolSession(&input)
 		if err != nil {
 			httpError(w, 400, err)

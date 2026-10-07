@@ -939,6 +939,7 @@ export interface WorkspaceAssetDescriptor {
 }
 
 export interface WorkspaceMetadata {
+    browserMCP?: import('./browserMCP').BrowserMCPDescriptor[];
     workspaceId?: string;
     uiStyles?: WorkspaceAssetDescriptor;
     uiThemes?: WorkspaceAssetDescriptor;

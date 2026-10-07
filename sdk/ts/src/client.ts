@@ -1,3 +1,4 @@
+import { BrowserMCPHost, type BrowserMCPHostOptions, type BrowserMCPCatalog, type BrowserMCPAppActivity } from './browserMCP';
 import type { ReportRun, ReportContext, ReportRunResult, BeginReportRunInput, CompleteReportRunInput, AdoptReportRunInput, ReportExportJob, ReportArtifact, ReportAuditEvent } from "./types";
 import type {ListSkillsInput, ListSkillsOutput, ActivateSkillInput, ActivateSkillOutput} from './types';
 /**
@@ -59,6 +60,8 @@ export interface SessionDebugOptions {
 }
 
 export interface ClientOptions {
+    /** Generic browser-local MCP support, selected only by authenticated MCP config. */
+    browserMCP?: BrowserMCPHostOptions;
     /** Observe native mobile/CLI/scheduler work through the explicitly scoped application channel. */
     observeNativeWork?: boolean;
     /** Base URL including /v1 prefix, e.g. "http://localhost:8585/v1" */
@@ -124,6 +127,7 @@ export class AgentlyClient {
     private onUnauthorizedHook?: (error: HttpError) => void;
     private sessionDebug?: SessionDebugOptions;
     private agUiInteractions: AgUiConversationTransport;
+    private browserMCP?: BrowserMCPHost;
     private observeNativeWork = false;
     private nativeObservers = new Set<{ close(): void }>();
     private protocolSessionGeneration = 0;
@@ -216,8 +220,18 @@ export class AgentlyClient {
         this.onUnauthorizedHook = opts.onUnauthorized;
         this.sessionDebug = opts.sessionDebug;
         this.observeNativeWork = opts.observeNativeWork === true;
-        this.agUiInteractions = new AgUiConversationTransport(this, options => new AgUiViewProjection(options));
+        if (opts.browserMCP) this.browserMCP = new BrowserMCPHost({
+            descriptors: async () => (await this.getWorkspaceMetadata()).browserMCP ?? [],
+            register: input => this.post<BrowserMCPCatalog>('/mcp/browser/catalog', input),
+            revoke: id => this.del(`/mcp/browser/catalog/${enc(id)}`),
+            current: id => this.get<BrowserMCPCatalog>(`/mcp/browser/catalog/${enc(id)}`),
+        }, opts.browserMCP);
+        this.agUiInteractions = new AgUiConversationTransport(this, options => new AgUiViewProjection(options), this.browserMCP);
     }
+
+    subscribeBrowserMCPApps(listener: () => void): () => void { return this.browserMCP?.subscribeApps(listener) ?? (() => {}); }
+    browserMCPAppActivities(conversationId: string): BrowserMCPAppActivity[] { return this.browserMCP?.appActivities(conversationId) ?? []; }
+    browserMCPAppProxy(activity: BrowserMCPAppActivity) { if (!this.browserMCP) throw new Error('Browser app host unavailable'); return this.browserMCP.appProxy(activity); }
 
     // ── Conversations ────────────────────────────────────────────────────────
 

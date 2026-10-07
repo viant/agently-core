@@ -195,6 +195,9 @@ func (m *Manager) PreflightCredential(ctx context.Context, serverName string) er
 		return nil
 	}
 	opts, err := m.prov.Options(ctx, strings.TrimSpace(serverName))
+	if err == nil && opts != nil && opts.IsBrowserExecution() {
+		return ErrBrowserExecutionRequired
+	}
 	if err != nil || opts == nil || opts.ClientOptions == nil || opts.ClientOptions.Auth == nil {
 		return err
 	}
@@ -280,7 +283,22 @@ func (m *Manager) Names(ctx context.Context) ([]string, error) {
 	if !ok {
 		return nil, nil
 	}
-	return lister.Names(ctx)
+	names, err := lister.Names(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := []string{}
+	for _, name := range names {
+		options, e := browserOptions(ctx, m.prov, name)
+		if e != nil {
+			return nil, e
+		}
+		if options != nil && options.IsBrowserExecution() {
+			continue
+		}
+		out = append(out, name)
+	}
+	return out, nil
 }
 
 // Get returns an MCP client for (user+convID, serverName), creating it if needed.
@@ -289,6 +307,21 @@ func (m *Manager) Names(ctx context.Context) ([]string, error) {
 func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
 	if m.prov == nil {
 		return nil, errors.New("mcp manager: provider not configured")
+	}
+	configured, configErr := m.prov.Options(ctx, serverName)
+	if configErr != nil {
+		return nil, configErr
+	}
+	if configured != nil {
+		if err := configured.ValidateExecutionLocation(); err != nil {
+			return nil, err
+		}
+		if configured.IsBrowserExecution() {
+			if _, err := configured.BrowserDescriptor(serverName); err != nil {
+				return nil, err
+			}
+			return nil, ErrBrowserExecutionRequired
+		}
 	}
 	key := m.poolKey(ctx, convID)
 	m.mu.Lock()
@@ -391,6 +424,12 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	}
 	if opts == nil {
 		return nil, errors.New("mcp manager: nil client options")
+	}
+	if err := opts.ValidateExecutionLocation(); err != nil {
+		return nil, err
+	}
+	if opts.IsBrowserExecution() {
+		return nil, ErrBrowserExecutionRequired
 	}
 	if opts.ClientOptions == nil {
 		return nil, errors.New("mcp manager: missing client options")

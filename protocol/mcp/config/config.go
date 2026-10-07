@@ -18,6 +18,9 @@ type Group[T any] struct {
 
 // MCPClient augments mcp.ClientOptions with optional discovery descriptions and metadata.
 type MCPClient struct {
+	ExecutionLocation  string            `json:"executionLocation,omitempty" yaml:"executionLocation,omitempty"`
+	BrowserTransport   *BrowserTransport `json:"browserTransport,omitempty" yaml:"browserTransport,omitempty"`
+	BrowserTools       []string          `json:"browserTools,omitempty" yaml:"browserTools,omitempty"`
 	*mcp.ClientOptions `yaml:",inline" json:",inline"`
 	SkillDiscovery     *SkillDiscovery        `yaml:"skillDiscovery,omitempty" json:"skillDiscovery,omitempty"`
 	Async              []*asynccfg.Config     `yaml:"async,omitempty" json:"async,omitempty"`
