@@ -209,6 +209,8 @@ export type ClientElicitationStatus =
     | 'failed';
 
 export interface ClientElicitation extends EntityIdentity {
+    mode?: string;
+    url?: string;
     elicitationId?: string;
     status?: ClientElicitationStatus;
     message?: string;
@@ -590,6 +592,8 @@ export interface CanonicalToolStepState {
 }
 
 export interface CanonicalElicitationState {
+    mode?: string;
+    url?: string;
     elicitationId?: string;
     // Historical wire aliases are normalized before becoming client state.
     status?: ClientElicitationStatus | 'cancel' | 'cancelled';

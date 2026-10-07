@@ -534,7 +534,19 @@ func (s *mcpLinkService) completeCallback(ctx context.Context, code, stateBlob s
 		return nil, errMCPLinkFailed
 	}
 	scopes := normalizeScopes(payload.Scopes)
-	token, err := s.exchangeCode(ctx, cloneOAuthConfigWithScopes(oauthCfg, scopes), code, payload.RedirectURI, payload.CodeVerifier, payload.Resource)
+	responsePolicy, err := tokenResponsePolicy(ctx, s.delegated.registry, link.resolved, link.requirement, oauthCfg)
+	if err != nil {
+		authlog.Log(ctx, authlog.Event{Op: "mcp_auth_link_failed", Provider: link.resolved.refKey, Classification: "token_response_policy", Action: "reject", Err: err})
+		return nil, errMCPLinkFailed
+	}
+	if responsePolicy != nil && !exactURLEqual(payload.Resource, responsePolicy.Resource) {
+		return nil, errMCPLinkFailed
+	}
+	exchangeCtx := ctx
+	if responsePolicy != nil {
+		exchangeCtx = pinnedTokenExchangeContext(ctx)
+	}
+	token, err := s.exchangeCode(exchangeCtx, cloneOAuthConfigWithScopes(oauthCfg, scopes), code, payload.RedirectURI, payload.CodeVerifier, payload.Resource)
 	if err != nil {
 		// The state is already consumed: the user starts a new authorization
 		// flow, which is exactly the mandated recovery.
@@ -548,9 +560,15 @@ func (s *mcpLinkService) completeCallback(ctx context.Context, code, stateBlob s
 		})
 		return nil, errMCPLinkFailed
 	}
-	grant, err := s.validateGrant(ctx, link, token, payload.Nonce)
+	var grant *verifiedGrant
+	if responsePolicy != nil {
+		grant, err = validateTokenResponse(responsePolicy, link.requirement, token, nil, s.now())
+	} else {
+		grant, err = s.validateGrant(ctx, link, token, payload.Nonce)
+	}
 	if err != nil {
 		s.auditLink(ctx, canonicalUserID, payload.ServerName, link.resolved.refKey, "mcp_auth_link_failed", "token_validation_failed")
+		authlog.Log(ctx, authlog.Event{Op: "mcp_auth_link_failed", Provider: link.resolved.refKey, Classification: "grant_validation", Action: "reject", Err: err})
 		return nil, errMCPLinkFailed
 	}
 	if err := s.persistVerifiedGrant(ctx, link, token, grant, canonicalUserID, effectiveUserID); err != nil {

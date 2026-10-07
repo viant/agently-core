@@ -45,6 +45,9 @@ type MCPClient struct {
 	// reused from the shared registry; private catalogs are discovered lazily
 	// and cached under the authenticated principal identity.
 	ToolsListVisibility string `yaml:"toolsListVisibility,omitempty" json:"toolsListVisibility,omitempty"`
+	// ProtectedResourceMetadataURL pins a path-specific RFC 9728 document
+	// when the origin-wide document describes a different MCP resource.
+	ProtectedResourceMetadataURL string `yaml:"protectedResourceMetadataURL,omitempty" json:"protectedResourceMetadataURL,omitempty"`
 }
 
 const (

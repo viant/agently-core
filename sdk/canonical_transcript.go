@@ -109,9 +109,9 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 				}
 			}
 		}
-		// Collect elicitation state from the assistant prompt. User messages with
+		// Collect elicitation state from assistant and control prompts. User messages with
 		// the same elicitation_id are responses and must not overwrite it.
-		if role == "assistant" && msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
+		if (role == "assistant" || role == "control") && msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
 			setElicitationState(ts, buildElicitationState(msg))
 		}
 		// Collect linked conversations from messages
@@ -198,6 +198,8 @@ func buildElicitationState(msg *conversationmodel.MessageView) *ElicitationState
 	// Use enriched elicitation map if available (populated by enrichTranscriptElicitations).
 	// This avoids parsing requestedSchema from embedded content JSON.
 	if msg.Elicitation != nil {
+		es.Mode, _ = msg.Elicitation["mode"].(string)
+		es.URL, _ = msg.Elicitation["url"].(string)
 		if schema, ok := msg.Elicitation["requestedSchema"]; ok {
 			es.RequestedSchema = marshalToRawJSON(schema)
 		}
@@ -218,6 +220,8 @@ func buildElicitationState(msg *conversationmodel.MessageView) *ElicitationState
 	if content := stringValue(msg.Content); content != "" {
 		var payload map[string]interface{}
 		if json.Unmarshal([]byte(content), &payload) == nil {
+			es.Mode, _ = payload["mode"].(string)
+			es.URL, _ = payload["url"].(string)
 			if schema, ok := payload["requestedSchema"]; ok {
 				es.RequestedSchema = marshalToRawJSON(schema)
 			}

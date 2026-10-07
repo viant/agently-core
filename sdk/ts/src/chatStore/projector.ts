@@ -149,6 +149,8 @@ export interface RoundRenderView extends HostTrust {
 }
 
 export interface ElicitationRenderView extends HostTrust {
+    mode?: string;
+    url?: string;
     renderKey: string;
     elicitationId?: string;
     status?: ClientElicitation['status'];
@@ -651,6 +653,8 @@ function projectElicitations(turn: ClientTurnState): ElicitationRenderView[] {
 function projectElicitation(elicitation: ClientElicitation | null | undefined): ElicitationRenderView | null {
     if (!elicitation) return null;
     return {
+        mode: elicitation.mode,
+        url: elicitation.url,
         renderKey: elicitation.renderKey,
         elicitationId: elicitation.elicitationId,
         status: elicitation.status,

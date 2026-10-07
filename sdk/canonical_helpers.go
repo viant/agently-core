@@ -596,6 +596,8 @@ func applyElicitationRequested(turn *TurnState, event *streaming.Event) {
 		RequestedSchema: marshalToRawJSON(event.ElicitationData),
 		CallbackURL:     strings.TrimSpace(event.CallbackURL),
 	}
+	turn.Elicitation.Mode, _ = event.ElicitationData["mode"].(string)
+	turn.Elicitation.URL, _ = event.ElicitationData["url"].(string)
 }
 
 func applyElicitationResolved(turn *TurnState, event *streaming.Event) {

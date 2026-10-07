@@ -208,6 +208,8 @@ type AsyncOperationState struct {
 }
 
 type ElicitationState struct {
+	Mode            string            `json:"mode,omitempty"`
+	URL             string            `json:"url,omitempty"`
 	ElicitationID   string            `json:"elicitationId"`
 	Status          ElicitationStatus `json:"status"`
 	Message         string            `json:"message,omitempty"`
