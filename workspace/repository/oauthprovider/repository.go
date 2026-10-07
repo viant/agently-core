@@ -22,9 +22,22 @@ type Document struct {
 	Disabled bool `yaml:"disabled,omitempty" json:"disabled,omitempty"`
 
 	// Introspection configures the trusted RFC 7662 endpoint used to validate
-	// opaque access tokens. Providers without it cannot be used for delegated
-	// opaque-token authentication — validation fails closed.
+	// opaque access tokens, including client-supplied grants. Without this or
+	// an explicit server-exchange TokenResponse policy, opaque grants fail closed.
 	Introspection *Introspection `yaml:"introspection,omitempty" json:"introspection,omitempty"`
+
+	// TokenResponse opts into opaque grants obtained by this server's bound
+	// authorization-code exchange. It never permits raw token imports.
+	TokenResponse *TokenResponse `yaml:"tokenResponse,omitempty" json:"tokenResponse,omitempty"`
+}
+
+// TokenResponse pins the trusted token endpoint and resource for providers
+// without signed access tokens or complete RFC 7662 claims (for example Asana).
+// SubjectPath selects a string in the token response extras, e.g. data.gid.
+type TokenResponse struct {
+	TokenURL    string `yaml:"tokenURL" json:"tokenURL"`
+	Resource    string `yaml:"resource" json:"resource"`
+	SubjectPath string `yaml:"subjectPath" json:"subjectPath"`
 }
 
 // Introspection declares the provider's authenticated token-introspection

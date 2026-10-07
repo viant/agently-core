@@ -78,5 +78,6 @@ See [resources.md](resources.md) for upload, export, and handoff examples.
 
 ## Related docs
 
+- [doc/asana-mcp.md](asana-mcp.md) — Asana setup and opaque OAuth token responses.
 - [doc/tool-system.md](tool-system.md)
 - [doc/auth-system.md](auth-system.md)

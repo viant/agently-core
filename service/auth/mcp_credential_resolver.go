@@ -183,6 +183,11 @@ func (r *DelegatedCredentialResolver) resolveProvider(ctx context.Context, requi
 		return nil, fmt.Errorf("mcp %q: required issuer %q does not match provider %q issuer %q",
 			requirement.ServerName, requirement.Issuer, refKey, provider.Issuer)
 	}
+	if requirement.Issuer == "" {
+		// Link routes compile workspace references before a registry is
+		// attached to ClientAuth. Bind the issuer from the resolved provider.
+		requirement.Issuer = authcfg.NormalizeIssuer(provider.Issuer)
+	}
 	return &resolvedProvider{
 		refKey:     refKey,
 		provider:   provider,
@@ -670,6 +675,12 @@ func (r *DelegatedCredentialResolver) refreshDelegated(ctx context.Context, cano
 		return nil, err
 	}
 	scopes := normalizeScopes(stored.Scopes)
+	responsePolicy, err := tokenResponsePolicy(ctx, r.registry, resolved, requirement, oauthCfg)
+	if err != nil {
+		release()
+		r.setCooldown(canonical, resolved.storageKey)
+		return nil, err
+	}
 	if len(scopes) == 0 {
 		scopes = normalizeScopes(requirement.Scopes)
 	}
@@ -685,7 +696,11 @@ func (r *DelegatedCredentialResolver) refreshDelegated(ctx context.Context, cano
 		Classification: "delegated_auth",
 		Action:         "refresh",
 	})
-	refreshed, err := r.refreshToken(ctx, cloneOAuthConfigWithScopes(oauthCfg, scopes), &oauth2.Token{RefreshToken: strings.TrimSpace(stored.RefreshToken)}, scopes, resource)
+	exchangeCtx := ctx
+	if responsePolicy != nil {
+		exchangeCtx = pinnedTokenExchangeContext(ctx)
+	}
+	refreshed, err := r.refreshToken(exchangeCtx, cloneOAuthConfigWithScopes(oauthCfg, scopes), &oauth2.Token{RefreshToken: strings.TrimSpace(stored.RefreshToken)}, scopes, resource)
 	if err != nil {
 		release()
 		if isPermanentRefreshError(err) {
@@ -712,6 +727,15 @@ func (r *DelegatedCredentialResolver) refreshDelegated(ctx context.Context, cano
 		})
 		return nil, err
 	}
+	var responseGrant *verifiedGrant
+	if responsePolicy != nil {
+		responseGrant, err = validateTokenResponse(responsePolicy, requirement, refreshed, stored, r.now())
+		if err != nil {
+			release()
+			r.setCooldown(canonical, resolved.storageKey)
+			return nil, err
+		}
+	}
 	next := *stored
 	next.Username = canonical
 	next.Provider = resolved.storageKey
@@ -730,6 +754,13 @@ func (r *DelegatedCredentialResolver) refreshDelegated(ctx context.Context, cano
 	if responseScopes, present := oauthResponseScopes(refreshed); present {
 		next.Scopes = responseScopes
 	}
+	if responseGrant != nil {
+		next.Scopes = responseGrant.scopes
+		next.Subject = responseGrant.subject
+		// This policy authenticates an access-token grant only.
+		next.IDToken = ""
+		next.IDTokenExpiresAt = time.Time{}
+	}
 	next.ProviderRef = resolved.refKey
 	if next.ClientRef == "" {
 		next.ClientRef = resolved.clientName
@@ -737,6 +768,10 @@ func (r *DelegatedCredentialResolver) refreshDelegated(ctx context.Context, cano
 	// A refresh that would drop stored delegated metadata is a blocking error;
 	// MergeMetadataFrom re-attaches anything the copy above left empty.
 	next.MergeMetadataFrom(stored)
+	if responseGrant != nil {
+		// Do not resurrect scopes explicitly removed by the token endpoint.
+		next.Scopes = responseGrant.scopes
+	}
 
 	swapped, err := r.store.CASPut(ctx, &next, version, r.workerID)
 	if err != nil {

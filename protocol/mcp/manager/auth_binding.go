@@ -292,33 +292,46 @@ var (
 // deployments keep working; a successful fetch that disagrees with explicit
 // configuration is a configuration error and fails closed — it is never an
 // opportunity to silently rewrite providerRef.
-func (m *Manager) crossCheckExplicitMetadata(ctx context.Context, serverName, transportURL string, requirementIssuer, requirementResource string) error {
+func (m *Manager) crossCheckExplicitMetadata(ctx context.Context, serverName, transportURL string, requirementIssuer, requirementResource, configuredMetadataURL string) error {
 	transportOrigin := originOf(transportURL)
+	metadataURL := strings.TrimSpace(configuredMetadataURL)
+	if metadataURL != "" {
+		parsed, err := url.Parse(metadataURL)
+		if err != nil || parsed.Scheme != "https" || parsed.User != nil || parsed.Fragment != "" || originOf(metadataURL) != transportOrigin {
+			return fmt.Errorf("mcp server %q: protectedResourceMetadataURL must be HTTPS on the transport origin", serverName)
+		}
+	}
 	if transportOrigin == "" || !strings.HasPrefix(transportOrigin, "https://") {
 		// Loopback/dev transports have no trustworthy well-known endpoint.
 		return nil
 	}
+	if metadataURL == "" {
+		metadataURL = transportOrigin + "/.well-known/oauth-protected-resource"
+	}
+	cacheKey := strings.Join([]string{serverName, transportURL, metadataURL, requirementIssuer, requirementResource}, "\n")
 	crossCheckMu.Lock()
-	if state, ok := crossCheckByName[serverName]; ok && time.Since(state.checkedAt) < crossCheckRecheck {
+	if state, ok := crossCheckByName[cacheKey]; ok && time.Since(state.checkedAt) < crossCheckRecheck {
 		err := state.err
 		crossCheckMu.Unlock()
 		return err
 	}
 	crossCheckMu.Unlock()
 
-	metadataURL := transportOrigin + "/.well-known/oauth-protected-resource"
 	metadata, err := authcfg.DiscoverProtectedResource(ctx, metadataURL, &authcfg.DiscoveryOptions{
 		Timeout:        3 * time.Second,
 		ExpectedOrigin: transportOrigin,
 	})
 	var checkErr error
 	if err != nil || metadata == nil {
+		if strings.TrimSpace(configuredMetadataURL) != "" {
+			return fmt.Errorf("mcp server %q: configured protected-resource metadata unavailable: %w", serverName, err)
+		}
 		// Best-effort: absence or unreachability of metadata is not an error
 		// for explicitly configured servers.
 		log.Printf("[info][mcp-auth-binding] server=%q metadata cross-check skipped: %v", serverName, err)
 	} else {
 		if resource := strings.TrimSpace(metadata.Resource); resource != "" && strings.TrimSpace(requirementResource) != "" &&
-			!strings.EqualFold(strings.TrimRight(resource, "/"), strings.TrimRight(requirementResource, "/")) {
+			strings.TrimRight(resource, "/") != strings.TrimRight(requirementResource, "/") {
 			checkErr = fmt.Errorf("mcp server %q: protected-resource metadata advertises resource %q but configuration requires %q", serverName, resource, requirementResource)
 		}
 		if checkErr == nil && strings.TrimSpace(requirementIssuer) != "" && len(metadata.AuthorizationServers) > 0 {
@@ -335,7 +348,7 @@ func (m *Manager) crossCheckExplicitMetadata(ctx context.Context, serverName, tr
 		}
 	}
 	crossCheckMu.Lock()
-	crossCheckByName[serverName] = &crossCheckState{checkedAt: time.Now(), err: checkErr}
+	crossCheckByName[cacheKey] = &crossCheckState{checkedAt: time.Now(), err: checkErr}
 	crossCheckMu.Unlock()
 	return checkErr
 }

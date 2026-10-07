@@ -503,7 +503,7 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 			if resource == "" {
 				resource = strings.TrimSpace(opts.ClientOptions.Transport.URL)
 			}
-			if err := m.crossCheckExplicitMetadata(ctx, serverName, opts.ClientOptions.Transport.URL, issuer, resource); err != nil {
+			if err := m.crossCheckExplicitMetadata(ctx, serverName, opts.ClientOptions.Transport.URL, issuer, resource, opts.ProtectedResourceMetadataURL); err != nil {
 				return nil, err
 			}
 		}

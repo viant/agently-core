@@ -1206,6 +1206,8 @@ function onElicitation(state: ClientConversationState, event: SSEEvent): ClientC
     const eventStatus = normalizeElicitationStatus(event.status);
     if (eventStatus) writeField(e, 'status', eventStatus, 'event');
     if (event.callbackUrl) writeField(e, 'callbackUrl', event.callbackUrl, 'event');
+    if (typeof event.elicitationData?.mode === 'string') writeField(e, 'mode', event.elicitationData.mode, 'event');
+    if (typeof event.elicitationData?.url === 'string') writeField(e, 'url', event.elicitationData.url, 'event');
     if (typeof event.content === 'string' && event.content.trim() !== '') {
         writeField(e, 'message', event.content, 'event');
     }
@@ -1937,6 +1939,8 @@ function mergeTranscriptElicitation(
     if (snapshot.message !== undefined) writeField(e, 'message', snapshot.message, 'transcript');
     if (snapshot.requestedSchema !== undefined) writeField(e, 'requestedSchema', snapshot.requestedSchema as ClientElicitation['requestedSchema'], 'transcript');
     if (snapshot.callbackUrl) writeField(e, 'callbackUrl', snapshot.callbackUrl, 'transcript');
+    if (snapshot.mode) writeField(e, 'mode', snapshot.mode, 'transcript');
+    if (snapshot.url) writeField(e, 'url', snapshot.url, 'transcript');
     if (snapshot.responsePayload !== undefined) writeField(e, 'responsePayload', snapshot.responsePayload as ClientElicitation['responsePayload'], 'transcript');
     syncPrimaryElicitation(turn, 'transcript');
 }
