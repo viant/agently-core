@@ -243,3 +243,21 @@ func (s *Session) Metadata(name string) json.RawMessage {
 	defer s.mu.Unlock()
 	return append(json.RawMessage(nil), s.metadata[canonical(name)]...)
 }
+
+// RestrictManaged applies server-resolved tool/bundle selection before the model
+// sees managed frontend tools. It cannot be invoked by browser wire metadata.
+func (s *Session) RestrictManaged(managed, allowed map[string]bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := make([]llm.ToolDefinition, 0, len(s.definitions))
+	index := map[string]int{}
+	for _, definition := range s.definitions {
+		if managed[definition.Name] && !allowed[definition.Name] {
+			continue
+		}
+		index[canonical(definition.Name)] = len(kept)
+		kept = append(kept, definition)
+	}
+	s.definitions = kept
+	s.byName = index
+}

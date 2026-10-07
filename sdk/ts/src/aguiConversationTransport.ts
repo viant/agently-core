@@ -1,3 +1,5 @@
+import type { BrowserMCPHost } from './browserMCP';
+import type { ClientTool } from './agui';
 import type { AgentSubscriber } from '@ag-ui/client';
 import type { Message, State } from '@ag-ui/core';
 import { AgUiCommands, type AgUiConversationBootstrapResult, type AgUiConversationBootstrapInput } from './aguiCommands';
@@ -68,7 +70,7 @@ export class AgUiConversationTransport {
     private entries = new Map<string, Entry>();
     private generation = 0;
 
-    constructor(private readonly host: Host, private readonly project: AgUiConversationProjectionFactory) {}
+    constructor(private readonly host: Host, private readonly project: AgUiConversationProjectionFactory, private readonly browserMCP?: BrowserMCPHost) {}
 
     subscribe(conversationId: string, handlers: AgUiConversationHandlers): { close(): void } {
         const entry = this.entry(conversationId);
@@ -85,6 +87,7 @@ export class AgUiConversationTransport {
             if (closed) return;
             closed = true;
             entry.listeners.delete(handlers);
+            if (!entry.listeners.size) void this.browserMCP?.closeConversation(entry.id);
             // A view subscription does not own the submitted request. Navigation
             // remounts the composer during admission; aborting here can prevent
             // the POST from reaching the server at all. Keep coordinator-owned
@@ -98,6 +101,8 @@ export class AgUiConversationTransport {
         const entry = this.entry(conversationId);
         const bootstrap = await this.refresh(conversationId);
         if (!this.current(entry)) throw new Error('Conversation session was invalidated');
+        const browserTools = await this.browserMCP?.tools(conversationId, entry.protocolThreadId ?? conversationId) ?? [];
+        if (!this.current(entry)) throw new Error('Conversation identity changed while connecting browser tools');
         const runId = crypto.randomUUID();
         const messageId = input.messageId || crypto.randomUUID();
         const session = this.host.createAgUiSession({ threadId: entry.protocolThreadId ?? conversationId, connectionId: 'agently', profile: 'agently', durableReplay: true });
@@ -121,7 +126,8 @@ export class AgUiConversationTransport {
             displayQuery: input.displayQuery, context: input.context, useServerState: true,
             attachments: input.attachments?.map(({ name, uri, mime, stagingFolder }) => ({ name, uri, mime, stagingFolder })),
         };
-        slot.completion = session.send({ id: messageId, role: 'user', content: input.query }, { runId }, selection).then(() => {
+        slot.completion = session.send({ id: messageId, role: 'user', content: input.query }, { runId, ...(browserTools.length ? { tools: browserTools.map(entry => entry.tool) } : {}) }, selection).then(async () => {
+            if (browserTools.length) await this.continueBrowserTools(entry, slot, session, browserTools);
             if (!this.current(entry) || session.getSnapshot().phase === 'detached') {
                 throw new Error('Conversation session was invalidated before submission completed');
             }
@@ -211,6 +217,7 @@ export class AgUiConversationTransport {
 
     /** Account/logout boundary: detach transport, leave authorized backend work running. */
     reset() {
+        this.browserMCP?.reset();
         this.generation++;
         for (const entry of this.entries.values()) {
             entry.listeners.clear();
@@ -219,6 +226,33 @@ export class AgUiConversationTransport {
             for (const run of entry.runs.values()) { run.stopProjection(); run.session.detach(); }
         }
         this.entries.clear();
+    }
+
+    private async continueBrowserTools(entry: Entry, initial: RunSlot, session: AgUiSession, tools: ClientTool[]) {
+        let current = initial;
+        try {
+            for (let round = 0; round < 32; round++) {
+                if (!this.current(entry)) throw new Error('Original browser conversation is unavailable');
+                const snapshot = session.getSnapshot();
+                let responses: Record<string, import('./agui').InterruptResponse> | undefined;
+                if (snapshot.pendingToolCallIds.length) await session.client.executeClientTools(tools);
+                else if (snapshot.interrupts.length && snapshot.interrupts.every(interrupt => {
+                    const marker = (interrupt.metadata as any)?.agently;
+                    return interrupt.reason === 'agently.client_tool' && marker?.version === '1' && marker?.kind === 'client-tool';
+                })) responses = await session.client.executeClientToolInterrupts(tools);
+                else return; // Human approvals and unrelated interrupts keep their ordinary UI flow.
+                current.stopProjection();
+                if (entry.runs.get(current.id) === current) entry.runs.delete(current.id);
+                const nextRunId = crypto.randomUUID();
+                current = this.track(entry, nextRunId, session, session.getSnapshot().messages);
+                const parameters = { runId: nextRunId, parentRunId: snapshot.runId, tools: tools.map(item => item.tool) };
+                if (responses) await session.resume(responses, parameters);
+                else await session.continue(parameters);
+            }
+            throw new Error('Browser MCP continuation budget exhausted');
+        } finally {
+            if (current !== initial) { current.stopProjection(); if (entry.runs.get(current.id) === current) entry.runs.delete(current.id); }
+        }
     }
 
     private entry(id: string): Entry {

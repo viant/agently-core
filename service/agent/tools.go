@@ -19,6 +19,7 @@ import (
 	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 	runtimediscovery "github.com/viant/agently-core/runtime/discovery"
 	agenttool "github.com/viant/agently-core/service/agent/tool"
+	"github.com/viant/agently-core/service/browsermcp"
 )
 
 // Small utilities for tool name resolution and filtering.
@@ -34,7 +35,30 @@ type resolvedToolSurface struct {
 //   - If input.ToolsAllowed is provided and non-empty, resolve exactly those tools by name
 //     and do not gate by agent patterns (explicit allow-list).
 //   - Otherwise, resolve tools from agent patterns.
-func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) ([]llm.Tool, error) {
+func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm.Tool, err error) {
+	defer func() {
+		if err != nil {
+			return
+		}
+		visibility, ok := s.registry.(interface {
+			MCPToolVisible(context.Context, string, string) (bool, error)
+		})
+		if !ok {
+			return
+		}
+		filtered := make([]llm.Tool, 0, len(tools))
+		for _, tool := range tools {
+			allowed, checkErr := visibility.MCPToolVisible(ctx, tool.Definition.Name, "model")
+			if checkErr != nil {
+				tools, err = nil, checkErr
+				return
+			}
+			if allowed {
+				filtered = append(filtered, tool)
+			}
+		}
+		tools = filtered
+	}()
 	if qi != nil && len(qi.ToolBundles) > 0 {
 		ctx = runtimediscovery.MergeMode(ctx, runtimediscovery.Mode{ToolSurface: true, Required: true})
 	}
@@ -293,6 +317,9 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 
 func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, control agenttool.Selection) ([]llm.ToolDefinition, error) {
 	key := toolSelectionCacheKey(control)
+	if len(browsermcp.Definitions(ctx)) > 0 {
+		key = ""
+	}
 	if key != "" {
 		if cached, ok := s.toolSurfaceCache.Load(key); ok {
 			if entry, ok := cached.(*resolvedToolSurface); ok && entry != nil {
@@ -707,24 +734,44 @@ func (s *Service) matchDefinitions(ctx context.Context, pattern string) []*llm.T
 
 func (s *Service) matchDefinitionsResult(ctx context.Context, pattern string) ([]*llm.ToolDefinition, error) {
 	ctx = toolSurfaceDiscoveryContext(ctx)
+	var matched []*llm.ToolDefinition
+	for _, definition := range browsermcp.Definitions(ctx) {
+		if toolmatcher.Match(pattern, definition.Name) {
+			copy := definition
+			matched = append(matched, &copy)
+		}
+	}
+	var backend []*llm.ToolDefinition
+	var err error
 	if cm, ok := s.registry.(toolctx.ContextMatcherWithError); ok {
-		return cm.MatchDefinitionWithContextResult(ctx, pattern)
+		backend, err = cm.MatchDefinitionWithContextResult(ctx, pattern)
+	} else if cm, ok := s.registry.(toolctx.ContextMatcher); ok {
+		backend = cm.MatchDefinitionWithContext(ctx, pattern)
+	} else {
+		backend = s.registry.MatchDefinition(pattern)
 	}
-	if cm, ok := s.registry.(toolctx.ContextMatcher); ok {
-		return cm.MatchDefinitionWithContext(ctx, pattern), nil
-	}
-	return s.registry.MatchDefinition(pattern), nil
+	return append(backend, matched...), err
 }
 
 func (s *Service) definitions(ctx context.Context) []llm.ToolDefinition {
 	ctx = toolSurfaceDiscoveryContext(ctx)
+	var result []llm.ToolDefinition
 	if lister, ok := s.registry.(toolctx.ContextDefinitionLister); ok {
-		return lister.DefinitionsWithContext(ctx)
+		result = lister.DefinitionsWithContext(ctx)
+	} else {
+		result = s.registry.Definitions()
 	}
-	return s.registry.Definitions()
+	result = append([]llm.ToolDefinition{}, result...)
+	for _, definition := range browsermcp.Definitions(ctx) {
+		result = append(result, definition)
+	}
+	return result
 }
 
 func (s *Service) getDefinition(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
+	if definition, ok := browsermcp.Definitions(ctx)[mcpname2.Canonical(name)]; ok {
+		return &definition, true
+	}
 	ctx = toolSurfaceDiscoveryContext(ctx)
 	if getter, ok := s.registry.(toolctx.ContextDefinitionGetter); ok {
 		return getter.GetDefinitionWithContext(ctx, name)

@@ -3,6 +3,8 @@ import { boundedSSEFrames } from './aguiSSEFrames';
 import { ToolMessageSchema, AgentCapabilitiesSchema, RunAgentInputSchema } from '@ag-ui/core/schemas';
 import type { AgentCapabilities, Message, Tool, ToolCall, ToolMessage, ResumeEntry, Interrupt, RunAgentInput } from '@ag-ui/core';
 
+export type AgUiRunParameters = RunAgentParameters & { parentRunId?: string };
+
 export const AGENTLY_EXTENSION_VERSION = '1' as const;
 export const AGENTLY_CAPABILITIES_EVENT = 'agently.capabilities' as const;
 export type ClientToolResult = Pick<ToolMessage, 'content' | 'error' | 'metadata'>;
@@ -97,9 +99,12 @@ function safeReaderDisposal(response: Response): Response {
 class ReplayableHttpAgent extends HttpAgent {
     lastPostedInput?: RunAgentInput;
     replayInput?: RunAgentInput;
+    continuationParent?: string;
     protected override requestInit(input: RunAgentInput): RequestInit {
-        const posted = this.replayInput ?? input;
+        const posted = this.replayInput ?? { ...input, ...(this.continuationParent ? { parentRunId: this.continuationParent } : {}) };
+        RunAgentInputSchema.parse(posted);
         this.replayInput = undefined;
+        this.continuationParent = undefined;
         this.lastPostedInput = structuredClone(posted);
         return super.requestInit(posted);
     }
@@ -141,12 +146,13 @@ export class AgUiClient {
     get threadId() { return this.agent.threadId; }
     subscribe(subscriber: AgentSubscriber) { return this.agent.subscribe(subscriber); }
     /** Full standard AG-UI run, including tools/context and upstream resume semantics. */
-    run(parameters?: RunAgentParameters, subscriber?: AgentSubscriber) {
+    run(parameters?: AgUiRunParameters, subscriber?: AgentSubscriber) {
         if (this.dispatching) throw new Error('Cannot start a run during client tool execution');
+        this.agent.continuationParent = parameters?.parentRunId;
         return this.agent.runAgent(parameters, subscriber);
     }
     /** Answers every open interrupt in a new run; the server owns durable continuation. */
-    resume(responses: Record<string, InterruptResponse>, parameters: Omit<RunAgentParameters, 'resume'> = {}, subscriber?: AgentSubscriber, validateResponse?: (payload: unknown, schema: NonNullable<Interrupt['responseSchema']>, interrupt: Interrupt) => void) {
+    resume(responses: Record<string, InterruptResponse>, parameters: Omit<AgUiRunParameters, 'resume'> = {}, subscriber?: AgentSubscriber, validateResponse?: (payload: unknown, schema: NonNullable<Interrupt['responseSchema']>, interrupt: Interrupt) => void) {
         const interrupts = this.agent.pendingInterrupts;
         if (!interrupts.length) throw new Error('No pending interrupts to resume');
         if (interrupts.some(interrupt => isInterruptExpired(interrupt) && responses[interrupt.id]?.status === 'resolved')) throw new Error('Cannot answer an expired interrupt; cancel it instead');
