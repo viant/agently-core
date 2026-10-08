@@ -252,6 +252,9 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			return err
 		}
 	}
+	if err := s.checkRawResourceURI(base, input.Recursive); err != nil {
+		return err
+	}
 	includes := normalizeListGlobs(input.Include)
 	excludes := normalizeListGlobs(input.Exclude)
 	afsSvc := afs.New()
@@ -282,6 +285,9 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 				continue
 			}
 			uri := o.URL()
+			if err := s.checkRawResourceURI(uri, false); err != nil {
+				continue
+			}
 			if seen[uri] {
 				continue
 			}
@@ -313,6 +319,9 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 					uri = url.Join(walkBaseURL, info.Name())
 				} else {
 					uri = url.Join(walkBaseURL, parent, info.Name())
+				}
+				if err := s.checkRawResourceURI(uri, false); err != nil {
+					return true, nil
 				}
 				if seen[uri] {
 					return true, nil
@@ -364,6 +373,9 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 				}
 
 				uri := url.Join(base, o.Name()) // we don't enforce normalised base here
+				if err := s.checkRawResourceURI(uri, false); err != nil {
+					continue
+				}
 				if seen[uri] {
 					continue
 				}

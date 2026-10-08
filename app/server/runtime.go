@@ -41,6 +41,9 @@ type RuntimeOptions struct {
 	SkipRegistryInitialize bool
 	RecordOOBAuthURL       func(context.Context, string) error
 	ConfigureRuntime       func(context.Context, *executor.Runtime, string)
+	// ConfigureBuilder registers trusted host authorization providers and
+	// mappings before workspace authorization mode is constructed.
+	ConfigureBuilder func(context.Context, *executor.Builder) error
 }
 
 type oobAuthRecorder interface {
@@ -115,7 +118,7 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 		return authRT
 	}
 
-	rt, err := executor.NewBuilder().
+	builder := executor.NewBuilder().
 		WithAgentFinder(agentFndr).
 		WithModelFinder(modelFndr).
 		WithEmbedderFinder(embedderFndr).
@@ -126,8 +129,13 @@ func BuildWorkspaceRuntime(ctx context.Context, opts RuntimeOptions) (*executor.
 		WithMCPCookieJarProvider(jarProvider).
 		WithMCPUserIDExtractor(func(ctx context.Context) string {
 			return strings.TrimSpace(svcauth.EffectiveUserID(ctx))
-		}).
-		Build(ctx)
+		})
+	if opts.ConfigureBuilder != nil {
+		if err := opts.ConfigureBuilder(ctx, builder); err != nil {
+			return nil, nil, nil, err
+		}
+	}
+	rt, err := builder.Build(ctx)
 	if err != nil {
 		return nil, nil, nil, err
 	}

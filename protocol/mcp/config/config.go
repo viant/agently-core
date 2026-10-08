@@ -18,11 +18,17 @@ type Group[T any] struct {
 
 // MCPClient augments mcp.ClientOptions with optional discovery descriptions and metadata.
 type MCPClient struct {
-	*mcp.ClientOptions `yaml:",inline" json:",inline"`
-	SkillDiscovery     *SkillDiscovery        `yaml:"skillDiscovery,omitempty" json:"skillDiscovery,omitempty"`
-	Async              []*asynccfg.Config     `yaml:"async,omitempty" json:"async,omitempty"`
-	Descriptions       map[string]string      `yaml:"descriptions,omitempty" json:"descriptions,omitempty"`
-	Metadata           map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
+	// PrimitiveNamespaces optionally narrows discovered provider namespaces.
+	// An empty list accepts the namespaces authorized by the provider.
+	PrimitiveNamespaces []string `yaml:"primitiveNamespaces,omitempty" json:"primitiveNamespaces,omitempty"`
+	// PrimitiveProviderIdentity optionally pins a provider instance. Replacing
+	// an observed instance on an existing connection requires this declaration.
+	PrimitiveProviderIdentity string `yaml:"primitiveProviderIdentity,omitempty" json:"primitiveProviderIdentity,omitempty"`
+	*mcp.ClientOptions        `yaml:",inline" json:",inline"`
+	SkillDiscovery            *SkillDiscovery        `yaml:"skillDiscovery,omitempty" json:"skillDiscovery,omitempty"`
+	Async                     []*asynccfg.Config     `yaml:"async,omitempty" json:"async,omitempty"`
+	Descriptions              map[string]string      `yaml:"descriptions,omitempty" json:"descriptions,omitempty"`
+	Metadata                  map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
 	// Cacheable marks specific tools on this MCP server as eligible for
 	// prompt-history supersession. Keys are tool names (exact match);
 	// values indicate cacheability.

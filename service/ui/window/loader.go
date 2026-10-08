@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/viant/afs"
 	metaURL "github.com/viant/afs/url"
 	"github.com/viant/agently-core/workspace"
 	wsmeta "github.com/viant/agently-core/workspace/service/meta"
@@ -19,15 +18,69 @@ import (
 // workspace assets its resource assignment whitelists onto it so every
 // consumer sees the same effective surface truth.
 func LoadWorkspaceWindow(ctx context.Context, windowKey string, target *metaSvc.TargetContext) (*forgeTypes.Window, error) {
+	return loadWorkspaceWindowAt(ctx, workspace.Root(), windowKey, target, true, enrichWorkspaceWindow)
+}
+
+// LoadWorkspaceWindowAt binds one host's trusted workspace root for the full
+// window and resource-assignment load. Authz catalogs use this form so another
+// process-global workspace cannot substitute assets during a request.
+func LoadWorkspaceWindowAt(ctx context.Context, workspaceRoot, windowKey string, target *metaSvc.TargetContext) (*forgeTypes.Window, error) {
+	return loadWorkspaceWindowAt(ctx, workspaceRoot, windowKey, target, false, nil)
+}
+
+// LoadWorkspaceWindowWithEnricherAt supplies the host's extension callback
+// explicitly. The protected Forge catalog uses this form for report windows.
+func LoadWorkspaceWindowWithEnricherAt(ctx context.Context, workspaceRoot, windowKey string, target *metaSvc.TargetContext, enricher WorkspaceWindowEnricher) (*forgeTypes.Window, error) {
+	return loadWorkspaceWindowAt(ctx, workspaceRoot, windowKey, target, false, enricher)
+}
+
+func loadWorkspaceWindowAt(ctx context.Context, workspaceRoot, windowKey string, target *metaSvc.TargetContext, allowRemote bool, enricher WorkspaceWindowEnricher) (*forgeTypes.Window, error) {
+	return loadWorkspaceWindowWithOptionsAt(ctx, workspaceRoot, windowKey, target, allowRemote, enricher, LoaderOptions{})
+}
+
+// LoadWorkspaceWindowWithOptionsAt preserves native materialization with a host filesystem.
+func LoadWorkspaceWindowWithOptionsAt(ctx context.Context, workspaceRoot, windowKey string, target *metaSvc.TargetContext, enricher WorkspaceWindowEnricher, options LoaderOptions) (*forgeTypes.Window, error) {
+	return loadWorkspaceWindowWithOptionsAt(ctx, workspaceRoot, windowKey, target, false, enricher, options)
+}
+
+func loadWorkspaceWindowWithOptionsAt(ctx context.Context, workspaceRoot, windowKey string, target *metaSvc.TargetContext, allowRemote bool, enricher WorkspaceWindowEnricher, options LoaderOptions) (result *forgeTypes.Window, failure error) {
+	defer func() {
+		if err := options.check(); err != nil {
+			result = nil
+			failure = err
+		}
+	}()
+	if strings.TrimSpace(workspaceRoot) == "" {
+		return nil, fmt.Errorf("workspace root is required")
+	}
 	windowKey = strings.TrimSpace(windowKey)
 	if windowKey == "" {
 		return nil, nil
 	}
 	if providerID, remoteKey, ok := ParseRemoteWindowKey(windowKey); ok {
+		if !allowRemote {
+			return nil, fmt.Errorf("remote window requires a host-owned definition resolver")
+		}
 		return LoadRemoteWindow(ctx, providerID, remoteKey)
 	}
-	workspaceWindowRoot := "file://" + filepath.ToSlash(filepath.Join(workspace.Root(), workspace.KindForgeWindow))
-	loader := metaSvc.New(afs.New(), workspaceWindowRoot)
+	if !validBoundWindowPath(windowKey) {
+		return nil, fmt.Errorf("invalid workspace window key")
+	}
+	workspaceWindowRoot := "file://" + filepath.ToSlash(filepath.Join(workspaceRoot, workspace.KindForgeWindow))
+	loader := metaSvc.New(options.filesystem(), workspaceWindowRoot)
+	if target == nil && options.SharedDefault {
+		direct, err := loader.Exists(ctx, metaURL.Join(workspaceWindowRoot, windowKey, "main.yaml"))
+		if err != nil {
+			return nil, err
+		}
+		singleton, err := loader.Exists(ctx, metaURL.Join(workspaceWindowRoot, windowKey+".yaml"))
+		if err != nil {
+			return nil, err
+		}
+		if !direct && !singleton {
+			target = &metaSvc.TargetContext{}
+		}
+	}
 	if resolvedBase, err := loader.ResolveWindowBase(ctx, metaURL.Join(workspaceWindowRoot, windowKey, "main"), target); err == nil {
 		window, err := forgeHandlers.LoadWindowStructure(ctx, loader, workspaceWindowRoot, windowKey, "", target)
 		if err != nil {
@@ -53,13 +106,13 @@ func LoadWorkspaceWindow(ctx context.Context, windowKey string, target *metaSvc.
 		if err := mergeWorkspaceWindowActionRefs(ctx, loader, workspaceWindowRoot, window, target); err != nil {
 			return nil, err
 		}
-		if err := MergeWorkspaceForgeAssets(ctx, window, assignment); err != nil {
+		if err := mergeWorkspaceForgeAssetsWithOptionsAt(ctx, workspaceRoot, window, assignment, enricher, options); err != nil {
 			return nil, err
 		}
 		return window, nil
 	}
 
-	svc := wsmeta.New(afs.New(), workspace.Root())
+	svc := wsmeta.New(options.filesystem(), workspaceRoot)
 	windowPath := filepath.Join(workspace.KindForgeWindow, windowKey+".yaml")
 	exists, err := svc.Exists(ctx, windowPath)
 	if err != nil {
@@ -90,7 +143,7 @@ func LoadWorkspaceWindow(ctx context.Context, windowKey string, target *metaSvc.
 	if err := mergeWorkspaceWindowActionRefs(ctx, loader, workspaceWindowRoot, window, target); err != nil {
 		return nil, err
 	}
-	if err := MergeWorkspaceForgeAssets(ctx, window, holder.Resources); err != nil {
+	if err := mergeWorkspaceForgeAssetsWithOptionsAt(ctx, workspaceRoot, window, holder.Resources, enricher, options); err != nil {
 		return nil, err
 	}
 	return window, nil

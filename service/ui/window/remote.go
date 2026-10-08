@@ -1,9 +1,11 @@
 package window
 
 import (
+	"github.com/viant/forge/backend/reporting/forgeui"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
@@ -13,6 +15,7 @@ import (
 	dssvc "github.com/viant/agently-core/service/datasource"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/agently-core/workspace/config"
+	reportspec "github.com/viant/forge/backend/reporting/spec"
 	forgetypes "github.com/viant/forge/backend/types"
 	"gopkg.in/yaml.v3"
 )
@@ -27,12 +30,14 @@ type RemoteExecutor interface {
 }
 
 type RemoteProvider struct {
-	ID          string `json:"id" yaml:"id"`
-	Type        string `json:"type" yaml:"type"`
-	Trusted     bool   `json:"trusted,omitempty" yaml:"trusted,omitempty"`
-	ServerRef   string `json:"serverRef" yaml:"serverRef"`
-	CatalogTool string `json:"catalogTool" yaml:"catalogTool"`
-	WindowTool  string `json:"windowTool" yaml:"windowTool"`
+	ID             string            `json:"id" yaml:"id"`
+	Type           string            `json:"type" yaml:"type"`
+	Trusted        bool              `json:"trusted,omitempty" yaml:"trusted,omitempty"`
+	ServerRef      string            `json:"serverRef" yaml:"serverRef"`
+	CatalogTool    string            `json:"catalogTool" yaml:"catalogTool"`
+	WindowTool     string            `json:"windowTool" yaml:"windowTool"`
+	DatasourceTool string            `json:"datasourceTool,omitempty" yaml:"datasourceTool,omitempty"`
+	ServerBindings map[string]string `json:"serverBindings,omitempty" yaml:"serverBindings,omitempty"`
 }
 
 type RemoteWindow struct {
@@ -145,6 +150,17 @@ func loadRemoteProvider(id string) (*RemoteProvider, RemoteExecutor, error) {
 		if strings.ContainsAny(entry.ServerRef+entry.CatalogTool+entry.WindowTool, "/\\:\t\n ") {
 			return nil, nil, fmt.Errorf("invalid remote tool reference")
 		}
+		if entry.DatasourceTool == "" {
+			entry.DatasourceTool = "forgeDatasourceFetch"
+		}
+		if !validRemoteToolName(entry.DatasourceTool) {
+			return nil, nil, fmt.Errorf("invalid remote datasource tool")
+		}
+		for alias, target := range entry.ServerBindings {
+			if !validRemoteToolName(alias) || !validRemoteToolName(target) {
+				return nil, nil, fmt.Errorf("invalid remote server binding")
+			}
+		}
 		return &entry, executor, nil
 	}
 	return nil, nil, fmt.Errorf("remote window provider %q not configured", id)
@@ -226,9 +242,11 @@ func ListRemoteWindows(ctx context.Context, providerID, applicationID, group str
 }
 
 type remoteDefinition struct {
-	ContractVersion int                            `json:"contractVersion"`
-	Window          *forgetypes.Window             `json:"window"`
-	DataSources     map[string]*dsproto.DataSource `json:"dataSources,omitempty"`
+	Report             *reportspec.ReportSpec         `json:"report,omitempty"`
+	DefinitionRevision string                         `json:"definitionRevision,omitempty"`
+	ContractVersion    int                            `json:"contractVersion"`
+	Window             *forgetypes.Window             `json:"window"`
+	DataSources        map[string]*dsproto.DataSource `json:"dataSources,omitempty"`
 }
 
 func loadRemoteDefinition(ctx context.Context, providerID, key string) (*remoteDefinition, error) {
@@ -251,6 +269,19 @@ func loadRemoteDefinition(ctx context.Context, providerID, key string) (*remoteD
 	var payload remoteDefinition
 	if err = json.Unmarshal([]byte(raw), &payload); err != nil {
 		return nil, fmt.Errorf("decode remote window: %w", err)
+	}
+	var reportEnvelope struct {
+		Report json.RawMessage `json:"report"`
+	}
+	if err := json.Unmarshal([]byte(raw), &reportEnvelope); err != nil {
+		return nil, err
+	}
+	if len(reportEnvelope.Report) > 0 && string(reportEnvelope.Report) != "null" {
+		report, err := reportspec.DecodeJSON(reportEnvelope.Report)
+		if err != nil {
+			return nil, fmt.Errorf("invalid remote report: %w", err)
+		}
+		payload.Report = report
 	}
 	if payload.ContractVersion != 1 || payload.Window == nil || payload.Window.View.Content == nil {
 		return nil, fmt.Errorf("invalid remote window definition")
@@ -285,18 +316,30 @@ func LoadRemoteWindow(ctx context.Context, providerID, key string) (*forgetypes.
 		win.DataSource = map[string]forgetypes.DataSource{}
 	}
 	for id, source := range payload.DataSources {
-		if id == "" || strings.ContainsAny(id, "/\\:") || source == nil || source.Backend == nil || source.Backend.Kind != dsproto.BackendMCPTool || source.Backend.Method == "" || strings.ContainsAny(source.Backend.Method, "/\\: \t\n") {
-			return nil, fmt.Errorf("invalid remote datasource %q", id)
-		}
-		if source.Backend.Service != provider.ServerRef {
-			return nil, fmt.Errorf("remote datasource %q uses unapproved MCP service", id)
+		if _, _, err := bindRemoteDatasource(provider, payload, key, id, source, nil); err != nil {
+			return nil, err
 		}
 		if _, exists := win.DataSource[id]; exists {
 			return nil, fmt.Errorf("duplicate remote datasource %q", id)
 		}
 		entry := source.DataSource
-		entry.Service = &forgetypes.Service{Endpoint: "agentlyAPI", URI: "/v1/workspace/ui/providers/" + providerID + "/windows/" + key + "/datasources/" + id + "/fetch", Method: "POST"}
+		fetchURI := "/v1/workspace/ui/providers/" + providerID + "/windows/" + key + "/datasources/" + id + "/fetch"
+		if payload.DefinitionRevision != "" {
+			fetchURI += "?definitionRevision=" + url.QueryEscape(payload.DefinitionRevision)
+		}
+		entry.Service = &forgetypes.Service{Endpoint: "agentlyAPI", URI: fetchURI, Method: "POST"}
 		win.DataSource[id] = entry
+	}
+	if payload.Report != nil {
+		requestPaths := map[string]string{}
+		for id, source := range payload.DataSources {
+			if source.Backend != nil && source.Backend.MCPRequest != nil {
+				requestPaths[id] = source.Backend.MCPRequest.QueryPath
+			}
+		}
+		if err := forgeui.AttachReportRuntime(win, payload.Report, requestPaths); err != nil {
+			return nil, fmt.Errorf("remote report runtime: %w", err)
+		}
 	}
 	return win, nil
 }
@@ -311,25 +354,134 @@ func (s oneRemoteDatasource) Get(id string) (*dsproto.DataSource, bool) {
 }
 
 func FetchRemoteDatasource(ctx context.Context, providerID, key, id string, inputs map[string]interface{}) (*dsproto.FetchResult, error) {
+	return FetchRemoteDatasourceAtRevision(ctx, providerID, key, id, "", inputs)
+}
+
+// FetchRemoteDatasourceAtRevision binds execution to the definition rendered by
+// the caller. A changed contract requires reloading the window/report.
+func FetchRemoteDatasourceAtRevision(ctx context.Context, providerID, key, id, expectedRevision string, inputs map[string]interface{}) (*dsproto.FetchResult, error) {
 	payload, err := loadRemoteDefinition(ctx, providerID, key)
 	if err != nil {
 		return nil, err
 	}
-	source := payload.DataSources[id]
-	if source == nil || source.Backend == nil || source.Backend.Kind != dsproto.BackendMCPTool || source.Backend.Method == "" || strings.ContainsAny(source.Backend.Method, "/\\: \t\n") {
-		return nil, fmt.Errorf("remote datasource %q not found", id)
+	if expectedRevision != "" && payload.DefinitionRevision != expectedRevision {
+		return nil, fmt.Errorf("remote definition changed; reload required")
 	}
+	source := payload.DataSources[id]
 	provider, executor, err := loadRemoteProvider(providerID)
 	if err != nil {
 		return nil, err
 	}
-	if source.Backend.Service != provider.ServerRef {
-		return nil, fmt.Errorf("remote datasource %q uses unapproved MCP service", id)
+	copySource, boundExecutor, err := bindRemoteDatasource(provider, payload, key, id, source, executor)
+	if err != nil {
+		return nil, err
+	}
+	service := dssvc.New(dssvc.Options{Store: oneRemoteDatasource{datasource: copySource}, Executor: boundExecutor, DisableCache: true})
+	return service.Fetch(ctx, id, inputs, dssvc.FetchOptions{BypassCache: true})
+}
+
+func validRemoteToolName(value string) bool {
+	return value != "" && !strings.ContainsAny(value, "/\\: \t\r\n")
+}
+
+type delegatedDatasourceExecutor struct {
+	upstream                           RemoteExecutor
+	tool, window, datasource, revision string
+}
+
+func (e delegatedDatasourceExecutor) Execute(ctx context.Context, name string, inputs map[string]interface{}) (string, error) {
+	if e.upstream == nil || name != e.tool {
+		return "", fmt.Errorf("remote datasource executor unavailable")
+	}
+	return e.upstream.Execute(ctx, e.tool, map[string]interface{}{
+		"contractVersion": 1, "windowKey": e.window, "dataSourceId": e.datasource,
+		"definitionRevision": e.revision, "inputs": inputs,
+	})
+}
+
+// Provider-local connections never become consumer connection names. Direct
+// execution requires an explicit host alias binding (or the legacy same-server binding).
+func bindRemoteDatasource(provider *RemoteProvider, definition *remoteDefinition, key, id string, source *dsproto.DataSource, executor RemoteExecutor) (*dsproto.DataSource, RemoteExecutor, error) {
+	if id == "" || strings.ContainsAny(id, "/\\:") || source == nil || source.Backend == nil {
+		return nil, nil, fmt.Errorf("invalid remote datasource %q", id)
+	}
+	for _, parameter := range source.Parameters {
+		if unsafeRemotePath(parameter.Name) || unsafeRemotePath(parameter.Location) {
+			return nil, nil, fmt.Errorf("invalid remote datasource %q parameter path", id)
+		}
+	}
+	if binding := source.Backend.MCPRequest; binding != nil {
+		for _, path := range []string{binding.QueryPath, binding.DataSourcePath, binding.AuthContextPath, binding.HasMorePath} {
+			if unsafeRemotePath(path) {
+				return nil, nil, fmt.Errorf("invalid remote datasource %q request path", id)
+			}
+		}
 	}
 	copySource := *source
-	copySource.ID = id
+	backend := *source.Backend
+	copySource.Backend, copySource.ID = &backend, id
 	noCache := false
 	copySource.Cache = &dsproto.CachePolicy{Enabled: &noCache}
-	service := dssvc.New(dssvc.Options{Store: oneRemoteDatasource{datasource: &copySource}, Executor: executor})
-	return service.Fetch(ctx, id, inputs, dssvc.FetchOptions{BypassCache: true})
+	switch backend.Kind {
+	case "provider":
+		if definition.DefinitionRevision == "" || (backend.Method != "" && backend.Method != provider.DatasourceTool) || backend.Service != "" {
+			return nil, nil, fmt.Errorf("invalid delegated datasource %q binding", id)
+		}
+		backend.Kind, backend.Service, backend.Method = dsproto.BackendMCPTool, provider.ServerRef, provider.DatasourceTool
+		// Identity routing is assembled outside user inputs and remote pinned arguments.
+		backend.Pinned = nil
+		executor = delegatedDatasourceExecutor{executor, provider.ServerRef + ":" + provider.DatasourceTool, key, id, definition.DefinitionRevision}
+	case dsproto.BackendMCPTool:
+		if !validRemoteToolName(backend.Method) {
+			return nil, nil, fmt.Errorf("invalid remote datasource %q method", id)
+		}
+		if bound, ok := provider.ServerBindings[backend.Service]; ok {
+			backend.Service = bound
+		} else if backend.Service != provider.ServerRef {
+			return nil, nil, fmt.Errorf("remote datasource %q uses unapproved MCP service", id)
+		}
+	default:
+		return nil, nil, fmt.Errorf("invalid remote datasource %q backend", id)
+	}
+	return &copySource, executor, nil
+}
+
+// LoadRemoteReport returns the provider's native Forge report contract under
+// the same admission and revision checks as its associated window. Datasources
+// are fetched through FetchRemoteDatasource, never through report-supplied URLs.
+func LoadRemoteReport(ctx context.Context, providerID, key string) (*reportspec.ReportSpec, string, error) {
+	payload, err := loadRemoteDefinition(ctx, providerID, key)
+	if err != nil {
+		return nil, "", err
+	}
+	if payload.Report == nil || payload.DefinitionRevision == "" {
+		return nil, "", fmt.Errorf("remote native report unavailable")
+	}
+	provider, _, err := loadRemoteProvider(providerID)
+	if err != nil {
+		return nil, "", err
+	}
+	for id, source := range payload.DataSources {
+		if _, _, err = bindRemoteDatasource(provider, payload, key, id, source, nil); err != nil {
+			return nil, "", err
+		}
+	}
+	sourceIDs := map[string]bool{}
+	for id := range payload.DataSources {
+		sourceIDs[id] = true
+	}
+	if err := forgeui.ValidateReport(payload.Report, sourceIDs); err != nil {
+		return nil, "", fmt.Errorf("invalid remote report: %w", err)
+	}
+	return payload.Report, payload.DefinitionRevision, nil
+}
+
+func unsafeRemotePath(path string) bool {
+	for _, part := range strings.FieldsFunc(path, func(r rune) bool { return r == '.' || r == '[' || r == ']' || r == '\'' || r == '"' }) {
+		switch part {
+		case "__proto__", "constructor", "prototype":
+			return true
+		}
+	}
+	return false
 }

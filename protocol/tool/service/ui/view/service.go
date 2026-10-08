@@ -15,7 +15,9 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	repo "github.com/viant/agently-core/workspace/repository/forgewindow"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	identity "github.com/viant/agently-core/protocol/resource"
+	forgetypes "github.com/viant/forge/backend/types"
 )
 
 const (
@@ -26,24 +28,26 @@ const (
 type ListInput struct{}
 
 type ListItem struct {
-	ID                 string                   `json:"id,omitempty"`
-	Title              string                   `json:"title,omitempty"`
-	Description        string                   `json:"description,omitempty"`
-	WindowKey          string                   `json:"windowKey,omitempty"`
-	Presentation       string                   `json:"presentation,omitempty"`
-	Region             string                   `json:"region,omitempty"`
-	OpenMode           string                   `json:"openMode,omitempty"`
-	IdentityScope      string                   `json:"identityScope,omitempty"`
-	QuickSearch        *viewproto.QuickSearch   `json:"quickSearch,omitempty"`
-	IdentityParameters []string                 `json:"identityParameters,omitempty"`
-	WorkspaceSharePct  int                      `json:"workspaceSharePct,omitempty"`
-	WorkspaceMinHeight int                      `json:"workspaceMinHeight,omitempty"`
-	RefreshOnOpen      *bool                    `json:"refreshOnOpen,omitempty"`
-	ReportBuilderRef   string                   `json:"reportBuilderRef,omitempty"`
-	Parameters         []viewproto.Parameter    `json:"parameters,omitempty"`
-	ReportPresets      []viewproto.ReportPreset `json:"reportPresets,omitempty"`
-	Capabilities       viewproto.Capabilities   `json:"capabilities,omitempty"`
-	Navigation         *viewproto.Navigation    `json:"navigation,omitempty"`
+	Target             *forgetypes.WindowTarget   `json:"target,omitempty"`
+	Resource           *identity.ResolvedResource `json:"resource,omitempty"`
+	ID                 string                     `json:"id,omitempty"`
+	Title              string                     `json:"title,omitempty"`
+	Description        string                     `json:"description,omitempty"`
+	WindowKey          string                     `json:"windowKey,omitempty"`
+	Presentation       string                     `json:"presentation,omitempty"`
+	Region             string                     `json:"region,omitempty"`
+	OpenMode           string                     `json:"openMode,omitempty"`
+	IdentityScope      string                     `json:"identityScope,omitempty"`
+	QuickSearch        *viewproto.QuickSearch     `json:"quickSearch,omitempty"`
+	IdentityParameters []string                   `json:"identityParameters,omitempty"`
+	WorkspaceSharePct  int                        `json:"workspaceSharePct,omitempty"`
+	WorkspaceMinHeight int                        `json:"workspaceMinHeight,omitempty"`
+	RefreshOnOpen      *bool                      `json:"refreshOnOpen,omitempty"`
+	ReportBuilderRef   string                     `json:"reportBuilderRef,omitempty"`
+	Parameters         []viewproto.Parameter      `json:"parameters,omitempty"`
+	ReportPresets      []viewproto.ReportPreset   `json:"reportPresets,omitempty"`
+	Capabilities       viewproto.Capabilities     `json:"capabilities,omitempty"`
+	Navigation         *viewproto.Navigation      `json:"navigation,omitempty"`
 }
 
 type ListOutput struct {
@@ -51,7 +55,9 @@ type ListOutput struct {
 }
 
 type GetInput struct {
-	ID string `json:"id"`
+	Target   *forgetypes.WindowTarget `json:"target,omitempty"`
+	ID       string                   `json:"id,omitempty"`
+	Resource *identity.ResourceRef    `json:"resource,omitempty"`
 }
 
 type GetOutput struct {
@@ -59,23 +65,28 @@ type GetOutput struct {
 }
 
 type OpenInput struct {
-	ID         string                 `json:"id,omitempty"`
-	Parameters map[string]interface{} `json:"parameters,omitempty"`
-	SearchText string                 `json:"searchText,omitempty"`
-	OpenMode   string                 `json:"openMode,omitempty"`
-	Items      []OpenItem             `json:"items,omitempty"`
-	ClientID   string                 `json:"clientId,omitempty"`
-	TimeoutMs  int                    `json:"timeoutMs,omitempty"`
+	Target     *forgetypes.WindowTarget `json:"target,omitempty"`
+	Resource   *identity.ResourceRef    `json:"resource,omitempty"`
+	ID         string                   `json:"id,omitempty"`
+	Parameters map[string]interface{}   `json:"parameters,omitempty"`
+	SearchText string                   `json:"searchText,omitempty"`
+	OpenMode   string                   `json:"openMode,omitempty"`
+	Items      []OpenItem               `json:"items,omitempty"`
+	ClientID   string                   `json:"clientId,omitempty"`
+	TimeoutMs  int                      `json:"timeoutMs,omitempty"`
 }
 
 type OpenItem struct {
-	ID         string                 `json:"id"`
-	Parameters map[string]interface{} `json:"parameters"`
-	SearchText string                 `json:"searchText,omitempty"`
-	OpenMode   string                 `json:"openMode,omitempty"`
+	Target     *forgetypes.WindowTarget `json:"target,omitempty"`
+	ID         string                   `json:"id,omitempty"`
+	Resource   *identity.ResourceRef    `json:"resource,omitempty"`
+	Parameters map[string]interface{}   `json:"parameters"`
+	SearchText string                   `json:"searchText,omitempty"`
+	OpenMode   string                   `json:"openMode,omitempty"`
 }
 
 type OpenOutput struct {
+	Resource               *identity.ResolvedResource        `json:"resource,omitempty"`
 	WorkspaceObject        *workspaceproto.Object            `json:"workspaceObject,omitempty"`
 	ClientID               string                            `json:"clientId,omitempty"`
 	WindowID               string                            `json:"windowId,omitempty"`
@@ -97,6 +108,7 @@ type OpenOutput struct {
 }
 
 type OpenResultItem struct {
+	Resource               *identity.ResolvedResource        `json:"resource,omitempty"`
 	WorkspaceObject        *workspaceproto.Object            `json:"workspaceObject,omitempty"`
 	WindowID               string                            `json:"windowId,omitempty"`
 	WindowKey              string                            `json:"windowKey,omitempty"`
@@ -121,10 +133,13 @@ type preparedOpenItem struct {
 }
 
 type Service struct {
-	repo         *repo.Repository
-	bridge       *forgeuisvc.Service
-	reg          *uireg.Registry
-	itemEnricher ListItemEnricher
+	repo             *repo.Repository
+	bridge           *forgeuisvc.Service
+	reg              *uireg.Registry
+	itemEnricher     ListItemEnricher
+	viewAuthorizer   func(context.Context, string) (bool, error)
+	windowAuthorizer func(context.Context, string) (bool, error)
+	metadataScope    forgeuisvc.MetadataReadScope
 }
 
 type ListItemEnricher func(context.Context, *ListItem) error
@@ -135,6 +150,24 @@ func WithListItemEnricher(enricher ListItemEnricher) Option {
 	return func(service *Service) {
 		service.itemEnricher = enricher
 	}
+}
+
+// WithWindowAuthorizer applies legacy whole-window admission. Canonical
+// catalogs use their shared resource resolver for discovery and explicit reads.
+func WithWindowAuthorizer(authorize func(context.Context, string) (bool, error)) Option {
+	return func(service *Service) { service.windowAuthorizer = authorize }
+}
+
+// WithMetadataScope requires verified metadata scope finalization for view
+// list/get. It does not affect open or runtime datasource work.
+func WithMetadataScope(scope forgeuisvc.MetadataReadScope) Option {
+	return func(service *Service) { service.metadataScope = scope }
+}
+
+// WithViewAuthorizer checks legacy workspace IDs. Canonical view visibility is
+// authorized by the resource's namespace/name and requested candidate.
+func WithViewAuthorizer(authorize func(context.Context, string) (bool, error)) Option {
+	return func(service *Service) { service.viewAuthorizer = authorize }
 }
 
 type viewNotFoundError struct {
@@ -158,6 +191,29 @@ func New(repository *repo.Repository, bridge *forgeuisvc.Service, options ...Opt
 	for _, option := range options {
 		if option != nil {
 			option(result)
+		}
+	}
+	if result.metadataScope == nil && bridge != nil {
+		result.metadataScope = bridge.MetadataScope()
+	}
+	if result.windowAuthorizer == nil && bridge != nil {
+		if ready, ok := any(bridge).(interface{ AuthzReady() bool }); ok && ready.AuthzReady() {
+			// The protected Forge catalog is the authority for this host. A
+			// workspace view is discoverable only if its referenced window
+			// passes the same catalog admission used for direct opens.
+			if admission, ok := any(bridge).(interface {
+				WindowAuthorize(context.Context, string) (bool, error)
+			}); ok {
+				result.windowAuthorizer = admission.WindowAuthorize
+			} else {
+				result.windowAuthorizer = func(ctx context.Context, key string) (bool, error) {
+					if key == "" {
+						return false, nil
+					}
+					definition, err := bridge.WindowDefinitionGet(ctx, &forgeuisvc.WindowDefinitionGetInput{WindowID: key})
+					return err == nil && definition != nil && definition.Definition != nil, nil
+				}
+			}
 		}
 	}
 	return result
@@ -195,8 +251,13 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	items, err := s.loadAll(ctx)
+	output.Items = nil
+	readCtx, finish, err := forgeuisvc.BeginMetadataReadScope(ctx, s.metadataScope)
 	if err != nil {
+		return err
+	}
+	items, readErr := s.loadAll(readCtx)
+	if err := forgeuisvc.FinishMetadataReadScope(finish, readErr); err != nil {
 		return err
 	}
 	output.Items = items
@@ -212,8 +273,13 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
-	item, err := s.loadOne(ctx, strings.TrimSpace(input.ID))
+	output.Item = nil
+	readCtx, finish, err := forgeuisvc.BeginMetadataReadScope(ctx, s.metadataScope)
 	if err != nil {
+		return err
+	}
+	item, readErr := s.loadRequested(readCtx, strings.TrimSpace(input.ID), input.Resource, input.Target)
+	if err := forgeuisvc.FinishMetadataReadScope(finish, readErr); err != nil {
 		return err
 	}
 	output.Item = item
@@ -229,6 +295,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 	if !ok {
 		return svc.NewInvalidOutputError(out)
 	}
+	ctx = forgeuisvc.WithoutMetadataReadScope(ctx, s.metadataScope)
 	clientID, namespace, conversationID, err := s.resolveOpenClient(ctx, input.ClientID)
 	if err != nil {
 		return err
@@ -238,6 +305,8 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 		items = append(items, input.Items...)
 	} else {
 		items = append(items, OpenItem{
+			Target:     input.Target,
+			Resource:   input.Resource,
 			ID:         input.ID,
 			Parameters: input.Parameters,
 			SearchText: input.SearchText,
@@ -273,6 +342,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 			return openErr
 		}
 		output.Items = append(output.Items, OpenResultItem{
+			Resource:               resolved.Resource,
 			WorkspaceObject:        resolved.WorkspaceObject,
 			WindowID:               resolved.WindowID,
 			WindowKey:              resolved.WindowKey,
@@ -291,6 +361,7 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 	if len(output.Items) > 0 {
 		selected := output.Items[len(output.Items)-1]
 		output.WorkspaceObject = selected.WorkspaceObject
+		output.Resource = selected.Resource
 		output.WindowID = selected.WindowID
 		output.SelectedWindowID = selected.WindowID
 		output.WindowKey = selected.WindowKey
@@ -367,7 +438,7 @@ func (s *Service) openResolvedItem(ctx context.Context, clientID, namespace, con
 }
 
 func (s *Service) prepareOpenItem(ctx context.Context, input OpenItem) (*preparedOpenItem, error) {
-	item, err := s.loadOne(ctx, strings.TrimSpace(input.ID))
+	item, err := s.loadRequested(ctx, strings.TrimSpace(input.ID), input.Resource, input.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -421,7 +492,8 @@ func (s *Service) workspaceDescriptor(ctx context.Context, windowID, conversatio
 	descriptor := workspaceproto.New(ctx, windowID, conversationID)
 	// Repeated opens retain the server-recorded original owner; activation is
 	// associated with this request separately.
-	for _, event := range s.reg.ListConversationEvents(conversationID) {
+	events, _ := s.reg.ListConversationEventsContext(ctx, conversationID)
+	for _, event := range events {
 		if event.Kind != "view.open" || event.Actor != "agent" || event.WindowID != windowID {
 			continue
 		}
@@ -451,6 +523,13 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		return nil, fmt.Errorf("prepared view item is required")
 	}
 	item := prepared.item
+	allowed, err := s.authorizeView(ctx, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	if !allowed {
+		return nil, &viewNotFoundError{id: item.ID}
+	}
 	windowParameters := prepared.windowParameters
 	windowID := computeWindowID(item.WindowKey, windowParameters, conversationID, item)
 	descriptor := s.workspaceDescriptor(ctx, windowID, conversationID, item, windowParameters)
@@ -461,6 +540,12 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		"windowId": windowID, "windowKey": item.WindowKey,
 		"windowTitle": item.Title, "parameters": windowParameters,
 		"options": options,
+	}
+	if item.Resource != nil {
+		params["target"] = item.Target
+		params["resource"] = &identity.ResourceRef{URI: item.Resource.URI, Revision: item.Resource.Selector()}
+		params["resolvedResource"] = item.Resource
+		ctx = runtimerequestctx.WithResolvedResource(ctx, *item.Resource)
 	}
 	if prepared.searchText != "" && item.QuickSearch != nil {
 		params["initialFilters"] = map[string]interface{}{
@@ -497,6 +582,7 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		}
 	}
 	output := &OpenOutput{
+		Resource:               item.Resource,
 		WorkspaceObject:        descriptor,
 		ClientID:               clientID,
 		WindowKey:              item.WindowKey,
@@ -536,6 +622,7 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		}
 	}
 	eventDetail := map[string]interface{}{
+		"resource":        item.Resource,
 		"workspaceObject": descriptor,
 		"viewId":          strings.TrimSpace(item.ID),
 		"parameters":      windowParameters,
@@ -543,7 +630,7 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 	if prepared.reportPresetResolution != nil {
 		eventDetail["reportPresetResolution"] = prepared.reportPresetResolution
 	}
-	s.reg.RecordConversationEvent(conversationID, uireg.UIEvent{
+	if _, err := s.reg.RecordConversationEventContext(ctx, conversationID, namespace, uireg.UIEvent{
 		ConversationID: conversationID,
 		ClientID:       clientID,
 		WindowID:       strings.TrimSpace(output.WindowID),
@@ -551,8 +638,27 @@ func (s *Service) openPreparedItem(ctx context.Context, clientID, namespace, con
 		Kind:           "view.open",
 		Actor:          "agent",
 		Detail:         eventDetail,
-	})
+	}); err != nil {
+		return nil, err
+	}
 	return output, nil
+}
+
+func (s *Service) authorizeView(ctx context.Context, id string) (bool, error) {
+	if ctx == nil || ctx.Err() != nil {
+		return false, fmt.Errorf("workspace view admission unavailable")
+	}
+	if s.bridge != nil && s.bridge.UsesWindowResourceResolution() {
+		return true, nil
+	}
+	if s.viewAuthorizer == nil {
+		return true, nil
+	}
+	allowed, err := s.viewAuthorizer(ctx, strings.TrimSpace(id))
+	if err != nil || ctx.Err() != nil {
+		return false, fmt.Errorf("workspace view admission unavailable")
+	}
+	return allowed, nil
 }
 
 func resolveReportStarterID(parameters map[string]interface{}, presets []viewproto.ReportPreset) (*viewproto.ReportPresetResolution, error) {
@@ -772,6 +878,18 @@ func computeWindowID(windowKey string, parameters map[string]interface{}, conver
 			base = fmt.Sprintf("%s_%d", base, generateIntHash(identity))
 		}
 	}
+	if item != nil && item.Resource != nil {
+		var target *forgetypes.WindowTarget
+		if item.Target != nil {
+			normalized, err := item.Target.Normalize()
+			if err == nil {
+				normalized.SelectionToken = ""
+				target = &normalized
+			}
+		}
+		identityBytes, _ := json.Marshal([]any{item.Resource.URI, item.Resource.ResourceCandidate, item.Resource.AuthorityBinding, target})
+		base += "_r" + identity.ContentFingerprint(identityBytes)[:12]
+	}
 	if strings.EqualFold(strings.TrimSpace(item.Presentation), "hosted") {
 		convID := strings.TrimSpace(conversationID)
 		if convID != "" {
@@ -824,10 +942,61 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 	if err != nil {
 		return nil, err
 	}
+	if ready, ok := any(s.bridge).(interface{ AuthzReady() bool }); ok && ready.AuthzReady() && s.windowAuthorizer == nil {
+		if !s.bridge.UsesWindowResourceResolution() {
+			return nil, fmt.Errorf("protected window admission is not configured for workspace views")
+		}
+	}
+	var admitted map[string]bool
+	if s.bridge != nil && s.bridge.UsesWindowResourceResolution() {
+		admitted = map[string]bool{}
+		for offset := 0; ; offset += 100 {
+			page, err := s.bridge.WindowDefinitionsList(ctx, &forgeuisvc.WindowDefinitionListInput{Limit: 100, Offset: offset})
+			if err != nil {
+				return nil, err
+			}
+			if page == nil {
+				return nil, fmt.Errorf("window resource catalog unavailable")
+			}
+			for _, summary := range page.Windows {
+				admitted[summary.WindowID] = true
+			}
+			if !page.HasMore {
+				break
+			}
+			if len(page.Windows) == 0 {
+				return nil, fmt.Errorf("window resource catalog did not advance")
+			}
+		}
+	}
 	items := make([]ListItem, 0, len(all))
 	for _, spec := range all {
 		if spec == nil {
 			continue
+		}
+		catalogKey := strings.TrimSpace(spec.WindowKey)
+		if admitted != nil {
+			var err error
+			catalogKey, _, err = s.canonicalCatalogReference(ctx, spec)
+			if err != nil || !admitted[catalogKey] {
+				continue
+			}
+		}
+		allowed, err := s.authorizeView(ctx, spec.ID)
+		if err != nil {
+			return nil, err
+		}
+		if !allowed {
+			continue
+		}
+		if s.windowAuthorizer != nil && admitted == nil {
+			allowed, err := s.windowAuthorizer(ctx, strings.TrimSpace(spec.WindowKey))
+			if err != nil || ctx.Err() != nil {
+				return nil, fmt.Errorf("workspace view admission unavailable")
+			}
+			if !allowed {
+				continue
+			}
 		}
 		item := ListItem{
 			ID:                 strings.TrimSpace(spec.ID),
@@ -848,6 +1017,19 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 			ReportPresets:      append([]viewproto.ReportPreset(nil), spec.ReportPresets...),
 			Capabilities:       spec.Capabilities,
 			Navigation:         spec.Navigation,
+		}
+		if s.bridge != nil && s.bridge.UsesWindowResourceResolution() {
+			item.WindowKey = catalogKey
+			definition, err := s.bridge.WindowDefinitionGet(ctx, &forgeuisvc.WindowDefinitionGetInput{WindowID: catalogKey})
+			if err != nil {
+				return nil, err
+			}
+			if definition == nil || definition.Definition == nil || definition.Definition.Resource == nil {
+				return nil, fmt.Errorf("window resource resolution unavailable")
+			}
+			pin := *definition.Definition.Resource
+			item.Resource = &pin
+			item.Target = definition.Definition.ResourceTarget
 		}
 		// Conversation-owned reports/resources use the UI workspace unless the
 		// definition explicitly opts into another presentation.

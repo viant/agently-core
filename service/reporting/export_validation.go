@@ -98,6 +98,9 @@ func validateSubmitExportRequest(request *SubmitExportRequest) error {
 	if request == nil {
 		return fmt.Errorf("reporting export: request is required")
 	}
+	if hasReservedExportMetadata(request.Metadata) {
+		return fmt.Errorf("reporting export: metadata contains a reserved persistence field")
+	}
 	if strings.TrimSpace(request.ArtifactRef) == "" {
 		return fmt.Errorf("reporting export: artifactRef is required")
 	}

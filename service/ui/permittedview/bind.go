@@ -2,6 +2,7 @@ package permittedview
 
 import (
 	"fmt"
+	"math"
 	"reflect"
 	"strconv"
 	"strings"
@@ -27,6 +28,10 @@ func BindResource(window *forgetypes.Window, windowID, conversationID string, pa
 		return result, nil
 	}
 	spec := window.Authorization
+	result.SchemaVersion = SchemaVersion(spec)
+	if result.SchemaVersion != 1 && result.SchemaVersion != 2 {
+		return nil, fmt.Errorf("permitted view: unsupported authorization schema version %d", result.SchemaVersion)
+	}
 	result.ResourceType = strings.ToLower(strings.TrimSpace(spec.ResourceType))
 	if spec.Resource != nil {
 		if value := strings.ToLower(strings.TrimSpace(spec.Resource.Type)); value != "" {
@@ -60,13 +65,44 @@ func BindResource(window *forgetypes.Window, windowID, conversationID string, pa
 		if !ok {
 			return nil, fmt.Errorf("permitted view: authorization resource selector %q was not resolved", spec.Resource.ID.Selector)
 		}
-		id, err := intValue(value)
-		if err != nil || id <= 0 {
-			return nil, fmt.Errorf("permitted view: authorization resource selector %q must resolve a positive integer", spec.Resource.ID.Selector)
+		if result.SchemaVersion == 2 {
+			id, ok := value.(string)
+			if !ok || id == "" || strings.TrimSpace(id) != id {
+				return nil, fmt.Errorf("permitted view: authorization resource selector %q requires an exact string ID in v2", spec.Resource.ID.Selector)
+			}
+			result.ResourceIDString = id
+		} else {
+			id, err := intValue(value)
+			if err != nil || id <= 0 {
+				return nil, fmt.Errorf("permitted view: authorization resource selector %q must resolve a positive integer", spec.Resource.ID.Selector)
+			}
+			result.ResourceID = id
 		}
-		result.ResourceID = id
 	}
 	return result, nil
+}
+
+// Forge's schemaVersion field is additive. Reflection keeps Core buildable
+// against its pinned pre-v2 Forge module while local multi-module builds use
+// the new field. An older Forge decoder drops v2 metadata and cannot enable it.
+func authorizationSchemaVersion(spec *forgetypes.AuthorizationSpec) int {
+	if spec == nil {
+		return 0
+	}
+	value := reflect.ValueOf(spec).Elem().FieldByName("SchemaVersion")
+	if value.IsValid() && value.Kind() == reflect.Int {
+		return int(value.Int())
+	}
+	return 0
+}
+
+// SchemaVersion returns the explicit v2 contract or the legacy v1 default.
+func SchemaVersion(spec *forgetypes.AuthorizationSpec) int {
+	version := authorizationSchemaVersion(spec)
+	if version == 0 {
+		return 1
+	}
+	return version
 }
 
 func ResolveRequest(bound *BoundView) (*Request, error) {
@@ -78,6 +114,7 @@ func ResolveRequest(bound *BoundView) (*Request, error) {
 		return nil, fmt.Errorf("permitted view: authorization resource type is required")
 	}
 	request := &Request{
+		SchemaVersion:               bound.SchemaVersion,
 		ResourceType:                bound.ResourceType,
 		RequestedCapabilities:       append([]string(nil), spec.RequestedCapabilities...),
 		RequestedGlobalCapabilities: append([]string(nil), spec.RequestedGlobalCapabilities...),
@@ -85,6 +122,9 @@ func ResolveRequest(bound *BoundView) (*Request, error) {
 	}
 	if bound.ResourceID > 0 {
 		request.ResourceIDs = []int{bound.ResourceID}
+	}
+	if bound.ResourceIDString != "" {
+		request.StringResourceIDs = []string{bound.ResourceIDString}
 	}
 	return request, nil
 }
@@ -130,18 +170,37 @@ func selectValue(root any, selector string) (any, bool) {
 }
 
 func intValue(value any) (int, error) {
+	maxInt := int64(^uint(0) >> 1)
+	minInt := -maxInt - 1
+	const maxSafeID = int64(1<<53 - 1)
 	switch actual := value.(type) {
 	case int:
+		if int64(actual) > maxSafeID || int64(actual) < -maxSafeID {
+			return 0, fmt.Errorf("unsafe integer value")
+		}
 		return actual, nil
 	case int64:
+		if actual > maxInt || actual < minInt || actual > maxSafeID || actual < -maxSafeID {
+			return 0, fmt.Errorf("unsafe integer value")
+		}
 		return int(actual), nil
 	case float64:
+		if math.IsNaN(actual) || math.IsInf(actual, 0) || math.Trunc(actual) != actual || math.Abs(actual) > 1<<53-1 || actual > float64(maxInt) || actual < float64(minInt) {
+			return 0, fmt.Errorf("unsafe integer value")
+		}
 		return int(actual), nil
 	case jsonNumber:
 		parsed, err := strconv.Atoi(string(actual))
+		if err == nil && (int64(parsed) > maxSafeID || int64(parsed) < -maxSafeID) {
+			return 0, fmt.Errorf("unsafe integer value")
+		}
 		return parsed, err
 	case string:
-		return strconv.Atoi(strings.TrimSpace(actual))
+		parsed, err := strconv.ParseInt(actual, 10, 64)
+		if err != nil || parsed > maxSafeID || parsed < -maxSafeID || parsed > maxInt || parsed < minInt {
+			return 0, fmt.Errorf("unsafe integer value")
+		}
+		return int(parsed), nil
 	default:
 		return 0, fmt.Errorf("unsupported integer value %T", value)
 	}

@@ -1,0 +1,21 @@
+package resource
+
+import (
+	"context"
+	mcpclient "github.com/viant/mcp/client"
+)
+
+// NewLocalMCPClient exports the authoritative local provider through the same
+// SDK tools/list/call handler as HTTP. Every operation uses its own request
+// context; startup actor/authority is never captured. No aggregate self-proxy
+// or network listener is involved. The provider's actor verifier is mandatory.
+func NewLocalMCPClient(provider *LocalProvider) (mcpclient.Interface, error) {
+	if provider == nil {
+		return nil, ErrUnavailable
+	}
+	server, err := newLocalMCPServer(provider)
+	if err != nil {
+		return nil, err
+	}
+	return server.AsClient(context.Background()), nil
+}

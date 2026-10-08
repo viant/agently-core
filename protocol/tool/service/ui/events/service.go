@@ -9,7 +9,7 @@ import (
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 )
 
 const Name = "ui/events"
@@ -122,7 +122,7 @@ func (s *Service) record(ctx context.Context, in, out interface{}) error {
 		// A stale or reused windowKey must never select a different window.
 		windowKey = ""
 	}
-	record := func(clientID, resolvedWindowID, resolvedWindowKey string) {
+	record := func(namespace, clientID, resolvedWindowID, resolvedWindowKey string) error {
 		event := uireg.UIEvent{
 			ConversationID: conversationID,
 			ClientID:       strings.TrimSpace(clientID),
@@ -132,9 +132,14 @@ func (s *Service) record(ctx context.Context, in, out interface{}) error {
 			Actor:          "user",
 			Detail:         input.Detail,
 		}
-		event = s.reg.RecordConversationEvent(conversationID, event)
+		var err error
+		event, err = s.reg.RecordConversationEventContext(ctx, conversationID, namespace, event)
+		if err != nil {
+			return err
+		}
 		output.Recorded = true
 		output.Event = event
+		return nil
 	}
 	for _, item := range items {
 		if clientID != "" && strings.TrimSpace(item.ClientID) != clientID {
@@ -161,16 +166,14 @@ func (s *Service) record(ctx context.Context, in, out interface{}) error {
 			windowID = strings.TrimSpace(matched.WindowID)
 			windowKey = strings.TrimSpace(matched.WindowKey)
 		}
-		record(item.ClientID, windowID, windowKey)
-		return nil
+		return record(item.Namespace, item.ClientID, windowID, windowKey)
 	}
 	// A browser bridge can reconnect between two lifecycle events. Reuse only an
 	// exact identity established by a trusted command, snapshot, or previously
 	// accepted event; never infer ownership from a window-name or ID suffix.
 	if windowID != "" || windowKey != "" {
-		if authorized, found := s.reg.FindAuthorizedConversationWindow(conversationID, clientID, windowID, windowKey); found {
-			record(authorized.ClientID, authorized.WindowID, authorized.WindowKey)
-			return nil
+		if authorized, found := s.reg.FindAuthorizedConversationWindowContext(ctx, conversationID, clientID, windowID, windowKey); found {
+			return record(authorized.Namespace, authorized.ClientID, authorized.WindowID, authorized.WindowKey)
 		}
 	}
 	return svc.NewInvalidInputError(in)
@@ -189,7 +192,10 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 	output.ConversationID = conversationID
 	clientID := normalizeOptionalClientID(input.ClientID)
 	output.ClientID = clientID
-	events := s.reg.ListEvents(conversationID, clientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), input.Limit, input.SinceSeq)
+	events, err := s.reg.ListEventsContext(ctx, conversationID, clientID, strings.TrimSpace(input.WindowID), strings.TrimSpace(input.WindowKey), input.Limit, input.SinceSeq)
+	if err != nil {
+		return err
+	}
 	if len(input.Kinds) > 0 {
 		allowed := map[string]struct{}{}
 		for _, kind := range input.Kinds {

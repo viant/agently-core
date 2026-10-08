@@ -168,6 +168,53 @@ func TestFetch_Hit_NoExtraMCPCall(t *testing.T) {
 	}
 }
 
+func TestFetchReauthorizesBeforeServingCachedResult(t *testing.T) {
+	store := datasource.NewMemoryStore()
+	store.Put(newAdvertiserDS())
+	exec := &stubExecutor{}
+	allowed := true
+	checks := 0
+	svc := datasource.New(datasource.Options{Store: store, Executor: exec, Authorize: func(_ context.Context, id string, _ map[string]interface{}) error {
+		checks++
+		if id != "account" {
+			t.Fatalf("unexpected datasource %q", id)
+		}
+		if !allowed {
+			return errors.New("revoked")
+		}
+		return nil
+	}})
+	inputs := map[string]interface{}{"q": "acm"}
+	if _, err := svc.Fetch(aliceCtx(), "account", inputs, datasource.FetchOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	allowed = false
+	if _, err := svc.Fetch(aliceCtx(), "account", inputs, datasource.FetchOptions{}); err == nil {
+		t.Fatal("cached result survived revocation")
+	}
+	if checks != 2 || exec.calls.Load() != 1 {
+		t.Fatalf("checks=%d backend calls=%d", checks, exec.calls.Load())
+	}
+}
+
+func TestAccountBoundModeDoesNotReuseUserScopedDatasourceResults(t *testing.T) {
+	store := datasource.NewMemoryStore()
+	store.Put(newAdvertiserDS())
+	exec := &stubExecutor{}
+	checks := 0
+	svc := datasource.New(datasource.Options{Store: store, Executor: exec, DisableCache: true, Authorize: func(context.Context, string, map[string]interface{}) error { checks++; return nil }})
+	ctx := aliceCtx() // one user can select different verified accounts over time
+	for i := 0; i < 2; i++ {
+		result, err := svc.Fetch(ctx, "account", map[string]interface{}{"q": "acm"}, datasource.FetchOptions{})
+		if err != nil || result.Cache != nil {
+			t.Fatalf("protected fetch=%+v err=%v", result, err)
+		}
+	}
+	if checks != 2 || exec.calls.Load() != 2 {
+		t.Fatalf("protected cache reuse: checks=%d backend calls=%d", checks, exec.calls.Load())
+	}
+}
+
 // T3 — scope:user isolation: different users → separate cache entries.
 func TestFetch_ScopeUser_Isolation(t *testing.T) {
 	svc, exec, _ := setup(t)

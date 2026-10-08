@@ -22,8 +22,26 @@ import (
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	"github.com/viant/agently-core/workspace"
 	repo "github.com/viant/agently-core/workspace/repository/forgewindow"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	"github.com/viant/forge/backend/service/meta"
+	forgetypes "github.com/viant/forge/backend/types"
 )
+
+type protectedViewCatalog struct{}
+
+func (protectedViewCatalog) AuthzReady() bool { return true }
+func (protectedViewCatalog) CheckWindowAdmission(_ context.Context, id string) (bool, error) {
+	return id == "public", nil
+}
+func (protectedViewCatalog) List(context.Context, *forgeuisvc.WindowDefinitionListInput) (*forgeuisvc.WindowDefinitionListOutput, error) {
+	return &forgeuisvc.WindowDefinitionListOutput{}, nil
+}
+func (protectedViewCatalog) Get(_ context.Context, in *forgeuisvc.WindowDefinitionGetInput) (*forgeuisvc.WindowDefinitionGetOutput, error) {
+	if in.WindowID != "public" {
+		return nil, errors.New("window definition is not available")
+	}
+	return &forgeuisvc.WindowDefinitionGetOutput{WindowID: in.WindowID, Definition: &forgetypes.Window{}}, nil
+}
 
 func TestEffectiveOpenTimeoutCapsOversizedWorkspaceRequests(t *testing.T) {
 	if got := effectiveOpenTimeout(600_000); got != 30_000 {
@@ -592,6 +610,97 @@ refreshOnOpen: false
 	})
 }
 
+func TestWorkspaceViewsUseHostAdmissionForListAndDirectGet(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		for _, id := range []string{"public", "private"} {
+			mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", id+".yaml"), "id: "+id+"\nwindowKey: "+id+"\ntitle: "+id+"\n")
+		}
+		calls := map[string]int{}
+		svc := &Service{repo: repo.New(afs.New()), windowAuthorizer: func(_ context.Context, key string) (bool, error) {
+			calls[key]++
+			return key == "public", nil
+		}}
+		items, err := svc.loadAll(context.Background())
+		if err != nil || len(items) != 1 || items[0].ID != "public" || calls["private"] != 1 {
+			t.Fatalf("filtered views=%+v calls=%+v err=%v", items, calls, err)
+		}
+		if _, err := svc.loadOne(context.Background(), "private"); err == nil {
+			t.Fatal("direct get exposed denied view")
+		} else {
+			var missing *viewNotFoundError
+			if !errors.As(err, &missing) || len(missing.available) != 1 || missing.available[0] != "public" {
+				t.Fatalf("direct get leaked catalog: %v", err)
+			}
+		}
+		svc.windowAuthorizer = func(context.Context, string) (bool, error) { return false, errors.New("authority unavailable") }
+		if _, err := svc.loadAll(context.Background()); err == nil {
+			t.Fatal("authority outage returned a partial catalog")
+		}
+	})
+}
+
+func TestWorkspaceViewsWithSharedWindowKeyUseSeparateViewAdmission(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		for _, id := range []string{"metricsBuilder", "forecastBuilder"} {
+			mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", id+".yaml"), "id: "+id+"\nwindowKey: reportBuilder\ntitle: "+id+"\n")
+		}
+		viewCalls, windowCalls := map[string]int{}, map[string]int{}
+		svc := &Service{repo: repo.New(afs.New()), viewAuthorizer: func(_ context.Context, id string) (bool, error) {
+			viewCalls[id]++
+			return id == "metricsBuilder", nil
+		}, windowAuthorizer: func(_ context.Context, key string) (bool, error) {
+			windowCalls[key]++
+			return key == "reportBuilder", nil
+		}}
+		items, err := svc.loadAll(context.Background())
+		if err != nil || len(items) != 1 || items[0].ID != "metricsBuilder" || viewCalls["forecastBuilder"] != 1 || windowCalls["reportBuilder"] != 1 {
+			t.Fatalf("shared-key views=%+v view calls=%v window calls=%v err=%v", items, viewCalls, windowCalls, err)
+		}
+		if _, err := svc.loadOne(context.Background(), "forecastBuilder"); err == nil {
+			t.Fatal("denied view with shared window key was exposed")
+		}
+	})
+}
+
+func TestPreparedWorkspaceViewRechecksAdmissionBeforeDispatch(t *testing.T) {
+	withWorkspaceRoot(t, func(root string) {
+		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "metricsBuilder.yaml"), "id: metricsBuilder\nwindowKey: reportBuilder\ntitle: Metrics\n")
+		allowed := true
+		svc := &Service{repo: repo.New(afs.New()), viewAuthorizer: func(context.Context, string) (bool, error) { return allowed, nil }}
+		prepared, err := svc.prepareOpenItem(context.Background(), OpenItem{ID: "metricsBuilder"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		allowed = false
+		if _, err := svc.openPreparedItem(context.Background(), "client", "namespace", "conversation", prepared, 1000); err == nil {
+			t.Fatal("prepared allow survived a current denial")
+		}
+	})
+}
+
+func TestProtectedForgeCatalogFiltersWorkspaceViewDiscovery(t *testing.T) {
+	config := &forgeuisvc.Config{WindowDefinitions: protectedViewCatalog{}}
+	field := reflect.ValueOf(config).Elem().FieldByName("DynamicWindowAuthorizer")
+	if !field.IsValid() {
+		t.Skip("pinned Forge predates protected dynamic windows")
+	}
+	field.Set(reflect.ValueOf(func(context.Context, string) (bool, error) { return true, nil }))
+	bridge := forgeuisvc.NewService(config)
+	ready, ok := any(bridge).(interface{ AuthzReady() bool })
+	if !ok || !ready.AuthzReady() {
+		t.Fatal("protected Forge catalog is not ready")
+	}
+	withWorkspaceRoot(t, func(root string) {
+		for _, id := range []string{"public", "private"} {
+			mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", id+".yaml"), "id: "+id+"\nwindowKey: "+id+"\ntitle: "+id+"\n")
+		}
+		items, err := New(repo.New(afs.New()), bridge).loadAll(context.Background())
+		if err != nil || len(items) != 1 || items[0].ID != "public" {
+			t.Fatalf("protected catalog discovery=%+v err=%v", items, err)
+		}
+	})
+}
+
 func TestServiceLoadAll_PreservesReportPresetCatalog(t *testing.T) {
 	withWorkspaceRoot(t, func(root string) {
 		mustWriteFile(t, filepath.Join(root, "extension", "forge", "windows", "report.yaml"), `
@@ -1076,7 +1185,16 @@ region: chat.top
 		const conversationID = "conv-forecast"
 		const clientID = "web-client-1"
 
-		bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+		metadataScope := &metadataScopeFixture{}
+		windowCatalog, err := forgeuisvc.NewMetadataWindowCatalog(meta.New(afs.New(), root), root, []forgeuisvc.SavedWindow{{
+			WindowDefinitionSummary: forgeuisvc.WindowDefinitionSummary{WindowID: "forecastingCubeBuilder", Title: "Forecasting"}, Key: "forecastingCubeBuilder",
+		}}, forgeuisvc.WithWindowMetadataScope(metadataScope), forgeuisvc.WithWindowDefinitionLoader(func(context.Context, string) (*forgetypes.Window, error) {
+			return &forgetypes.Window{WindowKey: "forecastingCubeBuilder", View: forgetypes.View{Content: &forgetypes.Container{ID: "root"}}}, nil
+		}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		bridge := forgeuisvc.NewService(&forgeuisvc.Config{WindowDefinitions: windowCatalog, MetadataScope: metadataScope})
 		postUIRPC(t, bridge, "ui.hello", map[string]interface{}{"clientId": clientID})
 		postUIRPC(t, bridge, "ui.snapshot", map[string]interface{}{
 			"clientId": clientID,
@@ -1164,7 +1282,7 @@ region: chat.top
 			runtimerequestctx.WithConversationID(context.Background(), conversationID),
 			clientID,
 		)
-		viewSvc := New(repo.New(afs.New()), bridge)
+		viewSvc := New(repo.New(afs.New()), bridge, WithMetadataScope(metadataScope))
 		openOut := &OpenOutput{}
 		if err := viewSvc.open(ctx, &OpenInput{ID: "forecastingCubeBuilder", TimeoutMs: 2_000}, openOut); err != nil {
 			t.Fatalf("open failed: %v", err)
@@ -1174,6 +1292,9 @@ region: chat.top
 		}
 		if openOut.WindowID == "" {
 			t.Fatalf("expected open to return window id")
+		}
+		if metadataScope.begins != 0 || metadataScope.finishes != 0 || metadataScope.bypasses != 1 {
+			t.Fatalf("Open metadata scope begin/finalize/bypass=%d/%d/%d", metadataScope.begins, metadataScope.finishes, metadataScope.bypasses)
 		}
 
 		windowSvc := windowtool.New(bridge)

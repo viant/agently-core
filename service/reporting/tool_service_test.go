@@ -13,6 +13,7 @@ import (
 	asynccfg "github.com/viant/agently-core/protocol/async"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	authsvc "github.com/viant/agently-core/service/auth"
+	"github.com/viant/agently-core/service/policy"
 )
 
 func TestServiceMethodsExposeReportingSurface(t *testing.T) {
@@ -23,7 +24,11 @@ func TestServiceMethodsExposeReportingSurface(t *testing.T) {
 	})
 
 	signatures := service.Methods()
-	require.Len(t, signatures, 27)
+	require.Len(t, signatures, 29)
+	require.Equal(t, "run_report", signatures[1].Name)
+	signatures = append(signatures[:1], signatures[2:]...)
+	require.Equal(t, "stamp_report", signatures[15].Name)
+	signatures = append(signatures[:15], signatures[16:]...)
 	require.Equal(t, Name, service.Name())
 	require.Equal(t, "compile", signatures[0].Name)
 	require.Equal(t, "compile_fenced_report", signatures[1].Name)
@@ -230,7 +235,8 @@ func TestServiceToolMethodRecordsAuditEvents(t *testing.T) {
 			EventType:   "report.publish",
 			ArtifactRef: "reportBuilder.savedView://saved_view_capacity_q3",
 			Version:     8,
-			ActorRef:    "user://awitas",
+			ActorRef:    "user://owner-1",
+			OccurredAt:  now.Add(-24 * time.Hour),
 			Metadata: map[string]interface{}{
 				"source": "reportBuilder",
 			},
@@ -238,13 +244,17 @@ func TestServiceToolMethodRecordsAuditEvents(t *testing.T) {
 	}, output))
 	require.Equal(t, "report.publish", output.EventType)
 	require.Equal(t, 8, output.Version)
-	require.Equal(t, "user://awitas", output.ActorRef)
-	require.Equal(t, "user://awitas", output.ActorID)
+	require.Equal(t, "user://owner-1", output.ActorRef)
+	require.Equal(t, "owner-1", output.ActorID)
 	require.Equal(t, now, output.OccurredAt)
 	require.Len(t, audit.events, 1)
 	require.Equal(t, "report.publish", audit.events[0].EventType)
-	require.Equal(t, "user://awitas", audit.events[0].ActorRef)
-	require.Equal(t, "user://awitas", audit.events[0].ActorID)
+	require.Equal(t, "user://owner-1", audit.events[0].ActorRef)
+	require.Equal(t, "owner-1", audit.events[0].ActorID)
+	require.ErrorIs(t, recordMethod(ctx, &RecordAuditEventInput{Event: &AuditEvent{
+		EventType: "report.publish", ArtifactRef: "report://source", ActorRef: "user://another-user",
+	}}, &AuditEvent{}), policy.ErrDenied)
+	require.Len(t, audit.events, 1)
 }
 
 func TestServiceToolMethodCreatesAndTransitionsSharedArtifacts(t *testing.T) {

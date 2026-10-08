@@ -3,6 +3,7 @@ package registry
 import (
 	"encoding/json"
 	"fmt"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"sort"
 	"strings"
 	"sync"
@@ -39,15 +40,17 @@ type WindowSurface struct {
 }
 
 type UIEvent struct {
-	Seq            int64                  `json:"seq"`
-	At             time.Time              `json:"at"`
-	ConversationID string                 `json:"conversationId,omitempty"`
-	ClientID       string                 `json:"clientId,omitempty"`
-	WindowID       string                 `json:"windowId,omitempty"`
-	WindowKey      string                 `json:"windowKey,omitempty"`
-	Kind           string                 `json:"kind,omitempty"`
-	Actor          string                 `json:"actor,omitempty"`
-	Detail         map[string]interface{} `json:"detail,omitempty"`
+	Resource       *identity.ResolvedResource `json:"resource,omitempty"`
+	Namespace      string                     `json:"-"`
+	Seq            int64                      `json:"seq"`
+	At             time.Time                  `json:"at"`
+	ConversationID string                     `json:"conversationId,omitempty"`
+	ClientID       string                     `json:"clientId,omitempty"`
+	WindowID       string                     `json:"windowId,omitempty"`
+	WindowKey      string                     `json:"windowKey,omitempty"`
+	Kind           string                     `json:"kind,omitempty"`
+	Actor          string                     `json:"actor,omitempty"`
+	Detail         map[string]interface{}     `json:"detail,omitempty"`
 }
 
 type sharedState struct {
@@ -115,6 +118,8 @@ func (s *sharedState) ingestSnapshot(ns, clientID string, snap *Snapshot, raw js
 	s.snapshots[key] = cloneSnapshot(snap)
 	for _, window := range snap.Windows {
 		s.authorizeWindowLocked(UIEvent{
+			Resource:       window.Resource,
+			Namespace:      ns,
 			At:             updatedAt,
 			ConversationID: strings.TrimSpace(window.ConversationID),
 			ClientID:       strings.TrimSpace(clientID),
@@ -128,6 +133,21 @@ func (s *sharedState) ingestSnapshot(ns, clientID string, snap *Snapshot, raw js
 		return s.nextSeq
 	}
 	record := func(event UIEvent) {
+		event.Namespace = ns
+		for _, candidate := range snap.Windows {
+			if candidate.WindowID == event.WindowID {
+				event.Resource = candidate.Resource
+				break
+			}
+		}
+		if event.Resource == nil && prev != nil {
+			for _, candidate := range prev.Windows {
+				if candidate.WindowID == event.WindowID {
+					event.Resource = candidate.Resource
+					break
+				}
+			}
+		}
 		event.Seq = nextSeq()
 		if event.At.IsZero() {
 			event.At = updatedAt

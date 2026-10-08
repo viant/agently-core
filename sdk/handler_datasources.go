@@ -12,6 +12,8 @@ import (
 	convdata "github.com/viant/agently-core/app/store/data"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
+	"github.com/viant/agently-core/service/policy"
+	identity "github.com/viant/agently-core/protocol/resource"
 )
 
 // ErrDatasourceStackNotConfigured is returned by Backend implementations that
@@ -98,6 +100,9 @@ func handleListLookupRegistry(client Backend) http.HandlerFunc {
 // statusForDatasourceErr maps the sentinel "not configured" error to 501 so
 // clients can distinguish it from genuine internal errors.
 func statusForDatasourceErr(err error) int {
+	if errors.Is(err, policy.ErrDenied) || errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) {
+		return http.StatusForbidden
+	}
 	if errors.Is(err, ErrDatasourceStackNotConfigured) {
 		return http.StatusNotImplemented
 	}

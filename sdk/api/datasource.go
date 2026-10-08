@@ -1,11 +1,18 @@
 package api
 
+import (
+	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/forge/backend/types"
+)
+
 // FetchDatasourceInput is the wire request for POST /v1/api/datasources/{id}/fetch.
 type FetchDatasourceInput struct {
-	ID             string                 `json:"id"`
-	ConversationID string                 `json:"conversationId,omitempty"`
-	Inputs         map[string]interface{} `json:"inputs,omitempty"`
-	Cache          *DatasourceCacheHints  `json:"cache,omitempty"`
+	Target         *types.WindowTarget        `json:"target,omitempty"`
+	Resource       *identity.ResolvedResource `json:"resource,omitempty"`
+	ID             string                     `json:"id"`
+	ConversationID string                     `json:"conversationId,omitempty"`
+	Inputs         map[string]interface{}     `json:"inputs,omitempty"`
+	Cache          *DatasourceCacheHints      `json:"cache,omitempty"`
 }
 
 // DatasourceCacheHints carries per-call overrides on cache behaviour.

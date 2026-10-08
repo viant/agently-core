@@ -293,6 +293,9 @@ func (s *Service) resolveReadTarget(ctx context.Context, input *ReadInput, allow
 		if err != nil {
 			return nil, err
 		}
+		if err := s.checkRawResourceURI(fullURI, false); err != nil {
+			return nil, err
+		}
 		return &readTarget{fullURI: fullURI}, nil
 	}
 	rootCtx, err := s.newRootContext(ctx, input.RootURI, input.RootID, allowed)
@@ -305,6 +308,9 @@ func (s *Service) resolveReadTarget(ctx context.Context, input *ReadInput, allow
 	}
 	fullURI, err := rootCtx.ResolvePath(pathPart)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.checkRawResourceURI(fullURI, false); err != nil {
 		return nil, err
 	}
 	return &readTarget{fullURI: fullURI, normRoot: rootCtx.Base()}, nil

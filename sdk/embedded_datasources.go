@@ -78,13 +78,15 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 	if c.datasourceSvc == nil {
 		return nil, ErrDatasourceStackNotConfigured
 	}
-	if err := c.refreshDatasourceStack(ctx); err != nil {
-		return nil, err
-	}
 	if in == nil || strings.TrimSpace(in.ID) == "" {
 		return nil, fmt.Errorf("datasource id is required")
 	}
-	opts := dssvc.FetchOptions{}
+	if in.Resource == nil {
+		if err := c.refreshDatasourceStack(ctx); err != nil {
+			return nil, err
+		}
+	}
+	opts := dssvc.FetchOptions{Resource: in.Resource, Target: in.Target}
 	if in.Cache != nil {
 		opts.BypassCache = in.Cache.BypassCache
 		opts.WriteThrough = in.Cache.WriteThrough

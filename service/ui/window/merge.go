@@ -6,7 +6,6 @@ import (
 	"log"
 	"strings"
 
-	"github.com/viant/afs"
 	lookupProto "github.com/viant/agently-core/protocol/lookup/overlay"
 	"github.com/viant/agently-core/workspace"
 	wsmeta "github.com/viant/agently-core/workspace/service/meta"
@@ -25,10 +24,38 @@ import (
 // to a workspace asset must resolve to an attached asset, otherwise the load
 // fails with the missing assignments spelled out.
 func MergeWorkspaceForgeAssets(ctx context.Context, window *forgeTypes.Window, assignment *ResourceAssignment) error {
+	return mergeWorkspaceForgeAssetsAt(ctx, workspace.Root(), window, assignment, enrichWorkspaceWindow)
+}
+
+// MergeWorkspaceForgeAssetsAt uses the same explicit workspace root as the
+// window definition, including every assigned datasource and model lookup.
+func MergeWorkspaceForgeAssetsAt(ctx context.Context, workspaceRoot string, window *forgeTypes.Window, assignment *ResourceAssignment) error {
+	return mergeWorkspaceForgeAssetsAt(ctx, workspaceRoot, window, assignment, nil)
+}
+
+// MergeWorkspaceForgeAssetsWithEnricherAt also binds a host-owned extension
+// callback without consulting the process-global legacy enricher.
+func MergeWorkspaceForgeAssetsWithEnricherAt(ctx context.Context, workspaceRoot string, window *forgeTypes.Window, assignment *ResourceAssignment, enricher WorkspaceWindowEnricher) error {
+	return mergeWorkspaceForgeAssetsAt(ctx, workspaceRoot, window, assignment, enricher)
+}
+
+func mergeWorkspaceForgeAssetsAt(ctx context.Context, workspaceRoot string, window *forgeTypes.Window, assignment *ResourceAssignment, enricher WorkspaceWindowEnricher) error {
+	return mergeWorkspaceForgeAssetsWithOptionsAt(ctx, workspaceRoot, window, assignment, enricher, LoaderOptions{})
+}
+
+func mergeWorkspaceForgeAssetsWithOptionsAt(ctx context.Context, workspaceRoot string, window *forgeTypes.Window, assignment *ResourceAssignment, enricher WorkspaceWindowEnricher, options LoaderOptions) (failure error) {
+	defer func() {
+		if err := options.check(); err != nil {
+			failure = err
+		}
+	}()
 	if window == nil {
 		return nil
 	}
-	svc := wsmeta.New(afs.New(), workspace.Root())
+	if strings.TrimSpace(workspaceRoot) == "" {
+		return fmt.Errorf("workspace root is required")
+	}
+	svc := wsmeta.New(options.filesystem(), workspaceRoot)
 	catalog, err := loadWorkspaceCatalog(ctx, svc)
 	if err != nil {
 		return err
@@ -45,8 +72,10 @@ func MergeWorkspaceForgeAssets(ctx context.Context, window *forgeTypes.Window, a
 	if err := resolver.attach(); err != nil {
 		return err
 	}
-	if err := enrichWorkspaceWindow(ctx, window); err != nil {
-		return err
+	if enricher != nil {
+		if err := enricher(ctx, window); err != nil {
+			return err
+		}
 	}
 	// Host extensions (including report builders) add datasource references.
 	// Validate the complete window, while keeping missing datasources non-fatal.

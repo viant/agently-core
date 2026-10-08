@@ -3,13 +3,16 @@ package registry
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	forgetypes "github.com/viant/forge/backend/types"
 	"sort"
 	"strings"
 	"time"
 
 	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	identity "github.com/viant/agently-core/protocol/resource"
 )
 
 type Registry struct {
@@ -42,6 +45,8 @@ type SnapshotSelected struct {
 }
 
 type WindowSnapshot struct {
+	ResourceTarget     *forgetypes.WindowTarget      `json:"resourceTarget,omitempty"`
+	Resource           *identity.ResolvedResource    `json:"resource,omitempty"`
 	WorkspaceObject    *workspaceproto.Object        `json:"workspaceObject,omitempty"`
 	WindowID           string                        `json:"windowId,omitempty"`
 	WindowKey          string                        `json:"windowKey,omitempty"`
@@ -87,14 +92,17 @@ type ClientSnapshot struct {
 	Transport  string
 }
 
-func (r *Registry) snapshots() ([]ClientSnapshot, error) {
+func (r *Registry) snapshots(ctx context.Context) ([]ClientSnapshot, error) {
 	if r == nil || r.bridge == nil {
 		return nil, fmt.Errorf("ui bridge not configured")
 	}
 	entries := r.bridge.Hub().SnapshotEntries()
 	result := make([]ClientSnapshot, 0, len(entries))
 	for _, entry := range entries {
-		raw := entry.Snapshot
+		raw, err := r.bridge.FilterResourceSnapshot(ctx, entry.Namespace, entry.ClientID, entry.Snapshot)
+		if err != nil {
+			return nil, err
+		}
 		var snap Snapshot
 		if err := json.Unmarshal(raw, &snap); err != nil {
 			continue
@@ -127,6 +135,9 @@ func (r *Registry) snapshots() ([]ClientSnapshot, error) {
 }
 
 func (r *Registry) RecordEvent(ns, clientID string, event UIEvent) {
+	if r.canonicalResources() {
+		return
+	}
 	if r == nil || r.state == nil {
 		return
 	}
@@ -137,6 +148,9 @@ func (r *Registry) RecordEvent(ns, clientID string, event UIEvent) {
 // transient live-window snapshot. This keeps recent report context available
 // while a client reconnects or refreshes its UI bridge registration.
 func (r *Registry) RecordConversationEvent(conversationID string, event UIEvent) UIEvent {
+	if r.canonicalResources() {
+		return UIEvent{}
+	}
 	if r == nil || r.state == nil {
 		return event
 	}
@@ -149,6 +163,9 @@ func (r *Registry) RecordConversationEvent(conversationID string, event UIEvent)
 }
 
 func (r *Registry) ListConversationEvents(conversationID string) []UIEvent {
+	if r.canonicalResources() {
+		return nil
+	}
 	if r == nil || r.state == nil {
 		return nil
 	}
@@ -162,6 +179,9 @@ func (r *Registry) ListConversationEvents(conversationID string) []UIEvent {
 // FindAuthorizedConversationWindow resolves an exact window identity previously
 // established by a trusted UI command, snapshot, or accepted browser event.
 func (r *Registry) FindAuthorizedConversationWindow(conversationID, clientID, windowID, windowKey string) (UIEvent, bool) {
+	if r.canonicalResources() {
+		return UIEvent{}, false
+	}
 	if r == nil || r.state == nil {
 		return UIEvent{}, false
 	}
@@ -169,8 +189,15 @@ func (r *Registry) FindAuthorizedConversationWindow(conversationID, clientID, wi
 }
 
 func (r *Registry) ListEvents(conversationID, clientID, windowID, windowKey string, limit int, sinceSeq int64) []UIEvent {
-	if r == nil || r.state == nil {
+	if r.canonicalResources() {
 		return nil
+	}
+	events, _ := r.ListEventsContext(context.Background(), conversationID, clientID, windowID, windowKey, limit, sinceSeq)
+	return events
+}
+func (r *Registry) ListEventsContext(ctx context.Context, conversationID, clientID, windowID, windowKey string, limit int, sinceSeq int64) ([]UIEvent, error) {
+	if r == nil || r.state == nil {
+		return nil, nil
 	}
 	clientID = strings.TrimSpace(clientID)
 	windowID = strings.TrimSpace(windowID)
@@ -179,12 +206,12 @@ func (r *Registry) ListEvents(conversationID, clientID, windowID, windowKey stri
 	if limit <= 0 {
 		limit = 10
 	}
-	items, err := r.ListReadableByConversation(context.Background(), conversationID)
+	items, err := r.ListReadableByConversation(ctx, conversationID)
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	var out []UIEvent
-	for _, event := range r.ListConversationEvents(conversationID) {
+	for _, event := range r.state.listEvents("conversation", conversationID) {
 		if sinceSeq > 0 && event.Seq <= sinceSeq {
 			continue
 		}
@@ -261,13 +288,26 @@ func (r *Registry) ListEvents(conversationID, clientID, windowID, windowKey stri
 			out = append(out, event)
 		}
 	}
+	if r.canonicalResources() {
+		filtered := make([]UIEvent, 0, len(out))
+		for _, event := range out {
+			allowed, err := r.admitEvent(ctx, event)
+			if err != nil {
+				return nil, err
+			}
+			if allowed {
+				filtered = append(filtered, event)
+			}
+		}
+		out = filtered
+	}
 	sort.SliceStable(out, func(i, j int) bool {
 		return out[i].Seq < out[j].Seq
 	})
 	if len(out) > limit {
 		out = append([]UIEvent(nil), out[len(out)-limit:]...)
 	}
-	return out
+	return out, nil
 }
 
 func snapshotHasWindowID(snap *Snapshot, conversationID, windowID string) bool {
@@ -421,9 +461,8 @@ func (r *Registry) ListReadableByConversation(ctx context.Context, conversationI
 }
 
 func (r *Registry) listByConversation(ctx context.Context, conversationID string, requireServiceable bool) ([]ClientSnapshot, error) {
-	_ = ctx
 	conversationID = strings.TrimSpace(conversationID)
-	items, err := r.snapshots()
+	items, err := r.snapshots(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -468,12 +507,11 @@ func (r *Registry) listByConversation(ctx context.Context, conversationID string
 }
 
 func (r *Registry) FindClient(ctx context.Context, clientID string) (*ClientSnapshot, error) {
-	_ = ctx
 	clientID = strings.TrimSpace(clientID)
 	if clientID == "" {
 		return nil, fmt.Errorf("clientId is required")
 	}
-	items, err := r.snapshots()
+	items, err := r.snapshots(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -522,6 +560,22 @@ func (r *Registry) findWindow(ctx context.Context, conversationID, clientID, win
 		}
 		items = filtered
 	}
+	if r.canonicalResources() && windowID == "" && windowKey != "" {
+		matches := 0
+		for _, item := range items {
+			if item.Snapshot == nil {
+				continue
+			}
+			for _, win := range item.Snapshot.Windows {
+				if win.WindowKey == windowKey {
+					matches++
+				}
+			}
+		}
+		if matches > 1 {
+			return "", "", nil, nil, fmt.Errorf("windowKey is ambiguous; use the resolved windowId")
+		}
+	}
 	if clientID, namespace, snap, win, ok := findWindowInClientSnapshots(items, conversationID, windowID, windowKey); ok {
 		return clientID, namespace, snap, win, nil
 	}
@@ -532,7 +586,15 @@ func (r *Registry) findWindow(ctx context.Context, conversationID, clientID, win
 	}
 	if windowID != "" && r.state != nil {
 		if eventClientID, eventNamespace, event, ok := r.state.findRecentWindowEvent(conversationID, preferredClientID, windowID, defaultWindowEventFreshness); ok {
+			if r.canonicalResources() {
+				allowed, err := r.admitEvent(ctx, event)
+				if err != nil || !allowed {
+					return "", "", nil, nil, fmt.Errorf("window not found")
+				}
+				eventNamespace = event.Namespace
+			}
 			return eventClientID, eventNamespace, nil, &WindowSnapshot{
+				Resource:       event.Resource,
 				WindowID:       strings.TrimSpace(event.WindowID),
 				WindowKey:      firstNonEmpty(strings.TrimSpace(event.WindowKey), windowKey),
 				ConversationID: strings.TrimSpace(event.ConversationID),
@@ -571,4 +633,86 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func (r *Registry) canonicalResources() bool {
+	return r != nil && r.bridge != nil && r.bridge.UsesWindowResourceResolution()
+}
+func (r *Registry) admitEvent(ctx context.Context, event UIEvent) (bool, error) {
+	if !r.canonicalResources() {
+		return true, nil
+	}
+	if event.Resource == nil || event.Namespace == "" || event.WindowID == "" || event.ClientID == "" {
+		return false, nil
+	}
+	current, err := r.bridge.WindowResource(ctx, event.Namespace, event.ClientID, event.WindowID, event.WindowKey)
+	if errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) {
+		return false, nil
+	}
+	if err != nil {
+		return false, fmt.Errorf("window resource authority unavailable")
+	}
+	if current == nil || current.URI != event.Resource.URI || current.ResourceCandidate != event.Resource.ResourceCandidate || current.AuthorityBinding != event.Resource.AuthorityBinding || !event.Resource.ValidUntil.After(time.Now()) {
+		return false, nil
+	}
+	return true, nil
+}
+func (r *Registry) RecordEventContext(ctx context.Context, namespace, clientID string, event UIEvent) (UIEvent, error) {
+	if r == nil || r.state == nil {
+		return UIEvent{}, fmt.Errorf("ui event registry unavailable")
+	}
+	if r.canonicalResources() {
+		pin, err := r.bridge.WindowResource(ctx, namespace, clientID, event.WindowID, event.WindowKey)
+		if err != nil {
+			return UIEvent{}, fmt.Errorf("window resource unavailable")
+		}
+		event.Namespace = namespace
+		event.Resource = pin
+	}
+	return r.state.recordEvent(namespace, clientID, event), nil
+}
+func (r *Registry) RecordConversationEventContext(ctx context.Context, conversationID, namespace string, event UIEvent) (UIEvent, error) {
+	if r == nil || r.state == nil || strings.TrimSpace(conversationID) == "" {
+		return UIEvent{}, fmt.Errorf("ui conversation event unavailable")
+	}
+	event.ConversationID = conversationID
+	if r.canonicalResources() {
+		pin, err := r.bridge.WindowResource(ctx, namespace, event.ClientID, event.WindowID, event.WindowKey)
+		if err != nil {
+			return UIEvent{}, fmt.Errorf("window resource unavailable")
+		}
+		event.Namespace = namespace
+		event.Resource = pin
+	}
+	return r.state.recordEvent("conversation", conversationID, event), nil
+}
+func (r *Registry) ListConversationEventsContext(ctx context.Context, conversationID string) ([]UIEvent, error) {
+	if r == nil || r.state == nil {
+		return nil, nil
+	}
+	var result []UIEvent
+	for _, event := range r.state.listEvents("conversation", conversationID) {
+		allowed, err := r.admitEvent(ctx, event)
+		if err != nil {
+			return nil, err
+		}
+		if allowed {
+			result = append(result, event)
+		}
+	}
+	return result, nil
+}
+func (r *Registry) FindAuthorizedConversationWindowContext(ctx context.Context, conversationID, clientID, windowID, windowKey string) (UIEvent, bool) {
+	if r == nil || r.state == nil {
+		return UIEvent{}, false
+	}
+	event, ok := r.state.findAuthorizedWindow(conversationID, clientID, windowID, windowKey)
+	if !ok {
+		return UIEvent{}, false
+	}
+	allowed, err := r.admitEvent(ctx, event)
+	if err != nil || !allowed {
+		return UIEvent{}, false
+	}
+	return event, true
 }

@@ -28,6 +28,9 @@ func (r *MCPResolver) Resolve(ctx context.Context, request *Request) (*Snapshot,
 	if toolName == "" {
 		return nil, fmt.Errorf("permitted view: authorization tool is not configured")
 	}
+	if request != nil && request.SchemaVersion == 2 {
+		return nil, fmt.Errorf("permitted view: v2 string IDs are unsupported by the legacy MCP resolver")
+	}
 	args := map[string]interface{}{
 		"ResourceType":                request.ResourceType,
 		"ResourceIDs":                 request.ResourceIDs,
@@ -82,6 +85,19 @@ func (r *Runtime) Apply(ctx context.Context, bound *BoundView) (*Result, error) 
 	}
 	if snapshot.ExpiresAt.IsZero() || !now.Before(snapshot.ExpiresAt) {
 		return nil, fmt.Errorf("permitted view: authorization snapshot is expired")
+	}
+	if bound.SchemaVersion == 2 {
+		if snapshot.SchemaVersion != 2 {
+			return nil, fmt.Errorf("permitted view: v2 authorization snapshot is required")
+		}
+		if bound.ResourceIDString != "" {
+			resource := snapshot.Resources[bound.ResourceIDString]
+			if resource == nil || resource.IDString != bound.ResourceIDString || !strings.EqualFold(resource.Type, bound.ResourceType) {
+				return nil, fmt.Errorf("permitted view: authorization resource identity mismatch")
+			}
+		}
+	} else if snapshot.SchemaVersion == 2 {
+		return nil, fmt.Errorf("permitted view: v1 authorization snapshot is required")
 	}
 	if bound.ResourceID > 0 {
 		resource := snapshot.Resources[fmt.Sprint(bound.ResourceID)]

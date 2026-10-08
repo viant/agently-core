@@ -32,6 +32,17 @@ func TestRuntimeFilter(t *testing.T) {
 	}
 }
 
+func TestAuthzRuntimeKeepsOpaqueIDsExact(t *testing.T) {
+	runtime := NewRuntime(resolverFunc(func(context.Context, *Request) (*Decision, error) {
+		return &Decision{PolicyVersion: "v1", ExpiresAt: time.Now().Add(time.Minute), Allow: true, AllowedIDs: []string{"Window-A"}}, nil
+	}), OperationWindowView)
+	runtime.ExactIDs = true
+	got, err := runtime.Filter(context.Background(), OperationWindowView, "", []Candidate{{ID: "Window-A"}, {ID: "window-a"}}, nil)
+	if err != nil || len(got) != 1 || got[0].ID != "Window-A" {
+		t.Fatalf("exact IDs: %+v, %v", got, err)
+	}
+}
+
 func TestRuntimeDisabledOperationPreservesCandidates(t *testing.T) {
 	runtime := NewRuntime(resolverFunc(func(context.Context, *Request) (*Decision, error) {
 		t.Fatal("disabled operation called resolver")

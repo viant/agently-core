@@ -146,6 +146,9 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 	locInfos := make([]locInfo, 0, len(selectedRoots))
 	searchRoots := make([]searchRootMeta, 0, len(selectedRoots))
 	for _, root := range selectedRoots {
+		if err := s.checkRawResourceURI(root.URI, true); err != nil {
+			return nil, err
+		}
 		wsRoot := strings.TrimRight(strings.TrimSpace(root.URI), "/")
 		if wsRoot == "" {
 			continue
@@ -162,6 +165,12 @@ func (s *Service) buildAugmentedDocuments(ctx context.Context, input *MatchInput
 			if err != nil {
 				return nil, err
 			}
+		}
+		// Semantic matching indexes every file below its selected root. In
+		// canonical mode, reject ancestor scans containing migrated definitions
+		// before the augmenter can read or index those files.
+		if err := s.checkRawResourceURI(base, true); err != nil {
+			return nil, err
 		}
 		locations = append(locations, base)
 		locInfos = append(locInfos, locInfo{location: base, db: strings.TrimSpace(root.DB), match: root.Match})
