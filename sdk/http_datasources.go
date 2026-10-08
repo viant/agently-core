@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/viant/agently-core/sdk/api"
+	identity "github.com/viant/agently-core/protocol/resource"
 )
 
 // FetchDatasource dispatches POST /v1/api/datasources/{id}/fetch.
@@ -22,10 +23,11 @@ func (c *HTTPClient) FetchDatasource(ctx context.Context, in *api.FetchDatasourc
 	conversationID := strings.TrimSpace(in.ConversationID)
 	// Wire body: the server reads id from the URL; carry the rest verbatim.
 	body := struct {
-		ConversationID string                    `json:"conversationId,omitempty"`
-		Inputs         map[string]interface{}    `json:"inputs,omitempty"`
-		Cache          *api.DatasourceCacheHints `json:"cache,omitempty"`
-	}{ConversationID: conversationID, Inputs: in.Inputs, Cache: in.Cache}
+		Resource       *identity.ResolvedResource `json:"resource,omitempty"`
+		ConversationID string                     `json:"conversationId,omitempty"`
+		Inputs         map[string]interface{}     `json:"inputs,omitempty"`
+		Cache          *api.DatasourceCacheHints  `json:"cache,omitempty"`
+	}{Resource: in.Resource, ConversationID: conversationID, Inputs: in.Inputs, Cache: in.Cache}
 	var out api.FetchDatasourceOutput
 	path := "/v1/api/datasources/" + url.PathEscape(id) + "/fetch"
 	if err := c.doJSON(ctx, http.MethodPost, path, body, &out); err != nil {

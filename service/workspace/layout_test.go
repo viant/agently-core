@@ -3,6 +3,7 @@ package workspace
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/service/policy"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	ws "github.com/viant/agently-core/workspace"
@@ -55,6 +57,18 @@ type layoutPolicyResolver struct {
 	request *policy.Request
 }
 
+type denyLayoutResolver struct{}
+
+type identityRejectedLayoutResolver struct{}
+
+func (identityRejectedLayoutResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
+	return nil, policy.ErrIdentityRejected
+}
+
+func (denyLayoutResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
+	return &policy.Decision{PolicyVersion: "denied", ExpiresAt: time.Now().Add(time.Minute), Allow: false}, nil
+}
+
 func (r *layoutPolicyResolver) Resolve(_ context.Context, request *policy.Request) (*policy.Decision, error) {
 	r.calls++
 	r.request = request
@@ -87,6 +101,68 @@ func TestLayoutFiltersAppsByRoleAndFeatureWithoutEntityIDs(t *testing.T) {
 	}
 	if got.Applications[0].Authorization != nil || got.Applications[0].VisibleWhen != nil {
 		t.Fatal("resolved response leaked authorization configuration")
+	}
+}
+
+func TestLayoutUsesInjectedCapabilitiesInsteadOfProcessDefault(t *testing.T) {
+	restore := permittedview.SetDefaultRuntime(permittedview.NewRuntime(layoutResolver{roles: []string{"guest"}}))
+	defer restore()
+	layout := &Layout{Version: 1, ID: "main", Applications: []LayoutApplication{{ID: "operations", Title: "Operations", Authorization: &forgetypes.AuthorizationSpec{ResourceType: "application"}, VisibleWhen: map[string]any{"source": "authorization", "field": "principal.roles", "contains": "operator"}, Menus: []LayoutMenu{{ID: "overview", Title: "Overview", Action: &LayoutAction{Type: "window", WindowKey: "overview"}}}}}}
+	result, err := filterLayoutWithRuntimes(httptest.NewRequest("GET", "/v1/workspace/layout", nil), layout, nil, permittedview.NewRuntime(layoutResolver{roles: []string{"operator"}}))
+	if err != nil || len(result.Applications) != 1 {
+		t.Fatalf("injected capability resolver ignored: %+v %v", result, err)
+	}
+}
+
+func TestLayoutHandlerWithInjectedNilDoesNotInheritDefaultPolicy(t *testing.T) {
+	previous := ws.Root()
+	ws.SetRoot(t.TempDir())
+	defer ws.SetRoot(previous)
+	restore := policy.SetDefaultRuntime(policy.NewRuntime(denyLayoutResolver{}, policy.OperationWindowView))
+	defer restore()
+	handler := NewMetadataHandler(nil, nil, "")
+	handler.SetAuthorizationRuntimes(nil, nil)
+	handler.SetLayoutDefault([]byte("version: 1\nid: main\napplications:\n  - id: app\n    title: App\n    menus:\n      - id: overview\n        title: Overview\n        action: {type: window, windowKey: overview}\n"))
+	response := httptest.NewRecorder()
+	handler.handleLayout().ServeHTTP(response, httptest.NewRequest("GET", "/v1/workspace/layout", nil))
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "overview") {
+		t.Fatalf("injected nil inherited process policy: %d %s", response.Code, response.Body.String())
+	}
+}
+
+func TestLayoutIdentityRejectionIsNotAnEmptyMenu(t *testing.T) {
+	previous := ws.Root()
+	ws.SetRoot(t.TempDir())
+	defer ws.SetRoot(previous)
+	handler := NewMetadataHandler(nil, nil, "")
+	handler.SetAuthorizationRuntimes(policy.NewRuntime(identityRejectedLayoutResolver{}, policy.OperationWindowView), nil)
+	handler.SetLayoutDefault([]byte("version: 1\nid: main\napplications:\n  - id: app\n    title: App\n    menus:\n      - id: orders\n        title: Orders\n        action: {type: window, windowKey: orders}\n"))
+	response := httptest.NewRecorder()
+	handler.handleLayout().ServeHTTP(response, httptest.NewRequest("GET", "/v1/workspace/layout", nil))
+	if response.Code != 401 {
+		t.Fatalf("identity rejection became hidden menu: status=%d body=%s", response.Code, response.Body.String())
+	}
+}
+
+func TestStarterPromptIdentityRejectionIsNotAnEmptyList(t *testing.T) {
+	handler := &MetadataHandler{authorizationPolicy: policy.NewRuntime(identityRejectedLayoutResolver{}, policy.OperationStarterPromptView)}
+	_, err := handler.filterStarterPrompts(context.Background(), []AgentInfo{{ID: "agent", StarterTasks: []agentmdl.StarterTask{{ID: "starter"}}}})
+	if err != policy.ErrIdentityRejected {
+		t.Fatalf("starter identity rejection became empty list: %v", err)
+	}
+}
+
+func TestRemoteDatasourceIdentityRejectionStopsBeforeFetch(t *testing.T) {
+	handler := NewMetadataHandler(nil, nil, "")
+	handler.SetAuthorizationRuntimes(policy.NewRuntime(identityRejectedLayoutResolver{}, policy.OperationWindowView), nil)
+	request := httptest.NewRequest(http.MethodPost, "/v1/workspace/providers/catalog/windows/orders/datasources/rows", strings.NewReader("{}"))
+	request.SetPathValue("provider", "catalog")
+	request.SetPathValue("key", "orders")
+	request.SetPathValue("id", "rows")
+	response := httptest.NewRecorder()
+	handler.handleRemoteDatasource().ServeHTTP(response, request)
+	if response.Code != http.StatusUnauthorized {
+		t.Fatalf("remote datasource identity rejection became hidden resource: status=%d body=%s", response.Code, response.Body.String())
 	}
 }
 
@@ -200,6 +276,33 @@ func TestLayoutBatchesWindowDiscoveryPolicy(t *testing.T) {
 	}
 	if len(result.Applications) != 1 || len(result.Applications[0].Menus) != 1 || result.Applications[0].Menus[0].ID != "one" {
 		t.Fatalf("unexpected filtered layout: %+v", result)
+	}
+}
+
+func TestLayoutUsesInjectedAdmissionInsteadOfProcessDefault(t *testing.T) {
+	restore := policy.SetDefaultRuntime(policy.NewRuntime(denyLayoutResolver{}, policy.OperationWindowView))
+	defer restore()
+	allowed := policy.NewRuntime(&layoutPolicyResolver{}, policy.OperationWindowView)
+	layout := &Layout{Version: 1, ID: "main", Applications: []LayoutApplication{{ID: "app", Title: "App", Menus: []LayoutMenu{{ID: "one", Title: "One", Action: &LayoutAction{Type: "window", WindowKey: "one"}}}}}}
+	result, err := filterLayoutWithRuntimes(httptest.NewRequest("GET", "/v1/workspace/layout", nil), layout, allowed, nil)
+	if err != nil || len(result.Applications) != 1 || len(result.Applications[0].Menus) != 1 {
+		t.Fatalf("injected admission ignored: %+v %v", result, err)
+	}
+}
+
+func TestAuthzLayoutKeepsOpaqueWindowIDsExact(t *testing.T) {
+	menus := []LayoutMenu{
+		{ID: "upper", Action: &LayoutAction{Type: "window", WindowKey: "Window-A"}},
+		{ID: "lower", Action: &LayoutAction{Type: "window", WindowKey: "window-a"}},
+	}
+	var candidates []policy.Candidate
+	collectLayoutWindowCandidates(menus, &candidates, map[string]bool{}, true)
+	if len(candidates) != 2 {
+		t.Fatalf("distinct IDs collapsed: %+v", candidates)
+	}
+	filtered, err := filterMenus(httptest.NewRequest("GET", "/", nil), menus, nil, false, false, map[string]bool{"Window-A": true}, true)
+	if err != nil || len(filtered) != 1 || filtered[0].ID != "upper" {
+		t.Fatalf("case-widened grant: %+v %v", filtered, err)
 	}
 }
 

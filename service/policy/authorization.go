@@ -21,6 +21,7 @@ const (
 )
 
 var ErrDenied = errors.New("authorization policy denied")
+var ErrIdentityRejected = fmt.Errorf("%w: verified identity rejected", ErrDenied)
 
 type Candidate struct {
 	ID       string         `json:"id"`
@@ -127,6 +128,7 @@ type Runtime struct {
 	Resolver Resolver
 	Enabled  map[string]bool
 	Now      func() time.Time
+	ExactIDs bool // authz mappings use opaque, case-sensitive resource IDs
 }
 
 func NewRuntime(resolver Resolver, enabled ...string) *Runtime {
@@ -176,12 +178,18 @@ func (r *Runtime) Filter(ctx context.Context, operation, conversationID string, 
 		return append([]Candidate(nil), candidates...), nil
 	}
 	allowed := make(map[string]bool, len(decision.AllowedIDs))
+	normalize := func(id string) string {
+		if r.ExactIDs {
+			return id
+		}
+		return strings.ToLower(strings.TrimSpace(id))
+	}
 	for _, id := range decision.AllowedIDs {
-		allowed[strings.ToLower(strings.TrimSpace(id))] = true
+		allowed[normalize(id)] = true
 	}
 	result := make([]Candidate, 0, len(candidates))
 	for _, candidate := range candidates {
-		if allowed[strings.ToLower(strings.TrimSpace(candidate.ID))] {
+		if allowed[normalize(candidate.ID)] {
 			result = append(result, candidate)
 		}
 	}

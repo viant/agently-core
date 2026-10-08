@@ -37,6 +37,9 @@ func Compile(bound *BoundView, snapshot *Snapshot) (*Result, error) {
 	if bound.ResourceID > 0 && snapshot != nil {
 		resource = snapshot.Resources[fmt.Sprint(bound.ResourceID)]
 	}
+	if bound.ResourceIDString != "" && snapshot != nil {
+		resource = snapshot.Resources[bound.ResourceIDString]
+	}
 	if strings.EqualFold(bound.Window.Authorization.Scope, "resource") && (resource == nil || resource.Capabilities["read"] != true) {
 		return &Result{Authorization: snapshot, Resource: resource, DataSourceRefs: map[string]bool{}, Denied: true,
 			Diagnostics: []Diagnostic{{Code: "resource_read_denied", Message: "resource read capability was not granted"}}}, nil
@@ -48,6 +51,9 @@ func Compile(bound *BoundView, snapshot *Snapshot) (*Result, error) {
 	}
 	var tree map[string]any
 	if err = json.Unmarshal(raw, &tree); err != nil {
+		return nil, err
+	}
+	if err = validateGuards(tree); err != nil {
 		return nil, err
 	}
 	compiled, keep := compileNode(tree, authorization)
@@ -73,6 +79,98 @@ func Compile(bound *BoundView, snapshot *Snapshot) (*Result, error) {
 		result.ExpiresAt = snapshot.ExpiresAt
 	}
 	return result, nil
+}
+
+// Validate authored authorization conditions before reduction. A malformed
+// hiddenWhen/disabledWhen must not become a permissive false condition.
+func validateGuards(value any) error {
+	switch actual := value.(type) {
+	case []any:
+		for _, child := range actual {
+			if err := validateGuards(child); err != nil {
+				return err
+			}
+		}
+	case map[string]any:
+		for key, child := range actual {
+			switch key {
+			case "visibleWhen", "hiddenWhen", "disabledWhen", "readOnlyWhen":
+				if err := validateCondition(child); err != nil {
+					return fmt.Errorf("permitted view: invalid %s: %w", key, err)
+				}
+			default:
+				if err := validateGuards(child); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func validateCondition(value any) error {
+	condition, ok := value.(map[string]any)
+	if !ok {
+		return fmt.Errorf("condition must be an object")
+	}
+	for _, op := range []string{"all", "any"} {
+		if raw, exists := condition[op]; exists {
+			items, ok := raw.([]any)
+			if !ok || len(items) == 0 || len(condition) != 1 {
+				return fmt.Errorf("malformed %s condition", op)
+			}
+			for _, item := range items {
+				if err := validateCondition(item); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}
+	if nested, exists := condition["not"]; exists {
+		if len(condition) != 1 {
+			return fmt.Errorf("malformed not condition")
+		}
+		return validateCondition(nested)
+	}
+	if !strings.EqualFold(stringValue(condition["source"]), "authorization") {
+		return nil
+	}
+	field := stringValue(condition["field"])
+	if field == "" {
+		field = stringValue(condition["selector"])
+	}
+	if field == "" {
+		field = stringValue(condition["key"])
+	}
+	if field == "" {
+		return fmt.Errorf("authorization field is required")
+	}
+	allowed := map[string]bool{"source": true, "field": true, "selector": true, "key": true, "equals": true, "notEquals": true, "in": true, "contains": true, "empty": true, "notEmpty": true, "exists": true}
+	comparators := 0
+	for key, item := range condition {
+		if !allowed[key] {
+			return fmt.Errorf("unknown authorization operator %q", key)
+		}
+		switch key {
+		case "equals", "notEquals", "in", "contains", "empty", "notEmpty", "exists":
+			comparators++
+			if key == "in" {
+				if _, ok := item.([]any); !ok {
+					return fmt.Errorf("in requires an array")
+				}
+			}
+			if key == "empty" || key == "notEmpty" || key == "exists" {
+				if _, ok := item.(bool); !ok {
+					return fmt.Errorf("%s requires a boolean", key)
+				}
+			}
+		}
+	}
+	if comparators != 1 {
+		return fmt.Errorf("authorization condition requires one operator")
+	}
+	return nil
 }
 
 func authorizationScope(snapshot *Snapshot, resource *Resource) map[string]any {
@@ -222,6 +320,9 @@ func evaluateAuthorizationLeaf(condition, authorization map[string]any) bool {
 	field := stringValue(condition["field"])
 	if field == "" {
 		field = stringValue(condition["selector"])
+	}
+	if field == "" {
+		field = stringValue(condition["key"])
 	}
 	actual, _ := selectValue(authorization, field)
 	if expected, ok := condition["equals"]; ok {

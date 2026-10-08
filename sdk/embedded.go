@@ -102,6 +102,7 @@ type backendClient struct {
 	elicSvc                *elicsvc.Service
 	streaming              streaming.Bus
 	store                  workspace.Store
+	rawResourceBoundary    *workspace.RawResourceBoundary
 	a2aSvc                 *a2a.Service
 	schedulerSvc           *scheduler.Service
 	asyncManager           *asynccfg.Manager
@@ -179,6 +180,10 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 	c.elicSvc = rt.Elicitation
 	c.streaming = rt.Streaming
 	c.store = rt.Store
+	c.rawResourceBoundary = rt.RawResourceBoundary
+	if c.rawResourceBoundary == nil && c.store != nil && (rt.UIBridge != nil && rt.UIBridge.UsesWindowResourceResolution() || rt.Reporting != nil && rt.Reporting.UsesResourceResolution()) {
+		c.rawResourceBoundary = workspace.NewRawResourceBoundary(c.store.Root())
+	}
 	if rt.Agent != nil {
 		c.asyncManager = rt.Agent.AsyncManager()
 	}

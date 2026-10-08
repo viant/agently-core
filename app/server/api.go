@@ -20,7 +20,9 @@ import (
 	"github.com/viant/agently-core/sdk"
 	svca2a "github.com/viant/agently-core/service/a2a"
 	svcauth "github.com/viant/agently-core/service/auth"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	svcscheduler "github.com/viant/agently-core/service/scheduler"
+	"github.com/viant/agently-core/service/ui/permittedview"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	svcworkspace "github.com/viant/agently-core/service/workspace"
 	mcpschema "github.com/viant/mcp-protocol/schema"
@@ -61,7 +63,14 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	windowloader.ConfigureRemoteWindowProvider(opts.Runtime.Registry, opts.LayoutDefault)
 	windowloader.ConfigureRemoteWindowAuthorization(metadataHandler.AuthorizeRemoteWindow)
 	metadataHandler.SetReportingCapabilityEnabled(opts.Runtime.Reporting != nil)
-	metadataHandler.SetAuthorizationPolicy(opts.Runtime.AuthorizationPolicy)
+	var permittedRuntime *permittedview.Runtime
+	if opts.Runtime.PermittedResolver != nil {
+		permittedRuntime = permittedview.NewRuntime(opts.Runtime.PermittedResolver)
+	}
+	metadataHandler.SetAuthorizationRuntimes(opts.Runtime.AuthorizationPolicy, permittedRuntime)
+	if opts.Runtime.UIBridge != nil {
+		metadataHandler.SetWindowResourceCatalog(opts.Runtime.UIBridge)
+	}
 	fileBrowserHandler := svcworkspace.NewFileBrowserHandler()
 	a2aSvc := svca2a.New(opts.Runtime.Agent, opts.AgentFinder)
 	a2aHandler := svca2a.NewHandler(a2aSvc)
@@ -118,11 +127,27 @@ func NewExposedMCPServer(ctx context.Context, rt *executor.Runtime, cfg *mcpexpo
 	if cfg == nil {
 		return nil, fmt.Errorf("MCP server config required")
 	}
-	server, err := mcpexpose.NewHTTPServer(ctx, &runtimeExecutorAdapter{rt: rt, skillItems: cfg.SkillItems}, cfg)
-	if err != nil {
-		return nil, err
+	var server *http.Server
+	if rt.LocalPrimitiveProvider != nil && len(cfg.ToolPatterns()) == 0 && len(cfg.SkillItems) == 0 {
+		server = &http.Server{Addr: cfg.ListenAddr(), Handler: http.NotFoundHandler()}
+	} else {
+		var err error
+		server, err = mcpexpose.NewHTTPServer(ctx, &runtimeExecutorAdapter{rt: rt, skillItems: cfg.SkillItems}, cfg)
+		if err != nil {
+			return nil, err
+		}
 	}
 	server.Handler = svcauth.WithAuthProtection(server.Handler, authRuntime)
+	if rt.LocalPrimitiveProvider != nil {
+		local, err := resourcesvc.NewMCPHandler(rt.LocalPrimitiveProvider, func(next http.Handler) http.Handler { return svcauth.WithAuthProtection(next, authRuntime) })
+		if err != nil {
+			return nil, err
+		}
+		mux := http.NewServeMux()
+		mux.Handle("/primitives/", http.StripPrefix("/primitives", local))
+		mux.Handle("/", server.Handler)
+		server.Handler = mux
+	}
 	// Bound header read and idle keep-alive so slow / abandoned connections
 	// cannot accumulate goroutines. Body read/write deadlines stay zero
 	// because MCP streamable handlers are long-lived by design.

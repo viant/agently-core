@@ -14,7 +14,7 @@ import (
 	reportrunmodel "github.com/viant/agently-core/model/reportrun"
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 )
 
 func postUIRPC(t *testing.T, bridge *forgeuisvc.Service, method string, params map[string]interface{}) map[string]interface{} {

@@ -120,6 +120,11 @@ func WithProviderRegistry(registry authcfg.ProviderRegistry) Option {
 
 // Manager caches MCP clients per (userID:conversationID, serverName) and handles idle reaping.
 type Manager struct {
+	localMu sync.RWMutex
+	local   map[string]localRegistration
+
+	changeListeners  map[uint64]func(string)
+	changeListenerID uint64
 	prov             Provider
 	ttl              time.Duration
 	newHandler       func() protoclient.Handler
@@ -191,6 +196,11 @@ func New(prov Provider, opts ...Option) (*Manager, error) {
 // block on a typed link-required result and invoke this method again after the
 // same authorization interaction completes.
 func (m *Manager) PreflightCredential(ctx context.Context, serverName string) error {
+	if m != nil {
+		if _, ok := m.localRegistration(serverName); ok {
+			return m.checkLocalCollision(ctx, serverName)
+		}
+	}
 	if m == nil || m.prov == nil {
 		return nil
 	}
@@ -264,7 +274,16 @@ func (m *Manager) poolKey(ctx context.Context, convID string) string {
 // Options exposes the underlying provider client options (authoring metadata,
 // timeouts, etc.) for a given server name.
 func (m *Manager) Options(ctx context.Context, serverName string) (*mcpcfg.MCPClient, error) {
-	if m == nil || m.prov == nil {
+	if m == nil {
+		return nil, errors.New("mcp manager: provider not configured")
+	}
+	if registration, ok := m.localRegistration(serverName); ok {
+		if err := m.checkLocalCollision(ctx, serverName); err != nil {
+			return nil, err
+		}
+		return cloneLocalConfig(registration.options), nil
+	}
+	if m.prov == nil {
 		return nil, errors.New("mcp manager: provider not configured")
 	}
 	return m.prov.Options(ctx, serverName)
@@ -273,22 +292,46 @@ func (m *Manager) Options(ctx context.Context, serverName string) (*mcpcfg.MCPCl
 // Names lists configured MCP servers when the provider supports local
 // inventory. It never initializes or contacts an MCP server.
 func (m *Manager) Names(ctx context.Context) ([]string, error) {
-	if m == nil || m.prov == nil {
+	if m == nil {
 		return nil, errors.New("mcp manager: provider not configured")
 	}
-	lister, ok := m.prov.(providerLister)
-	if !ok {
-		return nil, nil
+	var names []string
+	if lister, ok := m.prov.(providerLister); ok {
+		var err error
+		names, err = lister.Names(ctx)
+		if err != nil {
+			return nil, err
+		}
 	}
-	return lister.Names(ctx)
+	seen := map[string]bool{}
+	for _, name := range names {
+		seen[name] = true
+	}
+	m.localMu.RLock()
+	defer m.localMu.RUnlock()
+	for name := range m.local {
+		if seen[name] {
+			return nil, fmt.Errorf("mcp local connection collides with configured provider %q", name)
+		}
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names, nil
 }
 
 // Get returns an MCP client for (user+convID, serverName), creating it if needed.
 // When a UserIDExtractor is configured, the pool key includes the user ID to
 // prevent shared conversations from leaking MCP auth/tokens across users.
 func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient.Interface, error) {
+	if _, ok := m.localRegistration(serverName); ok {
+		if err := m.checkLocalCollision(ctx, serverName); err != nil {
+			return nil, err
+		}
+	}
 	if m.prov == nil {
-		return nil, errors.New("mcp manager: provider not configured")
+		if _, ok := m.localRegistration(serverName); !ok {
+			return nil, errors.New("mcp manager: provider not configured")
+		}
 	}
 	key := m.poolKey(ctx, convID)
 	m.mu.Lock()
@@ -330,7 +373,9 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	m.mu.Unlock()
 
 	newClient := m.newClient
-	if m.newClientFn != nil {
+	if registration, ok := m.localRegistration(serverName); ok {
+		newClient = func(ctx context.Context, _, _ string) (mcpclient.Interface, error) { return registration.factory(ctx) }
+	} else if m.newClientFn != nil {
 		newClient = m.newClientFn
 	}
 	client, err := newClient(ctx, convID, serverName)
@@ -428,6 +473,7 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 		handler = func() protoclient.Handler { return nil }
 	}
 	h := handler()
+	h = &changeHandler{Handler: h, manager: m, server: serverName}
 	// If handler supports setting conversation id, assign it.
 	if ca, ok := h.(interface{ SetConversationID(string) }); ok {
 		ca.SetConversationID(convID)

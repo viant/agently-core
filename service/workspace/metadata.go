@@ -16,6 +16,7 @@ import (
 	llmprovider "github.com/viant/agently-core/genai/llm/provider"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	policy "github.com/viant/agently-core/service/policy"
+	"github.com/viant/agently-core/service/ui/permittedview"
 	uistyle "github.com/viant/agently-core/service/ui/style"
 	ws "github.com/viant/agently-core/workspace"
 	wscodec "github.com/viant/agently-core/workspace/codec"
@@ -115,14 +116,17 @@ type ModelInfo struct {
 
 // MetadataHandler serves the workspace metadata endpoint.
 type MetadataHandler struct {
-	styles              *uistyle.Service
-	defaults            *config.Defaults
-	store               ws.Store
-	version             string
-	reportingOverride   *bool
-	authorizationPolicy *policy.Runtime
-	layoutDefault       []byte
-	toolDefinitions     func(context.Context) ([]ToolDefinition, error)
+	windowResourceCatalog WindowResourceCatalog
+	styles                *uistyle.Service
+	defaults              *config.Defaults
+	store                 ws.Store
+	version               string
+	reportingOverride     *bool
+	authorizationPolicy   *policy.Runtime
+	permittedRuntime      *permittedview.Runtime
+	legacyDefaults        bool
+	layoutDefault         []byte
+	toolDefinitions       func(context.Context) ([]ToolDefinition, error)
 }
 
 func (h *MetadataHandler) SetAuthorizationPolicy(runtime *policy.Runtime) {
@@ -131,13 +135,31 @@ func (h *MetadataHandler) SetAuthorizationPolicy(runtime *policy.Runtime) {
 	}
 }
 
+func (h *MetadataHandler) SetPermittedRuntime(runtime *permittedview.Runtime) {
+	if h != nil {
+		h.permittedRuntime = runtime
+	}
+}
+
+// SetAuthorizationRuntimes binds a host's decision sources, including explicit
+// nil values, without inheriting another host's process-global defaults.
+func (h *MetadataHandler) SetAuthorizationRuntimes(admission *policy.Runtime, capabilities *permittedview.Runtime) {
+	if h == nil {
+		return
+	}
+	h.authorizationPolicy = admission
+	h.permittedRuntime = capabilities
+	h.legacyDefaults = false
+}
+
 // NewMetadataHandler creates a metadata handler.
 func NewMetadataHandler(defaults *config.Defaults, store ws.Store, version string) *MetadataHandler {
 	return &MetadataHandler{
-		styles:   uistyle.Workspace(),
-		defaults: defaults,
-		store:    store,
-		version:  version,
+		styles:         uistyle.Workspace(),
+		defaults:       defaults,
+		store:          store,
+		version:        version,
+		legacyDefaults: true,
 	}
 }
 
@@ -307,6 +329,9 @@ func (h *MetadataHandler) filterStarterPrompts(ctx context.Context, infos []Agen
 		}
 	}
 	allowedCandidates, err := h.authorizationPolicy.Filter(ctx, policy.OperationStarterPromptView, "", candidates, nil)
+	if errors.Is(err, policy.ErrIdentityRejected) {
+		return nil, err
+	}
 	if errors.Is(err, policy.ErrDenied) {
 		allowedCandidates = nil
 	} else if err != nil {

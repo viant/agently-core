@@ -17,6 +17,7 @@ import (
 	mcpadapter "github.com/viant/agently-core/protocol/tool/adapter/mcp"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	authsvc "github.com/viant/agently-core/service/auth"
+	"github.com/viant/agently-core/service/policy"
 	reportingrunsvc "github.com/viant/agently-core/service/reportingrun"
 )
 
@@ -100,6 +101,53 @@ func TestServiceGetActiveReportRunSanitizesAndScopesExactPromptRun(t *testing.T)
 	require.ErrorIs(t, err, ErrNotFound)
 	_, err = service.GetActiveReportRun(runtimerequestctx.WithConversationID(context.Background(), "conv-1"))
 	require.ErrorIs(t, err, ErrNotFound)
+}
+
+func TestActiveReportRunRequiresFreshBackendReadAuthorization(t *testing.T) {
+	completedAt := time.Date(2026, 8, 1, 12, 0, 0, 0, time.UTC)
+	resolver := &activeRunResolverStub{
+		context: &reportcontextmodel.Record{OwnerID: "owner-1", ConversationID: "conv-1", ActiveReportRunID: "run-1"},
+		run: &reportrunmodel.Record{ReportRunID: "run-1", OwnerID: "owner-1", ConversationID: "conv-1",
+			Origin: "prompt", Status: reportrunmodel.StatusCompleted, CompletedAt: &completedAt,
+			RequestedParams: json.RawMessage(`{}`), EffectiveParams: json.RawMessage(`{}`)},
+	}
+	ctx := runtimerequestctx.WithConversationID(authsvc.InjectUser(context.Background(), "owner-1"), "conv-1")
+	for _, test := range []struct {
+		name    string
+		failure error
+		want    error
+	}{
+		{name: "explicit denial", failure: policy.ErrDenied, want: ErrNotFound},
+		{name: "identity rejected", failure: policy.ErrIdentityRejected, want: policy.ErrIdentityRejected},
+		{name: "authority unavailable", failure: errors.New("provider unavailable")},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			calls := 0
+			service := New(Options{Store: NewStoreAdapter(reportmemory.New()), ActiveRunResolver: resolver,
+				ActionAuthorize: func(_ context.Context, operation, id string) error {
+					calls++
+					require.Equal(t, "report.retrieve", operation)
+					require.Equal(t, "report-run://run-1", id)
+					return test.failure
+				}})
+			_, err := service.GetActiveReportRun(ctx)
+			if test.want != nil {
+				require.ErrorIs(t, err, test.want)
+			} else {
+				require.ErrorContains(t, err, "provider unavailable")
+			}
+			require.Equal(t, 1, calls)
+			method, methodErr := service.Method("get_active_report_run")
+			require.NoError(t, methodErr)
+			var output ActiveReportRun
+			methodErr = method(ctx, &GetActiveReportRunInput{}, &output)
+			if test.want != nil {
+				require.ErrorIs(t, methodErr, test.want)
+			} else {
+				require.ErrorContains(t, methodErr, "provider unavailable")
+			}
+		})
+	}
 }
 
 func TestServiceGetActiveReportRunFailsClosedForUntrustedRunState(t *testing.T) {

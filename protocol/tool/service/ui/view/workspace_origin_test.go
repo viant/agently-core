@@ -5,7 +5,7 @@ import (
 	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
 	"github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	"testing"
 )
 

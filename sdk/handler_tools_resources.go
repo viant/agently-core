@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/workspace"
 	"io"
 	"net/http"
 	"os"
@@ -352,7 +353,7 @@ func handleListResources(client Client) http.HandlerFunc {
 		kind := r.URL.Query().Get("kind")
 		out, err := client.ListResources(r.Context(), &ListResourcesInput{Kind: kind})
 		if err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
@@ -368,7 +369,7 @@ func handleGetResource(client Client) http.HandlerFunc {
 		}
 		out, err := client.GetResource(r.Context(), ref)
 		if err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
@@ -388,7 +389,7 @@ func handleSaveResource(client Client) http.HandlerFunc {
 			return
 		}
 		if err := client.SaveResource(r.Context(), &SaveResourceInput{Kind: ref.Kind, Name: ref.Name, Data: body}); err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -403,7 +404,7 @@ func handleDeleteResource(client Client) http.HandlerFunc {
 			return
 		}
 		if err := client.DeleteResource(r.Context(), ref); err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -419,7 +420,7 @@ func handleExportResources(client Client) http.HandlerFunc {
 		}
 		out, err := client.ExportResources(r.Context(), &input)
 		if err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
@@ -435,9 +436,16 @@ func handleImportResources(client Client) http.HandlerFunc {
 		}
 		out, err := client.ImportResources(r.Context(), &input)
 		if err != nil {
-			httpError(w, http.StatusInternalServerError, err)
+			httpError(w, workspaceResourceErrorStatus(err), err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
 	}
+}
+
+func workspaceResourceErrorStatus(err error) int {
+	if errors.Is(err, workspace.ErrCanonicalResourceAccess) {
+		return http.StatusForbidden
+	}
+	return http.StatusInternalServerError
 }

@@ -6,7 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/protocol/primitive"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/evidence"
+	"github.com/viant/agently-core/service/reporting/catalog"
+	"github.com/viant/forge/backend/reporting/registry"
+	forgetypes "github.com/viant/forge/backend/types"
 	"reflect"
 	"sort"
 	"strconv"
@@ -44,10 +49,15 @@ const Name = "reporting"
 
 // Options configures a reporting Service.
 type Options struct {
-	ReportCompilation evidence.ReportCompilation
-	Compiler          Compiler
-	Exporter          Exporter
-	Store             Store
+	ReportResourceService      primitive.ResourceAuthoring
+	ReportCatalog              catalog.Provider
+	ResourceResolver           ResourceResolver
+	ResourceDependencyResolver ResourceDependencyResolver
+	ResourceDependencyProof    forgetypes.WindowTargetProof
+	ReportCompilation          evidence.ReportCompilation
+	Compiler                   Compiler
+	Exporter                   Exporter
+	Store                      Store
 	// ActiveRunResolver is wired only when durable browser-run persistence and
 	// reporting orchestration are both enabled.
 	ActiveRunResolver ActiveReportRunResolver
@@ -65,11 +75,18 @@ type Options struct {
 	ConversationAdoptionEnabled bool
 	ForgeUIViewResolver         ForgeUIViewResolver
 	AuthorizationPolicy         *policy.Runtime
+	ActionAuthorize             func(context.Context, string, string) error
 }
 
 // Service is the agently-core runtime boundary for reporting compile and
 // export job orchestration.
 type Service struct {
+	reportResourceService       primitive.ResourceAuthoring
+	reportCatalog               catalog.Provider
+	resourceResolver            ResourceResolver
+	resourceDependencyResolver  ResourceDependencyResolver
+	resourceDependencyProof     forgetypes.WindowTargetProof
+	resourceDatasetExecutor     ResourceDatasetExecutor
 	reportCompilation           evidence.ReportCompilation
 	compiler                    Compiler
 	exporter                    Exporter
@@ -85,6 +102,7 @@ type Service struct {
 	activeRunResolver           ActiveReportRunResolver
 	forgeUIViewResolver         ForgeUIViewResolver
 	authorizationPolicy         *policy.Runtime
+	actionAuthorize             func(context.Context, string, string) error
 }
 
 // New constructs a reporting Service.
@@ -100,7 +118,7 @@ func New(opts Options) *Service {
 	if newIDFn == nil {
 		newIDFn = func() string { return uuid.NewString() }
 	}
-	return &Service{
+	return &Service{reportResourceService: opts.ReportResourceService, reportCatalog: opts.ReportCatalog, resourceResolver: opts.ResourceResolver, resourceDependencyResolver: opts.ResourceDependencyResolver, resourceDependencyProof: opts.ResourceDependencyProof,
 		reportCompilation: opts.ReportCompilation,
 		compiler:          opts.Compiler,
 		exporter:          opts.Exporter,
@@ -121,6 +139,7 @@ func New(opts Options) *Service {
 		activeRunResolver:           normalizeActiveReportRunResolver(opts.ActiveRunResolver),
 		forgeUIViewResolver:         normalizeForgeUIViewResolver(opts.ForgeUIViewResolver),
 		authorizationPolicy:         opts.AuthorizationPolicy,
+		actionAuthorize:             opts.ActionAuthorize,
 	}
 }
 
@@ -143,6 +162,31 @@ func (s *Service) SetAuthorizationPolicy(runtime *policy.Runtime) {
 	if s != nil {
 		s.authorizationPolicy = runtime
 	}
+}
+
+// SetActionAuthorizer installs host-owned backend action checks. UI metadata
+// visibility never authorizes a saved-report read or mutation by itself.
+func (s *Service) SetActionAuthorizer(authorize func(context.Context, string, string) error) {
+	if s != nil {
+		s.actionAuthorize = authorize
+	}
+}
+
+func (s *Service) authorizeAction(ctx context.Context, operation, id string) error {
+	if s == nil || s.actionAuthorize == nil {
+		return nil
+	}
+	if strings.TrimSpace(id) == "" {
+		return policy.ErrDenied
+	}
+	return s.actionAuthorize(ctx, operation, id)
+}
+
+func (s *Service) authorizeExport(ctx context.Context, artifactRef string) error {
+	if err := s.authorizeAction(ctx, "report.retrieve", artifactRef); err != nil {
+		return err
+	}
+	return s.authorizeAction(ctx, "report.export", artifactRef)
 }
 
 func (s *Service) AsyncConfig(toolName string) *asynccfg.Config {
@@ -201,6 +245,7 @@ func (s *Service) Methods() svc.Signatures {
 			Input:       reflect.TypeOf(&CompileRequest{}),
 			Output:      reflect.TypeOf(&CompileResult{}),
 		},
+		{Name: "run_report", Description: "Execute the exact authorized canonical report through trusted datasource descriptors and return server-materialized fill/print with its immutable authority pin.", Input: reflect.TypeOf(&ExecuteResourceRequest{}), Output: reflect.TypeOf(&ExecuteResourceResult{})},
 		{
 			Name:        "compile_fenced_report",
 			Description: "Compile committed forge-report and forge-data fences on the backend into canonical ReportSpec, ReportFill, and ReportPrint. The returned reportExportRequest is immediately exportable: pass it unchanged as reporting:submit_export.reportExportRequest.",
@@ -286,6 +331,12 @@ func (s *Service) Methods() svc.Signatures {
 			Output:      reflect.TypeOf(&ListSharedArtifactsResult{}),
 		},
 		{
+			Name:        "stamp_report",
+			Description: "Explicitly create an immutable report stamp from the exact selected draft.",
+			Input:       reflect.TypeOf(&StampReportRequest{}),
+			Output:      reflect.TypeOf(&primitive.ResourceResult{}),
+		},
+		{
 			Name:        "save_report",
 			Description: "Persist a reusable report record owned by the current principal.",
 			Input:       reflect.TypeOf(&SaveReportRequest{}),
@@ -311,13 +362,13 @@ func (s *Service) Methods() svc.Signatures {
 		},
 		{
 			Name:        "duplicate_report",
-			Description: "Duplicate a user-owned persisted report under a new report identity.",
+			Description: "Duplicate an authorized report under a new namespaced identity.",
 			Input:       reflect.TypeOf(&DuplicateReportRequest{}),
 			Output:      reflect.TypeOf(&SharedArtifact{}),
 		},
 		{
 			Name:        "delete_report",
-			Description: "Permanently delete a user-owned persisted report. Built-in presets are not reports and cannot be deleted.",
+			Description: "Archive a report authorized for the current principal.",
 			Input:       reflect.TypeOf(&DeleteReportRequest{}),
 			Output:      reflect.TypeOf(&DeleteReportResult{}),
 		},
@@ -380,6 +431,8 @@ func (s *Service) Methods() svc.Signatures {
 
 func (s *Service) Method(name string) (svc.Executable, error) {
 	switch strings.ToLower(strings.TrimSpace(name)) {
+	case "run_report":
+		return s.executeResourceTool, nil
 	case "compile":
 		return s.compileTool, nil
 	case "compile_fenced_report":
@@ -420,6 +473,8 @@ func (s *Service) Method(name string) (svc.Executable, error) {
 		return s.updateReportTool, nil
 	case "duplicate_report":
 		return s.duplicateReportTool, nil
+	case "stamp_report":
+		return s.stampReportTool, nil
 	case "delete_report":
 		return s.deleteReportTool, nil
 	case "record_report_run":
@@ -515,12 +570,21 @@ type StartExportInput struct {
 }
 
 // Compile runs the configured canonical compiler.
-func (s *Service) Compile(ctx context.Context, request *CompileRequest) (*CompileResult, error) {
+func (s *Service) compileUnscoped(ctx context.Context, request *CompileRequest) (*CompileResult, error) {
 	if request == nil {
 		return nil, fmt.Errorf("reporting compile: request is required")
 	}
 	if s.compiler == nil {
 		return nil, fmt.Errorf("reporting compile: compiler not configured")
+	}
+	var pin *identity.ResolvedResource
+	var resolver *identity.ResourceResolver
+	if s.resourceResolver != nil || request.Resource != nil || request.ResolvedResource != nil {
+		var err error
+		request, pin, resolver, err = s.compileResolved(ctx, request)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if len(bytes.TrimSpace(request.Document)) == 0 {
 		return nil, fmt.Errorf("reporting compile: document is required")
@@ -532,7 +596,27 @@ func (s *Service) Compile(ctx context.Context, request *CompileRequest) (*Compil
 	if result == nil {
 		return nil, fmt.Errorf("reporting compile: compiler returned nil result")
 	}
+	if pin != nil {
+		raw, fresh, err := resolver.ReadResolved(ctx, *pin)
+		if err != nil {
+			return nil, err
+		}
+		pin = fresh
+		var envelope registry.ReportEnvelope
+		if json.Unmarshal(raw, &envelope) != nil {
+			return nil, identity.ErrResourceDenied
+		}
+		if err = s.verifyDependencies(ctx, *pin, envelope, request.DependencyPins, request.DependencyToken); err != nil {
+			return nil, err
+		}
+	}
 	next := cloneCompileResult(result)
+	if pin != nil {
+		next.Resource = pin
+		next.DependencyPins = cloneDependencyPins(request.DependencyPins)
+		next.DependencyToken = request.DependencyToken
+		next.ArtifactRef = pin.URI
+	}
 	if next.CompiledAt.IsZero() {
 		next.CompiledAt = s.now().UTC()
 	}
@@ -572,20 +656,21 @@ func (s *Service) RecordAuditEvent(ctx context.Context, input *RecordAuditEventI
 	if event.Version < 0 {
 		return nil, fmt.Errorf("reporting audit: version must be >= 0")
 	}
+	actorID := effectiveActorID(ctx)
+	if actorID == "" {
+		return nil, policy.ErrDenied
+	}
+	if event.ActorID != "" && event.ActorID != actorID && event.ActorID != buildOwnerRef(actorID) {
+		return nil, policy.ErrDenied
+	}
+	if event.ActorRef != "" && event.ActorRef != actorID && event.ActorRef != buildOwnerRef(actorID) {
+		return nil, policy.ErrDenied
+	}
 	if event.ActorRef == "" {
-		event.ActorRef = strings.TrimSpace(effectiveActorID(ctx))
+		event.ActorRef = actorID
 	}
-	if event.ActorID == "" {
-		event.ActorID = event.ActorRef
-	}
-	if event.ActorRef == "" && event.ActorID == "" {
-		return nil, fmt.Errorf("reporting audit: actor identity is required")
-	}
-	if event.OccurredAt.IsZero() {
-		event.OccurredAt = s.now().UTC()
-	} else {
-		event.OccurredAt = event.OccurredAt.UTC()
-	}
+	event.ActorID = actorID
+	event.OccurredAt = s.now().UTC()
 	if err := s.audit.Record(ctx, event); err != nil {
 		return nil, err
 	}
@@ -631,6 +716,12 @@ func (s *Service) ShareArtifact(ctx context.Context, request *ShareArtifactReque
 	if request == nil {
 		return nil, fmt.Errorf("reporting lifecycle: share request is required")
 	}
+	if request.Resource != nil || request.ResolvedResource != nil {
+		return s.shareCanonicalReport(ctx, request)
+	}
+	if s.resourceResolver != nil {
+		return nil, identity.ErrResourceDenied
+	}
 	ownerID := effectiveActorID(ctx)
 	if ownerID == "" {
 		return nil, fmt.Errorf("reporting lifecycle: effective user id is required")
@@ -639,8 +730,21 @@ func (s *Service) ShareArtifact(ctx context.Context, request *ShareArtifactReque
 	if err != nil {
 		return nil, err
 	}
-	if existing, err := s.findVisibleSharedArtifactByRef(ctx, normalized.ArtifactRef); err == nil && existing != nil {
+	if s.resourceResolver != nil {
+		return nil, identity.ErrResourceDenied
+	}
+	if err := s.authorizeAction(ctx, "report.retrieve", normalized.ArtifactRef); err != nil {
+		return nil, err
+	}
+	existing, err := s.findVisibleSharedArtifactByRef(ctx, normalized.ArtifactRef)
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	if existing != nil {
 		return cloneSharedArtifact(existing), nil
+	}
+	if err := s.authorizeAction(withReportCreateKind(ctx, savedViewArtifactKind), "report.create", normalized.ArtifactRef); err != nil {
+		return nil, err
 	}
 	if normalized.ReportExportRequest == nil {
 		return nil, fmt.Errorf("reporting lifecycle: shared artifact payload is required to create a saved view")
@@ -649,10 +753,10 @@ func (s *Service) ShareArtifact(ctx context.Context, request *ShareArtifactReque
 	sourceArtifactID := normalizeSharedArtifactSourceID("saved_view", envelope.Source.SourceArtifactID, envelope.Source.ReportID, s.newID())
 	artifact := &SharedArtifact{
 		ArtifactID:       s.newID(),
-		ArtifactRef:      buildSharedArtifactRef("reportBuilder.savedView", sourceArtifactID),
+		ArtifactRef:      buildSharedArtifactRef(savedViewArtifactKind, sourceArtifactID),
 		OwnerID:          ownerID,
 		OwnerRef:         buildOwnerRef(ownerID),
-		Kind:             "reportBuilder.savedView",
+		Kind:             savedViewArtifactKind,
 		Lifecycle:        normalizeSharedArtifactLifecycle(normalized.Lifecycle, "draft"),
 		Version:          resolveSharedArtifactVersion(normalized.Version, envelope.Source.DocumentVersion),
 		ReportID:         strings.TrimSpace(envelope.Source.ReportID),
@@ -704,12 +808,34 @@ func (s *Service) TransitionArtifact(ctx context.Context, request *TransitionArt
 	if err != nil {
 		return nil, err
 	}
+	if err := s.authorizeAction(ctx, "report.retrieve", normalized.ArtifactRef); err != nil {
+		return nil, err
+	}
+	if err := s.authorizeAction(ctx, "report.publish", normalized.ArtifactRef); err != nil {
+		return nil, err
+	}
 	targetLifecycle := normalizeSharedArtifactLifecycle(normalized.To, "")
 	if targetLifecycle == "" {
 		return nil, fmt.Errorf("reporting lifecycle: transition target is required")
 	}
 	existing, err := s.findVisibleSharedArtifactByRef(ctx, normalized.ArtifactRef)
-	if err == nil && existing != nil {
+	if err != nil && !errors.Is(err, ErrNotFound) {
+		return nil, err
+	}
+	if existing != nil {
+		if existing.Resource == nil && s.requiresCanonicalSharedReport(existing) {
+			return nil, identity.ErrResourceDenied
+		}
+		if existing.Resource != nil {
+			if normalized.ReportExportRequest != nil || len(bytes.TrimSpace(normalized.ReportDocument)) != 0 {
+				return nil, identity.ErrResourceDenied
+			}
+			refreshed, _, err := s.reauthorizeSharedReport(ctx, existing)
+			if err != nil {
+				return nil, identity.ErrResourceDenied
+			}
+			existing.Resource = refreshed
+		}
 		updated := cloneSharedArtifact(existing)
 		updated.Lifecycle = targetLifecycle
 		updated.Version = resolveSharedArtifactVersion(normalized.Version, updated.Version)
@@ -721,10 +847,20 @@ func (s *Service) TransitionArtifact(ctx context.Context, request *TransitionArt
 		if err := s.store.UpdateSharedArtifact(ctx, updated); err != nil {
 			return nil, err
 		}
+		if updated.Resource != nil {
+			fresh, _, err := s.reauthorizeSharedReport(ctx, updated)
+			if err != nil {
+				return nil, err
+			}
+			updated.Resource = fresh
+		}
 		return cloneSharedArtifact(updated), nil
 	}
 	if targetLifecycle != "published" {
 		return nil, ErrNotFound
+	}
+	if s.resourceResolver != nil && isCanonicalReportURI(normalized.ArtifactRef) {
+		return nil, identity.ErrResourceDenied
 	}
 	if normalized.ReportExportRequest == nil {
 		return nil, fmt.Errorf("reporting lifecycle: canonical export payload is required to publish a new snapshot")
@@ -779,10 +915,24 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 	if request == nil {
 		return nil, fmt.Errorf("reporting export: request is required")
 	}
+	if isUnifiedExportService(s) {
+		if strings.TrimSpace(request.ReportRunID) != "" {
+			return nil, identity.ErrResourceDenied
+		}
+	}
 	if strings.TrimSpace(request.ReportRunID) != "" {
 		return s.submitExportFromRun(ctx, request)
 	}
-	normalizedRequest, err := s.resolveSubmitExportRequest(ctx, request)
+	var (
+		normalizedRequest *SubmitExportRequest
+		resourcePin       *identity.ResolvedResource
+		err               error
+	)
+	if isUnifiedExportService(s) {
+		normalizedRequest, resourcePin, err = s.prepareUnifiedExportRequest(ctx, request)
+	} else {
+		normalizedRequest, err = s.resolveSubmitExportRequest(ctx, request)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -793,11 +943,21 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 	if err := validateSubmitExportRequest(normalizedRequest); err != nil {
 		return nil, err
 	}
+	if err := s.authorizeExport(ctx, strings.TrimSpace(normalizedRequest.ArtifactRef)); err != nil {
+		return nil, err
+	}
+	if resourcePin != nil {
+		probe := &ExportJob{DependencyPins: cloneDependencyPins(normalizedRequest.DependencyPins), DependencyToken: normalizedRequest.DependencyToken, ArtifactRef: normalizedRequest.ArtifactRef, ResourcePin: cloneResolvedResource(resourcePin)}
+		if err := s.validateExportResourcePin(ctx, probe, "report.export"); err != nil {
+			return nil, err
+		}
+	}
 	scope := normalizedRequest.Scope
 	if scope == "" {
 		scope = ExportScopeDraft
 	}
 	job := &ExportJob{
+		DependencyPins: cloneDependencyPins(normalizedRequest.DependencyPins), DependencyToken: normalizedRequest.DependencyToken,
 		JobID:          s.newID(),
 		ArtifactRef:    strings.TrimSpace(normalizedRequest.ArtifactRef),
 		OwnerID:        ownerID,
@@ -811,10 +971,16 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 		ReportFill:     cloneJSON(normalizedRequest.ReportFill),
 		ReportPrint:    cloneJSON(normalizedRequest.ReportPrint),
 		Metadata:       cloneJSON(normalizedRequest.Metadata),
+		ResourcePin:    cloneResolvedResource(resourcePin),
 		SubmittedAt:    s.now().UTC(),
 	}
 	if err := s.store.CreateJob(ctx, job); err != nil {
 		return nil, err
+	}
+	if job.ResourcePin != nil {
+		if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
+			return nil, err
+		}
 	}
 	s.recordAudit(ctx, &AuditEvent{
 		EventType:   "report.export.submit",
@@ -827,6 +993,11 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 			"scope":  string(job.Scope),
 		},
 	})
+	if job.ResourcePin != nil {
+		if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
+			return nil, err
+		}
+	}
 	return cloneJob(job), nil
 }
 
@@ -884,6 +1055,9 @@ func (s *Service) submitExportFromRun(ctx context.Context, request *SubmitExport
 		ExportRequestID: exportRequestID,
 		SubmittedAt:     s.now().UTC(),
 	}
+	if err := s.authorizeExport(ctx, candidate.ArtifactRef); err != nil {
+		return nil, err
+	}
 	job, replay, err := runStore.SubmitJobFromRun(ctx, candidate)
 	if err != nil {
 		return nil, err
@@ -938,17 +1112,50 @@ func (s *Service) submitExportTool(ctx context.Context, in, out interface{}) err
 
 // RunExport executes a queued job through the configured exporter boundary and
 // persists either a completed artifact or a failed job state.
+type runExportStartKey struct{}
+type internalExportFailureKey struct{}
+type resourceExportCompletionKey struct{}
+
 func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if s.exporter == nil {
 		return nil, fmt.Errorf("reporting export execution: exporter is not configured")
 	}
-	job, err := s.StartExport(ctx, jobID)
+	startCtx := context.WithValue(ctx, runExportStartKey{}, true)
+	if isUnifiedExportService(s) {
+		queued, err := s.store.GetJob(startCtx, strings.TrimSpace(jobID))
+		if err != nil {
+			return nil, err
+		}
+		if queued == nil {
+			return nil, ErrNotFound
+		}
+		if actor := effectiveActorID(ctx); actor != "" && actor != queued.OwnerID {
+			return nil, identity.ErrResourceDenied
+		}
+		if actor := parseAuthContextRef(queued.AuthContextRef)["actor"]; actor != "" && actor != queued.OwnerID {
+			return nil, identity.ErrResourceDenied
+		}
+		startCtx, err = s.ensureRunExportAuthContext(startCtx, queued)
+		if err != nil {
+			return nil, err
+		}
+	}
+	job, err := s.StartExport(startCtx, jobID)
 	if err != nil {
 		return nil, err
 	}
-	runCtx, err := s.ensureRunExportAuthContext(ctx, job)
+	runCtx, err := s.ensureRunExportAuthContext(startCtx, job)
 	if err != nil {
 		return s.failRunExport(ctx, job.JobID, err)
+	}
+	if err := s.authorizeExport(runCtx, job.ArtifactRef); err != nil {
+		return s.failRunExport(runCtx, job.JobID, err)
+	}
+	if err := s.validateExportResourcePin(runCtx, job, "report.export"); err != nil {
+		return s.failRunExport(runCtx, job.JobID, err)
 	}
 	if err := validateSubmitExportRequest(&SubmitExportRequest{
 		ArtifactRef: job.ArtifactRef,
@@ -972,6 +1179,7 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, erro
 		Scope:             job.Scope,
 		ReportRunID:       job.ReportRunID,
 		ReportRunRevision: job.ReportRunRevision,
+		ResourcePin:       cloneResolvedResource(job.ResourcePin),
 		ReportSpec:        cloneJSON(job.ReportSpec),
 		ReportFill:        cloneJSON(job.ReportFill),
 		ReportPrint:       cloneJSON(job.ReportPrint),
@@ -986,7 +1194,10 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, erro
 	if len(result.Data) == 0 {
 		return s.failRunExport(runCtx, job.JobID, fmt.Errorf("reporting export execution: exporter returned empty artifact data"))
 	}
-	completed, err := s.CompleteExport(runCtx, &CompleteExportRequest{
+	if err := s.validateExportResourcePin(runCtx, job, "report.export"); err != nil {
+		return s.failRunExport(runCtx, job.JobID, err)
+	}
+	completed, err := s.CompleteExport(context.WithValue(runCtx, resourceExportCompletionKey{}, job.JobID), &CompleteExportRequest{
 		JobID:        job.JobID,
 		ContentType:  strings.TrimSpace(result.ContentType),
 		Data:         append([]byte{}, result.Data...),
@@ -1110,10 +1321,45 @@ func (s *Service) runQueuedExportsTool(ctx context.Context, in, out interface{})
 
 // StartExport marks a queued job running. Intended for async workers.
 func (s *Service) StartExport(ctx context.Context, jobID string) (*ExportJob, error) {
+	var pinnedJob *ExportJob
+	if isUnifiedExportService(s) {
+		var err error
+		pinnedJob, err = s.store.GetJob(ctx, strings.TrimSpace(jobID))
+		if err != nil {
+			return nil, err
+		}
+		if pinnedJob == nil {
+			return nil, ErrNotFound
+		}
+		if err := s.validateExportResourcePin(ctx, pinnedJob, "report.export"); err != nil {
+			return nil, err
+		}
+	}
+	if s.actionAuthorize != nil && ctx.Value(runExportStartKey{}) != true {
+		job, err := pinnedJob, error(nil)
+		if job == nil {
+			job, err = s.store.GetJob(ctx, strings.TrimSpace(jobID))
+		}
+		if err != nil {
+			return nil, err
+		}
+		if job == nil {
+			return nil, ErrNotFound
+		}
+		if err := s.authorizeAction(ctx, "report.export.start", job.ArtifactRef); err != nil {
+			return nil, err
+		}
+	}
 	if runStore, ok := s.store.(RunExportStore); ok {
 		job, err := runStore.ClaimJob(ctx, strings.TrimSpace(jobID), s.now().UTC())
 		if errors.Is(err, reportstore.ErrInvalidTransition) {
 			return nil, fmt.Errorf("reporting export: job %s is not queued: %w", strings.TrimSpace(jobID), ErrJobNotQueued)
+		}
+		if err == nil && job != nil {
+			if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
+				_, _ = s.failRunExport(ctx, job.JobID, err)
+				return nil, err
+			}
 		}
 		return job, err
 	}
@@ -1131,6 +1377,10 @@ func (s *Service) StartExport(ctx context.Context, jobID string) (*ExportJob, er
 	job.Status = JobStatusRunning
 	job.StartedAt = &startedAt
 	if err := s.store.UpdateJob(ctx, job); err != nil {
+		return nil, err
+	}
+	if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
+		_, _ = s.failRunExport(ctx, job.JobID, err)
 		return nil, err
 	}
 	return cloneJob(job), nil
@@ -1156,6 +1406,9 @@ func (s *Service) startExportTool(ctx context.Context, in, out interface{}) erro
 // CompleteExport persists a finished export artifact and marks the job
 // succeeded.
 func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportRequest) (*ExportJob, error) {
+	if isUnifiedExportService(s) && (request == nil || ctx == nil || ctx.Value(resourceExportCompletionKey{}) != request.JobID) {
+		return nil, identity.ErrResourceDenied
+	}
 	if request == nil {
 		return nil, fmt.Errorf("reporting export completion: request is required")
 	}
@@ -1165,6 +1418,12 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 	}
 	if job == nil {
 		return nil, ErrNotFound
+	}
+	if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
+		return nil, err
+	}
+	if err := s.authorizeAction(ctx, "report.export.complete", job.ArtifactRef); err != nil {
+		return nil, err
 	}
 	if job.Status != JobStatusRunning {
 		if job.Status == JobStatusSucceeded && strings.TrimSpace(job.ArtifactID) != "" {
@@ -1211,6 +1470,9 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 			Cause:        err.Error(),
 		})
 	}
+	if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
+		return nil, err
+	}
 	if runStore, ok := s.store.(RunExportStore); ok {
 		completedAt := s.now().UTC()
 		completed, err := runStore.CompleteJobWithArtifact(
@@ -1222,6 +1484,9 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 			request.RetentionTTL,
 		)
 		if err != nil {
+			return nil, err
+		}
+		if err := s.validateExportResourcePin(ctx, completed, "report.export"); err != nil {
 			return nil, err
 		}
 		s.recordAudit(ctx, &AuditEvent{
@@ -1239,6 +1504,9 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 				"reportRunRevision": completed.ReportRunRevision,
 			},
 		})
+		if err := s.validateExportResourcePin(ctx, completed, "report.export"); err != nil {
+			return nil, err
+		}
 		return cloneJob(completed), nil
 	}
 	if err := s.store.PutArtifact(ctx, artifact); err != nil {
@@ -1263,6 +1531,9 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 	if err := s.store.UpdateJob(ctx, job); err != nil {
 		return nil, err
 	}
+	if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
+		return nil, err
+	}
 	s.recordAudit(ctx, &AuditEvent{
 		EventType:   "report.export.complete",
 		ArtifactRef: job.ArtifactRef,
@@ -1276,6 +1547,9 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 			"retentionTtl": artifact.RetentionTTL.String(),
 		},
 	})
+	if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
+		return nil, err
+	}
 	return cloneJob(job), nil
 }
 
@@ -1301,6 +1575,9 @@ func (s *Service) completeExportTool(ctx context.Context, in, out interface{}) e
 
 // FailExport marks an export job failed.
 func (s *Service) FailExport(ctx context.Context, request *FailExportRequest) (*ExportJob, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if request == nil {
 		return nil, fmt.Errorf("reporting export failure: request is required")
 	}
@@ -1310,6 +1587,11 @@ func (s *Service) FailExport(ctx context.Context, request *FailExportRequest) (*
 	}
 	if job == nil {
 		return nil, ErrNotFound
+	}
+	if ctx.Value(internalExportFailureKey{}) != true {
+		if err := s.authorizeAction(ctx, "report.export.fail", job.ArtifactRef); err != nil {
+			return nil, err
+		}
 	}
 	if job.Status != JobStatusRunning {
 		return nil, fmt.Errorf("reporting export failure: job %s is not running", strings.TrimSpace(request.JobID))
@@ -1391,6 +1673,15 @@ func (s *Service) GetExportStatus(ctx context.Context, jobID string) (*ExportJob
 	if !isExportJobVisible(ctx, job) {
 		return nil, ErrNotFound
 	}
+	if err := s.authorizeAction(ctx, "report.exportResult.read", job.ArtifactRef); err != nil {
+		if isExplicitReportDenial(err) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
+		return nil, ErrNotFound
+	}
 	return cloneJob(job), nil
 }
 
@@ -1446,6 +1737,15 @@ func (s *Service) ListExportJobs(ctx context.Context, input *ListExportJobsInput
 			continue
 		}
 		if normalized.Status != "" && job.Status != normalized.Status {
+			continue
+		}
+		if err := s.authorizeAction(ctx, "report.exportResult.read", job.ArtifactRef); err != nil {
+			if isExplicitReportDenial(err) {
+				continue
+			}
+			return nil, err
+		}
+		if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
 			continue
 		}
 		filtered = append(filtered, cloneJob(job))
@@ -1531,9 +1831,25 @@ func (s *Service) ListExportArtifacts(ctx context.Context, input *ListExportArti
 		if normalized.Format != "" && artifact.Format != normalized.Format {
 			continue
 		}
+		job := jobsByID[strings.TrimSpace(artifact.JobID)]
+		if job == nil {
+			continue
+		}
+		if err := s.authorizeAction(ctx, "report.exportResult.read", job.ArtifactRef); err != nil {
+			if isExplicitReportDenial(err) {
+				continue
+			}
+			return nil, err
+		}
+		if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
+			continue
+		}
 		expanded, err := s.enrichArtifactWithScratchpad(ctx, artifact)
 		if err != nil {
 			return nil, err
+		}
+		if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
+			continue
 		}
 		// Artifact listings are a metadata/discovery surface. Returning the
 		// binary payload here can overflow MCP tool responses for PDFs and
@@ -1593,8 +1909,20 @@ func (s *Service) GetArtifact(ctx context.Context, artifactID string) (*Artifact
 	if !isCompletedArtifactVisibleToActor(ctx, artifact, job, s.now().UTC()) {
 		return nil, ErrNotFound
 	}
+	if err := s.authorizeAction(ctx, "report.exportResult.read", job.ArtifactRef); err != nil {
+		if isExplicitReportDenial(err) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
+		return nil, ErrNotFound
+	}
 	expanded, err := s.enrichArtifactWithScratchpad(ctx, artifact)
 	if err == nil {
+		if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
+			return nil, ErrNotFound
+		}
 		return expanded, nil
 	}
 	// Scratchpad publication is an optional handoff optimization. A completed
@@ -1603,6 +1931,9 @@ func (s *Service) GetArtifact(ctx context.Context, artifactID string) (*Artifact
 	// misconfigured. This is especially important for native clients, which
 	// request the trusted includeData path and do not need a scratchpad URL.
 	if len(artifact.Data) > 0 {
+		if err := s.validateExportResourcePin(ctx, job, "report.exportResult.read"); err != nil {
+			return nil, ErrNotFound
+		}
 		fallback := cloneArtifact(artifact)
 		fallback.SourceURL = ""
 		return fallback, nil
@@ -1638,6 +1969,33 @@ func (s *Service) GetSharedArtifact(ctx context.Context, artifactID string) (*Sh
 	}
 	if artifact == nil || !isVisibleToActor(ctx, artifact.GetOwnerID()) {
 		return nil, ErrNotFound
+	}
+	if artifact.Resource == nil && s.requiresCanonicalSharedReport(artifact) {
+		return nil, ErrNotFound
+	}
+	if strings.TrimSpace(artifact.Kind) == savedReportArtifactKind {
+		if err := s.authorizeReport(ctx, artifact); err != nil {
+			if errors.Is(err, policy.ErrIdentityRejected) {
+				return nil, err
+			}
+			if isExplicitReportDenial(err) {
+				return nil, ErrNotFound
+			}
+			return nil, err
+		}
+	}
+	if err := s.authorizeAction(ctx, "report.retrieve", sharedArtifactActionID(artifact)); err != nil {
+		if isExplicitReportDenial(err) {
+			return nil, ErrNotFound
+		}
+		return nil, err
+	}
+	if artifact.Resource != nil {
+		refreshed, _, err := s.reauthorizeSharedReport(ctx, artifact)
+		if err != nil {
+			return nil, ErrNotFound
+		}
+		artifact.Resource = refreshed
 	}
 	return cloneSharedArtifact(artifact), nil
 }
@@ -1684,6 +2042,9 @@ func (s *Service) ListSharedArtifacts(ctx context.Context, input *ListSharedArti
 		if artifact == nil || !isVisibleToActor(ctx, artifact.GetOwnerID()) {
 			continue
 		}
+		if artifact.Resource == nil && s.requiresCanonicalSharedReport(artifact) {
+			continue
+		}
 		if normalized.ArtifactRef != "" && strings.TrimSpace(artifact.ArtifactRef) != normalized.ArtifactRef {
 			continue
 		}
@@ -1695,6 +2056,33 @@ func (s *Service) ListSharedArtifacts(ctx context.Context, input *ListSharedArti
 		}
 		if normalized.Lifecycle != "" && strings.TrimSpace(strings.ToLower(artifact.Lifecycle)) != normalized.Lifecycle {
 			continue
+		}
+		if strings.TrimSpace(artifact.Kind) == savedReportArtifactKind {
+			if err := s.authorizeReport(ctx, artifact); err != nil {
+				if errors.Is(err, policy.ErrIdentityRejected) {
+					return nil, err
+				}
+				if isExplicitReportDenial(err) {
+					continue
+				}
+				return nil, err
+			}
+		}
+		if err := s.authorizeAction(ctx, "report.retrieve", sharedArtifactActionID(artifact)); err != nil {
+			if isExplicitReportDenial(err) {
+				continue
+			}
+			return nil, err
+		}
+		if artifact.Resource != nil {
+			refreshed, _, err := s.reauthorizeSharedReport(ctx, artifact)
+			if err != nil {
+				if errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) {
+					continue
+				}
+				return nil, err
+			}
+			artifact.Resource = refreshed
 		}
 		filtered = append(filtered, cloneSharedArtifact(artifact))
 	}
@@ -1731,9 +2119,15 @@ func (s *Service) listSharedArtifactsTool(ctx context.Context, in, out interface
 	return nil
 }
 
-const savedReportArtifactKind = "reportBuilder.savedReportPayload"
+const (
+	savedReportArtifactKind = "reportBuilder.savedReportPayload"
+	savedViewArtifactKind   = "reportBuilder.savedView"
+)
 
 func (s *Service) SaveReport(ctx context.Context, request *SaveReportRequest) (*SharedArtifact, error) {
+	if s.usesReportResources() || request != nil && (request.Resource != nil || request.ResolvedResource != nil) {
+		return s.saveResourceReport(ctx, request)
+	}
 	if request == nil {
 		return nil, fmt.Errorf("report store: save request is required")
 	}
@@ -1766,6 +2160,9 @@ func (s *Service) SaveReport(ctx context.Context, request *SaveReportRequest) (*
 	normalized.ReportID = reportID
 	normalized.Title = title
 	if err := validateInlineSaveReport(&normalized); err != nil {
+		return nil, err
+	}
+	if err := s.authorizeAction(withReportCreateKind(ctx, savedReportArtifactKind), "report.create", reportID); err != nil {
 		return nil, err
 	}
 	sourceArtifactID := normalizeSharedArtifactSourceID("report", "", reportID, "")
@@ -1976,6 +2373,9 @@ func (s *Service) saveReportTool(ctx context.Context, in, out interface{}) error
 }
 
 func (s *Service) GetReport(ctx context.Context, input *GetReportInput) (*SharedArtifact, error) {
+	if s.usesReportResources() || input != nil && (input.Resource != nil || input.ResolvedResource != nil) {
+		return s.getResourceReport(ctx, input)
+	}
 	if input == nil {
 		return nil, fmt.Errorf("report store: get request is required")
 	}
@@ -1988,7 +2388,13 @@ func (s *Service) GetReport(ctx context.Context, input *GetReportInput) (*Shared
 			return nil, ErrNotFound
 		}
 		if err := s.authorizeReport(ctx, artifact); err != nil {
-			return nil, ErrNotFound
+			return nil, reportPolicyReadError(err)
+		}
+		if err := s.authorizeAction(ctx, "report.retrieve", reportAuthorizationID(artifact.ReportID, artifact.ArtifactID, artifact.ArtifactRef)); err != nil {
+			if isExplicitReportDenial(err) {
+				return nil, ErrNotFound
+			}
+			return nil, err
 		}
 		return artifact, nil
 	}
@@ -2010,13 +2416,25 @@ func (s *Service) GetReport(ctx context.Context, input *GetReportInput) (*Shared
 		}
 		if artifactRef != "" && strings.TrimSpace(artifact.ArtifactRef) == artifactRef {
 			if err := s.authorizeReport(ctx, artifact); err != nil {
-				return nil, ErrNotFound
+				return nil, reportPolicyReadError(err)
+			}
+			if err := s.authorizeAction(ctx, "report.retrieve", reportAuthorizationID(artifact.ReportID, artifact.ArtifactID, artifact.ArtifactRef)); err != nil {
+				if isExplicitReportDenial(err) {
+					return nil, ErrNotFound
+				}
+				return nil, err
 			}
 			return cloneSharedArtifact(artifact), nil
 		}
 		if reportID != "" && strings.TrimSpace(artifact.ReportID) == reportID {
 			if err := s.authorizeReport(ctx, artifact); err != nil {
-				return nil, ErrNotFound
+				return nil, reportPolicyReadError(err)
+			}
+			if err := s.authorizeAction(ctx, "report.retrieve", reportAuthorizationID(artifact.ReportID, artifact.ArtifactID, artifact.ArtifactRef)); err != nil {
+				if isExplicitReportDenial(err) {
+					return nil, ErrNotFound
+				}
+				return nil, err
 			}
 			return cloneSharedArtifact(artifact), nil
 		}
@@ -2042,6 +2460,12 @@ func (s *Service) getReportTool(ctx context.Context, in, out interface{}) error 
 }
 
 func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*ListReportsResult, error) {
+	if s.usesReportResources() {
+		if s.reportCatalog == nil {
+			return nil, identity.ErrResourceDenied
+		}
+		return s.listResourceReports(ctx, input)
+	}
 	var normalized ListReportsInput
 	if input != nil {
 		normalized = *input
@@ -2082,6 +2506,20 @@ func (s *Service) ListReports(ctx context.Context, input *ListReportsInput) (*Li
 	}, nil
 }
 
+func isExplicitReportDenial(err error) bool {
+	return errors.Is(err, policy.ErrDenied) && !errors.Is(err, policy.ErrIdentityRejected)
+}
+
+func reportPolicyReadError(err error) error {
+	if errors.Is(err, policy.ErrIdentityRejected) {
+		return err
+	}
+	if isExplicitReportDenial(err) {
+		return ErrNotFound
+	}
+	return err
+}
+
 func (s *Service) authorizeReport(ctx context.Context, artifact *SharedArtifact) error {
 	if s == nil || s.authorizationPolicy == nil || !s.authorizationPolicy.IsEnabled(policy.OperationReportView) {
 		return nil
@@ -2098,17 +2536,26 @@ func (s *Service) filterAuthorizedReports(ctx context.Context, reports []*Report
 	}
 	candidates := make([]policy.Candidate, 0, len(reports))
 	byID := make(map[string]*ReportSummary, len(reports))
+	normalizeID := func(id string) string {
+		if s.authorizationPolicy.ExactIDs {
+			return id
+		}
+		return strings.ToLower(strings.TrimSpace(id))
+	}
 	for _, report := range reports {
 		if report == nil {
 			continue
 		}
 		id := reportAuthorizationID(report.ReportID, report.ArtifactID, report.ArtifactRef)
 		candidates = append(candidates, policy.Candidate{ID: id, Kind: "report", Metadata: map[string]any{"title": report.Title}})
-		byID[strings.ToLower(id)] = report
+		byID[normalizeID(id)] = report
 	}
 	allowed, err := s.authorizationPolicy.Filter(ctx, policy.OperationReportView,
 		runtimerequestctx.ConversationIDFromContext(ctx), candidates, nil)
-	if errors.Is(err, policy.ErrDenied) {
+	if errors.Is(err, policy.ErrIdentityRejected) {
+		return nil, err
+	}
+	if isExplicitReportDenial(err) {
 		return nil, nil
 	}
 	if err != nil {
@@ -2116,7 +2563,7 @@ func (s *Service) filterAuthorizedReports(ctx context.Context, reports []*Report
 	}
 	result := make([]*ReportSummary, 0, len(allowed))
 	for _, candidate := range allowed {
-		if report := byID[strings.ToLower(strings.TrimSpace(candidate.ID))]; report != nil {
+		if report := byID[normalizeID(candidate.ID)]; report != nil {
 			result = append(result, report)
 		}
 	}
@@ -2130,6 +2577,22 @@ func reportAuthorizationID(values ...string) string {
 		}
 	}
 	return "unknown"
+}
+
+func sharedArtifactActionID(artifact *SharedArtifact) string {
+	if artifact == nil {
+		return ""
+	}
+	values := []string{artifact.ArtifactRef, artifact.ArtifactID, artifact.ReportID}
+	if strings.TrimSpace(artifact.Kind) == savedReportArtifactKind {
+		values = []string{artifact.ReportID, artifact.ArtifactID, artifact.ArtifactRef}
+	}
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (s *Service) listReportsTool(ctx context.Context, in, out interface{}) error {
@@ -2150,6 +2613,9 @@ func (s *Service) listReportsTool(ctx context.Context, in, out interface{}) erro
 }
 
 func (s *Service) UpdateReport(ctx context.Context, request *UpdateReportRequest) (*SharedArtifact, error) {
+	if s.usesReportResources() || request != nil && (request.Resource != nil || request.ResolvedResource != nil) {
+		return s.updateResourceReport(ctx, request)
+	}
 	if request == nil {
 		return nil, fmt.Errorf("report store: update request is required")
 	}
@@ -2159,6 +2625,9 @@ func (s *Service) UpdateReport(ctx context.Context, request *UpdateReportRequest
 		ReportID:    request.ReportID,
 	})
 	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizeAction(ctx, "report.edit", reportAuthorizationID(current.ReportID, current.ArtifactID, current.ArtifactRef)); err != nil {
 		return nil, err
 	}
 	updated := cloneSharedArtifact(current)
@@ -2215,6 +2684,9 @@ func (s *Service) updateReportTool(ctx context.Context, in, out interface{}) err
 }
 
 func (s *Service) DuplicateReport(ctx context.Context, request *DuplicateReportRequest) (*SharedArtifact, error) {
+	if s.usesReportResources() || request != nil && (request.Resource != nil || request.ResolvedResource != nil) {
+		return s.duplicateResourceReport(ctx, request)
+	}
 	if request == nil {
 		return nil, fmt.Errorf("report store: duplicate request is required")
 	}
@@ -2269,6 +2741,9 @@ func (s *Service) duplicateReportTool(ctx context.Context, in, out interface{}) 
 }
 
 func (s *Service) DeleteReport(ctx context.Context, request *DeleteReportRequest) (*DeleteReportResult, error) {
+	if s.usesReportResources() || request != nil && (request.Resource != nil || request.ResolvedResource != nil) {
+		return s.deleteResourceReport(ctx, request)
+	}
 	if request == nil {
 		return nil, fmt.Errorf("report store: delete request is required")
 	}
@@ -2278,6 +2753,9 @@ func (s *Service) DeleteReport(ctx context.Context, request *DeleteReportRequest
 		ReportID:    request.ReportID,
 	})
 	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizeAction(ctx, "report.delete", reportAuthorizationID(current.ReportID, current.ArtifactID, current.ArtifactRef)); err != nil {
 		return nil, err
 	}
 	if strings.TrimSpace(current.Kind) != savedReportArtifactKind {
@@ -2314,12 +2792,27 @@ func (s *Service) RecordReportRun(ctx context.Context, request *RecordReportRunR
 	if request == nil {
 		return nil, fmt.Errorf("report store: record run request is required")
 	}
+	if s.resourceResolver != nil {
+		result, err := s.ExecuteResource(ctx, &ExecuteResourceRequest{Resource: request.Resource, ResolvedResource: request.ResolvedResource, Parameters: request.Parameters})
+		if err != nil {
+			return nil, err
+		}
+		definition, err := json.Marshal(map[string]interface{}{"schemaVersion": 1, "reportSpec": result.ReportSpec, "reportFill": result.ReportFill, "reportPrint": result.ReportPrint})
+		if err != nil {
+			return nil, err
+		}
+		return &SharedArtifact{Resource: result.Resource, ResourceDefinition: definition, ArtifactRef: result.Resource.URI, ReportID: result.Resource.URI, ReportSpec: result.ReportSpec}, nil
+	}
+
 	current, err := s.GetReport(ctx, &GetReportInput{
 		ArtifactID:  request.ArtifactID,
 		ArtifactRef: request.ArtifactRef,
 		ReportID:    request.ReportID,
 	})
 	if err != nil {
+		return nil, err
+	}
+	if err := s.authorizeAction(ctx, "report.execute", reportAuthorizationID(current.ReportID, current.ArtifactID, current.ArtifactRef)); err != nil {
 		return nil, err
 	}
 	ranAt := request.RanAt
@@ -2356,7 +2849,7 @@ func (s *Service) recordReportRunTool(ctx context.Context, in, out interface{}) 
 }
 
 func (s *Service) failRunExport(ctx context.Context, jobID string, exportErr error) (*ExportJob, error) {
-	failed, failErr := s.FailExport(ctx, &FailExportRequest{
+	failed, failErr := s.FailExport(context.WithValue(ctx, internalExportFailureKey{}, true), &FailExportRequest{
 		JobID: strings.TrimSpace(jobID),
 		Error: strings.TrimSpace(exportErr.Error()),
 	})
@@ -2385,6 +2878,19 @@ func normalizeShareArtifactRequest(request *ShareArtifactRequest) (*ShareArtifac
 	}
 	next := cloneShareArtifactRequest(request)
 	next.ArtifactRef = strings.TrimSpace(next.ArtifactRef)
+	resourceURI := ""
+	if next.Resource != nil {
+		resourceURI = strings.TrimSpace(next.Resource.URI)
+	}
+	if next.ResolvedResource != nil {
+		if resourceURI != "" && resourceURI != next.ResolvedResource.URI {
+			return nil, identity.ErrResourceDenied
+		}
+		resourceURI = next.ResolvedResource.URI
+	}
+	if next.ArtifactRef == "" && resourceURI != "" {
+		next.ArtifactRef = resourceURI
+	}
 	next.Lifecycle = normalizeSharedArtifactLifecycle(next.Lifecycle, "draft")
 	if next.ArtifactRef == "" {
 		return nil, fmt.Errorf("reporting lifecycle: artifactRef is required")
@@ -2688,7 +3194,7 @@ func cloneCompileRequest(input *CompileRequest) *CompileRequest {
 	if input == nil {
 		return nil
 	}
-	return &CompileRequest{
+	return &CompileRequest{DependencyPins: cloneDependencyPins(input.DependencyPins), DependencyToken: input.DependencyToken, ResolvedResource: cloneResolvedResource(input.ResolvedResource), Resource: cloneResourceRef(input.Resource),
 		ArtifactRef: strings.TrimSpace(input.ArtifactRef),
 		SourceKind:  strings.TrimSpace(input.SourceKind),
 		Document:    cloneJSON(input.Document),
@@ -2699,7 +3205,7 @@ func cloneCompileResult(input *CompileResult) *CompileResult {
 	if input == nil {
 		return nil
 	}
-	return &CompileResult{
+	return &CompileResult{DependencyPins: cloneDependencyPins(input.DependencyPins), DependencyToken: input.DependencyToken, Resource: cloneResolvedResource(input.Resource),
 		ArtifactRef: strings.TrimSpace(input.ArtifactRef),
 		ReportSpec:  cloneJSON(input.ReportSpec),
 		Diagnostics: cloneDiagnostics(input.Diagnostics),
@@ -2725,6 +3231,7 @@ func cloneSubmitExportRequest(input *SubmitExportRequest) *SubmitExportRequest {
 		}
 	}
 	return &SubmitExportRequest{
+		DependencyPins: cloneDependencyPins(input.DependencyPins), DependencyToken: input.DependencyToken,
 		ArtifactRef:         strings.TrimSpace(input.ArtifactRef),
 		Format:              input.Format,
 		Scope:               input.Scope,
@@ -2737,6 +3244,10 @@ func cloneSubmitExportRequest(input *SubmitExportRequest) *SubmitExportRequest {
 		Metadata:            cloneJSON(input.Metadata),
 		ReportExportRequest: reportExportRequest,
 		ReportRunID:         strings.TrimSpace(input.ReportRunID),
+		Resource:            cloneResourceRef(input.Resource),
+		ResolvedResource:    cloneResolvedResource(input.ResolvedResource),
+		Parameters:          cloneJSONMap(input.Parameters),
+		execution:           input.execution,
 	}
 }
 
@@ -2758,6 +3269,8 @@ func cloneShareArtifactRequest(input *ShareArtifactRequest) *ShareArtifactReques
 		}
 	}
 	return &ShareArtifactRequest{
+		Resource:            cloneResourceRef(input.Resource),
+		ResolvedResource:    cloneResolvedResource(input.ResolvedResource),
 		ArtifactRef:         strings.TrimSpace(input.ArtifactRef),
 		Version:             input.Version,
 		Lifecycle:           strings.TrimSpace(input.Lifecycle),
@@ -2802,6 +3315,7 @@ func cloneJob(input *ExportJob) *ExportJob {
 		return nil
 	}
 	out := &ExportJob{
+		DependencyPins: cloneDependencyPins(input.DependencyPins), DependencyToken: input.DependencyToken,
 		JobID:             strings.TrimSpace(input.JobID),
 		ArtifactRef:       strings.TrimSpace(input.ArtifactRef),
 		OwnerID:           strings.TrimSpace(input.OwnerID),
@@ -2813,6 +3327,7 @@ func cloneJob(input *ExportJob) *ExportJob {
 		Status:            input.Status,
 		ReportRunID:       strings.TrimSpace(input.ReportRunID),
 		ReportRunRevision: input.ReportRunRevision,
+		ResourcePin:       cloneResolvedResource(input.ResourcePin),
 		ExportRequestID:   strings.TrimSpace(input.ExportRequestID),
 		ReportSpec:        cloneJSON(input.ReportSpec),
 		ReportFill:        cloneJSON(input.ReportFill),
@@ -2936,7 +3451,7 @@ func cloneListReportsResult(input *ListReportsResult) *ListReportsResult {
 	if input == nil {
 		return nil
 	}
-	result := &ListReportsResult{
+	result := &ListReportsResult{NextCursor: input.NextCursor,
 		Reports:    make([]*ReportSummary, 0, len(input.Reports)),
 		TotalCount: input.TotalCount,
 	}
@@ -2979,6 +3494,11 @@ func cloneReportSummary(input *ReportSummary) *ReportSummary {
 		return nil
 	}
 	result := *input
+	result.Resource = cloneResolvedResource(input.Resource)
+	if input.Capabilities != nil {
+		value := *input.Capabilities
+		result.Capabilities = &value
+	}
 	result.OrderIDs = append([]string{}, input.OrderIDs...)
 	result.LastRunAt = cloneTime(input.LastRunAt)
 	result.UpdatedAt = cloneTime(input.UpdatedAt)
@@ -3142,7 +3662,7 @@ func cloneSharedArtifact(input *SharedArtifact) *SharedArtifact {
 	if input == nil {
 		return nil
 	}
-	out := &SharedArtifact{
+	out := &SharedArtifact{RowEtag: input.RowEtag, DraftRevision: input.DraftRevision, LatestStamp: input.LatestStamp, WorkspaceID: input.WorkspaceID, Resource: cloneResolvedResource(input.Resource), ResourceDefinition: cloneJSON(input.ResourceDefinition),
 		ArtifactID:       strings.TrimSpace(input.ArtifactID),
 		ArtifactRef:      strings.TrimSpace(input.ArtifactRef),
 		OwnerID:          strings.TrimSpace(input.OwnerID),
@@ -3163,6 +3683,7 @@ func cloneSharedArtifact(input *SharedArtifact) *SharedArtifact {
 		ReportPrint:      cloneJSON(input.ReportPrint),
 		SavedViewOverlay: cloneJSON(input.SavedViewOverlay),
 		Metadata:         cloneJSON(input.Metadata),
+		sharedActorScope: cloneSharedReportActorScope(input.sharedActorScope),
 		CreatedAt:        input.CreatedAt,
 	}
 	if input.UpdatedAt != nil {

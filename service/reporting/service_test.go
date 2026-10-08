@@ -23,6 +23,24 @@ import (
 
 type reportPolicyResolver struct{}
 
+type exactReportPolicyResolver struct{}
+
+type rejectedReportPolicyResolver struct{}
+
+func (rejectedReportPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
+	return nil, policy.ErrIdentityRejected
+}
+
+type sharedListingOutageStore struct{ Store }
+
+func (sharedListingOutageStore) ListSharedArtifacts(context.Context) ([]*SharedArtifact, error) {
+	return nil, errors.New("shared store unavailable")
+}
+
+func (exactReportPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
+	return &policy.Decision{PolicyVersion: "v1", ExpiresAt: time.Now().Add(time.Minute), Allow: true, AllowedIDs: []string{"Report-A"}}, nil
+}
+
 func (reportPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
 	return &policy.Decision{PolicyVersion: "v1", ExpiresAt: time.Now().Add(time.Minute), Allow: true, AllowedIDs: []string{"visible"}}, nil
 }
@@ -33,6 +51,249 @@ func TestFilterAuthorizedReports(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	require.Equal(t, "visible", got[0].ReportID)
+}
+
+func TestFilterAuthorizedReportsUsesOpaqueIDsInAuthzMode(t *testing.T) {
+	runtime := policy.NewRuntime(exactReportPolicyResolver{}, policy.OperationReportView)
+	runtime.ExactIDs = true
+	service := &Service{authorizationPolicy: runtime}
+	got, err := service.filterAuthorizedReports(context.Background(), []*ReportSummary{{ReportID: "Report-A"}, {ReportID: "report-a"}})
+	require.NoError(t, err)
+	require.Len(t, got, 1)
+	require.Equal(t, "Report-A", got[0].ReportID)
+}
+
+func TestSavedReportReadersPropagateIdentityRejection(t *testing.T) {
+	store := NewStoreAdapter(reportmemory.New())
+	ctx := authsvc.InjectUser(context.Background(), "owner")
+	if err := store.CreateSharedArtifact(ctx, &SharedArtifact{ArtifactID: "artifact-1", ArtifactRef: "report://orders", ReportID: "orders", OwnerID: "owner", Kind: savedReportArtifactKind, Lifecycle: "draft", Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(Options{Store: store, AuthorizationPolicy: policy.NewRuntime(rejectedReportPolicyResolver{}, policy.OperationReportView)})
+	if _, err := svc.GetSharedArtifact(ctx, "artifact-1"); !errors.Is(err, policy.ErrIdentityRejected) {
+		t.Fatalf("artifact identity rejection became not-found: %v", err)
+	}
+	if _, err := svc.GetReport(ctx, &GetReportInput{ReportID: "orders"}); !errors.Is(err, policy.ErrIdentityRejected) {
+		t.Fatalf("report identity rejection became not-found: %v", err)
+	}
+	if _, err := svc.ListReports(ctx, &ListReportsInput{}); !errors.Is(err, policy.ErrIdentityRejected) {
+		t.Fatalf("report list identity rejection became empty: %v", err)
+	}
+}
+
+func TestReportingActionReadersDoNotHideIdentityRejection(t *testing.T) {
+	store := NewStoreAdapter(reportmemory.New())
+	ctx := authsvc.InjectUser(context.Background(), "owner")
+	if err := store.CreateSharedArtifact(ctx, &SharedArtifact{ArtifactID: "artifact-1", ArtifactRef: "report://orders", ReportID: "orders", OwnerID: "owner", Kind: savedReportArtifactKind, Lifecycle: "draft", Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	rejected := false
+	svc := New(Options{Store: store, ActionAuthorize: func(_ context.Context, operation, _ string) error {
+		if rejected && (operation == "report.retrieve" || operation == "report.exportResult.read") {
+			return policy.ErrIdentityRejected
+		}
+		return nil
+	}})
+	job, err := svc.SubmitExport(ctx, &SubmitExportRequest{ArtifactRef: "report://orders", Format: ExportFormatPDF, Scope: ExportScopeDraft, ReportSpec: json.RawMessage(validTestReportSpecJSON()), ReportFill: json.RawMessage(validTestReportFillJSON()), ReportPrint: json.RawMessage(validTestReportPrintJSON())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rejected = true
+	if _, err := svc.GetSharedArtifact(ctx, "artifact-1"); !errors.Is(err, policy.ErrIdentityRejected) {
+		t.Fatalf("shared artifact hid identity rejection: %v", err)
+	}
+	if _, err := svc.ListReports(ctx, &ListReportsInput{}); !errors.Is(err, policy.ErrIdentityRejected) {
+		t.Fatalf("report list hid identity rejection: %v", err)
+	}
+	if _, err := svc.GetExportStatus(ctx, job.JobID); !errors.Is(err, policy.ErrIdentityRejected) {
+		t.Fatalf("export status hid identity rejection: %v", err)
+	}
+	if _, err := svc.ListExportJobs(ctx, &ListExportJobsInput{}); !errors.Is(err, policy.ErrIdentityRejected) {
+		t.Fatalf("export list hid identity rejection: %v", err)
+	}
+}
+
+func TestSavedReportBackendActionsAreIndependent(t *testing.T) {
+	denied := map[string]bool{"report.create": true}
+	seen := map[string]int{}
+	svc := New(Options{Store: NewStoreAdapter(reportmemory.New()), ActionAuthorize: func(checkCtx context.Context, operation, id string) error {
+		seen[operation]++
+		if operation == "report.create" && ReportCreateKind(checkCtx) != savedReportArtifactKind {
+			t.Fatalf("saved report create kind was not server-bound: %q", ReportCreateKind(checkCtx))
+		}
+		if id != "orders" {
+			t.Fatalf("unexpected action identity %q %q", operation, id)
+		}
+		if denied[operation] {
+			return policy.ErrDenied
+		}
+		return nil
+	}})
+	ctx := authsvc.InjectUser(context.Background(), "owner")
+	request := &SaveReportRequest{ReportID: "orders", Title: "Orders", ReportDocument: json.RawMessage(`{"kind":"reportDocument","id":"orders"}`), ReportSpec: json.RawMessage(`{"kind":"reportSpec","datasets":[],"blocks":[]}`)}
+	if _, err := svc.SaveReport(ctx, request); !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("create gate: %v", err)
+	}
+	delete(denied, "report.create")
+	saved, err := svc.SaveReport(ctx, request)
+	require.NoError(t, err)
+	denied["report.retrieve"] = true
+	if _, err := svc.GetSharedArtifact(ctx, saved.ArtifactID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("direct artifact read gate: %v", err)
+	}
+	if _, err := svc.GetReport(ctx, &GetReportInput{ReportID: "orders"}); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("report read gate: %v", err)
+	}
+	listed, err := svc.ListReports(ctx, &ListReportsInput{})
+	require.NoError(t, err)
+	require.Empty(t, listed.Reports)
+	delete(denied, "report.retrieve")
+	denied["report.edit"] = true
+	if _, err := svc.UpdateReport(ctx, &UpdateReportRequest{ReportID: "orders", Title: "Changed"}); !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("edit gate: %v", err)
+	}
+	denied["report.delete"] = true
+	if _, err := svc.DeleteReport(ctx, &DeleteReportRequest{ReportID: "orders"}); !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("delete gate: %v", err)
+	}
+	reopened, err := svc.GetReport(ctx, &GetReportInput{ReportID: "orders"})
+	require.NoError(t, err)
+	require.Equal(t, "Orders", reopened.Title)
+	for _, operation := range []string{"report.create", "report.retrieve", "report.edit", "report.delete"} {
+		if seen[operation] == 0 {
+			t.Errorf("%s was not checked", operation)
+		}
+	}
+}
+
+func TestExportBackendActionsProtectSubmissionStatusAndStart(t *testing.T) {
+	denied := map[string]bool{"report.export": true}
+	svc := New(Options{Store: NewStoreAdapter(reportmemory.New()), ActionAuthorize: func(_ context.Context, operation, id string) error {
+		if id != "report://inline/test" {
+			t.Fatalf("unexpected export identity: %s %s", operation, id)
+		}
+		if denied[operation] {
+			return policy.ErrDenied
+		}
+		return nil
+	}})
+	ctx := authsvc.InjectUser(context.Background(), "owner")
+	request := &SubmitExportRequest{Format: ExportFormatPDF, Source: &ExportSource{Kind: "inline", ArtifactRef: "report://inline/test", ReportSpec: json.RawMessage(validTestReportSpecJSON()), ReportFill: json.RawMessage(validTestReportFillJSON()), ReportPrint: json.RawMessage(validTestReportPrintJSON())}}
+	if _, err := svc.SubmitExport(ctx, request); !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("export submit gate: %v", err)
+	}
+	delete(denied, "report.export")
+	denied["report.retrieve"] = true
+	if _, err := svc.SubmitExport(ctx, request); !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("export source retrieval gate: %v", err)
+	}
+	delete(denied, "report.retrieve")
+	job, err := svc.SubmitExport(ctx, request)
+	require.NoError(t, err)
+	denied["report.exportResult.read"] = true
+	if _, err := svc.GetExportStatus(ctx, job.JobID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("status gate: %v", err)
+	}
+	listed, err := svc.ListExportJobs(ctx, &ListExportJobsInput{})
+	require.NoError(t, err)
+	require.Empty(t, listed.Jobs)
+	delete(denied, "report.exportResult.read")
+	denied["report.export.start"] = true
+	if _, err := svc.StartExport(ctx, job.JobID); !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("start gate: %v", err)
+	}
+}
+
+func TestSharedArtifactLifecycleChecksSourceAndPublicationActions(t *testing.T) {
+	store := NewStoreAdapter(reportmemory.New())
+	ctx := authsvc.InjectUser(context.Background(), "owner")
+	if err := store.CreateSharedArtifact(ctx, &SharedArtifact{ArtifactID: "stored-1", ArtifactRef: "report://source", OwnerID: "owner", Kind: "reportBuilder.savedView", Lifecycle: "draft", Version: 1}); err != nil {
+		t.Fatal(err)
+	}
+	denied := map[string]bool{"report.retrieve": true}
+	svc := New(Options{Store: store, ActionAuthorize: func(checkCtx context.Context, operation, id string) error {
+		if operation == "report.create" && ReportCreateKind(checkCtx) != savedViewArtifactKind {
+			t.Fatalf("saved view create kind was not server-bound: %q", ReportCreateKind(checkCtx))
+		}
+		if id != "report://source" && id != "report://missing" {
+			t.Fatalf("wrong source identity: %s %s", operation, id)
+		}
+		if denied[operation] {
+			return policy.ErrDenied
+		}
+		return nil
+	}})
+	if _, err := svc.ShareArtifact(ctx, &ShareArtifactRequest{ArtifactRef: "report://source"}); !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("shared artifact retrieval gate: %v", err)
+	}
+	delete(denied, "report.retrieve")
+	if shared, err := svc.ShareArtifact(ctx, &ShareArtifactRequest{ArtifactRef: "report://source"}); err != nil || shared.ArtifactID != "stored-1" {
+		t.Fatalf("authorized shared artifact: %+v %v", shared, err)
+	}
+	denied["report.create"] = true
+	if _, err := svc.ShareArtifact(ctx, &ShareArtifactRequest{ArtifactRef: "report://missing"}); !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("new shared artifact creation gate: %v", err)
+	}
+	denied["report.publish"] = true
+	if _, err := svc.TransitionArtifact(ctx, &TransitionArtifactRequest{ArtifactRef: "report://source", To: "published"}); !errors.Is(err, policy.ErrDenied) {
+		t.Fatalf("publication gate: %v", err)
+	}
+	stored, err := store.GetSharedArtifact(ctx, "stored-1")
+	if err != nil || stored.Lifecycle != "draft" {
+		t.Fatalf("denied publication changed state: %+v %v", stored, err)
+	}
+	delete(denied, "report.publish")
+	updated, err := svc.TransitionArtifact(ctx, &TransitionArtifactRequest{ArtifactRef: "report://source", To: "published"})
+	if err != nil || updated.Lifecycle != "published" {
+		t.Fatalf("authorized publication: %+v %v", updated, err)
+	}
+	denied["report.retrieve"] = true
+	if _, err := svc.GetSharedArtifact(ctx, "stored-1"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("non-report shared artifact read gate: %v", err)
+	}
+	listed, err := svc.ListSharedArtifacts(ctx, &ListSharedArtifactsInput{})
+	if err != nil || len(listed.Artifacts) != 0 {
+		t.Fatalf("non-report shared artifact listed after denied read: %+v %v", listed, err)
+	}
+}
+
+func TestSharedArtifactLookupOutageStopsLifecycleMutation(t *testing.T) {
+	store := sharedListingOutageStore{Store: NewStoreAdapter(reportmemory.New())}
+	svc := New(Options{Store: store, ActionAuthorize: func(context.Context, string, string) error { return nil }})
+	ctx := authsvc.InjectUser(context.Background(), "owner")
+	if _, err := svc.ShareArtifact(ctx, &ShareArtifactRequest{ArtifactRef: "report://source"}); err == nil || !strings.Contains(err.Error(), "shared store unavailable") {
+		t.Fatalf("share continued after lookup outage: %v", err)
+	}
+	if _, err := svc.TransitionArtifact(ctx, &TransitionArtifactRequest{ArtifactRef: "report://source", To: "published"}); err == nil || !strings.Contains(err.Error(), "shared store unavailable") {
+		t.Fatalf("publication continued after lookup outage: %v", err)
+	}
+}
+
+func TestExportWorkerRechecksSourceAccessBeforeRendering(t *testing.T) {
+	denied := false
+	exporter := &exportRecorder{result: &RenderResult{Data: []byte("%PDF-test")}}
+	svc := New(Options{
+		Store: NewStoreAdapter(reportmemory.New()), Exporter: exporter,
+		ActionAuthorize: func(_ context.Context, operation, id string) error {
+			if id != "report://draft/test" {
+				t.Fatalf("unexpected worker source: %s %s", operation, id)
+			}
+			if denied && operation == "report.retrieve" {
+				return policy.ErrDenied
+			}
+			return nil
+		},
+	})
+	owner := authsvc.InjectUser(context.Background(), "owner")
+	job, err := svc.SubmitExport(owner, &SubmitExportRequest{ArtifactRef: "report://draft/test", Format: ExportFormatPDF, Scope: ExportScopeDraft, ReportSpec: json.RawMessage(validTestReportSpecJSON()), ReportFill: json.RawMessage(validTestReportFillJSON()), ReportPrint: json.RawMessage(validTestReportPrintJSON())})
+	if err != nil {
+		t.Fatal(err)
+	}
+	denied = true
+	failed, err := svc.RunExport(context.Background(), job.JobID)
+	if !errors.Is(err, policy.ErrDenied) || failed == nil || failed.Status != JobStatusFailed || exporter.request != nil {
+		t.Fatalf("worker used revoked report source: job=%+v rendered=%+v err=%v", failed, exporter.request, err)
+	}
 }
 
 type compileRecorder struct {

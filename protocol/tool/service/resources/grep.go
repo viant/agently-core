@@ -185,6 +185,9 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 			return err
 		}
 	}
+	if err := s.checkRawResourceURI(base, input.Recursive); err != nil {
+		return err
+	}
 	// Normalise defaults
 	mode := strings.ToLower(strings.TrimSpace(input.Mode))
 	if mode == "" {
@@ -247,6 +250,9 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 	// When input.Path resolves to a file, avoid Walk (which assumes directories for file:// roots).
 	if obj, err := fs.Object(ctx, base); err == nil && obj != nil && !obj.IsDir() {
 		uri := base
+		if err := s.checkRawResourceURI(uri, false); err != nil {
+			return err
+		}
 		data, err := fs.DownloadWithURL(ctx, uri)
 		if err != nil {
 			return err
@@ -364,6 +370,9 @@ func (s *Service) grepFiles(ctx context.Context, in, out interface{}) error {
 			uri = url.Join(walkBaseURL, info.Name())
 		} else {
 			uri = url.Join(walkBaseURL, parent, info.Name())
+		}
+		if err := s.checkRawResourceURI(uri, false); err != nil {
+			return true, nil
 		}
 		// Apply include/exclude globs on the relative path
 		scheme := url.Scheme(walkBaseURL, "file")

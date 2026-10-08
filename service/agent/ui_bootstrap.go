@@ -49,6 +49,12 @@ func (s *Service) workspaceUIViewSummaries(ctx context.Context) []string {
 		if item == nil || strings.TrimSpace(item.ID) == "" {
 			continue
 		}
+		if s.uiBridge != nil && s.uiBridge.AuthzReady() {
+			allowed, err := s.uiBridge.WindowAuthorize(ctx, strings.TrimSpace(item.WindowKey))
+			if err != nil || !allowed {
+				continue
+			}
+		}
 		summaries = append(summaries, summarizeWorkspaceView(item))
 	}
 	sort.Strings(summaries)
@@ -140,7 +146,7 @@ func (s *Service) workspaceUILiveSummaries(ctx context.Context, conversationID s
 		}
 		summaries = append(summaries, summary)
 	}
-	if events := s.uiRegistry.ListEvents(strings.TrimSpace(conversationID), strings.TrimSpace(client.ClientID), "", "", 10, 0); len(events) > 0 {
+	if events, err := s.uiRegistry.ListEventsContext(ctx, strings.TrimSpace(conversationID), strings.TrimSpace(client.ClientID), "", "", 10, 0); err == nil && len(events) > 0 {
 		summaries = append(summaries, "- recentEvents:")
 		for _, event := range events {
 			line := fmt.Sprintf("  - #%d kind=%s actor=%s", event.Seq, strings.TrimSpace(event.Kind), strings.TrimSpace(event.Actor))

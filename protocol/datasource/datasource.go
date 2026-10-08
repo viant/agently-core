@@ -8,6 +8,7 @@
 package datasource
 
 import (
+	windowprotocol "github.com/viant/agently-core/protocol/window"
 	"time"
 
 	"github.com/viant/forge/backend/types"
@@ -49,12 +50,13 @@ type DataSource struct {
 type BackendKind string
 
 const (
-	BackendMCPTool     BackendKind = "mcp_tool"
-	BackendMCPTools    BackendKind = "mcp_tools"
-	BackendMCPFanout   BackendKind = "mcp_fanout"
-	BackendMCPResource BackendKind = "mcp_resource"
-	BackendFeedRef     BackendKind = "feed_ref"
-	BackendInline      BackendKind = "inline"
+	BackendMCPTool       BackendKind = "mcp_tool"
+	BackendMCPTools      BackendKind = "mcp_tools"
+	BackendMCPFanout     BackendKind = "mcp_fanout"
+	BackendMCPResource   BackendKind = "mcp_resource"
+	BackendFeedRef       BackendKind = "feed_ref"
+	BackendInline        BackendKind = "inline"
+	BackendAuthorization BackendKind = "authorization"
 )
 
 // Backend declares the upstream source for a DataSource.
@@ -65,7 +67,12 @@ const (
 // with token attached by protocol/mcp/manager WithAuthTokenContext).
 // service/datasource.Fetch preserves ctx by construction.
 type Backend struct {
-	Kind BackendKind `json:"kind" yaml:"kind"`
+	Authorization *AuthorizationBinding `json:"authorization,omitempty" yaml:"authorization,omitempty"`
+	// ProducerKind is host-owned classification. Datly requires an exact component pin.
+	ProducerKind  string                     `json:"producerKind,omitempty" yaml:"producerKind,omitempty"`
+	Component     *windowprotocol.ComponentBinding `json:"component,omitempty" yaml:"component,omitempty"`
+	ServerVersion string                     `json:"serverVersion,omitempty" yaml:"serverVersion,omitempty"`
+	Kind          BackendKind                `json:"kind" yaml:"kind"`
 
 	// mcp_tool
 	Service string `json:"service,omitempty" yaml:"service,omitempty"`
@@ -255,4 +262,15 @@ type InlineFilter struct {
 	Input    string `json:"input" yaml:"input"`
 	Operator string `json:"operator" yaml:"operator"`
 	Type     string `json:"type,omitempty" yaml:"type,omitempty"`
+}
+
+// AuthorizationBinding is a trusted selected-permission query. Only IDs are
+// caller inputs; identity, resource type and requested capabilities are not.
+type AuthorizationBinding struct {
+	IncludePrincipal    bool     `json:"includePrincipal,omitempty" yaml:"includePrincipal,omitempty"`
+	SchemaVersion       int      `json:"schemaVersion" yaml:"schemaVersion"`
+	ResourceType        string   `json:"resourceType" yaml:"resourceType"`
+	ResourceIDsArgument string   `json:"resourceIdsArgument" yaml:"resourceIdsArgument"`
+	Capabilities        []string `json:"capabilities" yaml:"capabilities"`
+	MaxResourceIDs      int      `json:"maxResourceIds" yaml:"maxResourceIds"`
 }

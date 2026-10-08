@@ -1,0 +1,335 @@
+package reporting
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"reflect"
+	"strings"
+
+	dsproto "github.com/viant/agently-core/protocol/datasource"
+	identity "github.com/viant/agently-core/protocol/resource"
+	svc "github.com/viant/agently-core/protocol/tool/service"
+	windowprotocol "github.com/viant/agently-core/protocol/window"
+	requestctx "github.com/viant/agently-core/runtime/requestctx"
+	dssvc "github.com/viant/agently-core/service/datasource"
+	"github.com/viant/agently-core/service/reportdefinition/materializer"
+	"github.com/viant/forge/backend/reporting/registry"
+)
+
+type ExecuteResourceRequest struct {
+	DependencyPins   map[string]identity.ResolvedResource `json:"dependencyPins,omitempty"`
+	DependencyToken  string                               `json:"dependencyToken,omitempty"`
+	Resource         *identity.ResourceRef                `json:"resource,omitempty"`
+	ResolvedResource *identity.ResolvedResource           `json:"resolvedResource,omitempty"`
+	Parameters       map[string]interface{}               `json:"parameters,omitempty"`
+}
+type ExecuteResourceResult struct {
+	DependencyPins  map[string]identity.ResolvedResource `json:"dependencyPins,omitempty"`
+	DependencyToken string                               `json:"dependencyToken,omitempty"`
+	Resource        *identity.ResolvedResource           `json:"resource"`
+	ReportSpec      json.RawMessage                      `json:"reportSpec"`
+	ReportFill      json.RawMessage                      `json:"reportFill"`
+	ReportPrint     json.RawMessage                      `json:"reportPrint"`
+	Datasets        map[string]*dsproto.FetchResult      `json:"datasets"`
+}
+
+// ResourceDatasetExecutor receives only the exact datasource descriptor from
+// an approved report envelope. The callback retains the caller's identity and
+// performs ordinary datasource/tool admission; it cannot choose another source.
+type ResourceDatasetExecutor func(context.Context, identity.ResolvedResource, *dsproto.DataSource, map[string]interface{}) (*dsproto.FetchResult, error)
+
+func (s *Service) SetResourceDatasetExecutor(execute ResourceDatasetExecutor) {
+	if s != nil {
+		s.resourceDatasetExecutor = execute
+	}
+}
+func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceRequest) (*ExecuteResourceResult, error) {
+	if request == nil || s.resourceResolver == nil || s.resourceDatasetExecutor == nil {
+		return nil, identity.ErrResourceDenied
+	}
+
+	ref := identity.ResourceRef{}
+	if request.Resource != nil {
+		ref = *request.Resource
+	} else if request.ResolvedResource != nil {
+		ref = identity.ResourceRef{URI: request.ResolvedResource.URI, Revision: request.ResolvedResource.Selector()}
+	}
+	uri, err := identity.ParseResourceURI(ref.URI)
+	if err != nil || uri.Kind != "report" {
+		return nil, identity.ErrResourceDenied
+	}
+	resolver, err := s.resourceResolver(ctx, "report.execute")
+	if err != nil {
+		return nil, err
+	}
+	if resolver == nil {
+		return nil, identity.ErrResourceDenied
+	}
+	pin := cloneResolvedResource(request.ResolvedResource)
+	if pin == nil {
+		pin, err = resolver.Resolve(ctx, ref)
+		if err != nil {
+			return nil, err
+		}
+	} else if pin.URI != ref.URI || ref.Revision != "" && ref.Revision != pin.Selector() {
+		return nil, identity.ErrResourceDenied
+	}
+	// Execute admission precedes compilation. Only this exact selected identity
+	// may enter the metadata-only compiler; denied users never invoke it.
+	if _, _, err = resolver.ReadResolved(ctx, *pin); err != nil {
+		return nil, err
+	}
+	compiled, err := s.Compile(ctx, &CompileRequest{DependencyPins: cloneDependencyPins(request.DependencyPins), DependencyToken: request.DependencyToken, ResolvedResource: pin})
+	if err != nil {
+		return nil, err
+	}
+	if compiled == nil || compiled.Resource == nil || compiled.Resource.URI != pin.URI || compiled.Resource.ResourceCandidate != pin.ResourceCandidate || compiled.Resource.AuthorityBinding != pin.AuthorityBinding {
+		return nil, identity.ErrResourceDenied
+	}
+	raw, pin, err := resolver.ReadResolved(ctx, *compiled.Resource)
+	if err != nil {
+		return nil, err
+	}
+	var envelope registry.ReportEnvelope
+	if json.Unmarshal(raw, &envelope) != nil || len(envelope.DataSources) == 0 {
+		return nil, fmt.Errorf("report execution requires trusted datasource descriptors")
+	}
+	check := func() error {
+		if _, _, e := resolver.ReadResolved(ctx, *pin); e != nil {
+			return e
+		}
+		return s.verifyDependencies(ctx, *pin, envelope, compiled.DependencyPins, compiled.DependencyToken)
+	}
+	if err = check(); err != nil {
+		return nil, err
+	}
+	var spec struct {
+		Datasets []struct {
+			ID            string                       `json:"id"`
+			DataSourceRef string                       `json:"dataSourceRef"`
+			Request       map[string]interface{}       `json:"request"`
+			Rows          json.RawMessage              `json:"rows"`
+			Scope         *reportExecutionDatasetScope `json:"scope"`
+		} `json:"datasets"`
+	}
+	if json.Unmarshal(compiled.ReportSpec, &spec) != nil || len(spec.Datasets) == 0 {
+		return nil, fmt.Errorf("report has no executable datasets")
+	}
+
+	type plannedDataset struct {
+		id         string
+		descriptor *dsproto.DataSource
+		args       map[string]interface{}
+	}
+	plans := make([]plannedDataset, 0, len(spec.Datasets))
+	seen := map[string]bool{}
+	var specRoot map[string]json.RawMessage
+	_ = json.Unmarshal(compiled.ReportSpec, &specRoot)
+	var effectiveDatasets []map[string]interface{}
+	if json.Unmarshal(specRoot["datasets"], &effectiveDatasets) != nil {
+		return nil, identity.ErrResourceDenied
+	}
+	for index, dataset := range spec.Datasets {
+		if dataset.ID == "" || seen[dataset.ID] || dataset.DataSourceRef == "" || len(dataset.Rows) != 0 {
+			return nil, fmt.Errorf("report execution dataset identity invalid")
+		}
+		seen[dataset.ID] = true
+		descriptorRaw := envelope.DataSources[dataset.DataSourceRef]
+		descriptor := new(dsproto.DataSource)
+		if len(descriptorRaw) == 0 || json.Unmarshal(descriptorRaw, descriptor) != nil || descriptor.ID != dataset.DataSourceRef || descriptor.Backend == nil {
+			return nil, identity.ErrResourceDenied
+		}
+		args, err := reportDatasetArguments(dataset.Request, request.Parameters, descriptor, envelope.BuilderDefinition, dataset.Scope)
+		if err != nil {
+			return nil, err
+		}
+		effectiveDatasets[index]["request"] = args
+		plans = append(plans, plannedDataset{dataset.ID, descriptor, args})
+	}
+	specRoot["datasets"], err = json.Marshal(effectiveDatasets)
+	if err != nil {
+		return nil, err
+	}
+	if err := validateReportSpecRoot(specRoot); err != nil {
+		return nil, err
+	}
+	effectiveSpec, err := json.Marshal(specRoot)
+	if err != nil {
+		return nil, err
+	}
+	results := map[string]*dsproto.FetchResult{}
+	payloads := map[string]json.RawMessage{}
+	for _, plan := range plans {
+		if err = check(); err != nil {
+			return nil, err
+		}
+		result, err := s.resourceDatasetExecutor(requestctx.WithResolvedResource(ctx, *pin), *pin, plan.descriptor, plan.args)
+		if err != nil {
+			return nil, err
+		}
+		if result == nil {
+			return nil, fmt.Errorf("report datasource returned no result")
+		}
+		if err = check(); err != nil {
+			return nil, err
+		}
+		results[plan.id] = result
+		payloads[plan.id], err = json.Marshal(result)
+		if err != nil {
+			return nil, err
+		}
+	}
+	artifacts, err := materializer.Materialize(ctx, effectiveSpec, payloads)
+	if err != nil {
+		return nil, err
+	}
+	if err = check(); err != nil {
+		return nil, err
+	}
+	return &ExecuteResourceResult{DependencyPins: cloneDependencyPins(compiled.DependencyPins), DependencyToken: compiled.DependencyToken, Resource: cloneResolvedResource(pin), ReportSpec: cloneJSON(effectiveSpec), ReportFill: artifacts.ReportFill, ReportPrint: artifacts.ReportPrint, Datasets: results}, nil
+}
+func reportDatasetArguments(base, parameters map[string]interface{}, descriptor *dsproto.DataSource, builderRaw json.RawMessage, scope *reportExecutionDatasetScope) (map[string]interface{}, error) {
+	raw, err := json.Marshal(base)
+	if err != nil {
+		return nil, err
+	}
+	args := map[string]interface{}{}
+	if len(raw) > 0 && string(raw) != "null" {
+		if json.Unmarshal(raw, &args) != nil {
+			return nil, identity.ErrResourceDenied
+		}
+	}
+	allowed := map[string]bool{}
+	for key := range base {
+		allowed[key] = true
+	}
+	declarations, err := reportParameterDeclarations(builderRaw)
+	if err != nil {
+		return nil, err
+	}
+	for _, p := range descriptor.Parameters {
+		if p.Name != "" {
+			allowed[p.Name] = true
+		}
+	}
+	assigned := map[string]interface{}{}
+	for key, value := range parameters {
+		if strings.HasPrefix(key, "_") || key == "backend" || key == "source" || key == "service" || key == "method" || key == "filters" || key == "options" {
+			return nil, fmt.Errorf("report parameter not admitted by trusted schema")
+		}
+		if declaration, ok := declarations[key]; ok {
+			if scope.preserves(declaration) {
+				continue
+			}
+			if declaration.Multiple {
+				switch value.(type) {
+				case []interface{}:
+				default:
+					value = []interface{}{value}
+				}
+			}
+			if old, exists := assigned[declaration.Path]; exists && !reflect.DeepEqual(old, value) {
+				return nil, fmt.Errorf("conflicting report parameter aliases")
+			}
+			assigned[declaration.Path] = value
+			if err := setReportParameterPath(args, declaration.Path, value); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		if strings.HasPrefix(key, "_") || key == "backend" || key == "source" || key == "service" || key == "method" || !allowed[key] {
+			return nil, fmt.Errorf("report parameter %q not declared by approved datasource", key)
+		}
+		if current, exists := args[key]; exists {
+			if old, ok := current.(map[string]interface{}); ok {
+				next, ok := value.(map[string]interface{})
+				if !ok {
+					return nil, identity.ErrResourceDenied
+				}
+				for field, newValue := range next {
+					oldValue, exists := old[field]
+					if !exists || !reflect.DeepEqual(oldValue, newValue) {
+						return nil, fmt.Errorf("report parameter widens compiled selection")
+					}
+				}
+			}
+		}
+		args[key] = value
+	}
+	return args, nil
+}
+
+type exactReportDatasourceStore struct{ definition *dsproto.DataSource }
+
+func (s exactReportDatasourceStore) Get(id string) (*dsproto.DataSource, bool) {
+	return s.definition, id == s.definition.ID
+}
+
+// NewResourceDatasetExecutor uses Core's real datasource pipeline and MCP
+// registry. The report service already revalidates its exact resource around
+// dispatch; authorize supplies the host's ordinary input/entity admission.
+func NewResourceDatasetExecutor(executor dssvc.ToolExecutor, authorize dssvc.DefinitionAuthorizer, dispatchers ...windowprotocol.ComponentDispatcher) ResourceDatasetExecutor {
+	var components windowprotocol.ComponentDispatcher
+	if len(dispatchers) > 0 {
+		components = dispatchers[0]
+	}
+	return func(ctx context.Context, pin identity.ResolvedResource, descriptor *dsproto.DataSource, inputs map[string]interface{}) (*dsproto.FetchResult, error) {
+		if executor == nil && components == nil || authorize == nil {
+			return nil, identity.ErrResourceDenied
+		}
+		service := dssvc.New(dssvc.Options{ComponentDispatcher: components, Store: exactReportDatasourceStore{descriptor}, Executor: executor, DisableCache: true, AuthorizeDefinition: authorize})
+		return service.Fetch(requestctx.WithResolvedResource(ctx, pin), descriptor.ID, inputs, dssvc.FetchOptions{BypassCache: true})
+	}
+}
+func (s *Service) executeResourceTool(ctx context.Context, in, out interface{}) error {
+	request, ok := in.(*ExecuteResourceRequest)
+	if !ok {
+		return svc.NewInvalidInputError(in)
+	}
+	output, ok := out.(*ExecuteResourceResult)
+	if !ok {
+		return svc.NewInvalidOutputError(out)
+	}
+	*output = ExecuteResourceResult{}
+	result, err := s.ExecuteResource(ctx, request)
+	if err != nil {
+		return err
+	}
+	*output = *result
+	return nil
+}
+
+// AuthorizeResourceDataset reconciles the exact typed descriptor with the
+// pinned source before/after dispatch. Registry.Execute applies normal MCP
+// input/entity admission under the same identity context.
+func (s *Service) AuthorizeResourceDataset(ctx context.Context, descriptor *dsproto.DataSource, _ map[string]interface{}) error {
+	pin, ok := requestctx.ResolvedResourceFromContext(ctx)
+	if !ok || descriptor == nil || s.resourceResolver == nil {
+		return identity.ErrResourceDenied
+	}
+	resolver, err := s.resourceResolver(ctx, "report.execute")
+	if err != nil {
+		return err
+	}
+	if resolver == nil {
+		return identity.ErrResourceDenied
+	}
+	raw, _, err := resolver.ReadResolved(ctx, *pin)
+	if err != nil {
+		return err
+	}
+	var e registry.ReportEnvelope
+	if json.Unmarshal(raw, &e) != nil {
+		return identity.ErrResourceDenied
+	}
+	expectedRaw := e.DataSources[descriptor.ID]
+	var expected dsproto.DataSource
+	if len(expectedRaw) == 0 || json.Unmarshal(expectedRaw, &expected) != nil {
+		return identity.ErrResourceDenied
+	}
+	if !reflect.DeepEqual(&expected, descriptor) {
+		return identity.ErrResourceDenied
+	}
+	return s.authorizeAction(ctx, "report.execute", pin.URI)
+}

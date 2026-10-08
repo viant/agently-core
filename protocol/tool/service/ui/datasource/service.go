@@ -11,72 +11,86 @@ import (
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/forge/backend/types"
 )
 
 const Name = "ui/datasource"
 
 type PeekInput struct {
-	ClientID      string `json:"clientId,omitempty"`
-	WindowID      string `json:"windowId,omitempty"`
-	WindowKey     string `json:"windowKey,omitempty"`
-	DataSourceRef string `json:"dataSourceRef"`
+	Target        *types.WindowTarget        `json:"target,omitempty"`
+	Resource      *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID      string                     `json:"clientId,omitempty"`
+	WindowID      string                     `json:"windowId,omitempty"`
+	WindowKey     string                     `json:"windowKey,omitempty"`
+	DataSourceRef string                     `json:"dataSourceRef"`
 }
 
 type PeekOutput struct {
-	ClientID      string                    `json:"clientId,omitempty"`
-	WindowID      string                    `json:"windowId,omitempty"`
-	WindowKey     string                    `json:"windowKey,omitempty"`
-	DataSourceRef string                    `json:"dataSourceRef,omitempty"`
-	Snapshot      *uireg.DataSourceSnapshot `json:"snapshot,omitempty"`
+	Resource      *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID      string                     `json:"clientId,omitempty"`
+	WindowID      string                     `json:"windowId,omitempty"`
+	WindowKey     string                     `json:"windowKey,omitempty"`
+	DataSourceRef string                     `json:"dataSourceRef,omitempty"`
+	Snapshot      *uireg.DataSourceSnapshot  `json:"snapshot,omitempty"`
 }
 
 type ListInput struct {
-	ClientID  string `json:"clientId,omitempty"`
-	WindowID  string `json:"windowId,omitempty"`
-	WindowKey string `json:"windowKey,omitempty"`
+	Target    *types.WindowTarget        `json:"target,omitempty"`
+	Resource  *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID  string                     `json:"clientId,omitempty"`
+	WindowID  string                     `json:"windowId,omitempty"`
+	WindowKey string                     `json:"windowKey,omitempty"`
 }
 
 type ListOutput struct {
-	ClientID       string   `json:"clientId,omitempty"`
-	WindowID       string   `json:"windowId,omitempty"`
-	WindowKey      string   `json:"windowKey,omitempty"`
-	DataSourceRefs []string `json:"dataSourceRefs,omitempty"`
+	Resource       *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID       string                     `json:"clientId,omitempty"`
+	WindowID       string                     `json:"windowId,omitempty"`
+	WindowKey      string                     `json:"windowKey,omitempty"`
+	DataSourceRefs []string                   `json:"dataSourceRefs,omitempty"`
 }
 
 type RefreshInput struct {
-	ClientID      string `json:"clientId,omitempty"`
-	WindowID      string `json:"windowId,omitempty"`
-	WindowKey     string `json:"windowKey,omitempty"`
-	DataSourceRef string `json:"dataSourceRef,omitempty"`
+	Target        *types.WindowTarget        `json:"target,omitempty"`
+	Resource      *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID      string                     `json:"clientId,omitempty"`
+	WindowID      string                     `json:"windowId,omitempty"`
+	WindowKey     string                     `json:"windowKey,omitempty"`
+	DataSourceRef string                     `json:"dataSourceRef,omitempty"`
 }
 
 type SetSelectionInput struct {
-	ClientID       string        `json:"clientId,omitempty"`
-	WindowID       string        `json:"windowId,omitempty"`
-	WindowKey      string        `json:"windowKey,omitempty"`
-	DataSourceRef  string        `json:"dataSourceRef"`
-	IdentityFields []string      `json:"identityFields,omitempty"`
-	Identities     []interface{} `json:"identities"`
+	Target         *types.WindowTarget        `json:"target,omitempty"`
+	Resource       *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID       string                     `json:"clientId,omitempty"`
+	WindowID       string                     `json:"windowId,omitempty"`
+	WindowKey      string                     `json:"windowKey,omitempty"`
+	DataSourceRef  string                     `json:"dataSourceRef"`
+	IdentityFields []string                   `json:"identityFields,omitempty"`
+	Identities     []interface{}              `json:"identities"`
 }
 
 type CommandOutput struct {
-	ClientID string `json:"clientId,omitempty"`
-	OK       bool   `json:"ok,omitempty"`
-	Error    string `json:"error,omitempty"`
+	Resource *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID string                     `json:"clientId,omitempty"`
+	OK       bool                       `json:"ok,omitempty"`
+	Error    string                     `json:"error,omitempty"`
 }
 
 type SetSelectionOutput struct {
-	ClientID           string                   `json:"clientId,omitempty"`
-	WindowID           string                   `json:"windowId,omitempty"`
-	WindowKey          string                   `json:"windowKey,omitempty"`
-	DataSourceRef      string                   `json:"dataSourceRef,omitempty"`
-	OK                 bool                     `json:"ok,omitempty"`
-	Error              string                   `json:"error,omitempty"`
-	SelectionMode      string                   `json:"selectionMode,omitempty"`
-	IdentityFields     []string                 `json:"identityFields,omitempty"`
-	SelectedIdentities []map[string]interface{} `json:"selectedIdentities,omitempty"`
-	RowIndexes         []int                    `json:"rowIndexes,omitempty"`
+	Resource           *identity.ResolvedResource `json:"resource,omitempty"`
+	ClientID           string                     `json:"clientId,omitempty"`
+	WindowID           string                     `json:"windowId,omitempty"`
+	WindowKey          string                     `json:"windowKey,omitempty"`
+	DataSourceRef      string                     `json:"dataSourceRef,omitempty"`
+	OK                 bool                       `json:"ok,omitempty"`
+	Error              string                     `json:"error,omitempty"`
+	SelectionMode      string                     `json:"selectionMode,omitempty"`
+	IdentityFields     []string                   `json:"identityFields,omitempty"`
+	SelectedIdentities []map[string]interface{}   `json:"selectedIdentities,omitempty"`
+	RowIndexes         []int                      `json:"rowIndexes,omitempty"`
 }
 
 type Service struct {
@@ -147,6 +161,10 @@ func (s *Service) setSelection(ctx context.Context, in, out interface{}) error {
 	if _, exists := win.DataSources[dataSourceRef]; !exists {
 		return fmt.Errorf("datasource %q not found on window", dataSourceRef)
 	}
+	ctx, err = s.reg.WindowRequestContext(ctx, namespace, clientID, win, input.Resource, input.Target)
+	if err != nil {
+		return err
+	}
 	windowID := strings.TrimSpace(win.WindowID)
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
@@ -163,6 +181,7 @@ func (s *Service) setSelection(ctx context.Context, in, out interface{}) error {
 		return err
 	}
 	output.ClientID = clientID
+	output.Resource = win.Resource
 	output.WindowID = windowID
 	output.WindowKey = strings.TrimSpace(win.WindowKey)
 	output.DataSourceRef = dataSourceRef
@@ -186,7 +205,7 @@ func (s *Service) setSelection(ctx context.Context, in, out interface{}) error {
 	output.IdentityFields = result.IdentityFields
 	output.SelectedIdentities = result.SelectedIdentities
 	output.RowIndexes = result.RowIndexes
-	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+	s.reg.RecordEventContext(ctx, namespace, clientID, uireg.UIEvent{
 		ConversationID: strings.TrimSpace(win.ConversationID),
 		ClientID:       clientID,
 		WindowID:       windowID,
@@ -212,11 +231,16 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, _, _, win, err := s.reg.FindReadableWindow(ctx, conversationID, requestedClientID(ctx, input.ClientID), input.WindowID, input.WindowKey)
+	clientID, namespace, _, win, err := s.reg.FindReadableWindow(ctx, conversationID, requestedClientID(ctx, input.ClientID), input.WindowID, input.WindowKey)
+	if err != nil {
+		return err
+	}
+	ctx, err = s.reg.WindowRequestContext(ctx, namespace, clientID, win, input.Resource, input.Target)
 	if err != nil {
 		return err
 	}
 	output.ClientID = clientID
+	output.Resource = win.Resource
 	output.WindowID = win.WindowID
 	output.WindowKey = win.WindowKey
 	output.DataSourceRefs = uireg.ListDataSourceRefs(win)
@@ -233,7 +257,11 @@ func (s *Service) peek(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	conversationID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx))
-	clientID, _, _, win, err := s.reg.FindReadableWindow(ctx, conversationID, requestedClientID(ctx, input.ClientID), input.WindowID, input.WindowKey)
+	clientID, namespace, _, win, err := s.reg.FindReadableWindow(ctx, conversationID, requestedClientID(ctx, input.ClientID), input.WindowID, input.WindowKey)
+	if err != nil {
+		return err
+	}
+	ctx, err = s.reg.WindowRequestContext(ctx, namespace, clientID, win, input.Resource, input.Target)
 	if err != nil {
 		return err
 	}
@@ -246,6 +274,7 @@ func (s *Service) peek(ctx context.Context, in, out interface{}) error {
 		return fmt.Errorf("datasource %q not found on window", ref)
 	}
 	output.ClientID = clientID
+	output.Resource = win.Resource
 	output.WindowID = win.WindowID
 	output.WindowKey = win.WindowKey
 	output.DataSourceRef = ref
@@ -279,6 +308,13 @@ func (s *Service) refresh(ctx context.Context, in, out interface{}) error {
 		sort.Strings(refs)
 		dataSourceRef = refs[0]
 	}
+	if _, exists := win.DataSources[dataSourceRef]; !exists {
+		return fmt.Errorf("datasource %q not found on window", dataSourceRef)
+	}
+	ctx, err = s.reg.WindowRequestContext(ctx, namespace, clientID, win, input.Resource, input.Target)
+	if err != nil {
+		return err
+	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{
 		ClientID:  clientID,
 		Namespace: namespace,
@@ -291,7 +327,7 @@ func (s *Service) refresh(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	s.reg.RecordEvent(namespace, clientID, uireg.UIEvent{
+	s.reg.RecordEventContext(ctx, namespace, clientID, uireg.UIEvent{
 		ConversationID: strings.TrimSpace(win.ConversationID),
 		ClientID:       clientID,
 		WindowID:       strings.TrimSpace(win.WindowID),
@@ -303,6 +339,7 @@ func (s *Service) refresh(ctx context.Context, in, out interface{}) error {
 		},
 	})
 	output.ClientID = clientID
+	output.Resource = win.Resource
 	output.OK = resp.OK
 	output.Error = resp.Error
 	return nil

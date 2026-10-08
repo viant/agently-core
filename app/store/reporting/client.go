@@ -83,6 +83,8 @@ func ValidateRunExportCandidate(candidate *reportjobmodel.Record) error {
 	reportRunID := strings.TrimSpace(candidate.ReportRunID)
 	exportRequestID := strings.TrimSpace(candidate.ExportRequestID)
 	if reportRunID == "" ||
+		strings.TrimSpace(candidate.JobID) == "" ||
+		strings.TrimSpace(candidate.OwnerID) == "" ||
 		strings.TrimSpace(candidate.ConversationID) == "" ||
 		exportRequestID == "" ||
 		len(exportRequestID) > 128 ||
@@ -91,6 +93,9 @@ func ValidateRunExportCandidate(candidate *reportjobmodel.Record) error {
 		strings.TrimSpace(candidate.Scope) != "draft" ||
 		strings.TrimSpace(candidate.Status) != "queued" ||
 		candidate.ReportRunRevision != 0 ||
+		len(candidate.ReportSpec) != 0 ||
+		len(candidate.ReportFill) != 0 ||
+		len(candidate.ReportPrint) != 0 ||
 		strings.TrimSpace(candidate.WorkspaceID) != "" ||
 		len(candidate.Metadata) != 0 ||
 		strings.TrimSpace(candidate.ArtifactID) != "" ||

@@ -41,7 +41,7 @@ import (
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	bundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	"github.com/viant/datly/standalone"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 )
 
 // Option customises Service instances.

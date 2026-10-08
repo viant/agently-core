@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/service/reporting/catalog"
 	"log"
 	"net/http"
 	"os"
@@ -26,13 +28,16 @@ import (
 	convsvc "github.com/viant/agently-core/internal/service/conversation"
 	executionprotection "github.com/viant/agently-core/internal/tool/executionprotection"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
+	dsproto "github.com/viant/agently-core/protocol/datasource"
 	mcpclienthandler "github.com/viant/agently-core/protocol/mcp/clienthandler"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/protocol/tool"
 	llmagents "github.com/viant/agently-core/protocol/tool/service/llm/agents"
 	promptsvc "github.com/viant/agently-core/protocol/tool/service/prompt"
 	resourcessvc "github.com/viant/agently-core/protocol/tool/service/resources"
 	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
+	windowprotocol "github.com/viant/agently-core/protocol/window"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	"github.com/viant/agently-core/service/augmenter"
@@ -40,14 +45,18 @@ import (
 	callbacksvc "github.com/viant/agently-core/service/callback"
 	"github.com/viant/agently-core/service/core"
 	modelcallctx "github.com/viant/agently-core/service/core/modelcall"
+	dssvc "github.com/viant/agently-core/service/datasource"
 	elicsvc "github.com/viant/agently-core/service/elicitation"
 	elicrouter "github.com/viant/agently-core/service/elicitation/router"
 	goalsys "github.com/viant/agently-core/service/goal"
 	intakesvc "github.com/viant/agently-core/service/intake"
 	policy "github.com/viant/agently-core/service/policy"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
 	reportingrunsvc "github.com/viant/agently-core/service/reportingrun"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	skillsvc "github.com/viant/agently-core/service/skill"
+	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	"github.com/viant/agently-core/workspace/hotswap"
@@ -58,46 +67,65 @@ import (
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
+	"github.com/viant/authz"
 	"github.com/viant/datly/standalone"
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgetypes "github.com/viant/forge/backend/types"
 	protoclient "github.com/viant/mcp-protocol/client"
 )
 
 type Runtime struct {
-	registryWarmupMu     sync.Mutex
-	registryWarmupCancel context.CancelFunc
-	registryWarmupDone   chan struct{}
-	registryRefreshDone  chan struct{}
-	closed               bool
-	ownedNative          *standalone.Server
-	ownedAugmenter       *augmenter.Service
-	ownedReportingCancel context.CancelFunc
-	ownedReportingWorker *reportingsvc.Worker
-	closeOnce            sync.Once
-	closeError           error
-	Defaults             *config.Defaults
+	ExecutionContext         func(context.Context) context.Context
+	registryWarmupMu         sync.Mutex
+	registryWarmupCancel     context.CancelFunc
+	registryWarmupDone       chan struct{}
+	registryRefreshDone      chan struct{}
+	closed                   bool
+	ownedNative              *standalone.Server
+	ownedAugmenter           *augmenter.Service
+	ownedReportingCancel     context.CancelFunc
+	ownedReportingWorker     *reportingsvc.Worker
+	closeOnce                sync.Once
+	closeError               error
+	RawResourceBoundary      *workspace.RawResourceBoundary
+	ComponentDispatcher      windowprotocol.ComponentDispatcher
+	ComponentAuthority       policy.AuthoritySnapshotResolver
+	PrimitiveProviders       *resourcesvc.Gateway
+	PrimitiveWindows         *resourcesvc.CompositeWindowCatalog
+	LocalPrimitiveProvider   *resourcesvc.LocalProvider
+	localPrimitiveRegistered bool
+	Defaults                 *config.Defaults
 	// AuthorizationTool is the workspace-configured MCP adapter for permitted
 	// Forge views.
-	AuthorizationTool   string
-	AuthorizationPolicy *policy.Runtime
-	Native              *standalone.Server
-	Conversation        conversation.Client
-	Data                data.Service
-	Registry            tool.Registry
-	Core                *core.Service
-	Augmenter           *augmenter.Service
-	Agent               *agentsvc.Service
-	MCPManager          *mcpmgr.Manager
-	CancelRegistry      cancels.Registry
-	ElicitationRouter   elicrouter.ElicitationRouter
-	Elicitation         *elicsvc.Service
-	Streaming           streaming.Bus
-	HotSwap             *hotswap.Manager
-	Skills              *skillsvc.Service
-	SkillWatcher        *skillsvc.Watcher
-	CallbackDispatch    *callbacksvc.Service
-	Reporting           *reportingsvc.Service
-	ReportRuns          *reportingrunsvc.Service
+	AuthorizationTool              string
+	AuthorizationPolicy            *policy.Runtime
+	WindowAuthorizer               func(context.Context, string) (bool, error)
+	PermittedResolver              permittedview.Resolver
+	DatasourceAuthorizer           func(context.Context, string, map[string]interface{}) error
+	DatasourceResourceRevalidator  dssvc.ResourceRevalidator
+	DatasourceDefinitionAuthorizer dssvc.DefinitionAuthorizer
+	DatasourceDefinitionResolver   dssvc.ResourceDefinitionResolver
+	DatasourceDisableCache         bool
+	ReportAuthorizer               func(context.Context, string, string) error
+	ToolAuthorizer                 func(context.Context, string, map[string]interface{}) error
+	Native                         *standalone.Server
+	Conversation                   conversation.Client
+	Data                           data.Service
+	Registry                       tool.Registry
+	Core                           *core.Service
+	Augmenter                      *augmenter.Service
+	Agent                          *agentsvc.Service
+	MCPManager                     *mcpmgr.Manager
+	CancelRegistry                 cancels.Registry
+	ElicitationRouter              elicrouter.ElicitationRouter
+	Elicitation                    *elicsvc.Service
+	Streaming                      streaming.Bus
+	HotSwap                        *hotswap.Manager
+	Skills                         *skillsvc.Service
+	SkillWatcher                   *skillsvc.Watcher
+	CallbackDispatch               *callbacksvc.Service
+	Reporting                      *reportingsvc.Service
+	ReportingClient                reportstore.Client // host-owned persistence lookup for dynamic authorization mappings
+	ReportRuns                     *reportingrunsvc.Service
 	// GoalStore retains the resolved injected or native store for agent/tool sharing.
 	GoalStore       goalsys.Store
 	ReportingWorker *reportingsvc.Worker
@@ -130,37 +158,115 @@ func resolveScratchpadTemplate() string {
 }
 
 type Builder struct {
-	defaults               *config.Defaults
-	conversation           conversation.Client
-	data                   data.Service
-	goalStore              goalsys.Store
-	skipRegistryInitialize bool
-	native                 *standalone.Server
-	registry               tool.Registry
-	core                   *core.Service
-	agentSvc               *agentsvc.Service
-	agentFinder            agentmodel.Finder
-	agentLoader            agentmodel.Loader
-	modelFinder            llm.Finder
-	modelLoader            *modelloader.Service
-	embedderFinder         embedder.Finder
-	embedderLoader         *embedderloader.Service
-	augmenter              *augmenter.Service
-	mcpManager             *mcpmgr.Manager
-	mcpAuthRTProvider      mcpmgr.AuthRTProvider
-	mcpJarProvider         mcpmgr.JarProvider
-	mcpUserIDFn            mcpmgr.UserIDExtractor
-	cancelRegistry         cancels.Registry
-	elicRouter             elicrouter.ElicitationRouter
-	streamPub              modelcallctx.StreamPublisher
-	streamBus              streaming.Bus
-	hotSwapEnabled         bool
-	store                  workspace.Store
-	knowledgeStore         workspace.KnowledgeStore
-	stateStore             workspace.StateStore
-	tokenProvider          token.Provider
-	reportingService       *reportingsvc.Service
-	mcpDelegatedAuth       *svcauth.DelegatedMCPAuth
+	nativeComponentServices      []string
+	componentDispatcher          windowprotocol.ComponentDispatcher
+	reportCatalog                catalog.Provider
+	reportResourceResolver       reportingsvc.ResourceResolver
+	reportResourceService        primitive.ResourceAuthoring
+	authorizationProviders       map[string]AuthorizationProvider
+	capabilityMappings           map[string]permittedview.CapabilityMapping
+	capabilityMappingsV2         map[string]permittedview.CapabilityMappingV2
+	uiBridge                     *forgeuisvc.Service
+	defaults                     *config.Defaults
+	conversation                 conversation.Client
+	data                         data.Service
+	goalStore                    goalsys.Store
+	skipRegistryInitialize       bool
+	native                       *standalone.Server
+	registry                     tool.Registry
+	core                         *core.Service
+	agentSvc                     *agentsvc.Service
+	agentFinder                  agentmodel.Finder
+	agentLoader                  agentmodel.Loader
+	modelFinder                  llm.Finder
+	modelLoader                  *modelloader.Service
+	embedderFinder               embedder.Finder
+	embedderLoader               *embedderloader.Service
+	augmenter                    *augmenter.Service
+	mcpManager                   *mcpmgr.Manager
+	primitiveActor               resourcesvc.ActorResolver
+	primitiveVerifier            resourcesvc.ActorVerifier
+	primitiveLocalIdentity       string
+	primitiveGatewayIdentity     string
+	primitiveWindowAdmission     resourcesvc.WindowAdmission
+	windowOpenBootstrap          permittedview.OpenBootstrap
+	windowOpenSelection          permittedview.OpenSelectionCheck
+	primitiveDatasourceAdmission func(context.Context, identity.ResolvedResource, *dsproto.DataSource, map[string]interface{}) error
+	primitiveTargetProof         forgetypes.WindowTargetProof
+	localPrimitiveProvider       *resourcesvc.LocalProvider
+	mcpAuthRTProvider            mcpmgr.AuthRTProvider
+	mcpJarProvider               mcpmgr.JarProvider
+	mcpUserIDFn                  mcpmgr.UserIDExtractor
+	cancelRegistry               cancels.Registry
+	elicRouter                   elicrouter.ElicitationRouter
+	streamPub                    modelcallctx.StreamPublisher
+	streamBus                    streaming.Bus
+	hotSwapEnabled               bool
+	store                        workspace.Store
+	knowledgeStore               workspace.KnowledgeStore
+	stateStore                   workspace.StateStore
+	tokenProvider                token.Provider
+	reportingService             *reportingsvc.Service
+	mcpDelegatedAuth             *svcauth.DelegatedMCPAuth
+}
+
+// AuthorizationProvider is registered by the host, not workspace YAML.
+type AuthorizationProvider struct {
+	ExecutionContext              func(context.Context) context.Context
+	AuthoritySnapshot             policy.AuthoritySnapshotResolver
+	ComponentAuthoritySnapshot    policy.AuthoritySnapshotResolver
+	DatasourceResourceRevalidator dssvc.ResourceRevalidator
+	DatasourceDefinitionAuthorize dssvc.DefinitionAuthorizer
+	DatasourceDefinitionResolver  dssvc.ResourceDefinitionResolver
+	Service                       *authz.Service
+	Account                       func(context.Context, authz.Facts) (string, error)
+	AuthorityRevision             func(context.Context, authz.Facts, string) (string, time.Time, error)
+	AccountProjection             permittedview.AccountProjection
+	EntityPermission              func(context.Context, authz.Facts, authz.Entity, string) (bool, error)
+	EntityPermissionWithLease     func(context.Context, authz.Facts, authz.Entity, string) (bool, time.Time, error)
+	EntityRoles                   func(context.Context, authz.Facts, authz.Entity) ([]string, error)
+	Gate                          policy.GateCheck
+	GateEvaluator                 policy.EvaluatorBridge
+	DatasourceAuthorize           func(context.Context, string, map[string]interface{}) error
+	ReportAuthorize               func(context.Context, string, string) error
+	ToolAuthorize                 func(context.Context, string, map[string]interface{}) error
+	PolicyVersion                 string
+	PolicyResource                func(context.Context, string, policy.Candidate) (authz.Resource, string, error)
+	WindowAuthorize               func(context.Context, string) (bool, error)
+}
+
+func (b *Builder) WithAuthorizationProvider(ref string, provider AuthorizationProvider) *Builder {
+	if provider.Gate == nil {
+		provider.Gate = policy.GateFromEvaluator(provider.GateEvaluator)
+	}
+	if b.authorizationProviders == nil {
+		b.authorizationProviders = map[string]AuthorizationProvider{}
+	}
+	b.authorizationProviders[ref] = provider
+	return b
+}
+
+func (b *Builder) WithCapabilityMapping(ref string, mapping permittedview.CapabilityMapping) *Builder {
+	if b.capabilityMappings == nil {
+		b.capabilityMappings = map[string]permittedview.CapabilityMapping{}
+	}
+	b.capabilityMappings[ref] = mapping
+	return b
+}
+
+func (b *Builder) WithCapabilityMappingV2(ref string, mapping permittedview.CapabilityMappingV2) *Builder {
+	if b.capabilityMappingsV2 == nil {
+		b.capabilityMappingsV2 = map[string]permittedview.CapabilityMappingV2{}
+	}
+	b.capabilityMappingsV2[ref] = mapping
+	return b
+}
+
+// WithUIBridge supplies a host-configured Forge bridge. Authz window mode
+// requires its catalog to report a host-installed admission callback.
+func (b *Builder) WithUIBridge(bridge *forgeuisvc.Service) *Builder {
+	b.uiBridge = bridge
+	return b
 }
 
 func resolveReportingStoreDefaults(defaults *config.Defaults) config.ReportingStoreDefaults {
@@ -240,6 +346,45 @@ func (b *Builder) WithModelFinder(v llm.Finder) *Builder           { b.modelFind
 func (b *Builder) WithEmbedderFinder(v embedder.Finder) *Builder   { b.embedderFinder = v; return b }
 func (b *Builder) WithAugmenter(v *augmenter.Service) *Builder     { b.augmenter = v; return b }
 func (b *Builder) WithMCPManager(v *mcpmgr.Manager) *Builder       { b.mcpManager = v; return b }
+
+// WithPrimitiveAuthority registers verified host identity for delegated
+// discovery. Namespace restrictions belong to MCP connections, not here.
+func (b *Builder) WithPrimitiveAuthority(actor resourcesvc.ActorResolver, verify resourcesvc.ActorVerifier, localProviderIdentity string) *Builder {
+	b.primitiveActor, b.primitiveVerifier, b.primitiveLocalIdentity = actor, verify, localProviderIdentity
+	return b
+}
+
+// WithPrimitiveGatewayIdentity excludes an aggregate/self proxy identity.
+// The distinct local authoritative YAML source may still be a provider.
+func (b *Builder) WithPrimitiveGatewayIdentity(identity string) *Builder {
+	b.primitiveGatewayIdentity = identity
+	return b
+}
+
+// WithPrimitiveWindows enables delegated windows on the existing host open
+// path. Provider namespaces and resources are discovered from MCP connections.
+// WithWindowOpenBootstrap supplies explicit protected row provenance and selected
+// object matching. It never infers a datasource from UI rendering hints.
+func (b *Builder) WithWindowOpenBootstrap(load permittedview.OpenBootstrap, match permittedview.OpenSelectionCheck) *Builder {
+	b.windowOpenBootstrap, b.windowOpenSelection = load, match
+	return b
+}
+
+func (b *Builder) WithPrimitiveWindows(admit resourcesvc.WindowAdmission, proof forgetypes.WindowTargetProof) *Builder {
+	b.primitiveWindowAdmission, b.primitiveTargetProof = admit, proof
+	return b
+}
+func (b *Builder) WithPrimitiveDatasourceAdmission(admit func(context.Context, identity.ResolvedResource, *dsproto.DataSource, map[string]interface{}) error) *Builder {
+	b.primitiveDatasourceAdmission = admit
+	return b
+}
+
+// WithLocalPrimitiveProvider installs the local authoritative YAML provider.
+// The MCP server exposes it separately from federated registry tools.
+func (b *Builder) WithLocalPrimitiveProvider(provider *resourcesvc.LocalProvider) *Builder {
+	b.localPrimitiveProvider = provider
+	return b
+}
 func (b *Builder) WithMCPAuthRTProvider(v mcpmgr.AuthRTProvider) *Builder {
 	b.mcpAuthRTProvider = v
 	return b
@@ -291,6 +436,20 @@ func (b *Builder) WithTokenProvider(v token.Provider) *Builder {
 	b.tokenProvider = v
 	return b
 }
+
+// WithReportResources connects existing report tools to the shared namespaced
+// catalog and operation-specific revision resolver.
+func (b *Builder) WithReportResources(provider catalog.Provider, resolve reportingsvc.ResourceResolver) *Builder {
+	b.reportCatalog = provider
+	b.reportResourceResolver = resolve
+	return b
+}
+
+func (b *Builder) WithReportResourceService(service primitive.ResourceAuthoring) *Builder {
+	b.reportResourceService = service
+	return b
+}
+
 func (b *Builder) WithReportingService(v *reportingsvc.Service) *Builder {
 	b.reportingService = v
 	return b
@@ -316,13 +475,18 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 
 	out := &Runtime{
-		Defaults:       b.defaults,
-		Native:         b.native,
-		MCPManager:     b.mcpManager,
-		Store:          b.store,
-		KnowledgeStore: b.knowledgeStore,
-		StateStore:     b.stateStore,
-		UIBridge:       forgeuisvc.NewService(&forgeuisvc.Config{}),
+		LocalPrimitiveProvider: b.localPrimitiveProvider,
+		Defaults:               b.defaults,
+		ComponentDispatcher:    b.componentDispatcher,
+		Native:                 b.native,
+		MCPManager:             b.mcpManager,
+		Store:                  b.store,
+		KnowledgeStore:         b.knowledgeStore,
+		StateStore:             b.stateStore,
+		UIBridge:               b.uiBridge,
+	}
+	if out.UIBridge == nil {
+		out.UIBridge = forgeuisvc.NewService(&forgeuisvc.Config{})
 	}
 	if out.Defaults == nil {
 		out.Defaults = &config.Defaults{}
@@ -452,8 +616,45 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		return nil, err
 	}
 	if workspaceConfig != nil {
-		out.AuthorizationTool = workspaceConfig.AuthorizationTool()
-		toolName := workspaceConfig.PolicyAuthorizationMCPTool()
+		uiSettings := workspaceConfig.UIAuthorizationSettings()
+		policySettings := workspaceConfig.PolicyAuthorizationSettings()
+		toolAuthorizerRef := ""
+		if policySettings.Mode != "" && policySettings.Mode != "legacy-mcp" && policySettings.Mode != "authz" {
+			return nil, fmt.Errorf("unsupported policy.authorization mode %q", policySettings.Mode)
+		}
+		switch uiSettings.Mode {
+		case "", "legacy-mcp":
+			if uiSettings.ProviderRef != "" || uiSettings.CapabilityMappingRef != "" {
+				return nil, fmt.Errorf("ui.authorization legacy mode cannot configure authz references")
+			}
+			out.AuthorizationTool = uiSettings.LegacyTool
+		case "authz":
+			if uiSettings.LegacyTool != "" || uiSettings.ProviderRef == "" || uiSettings.CapabilityMappingRef == "" {
+				return nil, fmt.Errorf("ui.authorization authz mode requires providerRef and capabilityMappingRef without tool")
+			}
+			provider, found := b.authorizationProviders[uiSettings.ProviderRef]
+			mapping, mapped := b.capabilityMappings[uiSettings.CapabilityMappingRef]
+			mappingV2, mappedV2 := b.capabilityMappingsV2[uiSettings.CapabilityMappingRef]
+			if !found || (!mapped && !mappedV2) || provider.Service == nil || provider.Account == nil || provider.AuthorityRevision == nil || provider.AccountProjection == nil || provider.Gate == nil || provider.DatasourceAuthorize == nil || provider.PolicyVersion == "" || (mapping == nil && mappingV2 == nil) {
+				return nil, fmt.Errorf("ui.authorization references are not registered")
+			}
+			out.PermittedResolver = &permittedview.AuthzResolver{Service: provider.Service, Version: provider.PolicyVersion, Account: provider.Account, AuthorityRevision: provider.AuthorityRevision, ProjectAccount: provider.AccountProjection, Map: mapping, MapV2: mappingV2, Gate: provider.Gate, EntityPermission: provider.EntityPermission, EntityPermissionWithLease: provider.EntityPermissionWithLease, EntityRoles: provider.EntityRoles}
+			out.ComponentAuthority = provider.ComponentAuthoritySnapshot
+			out.ExecutionContext = provider.ExecutionContext
+			out.DatasourceAuthorizer = provider.DatasourceAuthorize
+			out.DatasourceDefinitionAuthorizer = provider.DatasourceDefinitionAuthorize
+			out.DatasourceDefinitionResolver = provider.DatasourceDefinitionResolver
+			out.DatasourceResourceRevalidator = provider.DatasourceResourceRevalidator
+			out.DatasourceDisableCache = true
+			if provider.ToolAuthorize != nil {
+				out.ToolAuthorizer, toolAuthorizerRef = provider.ToolAuthorize, uiSettings.ProviderRef
+			}
+		default:
+			return nil, fmt.Errorf("unsupported ui.authorization mode %q", uiSettings.Mode)
+		}
+		if err := b.configurePrimitiveProviders(out); err != nil {
+			return nil, err
+		}
 		var operations []string
 		for section, operation := range map[string]string{
 			"ui":            policy.OperationWindowView,
@@ -466,11 +667,64 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			}
 		}
 		if len(operations) > 0 {
-			if strings.TrimSpace(toolName) == "" {
-				return nil, fmt.Errorf("policy.authorization.mcpTool is required when an authorization section is enabled")
+			if policySettings.Mode == "authz" && workspaceConfig.PolicyAuthorizationEnabled("ui") {
+				ready, ok := any(out.UIBridge).(interface{ AuthzReady() bool })
+				if !ok || !ready.AuthzReady() {
+					return nil, fmt.Errorf("authz window admission requires a host-protected Forge catalog")
+				}
 			}
-			out.AuthorizationPolicy = policy.NewRuntime(&policy.MCPResolver{Executor: out.Registry, ToolName: toolName}, operations...)
+			switch policySettings.Mode {
+			case "", "legacy-mcp":
+				if policySettings.ProviderRef != "" {
+					return nil, fmt.Errorf("policy.authorization legacy mode cannot configure providerRef")
+				}
+				if policySettings.LegacyTool == "" {
+					return nil, fmt.Errorf("policy.authorization.mcpTool is required when an authorization section is enabled")
+				}
+				out.AuthorizationPolicy = policy.NewRuntime(&policy.MCPResolver{Executor: out.Registry, ToolName: policySettings.LegacyTool}, operations...)
+			case "authz":
+				if policySettings.LegacyTool != "" || policySettings.ProviderRef == "" {
+					return nil, fmt.Errorf("policy.authorization authz mode requires providerRef without mcpTool")
+				}
+				provider, found := b.authorizationProviders[policySettings.ProviderRef]
+				if !found || provider.Service == nil || provider.Account == nil || provider.Gate == nil || provider.PolicyResource == nil || provider.WindowAuthorize == nil || provider.PolicyVersion == "" {
+					return nil, fmt.Errorf("policy.authorization providerRef is not registered")
+				}
+				out.WindowAuthorizer = provider.WindowAuthorize
+				out.DatasourceDisableCache = true
+				if workspaceConfig.PolicyAuthorizationEnabled("reports") {
+					if provider.ReportAuthorize == nil {
+						return nil, fmt.Errorf("authz reporting requires backend action authorizer")
+					}
+					out.ReportAuthorizer = provider.ReportAuthorize
+				}
+				if provider.ToolAuthorize != nil {
+					if toolAuthorizerRef != "" && toolAuthorizerRef != policySettings.ProviderRef {
+						return nil, fmt.Errorf("conflicting authz tool authorization providers")
+					}
+					out.ToolAuthorizer, toolAuthorizerRef = provider.ToolAuthorize, policySettings.ProviderRef
+				}
+				out.AuthorizationPolicy = policy.NewRuntime(&policy.AuthzResolver{Service: provider.Service, PolicyVersion: provider.PolicyVersion, Resource: provider.PolicyResource, Account: provider.Account, Gate: provider.Gate}, operations...)
+				out.AuthorizationPolicy.ExactIDs = true
+			default:
+				return nil, fmt.Errorf("unsupported policy.authorization mode %q", policySettings.Mode)
+			}
+		} else if policySettings.Mode == "authz" {
+			if policySettings.ProviderRef == "" || policySettings.LegacyTool != "" {
+				return nil, fmt.Errorf("policy.authorization authz mode requires providerRef without mcpTool")
+			}
+			provider, found := b.authorizationProviders[policySettings.ProviderRef]
+			if !found || provider.Service == nil || provider.Account == nil || provider.Gate == nil || provider.PolicyResource == nil || provider.WindowAuthorize == nil || provider.PolicyVersion == "" {
+				return nil, fmt.Errorf("policy.authorization providerRef is not registered")
+			}
+			out.DatasourceDisableCache = true
 		}
+	}
+	if out.DatasourceDisableCache && !tool.SetResultReuseDisabled(out.Registry, true) {
+		return nil, fmt.Errorf("authz mode requires a tool registry without cross-account result reuse")
+	}
+	if out.ToolAuthorizer != nil && !tool.SetAuthorizationGuard(out.Registry, out.ToolAuthorizer) {
+		return nil, fmt.Errorf("configured authz tool guard is unsupported by registry")
 	}
 	skillsvc.ExecFn = out.Registry.Execute
 	out.Skills = skillsvc.New(out.Defaults, out.Conversation, b.agentFinder)
@@ -593,9 +847,31 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			return nil, err
 		}
 	}
+	if (b.windowOpenBootstrap == nil) != (b.windowOpenSelection == nil) {
+		return nil, fmt.Errorf("window open bootstrap requires explicit selection matcher")
+	}
+	if out.UIBridge != nil && out.UIBridge.HasWindowOpenAdmission() && b.windowOpenBootstrap != nil {
+		return nil, fmt.Errorf("window open admission is already supplied by the host")
+	}
+	if out.UIBridge != nil && out.PermittedResolver != nil && !out.UIBridge.HasWindowOpenAdmission() {
+		admission := &permittedview.OpenAdmission{Runtime: permittedview.NewRuntime(out.PermittedResolver), Bootstrap: b.windowOpenBootstrap, MatchSelection: b.windowOpenSelection}
+		out.UIBridge.ConfigureWindowOpenAdmission(func(ctx context.Context, pin identity.ResolvedResource, window *forgetypes.Window, parameters map[string]any) (*forgeuisvc.WindowOpenDecision, error) {
+			decision, err := admission.ApplyDecision(ctx, pin, window, parameters)
+			if err != nil {
+				return nil, err
+			}
+			return &forgeuisvc.WindowOpenDecision{Window: decision.Window, ValidUntil: decision.ExpiresAt}, nil
+		})
+	}
+	if err := b.configureComponentTransport(out); err != nil {
+		return nil, err
+	}
 	if out.Reporting == nil && b.reportingService != nil {
 		out.Reporting = b.reportingService
 		out.Reporting.SetAuthorizationPolicy(out.AuthorizationPolicy)
+	}
+	if out.Reporting != nil && out.ReportAuthorizer != nil {
+		out.Reporting.SetActionAuthorizer(out.ReportAuthorizer)
 	}
 	scratchpadsvc.RegisterProvider()
 	if out.Reporting == nil && out.Defaults != nil && out.Defaults.Reporting.Enabled {
@@ -624,6 +900,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 				reportAudit = reportsql.NewAuditSink(sqlStore)
 			}
 		}
+		out.ReportingClient = reportClient
 		var activeRunResolver reportingsvc.ActiveReportRunResolver
 		if out.Defaults.Reporting.BrowserRunPersistenceEnabled() {
 			runClient, ok := reportClient.(reportstore.RunClient)
@@ -647,9 +924,25 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			ExportFromRunEnabled:        out.Defaults.Reporting.ExportFromRunEnabled(),
 			ConversationAdoptionEnabled: out.Defaults.Reporting.ConversationAdoptionEnabled(),
 			AuthorizationPolicy:         out.AuthorizationPolicy,
+			ActionAuthorize:             out.ReportAuthorizer,
 		})
 	}
+	if b.reportCatalog != nil || b.reportResourceResolver != nil {
+		if b.reportCatalog == nil || b.reportResourceResolver == nil || out.Reporting == nil {
+			return nil, fmt.Errorf("report resource catalog, resolver and reporting service are required")
+		}
+		out.Reporting.SetReportResourceService(b.reportResourceService)
+		out.Reporting.SetReportCatalog(b.reportCatalog)
+		out.Reporting.SetResourceResolver(b.reportResourceResolver)
+		if out.ReportRuns != nil {
+			out.ReportRuns.RequireCanonicalExecution()
+		}
+		out.Reporting.SetResourceDatasetExecutor(reportingsvc.NewResourceDatasetExecutor(out.Registry, out.Reporting.AuthorizeResourceDataset, out.ComponentDispatcher))
+	}
 	if out.Registry != nil && out.Reporting != nil {
+		if out.ReportAuthorizer != nil {
+			out.Reporting.SetActionAuthorizer(out.ReportAuthorizer)
+		}
 		if err := tool.AddInternalService(out.Registry, out.Reporting); err != nil {
 			return nil, err
 		}
@@ -674,12 +967,16 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 	}
 	out.Augmenter = aug
+	if out.UIBridge != nil && out.UIBridge.UsesWindowResourceResolution() || out.Reporting != nil && out.Reporting.UsesResourceResolution() {
+		out.RawResourceBoundary = workspace.NewRawResourceBoundary(out.Store.Root())
+	}
 	if resourcesSvc := resourcessvc.New(aug,
 		resourcessvc.WithMCPManager(out.MCPManager),
 		resourcessvc.WithConversationClient(out.Conversation),
 		resourcessvc.WithAgentFinder(b.agentFinder),
 		resourcessvc.WithDefaultEmbedder(out.Defaults.Embedder),
 		resourcessvc.WithSkillService(out.Skills),
+		resourcessvc.WithRawResourceBoundary(out.RawResourceBoundary),
 	); resourcesSvc != nil {
 		if err := tool.AddInternalService(out.Registry, resourcesSvc); err != nil {
 			return nil, err
@@ -728,6 +1025,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		out.CallbackDispatch = callbacksvc.New(callbackRepo, out.Registry, cbOpts...)
 	}
 
+	if err := b.configurePrimitiveProviders(out); err != nil {
+		return nil, err
+	}
 	if b.hotSwapEnabled {
 		mgr, err := initHotSwap(ctx, b)
 		if err != nil {
@@ -817,6 +1117,9 @@ func (r *Runtime) Close(ctx context.Context) error {
 		return nil
 	}
 	r.closeOnce.Do(func() {
+		if r.PrimitiveProviders != nil {
+			r.PrimitiveProviders.Close()
+		}
 		r.registryWarmupMu.Lock()
 		r.closed = true
 		cancelWarmup, warmupDone := r.registryWarmupCancel, r.registryWarmupDone
@@ -902,4 +1205,11 @@ func (r *Runtime) InitializeRegistryAsync(ctx context.Context, timeout time.Dura
 		}
 	}()
 	return done
+}
+
+// WithComponentDispatcher explicitly registers exact producer-supported
+// component transport for both report runs and the public datasource stack.
+func (b *Builder) WithComponentDispatcher(dispatcher windowprotocol.ComponentDispatcher) *Builder {
+	b.componentDispatcher = dispatcher
+	return b
 }

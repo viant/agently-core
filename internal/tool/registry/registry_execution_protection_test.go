@@ -419,6 +419,43 @@ func TestRegistryExecutionProtectionBypassesRecentResults(t *testing.T) {
 	}
 }
 
+func TestAuthorizationGuardBypassesRecentToolResults(t *testing.T) {
+	client := &protectionTestClient{result: "current-account-result"}
+	registry, _ := newRemoteProtectionRegistry(client, nil)
+	checks := 0
+	registry.SetAuthorizationGuard(func(context.Context, string, map[string]interface{}) error { checks++; return nil })
+	registry.recentResults["conv-1"] = map[string]recentItem{
+		"|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "previous-account-result"},
+	}
+	for i := 0; i < 2; i++ {
+		result, err := registry.Execute(protectedTurnContext("turn-current"), "service/tool", map[string]interface{}{"body": "same"})
+		if err != nil || result != "current-account-result" {
+			t.Fatalf("guarded call=%q err=%v", result, err)
+		}
+	}
+	if checks != 2 || client.calls.Load() != 2 {
+		t.Fatalf("guarded recent result reused: checks=%d provider=%d", checks, client.calls.Load())
+	}
+}
+
+func TestAccountBoundModeBypassesRecentResultsWithoutToolGuard(t *testing.T) {
+	client := &protectionTestClient{result: "current-account-result"}
+	registry, _ := newRemoteProtectionRegistry(client, nil)
+	registry.SetResultReuseDisabled(true)
+	registry.recentResults["conv-1"] = map[string]recentItem{
+		"|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "previous-account-result"},
+	}
+	for i := 0; i < 2; i++ {
+		result, err := registry.Execute(protectedTurnContext("turn-current"), "service/tool", map[string]interface{}{"body": "same"})
+		if err != nil || result != "current-account-result" {
+			t.Fatalf("account-bound call=%q err=%v", result, err)
+		}
+	}
+	if client.calls.Load() != 2 {
+		t.Fatalf("account-bound result reused: provider calls=%d", client.calls.Load())
+	}
+}
+
 func TestRegistryRecentResultsCoalescesConcurrentUnprotectedCalls(t *testing.T) {
 	started := make(chan struct{}, 2)
 	release := make(chan struct{})

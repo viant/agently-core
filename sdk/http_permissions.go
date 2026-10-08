@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -13,10 +15,12 @@ import (
 // metadata should be compiled for the authenticated principal after the
 // resource has been returned by an ACL-protected datasource.
 type ApplyPermissionInput struct {
-	ConversationID string
-	Resource       map[string]interface{}
-	WindowParams   map[string]interface{}
-	Target         *MetadataTargetContext
+	ResolvedResource           *identity.ResolvedResource
+	ConversationID             string
+	AuthorizationSchemaVersion int // optional; 1 numeric IDs or 2 exact string IDs
+	Resource                   map[string]interface{}
+	WindowParams               map[string]interface{}
+	Target                     *MetadataTargetContext
 }
 
 // ApplyPermission compiles authored Forge metadata into a permitted view and
@@ -37,6 +41,19 @@ func (c *HTTPClient) ApplyPermission(ctx context.Context, windowKey string, inpu
 	}
 	query := parsed.Query()
 	query.Set("applyPermission", "true")
+	if input.ResolvedResource != nil {
+		raw, err := json.Marshal(input.ResolvedResource)
+		if err != nil {
+			return nil, err
+		}
+		query.Set("resolvedResource", string(raw))
+	}
+	if input.AuthorizationSchemaVersion != 0 {
+		if input.AuthorizationSchemaVersion != 1 && input.AuthorizationSchemaVersion != 2 {
+			return nil, errors.New("authorization schema version must be 1 or 2")
+		}
+		query.Set("authorizationSchemaVersion", strconv.Itoa(input.AuthorizationSchemaVersion))
+	}
 	if conversationID := strings.TrimSpace(input.ConversationID); conversationID != "" {
 		query.Set("conversationId", conversationID)
 	}

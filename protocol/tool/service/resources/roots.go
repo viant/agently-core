@@ -103,6 +103,17 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 		if err != nil || wsRoot == "" {
 			continue
 		}
+		containsProtectedDescendants := false
+		if s.rawResourceBoundary != nil {
+			// A root that is itself a protected definition is not a raw root.
+			// A broader workspace root can remain discoverable, but do not read
+			// README/SKILL summaries from it because those summaries may traverse
+			// into canonical report definitions.
+			if err := s.checkRawResourceURI(wsRoot, false); err != nil {
+				continue
+			}
+			containsProtectedDescendants = s.checkRawResourceURI(wsRoot, true) != nil
+		}
 		if seen[wsRoot] {
 			continue
 		}
@@ -149,7 +160,9 @@ func (s *Service) collectRoots(ctx context.Context) (*rootCollection, error) {
 				}
 			}
 		}
-		if desc == "" && (kind != "mcp" || s.defaults.DescribeMCP) {
+		if desc == "" && containsProtectedDescendants {
+			desc = "Workspace root"
+		} else if desc == "" && (kind != "mcp" || s.defaults.DescribeMCP) {
 			desc = s.describeCached(ctx, wsRoot, kind)
 		}
 		semAllowed := s.semanticAllowedForAgent(ctx, curAgent, wsRoot)

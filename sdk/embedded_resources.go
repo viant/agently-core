@@ -265,6 +265,9 @@ func (c *backendClient) ListResources(ctx context.Context, input *ListResourcesI
 	if input == nil || strings.TrimSpace(input.Kind) == "" {
 		return nil, errors.New("resource kind is required")
 	}
+	if err := c.rawResourceBoundary.CheckResource(input.Kind, ""); err != nil {
+		return nil, err
+	}
 	names, err := c.store.List(ctx, input.Kind)
 	if err != nil {
 		return nil, err
@@ -278,6 +281,9 @@ func (c *backendClient) GetResource(ctx context.Context, input *ResourceRef) (*G
 	}
 	if input == nil || strings.TrimSpace(input.Kind) == "" || strings.TrimSpace(input.Name) == "" {
 		return nil, errors.New("resource kind and name are required")
+	}
+	if err := c.rawResourceBoundary.CheckResource(input.Kind, input.Name); err != nil {
+		return nil, err
 	}
 	data, err := c.store.Load(ctx, input.Kind, input.Name)
 	if err != nil {
@@ -293,6 +299,9 @@ func (c *backendClient) SaveResource(ctx context.Context, input *SaveResourceInp
 	if input == nil || strings.TrimSpace(input.Kind) == "" || strings.TrimSpace(input.Name) == "" {
 		return errors.New("resource kind and name are required")
 	}
+	if err := c.rawResourceBoundary.CheckResource(input.Kind, input.Name); err != nil {
+		return err
+	}
 	return c.store.Save(ctx, input.Kind, input.Name, input.Data)
 }
 
@@ -303,6 +312,9 @@ func (c *backendClient) DeleteResource(ctx context.Context, input *ResourceRef) 
 	if input == nil || strings.TrimSpace(input.Kind) == "" || strings.TrimSpace(input.Name) == "" {
 		return errors.New("resource kind and name are required")
 	}
+	if err := c.rawResourceBoundary.CheckResource(input.Kind, input.Name); err != nil {
+		return err
+	}
 	return c.store.Delete(ctx, input.Kind, input.Name)
 }
 
@@ -310,17 +322,35 @@ func (c *backendClient) ExportResources(ctx context.Context, input *ExportResour
 	if c.store == nil {
 		return nil, errors.New("workspace store not configured")
 	}
+	if input == nil {
+		input = &ExportResourcesInput{}
+	}
 	kinds := input.Kinds
+	explicitKinds := len(kinds) > 0
 	if len(kinds) == 0 {
 		kinds = workspace.AllKinds()
 	}
+
+	if explicitKinds {
+		for _, kind := range kinds {
+			if err := c.rawResourceBoundary.CheckResource(kind, ""); err != nil {
+				return nil, err
+			}
+		}
+	}
 	out := &ExportResourcesOutput{}
 	for _, kind := range kinds {
+		if err := c.rawResourceBoundary.CheckResource(kind, ""); err != nil {
+			continue
+		}
 		names, err := c.store.List(ctx, kind)
 		if err != nil {
 			continue
 		}
 		for _, name := range names {
+			if err := c.rawResourceBoundary.CheckResource(kind, name); err != nil {
+				continue
+			}
 			data, err := c.store.Load(ctx, kind, name)
 			if err != nil {
 				continue
@@ -337,6 +367,12 @@ func (c *backendClient) ImportResources(ctx context.Context, input *ImportResour
 	}
 	if input == nil {
 		return nil, errors.New("input is required")
+	}
+	// Reject the whole mixed batch before the first mutation.
+	for _, resource := range input.Resources {
+		if err := c.rawResourceBoundary.CheckResource(resource.Kind, resource.Name); err != nil {
+			return nil, err
+		}
 	}
 	out := &ImportResourcesOutput{}
 	for _, r := range input.Resources {

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	forgeuisvc "github.com/viant/forge/backend/mcp/service"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 )
 
 func TestSnapshotBelongsToConversation_UsesWindowConversationID(t *testing.T) {

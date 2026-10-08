@@ -43,6 +43,12 @@ func (s *Service) artifactScratchpadContext(ctx context.Context, ownerID string)
 }
 
 func (s *Service) publishArtifactToScratchpad(ctx context.Context, artifact *Artifact) error {
+	if isUnifiedExportService(s) {
+		if artifact != nil {
+			artifact.SourceURL = ""
+		}
+		return nil
+	}
 	if s == nil || s.scratchpad == nil || artifact == nil {
 		return nil
 	}
@@ -92,6 +98,12 @@ func (s *Service) enrichArtifactWithScratchpad(ctx context.Context, artifact *Ar
 		return nil, nil
 	}
 	next := cloneArtifact(artifact)
+	if isUnifiedExportService(s) {
+		if next != nil {
+			next.SourceURL = ""
+		}
+		return next, nil
+	}
 	if next == nil {
 		return nil, nil
 	}
