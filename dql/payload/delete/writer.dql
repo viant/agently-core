@@ -1,0 +1,21 @@
+#package('github.com/viant/agently-core/internal/datly/payload/delete')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/payload/delete','PATCH'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#setting($_ = $writer_omit_empty(true))
+#define($_ = $DeleteUnreferenced<bool>(payloadAccess/deleteUnreferenced).Optional().WithPredicate(7,'expr','(? AND NOT EXISTS (SELECT 1 FROM message WHERE attachment_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM message WHERE elicitation_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM model_call WHERE request_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM model_call WHERE response_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM model_call WHERE provider_request_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM model_call WHERE provider_response_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM model_call WHERE stream_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM tool_call WHERE request_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM tool_call WHERE response_payload_id=call_payload.id) AND NOT EXISTS (SELECT 1 FROM generated_file WHERE payload_id=call_payload.id))'))
+#define($_ = $Payloads<[]*PayloadDelete>(body/data))
+#define($_ = $Data<[]*PayloadDelete>(output/body))
+
+SELECT t.*,
+       CAST(t.should_delete AS bool),
+       delete_marker(t.should_delete),
+       type(t,'PayloadDelete'),
+       mutation_predicate(t,7),
+       required(t.id),
+       tag(t.id,'validate:"required" sqlx:"id,primaryKey"'),
+       tag(t.id,'json:","')
+FROM (${embed:sql/payload.sql}) t

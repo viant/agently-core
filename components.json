@@ -4,6 +4,39 @@
   "components": [
     {
       "operation": "get",
+      "source": "dql/conversation/cleanup/read",
+      "destination": "internal/datly/conversation/cleanup/read",
+      "route": "/v1/internal/agently/conversation/cleanup",
+      "status": "private-cleanup-metadata",
+      "hooks": "Host-only bounded identity/parent/schedule reads, at most 400 binds. Nine explicit metadata columns; no transcript, contents or joins. Raw nullable activity/creation timestamps preserve classification. Caller-owned locks and post-lock rereads remain; general/public and retention candidate readers are unchanged.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": ["conversation"]
+    },
+    {
+      "operation": "get",
+      "source": "dql/run/cleanup/read",
+      "destination": "internal/datly/run/cleanup/read",
+      "route": "/v1/internal/agently/run/cleanup",
+      "status": "private-cleanup-metadata",
+      "hooks": "Host-only bounded identity/conversation/turn/schedule/resume reads, at most 400 binds. Eleven explicit metadata columns, raw nullable lease/heartbeat/activity; no checkpoint/security/JSON bodies. Execution run filter preserves legacy NULL run_kind; protocol runs are excluded. Caller-owned locks and public/candidate readers are unchanged.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": ["run"]
+    },
+    {
+      "operation": "patch",
+      "source": "internal/datly/conversation/children/delete",
+      "destination": "internal/datly/conversation/children/delete",
+      "route": "/v1/internal/agently/conversation/children/delete",
+      "status": "private-locked-graph-bulk-delete",
+      "hooks": "Authored host-only component, fixed allowlist of message/model_call/tool_call/generated_file tables. At most 400 key bind parameters per DELETE, no pre-read, no public writer changes. Flushes earlier writes and uses the parent's transaction; absent keys are ignored. The graph parent retains authorization, locking, detach ordering and rollback.",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": ["message", "model_call", "tool_call", "generated_file"]
+    },
+    {
+      "operation": "get",
       "source": "dql/conversation/read",
       "destination": "internal/datly/conversation/read",
       "legacy": "pkg/agently/conversation/conversation.go",
@@ -12,6 +45,19 @@
       "hooks": "Creation/private visibility and activity defaults; sparse fields generated. Reader business OnRelation stage/status sorting and elicitation hydration. Boolean list filters bind true/false explicitly. List cursor and order use the activity/updated/created key with identity tie-break; latest-turn status and trusted visibility mode match root list semantics. Trusted graph mode and batch identity/parent predicates support deletion discovery without list visibility or orphan filtering. Legacy graph parity and linked-host owner/list/page/discovery tests pass; remaining root callers still pending.",
       "input_type": "ConversationInput",
       "output_type": "ConversationOutput",
+      "root_tables": [
+        "conversation"
+      ]
+    },
+    {
+      "operation": "get",
+      "source": "dql/conversation/graph/read",
+      "destination": "internal/datly/conversation/graph/read",
+      "route": "/v1/internal/agently/conversation/graph",
+      "status": "private-deletion-graph",
+      "hooks": "Trusted host-only bounded ID, parent-ID and parent-turn-ID reads. Five fixed graph fields, no transcript joins or contents, no pagination; caller-owned root row locks. Selected by default for deletion discovery/locking/inbound topology validation; AGENTLY_DELETE_GRAPH_READER=legacy selects the previous graph reader.",
+      "input_type": "Input",
+      "output_type": "Output",
       "root_tables": [
         "conversation"
       ]
@@ -373,7 +419,7 @@
       "legacy": "pkg/agently/payload/write/input.go",
       "route": "/v1/api/agently/payload",
       "status": "sqlite-legacy-parity",
-      "hooks": "Business lifecycle defaults/gzip/storage; reader OnFetch decompression/trim. Generated writer has an explicit idempotent delete marker and a host-only ten-reference guard. Linked-host shared-payload and late-reference conflict tests pass; a future tree orchestrator must invoke it within one managed transaction.",
+      "hooks": "Business lifecycle defaults/gzip/storage; reader OnFetch decompression/trim. Ordinary writes retain this full writer. Cleanup uses the private key-only payload/delete component and preserves all ten reference guards within the caller transaction.",
       "table": "call_payload",
       "input_type": "Input",
       "output_type": "Output",
@@ -928,6 +974,22 @@
       "input_type": "ReportInput",
       "output_type": "ReportOutput",
       "root_tables": []
+    },
+    {
+      "operation": "delete",
+      "source": "dql/payload/delete",
+      "destination": "internal/datly/payload/delete",
+      "route": "/v1/internal/agently/payload/delete",
+      "method": "PATCH",
+      "internal": true,
+      "status": "generated-key-only-mutation-delete",
+      "input_type": "Input",
+      "output_type": "Output",
+      "root_tables": [
+        "call_payload"
+      ],
+      "role": "private_key_only_delete_writer",
+      "purpose": "Cleanup-only deletion of 1–400 marked payload identities with trusted access. CurrentWriter reads only id, never inline_body. All ten inbound references are checked atomically by DELETE. Absence in the key pre-read is a no-op; late reference conflicts retain transaction rollback. AGENTLY_DELETE_PAYLOAD_MODE defaults to bulk, which selects the separate hand-authored PayloadBulkDelete holder in this package. Set row explicitly to use the generated private writer. Bulk SQL executes once per portion in the caller transaction. Ordinary payload writes are unchanged."
     },
     {
       "operation": "delete",

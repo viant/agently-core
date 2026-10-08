@@ -71,7 +71,7 @@ type payloadRaceInvoker struct {
 }
 
 func (i *payloadRaceInvoker) InvokeComponent(ctx context.Context, request dexec.ComponentRequest) (any, error) {
-	if i.beforeWriter != nil && request.Target.Route.Method == "PATCH" && request.Target.Route.Path == "/v1/api/agently/payload" {
+	if i.beforeWriter != nil && request.Target.Route.Method == "PATCH" && request.Target.Route.Path == "/v1/internal/agently/payload/delete" {
 		before := i.beforeWriter
 		i.beforeWriter = nil
 		if err := before(); err != nil {
@@ -1680,6 +1680,27 @@ func TestWorkspaceRuntimePayloadRetentionEveryReference(t *testing.T) {
 		require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM call_payload WHERE id=?`, id).Scan(&count))
 		require.Zero(t, count, id)
 	}
+}
+
+func TestWorkspaceRuntimePayloadRetentionAlreadyDeleted(t *testing.T) {
+	orphans, _, db := orphanFixture(t)
+	_, err := db.Exec(`INSERT INTO call_payload(id,kind,mime_type,size_bytes,storage,inline_body)
+		VALUES('disappearing-payload','attachment','text/plain',1,'inline','x')`)
+	require.NoError(t, err)
+	intercepted := false
+	interceptor := &payloadRaceInvoker{next: orphans.Invoker, beforeWriter: func() error {
+		intercepted = true
+		_, err := db.Exec("DELETE FROM call_payload WHERE id='disappearing-payload'")
+		return err
+	}}
+	store := &convstore.PayloadStore{Invoker: interceptor}
+	// Disappears between the public reference pre-check and the internal writer.
+	require.NoError(t, store.DeleteUnreferencedTrusted(context.Background(), "disappearing-payload"))
+	require.True(t, intercepted)
+	require.NoError(t, store.DeleteUnreferencedTrusted(context.Background(), "disappearing-payload"))
+	var count int
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM call_payload WHERE id='disappearing-payload'").Scan(&count))
+	require.Zero(t, count)
 }
 
 func TestWorkspaceRuntimePayloadRetentionLateReference(t *testing.T) {

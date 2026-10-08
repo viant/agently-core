@@ -7,14 +7,13 @@ import (
 	"sort"
 	"strings"
 
-	filewrite "github.com/viant/agently-core/internal/datly/generatedfile/write"
+	childdelete "github.com/viant/agently-core/internal/datly/conversation/children/delete"
 	goalwrite "github.com/viant/agently-core/internal/datly/goal/write"
 	investigationread "github.com/viant/agently-core/internal/datly/investigation/read"
 	investigationwrite "github.com/viant/agently-core/internal/datly/investigation/write"
 	legacyread "github.com/viant/agently-core/internal/datly/legacyrun/read"
 	legacywrite "github.com/viant/agently-core/internal/datly/legacyrun/write"
 	messagewrite "github.com/viant/agently-core/internal/datly/message/write"
-	modelwrite "github.com/viant/agently-core/internal/datly/modelcall/write"
 	artifactread "github.com/viant/agently-core/internal/datly/reporting/artifact/read"
 	artifactwrite "github.com/viant/agently-core/internal/datly/reporting/artifact/write"
 	auditread "github.com/viant/agently-core/internal/datly/reporting/audit/read"
@@ -27,7 +26,6 @@ import (
 	reportwrite "github.com/viant/agently-core/internal/datly/reporting/run/write"
 	runwrite "github.com/viant/agently-core/internal/datly/run/write"
 	schedulewrite "github.com/viant/agently-core/internal/datly/schedule/write"
-	toolwrite "github.com/viant/agently-core/internal/datly/toolcall/write"
 	claimread "github.com/viant/agently-core/internal/datly/toolexecutionclaim/read"
 	claimwrite "github.com/viant/agently-core/internal/datly/toolexecutionclaim/write"
 	turnwrite "github.com/viant/agently-core/internal/datly/turn/write"
@@ -51,8 +49,9 @@ const (
 )
 
 // Mutator applies a validated, locked plan inside its parent's managed
-// transaction. It invokes canonical generated writers and never starts or
-// completes transactions. The parent owns authorization and final outcome.
+// transaction. Private key-only bulk child deletes preserve the generated
+// writers' deletion semantics; other operations still use canonical writers.
+// It never starts or completes transactions. The parent owns authorization.
 type Mutator struct {
 	Invoker dexec.ComponentInvoker
 	OwnerID func(context.Context) string
@@ -169,42 +168,27 @@ func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy Investigat
 		}
 	}
 	if plan.Tables["model_call"] {
-		rows := make([]*modelwrite.ModelCall, 0, len(plan.ModelCalls))
+		ids := make([]string, 0, len(plan.ModelCalls))
 		for _, snapshot := range plan.ModelCalls {
 			if snapshot == nil {
 				return fmt.Errorf("deletion plan has a nil model call")
 			}
-			row := &modelwrite.ModelCall{}
-			row.SetMessageId(snapshot.MessageId)
-			row.SetShouldDelete(true)
-			rows = append(rows, row)
+			ids = append(ids, snapshot.MessageId)
 		}
-		if len(rows) > 0 {
-			input := &modelwrite.Input{}
-			input.SetModelCalls(rows)
-			if err := treeInvoke[modelwrite.Output](ctx, m, input, "/v1/api/agently/modelcall"); err != nil {
-				return err
-			}
+		if err := m.deleteChildren(ctx, "model_call", ids); err != nil {
+			return err
 		}
 	}
 	if plan.Tables["tool_call"] {
-		rows := make([]*toolwrite.ToolCall, 0, len(plan.ToolCalls))
+		ids := make([]string, 0, len(plan.ToolCalls))
 		for _, snapshot := range plan.ToolCalls {
 			if snapshot == nil {
 				return fmt.Errorf("deletion plan has a nil tool call")
 			}
-			row := &toolwrite.ToolCall{}
-			row.SetMessageId(snapshot.MessageId)
-			row.SetOpId(snapshot.OpId)
-			row.SetShouldDelete(true)
-			rows = append(rows, row)
+			ids = append(ids, snapshot.MessageId)
 		}
-		if len(rows) > 0 {
-			input := &toolwrite.Input{}
-			input.SetToolCalls(rows)
-			if err := treeInvoke[toolwrite.Output](ctx, m, input, "/v1/api/agently/toolcall"); err != nil {
-				return err
-			}
+		if err := m.deleteChildren(ctx, "tool_call", ids); err != nil {
+			return err
 		}
 	}
 	fileIDs := []string{}
@@ -215,16 +199,7 @@ func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy Investigat
 		fileIDs = append(fileIDs, row.Id)
 	}
 	if plan.Tables["generated_file"] {
-		if err := treeDeleteIDs[filewrite.GeneratedFile, filewrite.Output](ctx, m, fileIDs, "/v1/api/agently/generated-file", func(id string) *filewrite.GeneratedFile {
-			row := &filewrite.GeneratedFile{}
-			row.SetId(id)
-			row.SetShouldDelete(true)
-			return row
-		}, func(rows []*filewrite.GeneratedFile) any {
-			input := &filewrite.Input{}
-			input.SetGeneratedFiles(rows)
-			return input
-		}); err != nil {
+		if err := m.deleteChildren(ctx, "generated_file", fileIDs); err != nil {
 			return err
 		}
 	}
@@ -232,16 +207,7 @@ func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy Investigat
 		return err
 	}
 	if plan.Tables["message"] {
-		if err := treeDeleteIDs[messagewrite.Message, messagewrite.Output](ctx, m, plan.MessageIDs, "/v1/api/agently/message", func(id string) *messagewrite.Message {
-			row := &messagewrite.Message{}
-			row.SetId(id)
-			row.SetShouldDelete(true)
-			return row
-		}, func(rows []*messagewrite.Message) any {
-			input := &messagewrite.Input{}
-			input.SetMessages(rows)
-			return input
-		}); err != nil {
+		if err := m.deleteChildren(ctx, "message", plan.MessageIDs); err != nil {
 			return err
 		}
 	}
@@ -293,6 +259,21 @@ func (m *Mutator) Apply(ctx context.Context, plan *DeletePlan, policy Investigat
 	if plan.Tables["call_payload"] {
 		if err := (&conversation.PayloadStore{Invoker: m.Invoker}).DeleteUnreferencedTrusted(ctx, plan.PayloadIDs...); err != nil {
 			return fmt.Errorf("delete unreferenced payloads: %w", err)
+		}
+	}
+	return nil
+}
+
+// The bound applies to SQL bind parameters, not merely component requests.
+func (m *Mutator) deleteChildren(ctx context.Context, table string, ids []string) error {
+	ids = normalizeIDs(ids)
+	for start := 0; start < len(ids); start += maintenancebatch.Size {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		input := &childdelete.Input{Table: table, IDs: ids[start:min(start+maintenancebatch.Size, len(ids))]}
+		if err := treeInvoke[childdelete.Output](ctx, m, input, childdelete.Path, treeProviders("conversationchildrenaccess", m.OwnerID(ctx))...); err != nil {
+			return err
 		}
 	}
 	return nil

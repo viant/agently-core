@@ -129,3 +129,33 @@ func appendPayloadID(target []string, pointers ...*string) []string {
 	}
 	return target
 }
+
+// payloadIDsFromPlan only consumes metadata read in this preparation phase.
+// Rows used for run discovery by turn are deliberately NOT deletion candidates.
+func payloadIDsFromPlan(plan *DeletePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	var ids []string
+	for _, row := range plan.Messages {
+		if row != nil {
+			ids = appendPayloadID(ids, row.AttachmentPayloadId, row.ElicitationPayloadId)
+		}
+	}
+	for _, row := range plan.ModelCalls {
+		if row != nil {
+			ids = appendPayloadID(ids, row.RequestPayloadId, row.ResponsePayloadId, row.ProviderRequestPayloadId, row.ProviderResponsePayloadId, row.StreamPayloadId)
+		}
+	}
+	for _, row := range plan.ToolCalls {
+		if row != nil {
+			ids = appendPayloadID(ids, row.RequestPayloadId, row.ResponsePayloadId)
+		}
+	}
+	for _, row := range plan.GeneratedFiles {
+		if row != nil {
+			ids = appendPayloadID(ids, row.PayloadId)
+		}
+	}
+	return normalizeIDs(ids)
+}

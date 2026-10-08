@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	convread "github.com/viant/agently-core/internal/datly/conversation/read"
 	legacyread "github.com/viant/agently-core/internal/datly/legacyrun/read"
 	"github.com/viant/agently-core/internal/datly/queryselectors"
 	runread "github.com/viant/agently-core/internal/datly/run/read"
@@ -41,7 +40,6 @@ type Store struct {
 var runTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[runread.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/run/{id}"}}
 var legacyTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[legacyread.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/scheduler/legacy-run"}}
 var scheduleTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[schedread.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/scheduler/schedule/{id}"}}
-var conversationTarget = dexec.ComponentTarget{Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[convread.ReaderComponent]().PkgPath(), Name: "reader"}, Route: spec.RouteRef{Method: "GET", Path: "/v1/api/agently/conversation/{id}"}}
 
 func (s *Store) Candidates(ctx context.Context, request CandidateRequest) ([]Candidate, error) {
 	if s == nil || s.Invoker == nil || request.InactiveBefore.IsZero() || request.Limit <= 0 || request.AfterActivity.IsZero() != (strings.TrimSpace(request.AfterRunID) == "") {

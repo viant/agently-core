@@ -27,7 +27,6 @@ import (
 	claimread "github.com/viant/agently-core/internal/datly/toolexecutionclaim/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
 	queueread "github.com/viant/agently-core/internal/datly/turnqueue/read"
-	agentrun "github.com/viant/agently-core/internal/store/agentrun"
 	conversation "github.com/viant/agently-core/internal/store/conversation"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/bindly/locator"
@@ -38,8 +37,8 @@ import (
 )
 
 // DeletePlan snapshots identities and retained references before any mutation.
-// Its caller owns the transaction and locks; every row comes from the existing
-// canonical reader. Extra identities are authorized by the parent operation.
+// Its caller owns the transaction and locks. Canonical projections and private
+// metadata readers supply rows; extra identities are authorized by the parent.
 type DeletePlan struct {
 	AGUIRuns                                                     []*aguirun.Run
 	AGUIEvents                                                   []*aguievent.Event
@@ -141,7 +140,7 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 		plan.TurnIDs = normalizeIDs(plan.TurnIDs)
 		messageQuery := &msgread.MessagesInput{}
 		messageQuery.SetConversationIds(plan.ConversationIDs)
-		plan.Messages, err = (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery, deleteSelectors("id"))
+		plan.Messages, err = (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery, deleteSelectors("id", "attachment_payload_id", "elicitation_payload_id"))
 		if err != nil {
 			return nil, err
 		}
@@ -151,11 +150,7 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 			}
 		}
 		plan.MessageIDs = normalizeIDs(plan.MessageIDs)
-		plan.ApprovalIDs, err = d.CollectApprovalIDs(ctx, graph)
-		if err != nil {
-			return nil, err
-		}
-		plan.PayloadIDs, err = d.CollectPayloadIDs(ctx, graph)
+		plan.ApprovalIDs, err = d.collectApprovalIDs(ctx, plan.ConversationIDs, plan.TurnIDs, plan.MessageIDs)
 		if err != nil {
 			return nil, err
 		}
@@ -169,6 +164,7 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 		if err = d.collectPlanChildren(ctx, plan); err != nil {
 			return nil, err
 		}
+		plan.PayloadIDs = payloadIDsFromPlan(plan)
 	}
 	if len(plan.ScheduleIDs) > 0 {
 		query := &schedread.ScheduleInput{}
@@ -178,7 +174,7 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 			return nil, err
 		}
 	}
-	if err = d.RefreshDeletePlanRunEvidence(ctx, plan); err != nil {
+	if err = d.refreshDeletePlanRunEvidence(ctx, plan, plan.Turns); err != nil {
 		return nil, err
 	}
 	return plan, nil
@@ -188,12 +184,18 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 // retaining the earlier set and adding runs attached through goal-wakeup
 // schedules. Its caller locks any new identities before validating liveness.
 func (d *Discoverer) RefreshDeletePlanRunEvidence(ctx context.Context, plan *DeletePlan) (retErr error) {
+	return d.refreshDeletePlanRunEvidence(ctx, plan, nil)
+}
+
+func (d *Discoverer) refreshDeletePlanRunEvidence(ctx context.Context, plan *DeletePlan, turns []*turnread.TurnRowsView) (retErr error) {
 	done := maintenancediag.Phase(ctx, "refresh_run_evidence")
 	defer func() { done(retErr, "") }()
 	if plan == nil || plan.Graph == nil {
 		return fmt.Errorf("conversation deletion plan is required")
 	}
-	evidence, err := d.CollectRunEvidence(ctx, plan.Graph)
+	// This snapshot is local to preparation. Explicit refreshes after run locks
+	// must read fresh links rather than reuse the earlier preparation snapshot.
+	evidence, err := d.collectRunEvidence(ctx, plan.Graph, turns)
 	if err != nil {
 		return err
 	}
@@ -219,7 +221,6 @@ func (d *Discoverer) RefreshDeletePlanRunEvidence(ctx context.Context, plan *Del
 			legacy[row.Id] = row
 		}
 	}
-	runStore := &agentrun.Store{Invoker: d.Invoker, OwnerID: d.OwnerID}
 	queries := []*runread.RunRowsInput{}
 	if len(plan.ScheduleIDs) > 0 {
 		query := &runread.RunRowsInput{}
@@ -232,15 +233,9 @@ func (d *Discoverer) RefreshDeletePlanRunEvidence(ctx context.Context, plan *Del
 			explicit = append(explicit, *row.RunId)
 		}
 	}
-	if len(plan.TurnIDs) > 0 {
-		for _, model := range []bool{true, false} {
-			ids, err := d.callRunIDs(ctx, plan.TurnIDs, model)
-			if err != nil {
-				return err
-			}
-			explicit = append(explicit, ids...)
-		}
-	}
+	// collectRunEvidence already follows call links by TURN (not by message).
+	// Keep its raw identities too: a dangling link must still be locked/checked.
+	explicit = append(explicit, evidence.ReferencedIDs...)
 	requested := normalizeIDs(explicit)
 	if len(requested) > 0 {
 		query := &runread.RunRowsInput{}
@@ -248,7 +243,7 @@ func (d *Discoverer) RefreshDeletePlanRunEvidence(ctx context.Context, plan *Del
 		queries = append(queries, query)
 	}
 	for _, query := range queries {
-		rows, err := runStore.ListTrusted(ctx, "rows", query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: RunEvidenceFields()}}})
+		rows, err := ReadCleanupRuns(ctx, d.Invoker, query, false)
 		if err != nil {
 			return err
 		}
@@ -310,13 +305,13 @@ func (d *Discoverer) collectPlanChildren(ctx context.Context, plan *DeletePlan) 
 	if len(plan.MessageIDs) > 0 {
 		modelQuery := &modelread.ModelCallsInput{}
 		modelQuery.SetMessageIds(plan.MessageIDs)
-		plan.ModelCalls, err = planReaderRows[modelread.ModelCallView](ctx, d, modelQuery, "/v1/internal/agently/model-call", planProviders("modelcallaccess", owner, "message_id"))
+		plan.ModelCalls, err = planReaderRows[modelread.ModelCallView](ctx, d, modelQuery, "/v1/internal/agently/model-call", planProviders("modelcallaccess", owner, "message_id", "request_payload_id", "response_payload_id", "provider_request_payload_id", "provider_response_payload_id", "stream_payload_id"))
 		if err != nil {
 			return err
 		}
 		toolQuery := &toolread.ToolCallsInput{}
 		toolQuery.SetMessageIds(plan.MessageIDs)
-		plan.ToolCalls, err = planReaderRows[toolread.ToolCallView](ctx, d, toolQuery, "/v1/internal/agently/tool-call", planProviders("toolcallaccess", owner, "message_id", "op_id"))
+		plan.ToolCalls, err = planReaderRows[toolread.ToolCallView](ctx, d, toolQuery, "/v1/internal/agently/tool-call", planProviders("toolcallaccess", owner, "message_id", "op_id", "request_payload_id", "response_payload_id"))
 		if err != nil {
 			return err
 		}
@@ -329,7 +324,7 @@ func (d *Discoverer) collectPlanChildren(ctx context.Context, plan *DeletePlan) 
 	}
 	fileQuery := &fileread.Input{}
 	fileQuery.SetConversationIDs(plan.ConversationIDs)
-	plan.GeneratedFiles, err = planReaderRows[fileread.GeneratedFileView](ctx, d, fileQuery, "/v2/api/agently/generated-file", []locator.Provider{queryselectors.Provider(deleteSelectors("id"))})
+	plan.GeneratedFiles, err = planReaderRows[fileread.GeneratedFileView](ctx, d, fileQuery, "/v2/api/agently/generated-file", planProviders("generatedfileaccess", owner, "id", "payload_id"))
 	if err != nil {
 		return err
 	}
@@ -439,7 +434,7 @@ func (d *Discoverer) collectPlanDetachRows(ctx context.Context, plan *DeletePlan
 	if len(plan.RunIDs) > 0 {
 		query := &runread.RunRowsInput{}
 		query.SetResumedFromRunIds(plan.RunIDs)
-		rows, err := (&agentrun.Store{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListTrusted(ctx, "rows", query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: RunEvidenceFields()}}})
+		rows, err := ReadCleanupRuns(ctx, d.Invoker, query, false)
 		if err != nil {
 			return err
 		}

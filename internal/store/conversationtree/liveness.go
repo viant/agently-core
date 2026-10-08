@@ -15,7 +15,6 @@ import (
 	runread "github.com/viant/agently-core/internal/datly/run/read"
 	toolread "github.com/viant/agently-core/internal/datly/toolcall/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
-	agentrun "github.com/viant/agently-core/internal/store/agentrun"
 	convturn "github.com/viant/agently-core/internal/store/conversation"
 
 	"github.com/viant/agently-core/internal/datly/dbtime"
@@ -31,6 +30,9 @@ var ErrConversationActive = errors.New("conversation is still in progress")
 type RunEvidence struct {
 	Current []*runread.RunRowsView
 	Legacy  []*legacyread.LegacyRun
+	// Includes dangling references; deleting the referenced run must not race
+	// another writer merely because no matching row was returned by the reader.
+	ReferencedIDs []string
 }
 
 var modelReaderTarget = dexec.ComponentTarget{
@@ -49,6 +51,10 @@ var legacyReaderTarget = dexec.ComponentTarget{
 // CollectRunEvidence follows all current-run links used by the legacy graph
 // policy and reads legacy schedule-run rows. It requires an authorized graph.
 func (d *Discoverer) CollectRunEvidence(ctx context.Context, graph *Graph) (*RunEvidence, error) {
+	return d.collectRunEvidence(ctx, graph, nil)
+}
+
+func (d *Discoverer) collectRunEvidence(ctx context.Context, graph *Graph, turns []*turnread.TurnRowsView) (*RunEvidence, error) {
 	if d == nil || d.Invoker == nil || d.OwnerID == nil {
 		return nil, fmt.Errorf("conversation graph reader is not configured")
 	}
@@ -68,11 +74,15 @@ func (d *Discoverer) CollectRunEvidence(ctx context.Context, graph *Graph) (*Run
 		}
 	}
 	conversationIDs, legacyIDs = normalizeIDs(conversationIDs), normalizeIDs(legacyIDs)
-	turnInput := &turnread.TurnRowsInput{}
-	turnInput.SetConversationIDs(conversationIDs)
-	turnRows, err := (&convturn.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnInput, deleteSelectors("id", "run_id"))
-	if err != nil {
-		return nil, err
+	turnRows := turns
+	if turnRows == nil {
+		turnInput := &turnread.TurnRowsInput{}
+		turnInput.SetConversationIDs(conversationIDs)
+		var err error
+		turnRows, err = (&convturn.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnInput, deleteSelectors("id", "run_id"))
+		if err != nil {
+			return nil, err
+		}
 	}
 	turnIDs, explicitRunIDs := []string{}, []string{}
 	for _, row := range turnRows {
@@ -98,7 +108,7 @@ func (d *Discoverer) CollectRunEvidence(ctx context.Context, graph *Graph) (*Run
 		explicitRunIDs = append(explicitRunIDs, toolRuns...)
 	}
 	explicitRunIDs = normalizeIDs(explicitRunIDs)
-	runStore := &agentrun.Store{Invoker: d.Invoker, OwnerID: d.OwnerID}
+	evidence.ReferencedIDs = explicitRunIDs
 	currentByID := map[string]*runread.RunRowsView{}
 	byConversation := &runread.RunRowsInput{}
 	byConversation.SetConversationIds(conversationIDs)
@@ -114,7 +124,7 @@ func (d *Discoverer) CollectRunEvidence(ctx context.Context, graph *Graph) (*Run
 		runQueries = append(runQueries, byID)
 	}
 	for _, query := range runQueries {
-		rows, err := runStore.ListTrusted(ctx, "rows", query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: RunEvidenceFields()}}})
+		rows, err := ReadCleanupRuns(ctx, d.Invoker, query, false)
 		if err != nil {
 			return nil, err
 		}
@@ -345,7 +355,7 @@ func (d *Discoverer) CollectInitialRunIDs(ctx context.Context, graph *Graph) ([]
 		}
 	}
 	for _, query := range runQueries {
-		rows, err := (&agentrun.Store{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListTrusted(ctx, "rows", query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id"}}}})
+		rows, err := ReadCleanupRuns(ctx, d.Invoker, query, false)
 		if err != nil {
 			return nil, err
 		}

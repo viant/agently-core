@@ -24,6 +24,11 @@ func (d *Discoverer) ValidateInboundLinks(ctx context.Context, graph *Graph) err
 	if err := d.authorize(ctx, graph); err != nil {
 		return err
 	}
+	var err error
+	ctx, err = PinGraphReader(ctx)
+	if err != nil {
+		return err
+	}
 	if len(graph.Nodes) == 0 {
 		return nil
 	}
@@ -56,7 +61,7 @@ func (d *Discoverer) ValidateInboundLinks(ctx context.Context, graph *Graph) err
 	if turnIDs = normalizeIDs(turnIDs); len(turnIDs) > 0 {
 		childrenQuery := &convread.ConversationInput{}
 		childrenQuery.SetParentTurnIds(turnIDs)
-		children, err := (&conversation.Store{Invoker: d.Invoker, OwnerID: d.OwnerID}).GraphRows(ctx, childrenQuery)
+		children, err := d.graphRows(ctx, childrenQuery)
 		if err != nil {
 			return err
 		}

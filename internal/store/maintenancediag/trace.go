@@ -15,6 +15,7 @@ import (
 )
 
 const Env = "AGENTLY_DEBUG_CONVERSATION_DELETE"
+const DetailsEnv = "AGENTLY_DEBUG_CONVERSATION_DELETE_DETAILS"
 
 type contextKey struct{}
 type Trace struct {
@@ -27,7 +28,17 @@ type Trace struct {
 var sequence atomic.Uint64
 
 func Enabled() bool {
-	switch strings.ToLower(strings.TrimSpace(os.Getenv(Env))) {
+	return envEnabled(Env)
+}
+
+// DetailsEnabled keeps the high-volume maintenance trace opt-in, even when
+// the existing compact deletion diagnostics are enabled.
+func DetailsEnabled() bool {
+	return Enabled() && envEnabled(DetailsEnv)
+}
+
+func envEnabled(name string) bool {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv(name))) {
 	case "1", "true", "yes", "y", "on":
 		return true
 	default:
@@ -54,7 +65,7 @@ func ID(ctx context.Context) string {
 // Begin returns no owner for a nested operation. Only the outer owner finishes
 // the trace, after the managed invocation has committed or rolled back.
 func Begin(ctx context.Context, operation string) (context.Context, *Trace) {
-	if from(ctx) != nil || !Enabled() {
+	if from(ctx) != nil || !DetailsEnabled() {
 		return ctx, nil
 	}
 	if ctx == nil {
