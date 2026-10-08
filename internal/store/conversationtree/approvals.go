@@ -49,6 +49,12 @@ func (d *Discoverer) CollectApprovalIDs(ctx context.Context, graph *Graph) ([]st
 			messageIDs = append(messageIDs, row.Id)
 		}
 	}
+	return d.collectApprovalIDs(ctx, conversationIDs, turnIDs, messageIDs)
+}
+
+// collectApprovalIDs reuses identities from the same locked plan. All three
+// relationship paths are retained; approvals need not have consistent links.
+func (d *Discoverer) collectApprovalIDs(ctx context.Context, conversationIDs, turnIDs, messageIDs []string) ([]string, error) {
 	queries := []*approvalread.ApprovalRowsInput{}
 	byConversation := &approvalread.ApprovalRowsInput{}
 	byConversation.SetConversationIds(conversationIDs)

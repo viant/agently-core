@@ -102,17 +102,24 @@ func (g *Graph) AuthorizeOwner(userID string) error {
 // Discover follows parent, parent-turn and linked-message edges in bounded
 // batches. Every database read is a canonical generated Datly component.
 func (d *Discoverer) Discover(ctx context.Context, rootIDs ...string) (result *Graph, retErr error) {
+	mode := graphReaderCompact
 	done := maintenancediag.Phase(ctx, "graph_discovery")
 	defer func() {
 		count := 0
 		if result != nil {
 			count = len(result.Nodes)
 		}
-		done(retErr, fmt.Sprintf("conversations=%d", count))
+		done(retErr, fmt.Sprintf("reader=%s conversations=%d", mode, count))
 	}()
 	if d == nil || d.Invoker == nil || d.OwnerID == nil {
 		return nil, fmt.Errorf("conversation graph reader is not configured")
 	}
+	var err error
+	ctx, err = PinGraphReader(ctx)
+	if err != nil {
+		return nil, err
+	}
+	mode = ctx.Value(graphReaderContextKey{}).(graphReaderMode)
 	roots := normalizeIDs(rootIDs)
 	graph := &Graph{Nodes: map[string]*Node{}}
 	if len(roots) == 0 {
@@ -121,12 +128,11 @@ func (d *Discoverer) Discover(ctx context.Context, rootIDs ...string) (result *G
 	if len(roots) > MaxConversations {
 		return nil, ErrTooLarge
 	}
-	conversations := &conversation.Store{Invoker: d.Invoker, OwnerID: d.OwnerID}
 	turns := &conversation.TurnStore{Invoker: d.Invoker}
 	messages := &conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}
 	rootQuery := &convread.ConversationInput{}
 	rootQuery.SetIds(roots)
-	rootRows, err := conversations.GraphRows(ctx, rootQuery, d.GraphFields)
+	rootRows, err := d.graphRows(ctx, rootQuery, d.GraphFields)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +146,7 @@ func (d *Discoverer) Discover(ctx context.Context, rootIDs ...string) (result *G
 	for depth := 1; len(frontier) > 0; depth++ {
 		parentQuery := &convread.ConversationInput{}
 		parentQuery.SetParentIds(frontier)
-		children, err := conversations.GraphRows(ctx, parentQuery, d.GraphFields)
+		children, err := d.graphRows(ctx, parentQuery, d.GraphFields)
 		if err != nil {
 			return nil, err
 		}
@@ -159,7 +165,7 @@ func (d *Discoverer) Discover(ctx context.Context, rootIDs ...string) (result *G
 		if turnIDs = normalizeIDs(turnIDs); len(turnIDs) > 0 {
 			turnChildQuery := &convread.ConversationInput{}
 			turnChildQuery.SetParentTurnIds(turnIDs)
-			turnChildren, err := conversations.GraphRows(ctx, turnChildQuery, d.GraphFields)
+			turnChildren, err := d.graphRows(ctx, turnChildQuery, d.GraphFields)
 			if err != nil {
 				return nil, err
 			}
@@ -181,7 +187,7 @@ func (d *Discoverer) Discover(ctx context.Context, rootIDs ...string) (result *G
 		if linkedIDs = normalizeIDs(linkedIDs); len(linkedIDs) > 0 {
 			linkedQuery := &convread.ConversationInput{}
 			linkedQuery.SetIds(linkedIDs)
-			linked, err := conversations.GraphRows(ctx, linkedQuery, d.GraphFields)
+			linked, err := d.graphRows(ctx, linkedQuery, d.GraphFields)
 			if err != nil {
 				return nil, err
 			}
