@@ -4,8 +4,8 @@ import (
 	"context"
 	"github.com/stretchr/testify/require"
 	manager "github.com/viant/agently-core/protocol/mcp/manager"
-	service "github.com/viant/agently-core/service/primitiveprovider"
 	identity "github.com/viant/agently-core/protocol/resource"
+	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
 	"strings"
 	"testing"
@@ -38,6 +38,9 @@ func TestBuilderInstallsOneSourceAwarePrimitiveWindowPath(t *testing.T) {
 	require.NotNil(t, runtime.DatasourceDefinitionResolver)
 	require.NotNil(t, runtime.DatasourceResourceRevalidator)
 	require.NotNil(t, runtime.DatasourceDefinitionAuthorizer)
+	require.NotNil(t, runtime.DatasourceProviderExecutor)
+	_, e = runtime.DatasourceProviderExecutor(context.Background(), nil, nil)
+	require.ErrorIs(t, e, identity.ErrResourceDenied, "runtime execution must reject a caller without the original window pin and target")
 	before := runtime.PrimitiveWindows
 	require.NoError(t, builder.configurePrimitiveProviders(runtime))
 	require.Same(t, before, runtime.PrimitiveWindows)

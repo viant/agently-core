@@ -67,6 +67,17 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 		return out.PrimitiveWindows
 	})
 	localResolve, localRevalidate, localAuthorize := out.DatasourceDefinitionResolver, out.DatasourceResourceRevalidator, out.DatasourceDefinitionAuthorizer
+	out.DatasourceProviderExecutor = func(ctx context.Context, descriptor *dsproto.DataSource, inputs map[string]interface{}) (json.RawMessage, error) {
+		pin, ok := requestctx.ResolvedResourceFromContext(ctx)
+		if !ok {
+			return nil, identity.ErrResourceDenied
+		}
+		target, ok := requestctx.WindowTargetFromContext(ctx)
+		if !ok {
+			return nil, identity.ErrResourceDenied
+		}
+		return remote.FetchProviderDatasource(ctx, *pin, target, descriptor, inputs)
+	}
 	out.DatasourceDefinitionResolver = func(ctx context.Context, pin identity.ResolvedResource, target *types.WindowTarget, id string) (*dsproto.DataSource, error) {
 		if pin.ProviderIdentity == b.primitiveLocalIdentity {
 			if localResolve == nil {

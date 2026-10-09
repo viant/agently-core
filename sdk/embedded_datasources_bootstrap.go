@@ -48,7 +48,7 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 	// Build the datasource service. Executor stays nil when the runtime
 	// has no tool registry — inline / feed_ref backends continue to work;
 	// mcp_tool backends return a clear error at Fetch time.
-	opts := dssvc.Options{ExecutionContext: rt.ExecutionContext, PermissionResolver: rt.PermittedResolver, ComponentDispatcher: rt.ComponentDispatcher, Store: dsStore, ResolveDefinition: rt.DatasourceDefinitionResolver, ResolveResource: rt.DatasourceResourceRevalidator, AuthorizeDefinition: rt.DatasourceDefinitionAuthorizer, Authorize: rt.DatasourceAuthorizer, DisableCache: rt.DatasourceDisableCache}
+	opts := dssvc.Options{ProviderExecute: rt.DatasourceProviderExecutor, ExecutionContext: rt.ExecutionContext, PermissionResolver: rt.PermittedResolver, ComponentDispatcher: rt.ComponentDispatcher, Store: dsStore, ResolveDefinition: rt.DatasourceDefinitionResolver, ResolveResource: rt.DatasourceResourceRevalidator, AuthorizeDefinition: rt.DatasourceDefinitionAuthorizer, Authorize: rt.DatasourceAuthorizer, DisableCache: rt.DatasourceDisableCache}
 	if rt.Registry != nil {
 		if reg, ok := rt.Registry.(dsadapter.ToolRegistry); ok {
 			opts.Executor = dsadapter.FromRegistry(reg)

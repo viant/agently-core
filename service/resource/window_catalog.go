@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
@@ -136,6 +137,40 @@ func (c *WindowCatalog) Get(ctx context.Context, input *service.WindowDefinition
 	}
 	pin := *result.ResolvedResource
 	definition := selected.Window
+	providerOwned := false
+	for _, raw := range selected.DataSources {
+		var source struct {
+			Backend struct{ Kind, Ownership string }
+		}
+		if json.Unmarshal(raw, &source) != nil {
+			return nil, identity.ErrResourceDenied
+		}
+		if source.Backend.Ownership == "provider" && source.Backend.Kind == "datly" {
+			providerOwned = true
+		}
+	}
+	var executionProof *primitive.ExecutionProof
+	if input.Target != nil && input.Target.SelectionToken != "" {
+		if input.ResolvedResource == nil || c.TargetProof.Verify(ctx, *input.ResolvedResource, *input.Target, selected.Fingerprint, input.Target.SelectionToken) != nil {
+			return nil, identity.ErrResourceDenied
+		}
+		executionProof = input.Target.ExecutionProof
+	} else if input.Target != nil && input.Target.ExecutionProof != nil {
+		return nil, identity.ErrResourceDenied
+	}
+	if providerOwned {
+		if input.ResolvedResource != nil && executionProof == nil {
+			return nil, identity.ErrResourceDenied
+		}
+		if executionProof == nil {
+			executionProof = result.ExecutionProof
+		}
+		if err := matchProviderProof(pin, executionProof); err != nil {
+			return nil, err
+		}
+	} else if executionProof != nil {
+		return nil, identity.ErrResourceDenied
+	}
 	var dependencyPins map[string]identity.ResolvedResource
 	if len(selected.DataSourceResources) > 0 {
 		var existing map[string]identity.ResolvedResource
@@ -170,6 +205,7 @@ func (c *WindowCatalog) Get(ctx context.Context, input *service.WindowDefinition
 		target = *input.Target
 	}
 	target.DependencyPins = dependencyPins
+	target.ExecutionProof = executionProof
 	target, e = target.Normalize()
 	if e != nil {
 		return nil, e
@@ -212,6 +248,19 @@ func (c *WindowCatalog) Get(ctx context.Context, input *service.WindowDefinition
 	definition.Resource = &pin
 	definition.ResourceTarget = &target
 	return &service.WindowDefinitionGetOutput{WindowID: input.WindowID, Definition: definition}, nil
+}
+
+// RevalidateWindowResource is used only with a host-held instance pin/target.
+// Get performs fresh source/admission checks without replacing either proof.
+func (c *WindowCatalog) RevalidateWindowResource(ctx context.Context, key string, pin identity.ResolvedResource, target *types.WindowTarget) (*identity.ResolvedResource, error) {
+	result, err := c.Get(ctx, &service.WindowDefinitionGetInput{WindowID: key, ResolvedResource: &pin, Target: target})
+	if err != nil {
+		return nil, err
+	}
+	return result.Definition.Resource, nil
+}
+func (c *WindowCatalog) RevalidateResource(ctx context.Context, key string, pin identity.ResolvedResource) (*identity.ResolvedResource, error) {
+	return c.RevalidateWindowResource(ctx, key, pin, nil)
 }
 func (c *WindowCatalog) CheckWindowAdmission(ctx context.Context, key string) (bool, error) {
 	_, e := c.Get(ctx, &service.WindowDefinitionGetInput{WindowID: key})

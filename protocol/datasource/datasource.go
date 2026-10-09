@@ -57,6 +57,7 @@ const (
 	BackendFeedRef       BackendKind = "feed_ref"
 	BackendInline        BackendKind = "inline"
 	BackendAuthorization BackendKind = "authorization"
+	BackendDatly         BackendKind = "datly"
 )
 
 // Backend declares the upstream source for a DataSource.
@@ -67,12 +68,14 @@ const (
 // with token attached by protocol/mcp/manager WithAuthTokenContext).
 // service/datasource.Fetch preserves ctx by construction.
 type Backend struct {
+	// Ownership=provider retains execution at the selected resource provider.
+	Ownership     string                `json:"ownership,omitempty" yaml:"ownership,omitempty"`
 	Authorization *AuthorizationBinding `json:"authorization,omitempty" yaml:"authorization,omitempty"`
 	// ProducerKind is host-owned classification. Datly requires an exact component pin.
-	ProducerKind  string                     `json:"producerKind,omitempty" yaml:"producerKind,omitempty"`
+	ProducerKind  string                           `json:"producerKind,omitempty" yaml:"producerKind,omitempty"`
 	Component     *windowprotocol.ComponentBinding `json:"component,omitempty" yaml:"component,omitempty"`
-	ServerVersion string                     `json:"serverVersion,omitempty" yaml:"serverVersion,omitempty"`
-	Kind          BackendKind                `json:"kind" yaml:"kind"`
+	ServerVersion string                           `json:"serverVersion,omitempty" yaml:"serverVersion,omitempty"`
+	Kind          BackendKind                      `json:"kind" yaml:"kind"`
 
 	// mcp_tool
 	Service string `json:"service,omitempty" yaml:"service,omitempty"`

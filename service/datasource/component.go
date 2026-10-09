@@ -4,8 +4,9 @@ import (
 	"context"
 	"fmt"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
-	windowprotocol "github.com/viant/agently-core/protocol/window"
 	identity "github.com/viant/agently-core/protocol/resource"
+	windowprotocol "github.com/viant/agently-core/protocol/window"
+	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	"strings"
 )
 
@@ -14,6 +15,20 @@ func (s *Service) validateComponentSource(ctx context.Context, ds *dsproto.DataS
 		return nil
 	}
 	backend := ds.Backend
+	providerOwned := backend.Kind == dsproto.BackendDatly && backend.Ownership == "provider"
+	if (backend.Kind == dsproto.BackendDatly || backend.Ownership == "provider") && !providerOwned {
+		return identity.ErrResourceDenied
+	}
+	if providerOwned && (s.providerExecute == nil || backend.Service != "" || backend.Method == "" || backend.Component == nil) {
+		return identity.ErrResourceDenied
+	}
+	if providerOwned {
+		pin, ok := requestctx.ResolvedResourceFromContext(ctx)
+		target, targetOK := requestctx.WindowTargetFromContext(ctx)
+		if !ok || !targetOK || !strings.HasPrefix(pin.URI, "window://") || target.SelectionToken == "" || target.ExecutionProof == nil {
+			return identity.ErrResourceDenied
+		}
+	}
 	if backend.ProducerKind != "" && backend.ProducerKind != "datly" && backend.ProducerKind != "mcp" {
 		return fmt.Errorf("unknown datasource producer kind")
 	}
@@ -24,7 +39,7 @@ func (s *Service) validateComponentSource(ctx context.Context, ds *dsproto.DataS
 		}
 		return nil
 	}
-	if backend.Kind != dsproto.BackendMCPTool || backend.ProducerKind == "mcp" {
+	if (!providerOwned && backend.Kind != dsproto.BackendMCPTool) || backend.ProducerKind == "mcp" {
 		return fmt.Errorf("component source cannot downgrade to generic backend")
 	}
 	pin := backend.Component
@@ -33,6 +48,9 @@ func (s *Service) validateComponentSource(ctx context.Context, ds *dsproto.DataS
 	}
 	if pin.ID == "" || strings.TrimSpace(pin.ID) != pin.ID || pin.Revision == "" || strings.TrimSpace(pin.Revision) != pin.Revision || pin.Revision == "active" || pin.Revision == "latest" || pin.Revision == "working" || (pin.Kind != "linked" && pin.Kind != "dynamic") || !fingerprint(pin.ContentFingerprint) || !fingerprint(pin.SchemaFingerprint) {
 		return fmt.Errorf("incomplete exact component pin")
+	}
+	if providerOwned {
+		return nil
 	}
 	if s.components == nil || !s.components.IsComponentProducer(backend.Service) {
 		return fmt.Errorf("component producer exact transport unavailable")
