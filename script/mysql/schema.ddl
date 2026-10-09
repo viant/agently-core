@@ -137,6 +137,7 @@ CREATE TABLE turn
     model_override_provider TEXT,
     model_override          TEXT,
     model_params_override   TEXT,
+    run_id                  VARCHAR(255) NULL,
 
     CONSTRAINT fk_turn_conversation
         FOREIGN KEY (conversation_id) REFERENCES conversation (id) ON DELETE CASCADE
@@ -159,7 +160,8 @@ CREATE TABLE call_payload
                                                           ('model_request', 'model_response', 'provider_request',
                                                            'provider_response', 'model_stream', 'tool_request',
                                                            'tool_response', 'elicitation_request',
-                                                           'elicitation_response', 'attachment', 'agui.event')),
+                                                           'elicitation_response', 'elicitation_answer_receipt',
+                                                           'attachment', 'agui.event')),
     subtype                  TEXT,
     mime_type                TEXT         NOT NULL,
     size_bytes               BIGINT       NOT NULL,
@@ -202,10 +204,14 @@ CREATE TABLE `message`
     role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
     `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control', 'elicitation_request', 'elicitation_response')),
     content                MEDIUMTEXT,
+    preamble               TEXT NULL,
+    raw_content            MEDIUMTEXT NULL,
     summary                TEXT,
     context_summary        TEXT,
     tags                   TEXT,
     interim                BIGINT       NOT NULL DEFAULT 0 CHECK (interim IN (0, 1)),
+    iteration              BIGINT NULL,
+    phase                  VARCHAR(255) NULL,
     elicitation_id         VARCHAR(255),
     parent_message_id      VARCHAR(255),
     superseded_by          VARCHAR(255),

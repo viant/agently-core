@@ -130,7 +130,7 @@ CREATE TABLE call_payload
                                                           ('model_request', 'model_response', 'provider_request',
                                                            'provider_response', 'model_stream', 'tool_request',
                                                            'tool_response', 'elicitation_request',
-                                                           'elicitation_response', 'attachment')),
+                                                           'elicitation_response', 'elicitation_answer_receipt', 'attachment')),
     subtype                  TEXT,
     mime_type                TEXT         NOT NULL,
     size_bytes               BIGINT       NOT NULL,
@@ -2950,7 +2950,7 @@ BEGIN
         END IF;
         -- Preserve all existing payload kinds, extending only the protocol event class.
         ALTER TABLE call_payload DROP CHECK call_payload_chk_1;
-        ALTER TABLE call_payload ADD CONSTRAINT call_payload_chk_1 CHECK (kind IN ('model_request','model_response','provider_request','provider_response','model_stream','tool_request','tool_response','elicitation_request','elicitation_response','attachment','agui.event'));
+        ALTER TABLE call_payload ADD CONSTRAINT call_payload_chk_1 CHECK (kind IN ('model_request','model_response','provider_request','provider_response','model_stream','tool_request','tool_response','elicitation_request','elicitation_response','elicitation_answer_receipt','attachment','agui.event'));
         IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='conversation' AND INDEX_NAME='ux_conversation_protocol_thread') THEN
             CREATE UNIQUE INDEX ux_conversation_protocol_thread ON conversation (protocol_thread_key);
         END IF;
