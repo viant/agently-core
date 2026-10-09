@@ -112,13 +112,14 @@ func TestTechnicalMaintenance_MySQLDeletesTechnicalStateAndPreservesSavedReports
 	// Exercise every MySQL candidate query against exact fixture IDs. This is
 	// deterministic even when the developer database contains unrelated rows.
 	checks := []struct {
-		kind TechnicalMaintenanceKind
-		id   string
+		kind     TechnicalMaintenanceKind
+		priority int
+		id       string
 	}{
-		{TechnicalMaintenanceReportRun, runID},
-		{TechnicalMaintenanceReportExportJob, jobID},
-		{TechnicalMaintenanceReportAudit, auditID},
-		{TechnicalMaintenanceSession, sessionID},
+		{TechnicalMaintenanceReportRun, 10, runID},
+		{TechnicalMaintenanceReportExportJob, 20, jobID},
+		{TechnicalMaintenanceReportAudit, 30, auditID},
+		{TechnicalMaintenanceSession, 40, sessionID},
 	}
 	for _, check := range checks {
 		scope := TechnicalMaintenanceInteractive
@@ -128,6 +129,14 @@ func TestTechnicalMaintenance_MySQLDeletesTechnicalStateAndPreservesSavedReports
 		result, err := svc.MaintainTechnicalCandidate(ctx, TechnicalMaintenanceRequest{Kind: check.kind, Scope: scope, RecordID: check.id, OlderThan: cutoff, EvaluatedAt: evaluatedAt, Mode: ConversationMaintenanceDryRun})
 		if err != nil || result == nil || !result.Eligible {
 			t.Fatalf("exact MySQL candidate kind=%s result=%#v err=%v", check.kind, result, err)
+		}
+		// A non-empty cursor exercises the generated reader's paginated SQL.
+		// Exact-ID reads above cannot catch parser failures on the next page.
+		cursor := fmt.Sprintf("%04d%s%s%s%s", check.priority, technicalMaintenanceCursorSeparator, check.kind, technicalMaintenanceCursorSeparator, check.id)
+		if _, err = svc.ListTechnicalMaintenanceCandidates(ctx, TechnicalMaintenanceCandidateRequest{
+			Scope: scope, OlderThan: cutoff, EvaluatedAt: evaluatedAt, AfterCursor: cursor, Limit: 1,
+		}); err != nil {
+			t.Fatalf("paginated MySQL candidates kind=%s: %v", check.kind, err)
 		}
 	}
 	recent, err := svc.MaintainTechnicalCandidate(ctx, TechnicalMaintenanceRequest{Kind: TechnicalMaintenanceSession, Scope: TechnicalMaintenanceUnclassified, RecordID: recentSessionID, OlderThan: cutoff, EvaluatedAt: evaluatedAt, Mode: ConversationMaintenanceDryRun})

@@ -12,7 +12,7 @@ import (
 )
 
 // TechnicalRetention is supplied only by the trusted retention orchestration.
-// Predicates keep cutoff, TTL, reference guards and binary cursors in SQL.
+// Predicates keep cutoff, TTL, reference guards and keyset cursors in SQL.
 type TechnicalRetention struct {
 	Scope       string
 	OlderThan   time.Time
@@ -72,7 +72,8 @@ func technicalFinish(policy *TechnicalRetention, dialect, identity, expression s
 		args = append(args, policy.ExactRecord)
 	} else if policy.AfterRecord != "" {
 		if strings.Contains(dialect, "mysql") {
-			expression += " AND BINARY CAST(" + identity + " AS CHAR)>BINARY ?"
+			// Match the reader's ORDER BY on the ID column, including its collation.
+			expression += " AND " + identity + ">?"
 		} else {
 			expression += " AND CAST(" + identity + " AS TEXT) COLLATE BINARY > ? COLLATE BINARY"
 		}
