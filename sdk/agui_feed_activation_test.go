@@ -27,15 +27,16 @@ func feedActivationContent(t *testing.T, store aguistore.Store, runID string) ma
 }
 func TestAGUIFeedActivationUnknownDataDoesNotBecomeActiveAndForeignEventsDoNotRefresh(t *testing.T) {
 	server, _, _ := atomicGoalFixture(t)
-	store := aguistore.New(server)
+	store := observeSubscriptionCommits(aguistore.New(server))
 	ctx := context.Background()
 	record := atomicGoalRecord(t, store, "feed.subscribe", "unknown", json.RawMessage(`{"id":"feed","durationSeconds":1}`))
 	client := &liveFeedClient{bus: streaming.NewMemoryBus(32), data: json.RawMessage(`{"rows":[{"retained":true}]}`)}
 	observer, cancel := context.WithCancel(ctx)
 	defer cancel()
-	done := make(chan error, 1)
-	go func() { done <- observeAGUIFeed(observer, client, store, record, "feed", time.Minute) }()
-	require.Eventually(t, func() bool { return feedActivationContent(t, store, record.RunID) != nil }, time.Second, 10*time.Millisecond)
+	done := startSubscriptionObserver(t, cancel, func() error { return observeAGUIFeed(observer, client, store, record, "feed", time.Minute) })
+	require.Eventually(t, func() bool {
+		return store.afterCommit(func() bool { return feedActivationContent(t, store, record.RunID) != nil })
+	}, time.Second, 10*time.Millisecond)
 	initial := feedActivationContent(t, store, record.RunID)
 	require.Nil(t, initial["active"])
 	require.Equal(t, false, initial["activationKnown"])
@@ -46,7 +47,9 @@ func TestAGUIFeedActivationUnknownDataDoesNotBecomeActiveAndForeignEventsDoNotRe
 	require.Equal(t, 1, client.reads)
 	client.mu.Unlock()
 	require.NoError(t, client.bus.Publish(ctx, &streaming.Event{Type: streaming.EventTypeToolFeedInactive, ConversationID: "goal-thread", FeedID: "feed", CreatedAt: time.Now()}))
-	require.Eventually(t, func() bool { return feedActivationContent(t, store, record.RunID)["active"] == false }, time.Second, 10*time.Millisecond)
+	require.Eventually(t, func() bool {
+		return store.afterCommit(func() bool { return feedActivationContent(t, store, record.RunID)["active"] == false })
+	}, time.Second, 10*time.Millisecond)
 	latest := feedActivationContent(t, store, record.RunID)
 	require.Equal(t, true, latest["activationKnown"])
 	require.Contains(t, string(rawAGUI(latest["feed"])), "retained")
@@ -58,7 +61,7 @@ func TestAGUIFeedActivationRecoversRenewedJournalAndColdThreadStatusWithoutChatM
 	for _, source := range []string{"journal", "thread"} {
 		t.Run(source, func(t *testing.T) {
 			server, _, _ := atomicGoalFixture(t)
-			store := aguistore.New(server)
+			store := observeSubscriptionCommits(aguistore.New(server))
 			ctx := context.Background()
 			record := atomicGoalRecord(t, store, "feed.subscribe", "recovered", json.RawMessage(`{"id":"feed","durationSeconds":1}`))
 			thread, err := store.GetThread(ctx, "owner", "goal-thread")
@@ -80,11 +83,12 @@ func TestAGUIFeedActivationRecoversRenewedJournalAndColdThreadStatusWithoutChatM
 			client := &liveFeedClient{bus: streaming.NewMemoryBus(32), data: json.RawMessage(`{"rows":[1]}`)}
 			observer, cancel := context.WithCancel(ctx)
 			defer cancel()
-			done := make(chan error, 1)
-			go func() { done <- observeAGUIFeed(observer, client, store, record, "feed", time.Minute) }()
+			done := startSubscriptionObserver(t, cancel, func() error { return observeAGUIFeed(observer, client, store, record, "feed", time.Minute) })
 			require.Eventually(t, func() bool {
-				value := feedActivationContent(t, store, record.RunID)
-				return value != nil && value["activationKnown"] == true
+				return store.afterCommit(func() bool {
+					value := feedActivationContent(t, store, record.RunID)
+					return value != nil && value["activationKnown"] == true
+				})
 			}, time.Second, 10*time.Millisecond)
 			require.Equal(t, false, feedActivationContent(t, store, record.RunID)["active"])
 			cancel()

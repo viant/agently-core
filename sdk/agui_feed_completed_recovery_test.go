@@ -200,16 +200,17 @@ func TestFeedRecoveryMergesOlderBufferedLiveAndPersistsUnknownOriginalFact(t *te
 			if ambiguous {
 				older = time.Time{}
 			}
-			store := bufferedRecoveryFeedStore{Store: baseStore, reader: baseStore, beforeReturn: func() {
+			store := observeSubscriptionCommits(bufferedRecoveryFeedStore{Store: baseStore, reader: baseStore, beforeReturn: func() {
 				require.NoError(t, client.bus.Publish(ctx, &streaming.Event{Type: streaming.EventTypeToolFeedActive, ConversationID: "goal-thread", FeedID: "feed", CreatedAt: older}))
-			}}
+			}})
 			observer, cancel := context.WithCancel(ctx)
 			defer cancel()
-			done := make(chan error, 1)
-			go func() { done <- observeAGUIFeed(observer, client, store, record, "feed", time.Minute) }()
+			done := startSubscriptionObserver(t, cancel, func() error { return observeAGUIFeed(observer, client, store, record, "feed", time.Minute) })
 			require.Eventually(t, func() bool {
-				content := feedActivationContent(t, baseStore, record.RunID)
-				return content != nil && content["activationFact"] != nil
+				return store.afterCommit(func() bool {
+					content := feedActivationContent(t, baseStore, record.RunID)
+					return content != nil && content["activationFact"] != nil
+				})
 			}, time.Second, 10*time.Millisecond)
 			latest := feedActivationContent(t, baseStore, record.RunID)
 			if ambiguous {
