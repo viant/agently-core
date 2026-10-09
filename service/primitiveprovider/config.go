@@ -8,8 +8,9 @@ import (
 
 // Config configures the Forge UI bridge service.
 type Config struct {
-	WindowOpenAdmission WindowOpenAdmission
-	ReportCatalog       catalog.Provider
+	WindowReadDecisionScope WindowReadDecisionScope
+	WindowOpenAdmission     WindowOpenAdmission
+	ReportCatalog           catalog.Provider
 	// ResolvedWindowAuthorizer authorizes UI commands (including selected query
 	// inputs/actions) against the server-held instance pin. Required for targeted
 	// commands when canonical window resolution is enabled.
