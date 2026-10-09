@@ -15,10 +15,12 @@ var _ agent.Finder = (*Finder)(nil)
 
 // Finder is an in-memory cache with optional lazy-loading through Loader.
 type Finder struct {
-	mu      sync.RWMutex
-	items   map[string]*agent.Agent
-	loader  agent.Loader
-	version int64
+	mu          sync.RWMutex
+	items       map[string]*agent.Agent
+	loader      agent.Loader
+	version     int64
+	preloadOnce sync.Once
+	preloadErr  error
 }
 
 // All returns a snapshot of all cached agents.
@@ -135,4 +137,52 @@ func New(options ...Option) *Finder {
 		opt(d)
 	}
 	return d
+}
+
+// Preload resolves configured local assets once during host startup. Request-time
+// All remains an in-memory snapshot, and this does not install a file watcher.
+func (d *Finder) Preload(ctx context.Context) error {
+	if d == nil {
+		return nil
+	}
+	catalog, ok := d.loader.(interface {
+		LoadAgents(context.Context, string) ([]*agent.Agent, error)
+	})
+	if !ok {
+		return nil
+	}
+	d.preloadOnce.Do(func() {
+		agents, err := catalog.LoadAgents(ctx, "agents")
+		if err != nil {
+			d.preloadErr = fmt.Errorf("preload configured agents: %w", err)
+			return
+		}
+		loaded := make(map[string]*agent.Agent, len(agents))
+		for _, a := range agents {
+			if a == nil {
+				continue
+			}
+			id := strings.TrimSpace(a.ID)
+			if id == "" {
+				id = strings.TrimSpace(a.Name)
+			}
+			if id == "" {
+				d.preloadErr = fmt.Errorf("configured agent has no identity")
+				return
+			}
+			normalized := *a
+			normalized.ID = id
+			loaded[id] = &normalized
+		}
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		for id, a := range loaded {
+			if _, configured := d.items[id]; configured {
+				continue
+			}
+			d.items[id] = a
+			atomic.AddInt64(&d.version, 1)
+		}
+	})
+	return d.preloadErr
 }
