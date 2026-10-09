@@ -35,7 +35,7 @@ CREATE TABLE IF NOT EXISTS conversation (
     conversation_parent_turn_id TEXT,
     metadata TEXT,
     visibility TEXT NOT NULL DEFAULT 'private',
-    shareable INTEGER NOT NULL DEFAULT 0 CHECK (shareable IN (0,1)),
+    shareable INTEGER NOT NULL DEFAULT 0,
     status TEXT,
     scheduled INTEGER,
     schedule_id TEXT,
@@ -563,19 +563,6 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     report_run_revision INTEGER,
     export_request_id TEXT,
     UNIQUE(owner_id, conversation_id, export_request_id),
-    CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
-    CHECK (
-      (report_run_id IS NULL AND report_run_revision IS NULL AND export_request_id IS NULL)
-      OR
-      (
-        report_run_id IS NOT NULL
-        AND report_run_revision IS NOT NULL
-        AND report_run_revision > 0
-        AND export_request_id IS NOT NULL
-        AND conversation_id IS NOT NULL
-      )
-    ),
-    CHECK (report_run_id IS NULL OR (format = 'pdf' AND scope = 'draft')),
     FOREIGN KEY(report_run_id) REFERENCES report_run(report_run_id) ON DELETE RESTRICT
 );
 
@@ -631,7 +618,7 @@ CREATE TABLE IF NOT EXISTS report_run (
     source_id TEXT,
     requested_params_json BLOB,
     effective_params_json BLOB,
-    status TEXT NOT NULL CHECK (status IN ('running', 'completed', 'failed')),
+    status TEXT NOT NULL,
     failure_code TEXT,
     failure_text TEXT,
     started_at DATETIME NOT NULL,
@@ -681,7 +668,7 @@ CREATE TABLE IF NOT EXISTS tool_execution_claim (
     canonical_tool_name TEXT NOT NULL,
     turn_id TEXT NOT NULL,
     semantic_request_hash TEXT NOT NULL,
-    state TEXT NOT NULL CHECK (state IN ('claimed', 'completed', 'failed', 'unknown')),
+    state TEXT NOT NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finished_at DATETIME
