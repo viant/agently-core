@@ -96,7 +96,7 @@ func newCoordinatedApprovalFixture(t *testing.T, approvals int, mixed bool) *coo
 		message.SetConversationID("approval-thread")
 		message.SetTurnID("approval-turn")
 		message.SetRole("tool")
-		message.SetType("tool_call")
+		message.SetType("tool_op")
 		message.SetParentMessageID("approval-assistant")
 		require.NoError(t, c.conv.PatchMessage(ctx, message))
 		payloadID := messageID + "/request"
@@ -114,8 +114,8 @@ func newCoordinatedApprovalFixture(t *testing.T, approvals int, mixed bool) *coo
 		call.SetTurnID("approval-turn")
 		call.SetOpID(op)
 		call.SetToolName("backend")
-		call.SetToolKind("function")
-		call.SetStatus("waiting_for_user")
+		call.SetToolKind("general")
+		call.SetStatus("queued")
 		call.RequestPayloadID = &payloadID
 		call.Has.RequestPayloadID = true
 		require.NoError(t, c.conv.PatchToolCall(ctx, call))
