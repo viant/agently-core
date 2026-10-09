@@ -766,7 +766,8 @@ func NewLocalMCPHandler(provider *LocalProvider, protect func(http.Handler) http
 	return handler, nil
 }
 
-func newLocalMCPServer(provider *LocalProvider) (*mcp.Server, error) {
+func newLocalMCPServer(provider *LocalProvider, compact ...bool) (*mcp.Server, error) {
+	compactNative := len(compact) > 0 && compact[0]
 	return mcp.New(mcp.WithImplementation(schema.Implementation{Name: "agently-local-resources", Version: "1"}), mcp.WithStreamableURI("/mcp"), mcp.WithRootRedirect(false), mcp.WithNewHandler(func(_ context.Context, n transport.Notifier, l logger.Logger, c client.Operations) (protocol.Handler, error) {
 		h := &localMCPHandler{DefaultHandler: protocol.NewDefaultHandler(n, l, c), provider: provider}
 		for _, method := range provider.installedTools() {
@@ -797,7 +798,22 @@ func newLocalMCPServer(provider *LocalProvider) (*mcp.Server, error) {
 				if e != nil {
 					value = map[string]string{"code": "resource_unavailable", "message": "local resource operation denied or unavailable"}
 				}
-				encoded, marshalErr := json.Marshal(value)
+				compactGet := false
+				if compactNative && !failed {
+					if get, ok := value.(*primitive.GetResult); ok && get.Resource != nil && len(get.Resource.DefinitionBytes) > 0 {
+						resource := *get.Resource
+						resource.Definition = nil
+						projected := *get
+						projected.Resource = &resource
+						value = &projected
+						compactGet = true
+					}
+				}
+				encoded := []byte("Resource definition returned in structuredContent.")
+				var marshalErr error
+				if !compactGet {
+					encoded, marshalErr = json.Marshal(value)
+				}
 				if marshalErr != nil {
 					return nil, jsonrpc.NewInternalError("resource response unavailable", nil)
 				}

@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
-	service "github.com/viant/agently-core/service/primitiveprovider"
 	identity "github.com/viant/agently-core/protocol/resource"
+	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
 	"strings"
 	"time"
@@ -70,7 +70,7 @@ func (c *WindowCatalog) List(ctx context.Context, input *service.WindowDefinitio
 		}
 		// List is metadata only. Provider list admission decides visibility; opening
 		// always intersects the exact selected definition with host admission.
-		summaries = append(summaries, service.WindowDefinitionSummary{ResourceURI: row.Resource.URI, Name: row.Resource.Name, WindowID: encodeWindowLocator(row.Connection, row.Resource.URI), Title: row.Resource.Title, Namespace: row.Resource.Namespace})
+		summaries = append(summaries, service.WindowDefinitionSummary{ProviderIdentity: row.Connection.ProviderIdentity, ResourceURI: row.Resource.URI, Name: row.Resource.Name, WindowID: encodeWindowLocator(row.Connection, row.Resource.URI), Title: row.Resource.Title, Namespace: row.Resource.Namespace})
 	}
 	offset := input.Offset
 	if offset > len(summaries) {
