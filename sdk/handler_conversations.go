@@ -97,7 +97,15 @@ func handleGetConversation(client Client) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))
 			return
 		}
-		out, err := client.GetConversation(r.Context(), id)
+		var out *conversation.Conversation
+		var err error
+		if reader, ok := client.(interface {
+			getConversationHeader(context.Context, string) (*conversation.Conversation, error)
+		}); ok && r.URL.Query().Get("includeTranscript") == "false" {
+			out, err = reader.getConversationHeader(r.Context(), id)
+		} else {
+			out, err = client.GetConversation(r.Context(), id)
+		}
 		if err != nil {
 			httpError(w, http.StatusInternalServerError, err)
 			return
@@ -115,6 +123,11 @@ func handleGetConversation(client Client) http.HandlerFunc {
 		if out == nil {
 			httpJSON(w, http.StatusOK, out)
 			return
+		}
+		if r.URL.Query().Get("includeTranscript") == "false" {
+			copied := *out
+			copied.Transcript = nil
+			out = &copied
 		}
 		httpJSON(w, http.StatusOK, struct {
 			*conversation.Conversation
@@ -193,6 +206,9 @@ func handleGetTranscript(client Client) http.HandlerFunc {
 			for name, selector := range decoded {
 				opts = append(opts, WithTranscriptSelector(name, selector))
 			}
+		}
+		if q.Get("includeModelPayloads") == "false" {
+			opts = append(opts, WithIncludeModelPayloads(false))
 		}
 		if q.Get("includeFeeds") == "true" {
 			opts = append(opts, WithIncludeFeeds())
@@ -366,6 +382,9 @@ func handleGetLiveState(client Client) http.HandlerFunc {
 		}
 		q := r.URL.Query()
 		var opts []TranscriptOption
+		if q.Get("includeModelPayloads") == "false" {
+			opts = append(opts, WithIncludeModelPayloads(false))
+		}
 		if q.Get("includeFeeds") == "true" {
 			opts = append(opts, WithIncludeFeeds())
 		}

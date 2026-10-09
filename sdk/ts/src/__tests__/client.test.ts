@@ -1688,3 +1688,33 @@ describe('skills', () => {
         expect(JSON.parse(String(fetch.mock.calls[0][1]?.body))).toEqual({args: 'data'});
     });
 });
+
+describe('Opt-in compact history', () => {
+    it('keeps conversation defaults and optionally excludes raw transcript', async () => {
+        const f = mockFetch(200, {id: 'owned'}); const c = client(f);
+        await c.getConversation('owned');
+        expect(lastCall(f).url).not.toContain('includeTranscript');
+        await c.getConversation('owned', {includeTranscript: false});
+        expect(lastCall(f).url).toContain('includeTranscript=false');
+    });
+    it('forwards explicit model payload omission through native history fallback', async () => {
+        const f = mockFetch(200, {schemaVersion:'2', conversation:{conversationId:'owned',turns:[]}}); const c=client(f);
+        await c.readConversationHistory({conversationId:'owned',includeModelCalls:true,includeToolCalls:true,includeModelPayloads:false});
+        expect(lastCall(f).url).toContain('includeModelCalls=true');
+        expect(lastCall(f).url).toContain('includeToolCalls=true');
+        expect(lastCall(f).url).toContain('includeModelPayloads=false');
+    });
+});
+
+it('falls back only for an old compact-field envelope schema rejection', async () => {
+    const f=mockFetch(200,{schemaVersion:'2',conversation:{conversationId:'owned',turns:[]}});const c=client(f);
+    const rejected=new HttpError(400,'Bad Request','{"code":"invalidEnvelope","message":"jsonschema validation failed https://agently.local/conversation-v1.schema.json#/$defs/Envelope at payload additionalProperties includeModelPayloads not allowed"}');
+    vi.spyOn((c as any).agUiInteractions,'readSnapshot').mockRejectedValue(rejected);
+    await c.getTranscript({conversationId:'owned',includeModelCalls:true,includeToolCalls:true,includeModelPayloads:false});
+    expect(lastCall(f).url).toContain('/transcript');
+    expect(lastCall(f).url).toContain('includeModelPayloads=false');
+    for(const error of [new HttpError(400,'Bad Request','invalidEnvelope other field'),new HttpError(401,'Unauthorized',rejected.body),new HttpError(400,'Bad Request','business validation failed includeModelPayloads')]){
+        vi.mocked((c as any).agUiInteractions.readSnapshot).mockRejectedValue(error);
+        await expect(c.getTranscript({conversationId:'owned',includeModelPayloads:false})).rejects.toBe(error);
+    }
+});
