@@ -271,6 +271,18 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 			return nil, err
 		}
 		ctx = baseCtx
+		if openedPin != nil {
+			terminalCtx, stop := context.WithDeadline(ctx, openedLease)
+			if openedLease.IsZero() {
+				stop()
+				terminalCtx, stop = context.WithDeadline(ctx, openedPin.ValidUntil)
+			}
+			err := s.checkWindowContentCurrent(terminalCtx, windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget})
+			stop()
+			if err != nil {
+				return nil, err
+			}
+		}
 	}
 	// Receiver verification must not allow an original resource/action lease
 	// to expire while the command waits to be written or queued.
@@ -301,6 +313,20 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 			if err := finish(); err != nil {
 				output = nil
 				resultErr = err
+				return
+			}
+			if openedPin != nil {
+				terminalCtx, stop := context.WithDeadline(baseCtx, openedPin.ValidUntil)
+				defer stop()
+				if !openedLease.IsZero() {
+					var stopLease context.CancelFunc
+					terminalCtx, stopLease = context.WithDeadline(terminalCtx, openedLease)
+					defer stopLease()
+				}
+				if err := s.checkWindowContentCurrent(terminalCtx, windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget}); err != nil {
+					output = nil
+					resultErr = err
+				}
 			}
 		}()
 	}

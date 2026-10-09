@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/policy"
 	ui "github.com/viant/agently-core/service/primitiveprovider"
 	"strings"
@@ -18,7 +19,7 @@ func trustedUINamespace(snapshot policy.AuthoritySnapshotResolver, clearScopes .
 		if snapshot == nil || ctx == nil || ctx.Err() != nil {
 			return ui.NamespaceIdentity{}, policy.ErrIdentityRejected
 		}
-		if len(clearScopes) > 0 && clearScopes[0] != nil {
+		if !requestctx.WindowReadDecisionActive(ctx) && len(clearScopes) > 0 && clearScopes[0] != nil {
 			ctx = clearScopes[0](ctx)
 			if ctx == nil || ctx.Err() != nil {
 				return ui.NamespaceIdentity{}, policy.ErrIdentityRejected

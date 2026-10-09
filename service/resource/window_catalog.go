@@ -15,10 +15,15 @@ import (
 // WindowAdmission is an explicit host intersection with delegated provider
 // authorization. It receives only the server-read exact definition and pin.
 type WindowAdmission func(context.Context, identity.ResolvedResource, *types.Window) error
+type WindowContentCheck func(context.Context, identity.ResolvedResource) error
+
 type WindowCatalog struct {
-	Gateway     *Gateway
-	Admission   WindowAdmission
-	TargetProof types.WindowTargetProof
+	// ContentCurrent is supplied only by the authoritative host for each owner.
+	// Unregistered providers retain an exact, authorized Get as the final check.
+	ContentCurrent map[string]WindowContentCheck
+	Gateway        *Gateway
+	Admission      WindowAdmission
+	TargetProof    types.WindowTargetProof
 }
 type windowLocator struct {
 	Connection Connection `json:"connection"`
@@ -271,4 +276,48 @@ func (c *WindowCatalog) VerifyWindowTarget(ctx context.Context, pin identity.Res
 		return identity.ErrResourceDenied
 	}
 	return c.TargetProof.Verify(ctx, pin, target, variant, target.SelectionToken)
+}
+
+// CheckWindowContent is the terminal check after a pure identity phase finishes.
+// It never selects a new candidate, accepts a caller source, or renews a pin.
+func (c *WindowCatalog) CheckWindowContent(ctx context.Context, key string, pin identity.ResolvedResource, target *types.WindowTarget) error {
+	if c == nil || !c.AuthzReady() || ctx == nil || ctx.Err() != nil || !pin.ValidUntil.After(time.Now()) {
+		return identity.ErrResourceDenied
+	}
+	if strings.HasPrefix(key, locatorPrefix) {
+		loc, err := decodeWindowLocator(key)
+		if err != nil || loc.URI != pin.URI || loc.Connection.ProviderIdentity != pin.ProviderIdentity {
+			return identity.ErrResourceDenied
+		}
+	} else {
+		uri, err := identity.ParseResourceURI(key)
+		if err != nil || uri.Kind != "window" || uri.String() != pin.URI {
+			return identity.ErrResourceDenied
+		}
+	}
+	if check := c.ContentCurrent[pin.ProviderIdentity]; check != nil {
+		if err := check(ctx, pin); err != nil {
+			return err
+		}
+	} else {
+		connection, err := c.Gateway.ConnectionForProvider(ctx, pin.ProviderIdentity)
+		if err != nil {
+			return err
+		}
+		result, err := c.Gateway.Get(ctx, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
+		if err != nil {
+			return err
+		}
+		if result == nil || result.ResolvedResource == nil {
+			return identity.ErrResourceDenied
+		}
+		current := result.ResolvedResource
+		if current.URI != pin.URI || current.ProviderIdentity != pin.ProviderIdentity || current.ResourceCandidate != pin.ResourceCandidate || current.AuthorityBinding != pin.AuthorityBinding || current.ValidUntil.After(pin.ValidUntil) || !current.ValidUntil.After(time.Now()) {
+			return identity.ErrResourceDenied
+		}
+	}
+	if ctx.Err() != nil || !pin.ValidUntil.After(time.Now()) {
+		return identity.ErrResourceDenied
+	}
+	return nil
 }
