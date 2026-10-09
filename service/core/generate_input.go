@@ -230,7 +230,12 @@ func historyLLMMessagesWithExpandedCurrentPrompt(h *binding.History, expandedPro
 	}
 	expandedUser := func(prompt string, attachments []*binding.Attachment, id string) llm.Message {
 		if taskItems != nil {
-			return llm.Message{Role: llm.RoleUser, ID: id, Content: prompt, Items: append([]llm.ContentItem(nil), taskItems...)}
+			references := binding.AttachmentResourceReferences(attachments)
+			items := binding.ModelContentItems(taskItems, attachments)
+			if references != "" {
+				items = append(items, llm.NewTextContent(strings.TrimSpace(references)))
+			}
+			return llm.Message{Role: llm.RoleUser, ID: id, Content: prompt + references, Items: items}
 		}
 		return newExpandedUserLLMMessage(prompt, attachments, id)
 	}
@@ -356,13 +361,14 @@ func mergePromptAttachments(task, history []*binding.Attachment) []*binding.Atta
 }
 
 func newExpandedUserLLMMessage(content string, attachments []*binding.Attachment, messageID string) llm.Message {
+	content += binding.AttachmentResourceReferences(attachments)
 	var msg llm.Message
 	if len(attachments) == 0 {
 		msg = llm.NewUserMessage(content)
 	} else {
 		items := make([]*llm.AttachmentItem, 0, len(attachments))
 		for _, attachment := range attachments {
-			if attachment == nil || len(attachment.Data) == 0 {
+			if attachment == nil || attachment.ResourceMetadataOnly() || len(attachment.Data) == 0 {
 				continue
 			}
 			items = append(items, &llm.AttachmentItem{

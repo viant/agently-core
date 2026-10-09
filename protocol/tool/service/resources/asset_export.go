@@ -28,6 +28,17 @@ func (s *Service) exportAsset(ctx context.Context, in, out interface{}) error {
 		return err
 	}
 	format := strings.ToLower(req.Output.Format)
+	if req.Operation == "copy" {
+		if format != "original" || req.Select != nil {
+			return fmt.Errorf("copy requires original whole-resource output")
+		}
+		d, err := scratchpadsvc.New().PublishArtifact(ctx, "", a.name, a.mime, a.uri, bytes.NewReader(a.data))
+		if err != nil {
+			return err
+		}
+		*result = ExportOutput{Resources: []*scratchpadsvc.ArtifactDescriptor{d}, SourceVersion: a.version, Complete: true}
+		return nil
+	}
 	if req.Operation == "render" || req.Operation == "extractImages" {
 		return s.exportPDFMedia(ctx, a, req, result)
 	}
