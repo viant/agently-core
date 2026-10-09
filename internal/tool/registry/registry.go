@@ -38,8 +38,6 @@ import (
 	"github.com/viant/agently-core/runtime/mcpapps"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	mcprepo "github.com/viant/agently-core/workspace/repository/mcp"
-	"github.com/viant/authz/gating"
-	windowprotocol "github.com/viant/agently-core/protocol/window"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 
@@ -95,8 +93,6 @@ func (r *Registry) isDelegatedAuthServer(ctx context.Context, serverName string)
 // Registry bridges per-server MCP tools and internal services to the generic
 // tool.Registry interface so that callers can use dependency injection.
 type Registry struct {
-	componentProducer   func(string) bool
-	componentAuthority  func(context.Context) (gating.Principal, error)
 	debugWriter         io.Writer
 	authorizationGuard  func(context.Context, string, map[string]interface{}) error
 	resultReuseDisabled bool
@@ -916,8 +912,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	r.mu.RLock()
 	guard := r.executionProtection
 	authGuard := r.authorizationGuard
-	_, componentBound := ctx.Value(expectedComponentKey{}).(windowprotocol.ComponentBinding)
-	reuseAllowed := authGuard == nil && !r.resultReuseDisabled && !componentBound
+	reuseAllowed := authGuard == nil && !r.resultReuseDisabled
 	r.mu.RUnlock()
 	if authGuard != nil {
 		if err := authGuard(ctx, baseName, callArgs); err != nil {
@@ -964,9 +959,6 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	h, ok := r.virtualExec[baseName]
 	r.mu.RUnlock()
 	if ok && !hostScoped {
-		if componentBound {
-			return "", fmt.Errorf("component-bound call cannot use a virtual executable")
-		}
 		out, err := h(ctx, callArgs)
 		if err != nil || selector == "" {
 			return out, err
@@ -984,9 +976,6 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	}
 	if !resolvedIdentity {
 		serviceName, _ = splitToolName(baseName)
-	}
-	if r.componentRequired(serviceName) {
-		reuseAllowed = false
 	}
 	hasInternalClient := false
 	if serviceName != "" {
@@ -1116,88 +1105,17 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return "", appErr
 	}
 
-	expected, bound := ctx.Value(expectedComponentKey{}).(windowprotocol.ComponentBinding)
-	required := r.componentRequired(server)
-	if required && !bound {
-		if _, hasResource := runtimerequestctx.ResolvedResourceFromContext(ctx); hasResource {
-			return "", fmt.Errorf("resource-bound native call requires approved component pin")
-		}
-		expected, err = r.ObserveNativeComponent(ctx, server, method)
-		if err != nil {
-			return "", err
-		}
-		bound = true
-	}
-	var componentMeta mcpschema.RequestMetaObject
-	var validateComponentResult func() error
-	if bound {
-		observed, observeErr := r.ObserveNativeComponent(ctx, server, method)
-		if observeErr != nil {
-			return "", observeErr
-		}
-		if err = windowprotocol.ValidateComponentDispatch(&expected, observed); err != nil {
-			return "", err
-		}
-		componentMeta, err = componentRequestMeta(expected)
-		if err != nil {
-			return "", err
-		}
-		initial, authorityErr := r.componentAuthorityBefore(ctx)
-		if authorityErr != nil {
-			return "", authorityErr
-		}
-		validateComponentResult = func() error {
-			actual, err := r.ObserveNativeComponent(ctx, server, method)
-			if err != nil {
-				return err
-			}
-			if err = windowprotocol.ValidateComponentDispatch(&expected, actual); err != nil {
-				return err
-			}
-			if authGuard != nil {
-				if err = authGuard(ctx, baseName, callArgs); err != nil {
-					return err
-				}
-			}
-			if err = r.componentAuthorityAfter(ctx, initial); err != nil {
-				return err
-			}
-			if ctx.Err() != nil || !initial.Facts.ValidUntil.After(time.Now()) {
-				return fmt.Errorf("native component authority lease ended")
-			}
-			return nil
-		}
-		defer func() {
-			if retErr == nil {
-				if err := validateComponentResult(); err != nil {
-					result, retErr = "", err
-				}
-			}
-		}()
-		reuseAllowed = false
-		maxAttempts = 1
-		options = append(options, mcpclient.WithNoRetry())
-	}
 	var res *mcpschema.CallToolResult
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		attemptStart := time.Now()
 		debugMCPExecf("registry calltool start server=%s base=%s attempt=%d argsBytes=%d", server, baseName, attempt+1, len(keyArgs))
-		if bound {
-			res, err = cli.CallTool(ctx, &mcpschema.CallToolRequestParams{Name: method, Arguments: callArgs, Meta: componentMeta}, options...)
-		} else if resolvedIdentity {
+		if resolvedIdentity {
 			res, err = cli.CallTool(ctx, &mcpschema.CallToolRequestParams{Name: literalMethod, Arguments: callArgs}, options...)
 		} else {
 			res, err = px.CallTool(ctx, baseName, callArgs, options...)
 		}
 		debugMCPExecf("registry calltool done server=%s base=%s attempt=%d elapsed=%s err=%v nilResult=%v", server, baseName, attempt+1, time.Since(attemptStart).Round(time.Millisecond), err, res == nil)
 		if err == nil {
-			// Do not publish MCP app activity or capture response artifacts before
-			// the exact component and original authority are revalidated.
-			if res != nil && validateComponentResult != nil {
-				if err := validateComponentResult(); err != nil {
-					return "", err
-				}
-			}
 			if res != nil {
 				if captureErr := mcpapps.Record(ctx, server, func() string {
 					if literalMethod != "" {

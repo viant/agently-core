@@ -63,7 +63,7 @@ func (s *Service) validateComponentSource(ctx context.Context, ds *dsproto.DataS
 	if backend.ProducerKind != "" && backend.ProducerKind != "datly" && backend.ProducerKind != "mcp" {
 		return fmt.Errorf("unknown datasource producer kind")
 	}
-	classified := backend.ProducerKind == "datly" || s.components != nil && s.components.IsComponentProducer(backend.Service)
+	classified := backend.ProducerKind == "datly"
 	if backend.Component == nil {
 		if classified {
 			return fmt.Errorf("Datly producer requires an exact component pin")
