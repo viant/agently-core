@@ -93,6 +93,7 @@ type Runtime struct {
 	PrimitiveWindows         *resourcesvc.CompositeWindowCatalog
 	LocalPrimitiveProvider   *resourcesvc.LocalProvider
 	localPrimitiveRegistered bool
+	standaloneDSConfigured   bool
 	Defaults                 *config.Defaults
 	// AuthorizationTool is the workspace-configured MCP adapter for permitted
 	// Forge views.
@@ -955,7 +956,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		if out.ReportRuns != nil {
 			out.ReportRuns.RequireCanonicalExecution()
 		}
-		out.Reporting.SetResourceDatasetExecutor(reportingsvc.NewResourceDatasetExecutor(out.Registry, out.Reporting.AuthorizeResourceDataset, out.ComponentDispatcher))
+		out.Reporting.SetResourceDatasetExecutor(reportingsvc.NewResourceDatasetExecutorWithProvider(out.Registry, out.Reporting.AuthorizeResourceDataset, out.providerReportDatasource, out.ComponentDispatcher))
 	}
 	if out.Registry != nil && out.Reporting != nil {
 		if out.ReportAuthorizer != nil {

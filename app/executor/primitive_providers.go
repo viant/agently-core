@@ -56,6 +56,7 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 		}, b.primitiveTargetProof)
 	}
 	if b.primitiveWindowAdmission == nil || out.PrimitiveWindows != nil {
+		b.configureStandaloneDatasourceProviders(out)
 		return nil
 	}
 	if out.PrimitiveProviders == nil || out.UIBridge == nil {
@@ -124,5 +125,6 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 		}
 		return b.primitiveDatasourceAdmission(ctx, *pin, descriptor, inputs)
 	}
+	b.configureStandaloneDatasourceProviders(out)
 	return nil
 }

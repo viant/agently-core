@@ -145,7 +145,7 @@ func NewNativeAssetSnapshot(ctx context.Context, root string, definitions []Nati
 	seen := map[string]bool{}
 	for _, definition := range snapshot.definitions {
 		uri, err := identity.ParseResourceURI(definition.URI)
-		if err != nil || definition.Load == nil || !extensionPath(definition.File) || seen[definition.URI] || !(uri.Kind == "window" && definition.FormatVersion == 2 || uri.Kind == "report" && definition.FormatVersion == 1) {
+		if err != nil || definition.Load == nil || !extensionPath(definition.File) || seen[definition.URI] || !(uri.Kind == "window" && (definition.FormatVersion == 2 || definition.FormatVersion == 3) || uri.Kind == "report" && definition.FormatVersion == 1) {
 			return nil, fmt.Errorf("unsupported or duplicate native snapshot definition")
 		}
 		seen[definition.URI] = true

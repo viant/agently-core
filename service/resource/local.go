@@ -584,7 +584,7 @@ func (p *LocalProvider) Get(ctx context.Context, kind string, input primitive.Ge
 
 // ValidateWindowBundle validates the versioned local Forge window bundle.
 func ValidateWindowBundle(formatVersion int64, raw json.RawMessage) error {
-	if formatVersion != 2 {
+	if formatVersion != 2 && formatVersion != 3 {
 		return fmt.Errorf("unsupported window format")
 	}
 	var bundle forgeTypes.WindowResourceEnvelope
@@ -595,6 +595,9 @@ func ValidateWindowBundle(formatVersion int64, raw json.RawMessage) error {
 	}
 	if d.Decode(new(any)) != io.EOF {
 		return fmt.Errorf("trailing window data")
+	}
+	if int64(bundle.SchemaVersion) != formatVersion {
+		return fmt.Errorf("window format/schema version mismatch")
 	}
 	return bundle.Validate()
 }

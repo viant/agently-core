@@ -28,6 +28,13 @@ func (c *WindowCatalog) FetchProviderDatasource(ctx context.Context, pin identit
 	if !c.AuthzReady() || target == nil || target.SelectionToken == "" || expected == nil || expected.Backend == nil || expected.Backend.Kind != dsproto.BackendDatly || expected.Backend.Ownership != "provider" || expected.Backend.Service != "" || expected.Backend.Component == nil {
 		return nil, identity.ErrResourceDenied
 	}
+	if child, linked := target.DependencyPins[expected.ID]; linked {
+		uri, err := identity.ParseResourceURI(child.URI)
+		if err != nil || uri.Kind != "datasource" {
+			return nil, identity.ErrResourceDenied
+		}
+		return c.fetchReferencedDatasource(ctx, pin, target, child, expected, inputs)
+	}
 	if err := matchProviderProof(pin, target.ExecutionProof); err != nil {
 		return nil, err
 	}
