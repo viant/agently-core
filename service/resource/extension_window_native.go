@@ -78,6 +78,11 @@ func ConfinedWindowBindings(ctx context.Context, rootPath string, bindings []wor
 	}
 	defer root.Close()
 	reader := &ExtensionReader{root: root}
+	defer reader.close()
+	rootInfo, err := root.Stat(".")
+	if err != nil {
+		return nil, err
+	}
 	// Reuse canonical duplicate/target checks before any registration.
 	if _, err = workspacewindow.NewWorkspaceResourceSource(rootPath, bindings, enrich); err != nil {
 		return nil, err
@@ -102,7 +107,7 @@ func ConfinedWindowBindings(ctx context.Context, rootPath string, bindings []wor
 		if entry == "" {
 			return nil, fmt.Errorf("native window entry missing")
 		}
-		source := &extensionSource{root: rootPath, file: entry, uri: uri.String(), load: NativeWindowLoader([]workspacewindow.ResourceBinding{binding}, enrich)}
+		source := &extensionSource{rootInfo: rootInfo, root: rootPath, file: entry, uri: uri.String(), load: NativeWindowLoader([]workspacewindow.ResourceBinding{binding}, enrich)}
 		result = append(result, LocalResourceBinding{URI: uri.String(), Title: binding.WindowKey, FormatVersion: 2, Resolver: func(ctx context.Context, actor identity.VerifiedActor, action string) (*identity.ResourceResolver, error) {
 			p, err := policy(ctx, actor, uri, action)
 			if err != nil {
@@ -118,12 +123,15 @@ func ConfinedWindowBindings(ctx context.Context, rootPath string, bindings []wor
 }
 
 type confinedWindowFS struct {
-	reader     *ExtensionReader
-	base       string
-	mu         sync.Mutex
-	failure    error
-	reads      map[string]int
-	totalReads int
+	reader        *ExtensionReader
+	base          string
+	canonicalOnce sync.Once
+	canonicalBase string
+	canonicalErr  error
+	mu            sync.Mutex
+	failure       error
+	reads         map[string]int
+	totalReads    int
 }
 
 func (f *confinedWindowFS) check() error { f.mu.Lock(); defer f.mu.Unlock(); return f.failure }
@@ -150,9 +158,17 @@ func (f *confinedWindowFS) relative(location string) (string, error) {
 		value = parsed.Path
 	}
 	if filepath.IsAbs(value) {
-		value, err = filepath.Rel(f.base, value)
-		if err != nil {
-			return "", f.fail(identity.ErrResourceDenied)
+		absolute := value
+		value, err = filepath.Rel(f.base, absolute)
+		if err != nil || !extensionPath(filepath.ToSlash(value)) {
+			f.canonicalOnce.Do(func() { f.canonicalBase, f.canonicalErr = filepath.EvalSymlinks(f.base) })
+			if f.canonicalErr != nil {
+				return "", f.fail(f.canonicalErr)
+			}
+			value, err = filepath.Rel(f.canonicalBase, absolute)
+			if err != nil {
+				return "", f.fail(identity.ErrResourceDenied)
+			}
 		}
 	}
 	value = filepath.ToSlash(value)
@@ -221,10 +237,7 @@ func (f *confinedWindowFS) Object(ctx context.Context, location string, _ ...sto
 	if ctx == nil || ctx.Err() != nil {
 		return nil, f.fail(identity.ErrResourceDenied)
 	}
-	if err = f.reader.check(name); err != nil {
-		return nil, f.fail(err)
-	}
-	info, err := f.reader.root.Stat(name)
+	_, _, info, err := f.reader.parent(name)
 	if err != nil {
 		return nil, f.fail(err)
 	}
@@ -238,13 +251,14 @@ func (f *confinedWindowFS) List(ctx context.Context, location string, _ ...stora
 	if ctx == nil || ctx.Err() != nil {
 		return nil, f.fail(identity.ErrResourceDenied)
 	}
-	if err = f.reader.check(name); err != nil {
+	parent, leaf, _, err := f.reader.parent(name)
+	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, err
 		}
 		return nil, f.fail(err)
 	}
-	file, err := f.reader.root.Open(name)
+	file, err := parent.Open(leaf)
 	if err != nil {
 		return nil, f.fail(err)
 	}

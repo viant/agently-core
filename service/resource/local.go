@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -41,27 +42,33 @@ type LocalResourceBinding struct {
 type LocalResourceValidator func(int64, json.RawMessage) error
 type LocalResourceAuthorizer func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) error
 type LocalRevisionPolicyFactory func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) (identity.ResourceRevisionPolicy, error)
+type LocalWindowListVisibility func(context.Context, identity.VerifiedActor, LocalResourceBinding) (bool, error)
+type LocalWindowIndex func(context.Context) ([]primitive.ResourceState, error)
 
 // LocalConfig installs one authoritative local catalog. It has no aggregation
 // or mutation path; only list/get operations are advertised.
 type LocalConfig struct {
-	ProviderIdentity string
-	Actor            ActorResolver
-	Verify           ActorVerifier
-	Authorize        LocalResourceAuthorizer
-	Bindings         []LocalResourceBinding
-	Validators       map[string]LocalResourceValidator
-	Now              func() time.Time
+	ProviderIdentity     string
+	Actor                ActorResolver
+	Verify               ActorVerifier
+	Authorize            LocalResourceAuthorizer
+	Bindings             []LocalResourceBinding
+	Validators           map[string]LocalResourceValidator
+	WindowListVisibility LocalWindowListVisibility
+	WindowIndex          LocalWindowIndex
+	Now                  func() time.Time
 }
 
 type LocalProvider struct {
-	identity   string
-	actor      ActorResolver
-	verify     ActorVerifier
-	authorizer LocalResourceAuthorizer
-	bindings   map[string]LocalResourceBinding
-	validators map[string]LocalResourceValidator
-	now        func() time.Time
+	identity             string
+	actor                ActorResolver
+	verify               ActorVerifier
+	authorizer           LocalResourceAuthorizer
+	bindings             map[string]LocalResourceBinding
+	validators           map[string]LocalResourceValidator
+	windowListVisibility LocalWindowListVisibility
+	windowIndex          LocalWindowIndex
+	now                  func() time.Time
 }
 
 // ProviderIdentity is immutable provenance configured by the trusted host.
@@ -76,7 +83,10 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 	if strings.TrimSpace(config.ProviderIdentity) == "" || strings.TrimSpace(config.ProviderIdentity) != config.ProviderIdentity || config.Actor == nil || config.Verify == nil || config.Authorize == nil || len(config.Bindings) == 0 {
 		return nil, fmt.Errorf("local resource provider requires identity, verified actor, namespace authorizer, and bindings")
 	}
-	p := &LocalProvider{identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, now: config.Now}
+	if config.WindowListVisibility != nil && config.WindowIndex == nil {
+		return nil, fmt.Errorf("window list visibility requires a trusted static window index")
+	}
+	p := &LocalProvider{identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, now: config.Now}
 	if p.now == nil {
 		p.now = time.Now
 	}
@@ -218,7 +228,13 @@ func (p *LocalProvider) checkedRead(ctx context.Context, actor identity.Verified
 		return nil, nil, identity.ErrResourceDenied
 	}
 	validator := p.validators[uri.Kind]
-	if validator == nil || validator(binding.FormatVersion, raw) != nil {
+	validated := false
+	if cached, ok := resolver.Source.(interface {
+		localDefinitionValidated(string, int64, string) bool
+	}); ok && pureLocalValidator(uri.Kind, validator) {
+		validated = cached.localDefinitionValidated(uri.Kind, binding.FormatVersion, fresh.ContentFingerprint)
+	}
+	if validator == nil || !validated && validator(binding.FormatVersion, raw) != nil {
 		return nil, nil, fmt.Errorf("invalid local %s definition", uri.Kind)
 	}
 	if err := p.authorize(ctx, actor, uri, action); err != nil {
@@ -226,6 +242,16 @@ func (p *LocalProvider) checkedRead(ctx context.Context, actor identity.Verified
 	}
 	if err := p.finishActor(ctx, actor); err != nil {
 		return nil, nil, err
+	}
+	if cached, ok := resolver.Source.(interface {
+		localDefinitionCurrent(context.Context, identity.ResourceURI, identity.ResourceCandidate) error
+	}); ok {
+		if err := cached.localDefinitionCurrent(ctx, uri, fresh.ResourceCandidate); err != nil {
+			return nil, nil, err
+		}
+	}
+	if ctx.Err() != nil || !fresh.ValidUntil.After(p.nowTime()) {
+		return nil, nil, identity.ErrResourceDenied
 	}
 	return append(json.RawMessage(nil), raw...), fresh, nil
 }
@@ -334,6 +360,9 @@ func (p *LocalProvider) List(ctx context.Context, kind string, input primitive.L
 	if plural == "" || pageErr != nil {
 		return nil, identity.ErrResource
 	}
+	if kind == "window" && p.windowIndex != nil {
+		return p.listIndexedWindows(ctx, input, offset, limit)
+	}
 	actor, err := p.currentActor(ctx)
 	if err != nil {
 		return nil, err
@@ -368,6 +397,136 @@ func (p *LocalProvider) List(ctx context.Context, kind string, input primitive.L
 	}
 	out.Resources, out.NextCursor, out.Complete = out.Resources[start:end], next, complete
 	return out, nil
+}
+
+// listIndexedWindows exposes only static snapshot metadata. It deliberately
+// avoids resolver selection and definition reads; Get remains the authorized
+// exact-pin path for full definitions.
+func (p *LocalProvider) listIndexedWindows(ctx context.Context, input primitive.ListRequest, offset, limit int) (*primitive.ListResult, error) {
+	actor, err := p.currentActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	configuredNamespaces := map[string]bool{}
+	for value := range p.bindings {
+		uri, parseErr := identity.ParseResourceURI(value)
+		if parseErr == nil && uri.Kind == "window" {
+			configuredNamespaces[uri.Namespace] = true
+		}
+	}
+	if input.Namespace != "" && !configuredNamespaces[input.Namespace] {
+		return nil, identity.ErrResourceDenied
+	}
+	before, err := p.windowIndex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	beforeByURI, err := localWindowIndexMap(before)
+	if err != nil {
+		return nil, err
+	}
+	uris := make([]string, 0, len(beforeByURI))
+	for uri := range beforeByURI {
+		uris = append(uris, uri)
+	}
+	sort.Strings(uris)
+	visible := make([]*primitive.ResourceState, 0, len(uris))
+	for _, value := range uris {
+		state := beforeByURI[value]
+		uri, _ := identity.ParseResourceURI(value)
+		binding, configured := p.bindings[value]
+		if !configured || input.Namespace != "" && uri.Namespace != input.Namespace {
+			continue
+		}
+		if state.FormatVersion != binding.FormatVersion || binding.Title != "" && state.Title != binding.Title {
+			return nil, identity.ErrResourceStale
+		}
+		if err := p.authorize(ctx, actor, uri, "resource.list"); err != nil {
+			if errors.Is(err, identity.ErrResourceDenied) {
+				continue
+			}
+			return nil, err
+		}
+		if p.windowListVisibility != nil {
+			allowed, err := p.windowListVisibility(ctx, actor, binding)
+			if err != nil {
+				if errors.Is(err, identity.ErrResourceDenied) {
+					continue
+				}
+				return nil, err
+			}
+			if !allowed {
+				continue
+			}
+		}
+		copy := state
+		visible = append(visible, &copy)
+	}
+	filtered := make([]*primitive.ResourceState, 0, len(visible))
+	for _, state := range visible {
+		uri, _ := identity.ParseResourceURI(state.URI)
+		if err := p.authorize(ctx, actor, uri, "resource.list"); err != nil {
+			if errors.Is(err, identity.ErrResourceDenied) {
+				continue
+			}
+			return nil, err
+		}
+		if p.windowListVisibility != nil {
+			binding, ok := p.bindings[state.URI]
+			if !ok {
+				return nil, identity.ErrResourceStale
+			}
+			allowed, err := p.windowListVisibility(ctx, actor, binding)
+			if err != nil {
+				if errors.Is(err, identity.ErrResourceDenied) {
+					continue
+				}
+				return nil, err
+			}
+			if !allowed {
+				continue
+			}
+		}
+		filtered = append(filtered, state)
+	}
+	after, err := p.windowIndex(ctx)
+	if err != nil {
+		return nil, err
+	}
+	afterByURI, err := localWindowIndexMap(after)
+	if err != nil {
+		return nil, err
+	}
+	if !reflect.DeepEqual(beforeByURI, afterByURI) {
+		return nil, identity.ErrResourceStale
+	}
+	if err := p.finishActor(ctx, actor); err != nil {
+		return nil, err
+	}
+	start, end, next, complete, err := pageBounds(offset, limit, len(filtered))
+	if err != nil {
+		return nil, err
+	}
+	return &primitive.ListResult{Resources: filtered[start:end], NextCursor: next, Complete: complete}, nil
+}
+
+func localWindowIndexMap(values []primitive.ResourceState) (map[string]primitive.ResourceState, error) {
+	if len(values) > 10000 {
+		return nil, identity.ErrResourceDenied
+	}
+	result := make(map[string]primitive.ResourceState, len(values))
+	for _, value := range values {
+		uri, err := identity.ParseResourceURI(value.URI)
+		candidate := identity.ResourceCandidate{Kind: identity.WorkingCandidate, ContentFingerprint: value.ContentFingerprint}
+		if err != nil || uri.Kind != "window" || value.Kind != "window" || value.Namespace != uri.Namespace || value.Name != uri.Name || value.Lifecycle != identity.WorkingCandidate || value.Revision != identity.WorkingCandidate || value.Stamp != 0 || value.DraftRevision != 0 || value.LatestStamp != 0 || value.FormatVersion < 1 || !candidate.Valid() || len(value.Definition) != 0 || len(value.DefinitionBytes) != 0 || len(value.Dependencies) != 0 || value.Replay {
+			return nil, identity.ErrResource
+		}
+		if _, duplicate := result[value.URI]; duplicate {
+			return nil, identity.ErrResource
+		}
+		result[value.URI] = value
+	}
+	return result, nil
 }
 
 func pageRequest(cursor string, limit int) (int, int, error) {
