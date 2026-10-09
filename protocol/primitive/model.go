@@ -104,4 +104,16 @@ type Dependency struct {
 type GetResult struct {
 	Resource         *ResourceState             `json:"resource"`
 	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`
+	// ExecutionProof is runtime-only provider provenance, never an ACL grant
+	// or authored definition. A consumer still retains its own narrower lease.
+	ExecutionProof *ExecutionProof `json:"executionProof,omitempty"`
+}
+
+// ExecutionProof binds one original provider pin to a provider-specific exact
+// execution contract. Binding and Token are opaque to consumers. Providers must
+// verify the original signature and separately refresh authorization.
+type ExecutionProof struct {
+	Resource identity.ResolvedResource `json:"resource"`
+	Binding  string                    `json:"binding"`
+	Token    string                    `json:"token"`
 }
