@@ -61,6 +61,7 @@ type Store interface {
 
 // Service is the public entry point. Construct with New, then call Fetch.
 type Service struct {
+	resourceReader      MCPResourceReader
 	executionContext    func(context.Context) context.Context
 	permissions         permittedview.Resolver
 	components          windowprotocol.ComponentDispatcher
@@ -95,7 +96,15 @@ type ResourceDefinitionResolver func(context.Context, identity.ResolvedResource,
 
 type ProviderExecutor func(context.Context, *dsproto.DataSource, map[string]interface{}) (json.RawMessage, error)
 
+// MCPResourceReader reads authored resource URIs through an admitted MCP connection.
+// The host owns credentials, provider identity, authorization and original leases;
+// implementations must return JSON and never derive a network endpoint from uri.
+type MCPResourceReader interface {
+	ReadResource(context.Context, string, string) (json.RawMessage, error)
+}
+
 type Options struct {
+	ResourceReader      MCPResourceReader
 	ProviderExecute     ProviderExecutor
 	ExecutionContext    func(context.Context) context.Context
 	ResolveDefinition   ResourceDefinitionResolver
@@ -127,7 +136,7 @@ func New(opts Options) *Service {
 	if nowFn == nil {
 		nowFn = time.Now
 	}
-	return &Service{providerExecute: opts.ProviderExecute, executionContext: opts.ExecutionContext, permissions: opts.PermissionResolver, components: opts.ComponentDispatcher, resolveResource: opts.ResolveResource, authorizeDefinition: opts.AuthorizeDefinition, resolveDefinition: opts.ResolveDefinition,
+	return &Service{resourceReader: opts.ResourceReader, providerExecute: opts.ProviderExecute, executionContext: opts.ExecutionContext, permissions: opts.PermissionResolver, components: opts.ComponentDispatcher, resolveResource: opts.ResolveResource, authorizeDefinition: opts.AuthorizeDefinition, resolveDefinition: opts.ResolveDefinition,
 		store:        opts.Store,
 		executor:     opts.Executor,
 		identity:     id,
@@ -268,7 +277,7 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		return nil, fmt.Errorf("datasource %q: %w", ds.ID, err)
 	}
 	policy := dsproto.CachePolicyOrDefault(ds.Cache)
-	cacheEnabled := ds.Backend.Kind != dsproto.BackendAuthorization && ds.Backend.Kind != dsproto.BackendDatly && !s.disableCache && (policy.Enabled == nil || *policy.Enabled)
+	cacheEnabled := ds.Backend.Kind != dsproto.BackendAuthorization && ds.Backend.Kind != dsproto.BackendDatly && ds.Backend.Kind != dsproto.BackendMCPResource && !s.disableCache && (policy.Enabled == nil || *policy.Enabled)
 	scopeID := s.scopeID(ctx, policy.Scope)
 	normalizedInputs := normalizeFilterSemantics(inputs, &ds.DataSource)
 	mergedArgs := expandNestedArgs(mergeArgs(normalizedInputs, ds.Backend.Pinned))
@@ -428,8 +437,24 @@ func (s *Service) runBackend(ctx context.Context, ds *dsproto.DataSource, args m
 		return s.feedRef.ResolveFeed(ctx, ds.Backend.Feed)
 
 	case dsproto.BackendMCPResource:
-		// v1 stub — parity with feed_ref; wire to resources/read later.
-		return nil, fmt.Errorf("datasource %q: mcp_resource backend not yet implemented", ds.ID)
+		if s.resourceReader == nil || strings.TrimSpace(ds.Backend.Service) == "" || strings.TrimSpace(ds.Backend.URI) == "" {
+			return nil, fmt.Errorf("datasource %q: mcp_resource requires an admitted reader, service and URI", ds.ID)
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		raw, err := s.resourceReader.ReadResource(ctx, ds.Backend.Service, ds.Backend.URI)
+		if err != nil {
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		var parsed interface{}
+		if err := json.Unmarshal(raw, &parsed); err != nil {
+			return nil, fmt.Errorf("datasource %q: invalid MCP resource JSON: %w", ds.ID, err)
+		}
+		return parsed, nil
 
 	default:
 		return nil, fmt.Errorf("datasource %q: unknown backend kind %q", ds.ID, ds.Backend.Kind)
