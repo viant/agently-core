@@ -116,7 +116,7 @@ func (s *Service) CacheableMethods() map[string]bool {
 func (s *Service) Methods() svc.Signatures {
 	return []svc.Signature{
 		{Name: "inspect", Description: "Inspect a resource URI to discover format, sheets, pages, version and supported operations before selecting content.", Input: reflect.TypeOf(&InspectInput{}), Output: reflect.TypeOf(&InspectOutput{})},
-		{Name: "export", Description: "Export selected resource content to a reusable scratchpad artifact; complete selection is independent of preview limits.", Input: reflect.TypeOf(&ExportInput{}), Output: reflect.TypeOf(&ExportOutput{})},
+		{Name: "export", Description: "Export selected resource content to a reusable immutable user-owned scratchpad artifact. operation=copy with output.format=original preserves exact original bytes and all workbook sheets; select is unavailable for copy. Output contains artifact metadata only, never payload bytes.", Input: reflect.TypeOf(&ExportInput{}), Output: reflect.TypeOf(&ExportOutput{})},
 		{Name: "roots", Description: "Discover configured resource roots with optional descriptions", Input: reflect.TypeOf(&RootsInput{}), Output: reflect.TypeOf(&RootsOutput{})},
 		{Name: "list", Description: "List resources under a root (file or MCP)", Input: reflect.TypeOf(&ListInput{}), Output: reflect.TypeOf(&ListOutput{})},
 		{Name: "read", Description: "Read an absolute URI/path without a root or a root-relative resource. Use representation=text/table for extraction, or native to present the whole file through the active provider. Inspect format structure first. Legacy text reads emit observation metadata before patching. For large files, prefer byteRange and page in chunks (<= 8KB).", Input: reflect.TypeOf(&ReadInput{}), Output: reflect.TypeOf(&ReadOutput{})},
