@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -36,6 +37,10 @@ type NativeSnapshotDefinition struct {
 // BeforeCompile, or captured as an immutable registry for each rebuild.
 type StaticWorkspaceWindowEnricher func(context.Context, *types.Window) error
 type NativeSnapshotOptions struct {
+	// AssetPaths is a trusted set of relative files/directories to monitor.
+	// Nil preserves the workspace extension/forge inventory. Imported files
+	// read by the loader remain tracked even outside these initial paths.
+	AssetPaths []string
 	// ImmutableUntilRestart denies changed assets rather than refreshing content
 	// under host visibility/group configuration captured at startup.
 	ImmutableUntilRestart bool
@@ -123,6 +128,19 @@ func NewNativeAssetSnapshot(ctx context.Context, root string, definitions []Nati
 	snapshot := &NativeAssetSnapshot{root: absolute, anchor: anchor, definitions: append([]NativeSnapshotDefinition(nil), definitions...)}
 	if len(options) == 1 {
 		snapshot.options = options[0]
+		if options[0].AssetPaths != nil {
+			if len(options[0].AssetPaths) == 0 || len(options[0].AssetPaths) > 128 {
+				return nil, fmt.Errorf("native snapshot requires bounded asset paths")
+			}
+			seenPaths := map[string]bool{}
+			for _, asset := range options[0].AssetPaths {
+				if !extensionPath(asset) || seenPaths[asset] {
+					return nil, fmt.Errorf("invalid or duplicate native asset path")
+				}
+				seenPaths[asset] = true
+			}
+			snapshot.options.AssetPaths = append([]string(nil), options[0].AssetPaths...)
+		}
 	}
 	seen := map[string]bool{}
 	for _, definition := range snapshot.definitions {
@@ -157,23 +175,49 @@ func (s *NativeAssetSnapshot) scan(ctx context.Context) (map[string]nativeFileMe
 		return nil, identity.ErrResourceStale
 	}
 	result := map[string]nativeFileMetadata{".": metadataOf(current)}
-	err = fs.WalkDir(root.FS(), "extension/forge", func(name string, entry fs.DirEntry, err error) error {
+	assets := s.options.AssetPaths
+	if assets == nil {
+		assets = []string{"extension/forge"}
+	}
+	for _, asset := range assets {
+		// WalkDir does not reject symlinks in the ancestors of its start path.
+		// Validate each original prefix through the confined root first.
+		prefix := ""
+		for _, segment := range strings.Split(asset, "/") {
+			if prefix != "" {
+				prefix += "/"
+			}
+			prefix += segment
+			info, err := root.Lstat(prefix)
+			if err != nil {
+				return nil, err
+			}
+			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() && !info.Mode().IsRegular() {
+				return nil, identity.ErrResourceDenied
+			}
+			result[prefix] = metadataOf(info)
+		}
+		err = fs.WalkDir(root.FS(), asset, func(name string, entry fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if ctx.Err() != nil {
+				return ctx.Err()
+			}
+			info, err := entry.Info()
+			if err != nil {
+				return err
+			}
+			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() && !info.Mode().IsRegular() {
+				return identity.ErrResourceDenied
+			}
+			result[name] = metadataOf(info)
+			return nil
+		})
 		if err != nil {
-			return err
+			return nil, err
 		}
-		if ctx.Err() != nil {
-			return ctx.Err()
-		}
-		info, err := entry.Info()
-		if err != nil {
-			return err
-		}
-		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() && !info.Mode().IsRegular() {
-			return identity.ErrResourceDenied
-		}
-		result[name] = metadataOf(info)
-		return nil
-	})
+	}
 	return result, err
 }
 func (s *NativeAssetSnapshot) changed(ctx context.Context, manifest map[string]nativeFileMetadata) (bool, error) {
