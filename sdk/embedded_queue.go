@@ -190,7 +190,7 @@ func listPendingElicitations(c *backendClient, ctx context.Context, input *ListP
 	if c.data != nil {
 		in := &messagemodel.MessageRowsInput{
 			ConversationId: input.ConversationID,
-			Roles:          []string{"assistant", "tool", "control"},
+			Roles:          []string{"assistant", "tool", "system"},
 			Has: &messagemodel.MessageRowsInputHas{
 				ConversationId: true,
 				Roles:          true,
@@ -245,7 +245,7 @@ func listPendingElicitations(c *backendClient, ctx context.Context, input *ListP
 						continue
 					}
 					role := strings.TrimSpace(msg.Role)
-					if !strings.EqualFold(role, "assistant") && !strings.EqualFold(role, "tool") && !strings.EqualFold(role, "control") {
+					if !strings.EqualFold(role, "assistant") && !strings.EqualFold(role, "tool") && !strings.EqualFold(role, "system") {
 						continue
 					}
 					status := strings.TrimSpace(valueOrEmpty(msg.Status))
