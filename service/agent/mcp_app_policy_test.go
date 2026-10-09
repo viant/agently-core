@@ -77,3 +77,25 @@ func TestMCPAppsPreparedPromptPolicyCannotBeDropped(t *testing.T) {
 	require.NoError(t, err)
 	require.True(t, toolapprovalqueue.RequiresPrompt(ctx, "server-prompt"))
 }
+
+type visibilityRegistry struct{ fakeRegistry }
+
+func (r *visibilityRegistry) MCPToolVisible(_ context.Context, name, audience string) (bool, error) {
+	return (name == "server-model" && audience == "model") || (name == "server-app" && audience == "app"), nil
+}
+func TestMCPAppsVisibilityAppliesAfterConfiguredSelection(t *testing.T) {
+	registry := &visibilityRegistry{fakeRegistry: fakeRegistry{defs: []llm.ToolDefinition{{Name: "server-model"}, {Name: "server-app"}}}}
+	service := &Service{registry: registry}
+	ag := &agentmdl.Agent{Tool: agentmdl.Tool{Items: []*llm.Tool{{Name: "server-model"}, {Name: "server-app"}}}}
+	tools, err := service.resolveTools(context.Background(), &QueryInput{Agent: ag})
+	require.NoError(t, err)
+	require.Len(t, tools, 1)
+	require.Equal(t, "server-model", tools[0].Definition.Name)
+	_, err = service.MCPAppToolPolicy(context.Background(), ag, "server-model")
+	require.Error(t, err)
+	_, err = service.MCPAppToolPolicy(context.Background(), ag, "server-app")
+	require.NoError(t, err)
+	ag.Tool.Items = []*llm.Tool{{Name: "server-model"}}
+	_, err = service.MCPAppToolPolicy(context.Background(), ag, "server-app")
+	require.Error(t, err, "app visibility does not grant policy authority")
+}

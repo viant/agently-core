@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/service/browsermcp"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -47,6 +48,11 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	metadataHandler := svcworkspace.NewMetadataHandler(opts.Runtime.Defaults, opts.Runtime.Store, metadataVersion)
 	metadataHandler.SetLayoutDefault(opts.LayoutDefault)
+	var browserRegistry *browsermcp.Registry
+	if opts.Runtime.MCPManager != nil {
+		browserRegistry = browsermcp.New(opts.Runtime.MCPManager.BrowserDescriptors)
+		metadataHandler.SetBrowserMCPLoader(browserRegistry.Descriptors)
+	}
 	metadataHandler.SetToolDefinitionsLoader(func(ctx context.Context) ([]svcworkspace.ToolDefinition, error) {
 		defs, err := opts.Client.ListToolDefinitions(ctx)
 		if err != nil {
@@ -68,6 +74,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 
 	handlerOpts := []sdk.HandlerOption{
 		sdk.WithMetadataHandler(metadataHandler),
+		sdk.WithBrowserMCP(browserRegistry),
 		sdk.WithFileBrowser(fileBrowserHandler),
 		sdk.WithA2AHandler(a2aHandler),
 		sdk.WithAGUIDemoBackends(opts.AGUIDemoBackends...),
