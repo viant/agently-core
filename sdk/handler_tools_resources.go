@@ -15,9 +15,12 @@ import (
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
+	identity "github.com/viant/agently-core/protocol/resource"
 	toolpolicy "github.com/viant/agently-core/protocol/tool"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	svcauth "github.com/viant/agently-core/service/auth"
+	resourcepolicy "github.com/viant/agently-core/service/policy"
+	"github.com/viant/authz"
 )
 
 func handleListToolDefinitions(client Client) http.HandlerFunc {
@@ -116,7 +119,7 @@ func handleExecuteTool(client Client) http.HandlerFunc {
 		result, err := client.ExecuteTool(ctx, name, args)
 		debugMCPExecf("http execute done name=%s elapsed=%s resultBytes=%d err=%v", name, time.Since(start).Round(time.Millisecond), len(result), err)
 		if err != nil {
-			httpErrorWithResult(w, statusForToolExecuteError(err), err, result)
+			writeToolExecuteError(w, err, result)
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"result": result})
@@ -150,7 +153,7 @@ func handleExecuteToolByName(client Client) http.HandlerFunc {
 		result, err := client.ExecuteTool(ctx, name, req.Args)
 		debugMCPExecf("http execute-by-name done name=%s elapsed=%s resultBytes=%d err=%v", name, time.Since(start).Round(time.Millisecond), len(result), err)
 		if err != nil {
-			httpErrorWithResult(w, statusForToolExecuteError(err), err, result)
+			writeToolExecuteError(w, err, result)
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"result": result})
@@ -319,6 +322,16 @@ func statusForToolApprovalErr(err error) int {
 }
 
 func statusForToolExecuteError(err error) int {
+	// Identity errors can also wrap a policy denial; preserve that distinction.
+	if errors.Is(err, authz.ErrIdentityDenied) || errors.Is(err, resourcepolicy.ErrIdentityRejected) {
+		return http.StatusUnauthorized
+	}
+	if errors.Is(err, authz.ErrDenied) || errors.Is(err, resourcepolicy.ErrDenied) || errors.Is(err, identity.ErrResourceDenied) {
+		return http.StatusForbidden
+	}
+	if errors.Is(err, authz.ErrUnavailable) {
+		return http.StatusServiceUnavailable
+	}
 	if toolpolicy.IsPolicyError(err) {
 		return http.StatusConflict
 	}
@@ -339,6 +352,15 @@ func statusForToolExecuteError(err error) int {
 		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
+}
+
+func writeToolExecuteError(w http.ResponseWriter, err error, result string) {
+	status := statusForToolExecuteError(err)
+	if status == http.StatusUnauthorized || status == http.StatusForbidden {
+		// Partial definitions/data cannot accompany failed authorization.
+		result = ""
+	}
+	httpErrorWithResult(w, status, err, result)
 }
 
 func ensureDirectToolPolicy(ctx context.Context) context.Context {
