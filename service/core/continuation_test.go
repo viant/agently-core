@@ -6,9 +6,11 @@ import (
 	"testing"
 	"time"
 
+	"encoding/json"
 	"github.com/stretchr/testify/assert"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
+	iauth "github.com/viant/agently-core/internal/auth"
 	conversationmodel "github.com/viant/agently-core/model/conversation"
 	"github.com/viant/agently-core/protocol/binding"
 	memory "github.com/viant/agently-core/runtime/requestctx"
@@ -33,7 +35,7 @@ func TestBuildContinuationRequest_IncludesAssistantToolCalls(t *testing.T) {
 		llm.Message{Role: llm.RoleTool, ToolCallId: "call-2"},
 	)
 
-	cont := svc.BuildContinuationRequest(ctx, req, history)
+	cont := scopedTestContinuation(t, svc, ctx, req, history)
 	if assert.NotNil(t, cont) {
 		assert.Equal(t, "resp-123", cont.PreviousResponseID)
 		if assert.Len(t, cont.Messages, 2) {
@@ -67,7 +69,7 @@ func TestBuildContinuationRequest_BackfillsModeFromContextWhenRequestOptionsEmpt
 		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1"},
 	)
 
-	cont := svc.BuildContinuationRequest(ctx, req, history)
+	cont := scopedTestContinuation(t, svc, ctx, req, history)
 	if assert.NotNil(t, cont) {
 		if assert.NotNil(t, cont.Options) {
 			assert.Equal(t, "chain", cont.Options.Mode)
@@ -94,7 +96,7 @@ func TestBuildContinuationRequest_DoesNotRepeatInstructionsButPreservesPromptCac
 		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1"},
 	)
 
-	cont := svc.BuildContinuationRequest(ctx, req, history)
+	cont := scopedTestContinuation(t, svc, ctx, req, history)
 	if assert.NotNil(t, cont) {
 		assert.Equal(t, "", cont.Instructions)
 		assert.Equal(t, "conv-1", cont.PromptCacheKey)
@@ -122,7 +124,7 @@ func TestBuildContinuationRequest_AllowsMultiToolAnchor(t *testing.T) {
 		llm.Message{Role: llm.RoleTool, ToolCallId: "call-2", Content: `{"ok":true}`},
 	)
 
-	cont := svc.BuildContinuationRequest(ctx, req, history)
+	cont := scopedTestContinuation(t, svc, ctx, req, history)
 	if assert.NotNil(t, cont, "multi-tool continuation should succeed when all results present") {
 		assert.Equal(t, "resp-123", cont.PreviousResponseID)
 		assert.Len(t, cont.Messages, 4, "should include 2 assistant+tool pairs")
@@ -145,7 +147,7 @@ func TestBuildContinuationRequest_RejectsIncompleteMultiToolAnchorReplay(t *test
 		llm.Message{Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"ok":true}`},
 	)
 
-	cont := svc.BuildContinuationRequest(ctx, req, history)
+	cont := scopedTestContinuation(t, svc, ctx, req, history)
 	assert.Nil(t, cont, "continuation must be rejected when an anchored response is missing any tool call/output pair")
 }
 
@@ -166,7 +168,7 @@ func TestBuildContinuationRequest_DedupesRepeatedToolReplayPairs(t *testing.T) {
 		llm.Message{ID: "tool-1", Role: llm.RoleTool, ToolCallId: "call-1", Content: `{"content":"ok"}`},
 	)
 
-	cont := svc.BuildContinuationRequest(ctx, req, history)
+	cont := scopedTestContinuation(t, svc, ctx, req, history)
 	if assert.NotNil(t, cont, "duplicate replay pairs should still produce continuation") {
 		assert.Equal(t, "resp-123", cont.PreviousResponseID)
 		if assert.Len(t, cont.Messages, 2) {
@@ -197,7 +199,7 @@ func TestBuildContinuationRequest_AllowsSystemMessagesWhenToolReplayIsComplete(t
 		llm.NewSystemMessage("Use the existing system knowledge bundle."),
 	)
 
-	cont := svc.BuildContinuationRequest(ctx, req, history)
+	cont := scopedTestContinuation(t, svc, ctx, req, history)
 	if assert.NotNil(t, cont, "continuation should not be disabled by system messages when tool replay is complete") {
 		assert.Equal(t, "resp-123", cont.PreviousResponseID)
 		assert.Len(t, cont.Messages, 2)
@@ -223,7 +225,7 @@ func TestBuildContinuationRequest_IncludesAssistantMessagesAfterAnchor(t *testin
 		llm.Message{ID: "assistant-note-msg", Role: llm.RoleAssistant, Content: "PRELIMINARY NOTE"},
 	)
 
-	cont := svc.BuildContinuationRequest(ctx, req, history)
+	cont := scopedTestContinuation(t, svc, ctx, req, history)
 	if assert.NotNil(t, cont) {
 		assert.Equal(t, "resp-123", cont.PreviousResponseID)
 		if assert.Len(t, cont.Messages, 3) {
@@ -253,7 +255,7 @@ func TestBuildContinuationRequest_AllowsContentOnlyContinuation(t *testing.T) {
 		llm.Message{ID: "user-msg-1", Role: llm.RoleUser, Content: "show my order 2667545"},
 	)
 
-	cont := svc.BuildContinuationRequest(ctx, req, history)
+	cont := scopedTestContinuation(t, svc, ctx, req, history)
 	if assert.NotNil(t, cont) {
 		assert.Equal(t, "resp-123", cont.PreviousResponseID)
 		if assert.Len(t, cont.Messages, 1) {
@@ -298,7 +300,7 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 			llm.Message{Role: llm.RoleTool, ToolCallId: "op-1", Content: `{"status":"ok"}`},
 		)
 
-		cont := svc.BuildContinuationRequest(ctx, req, history)
+		cont := scopedTestContinuation(t, svc, ctx, req, history)
 		if assert.NotNil(t, cont, "iteration 2 should produce continuation") {
 			assert.Equal(t, "resp_A", cont.PreviousResponseID)
 			assert.Len(t, cont.Messages, 2, "should include assistant+tool for op-1")
@@ -331,7 +333,7 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 			llm.Message{Role: llm.RoleTool, ToolCallId: "op-2", Content: `{"files":["a.go","b.go"]}`},
 		)
 
-		cont := svc.BuildContinuationRequest(ctx, req, history)
+		cont := scopedTestContinuation(t, svc, ctx, req, history)
 		if assert.NotNil(t, cont, "iteration 3 should produce continuation from resp_B") {
 			assert.Equal(t, "resp_B", cont.PreviousResponseID)
 			if assert.Len(t, cont.Messages, 2, "should include only op-2 assistant+tool") {
@@ -369,7 +371,7 @@ func TestBuildContinuationRequest_ThreeIterations(t *testing.T) {
 			llm.Message{Role: llm.RoleTool, ToolCallId: "op-2", Content: `{"files":["a.go","b.go"]}`},
 		)
 
-		cont := svc.BuildContinuationRequest(ctx, req, history)
+		cont := scopedTestContinuation(t, svc, ctx, req, history)
 		// With empty trace ID, continuation falls back to full — this IS the bug
 		assert.Nil(t, cont, "continuation should fail when tool call trace ID is empty (the bug)")
 	})
@@ -424,6 +426,15 @@ func TestTryGenerateContinuationByAnchor_ReplaysAllToolOutputsForSharedParentMes
 
 	request.Messages = append([]llm.Message{{Role: llm.RoleSystem, Content: "current template", RefreshOnContinuation: true}, llm.NewSystemMessage("historical context")}, request.Messages...)
 
+	ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: "owner"})
+	ctx = withContinuationContract(ctx, request, &GenerateInput{AgentID: "fixture-agent", ModelSelection: llm.ModelSelection{Model: "fixture-model"}}, model)
+	rawContract, encodeErr := json.Marshal(request)
+	if encodeErr != nil {
+		t.Fatal(encodeErr)
+	}
+	conv.CreatedByUserId = ptrContract("owner")
+	conv.Transcript[0].Message[0].ModelCall.RequestPayloadId = ptrContract("anchor-request")
+	svc.convClient = &contractAnchorClient{request: rawContract, anchorID: respID, conversation: conv}
 	resp, used, err := svc.tryGenerateContinuationByAnchor(ctx, model, request)
 	if err != nil {
 		t.Fatalf("tryGenerateContinuationByAnchor() error: %v", err)
