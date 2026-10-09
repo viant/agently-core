@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -42,30 +43,129 @@ type ExtensionDirectory struct {
 // ExtensionReader confines native loader reads to a trusted workspace directory.
 // It deliberately exposes no absolute path, write API or unconstrained fs.FS.
 // Import paths use slash-separated canonical relative paths.
-type ExtensionReader struct{ root *os.Root }
+type extensionDirectoryRoot struct {
+	root *os.Root
+	info os.FileInfo
+}
+type ExtensionReader struct {
+	root         *os.Root
+	anchorInfo   os.FileInfo
+	mu           sync.Mutex
+	directories  map[string]extensionDirectoryRoot
+	dependencies map[string]os.FileInfo
+}
 
 func extensionPath(value string) bool {
 	return value != "" && value != "." && fs.ValidPath(value) && !strings.ContainsAny(value, "\\:\x00")
 }
 
-func (r *ExtensionReader) check(name string) error {
+// parent validates every live directory binding, including symlinks and inode
+// replacement. Retained handles avoid reopening all prefix ancestors for every
+// Lstat; no file bytes or authorization decisions are cached. A directory change
+// invalidates this materialization rather than returning bytes from its old FD.
+func (r *ExtensionReader) parent(name string) (*os.Root, string, os.FileInfo, error) {
 	if r == nil || r.root == nil || !extensionPath(name) {
-		return identity.ErrResourceDenied
+		return nil, "", nil, identity.ErrResourceDenied
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.anchorInfo == nil {
+		var err error
+		r.anchorInfo, err = r.root.Stat(".")
+		if err != nil {
+			return nil, "", nil, err
+		}
+	}
+	currentAnchor, err := os.Stat(r.root.Name())
+	if err != nil {
+		return nil, "", nil, err
+	}
+	if !os.SameFile(r.anchorInfo, currentAnchor) {
+		return nil, "", nil, identity.ErrResourceStale
+	}
+	if r.dependencies == nil {
+		r.dependencies = map[string]os.FileInfo{}
+	}
+	if err := r.recordDependency(".", currentAnchor); err != nil {
+		return nil, "", nil, err
+	}
+	if r.directories == nil {
+		r.directories = map[string]extensionDirectoryRoot{}
 	}
 	parts := strings.Split(name, "/")
-	for i := range parts {
-		info, err := r.root.Lstat(strings.Join(parts[:i+1], "/"))
+	current := r.root
+	prefix := ""
+	for i, segment := range parts {
+		info, err := current.Lstat(segment)
 		if err != nil {
-			return err
+			return nil, "", nil, err
 		}
 		if info.Mode()&os.ModeSymlink != 0 {
-			return identity.ErrResourceDenied
+			return nil, "", nil, identity.ErrResourceDenied
 		}
-		if i < len(parts)-1 && !info.IsDir() {
-			return identity.ErrResourceDenied
+		if i == len(parts)-1 {
+			if err := r.recordDependency(name, info); err != nil {
+				return nil, "", nil, err
+			}
+			return current, segment, info, nil
 		}
+		if !info.IsDir() {
+			return nil, "", nil, identity.ErrResourceDenied
+		}
+		if prefix == "" {
+			prefix = segment
+		} else {
+			prefix += "/" + segment
+		}
+		if err := r.recordDependency(prefix, info); err != nil {
+			return nil, "", nil, err
+		}
+		entry, ok := r.directories[prefix]
+		if ok {
+			if !os.SameFile(info, entry.info) {
+				return nil, "", nil, identity.ErrResourceStale
+			}
+		} else {
+			child, err := current.OpenRoot(segment)
+			if err != nil {
+				return nil, "", nil, err
+			}
+			actual, err := child.Stat(".")
+			if err != nil || !os.SameFile(info, actual) {
+				child.Close()
+				return nil, "", nil, identity.ErrResourceStale
+			}
+			entry = extensionDirectoryRoot{root: child, info: actual}
+			r.directories[prefix] = entry
+		}
+		current = entry.root
 	}
+	return nil, "", nil, identity.ErrResourceDenied
+}
+
+// Called with mu held: retain FIRST metadata, never relabel older bytes with
+// a later observed dependency generation.
+func (r *ExtensionReader) recordDependency(name string, info os.FileInfo) error {
+	if previous, ok := r.dependencies[name]; ok {
+		if !nativeMetadataMatches(name, metadataOf(previous), info) {
+			return identity.ErrResourceStale
+		}
+		return nil
+	}
+	r.dependencies[name] = info
 	return nil
+}
+func (r *ExtensionReader) check(name string) error { _, _, _, err := r.parent(name); return err }
+func (r *ExtensionReader) close() {
+	if r == nil {
+		return
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	for key, entry := range r.directories {
+		entry.root.Close()
+		delete(r.directories, key)
+	}
 }
 
 // ReadFile rejects links and special files. os.Root also confines a symlink
@@ -74,10 +174,14 @@ func (r *ExtensionReader) ReadFile(ctx context.Context, name string) ([]byte, er
 	if ctx == nil || ctx.Err() != nil {
 		return nil, identity.ErrResourceDenied
 	}
-	if err := r.check(name); err != nil {
+	parent, leaf, expected, err := r.parent(name)
+	if err != nil {
 		return nil, err
 	}
-	file, err := r.root.Open(name)
+	if !expected.Mode().IsRegular() {
+		return nil, identity.ErrResourceDenied
+	}
+	file, err := parent.Open(leaf)
 	if err != nil {
 		return nil, err
 	}
@@ -85,6 +189,9 @@ func (r *ExtensionReader) ReadFile(ctx context.Context, name string) ([]byte, er
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() {
 		return nil, identity.ErrResourceDenied
+	}
+	if !metadataOf(expected).same(info) {
+		return nil, identity.ErrResourceStale
 	}
 	// Bound the definition/package read before allocating; this is not a general
 	// purpose file server. Native loaders may read multiple bounded package files.
@@ -99,8 +206,12 @@ func (r *ExtensionReader) ReadFile(ctx context.Context, name string) ([]byte, er
 	if len(data) > maxFileBytes {
 		return nil, fmt.Errorf("extension file too large")
 	}
-	if err := r.check(name); err != nil {
+	_, _, current, err := r.parent(name)
+	if err != nil {
 		return nil, err
+	}
+	if !metadataOf(info).same(current) {
+		return nil, identity.ErrResourceStale
 	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -110,6 +221,7 @@ func (r *ExtensionReader) ReadFile(ctx context.Context, name string) ([]byte, er
 
 type extensionSource struct {
 	root, file, uri string
+	rootInfo        os.FileInfo
 	load            ExtensionLoader
 }
 
@@ -122,7 +234,15 @@ func (s *extensionSource) read(ctx context.Context, uri identity.ResourceURI) (j
 		return nil, err
 	}
 	defer root.Close()
+	anchorInfo, err := root.Stat(".")
+	if err != nil {
+		return nil, err
+	}
+	if s.rootInfo != nil && !os.SameFile(s.rootInfo, anchorInfo) {
+		return nil, identity.ErrResourceStale
+	}
 	reader := &ExtensionReader{root: root}
+	defer reader.close()
 	if err := reader.check(s.file); err != nil {
 		return nil, err
 	}
@@ -181,6 +301,11 @@ func ExtensionBindings(ctx context.Context, rootPath string, directories []Exten
 	}
 	defer root.Close()
 	reader := &ExtensionReader{root: root}
+	defer reader.close()
+	rootInfo, err := root.Stat(".")
+	if err != nil {
+		return nil, err
+	}
 	indexed := map[string]LocalResourceBinding{}
 	for _, directory := range directories {
 		probe := identity.ResourceURI{Kind: directory.Kind, Namespace: directory.Namespace, Name: "probe"}
@@ -250,7 +375,7 @@ func ExtensionBindings(ctx context.Context, rootPath string, directories []Exten
 			if _, exists := indexed[uri.String()]; exists {
 				return fmt.Errorf("duplicate extension resource %s", uri.String())
 			}
-			source := &extensionSource{root: rootPath, file: file, uri: uri.String(), load: directory.Load}
+			source := &extensionSource{rootInfo: rootInfo, root: rootPath, file: file, uri: uri.String(), load: directory.Load}
 			binding := LocalResourceBinding{URI: uri.String(), Title: path.Base(name), FormatVersion: directory.FormatVersion}
 			binding.Resolver = func(ctx context.Context, actor identity.VerifiedActor, action string) (*identity.ResourceResolver, error) {
 				revisionPolicy, err := policy(ctx, actor, uri, action)

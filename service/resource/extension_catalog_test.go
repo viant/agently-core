@@ -144,3 +144,48 @@ func TestInternalProviderRevocationDuringNativeLoad(t *testing.T) {
 	require.Nil(t, got)
 	require.GreaterOrEqual(t, reads, 2)
 }
+
+func TestExtensionReaderRetainedDirectoriesStillReadFreshAndDenyRebinding(t *testing.T) {
+	for _, scenario := range []string{"newbytes", "replacement", "symlink"} {
+		t.Run(scenario, func(t *testing.T) {
+			rootPath := t.TempDir()
+			extensionWrite(t, rootPath, "definitions/nested/a.yaml", `{"version":1}`)
+			root, err := os.OpenRoot(rootPath)
+			require.NoError(t, err)
+			defer root.Close()
+			reader := &ExtensionReader{root: root}
+			defer reader.close()
+			first, err := reader.ReadFile(context.Background(), "definitions/nested/a.yaml")
+			require.NoError(t, err)
+			require.JSONEq(t, `{"version":1}`, string(first))
+			switch scenario {
+			case "newbytes":
+				extensionWrite(t, rootPath, "definitions/nested/a.yaml", `{"version":2}`)
+				next, err := reader.ReadFile(context.Background(), "definitions/nested/a.yaml")
+				require.ErrorIs(t, err, identity.ErrResourceStale)
+				require.Nil(t, next)
+				fresh := &ExtensionReader{root: root}
+				defer fresh.close()
+				next, err = fresh.ReadFile(context.Background(), "definitions/nested/a.yaml")
+				require.NoError(t, err)
+				require.JSONEq(t, `{"version":2}`, string(next))
+			case "replacement":
+				require.NoError(t, os.Rename(filepath.Join(rootPath, "definitions/nested"), filepath.Join(rootPath, "definitions/old")))
+				extensionWrite(t, rootPath, "definitions/nested/a.yaml", `{"version":2}`)
+				raw, err := reader.ReadFile(context.Background(), "definitions/nested/a.yaml")
+				require.ErrorIs(t, err, identity.ErrResourceStale)
+				require.Nil(t, raw)
+			case "symlink":
+				require.NoError(t, os.Rename(filepath.Join(rootPath, "definitions/nested"), filepath.Join(rootPath, "definitions/old")))
+				require.NoError(t, os.Symlink("old", filepath.Join(rootPath, "definitions/nested")))
+				raw, err := reader.ReadFile(context.Background(), "definitions/nested/a.yaml")
+				require.Error(t, err)
+				require.Nil(t, raw)
+				fresh := &ExtensionReader{root: root}
+				defer fresh.close()
+				_, err = fresh.ReadFile(context.Background(), "definitions/nested/a.yaml")
+				require.ErrorIs(t, err, identity.ErrResourceDenied)
+			}
+		})
+	}
+}

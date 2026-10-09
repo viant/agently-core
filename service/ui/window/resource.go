@@ -9,8 +9,8 @@ import (
 
 	"github.com/viant/afs"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
-	wsmeta "github.com/viant/agently-core/workspace/service/meta"
 	identity "github.com/viant/agently-core/protocol/resource"
+	wsmeta "github.com/viant/agently-core/workspace/service/meta"
 	forgeTypes "github.com/viant/forge/backend/types"
 )
 
@@ -173,19 +173,31 @@ func (s *WorkspaceResourceSource) ReadCandidate(ctx context.Context, uri identit
 // never inserts credentials; backend identity is carried by execution context.
 // Report envelopes pin these same descriptors before compilation/execution.
 func LoadWorkspaceDatasourceDescriptorsAt(ctx context.Context, root, key string, enrich WorkspaceWindowEnricher) (map[string]json.RawMessage, error) {
-	window, err := LoadWorkspaceWindowWithEnricherAt(ctx, root, key, nil, enrich)
+	return LoadWorkspaceDatasourceDescriptorsWithOptionsAt(ctx, root, key, enrich, LoaderOptions{})
+}
+
+// LoadWorkspaceDatasourceDescriptorsWithOptionsAt preserves native descriptor/import
+// semantics through a host-owned confined filesystem.
+func LoadWorkspaceDatasourceDescriptorsWithOptionsAt(ctx context.Context, root, key string, enrich WorkspaceWindowEnricher, options LoaderOptions) (result map[string]json.RawMessage, failure error) {
+	defer func() {
+		if err := options.check(); err != nil {
+			result = nil
+			failure = err
+		}
+	}()
+	window, err := LoadWorkspaceWindowWithOptionsAt(ctx, root, key, nil, enrich, options)
 	if err != nil {
 		return nil, err
 	}
 	if window == nil {
 		return nil, identity.ErrResourceDenied
 	}
-	svc := wsmeta.New(afs.New(), root)
+	svc := wsmeta.New(options.filesystem(), root)
 	_, paths, err := loadWorkspaceDataSources(ctx, svc)
 	if err != nil {
 		return nil, err
 	}
-	result := make(map[string]json.RawMessage, len(window.DataSource))
+	result = make(map[string]json.RawMessage, len(window.DataSource))
 	for id, inline := range window.DataSource {
 		descriptor := dsproto.DataSource{DataSource: inline, ID: id}
 		if path := paths[id]; path != "" {
