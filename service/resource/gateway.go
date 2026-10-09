@@ -3,6 +3,7 @@
 package resource
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -528,7 +529,7 @@ func (g *Gateway) Get(ctx context.Context, connection Connection, ref identity.R
 		if identity.ContentFingerprint(result.Resource.DefinitionBytes) != actual.ContentFingerprint {
 			return nil, identity.ErrResourceDenied
 		}
-		if len(result.Resource.Definition) > 0 {
+		if len(result.Resource.Definition) > 0 && !bytes.Equal(result.Resource.Definition, result.Resource.DefinitionBytes) {
 			left, leftErr := semanticJSON(result.Resource.Definition)
 			right, rightErr := semanticJSON(result.Resource.DefinitionBytes)
 			if leftErr != nil || rightErr != nil || !reflect.DeepEqual(left, right) {

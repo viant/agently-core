@@ -9,14 +9,14 @@ import (
 	"sort"
 	"strings"
 
+	identity "github.com/viant/agently-core/protocol/resource"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
 	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	repo "github.com/viant/agently-core/workspace/repository/forgewindow"
-	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
-	identity "github.com/viant/agently-core/protocol/resource"
 	forgetypes "github.com/viant/forge/backend/types"
 )
 
@@ -28,6 +28,9 @@ const (
 type ListInput struct{}
 
 type ListItem struct {
+	// Discovery provenance is metadata only. Get/Open must obtain a fresh pin.
+	ResourceURI        string                     `json:"resourceUri,omitempty"`
+	ProviderIdentity   string                     `json:"providerIdentity,omitempty"`
 	Target             *forgetypes.WindowTarget   `json:"target,omitempty"`
 	Resource           *identity.ResolvedResource `json:"resource,omitempty"`
 	ID                 string                     `json:"id,omitempty"`
@@ -947,9 +950,10 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 			return nil, fmt.Errorf("protected window admission is not configured for workspace views")
 		}
 	}
-	var admitted map[string]bool
+	var admitted map[string]forgeuisvc.WindowDefinitionSummary
+	metadataOnly := s.bridge != nil && s.bridge.WindowListMetadataOnly()
 	if s.bridge != nil && s.bridge.UsesWindowResourceResolution() {
-		admitted = map[string]bool{}
+		admitted = map[string]forgeuisvc.WindowDefinitionSummary{}
 		for offset := 0; ; offset += 100 {
 			page, err := s.bridge.WindowDefinitionsList(ctx, &forgeuisvc.WindowDefinitionListInput{Limit: 100, Offset: offset})
 			if err != nil {
@@ -959,7 +963,10 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 				return nil, fmt.Errorf("window resource catalog unavailable")
 			}
 			for _, summary := range page.Windows {
-				admitted[summary.WindowID] = true
+				admitted[summary.WindowID] = summary
+				if summary.ResourceURI != "" {
+					admitted[summary.ResourceURI] = summary
+				}
 			}
 			if !page.HasMore {
 				break
@@ -977,8 +984,15 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 		catalogKey := strings.TrimSpace(spec.WindowKey)
 		if admitted != nil {
 			var err error
-			catalogKey, _, err = s.canonicalCatalogReference(ctx, spec)
-			if err != nil || !admitted[catalogKey] {
+			var ref identity.ResourceRef
+			catalogKey, ref, err = s.canonicalCatalogReference(ctx, spec)
+			if err != nil {
+				continue
+			}
+			if admitted[catalogKey].WindowID == "" && admitted[ref.URI].WindowID != "" {
+				admitted[catalogKey] = admitted[ref.URI]
+			}
+			if admitted[catalogKey].WindowID == "" {
 				continue
 			}
 		}
@@ -1020,16 +1034,23 @@ func (s *Service) loadAll(ctx context.Context) ([]ListItem, error) {
 		}
 		if s.bridge != nil && s.bridge.UsesWindowResourceResolution() {
 			item.WindowKey = catalogKey
-			definition, err := s.bridge.WindowDefinitionGet(ctx, &forgeuisvc.WindowDefinitionGetInput{WindowID: catalogKey})
-			if err != nil {
-				return nil, err
+			if metadataOnly {
+				// The host's declared visibility list is sufficient for discovery;
+				// it must not perform entity/bootstrap checks to mint unused pins.
+				item.ResourceURI = admitted[catalogKey].ResourceURI
+				item.ProviderIdentity = admitted[catalogKey].ProviderIdentity
+			} else {
+				definition, err := s.bridge.WindowDefinitionGet(ctx, &forgeuisvc.WindowDefinitionGetInput{WindowID: catalogKey})
+				if err != nil {
+					return nil, err
+				}
+				if definition == nil || definition.Definition == nil || definition.Definition.Resource == nil {
+					return nil, fmt.Errorf("window resource resolution unavailable")
+				}
+				pin := *definition.Definition.Resource
+				item.Resource = &pin
+				item.Target = definition.Definition.ResourceTarget
 			}
-			if definition == nil || definition.Definition == nil || definition.Definition.Resource == nil {
-				return nil, fmt.Errorf("window resource resolution unavailable")
-			}
-			pin := *definition.Definition.Resource
-			item.Resource = &pin
-			item.Target = definition.Definition.ResourceTarget
 		}
 		// Conversation-owned reports/resources use the UI workspace unless the
 		// definition explicitly opts into another presentation.

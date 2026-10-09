@@ -13,7 +13,7 @@ func NewLocalMCPClient(provider *LocalProvider) (mcpclient.Interface, error) {
 	if provider == nil {
 		return nil, ErrUnavailable
 	}
-	server, err := newLocalMCPServer(provider)
+	server, err := newLocalMCPServer(provider, true)
 	if err != nil {
 		return nil, err
 	}

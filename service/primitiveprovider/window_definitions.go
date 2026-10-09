@@ -10,8 +10,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/viant/forge/backend/handlers"
 	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/forge/backend/handlers"
 	"github.com/viant/forge/backend/service/meta"
 	"github.com/viant/forge/backend/types"
 )
@@ -23,11 +23,12 @@ type WindowDefinitionCatalog interface {
 }
 
 type WindowDefinitionSummary struct {
-	ResourceURI string `json:"resourceUri,omitempty" yaml:"resourceUri,omitempty"`
-	Name        string `json:"name,omitempty" yaml:"name,omitempty"`
-	WindowID    string `json:"windowId" yaml:"windowId"`
-	Title       string `json:"title" yaml:"title"`
-	Namespace   string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
+	ProviderIdentity string `json:"providerIdentity,omitempty" yaml:"-"`
+	ResourceURI      string `json:"resourceUri,omitempty" yaml:"resourceUri,omitempty"`
+	Name             string `json:"name,omitempty" yaml:"name,omitempty"`
+	WindowID         string `json:"windowId" yaml:"windowId"`
+	Title            string `json:"title" yaml:"title"`
+	Namespace        string `json:"namespace,omitempty" yaml:"namespace,omitempty"`
 }
 
 type WindowDefinitionListInput struct {

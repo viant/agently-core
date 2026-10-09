@@ -138,3 +138,40 @@ func TestInProcessProviderGatewayPreservesProvenanceAndDeniesLogicalCollision(t 
 	require.NoError(t, err)
 	require.Equal(t, "internal", selected.ProviderIdentity)
 }
+
+func TestLocalSDKCompactCarrierRetainsExactBytesAndHTTPKeepsProjection(t *testing.T) {
+	provider, source, actor, _ := localFixture(t)
+	original := source.bytes()
+	require.Contains(t, string(original), "schemaVersion")
+	client, err := NewLocalMCPClient(provider)
+	require.NoError(t, err)
+	reply, err := client.CallTool(context.Background(), &schema.CallToolRequestParams{Name: "windows/get", Arguments: map[string]interface{}{"uri": "window://team/sales"}})
+	require.NoError(t, err)
+	require.False(t, reply.IsError != nil && *reply.IsError)
+	encoded, err := json.Marshal(reply.StructuredContent)
+	require.NoError(t, err)
+	var decoded primitive.GetResult
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	require.Empty(t, decoded.Resource.Definition)
+	require.Equal(t, []byte(original), decoded.Resource.DefinitionBytes)
+	require.Equal(t, identity.ContentFingerprint(original), decoded.ResolvedResource.ContentFingerprint)
+	text, ok := reply.Content[0].(schema.TextContent)
+	if !ok {
+		if object, ok := reply.Content[0].(map[string]interface{}); ok {
+			text.Text, _ = object["text"].(string)
+		}
+	}
+	require.Less(t, len(text.Text), 100)
+	// The HTTP/shared handler uses the original compatible rich projection.
+	server, err := newLocalMCPServer(provider)
+	require.NoError(t, err)
+	httpEquivalent := server.AsClient(context.Background())
+	full, err := httpEquivalent.CallTool(context.Background(), &schema.CallToolRequestParams{Name: "windows/get", Arguments: map[string]interface{}{"uri": "window://team/sales"}})
+	require.NoError(t, err)
+	encoded, err = json.Marshal(full.StructuredContent)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(encoded, &decoded))
+	require.NotEmpty(t, decoded.Resource.Definition)
+	require.Equal(t, []byte(original), decoded.Resource.DefinitionBytes)
+	require.True(t, actor.Valid(time.Now()))
+}
