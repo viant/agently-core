@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -855,16 +856,16 @@ func (s *stubConv) GetPayload(context.Context, string) (*apiconv.Payload, error)
 func (s *stubConv) PatchPayload(_ context.Context, payload *apiconv.MutablePayload) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.patchedPayloads = append(s.patchedPayloads, payload)
+	s.patchedPayloads = append(s.patchedPayloads, cloneFixtureValue(payload))
 	return nil
 }
 
 func (s *stubConv) PatchMessage(_ context.Context, message *apiconv.MutableMessage) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.patchedMessages = append(s.patchedMessages, message)
+	s.patchedMessages = append(s.patchedMessages, cloneFixtureValue(message))
 	if message != nil && strings.TrimSpace(derefString(message.Content)) != "" {
-		s.insertedMessages = append(s.insertedMessages, message)
+		s.insertedMessages = append(s.insertedMessages, cloneFixtureValue(message))
 	}
 	return nil
 }
@@ -885,7 +886,7 @@ func (s *stubConv) PatchToolCall(_ context.Context, call *apiconv.MutableToolCal
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.patchToolCallCount++
-	s.patchedToolCalls = append(s.patchedToolCalls, call)
+	s.patchedToolCalls = append(s.patchedToolCalls, cloneFixtureValue(call))
 	if s.failPatchToolCallAt != nil {
 		if err, ok := s.failPatchToolCallAt[s.patchToolCallCount]; ok {
 			return err
@@ -1207,4 +1208,49 @@ type coalesceWaiterContext struct {
 func (c *coalesceWaiterContext) Done() <-chan struct{} {
 	c.once.Do(func() { close(c.entered) })
 	return c.Context.Done()
+}
+
+// The fixture records values at the write boundary, like a persisted store.
+// Polling assertions receive immutable snapshots instead of live DTO pointers.
+func cloneFixtureValue[T any](value *T) *T {
+	if value == nil {
+		return nil
+	}
+	data, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	var result T
+	if err := json.Unmarshal(data, &result); err != nil {
+		panic(err)
+	}
+	// JSON omits native mutation markers; retain an independent marker copy.
+	original := reflect.ValueOf(value).Elem().FieldByName("Has")
+	target := reflect.ValueOf(&result).Elem().FieldByName("Has")
+	if original.IsValid() && target.IsValid() && original.Kind() == reflect.Pointer && !original.IsNil() {
+		marker := reflect.New(original.Type().Elem())
+		marker.Elem().Set(original.Elem())
+		target.Set(marker)
+	}
+	return &result
+}
+func (s *stubConv) patchedMessagesSnapshot() []*apiconv.MutableMessage {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]*apiconv.MutableMessage(nil), s.patchedMessages...)
+}
+func (s *stubConv) patchedToolCallsSnapshot() []*apiconv.MutableToolCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]*apiconv.MutableToolCall(nil), s.patchedToolCalls...)
+}
+func (s *stubConv) patchedPayloadsSnapshot() []*apiconv.MutablePayload {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]*apiconv.MutablePayload(nil), s.patchedPayloads...)
+}
+func (s *scriptedRegistry) callCount() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls
 }
