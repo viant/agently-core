@@ -109,9 +109,9 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 				}
 			}
 		}
-		// Collect elicitation state from assistant and control prompts. User messages with
+		// Collect elicitation state from assistant and system prompts. User messages with
 		// the same elicitation_id are responses and must not overwrite it.
-		if (role == "assistant" || role == "control") && msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
+		if (role == "assistant" || role == "system") && msg.ElicitationId != nil && strings.TrimSpace(*msg.ElicitationId) != "" {
 			setElicitationState(ts, buildElicitationState(msg))
 		}
 		// Collect linked conversations from messages
