@@ -150,12 +150,40 @@ func PrepareStaticAuthorization(registration StaticAuthorizationRegistration) (*
 	window := checker.WindowCallback(whole)
 	provider := AuthorizationProvider{AuthoritySnapshot: registration.AuthoritySnapshot, ComponentAuthoritySnapshot: registration.ComponentAuthoritySnapshot, Service: registration.Service, Account: registration.Account, AuthorityRevision: registration.AuthorityRevision, AccountProjection: projection, GateEvaluator: registration.GateEvaluator, EntityPermission: entityPermission, EntityPermissionWithLease: entityPermissionWithLease, EntityRoles: registration.EntityRoles, PolicyVersion: registration.PolicyVersion, PolicyResource: whole, WindowAuthorize: window, DatasourceAuthorize: checker.DatasourceCallback(backend), ReportAuthorize: checker.ReportCallback(backend)}
 	provider.ExecutionContext = registration.ExecutionContext
+	if registration.DecisionScope != nil {
+		provider.WindowReadDecisionScope = func(ctx context.Context) (context.Context, func() error, error) {
+			return registration.DecisionScope.BeginDecision(registration.DecisionScope.WithoutDecision(requestctx.WithoutWindowReadDecision(ctx)))
+		}
+	}
+	if provider.ComponentAuthoritySnapshot != nil {
+		original := provider.ComponentAuthoritySnapshot
+		provider.ComponentAuthoritySnapshot = func(ctx context.Context) (gating.Principal, error) {
+			ctx = requestctx.WithoutWindowReadDecision(ctx)
+			if registration.DecisionScope != nil {
+				ctx = registration.DecisionScope.WithoutDecision(ctx)
+			}
+			return original(ctx)
+		}
+	}
+	if provider.ExecutionContext != nil || registration.DecisionScope != nil {
+		original := provider.ExecutionContext
+		provider.ExecutionContext = func(ctx context.Context) context.Context {
+			ctx = requestctx.WithoutWindowReadDecision(ctx)
+			if registration.DecisionScope != nil {
+				ctx = registration.DecisionScope.WithoutDecision(ctx)
+			}
+			if original != nil {
+				ctx = original(ctx)
+			}
+			return requestctx.WithoutWindowReadDecision(ctx)
+		}
+	}
 	if registration.ProtectTools {
 		provider.ToolAuthorize = checker.ToolCallback(backend)
-		if registration.ExecutionContext != nil {
+		if provider.ExecutionContext != nil {
 			original := provider.ToolAuthorize
 			provider.ToolAuthorize = func(ctx context.Context, name string, args map[string]interface{}) error {
-				return original(registration.ExecutionContext(ctx), name, args)
+				return original(provider.ExecutionContext(ctx), name, args)
 			}
 		}
 	}
@@ -358,10 +386,17 @@ func (p *PreparedAuthorization) SetResourceRevisionMappings(store authz.Selectio
 // access must not recursively invoke omitted revision selection.
 func (p *PreparedAuthorization) ResourceAuthority() identity.ResourceAuthority {
 	return identity.ResourceAuthorityFunc(func(ctx context.Context, uri identity.ResourceURI, selector, action string) (result identity.VerifiedActor, resultErr error) {
+		pureRead := uri.Kind == "window" && (action == "describe" || action == "retrieve" || action == "selection.read")
+		if !pureRead {
+			ctx = requestctx.WithoutWindowReadDecision(ctx)
+		}
 		// Read-only logical controls retain an explicitly opened metadata-list scope.
 		// Mutation/content checks use a separate fresh pure-decision scope only.
 		if p != nil && p.decisionScope != nil && !((action == "describe" || action == "selection.read") && p.decisionScope.MetadataReadActive(ctx)) {
-			clean := p.decisionScope.WithoutDecision(ctx)
+			clean := ctx
+			if !pureRead || !requestctx.WindowReadDecisionActive(ctx) {
+				clean = p.decisionScope.WithoutDecision(ctx)
+			}
 			scoped, finish, err := p.decisionScope.BeginDecision(clean)
 			if err != nil {
 				return identity.VerifiedActor{}, err

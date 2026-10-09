@@ -289,7 +289,7 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	return nil
 }
 
-func (s *Service) open(ctx context.Context, in, out interface{}) error {
+func (s *Service) open(ctx context.Context, in, out interface{}) (resultErr error) {
 	input, ok := in.(*OpenInput)
 	if !ok {
 		return svc.NewInvalidInputError(in)
@@ -299,6 +299,20 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 		return svc.NewInvalidOutputError(out)
 	}
 	ctx = forgeuisvc.WithoutMetadataReadScope(ctx, s.metadataScope)
+	baseCtx := ctx
+	readCtx, finish, err := s.bridge.BeginWindowReadDecision(ctx)
+	if err != nil {
+		return err
+	}
+	ctx = readCtx
+	defer func() {
+		if finish != nil {
+			if err := finish(); err != nil {
+				*output = OpenOutput{}
+				resultErr = err
+			}
+		}
+	}()
 	clientID, namespace, conversationID, err := s.resolveOpenClient(ctx, input.ClientID)
 	if err != nil {
 		return err
@@ -336,6 +350,15 @@ func (s *Service) open(ctx context.Context, in, out interface{}) error {
 			return prepareErr
 		}
 		preparedItems = append(preparedItems, prepared)
+	}
+	if finish != nil {
+		checkpoint := finish
+		finish = nil
+		if err := checkpoint(); err != nil {
+			*output = OpenOutput{}
+			return err
+		}
+		ctx = baseCtx
 	}
 	for _, prepared := range preparedItems {
 		resolved, openErr := s.openPreparedItem(ctx, clientID, namespace, conversationID, prepared, timeout)

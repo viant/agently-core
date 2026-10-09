@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"strings"
 	"sync"
 	"time"
@@ -98,7 +99,7 @@ type UICommandOutput struct {
 	Result   json.RawMessage `json:"result,omitempty"`
 }
 
-func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (*UICommandOutput, error) {
+func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UICommandOutput, resultErr error) {
 	if in == nil || in.Method == "" {
 		return nil, errors.New("method is required")
 	}
@@ -109,6 +110,26 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (*UICommand
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	ctx = WithoutMetadataReadScope(ctx, s.cfg.MetadataScope)
+	baseCtx := runtimerequestctx.WithoutWindowReadDecision(ctx)
+	pureOpen := s.canonicalWindowCatalog() && (in.Method == "ui.window.open" || in.Method == "ui.window.openDynamic")
+	var preFinish func() error
+	if pureOpen {
+		var err error
+		ctx, preFinish, err = s.BeginWindowReadDecision(baseCtx)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if preFinish != nil {
+				if err := preFinish(); err != nil {
+					output = nil
+					resultErr = err
+				}
+			}
+		}()
+	} else {
+		ctx = baseCtx
+	}
 	var openedPin *identity.ResolvedResource
 	var openedTarget *types.WindowTarget
 	var openedKey string
@@ -235,9 +256,30 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (*UICommand
 			return nil, err
 		}
 	}
+	if preFinish != nil {
+		finish := preFinish
+		preFinish = nil
+		if err := finish(); err != nil {
+			return nil, err
+		}
+		ctx = baseCtx
+	}
 	resp, err := s.hub.Call(ctx, ns, in.ClientID, in.Method, in.Params)
 	if err != nil {
 		return nil, err
+	}
+	if pureOpen {
+		var finish func() error
+		ctx, finish, err = s.BeginWindowReadDecision(baseCtx)
+		if err != nil {
+			return nil, err
+		}
+		defer func() {
+			if err := finish(); err != nil {
+				output = nil
+				resultErr = err
+			}
+		}()
 	}
 	if openedPin != nil {
 		if !openedLease.IsZero() && !openedLease.After(time.Now()) {

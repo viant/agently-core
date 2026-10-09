@@ -212,6 +212,7 @@ type Builder struct {
 
 // AuthorizationProvider is registered by the host, not workspace YAML.
 type AuthorizationProvider struct {
+	WindowReadDecisionScope       forgeuisvc.WindowReadDecisionScope
 	ExecutionContext              func(context.Context) context.Context
 	AuthoritySnapshot             policy.AuthoritySnapshotResolver
 	ComponentAuthoritySnapshot    policy.AuthoritySnapshotResolver
@@ -641,6 +642,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			out.PermittedResolver = &permittedview.AuthzResolver{Service: provider.Service, Version: provider.PolicyVersion, Account: provider.Account, AuthorityRevision: provider.AuthorityRevision, ProjectAccount: provider.AccountProjection, Map: mapping, MapV2: mappingV2, Gate: provider.Gate, EntityPermission: provider.EntityPermission, EntityPermissionWithLease: provider.EntityPermissionWithLease, EntityRoles: provider.EntityRoles}
 			out.ComponentAuthority = provider.ComponentAuthoritySnapshot
 			out.ExecutionContext = provider.ExecutionContext
+			out.UIBridge.ConfigureWindowReadDecisionScope(provider.WindowReadDecisionScope)
 			out.DatasourceAuthorizer = provider.DatasourceAuthorize
 			out.DatasourceDefinitionAuthorizer = provider.DatasourceDefinitionAuthorize
 			out.DatasourceDefinitionResolver = provider.DatasourceDefinitionResolver
