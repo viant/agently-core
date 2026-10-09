@@ -45,7 +45,7 @@ func (s *Service) SetResourceDatasetExecutor(execute ResourceDatasetExecutor) {
 	}
 }
 func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceRequest) (*ExecuteResourceResult, error) {
-	if request == nil || s.resourceResolver == nil || s.resourceDatasetExecutor == nil {
+	if request == nil || !s.hasResourceReader() || s.resourceDatasetExecutor == nil {
 		return nil, identity.ErrResourceDenied
 	}
 
@@ -59,7 +59,7 @@ func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceR
 	if err != nil || uri.Kind != "report" {
 		return nil, identity.ErrResourceDenied
 	}
-	resolver, err := s.resourceResolver(ctx, "report.execute")
+	resolver, err := s.resourceReaderFor(ctx, "report.execute")
 	if err != nil {
 		return nil, err
 	}
@@ -305,10 +305,10 @@ func (s *Service) executeResourceTool(ctx context.Context, in, out interface{}) 
 // input/entity admission under the same identity context.
 func (s *Service) AuthorizeResourceDataset(ctx context.Context, descriptor *dsproto.DataSource, _ map[string]interface{}) error {
 	pin, ok := requestctx.ResolvedResourceFromContext(ctx)
-	if !ok || descriptor == nil || s.resourceResolver == nil {
+	if !ok || descriptor == nil || !s.hasResourceReader() {
 		return identity.ErrResourceDenied
 	}
-	resolver, err := s.resourceResolver(ctx, "report.execute")
+	resolver, err := s.resourceReaderFor(ctx, "report.execute")
 	if err != nil {
 		return err
 	}

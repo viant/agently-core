@@ -100,7 +100,7 @@ func decodeExportDependencies(raw json.RawMessage) (map[string]identity.Resolved
 // validateExportResourcePin rechecks a stored export against its exact original
 // revision. It never resolves an omitted selector or substitutes a new pin.
 func (s *Service) validateExportResourcePin(ctx context.Context, job *ExportJob, action string) error {
-	if s == nil || s.resourceResolver == nil {
+	if s == nil || !s.hasResourceReader() {
 		return nil
 	}
 	if ctx == nil || ctx.Err() != nil || job == nil || job.ResourcePin == nil {
@@ -111,7 +111,7 @@ func (s *Service) validateExportResourcePin(ctx context.Context, job *ExportJob,
 	if err != nil || uri.Kind != "report" || strings.TrimSpace(job.ArtifactRef) != pin.URI || !exportPinLeaseValid(pin, s.now()) {
 		return identity.ErrResourceDenied
 	}
-	resolver, err := s.resourceResolver(ctx, action)
+	resolver, err := s.resourceReaderFor(ctx, action)
 	if err != nil {
 		return err
 	}
@@ -132,7 +132,7 @@ func (s *Service) validateExportResourcePin(ctx context.Context, job *ExportJob,
 	return s.verifyDependencies(ctx, *pin, definition, job.DependencyPins, job.DependencyToken)
 }
 
-func isUnifiedExportService(s *Service) bool { return s != nil && s.resourceResolver != nil }
+func isUnifiedExportService(s *Service) bool { return s != nil && s.hasResourceReader() }
 
 func validateUnifiedExportInput(request *SubmitExportRequest) error {
 	if request == nil {

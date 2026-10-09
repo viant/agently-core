@@ -22,10 +22,10 @@ func (s *Service) WithReportResourceService(writer primitive.ResourceAuthoring) 
 	return s
 }
 func (s *Service) usesReportResources() bool {
-	return s.reportResourceService != nil || s.reportCatalog != nil || s.resourceResolver != nil
+	return s.reportResourceService != nil || s.reportCatalog != nil || s.hasResourceReader()
 }
 func (s *Service) requireReportWriter() error {
-	if s.reportResourceService == nil || s.resourceResolver == nil {
+	if s.reportResourceService == nil || !s.hasResourceReader() {
 		return identity.ErrResourceDenied
 	}
 	return nil
@@ -58,7 +58,7 @@ func (s *Service) readAuthoringResource(ctx context.Context, ref identity.Resour
 	if err := s.requireReportWriter(); err != nil {
 		return nil, nil, err
 	}
-	resolver, err := s.resourceResolver(ctx, operation)
+	resolver, err := s.resourceReaderFor(ctx, operation)
 	if err != nil {
 		return nil, nil, err
 	}

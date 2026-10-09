@@ -84,6 +84,7 @@ type Service struct {
 	reportResourceService       primitive.ResourceAuthoring
 	reportCatalog               catalog.Provider
 	resourceResolver            ResourceResolver
+	resourceReaderFactory       ResourceReaderFactory
 	resourceDependencyResolver  ResourceDependencyResolver
 	resourceDependencyProof     forgetypes.WindowTargetProof
 	resourceDatasetExecutor     ResourceDatasetExecutor
@@ -578,8 +579,8 @@ func (s *Service) compileUnscoped(ctx context.Context, request *CompileRequest) 
 		return nil, fmt.Errorf("reporting compile: compiler not configured")
 	}
 	var pin *identity.ResolvedResource
-	var resolver *identity.ResourceResolver
-	if s.resourceResolver != nil || request.Resource != nil || request.ResolvedResource != nil {
+	var resolver ResourceReader
+	if s.hasResourceReader() || request.Resource != nil || request.ResolvedResource != nil {
 		var err error
 		request, pin, resolver, err = s.compileResolved(ctx, request)
 		if err != nil {
@@ -719,7 +720,7 @@ func (s *Service) ShareArtifact(ctx context.Context, request *ShareArtifactReque
 	if request.Resource != nil || request.ResolvedResource != nil {
 		return s.shareCanonicalReport(ctx, request)
 	}
-	if s.resourceResolver != nil {
+	if s.hasResourceReader() {
 		return nil, identity.ErrResourceDenied
 	}
 	ownerID := effectiveActorID(ctx)
@@ -730,7 +731,7 @@ func (s *Service) ShareArtifact(ctx context.Context, request *ShareArtifactReque
 	if err != nil {
 		return nil, err
 	}
-	if s.resourceResolver != nil {
+	if s.hasResourceReader() {
 		return nil, identity.ErrResourceDenied
 	}
 	if err := s.authorizeAction(ctx, "report.retrieve", normalized.ArtifactRef); err != nil {
@@ -859,7 +860,7 @@ func (s *Service) TransitionArtifact(ctx context.Context, request *TransitionArt
 	if targetLifecycle != "published" {
 		return nil, ErrNotFound
 	}
-	if s.resourceResolver != nil && isCanonicalReportURI(normalized.ArtifactRef) {
+	if s.hasResourceReader() && isCanonicalReportURI(normalized.ArtifactRef) {
 		return nil, identity.ErrResourceDenied
 	}
 	if normalized.ReportExportRequest == nil {
@@ -2792,7 +2793,7 @@ func (s *Service) RecordReportRun(ctx context.Context, request *RecordReportRunR
 	if request == nil {
 		return nil, fmt.Errorf("report store: record run request is required")
 	}
-	if s.resourceResolver != nil {
+	if s.hasResourceReader() {
 		result, err := s.ExecuteResource(ctx, &ExecuteResourceRequest{Resource: request.Resource, ResolvedResource: request.ResolvedResource, Parameters: request.Parameters})
 		if err != nil {
 			return nil, err

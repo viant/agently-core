@@ -18,8 +18,8 @@ type ResourceResolver func(context.Context, string) (*identity.ResourceResolver,
 
 // compileResolved consumes the shared Forge report envelope, not a second
 // client-supplied definition. It preserves the selected identity through compile.
-func (s *Service) compileResolved(ctx context.Context, request *CompileRequest) (*CompileRequest, *identity.ResolvedResource, *identity.ResourceResolver, error) {
-	if s.resourceResolver == nil {
+func (s *Service) compileResolved(ctx context.Context, request *CompileRequest) (*CompileRequest, *identity.ResolvedResource, ResourceReader, error) {
+	if !s.hasResourceReader() {
 		return nil, nil, nil, identity.ErrResourceDenied
 	}
 	var ref identity.ResourceRef
@@ -35,7 +35,7 @@ func (s *Service) compileResolved(ctx context.Context, request *CompileRequest) 
 	if err != nil || uri.Kind != "report" {
 		return nil, nil, nil, identity.ErrResourceDenied
 	}
-	resolver, err := s.resourceResolver(ctx, "report.compile")
+	resolver, err := s.resourceReaderFor(ctx, "report.compile")
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -128,4 +128,4 @@ func cloneResolvedResource(value *identity.ResolvedResource) *identity.ResolvedR
 }
 
 // UsesResourceResolution identifies explicitly configured unified report mode.
-func (s *Service) UsesResourceResolution() bool { return s != nil && s.resourceResolver != nil }
+func (s *Service) UsesResourceResolution() bool { return s != nil && s.hasResourceReader() }

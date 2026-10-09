@@ -71,7 +71,7 @@ func (s *Service) getResourceReport(ctx context.Context, input *GetReportInput) 
 }
 
 func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetReportInput) (*SharedArtifact, error) {
-	if s.resourceResolver == nil || input == nil {
+	if !s.hasResourceReader() || input == nil {
 		return nil, identity.ErrResourceDenied
 	}
 	ref := identity.ResourceRef{URI: strings.TrimSpace(input.ArtifactRef)}
@@ -88,7 +88,7 @@ func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetRepor
 	if err != nil || uri.Kind != "report" {
 		return nil, identity.ErrResourceDenied
 	}
-	resolver, err := s.resourceResolver(ctx, "report.retrieve")
+	resolver, err := s.resourceReaderFor(ctx, "report.retrieve")
 	if err != nil {
 		return nil, err
 	}

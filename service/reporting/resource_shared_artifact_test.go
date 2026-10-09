@@ -43,7 +43,7 @@ func TestCanonicalSharedReportRoundTripReauthorizesStableActorAndExactPin(t *tes
 	raw := json.RawMessage(`{"schemaVersion":1,"format":"forge.authoredReport","reportDocument":{"title":"Sales"},"reportSpec":{"kind":"reportSpec","version":1}}`)
 	source := &identity.LocalResource{URI: uri, Load: func(context.Context) (json.RawMessage, error) { return append(json.RawMessage(nil), raw...), nil }}
 	policy := &sharedReportPolicy{actor: actor, allow: true, uri: uri}
-	resolver := &identity.ResourceResolver{Source: source, Policy: policy}
+	resolver := &identity.ResourceResolver{ProviderIdentity: "provider-a", Source: source, Policy: policy}
 	catalog := &catalog.ReportCatalogService{Identity: func(context.Context) (identity.VerifiedActor, error) { return *actor, nil }}
 	client := reportmemory.New()
 	service := New(Options{
@@ -90,6 +90,11 @@ func TestCanonicalSharedReportRoundTripReauthorizesStableActorAndExactPin(t *tes
 	if err != nil || got.Resource == nil || got.Resource.AuthorityBinding != "login-2/account-a" {
 		t.Fatalf("refreshed exact shared report=%+v err=%v", got, err)
 	}
+	resolver.ProviderIdentity = "provider-b"
+	if replaced, err := service.GetSharedArtifact(ctx, shared.ArtifactID); replaced != nil || !errors.Is(err, ErrNotFound) {
+		t.Fatalf("same-bytes different provider replaced bookmark: %+v %v", replaced, err)
+	}
+	resolver.ProviderIdentity = "provider-a"
 	transitioned, err := service.TransitionArtifact(ctx, &TransitionArtifactRequest{ArtifactRef: shared.ArtifactRef, To: "published"})
 	if err != nil || transitioned.Resource == nil || transitioned.Lifecycle != "published" || len(transitioned.ResourceDefinition) != 0 {
 		t.Fatalf("canonical transition materialized another report: %+v %v", transitioned, err)
