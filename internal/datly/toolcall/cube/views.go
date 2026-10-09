@@ -4,14 +4,14 @@ package cube
 
 // ToolCallReportView is generated canonical view metadata for reader.
 type ToolCallReportView struct {
-	ConversationId   string   `groupable:"true" sqlx:"conversation_id" json:"conversationId"`
-	ToolName         string   `groupable:"true" sqlx:"tool_name,required=true" json:"toolName"`
-	ToolKind         string   `groupable:"true" sqlx:"tool_kind,required=true" json:"toolKind"`
-	Status           string   `groupable:"true" sqlx:"status,required=true" json:"status"`
-	OpId             string   `groupable:"true" sqlx:"op_id,required=true" json:"opId"`
-	RecordCount      int      `groupable:"false" sqlx:"record_count" json:"recordCount"`
-	RetryCount       int      `groupable:"false" sqlx:"retry_count" json:"retryCount"`
-	TotalLatencyMs   *int     `groupable:"false" sqlx:"total_latency_ms" json:"totalLatencyMs"`
-	AverageLatencyMs *float64 `groupable:"false" sqlx:"average_latency_ms" json:"averageLatencyMs"`
-	Cost             *float64 `groupable:"false" sqlx:"cost" json:"cost"`
+	ConversationId   string   `groupable:"true" docTable:"-" sqlx:"conversation_id" json:"conversationId"`
+	ToolName         string   `groupable:"true" docTable:"tool_call" docColumn:"tool_name" sqlx:"tool_name,required=true" json:"toolName"`
+	ToolKind         string   `groupable:"true" docTable:"tool_call" docColumn:"tool_kind" sqlx:"tool_kind,required=true" json:"toolKind"`
+	Status           string   `groupable:"true" docTable:"tool_call" docColumn:"status" sqlx:"status,required=true" json:"status"`
+	OpId             string   `groupable:"true" docTable:"tool_call" docColumn:"op_id" sqlx:"op_id,required=true" json:"opId"`
+	RecordCount      int      `groupable:"false" docTable:"-" sqlx:"record_count" json:"recordCount"`
+	RetryCount       int      `groupable:"false" docTable:"-" sqlx:"retry_count" json:"retryCount"`
+	TotalLatencyMs   *int     `groupable:"false" docTable:"-" sqlx:"total_latency_ms" json:"totalLatencyMs"`
+	AverageLatencyMs *float64 `groupable:"false" docTable:"-" sqlx:"average_latency_ms" json:"averageLatencyMs"`
+	Cost             *float64 `groupable:"false" docTable:"-" sqlx:"cost" json:"cost"`
 }

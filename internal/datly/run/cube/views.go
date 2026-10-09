@@ -4,11 +4,11 @@ package cube
 
 // RunReportView is generated canonical view metadata for reader.
 type RunReportView struct {
-	ScheduleId       *string  `groupable:"true" sqlx:"schedule_id,refTable=schedule,refColumn=id" json:"scheduleId"`
-	Status           string   `groupable:"true" sqlx:"status,required=true" json:"status"`
-	ConversationKind string   `groupable:"true" sqlx:"conversation_kind,required=true" json:"conversationKind"`
-	EffectiveUserId  *string  `groupable:"true" sqlx:"effective_user_id" json:"effectiveUserId"`
-	RecordCount      int      `groupable:"false" sqlx:"record_count" json:"recordCount"`
-	TotalTokens      *int     `groupable:"false" sqlx:"total_tokens" json:"totalTokens"`
-	TotalCost        *float64 `groupable:"false" sqlx:"total_cost" json:"totalCost"`
+	ScheduleId       *string  `groupable:"true" sqlx:"schedule_id,refTable=schedule,refColumn=id" docTable:"run" docColumn:"schedule_id" json:"scheduleId"`
+	Status           string   `groupable:"true" docTable:"run" docColumn:"status" sqlx:"status,required=true" json:"status"`
+	ConversationKind string   `groupable:"true" docTable:"run" docColumn:"conversation_kind" sqlx:"conversation_kind,required=true" json:"conversationKind"`
+	EffectiveUserId  *string  `groupable:"true" docTable:"run" docColumn:"effective_user_id" sqlx:"effective_user_id" json:"effectiveUserId"`
+	RecordCount      int      `groupable:"false" docTable:"-" sqlx:"record_count" json:"recordCount"`
+	TotalTokens      *int     `groupable:"false" docTable:"-" sqlx:"total_tokens" json:"totalTokens"`
+	TotalCost        *float64 `groupable:"false" docTable:"-" sqlx:"total_cost" json:"totalCost"`
 }

@@ -4,5 +4,5 @@ package cube
 
 // MessageReportOutput is the generated output scaffold for reader.
 type MessageReportOutput struct {
-	Data []*MessageReportView `parameter:"Data,kind=output,in=view,dataType=[]*MessageReportView" view:"reader,type=MessageReportView,table=message,groupable=true,selectorProjection=true" sql:"uri=datly_message_cube_reader:sql/reader.sql"`
+	Data []*MessageReportView `parameter:"Data,kind=output,in=view,dataType=[]*MessageReportView" view:"reader,type=MessageReportView,table=message,docTable=message,groupable=true,selectorProjection=true" json:"data" sql:"uri=datly_message_cube_reader:sql/reader.sql"`
 }

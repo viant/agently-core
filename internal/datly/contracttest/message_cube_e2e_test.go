@@ -119,14 +119,14 @@ func messageCubeRuntime(t *testing.T, db *sql.DB, subject string, internal, prov
 	resources := resource.New()
 	must(t, resources.Register(cube.ReaderDatlyResourceNamespace, cube.ReaderDatlyResources))
 	base := payloadArtifact(t, resources, reflect.TypeFor[cube.ReaderComponent](), reflect.TypeFor[cube.MessageReportInput](), reflect.TypeFor[cube.MessageReportOutput]())
-	compiled, err := report.NewProjectCompiler(report.ProjectConfig{}).CompileArtifacts([]bootstrap.ArtifactInput{{Component: base.Component, InputType: reflect.TypeFor[cube.MessageReportInput](), OutputType: reflect.TypeFor[cube.MessageReportOutput](), Resources: resources}})
+	compiled, err := report.NewProjectCompiler(report.ProjectConfig{}).CompileArtifacts(linkedCubeArtifactInputs[cube.ReaderCubeComponent, cube.ReaderCubeInput, cube.ReaderCubeOutput](t, resources, base, reflect.TypeFor[cube.MessageReportInput](), reflect.TypeFor[cube.MessageReportOutput](), cube.NewReaderCube))
 	must(t, err)
 	providers := []locator.Provider{}
 	if provided {
 		providers = append(providers, ordinaryAccess("messageaccess", func(context.Context, reflect.Type, string) (any, bool, error) { return internal, true, nil }), provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &subject, true, nil }))
 	}
 	registered, err := compiled.RuntimeComponents(context.Background(), report.RuntimeConfigureFunc(func(_ context.Context, artifact *report.ComponentArtifact) (report.RuntimeCapabilities, error) {
-		if artifact.IsReport() {
+		if artifact.IsReport() || artifact.ReaderCompilation() == nil {
 			return report.RuntimeCapabilities{Providers: providers}, nil
 		}
 		execution, err := artifact.ReaderCompilation().NewExecution(bootstrap.ReaderRuntimeConfig{SQL: &dsql.SQLComponent{DB: db}})
