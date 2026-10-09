@@ -160,7 +160,7 @@ func handleForceSteerQueuedTurn(client Client) http.HandlerFunc {
 	}
 }
 
-func handleResolveElicitation(client Client) http.HandlerFunc {
+func handleResolveElicitation(client Client, authConfig ...*svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conversationID := strings.TrimSpace(r.PathValue("conversationId"))
 		elicitationID := strings.TrimSpace(r.PathValue("elicitationId"))
@@ -186,9 +186,18 @@ func handleResolveElicitation(client Client) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("action is required"))
 			return
 		}
+		var ok bool
+		r, ok = applicationRequestPrincipal(w, r, "", authConfig)
+		if !ok {
+			return
+		}
 		if err := client.ResolveElicitation(r.Context(), in); err != nil {
 			log.Printf("[resolve-elicitation] convID=%s elicitID=%s error: %v", conversationID, elicitationID, err)
-			httpError(w, http.StatusInternalServerError, err)
+			status := http.StatusInternalServerError
+			if strings.Contains(strings.ToLower(err.Error()), "not owned by caller") {
+				status = http.StatusForbidden
+			}
+			httpError(w, status, err)
 			return
 		}
 		httpJSON(w, http.StatusOK, map[string]string{"status": "ok"})

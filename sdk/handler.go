@@ -223,7 +223,7 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	mux.HandleFunc("GET /v1/application-events", handleApplicationEvents(client, cfg.authCfg))
 
 	mux.HandleFunc("POST /v1/turns/{id}/cancel", handleCancelTurn(client))
-	mux.HandleFunc("POST /v1/elicitations/{conversationId}/{elicitationId}/resolve", handleResolveElicitation(client))
+	mux.HandleFunc("POST /v1/elicitations/{conversationId}/{elicitationId}/resolve", handleResolveElicitation(client, cfg.authCfg))
 	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/steer", handleSteerTurn(client))
 	mux.HandleFunc("DELETE /v1/conversations/{id}/turns/{turnId}", handleDeleteQueuedTurn(client))
 	mux.HandleFunc("POST /v1/conversations/{id}/turns/{turnId}/move", handleMoveQueuedTurn(client, cfg.authCfg))
