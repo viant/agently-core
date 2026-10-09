@@ -674,10 +674,11 @@ type ImportResourcesOutput struct {
 }
 
 type GetTranscriptInput struct {
-	ConversationID    string
-	Since             string
-	IncludeModelCalls bool
-	IncludeToolCalls  bool
+	ConversationID       string
+	Since                string
+	IncludeModelCalls    bool
+	IncludeToolCalls     bool
+	IncludeModelPayloads *bool `json:"includeModelPayloads,omitempty"`
 }
 
 type QuerySelector struct {

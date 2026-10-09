@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1011,6 +1012,12 @@ func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInpu
 	}
 	if input.IncludeToolCalls {
 		q.Set("includeToolCalls", "true")
+	}
+	if input.IncludeModelPayloads != nil {
+		q.Set("includeModelPayloads", strconv.FormatBool(*input.IncludeModelPayloads))
+	}
+	if optState.includeModelPayloads != nil {
+		q.Set("includeModelPayloads", strconv.FormatBool(*optState.includeModelPayloads))
 	}
 	if optState.includeFeeds {
 		q.Set("includeFeeds", "true")
