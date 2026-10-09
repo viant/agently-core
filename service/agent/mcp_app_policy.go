@@ -43,6 +43,17 @@ func (s *Service) resolveMCPAppToolSurface(ctx context.Context, ag *agentmdl.Age
 		return nil, nil, fmt.Errorf("native MCP app agent policy is unavailable")
 	}
 
+	if visibility, ok := s.registry.(interface {
+		MCPToolVisible(context.Context, string, string) (bool, error)
+	}); ok {
+		allowed, err := visibility.MCPToolVisible(ctx, name, "app")
+		if err != nil {
+			return nil, nil, err
+		}
+		if !allowed {
+			return nil, nil, fmt.Errorf("MCP tool visibility excludes app calls")
+		}
+	}
 	control, err := s.resolveToolControl(ctx, &QueryInput{Agent: ag})
 	if err != nil {
 		return nil, nil, err

@@ -7,6 +7,7 @@ import (
 
 	"github.com/viant/agently-core/protocol/agui"
 	"github.com/viant/agently-core/runtime/clienttool"
+	"github.com/viant/agently-core/service/browsermcp"
 )
 
 func aguiClientToolInterrupt(call clienttool.PendingCall) agui.WireInterrupt {
@@ -22,6 +23,9 @@ func aguiClientToolAnswer(call clienttool.PendingCall, answer agui.WireResumeEnt
 	}
 	if answer.Status == "cancelled" {
 		return rawAGUI(""), "Frontend tool cancelled", nil
+	}
+	if err := browsermcp.VerifyResultMetadata(call.Name, call.Metadata, rawAGUI(answer.Metadata)); err != nil {
+		return nil, "", err
 	}
 	if answer.Payload == nil {
 		return nil, "", fmt.Errorf("client tool answer requires payload")

@@ -943,6 +943,19 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			return "", identityErr
 		}
 	}
+	if resolvedIdentity {
+		audience := "model"
+		if hostScoped {
+			audience = "app"
+		}
+		visible, err := r.MCPToolVisible(ctx, serviceName+"/"+literalMethod, audience)
+		if err != nil {
+			return "", err
+		}
+		if !visible {
+			return "", fmt.Errorf("MCP tool visibility excludes %s calls", audience)
+		}
+	}
 	if !resolvedIdentity {
 		serviceName, _ = splitToolName(baseName)
 	}
