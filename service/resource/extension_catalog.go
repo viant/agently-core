@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	workspacewindow "github.com/viant/agently-core/service/ui/window"
 	"io"
 	"io/fs"
 	"os"
@@ -48,6 +49,7 @@ type extensionDirectoryRoot struct {
 	info os.FileInfo
 }
 type ExtensionReader struct {
+	windowAssets *workspacewindow.StaticAssetCompilation
 	root         *os.Root
 	anchorInfo   os.FileInfo
 	mu           sync.Mutex

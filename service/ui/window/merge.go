@@ -56,7 +56,7 @@ func mergeWorkspaceForgeAssetsWithOptionsAt(ctx context.Context, workspaceRoot s
 		return fmt.Errorf("workspace root is required")
 	}
 	svc := wsmeta.New(options.filesystem(), workspaceRoot)
-	catalog, err := loadWorkspaceCatalog(ctx, svc)
+	catalog, err := options.catalog(ctx, workspaceRoot, svc)
 	if err != nil {
 		return err
 	}

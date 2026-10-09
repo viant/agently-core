@@ -51,8 +51,14 @@ func NativeWindowLoader(bindings []workspacewindow.ResourceBinding, enrich works
 		if err != nil {
 			return nil, err
 		}
+		reader.mu.Lock()
+		if reader.windowAssets == nil {
+			reader.windowAssets = workspacewindow.NewStaticAssetCompilation()
+		}
+		assets := reader.windowAssets
+		reader.mu.Unlock()
 		native := &confinedWindowFS{reader: reader, base: filepath.Clean(root)}
-		options := workspacewindow.LoaderOptions{SharedDefault: true, FS: native, AssetDirectories: native.assetDirectories, Check: native.check}
+		options := workspacewindow.LoaderOptions{StaticAssets: assets, SharedDefault: true, FS: native, AssetDirectories: native.assetDirectories, Check: native.check}
 		uri, err := identity.ParseResourceURI(binding.URI)
 		if err != nil {
 			return nil, err

@@ -9,6 +9,8 @@ import (
 // assignment and descriptor loading. Check reports sticky access denials even
 // when legacy branch probing or optional-asset loading suppresses an error.
 type LoaderOptions struct {
+	// StaticAssets is optional and exists only inside one source compilation.
+	StaticAssets *StaticAssetCompilation
 	// SharedDefault permits a shared/main native root when no main/singleton alias exists.
 	SharedDefault    bool
 	FS               afs.Service
