@@ -9,7 +9,7 @@ import (
 // Compile is a metadata-only phase. Its explicit host scope ends before the
 // original execution context proceeds to datasource admission or dispatch.
 func (s *Service) Compile(ctx context.Context, request *CompileRequest) (out *CompileResult, resultErr error) {
-	if s.reportCatalog != nil && s.resourceResolver != nil {
+	if s.reportCatalog != nil && s.hasResourceReader() {
 		scoped, finish, err := s.reportCatalog.MetadataRead(ctx)
 		if err != nil {
 			if finish != nil {

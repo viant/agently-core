@@ -22,6 +22,7 @@ type sharedReportActorScope struct {
 }
 
 type persistedSharedResourcePin struct {
+	ProviderIdentity  string                     `json:"providerIdentity,omitempty"`
 	URI               string                     `json:"uri"`
 	ResourceCandidate identity.ResourceCandidate `json:"candidate"`
 	AuthorityBinding  string                     `json:"authorityBinding,omitempty"`
@@ -46,7 +47,7 @@ func (s *Service) requiresCanonicalSharedReport(artifact *SharedArtifact) bool {
 	if artifact.Resource != nil {
 		return true
 	}
-	if s == nil || s.resourceResolver == nil {
+	if s == nil || !s.hasResourceReader() {
 		return false
 	}
 	kind := strings.TrimSpace(artifact.Kind)
@@ -54,7 +55,7 @@ func (s *Service) requiresCanonicalSharedReport(artifact *SharedArtifact) bool {
 }
 
 func (s *Service) shareCanonicalReport(ctx context.Context, request *ShareArtifactRequest) (*SharedArtifact, error) {
-	if s == nil || s.resourceResolver == nil || request == nil {
+	if s == nil || !s.hasResourceReader() || request == nil {
 		return nil, identity.ErrResourceDenied
 	}
 	if len(strings.TrimSpace(string(request.ReportDocument))) > 0 || request.ReportExportRequest != nil {
@@ -82,7 +83,7 @@ func (s *Service) shareCanonicalReport(ctx context.Context, request *ShareArtifa
 	if !isCanonicalReportURI(ref.URI) || normalized.ArtifactRef != ref.URI {
 		return nil, identity.ErrResourceDenied
 	}
-	resolver, err := s.resourceResolver(ctx, "report.retrieve")
+	resolver, err := s.resourceReaderFor(ctx, "report.retrieve")
 	if err != nil || resolver == nil {
 		return nil, identity.ErrResourceDenied
 	}
@@ -157,17 +158,23 @@ func (s *Service) shareCanonicalReport(ctx context.Context, request *ShareArtifa
 	return cloneSharedArtifact(artifact), nil
 }
 
-func resolveSharedReport(ctx context.Context, resolver *identity.ResourceResolver, ref identity.ResourceRef, supplied *identity.ResolvedResource) (*identity.ResolvedResource, []byte, error) {
+func resolveSharedReport(ctx context.Context, resolver ResourceReader, ref identity.ResourceRef, supplied *identity.ResolvedResource) (*identity.ResolvedResource, []byte, error) {
 	if supplied != nil {
 		if ref.URI != supplied.URI || ref.Revision != supplied.Selector() {
 			return nil, nil, identity.ErrResourceDenied
 		}
 	}
-	pin, err := resolver.Resolve(ctx, ref)
+	var pin *identity.ResolvedResource
+	var err error
+	if providerReader, ok := resolver.(ProviderResourceReader); ok && supplied != nil && supplied.ProviderIdentity != "" {
+		pin, err = providerReader.ResolveForProvider(ctx, ref, supplied.ProviderIdentity)
+	} else {
+		pin, err = resolver.Resolve(ctx, ref)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
-	if supplied != nil && (pin.URI != supplied.URI || pin.ResourceCandidate != supplied.ResourceCandidate) {
+	if supplied != nil && (pin.URI != supplied.URI || pin.ResourceCandidate != supplied.ResourceCandidate || pin.ProviderIdentity != supplied.ProviderIdentity) {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	raw, fresh, err := resolver.ReadResolved(ctx, *pin)
@@ -201,7 +208,7 @@ func cloneSharedReportActorScope(input *sharedReportActorScope) *sharedReportAct
 }
 
 func (s *Service) reauthorizeSharedReport(ctx context.Context, artifact *SharedArtifact) (*identity.ResolvedResource, []byte, error) {
-	if s == nil || artifact == nil || artifact.Resource == nil || artifact.sharedActorScope == nil || s.resourceResolver == nil {
+	if s == nil || artifact == nil || artifact.Resource == nil || artifact.sharedActorScope == nil || !s.hasResourceReader() {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	stored := artifact.Resource
@@ -213,16 +220,22 @@ func (s *Service) reauthorizeSharedReport(ctx context.Context, artifact *SharedA
 	if err != nil || !sameSharedReportActorScope(actor, artifact.sharedActorScope) {
 		return nil, nil, identity.ErrResourceDenied
 	}
-	resolver, err := s.resourceResolver(ctx, "report.retrieve")
+	resolver, err := s.resourceReaderFor(ctx, "report.retrieve")
 	if err != nil || resolver == nil {
 		return nil, nil, identity.ErrResourceDenied
 	}
-	fresh, err := resolver.Resolve(ctx, identity.ResourceRef{URI: stored.URI, Revision: stored.Selector()})
-	if err != nil || fresh.URI != stored.URI || fresh.ResourceCandidate != stored.ResourceCandidate {
+	ref := identity.ResourceRef{URI: stored.URI, Revision: stored.Selector()}
+	var fresh *identity.ResolvedResource
+	if providerReader, ok := resolver.(ProviderResourceReader); ok && stored.ProviderIdentity != "" {
+		fresh, err = providerReader.ResolveForProvider(ctx, ref, stored.ProviderIdentity)
+	} else {
+		fresh, err = resolver.Resolve(ctx, ref)
+	}
+	if err != nil || fresh.URI != stored.URI || fresh.ResourceCandidate != stored.ResourceCandidate || fresh.ProviderIdentity != stored.ProviderIdentity {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	raw, readFresh, err := resolver.ReadResolved(ctx, *fresh)
-	if err != nil || readFresh.URI != stored.URI || readFresh.ResourceCandidate != stored.ResourceCandidate {
+	if err != nil || readFresh.URI != stored.URI || readFresh.ResourceCandidate != stored.ResourceCandidate || readFresh.ProviderIdentity != stored.ProviderIdentity {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	var envelope registry.ReportEnvelope
@@ -247,7 +260,7 @@ func encodeSharedArtifactMetadata(metadata json.RawMessage, resource *identity.R
 	}
 	envelope := sharedResourceMetadataEnvelope{Format: canonicalSharedResourceEnvelopeFormat, Metadata: cloneJSON(metadata)}
 	if resource != nil {
-		envelope.Resource = &persistedSharedResourcePin{URI: resource.URI, ResourceCandidate: resource.ResourceCandidate, AuthorityBinding: resource.AuthorityBinding}
+		envelope.Resource = &persistedSharedResourcePin{ProviderIdentity: resource.ProviderIdentity, URI: resource.URI, ResourceCandidate: resource.ResourceCandidate, AuthorityBinding: resource.AuthorityBinding}
 	}
 	envelope.Actor = cloneSharedReportActorScope(actor)
 	encoded, err := json.Marshal(map[string]interface{}{canonicalSharedResourceEnvelopeKey: envelope})
@@ -275,7 +288,7 @@ func decodeSharedArtifactMetadata(metadata json.RawMessage) (json.RawMessage, *i
 		if !isCanonicalReportURI(envelope.Resource.URI) || !envelope.Resource.ResourceCandidate.Valid() || strings.TrimSpace(envelope.Resource.AuthorityBinding) == "" {
 			return nil, nil, nil, fmt.Errorf("invalid persisted shared report pin")
 		}
-		pin = &identity.ResolvedResource{URI: envelope.Resource.URI, ResourceCandidate: envelope.Resource.ResourceCandidate, AuthorityBinding: envelope.Resource.AuthorityBinding}
+		pin = &identity.ResolvedResource{ProviderIdentity: envelope.Resource.ProviderIdentity, URI: envelope.Resource.URI, ResourceCandidate: envelope.Resource.ResourceCandidate, AuthorityBinding: envelope.Resource.AuthorityBinding}
 	}
 	return cloneJSON(envelope.Metadata), pin, cloneSharedReportActorScope(envelope.Actor), nil
 }
