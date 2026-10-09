@@ -77,10 +77,23 @@ func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceR
 	}
 	// Execute admission precedes compilation. Only this exact selected identity
 	// may enter the metadata-only compiler; denied users never invoke it.
-	if _, _, err = resolver.ReadResolved(ctx, *pin); err != nil {
+	original := cloneResolvedResource(pin)
+	admittedRaw, pin, err := resolver.ReadResolved(ctx, *pin)
+	if err != nil {
 		return nil, err
 	}
-	compiled, err := s.Compile(ctx, &CompileRequest{DependencyPins: cloneDependencyPins(request.DependencyPins), DependencyToken: request.DependencyToken, ResolvedResource: pin})
+	dependencyPins, dependencyToken := cloneDependencyPins(request.DependencyPins), request.DependencyToken
+	if dependencyPins != nil && !original.ValidUntil.Equal(pin.ValidUntil) {
+		var admittedDefinition registry.ReportEnvelope
+		if json.Unmarshal(admittedRaw, &admittedDefinition) != nil {
+			return nil, identity.ErrResourceDenied
+		}
+		dependencyPins, dependencyToken, err = s.bindOperationDependencies(ctx, original, pin, admittedDefinition, dependencyPins, dependencyToken)
+		if err != nil {
+			return nil, err
+		}
+	}
+	compiled, err := s.Compile(ctx, &CompileRequest{DependencyPins: dependencyPins, DependencyToken: dependencyToken, ResolvedResource: pin})
 	if err != nil {
 		return nil, err
 	}
@@ -95,10 +108,30 @@ func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceR
 	if json.Unmarshal(raw, &envelope) != nil || len(envelope.DataSources) == 0 {
 		return nil, fmt.Errorf("report execution requires trusted datasource descriptors")
 	}
+	if !compiled.Resource.ValidUntil.Equal(pin.ValidUntil) {
+		compiled.DependencyPins, compiled.DependencyToken, err = s.bindOperationDependencies(ctx, compiled.Resource, pin, envelope, compiled.DependencyPins, compiled.DependencyToken)
+		if err != nil {
+			return nil, err
+		}
+	}
 	check := func() error {
-		if _, _, e := resolver.ReadResolved(ctx, *pin); e != nil {
+		original := cloneResolvedResource(pin)
+		_, fresh, e := resolver.ReadResolved(ctx, *pin)
+		if e != nil {
 			return e
 		}
+		if fresh == nil || fresh.URI != original.URI || fresh.ProviderIdentity != original.ProviderIdentity || fresh.ResourceCandidate != original.ResourceCandidate || fresh.AuthorityBinding != original.AuthorityBinding || fresh.ValidUntil.After(original.ValidUntil) {
+			return identity.ErrResourceDenied
+		}
+		if fresh.ValidUntil.Before(original.ValidUntil) {
+			compiled.DependencyPins, compiled.DependencyToken, e = s.bindOperationDependencies(ctx, original, fresh, envelope, compiled.DependencyPins, compiled.DependencyToken)
+			if e != nil {
+				return e
+			}
+			pin = fresh
+			return nil // The narrowing helper already revalidated original children.
+		}
+		pin = fresh
 		return s.verifyDependencies(ctx, *pin, envelope, compiled.DependencyPins, compiled.DependencyToken)
 	}
 	if err = check(); err != nil {
@@ -315,9 +348,15 @@ func (s *Service) AuthorizeResourceDataset(ctx context.Context, descriptor *dspr
 	if resolver == nil {
 		return identity.ErrResourceDenied
 	}
-	raw, _, err := resolver.ReadResolved(ctx, *pin)
+	raw, fresh, err := resolver.ReadResolved(ctx, *pin)
 	if err != nil {
 		return err
+	}
+	// This error-only callback cannot hand the caller a narrower replacement
+	// pin. Abort this fetch when a shorter grant is observed; a later regrant
+	// must not restore the previous lease and release this operation's rows.
+	if fresh == nil || fresh.ValidUntil.Before(pin.ValidUntil) || fresh.ValidUntil.After(pin.ValidUntil) {
+		return identity.ErrResourceDenied
 	}
 	var e registry.ReportEnvelope
 	if json.Unmarshal(raw, &e) != nil {

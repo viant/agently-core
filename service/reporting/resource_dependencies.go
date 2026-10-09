@@ -33,6 +33,31 @@ func cloneDependencyPins(input map[string]identity.ResolvedResource) map[string]
 	return out
 }
 
+// bindOperationDependencies carries original verified children across a narrower
+// host operation deadline. The old proof is verified first; only the trusted
+// server may re-sign it for the shorter parent. No child is selected anew.
+func (s *Service) bindOperationDependencies(ctx context.Context, originalParent, parent *identity.ResolvedResource, definition registry.ReportEnvelope, original map[string]identity.ResolvedResource, token string) (map[string]identity.ResolvedResource, string, error) {
+	if originalParent == nil || parent == nil || original == nil || originalParent.ValidUntil.Equal(parent.ValidUntil) {
+		return s.bindDependencies(ctx, parent, definition, original, token)
+	}
+	if originalParent.URI != parent.URI || originalParent.ProviderIdentity != parent.ProviderIdentity || originalParent.ResourceCandidate != parent.ResourceCandidate || originalParent.AuthorityBinding != parent.AuthorityBinding || parent.ValidUntil.After(originalParent.ValidUntil) || !originalParent.ValidUntil.After(s.now()) {
+		return nil, "", identity.ErrResourceDenied
+	}
+	old := *originalParent
+	pins, _, err := s.bindDependencies(ctx, &old, definition, original, token)
+	if err != nil {
+		return nil, "", err
+	}
+	if old.ValidUntil.Before(parent.ValidUntil) {
+		parent.ValidUntil = old.ValidUntil
+	}
+	if len(pins) == 0 {
+		return nil, "", nil
+	}
+	signed, err := s.resourceDependencyProof.Sign(ctx, *parent, types.WindowTarget{DependencyPins: pins}, reportDependencyDomain)
+	return pins, signed, err
+}
+
 func (s *Service) bindDependencies(ctx context.Context, parent *identity.ResolvedResource, definition registry.ReportEnvelope, original map[string]identity.ResolvedResource, token string) (map[string]identity.ResolvedResource, string, error) {
 	if len(definition.DataSourceResources) == 0 {
 		if len(original) > 0 || token != "" {
