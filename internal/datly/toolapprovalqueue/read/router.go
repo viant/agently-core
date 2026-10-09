@@ -10,6 +10,8 @@ import (
 
 func init() {}
 
+var _anchorReaderComponent = reflect.TypeFor[ReaderComponent]()
+
 // Component is the generated component scaffold for reader.
 type ReaderComponent struct {
 	Contract xdatly.Component[ApprovalRowsInput, ApprovalRowsOutput] "component:\"reader,path=/v1/internal/agently/tool-approval,method=GET,connector=agently,view=reader,internal=true\" routeName:\"reader\" caseFormat:\"lc\""
@@ -18,9 +20,8 @@ type ReaderComponent struct {
 // ReaderDatlyType returns the public component type.
 func ReaderDatlyType() reflect.Type { return reflect.TypeOf((*ReaderComponent)(nil)).Elem() }
 
-// The package-level value keeps this real component type reachable for runtime discovery.
+// The public value supports explicit component wiring.
 var ReaderDatly = new(ReaderComponent)
-var _datlyReachableReaderComponent = reflect.TypeFor[ReaderComponent]()
 
 func (ReaderComponent) EmbedFS() *embed.FS {
 	return &ReaderDatlyResources
