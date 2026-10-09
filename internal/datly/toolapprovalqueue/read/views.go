@@ -8,24 +8,25 @@ import (
 
 // ApprovalView is generated canonical view metadata for reader.
 type ApprovalView struct {
-	TransitionAt     *string    `sqlx:"transition_at" json:"transitionAt"`
-	Id               string     `sqlx:"id,primaryKey=true" json:"id"`
-	UserId           string     `sqlx:"user_id,required=true" json:"userId"`
-	ToolName         string     `sqlx:"tool_name,required=true" json:"toolName"`
-	Arguments        []byte     `sqlx:"arguments,required=true" json:"arguments"`
-	Metadata         *[]byte    `sqlx:"metadata" json:"metadata"`
-	Status           string     `sqlx:"status,required=true" json:"status"`
-	CreatedAt        time.Time  `sqlx:"created_at,required=true" json:"createdAt"`
-	ConversationId   *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
-	TurnId           *string    `sqlx:"turn_id,refTable=turn,refColumn=id" json:"turnId"`
-	MessageId        *string    `sqlx:"message_id,refTable=message,refColumn=id" json:"messageId"`
-	Title            *string    `sqlx:"title" json:"title"`
-	Decision         *string    `sqlx:"decision" json:"decision"`
-	ExpiresAt        *time.Time `sqlx:"expires_at" json:"expiresAt"`
-	TimedOutAt       *time.Time `sqlx:"timed_out_at" json:"timedOutAt"`
-	ApprovedByUserId *string    `sqlx:"approved_by_user_id" json:"approvedByUserId"`
-	ApprovedAt       *time.Time `sqlx:"approved_at" json:"approvedAt"`
-	ExecutedAt       *time.Time `sqlx:"executed_at" json:"executedAt"`
-	ErrorMessage     *string    `sqlx:"error_message" json:"errorMessage"`
-	UpdatedAt        *time.Time `sqlx:"updated_at" json:"updatedAt"`
+	TransitionAt     *string    `docTable:"-" sqlx:"transition_at" json:"transitionAt"`
+	Id               string     `docTable:"tool_approval_queue" docColumn:"id" sqlx:"id,primaryKey=true" json:"id"`
+	UserId           string     `docTable:"tool_approval_queue" docColumn:"user_id" sqlx:"user_id,required=true" json:"userId"`
+	ToolName         string     `docTable:"tool_approval_queue" docColumn:"tool_name" sqlx:"tool_name,required=true" json:"toolName"`
+	Arguments        []byte     `docTable:"tool_approval_queue" docColumn:"arguments" sqlx:"arguments,required=true" json:"arguments"`
+	Metadata         *[]byte    `docTable:"tool_approval_queue" docColumn:"metadata" sqlx:"metadata" json:"metadata"`
+	Status           string     `docTable:"tool_approval_queue" docColumn:"status" sqlx:"status,required=true" json:"status"`
+	CreatedAt        time.Time  `docTable:"tool_approval_queue" docColumn:"created_at" sqlx:"created_at,required=true" json:"createdAt"`
+	ConversationId   *string    `sqlx:"conversation_id,refTable=conversation,refColumn=id" docTable:"tool_approval_queue" docColumn:"conversation_id" json:"conversationId"`
+	TurnId           *string    `sqlx:"turn_id,refTable=turn,refColumn=id" docTable:"tool_approval_queue" docColumn:"turn_id" json:"turnId"`
+	MessageId        *string    `sqlx:"message_id,refTable=message,refColumn=id" docTable:"tool_approval_queue" docColumn:"message_id" json:"messageId"`
+	Title            *string    `docTable:"tool_approval_queue" docColumn:"title" sqlx:"title" json:"title"`
+	Decision         *string    `docTable:"tool_approval_queue" docColumn:"decision" sqlx:"decision" json:"decision"`
+	ExpiresAt        *time.Time `docTable:"tool_approval_queue" docColumn:"expires_at" sqlx:"expires_at" json:"expiresAt"`
+	TimedOutAt       *time.Time `docTable:"tool_approval_queue" docColumn:"timed_out_at" sqlx:"timed_out_at" json:"timedOutAt"`
+	ApprovedByUserId *string    `docTable:"tool_approval_queue" docColumn:"approved_by_user_id" sqlx:"approved_by_user_id" json:"approvedByUserId"`
+	ApprovedAt       *time.Time `docTable:"tool_approval_queue" docColumn:"approved_at" sqlx:"approved_at" json:"approvedAt"`
+	ExecutedAt       *time.Time `docTable:"tool_approval_queue" docColumn:"executed_at" sqlx:"executed_at" json:"executedAt"`
+	ErrorMessage     *string    `docTable:"tool_approval_queue" docColumn:"error_message" sqlx:"error_message" json:"errorMessage"`
+	UpdatedAt        *time.Time `docTable:"tool_approval_queue" docColumn:"updated_at" sqlx:"updated_at" json:"updatedAt"`
+	CompletedAt      *time.Time `docTable:"tool_approval_queue" docColumn:"completed_at" sqlx:"completed_at" json:"completedAt"`
 }
