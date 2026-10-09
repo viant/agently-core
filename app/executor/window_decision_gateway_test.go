@@ -34,13 +34,15 @@ type windowFactState struct {
 	actor     string
 	closed    atomic.Bool
 }
+type windowHTTPTrace struct{ call func(context.Context) }
 type slowWindowIdentity struct {
-	url      string
-	client   *http.Client
-	calls    atomic.Int64
-	revoked  atomic.Bool
-	lease    time.Duration
-	prepared *PreparedAuthorization
+	httpTrace atomic.Pointer[windowHTTPTrace]
+	url       string
+	client    *http.Client
+	calls     atomic.Int64
+	revoked   atomic.Bool
+	lease     atomic.Int64
+	prepared  *PreparedAuthorization
 }
 
 func (p *slowWindowIdentity) ResolvePrincipal(ctx context.Context) (gating.Principal, error) {
@@ -53,6 +55,9 @@ func (p *slowWindowIdentity) ResolvePrincipal(ctx context.Context) (gating.Princ
 			return gating.Principal{}, authz.ErrIdentityDenied
 		}
 		return state.principal, nil
+	}
+	if trace := p.httpTrace.Load(); trace != nil {
+		trace.call(ctx)
 	}
 	req, _ := http.NewRequestWithContext(ctx, http.MethodGet, p.url, nil)
 	req.Header.Set("X-Owned-Actor", actor)
@@ -146,7 +151,8 @@ func (c windowWireCatalog) RevalidateResource(ctx context.Context, key string, p
 
 func windowDecisionFixture(t *testing.T, scoped bool) (*slowWindowIdentity, *ui.Service, *windowWireSource, context.Context, func()) {
 	t.Helper()
-	provider := &slowWindowIdentity{client: &http.Client{Timeout: time.Second}, lease: time.Minute}
+	provider := &slowWindowIdentity{client: &http.Client{Timeout: time.Second}}
+	provider.lease.Store(int64(time.Minute))
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		provider.calls.Add(1)
 		time.Sleep(3 * time.Millisecond)
@@ -155,7 +161,7 @@ func windowDecisionFixture(t *testing.T, scoped bool) (*slowWindowIdentity, *ui.
 		if provider.revoked.Load() {
 			roles = nil
 		}
-		json.NewEncoder(w).Encode(gating.Principal{Facts: authz.Facts{Subject: actor, Issuer: "owned-issuer", Tenant: "owned", Roles: roles, ValidUntil: time.Now().Add(provider.lease)}, AccountID: "owned-account", IdentityRevision: "owned-identity"})
+		json.NewEncoder(w).Encode(gating.Principal{Facts: authz.Facts{Subject: actor, Issuer: "owned-issuer", Tenant: "owned", Roles: roles, ValidUntil: time.Now().Add(time.Duration(provider.lease.Load()))}, AccountID: "owned-account", IdentityRevision: "owned-identity"})
 	}))
 	provider.url = server.URL
 	const uri = "window://platform/overview"
@@ -204,7 +210,23 @@ func windowDecisionFixture(t *testing.T, scoped bool) (*slowWindowIdentity, *ui.
 	}
 	gateway := resources.NewGateway(mgr, prepared.ResourceActor, verify, "host")
 	proof, _ := types.NewWindowTargetHMAC(make([]byte, 32))
-	remote := &resources.WindowCatalog{Gateway: gateway, TargetProof: proof, Admission: func(ctx context.Context, pin identity.ResolvedResource, _ *types.Window) error {
+	remote := &resources.WindowCatalog{ContentCurrent: map[string]resources.WindowContentCheck{"internal": func(ctx context.Context, pin identity.ResolvedResource) error {
+		if pin.ProviderIdentity != "internal" || pin.URI != uri {
+			return identity.ErrResourceDenied
+		}
+		parsed, e := identity.ParseResourceURI(uri)
+		if e != nil {
+			return e
+		}
+		raw, e := source.ReadCandidate(ctx, parsed, pin.ResourceCandidate)
+		if e != nil {
+			return e
+		}
+		if identity.ContentFingerprint(raw) != pin.ContentFingerprint {
+			return identity.ErrResourceStale
+		}
+		return nil
+	}}, Gateway: gateway, TargetProof: proof, Admission: func(ctx context.Context, pin identity.ResolvedResource, _ *types.Window) error {
 		resolver, e := prepared.ResourceResolver(policy.OperationWindowView, source, nil)
 		if resolver != nil {
 			resolver.ProviderIdentity = "internal"
@@ -240,7 +262,9 @@ func windowDecisionFixture(t *testing.T, scoped bool) (*slowWindowIdentity, *ui.
 
 func runWindowDecisionOpen(t *testing.T, svc *ui.Service, ctx context.Context, onCommand func()) error {
 	t.Helper()
-	server := httptest.NewServer(http.HandlerFunc(svc.Hub().ServeWS))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		svc.Hub().ServeWS(w, r.WithContext(context.WithValue(r.Context(), windowActorKey{}, ctx.Value(windowActorKey{}))))
+	}))
 	defer server.Close()
 	socket, _, err := websocket.DefaultDialer.Dial("ws"+server.URL[4:], nil)
 	if err != nil {
@@ -346,7 +370,7 @@ func TestWindowPureScopeOriginalExpiryAndContentDriftAfterACK(t *testing.T) {
 			provider, svc, source, ctx, close := windowDecisionFixture(t, true)
 			defer close()
 			if cause == "expired-original" {
-				provider.lease = 80 * time.Millisecond
+				provider.lease.Store(int64(80 * time.Millisecond))
 			}
 			queued := atomic.Bool{}
 			err := runWindowDecisionOpen(t, svc, ctx, func() {

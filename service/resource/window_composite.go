@@ -6,6 +6,7 @@ import (
 	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
 	"strings"
+	"time"
 )
 
 // CompositeWindowCatalog keeps one host open path while retaining the local
@@ -131,6 +132,9 @@ func (c *CompositeWindowCatalog) RevalidateWindowResource(ctx context.Context, k
 	if err != nil {
 		return nil, err
 	}
+	if result == nil || result.Definition == nil || result.Definition.Resource == nil {
+		return nil, identity.ErrResourceDenied
+	}
 	return result.Definition.Resource, nil
 }
 func (c *CompositeWindowCatalog) RevalidateResource(ctx context.Context, key string, pin identity.ResolvedResource) (*identity.ResolvedResource, error) {
@@ -183,4 +187,30 @@ func (c *CompositeWindowCatalog) VerifyWindowTarget(ctx context.Context, pin ide
 		return identity.ErrResourceDenied
 	}
 	return local.VerifyWindowTarget(ctx, pin, target, variant)
+}
+
+func (c *CompositeWindowCatalog) CheckWindowContent(ctx context.Context, key string, pin identity.ResolvedResource, target *types.WindowTarget) error {
+	if c == nil || !c.AuthzReady() || ctx == nil || ctx.Err() != nil || !pin.ValidUntil.After(time.Now()) {
+		return identity.ErrResourceDenied
+	}
+	ctx, cancel := context.WithDeadline(ctx, pin.ValidUntil)
+	defer cancel()
+	if c.Local != nil && pin.ProviderIdentity == c.LocalProviderIdentity {
+		check, ok := c.Local.(interface {
+			CheckWindowContent(context.Context, string, identity.ResolvedResource, *types.WindowTarget) error
+		})
+		if ok {
+			return check.CheckWindowContent(ctx, key, pin, target)
+		}
+		// Older local catalogs retain their authorized exact-pin Get path.
+		current, err := c.RevalidateWindowResource(ctx, key, pin, target)
+		if err != nil {
+			return err
+		}
+		if current == nil || current.URI != pin.URI || current.ProviderIdentity != pin.ProviderIdentity || current.ResourceCandidate != pin.ResourceCandidate || current.AuthorityBinding != pin.AuthorityBinding || current.ValidUntil.After(pin.ValidUntil) || !current.ValidUntil.After(time.Now()) || !pin.ValidUntil.After(time.Now()) || ctx.Err() != nil {
+			return identity.ErrResourceDenied
+		}
+		return nil
+	}
+	return c.Remote.CheckWindowContent(ctx, key, pin, target)
 }

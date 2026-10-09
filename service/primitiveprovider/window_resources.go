@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/viant/agently-core/runtime/requestctx"
 	"time"
 
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -214,5 +215,70 @@ func (s *Service) WindowResource(ctx context.Context, namespace, clientID, windo
 	if !ok || windowKey != "" && pin.WindowKey != windowKey {
 		return nil, identity.ErrResourceDenied
 	}
-	return s.revalidateWindowPin(ctx, pin)
+	// Only this exact pinned read shares verified facts. The local phase ends
+	// before callers persist events or execute any component/datasource action.
+	readCtx, stop := context.WithDeadline(ctx, pin.Resource.ValidUntil)
+	defer stop()
+	finish := func() error { return nil }
+	if !requestctx.WindowReadDecisionActive(readCtx) {
+		var err error
+		readCtx, finish, err = s.BeginWindowReadDecision(readCtx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	current, readErr := s.revalidateWindowPin(readCtx, pin)
+	finalErr := finish()
+	if readErr != nil {
+		return nil, readErr
+	}
+	if finalErr != nil {
+		return nil, finalErr
+	}
+	if readCtx.Err() != nil || !pin.Resource.ValidUntil.After(time.Now()) || current == nil || current.URI != pin.Resource.URI || current.ProviderIdentity != pin.Resource.ProviderIdentity || current.ResourceCandidate != pin.Resource.ResourceCandidate || current.AuthorityBinding != pin.Resource.AuthorityBinding || current.ValidUntil.After(pin.Resource.ValidUntil) || !current.ValidUntil.After(time.Now()) {
+		return nil, identity.ErrResourceDenied
+	}
+	terminalLease := pin.Resource.ValidUntil
+	if current.ValidUntil.Before(terminalLease) {
+		terminalLease = current.ValidUntil
+	}
+	terminalCtx, stopTerminal := context.WithDeadline(ctx, terminalLease)
+	defer stopTerminal()
+	if err := s.checkWindowContentCurrent(terminalCtx, pin); err != nil {
+		return nil, err
+	}
+	if terminalCtx.Err() != nil || !current.ValidUntil.After(time.Now()) || !pin.Resource.ValidUntil.After(time.Now()) {
+		return nil, identity.ErrResourceDenied
+	}
+	return current, nil
+}
+
+func (s *Service) checkWindowContentCurrent(ctx context.Context, pin windowResourcePin) error {
+	if ctx == nil || ctx.Err() != nil || !pin.Resource.ValidUntil.After(time.Now()) {
+		return identity.ErrResourceDenied
+	}
+	bounded, stop := context.WithDeadline(ctx, pin.Resource.ValidUntil)
+	defer stop()
+	ctx = bounded
+	if check, ok := s.cfg.WindowDefinitions.(interface {
+		CheckWindowContent(context.Context, string, identity.ResolvedResource, *types.WindowTarget) error
+	}); ok {
+		if err := check.CheckWindowContent(ctx, pin.WindowKey, pin.Resource, pin.Target); err != nil {
+			return err
+		}
+	} else {
+		// Older trusted catalogs retain their original authorized pinned read. No
+		// missing-hook success is allowed, and the parent remains outside our phase.
+		terminal, err := s.revalidateWindowPin(ctx, pin)
+		if err != nil {
+			return err
+		}
+		if terminal == nil || terminal.URI != pin.Resource.URI || terminal.ProviderIdentity != pin.Resource.ProviderIdentity || terminal.ResourceCandidate != pin.Resource.ResourceCandidate || terminal.AuthorityBinding != pin.Resource.AuthorityBinding || terminal.ValidUntil.After(pin.Resource.ValidUntil) || !terminal.ValidUntil.After(time.Now()) {
+			return identity.ErrResourceDenied
+		}
+	}
+	if ctx.Err() != nil || !pin.Resource.ValidUntil.After(time.Now()) {
+		return identity.ErrResourceDenied
+	}
+	return nil
 }

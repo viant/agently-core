@@ -478,3 +478,12 @@ func pureLocalValidator(kind string, validator LocalResourceValidator) bool {
 	pointer := reflect.ValueOf(validator).Pointer()
 	return kind == "window" && pointer == reflect.ValueOf(ValidateWindowBundle).Pointer() || kind == "report" && pointer == reflect.ValueOf(ValidateReportEnvelope).Pointer()
 }
+
+// CheckCandidate verifies deterministic authored content and all tracked imports
+// against an original candidate. It makes no identity or permission decision.
+func (s *NativeAssetSnapshot) CheckCandidate(ctx context.Context, uri identity.ResourceURI, candidate identity.ResourceCandidate) error {
+	if s == nil || !candidate.Valid() {
+		return identity.ErrResourceStale
+	}
+	return s.localDefinitionCurrent(ctx, uri, candidate)
+}
