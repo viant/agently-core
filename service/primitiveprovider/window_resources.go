@@ -50,6 +50,11 @@ func (c *MetadataWindowCatalog) RevalidateResource(ctx context.Context, windowKe
 	return nil, identity.ErrResourceDenied
 }
 func (s *Service) revalidateWindowPin(ctx context.Context, pin windowResourcePin) (*identity.ResolvedResource, error) {
+	if catalog, ok := s.cfg.WindowDefinitions.(interface {
+		RevalidateWindowResource(context.Context, string, identity.ResolvedResource, *types.WindowTarget) (*identity.ResolvedResource, error)
+	}); ok {
+		return catalog.RevalidateWindowResource(ctx, pin.WindowKey, pin.Resource, pin.Target)
+	}
 	catalog, ok := s.cfg.WindowDefinitions.(interface {
 		RevalidateResource(context.Context, string, identity.ResolvedResource) (*identity.ResolvedResource, error)
 	})

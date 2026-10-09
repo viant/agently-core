@@ -24,10 +24,10 @@ import (
 
 	internalAuth "github.com/viant/agently-core/internal/auth"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
+	identity "github.com/viant/agently-core/protocol/resource"
+	windowprotocol "github.com/viant/agently-core/protocol/window"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/ui/permittedview"
-	windowprotocol "github.com/viant/agently-core/protocol/window"
-	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/forge/backend/types"
 )
 
@@ -64,6 +64,7 @@ type Service struct {
 	executionContext    func(context.Context) context.Context
 	permissions         permittedview.Resolver
 	components          windowprotocol.ComponentDispatcher
+	providerExecute     ProviderExecutor
 	resolveResource     ResourceRevalidator
 	authorizeDefinition DefinitionAuthorizer
 	resolveDefinition   ResourceDefinitionResolver
@@ -92,7 +93,10 @@ type ResourceRevalidator func(context.Context, identity.ResolvedResource) (*iden
 type DefinitionAuthorizer func(context.Context, *dsproto.DataSource, map[string]interface{}) error
 type ResourceDefinitionResolver func(context.Context, identity.ResolvedResource, *types.WindowTarget, string) (*dsproto.DataSource, error)
 
+type ProviderExecutor func(context.Context, *dsproto.DataSource, map[string]interface{}) (json.RawMessage, error)
+
 type Options struct {
+	ProviderExecute     ProviderExecutor
 	ExecutionContext    func(context.Context) context.Context
 	ResolveDefinition   ResourceDefinitionResolver
 	PermissionResolver  permittedview.Resolver
@@ -123,7 +127,7 @@ func New(opts Options) *Service {
 	if nowFn == nil {
 		nowFn = time.Now
 	}
-	return &Service{executionContext: opts.ExecutionContext, permissions: opts.PermissionResolver, components: opts.ComponentDispatcher, resolveResource: opts.ResolveResource, authorizeDefinition: opts.AuthorizeDefinition, resolveDefinition: opts.ResolveDefinition,
+	return &Service{providerExecute: opts.ProviderExecute, executionContext: opts.ExecutionContext, permissions: opts.PermissionResolver, components: opts.ComponentDispatcher, resolveResource: opts.ResolveResource, authorizeDefinition: opts.AuthorizeDefinition, resolveDefinition: opts.ResolveDefinition,
 		store:        opts.Store,
 		executor:     opts.Executor,
 		identity:     id,
@@ -264,7 +268,7 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		return nil, fmt.Errorf("datasource %q: %w", ds.ID, err)
 	}
 	policy := dsproto.CachePolicyOrDefault(ds.Cache)
-	cacheEnabled := ds.Backend.Kind != dsproto.BackendAuthorization && !s.disableCache && (policy.Enabled == nil || *policy.Enabled)
+	cacheEnabled := ds.Backend.Kind != dsproto.BackendAuthorization && ds.Backend.Kind != dsproto.BackendDatly && !s.disableCache && (policy.Enabled == nil || *policy.Enabled)
 	scopeID := s.scopeID(ctx, policy.Scope)
 	normalizedInputs := normalizeFilterSemantics(inputs, &ds.DataSource)
 	mergedArgs := expandNestedArgs(mergeArgs(normalizedInputs, ds.Backend.Pinned))
@@ -354,6 +358,19 @@ func (s *Service) InvalidateCache(ctx context.Context, id, inputsHash string) er
 
 func (s *Service) runBackend(ctx context.Context, ds *dsproto.DataSource, args map[string]interface{}) (interface{}, error) {
 	switch ds.Backend.Kind {
+	case dsproto.BackendDatly:
+		if s.providerExecute == nil || ds.Backend.Ownership != "provider" {
+			return nil, identity.ErrResourceDenied
+		}
+		raw, err := s.providerExecute(ctx, ds, args)
+		if err != nil {
+			return nil, err
+		}
+		var value interface{}
+		if err := json.Unmarshal(raw, &value); err != nil {
+			return nil, err
+		}
+		return value, nil
 	case dsproto.BackendAuthorization:
 		return s.resolveAuthorization(ctx, ds.Backend, args)
 	case dsproto.BackendInline:

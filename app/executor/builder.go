@@ -104,6 +104,7 @@ type Runtime struct {
 	DatasourceResourceRevalidator  dssvc.ResourceRevalidator
 	DatasourceDefinitionAuthorizer dssvc.DefinitionAuthorizer
 	DatasourceDefinitionResolver   dssvc.ResourceDefinitionResolver
+	DatasourceProviderExecutor     dssvc.ProviderExecutor
 	DatasourceDisableCache         bool
 	ReportAuthorizer               func(context.Context, string, string) error
 	ToolAuthorizer                 func(context.Context, string, map[string]interface{}) error

@@ -2,8 +2,8 @@ package resource
 
 import (
 	"context"
-	service "github.com/viant/agently-core/service/primitiveprovider"
 	identity "github.com/viant/agently-core/protocol/resource"
+	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
 	"strings"
 )
@@ -124,6 +124,17 @@ func (c *CompositeWindowCatalog) Get(ctx context.Context, input *service.WindowD
 		return nil, identity.ErrResourceDenied
 	}
 	return c.Local.Get(ctx, input)
+}
+
+func (c *CompositeWindowCatalog) RevalidateWindowResource(ctx context.Context, key string, pin identity.ResolvedResource, target *types.WindowTarget) (*identity.ResolvedResource, error) {
+	result, err := c.Get(ctx, &service.WindowDefinitionGetInput{WindowID: key, ResolvedResource: &pin, Target: target})
+	if err != nil {
+		return nil, err
+	}
+	return result.Definition.Resource, nil
+}
+func (c *CompositeWindowCatalog) RevalidateResource(ctx context.Context, key string, pin identity.ResolvedResource) (*identity.ResolvedResource, error) {
+	return c.RevalidateWindowResource(ctx, key, pin, nil)
 }
 func (c *CompositeWindowCatalog) ResourceReference(ctx context.Context, key string) (identity.ResourceRef, error) {
 	if strings.HasPrefix(key, locatorPrefix) {
