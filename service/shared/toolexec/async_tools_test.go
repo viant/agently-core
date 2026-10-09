@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -19,9 +20,10 @@ import (
 
 type asyncRegistry struct {
 	scriptedRegistry
-	cfg         *asynccfg.Config
-	cancelCalls int
-	callTimes   []time.Time
+	observationMu sync.Mutex
+	cfg           *asynccfg.Config
+	cancelCalls   int
+	callTimes     []time.Time
 }
 
 func (a *asyncRegistry) AsyncConfig(name string) (*asynccfg.Config, bool) {
@@ -35,21 +37,27 @@ func (a *asyncRegistry) AsyncConfig(name string) (*asynccfg.Config, bool) {
 }
 
 func (a *asyncRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	a.observationMu.Lock()
 	a.callTimes = append(a.callTimes, time.Now())
 	if a.cfg != nil && a.cfg.Cancel != nil && name == a.cfg.Cancel.Tool {
 		a.cancelCalls++
+		a.observationMu.Unlock()
 		return `{"status":"canceled"}`, nil
 	}
+	a.observationMu.Unlock()
 	return a.scriptedRegistry.Execute(ctx, name, args)
 }
 
 type captureStreamPublisher struct {
+	mu     sync.Mutex
 	events []*streaming.Event
 }
 
 func (c *captureStreamPublisher) Publish(_ context.Context, ev *modelcallctx.StreamEvent) error {
 	if ev != nil && ev.Event != nil {
-		c.events = append(c.events, ev.Event)
+		c.mu.Lock()
+		c.events = append(c.events, cloneFixtureValue(ev.Event))
+		c.mu.Unlock()
 	}
 	return nil
 }
@@ -104,12 +112,12 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return len(pub.events) >= 3
+		return len(pub.eventsSnapshot()) >= 3
 	}, time.Second, 10*time.Millisecond)
-	require.NotEmpty(t, pub.events)
+	require.NotEmpty(t, pub.eventsSnapshot())
 
 	var sawStarted, sawWaiting, sawCompleted bool
-	for _, event := range pub.events {
+	for _, event := range pub.eventsSnapshot() {
 		if event == nil {
 			continue
 		}
@@ -128,14 +136,12 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 			// Autonomous polling may have rebound to its own status carrier.
 			// The published identity must match a completed persisted call,
 			// rather than the submitting request's earlier carrier.
-			conv.mu.Lock()
 			recorded := false
-			for _, call := range conv.patchedToolCalls {
+			for _, call := range conv.patchedToolCallsSnapshot() {
 				if call != nil && call.OpID == event.ToolCallID && call.MessageID == event.ToolMessageID && call.Status == "completed" {
 					recorded = true
 				}
 			}
-			conv.mu.Unlock()
 			require.True(t, recorded, "completed event must use its persisted status carrier")
 			sawCompleted = true
 		}
@@ -147,7 +153,7 @@ func TestExecuteToolStep_AsyncPublishesLifecycleEvents(t *testing.T) {
 		rec, ok := manager.Get(context.Background(), "child-1")
 		return ok && rec != nil && rec.Terminal()
 	}, time.Second, 10*time.Millisecond)
-	require.GreaterOrEqual(t, reg.calls, 2)
+	require.GreaterOrEqual(t, reg.callCount(), 2)
 }
 
 func TestExecuteToolStep_StartAutoPollsInWaitMode(t *testing.T) {
@@ -193,12 +199,12 @@ func TestExecuteToolStep_StartAutoPollsInWaitMode(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		return len(reg.callTimes) >= 2
+		return len(reg.callTimesSnapshot()) >= 2
 	}, time.Second, 10*time.Millisecond, "wait-mode start should launch autonomous status polling")
-	require.NotEmpty(t, conv.patchedToolCalls)
+	require.NotEmpty(t, conv.patchedToolCallsSnapshot())
 	var sawCompletedStart bool
 	var sawStatusCarrier bool
-	for _, call := range conv.patchedToolCalls {
+	for _, call := range conv.patchedToolCallsSnapshot() {
 		if call == nil {
 			continue
 		}
@@ -268,7 +274,7 @@ func TestExecuteToolStep_AsyncOverrideUsesExecutionMode(t *testing.T) {
 	require.NoError(t, err)
 
 	time.Sleep(50 * time.Millisecond)
-	require.Len(t, reg.callTimes, 1, "override should suppress autonomous polling")
+	require.Len(t, reg.callTimesSnapshot(), 1, "override should suppress autonomous polling")
 	rec, ok := manager.Get(context.Background(), "child-1")
 	require.True(t, ok)
 	require.NotNil(t, rec)
@@ -462,7 +468,7 @@ func TestExecuteToolStep_StatusWaitExecutionMode_ParksUntilTerminal(t *testing.T
 	require.Contains(t, out.Result, `"reason":"success"`)
 	require.Contains(t, out.Result, `"operationId":"child-1"`)
 	require.Eventually(t, func() bool {
-		for _, msg := range conv.patchedMessages {
+		for _, msg := range conv.patchedMessagesSnapshot() {
 			if msg == nil || msg.Content == nil {
 				continue
 			}
@@ -474,7 +480,7 @@ func TestExecuteToolStep_StatusWaitExecutionMode_ParksUntilTerminal(t *testing.T
 		return false
 	}, time.Second, 10*time.Millisecond, "expected waited status carrier to be patched with the terminal response payload before returning")
 	var preambleIDs []string
-	for _, msg := range conv.patchedMessages {
+	for _, msg := range conv.patchedMessagesSnapshot() {
 		if msg == nil || msg.Interim == nil || *msg.Interim != 1 || msg.Narration == nil {
 			continue
 		}
@@ -534,7 +540,7 @@ func TestExecuteToolStep_StatusWaitExecutionMode_SoftReleasesOnIdle(t *testing.T
 	require.GreaterOrEqual(t, time.Since(started), 15*time.Millisecond)
 	require.Contains(t, out.Result, `"reason":"running_idle"`)
 	require.Contains(t, out.Result, `"opsStillActive":true`)
-	require.NotEmpty(t, conv.patchedMessages)
+	require.NotEmpty(t, conv.patchedMessagesSnapshot())
 }
 
 func TestExecuteToolStep_StatusWaitExecutionMode_DebouncesNarrationUpdates(t *testing.T) {
@@ -558,7 +564,7 @@ func TestExecuteToolStep_StatusWaitExecutionMode_DebouncesNarrationUpdates(t *te
 	}
 	reg := &asyncRegistry{
 		scriptedRegistry: scriptedRegistry{script: []scriptedResult{
-			{result: `{"status":"running","items":[{"conversationId":"child-1","status":"running"}]}`},
+			{result: `{"status":"completed","items":[{"conversationId":"child-1","status":"completed"}]}`},
 		}},
 		cfg: cfg,
 	}
@@ -581,20 +587,24 @@ func TestExecuteToolStep_StatusWaitExecutionMode_DebouncesNarrationUpdates(t *te
 	})
 	_ = manager.ConsumeChanged("conv-1", "turn-1")
 
-	go func() {
-		time.Sleep(1 * time.Millisecond)
-		_, _ = manager.Update(context.Background(), asynccfg.UpdateInput{ID: "child-1", Status: "running", Message: "phase 1"})
-		time.Sleep(1 * time.Millisecond)
-		_, _ = manager.Update(context.Background(), asynccfg.UpdateInput{ID: "child-1", Status: "running", Message: "phase 2"})
-		time.Sleep(15 * time.Millisecond)
-		_, _ = manager.Update(context.Background(), asynccfg.UpdateInput{
-			ID:      "child-1",
-			Status:  "completed",
-			State:   asynccfg.StateCompleted,
-			Message: "done",
-			KeyData: json.RawMessage(`{"items":[{"conversationId":"child-1","status":"completed"}]}`),
-		})
-	}()
+	// Observe both real native updates synchronously before draining the
+	// debounce channel. Wall-clock sleeps cannot establish this ordering.
+	rec, ok := manager.Get(ctx, "child-1")
+	require.True(t, ok)
+	narration := startAsyncNarration(ctx, cfg, StepInfo{ID: "call-status", Name: "llm/agents:status"}, rec)
+	require.NotNil(t, narration)
+	for _, phase := range []string{"phase 1", "phase 2"} {
+		rec, _ = manager.Update(ctx, asynccfg.UpdateInput{ID: "child-1", Status: "running", Message: phase})
+		observeAsyncNarration(ctx, narration, changeEventFromRecord(rec))
+	}
+	debounced := asyncNarrationChannel(narration)
+	require.NotNil(t, debounced)
+	<-debounced
+	flushAsyncNarration(ctx, narration, "child-1", "llm/agents:status", "test debounce boundary")
+	_, _ = manager.Update(ctx, asynccfg.UpdateInput{
+		ID: "child-1", Status: "completed", State: asynccfg.StateCompleted,
+		Message: "done", KeyData: json.RawMessage(`{"items":[{"conversationId":"child-1","status":"completed"}]}`),
+	})
 
 	_, _, err := ExecuteToolStep(ctx, reg, StepInfo{
 		ID:   "call-status",
@@ -606,7 +616,7 @@ func TestExecuteToolStep_StatusWaitExecutionMode_DebouncesNarrationUpdates(t *te
 	var preamblePatches int
 	var preambles []string
 	var contents []string
-	for _, msg := range conv.patchedMessages {
+	for _, msg := range conv.patchedMessagesSnapshot() {
 		if msg == nil || msg.Interim == nil || *msg.Interim != 1 || msg.Narration == nil {
 			continue
 		}
@@ -687,7 +697,7 @@ func TestExecuteToolStep_StatusWaitExecutionMode_UsesLLMNarratorRunner(t *testin
 	require.NoError(t, err)
 
 	var found bool
-	for _, msg := range conv.patchedMessages {
+	for _, msg := range conv.patchedMessagesSnapshot() {
 		if msg == nil || msg.Narration == nil {
 			continue
 		}
@@ -753,7 +763,7 @@ func TestExecuteToolStep_WaitModeStart_AutonomousPollerEmitsNarratorNarration(t 
 	require.NoError(t, err)
 
 	require.Eventually(t, func() bool {
-		for _, msg := range conv.patchedMessages {
+		for _, msg := range conv.patchedMessagesSnapshot() {
 			if msg == nil {
 				continue
 			}
@@ -914,8 +924,8 @@ func TestExecuteToolStep_AsyncAutoCancelsOnTimeout(t *testing.T) {
 	require.NotNil(t, rec)
 	require.True(t, rec.Terminal())
 	require.Equal(t, asynccfg.StateFailed, rec.State)
-	require.Equal(t, 1, reg.cancelCalls)
-	require.GreaterOrEqual(t, reg.calls, 3)
+	require.Equal(t, 1, reg.cancelCount())
+	require.GreaterOrEqual(t, reg.callCount(), 3)
 }
 
 func TestExecuteToolStep_AsyncAutoPollsToCompletion(t *testing.T) {
@@ -971,7 +981,7 @@ func TestExecuteToolStep_AsyncAutoPollsToCompletion(t *testing.T) {
 	require.True(t, rec.Terminal())
 	require.Equal(t, asynccfg.StateCompleted, rec.State)
 	require.Equal(t, 0, rec.PollFailures)
-	require.GreaterOrEqual(t, reg.calls, 2)
+	require.GreaterOrEqual(t, reg.callCount(), 2)
 }
 
 func TestExecuteToolStep_SameToolRecallWaitsForPollWindow(t *testing.T) {
@@ -1022,8 +1032,9 @@ func TestExecuteToolStep_SameToolRecallWaitsForPollWindow(t *testing.T) {
 	}, conv)
 	require.NoError(t, err)
 	require.GreaterOrEqual(t, time.Since(start), 70*time.Millisecond)
-	require.Len(t, reg.callTimes, 2)
-	require.GreaterOrEqual(t, reg.callTimes[1].Sub(reg.callTimes[0]), 70*time.Millisecond)
+	callTimes := reg.callTimesSnapshot()
+	require.Len(t, callTimes, 2)
+	require.GreaterOrEqual(t, callTimes[1].Sub(callTimes[0]), 70*time.Millisecond)
 }
 
 func TestMaybeHandleAsyncTool_SameToolTerminalMarksAfterStatus(t *testing.T) {
@@ -1107,7 +1118,7 @@ func TestExecuteToolStep_AsyncStartDoesNotCompleteImmediately(t *testing.T) {
 	require.NoError(t, err)
 
 	var sawCompleted bool
-	for _, patched := range conv.patchedToolCalls {
+	for _, patched := range conv.patchedToolCallsSnapshot() {
 		if patched == nil || patched.Status == "" {
 			continue
 		}
@@ -1159,7 +1170,7 @@ func TestExecuteToolStep_AsyncCompletionPersistsResponsePayload(t *testing.T) {
 	maybeStartAsyncPoller(ctx, manager, reg, cfg, memory.TurnMeta{ConversationID: "conv-1", TurnID: "turn-1"}, "child-1", conv)
 
 	require.Eventually(t, func() bool {
-		for _, call := range conv.patchedToolCalls {
+		for _, call := range conv.patchedToolCallsSnapshot() {
 			if call == nil || call.ResponsePayloadID == nil {
 				continue
 			}
@@ -1171,7 +1182,7 @@ func TestExecuteToolStep_AsyncCompletionPersistsResponsePayload(t *testing.T) {
 	}, time.Second, 10*time.Millisecond, "timed out waiting for async completion response payload persistence")
 
 	require.Eventually(t, func() bool {
-		for _, message := range conv.patchedMessages {
+		for _, message := range conv.patchedMessagesSnapshot() {
 			if message == nil || message.Content == nil {
 				continue
 			}
@@ -1239,7 +1250,7 @@ func TestMaybeHandleAsyncTool_StatusPublishesFailedLifecycleEvent(t *testing.T) 
 	require.Nil(t, rec)
 
 	var sawFailed bool
-	for _, event := range pub.events {
+	for _, event := range pub.eventsSnapshot() {
 		if event == nil || event.OperationID != "sess-1" {
 			continue
 		}
@@ -1297,7 +1308,7 @@ func TestMaybeHandleAsyncTool_StatusPublishesCanceledLifecycleEvent(t *testing.T
 	require.Nil(t, rec)
 
 	var sawCanceled bool
-	for _, event := range pub.events {
+	for _, event := range pub.eventsSnapshot() {
 		if event == nil || event.OperationID != "sess-1" {
 			continue
 		}
@@ -1454,13 +1465,13 @@ func TestExecuteToolStep_ActivatedStatusPollerReturnsLatestSnapshotOnTimeout(t *
 	require.NoError(t, err)
 	require.Contains(t, out.Result, "same status")
 	require.Eventually(t, func() bool {
-		return reg.calls >= 2
+		return reg.callCount() >= 2
 	}, time.Second, 10*time.Millisecond, "activated status should lazily launch poller after first status fetch")
 	require.Eventually(t, func() bool {
-		return len(conv.patchedMessages) > 0
+		return len(conv.patchedMessagesSnapshot()) > 0
 	}, time.Second, 10*time.Millisecond)
 	require.Eventually(t, func() bool {
-		for _, msg := range conv.patchedMessages {
+		for _, msg := range conv.patchedMessagesSnapshot() {
 			if msg == nil || msg.Narration == nil {
 				continue
 			}
@@ -1527,13 +1538,14 @@ func TestExecuteToolStep_ActivatedStatusPollerCompletesOnChangedSnapshot(t *test
 		Args: map[string]interface{}{"conversationId": "child-1"},
 	}, conv)
 	require.NoError(t, err)
-	require.Equal(t, 2, reg.calls, "status-attached observation should keep polling until the snapshot changes")
+	require.Equal(t, 2, reg.callCount(), "status-attached observation should keep polling until the snapshot changes")
 	require.Contains(t, out.Result, "changed status")
-	require.NotEmpty(t, conv.patchedToolCalls)
-	require.Equal(t, "running", strings.TrimSpace(conv.patchedToolCalls[0].Status))
-	require.Equal(t, "completed", strings.TrimSpace(conv.patchedToolCalls[len(conv.patchedToolCalls)-1].Status))
+	calls := conv.patchedToolCallsSnapshot()
+	require.NotEmpty(t, calls)
+	require.Equal(t, "running", strings.TrimSpace(calls[0].Status))
+	require.Equal(t, "completed", strings.TrimSpace(calls[len(calls)-1].Status))
 	require.Eventually(t, func() bool {
-		for _, msg := range conv.patchedMessages {
+		for _, msg := range conv.patchedMessagesSnapshot() {
 			if msg == nil || msg.Narration == nil {
 				continue
 			}
@@ -1648,8 +1660,8 @@ func TestPollerExecuteStatusTick_SkipsNoopPersistence(t *testing.T) {
 
 	continueLoop := state.executeStatusTick(context.Background())
 	require.True(t, continueLoop)
-	require.Empty(t, conv.patchedMessages)
-	require.Empty(t, conv.patchedToolCalls)
+	require.Empty(t, conv.patchedMessagesSnapshot())
+	require.Empty(t, conv.patchedToolCallsSnapshot())
 }
 
 func TestExecuteToolStep_ActivatedStatusPollerCreatesNarrationOnFirstMeaningfulUpdate(t *testing.T) {
@@ -1711,7 +1723,7 @@ func TestExecuteToolStep_ActivatedStatusPollerCreatesNarrationOnFirstMeaningfulU
 	require.Contains(t, out.Result, `"messageKind":"preamble"`)
 	require.Contains(t, out.Result, "Translating the baseline targeting stack")
 	require.Eventually(t, func() bool {
-		for _, msg := range conv.patchedMessages {
+		for _, msg := range conv.patchedMessagesSnapshot() {
 			if msg == nil || msg.Narration == nil {
 				continue
 			}
@@ -1777,7 +1789,7 @@ func TestSyncCurrentAsyncNarration_ReconcilesMissedFirstProgressUpdate(t *testin
 	require.NotNil(t, handle)
 
 	require.Eventually(t, func() bool {
-		for _, msg := range conv.patchedMessages {
+		for _, msg := range conv.patchedMessagesSnapshot() {
 			if msg == nil || msg.Narration == nil {
 				continue
 			}
@@ -1800,7 +1812,7 @@ func TestSyncCurrentAsyncNarration_ReconcilesMissedFirstProgressUpdate(t *testin
 	flushAsyncNarration(ctx, handle, "child-1", "llm/agents:status", "test")
 
 	require.Eventually(t, func() bool {
-		for _, msg := range conv.patchedMessages {
+		for _, msg := range conv.patchedMessagesSnapshot() {
 			if msg == nil || msg.Narration == nil {
 				continue
 			}
@@ -1868,13 +1880,13 @@ func TestExecuteToolStep_ActivatedStatusPollerDoesNotNarrateTerminalResponse(t *
 	}, conv)
 	require.NoError(t, err)
 	require.Contains(t, out.Result, `"messageKind":"response"`)
-	require.Equal(t, 2, reg.calls, "status-attached observation should poll through the terminal response")
+	require.Equal(t, 2, reg.callCount(), "status-attached observation should poll through the terminal response")
 	stored, ok := manager.Get(context.Background(), "child-1")
 	require.True(t, ok)
 	require.NotNil(t, stored)
 	require.Equal(t, "response", stored.MessageKind)
 	require.Eventually(t, func() bool {
-		for _, msg := range conv.patchedMessages {
+		for _, msg := range conv.patchedMessagesSnapshot() {
 			if msg == nil || msg.Narration == nil {
 				continue
 			}
@@ -1884,7 +1896,7 @@ func TestExecuteToolStep_ActivatedStatusPollerDoesNotNarrateTerminalResponse(t *
 		}
 		return false
 	}, time.Second, 10*time.Millisecond)
-	for _, msg := range conv.patchedMessages {
+	for _, msg := range conv.patchedMessagesSnapshot() {
 		if msg == nil || msg.Narration == nil {
 			continue
 		}
@@ -1939,7 +1951,7 @@ func TestMaybeHandleAsyncTool_StatusTerminalPatchesOriginalAsyncToolCall(t *test
 	require.Nil(t, rec)
 
 	var sawCompleted bool
-	for _, patched := range conv.patchedToolCalls {
+	for _, patched := range conv.patchedToolCallsSnapshot() {
 		if patched == nil || patched.Status == "" {
 			continue
 		}
@@ -2001,8 +2013,9 @@ func TestMaybeHandleAsyncTool_StatusRunningPreservesDisplayToolName(t *testing.T
 		Args: map[string]interface{}{"name": "targeting-tree"},
 	}, `{"status":"running","message":"still running"}`, nil)
 	require.NotNil(t, rec)
-	require.NotEmpty(t, conv.patchedToolCalls)
-	last := conv.patchedToolCalls[len(conv.patchedToolCalls)-1]
+	calls := conv.patchedToolCallsSnapshot()
+	require.NotEmpty(t, calls)
+	last := calls[len(calls)-1]
 	require.NotNil(t, last)
 	require.Equal(t, "llm/skills/activate", strings.TrimSpace(last.ToolName))
 }
@@ -2056,9 +2069,9 @@ func TestMaybeHandleAsyncTool_StatusDoesNotPatchOriginalToolCallWhenExecutionMod
 	require.Equal(t, asynccfg.StateCompleted, stored.State)
 	require.Equal(t, "child final answer", stored.Message)
 	require.Equal(t, "response", stored.MessageKind)
-	require.Empty(t, conv.patchedMessages, "non-wait async ops should not overwrite the start tool message")
-	require.Empty(t, conv.patchedToolCalls, "non-wait async ops should not patch the original start tool call state")
-	require.Empty(t, conv.patchedPayloads, "non-wait async ops should not persist synthetic payloads onto the start tool row")
+	require.Empty(t, conv.patchedMessagesSnapshot(), "non-wait async ops should not overwrite the start tool message")
+	require.Empty(t, conv.patchedToolCallsSnapshot(), "non-wait async ops should not patch the original start tool call state")
+	require.Empty(t, conv.patchedPayloadsSnapshot(), "non-wait async ops should not persist synthetic payloads onto the start tool row")
 }
 
 func TestMaybeHandleAsyncTool_StatusTerminalPayloadCompletesCarrierToolCall(t *testing.T) {
@@ -2107,7 +2120,7 @@ func TestMaybeHandleAsyncTool_StatusTerminalPayloadCompletesCarrierToolCall(t *t
 	require.Nil(t, rec)
 
 	var sawCompleted bool
-	for _, patched := range conv.patchedToolCalls {
+	for _, patched := range conv.patchedToolCallsSnapshot() {
 		if patched == nil || patched.Status == "" {
 			continue
 		}
@@ -2276,7 +2289,7 @@ func TestExecuteToolStep_AsyncStartTerminalDoesNotRemainRunning(t *testing.T) {
 	require.NoError(t, err)
 
 	var lastStatus string
-	for _, patched := range conv.patchedToolCalls {
+	for _, patched := range conv.patchedToolCallsSnapshot() {
 		if patched == nil || patched.Status == "" {
 			continue
 		}
@@ -2532,7 +2545,7 @@ func TestPollAsyncOperation_StopsWhenTurnCanceled(t *testing.T) {
 
 	// Wait for at least one poll to confirm the poller is running.
 	require.Eventually(t, func() bool {
-		return reg.calls >= 2
+		return reg.callCount() >= 2
 	}, time.Second, 5*time.Millisecond, "poller should have polled at least once")
 
 	// Cancel the turn — this must stop the poller.
@@ -2554,8 +2567,8 @@ func TestPublishAsyncUpdateUsesPersistedStatusCarrierIdentity(t *testing.T) {
 	ctx = modelcallctx.WithStreamPublisher(ctx, pub)
 	rec := &asynccfg.OperationRecord{ToolCallID: "async-status:child", ToolMessageID: "status-message", ToolName: "llm/agents/status", State: asynccfg.StateCompleted}
 	publishAsyncUpdateEvent(ctx, "llm/agents/start", "start-call", "child", &asynccfg.Extracted{Status: "succeeded", Message: "Completed"}, rec)
-	require.Len(t, pub.events, 1)
-	event := pub.events[0]
+	require.Len(t, pub.eventsSnapshot(), 1)
+	event := pub.eventsSnapshot()[0]
 	require.Equal(t, "parent", event.ConversationID)
 	require.Equal(t, "turn", event.TurnID)
 	require.Equal(t, "status-message", event.MessageID)
@@ -2564,4 +2577,20 @@ func TestPublishAsyncUpdateUsesPersistedStatusCarrierIdentity(t *testing.T) {
 	require.Equal(t, "llm/agents/status", event.ToolName)
 	require.Equal(t, streaming.EventTypeToolCallCompleted, event.Type)
 	require.Equal(t, "start-message", memory.ToolMessageIDFromContext(ctx))
+}
+
+func (a *asyncRegistry) callTimesSnapshot() []time.Time {
+	a.observationMu.Lock()
+	defer a.observationMu.Unlock()
+	return append([]time.Time(nil), a.callTimes...)
+}
+func (a *asyncRegistry) cancelCount() int {
+	a.observationMu.Lock()
+	defer a.observationMu.Unlock()
+	return a.cancelCalls
+}
+func (c *captureStreamPublisher) eventsSnapshot() []*streaming.Event {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]*streaming.Event(nil), c.events...)
 }
