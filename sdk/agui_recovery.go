@@ -836,7 +836,7 @@ func (c *backendClient) aguiInspectRun(ctx context.Context, record *aguistore.Ru
 	var rows []*messagemodel.MessageRowsView
 	cursor := ""
 	for {
-		in := &messagemodel.MessageRowsInput{ConversationId: record.ConversationID, TurnId: record.TurnID, Roles: []string{"assistant", "tool", "control"}, Has: &messagemodel.MessageRowsInputHas{ConversationId: true, TurnId: true, Roles: true}}
+		in := &messagemodel.MessageRowsInput{ConversationId: record.ConversationID, TurnId: record.TurnID, Roles: []string{"assistant", "tool", "system"}, Has: &messagemodel.MessageRowsInputHas{ConversationId: true, TurnId: true, Roles: true}}
 		page, e := c.data.GetMessagesPage(ctx, in, &data.PageInput{Limit: 500, Direction: data.DirectionBefore, Cursor: cursor}, principalDataOpts(ctx)...)
 		if e != nil {
 			return nil, e
