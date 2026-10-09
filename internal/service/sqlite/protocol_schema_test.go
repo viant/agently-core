@@ -52,6 +52,7 @@ func TestProtocolReuseUpgradePreservesNativeDataAndIsIdempotent(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer db.Close()
+	assertNoSQLiteChecks(t, db)
 	var kind, title, metadata, checkpoint, lease, question, fill string
 	if err = db.QueryRow(`SELECT run_kind,checkpoint_data,lease_owner FROM run WHERE id='r'`).Scan(&kind, &checkpoint, &lease); err != nil {
 		t.Fatal(err)
