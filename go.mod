@@ -34,7 +34,7 @@ require (
 	github.com/viant/embedius v0.5.6
 	github.com/viant/forge v0.3.45-0.20261009005350-a9ed9fff26ed
 	github.com/viant/gds v0.6.0
-	github.com/viant/gosh v0.3.0
+	github.com/viant/gosh v0.3.1-0.20261007222529-b829eaaf687b
 	github.com/viant/jsonrpc v0.25.0
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.24.1-0.20261009012849-6a1945fe2baf
