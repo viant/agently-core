@@ -4,5 +4,5 @@ package cube
 
 // RunReportOutput is the generated output scaffold for reader.
 type RunReportOutput struct {
-	Data []*RunReportView `parameter:"Data,kind=output,in=view,dataType=[]*RunReportView" view:"reader,type=RunReportView,table=run,groupable=true,selectorProjection=true" sql:"uri=datly_run_cube_reader:sql/reader.sql"`
+	Data []*RunReportView `parameter:"Data,kind=output,in=view,dataType=[]*RunReportView" view:"reader,type=RunReportView,table=run,docTable=run,groupable=true,selectorProjection=true" json:"data" sql:"uri=datly_run_cube_reader:sql/reader.sql"`
 }

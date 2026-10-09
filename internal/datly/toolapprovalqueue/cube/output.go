@@ -4,5 +4,5 @@ package cube
 
 // ApprovalReportOutput is the generated output scaffold for reader.
 type ApprovalReportOutput struct {
-	Data []*ApprovalReportView `parameter:"Data,kind=output,in=view,dataType=[]*ApprovalReportView" view:"reader,type=ApprovalReportView,table=tool_approval_queue,groupable=true,selectorProjection=true" sql:"uri=datly_toolapprovalqueue_cube_reader:sql/reader.sql"`
+	Data []*ApprovalReportView `parameter:"Data,kind=output,in=view,dataType=[]*ApprovalReportView" view:"reader,type=ApprovalReportView,table=tool_approval_queue,docTable=tool_approval_queue,groupable=true,selectorProjection=true" json:"data" sql:"uri=datly_toolapprovalqueue_cube_reader:sql/reader.sql"`
 }

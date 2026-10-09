@@ -4,13 +4,13 @@ package cube
 
 // ApprovalReportView is generated canonical view metadata for reader.
 type ApprovalReportView struct {
-	UserId         string  `groupable:"true" sqlx:"user_id,required=true" json:"userId"`
-	ConversationId *string `groupable:"true" sqlx:"conversation_id,refTable=conversation,refColumn=id" json:"conversationId"`
-	ToolName       string  `groupable:"true" sqlx:"tool_name,required=true" json:"toolName"`
-	Status         string  `groupable:"true" sqlx:"status,required=true" json:"status"`
-	Decision       *string `groupable:"true" sqlx:"decision" json:"decision"`
-	TotalCount     int     `groupable:"false" sqlx:"total_count" json:"totalCount"`
-	PendingCount   int     `groupable:"false" sqlx:"pending_count" json:"pendingCount"`
-	OutcomeCount   int     `groupable:"false" sqlx:"outcome_count" json:"outcomeCount"`
-	TimedOutCount  int     `groupable:"false" sqlx:"timed_out_count" json:"timedOutCount"`
+	UserId         string  `groupable:"true" docTable:"tool_approval_queue" docColumn:"user_id" sqlx:"user_id,required=true" json:"userId"`
+	ConversationId *string `groupable:"true" sqlx:"conversation_id,refTable=conversation,refColumn=id" docTable:"tool_approval_queue" docColumn:"conversation_id" json:"conversationId"`
+	ToolName       string  `groupable:"true" docTable:"tool_approval_queue" docColumn:"tool_name" sqlx:"tool_name,required=true" json:"toolName"`
+	Status         string  `groupable:"true" docTable:"tool_approval_queue" docColumn:"status" sqlx:"status,required=true" json:"status"`
+	Decision       *string `groupable:"true" docTable:"tool_approval_queue" docColumn:"decision" sqlx:"decision" json:"decision"`
+	TotalCount     int     `groupable:"false" docTable:"-" sqlx:"total_count" json:"totalCount"`
+	PendingCount   int     `groupable:"false" docTable:"-" sqlx:"pending_count" json:"pendingCount"`
+	OutcomeCount   int     `groupable:"false" docTable:"-" sqlx:"outcome_count" json:"outcomeCount"`
+	TimedOutCount  int     `groupable:"false" docTable:"-" sqlx:"timed_out_count" json:"timedOutCount"`
 }

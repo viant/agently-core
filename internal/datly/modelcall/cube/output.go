@@ -4,5 +4,5 @@ package cube
 
 // ModelCallReportOutput is the generated output scaffold for reader.
 type ModelCallReportOutput struct {
-	Data []*ModelCallReportView `parameter:"Data,kind=output,in=view,dataType=[]*ModelCallReportView" view:"reader,type=ModelCallReportView,table=model_call,groupable=true,selectorProjection=true" sql:"uri=datly_modelcall_cube_reader:sql/reader.sql"`
+	Data []*ModelCallReportView `parameter:"Data,kind=output,in=view,dataType=[]*ModelCallReportView" view:"reader,type=ModelCallReportView,table=model_call,docTable=model_call,groupable=true,selectorProjection=true" json:"data" sql:"uri=datly_modelcall_cube_reader:sql/reader.sql"`
 }

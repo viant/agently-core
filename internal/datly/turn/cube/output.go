@@ -4,5 +4,5 @@ package cube
 
 // TurnReportOutput is the generated output scaffold for reader.
 type TurnReportOutput struct {
-	Data []*TurnReportView `parameter:"Data,kind=output,in=view,dataType=[]*TurnReportView" view:"reader,type=TurnReportView,table=turn,groupable=true,selectorProjection=true" sql:"uri=datly_turn_cube_reader:sql/reader.sql"`
+	Data []*TurnReportView `parameter:"Data,kind=output,in=view,dataType=[]*TurnReportView" view:"reader,type=TurnReportView,table=turn,docTable=turn,groupable=true,selectorProjection=true" json:"data" sql:"uri=datly_turn_cube_reader:sql/reader.sql"`
 }

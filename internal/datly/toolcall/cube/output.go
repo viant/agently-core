@@ -4,5 +4,5 @@ package cube
 
 // ToolCallReportOutput is the generated output scaffold for reader.
 type ToolCallReportOutput struct {
-	Data []*ToolCallReportView `parameter:"Data,kind=output,in=view,dataType=[]*ToolCallReportView" view:"reader,type=ToolCallReportView,table=tool_call,groupable=true,selectorProjection=true" sql:"uri=datly_toolcall_cube_reader:sql/reader.sql"`
+	Data []*ToolCallReportView `parameter:"Data,kind=output,in=view,dataType=[]*ToolCallReportView" view:"reader,type=ToolCallReportView,table=tool_call,docTable=tool_call,groupable=true,selectorProjection=true" json:"data" sql:"uri=datly_toolcall_cube_reader:sql/reader.sql"`
 }
