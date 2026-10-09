@@ -16,12 +16,13 @@ import (
 )
 
 type AGUIConversationBootstrapInput struct {
-	Mode              string                    `json:"mode,omitempty"`
-	Since             string                    `json:"since,omitempty"`
-	IncludeModelCalls *bool                     `json:"includeModelCalls,omitempty"`
-	IncludeToolCalls  *bool                     `json:"includeToolCalls,omitempty"`
-	IncludeFeeds      *bool                     `json:"includeFeeds,omitempty"`
-	Selectors         map[string]*QuerySelector `json:"selectors,omitempty"`
+	Mode                 string                    `json:"mode,omitempty"`
+	Since                string                    `json:"since,omitempty"`
+	IncludeModelCalls    *bool                     `json:"includeModelCalls,omitempty"`
+	IncludeToolCalls     *bool                     `json:"includeToolCalls,omitempty"`
+	IncludeModelPayloads *bool                     `json:"includeModelPayloads,omitempty"`
+	IncludeFeeds         *bool                     `json:"includeFeeds,omitempty"`
+	Selectors            map[string]*QuerySelector `json:"selectors,omitempty"`
 }
 
 // Only public protocol identities are exposed, never accepted input, native IDs,
@@ -91,6 +92,9 @@ func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store
 	}
 	for name, selector := range input.Selectors {
 		options = append(options, WithTranscriptSelector(name, selector))
+	}
+	if input.IncludeModelPayloads != nil {
+		options = append(options, WithIncludeModelPayloads(*input.IncludeModelPayloads))
 	}
 	var transcript *ConversationStateResponse
 	if input.Mode == "live" {
