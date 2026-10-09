@@ -4,8 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
-	windowprotocol "github.com/viant/agently-core/protocol/window"
 	identity "github.com/viant/agently-core/protocol/resource"
+	windowprotocol "github.com/viant/agently-core/protocol/window"
 	"github.com/viant/forge/backend/types"
 	"strings"
 	"testing"
@@ -73,6 +73,7 @@ func TestPinnedComponentUsesExactProducerAndDeniesDriftWithoutGenericFallback(t 
 			t.Fatal("content/schema/source drift reached producer")
 		}
 	}
+	ds.Backend.ProducerKind = "datly" // explicit legacy component intent cannot silently unpin
 	ds.Backend.Component = nil
 	before := generic.calls
 	if _, err = service.Fetch(context.Background(), ds.ID, nil, FetchOptions{}); err == nil || generic.calls != before {
@@ -93,7 +94,7 @@ func TestArbitraryMCPRemainsGenericWithObservedServerVersion(t *testing.T) {
 	}
 }
 
-func TestDeclaredDatlyServiceDeniesBareMCPWithoutAvailableBindings(t *testing.T) {
+func TestDeclaredProducerDoesNotImposeComponentPinOnOrdinaryMCP(t *testing.T) {
 	declared, err := windowprotocol.NewDeclaredComponentDispatcher([]string{"fixture-datly"}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -102,7 +103,7 @@ func TestDeclaredDatlyServiceDeniesBareMCPWithoutAvailableBindings(t *testing.T)
 	store := NewMemoryStore()
 	store.Put(&dsproto.DataSource{ID: "bare", Backend: &dsproto.Backend{Kind: dsproto.BackendMCPTool, Service: "fixture-datly", Method: "query"}})
 	result, err := New(Options{Store: store, Executor: generic, ComponentDispatcher: declared}).Fetch(context.Background(), "bare", nil, FetchOptions{})
-	if err == nil || result != nil || generic.calls != 0 {
-		t.Fatal("known native producer downgraded before bindings registered")
+	if err != nil || result == nil || generic.calls != 1 {
+		t.Fatalf("ordinary schema call wrongly required client binding: %v", err)
 	}
 }
