@@ -178,6 +178,7 @@ type Builder struct {
 	core                         *core.Service
 	agentSvc                     *agentsvc.Service
 	agentFinder                  agentmodel.Finder
+	agentDirectoryProvider       func() []llmagents.ListItem
 	agentLoader                  agentmodel.Loader
 	modelFinder                  llm.Finder
 	modelLoader                  *modelloader.Service
@@ -344,10 +345,17 @@ func (b *Builder) WithRegistry(v tool.Registry) *Builder           { b.registry 
 func (b *Builder) WithCore(v *core.Service) *Builder               { b.core = v; return b }
 func (b *Builder) WithAgentService(v *agentsvc.Service) *Builder   { b.agentSvc = v; return b }
 func (b *Builder) WithAgentFinder(v agentmodel.Finder) *Builder    { b.agentFinder = v; return b }
-func (b *Builder) WithModelFinder(v llm.Finder) *Builder           { b.modelFinder = v; return b }
-func (b *Builder) WithEmbedderFinder(v embedder.Finder) *Builder   { b.embedderFinder = v; return b }
-func (b *Builder) WithAugmenter(v *augmenter.Service) *Builder     { b.augmenter = v; return b }
-func (b *Builder) WithMCPManager(v *mcpmgr.Manager) *Builder       { b.mcpManager = v; return b }
+
+// WithAgentDirectoryProvider supplies host-assembled external/MCP entries in
+// addition to the configured local catalog. Explicit entries retain precedence.
+func (b *Builder) WithAgentDirectoryProvider(provider func() []llmagents.ListItem) *Builder {
+	b.agentDirectoryProvider = provider
+	return b
+}
+func (b *Builder) WithModelFinder(v llm.Finder) *Builder         { b.modelFinder = v; return b }
+func (b *Builder) WithEmbedderFinder(v embedder.Finder) *Builder { b.embedderFinder = v; return b }
+func (b *Builder) WithAugmenter(v *augmenter.Service) *Builder   { b.augmenter = v; return b }
+func (b *Builder) WithMCPManager(v *mcpmgr.Manager) *Builder     { b.mcpManager = v; return b }
 
 // WithPrimitiveAuthority registers verified host identity for delegated
 // discovery. Namespace restrictions belong to MCP connections, not here.
@@ -463,6 +471,11 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 	if b.agentFinder == nil {
 		return nil, errors.New("executor builder requires agent finder")
+	}
+	if preloader, ok := b.agentFinder.(interface{ Preload(context.Context) error }); ok {
+		if err := preloader.Preload(ctx); err != nil {
+			return nil, err
+		}
 	}
 
 	// Ensure store defaults.
@@ -989,6 +1002,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 	promptRepo := intakerepo.NewWithStore(out.Store)
 	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent,
+		llmagents.WithDirectoryProvider(localAgentDirectory(b.agentFinder, b.agentDirectoryProvider)),
 		llmagents.WithConversationClient(out.Conversation),
 		llmagents.WithDataService(out.Data),
 		llmagents.WithPromptRepo(promptRepo),
