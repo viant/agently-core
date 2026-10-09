@@ -24,6 +24,7 @@ type httpSessionInfo struct {
 	clientID string
 	ns       string
 	notifier transport.Notifier
+	receiver *client
 }
 
 type uiRPCHandler struct {
@@ -76,16 +77,23 @@ func (b *httpRPCBridge) onSessionClose(session *base.Session) {
 	if info == nil {
 		return
 	}
+	if b.hub.ns.Resolver != nil {
+		b.hub.closeReceiver(info.receiver)
+	}
 	b.hub.unregisterHTTPClient(info.ns, info.clientID, info.notifier)
 }
 
-func (b *httpRPCBridge) bindSession(ctx context.Context, clientID, ns string, notifier transport.Notifier) {
+func (b *httpRPCBridge) bindSession(ctx context.Context, clientID, ns string, notifier transport.Notifier, receivers ...*client) {
 	sessionID := sessionIDFromContext(ctx)
 	if sessionID == "" || clientID == "" {
 		return
 	}
 	b.mu.Lock()
-	b.sessions[sessionID] = &httpSessionInfo{clientID: clientID, ns: ns, notifier: notifier}
+	var receiver *client
+	if len(receivers) > 0 {
+		receiver = receivers[0]
+	}
+	b.sessions[sessionID] = &httpSessionInfo{clientID: clientID, ns: ns, notifier: notifier, receiver: receiver}
 	b.mu.Unlock()
 }
 
@@ -125,7 +133,48 @@ func (h *uiRPCHandler) OnNotification(ctx context.Context, notification *jsonrpc
 	_, _ = h.handle(ctx, notification.Method, notification.Params)
 }
 
-func (h *uiRPCHandler) handle(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, *jsonrpc.Error) {
+func (h *uiRPCHandler) handle(ctx context.Context, method string, params json.RawMessage) (result json.RawMessage, jerr *jsonrpc.Error) {
+
+	trustedNS := ""
+	strict := h.bridge.hub.ns.Resolver != nil || h.bridge.hub.requireToken
+	info := h.bridge.sessionInfo(ctx)
+	if h.bridge.hub.ns.Resolver != nil {
+		var err error
+		identity, resolveErr := h.bridge.hub.ns.Identity(ctx)
+		err = resolveErr
+		trustedNS = identity.Namespace
+		if err == nil {
+			var cancel context.CancelFunc
+			ctx, cancel = context.WithDeadline(ctx, identity.ValidUntil)
+			defer cancel()
+			defer func() {
+				if !identity.ValidUntil.After(time.Now()) || ctx.Err() != nil {
+					result = nil
+					jerr = jsonrpc.NewInvalidParamsError("UI identity unavailable", nil)
+				}
+			}()
+		}
+		if err != nil {
+			return nil, jsonrpc.NewInvalidParamsError("UI identity unavailable", nil)
+		}
+		if info != nil && info.ns != trustedNS {
+			return nil, jsonrpc.NewInvalidParamsError("UI session owner mismatch", nil)
+		}
+	}
+	if strict && method != "ui.hello" {
+		if info == nil {
+			return nil, jsonrpc.NewInvalidParamsError("UI client session required", nil)
+		}
+		var claimed struct {
+			ClientID string `json:"clientId"`
+		}
+		if json.Unmarshal(params, &claimed) != nil {
+			return nil, jsonrpc.NewInvalidParamsError("invalid params", nil)
+		}
+		if claimed.ClientID != "" && claimed.ClientID != info.clientID {
+			return nil, jsonrpc.NewInvalidParamsError("UI client owner mismatch", nil)
+		}
+	}
 	switch method {
 	case "ui.hello":
 		var p struct {
@@ -138,20 +187,33 @@ func (h *uiRPCHandler) handle(ctx context.Context, method string, params json.Ra
 		if p.ClientID == "" {
 			return nil, jsonrpc.NewInvalidParamsError("clientId required", nil)
 		}
+		if strict && info != nil && info.clientID != p.ClientID {
+			return nil, jsonrpc.NewInvalidParamsError("UI client owner mismatch", nil)
+		}
 		if h.bridge.hub.requireToken {
 			if p.Token == "" || p.Token != h.bridge.hub.token {
 				return nil, jsonrpc.NewInvalidParamsError("invalid token", nil)
 			}
 		}
 		ns := "default"
-		if p.Token != "" {
+		if trustedNS != "" {
+			ns = trustedNS
+		} else if p.Token != "" {
 			ns = namespaceFromTokenString(normalizeBearer(p.Token), ns)
 		}
-		h.bridge.hub.registerHTTPClient(ns, p.ClientID)
+		var receiver *client
+		if strict {
+			receiver = h.bridge.hub.registerHTTPClient(ns, p.ClientID, ctx)
+		} else {
+			receiver = h.bridge.hub.registerHTTPClient(ns, p.ClientID)
+		}
+		if receiver == nil {
+			return nil, jsonrpc.NewInvalidParamsError("UI identity unavailable", nil)
+		}
 		// HTTP bridge clients consume commands through explicit ui.poll
 		// round-trips rather than transport notifications. Keep the
 		// client/session registration, but do not bind a notifier here.
-		h.bridge.bindSession(ctx, p.ClientID, ns, nil)
+		h.bridge.bindSession(ctx, p.ClientID, ns, nil, receiver)
 		return mustJSON(map[string]any{"ok": true, "clientId": p.ClientID}), nil
 	case "ui.snapshot":
 		var p struct {
@@ -258,6 +320,9 @@ func (h *uiRPCHandler) handle(ctx context.Context, method string, params json.Ra
 		waitCtx, cancel := context.WithTimeout(ctx, timeout)
 		defer cancel()
 		reqCmd, err := h.bridge.hub.dequeueCommand(waitCtx, ns, clientID)
+		for err == nil && reqCmd != nil && !h.bridge.hub.commandCurrent(ns, clientID, reqCmd.ID) {
+			reqCmd, err = h.bridge.hub.dequeueCommand(waitCtx, ns, clientID)
+		}
 		if err != nil || reqCmd == nil {
 			return mustJSON(nil), nil
 		}
@@ -266,11 +331,11 @@ func (h *uiRPCHandler) handle(ctx context.Context, method string, params json.Ra
 		} else {
 			log.Printf("[forge-ui] poll deliver ns=%q client=%q cmd=%q method=%q", ns, clientID, reqCmd.ID, reqCmd.Method)
 		}
-		return mustJSON(map[string]any{
-			"id":     reqCmd.ID,
-			"method": "ui.command",
-			"params": reqCmd,
-		}), nil
+		encoded := mustJSON(map[string]any{"id": reqCmd.ID, "method": "ui.command", "params": reqCmd})
+		if !h.bridge.hub.commandCurrent(ns, clientID, reqCmd.ID) {
+			return nil, jsonrpc.NewInvalidParamsError("UI command lease expired", nil)
+		}
+		return encoded, nil
 	case "ui.response":
 		var p rpcResponse
 		if err := json.Unmarshal(params, &p); err != nil {
@@ -279,7 +344,13 @@ func (h *uiRPCHandler) handle(ctx context.Context, method string, params json.Ra
 		if p.ID == "" {
 			return nil, jsonrpc.NewInvalidParamsError("id required", nil)
 		}
-		h.bridge.hub.deliverResponse(&p)
+		if info != nil {
+			if !h.bridge.hub.deliverOwnedResponse(info.ns, info.clientID, &p) {
+				return nil, jsonrpc.NewInvalidParamsError("UI command owner mismatch", nil)
+			}
+		} else {
+			h.bridge.hub.deliverResponse(&p)
+		}
 		return mustJSON(map[string]any{"ok": true}), nil
 	default:
 		return nil, jsonrpc.NewMethodNotFound("method not found", nil)

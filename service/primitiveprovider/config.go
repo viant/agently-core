@@ -8,6 +8,9 @@ import (
 
 // Config configures the Forge UI bridge service.
 type Config struct {
+	// NamespaceResolver is a trusted server callback. Configured auth mode must
+	// resolve identity before UI registration; client token hints never select it.
+	NamespaceResolver       NamespaceResolver
 	WindowReadDecisionScope WindowReadDecisionScope
 	WindowOpenAdmission     WindowOpenAdmission
 	ReportCatalog           catalog.Provider

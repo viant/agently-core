@@ -348,9 +348,9 @@ func TestWindowPureScopeOriginalExpiryAndContentDriftAfterACK(t *testing.T) {
 			if cause == "expired-original" {
 				provider.lease = 80 * time.Millisecond
 			}
-			queued := false
+			queued := atomic.Bool{}
 			err := runWindowDecisionOpen(t, svc, ctx, func() {
-				queued = true
+				queued.Store(true)
 				if cause == "expired-original" {
 					time.Sleep(120 * time.Millisecond)
 				} else {
@@ -359,8 +359,8 @@ func TestWindowPureScopeOriginalExpiryAndContentDriftAfterACK(t *testing.T) {
 					source.mu.Unlock()
 				}
 			})
-			if !queued {
-				t.Fatal("original pin after-ACK check was not exercised")
+			if !queued.Load() {
+				t.Fatal("original pin expiry/drift while awaiting ACK was not exercised")
 			}
 			if err == nil {
 				t.Fatal("stale or expired original pin released output")
