@@ -54,6 +54,10 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 	if err != nil {
 		return cleanup, err
 	}
+	ctx, err = s.prepareContinuationContract(ctx, req, input.GenerateInput, model)
+	if err != nil {
+		return cleanup, err
+	}
 	streamer, ok := model.(llm.StreamingModel)
 	if !ok {
 		return cleanup, fmt.Errorf("model %T does not support streaming", model)
@@ -168,6 +172,9 @@ func (s *Service) Stream(ctx context.Context, in, out interface{}) (func(), erro
 		llmRequest := activeReq
 
 		// Phase 1: establish provider stream for this attempt.
+		if err = s.verifyContinuationRelease(ctx); err != nil {
+			return cleanup, err
+		}
 		streamCh, err = streamer.Stream(ctx, llmRequest)
 		if err != nil {
 			if isContextLimitError(err) {

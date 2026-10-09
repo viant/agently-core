@@ -746,6 +746,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if out.Core == nil {
 		out.Core = core.New(b.modelFinder, out.Registry, out.Conversation)
 	}
+	out.Core.SetContinuationAuthority(b.primitiveActor, b.primitiveVerifier)
 
 	aug := b.augmenter
 	if aug == nil {

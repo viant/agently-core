@@ -9,6 +9,7 @@ import (
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/genai/llm/provider/base"
+	"github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/protocol/tool"
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -29,7 +30,9 @@ type Service struct {
 	attachUsage map[string]int64
 
 	// optional per-model preview limits for tool results (bytes)
-	modelPreviewLimit map[string]int
+	modelPreviewLimit         map[string]int
+	continuationActorResolver func(context.Context) (resource.VerifiedActor, error)
+	continuationActorVerifier func(context.Context, resource.VerifiedActor) error
 }
 
 func (s *Service) ModelFinder() llm.Finder {

@@ -30,7 +30,7 @@ func TestContinuationPublishesCurrentTemplateToOpenAI(t *testing.T) {
 				binding.ContentMessageKey("current-user"): {At: anchorAt.Add(time.Second)},
 			}}
 			ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "forecast-conversation"})
-			request := (&Service{}).BuildContinuationRequest(ctx, &llm.GenerateRequest{Messages: input.Message}, history)
+			request := scopedTestContinuation(t, &Service{}, ctx, &llm.GenerateRequest{Messages: input.Message}, history)
 			require.NotNil(t, request)
 			var captured map[string]interface{}
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
