@@ -637,13 +637,14 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			provider, found := b.authorizationProviders[uiSettings.ProviderRef]
 			mapping, mapped := b.capabilityMappings[uiSettings.CapabilityMappingRef]
 			mappingV2, mappedV2 := b.capabilityMappingsV2[uiSettings.CapabilityMappingRef]
-			if !found || (!mapped && !mappedV2) || provider.Service == nil || provider.Account == nil || provider.AuthorityRevision == nil || provider.AccountProjection == nil || provider.Gate == nil || provider.DatasourceAuthorize == nil || provider.PolicyVersion == "" || (mapping == nil && mappingV2 == nil) {
+			if !found || (!mapped && !mappedV2) || provider.Service == nil || provider.Account == nil || provider.AuthoritySnapshot == nil || provider.AuthorityRevision == nil || provider.AccountProjection == nil || provider.Gate == nil || provider.DatasourceAuthorize == nil || provider.PolicyVersion == "" || (mapping == nil && mappingV2 == nil) {
 				return nil, fmt.Errorf("ui.authorization references are not registered")
 			}
 			out.PermittedResolver = &permittedview.AuthzResolver{Service: provider.Service, Version: provider.PolicyVersion, Account: provider.Account, AuthorityRevision: provider.AuthorityRevision, ProjectAccount: provider.AccountProjection, Map: mapping, MapV2: mappingV2, Gate: provider.Gate, EntityPermission: provider.EntityPermission, EntityPermissionWithLease: provider.EntityPermissionWithLease, EntityRoles: provider.EntityRoles}
 			out.ComponentAuthority = provider.ComponentAuthoritySnapshot
 			out.ExecutionContext = provider.ExecutionContext
 			out.UIBridge.ConfigureWindowReadDecisionScope(provider.WindowReadDecisionScope)
+			out.UIBridge.ConfigureNamespaceResolver(trustedUINamespace(provider.AuthoritySnapshot, provider.ExecutionContext), provider.ExecutionContext)
 			out.DatasourceAuthorizer = provider.DatasourceAuthorize
 			out.DatasourceDefinitionAuthorizer = provider.DatasourceDefinitionAuthorize
 			out.DatasourceDefinitionResolver = provider.DatasourceDefinitionResolver

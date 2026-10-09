@@ -25,10 +25,12 @@ func NewService(cfg *Config) *Service {
 	if cfg == nil {
 		cfg = &Config{}
 	}
+	namespace := NewNamespaceService(cfg.NamespaceResolver)
+	namespace.metadataScope = cfg.MetadataScope
 	return &Service{
 		cfg:          cfg,
 		hub:          NewHub(cfg),
-		ns:           NewNamespaceService(),
+		ns:           namespace,
 		resourcePins: map[windowPinKey]windowResourcePin{},
 	}
 }
@@ -234,12 +236,18 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 	}
 
 	ns := strings.TrimSpace(in.Namespace)
-	if s.canonicalWindowCatalog() {
-		trustedNS, err := s.ns.Namespace(ctx)
+	if s.canonicalWindowCatalog() || s.ns.Resolver != nil {
+		trustedIdentity, err := s.ns.Identity(ctx)
+		trustedNS := trustedIdentity.Namespace
 		if err != nil || ns != "" && ns != trustedNS {
 			return nil, errors.New("UI namespace is unavailable")
 		}
 		ns = trustedNS
+		if !trustedIdentity.ValidUntil.IsZero() {
+			var stop context.CancelFunc
+			ctx, stop = context.WithDeadline(ctx, trustedIdentity.ValidUntil)
+			defer stop()
+		}
 	}
 	if ns == "" {
 		ns, _ = s.ns.Namespace(ctx)
@@ -264,7 +272,22 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 		}
 		ctx = baseCtx
 	}
-	resp, err := s.hub.Call(ctx, ns, in.ClientID, in.Method, in.Params)
+	// Receiver verification must not allow an original resource/action lease
+	// to expire while the command waits to be written or queued.
+	callCtx := ctx
+	lease := openedLease
+	if openedPin != nil && (lease.IsZero() || openedPin.ValidUntil.Before(lease)) {
+		lease = openedPin.ValidUntil
+	}
+	if commandPin != nil && (lease.IsZero() || commandPin.Resource.ValidUntil.Before(lease)) {
+		lease = commandPin.Resource.ValidUntil
+	}
+	if !lease.IsZero() {
+		var stop context.CancelFunc
+		callCtx, stop = context.WithDeadline(ctx, lease)
+		defer stop()
+	}
+	resp, err := s.hub.Call(callCtx, ns, in.ClientID, in.Method, in.Params)
 	if err != nil {
 		return nil, err
 	}

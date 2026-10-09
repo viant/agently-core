@@ -37,18 +37,27 @@ type Hub struct {
 	httpHandler http.Handler
 	httpBridge  *httpRPCBridge
 
-	pendingMu  sync.Mutex
-	pending    map[string]chan *rpcResponse
-	commandSeq atomic.Uint64
+	pendingMu     sync.Mutex
+	pending       map[string]chan *rpcResponse
+	pendingOwners map[string]commandOwner
+	commandSeq    atomic.Uint64
 
 	upgrader websocket.Upgrader
 }
 
+type commandOwner struct {
+	namespace, clientID string
+	deadline            time.Time
+	done                <-chan struct{}
+}
+
 type client struct {
-	id string
-	ns string
-	ws *websocket.Conn
-	mu sync.Mutex // serialize writes
+	cancel context.CancelFunc
+	ctx    context.Context
+	id     string
+	ns     string
+	ws     *websocket.Conn
+	mu     sync.Mutex // serialize writes
 }
 
 type helloMsg struct {
@@ -97,18 +106,21 @@ func NewHub(cfg *Config) *Hub {
 			origins[strings.TrimSpace(o)] = true
 		}
 	}
+	namespace := NewNamespaceService(cfg.NamespaceResolver)
+	namespace.metadataScope = cfg.MetadataScope
 	return &Hub{
-		token:        cfg.Token,
-		requireToken: cfg.RequireToken,
-		localOnly:    cfg.LocalOnly,
-		origins:      origins,
-		ns:           NewNamespaceService(),
-		clients:      map[string]map[string]*client{},
-		snapshots:    map[string]map[string]snapshotState{},
-		watchers:     map[string]map[string]map[chan json.RawMessage]struct{}{},
-		queues:       map[string]map[string]*commandQueue{},
-		notifiers:    map[string]map[string]transport.Notifier{},
-		pending:      map[string]chan *rpcResponse{},
+		token:         cfg.Token,
+		requireToken:  cfg.RequireToken,
+		localOnly:     cfg.LocalOnly,
+		origins:       origins,
+		ns:            namespace,
+		clients:       map[string]map[string]*client{},
+		snapshots:     map[string]map[string]snapshotState{},
+		watchers:      map[string]map[string]map[chan json.RawMessage]struct{}{},
+		queues:        map[string]map[string]*commandQueue{},
+		notifiers:     map[string]map[string]transport.Notifier{},
+		pending:       map[string]chan *rpcResponse{},
+		pendingOwners: map[string]commandOwner{},
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(r *http.Request) bool {
 				return checkOrigin(origins, r)
@@ -153,32 +165,64 @@ func (h *Hub) ServeWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	ns := "default"
+	var identityLease time.Time
+	if h.ns != nil {
+		if h.ns.Resolver != nil {
+			var err error
+			identity, resolveErr := h.ns.Identity(r.Context())
+			err = resolveErr
+			ns = identity.Namespace
+			identityLease = identity.ValidUntil
+			if err != nil {
+				http.Error(w, "UI identity unavailable", http.StatusForbidden)
+				return
+			}
+		} else {
+			ns = h.ns.NamespaceFromRequest(r)
+		}
+	}
+	receiverContext := h.ns.receiverContext(r.Context())
+	if receiverContext == nil {
+		http.Error(w, "UI identity unavailable", http.StatusForbidden)
+		return
+	}
+	if !identityLease.IsZero() && !identityLease.After(time.Now()) {
+		http.Error(w, "UI identity unavailable", http.StatusForbidden)
+		return
+	}
 	ws, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
 
-	ns := "default"
-	if h.ns != nil {
-		ns = h.ns.NamespaceFromRequest(r)
+	if !identityLease.IsZero() && !identityLease.After(time.Now()) {
+		ws.Close()
+		return
 	}
-	c := &client{ws: ws, ns: ns}
+	receiverCtx, cancelReceiver := context.WithCancel(receiverContext)
+	c := &client{ws: ws, ns: ns, ctx: receiverCtx, cancel: cancelReceiver}
 	go h.readLoop(c)
 }
 
 func (h *Hub) readLoop(c *client) {
 	defer func() {
+		if c.cancel != nil {
+			c.cancel()
+		}
 		if c.ws != nil {
 			_ = c.ws.Close()
 		}
 		if c.id != "" {
 			h.mu.Lock()
 			if h.clients[c.ns] != nil {
-				delete(h.clients[c.ns], c.id)
-			}
-			if h.snapshots[c.ns] != nil {
-				delete(h.snapshots[c.ns], c.id)
+				if h.clients[c.ns][c.id] == c {
+					delete(h.clients[c.ns], c.id)
+					if h.snapshots[c.ns] != nil {
+						delete(h.snapshots[c.ns], c.id)
+					}
+				}
 			}
 			h.mu.Unlock()
 		}
@@ -188,6 +232,12 @@ func (h *Hub) readLoop(c *client) {
 		_, data, err := c.ws.ReadMessage()
 		if err != nil {
 			return
+		}
+		if h.ns.Resolver != nil {
+			ns, err := h.ns.Namespace(c.ctx)
+			if err != nil || ns != c.ns {
+				return
+			}
 		}
 		var envelope map[string]json.RawMessage
 		if err := json.Unmarshal(data, &envelope); err != nil {
@@ -230,7 +280,7 @@ func (h *Hub) readLoop(c *client) {
 			if err := json.Unmarshal(data, &sm); err != nil {
 				continue
 			}
-			if sm.ClientID == "" || len(sm.Data) == 0 {
+			if c.id == "" || sm.ClientID != c.id || len(sm.Data) == 0 {
 				continue
 			}
 			h.setSnapshot(c.ns, sm.ClientID, sm.Data)
@@ -245,7 +295,7 @@ func (h *Hub) readLoop(c *client) {
 				if err := json.Unmarshal(data, &resp); err != nil {
 					continue
 				}
-				h.deliverResponse(&resp)
+				h.deliverOwnedResponse(c.ns, c.id, &resp)
 			}
 		}
 	}
@@ -389,19 +439,35 @@ func (h *Hub) RegisterHTTPNotifier(ns, clientID string, notifier transport.Notif
 	h.mu.Unlock()
 }
 
-func (h *Hub) registerHTTPClient(ns, clientID string) {
+func (h *Hub) registerHTTPClient(ns, clientID string, contexts ...context.Context) *client {
 	if ns == "" {
 		ns = "default"
 	}
 	if clientID == "" {
-		return
+		return nil
+	}
+	c := &client{id: clientID, ns: ns}
+	if len(contexts) > 0 && contexts[0] != nil {
+		ctx := h.ns.receiverContext(contexts[0])
+		if ctx == nil {
+			return nil
+		}
+		c.ctx, c.cancel = context.WithCancel(ctx)
 	}
 	h.mu.Lock()
 	if h.clients[ns] == nil {
 		h.clients[ns] = map[string]*client{}
 	}
-	h.clients[ns][clientID] = &client{id: clientID, ns: ns}
+	previous := h.clients[ns][clientID]
+	h.clients[ns][clientID] = c
 	h.mu.Unlock()
+	if previous != nil && previous != c {
+		h.closeReceiver(previous)
+		if previous.ws != nil {
+			previous.ws.Close()
+		}
+	}
+	return c
 }
 
 func (h *Hub) unregisterHTTPClient(ns, clientID string, notifier transport.Notifier) {
@@ -475,13 +541,27 @@ func (h *Hub) dequeueCommand(ctx context.Context, ns, clientID string) (*rpcRequ
 }
 
 func (h *Hub) deliverResponse(resp *rpcResponse) {
+	h.deliverResponseFor(nil, resp)
+}
+func (h *Hub) deliverOwnedResponse(ns, clientID string, resp *rpcResponse) bool {
+	return h.deliverResponseFor(&commandOwner{namespace: ns, clientID: clientID}, resp)
+}
+func (h *Hub) deliverResponseFor(owner *commandOwner, resp *rpcResponse) bool {
 	if resp == nil || resp.ID == "" {
-		return
+		return false
 	}
 	h.pendingMu.Lock()
+	if owner != nil {
+		expected, ok := h.pendingOwners[resp.ID]
+		if !ok || owner.namespace != expected.namespace || owner.clientID != expected.clientID || !expected.current() {
+			h.pendingMu.Unlock()
+			return false
+		}
+	}
 	ch := h.pending[resp.ID]
 	if ch != nil {
 		delete(h.pending, resp.ID)
+		delete(h.pendingOwners, resp.ID)
 	}
 	h.pendingMu.Unlock()
 	if ch != nil {
@@ -490,6 +570,7 @@ func (h *Hub) deliverResponse(resp *rpcResponse) {
 		default:
 		}
 	}
+	return ch != nil
 }
 
 func (h *Hub) Call(ctx context.Context, ns, clientID string, method string, params interface{}) (*rpcResponse, error) {
@@ -512,10 +593,40 @@ func (h *Hub) Call(ctx context.Context, ns, clientID string, method string, para
 	}
 	h.mu.RUnlock()
 
+	if h.ns.Resolver != nil {
+		callerIdentity, err := h.ns.Identity(ctx)
+		if err != nil || callerIdentity.Namespace != ns {
+			return nil, errors.New("UI caller identity unavailable")
+		}
+		bounded, cancelCaller := context.WithDeadline(ctx, callerIdentity.ValidUntil)
+		defer cancelCaller()
+		ctx = bounded
+		if c == nil || c.ctx == nil {
+			return nil, errors.New("UI receiver unavailable")
+		}
+		verifyCtx, cancelVerify := context.WithCancel(c.ctx)
+		stopCaller := context.AfterFunc(ctx, cancelVerify)
+		receiverIdentity, err := h.ns.Identity(verifyCtx)
+		stopCaller()
+		cancelVerify()
+		if err != nil || receiverIdentity.Namespace != ns {
+			return nil, errors.New("UI receiver identity unavailable")
+		}
+		bounded, cancelReceiver := context.WithDeadline(ctx, receiverIdentity.ValidUntil)
+		stopReceiver := context.AfterFunc(c.ctx, cancelReceiver)
+		defer stopReceiver()
+		defer cancelReceiver()
+		ctx = bounded
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	id := h.nextCommandID(ns, clientID, time.Now())
 	ch := make(chan *rpcResponse, 1)
 	h.pendingMu.Lock()
 	h.pending[id] = ch
+	deadline, _ := ctx.Deadline()
+	h.pendingOwners[id] = commandOwner{namespace: ns, clientID: clientID, deadline: deadline, done: ctx.Done()}
 	h.pendingMu.Unlock()
 
 	req := rpcRequest{ID: id, Method: method, Params: params}
@@ -530,11 +641,27 @@ func (h *Hub) Call(ctx context.Context, ns, clientID string, method string, para
 	}(), id)
 	if c != nil && c.ws != nil {
 		c.mu.Lock()
-		err := c.ws.WriteJSON(req)
+		var err error
+		if ctx.Err() != nil {
+			err = ctx.Err()
+		} else {
+			if deadline, ok := ctx.Deadline(); ok {
+				_ = c.ws.SetWriteDeadline(deadline)
+			}
+			err = c.ws.WriteJSON(req)
+			if err == nil && ctx.Err() != nil {
+				err = ctx.Err()
+			}
+			if err == nil {
+				_ = c.ws.SetWriteDeadline(time.Time{})
+			}
+		}
 		c.mu.Unlock()
 		if err != nil {
+			c.ws.Close()
 			h.pendingMu.Lock()
 			delete(h.pending, id)
+			delete(h.pendingOwners, id)
 			h.pendingMu.Unlock()
 			return nil, err
 		}
@@ -546,6 +673,13 @@ func (h *Hub) Call(ctx context.Context, ns, clientID string, method string, para
 				Params:  mustJSON(map[string]any{"id": id, "method": method, "params": params}),
 			})
 		} else {
+			if err := ctx.Err(); err != nil {
+				h.pendingMu.Lock()
+				delete(h.pending, id)
+				delete(h.pendingOwners, id)
+				h.pendingMu.Unlock()
+				return nil, err
+			}
 			h.enqueueCommand(ns, clientID, req)
 		}
 	}
@@ -555,6 +689,7 @@ func (h *Hub) Call(ctx context.Context, ns, clientID string, method string, para
 		log.Printf("[forge-ui] call timeout ns=%q client=%q method=%q id=%q err=%v", ns, clientID, method, id, ctx.Err())
 		h.pendingMu.Lock()
 		delete(h.pending, id)
+		delete(h.pendingOwners, id)
 		h.pendingMu.Unlock()
 		return nil, ctx.Err()
 	case resp := <-ch:
@@ -607,4 +742,44 @@ func checkOrigin(allow map[string]bool, r *http.Request) bool {
 	}
 	host := strings.ToLower(u.Hostname())
 	return host == "localhost" || host == "127.0.0.1" || host == "::1"
+}
+
+func (h *Hub) closeReceiver(c *client) {
+	if c == nil {
+		return
+	}
+	if c.cancel != nil {
+		c.cancel()
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.clients[c.ns] != nil && h.clients[c.ns][c.id] == c {
+		delete(h.clients[c.ns], c.id)
+		if h.snapshots[c.ns] != nil {
+			delete(h.snapshots[c.ns], c.id)
+		}
+	}
+}
+
+func (owner commandOwner) current() bool {
+	if !owner.deadline.IsZero() && !owner.deadline.After(time.Now()) {
+		return false
+	}
+	if owner.done != nil {
+		select {
+		case <-owner.done:
+			return false
+		default:
+		}
+	}
+	return true
+}
+func (h *Hub) commandCurrent(ns, clientID, id string) bool {
+	h.pendingMu.Lock()
+	defer h.pendingMu.Unlock()
+	owner, ok := h.pendingOwners[id]
+	if !ok {
+		return h.ns.Resolver == nil && !h.requireToken
+	}
+	return owner.namespace == ns && owner.clientID == clientID && owner.current()
 }
