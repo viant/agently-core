@@ -27,7 +27,6 @@ import (
 	claimread "github.com/viant/agently-core/internal/datly/toolexecutionclaim/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
 	queueread "github.com/viant/agently-core/internal/datly/turnqueue/read"
-	conversation "github.com/viant/agently-core/internal/store/conversation"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
@@ -128,7 +127,7 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 		plan.GoalIDs = normalizeIDs(plan.GoalIDs)
 		turnQuery := &turnread.TurnRowsInput{}
 		turnQuery.SetConversationIDs(plan.ConversationIDs)
-		plan.Turns, err = (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnQuery, deleteSelectors("id", "run_id"))
+		plan.Turns, err = d.turnRows(ctx, turnQuery, deleteSelectors("id", "run_id"))
 		if err != nil {
 			return nil, err
 		}
@@ -140,7 +139,7 @@ func (d *Discoverer) CollectDeletePlan(ctx context.Context, graph *Graph, now ti
 		plan.TurnIDs = normalizeIDs(plan.TurnIDs)
 		messageQuery := &msgread.MessagesInput{}
 		messageQuery.SetConversationIds(plan.ConversationIDs)
-		plan.Messages, err = (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery, deleteSelectors("id", "attachment_payload_id", "elicitation_payload_id"))
+		plan.Messages, err = d.messageRows(ctx, messageQuery, deleteSelectors("id", "attachment_payload_id", "elicitation_payload_id"))
 		if err != nil {
 			return nil, err
 		}
@@ -305,13 +304,13 @@ func (d *Discoverer) collectPlanChildren(ctx context.Context, plan *DeletePlan) 
 	if len(plan.MessageIDs) > 0 {
 		modelQuery := &modelread.ModelCallsInput{}
 		modelQuery.SetMessageIds(plan.MessageIDs)
-		plan.ModelCalls, err = planReaderRows[modelread.ModelCallView](ctx, d, modelQuery, "/v1/internal/agently/model-call", planProviders("modelcallaccess", owner, "message_id", "request_payload_id", "response_payload_id", "provider_request_payload_id", "provider_response_payload_id", "stream_payload_id"))
+		plan.ModelCalls, err = d.modelRows(ctx, modelQuery, "message_id", "request_payload_id", "response_payload_id", "provider_request_payload_id", "provider_response_payload_id", "stream_payload_id")
 		if err != nil {
 			return err
 		}
 		toolQuery := &toolread.ToolCallsInput{}
 		toolQuery.SetMessageIds(plan.MessageIDs)
-		plan.ToolCalls, err = planReaderRows[toolread.ToolCallView](ctx, d, toolQuery, "/v1/internal/agently/tool-call", planProviders("toolcallaccess", owner, "message_id", "op_id", "request_payload_id", "response_payload_id"))
+		plan.ToolCalls, err = d.toolRows(ctx, toolQuery, "message_id", "op_id", "request_payload_id", "response_payload_id")
 		if err != nil {
 			return err
 		}
@@ -451,7 +450,7 @@ func (d *Discoverer) collectPlanDetachRows(ctx context.Context, plan *DeletePlan
 		queries = append(queries, bySuperseded)
 		for _, query := range queries {
 			readContext := queryselectors.ForUpdateOptions(ctx, d.LockDetachRows).Context(ctx)
-			rows, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(readContext, query, deleteSelectors("id", "parent_message_id", "superseded_by"))
+			rows, err := d.messageRows(readContext, query, deleteSelectors("id", "parent_message_id", "superseded_by"))
 			if err != nil {
 				return err
 			}
@@ -478,7 +477,7 @@ func (d *Discoverer) collectPlanDetachRows(ctx context.Context, plan *DeletePlan
 		turnQueries = append(turnQueries, query)
 	}
 	for _, query := range turnQueries {
-		rows, err := planReaderRows[turnread.TurnRowsView](ctx, d, query, "/v1/api/agently/turn/list/list", d.planDetachProviders("turnaccess", []string{"id", "started_by_message_id", "retry_of"}), d.LockDetachRows)
+		rows, err := d.detachTurnRows(ctx, query)
 		if err != nil {
 			return err
 		}

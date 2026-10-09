@@ -36,10 +36,13 @@ func TestDeleteGraphReaderMySQL(t *testing.T) {
 			t.Setenv(tree.GraphReaderEnvironment, mode)
 			tag := fmt.Sprintf("graph-reader-%s-%d", mode, time.Now().UnixNano())
 			root, child := tag+"-root", tag+"-child"
+			turnChild, linkedChild := tag+"-turn-child", tag+"-linked-child"
 			t.Cleanup(func() {
-				_, err := db.Exec("DELETE FROM turn WHERE id IN (?,?)", root+"-turn", child+"-turn")
+				_, err := db.Exec("DELETE FROM message WHERE id=?", tag+"-link")
 				require.NoError(t, err)
-				_, err = db.Exec("DELETE FROM conversation WHERE id=?", child)
+				_, err = db.Exec("DELETE FROM turn WHERE id IN (?,?)", root+"-turn", child+"-turn")
+				require.NoError(t, err)
+				_, err = db.Exec("DELETE FROM conversation WHERE id IN (?,?,?)", child, turnChild, linkedChild)
 				require.NoError(t, err)
 				_, err = db.Exec("DELETE FROM conversation WHERE id=?", root)
 				require.NoError(t, err)
@@ -52,10 +55,16 @@ func TestDeleteGraphReaderMySQL(t *testing.T) {
 			require.NoError(t, err)
 			_, err = db.Exec(`INSERT INTO turn(id,conversation_id,status) VALUES(?,?,'succeeded'),(?,?,'succeeded')`, root+"-turn", root, child+"-turn", child)
 			require.NoError(t, err)
+			_, err = db.Exec(`INSERT INTO conversation(id,created_by_user_id,status,conversation_parent_turn_id,created_at)
+                VALUES(?,'u1','succeeded',?,'2026-01-01 00:00:01'),(?,'u1','succeeded',NULL,'2026-01-01 00:00:01')`, turnChild, root+"-turn", linkedChild)
+			require.NoError(t, err)
+			_, err = db.Exec(`INSERT INTO message(id,conversation_id,turn_id,role,type,content,linked_conversation_id)
+                VALUES(?,?,?,'assistant','text','test',?)`, tag+"-link", root, root+"-turn", linkedChild)
+			require.NoError(t, err)
 			d := tree.NewSystemDiscoverer(svc.(*datlyService).native, nil)
 			graph, err := d.Discover(context.Background(), root)
 			require.NoError(t, err)
-			require.Len(t, graph.Nodes, 2)
+			require.Len(t, graph.Nodes, 4)
 			require.Empty(t, graph.Nodes[child].Status)
 			require.Equal(t, time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC), graph.Nodes[root].CreatedAt)
 			require.Equal(t, 1, graph.Nodes[child].Depth)
@@ -71,12 +80,11 @@ func TestDeleteGraphReaderMySQL(t *testing.T) {
 						if e == nil {
 							continue
 						}
-						q := strings.ToLower(e.SQL)
+						q := strings.ToLower(strings.Join(strings.Fields(e.SQL), " "))
 						if strings.Contains(q, "from conversation c") && strings.Contains(q, "created_at_raw") {
 							sawRead = true
 							sawLock = sawLock || strings.Contains(q, "for update")
 							require.NotContains(t, q, "inline_body")
-							require.NotContains(t, q, " join ")
 						}
 					}
 				}
@@ -84,7 +92,7 @@ func TestDeleteGraphReaderMySQL(t *testing.T) {
 				require.True(t, sawLock, "compact reader must acquire real MySQL row locks")
 			}
 			var remaining int
-			require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM conversation WHERE id IN (?,?)", root, child).Scan(&remaining))
+			require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM conversation WHERE id IN (?,?,?,?)", root, child, turnChild, linkedChild).Scan(&remaining))
 			require.Zero(t, remaining)
 		})
 	}

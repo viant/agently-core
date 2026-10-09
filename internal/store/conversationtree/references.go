@@ -8,7 +8,6 @@ import (
 	convread "github.com/viant/agently-core/internal/datly/conversation/read"
 	msgread "github.com/viant/agently-core/internal/datly/message/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
-	conversation "github.com/viant/agently-core/internal/store/conversation"
 	"github.com/viant/xdatly/state"
 )
 
@@ -33,11 +32,10 @@ func (d *Discoverer) ValidateInboundLinks(ctx context.Context, graph *Graph) err
 		return nil
 	}
 	conversationIDs := sortedMapKeys(graph.Nodes)
-	messages := &conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}
 	query := &msgread.MessagesInput{}
 	query.SetLinkedConversationIds(conversationIDs)
 	selector := state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id", "conversation_id", "linked_conversation_id"}}}}
-	rows, err := messages.ListRows(ctx, query, selector)
+	rows, err := d.messageRows(ctx, query, selector)
 	if err != nil {
 		return err
 	}
@@ -48,7 +46,7 @@ func (d *Discoverer) ValidateInboundLinks(ctx context.Context, graph *Graph) err
 	}
 	turnQuery := &turnread.TurnRowsInput{}
 	turnQuery.SetConversationIDs(conversationIDs)
-	turns, err := (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnQuery, deleteSelectors("id"))
+	turns, err := d.turnRows(ctx, turnQuery, deleteSelectors("id"))
 	if err != nil {
 		return err
 	}
@@ -78,7 +76,7 @@ func (d *Discoverer) ValidateInboundLinks(ctx context.Context, graph *Graph) err
 	if len(goalIDs) > 0 {
 		goalTurns := &turnread.TurnRowsInput{}
 		goalTurns.SetGoalIDs(goalIDs)
-		rows, err := (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, goalTurns, deleteSelectors("id", "conversation_id"))
+		rows, err := d.turnRows(ctx, goalTurns, deleteSelectors("id", "conversation_id"))
 		if err != nil {
 			return err
 		}

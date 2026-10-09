@@ -35,6 +35,10 @@ type graphReaderContextKey struct{}
 // to compare or roll back the graph reader without rebuilding.
 func PinGraphReader(ctx context.Context) (context.Context, error) {
 	if _, ok := ctx.Value(graphReaderContextKey{}).(graphReaderMode); ok {
+		ctx, err := PinMetadataReader(ctx)
+		if err != nil {
+			return ctx, err
+		}
 		return payloaddelete.PinMode(ctx)
 	}
 	mode := graphReaderMode(strings.TrimSpace(os.Getenv(GraphReaderEnvironment)))
@@ -44,7 +48,11 @@ func PinGraphReader(ctx context.Context) (context.Context, error) {
 	if mode != graphReaderLegacy && mode != graphReaderCompact {
 		return ctx, fmt.Errorf("%s must be legacy or compact, got %q", GraphReaderEnvironment, mode)
 	}
-	return payloaddelete.PinMode(context.WithValue(ctx, graphReaderContextKey{}, mode))
+	ctx, err := PinMetadataReader(context.WithValue(ctx, graphReaderContextKey{}, mode))
+	if err != nil {
+		return ctx, err
+	}
+	return payloaddelete.PinMode(ctx)
 }
 
 var compactGraphReaderTarget = dexec.ComponentTarget{

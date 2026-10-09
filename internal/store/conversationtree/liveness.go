@@ -15,7 +15,6 @@ import (
 	runread "github.com/viant/agently-core/internal/datly/run/read"
 	toolread "github.com/viant/agently-core/internal/datly/toolcall/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
-	convturn "github.com/viant/agently-core/internal/store/conversation"
 
 	"github.com/viant/agently-core/internal/datly/dbtime"
 	"github.com/viant/bindly/locator"
@@ -79,7 +78,7 @@ func (d *Discoverer) collectRunEvidence(ctx context.Context, graph *Graph, turns
 		turnInput := &turnread.TurnRowsInput{}
 		turnInput.SetConversationIDs(conversationIDs)
 		var err error
-		turnRows, err = (&convturn.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnInput, deleteSelectors("id", "run_id"))
+		turnRows, err = d.turnRows(ctx, turnInput, deleteSelectors("id", "run_id"))
 		if err != nil {
 			return nil, err
 		}
@@ -176,37 +175,15 @@ func (d *Discoverer) collectRunEvidence(ctx context.Context, graph *Graph, turns
 }
 
 func (d *Discoverer) callRunIDs(ctx context.Context, turnIDs []string, model bool) ([]string, error) {
-	owner := strings.TrimSpace(d.OwnerID(ctx))
-	kind := "toolcallaccess"
-	if model {
-		kind = "modelcallaccess"
-	}
-	providers := []locator.Provider{
-		provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
-			switch name {
-			case "internal":
-				return true, true, nil
-			case "mode":
-				return "rows", true, nil
-			}
-			return nil, false, nil
-		}),
-		provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil }),
-		queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"message_id", "turn_id", "run_id"}}}}),
-	}
 	result := []string{}
 	if model {
 		input := &modelread.ModelCallsInput{}
 		input.SetTurnIds(turnIDs)
-		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: modelReaderTarget, Input: input, Providers: providers})
+		rows, err := d.modelRows(ctx, input, "message_id", "turn_id", "run_id")
 		if err != nil {
 			return nil, err
 		}
-		out, ok := value.(*modelread.ModelCallsOutput)
-		if !ok || out == nil {
-			return nil, fmt.Errorf("model call reader returned %T", value)
-		}
-		for _, row := range out.Data {
+		for _, row := range rows {
 			if row != nil && row.RunId != nil {
 				result = append(result, *row.RunId)
 			}
@@ -214,15 +191,11 @@ func (d *Discoverer) callRunIDs(ctx context.Context, turnIDs []string, model boo
 	} else {
 		input := &toolread.ToolCallsInput{}
 		input.SetTurnIds(turnIDs)
-		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: toolReaderTarget, Input: input, Providers: providers})
+		rows, err := d.toolRows(ctx, input, "message_id", "turn_id", "run_id")
 		if err != nil {
 			return nil, err
 		}
-		out, ok := value.(*toolread.ToolCallsOutput)
-		if !ok || out == nil {
-			return nil, fmt.Errorf("tool call reader returned %T", value)
-		}
-		for _, row := range out.Data {
+		for _, row := range rows {
 			if row != nil && row.RunId != nil {
 				result = append(result, *row.RunId)
 			}
@@ -324,7 +297,7 @@ func (d *Discoverer) CollectInitialRunIDs(ctx context.Context, graph *Graph) ([]
 	conversationIDs := sortedMapKeys(graph.Nodes)
 	query := &turnread.TurnRowsInput{}
 	query.SetConversationIDs(conversationIDs)
-	turns, err := (&convturn.TurnStore{Invoker: d.Invoker}).ListRows(ctx, query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id", "run_id"}}}})
+	turns, err := d.turnRows(ctx, query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id", "run_id"}}}})
 	if err != nil {
 		return nil, err
 	}
