@@ -168,12 +168,53 @@ func (s *Service) prepareUnifiedExportRequest(ctx context.Context, request *Subm
 			return nil, nil, identity.ErrResourceDenied
 		}
 	}
+	// Capture export authority before datasource work. This original deadline
+	// survives execution, persistence, the async worker and result retrieval.
+	ref := cloneResourceRef(request.Resource)
+	originalPin := cloneResolvedResource(request.ResolvedResource)
+	if request.execution != nil {
+		originalPin = cloneResolvedResource(request.execution.Resource)
+	}
+	if ref == nil && originalPin != nil {
+		ref = &identity.ResourceRef{URI: originalPin.URI, Revision: originalPin.Selector()}
+	}
+	if ref == nil || originalPin != nil && (originalPin.URI != ref.URI || ref.Revision != "" && ref.Revision != originalPin.Selector()) {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	exportReader, err := s.resourceReaderFor(ctx, "report.export")
+	if err != nil {
+		return nil, nil, err
+	}
+	if exportReader == nil {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	if originalPin == nil {
+		originalPin, err = exportReader.Resolve(ctx, *ref)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	exportRaw, exportPin, err := exportReader.ReadResolved(ctx, *originalPin)
+	if err != nil {
+		return nil, nil, err
+	}
+	var exportDefinition registry.ReportEnvelope
+	if json.Unmarshal(exportRaw, &exportDefinition) != nil {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	inputPins, inputToken := request.DependencyPins, request.DependencyToken
+	if request.execution != nil {
+		inputPins, inputToken = request.execution.DependencyPins, request.execution.DependencyToken
+	}
+	pins, token, err := s.bindOperationDependencies(ctx, originalPin, exportPin, exportDefinition, inputPins, inputToken)
+	if err != nil {
+		return nil, nil, err
+	}
 	execution := request.execution
 	if execution == nil {
-		var err error
 		execution, err = s.ExecuteResource(ctx, &ExecuteResourceRequest{
-			DependencyPins: cloneDependencyPins(request.DependencyPins), DependencyToken: request.DependencyToken,
-			Resource: cloneResourceRef(request.Resource), ResolvedResource: cloneResolvedResource(request.ResolvedResource),
+			DependencyPins: pins, DependencyToken: token,
+			Resource: cloneResourceRef(ref), ResolvedResource: cloneResolvedResource(exportPin),
 			Parameters: cloneJSONMap(request.Parameters),
 		})
 		if err != nil {
@@ -182,6 +223,22 @@ func (s *Service) prepareUnifiedExportRequest(ctx context.Context, request *Subm
 	}
 	if execution == nil || execution.Resource == nil || !exportPinLeaseValid(execution.Resource, s.now()) {
 		return nil, nil, identity.ErrResourceDenied
+	}
+	if execution.Resource.ValidUntil.Before(exportPin.ValidUntil) {
+		exportPin = cloneResolvedResource(execution.Resource)
+	}
+	// A second grant cannot renew the first action deadline.
+	_, checked, err := exportReader.ReadResolved(ctx, *exportPin)
+	if err != nil {
+		return nil, nil, err
+	}
+	if checked == nil || checked.ValidUntil.After(exportPin.ValidUntil) {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	exportPin = checked
+	pins, token, err = s.bindOperationDependencies(ctx, execution.Resource, exportPin, exportDefinition, execution.DependencyPins, execution.DependencyToken)
+	if err != nil {
+		return nil, nil, err
 	}
 	uri, err := identity.ParseResourceURI(execution.Resource.URI)
 	if err != nil || uri.Kind != "report" {
@@ -193,20 +250,20 @@ func (s *Service) prepareUnifiedExportRequest(ctx context.Context, request *Subm
 	}
 	conversationID := strings.TrimSpace(requestctx.ConversationIDFromContext(ctx))
 	prepared := &SubmitExportRequest{
-		DependencyPins: cloneDependencyPins(execution.DependencyPins), DependencyToken: execution.DependencyToken,
+		DependencyPins: pins, DependencyToken: token,
 		ArtifactRef: execution.Resource.URI, Format: format, Scope: ExportScopeDraft,
 		ConversationID: conversationID, ReportSpec: cloneJSON(execution.ReportSpec),
 		ReportFill: cloneJSON(execution.ReportFill), ReportPrint: cloneJSON(execution.ReportPrint),
-		ResolvedResource: cloneResolvedResource(execution.Resource),
+		ResolvedResource: cloneResolvedResource(exportPin),
 	}
 	if err := validateSubmitExportRequest(prepared); err != nil {
 		return nil, nil, err
 	}
-	return prepared, cloneResolvedResource(execution.Resource), nil
+	return prepared, cloneResolvedResource(exportPin), nil
 }
 
 func sameResourcePin(a, b *identity.ResolvedResource) bool {
-	return a != nil && b != nil && a.URI == b.URI && a.ResourceCandidate == b.ResourceCandidate && a.AuthorityBinding == b.AuthorityBinding && a.ValidUntil.Equal(b.ValidUntil)
+	return a != nil && b != nil && a.URI == b.URI && a.ProviderIdentity == b.ProviderIdentity && a.ResourceCandidate == b.ResourceCandidate && a.AuthorityBinding == b.AuthorityBinding && a.ValidUntil.Equal(b.ValidUntil)
 }
 
 func exportPinLeaseValid(pin *identity.ResolvedResource, now time.Time) bool {
