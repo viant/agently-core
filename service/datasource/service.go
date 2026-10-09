@@ -24,6 +24,7 @@ import (
 
 	internalAuth "github.com/viant/agently-core/internal/auth"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	windowprotocol "github.com/viant/agently-core/protocol/window"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -150,8 +151,11 @@ func New(opts Options) *Service {
 
 // FetchOptions are per-call overrides carried on the wire.
 type FetchOptions struct {
-	Target   *types.WindowTarget
-	Resource *identity.ResolvedResource
+	// ResourceProof is opaque provider provenance for a standalone datasource.
+	// The provider still verifies the signature and fresh resource authorization.
+	ResourceProof *primitive.ExecutionProof
+	Target        *types.WindowTarget
+	Resource      *identity.ResolvedResource
 	// BypassCache forces a fresh backend call and writes the result back
 	// into cache.
 	BypassCache bool
@@ -185,6 +189,9 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		}
 		ctx = runtimerequestctx.WithResolvedResource(ctx, *pin)
 	}
+	if opts.ResourceProof != nil {
+		ctx = runtimerequestctx.WithResourceExecutionProof(ctx, *opts.ResourceProof)
+	}
 	if opts.Target != nil {
 		if _, err := opts.Target.Normalize(); err != nil {
 			return nil, err
@@ -192,7 +199,7 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		ctx = runtimerequestctx.WithWindowTarget(ctx, opts.Target)
 	}
 	var ds *dsproto.DataSource
-	if pin, hasPin := runtimerequestctx.ResolvedResourceFromContext(ctx); hasPin && strings.HasPrefix(pin.URI, "window://") {
+	if pin, hasPin := runtimerequestctx.ResolvedResourceFromContext(ctx); hasPin && (strings.HasPrefix(pin.URI, "window://") || strings.HasPrefix(pin.URI, "datasource://")) {
 		if s.resolveDefinition == nil {
 			return nil, identity.ErrResourceDenied
 		}

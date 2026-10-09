@@ -8,6 +8,7 @@ import (
 	windowprotocol "github.com/viant/agently-core/protocol/window"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	"strings"
+	"time"
 )
 
 func (s *Service) validateComponentSource(ctx context.Context, ds *dsproto.DataSource) error {
@@ -25,7 +26,37 @@ func (s *Service) validateComponentSource(ctx context.Context, ds *dsproto.DataS
 	if providerOwned {
 		pin, ok := requestctx.ResolvedResourceFromContext(ctx)
 		target, targetOK := requestctx.WindowTargetFromContext(ctx)
-		if !ok || !targetOK || !strings.HasPrefix(pin.URI, "window://") || target.SelectionToken == "" || target.ExecutionProof == nil {
+		if !ok {
+			return identity.ErrResourceDenied
+		}
+		if strings.HasPrefix(pin.URI, "datasource://") {
+			proof, ok := requestctx.ResourceExecutionProofFromContext(ctx)
+			if !ok || proof.Resource.ProviderIdentity != pin.ProviderIdentity || proof.Resource.URI != pin.URI || proof.Resource.ResourceCandidate != pin.ResourceCandidate || proof.Resource.AuthorityBinding != pin.AuthorityBinding || pin.ValidUntil.After(proof.Resource.ValidUntil) || proof.Binding == "" || proof.Token == "" || !proof.Resource.ValidUntil.After(time.Now()) || !pin.ValidUntil.After(time.Now()) {
+				return identity.ErrResourceDenied
+			}
+		} else if strings.HasPrefix(pin.URI, "window://") {
+			if !targetOK || target.SelectionToken == "" {
+				return identity.ErrResourceDenied
+			}
+			child, hasChild := target.DependencyPins[ds.ID]
+			if hasChild {
+				uri, err := identity.ParseResourceURI(child.URI)
+				if err != nil || uri.Kind != "datasource" || !child.ValidUntil.After(time.Now()) {
+					return identity.ErrResourceDenied
+				}
+			} else if target.ExecutionProof == nil {
+				return identity.ErrResourceDenied
+			}
+		} else if strings.HasPrefix(pin.URI, "report://") {
+			child, ok := requestctx.ResourceDependencyFromContext(ctx, ds.ID)
+			if !ok {
+				return identity.ErrResourceDenied
+			}
+			uri, err := identity.ParseResourceURI(child.URI)
+			if err != nil || uri.Kind != "datasource" || !child.ValidUntil.After(time.Now()) {
+				return identity.ErrResourceDenied
+			}
+		} else {
 			return identity.ErrResourceDenied
 		}
 	}

@@ -197,7 +197,7 @@ func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceR
 		if err = check(); err != nil {
 			return nil, err
 		}
-		result, err := s.resourceDatasetExecutor(requestctx.WithResolvedResource(ctx, *pin), *pin, plan.descriptor, plan.args)
+		result, err := s.resourceDatasetExecutor(requestctx.WithResourceDependencies(requestctx.WithResolvedResource(ctx, *pin), *pin, compiled.DependencyPins), *pin, plan.descriptor, plan.args)
 		if err != nil {
 			return nil, err
 		}
@@ -303,15 +303,21 @@ func (s exactReportDatasourceStore) Get(id string) (*dsproto.DataSource, bool) {
 // registry. The report service already revalidates its exact resource around
 // dispatch; authorize supplies the host's ordinary input/entity admission.
 func NewResourceDatasetExecutor(executor dssvc.ToolExecutor, authorize dssvc.DefinitionAuthorizer, dispatchers ...windowprotocol.ComponentDispatcher) ResourceDatasetExecutor {
+	return NewResourceDatasetExecutorWithProvider(executor, authorize, nil, dispatchers...)
+}
+
+// NewResourceDatasetExecutorWithProvider adds the same exact provider datasource
+// dispatch used by window/standalone consumers; existing inline/MCP paths remain.
+func NewResourceDatasetExecutorWithProvider(executor dssvc.ToolExecutor, authorize dssvc.DefinitionAuthorizer, provider dssvc.ProviderExecutor, dispatchers ...windowprotocol.ComponentDispatcher) ResourceDatasetExecutor {
 	var components windowprotocol.ComponentDispatcher
 	if len(dispatchers) > 0 {
 		components = dispatchers[0]
 	}
 	return func(ctx context.Context, pin identity.ResolvedResource, descriptor *dsproto.DataSource, inputs map[string]interface{}) (*dsproto.FetchResult, error) {
-		if executor == nil && components == nil || authorize == nil {
+		if executor == nil && components == nil && provider == nil || authorize == nil {
 			return nil, identity.ErrResourceDenied
 		}
-		service := dssvc.New(dssvc.Options{ComponentDispatcher: components, Store: exactReportDatasourceStore{descriptor}, Executor: executor, DisableCache: true, AuthorizeDefinition: authorize})
+		service := dssvc.New(dssvc.Options{ProviderExecute: provider, ComponentDispatcher: components, Store: exactReportDatasourceStore{descriptor}, Executor: executor, DisableCache: true, AuthorizeDefinition: authorize})
 		return service.Fetch(requestctx.WithResolvedResource(ctx, pin), descriptor.ID, inputs, dssvc.FetchOptions{BypassCache: true})
 	}
 }

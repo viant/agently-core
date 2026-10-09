@@ -1,0 +1,73 @@
+package resource
+
+import (
+	"context"
+	"encoding/json"
+	"reflect"
+
+	dsproto "github.com/viant/agently-core/protocol/datasource"
+	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/forge/backend/types"
+)
+
+func (c *WindowCatalog) fetchReferencedDatasource(ctx context.Context, parent identity.ResolvedResource, target *types.WindowTarget, child identity.ResolvedResource, expected *dsproto.DataSource, inputs map[string]interface{}) (json.RawMessage, error) {
+	deadline := parent.ValidUntil
+	if child.ValidUntil.Before(deadline) {
+		deadline = child.ValidUntil
+	}
+	ctx, cancel := context.WithDeadline(ctx, deadline)
+	defer cancel()
+	connection, err := c.Gateway.ConnectionForProvider(ctx, parent.ProviderIdentity)
+	if err != nil {
+		return nil, err
+	}
+	check := func() error {
+		result, err := c.Gateway.Get(ctx, connection, identity.ResourceRef{URI: parent.URI, Revision: parent.Selector()}, &parent)
+		if err != nil {
+			return err
+		}
+		variant, err := types.SelectWindowResourceWithReferences(result.Resource.Definition, target)
+		if err != nil {
+			return err
+		}
+		if err = c.VerifyWindowTarget(ctx, parent, *target, variant.Fingerprint); err != nil {
+			return err
+		}
+		if err = c.VerifyDependencies(ctx, parent, target, variant); err != nil {
+			return err
+		}
+		if err = c.Admission(ctx, parent, variant.Window); err != nil {
+			return err
+		}
+		ref, ok := variant.DataSourceResources[expected.ID]
+		if !ok || ref.Resource.URI != child.URI || ref.Resource.Revision != child.Selector() || ref.ProviderIdentity != child.ProviderIdentity || ref.ContentFingerprint != child.ContentFingerprint {
+			return identity.ErrResourceDenied
+		}
+		var actual dsproto.DataSource
+		if json.Unmarshal(variant.DataSources[expected.ID], &actual) != nil || !reflect.DeepEqual(expected, &actual) || result.ResolvedResource.ValidUntil.Before(parent.ValidUntil) {
+			return identity.ErrResourceDenied
+		}
+		return nil
+	}
+	if err = check(); err != nil {
+		return nil, err
+	}
+	actual, proof, err := c.Gateway.ResolveDatasource(ctx, child)
+	if err != nil {
+		return nil, err
+	}
+	if !sameDatasourceDescriptor(expected, actual) {
+		return nil, identity.ErrResourceStale
+	}
+	body, err := c.Gateway.FetchDatasource(ctx, child, proof, expected, inputs)
+	if err != nil {
+		return nil, err
+	}
+	if err = check(); err != nil {
+		return nil, err
+	}
+	if ctx.Err() != nil || !parent.ValidUntil.After(c.Gateway.now()) || !child.ValidUntil.After(c.Gateway.now()) {
+		return nil, identity.ErrResourceDenied
+	}
+	return body, nil
+}

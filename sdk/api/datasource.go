@@ -1,12 +1,14 @@
 package api
 
 import (
+	"github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/forge/backend/types"
 )
 
 // FetchDatasourceInput is the wire request for POST /v1/api/datasources/{id}/fetch.
 type FetchDatasourceInput struct {
+	ResourceProof  *primitive.ExecutionProof  `json:"resourceProof,omitempty"`
 	Target         *types.WindowTarget        `json:"target,omitempty"`
 	Resource       *identity.ResolvedResource `json:"resource,omitempty"`
 	ID             string                     `json:"id"`
