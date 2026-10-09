@@ -11,7 +11,6 @@ import (
 	convread "github.com/viant/agently-core/internal/datly/conversation/read"
 	msgread "github.com/viant/agently-core/internal/datly/message/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
-	conversation "github.com/viant/agently-core/internal/store/conversation"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 
 	"github.com/viant/agently-core/internal/datly/dbtime"
@@ -128,8 +127,6 @@ func (d *Discoverer) Discover(ctx context.Context, rootIDs ...string) (result *G
 	if len(roots) > MaxConversations {
 		return nil, ErrTooLarge
 	}
-	turns := &conversation.TurnStore{Invoker: d.Invoker}
-	messages := &conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}
 	rootQuery := &convread.ConversationInput{}
 	rootQuery.SetIds(roots)
 	rootRows, err := d.graphRows(ctx, rootQuery, d.GraphFields)
@@ -152,7 +149,7 @@ func (d *Discoverer) Discover(ctx context.Context, rootIDs ...string) (result *G
 		}
 		turnQuery := &turnread.TurnRowsInput{}
 		turnQuery.SetConversationIDs(frontier)
-		turnRows, err := turns.ListRows(ctx, turnQuery, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id"}}}})
+		turnRows, err := d.turnRows(ctx, turnQuery, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id"}}}})
 		if err != nil {
 			return nil, err
 		}
@@ -174,7 +171,7 @@ func (d *Discoverer) Discover(ctx context.Context, rootIDs ...string) (result *G
 		messageQuery := &msgread.MessagesInput{}
 		messageQuery.SetConversationIds(frontier)
 		selector := state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id", "conversation_id", "linked_conversation_id"}}}}
-		messageRows, err := messages.ListRows(ctx, messageQuery, selector)
+		messageRows, err := d.messageRows(ctx, messageQuery, selector)
 		if err != nil {
 			return nil, err
 		}

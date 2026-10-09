@@ -42,8 +42,13 @@ func TestDeleteGraphReaderBehaviorParity(t *testing.T) {
 	for _, mode := range []string{"legacy", "compact"} {
 		t.Run(mode, func(t *testing.T) {
 			t.Setenv(tree.GraphReaderEnvironment, mode)
-			for _, tc := range cases {
-				t.Run(tc.name, tc.run)
+			for _, metadata := range []string{"legacy", "compact"} {
+				t.Run("metadata_"+metadata, func(t *testing.T) {
+					t.Setenv(tree.MetadataReaderEnvironment, metadata)
+					for _, tc := range cases {
+						t.Run(tc.name, tc.run)
+					}
+				})
 			}
 		})
 	}
