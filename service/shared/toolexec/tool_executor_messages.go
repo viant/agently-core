@@ -194,7 +194,7 @@ func completeToolCall(ctx context.Context, conv apiconv.Client, toolMsgID, opID,
 		}
 	}
 	msgStatus := status
-	if status == "waiting_for_user" {
+	if status == "waiting_for_user" || status == "queued" {
 		msgStatus = "pending"
 	}
 	return updateToolMessageStatus(ctx, conv, toolMsgID, msgStatus)
