@@ -23,6 +23,7 @@ func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefin
 	if docs == nil {
 		return nil
 	}
+	appendToolApprovalGuidance(ctx, defs, docs)
 	_, services := collectToolPresence(defs)
 	if !services["webdriver"] {
 		return nil
