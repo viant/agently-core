@@ -28,7 +28,7 @@ func (c *CompositeWindowCatalog) AuthzReady() bool {
 	return ok && ready.AuthzReady()
 }
 func (c *CompositeWindowCatalog) UsesResourceResolution() bool { return true }
-func (c *CompositeWindowCatalog) List(ctx context.Context, input *service.WindowDefinitionListInput) (*service.WindowDefinitionListOutput, error) {
+func (c *CompositeWindowCatalog) List(ctx context.Context, input *service.WindowDefinitionListInput) (result *service.WindowDefinitionListOutput, err error) {
 	if !c.AuthzReady() {
 		return nil, identity.ErrResourceDenied
 	}
@@ -37,6 +37,29 @@ func (c *CompositeWindowCatalog) List(ctx context.Context, input *service.Window
 	}
 	if input.Offset < 0 || input.Limit < 0 || input.Limit > 100 {
 		return nil, identity.ErrResource
+	}
+	// A trusted local catalog can establish the metadata actor context for the
+	// whole aggregate read. Its scope must survive the transition to delegated
+	// catalogs, which still perform their own current-actor and list admission.
+	if scoped, ok := c.Local.(interface {
+		BeginWindowList(context.Context) (context.Context, func() error, error)
+	}); ok {
+		read, finish, scopeErr := scoped.BeginWindowList(ctx)
+		if scopeErr != nil {
+			return nil, scopeErr
+		}
+		if read == nil || finish == nil {
+			if finish != nil {
+				_ = finish()
+			}
+			return nil, identity.ErrResourceDenied
+		}
+		ctx = read
+		defer func() {
+			if finishErr := finish(); err == nil && finishErr != nil {
+				result, err = nil, finishErr
+			}
+		}()
 	}
 	query := input.Query
 	out := []service.WindowDefinitionSummary{}
