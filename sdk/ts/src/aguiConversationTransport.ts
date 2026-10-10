@@ -7,7 +7,7 @@ import { readAgentlyPresentation } from './aguiPresentation';
 import type { AgUiViewOutcome, AgUiViewDescriptor } from './aguiViewProjection';
 import type { AgUiSession } from './aguiSession';
 import type { AgentlyClient } from './client';
-import type { QueryInput, QueryOutput, SSEEvent, TranscriptOutput } from './types';
+import type { Conversation, QueryInput, QueryOutput, SSEEvent, TranscriptOutput } from './types';
 import { transcriptDTO } from './wireDTO';
 
 export interface AgUiConversationHandlers {
@@ -36,7 +36,9 @@ export interface AgUiConversationProjectionOptions {
 }
 export type AgUiConversationProjectionFactory = (options: AgUiConversationProjectionOptions) => { subscriber: AgentSubscriber };
 
-type Host = Pick<AgentlyClient, 'agUiTransport' | 'createAgUiSession' | 'createConversation'> & Partial<Pick<AgentlyClient, 'getConversation'>>;
+type Host = Pick<AgentlyClient, 'agUiTransport' | 'createAgUiSession' | 'createConversation'> & {
+    getConversation?: (id: string, options: { includeTranscript: false }) => Promise<Pick<Conversation, 'id' | 'aguiThreadId'>>;
+};
 interface RunSlot {
     id: string;
     session: AgUiSession;
@@ -190,7 +192,9 @@ export class AgUiConversationTransport {
 
     private async resolveProtocolThread(entry: Entry): Promise<string> {
         if (entry.protocolThreadId !== undefined) return entry.protocolThreadId;
-        const conversation = this.host.getConversation ? await this.host.getConversation(entry.id) : undefined;
+        // Binding resolution needs only the authenticated native header. Full
+        // history here delays the compact bootstrap and duplicates its payload.
+        const conversation = this.host.getConversation ? await this.host.getConversation(entry.id, { includeTranscript: false }) : undefined;
         if (!this.current(entry) || (conversation && conversation.id !== entry.id)) throw new Error('Native conversation binding mismatch');
         const wire = conversation?.aguiThreadId ?? entry.id;
         if (!wire) throw new Error('Empty protocol thread binding');
