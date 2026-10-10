@@ -163,6 +163,8 @@ func approvalAnswer(id, action string) agui.WireResumeEntry {
 func waitApprovalSuccessor(t *testing.T, store aguistore.Store, original *aguistore.Run) *aguistore.Run {
 	t.Helper()
 	var successor *aguistore.Run
+	// Native journal projection reads are expensive under the race detector.
+	// Leave the worker CPU time while observing its durable terminal receipt.
 	require.Eventually(t, func() bool {
 		latest, err := store.GetRun(recoveryContext(), original.Principal, original.ThreadID, original.RunID)
 		if err != nil || latest.ResumedByRunID == "" {
@@ -170,7 +172,7 @@ func waitApprovalSuccessor(t *testing.T, store aguistore.Store, original *aguist
 		}
 		successor, err = store.GetRun(recoveryContext(), original.Principal, original.ThreadID, latest.ResumedByRunID)
 		return err == nil && aguiRunTerminal(successor.Status)
-	}, 3*time.Second, 10*time.Millisecond)
+	}, 15*time.Second, 500*time.Millisecond)
 	return successor
 }
 
