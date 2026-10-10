@@ -358,7 +358,7 @@ func validateMenus(menus []LayoutMenu, seen map[string]bool, providers map[strin
 		if menu.Action != nil && (menu.Action.Type != "window" || menu.Action.WindowKey == "") {
 			return fmt.Errorf("menu %s has unsupported action", menu.ID)
 		}
-		if menu.Action != nil && (strings.ContainsAny(menu.Action.WindowKey, "/\\?#") || strings.HasPrefix(menu.Action.WindowKey, windowloader.RemotePrefix)) {
+		if menu.Action != nil && !validLayoutWindowKey(menu.Action.WindowKey) {
 			return fmt.Errorf("menu %s has invalid window key", menu.ID)
 		}
 		if menu.Action != nil {
