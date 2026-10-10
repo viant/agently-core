@@ -5,7 +5,9 @@ import (
 	"compress/gzip"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	dsproto "github.com/viant/agently-core/protocol/datasource"
 	"io"
 	"log"
 	"net/http"
@@ -138,7 +140,12 @@ func httpJSON(w http.ResponseWriter, code int, v interface{}) {
 func httpError(w http.ResponseWriter, code int, err error) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+	payload := map[string]string{"error": err.Error()}
+	if errors.Is(err, dsproto.ErrDatasourceDenied) {
+		payload["code"] = "datasource_denied"
+		payload["scope"] = "dataset"
+	}
+	_ = json.NewEncoder(w).Encode(payload)
 }
 
 func httpErrorWithResult(w http.ResponseWriter, code int, err error, result string) {

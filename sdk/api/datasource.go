@@ -8,13 +8,15 @@ import (
 
 // FetchDatasourceInput is the wire request for POST /v1/api/datasources/{id}/fetch.
 type FetchDatasourceInput struct {
-	ResourceProof  *primitive.ExecutionProof  `json:"resourceProof,omitempty"`
-	Target         *types.WindowTarget        `json:"target,omitempty"`
-	Resource       *identity.ResolvedResource `json:"resource,omitempty"`
-	ID             string                     `json:"id"`
-	ConversationID string                     `json:"conversationId,omitempty"`
-	Inputs         map[string]interface{}     `json:"inputs,omitempty"`
-	Cache          *DatasourceCacheHints      `json:"cache,omitempty"`
+	// WindowParameters select entities; the server independently authorizes them.
+	WindowParameters map[string]any             `json:"windowParameters,omitempty"`
+	ResourceProof    *primitive.ExecutionProof  `json:"resourceProof,omitempty"`
+	Target           *types.WindowTarget        `json:"target,omitempty"`
+	Resource         *identity.ResolvedResource `json:"resource,omitempty"`
+	ID               string                     `json:"id"`
+	ConversationID   string                     `json:"conversationId,omitempty"`
+	Inputs           map[string]interface{}     `json:"inputs,omitempty"`
+	Cache            *DatasourceCacheHints      `json:"cache,omitempty"`
 }
 
 // DatasourceCacheHints carries per-call overrides on cache behaviour.

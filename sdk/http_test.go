@@ -273,15 +273,16 @@ func TestHTTPClient_ApplyPermissionUsesDedicatedMetadataOperation(t *testing.T) 
 		_ = json.NewEncoder(w).Encode(map[string]interface{}{"data": map[string]interface{}{"id": "advertiser"}})
 	}))
 	raw, err := c.ApplyPermission(context.Background(), " advertiser ", &ApplyPermissionInput{
-		ConversationID: " conv-1 ",
-		Resource:       map[string]interface{}{"advertiserId": 85141},
-		WindowParams:   map[string]interface{}{"AdvertiserId": []int{85141}},
-		Target:         &MetadataTargetContext{Platform: "web", FormFactor: "desktop"},
+		ConversationID:             " conv-1 ",
+		AuthorizationSchemaVersion: 1,
+		Resource:                   map[string]interface{}{"advertiserId": 85141},
+		WindowParams:               map[string]interface{}{"AdvertiserId": []int{85141}},
+		Target:                     &MetadataTargetContext{Platform: "web", FormFactor: "desktop"},
 	})
 	if err != nil {
 		t.Fatalf("ApplyPermission: %v", err)
 	}
-	if gotQuery.Get("applyPermission") != "true" || gotQuery.Get("conversationId") != "conv-1" || gotQuery.Get("resource") != `{"advertiserId":85141}` {
+	if gotQuery.Get("applyPermission") != "true" || gotQuery.Get("authorizationSchemaVersion") != "1" || gotQuery.Get("conversationId") != "conv-1" || gotQuery.Get("resource") != `{"advertiserId":85141}` {
 		t.Fatalf("missing dedicated permission context: %#v", gotQuery)
 	}
 	if gotQuery.Get("windowParams") != `{"AdvertiserId":[85141]}` {
@@ -289,6 +290,24 @@ func TestHTTPClient_ApplyPermissionUsesDedicatedMetadataOperation(t *testing.T) 
 	}
 	if !strings.Contains(string(raw), `"id":"advertiser"`) {
 		t.Fatalf("unexpected permitted metadata: %s", raw)
+	}
+}
+
+func TestHTTPClient_ApplyPermissionV2PreservesStringID(t *testing.T) {
+	var query url.Values
+	client := newHandlerBackedHTTP(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		query = r.URL.Query()
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": map[string]any{"id": "customer"}})
+	}))
+	_, err := client.ApplyPermission(context.Background(), "customer", &ApplyPermissionInput{AuthorizationSchemaVersion: 2, WindowParams: map[string]interface{}{"CustomerID": "9007199254740993"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if query.Get("authorizationSchemaVersion") != "2" || query.Get("windowParams") != `{"CustomerID":"9007199254740993"}` {
+		t.Fatalf("v2 ID lost precision: %+v", query)
+	}
+	if _, err := client.ApplyPermission(context.Background(), "customer", &ApplyPermissionInput{AuthorizationSchemaVersion: 3}); err == nil {
+		t.Fatal("unsupported schema version accepted")
 	}
 }
 
