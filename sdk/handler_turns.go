@@ -2,12 +2,14 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
 	"strings"
 
 	svcauth "github.com/viant/agently-core/service/auth"
+	"github.com/viant/agently-core/service/elicitation"
 )
 
 func conversationAndTurnIDs(r *http.Request) (string, string, error) {
@@ -196,6 +198,10 @@ func handleResolveElicitation(client Client, authConfig ...*svcauth.Config) http
 			status := http.StatusInternalServerError
 			if strings.Contains(strings.ToLower(err.Error()), "not owned by caller") {
 				status = http.StatusForbidden
+			} else if errors.Is(err, elicitation.ErrNotFound) {
+				status = http.StatusNotFound
+			} else if errors.Is(err, elicitation.ErrConflict) {
+				status = http.StatusConflict
 			}
 			httpError(w, status, err)
 			return

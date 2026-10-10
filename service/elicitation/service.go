@@ -506,7 +506,7 @@ func (s *Service) resolveElicitationTarget(ctx context.Context, convID, elicitat
 		return nil, err
 	}
 	if msg == nil {
-		return nil, fmt.Errorf("elicitation message not found")
+		return nil, ErrNotFound
 	}
 	target := &elicitationResolutionTarget{submitted: msg, authoritative: msg}
 	if msg.LinkedConversationId != nil {
