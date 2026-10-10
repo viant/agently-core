@@ -8,6 +8,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
+	"net/url"
 	"strings"
 	"time"
 )
@@ -269,6 +270,26 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 			return nil, e
 		}
 	}
+	// Project host transport only after provider definition, target, source and
+	// admission checks complete. Never rewrite provider bytes or descriptors.
+	projected, err := json.Marshal(definition)
+	if err != nil {
+		return nil, err
+	}
+	var clientDefinition types.Window
+	if err = json.Unmarshal(projected, &clientDefinition); err != nil {
+		return nil, err
+	}
+	for id := range selected.DataSources {
+		entry, ok := clientDefinition.DataSource[id]
+		if !ok {
+			return nil, identity.ErrResourceDenied
+		}
+		entry.Service = &types.Service{Endpoint: "agentlyAPI", URI: "/v1/api/datasources/" + url.PathEscape(id) + "/fetch", Method: "POST"}
+		entry.Selectors = &types.Selectors{Data: "rows", DataInfo: "dataInfo", Metrics: "metrics"}
+		clientDefinition.DataSource[id] = entry
+	}
+	definition = &clientDefinition
 	definition.Resource = &pin
 	definition.ResourceTarget = &target
 	return &service.WindowDefinitionGetOutput{WindowID: input.WindowID, Definition: definition}, nil
