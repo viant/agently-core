@@ -436,7 +436,7 @@ func (s *Service) ResolveElicitation(ctx context.Context, conversationID, elicit
 	if s == nil || s.elicitation == nil {
 		return fmt.Errorf("elicitation service not configured")
 	}
-	return s.elicitation.Resolve(ctx, conversationID, elicitationID, action, payload, "")
+	return s.resolveElicitationAndContinue(ctx, conversationID, elicitationID, action, payload)
 }
 
 // Close releases persistence opened by the standalone service constructor.
