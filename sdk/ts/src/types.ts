@@ -597,6 +597,7 @@ export interface QueryInput {
 }
 
 export interface QueryAttachment {
+    resource?: UploadFileOutput['resource'];
     name: string;
     uri: string;
     size?: number;

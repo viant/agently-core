@@ -136,6 +136,16 @@ func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store
 	} else {
 		return nil, fmt.Errorf("active protocol run discovery is unavailable")
 	}
+	terminalNativeTurns := map[string]bool{}
+	for _, turn := range transcript.Conversation.Turns {
+		if turn == nil {
+			continue
+		}
+		switch turn.Status {
+		case "completed", "failed", "canceled":
+			terminalNativeTurns[turn.TurnID] = true
+		}
+	}
 	seen := map[string]bool{}
 	for _, run := range pending {
 		if run == nil || run.RunID == record.RunID {
@@ -143,6 +153,12 @@ func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store
 		}
 		if run.Principal != record.Principal || run.ThreadID != record.ThreadID {
 			return nil, fmt.Errorf("pending protocol run scope mismatch")
+		}
+		// Native execution is authoritative for chat lifecycle. An accepted
+		// control can finish the original turn while its interrupted protocol
+		// journal remains replayable; that journal is not a live subscription.
+		if aguiBootstrapRunKind(run) == "chat" && terminalNativeTurns[run.TurnID] {
+			continue
 		}
 		if seen[run.RunID] {
 			continue
@@ -260,6 +276,44 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 		byID[id] = len(result)
 		result = append(result, copy)
 	}
+	standalonePresentations := map[string]map[string]any{}
+	for _, turn := range transcript.Conversation.Turns {
+		if turn == nil {
+			continue
+		}
+		pageOwned := map[string]bool{}
+		if turn.Assistant != nil {
+			if turn.Assistant.Final != nil {
+				pageOwned[turn.Assistant.Final.MessageID] = true
+			}
+			if turn.Assistant.Narration != nil {
+				pageOwned[turn.Assistant.Narration.MessageID] = true
+			}
+		}
+		if turn.Execution != nil {
+			for _, page := range turn.Execution.Pages {
+				if page == nil {
+					continue
+				}
+				for _, id := range []string{page.AssistantMessageID, page.NarrationMessageID, page.FinalAssistantMessageID} {
+					if id != "" {
+						pageOwned[id] = true
+					}
+				}
+				for _, step := range page.ModelSteps {
+					if step != nil && step.AssistantMessageID != "" {
+						pageOwned[step.AssistantMessageID] = true
+					}
+				}
+			}
+		}
+		for _, message := range turn.Messages {
+			if message == nil || message.Role != "assistant" || message.MessageID == "" || message.Interim > 0 || pageOwned[message.MessageID] || internalIDs[message.MessageID] || toolResultIDs[message.MessageID] {
+				continue
+			}
+			standalonePresentations[message.MessageID] = map[string]any{"version": "1", "conversationId": transcript.Conversation.ConversationID, "nativeTurnId": turn.TurnID, "nativeMessageId": message.MessageID, "messageKind": "standalone", "mode": message.Mode}
+		}
+	}
 	putText := func(id, role, content string, rendered *RenderedContent) {
 		if internalIDs[id] || toolResultIDs[id] && role == "assistant" {
 			return
@@ -293,6 +347,26 @@ func aguiBootstrapMessagesWithAliases(ctx context.Context, client Client, transc
 			byID[id] = len(result)
 			result = append(result, aguistate.Object{"id": id, "role": role, "content": plain})
 			mark(id)
+		}
+		if presentation := standalonePresentations[id]; role == "assistant" && presentation != nil {
+			// A reattached client needs canonical native message origin even if
+			// its new run has no historical live TEXT_MESSAGE_START metadata.
+			message := result[byID[id]]
+			metadata := map[string]any{}
+			if existing, ok := message["metadata"].(map[string]any); ok {
+				for key, value := range existing {
+					metadata[key] = value
+				}
+			}
+			namespace := map[string]any{}
+			if existing, ok := metadata["agently"].(map[string]any); ok {
+				for key, value := range existing {
+					namespace[key] = value
+				}
+			}
+			namespace["presentation"] = presentation
+			metadata["agently"] = namespace
+			message["metadata"] = metadata
 		}
 		if role == "assistant" && rendered != nil {
 			delete(removeActivities, id+"/activity")

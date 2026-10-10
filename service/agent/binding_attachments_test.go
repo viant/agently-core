@@ -1,8 +1,13 @@
 package agent
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	authctx "github.com/viant/agently-core/internal/auth"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -435,4 +440,100 @@ func TestHistoryMultipleAttachmentCarriersDoNotDuplicateExpandedParentView(t *te
 	require.Len(t, got.Attachment, 2)
 	assert.Equal(t, "one.png", got.Attachment[0].Name)
 	assert.Equal(t, "two.png", got.Attachment[1].Name)
+}
+
+func TestAttachmentResourceReferenceRechecksCurrentOwner(t *testing.T) {
+	t.Setenv(scratchpadsvc.EnvScratchpadURI, "file://"+filepath.ToSlash(filepath.Join(t.TempDir(), "${userID}")))
+	owner := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "owner"})
+	descriptor, err := scratchpadsvc.New().PublishArtifact(owner, "owned", "owned.xlsx", "application/octet-stream", "", bytes.NewReader([]byte("owned bytes")))
+	require.NoError(t, err)
+	attachment := &binding.Attachment{Name: "owned.xlsx", URI: "/v1/files/owned"}
+	bindAttachmentResourceReference(owner, attachment, descriptor.URI)
+	require.Equal(t, descriptor.URI, attachment.ResourceURI)
+	bindAttachmentResourceReference(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "foreign"}), attachment, descriptor.URI)
+	require.Empty(t, attachment.ResourceURI)
+	bindAttachmentResourceReference(context.Background(), attachment, descriptor.URI)
+	require.Empty(t, attachment.ResourceURI)
+	bindAttachmentResourceReference(owner, nil, descriptor.URI)
+}
+
+func TestUploadedArtifactReferencesInCurrentAndHistory(t *testing.T) {
+	t.Setenv(scratchpadsvc.EnvScratchpadURI, "file://"+filepath.ToSlash(filepath.Join(t.TempDir(), "${userID}")))
+	owner := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "owner"})
+	body := []byte("workbook fixture")
+	descriptor, err := scratchpadsvc.New().PublishArtifact(owner, "workbook", "book.xlsx", "application/octet-stream", "", bytes.NewReader(body))
+	require.NoError(t, err)
+	client := &stubConversationClient{
+		payloads:       map[string]*apiconv.Payload{"payload": {Id: "payload", URI: strPtr(descriptor.URI), InlineBody: &body, MimeType: descriptor.MimeType}},
+		generatedFiles: []*generatedfilemodel.GeneratedFileView{{Id: "file", ConversationId: "conv", PayloadId: strPtr("payload"), Filename: strPtr("book.xlsx")}},
+	}
+	svc := &Service{conversation: client}
+	for _, tc := range []struct {
+		name     string
+		ctx      context.Context
+		verified bool
+	}{
+		{"owner", owner, true},
+		{"foreign", authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "foreign"}), false},
+		{"anonymous", context.Background(), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			attachment := &binding.Attachment{URI: "/v1/files/file?conversationId=conv"}
+			require.NoError(t, svc.resolveUploadedAttachment(tc.ctx, runtimerequestctx.TurnMeta{ConversationID: "conv"}, attachment))
+			current := (&binding.Message{Role: "user", Content: "Use workbook", Attachment: []*binding.Attachment{attachment}}).ToLLM()
+			require.Equal(t, tc.verified, strings.Contains(current.Content, descriptor.URI))
+			require.NotContains(t, current.Content, string(body))
+			require.Equal(t, tc.verified, attachment.ResourceMetadataOnly())
+			for _, item := range current.Items {
+				if tc.verified {
+					require.Equal(t, "text", string(item.Type))
+				}
+			}
+			require.Equal(t, body, attachment.Data)
+			parent := &apiconv.Message{Id: "user", Role: "user", Type: "text", Content: strPtr("Use workbook"), CreatedAt: time.Now()}
+			carrier := &apiconv.Message{Id: "attachment", Role: "user", Type: "control", Content: strPtr("book.xlsx"), ParentMessageId: strPtr(parent.Id), AttachmentPayloadId: strPtr("payload"), CreatedAt: parent.CreatedAt.Add(time.Millisecond)}
+			history, err := svc.buildHistory(tc.ctx, apiconv.Transcript{&apiconv.Turn{Id: "turn", Message: []*conversationmodel.MessageView{(*conversationmodel.MessageView)(parent), (*conversationmodel.MessageView)(carrier)}}})
+			require.NoError(t, err)
+			messages := history.LLMMessages()
+			require.Len(t, messages, 1)
+			require.Equal(t, tc.verified, strings.Contains(messages[0].Content, descriptor.URI))
+			require.NotContains(t, messages[0].Content, string(body))
+			for _, item := range messages[0].Items {
+				if tc.verified {
+					require.Equal(t, "text", string(item.Type))
+				}
+			}
+			view := &apiconv.Message{Attachment: []*conversationmodel.AttachmentView{{Uri: strPtr(descriptor.URI), InlineBody: &body, MimeType: descriptor.MimeType}}}
+			views, err := svc.attachmentsFromMessage(tc.ctx, view, nil, true)
+			require.NoError(t, err)
+			require.Len(t, views, 1)
+			require.Equal(t, tc.verified, views[0].ResourceURI != "")
+		})
+	}
+	// A verified reference can survive a metadata-only payload without opening its bytes.
+	cache := map[string]*binding.Attachment{}
+	message := &apiconv.Message{AttachmentPayloadId: strPtr("payload")}
+	_, err = svc.attachmentsFromMessage(owner, message, cache, false)
+	require.NoError(t, err)
+	foreign := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "foreign"})
+	cached, err := svc.attachmentsFromMessage(foreign, message, cache, false)
+	require.NoError(t, err)
+	require.Empty(t, cached[0].ResourceURI, "cached payloads must recheck owner")
+	require.False(t, cached[0].ResourceMetadataOnly())
+	require.Equal(t, body, cached[0].Data)
+	ownerModel := (&binding.Message{Role: "user", Attachment: []*binding.Attachment{cache["payload"]}}).ToLLM()
+	for _, item := range ownerModel.Items {
+		require.Equal(t, "text", string(item.Type))
+	}
+	foreignModel := (&binding.Message{Role: "user", Attachment: cached}).ToLLM()
+	require.Equal(t, "binary", string(foreignModel.Items[0].Type), "unverified attachments keep their normal presentation")
+	require.Equal(t, descriptor.URI, cache["payload"].ResourceURI)
+	client.payloads["payload"].InlineBody = nil
+	attachments, err := svc.attachmentsFromMessage(owner, &apiconv.Message{AttachmentPayloadId: strPtr("payload")}, nil, false)
+	require.NoError(t, err)
+	require.Len(t, attachments, 1)
+	require.Empty(t, attachments[0].Data)
+	require.Equal(t, descriptor.URI, attachments[0].ResourceURI)
+	_, err = svc.attachmentsFromMessage(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "foreign"}), &apiconv.Message{AttachmentPayloadId: strPtr("payload")}, nil, false)
+	require.Error(t, err)
 }

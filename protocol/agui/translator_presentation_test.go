@@ -248,3 +248,45 @@ func TestNativePresentationTrustedChildRecoveryRetainsMetadataWithoutOpeningGene
 	_, err = tr.ReconcileSubagentEvent(wrong, event)
 	require.Error(t, err)
 }
+
+func TestExplicitPublicAssistantPresentationRetainsStandaloneIdentity(t *testing.T) {
+	public := &streaming.Event{Type: streaming.EventTypeAssistant, ConversationID: "conversation", TurnID: "turn", MessageID: "highlights", Mode: "task", Content: "Public highlights", Patch: map[string]any{"role": "assistant"}}
+	require.Equal(t, "standalone", nativePresentation(public)["messageKind"])
+	outputs := NewTranslator("conversation", "run").Translate(public)
+	found := false
+	for _, output := range outputs {
+		fields := presentationFields(t, output)
+		if fields["type"] != "TEXT_MESSAGE_START" {
+			continue
+		}
+		metadata := fields["metadata"].(map[string]any)
+		presentation := metadata["agently"].(map[string]any)["presentation"].(map[string]any)
+		require.Equal(t, "standalone", presentation["messageKind"])
+		found = true
+	}
+	require.True(t, found)
+	for _, mutate := range []func(*streaming.Event){func(e *streaming.Event) { e.ModelCallID = "model" },
+		func(e *streaming.Event) {
+			e.Patch = map[string]any{"role": "assistant", "agentlyProjectionSnapshot": true}
+		}, func(e *streaming.Event) { e.PageID = "model-page" }, func(e *streaming.Event) { e.Mode = "chain" }, func(e *streaming.Event) { e.Patch = map[string]any{"role": "user"} }} {
+		copy := *public
+		mutate(&copy)
+		require.NotContains(t, nativePresentation(&copy), "messageKind")
+	}
+}
+
+func TestInternalOperationalNarrationTranslatesOnlyToStatusActivity(t *testing.T) {
+	tr := NewTranslator("owned", "run")
+	outputs := tr.Translate(&streaming.Event{Type: streaming.EventTypeNarration, ConversationID: "owned", TurnID: "turn", MessageID: "progress", Mode: "chain", NarrationSource: "executor", Narration: "Preparing report data", Content: "Preparing report data", Status: "running"})
+	found := false
+	for _, output := range outputs {
+		fields := presentationFields(t, output)
+		require.NotEqual(t, "TEXT_MESSAGE_START", fields["type"])
+		require.NotEqual(t, "TEXT_MESSAGE_CONTENT", fields["type"])
+		if fields["activityType"] == "agently.narration" {
+			found = true
+		}
+	}
+	require.True(t, found)
+	require.Empty(t, tr.Translate(&streaming.Event{Type: streaming.EventTypeReasoningDelta, ConversationID: "owned", TurnID: "turn", MessageID: "private", Mode: "chain", Content: "private reasoning"}))
+}

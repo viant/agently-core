@@ -360,3 +360,58 @@ func TestAGUIBootstrapEnvelopeAcceptsOptionalCompactModelPayloads(t *testing.T) 
 	status, _ = durablePost(t, server, bootstrapRequest("bad-compact-schema", map[string]any{"includeModelPayloads": "false"}), nil)
 	require.Equal(t, 400, status, "the optional contract remains typed")
 }
+
+func TestNativeBootstrapMarksOnlyCanonicalStandalonePublicMessagesForReattachment(t *testing.T) {
+	noteID := "61d8d98c-1b0f-4250-a4c8-da464ddc7fb4"
+	finalID := "f93b137d-8342-4ed8-95e5-72178cab91ce"
+	transcript := &ConversationStateResponse{Conversation: &ConversationState{ConversationID: "conversation", Turns: []*TurnState{{TurnID: "turn", Messages: []*TurnMessageState{{MessageID: noteID, Role: "assistant", Mode: "task", Content: "Owned findings"}, {MessageID: finalID, Role: "assistant", Mode: "task", Content: "Owned final report"}}, Assistant: &AssistantState{Final: &AssistantMessageState{MessageID: finalID, Content: "Owned final report"}}, Execution: &ExecutionState{Pages: []*ExecutionPageState{{PageID: "final-page", FinalAssistantMessageID: finalID, FinalResponse: true, ModelSteps: []*ModelStepState{{AssistantMessageID: finalID}}}}}}}}}
+	messages, _ := aguiBootstrapMessages(context.Background(), nil, transcript, nil)
+	for _, message := range messages {
+		if message["id"] != noteID && message["id"] != finalID {
+			continue
+		}
+		encoded := rawAGUI(message)
+		var raw map[string]any
+		require.NoError(t, json.Unmarshal(encoded, &raw))
+		metadata, _ := raw["metadata"].(map[string]any)
+		namespace, _ := metadata["agently"].(map[string]any)
+		presentation, _ := namespace["presentation"].(map[string]any)
+		if message["id"] == noteID {
+			require.Equal(t, "standalone", presentation["messageKind"])
+		} else {
+			require.NotEqual(t, "standalone", presentation["messageKind"])
+		}
+	}
+}
+
+func TestAGUIConversationBootstrapDoesNotReattachInterruptedRunForTerminalNativeTurn(t *testing.T) {
+	c, server := newBootstrapDatlyServer(t)
+	ctx := recoveryContext()
+	require.NoError(t, nativeTestTurn(ctx, c.datlyObservedClient, "finished-turn", "succeeded"))
+	require.NoError(t, nativeTestTurn(ctx, c.datlyObservedClient, "waiting-turn", "waiting_for_user"))
+	require.NoError(t, nativeTestTurn(ctx, c.datlyObservedClient, "finished-mcp-turn", "succeeded"))
+	for _, id := range []string{"finished", "waiting", "unknown"} {
+		run, _, err := c.store.Admit(ctx, aguistore.Admission{Principal: "owner", ThreadID: "thread", RunID: id, TurnID: id + "-turn", Input: rawAGUI(map[string]any{"threadId": "thread", "runId": id, "messages": []any{}})})
+		require.NoError(t, err)
+		_, err = c.store.Append(ctx, "owner", "thread", id, run.Revision, []json.RawMessage{rawAGUI(map[string]any{"type": "RUN_STARTED", "threadId": "thread", "runId": id}), rawAGUI(map[string]any{"type": "RUN_FINISHED", "threadId": "thread", "runId": id, "outcome": map[string]any{"type": "interrupt", "interrupts": []any{map[string]any{"id": "ask", "reason": "elicitation"}}}})}, &aguistore.Change{Pending: json.RawMessage(`{"interrupts":[{"id":"ask","reason":"elicitation"}]}`)})
+		require.NoError(t, err)
+	}
+	for _, id := range []string{"mcp", "resource"} {
+		input := map[string]any{"threadId": "thread", "runId": id, "messages": []any{}}
+		turnID := ""
+		if id == "mcp" {
+			turnID = "finished-mcp-turn"
+			input["forwardedProps"] = map[string]any{"__proxiedMCPRequest": map[string]any{}}
+		}
+		_, _, err := c.store.Admit(ctx, aguistore.Admission{Principal: "owner", ThreadID: "thread", RunID: id, TurnID: turnID, Input: rawAGUI(input)})
+		require.NoError(t, err)
+	}
+	status, wire := durablePost(t, server, bootstrapRequest("read-terminal", map[string]any{}), nil)
+	require.Equal(t, 200, status, wire)
+	result := bootstrapWireResult(t, wire)
+	require.Len(t, result.Runs, 4)
+	require.Equal(t, []string{"mcp", "resource", "unknown", "waiting"}, []string{result.Runs[0].RunID, result.Runs[1].RunID, result.Runs[2].RunID, result.Runs[3].RunID})
+	pending, err := c.store.ListPending(ctx, "owner", "thread")
+	require.NoError(t, err)
+	require.Len(t, pending, 3, "read-only bootstrap preserves original journals and pending controls")
+}

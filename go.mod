@@ -29,13 +29,13 @@ require (
 	github.com/viant/agently-core/protocol/resource v0.0.0-20261008223520-8ba096a165a0
 	github.com/viant/agently-core/protocol/window v0.0.0-20261008230757-163b77505d6a
 	github.com/viant/agently-core/service/reportdefinition/materializer v0.0.0-20261008231612-4e2d839e8f05
-	github.com/viant/bindly v0.4.1-0.20261006234956-d0b4e58bac4e
-	github.com/viant/datly v1.1.1-0.20261008212701-79814253bce5
+	github.com/viant/bindly v0.4.1-0.20261009060128-e3a43863d252
+	github.com/viant/datly v1.1.1-0.20261009184553-8f0c7d3ca47e
 	github.com/viant/embedius v0.5.6
 	github.com/viant/forge v0.3.45-0.20261009055551-39e5cdaaf115
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1-0.20261007222529-b829eaaf687b
-	github.com/viant/jsonrpc v0.25.0
+	github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.24.1-0.20261009012849-6a1945fe2baf
 	github.com/viant/mcp-protocol v0.19.1-0.20261008202502-046707df5ed9

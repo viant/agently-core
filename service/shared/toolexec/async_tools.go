@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/viant/agently-core/internal/tool/dispatchpayload"
 	"strings"
 	"time"
 
@@ -265,6 +266,7 @@ func maybeHandleAsyncTool(ctx context.Context, reg tool.Registry, step StepInfo,
 			CancelToolName:             asyncCancelToolName(cfg),
 			RequestArgsDigest:          requestDigest,
 			RequestArgs:                normalizedAsyncArgs(cfg, step.Args),
+			OriginalRequestArgs:        dispatchpayload.OriginalArguments(ctx),
 			OperationIntent:            asynccfg.ExtractIntent(normalizedAsyncArgs(cfg, step.Args), cfg.Run.IntentPath, step.Name),
 			OperationSummary:           asynccfg.ExtractSummary(normalizedAsyncArgs(cfg, step.Args), cfg.Run.SummaryPaths),
 			ExecutionMode:              effectiveExecutionMode(cfg, step.Args),
@@ -754,6 +756,7 @@ func maybeStartAsyncPoller(ctx context.Context, manager *asynccfg.Manager, reg t
 	// pollerWG — Close() waits on that wg to join every admitted
 	// goroutine before returning.
 	if !manager.AdmitPoller(ctx, opID, cancel) {
+		dispatchpayload.CloseProvenance(pollCtx)
 		cancel()
 		return
 	}
@@ -813,6 +816,7 @@ func maybeCreateAsyncStatusCarrier(ctx context.Context, manager *asynccfg.Manage
 //   - request mode and stream publisher (for live updates)
 //   - auth identity and token bundle (for status tools that need credentials)
 func rehydrateAsyncPollContext(src context.Context, dst context.Context, turn runtimerequestctx.TurnMeta) context.Context {
+	dst = dispatchpayload.CloneProvenance(src, dst)
 	if strings.TrimSpace(turn.ConversationID) != "" {
 		dst = runtimerequestctx.WithConversationID(dst, strings.TrimSpace(turn.ConversationID))
 	}
@@ -1024,6 +1028,8 @@ func (p *pollerState) executeStatusTick(ctx context.Context) (continueLoop bool)
 // unit-testable with synthetic state. This function itself is just the
 // loop/ticker orchestrator plus the narration lifecycle.
 func PollAsyncOperation(ctx context.Context, manager *asynccfg.Manager, reg tool.Registry, cfg *asynccfg.Config, turn runtimerequestctx.TurnMeta, opID string, conv apiconv.Client) {
+	defer dispatchpayload.CloseProvenance(ctx)
+
 	// FinishPoller defer is placed FIRST so it always runs for an
 	// admitted poller, even if newPollerState returns nil. Without
 	// this, a pathological setup path (missing cfg/manager/reg/opID)

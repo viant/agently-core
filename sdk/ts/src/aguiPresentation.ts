@@ -1,7 +1,7 @@
 import type { Message } from '@ag-ui/core';
 
 export interface AgentlyPresentation {
-    version: '1'; conversationId?: string; nativeTurnId?: string; nativeMessageId?: string;
+    version: '1'; messageKind?: 'standalone'; conversationId?: string; nativeTurnId?: string; nativeMessageId?: string;
     parentMessageId?: string; pageId?: string; modelCallId?: string; nativeToolCallId?: string; toolMessageId?: string;
     protocolRunId?:string; clientMessageId?:string; clientRequestId?:string; nativeUserMessageId?:string;
     executionRole?: string; phase?: string; mode?: string; status?: string; agentId?: string; agentName?: string;
@@ -24,6 +24,7 @@ export function readAgentlyPresentation(metadata: unknown): AgentlyPresentation 
     if (!source && namespace?.identityVersion === '1' && typeof namespace.nativeTurnId === 'string') return { version:'1', nativeTurnId:namespace.nativeTurnId };
     if (source?.version !== '1') return undefined;
     const value: AgentlyPresentation = { version: '1' };
+    if (source.messageKind !== undefined) { if (source.messageKind !== 'standalone') return undefined; value.messageKind = 'standalone'; }
     for (const key of stringFields) { if (source[key] !== undefined) { if (typeof source[key] !== 'string') return undefined; value[key] = source[key]; } }
     for (const key of numberFields) { if (source[key] !== undefined) { if (!count(source[key])) return undefined; value[key] = source[key]; } }
     if (source.latestPage !== undefined) { if (typeof source.latestPage !== 'boolean') return undefined; value.latestPage = source.latestPage; }

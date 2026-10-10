@@ -20,11 +20,12 @@ import (
 // Handler adapts MCP server-initiated elicitation/create callbacks
 // into agently-core elicitation persistence + wait lifecycle.
 type Handler struct {
-	conversations apiconv.Client
-	elicitation   *elicsvc.Service
-	conversation  string
-	lastRequestID int64
-	sampler       *Sampler
+	conversations         apiconv.Client
+	elicitation           *elicsvc.Service
+	conversation          string
+	lastRequestID         int64
+	sampler               *Sampler
+	sensitivePayloadCalls atomic.Int64
 }
 
 // New returns a client callback handler for MCP sessions.
@@ -85,6 +86,10 @@ func (h *Handler) ListRoots(_ context.Context, _ *jsonrpc.TypedRequest[*mcpschem
 }
 
 func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcpschema.ElicitRequest]) (*mcpschema.ElicitResult, *jsonrpc.Error) {
+	if h.sensitivePayloadCalls.Load() > 0 {
+		return nil, jsonrpc.NewInvalidRequest("server callback unavailable during artifact payload dispatch", nil)
+	}
+
 	if h == nil || h.elicitation == nil || h.conversations == nil {
 		return nil, jsonrpc.NewInternalError("elicitation service not configured", nil)
 	}
@@ -153,4 +158,9 @@ func (h *Handler) Elicit(ctx context.Context, request *jsonrpc.TypedRequest[*mcp
 		Action:  mcpschema.ElicitResultAction(status),
 		Content: payload,
 	}, nil
+}
+
+func (h *Handler) BeginSensitivePayload() func() {
+	h.sensitivePayloadCalls.Add(1)
+	return func() { h.sensitivePayloadCalls.Add(-1) }
 }
