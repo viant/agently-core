@@ -1,6 +1,7 @@
 package datasource_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -28,18 +29,25 @@ import (
 
 type ordinaryMCPProvider struct{ url string }
 
+func (p ordinaryMCPProvider) Names(context.Context) ([]string, error) {
+	return []string{"independent"}, nil
+}
 func (p ordinaryMCPProvider) Options(context.Context, string) (*mcpcfg.MCPClient, error) {
 	return &mcpcfg.MCPClient{ToolsListVisibility: mcpcfg.ToolsListVisibilityPublic, ClientOptions: &mcp.ClientOptions{ProtocolVersion: "2025-06-18", Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: p.url}}}}, nil
 }
 
 type ordinaryMCPCall struct {
-	Name string
-	Args map[string]any
+	Name    string
+	Args    map[string]any
+	RawArgs json.RawMessage
 }
 type ordinaryMCPFixture struct {
-	mu      sync.Mutex
-	methods []string
-	calls   []ordinaryMCPCall
+	mu                  sync.Mutex
+	methods             []string
+	during              func(int)
+	structured          bool
+	cursorTokenOverride any
+	calls               []ordinaryMCPCall
 }
 
 func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
@@ -73,15 +81,24 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 		result = map[string]any{}
 	case "tools/list":
 		tools := []any{}
-		for _, name := range []string{"lookup", "offset", "cursor", "scalar"} {
+		for _, name := range []string{"lookup", "offset", "cursor", "scalar", "cursor-number", "cursor-object", "cursor-object-safe", "windows/list", "cursor.number-list"} {
 			props := map[string]any{"term": map[string]any{"type": "string"}}
 			if name == "offset" {
 				props["skipRows"] = map[string]any{"type": "integer"}
 				props["takeRows"] = map[string]any{"type": "integer"}
 			}
-			if name == "cursor" {
+			if strings.HasPrefix(name, "cursor") {
 				props["resumeToken"] = map[string]any{"type": "string"}
 				props["batchSize"] = map[string]any{"type": "integer"}
+				if name == "cursor-number" {
+					props["resumeToken"] = map[string]any{"type": "number"}
+				}
+				if name == "cursor-object" || name == "cursor-object-safe" {
+					props["resumeToken"] = map[string]any{"type": "object", "properties": map[string]any{"ordinal": map[string]any{"type": "number"}, "tag": map[string]any{"type": "string"}}, "required": []string{"ordinal", "tag"}, "additionalProperties": false}
+				}
+				if name == "cursor-object-safe" {
+					props["resumeToken"].(map[string]any)["properties"].(map[string]any)["ordinal"] = map[string]any{"type": "string"}
+				}
 			}
 			tools = append(tools, map[string]any{"name": name, "description": "Independent ordinary tool", "inputSchema": map[string]any{"type": "object", "properties": props, "required": []string{"term"}, "additionalProperties": false}})
 		}
@@ -101,7 +118,7 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 			allowed["skipRows"] = true
 			allowed["takeRows"] = true
 		}
-		if p.Name == "cursor" {
+		if strings.HasPrefix(p.Name, "cursor") {
 			allowed["resumeToken"] = true
 			allowed["batchSize"] = true
 		}
@@ -111,7 +128,7 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		for key := range p.Arguments {
 			if !allowed[key] {
-				rpcErr = map[string]any{"code": -32602, "message": "additional property: " + key}
+				rpcErr = map[string]any{"code": -32602, "message": "additional property: " + key + " for " + p.Name}
 			}
 		}
 		if rpcErr != nil {
@@ -122,11 +139,19 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		f.mu.Lock()
-		f.calls = append(f.calls, ordinaryMCPCall{p.Name, p.Arguments})
+		var wire struct {
+			Arguments json.RawMessage `json:"arguments"`
+		}
+		json.Unmarshal(q.Params, &wire)
+		f.calls = append(f.calls, ordinaryMCPCall{p.Name, p.Arguments, wire.Arguments})
+		ordinal, during := len(f.calls), f.during
 		f.mu.Unlock()
+		if during != nil {
+			during(ordinal)
+		}
 		var payload any
 		switch p.Name {
-		case "lookup":
+		case "lookup", "windows/list", "cursor.number-list":
 			payload = map[string]any{"reply": map[string]any{"widgets": []any{map[string]any{"code": "alpha", "label": p.Arguments["term"]}, map[string]any{"code": "beta", "label": "second"}}}}
 		case "offset":
 			skip, _ := p.Arguments["skipRows"].(float64)
@@ -140,6 +165,9 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 				items = append(items, map[string]any{"id": n})
 			}
 			payload = map[string]any{"reply": map[string]any{"widgets": items}, "nav": map[string]any{"recordCount": 6}}
+			if p.Arguments["term"] == "explicitEOF" {
+				payload = map[string]any{"reply": map[string]any{"widgets": items}, "nav": map[string]any{"remaining": skip+take < 6}}
+			}
 		case "cursor":
 			token, _ := p.Arguments["resumeToken"].(string)
 			next := "after-alpha"
@@ -149,6 +177,32 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 				id = "beta"
 			}
 			payload = map[string]any{"reply": map[string]any{"widgets": []any{map[string]any{"id": id}}}, "nav": map[string]any{"nextToken": next, "remaining": next != ""}}
+		case "cursor-number", "cursor-object", "cursor-object-safe":
+			token := interface{}(json.Number("9223372036854775807"))
+			if p.Name == "cursor-object" || p.Name == "cursor-object-safe" {
+				token = map[string]any{"ordinal": json.Number("9223372036854775807"), "tag": "opaque"}
+			}
+			if p.Name == "cursor-object-safe" {
+				token = map[string]any{"ordinal": "safe-opaque", "tag": "opaque"}
+			}
+			f.mu.Lock()
+			if f.cursorTokenOverride != nil {
+				token = f.cursorTokenOverride
+			}
+			f.mu.Unlock()
+			exact, _ := json.Marshal(token)
+			var rawArguments map[string]json.RawMessage
+			json.Unmarshal(wire.Arguments, &rawArguments)
+			_, final := rawArguments["resumeToken"]
+			if final && !bytes.Equal(rawArguments["resumeToken"], exact) {
+				rpcErr = map[string]any{"code": -32602, "message": "opaque cursor was changed on wire"}
+				break
+			}
+			id := "alpha"
+			if final {
+				id = "beta"
+			}
+			payload = map[string]any{"reply": map[string]any{"widgets": []any{map[string]any{"id": id}}}, "nav": map[string]any{"remaining": !final, "nextToken": token}}
 		case "scalar":
 			payload = map[string]any{"reply": map[string]any{"amount": 42}}
 		default:
@@ -159,6 +213,12 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 		}
 		raw, _ := json.Marshal(payload)
 		result = map[string]any{"content": []any{map[string]any{"type": "text", "text": string(raw)}}}
+		f.mu.Lock()
+		structured := f.structured
+		f.mu.Unlock()
+		if structured {
+			result = map[string]any{"content": []any{}, "structuredContent": payload}
+		}
 	default:
 		rpcErr = map[string]any{"code": -32601, "message": "unsupported method: " + q.Method}
 	}
@@ -187,7 +247,7 @@ func ordinaryMCPStack(t *testing.T) (*ordinaryMCPFixture, *registry.Registry, co
 		t.Fatal(e)
 	}
 	tools, e := client.ListTools(ctx, nil)
-	if e != nil || len(tools.Tools) != 4 {
+	if e != nil || len(tools.Tools) != 9 {
 		t.Fatalf("ordinary tools/list: %v", e)
 	}
 	r, e := registry.NewWithManager(mgr)
@@ -383,5 +443,158 @@ func TestOrdinaryMCPSameAliasRemainsBoundToParentAndTarget(t *testing.T) {
 	defer fixture.mu.Unlock()
 	if len(fixture.calls) != 2 || fixture.calls[0].Name != "lookup" || fixture.calls[1].Name != "offset" {
 		t.Fatalf("local alias collided with global/other parent: %#v", fixture.calls)
+	}
+}
+
+func TestOrdinaryMCPCursorConfiguredPagingPreservesExactOpaqueToken(t *testing.T) {
+	fixture, executor, ctx := ordinaryMCPStack(t)
+	ds := ordinaryDescriptor("cursor-configured", "cursor")
+	if err := json.Unmarshal([]byte(`{"enabled":true,"mode":"cursor","size":1,"parameters":{"page":"resumeToken","size":"batchSize"},"dataInfoSelectors":{"hasMore":"remaining","nextCursor":"nextToken"}}`), &ds.Paging); err != nil {
+		t.Fatal(err)
+	}
+	service := ordinaryService(t, executor, ds)
+	first, err := service.Fetch(ctx, ds.ID, map[string]any{"term": "cursor", "batchSize": 1}, dssvc.FetchOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.DataInfo["hasMore"] != true || first.DataInfo["nextCursor"] != "after-alpha" {
+		t.Fatalf("explicit continuation lost: %#v", first)
+	}
+	second, err := service.Fetch(ctx, ds.ID, map[string]any{"term": "cursor", "batchSize": 1, "resumeToken": first.DataInfo["nextCursor"]}, dssvc.FetchOptions{})
+	if err != nil || second.DataInfo["hasMore"] != false || len(second.Rows) != 1 || second.Rows[0]["id"] != "beta" {
+		t.Fatalf("terminal cursor page: %#v %v", second, err)
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.calls) != 2 || len(fixture.calls[0].Args) != 2 || len(fixture.calls[1].Args) != 3 || fixture.calls[1].Args["resumeToken"] != "after-alpha" {
+		t.Fatalf("cursor tool received extraneous fields or changed token: %#v", fixture.calls)
+	}
+}
+
+func TestOrdinaryMCPCacheIsolatedByParentAndSelectedTarget(t *testing.T) {
+	fixture, executor, ctx := ordinaryMCPStack(t)
+	lookup := ordinaryDescriptor("localRows", "lookup")
+	cursor := ordinaryDescriptor("localRows", "cursor")
+	scalar := ordinaryDescriptor("localRows", "scalar")
+	scalar.Selectors = &types.Selectors{Data: "reply.amount", ValueColumn: "amount"}
+	service := dssvc.New(dssvc.Options{Executor: executor, ResolveDefinition: func(_ context.Context, pin identity.ResolvedResource, target *types.WindowTarget, id string) (*dsproto.DataSource, error) {
+		if id != "localRows" {
+			return nil, identity.ErrResourceDenied
+		}
+		if target != nil && target.FormFactor == "desktop" {
+			return cursor, nil
+		}
+		if pin.URI == "window://plain/two" {
+			return scalar, nil
+		}
+		return lookup, nil
+	}})
+	for _, tc := range []struct {
+		uri, factor string
+		count       int
+	}{{"window://plain/one", "phone", 2}, {"window://plain/two", "phone", 1}, {"window://plain/one", "desktop", 1}, {"window://plain/one", "phone", 2}} {
+		pin := identity.ResolvedResource{URI: tc.uri, ValidUntil: time.Now().Add(time.Minute)}
+		out, err := service.Fetch(requestctx.WithResolvedResource(ctx, pin), "localRows", map[string]any{"term": "identical"}, dssvc.FetchOptions{Target: &types.WindowTarget{FormFactor: tc.factor}})
+		if err != nil || len(out.Rows) != tc.count {
+			t.Fatalf("cache crossed parent/target: %s %s %#v %v", tc.uri, tc.factor, out, err)
+		}
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.calls) != 3 || fixture.calls[0].Name != "lookup" || fixture.calls[1].Name != "scalar" || fixture.calls[2].Name != "cursor" {
+		t.Fatalf("expected isolated cached source calls and reuse only same parent/target: %#v", fixture.calls)
+	}
+}
+
+func TestOrdinaryMCPBoundCacheUsesTrustedCurrentPrincipalAndBypassesMissingUser(t *testing.T) {
+	fixture, executor, ctx := ordinaryMCPStack(t)
+	ds := ordinaryDescriptor("localRows", "lookup")
+	ds.Cache = &dsproto.CachePolicy{Scope: dsproto.ScopeGlobal}
+	service := dssvc.New(dssvc.Options{Executor: executor, ResolveDefinition: func(context.Context, identity.ResolvedResource, *types.WindowTarget, string) (*dsproto.DataSource, error) {
+		return ds, nil
+	}})
+	pin := identity.ResolvedResource{URI: "window://same/list", AuthorityBinding: "same-tenant", ValidUntil: time.Now().Add(time.Minute)}
+	for index, subject := range []string{"verified-alice", "verified-bob", "verified-alice"} {
+		trusted := iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: subject})
+		trusted = dssvc.WithIdentity(trusted, "client-looking-same-user", "same-conversation")
+		out, err := service.Fetch(requestctx.WithResolvedResource(trusted, pin), ds.ID, map[string]any{"term": "same"}, dssvc.FetchOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.Cache == nil || out.Cache.Hit != (index == 2) {
+			t.Fatal("trusted current principal cache partition failed", subject, out.Cache)
+		}
+	}
+	otherTenant := pin
+	otherTenant.AuthorityBinding = "other-tenant"
+	out, err := service.Fetch(requestctx.WithResolvedResource(iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: "verified-alice"}), otherTenant), ds.ID, map[string]any{"term": "same"}, dssvc.FetchOptions{})
+	if err != nil || out.Cache == nil || out.Cache.Hit {
+		t.Fatal("same user crossed tenant cache", out, err)
+	}
+	anonymous := requestctx.WithResolvedResource(dssvc.WithIdentity(context.Background(), "client-looking-user", "only-conversation"), pin)
+	for i := 0; i < 2; i++ {
+		out, err := service.Fetch(anonymous, ds.ID, map[string]any{"term": "anonymous"}, dssvc.FetchOptions{})
+		if err != nil || out.Cache != nil && out.Cache.Hit {
+			t.Fatal("missing trusted principal reused canonical cache", out, err)
+		}
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.calls) < 3 {
+		t.Fatal("trusted-user isolation or anonymous bypass did not execute independent requests")
+	}
+}
+
+func TestOrdinaryMCPExplicitOffsetHasMoreFalseWithFullFinalPageWithoutCounts(t *testing.T) {
+	_, executor, ctx := ordinaryMCPStack(t)
+	ds := ordinaryDescriptor("offset-eof", "offset")
+	ds.Paging = &types.PagingConfig{Enabled: true, Mode: "offset", Size: 2, Parameters: &types.PagingParameters{Page: "skipRows", Size: "takeRows"}, DataInfoSelectors: &types.DataInfoSelectors{HasMore: "remaining"}}
+	out, err := ordinaryService(t, executor, ds).Fetch(ctx, ds.ID, map[string]any{"term": "explicitEOF", "skipRows": 4, "takeRows": 2}, dssvc.FetchOptions{})
+	if err != nil || len(out.Rows) != 2 || out.DataInfo["hasMore"] != false {
+		t.Fatal("full final page inferred continuation", out, err)
+	}
+	if _, exists := out.DataInfo["totalCount"]; exists {
+		t.Fatal("unprovided total count inferred")
+	}
+}
+
+func TestOrdinaryMCPCatalogKeepsRemoteLiteralNamesAuthoritative(t *testing.T) {
+	t.Setenv("AGENTLY_WORKSPACE", t.TempDir())
+	t.Setenv("AGENTLY_WORKSPACE_NO_DEFAULTS", "1")
+	t.Setenv("AGENTLY_MCP_SERVERS", "independent")
+
+	fixture, executor, ctx := ordinaryMCPStack(t)
+	refresh, cancel := context.WithCancel(ctx)
+	done := executor.InitializeWithRefreshContext(ctx, refresh)
+	t.Cleanup(func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(time.Second):
+			t.Error("catalog refresh did not stop")
+		}
+	})
+
+	for _, method := range []string{"windows/list", "cursor-number", "cursor.number-list"} {
+		if _, found := executor.GetRawDefinitionWithContext(ctx, "independent:"+method); !found {
+			t.Fatalf("ordinary actual catalog lookup missing literal %s", method)
+		}
+		server, literal, found, err := executor.ResolveMCPIdentity(ctx, "independent:"+method)
+		if err != nil || !found || server != "independent" || literal != method {
+			t.Fatalf("catalog inferred server from literal method %q: %q %q %v %v", method, server, literal, found, err)
+		}
+		if _, err := executor.Execute(ctx, "independent:"+method, map[string]interface{}{"term": "literal"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	if len(fixture.calls) != 3 {
+		t.Fatalf("actual literal dispatches: %#v", fixture.calls)
+	}
+	for i, method := range []string{"windows/list", "cursor-number", "cursor.number-list"} {
+		if fixture.calls[i].Name != method {
+			t.Fatalf("literal name changed: %#v", fixture.calls)
+		}
 	}
 }

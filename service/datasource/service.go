@@ -336,6 +336,27 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 	normalizedInputs := normalizeFilterSemantics(inputs, &ds.DataSource)
 	mergedArgs := expandNestedArgs(mergeArgs(normalizedInputs, ds.Backend.Pinned))
 	cacheKey := responseAliasCacheKey(buildCacheKey(scopeID, ds.ID, policy.Key, mergedArgs), aliases)
+	if pin, bound := runtimerequestctx.ResolvedResourceFromContext(ctx); bound {
+		target := opts.Target
+		if target == nil {
+			target, _ = runtimerequestctx.WindowTargetFromContext(ctx)
+		}
+		// Canonical cache partitioning uses only the trusted auth context.
+		principal := strings.TrimSpace(internalAuth.EffectiveUserID(ctx))
+		if principal == "" {
+			cacheEnabled = false
+		} else {
+			cacheKey, err = boundResourceCacheKey(cacheKey, *pin, target, ds, Identity{User: principal})
+			if err != nil {
+				return nil, err
+			}
+		}
+	}
+	if ds.Paging != nil && ds.Paging.Enabled && strings.EqualFold(strings.TrimSpace(ds.Paging.Mode), "cursor") {
+		raw, _ := json.Marshal(ds)
+		sum := sha256.Sum256(raw)
+		cacheKey += "|cursor:" + hex.EncodeToString(sum[:])
+	}
 	if ds.Backend.Component != nil {
 		raw, _ := json.Marshal(ds.Backend.Component)
 		sum := sha256.Sum256(raw)
@@ -352,6 +373,9 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 					return nil, err
 				}
 				res := cloneResult(entry.result)
+				if err := validatePagingDataInfo(&ds.DataSource, res.DataInfo, mergedArgs); err != nil {
+					return nil, err
+				}
 				res.Cache = &dsproto.CacheMeta{
 					Hit:        true,
 					Stale:      false,
@@ -371,6 +395,9 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		return nil, err
 	}
 	rows, dataInfo, metrics := project(raw, &ds.DataSource)
+	if err := validatePagingDataInfo(&ds.DataSource, dataInfo, mergedArgs); err != nil {
+		return nil, err
+	}
 	rows, err = applyResponseAliases(rows, aliases)
 	if err != nil {
 		return nil, fmt.Errorf("datasource %q: %w", ds.ID, err)
@@ -495,7 +522,20 @@ func (s *Service) runBackendRaw(ctx context.Context, ds *dsproto.DataSource, arg
 			return nil, fmt.Errorf("datasource %q: mcp_tool backend missing service/method", ds.ID)
 		}
 		name := ds.Backend.Service + ":" + ds.Backend.Method
-		raw, err := s.executor.Execute(ctx, name, transportArguments(args, ds.Backend.RequestMetadata))
+		var raw string
+		var err error
+		inputs := transportArguments(args, ds.Backend.RequestMetadata)
+		if exact, ok := s.executor.(interface {
+			ExecuteExactJSON(context.Context, string, map[string]interface{}, string) (string, error)
+		}); ok && ds.Paging != nil && ds.Paging.Enabled && strings.TrimSpace(ds.Paging.Mode) != "" {
+			path := ""
+			if strings.EqualFold(strings.TrimSpace(ds.Paging.Mode), "cursor") && ds.Selectors != nil && ds.Paging.DataInfoSelectors != nil {
+				path = ds.Selectors.DataInfo + "." + ds.Paging.DataInfoSelectors.NextCursor
+			}
+			raw, err = exact.ExecuteExactJSON(ctx, name, inputs, path)
+		} else {
+			raw, err = s.executor.Execute(ctx, name, inputs)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -503,7 +543,7 @@ func (s *Service) runBackendRaw(ctx context.Context, ds *dsproto.DataSource, arg
 		if raw == "" {
 			return map[string]interface{}{}, nil
 		}
-		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		if err := decodePagingBackendJSON([]byte(raw), &parsed, &ds.DataSource); err != nil {
 			// Tool returned a non-JSON string; surface as a single-field row.
 			return map[string]interface{}{"text": raw}, nil
 		}

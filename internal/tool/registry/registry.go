@@ -711,6 +711,9 @@ func (r *Registry) rawMatchDefinitionWithContextResult(ctx context.Context, patt
 		}
 		for _, t := range tools {
 			full := qualifiedToolName(svc, strings.TrimSpace(t.Name))
+			if r.isInternalServer(svc) {
+				full = legacyInternalQualifiedToolName(svc, strings.TrimSpace(t.Name))
+			}
 			if tmatch.Match(pattern, full) {
 				def := llm.ToolDefinitionFromMcpTool(&t)
 				if def == nil {
@@ -827,6 +830,9 @@ func (r *Registry) GetRawDefinitionWithContext(ctx context.Context, name string)
 			if tool != nil {
 				r.mu.Lock()
 				fullSlash := qualifiedToolName(svc, strings.TrimSpace(t.Name))
+				if r.internal[svc] != nil {
+					fullSlash = legacyInternalQualifiedToolName(svc, strings.TrimSpace(t.Name))
+				}
 				methods := r.internalCacheable[svc]
 				tool.Name = fullSlash
 				_ = maybeInjectTimeoutMs(tool, injectTimeoutMs)
@@ -914,6 +920,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	guard := r.executionProtection
 	authGuard := r.authorizationGuard
 	reuseAllowed := authGuard == nil && !r.resultReuseDisabled
+	if exactJSONScope(ctx) != nil {
+		reuseAllowed = false
+	}
 	r.mu.RUnlock()
 	if authGuard != nil {
 		if err := authGuard(ctx, baseName, callArgs); err != nil {
@@ -1036,6 +1045,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	}
 
 	server := serviceName
+	if err := r.validateExactJSONRequest(ctx, server, callArgs); err != nil {
+		return "", err
+	}
 	if server == "" {
 		r.debugf("Execute: invalid tool name (no server): %s", baseName)
 		return "", fmt.Errorf("invalid tool name: %s", name)
@@ -1362,6 +1374,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 	}
 	if res.StructuredContent != nil {
+		if err := validateExactStructuredCursor(ctx, res.StructuredContent); err != nil {
+			return "", err
+		}
 		if out, ok := structuredContentString(res.StructuredContent); ok {
 			debugMCPExecf("registry compose structured-string server=%s base=%s elapsed=%s resultBytes=%d", server, baseName, time.Since(execStart).Round(time.Millisecond), len(out))
 			if selector != "" {
@@ -2385,6 +2400,11 @@ func serverFromPattern(pattern string) string {
 
 // splitToolName returns service path and method given a name like "service/path:method".
 func splitToolName(name string) (service, method string) {
+	// Explicit datasource delivery is unambiguous; the literal method can
+	// contain hyphens, dots or slashes and must not be canonical-split again.
+	if i := strings.IndexByte(name, ':'); i > 0 && i < len(name)-1 {
+		return name[:i], name[i+1:]
+	}
 	can := mcpname.Canonical(name)
 	n := mcpname.Name(can)
 	return n.Service(), n.Method()
@@ -2392,26 +2412,31 @@ func splitToolName(name string) (service, method string) {
 
 func qualifiedToolName(server, raw string) string {
 	raw = strings.TrimSpace(raw)
-	if raw == "" {
-		return ""
-	}
-	if svc, method := splitToolName(raw); svc != "" && method != "" {
-		return raw
-	}
 	server = strings.TrimSpace(server)
-	if server == "" {
+	if raw == "" || server == "" {
 		return raw
 	}
+	// This call site already knows the catalog's actual server; raw is the
+	// remote literal name, never another inferred server identifier.
 	return server + "/" + raw
 }
 
-func displayToolName(server, raw string) string {
-	qualified := qualifiedToolName(server, raw)
-	svc, method := splitToolName(qualified)
-	if svc == "" || method == "" {
-		return strings.TrimSpace(qualified)
+func legacyInternalQualifiedToolName(server, raw string) string {
+	raw = strings.TrimSpace(raw)
+	server = strings.TrimSpace(server)
+	if strings.HasPrefix(raw, server+":") || strings.HasPrefix(raw, server+"/") {
+		return raw
 	}
-	return svc + ":" + method
+	return qualifiedToolName(server, raw)
+}
+
+func displayToolName(server, raw string) string {
+	server = strings.TrimSpace(server)
+	raw = strings.TrimSpace(raw)
+	if server == "" || raw == "" {
+		return raw
+	}
+	return server + ":" + raw
 }
 
 func cacheToolAliases(cache map[string]*toolCacheEntry, entry *toolCacheEntry, name string) {

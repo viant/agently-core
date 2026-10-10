@@ -65,3 +65,54 @@ func TestScalarValueColumnIsExplicitAndPreservesZeroFalseAndArrays(t *testing.T)
 		}
 	}
 }
+
+func TestCursorPagingRequiresStrictAuthoredContinuation(t *testing.T) {
+	ds := &types.DataSource{Paging: &types.PagingConfig{Enabled: true, Mode: "cursor", Parameters: &types.PagingParameters{Page: "resume"}, DataInfoSelectors: &types.DataInfoSelectors{HasMore: "nav.more", NextCursor: "nav.next"}}}
+	if err := validateExplicitPaging(ds); err != nil {
+		t.Fatal(err)
+	}
+	for _, info := range []map[string]interface{}{nil, {"nav": map[string]interface{}{"more": "true"}}, {"nav": map[string]interface{}{"more": true}}, {"nav": map[string]interface{}{"more": true, "next": ""}}} {
+		if err := validatePagingDataInfo(ds, info); err == nil {
+			t.Fatal("invalid cursor result admitted")
+		}
+	}
+	for _, info := range []map[string]interface{}{{"nav": map[string]interface{}{"more": false}}, {"nav": map[string]interface{}{"more": true, "next": map[string]interface{}{"opaque": "token"}}}} {
+		if err := validatePagingDataInfo(ds, info); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ds.Paging.Parameters.Page = ""
+	if validateExplicitPaging(ds) == nil {
+		t.Fatal("missing token argument admitted")
+	}
+}
+
+func TestCursorPagingRejectsRepeatedCurrentTokenBeforeRowRelease(t *testing.T) {
+	ds := &types.DataSource{Paging: &types.PagingConfig{Enabled: true, Mode: "cursor", Parameters: &types.PagingParameters{Page: "resume"}, DataInfoSelectors: &types.DataInfoSelectors{HasMore: "more", NextCursor: "next"}}}
+	info := map[string]interface{}{"more": true, "next": map[string]interface{}{"opaque": "same"}}
+	if err := validatePagingDataInfo(ds, info, map[string]interface{}{"resume": map[string]interface{}{"opaque": "same"}}); err == nil {
+		t.Fatal("repeated token admitted")
+	}
+}
+
+func TestExplicitPageOffsetHonorsAuthoredFalseWithFullPageAndRejectsInvalidType(t *testing.T) {
+	for _, mode := range []string{"page", "offset"} {
+		ds := &types.DataSource{Paging: &types.PagingConfig{Enabled: true, Mode: mode, Size: 2, DataInfoSelectors: &types.DataInfoSelectors{HasMore: "nav.remaining"}}}
+		info := map[string]interface{}{"nav": map[string]interface{}{"remaining": false}}
+		if err := validatePagingDataInfo(ds, info); err != nil {
+			t.Fatal(err)
+		}
+		rows := []map[string]interface{}{{"id": 1}, {"id": 2}}
+		outRows, outInfo := applyPaging(rows, info, ds, nil)
+		if len(outRows) != 2 || outInfo["hasMore"] != false {
+			t.Fatal("full final page inferred another page", outInfo)
+		}
+		if err := validatePagingDataInfo(ds, map[string]interface{}{"nav": map[string]interface{}{"remaining": "false"}}); err == nil {
+			t.Fatal("invalid typed continuation admitted")
+		}
+		ds.Paging.Mode = ""
+		if err := validatePagingDataInfo(ds, nil); err != nil {
+			t.Fatal("legacy empty-mode behavior changed")
+		}
+	}
+}
