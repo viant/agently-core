@@ -347,7 +347,7 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 			return nil, errors.New("mcp manager: provider not configured")
 		}
 	}
-	configured, configErr := m.prov.Options(ctx, serverName)
+	configured, configErr := m.Options(ctx, serverName)
 	if configErr != nil {
 		return nil, configErr
 	}
