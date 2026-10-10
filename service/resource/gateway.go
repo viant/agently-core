@@ -109,6 +109,11 @@ func (g *Gateway) actor(ctx context.Context) (identity.VerifiedActor, error) {
 	if closed {
 		return identity.VerifiedActor{}, identity.ErrResourceDenied
 	}
+	var scopeErr error
+	ctx, scopeErr = ReadContext(ctx)
+	if scopeErr != nil {
+		return identity.VerifiedActor{}, scopeErr
+	}
 	a, e := g.Actor(ctx)
 	if e != nil {
 		return a, e
@@ -119,6 +124,14 @@ func (g *Gateway) actor(ctx context.Context) (identity.VerifiedActor, error) {
 	if e = g.Verify(ctx, a); e != nil {
 		return a, e
 	}
+	if sequence := sequenceFromContext(ctx); sequence != nil {
+		if sequence.gateway != g {
+			return a, identity.ErrResourceDenied
+		}
+		if e = sequence.checkActor(a); e != nil {
+			return a, e
+		}
+	}
 	return a, nil
 }
 func (g *Gateway) final(ctx context.Context, a identity.VerifiedActor) error {
@@ -127,6 +140,19 @@ func (g *Gateway) final(ctx context.Context, a identity.VerifiedActor) error {
 	g.mu.Unlock()
 	if closed {
 		return identity.ErrResourceDenied
+	}
+	var scopeErr error
+	ctx, scopeErr = ReadContext(ctx)
+	if scopeErr != nil {
+		return scopeErr
+	}
+	if sequence := sequenceFromContext(ctx); sequence != nil {
+		if sequence.gateway != g {
+			return identity.ErrResourceDenied
+		}
+		if err := sequence.checkActor(a); err != nil {
+			return err
+		}
 	}
 	if !a.Valid(g.now()) || ctx.Err() != nil {
 		return identity.ErrResourceDenied
@@ -138,7 +164,11 @@ func actorKey(a identity.VerifiedActor, name string, generation uint64) string {
 	return string(raw)
 }
 func (g *Gateway) client(ctx context.Context, name string) (mcpclient.Interface, error) {
-	return g.Manager.Get(ctx, "", name)
+	client, err := g.Manager.Get(g.Manager.WithAuthTokenContext(ctx, name), "", name)
+	if err != nil {
+		return nil, err
+	}
+	return &gatewayAuthClient{Interface: client, manager: g.Manager, name: name}, nil
 }
 func toolRaw(ctx context.Context, c mcpclient.Interface, method string, in any) (json.RawMessage, error) {
 	raw, e := json.Marshal(in)
@@ -186,6 +216,15 @@ func call[T any](ctx context.Context, c mcpclient.Interface, method string, in a
 }
 
 func (g *Gateway) discover(ctx context.Context, a identity.VerifiedActor, name string) (capabilities, error) {
+	return g.discoverMode(ctx, a, name, false)
+}
+
+func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, name string, force bool) (capabilities, error) {
+	var scopeErr error
+	ctx, scopeErr = ReadContext(ctx)
+	if scopeErr != nil {
+		return capabilities{}, scopeErr
+	}
 	options, e := g.Manager.Options(ctx, name)
 	if e != nil {
 		return capabilities{}, e
@@ -201,13 +240,30 @@ func (g *Gateway) discover(ctx context.Context, a identity.VerifiedActor, name s
 	g.mu.Lock()
 	cached, ok := g.cache[key]
 	g.mu.Unlock()
-	c, e := g.Manager.Get(ctx, "", name)
+	c, e := g.client(ctx, name)
 	if e != nil {
 		return capabilities{}, e
 	}
+	sequence := sequenceFromContext(ctx)
+	readKey := ""
+	if sequence != nil && !force {
+		readKey, e = g.namespaceReadKey(ctx, a, name, options, c)
+		if e != nil {
+			return capabilities{}, e
+		}
+		if read, found, err := sequence.lookup(name, readKey); found || err != nil {
+			if err != nil {
+				return capabilities{}, err
+			}
+			if err := g.final(ctx, a); err != nil {
+				return capabilities{}, err
+			}
+			return read, nil
+		}
+	}
 	installed := map[string]bool{}
 	owners := map[string]bool{}
-	if ok && cached.expires.After(g.now()) {
+	if !force && ok && cached.expires.After(g.now()) {
 		installed = cached.installed
 		owners[cached.connection.ProviderIdentity] = true
 	} else {
@@ -350,6 +406,11 @@ func (g *Gateway) discover(ctx context.Context, a identity.VerifiedActor, name s
 	g.cache[key] = result
 	g.observedOwners[name] = owner
 	g.mu.Unlock()
+	if sequence != nil && !force {
+		if err := sequence.record(name, readKey, result); err != nil {
+			return capabilities{}, err
+		}
+	}
 	return result, nil
 }
 
@@ -492,6 +553,11 @@ func (g *Gateway) List(ctx context.Context, kind, namespace string) ([]LocatedRe
 // Get reuses an exact provider locator. Passing a pin prevents default/current
 // reselection; both provider drift and definition-byte drift fail closed.
 func (g *Gateway) Get(ctx context.Context, connection Connection, ref identity.ResourceRef, pin *identity.ResolvedResource) (*primitive.GetResult, error) {
+	var scopeErr error
+	ctx, scopeErr = ReadContext(ctx)
+	if scopeErr != nil {
+		return nil, scopeErr
+	}
 	uri, e := identity.ParseResourceURI(ref.URI)
 	if e != nil {
 		return nil, identity.ErrResource
@@ -558,6 +624,9 @@ func (g *Gateway) Get(ctx context.Context, connection Connection, ref identity.R
 	}
 	if actual.ValidUntil.After(a.ValidUntil) {
 		actual.ValidUntil = a.ValidUntil
+	}
+	if sequence := sequenceFromContext(ctx); sequence != nil {
+		sequence.constrainLease(actual.ValidUntil)
 	}
 	if g.generation(connection.Name) != connection.Generation {
 		return nil, identity.ErrResourceStale

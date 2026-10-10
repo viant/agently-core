@@ -62,6 +62,8 @@ type Store interface {
 
 // Service is the public entry point. Construct with New, then call Fetch.
 type Service struct {
+	beginReadSequence   func(context.Context) (context.Context, func() error, error)
+	readContext         func(context.Context) (context.Context, error)
 	resourceReader      MCPResourceReader
 	executionContext    func(context.Context) context.Context
 	permissions         permittedview.Resolver
@@ -105,6 +107,9 @@ type MCPResourceReader interface {
 }
 
 type Options struct {
+	// ReadSequence owns pure PRE/POST metadata facts; dispatch barriers end PRE.
+	ReadSequence        func(context.Context) (context.Context, func() error, error)
+	ReadContext         func(context.Context) (context.Context, error)
 	ResourceReader      MCPResourceReader
 	ProviderExecute     ProviderExecutor
 	ExecutionContext    func(context.Context) context.Context
@@ -137,7 +142,7 @@ func New(opts Options) *Service {
 	if nowFn == nil {
 		nowFn = time.Now
 	}
-	return &Service{resourceReader: opts.ResourceReader, providerExecute: opts.ProviderExecute, executionContext: opts.ExecutionContext, permissions: opts.PermissionResolver, components: opts.ComponentDispatcher, resolveResource: opts.ResolveResource, authorizeDefinition: opts.AuthorizeDefinition, resolveDefinition: opts.ResolveDefinition,
+	return &Service{beginReadSequence: opts.ReadSequence, readContext: opts.ReadContext, resourceReader: opts.ResourceReader, providerExecute: opts.ProviderExecute, executionContext: opts.ExecutionContext, permissions: opts.PermissionResolver, components: opts.ComponentDispatcher, resolveResource: opts.ResolveResource, authorizeDefinition: opts.AuthorizeDefinition, resolveDefinition: opts.ResolveDefinition,
 		store:        opts.Store,
 		executor:     opts.Executor,
 		identity:     id,
@@ -175,6 +180,45 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 	}
 	if s.executionContext != nil {
 		ctx = s.executionContext(ctx)
+	}
+	if s.readContext != nil {
+		var err error
+		ctx, err = s.readContext(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	_, inheritedPin := runtimerequestctx.ResolvedResourceFromContext(ctx)
+	if s.beginReadSequence != nil && (opts.Resource != nil || inheritedPin) && !runtimerequestctx.HasResourceReadDispatch(ctx) {
+		parent := opts.Resource
+		if parent == nil {
+			parent, _ = runtimerequestctx.ResolvedResourceFromContext(ctx)
+		}
+		target := opts.Target
+		if target == nil {
+			target, _ = runtimerequestctx.WindowTargetFromContext(ctx)
+		}
+		var associationErr error
+		ctx, associationErr = runtimerequestctx.WithResourceReadAssociation(ctx, parent, target)
+		if associationErr != nil {
+			return nil, associationErr
+		}
+		read, finish, err := s.beginReadSequence(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if read == nil || finish == nil {
+			if finish != nil {
+				_ = finish()
+			}
+			return nil, identity.ErrResourceDenied
+		}
+		ctx = read
+		defer func() {
+			if err := finish(); resultErr == nil && err != nil {
+				result, resultErr = nil, err
+			}
+		}()
 	}
 	if opts.Resource != nil {
 		if s.resolveResource == nil {
@@ -376,6 +420,34 @@ func (s *Service) InvalidateCache(ctx context.Context, id, inputsHash string) er
 }
 
 func (s *Service) runBackend(ctx context.Context, ds *dsproto.DataSource, args map[string]interface{}) (interface{}, error) {
+	if ds.Backend.Kind == dsproto.BackendDatly && ds.Backend.Ownership == "provider" {
+		// The owning primitive executor places its barrier at the actual RPC,
+		// after its own descriptor/proof PRE checks and before its POST checks.
+		return s.runBackendRaw(ctx, ds, args)
+	}
+	finish, err := runtimerequestctx.BeginResourceReadDispatch(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if s.readContext != nil {
+		ctx, err = s.readContext(ctx)
+		if err != nil {
+			_ = finish()
+			return nil, err
+		}
+	}
+	result, callErr := s.runBackendRaw(ctx, ds, args)
+	finishErr := finish()
+	if callErr != nil {
+		return nil, callErr
+	}
+	if finishErr != nil {
+		return nil, finishErr
+	}
+	return result, nil
+}
+
+func (s *Service) runBackendRaw(ctx context.Context, ds *dsproto.DataSource, args map[string]interface{}) (interface{}, error) {
 	switch ds.Backend.Kind {
 	case dsproto.BackendDatly:
 		if s.providerExecute == nil || ds.Backend.Ownership != "provider" {

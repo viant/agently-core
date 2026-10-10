@@ -11,6 +11,7 @@ import (
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	windowprotocol "github.com/viant/agently-core/protocol/window"
+	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/forge/backend/types"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
@@ -158,9 +159,22 @@ func (g *Gateway) FetchDatasource(ctx context.Context, pin identity.ResolvedReso
 	if json.Unmarshal(raw, &args) != nil {
 		return nil, identity.ErrResourceDenied
 	}
-	result, err := client.CallTool(ctx, &schema.CallToolRequestParams{Name: method, Arguments: args}, mcpclient.WithNoRetry())
+	finishDispatch, err := requestctx.BeginResourceReadDispatch(ctx)
 	if err != nil {
 		return nil, err
+	}
+	dispatchCtx, contextErr := ReadContext(ctx)
+	if contextErr != nil {
+		_ = finishDispatch()
+		return nil, contextErr
+	}
+	result, callErr := client.CallTool(dispatchCtx, &schema.CallToolRequestParams{Name: method, Arguments: args}, mcpclient.WithNoRetry())
+	finishErr := finishDispatch()
+	if callErr != nil {
+		return nil, callErr
+	}
+	if finishErr != nil {
+		return nil, finishErr
 	}
 	if result == nil || result.IsError != nil && *result.IsError {
 		return nil, identity.ErrResourceDenied

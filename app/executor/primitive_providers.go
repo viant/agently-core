@@ -46,6 +46,11 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 	if (b.primitiveWindowAdmission == nil) != (b.primitiveTargetProof == nil) {
 		return fmt.Errorf("delegated windows require host admission and target proof")
 	}
+	if out.PrimitiveProviders != nil {
+		out.DatasourceReadSequence = func(ctx context.Context) (context.Context, func() error, error) {
+			return out.PrimitiveProviders.BeginReadSequence(ctx, out.DatasourceReadFactsScope)
+		}
+	}
 	if out.Reporting != nil && out.PrimitiveProviders != nil && b.primitiveTargetProof != nil {
 		out.Reporting.SetResourceDependencies(func(ctx context.Context, pin identity.ResolvedResource, refs map[string]primitive.DataSourceReference, descriptors map[string]json.RawMessage, original map[string]identity.ResolvedResource) (map[string]identity.ResolvedResource, error) {
 			parent, e := out.PrimitiveProviders.ConnectionForProvider(ctx, pin.ProviderIdentity)
@@ -80,6 +85,11 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 		return remote.FetchProviderDatasource(ctx, *pin, target, descriptor, inputs)
 	}
 	out.DatasourceDefinitionResolver = func(ctx context.Context, pin identity.ResolvedResource, target *types.WindowTarget, id string) (*dsproto.DataSource, error) {
+		var contextErr error
+		ctx, contextErr = resourcesvc.ReadContext(ctx)
+		if contextErr != nil {
+			return nil, contextErr
+		}
 		if pin.ProviderIdentity == b.primitiveLocalIdentity {
 			if localResolve == nil {
 				return nil, identity.ErrResourceDenied
@@ -89,6 +99,11 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 		return remote.ResolveDatasource(ctx, pin, target, id)
 	}
 	out.DatasourceResourceRevalidator = func(ctx context.Context, pin identity.ResolvedResource) (*identity.ResolvedResource, error) {
+		var contextErr error
+		ctx, contextErr = resourcesvc.ReadContext(ctx)
+		if contextErr != nil {
+			return nil, contextErr
+		}
 		if pin.ProviderIdentity == b.primitiveLocalIdentity {
 			if localRevalidate == nil {
 				return nil, identity.ErrResourceDenied
@@ -102,6 +117,11 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 		return result.ResolvedResource, nil
 	}
 	out.DatasourceDefinitionAuthorizer = func(ctx context.Context, descriptor *dsproto.DataSource, inputs map[string]interface{}) error {
+		var contextErr error
+		ctx, contextErr = resourcesvc.ReadContext(ctx)
+		if contextErr != nil {
+			return contextErr
+		}
 		pin, ok := requestctx.ResolvedResourceFromContext(ctx)
 		if !ok {
 			return identity.ErrResourceDenied

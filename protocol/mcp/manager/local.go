@@ -14,6 +14,17 @@ type localRegistration struct {
 	factory func(context.Context) (mcpclient.Interface, error)
 }
 
+// IsLocalClient reports an explicit process-owned registration. Names alone
+// never establish this boundary; colliding external configuration still fails
+// the manager's normal Get collision checks.
+func (m *Manager) IsLocalClient(name string) bool {
+	if m == nil {
+		return false
+	}
+	_, ok := m.localRegistration(strings.TrimSpace(name))
+	return ok
+}
+
 func (m *Manager) localRegistration(name string) (localRegistration, bool) {
 	m.localMu.RLock()
 	defer m.localMu.RUnlock()

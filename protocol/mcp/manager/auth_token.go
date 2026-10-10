@@ -52,10 +52,16 @@ func (m *Manager) IsDelegatedAuth(ctx context.Context, serverName string) bool {
 // WithAuthTokenContext injects the selected auth token into context under the
 // MCP auth transport key so HTTP transports can emit the appropriate Bearer header.
 // This is a best-effort helper; when no token is available it returns ctx as-is.
-// Delegated servers are excluded: the parent context is returned unchanged so
-// the workspace bearer/ID token can never reach a delegated MCP transport.
+// Local registrations preserve the original in-process authority context.
+// Delegated servers are also excluded so workspace credentials never reach
+// a delegated MCP transport.
 func (m *Manager) WithAuthTokenContext(ctx context.Context, serverName string) context.Context {
 	if ctx == nil || m == nil {
+		return ctx
+	}
+	// In-process providers consume the original verified caller context. An
+	// OAuth refresh here would silently replace that captured authority.
+	if m.IsLocalClient(serverName) {
 		return ctx
 	}
 	if m.IsDelegatedAuth(ctx, serverName) {
