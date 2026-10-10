@@ -81,7 +81,7 @@ func (s *Service) emitElicitationRequested(ctx context.Context, turn *runtimereq
 	// Marshal the full ElicitRequestParams (schema, mode, url) into elicData
 	// so the UI can detect OOB elicitations and render the correct form/URL dialog.
 	elicData := map[string]interface{}{}
-	if raw, err := json.Marshal(elic.ElicitRequestParams); err == nil {
+	if raw, err := json.Marshal(elic); err == nil {
 		_ = json.Unmarshal(raw, &elicData)
 		logx.Infof("conversation", "[elicit-data] raw=%s", string(raw))
 	}
@@ -177,6 +177,12 @@ func (s *Service) RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedS
 
 // Record persists an elicitation control message and returns its message id.
 func (s *Service) Record(ctx context.Context, turn *runtimerequestctx.TurnMeta, role string, elic *execution.Elicitation) (*apiconv.MutableMessage, error) {
+	if elic != nil && elic.Deadline == "" {
+		if deadline, ok := ctx.Deadline(); ok {
+			elic.Deadline = deadline.UTC().Format(time.RFC3339Nano)
+		}
+	}
+
 	if strings.TrimSpace(elic.ElicitationId) == "" {
 		elic.ElicitationId = uuid.New().String()
 	}
@@ -321,6 +327,10 @@ func (s *Service) Wait(ctx context.Context, convID, elicitationID string) (strin
 
 	select {
 	case <-ctx.Done():
+		// Stop advertising a live waiter before the last persisted-answer check.
+		// A callback that won delivery before removal is already committed and
+		// will be read below; a later callback gets the deferred disposition.
+		s.router.RemoveByElicitation(convID, elicitationID)
 		if msg, err := s.client.GetMessageByElicitation(context.Background(), convID, elicitationID); err == nil && msg != nil {
 			status := ""
 			if msg.Status != nil {
