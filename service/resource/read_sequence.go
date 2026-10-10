@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"sort"
 	"sync"
 	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/runtime/requestctx"
 	mcpclient "github.com/viant/mcp/client"
@@ -30,19 +32,21 @@ type namespaceRead struct {
 	cap capabilities
 }
 type resourceReadSequence struct {
-	mu                     sync.Mutex
-	gateway                *Gateway
-	base                   context.Context
-	facts                  ReadFactsScope
-	factContext            context.Context
-	finishFacts            func() error
-	actor                  identity.VerifiedActor
-	lease                  time.Time
-	active, ending, closed bool
-	dispatchDepth          int
-	failed                 error
-	reads                  map[string]namespaceRead
-	originalReads          map[string]namespaceRead
+	mu                           sync.Mutex
+	gateway                      *Gateway
+	base                         context.Context
+	facts                        ReadFactsScope
+	factContext                  context.Context
+	finishFacts                  func() error
+	actor                        identity.VerifiedActor
+	lease                        time.Time
+	active, ending, closed       bool
+	phases                       int
+	dispatchDepth                int
+	failed                       error
+	reads                        map[string]namespaceRead
+	originalReads                map[string]namespaceRead
+	selection, originalSelection *selectedDatasourceBundle
 }
 
 // BeginReadSequence owns one operation's PRE/POST metadata facts. Resource
@@ -62,6 +66,21 @@ func (g *Gateway) BeginReadSequence(ctx context.Context, facts ReadFactsScope) (
 		return nil, nil, err
 	}
 	return marked, func() error { return s.finish(marked) }, nil
+}
+
+// poisonReadSequence makes an observed selection failure terminal for the
+// original operation, even if a subsequent fresh source check would succeed.
+func poisonReadSequence(ctx context.Context, err error) {
+	if err == nil {
+		return
+	}
+	if sequence := sequenceFromContext(ctx); sequence != nil {
+		sequence.mu.Lock()
+		if sequence.failed == nil {
+			sequence.failed = err
+		}
+		sequence.mu.Unlock()
+	}
 }
 
 func sequenceFromContext(ctx context.Context) *resourceReadSequence {
@@ -127,6 +146,18 @@ func (s *resourceReadSequence) startPhase(ctx context.Context) error {
 	}
 	s.mu.Lock()
 	s.factContext, s.finishFacts, s.active, s.reads = scoped, finish, true, map[string]namespaceRead{}
+	s.selection = nil
+	if s.originalSelection != nil {
+		original := s.originalSelection
+		fresh := *original
+		fresh.resources = make(map[string]selectedResourceRead, len(original.resources))
+		for id, read := range original.resources {
+			read.result = primitive.GetResult{}
+			fresh.resources[id] = read
+		}
+		s.selection = &fresh
+	}
+	s.phases++
 	s.mu.Unlock()
 	actor, err := s.gateway.actor(ctx)
 	if err != nil {
@@ -175,6 +206,11 @@ func credentialDigest(ctx context.Context) [32]byte {
 }
 
 func (g *Gateway) namespaceReadKey(ctx context.Context, actor identity.VerifiedActor, name string, options *cfg.MCPClient, client mcpclient.Interface) (string, error) {
+	return g.namespaceReadKeyForCredential(ctx, actor, name, options, client, credentialDigest(g.Manager.WithAuthTokenContext(ctx, name)))
+}
+
+// The caller may share the effective credential only within one binding check.
+func (g *Gateway) namespaceReadKeyForCredential(ctx context.Context, actor identity.VerifiedActor, name string, options *cfg.MCPClient, client mcpclient.Interface, authHash [32]byte) (string, error) {
 	if wrapped, ok := client.(*gatewayAuthClient); ok {
 		client = wrapped.Interface
 	}
@@ -187,7 +223,6 @@ func (g *Gateway) namespaceReadKey(ctx context.Context, actor identity.VerifiedA
 		return "", identity.ErrResourceDenied
 	}
 	optionsHash := sha256.Sum256(encoded)
-	authHash := credentialDigest(g.Manager.WithAuthTokenContext(ctx, name))
 	return fmt.Sprintf("%s:%x:%x:%x:%T:%x", actorKey(actor, name, g.generation(name)), optionsHash, authHash, requestctx.ResourceReadAssociation(ctx), client, value.Pointer()), nil
 }
 
@@ -200,6 +235,25 @@ func cloneCapabilities(c capabilities) capabilities {
 		copy.installed[name] = installed
 	}
 	return copy
+}
+
+// Namespace/kind/version/operation lists are sets. Provider enumeration order
+// is not a capability change and must not cause delivery-only false denials.
+func sameNamespaceContracts(left, right []primitive.NamespaceCapabilities) bool {
+	normalize := func(input []primitive.NamespaceCapabilities) []primitive.NamespaceCapabilities {
+		cloned := cloneCapabilities(capabilities{namespaces: input}).namespaces
+		sort.Slice(cloned, func(i, j int) bool { return cloned[i].Namespace < cloned[j].Namespace })
+		for i := range cloned {
+			sort.Slice(cloned[i].Kinds, func(a, b int) bool { return cloned[i].Kinds[a].Kind < cloned[i].Kinds[b].Kind })
+			for j := range cloned[i].Kinds {
+				kind := &cloned[i].Kinds[j]
+				sort.Slice(kind.FormatVersions, func(a, b int) bool { return kind.FormatVersions[a] < kind.FormatVersions[b] })
+				sort.Strings(kind.Operations)
+			}
+		}
+		return cloned
+	}
+	return reflect.DeepEqual(normalize(left), normalize(right))
 }
 
 func (s *resourceReadSequence) lookup(name, key string) (capabilities, bool, error) {
@@ -235,7 +289,7 @@ func (s *resourceReadSequence) record(name, key string, c capabilities) error {
 		return identity.ErrResourceDenied
 	}
 	if original, found := s.originalReads[name]; found {
-		if original.key != key || original.cap.connection != c.connection || !reflect.DeepEqual(original.cap.namespaces, c.namespaces) || !reflect.DeepEqual(original.cap.installed, c.installed) {
+		if original.key != key || original.cap.connection != c.connection || !sameNamespaceContracts(original.cap.namespaces, c.namespaces) || !reflect.DeepEqual(original.cap.installed, c.installed) {
 			s.failed = identity.ErrResourceDenied
 			return identity.ErrResourceDenied
 		}
@@ -268,6 +322,7 @@ func (s *resourceReadSequence) endPhase(ctx context.Context) (err error) {
 		}
 		s.mu.Lock()
 		s.active, s.factContext, s.finishFacts, s.reads = false, nil, nil, nil
+		s.selection = nil
 		if err != nil {
 			s.failed = err
 		}
@@ -275,6 +330,9 @@ func (s *resourceReadSequence) endPhase(ctx context.Context) (err error) {
 	}()
 	actor, err := s.gateway.actor(ctx)
 	if err != nil {
+		return err
+	}
+	if err := s.checkSelectedAdmissions(ctx); err != nil {
 		return err
 	}
 	for name, held := range reads {
@@ -291,9 +349,12 @@ func (s *resourceReadSequence) endPhase(ctx context.Context) (err error) {
 			return err
 		}
 		key, err := s.gateway.namespaceReadKey(ctx, actor, name, options, client)
-		if err != nil || key != held.key || current.connection != held.cap.connection || !reflect.DeepEqual(current.namespaces, held.cap.namespaces) || !reflect.DeepEqual(current.installed, held.cap.installed) {
+		if err != nil || key != held.key || current.connection != held.cap.connection || !sameNamespaceContracts(current.namespaces, held.cap.namespaces) || !reflect.DeepEqual(current.installed, held.cap.installed) {
 			return identity.ErrResourceDenied
 		}
+	}
+	if err := s.refreshSelectedResources(ctx); err != nil {
+		return err
 	}
 	if err := s.gateway.final(ctx, actor); err != nil {
 		return err
@@ -351,7 +412,43 @@ func (s *resourceReadSequence) AfterDispatch(ctx context.Context) error {
 	return err
 }
 
+func (s *resourceReadSequence) BeforeRelease(ctx context.Context) error {
+	s.mu.Lock()
+	if s.closed || s.failed != nil || s.ending || s.dispatchDepth != 0 || !s.active {
+		s.mu.Unlock()
+		return identity.ErrResourceDenied
+	}
+	if s.phases > 1 {
+		s.mu.Unlock()
+		return nil
+	}
+	s.ending = true
+	s.mu.Unlock()
+	err := s.endPhase(ctx)
+	s.mu.Lock()
+	s.ending = false
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+	err = s.startPhase(ctx)
+	if err != nil {
+		s.mu.Lock()
+		s.failed = err
+		s.mu.Unlock()
+	}
+	return err
+}
+
 func (s *resourceReadSequence) finish(ctx context.Context) error {
+	s.mu.Lock()
+	if s.closed || s.ending {
+		s.failed = identity.ErrResourceDenied
+		s.mu.Unlock()
+		return identity.ErrResourceDenied
+	}
+	s.ending = true
+	s.mu.Unlock()
 	err := s.endPhase(ctx)
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -359,6 +456,7 @@ func (s *resourceReadSequence) finish(ctx context.Context) error {
 		return identity.ErrResourceDenied
 	}
 	s.closed, s.reads, s.originalReads = true, nil, nil
+	s.selection, s.originalSelection = nil, nil
 	if err == nil && s.failed != nil {
 		err = s.failed
 	}

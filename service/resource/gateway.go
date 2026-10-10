@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	cfg "github.com/viant/agently-core/protocol/mcp/config"
 	manager "github.com/viant/agently-core/protocol/mcp/manager"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -215,22 +216,40 @@ func call[T any](ctx context.Context, c mcpclient.Interface, method string, in a
 	return out, e
 }
 
-func (g *Gateway) discover(ctx context.Context, a identity.VerifiedActor, name string) (capabilities, error) {
-	return g.discoverMode(ctx, a, name, false)
+func (g *Gateway) discover(ctx context.Context, a identity.VerifiedActor, name string, binding ...*resourceReadBinding) (capabilities, error) {
+	return g.discoverMode(ctx, a, name, false, binding...)
 }
 
-func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, name string, force bool) (capabilities, error) {
+func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, name string, force bool, bindings ...*resourceReadBinding) (capabilities, error) {
 	var scopeErr error
 	ctx, scopeErr = ReadContext(ctx)
 	if scopeErr != nil {
 		return capabilities{}, scopeErr
 	}
-	options, e := g.Manager.Options(ctx, name)
-	if e != nil {
-		return capabilities{}, e
+	var binding *resourceReadBinding
+	if len(bindings) > 0 {
+		binding = bindings[0]
 	}
-	if options == nil {
-		return capabilities{}, ErrUnavailable
+	var options *cfg.MCPClient
+	var c mcpclient.Interface
+	var e error
+	if binding != nil {
+		if binding.manager != g.Manager || binding.name != name {
+			return capabilities{}, identity.ErrResourceDenied
+		}
+		options, c = binding.options, binding.client
+	} else {
+		options, e = g.Manager.Options(ctx, name)
+		if e != nil {
+			return capabilities{}, e
+		}
+		if options == nil {
+			return capabilities{}, ErrUnavailable
+		}
+		c, e = g.client(ctx, name)
+		if e != nil {
+			return capabilities{}, e
+		}
 	}
 	restrictions := append([]string(nil), options.PrimitiveNamespaces...)
 	sort.Strings(restrictions)
@@ -240,16 +259,16 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 	g.mu.Lock()
 	cached, ok := g.cache[key]
 	g.mu.Unlock()
-	c, e := g.client(ctx, name)
-	if e != nil {
-		return capabilities{}, e
-	}
 	sequence := sequenceFromContext(ctx)
 	readKey := ""
 	if sequence != nil && !force {
-		readKey, e = g.namespaceReadKey(ctx, a, name, options, c)
-		if e != nil {
-			return capabilities{}, e
+		if binding != nil {
+			readKey = binding.key
+		} else {
+			readKey, e = g.namespaceReadKey(ctx, a, name, options, c)
+			if e != nil {
+				return capabilities{}, e
+			}
 		}
 		if read, found, err := sequence.lookup(name, readKey); found || err != nil {
 			if err != nil {
@@ -553,6 +572,13 @@ func (g *Gateway) List(ctx context.Context, kind, namespace string) ([]LocatedRe
 // Get reuses an exact provider locator. Passing a pin prevents default/current
 // reselection; both provider drift and definition-byte drift fail closed.
 func (g *Gateway) Get(ctx context.Context, connection Connection, ref identity.ResourceRef, pin *identity.ResolvedResource) (*primitive.GetResult, error) {
+	return g.get(ctx, connection, ref, pin, false)
+}
+
+func (g *Gateway) get(ctx context.Context, connection Connection, ref identity.ResourceRef, pin *identity.ResolvedResource, force bool) (out *primitive.GetResult, err error) {
+	// A failed read is part of this operation's provenance. Restoring authority
+	// later cannot revive its original selected metadata or release cached rows.
+	defer func() { poisonReadSequence(ctx, err) }()
 	var scopeErr error
 	ctx, scopeErr = ReadContext(ctx)
 	if scopeErr != nil {
@@ -566,7 +592,11 @@ func (g *Gateway) Get(ctx context.Context, connection Connection, ref identity.R
 	if e != nil {
 		return nil, e
 	}
-	c, e := g.discover(ctx, a, connection.Name)
+	binding, e := g.resolveReadBinding(ctx, a, connection.Name)
+	if e != nil {
+		return nil, e
+	}
+	c, e := g.discover(ctx, a, connection.Name, binding)
 	if e != nil {
 		return nil, e
 	}
@@ -579,11 +609,18 @@ func (g *Gateway) Get(ctx context.Context, connection Connection, ref identity.R
 		}
 		ref.Revision = pin.Selector()
 	}
-	ext, e := g.client(ctx, connection.Name)
-	if e != nil {
-		return nil, e
+	ext := binding.client
+	var result primitive.GetResult
+	found := false
+	if sequence := sequenceFromContext(ctx); sequence != nil && !force {
+		result, found, e = sequence.selectedRead(ctx, connection, pin, binding.key)
 	}
-	result, e := call[primitive.GetResult](ctx, ext, operationMethod(c, uri.Namespace, uri.Kind, "get"), primitive.GetRequest{URI: ref.URI, Revision: ref.Revision})
+	if e == nil {
+		e = g.checkReadBinding(ctx, a, binding)
+	}
+	if e == nil && !found {
+		result, e = call[primitive.GetResult](ctx, ext, operationMethod(c, uri.Namespace, uri.Kind, "get"), primitive.GetRequest{URI: ref.URI, Revision: ref.Revision})
+	}
 	if e != nil {
 		return nil, e
 	}
@@ -631,11 +668,19 @@ func (g *Gateway) Get(ctx context.Context, connection Connection, ref identity.R
 	if g.generation(connection.Name) != connection.Generation {
 		return nil, identity.ErrResourceStale
 	}
+	if e = g.checkReadBinding(ctx, a, binding); e != nil {
+		return nil, e
+	}
 	if e = g.final(ctx, a); e != nil {
 		return nil, e
 	}
 	if !actual.ValidUntil.After(g.now()) {
 		return nil, identity.ErrResourceDenied
+	}
+	if sequence := sequenceFromContext(ctx); sequence != nil && !force && !found {
+		if err := sequence.recordSelectedRead(ctx, connection, pin, &result, binding.key); err != nil {
+			return nil, err
+		}
 	}
 	return &result, nil
 }

@@ -60,30 +60,36 @@ func (g *Gateway) ConnectionForResource(ctx context.Context, uri identity.Resour
 // VerifyDependencies is suitable for PreparedAuthorization's explicit child
 // verifier. The signed target binds the supplied pins; pins alone grant nothing.
 func (c *WindowCatalog) VerifyDependencies(ctx context.Context, parent identity.ResolvedResource, target *types.WindowTarget, variant *types.WindowResourceVariant) error {
+	_, err := c.verifyDependencyReads(ctx, parent, target, variant, false)
+	return err
+}
+
+func (c *WindowCatalog) verifyDependencyReads(ctx context.Context, parent identity.ResolvedResource, target *types.WindowTarget, variant *types.WindowResourceVariant, collect bool) ([]selectedResourceRead, error) {
 	if !c.AuthzReady() || target == nil || variant == nil || target.SelectionToken == "" {
-		return identity.ErrResourceDenied
+		return nil, identity.ErrResourceDenied
 	}
 	if e := c.TargetProof.Verify(ctx, parent, *target, variant.Fingerprint, target.SelectionToken); e != nil {
-		return e
+		return nil, e
 	}
 	if len(variant.DataSourceResources) == 0 {
 		if len(target.DependencyPins) > 0 {
-			return identity.ErrResourceDenied
+			return nil, identity.ErrResourceDenied
 		}
-		return nil
+		return nil, nil
 	}
 	if len(target.DependencyPins) != len(variant.DataSourceResources) {
-		return identity.ErrResourceDenied
+		return nil, identity.ErrResourceDenied
 	}
 	connection, e := c.Gateway.ConnectionForProvider(ctx, parent.ProviderIdentity)
 	if e != nil {
-		return e
+		return nil, e
 	}
-	_, e = c.Gateway.ResolveDependencyPins(ctx, connection, parent, variant.DataSourceResources, variant.DataSources, target.DependencyPins)
-	return e
+	_, reads, e := c.Gateway.resolveDependencyReads(ctx, connection, parent, variant.DataSourceResources, variant.DataSources, target.DependencyPins, collect)
+	return reads, e
 }
 
-func (c *WindowCatalog) ResolveDatasource(ctx context.Context, parent identity.ResolvedResource, target *types.WindowTarget, id string) (*dsproto.DataSource, error) {
+func (c *WindowCatalog) ResolveDatasource(ctx context.Context, parent identity.ResolvedResource, target *types.WindowTarget, id string) (out *dsproto.DataSource, err error) {
+	defer func() { poisonReadSequence(ctx, err) }()
 	if !c.AuthzReady() {
 		return nil, identity.ErrResourceDenied
 	}
@@ -95,7 +101,8 @@ func (c *WindowCatalog) ResolveDatasource(ctx context.Context, parent identity.R
 	if e != nil {
 		return nil, e
 	}
-	if e = c.VerifyDependencies(ctx, parent, target, variant); e != nil {
+	reads, e := c.verifyDependencyReads(ctx, parent, target, variant, sequenceFromContext(ctx) != nil)
+	if e != nil {
 		return nil, e
 	}
 	raw := variant.DataSources[id]
@@ -105,6 +112,10 @@ func (c *WindowCatalog) ResolveDatasource(ctx context.Context, parent identity.R
 	var datasource dsproto.DataSource
 	if json.Unmarshal(raw, &datasource) != nil || datasource.ID != id {
 		return nil, identity.ErrResourceDenied
+	}
+	reads = append(reads, selectedResourceRead{connection: connection, pin: parent, result: *definition})
+	if e = c.registerSelectedDatasource(ctx, parent, target, id, variant, reads); e != nil {
+		return nil, e
 	}
 	if _, e = c.Gateway.Get(ctx, connection, identity.ResourceRef{URI: parent.URI}, &parent); e != nil {
 		return nil, e

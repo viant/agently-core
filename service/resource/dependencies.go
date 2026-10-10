@@ -96,32 +96,38 @@ func (g *Gateway) configuredOwnerConnection(ctx context.Context, owner string) (
 // the server materialized attachment with the exact child descriptor. Existing
 // pins are mandatory on execution/re-read; omitted pins only start a new open.
 func (g *Gateway) ResolveDependencyPins(ctx context.Context, parent Connection, parentPin identity.ResolvedResource, refs map[string]primitive.DataSourceReference, descriptors map[string]json.RawMessage, existing map[string]identity.ResolvedResource) (map[string]identity.ResolvedResource, error) {
+	pins, _, err := g.resolveDependencyReads(ctx, parent, parentPin, refs, descriptors, existing, false)
+	return pins, err
+}
+
+func (g *Gateway) resolveDependencyReads(ctx context.Context, parent Connection, parentPin identity.ResolvedResource, refs map[string]primitive.DataSourceReference, descriptors map[string]json.RawMessage, existing map[string]identity.ResolvedResource, collect bool) (map[string]identity.ResolvedResource, []selectedResourceRead, error) {
 	if len(refs) > 128 || existing != nil && len(existing) != len(refs) {
-		return nil, identity.ErrResourceDenied
+		return nil, nil, identity.ErrResourceDenied
 	}
 	result := make(map[string]identity.ResolvedResource, len(refs))
+	reads := []selectedResourceRead{}
 	for id, ref := range refs {
 		if ref.Validate(parentPin.Kind == identity.StampedCandidate) != nil || descriptors[id] == nil {
-			return nil, identity.ErrResourceDenied
+			return nil, nil, identity.ErrResourceDenied
 		}
 		connection, e := g.dependencyConnection(ctx, parent, ref.ProviderIdentity)
 		if e != nil {
-			return nil, e
+			return nil, nil, e
 		}
 		var original *identity.ResolvedResource
 		if existing != nil {
 			pin, ok := existing[id]
 			if !ok || pin.URI != ref.Resource.URI || pin.Selector() != ref.Resource.Revision || pin.ContentFingerprint != ref.ContentFingerprint || pin.ProviderIdentity != ref.ProviderIdentity {
-				return nil, identity.ErrResourceDenied
+				return nil, nil, identity.ErrResourceDenied
 			}
 			original = &pin
 		}
 		child, e := g.Get(ctx, connection, ref.Resource, original)
 		if e != nil {
-			return nil, e
+			return nil, nil, e
 		}
 		if child.ResolvedResource.ContentFingerprint != ref.ContentFingerprint || child.ResolvedResource.ProviderIdentity != ref.ProviderIdentity {
-			return nil, identity.ErrResourceDenied
+			return nil, nil, identity.ErrResourceDenied
 		}
 		var envelope struct {
 			SchemaVersion int64           `json:"schemaVersion"`
@@ -130,35 +136,41 @@ func (g *Gateway) ResolveDependencyPins(ctx context.Context, parent Connection, 
 		decoder := json.NewDecoder(strings.NewReader(string(child.Resource.Definition)))
 		decoder.DisallowUnknownFields()
 		if decoder.Decode(&envelope) != nil || envelope.SchemaVersion != 1 || !json.Valid(envelope.DataSource) {
-			return nil, identity.ErrResourceDenied
+			return nil, nil, identity.ErrResourceDenied
 		}
 		canonical, e := types.CanonicalWindowDescriptor(envelope.DataSource)
 		if e != nil {
-			return nil, e
+			return nil, nil, e
 		}
 		var descriptor map[string]json.RawMessage
 		if json.Unmarshal(canonical, &descriptor) != nil || descriptor == nil {
-			return nil, identity.ErrResourceDenied
+			return nil, nil, identity.ErrResourceDenied
 		}
 		var sourceID string
 		if json.Unmarshal(descriptor["id"], &sourceID) != nil || sourceID == "" {
-			return nil, identity.ErrResourceDenied
+			return nil, nil, identity.ErrResourceDenied
 		}
 		encodedID, _ := json.Marshal(id)
 		descriptor["id"] = encodedID
 		derived, e := json.Marshal(descriptor)
 		if e != nil {
-			return nil, e
+			return nil, nil, e
 		}
 		expected, e := types.WindowDescriptorFingerprint(descriptors[id])
 		if e != nil {
-			return nil, e
+			return nil, nil, e
 		}
 		actual, e := types.WindowDescriptorFingerprint(derived)
 		if e != nil || actual != expected {
-			return nil, identity.ErrResourceDenied
+			return nil, nil, identity.ErrResourceDenied
 		}
 		result[id] = *child.ResolvedResource
+		if collect {
+			if original == nil {
+				return nil, nil, identity.ErrResourceDenied
+			}
+			reads = append(reads, selectedResourceRead{connection: connection, pin: *original, result: *child})
+		}
 	}
-	return result, nil
+	return result, reads, nil
 }
