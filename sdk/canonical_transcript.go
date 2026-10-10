@@ -160,9 +160,9 @@ func buildTurnState(turn *convstore.Turn) *TurnState {
 		if ts.Assistant == nil {
 			ts.Assistant = &AssistantState{}
 		}
-		if ts.Assistant.Final == nil {
-			ts.Assistant.Final = latestFinal
-		}
+		// Execution pages summarize content without the stored final timestamp.
+		// Preserve the actual primary message's identity and chronology.
+		ts.Assistant.Final = latestFinal
 	}
 
 	return ts
