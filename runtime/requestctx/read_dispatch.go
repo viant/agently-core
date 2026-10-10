@@ -17,6 +17,18 @@ type ResourceReadDispatch interface {
 	AfterDispatch(context.Context) error
 }
 
+// ResourceReadRelease advances a cache hit to fresh POST checks without
+// pretending that a backend or tool was dispatched.
+type ResourceReadRelease interface{ BeforeRelease(context.Context) error }
+
+func BeginResourceReadRelease(ctx context.Context) error {
+	lifecycle, _ := ctx.Value(resourceReadDispatchKey{}).(ResourceReadRelease)
+	if lifecycle == nil {
+		return ctx.Err()
+	}
+	return lifecycle.BeforeRelease(ctx)
+}
+
 type resourceReadDispatchKey struct{}
 type resourceReadAssociationKey struct{}
 

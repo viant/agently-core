@@ -348,6 +348,9 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 		if entry, ok := s.cache.get(cacheKey); ok {
 			age := s.now().Sub(entry.fetchedAt)
 			if age <= policy.TTL {
+				if err := runtimerequestctx.BeginResourceReadRelease(ctx); err != nil {
+					return nil, err
+				}
 				res := cloneResult(entry.result)
 				res.Cache = &dsproto.CacheMeta{
 					Hit:        true,

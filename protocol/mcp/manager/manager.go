@@ -916,13 +916,16 @@ func (m *Manager) EvictUserServer(userID, serverName string) {
 	if m == nil || userID == "" || serverName == "" {
 		return
 	}
+	// Default authenticated pools encode the exact owner length; matching the
+	// raw user prefix alone misses them and must not confuse colon subjects.
+	principalPrefix := fmt.Sprintf("principal:%d:%s:", len(userID), userID)
 	var toClose []mcpclient.Interface
 	m.mu.Lock()
 	if m.epoch == nil {
 		m.epoch = map[string]uint64{}
 	}
 	for key, perServer := range m.pool {
-		if key != userID && !strings.HasPrefix(key, userID+":") {
+		if key != userID && !strings.HasPrefix(key, userID+":") && !strings.HasPrefix(key, principalPrefix) {
 			continue
 		}
 		if e := perServer[serverName]; e != nil {

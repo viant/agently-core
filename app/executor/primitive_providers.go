@@ -139,7 +139,10 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 		if _, e := remote.ResolveDatasource(ctx, *pin, target, descriptor.ID); e != nil {
 			return e
 		}
-		return b.primitiveDatasourceAdmission(ctx, *pin, descriptor, inputs)
+		if err := b.primitiveDatasourceAdmission(ctx, *pin, descriptor, inputs); err != nil {
+			return err
+		}
+		return registerDatasourceReadAdmission(ctx, *pin, target, descriptor, inputs, b.primitiveDatasourceAdmission)
 	}
 	b.configureStandaloneDatasourceProviders(out)
 	return nil
