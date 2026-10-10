@@ -20,13 +20,16 @@ const projection: AgUiConversationProjectionFactory = options => ({ subscriber: 
 function fixture(active: Array<Record<string, unknown>> = [], beforeAdmission?: (init?: RequestInit) => Promise<void>, hostActivities: unknown[] = [], beforeBootstrap?: () => Promise<void>, bootstrapTurns: () => any[] = () => [], wireThreadId?: string, browserMCP?: BrowserMCPHost) {
     const posted: any[] = [];
     let metadataReads = 0;
+    const bindingRequests: string[] = [];
     const controls = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
     const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
         if (String(url).includes('/conversations/')) {
             expect(init?.credentials).toBe('include');
             expect(init?.method).toBe('GET');
             metadataReads++;
-            return new Response(JSON.stringify({ id: decodeURIComponent(String(url).split('/').at(-1)!), aguiThreadId: wireThreadId }), { headers: { 'Content-Type': 'application/json' } });
+            bindingRequests.push(String(url));
+            const pathname = new URL(String(url), 'http://fixture.test').pathname;
+            return new Response(JSON.stringify({ id: decodeURIComponent(pathname.split('/').at(-1)!), aguiThreadId: wireThreadId }), { headers: { 'Content-Type': 'application/json' } });
         }
         expect(String(url)).toBe('/v1/ag-ui/run');
         expect(init?.credentials).toBe('include');
@@ -68,10 +71,21 @@ function fixture(active: Array<Record<string, unknown>> = [], beforeAdmission?: 
         controller.enqueue(frame({ type: 'RUN_FINISHED', threadId: wireThreadId ?? 'thread', runId }));
         controller.close();
     };
-    return { host, transport, posted, controls, finish, metadataReads: () => metadataReads };
+    return { host, transport, posted, controls, finish, bindingRequests, metadataReads: () => metadataReads };
 }
 
 describe('native web conversation orchestration', () => {
+    it('resolves snapshot binding with an authenticated header-only read before compact bootstrap', async () => {
+        const f = fixture([], undefined, [], undefined, () => [], 'opaque-wire');
+        await f.transport.readSnapshot('thread', { mode: 'transcript', includeModelPayloads: false });
+        expect(f.bindingRequests).toEqual(['/v1/conversations/thread?includeTranscript=false']);
+        expect(f.posted).toHaveLength(1);
+        expect(f.posted[0].threadId).toBe('opaque-wire');
+        expect(f.posted[0].forwardedProps.agently.payload.includeModelPayloads).toBe(false);
+        await f.transport.refresh('thread');
+        expect(f.bindingRequests).toHaveLength(1);
+        f.host.resetAgUiInteractions(); f.transport.reset();
+    });
     it('preserves selected history flags and pagination through AG-UI without replacing full coordinator state', async () => {
         const f = fixture();
         const result = await f.host.getTranscript({conversationId:'thread',since:'previous',includeModelCalls:false,includeToolCalls:true,includeFeeds:false}, {executionGroupLimit:5,executionGroupOffset:2});
