@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	dsproto "github.com/viant/agently-core/protocol/datasource"
 	"io"
 	"log"
 	"net"
@@ -1270,6 +1271,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			}
 			if res.IsError != nil && *res.IsError {
 				terr := toolError(res)
+				if status := numericMCPAuthorizationStatus(res); status != 0 {
+					terr = &dsproto.UpstreamAuthorizationError{Status: status, Cause: terr}
+				}
 				if mcpapps.Active(ctx) || appActivity {
 					terr = errors.New("MCP app tool returned an error")
 				}
