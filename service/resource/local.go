@@ -343,7 +343,11 @@ func (p *LocalProvider) NamespaceGet(ctx context.Context, input primitive.Namesp
 		}
 		sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
 		ops := []string{"list", "get"}
-		out.Kinds = append(out.Kinds, primitive.KindSupport{Kind: kind, FormatVersions: versions, Operations: ops, TestSupported: false, Methods: primitive.Methods(kind, ops)})
+		support := primitive.KindSupport{Kind: kind, FormatVersions: versions, Operations: ops, TestSupported: false, Methods: primitive.Methods(kind, ops)}
+		if kind == primitive.ToolfeedKind {
+			support.SchemaURI = primitive.ToolfeedSchemaURI
+		}
+		out.Kinds = append(out.Kinds, support)
 	}
 	if err := p.authorize(ctx, actor, probe, "namespace.get"); err != nil {
 		return nil, err
