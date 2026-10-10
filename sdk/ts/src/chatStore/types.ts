@@ -215,6 +215,7 @@ export interface ClientElicitation extends EntityIdentity {
     status?: ClientElicitationStatus;
     message?: string;
     requestedSchema?: JSONObject | null;
+    deadline?: string;
     callbackUrl?: string;
     responsePayload?: JSONValue | null;
 }
@@ -600,6 +601,7 @@ export interface CanonicalElicitationState {
     status?: ClientElicitationStatus | 'cancel' | 'cancelled';
     message?: string;
     requestedSchema?: JSONObject | null;
+    deadline?: string;
     callbackUrl?: string;
     responsePayload?: JSONValue | null;
 }
