@@ -146,7 +146,15 @@ func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceR
 			Scope         *reportExecutionDatasetScope `json:"scope"`
 		} `json:"datasets"`
 	}
-	if json.Unmarshal(compiled.ReportSpec, &spec) != nil || len(spec.Datasets) == 0 {
+	decodeSpec := json.Unmarshal
+	for _, rawDescriptor := range envelope.DataSources {
+		var candidate dsproto.DataSource
+		if decodeReportDatasource(rawDescriptor, &candidate) == nil && explicitReportPaging(&candidate) {
+			decodeSpec = decodeReportPagingJSON
+			break
+		}
+	}
+	if decodeSpec(compiled.ReportSpec, &spec) != nil || len(spec.Datasets) == 0 {
 		return nil, fmt.Errorf("report has no executable datasets")
 	}
 
@@ -170,7 +178,7 @@ func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceR
 		seen[dataset.ID] = true
 		descriptorRaw := envelope.DataSources[dataset.DataSourceRef]
 		descriptor := new(dsproto.DataSource)
-		if len(descriptorRaw) == 0 || json.Unmarshal(descriptorRaw, descriptor) != nil || descriptor.ID != dataset.DataSourceRef || descriptor.Backend == nil {
+		if len(descriptorRaw) == 0 || decodeReportDatasource(descriptorRaw, descriptor) != nil || descriptor.ID != dataset.DataSourceRef || descriptor.Backend == nil {
 			return nil, identity.ErrResourceDenied
 		}
 		args, err := reportDatasetArguments(dataset.Request, request.Parameters, descriptor, envelope.BuilderDefinition, dataset.Scope)
@@ -197,7 +205,9 @@ func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceR
 		if err = check(); err != nil {
 			return nil, err
 		}
-		result, err := s.resourceDatasetExecutor(requestctx.WithResourceDependencies(requestctx.WithResolvedResource(ctx, *pin), *pin, compiled.DependencyPins), *pin, plan.descriptor, plan.args)
+		result, err := fetchCompleteResourceDataset(ctx, plan.descriptor, plan.args, check, func(exact *dsproto.DataSource, pageArgs map[string]interface{}) (*dsproto.FetchResult, error) {
+			return s.resourceDatasetExecutor(requestctx.WithResourceDependencies(requestctx.WithResolvedResource(ctx, *pin), *pin, compiled.DependencyPins), *pin, exact, pageArgs)
+		})
 		if err != nil {
 			return nil, err
 		}
@@ -229,7 +239,11 @@ func reportDatasetArguments(base, parameters map[string]interface{}, descriptor 
 	}
 	args := map[string]interface{}{}
 	if len(raw) > 0 && string(raw) != "null" {
-		if json.Unmarshal(raw, &args) != nil {
+		decode := json.Unmarshal
+		if explicitReportPaging(descriptor) {
+			decode = decodeReportPagingJSON
+		}
+		if decode(raw, &args) != nil {
 			return nil, identity.ErrResourceDenied
 		}
 	}
@@ -370,7 +384,7 @@ func (s *Service) AuthorizeResourceDataset(ctx context.Context, descriptor *dspr
 	}
 	expectedRaw := e.DataSources[descriptor.ID]
 	var expected dsproto.DataSource
-	if len(expectedRaw) == 0 || json.Unmarshal(expectedRaw, &expected) != nil {
+	if len(expectedRaw) == 0 || decodeReportDatasource(expectedRaw, &expected) != nil {
 		return identity.ErrResourceDenied
 	}
 	if !reflect.DeepEqual(&expected, descriptor) {

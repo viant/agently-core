@@ -1,6 +1,8 @@
 package datasource
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/viant/forge/backend/types"
 	"math"
@@ -14,6 +16,11 @@ func validateExplicitPaging(ds *types.DataSource) error {
 	switch strings.ToLower(strings.TrimSpace(ds.Paging.Mode)) {
 	case "", "page", "offset":
 		return nil
+	case "cursor":
+		if ds.Paging.Parameters == nil || ds.Paging.Parameters.Page == "" || ds.Paging.DataInfoSelectors == nil || ds.Paging.DataInfoSelectors.HasMore == "" || ds.Paging.DataInfoSelectors.NextCursor == "" {
+			return fmt.Errorf("cursor paging requires authored token parameter and hasMore/nextCursor selectors")
+		}
+		return nil
 	default:
 		return fmt.Errorf("unsupported datasource paging mode %q", ds.Paging.Mode)
 	}
@@ -25,6 +32,16 @@ func applyExplicitPaging(rows []map[string]interface{}, info map[string]interfac
 	out := map[string]interface{}{}
 	for key, value := range info {
 		out[key] = value
+	}
+	if selectors := ds.Paging.DataInfoSelectors; selectors != nil && selectors.HasMore != "" {
+		out["hasMore"] = selectPath(selectors.HasMore, info)
+	}
+	if strings.EqualFold(strings.TrimSpace(ds.Paging.Mode), "cursor") {
+		selectors := ds.Paging.DataInfoSelectors
+		out["hasMore"] = selectPath(selectors.HasMore, info)
+		out["nextCursor"] = selectPath(selectors.NextCursor, info)
+		out["returnedCount"] = len(rows)
+		return rows, out
 	}
 	position, sizeName := "page", "size"
 	if p := ds.Paging.Parameters; p != nil {
@@ -83,3 +100,46 @@ func applyExplicitPaging(rows []map[string]interface{}, info map[string]interfac
 	}
 	return rows, out
 }
+
+func validatePagingDataInfo(ds *types.DataSource, info map[string]interface{}, inputs ...map[string]interface{}) error {
+	if ds == nil || ds.Paging == nil || !ds.Paging.Enabled || strings.TrimSpace(ds.Paging.Mode) == "" {
+		return nil
+	}
+	mode := strings.ToLower(strings.TrimSpace(ds.Paging.Mode))
+	if mode != "cursor" && (ds.Paging.DataInfoSelectors == nil || ds.Paging.DataInfoSelectors.HasMore == "") {
+		return nil
+	}
+
+	selectors := ds.Paging.DataInfoSelectors
+	more, ok := selectPath(selectors.HasMore, info).(bool)
+	if !ok {
+		return fmt.Errorf("explicit paging result requires a boolean hasMore")
+	}
+	if mode != "cursor" {
+		return nil
+	}
+	token := selectPath(selectors.NextCursor, info)
+	if more && (token == nil || isEmptyCursorString(token)) {
+		return fmt.Errorf("cursor result is missing nextCursor")
+	}
+	if more {
+		encoded, err := json.Marshal(token)
+		if err != nil {
+			return fmt.Errorf("cursor result has invalid nextCursor: %w", err)
+		}
+		if len(inputs) > 0 {
+			if current, present := inputs[0][ds.Paging.Parameters.Page]; present {
+				previous, err := json.Marshal(current)
+				if err != nil {
+					return err
+				}
+				if bytes.Equal(previous, encoded) {
+					return fmt.Errorf("cursor result repeated current continuation token")
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func isEmptyCursorString(token interface{}) bool { text, ok := token.(string); return ok && text == "" }
