@@ -1133,6 +1133,11 @@ export class AgentlyClient {
         if (!key) throw new Error('window key is required');
         const query = targetContextQuery(input.targetContext);
         query.set('applyPermission', 'true');
+        if (input.resolvedResource) query.set('resolvedResource', JSON.stringify(input.resolvedResource));
+        if (input.authorizationSchemaVersion !== undefined) {
+            if (input.authorizationSchemaVersion !== 1 && input.authorizationSchemaVersion !== 2) throw new Error('authorization schema version must be 1 or 2');
+            query.set('authorizationSchemaVersion', String(input.authorizationSchemaVersion));
+        }
         const conversationId = String(input?.conversationId || '').trim();
         if (conversationId) query.set('conversationId', conversationId);
         if (input?.resource && Object.keys(input.resource).length > 0) query.set('resource', JSON.stringify(input.resource));
@@ -1151,6 +1156,8 @@ export class AgentlyClient {
         const id = String(input?.id || '').trim();
         if (!id) throw new Error('datasource id is required');
         const body: JSONObject = {};
+        if (input.resource) body.resource = input.resource as unknown as JSONObject;
+        if (input.windowParameters) body.windowParameters = input.windowParameters;
         if (input.inputs) body.inputs = input.inputs;
         if (input.cache) body.cache = input.cache as JSONObject;
         const conversationId = input.conversationId?.trim();
