@@ -13,6 +13,26 @@ func (g *Gateway) ConnectionForProvider(ctx context.Context, owner string) (Conn
 	return g.dependencyConnection(ctx, Connection{}, owner)
 }
 func (g *Gateway) ConnectionForResource(ctx context.Context, uri identity.ResourceURI, owner string) (Connection, error) {
+	if connection, found, err := g.declaredOwnerConnection(ctx, owner); found || err != nil {
+		if err != nil {
+			return Connection{}, err
+		}
+		actor, err := g.actor(ctx)
+		if err != nil {
+			return Connection{}, err
+		}
+		caps, err := g.discover(ctx, actor, connection.Name)
+		if err != nil {
+			return Connection{}, err
+		}
+		if !supports(caps, uri.Namespace, uri.Kind, "get") {
+			return Connection{}, identity.ErrResourceDenied
+		}
+		if err = g.final(ctx, actor); err != nil {
+			return Connection{}, err
+		}
+		return connection, nil
+	}
 	discovered, e := g.Discover(ctx)
 	if e != nil {
 		return Connection{}, e
