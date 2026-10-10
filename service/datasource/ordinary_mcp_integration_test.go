@@ -81,10 +81,14 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 		result = map[string]any{}
 	case "tools/list":
 		tools := []any{}
-		for _, name := range []string{"lookup", "offset", "cursor", "scalar", "cursor-number", "cursor-object", "cursor-object-safe", "windows/list", "cursor.number-list"} {
+		for _, name := range []string{"lookup", "offset", "page", "cursor", "scalar", "cursor-number", "cursor-object", "cursor-object-safe", "windows/list", "cursor.number-list"} {
 			props := map[string]any{"term": map[string]any{"type": "string"}}
-			if name == "offset" {
-				props["skipRows"] = map[string]any{"type": "integer"}
+			if name == "offset" || name == "page" {
+				if name == "page" {
+					props["pageIndex"] = map[string]any{"type": "integer"}
+				} else {
+					props["skipRows"] = map[string]any{"type": "integer"}
+				}
 				props["takeRows"] = map[string]any{"type": "integer"}
 			}
 			if strings.HasPrefix(name, "cursor") {
@@ -114,8 +118,12 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 			break
 		}
 		allowed := map[string]bool{"term": true}
-		if p.Name == "offset" {
-			allowed["skipRows"] = true
+		if p.Name == "offset" || p.Name == "page" {
+			if p.Name == "page" {
+				allowed["pageIndex"] = true
+			} else {
+				allowed["skipRows"] = true
+			}
 			allowed["takeRows"] = true
 		}
 		if strings.HasPrefix(p.Name, "cursor") {
@@ -153,9 +161,13 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 		switch p.Name {
 		case "lookup", "windows/list", "cursor.number-list":
 			payload = map[string]any{"reply": map[string]any{"widgets": []any{map[string]any{"code": "alpha", "label": p.Arguments["term"]}, map[string]any{"code": "beta", "label": "second"}}}}
-		case "offset":
+		case "offset", "page":
 			skip, _ := p.Arguments["skipRows"].(float64)
 			take, _ := p.Arguments["takeRows"].(float64)
+			if p.Name == "page" {
+				page, _ := p.Arguments["pageIndex"].(float64)
+				skip = (page - 1) * take
+			}
 			if take <= 0 {
 				rpcErr = map[string]any{"code": -32602, "message": "takeRows is required"}
 				break
@@ -177,6 +189,16 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 				id = "beta"
 			}
 			payload = map[string]any{"reply": map[string]any{"widgets": []any{map[string]any{"id": id}}}, "nav": map[string]any{"nextToken": next, "remaining": next != ""}}
+			if p.Arguments["term"] == "repeat" {
+				payload = map[string]any{"reply": map[string]any{"widgets": []any{map[string]any{"id": id}}}, "nav": map[string]any{"remaining": true, "nextToken": "after-alpha"}}
+			}
+			if p.Arguments["term"] == "emptyMore" {
+				payload = map[string]any{"reply": map[string]any{"widgets": []any{}}, "nav": map[string]any{"remaining": true, "nextToken": "after-alpha"}}
+			}
+			if p.Arguments["term"] == "pageError" && token != "" {
+				rpcErr = map[string]any{"code": -32603, "message": "second page failed"}
+			}
+
 		case "cursor-number", "cursor-object", "cursor-object-safe":
 			token := interface{}(json.Number("9223372036854775807"))
 			if p.Name == "cursor-object" || p.Name == "cursor-object-safe" {
@@ -247,7 +269,7 @@ func ordinaryMCPStack(t *testing.T) (*ordinaryMCPFixture, *registry.Registry, co
 		t.Fatal(e)
 	}
 	tools, e := client.ListTools(ctx, nil)
-	if e != nil || len(tools.Tools) != 9 {
+	if e != nil || len(tools.Tools) != 10 {
 		t.Fatalf("ordinary tools/list: %v", e)
 	}
 	r, e := registry.NewWithManager(mgr)

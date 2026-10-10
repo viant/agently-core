@@ -256,7 +256,7 @@ func (s *Service) prepareUnifiedExportRequest(ctx context.Context, request *Subm
 		ReportFill: cloneJSON(execution.ReportFill), ReportPrint: cloneJSON(execution.ReportPrint),
 		ResolvedResource: cloneResolvedResource(exportPin),
 	}
-	if err := validateSubmitExportRequest(prepared); err != nil {
+	if err := validateSubmitExportRequest(prepared, exportValidationOptions{resourceDatasourceRequests: true}); err != nil {
 		return nil, nil, err
 	}
 	return prepared, cloneResolvedResource(exportPin), nil

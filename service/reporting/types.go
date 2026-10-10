@@ -154,21 +154,23 @@ type CompileResult struct {
 // RenderRequest is the worker-facing canonical export payload handed to the
 // backend exporter boundary.
 type RenderRequest struct {
-	JobID             string                     `json:"jobId,omitempty"`
-	ArtifactRef       string                     `json:"artifactRef,omitempty"`
-	OwnerID           string                     `json:"ownerId,omitempty"`
-	ConversationID    string                     `json:"conversationId,omitempty"`
-	WorkspaceID       string                     `json:"workspaceId,omitempty"`
-	AuthContextRef    string                     `json:"authContextRef,omitempty"`
-	Format            ExportFormat               `json:"format,omitempty"`
-	Scope             ExportScope                `json:"scope,omitempty"`
-	ReportRunID       string                     `json:"reportRunId,omitempty"`
-	ReportRunRevision int64                      `json:"reportRunRevision,omitempty"`
-	ResourcePin       *identity.ResolvedResource `json:"-"`
-	ReportSpec        json.RawMessage            `json:"reportSpec,omitempty"`
-	ReportFill        json.RawMessage            `json:"reportFill,omitempty"`
-	ReportPrint       json.RawMessage            `json:"reportPrint,omitempty"`
-	Metadata          json.RawMessage            `json:"metadata,omitempty"`
+	// Set only by the canonical worker after scoped job and resource admission.
+	resourceDatasourceRequests bool
+	JobID                      string                     `json:"jobId,omitempty"`
+	ArtifactRef                string                     `json:"artifactRef,omitempty"`
+	OwnerID                    string                     `json:"ownerId,omitempty"`
+	ConversationID             string                     `json:"conversationId,omitempty"`
+	WorkspaceID                string                     `json:"workspaceId,omitempty"`
+	AuthContextRef             string                     `json:"authContextRef,omitempty"`
+	Format                     ExportFormat               `json:"format,omitempty"`
+	Scope                      ExportScope                `json:"scope,omitempty"`
+	ReportRunID                string                     `json:"reportRunId,omitempty"`
+	ReportRunRevision          int64                      `json:"reportRunRevision,omitempty"`
+	ResourcePin                *identity.ResolvedResource `json:"-"`
+	ReportSpec                 json.RawMessage            `json:"reportSpec,omitempty"`
+	ReportFill                 json.RawMessage            `json:"reportFill,omitempty"`
+	ReportPrint                json.RawMessage            `json:"reportPrint,omitempty"`
+	Metadata                   json.RawMessage            `json:"metadata,omitempty"`
 }
 
 // RenderResult is the exporter output consumed by agently-core artifact
