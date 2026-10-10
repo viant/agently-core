@@ -2,6 +2,7 @@ package model
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/viant/agently-core/genai/llm/provider"
@@ -118,6 +119,15 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 				}
 				config.Options.MaxTokens = tokens
 			}
+		case "toolresultpreviewlimit":
+			if valueNode.Kind != yaml.ScalarNode {
+				return fmt.Errorf("tool result preview limit must be an integer")
+			}
+			value, err := checkedToolPreviewLimit(valueNode.Interface(), strconv.IntSize)
+			if err != nil {
+				return err
+			}
+			config.Options.ToolResultPreviewLimit = value
 		case "keepalive":
 			if valueNode.Kind == yaml.ScalarNode {
 				config.Options.KeepAlive = strings.TrimSpace(valueNode.Value)
@@ -264,4 +274,27 @@ func decodeYaml(node *yml.Node, config *provider.Config) error {
 		}
 		return nil
 	})
+}
+
+func checkedToolPreviewLimit(value any, bits int) (int, error) {
+	var n int64
+	switch actual := value.(type) {
+	case int:
+		n = int64(actual)
+	case int64:
+		n = actual
+	default:
+		return 0, fmt.Errorf("tool result preview limit must be an integer")
+	}
+	max := int64(^uint64(0) >> 1)
+	if bits == 32 {
+		max = (1 << 31) - 1
+	} else if bits != 64 {
+		return 0, fmt.Errorf("unsupported integer width")
+	}
+	min := -max - 1
+	if n > max || n < min {
+		return 0, fmt.Errorf("tool result preview limit exceeds integer range")
+	}
+	return int(n), nil
 }

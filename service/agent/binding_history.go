@@ -264,10 +264,20 @@ func (s *Service) buildChronologicalHistory(
 			orig = *msg.Content
 		}
 		text := orig
-		if applyPreview && orig != "" {
-			limit := s.messagePreviewLimit(item.turnIdx, totalTurns, true, isConcreteToolResultMessage(msg))
+		isToolResult := isConcreteToolResultMessage(msg)
+		if (applyPreview || isToolResult) && orig != "" {
+			limit := 0
+			if applyPreview {
+				limit = s.messagePreviewLimit(item.turnIdx, totalTurns, true, isToolResult)
+			}
+			if isToolResult {
+				limit = stricterToolResultLimit(s.messagePreviewLimit(item.turnIdx, totalTurns, true, true), s.selectedModelToolResultLimit(input))
+			}
 			if limit > 0 {
 				preview, of := buildOverflowPreview(orig, limit, msg.Id, allowContinuation)
+				if isToolResult {
+					preview, of = s.presentRecordedToolResult(ctx, input, orig, msg.Id, limit, allowContinuation)
+				}
 				if of {
 					overflow = true
 					if size := len(orig); size > maxOverflowBytes {
