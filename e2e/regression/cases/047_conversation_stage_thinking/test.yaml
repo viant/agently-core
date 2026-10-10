@@ -1,69 +1,98 @@
 init:
   turnSuffix: $FormatTime('now', 'yyyyMMdd-HHmmss-SSS')
-
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-stage-test
+      email: e2e-stage-test@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "conversation stage thinking - create conversation"
+    description: conversation stage thinking - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: simple
+        Title: conversation-stage-thinking-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: simple
-          Title: conversation-stage-thinking-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   runAndCheckThinking:
     multiAction: true
-
     startLongTurn:
       when: $sdkKey != ''
       action: http/runner:send
       Async: true
-      description: "conversation stage thinking - start long story turn asynchronously"
+      description: conversation stage thinking - start long story turn asynchronously
       requests:
-        - Method: POST
-          URL: ${serverURL}/v1/agent/query
-          Header:
-            Connection: [close]
-          JSONBody:
-            ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-            AgentID: simple
-            MessageID: e2e-stage-thinking-turn-${turnSuffix}
-            UserId: e2e-stage-test
-            Query: create 500 words long story about mouse in bakery, for kids, no violence
-
+      - Method: POST
+        URL: ${aguiProbeURL}/run
+        Header:
+          Connection:
+          - close
+          Authorization:
+          - Bearer ${mintCanonicalOwner.TokenString}
+        JSONBody:
+          target: ${authServerURL}
+          probeId: 047_conversation_stage_thinking-startLongTurn
+          query:
+            conversationID: ${createConversation.Responses[0].JSONBody.id}
+            agentID: simple
+            messageID: e2e-stage-thinking-turn-${turnSuffix}
+            query: create 500 words long story about mouse in bakery, for kids, no
+              violence
     waitForTurnActivation:
       when: $sdkKey != ''
       action: nop
       sleepTimeMs: 2000
-
     getConversation:
       when: $sdkKey != ''
       action: http/runner:send
-      description: "conversation stage thinking - conversation and latest turn should be thinking"
+      description: conversation stage thinking - conversation and latest turn should
+        be thinking
       requests:
-        - Method: GET
-          URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
-          Expect:
-            Code: 200
-            JSONBody:
-              Id: ${createConversation.Responses[0].JSONBody.Id}
-              Stage: thinking
-              Transcript:
-                - Stage: thinking
-                  Status: running
-
+      - Method: GET
+        URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}
+        Expect:
+          Code: 200
+          JSONBody:
+            id: ${createConversation.Responses[0].JSONBody.id}
+            stage: thinking
+            transcript:
+            - stage: thinking
+              status: running
+        Header:
+          Authorization:
+          - Bearer ${mintCanonicalOwner.TokenString}
+  observeActiveNativeTurn:
+    action: http/runner:send
+    requests:
+    - Method: GET
+      URL: ${aguiProbeURL}/observe/047_conversation_stage_thinking-startLongTurn
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@identity.nativeTurnId': true
   cancelRunningTurn:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "conversation stage thinking - cancel turn for cleanup"
+    description: conversation stage thinking - cancel turn for cleanup
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/turns/e2e-stage-thinking-turn-${turnSuffix}/cancel
-        Expect:
-          Code: 200
+    - Method: POST
+      URL: ${authServerURL}/v1/turns/${observeActiveNativeTurn.Responses[0].JSONBody.identity.nativeTurnId}/cancel
+      Expect:
+        Code: 200
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

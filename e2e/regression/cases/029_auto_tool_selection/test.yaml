@@ -1,48 +1,64 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto tool selection - create conversation"
+    description: auto tool selection - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: tool_exposure_probe
+        Title: auto-tool-selection-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: tool_exposure_probe
-          Title: auto-tool-selection-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   startAutoToolSelect:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto tool selection - run query"
+    description: auto tool selection - run query
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
-        JSONBody:
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          AgentID: tool_exposure_probe
-          Query: CALL_TOOL
-          UserId: e2e-test
-          AutoSelectTools: true
-
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 029_auto_tool_selection-startAutoToolSelect
+        query:
+          conversationID: ${createConversation.Responses[0].JSONBody.id}
+          agentID: tool_exposure_probe
+          query: CALL_TOOL
+          autoSelectTools: true
   waitAutoToolSelect:
     when: $sdkKey != ''
     action: nop
     sleepTimeMs: 500
-
   verifyToolCall:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto tool selection - query should produce a tool_op"
+    description: auto tool selection - query should produce a tool_op
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${createConversation.Responses[0].JSONBody.Id}&types=tool_op
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows[0]": true
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${createConversation.Responses[0].JSONBody.id}&types=tool_op
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows[0]': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

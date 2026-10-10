@@ -15,12 +15,12 @@ init:
 pipeline:
   build:
     action: run
-    request: '@build'
+    request: '@build.yaml'
     params:
       projectRoot: $projectRoot
   transcribe:
     action: run
-    request: '@transcribe'
+    request: '@transcribe.yaml'
     params:
       projectRoot: $projectRoot
   verify:

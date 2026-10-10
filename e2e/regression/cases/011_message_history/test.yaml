@@ -1,30 +1,45 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   query:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "message history - send query"
+    description: message history - send query
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 011_message_history-query
+        query:
+          agentID: simple
+          query: Hi there, say hello back.
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: simple
-          Query: Hi there, say hello back.
-          UserId: e2e-test
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-
+          '@exists@identity.nativeConversationId': true
   getMessages:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "message history - verify messages"
+    description: message history - verify messages
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${query.Responses[0].JSONBody.conversationId}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows": true
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${query.Responses[0].JSONBody.identity.nativeConversationId}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

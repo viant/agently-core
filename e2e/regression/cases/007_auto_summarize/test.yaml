@@ -1,46 +1,63 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto-summarize - create conversation"
+    description: auto-summarize - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: auto_summarize
+        Title: auto-summarize-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: auto_summarize
-          Title: auto-summarize-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   query:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto-summarize - query"
+    description: auto-summarize - query
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 007_auto_summarize-query
+        query:
+          conversationID: ${createConversation.Responses[0].JSONBody.id}
+          query: Tell me about the benefits of regular exercise.
+      Expect:
+        Code: 200
         JSONBody:
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          Query: Tell me about the benefits of regular exercise.
-          UserId: e2e-test
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@content": true
-
+          '@exists@assistantText': true
   getConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto-summarize - verify title set"
+    description: auto-summarize - verify title set
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-            "@exists@Title": true
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@id': true
+          '@exists@title': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

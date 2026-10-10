@@ -1,23 +1,33 @@
 pipeline:
   anonymousQuery:
     action: http/runner:send
-    description: "auth - anonymous query without auth should be blocked"
+    description: auth - anonymous query without auth should be blocked
     requests:
-      - Method: POST
-        URL: ${authServerURL}/v1/agent/query
-        JSONBody:
-          AgentID: simple
-          Query: "Hello"
-        Expect:
-          Code: 401
-
+    - Method: POST
+      URL: ${authServerURL}/v1/ag-ui/run
+      JSONBody:
+        threadId: auth-denied-thread
+        runId: auth-denied-run
+        messages:
+        - id: auth-denied-message
+          role: user
+          content: Hello
+        forwardedProps:
+          agently:
+            version: "1"
+            operation: chat
+            payload:
+              agentId: simple
+      Expect:
+        Code: 401
   malformedToken:
     action: http/runner:send
-    description: "auth - malformed Bearer token should return 401"
+    description: auth - malformed Bearer token should return 401
     requests:
-      - Method: GET
-        URL: ${authServerURL}/v1/conversations
-        Header:
-          Authorization: ["Bearer not-a-valid-jwt"]
-        Expect:
-          Code: 401
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations
+      Header:
+        Authorization:
+        - Bearer not-a-valid-jwt
+      Expect:
+        Code: 401

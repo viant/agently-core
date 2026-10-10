@@ -1,19 +1,88 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-approval-none
+      email: e2e-approval-none@example.test
   runNoApproval:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval none - direct execution without approval"
+    description: tool approval none - direct execution without approval
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 059_tool_approval_none-runNoApproval
+        query:
+          agentID: approval_none_probe
+          query: run the approval test tool now
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: approval_none_probe
-          UserId: e2e-approval-none
-          Query: run the approval test tool now
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@content": true
+          '@exists@identity.nativeConversationId': true
+          '@exists@assistantText': true
+          outcome:
+            type: success
+  verifyActualToolExecution:
+    when: $sdkKey != ''
+    action: http/runner:send
+    requests:
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${runNoApproval.Responses[0].JSONBody.identity.nativeConversationId}&types=tool_op
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows[0]': true
+  resolveToolResponsePayload:
+    when: $sdkKey != ''
+    action: http/runner:send
+    requests:
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/${runNoApproval.Responses[0].JSONBody.identity.nativeConversationId}/transcript?includeModelCalls=true&includeToolCalls=true
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      extract:
+      - key: toolResponsePayloadId
+        regExpr: '(?s)"toolName":"mcpapproval/execute".*?"responsePayloadId":"([^"]+)"'
+        required: true
+      Expect:
+        Code: 200
+  verifyActualToolResponse:
+    when: $sdkKey != ''
+    action: http/runner:send
+    requests:
+    - Method: GET
+      URL: ${authServerURL}/v1/api/payload/${resolveToolResponsePayload.Data.toolResponsePayloadId}?raw=1
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          mode: approval_tool
+          status: executed
+          task: e2e-test
+  verifyNoPendingApproval:
+    when: $sdkKey != ''
+    action: http/runner:send
+    requests:
+    - Method: GET
+      URL: ${authServerURL}/v1/tool-approvals/pending?conversationId=${runNoApproval.Responses[0].JSONBody.identity.nativeConversationId}
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      Expect:
+        Code: 200
+        JSONBody:
+          total: 0

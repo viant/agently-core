@@ -1,48 +1,48 @@
 pipeline:
   mintToken:
     action: secret:signJWT
-    description: "auth - mint a valid JWT for e2e"
+    description: auth - mint a valid JWT for e2e
     expiryInSec: 3600
     PrivateKey:
       URL: ${jwtPrivKey}
     claimsMap:
       sub: e2e-jwt-user
       email: e2e@test.com
-
   conversationsWithJWT:
     action: http/runner:send
-    description: "auth - GET /v1/conversations with valid JWT should succeed"
+    description: auth - GET /v1/conversations with valid JWT should succeed
     requests:
-      - Method: GET
-        URL: ${authServerURL}/v1/conversations
-        Header:
-          Authorization: ["Bearer ${mintToken.TokenString}"]
-        Expect:
-          Code: 200
-
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations
+      Header:
+        Authorization:
+        - Bearer ${mintToken.TokenString}
+      Expect:
+        Code: 200
   healthWithJWT:
     action: http/runner:send
-    description: "auth - GET /healthz with valid JWT should succeed"
+    description: auth - GET /healthz with valid JWT should succeed
     requests:
-      - Method: GET
-        URL: ${authServerURL}/healthz
-        Header:
-          Authorization: ["Bearer ${mintToken.TokenString}"]
-        Expect:
-          Code: 200
-          JSONBody:
-            status: ok
-
+    - Method: GET
+      URL: ${authServerURL}/healthz
+      Header:
+        Authorization:
+        - Bearer ${mintToken.TokenString}
+      Expect:
+        Code: 200
+        JSONBody:
+          status: ok
   meWithJWT:
     action: http/runner:send
-    description: "auth - GET /v1/api/auth/me with valid JWT returns claims"
+    description: auth - GET /v1/api/auth/me with valid JWT returns claims
     requests:
-      - Method: GET
-        URL: ${authServerURL}/v1/api/auth/me
-        Header:
-          Authorization: ["Bearer ${mintToken.TokenString}"]
-        Expect:
-          Code: 200
-          JSONBody:
-            subject: e2e-jwt-user
-            email: e2e@test.com
+    - Method: GET
+      URL: ${authServerURL}/v1/api/auth/me
+      Header:
+        Authorization:
+        - Bearer ${mintToken.TokenString}
+      Expect:
+        Code: 200
+        JSONBody:
+          subject: e2e-jwt-user
+          email: e2e@test.com

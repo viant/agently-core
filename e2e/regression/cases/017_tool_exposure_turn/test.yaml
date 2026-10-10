@@ -1,92 +1,118 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   setupTurn1:
     when: $sdkKey != ''
     action: http/runner:send
     TimeoutMs: 240000
-    description: "tool exposure turn - create prior turn with real tool call"
+    description: tool exposure turn - create prior turn with real tool call
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 017_tool_exposure_turn-setupTurn1
+        query:
+          agentID: tool_forcer
+          query: Initialize by calling USER environment variable tool.
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: tool_forcer
-          UserId: e2e-test
-          Query: Initialize by calling USER environment variable tool.
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-
+          '@exists@identity.nativeConversationId': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   verifyToolTurn1:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool exposure turn - verify prior turn emitted canonical tool_op with iteration metadata"
+    description: tool exposure turn - verify prior turn emitted canonical tool_op
+      with iteration metadata
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&types=tool_op
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows[0]": true
-            Rows:
-              "@indexBy@": ToolName
-              system/os/getEnv:
-                "@exists@CreatedAt": true
-                "@exists@ParentMessageId": true
-                "@exists@Sequence": true
-                Iteration: 1
-
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.identity.nativeConversationId}&types=tool_op
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows[0]': true
+          Rows:
+            '@indexBy@': toolName
+            system/os/getEnv:
+              '@exists@createdAt': true
+              '@exists@parentMessageId': true
+              '@exists@sequence': true
+              iteration: 1
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   verifyAssistantTurn1:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool exposure turn - assistant message persists explicit narration"
+    description: tool exposure turn - assistant message persists explicit narration
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&roles=assistant
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows[0].Narration": true
-            "@exists@Rows[0].CreatedAt": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.identity.nativeConversationId}&roles=assistant
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows[0].narration': true
+          '@exists@Rows[0].createdAt': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   probeTurn2:
     when: $sdkKey != ''
     action: http/runner:send
     TimeoutMs: 240000
-    description: "tool exposure turn - prior turn tools should be hidden"
+    description: tool exposure turn - prior turn tools should be hidden
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 017_tool_exposure_turn-probeTurn2
+        query:
+          agentID: tool_exposure_probe
+          conversationID: ${setupTurn1.Responses[0].JSONBody.identity.nativeConversationId}
+          query: probe
+          toolCallExposure: turn
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: tool_exposure_probe
-          ConversationID: ${setupTurn1.Responses[0].JSONBody.conversationId}
-          UserId: e2e-test
-          Query: probe
-          ToolCallExposure: turn
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@messageId": true
-
+          '@exists@rootTurn.assistant.final.messageId': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   turn2Message:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool exposure turn - resolve turn2 id from response message id"
+    description: tool exposure turn - resolve turn2 id from response message id
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&id=${probeTurn2.Responses[0].JSONBody.messageId}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows[0].TurnId": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.identity.nativeConversationId}&id=${probeTurn2.Responses[0].JSONBody.rootTurn.assistant.final.messageId}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows[0].turnId': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   verifyTurn2ToolOp:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool exposure turn - turn2 should execute a tool call"
+    description: tool exposure turn - turn2 should execute a tool call
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.conversationId}&turnId=${turn2Message.Responses[0].JSONBody.Rows[0].TurnId}&types=tool_op
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows[0]": true
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${setupTurn1.Responses[0].JSONBody.identity.nativeConversationId}&turnId=${turn2Message.Responses[0].JSONBody.Rows[0].turnId}&types=tool_op
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows[0]': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

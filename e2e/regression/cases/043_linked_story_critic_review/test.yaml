@@ -1,43 +1,94 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   query:
     when: $sdkKey != ''
     action: http/runner:send
     TimeoutMs: 240000
-    description: "linked story review - final response comes after critic review"
+    description: linked story review - final response comes after critic review
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 043_linked_story_critic_review-query
+        query:
+          agentID: linked_story_chatter
+          query: Write a story about a dog.
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: linked_story_chatter
-          UserId: e2e-test
-          Query: Write a story about a dog.
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            content: A dog named Comet found a blue ball in the park.
-
+          '@exists@identity.nativeConversationId': true
+          assistantText: A dog named Comet found a blue ball in the park and carried it home proudly.
+  observedReviewEvidence:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: exact original draft sent to observed linked critic; reviewed child and parent after actual tool completion
+    requests:
+    - Method: GET
+      URL: ${aguiProbeURL}/linked-review/043_linked_story_critic_review-query?toolName=llm%2Fagents%2Frun
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      Expect:
+        Code: 200
+        JSONBody:
+          identity:
+            nativeConversationId: ${query.Responses[0].JSONBody.identity.nativeConversationId}
+            nativeTurnId: ${query.Responses[0].JSONBody.identity.nativeTurnId}
+          tool:
+            toolName: llm/agents/run
+            status: completed
+            '@exists@toolCallId': true
+            '@exists@toolMessageId': true
+            '@exists@requestPayloadId': true
+            '@exists@linkedConversationId': true
+          request:
+            agentId: linked_story_critic
+            objective: 'Review this story before publication and return the improved final story only: A dog named Comet found a blue ball in the park.'
+          parentFinal:
+            content: A dog named Comet found a blue ball in the park and carried it home proudly.
+          child:
+            status: completed
+            final:
+              content: A dog named Comet found a blue ball in the park and carried it home proudly.
   transcript:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "linked story review - parent transcript exposes linked conversation id"
+    description: linked story review - parent transcript exposes linked conversation
+      id
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}/transcript
-        Expect:
-          Code: 200
-          Body: /A dog named Comet found a blue ball in the park./
-
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/${query.Responses[0].JSONBody.identity.nativeConversationId}/transcript
+      Expect:
+        Code: 200
+        Body: /A dog named Comet found a blue ball in the park and carried it home proudly./
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   linkedConversations:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "linked story review - child conversation is listed with status and reviewed response"
+    description: linked story review - child conversation is listed with status and
+      reviewed response
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/linked?parentConversationId=${query.Responses[0].JSONBody.conversationId}
-        Expect:
-          Code: 200
-          JSONBody:
-            hasMore: false
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/linked?parentConversationId=${query.Responses[0].JSONBody.identity.nativeConversationId}
+      Expect:
+        Code: 200
+        JSONBody:
+          hasMore: false
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

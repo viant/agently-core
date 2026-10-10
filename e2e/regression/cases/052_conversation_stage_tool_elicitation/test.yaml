@@ -1,69 +1,125 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-stage-tool
+      email: e2e-stage-tool@example.test
   init:
     turnSuffix: $FormatTime('now', 'yyyyMMdd-HHmmss-SSS')
-
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool elicitation stage - create conversation"
+    description: tool elicitation stage - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      JSONBody:
+        AgentID: mcp_oob_probe
+        Title: tool-elicitation-stage
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: mcp_oob_probe
-          Title: tool-elicitation-stage
+          '@exists@id': true
+  roundTrip:
+    multiAction: true
+    startToolTurn:
+      when: $sdkKey != ''
+      action: http/runner:send
+      async: true
+      description: start actual canonical async oob probe turn
+      requests:
+      - Method: POST
+        URL: ${aguiProbeURL}/run
+        Header:
+          Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+        JSONBody:
+          target: ${authServerURL}
+          probeId: 052_conversation_stage_tool_elicitation-startToolTurn
+          query:
+            conversationId: ${createConversation.Responses[0].JSONBody.id}
+            agentId: mcp_oob_probe
+            messageId: e2e-stage-tool-elic
+            query: run the oob probe
+    waitForElicitation:
+      when: $sdkKey != ''
+      action: nop
+      sleepTimeMs: 3000
+    verifyConversationStage:
+      when: $sdkKey != ''
+      action: http/runner:send
+      description: tool elicitation stage - conversation should be elicitation
+      requests:
+      - Method: GET
+        URL: ${authServerURL}/v1/conversations/${createConversation.Responses[0].JSONBody.id}
+        Header:
+          Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
         Expect:
           Code: 200
           JSONBody:
-            "@exists@Id": true
+            id: ${createConversation.Responses[0].JSONBody.id}
 
-  startToolTurn:
-    when: $sdkKey != ''
-    action: exec:run
-    checkError: true
-    description: "tool elicitation stage - start async oob probe turn"
-    commands:
-      - >-
-        sh -c 'nohup curl -sS -X POST ${serverURL}/v1/agent/query
-        -H "Content-Type: application/json"
-        -H "Connection: close"
-        -d "{\"ConversationID\":\"${createConversation.Responses[0].JSONBody.Id}\",\"AgentID\":\"mcp_oob_probe\",\"MessageID\":\"e2e-stage-tool-elic\",\"UserId\":\"e2e-stage-tool\",\"Query\":\"run the oob probe\"}"
-        >/tmp/agently-core-e2e-052.out 2>&1 </dev/null &'
-      - sleep 1
-
-  waitForElicitation:
-    when: $sdkKey != ''
-    action: nop
-    sleepTimeMs: 3000
 
   pendingElicitation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool elicitation stage - pending elicitation should be listed"
+    description: tool elicitation stage - pending elicitation should be listed
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/elicitations?conversationId=${createConversation.Responses[0].JSONBody.Id}
-        Expect:
-          Code: 200
-          JSONBody:
-            rows:
-              "@indexBy@": elicitationId
-              mcp-oob-e2e-elicitation:
-                "@exists@messageId": true
-
-  verifyConversationStage:
-    when: $sdkKey != ''
+    - Method: GET
+      URL: ${authServerURL}/v1/elicitations?conversationId=${createConversation.Responses[0].JSONBody.id}
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          rows:
+            '@indexBy@': elicitationId
+            mcp-oob-e2e-elicitation:
+              '@exists@messageId': true
+  observeNativeIdentity:
     action: http/runner:send
-    description: "tool elicitation stage - conversation should be elicitation"
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${createConversation.Responses[0].JSONBody.Id}
-        Expect:
-          Code: 200
-          JSONBody:
-            Id: ${createConversation.Responses[0].JSONBody.Id}
-            Stage: elicitation
-            "@exists@Transcript[0].Id": true
-            Transcript:
-              - Stage: elicitation
-                Status: running
+    - Method: GET
+      URL: ${aguiProbeURL}/observe/052_conversation_stage_tool_elicitation-startToolTurn
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@identity.nativeTurnId': true
+  verifyPendingNativeTurn:
+    action: http/runner:send
+    requests:
+    - Method: GET
+      URL: ${aguiProbeURL}/observe/052_conversation_stage_tool_elicitation-startToolTurn
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@identity.nativeTurnId': true
+          rootTurn:
+            turnId: ${observeNativeIdentity.Responses[0].JSONBody.identity.nativeTurnId}
+            status: running
+          toolSteps:
+            '@indexBy@': toolName
+            mcpoob/ask_oob:
+              status: running
+              '@exists@toolMessageId': true
+              '@exists@toolCallId': true
+          pendingElicitations:
+            '@indexBy@': elicitationId
+            mcp-oob-e2e-elicitation:
+              messageId: ${pendingElicitation.Responses[0].JSONBody.rows[0].messageId}
+          controlMessages:
+            '@indexBy@': id
+            ${pendingElicitation.Responses[0].JSONBody.rows[0].messageId}:
+              turnId: ${observeNativeIdentity.Responses[0].JSONBody.identity.nativeTurnId}
+              parentMessageId: ${observeNativeIdentity.Responses[0].JSONBody.identity.nativeTurnId}
+              elicitationId: mcp-oob-e2e-elicitation
+              type: control
+              role: tool

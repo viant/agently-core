@@ -1,34 +1,49 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "streaming - create conversation"
+    description: streaming - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: simple
+        Title: stream-test
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: simple
-          Title: stream-test
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   query:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "streaming - query conversation"
+    description: streaming - query conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 012_streaming-query
+        query:
+          agentID: simple
+          conversationID: ${createConversation.Responses[0].JSONBody.id}
+          query: Say hello
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: simple
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          Query: Say hello
-          UserId: e2e-test
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@content": true
+          '@exists@assistantText': true
