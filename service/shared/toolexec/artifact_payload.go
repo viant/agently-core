@@ -37,7 +37,9 @@ func artifactDispatchArguments(ctx context.Context, reg tool.Registry, name stri
 		return arguments, nil, nil
 	}
 	definition, ok := reg.GetDefinition(name)
-	if getter, enabled := reg.(tool.ContextDefinitionGetter); enabled {
+	if getter, enabled := reg.(tool.RawContextDefinitionGetter); enabled {
+		definition, ok = getter.GetRawDefinitionWithContext(ctx, name)
+	} else if getter, enabled := reg.(tool.ContextDefinitionGetter); enabled {
 		definition, ok = getter.GetDefinitionWithContext(ctx, name)
 	}
 	if !ok || definition == nil {

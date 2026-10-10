@@ -26,7 +26,7 @@ type MCPClient struct {
 	Async              []*asynccfg.Config     `yaml:"async,omitempty" json:"async,omitempty"`
 	Descriptions       map[string]string      `yaml:"descriptions,omitempty" json:"descriptions,omitempty"`
 	Metadata           map[string]interface{} `yaml:"metadata,omitempty" json:"metadata,omitempty"`
-	// OutputArtifacts captures binary embedded resources before tool results
+	// OutputArtifacts captures configured binary outputs before tool results
 	// reach model context. Keys are exact, literal MCP tool names.
 	OutputArtifacts map[string]OutputArtifact `yaml:"outputArtifacts,omitempty" json:"outputArtifacts,omitempty"`
 	// Cacheable marks specific tools on this MCP server as eligible for

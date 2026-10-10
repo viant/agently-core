@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -52,6 +53,30 @@ func TestArtifactDownloadRequiresOwnerAndChecksIntegrity(t *testing.T) {
 	require.Empty(t, response.Header().Get("Content-Disposition"))
 }
 
+type zeroDownloadReader struct{}
+
+func (zeroDownloadReader) Read(data []byte) (int, error) { clear(data); return len(data), nil }
+
+func TestArtifactDownloadStreamsBeyondInputLimit(t *testing.T) {
+	t.Setenv(scratchpad.EnvScratchpadURI, "file://"+filepath.Join(t.TempDir(), "${userID}"))
+	owner := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "large-owner"})
+	const size = int64(65 << 20)
+	descriptor, err := scratchpad.New().PublishArtifactStream(owner, "large.bin", "application/octet-stream", "", io.LimitReader(zeroDownloadReader{}, size))
+	require.NoError(t, err)
+	handler := NewHandler(nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { handler.ServeHTTP(w, r.WithContext(owner)) }))
+	defer server.Close()
+	response, err := http.Get(server.URL + "/v1/artifacts/" + descriptor.ID)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	require.Equal(t, http.StatusOK, response.StatusCode)
+	digest := sha256.New()
+	count, err := io.Copy(digest, response.Body)
+	require.NoError(t, err)
+	require.EqualValues(t, size, count)
+	require.Equal(t, descriptor.SHA256, hex.EncodeToString(digest.Sum(nil)))
+}
+
 func TestArtifactWorkbookDownloadSurvivesNewHandlerWithAllSheets(t *testing.T) {
 	if id := os.Getenv("CORE_ARTIFACT_TEST_RESTART_ID"); id != "" {
 		owner := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "published-owner"})
@@ -75,7 +100,7 @@ func TestArtifactWorkbookDownloadSurvivesNewHandlerWithAllSheets(t *testing.T) {
 	_, err := workbook.NewSheet("Sites")
 	require.NoError(t, err)
 	require.NoError(t, workbook.SetCellValue("Campaigns", "A1", "CampaignId"))
-	require.NoError(t, workbook.SetCellValue("Campaigns", "A2", 563637))
+	require.NoError(t, workbook.SetCellValue("Campaigns", "A2", 470750))
 	require.NoError(t, workbook.SetCellValue("Sites", "A1", "Site"))
 	require.NoError(t, workbook.SetCellValue("Sites", "A2", "owned.example"))
 	require.NoError(t, workbook.SetCellFormula("Sites", "B2", "1+2"))
@@ -98,7 +123,7 @@ func TestArtifactWorkbookDownloadSurvivesNewHandlerWithAllSheets(t *testing.T) {
 		require.Equal(t, []string{"Campaigns", "Sites"}, read.GetSheetList())
 		campaign, err := read.GetCellValue("Campaigns", "A2")
 		require.NoError(t, err)
-		require.Equal(t, "563637", campaign)
+		require.Equal(t, "470750", campaign)
 		site, err := read.GetCellValue("Sites", "A2")
 		require.NoError(t, err)
 		require.Equal(t, "owned.example", site)

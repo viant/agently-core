@@ -516,7 +516,7 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 	return r.DefinitionsWithContext(context.Background())
 }
 
-func (r *Registry) DefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
+func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
 	ctx = r.discoveryLookupContext(ctx)
 	var defs []llm.ToolDefinition
 	// Always include virtual tools.
@@ -612,7 +612,7 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 // discovery failures. The legacy matcher intentionally discards the error for
 // best-effort catalogue consumers; required tool-bundle resolution uses this
 // method so delegated OAuth can reach the API/UI as a typed outcome.
-func (r *Registry) MatchDefinitionWithContextResult(ctx context.Context, pattern string) ([]*llm.ToolDefinition, error) {
+func (r *Registry) rawMatchDefinitionWithContextResult(ctx context.Context, pattern string) ([]*llm.ToolDefinition, error) {
 	ctx = r.discoveryLookupContext(ctx)
 	ctx, cancel := r.withDiscoveryTimeout(ctx)
 	defer func() {
@@ -731,7 +731,7 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 	return r.GetDefinitionWithContext(context.Background(), name)
 }
 
-func (r *Registry) GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
+func (r *Registry) GetRawDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
 	// Lightweight debug hook to trace how tool definitions are resolved.
 	r.mu.RLock()
 	if def, ok := r.virtualDefs[name]; ok {

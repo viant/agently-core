@@ -1,7 +1,6 @@
 package tool
 
 import (
-	"bytes"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -49,12 +48,55 @@ func captureOutputArtifacts(ctx context.Context, result *schema.CallToolResult, 
 		return failure()
 	}
 	type pending struct {
-		data []byte
-		mime string
+		encoded string
+		mime    string
 	}
 	var blobs []pending
-	var total int64
-	for _, content := range result.Content {
+	name := policy.Name
+	if policy.NamePath != "" {
+		value, found, valid := artifactPointerOptionalString(result, policy.NamePath)
+		if !valid {
+			return failure()
+		}
+		if found && value != "" {
+			name = value
+		}
+	}
+	if name == "" {
+		name = "artifact"
+	}
+	if (mcpcfg.OutputArtifact{Name: name}).Validate() != nil {
+		return failure()
+	}
+	declaredMIME := policy.MimeType
+	if policy.MimeTypePath != "" {
+		value, found, valid := artifactPointerOptionalString(result, policy.MimeTypePath)
+		if !valid {
+			return failure()
+		}
+		if found && value != "" {
+			declaredMIME = value
+		}
+		if declaredMIME != "" {
+			if _, _, err := mime.ParseMediaType(declaredMIME); err != nil {
+				return failure()
+			}
+		}
+	}
+	contents := result.Content
+	if policy.BytesPath != "" {
+		encoded, ok := artifactPointerString(result, policy.BytesPath)
+		if !ok || encoded == "" {
+			return failure()
+		}
+		mediaType := declaredMIME
+		if mediaType == "" {
+			mediaType = "application/octet-stream"
+		}
+		blobs = append(blobs, pending{encoded: encoded, mime: mediaType})
+		contents = nil
+	}
+	for _, content := range contents {
 		var resource *schema.EmbeddedResourceResource
 		switch value := content.(type) {
 		case schema.EmbeddedResource:
@@ -105,37 +147,30 @@ func captureOutputArtifacts(ctx context.Context, result *schema.CallToolResult, 
 		if resource == nil || resource.Blob == "" || resource.Text != "" || resource.Uri == "" {
 			return failure()
 		}
-		mediaType := "application/octet-stream"
-		if resource.MimeType != nil {
-			var err error
-			mediaType, _, err = mime.ParseMediaType(*resource.MimeType)
-			if err != nil || mediaType == "" || len(*resource.MimeType) > 256 {
-				return failure()
-			}
+		mediaType := declaredMIME
+		if resource.MimeType != nil && *resource.MimeType != "" {
+			mediaType = *resource.MimeType
 		}
-		remaining := policy.ByteLimit() - total
-		if int64(len(resource.Blob)) > ((remaining+2)/3)*4 {
-			return failure()
+		if mediaType == "" {
+			mediaType = "application/octet-stream"
 		}
-		data, err := base64.StdEncoding.Strict().DecodeString(resource.Blob)
-		if err != nil || len(data) == 0 || int64(len(data)) > remaining {
-			return failure()
-		}
-		total += int64(len(data))
-		blobs = append(blobs, pending{data: data, mime: mediaType})
+		blobs = append(blobs, pending{encoded: resource.Blob, mime: mediaType})
 	}
 	if len(blobs) == 0 {
 		return failure()
 	}
 	resources := make([]map[string]interface{}, 0, len(blobs))
-	name := policy.Name
-	if name == "" {
-		name = "artifact"
-	}
 	for _, blob := range blobs {
+		if len(blob.mime) > 256 || artifactMetadataEcho(name, blob.encoded) || artifactMetadataEcho(blob.mime, blob.encoded) {
+			return failure()
+		}
+		mediaType, _, err := mime.ParseMediaType(blob.mime)
+		if err != nil || mediaType == "" {
+			return failure()
+		}
 		// Wire resource URIs are untrusted metadata and may contain payload
 		// echoes or credentials. Never persist them as public provenance.
-		d, err := scratchpad.New().PublishArtifact(ctx, "", name, blob.mime, "", bytes.NewReader(blob.data))
+		d, err := scratchpad.New().PublishArtifactStream(ctx, name, mediaType, "", base64.NewDecoder(base64.StdEncoding.Strict(), strings.NewReader(blob.encoded)))
 		if err != nil {
 			return failure()
 		}
