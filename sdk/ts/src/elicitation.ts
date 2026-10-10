@@ -18,6 +18,7 @@ export interface PendingElicitation {
     turnId?: string;
     message?: string;
     requestedSchema?: JSONObject | null;
+    deadline?: string;
     callbackURL?: string;
     /** OOB URL to open in a new browser window. */
     url?: string;
@@ -29,6 +30,7 @@ export type ElicitationListener = (pending: PendingElicitation | null) => void;
 
 interface ElicitationEnvelope {
     requestedSchema?: JSONObject;
+    deadline?: string;
     schema?: JSONObject;
     url?: string;
     mode?: string;
@@ -44,6 +46,7 @@ function resolveElicitationEnvelope(data: JSONObject | null | undefined): Elicit
         schema: isJSONObject(data?.schema) ? data.schema : undefined,
         url: String(data?.url || '').trim(),
         mode: String(data?.mode || '').trim(),
+        deadline: String(data?.deadline || '').trim(),
     };
 }
 
@@ -91,6 +94,7 @@ export class ElicitationTracker {
                 turnId: resolveEventTurnId(event),
                 message: event.content || '',
                 requestedSchema,
+                deadline: envelope.deadline,
                 callbackURL: event.callbackUrl || '',
                 url: envelope.url,
                 mode: envelope.mode,

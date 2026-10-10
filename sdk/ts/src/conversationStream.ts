@@ -61,6 +61,7 @@ export interface ProjectedConversationTurn extends Partial<Turn> {
         status?: string;
         message?: string;
         requestedSchema?: JSONObject | null;
+        deadline?: string;
         callbackUrl?: string;
         callbackURL?: string;
     };
@@ -539,6 +540,7 @@ export function projectTrackerToTurns(
                     status: 'pending',
                     message: pendingElicitation.message,
                     requestedSchema: pendingElicitation.requestedSchema || null,
+                    deadline: pendingElicitation.deadline,
                     callbackUrl: pendingElicitation.callbackURL || '',
                     callbackURL: pendingElicitation.callbackURL || '',
                 }
