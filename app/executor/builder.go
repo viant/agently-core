@@ -103,6 +103,8 @@ type Runtime struct {
 	PermittedResolver              permittedview.Resolver
 	DatasourceAuthorizer           func(context.Context, string, map[string]interface{}) error
 	DatasourceResourceRevalidator  dssvc.ResourceRevalidator
+	DatasourceReadSequence         func(context.Context) (context.Context, func() error, error)
+	DatasourceReadFactsScope       resourcesvc.ReadFactsScope
 	DatasourceDefinitionAuthorizer dssvc.DefinitionAuthorizer
 	DatasourceDefinitionResolver   dssvc.ResourceDefinitionResolver
 	DatasourceProviderExecutor     dssvc.ProviderExecutor
@@ -215,6 +217,7 @@ type Builder struct {
 
 // AuthorizationProvider is registered by the host, not workspace YAML.
 type AuthorizationProvider struct {
+	DatasourceReadFactsScope      resourcesvc.ReadFactsScope
 	WindowReadDecisionScope       forgeuisvc.WindowReadDecisionScope
 	ExecutionContext              func(context.Context) context.Context
 	AuthoritySnapshot             policy.AuthoritySnapshotResolver
@@ -663,6 +666,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			out.DatasourceDefinitionAuthorizer = provider.DatasourceDefinitionAuthorize
 			out.DatasourceDefinitionResolver = provider.DatasourceDefinitionResolver
 			out.DatasourceResourceRevalidator = provider.DatasourceResourceRevalidator
+			out.DatasourceReadFactsScope = provider.DatasourceReadFactsScope
 			out.DatasourceDisableCache = true
 			if provider.ToolAuthorize != nil {
 				out.ToolAuthorizer, toolAuthorizerRef = provider.ToolAuthorize, uiSettings.ProviderRef

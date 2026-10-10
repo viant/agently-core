@@ -13,6 +13,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	svcauth "github.com/viant/agently-core/service/auth"
 	policy "github.com/viant/agently-core/service/policy"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
@@ -29,9 +30,10 @@ type AuthorizationDecisionScope interface {
 }
 
 type StaticAuthorizationRegistration struct {
-	ExecutionContext  func(context.Context) context.Context
-	DecisionScope     AuthorizationDecisionScope
-	AuthoritySnapshot policy.AuthoritySnapshotResolver
+	ExecutionContext         func(context.Context) context.Context
+	DecisionScope            AuthorizationDecisionScope
+	DatasourceReadFactsScope resourcesvc.ReadFactsScope
+	AuthoritySnapshot        policy.AuthoritySnapshotResolver
 	// ComponentAuthoritySnapshot must bypass metadata and pure-decision scopes.
 	// Execution uses fresh authority while metadata may retain explicit batching.
 	ComponentAuthoritySnapshot policy.AuthoritySnapshotResolver
@@ -150,6 +152,7 @@ func PrepareStaticAuthorization(registration StaticAuthorizationRegistration) (*
 	window := checker.WindowCallback(whole)
 	provider := AuthorizationProvider{AuthoritySnapshot: registration.AuthoritySnapshot, ComponentAuthoritySnapshot: registration.ComponentAuthoritySnapshot, Service: registration.Service, Account: registration.Account, AuthorityRevision: registration.AuthorityRevision, AccountProjection: projection, GateEvaluator: registration.GateEvaluator, EntityPermission: entityPermission, EntityPermissionWithLease: entityPermissionWithLease, EntityRoles: registration.EntityRoles, PolicyVersion: registration.PolicyVersion, PolicyResource: whole, WindowAuthorize: window, DatasourceAuthorize: checker.DatasourceCallback(backend), ReportAuthorize: checker.ReportCallback(backend)}
 	provider.ExecutionContext = registration.ExecutionContext
+	provider.DatasourceReadFactsScope = registration.DatasourceReadFactsScope
 	if registration.DecisionScope != nil {
 		provider.WindowReadDecisionScope = func(ctx context.Context) (context.Context, func() error, error) {
 			return registration.DecisionScope.BeginDecision(registration.DecisionScope.WithoutDecision(requestctx.WithoutWindowReadDecision(ctx)))

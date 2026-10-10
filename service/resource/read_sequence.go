@@ -1,0 +1,369 @@
+package resource
+
+import (
+	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
+	"reflect"
+	"sync"
+	"time"
+
+	authctx "github.com/viant/agently-core/internal/auth"
+	cfg "github.com/viant/agently-core/protocol/mcp/config"
+	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/agently-core/runtime/requestctx"
+	mcpclient "github.com/viant/mcp/client"
+)
+
+// ReadFactsScope shares only a provider-owned active decision snapshot. Copy
+// preserves caller pins/parameters and must verify the current credential.
+type ReadFactsScope interface {
+	BeginDecision(context.Context) (context.Context, func() error, error)
+	WithoutDecision(context.Context) context.Context
+	CopyDecision(context.Context, context.Context) (context.Context, error)
+}
+
+type resourceReadSequenceKey struct{}
+type namespaceRead struct {
+	key string
+	cap capabilities
+}
+type resourceReadSequence struct {
+	mu                     sync.Mutex
+	gateway                *Gateway
+	base                   context.Context
+	facts                  ReadFactsScope
+	factContext            context.Context
+	finishFacts            func() error
+	actor                  identity.VerifiedActor
+	lease                  time.Time
+	active, ending, closed bool
+	dispatchDepth          int
+	failed                 error
+	reads                  map[string]namespaceRead
+	originalReads          map[string]namespaceRead
+}
+
+// BeginReadSequence owns one operation's PRE/POST metadata facts. Resource
+// Get, content, policy, credential and original-lease checks never use this memo.
+func (g *Gateway) BeginReadSequence(ctx context.Context, facts ReadFactsScope) (context.Context, func() error, error) {
+	if g == nil || ctx == nil || ctx.Err() != nil {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	if prior, _ := ctx.Value(resourceReadSequenceKey{}).(*resourceReadSequence); prior != nil {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	s := &resourceReadSequence{gateway: g, base: ctx, facts: facts, reads: map[string]namespaceRead{}, originalReads: map[string]namespaceRead{}}
+	marked := context.WithValue(ctx, resourceReadSequenceKey{}, s)
+	marked = requestctx.WithResourceReadDispatch(marked, s)
+	if err := s.startPhase(marked); err != nil {
+		_ = s.finish(marked)
+		return nil, nil, err
+	}
+	return marked, func() error { return s.finish(marked) }, nil
+}
+
+func sequenceFromContext(ctx context.Context) *resourceReadSequence {
+	if ctx == nil {
+		return nil
+	}
+	s, _ := ctx.Value(resourceReadSequenceKey{}).(*resourceReadSequence)
+	return s
+}
+
+// ReadContext copies an active phase's opaque facts into a caller context.
+// Its normal context values, including held resource/target pins, remain intact.
+func ReadContext(ctx context.Context) (context.Context, error) {
+	s := sequenceFromContext(ctx)
+	if s == nil {
+		return ctx, nil
+	}
+	s.mu.Lock()
+	failed, closed, active, lease := s.failed, s.closed, s.active, s.lease
+	facts, scoped := s.facts, s.factContext
+	s.mu.Unlock()
+	if failed != nil {
+		return nil, failed
+	}
+	if closed || ctx.Err() != nil || !lease.IsZero() && !lease.After(s.gateway.now()) {
+		return nil, identity.ErrResourceDenied
+	}
+	if facts != nil {
+		ctx = facts.WithoutDecision(ctx)
+		if active {
+			copied, err := facts.CopyDecision(ctx, scoped)
+			if err != nil {
+				s.mu.Lock()
+				s.failed = err
+				s.mu.Unlock()
+			}
+			return copied, err
+		}
+	}
+	return ctx, nil
+}
+
+func (s *resourceReadSequence) startPhase(ctx context.Context) error {
+	s.mu.Lock()
+	if s.closed || s.failed != nil || s.active {
+		s.mu.Unlock()
+		return identity.ErrResourceDenied
+	}
+	s.mu.Unlock()
+	scoped, finish := s.base, func() error { return s.base.Err() }
+	if s.facts != nil {
+		var err error
+		scoped, finish, err = s.facts.BeginDecision(s.facts.WithoutDecision(s.base))
+		if err != nil {
+			return err
+		}
+		if scoped == nil || finish == nil {
+			if finish != nil {
+				_ = finish()
+			}
+			return identity.ErrResourceDenied
+		}
+	}
+	s.mu.Lock()
+	s.factContext, s.finishFacts, s.active, s.reads = scoped, finish, true, map[string]namespaceRead{}
+	s.mu.Unlock()
+	actor, err := s.gateway.actor(ctx)
+	if err != nil {
+		return err
+	}
+	s.mu.Lock()
+	if s.actor.Subject == "" {
+		s.actor, s.lease = actor, actor.ValidUntil
+	}
+	if deadline, ok := s.base.Deadline(); ok && deadline.Before(s.lease) {
+		s.lease = deadline
+	}
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *resourceReadSequence) checkActor(actor identity.VerifiedActor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.failed != nil || !s.lease.IsZero() && !s.lease.After(s.gateway.now()) {
+		return identity.ErrResourceDenied
+	}
+	if s.actor.Subject != "" && (actor.Subject != s.actor.Subject || actor.Issuer != s.actor.Issuer || actor.TenantID != s.actor.TenantID || actor.AccountID != s.actor.AccountID || actor.IdentityRevision != s.actor.IdentityRevision || actor.ValidUntil.Before(s.lease)) {
+		s.failed = identity.ErrResourceDenied
+		return identity.ErrResourceDenied
+	}
+	return nil
+}
+
+func (s *resourceReadSequence) constrainLease(lease time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.lease.IsZero() || lease.Before(s.lease) {
+		s.lease = lease
+	}
+}
+
+func credentialDigest(ctx context.Context) [32]byte {
+	tokens := authctx.TokensFromContext(ctx)
+	var access, id string
+	if tokens != nil {
+		access, id = tokens.AccessToken, tokens.IDToken
+	}
+	encoded, _ := json.Marshal([]string{authctx.EffectiveUserID(ctx), authctx.CanonicalUserID(ctx), authctx.Bearer(ctx), authctx.IDToken(ctx), authctx.Provider(ctx), access, id})
+	return sha256.Sum256(encoded)
+}
+
+func (g *Gateway) namespaceReadKey(ctx context.Context, actor identity.VerifiedActor, name string, options *cfg.MCPClient, client mcpclient.Interface) (string, error) {
+	if wrapped, ok := client.(*gatewayAuthClient); ok {
+		client = wrapped.Interface
+	}
+	value := reflect.ValueOf(client)
+	if !value.IsValid() || value.Kind() != reflect.Pointer || value.IsNil() {
+		return "", identity.ErrResourceDenied
+	}
+	encoded, err := json.Marshal(options)
+	if err != nil {
+		return "", identity.ErrResourceDenied
+	}
+	optionsHash := sha256.Sum256(encoded)
+	authHash := credentialDigest(g.Manager.WithAuthTokenContext(ctx, name))
+	return fmt.Sprintf("%s:%x:%x:%x:%T:%x", actorKey(actor, name, g.generation(name)), optionsHash, authHash, requestctx.ResourceReadAssociation(ctx), client, value.Pointer()), nil
+}
+
+func cloneCapabilities(c capabilities) capabilities {
+	copy := c
+	raw, _ := json.Marshal(c.namespaces)
+	_ = json.Unmarshal(raw, &copy.namespaces)
+	copy.installed = make(map[string]bool, len(c.installed))
+	for name, installed := range c.installed {
+		copy.installed[name] = installed
+	}
+	return copy
+}
+
+func (s *resourceReadSequence) lookup(name, key string) (capabilities, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.failed != nil {
+		return capabilities{}, false, identity.ErrResourceDenied
+	}
+	if !s.active {
+		return capabilities{}, false, nil
+	}
+	held, found := s.reads[name]
+	if !found {
+		return capabilities{}, false, nil
+	}
+	if held.key != key || !held.cap.expires.After(s.gateway.now()) || s.gateway.generation(name) != held.cap.connection.Generation {
+		s.failed = identity.ErrResourceDenied
+		return capabilities{}, false, identity.ErrResourceDenied
+	}
+	return cloneCapabilities(held.cap), true, nil
+}
+
+func (s *resourceReadSequence) record(name, key string, c capabilities) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed || s.failed != nil {
+		return identity.ErrResourceDenied
+	}
+	if !s.active {
+		return nil
+	}
+	if prior, found := s.reads[name]; found && prior.key != key {
+		return identity.ErrResourceDenied
+	}
+	if original, found := s.originalReads[name]; found {
+		if original.key != key || original.cap.connection != c.connection || !reflect.DeepEqual(original.cap.namespaces, c.namespaces) || !reflect.DeepEqual(original.cap.installed, c.installed) {
+			s.failed = identity.ErrResourceDenied
+			return identity.ErrResourceDenied
+		}
+	} else {
+		s.originalReads[name] = namespaceRead{key: key, cap: cloneCapabilities(c)}
+	}
+	s.reads[name] = namespaceRead{key: key, cap: cloneCapabilities(c)}
+	if c.expires.Before(s.lease) {
+		s.lease = c.expires
+	}
+	return nil
+}
+
+func (s *resourceReadSequence) endPhase(ctx context.Context) (err error) {
+	s.mu.Lock()
+	if !s.active {
+		prior := s.failed
+		s.mu.Unlock()
+		return prior
+	}
+	reads := make(map[string]namespaceRead, len(s.reads))
+	for name, read := range s.reads {
+		reads[name] = read
+	}
+	finishFacts := s.finishFacts
+	s.mu.Unlock()
+	defer func() {
+		if finishErr := finishFacts(); err == nil && finishErr != nil {
+			err = finishErr
+		}
+		s.mu.Lock()
+		s.active, s.factContext, s.finishFacts, s.reads = false, nil, nil, nil
+		if err != nil {
+			s.failed = err
+		}
+		s.mu.Unlock()
+	}()
+	actor, err := s.gateway.actor(ctx)
+	if err != nil {
+		return err
+	}
+	for name, held := range reads {
+		current, err := s.gateway.discoverMode(ctx, actor, name, true)
+		if err != nil {
+			return err
+		}
+		options, err := s.gateway.Manager.Options(ctx, name)
+		if err != nil {
+			return err
+		}
+		client, err := s.gateway.client(ctx, name)
+		if err != nil {
+			return err
+		}
+		key, err := s.gateway.namespaceReadKey(ctx, actor, name, options, client)
+		if err != nil || key != held.key || current.connection != held.cap.connection || !reflect.DeepEqual(current.namespaces, held.cap.namespaces) || !reflect.DeepEqual(current.installed, held.cap.installed) {
+			return identity.ErrResourceDenied
+		}
+	}
+	if err := s.gateway.final(ctx, actor); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *resourceReadSequence) BeforeDispatch(ctx context.Context) error {
+	s.mu.Lock()
+	if s.closed || s.failed != nil || s.ending {
+		s.mu.Unlock()
+		return identity.ErrResourceDenied
+	}
+	if s.dispatchDepth > 0 {
+		s.dispatchDepth++
+		s.mu.Unlock()
+		return nil
+	}
+	if !s.active {
+		s.mu.Unlock()
+		return identity.ErrResourceDenied
+	}
+	s.ending = true
+	s.mu.Unlock()
+	if err := s.endPhase(ctx); err != nil {
+		s.mu.Lock()
+		s.ending = false
+		s.mu.Unlock()
+		return err
+	}
+	s.mu.Lock()
+	s.dispatchDepth, s.ending = 1, false
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *resourceReadSequence) AfterDispatch(ctx context.Context) error {
+	s.mu.Lock()
+	if s.closed || s.failed != nil || s.dispatchDepth == 0 || s.active {
+		s.mu.Unlock()
+		return identity.ErrResourceDenied
+	}
+	s.dispatchDepth--
+	if s.dispatchDepth > 0 {
+		s.mu.Unlock()
+		return nil
+	}
+	s.mu.Unlock()
+	err := s.startPhase(ctx)
+	if err != nil {
+		s.mu.Lock()
+		s.failed = err
+		s.mu.Unlock()
+	}
+	return err
+}
+
+func (s *resourceReadSequence) finish(ctx context.Context) error {
+	err := s.endPhase(ctx)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return identity.ErrResourceDenied
+	}
+	s.closed, s.reads, s.originalReads = true, nil, nil
+	if err == nil && s.failed != nil {
+		err = s.failed
+	}
+	if err == nil && (s.dispatchDepth > 0 || ctx.Err() != nil || !s.lease.After(s.gateway.now())) {
+		err = identity.ErrResourceDenied
+	}
+	return err
+}
