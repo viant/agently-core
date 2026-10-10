@@ -10,7 +10,7 @@ import (
 	legacy "github.com/viant/agently-core/internal/datly/legacyrun/write"
 	message "github.com/viant/agently-core/internal/datly/message/write"
 	modelcall "github.com/viant/agently-core/internal/datly/modelcall/write"
-	payload "github.com/viant/agently-core/internal/datly/payload/write"
+	payload "github.com/viant/agently-core/internal/datly/payload/delete"
 	reportArtifact "github.com/viant/agently-core/internal/datly/reporting/artifact/write"
 	reportContext "github.com/viant/agently-core/internal/datly/reporting/context/write"
 	reportJob "github.com/viant/agently-core/internal/datly/reporting/job/write"
@@ -25,6 +25,7 @@ import (
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
+	"github.com/viant/datly/spec"
 	"reflect"
 )
 
@@ -90,8 +91,31 @@ func invokeWriter[O any](ctx context.Context, invoker dexec.ComponentInvoker, ty
 	return nil
 }
 
-// mutate maps a static domain action to typed setters on the sole canonical
-// table writer. Request fields cannot select a table, column or component.
+func mutateBulkPayload(ctx context.Context, invoker dexec.ComponentInvoker, rule Rule, snapshot *recordSnapshot) (dexec.MutationResult, error) {
+	row := &payload.PayloadDelete{}
+	row.SetId(snapshot.Keys[0])
+	row.SetShouldDelete(true)
+	input := &payload.Input{}
+	input.SetPayloads([]*payload.PayloadDelete{row})
+	value, err := invoker.InvokeComponent(ctx, dexec.ComponentRequest{
+		Target: dexec.ComponentTarget{
+			Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[payload.BulkDeleteComponent]().PkgPath(), Name: "PayloadBulkDelete"},
+			Route:     spec.RouteRef{Method: "PATCH", Path: "/v1/internal/agently/payload/delete-bulk"},
+		}, Input: input, Providers: mutationProviders(rule, snapshot),
+	})
+	if err != nil {
+		return dexec.MutationResult{}, err
+	}
+	output, ok := value.(*payload.Output)
+	if !ok || output == nil {
+		return dexec.MutationResult{}, fmt.Errorf("orphan bulk payload handler returned %T", value)
+	}
+	return dexec.MutationResult{Table: "call_payload", Operation: "delete", Records: len(output.Data), Affected: int64(len(output.Data))}, nil
+}
+
+// mutate maps a static domain action to a canonical table writer or the guarded
+// key-only payload delete writer. Request fields cannot select a table, column
+// or component.
 func mutate(ctx context.Context, invoker dexec.ComponentInvoker, rule Rule, snapshot *recordSnapshot) error {
 	id := snapshot.Keys[0]
 	switch rule.Table {
@@ -351,12 +375,12 @@ func mutate(ctx context.Context, invoker dexec.ComponentInvoker, rule Rule, snap
 		}
 		return invokeWriter[investigation.Output](ctx, invoker, reflect.TypeFor[investigation.WriterComponent](), "/v1/internal/agently/investigation", input, rule, snapshot)
 	case "call_payload":
-		row := &payload.Payload{}
+		row := &payload.PayloadDelete{}
 		row.SetId(id)
 		row.SetShouldDelete(true)
 		input := &payload.Input{}
-		input.SetPayloads([]*payload.Payload{row})
-		return invokeWriter[payload.Output](ctx, invoker, reflect.TypeFor[payload.WriterComponent](), "/v1/api/agently/payload", input, rule, snapshot)
+		input.SetPayloads([]*payload.PayloadDelete{row})
+		return invokeWriter[payload.Output](ctx, invoker, reflect.TypeFor[payload.WriterComponent](), "/v1/internal/agently/payload/delete", input, rule, snapshot)
 	case "report_run":
 		row := &reportRun.Run{}
 		row.SetReportRunId(id)

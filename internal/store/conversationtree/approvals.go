@@ -26,7 +26,7 @@ func (d *Discoverer) CollectApprovalIDs(ctx context.Context, graph *Graph) ([]st
 	conversationIDs := sortedMapKeys(graph.Nodes)
 	turnQuery := &turnread.TurnRowsInput{}
 	turnQuery.SetConversationIDs(conversationIDs)
-	turnRows, err := (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnQuery, deleteSelectors("id"))
+	turnRows, err := d.turnRows(ctx, turnQuery, deleteSelectors("id"))
 	if err != nil {
 		return nil, err
 	}
@@ -38,7 +38,7 @@ func (d *Discoverer) CollectApprovalIDs(ctx context.Context, graph *Graph) ([]st
 	}
 	messageQuery := &msgread.MessagesInput{}
 	messageQuery.SetConversationIds(conversationIDs)
-	messages, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery,
+	messages, err := d.messageRows(ctx, messageQuery,
 		deleteSelectors("id"))
 	if err != nil {
 		return nil, err
@@ -49,6 +49,12 @@ func (d *Discoverer) CollectApprovalIDs(ctx context.Context, graph *Graph) ([]st
 			messageIDs = append(messageIDs, row.Id)
 		}
 	}
+	return d.collectApprovalIDs(ctx, conversationIDs, turnIDs, messageIDs)
+}
+
+// collectApprovalIDs reuses identities from the same locked plan. All three
+// relationship paths are retained; approvals need not have consistent links.
+func (d *Discoverer) collectApprovalIDs(ctx context.Context, conversationIDs, turnIDs, messageIDs []string) ([]string, error) {
 	queries := []*approvalread.ApprovalRowsInput{}
 	byConversation := &approvalread.ApprovalRowsInput{}
 	byConversation.SetConversationIds(conversationIDs)

@@ -41,13 +41,7 @@ CREATE TABLE `call_payload` (
   `schema_ref` text,
   PRIMARY KEY (`id`),
   KEY `idx_payload_tenant_kind` (`tenant_id`,`kind`,`created_at`),
-  KEY `idx_payload_digest` (`digest`),
-  CONSTRAINT `call_payload_chk_1` CHECK ((`kind` in (_utf8mb4'model_request',_utf8mb4'model_response',_utf8mb4'provider_request',_utf8mb4'provider_response',_utf8mb4'model_stream',_utf8mb4'tool_request',_utf8mb4'tool_response',_utf8mb4'elicitation_request',_utf8mb4'elicitation_response'))),
-  CONSTRAINT `call_payload_chk_2` CHECK ((`storage` in (_utf8mb4'inline',_utf8mb4'object'))),
-  CONSTRAINT `call_payload_chk_3` CHECK ((`compression` in (_utf8mb4'none',_utf8mb4'gzip',_utf8mb4'zstd'))),
-  CONSTRAINT `call_payload_chk_4` CHECK ((`redacted` in (0,1))),
-  CONSTRAINT `call_payload_chk_5` CHECK ((((`storage` = _utf8mb4'inline') and (`inline_body` is not null)) or ((`storage` = _utf8mb4'object') and (`inline_body` is null))))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  KEY `idx_payload_digest` (`digest`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -94,10 +88,7 @@ CREATE TABLE `conversation` (
   `schedule_timezone` varchar(64) DEFAULT NULL,
   `schedule_cron_expr` varchar(255) DEFAULT NULL,
   `external_task_ref` text,
-  PRIMARY KEY (`id`),
-  CONSTRAINT `conversation_chk_1` CHECK ((`shareable` in (0,1))),
-  CONSTRAINT `conversation_chk_2` CHECK ((`scheduled` in (0,1)))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  PRIMARY KEY (`id`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -199,12 +190,7 @@ CREATE TABLE `message` (
   CONSTRAINT `fk_message_attachment_payload` FOREIGN KEY (`attachment_payload_id`) REFERENCES `call_payload` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_message_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `conversation` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_message_elicitation_payload` FOREIGN KEY (`elicitation_payload_id`) REFERENCES `call_payload` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_message_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `message_chk_1` CHECK (((`status` is null) or (`status` in (_utf8mb4'',_utf8mb4'pending',_utf8mb4'accepted',_utf8mb4'rejected',_utf8mb4'cancel',_utf8mb4'open',_utf8mb4'summary',_utf8mb4'summarized',_utf8mb4'completed',_utf8mb4'error',_utf8mb4'running',_utf8mb4'failed',_utf8mb4'canceled')))),
-  CONSTRAINT `message_chk_2` CHECK ((`role` in (_utf8mb4'system',_utf8mb4'user',_utf8mb4'assistant',_utf8mb4'tool',_utf8mb4'chain'))),
-  CONSTRAINT `message_chk_3` CHECK ((`type` in (_utf8mb4'text',_utf8mb4'tool_op',_utf8mb4'control',_utf8mb4'task',_utf8mb4'elicitation_response'))),
-  CONSTRAINT `message_chk_4` CHECK ((`interim` in (0,1)))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT `fk_message_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -271,10 +257,7 @@ CREATE TABLE `model_call` (
   CONSTRAINT `fk_model_call_res_payload` FOREIGN KEY (`response_payload_id`) REFERENCES `call_payload` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_model_call_stream_payload` FOREIGN KEY (`stream_payload_id`) REFERENCES `call_payload` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_model_call_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_model_calls_message` FOREIGN KEY (`message_id`) REFERENCES `message` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `model_call_chk_1` CHECK ((`model_kind` in (_utf8mb4'chat',_utf8mb4'completion',_utf8mb4'vision',_utf8mb4'reranker',_utf8mb4'embedding',_utf8mb4'other'))),
-  CONSTRAINT `model_call_chk_2` CHECK ((`status` in (_utf8mb4'thinking',_utf8mb4'streaming',_utf8mb4'running',_utf8mb4'completed',_utf8mb4'failed',_utf8mb4'canceled')))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT `fk_model_calls_message` FOREIGN KEY (`message_id`) REFERENCES `message` (`id`) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -346,10 +329,7 @@ CREATE TABLE `run` (
   KEY `idx_run_pid` (`worker_pid`,`worker_host`,`status`),
   CONSTRAINT `fk_run_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `conversation` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_run_schedule` FOREIGN KEY (`schedule_id`) REFERENCES `schedule` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_run_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `run_chk_1` CHECK ((`status` in (_utf8mb4'pending',_utf8mb4'prechecking',_utf8mb4'skipped',_utf8mb4'queued',_utf8mb4'running',_utf8mb4'completed',_utf8mb4'succeeded',_utf8mb4'failed',_utf8mb4'interrupted',_utf8mb4'canceled'))),
-  CONSTRAINT `run_chk_2` CHECK ((`precondition_passed` in (0,1)))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT `fk_run_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -401,10 +381,7 @@ CREATE TABLE `schedule` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `name` (`name`),
   KEY `idx_schedule_enabled_next` (`enabled`,`next_run_at`),
-  KEY `idx_schedule_enabled_next_lease` (`enabled`,`next_run_at`,`lease_until`),
-  CONSTRAINT `schedule_chk_1` CHECK ((`enabled` in (0,1))),
-  CONSTRAINT `schedule_chk_2` CHECK ((`schedule_type` in (_utf8mb4'adhoc',_utf8mb4'cron',_utf8mb4'interval')))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  KEY `idx_schedule_enabled_next_lease` (`enabled`,`next_run_at`,`lease_until`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -456,11 +433,7 @@ CREATE TABLE `tool_call` (
   CONSTRAINT `fk_tool_call_message` FOREIGN KEY (`message_id`) REFERENCES `message` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_tool_call_req_payload` FOREIGN KEY (`request_payload_id`) REFERENCES `call_payload` (`id`) ON DELETE SET NULL,
   CONSTRAINT `fk_tool_call_res_payload` FOREIGN KEY (`response_payload_id`) REFERENCES `call_payload` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_tool_call_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `tool_call_chk_1` CHECK ((`tool_kind` in (_utf8mb4'general',_utf8mb4'resource'))),
-  CONSTRAINT `tool_call_chk_2` CHECK ((`status` in (_utf8mb4'queued',_utf8mb4'running',_utf8mb4'waiting_for_user',_utf8mb4'completed',_utf8mb4'failed',_utf8mb4'skipped',_utf8mb4'canceled'))),
-  CONSTRAINT `tool_call_chk_3` CHECK ((`retriable` in (0,1)))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT `fk_tool_call_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -507,9 +480,7 @@ CREATE TABLE `tool_approval_queue` (
   KEY `fk_taq_message` (`message_id`),
   CONSTRAINT `fk_taq_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `conversation` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_taq_message` FOREIGN KEY (`message_id`) REFERENCES `message` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `fk_taq_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL,
-  CONSTRAINT `tool_approval_queue_chk_1` CHECK ((`status` in (_utf8mb4'pending',_utf8mb4'approved',_utf8mb4'rejected',_utf8mb4'canceled',_utf8mb4'executed',_utf8mb4'failed',_utf8mb4'timed_out')))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT `fk_taq_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE SET NULL) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -547,9 +518,7 @@ CREATE TABLE `turn` (
   KEY `idx_turn_conversation` (`conversation_id`),
   KEY `idx_turn_conv_status_created` (`conversation_id`,`status`,`created_at`),
   KEY `idx_turn_conv_queue_seq` (`conversation_id`,`queue_seq`),
-  CONSTRAINT `fk_turn_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `conversation` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `turn_chk_1` CHECK ((`status` in (_utf8mb4'queued',_utf8mb4'pending',_utf8mb4'running',_utf8mb4'waiting_for_user',_utf8mb4'succeeded',_utf8mb4'failed',_utf8mb4'canceled')))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT `fk_turn_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `conversation` (`id`) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -583,9 +552,7 @@ CREATE TABLE `turn_queue` (
   KEY `idx_turn_queue_conv_status_seq` (`conversation_id`,`status`,`queue_seq`,`created_at`),
   CONSTRAINT `fk_turn_queue_conversation` FOREIGN KEY (`conversation_id`) REFERENCES `conversation` (`id`) ON DELETE CASCADE,
   CONSTRAINT `fk_turn_queue_turn` FOREIGN KEY (`turn_id`) REFERENCES `turn` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `fk_turn_queue_message` FOREIGN KEY (`message_id`) REFERENCES `message` (`id`) ON DELETE CASCADE,
-  CONSTRAINT `turn_queue_chk_1` CHECK ((`status` in (_utf8mb4'queued',_utf8mb4'dispatched',_utf8mb4'canceled',_utf8mb4'completed',_utf8mb4'failed')))
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
+  CONSTRAINT `fk_turn_queue_message` FOREIGN KEY (`message_id`) REFERENCES `message` (`id`) ON DELETE CASCADE) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --

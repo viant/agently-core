@@ -53,6 +53,11 @@ func (*Delete) Exec(ctx context.Context, session handler.Session, input *DeleteI
 	if session == nil || session.Binder() == nil || input == nil || output == nil {
 		return fmt.Errorf("conversation deletion invocation is incomplete")
 	}
+	var err error
+	ctx, err = PinGraphReader(ctx)
+	if err != nil {
+		return err
+	}
 	roots, runs, legacy := normalizeIDs(input.RootIDs), normalizeIDs(input.RunIDs), normalizeIDs(input.ScheduleRunIDs)
 	if len(roots) == 0 && len(runs) == 0 && len(legacy) == 0 {
 		return nil

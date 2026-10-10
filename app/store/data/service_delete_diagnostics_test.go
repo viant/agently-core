@@ -1,9 +1,13 @@
 package data
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"strings"
 	"testing"
+
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 )
 
 func TestConversationDeleteDiagnosticsEnabled(t *testing.T) {
@@ -32,6 +36,7 @@ func TestConversationDeleteDiagnosticsEnabled(t *testing.T) {
 
 func TestBeginConversationDeleteDiagnosticsDisabledByDefault(t *testing.T) {
 	t.Setenv(conversationDeleteDiagnosticsEnv, "")
+	t.Setenv(maintenancediag.DetailsEnv, "")
 	ctx := context.Background()
 	gotCtx, diagnostics := beginConversationDeleteDiagnostics(ctx, []string{"conversation-1"})
 	if diagnostics != nil {
@@ -39,6 +44,46 @@ func TestBeginConversationDeleteDiagnosticsDisabledByDefault(t *testing.T) {
 	}
 	if gotCtx != ctx {
 		t.Fatal("disabled diagnostics should not wrap the context")
+	}
+}
+
+func TestBaseConversationDeleteDiagnosticsKeepsCompactRequestLogs(t *testing.T) {
+	t.Setenv(conversationDeleteDiagnosticsEnv, "1")
+	t.Setenv(maintenancediag.DetailsEnv, "0")
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	ctx, diagnostics := beginConversationDeleteDiagnostics(context.Background(), []string{"conversation-1"})
+	if diagnostics == nil || diagnostics.trace != nil || conversationDeleteDiagnosticsFromContext(ctx) != diagnostics {
+		t.Fatal("base diagnostics should exist without a detailed trace")
+	}
+	diagnostics.finish(nil)
+	logs := output.String()
+	if !strings.Contains(logs, "phase=request event=start roots=\"conversation-1\"") ||
+		!strings.Contains(logs, "phase=request event=done") ||
+		strings.Contains(logs, "phase=component") || strings.Contains(logs, "phase=roots") {
+		t.Fatalf("unexpected compact diagnostics: %s", logs)
+	}
+}
+
+func TestDetailedConversationDeleteDiagnosticsSharesTrace(t *testing.T) {
+	t.Setenv(conversationDeleteDiagnosticsEnv, "1")
+	t.Setenv(maintenancediag.DetailsEnv, "1")
+	var output bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&output)
+	t.Cleanup(func() { log.SetOutput(previous) })
+	ctx, diagnostics := beginConversationDeleteDiagnostics(context.Background(), []string{"conversation-1"})
+	if diagnostics == nil || diagnostics.trace == nil || diagnostics.id != maintenancediag.ID(ctx) {
+		t.Fatal("detailed diagnostics did not share the maintenance trace")
+	}
+	diagnostics.finish(nil)
+	logs := output.String()
+	if !strings.Contains(logs, "phase=request event=start operation=manual_conversation_delete") ||
+		!strings.Contains(logs, "phase=roots") ||
+		!strings.Contains(logs, "phase=request event=done") {
+		t.Fatalf("unexpected detailed diagnostics: %s", logs)
 	}
 }
 

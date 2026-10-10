@@ -127,6 +127,9 @@ func (s *Service) ensureSchemaInMemory(ctx context.Context, dsn string) (string,
 }
 
 func applyCompatibilityMigrations(ctx context.Context, db *sql.DB) error {
+	if err := removeSQLiteChecks(ctx, db); err != nil {
+		return err
+	}
 	if err := ensureProtocolReuseColumns(ctx, db); err != nil {
 		return err
 	}

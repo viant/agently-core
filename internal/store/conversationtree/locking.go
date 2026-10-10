@@ -24,10 +24,6 @@ var conversationReaderTarget = dexec.ComponentTarget{
 	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[convread.ReaderComponent]().PkgPath(), Name: "reader"},
 	Route:     spec.RouteRef{Method: "GET", Path: "/v1/api/agently/conversation/{id}"},
 }
-var runReaderTarget = dexec.ComponentTarget{
-	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[runread.ReaderComponent]().PkgPath(), Name: "reader"},
-	Route:     spec.RouteRef{Method: "GET", Path: "/v1/api/agently/run/{id}"},
-}
 
 func (d *Discoverer) LockConversationGraph(ctx context.Context, graph *Graph) (retErr error) {
 	done := maintenancediag.Phase(ctx, "lock_conversations")
@@ -38,9 +34,24 @@ func (d *Discoverer) LockConversationGraph(ctx context.Context, graph *Graph) (r
 	if err := d.authorize(ctx, graph); err != nil {
 		return err
 	}
+	var err error
+	ctx, err = PinGraphReader(ctx)
+	if err != nil {
+		return err
+	}
 	return eachDeleteBatch(sortedMapKeys(graph.Nodes), func(ids []string) error {
 		input := &convread.ConversationInput{}
 		input.SetIds(ids)
+		if ctx.Value(graphReaderContextKey{}) == graphReaderCompact {
+			rows, err := d.compactGraphRows(ctx, input, true)
+			if err != nil {
+				return err
+			}
+			if len(rows) != len(ids) {
+				return ErrNotFound
+			}
+			return nil
+		}
 		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: conversationReaderTarget, Input: input, Providers: lockProviders("conversationaccess", d.OwnerID(ctx))})
 		if err != nil {
 			return err
@@ -71,14 +82,8 @@ func (d *Discoverer) LockDeletePlanRuns(ctx context.Context, plan *DeletePlan) (
 	if err := eachDeleteBatch(ids, func(ids []string) error {
 		input := &runread.RunRowsInput{}
 		input.SetIds(ids)
-		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{ReaderOptions: queryselectors.ForUpdateOptions(ctx, true), Target: runReaderTarget, Input: input, Providers: lockProviders("runaccess", d.OwnerID(ctx))})
-		if err != nil {
-			return err
-		}
-		if output, ok := value.(*runread.RunRowsOutput); !ok || output == nil {
-			return fmt.Errorf("run lock reader returned %T", value)
-		}
-		return nil
+		_, err := ReadCleanupRuns(ctx, d.Invoker, input, true)
+		return err
 	}); err != nil {
 		return err
 	}
