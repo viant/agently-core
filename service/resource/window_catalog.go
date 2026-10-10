@@ -114,16 +114,35 @@ func (c *WindowCatalog) ResourceReference(ctx context.Context, key string) (iden
 	return identity.ResourceRef{URI: loc.URI}, nil
 }
 func (c *WindowCatalog) Get(ctx context.Context, input *service.WindowDefinitionGetInput) (*service.WindowDefinitionGetOutput, error) {
+	return c.getForProvider(ctx, "", input)
+}
+
+// GetForProvider is a trusted host entry point for an already configured owner.
+// It adds no client wire field and does not fabricate a resource revision pin.
+func (c *WindowCatalog) GetForProvider(ctx context.Context, owner string, input *service.WindowDefinitionGetInput) (*service.WindowDefinitionGetOutput, error) {
+	if strings.TrimSpace(owner) == "" {
+		return nil, identity.ErrResourceDenied
+	}
+	return c.getForProvider(ctx, owner, input)
+}
+
+func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string, input *service.WindowDefinitionGetInput) (*service.WindowDefinitionGetOutput, error) {
 	if !c.AuthzReady() || input == nil {
 		return nil, identity.ErrResourceDenied
 	}
-	owner := ""
+	owner := explicitOwner
 	if input.ResolvedResource != nil {
+		if explicitOwner != "" && input.ResolvedResource.ProviderIdentity != explicitOwner {
+			return nil, identity.ErrResourceDenied
+		}
 		owner = input.ResolvedResource.ProviderIdentity
 	}
 	loc, e := c.locate(ctx, input.WindowID, owner)
 	if e != nil {
 		return nil, e
+	}
+	if explicitOwner != "" && loc.Connection.ProviderIdentity != explicitOwner {
+		return nil, identity.ErrResourceDenied
 	}
 	ref := identity.ResourceRef{URI: loc.URI}
 	if input.Resource != nil {
