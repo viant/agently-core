@@ -33,6 +33,7 @@ type Namespace struct {
 	Kinds []string `json:"kinds,omitempty"`
 }
 type KindSupport struct {
+	SchemaURI      string   `json:"schemaURI,omitempty"`
 	Kind           string   `json:"kind"`
 	FormatVersions []int64  `json:"formatVersions"`
 	Operations     []string `json:"operations"`
