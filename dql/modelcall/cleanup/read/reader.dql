@@ -1,0 +1,25 @@
+#package('github.com/viant/agently-core/internal/datly/modelcall/cleanup/read')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/modelcall/cleanup','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(modelcallcleanupscope/internal).Required())
+#define($_ = $MessageIDs<[]string>(query/messageIDs).Optional().WithPredicate(0,'in','t','message_id'))
+#define($_ = $TurnIDs<[]string>(query/turnIDs).Optional().WithPredicate(0,'in','t','turn_id'))
+#define($_ = $Data<[]*ModelCall>(output/view))
+
+SELECT metadata.*,
+       type(metadata,'ModelCall'),
+       required(metadata.message_id),
+       row_lock(metadata,'model_call t','t.message_id'),
+       set_limit(metadata,0),
+       CAST(metadata.turn_id AS *string),
+       CAST(metadata.run_id AS *string),
+       CAST(metadata.request_payload_id AS *string),
+       CAST(metadata.response_payload_id AS *string),
+       CAST(metadata.provider_request_payload_id AS *string),
+       CAST(metadata.provider_response_payload_id AS *string),
+       CAST(metadata.stream_payload_id AS *string)
+FROM (${embed:sql/metadata.sql}) metadata

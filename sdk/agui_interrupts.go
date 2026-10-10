@@ -20,6 +20,7 @@ import (
 	"github.com/viant/agently-core/protocol/tool/resolver"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
+	"github.com/viant/agently-core/service/browsermcp"
 	"github.com/viant/agently-core/service/elicitation"
 	toolapproval "github.com/viant/agently-core/service/shared/toolapproval"
 )
@@ -67,6 +68,13 @@ func preflightAGUIResume(ctx context.Context, client Client, input *agui.RunAgen
 		}
 		seenTools[message.ToolCallID] = true
 		if expectedCalls[message.ToolCallID] {
+			for _, call := range pending.ClientTools {
+				if aguiPendingCallID(call) == message.ToolCallID {
+					if err := browsermcp.VerifyResultMetadata(call.Name, call.Metadata, message.Metadata); err != nil {
+						return err
+					}
+				}
+			}
 			continue
 		}
 		historical := false

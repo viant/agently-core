@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/clienttool"
+	"github.com/viant/agently-core/service/browsermcp"
 	"strconv"
 	"strings"
 	"time"
@@ -285,6 +286,17 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 	b.Context = input.Context
 
 	if session := clienttool.FromContext(ctx); session != nil {
+		managedBrowser := map[string]bool{}
+		allowedBrowser := map[string]bool{}
+		for name := range browsermcp.Definitions(ctx) {
+			managedBrowser[name] = true
+		}
+		for _, definition := range b.Tools.Signatures {
+			if definition != nil && managedBrowser[definition.Name] {
+				allowedBrowser[definition.Name] = true
+			}
+		}
+		session.RestrictManaged(managedBrowser, allowedBrowser)
 		definitions := session.Definitions()
 		if profileDisablesTools && len(definitions) > 0 {
 			return nil, fmt.Errorf("client tools are disabled by the selected prompt profile")
@@ -300,7 +312,7 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		}
 		exposed := make([]llm.ToolDefinition, 0, len(b.Tools.Signatures))
 		for _, definition := range b.Tools.Signatures {
-			if definition != nil {
+			if definition != nil && !managedBrowser[definition.Name] {
 				exposed = append(exposed, *definition)
 			}
 		}
@@ -308,6 +320,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 			return nil, err
 		}
 		for _, definition := range definitions {
+			if managedBrowser[definition.Name] {
+				continue
+			}
 			definition := definition
 			b.Tools.Signatures = append(b.Tools.Signatures, &definition)
 		}

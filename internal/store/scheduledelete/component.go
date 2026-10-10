@@ -58,6 +58,10 @@ func (*Delete) Exec(ctx context.Context, session handler.Session, input *Input, 
 	if session == nil || session.Binder() == nil || input == nil || output == nil {
 		return fmt.Errorf("schedule deletion invocation is incomplete")
 	}
+	ctx, readerErr := tree.PinGraphReader(ctx)
+	if readerErr != nil {
+		return readerErr
+	}
 	deps := dependencies{}
 	if err := session.Binder().Bind(ctx, &deps); err != nil {
 		return err

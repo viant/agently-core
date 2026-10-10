@@ -6,9 +6,11 @@ import (
 	"reflect"
 	"strings"
 
+	payloaddelete "github.com/viant/agently-core/internal/datly/payload/delete"
 	read "github.com/viant/agently-core/internal/datly/payload/reference"
 	write "github.com/viant/agently-core/internal/datly/payload/write"
 	"github.com/viant/agently-core/internal/datly/queryselectors"
+	"github.com/viant/agently-core/internal/store/maintenancediag"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
@@ -25,6 +27,14 @@ var payloadReaderTarget = dexec.ComponentTarget{
 var payloadWriterTarget = dexec.ComponentTarget{
 	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[write.WriterComponent]().PkgPath(), Name: "writer"},
 	Route:     spec.RouteRef{Method: "PATCH", Path: "/v1/api/agently/payload"},
+}
+var payloadDeleteTarget = dexec.ComponentTarget{
+	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[payloaddelete.WriterComponent]().PkgPath(), Name: "writer"},
+	Route:     spec.RouteRef{Method: "PATCH", Path: "/v1/internal/agently/payload/delete"},
+}
+var payloadBulkDeleteTarget = dexec.ComponentTarget{
+	Component: spec.Key{Kind: spec.KindComponent, Scope: reflect.TypeFor[payloaddelete.BulkDeleteComponent]().PkgPath(), Name: "PayloadBulkDelete"},
+	Route:     spec.RouteRef{Method: "PATCH", Path: "/v1/internal/agently/payload/delete-bulk"},
 }
 
 func (s *PayloadStore) Get(ctx context.Context, id string) (*read.PayloadView, error) {
@@ -81,11 +91,22 @@ func (s *PayloadStore) PatchTrustedResult(ctx context.Context, row *write.Payloa
 }
 
 // DeleteUnreferencedTrusted removes only payloads that have no surviving
-// references. The reader skips known shared IDs; the generated DELETE guard
-// aborts the caller's transaction if a new reference wins after that read.
-func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...string) error {
+// references. The reader skips known shared IDs; the private key-only writer
+// never loads their contents. The row/bulk DELETE guard aborts the caller's
+// transaction if a new reference wins after that read. Sequential bounded
+// invocations share the caller's transaction; this store never commits a chunk.
+func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...string) (retErr error) {
 	if s == nil || s.Invoker == nil {
 		return fmt.Errorf("payload component store is not configured")
+	}
+	ctx, err := payloaddelete.PinMode(ctx)
+	if err != nil {
+		return err
+	}
+	mode := payloaddelete.PinnedMode(ctx)
+	target := payloadDeleteTarget
+	if mode == payloaddelete.BulkMode {
+		target = payloadBulkDeleteTarget
 	}
 	seen := map[string]bool{}
 	selected := make([]string, 0, len(ids))
@@ -99,8 +120,11 @@ func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...str
 	if len(selected) == 0 {
 		return nil
 	}
-	query := &read.Input{}
-	query.SetIds(selected)
+	done := maintenancediag.Phase(ctx, "payload_delete_batches")
+	var referenceBatches, writerBatches, submitted, sharedSkipped, missing, deleteStatements, affected int
+	defer func() {
+		done(retErr, fmt.Sprintf("mode=%s candidates=%d reference_batches=%d writer_batches=%d submitted=%d shared_skipped=%d missing=%d delete_statements=%d affected=%d", mode, len(selected), referenceBatches, writerBatches, submitted, sharedSkipped, missing, deleteStatements, affected))
+	}()
 	providers := []locator.Provider{
 		provider.Named("payloadaccess", func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
 			if name == "checkReferences" {
@@ -110,35 +134,71 @@ func (s *PayloadStore) DeleteUnreferencedTrusted(ctx context.Context, ids ...str
 		}),
 		queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id", "referenced"}}}}),
 	}
-	value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: payloadReaderTarget, Input: query, Providers: providers})
-	if err != nil {
-		return err
-	}
-	out, ok := value.(*read.Output)
-	if !ok || out == nil {
-		return fmt.Errorf("payload reference reader returned %T", value)
-	}
-	for _, row := range out.Data {
-		if row == nil || row.Referenced {
-			continue
+	writerProviders := []locator.Provider{provider.Named("payloadaccess", func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
+		if name == "deleteUnreferenced" {
+			return true, true, nil
 		}
-		mutation := &write.Payload{}
-		mutation.SetId(row.Id)
-		mutation.SetShouldDelete(true)
-		input := &write.Input{}
-		input.SetPayloads([]*write.Payload{mutation})
-		writerProviders := []locator.Provider{provider.Named("payloadaccess", func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
-			if name == "deleteUnreferenced" {
-				return true, true, nil
-			}
-			return nil, false, nil
-		})}
-		value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: payloadWriterTarget, Input: input, Providers: writerProviders})
+		return nil, false, nil
+	})}
+	for start := 0; start < len(selected); start += payloaddelete.MaxBatchSize {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		end := min(start+payloaddelete.MaxBatchSize, len(selected))
+		query := &read.Input{}
+		query.SetIds(selected[start:end])
+		// Explicitly override reader pagination: every key in this bounded chunk
+		// must be checked, even if the component's default page is smaller.
+		query.SetLimit(end - start)
+		referenceBatches++
+		value, err := s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: payloadReaderTarget, Input: query, Providers: providers})
 		if err != nil {
 			return err
 		}
-		if _, ok := value.(*write.Output); !ok {
+		out, ok := value.(*read.Output)
+		if !ok || out == nil {
+			return fmt.Errorf("payload reference reader returned %T", value)
+		}
+		missing += end - start - len(out.Data)
+		mutations := make([]*payloaddelete.PayloadDelete, 0, len(out.Data))
+		for _, row := range out.Data {
+			if row == nil {
+				continue
+			}
+			if row.Referenced {
+				sharedSkipped++
+				continue
+			}
+			mutation := &payloaddelete.PayloadDelete{}
+			mutation.SetId(row.Id)
+			mutation.SetShouldDelete(true)
+			mutations = append(mutations, mutation)
+		}
+		if len(mutations) == 0 {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		input := &payloaddelete.Input{}
+		input.SetPayloads(mutations)
+		writerBatches++
+		submitted += len(mutations)
+		value, err = s.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: target, Input: input, Providers: writerProviders})
+		if err != nil {
+			return err
+		}
+		output, ok := value.(*payloaddelete.Output)
+		if !ok || output == nil {
 			return fmt.Errorf("payload delete writer returned %T", value)
+		}
+		affected += len(output.Data)
+		if mode == payloaddelete.BulkMode {
+			if len(output.Data) > 0 {
+				deleteStatements++
+			}
+		} else {
+			deleteStatements += len(output.Data)
 		}
 	}
 	return nil

@@ -349,3 +349,14 @@ func TestAGUIBootstrapFiltersActualModelCallInclusiveCanonicalHistory(t *testing
 		})
 	}
 }
+
+func TestAGUIBootstrapEnvelopeAcceptsOptionalCompactModelPayloads(t *testing.T) {
+	c, server := newBootstrapDatlyServer(t)
+	status, wire := durablePost(t, server, bootstrapRequest("compact-schema", map[string]any{"mode": "transcript", "includeModelCalls": true, "includeToolCalls": true, "includeModelPayloads": false}), nil)
+	require.Equal(t, 200, status, wire)
+	require.NotNil(t, bootstrapWireResult(t, wire))
+	require.NotNil(t, c.options.includeModelPayloads)
+	require.False(t, *c.options.includeModelPayloads)
+	status, _ = durablePost(t, server, bootstrapRequest("bad-compact-schema", map[string]any{"includeModelPayloads": "false"}), nil)
+	require.Equal(t, 400, status, "the optional contract remains typed")
+}

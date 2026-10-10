@@ -38,6 +38,9 @@
         "includeModelCalls": {
           "type": "boolean"
         },
+        "includeModelPayloads": {
+          "type": "boolean"
+        },
         "includeToolCalls": {
           "type": "boolean"
         },

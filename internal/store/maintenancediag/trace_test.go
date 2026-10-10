@@ -24,6 +24,7 @@ func (i *testInvoker) InvokeComponent(_ context.Context, request dexec.Component
 
 func TestDisabledDoesNotWrapOrChangeContext(t *testing.T) {
 	t.Setenv(Env, "0")
+	t.Setenv(DetailsEnv, "1")
 	ctx := context.Background()
 	invoker := &testInvoker{}
 	got, trace := Begin(ctx, "test")
@@ -34,8 +35,23 @@ func TestDisabledDoesNotWrapOrChangeContext(t *testing.T) {
 	Phase(got, "test")(nil, "")
 }
 
+func TestBaseDiagnosticsAloneDoNotTraceComponents(t *testing.T) {
+	t.Setenv(Env, "1")
+	t.Setenv(DetailsEnv, "0")
+	if !Enabled() || DetailsEnabled() {
+		t.Fatal("base diagnostics must not enable detailed tracing")
+	}
+	ctx := context.Background()
+	invoker := &testInvoker{}
+	got, trace := Begin(ctx, "test")
+	if got != ctx || trace != nil || Wrap(got, invoker) != invoker {
+		t.Fatal("base diagnostics unexpectedly instrumented components")
+	}
+}
+
 func TestNestedTraceCountsCallsAndDoesNotLogSensitiveInputs(t *testing.T) {
 	t.Setenv(Env, "1")
+	t.Setenv(DetailsEnv, "1")
 	var logs bytes.Buffer
 	writer, flags := log.Writer(), log.Flags()
 	log.SetOutput(&logs)

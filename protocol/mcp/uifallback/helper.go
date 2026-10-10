@@ -37,6 +37,26 @@ func EmbeddedCallToolContent(
 	if uri == "" {
 		return nil, false, nil
 	}
+	// Stable Apps negotiation lives in extensions. The legacy adapter remains
+	// selected only by its explicit fallback metadata below.
+	if clientCaps != nil {
+		if extension, ok := clientCaps.Extensions["io.modelcontextprotocol/ui"]; ok {
+			switch values := extension["mimeTypes"].(type) {
+			case []string:
+				for _, value := range values {
+					if value == "text/html;profile=mcp-app" {
+						return nil, false, nil
+					}
+				}
+			case []interface{}:
+				for _, value := range values {
+					if value == "text/html;profile=mcp-app" {
+						return nil, false, nil
+					}
+				}
+			}
+		}
+	}
 	mode := mcpuicompat.SelectToolMode(clientCaps, toolUI)
 	if mode == mcpuicompat.ModeCapability || mode == mcpuicompat.ModeNone {
 		return nil, false, nil

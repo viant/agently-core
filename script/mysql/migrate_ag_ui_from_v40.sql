@@ -1,6 +1,35 @@
--- One-time additive upgrade from original Agently MySQL schema version 40.
+-- One-time upgrade from original Agently MySQL schema version 40 to 42.
 -- Select the existing database before executing; no application-data backfill.
 -- Derived from script/mysql/schema_versioned.ddl, schema_upgrade_40.
+
+DELIMITER $$
+-- Discover installed CHECK names; they need not match the bootstrap or Skeema.
+DROP PROCEDURE IF EXISTS agently_drop_check_constraints $$
+CREATE PROCEDURE agently_drop_check_constraints()
+BEGIN
+    DECLARE check_table VARCHAR(64);
+    DECLARE check_name VARCHAR(64);
+    WHILE EXISTS (
+        SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+        WHERE TABLE_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'CHECK'
+    ) DO
+        SELECT TABLE_NAME, CONSTRAINT_NAME INTO check_table, check_name
+        FROM information_schema.TABLE_CONSTRAINTS
+        WHERE TABLE_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'CHECK'
+        ORDER BY TABLE_NAME, CONSTRAINT_NAME LIMIT 1;
+        SET @agently_drop_check_sql = CONCAT(
+            'ALTER TABLE `', REPLACE(check_table, '`', '``'),
+            '` DROP CHECK `', REPLACE(check_name, '`', '``'), '`');
+        PREPARE agently_drop_check_stmt FROM @agently_drop_check_sql;
+        EXECUTE agently_drop_check_stmt;
+        DEALLOCATE PREPARE agently_drop_check_stmt;
+    END WHILE;
+    SET @agently_drop_check_sql = NULL;
+END $$
+
+CALL agently_drop_check_constraints() $$
+DROP PROCEDURE agently_drop_check_constraints $$
+DELIMITER ;
 
 ALTER TABLE conversation
   ADD COLUMN protocol_only TINYINT NOT NULL DEFAULT 0,
@@ -36,12 +65,6 @@ ALTER TABLE call_payload
   ADD COLUMN run_id VARCHAR(255) NULL,
   ADD COLUMN sequence BIGINT NULL;
 
-ALTER TABLE call_payload DROP CHECK call_payload_chk_1;
-ALTER TABLE call_payload ADD CONSTRAINT call_payload_chk_1
-  CHECK (kind IN ('model_request','model_response','provider_request',
-    'provider_response','model_stream','tool_request','tool_response',
-    'elicitation_request','elicitation_response','attachment','agui.event'));
-
 CREATE UNIQUE INDEX ux_conversation_protocol_thread ON conversation (protocol_thread_key);
 CREATE UNIQUE INDEX ux_run_protocol_key ON run (protocol_key);
 CREATE UNIQUE INDEX ux_run_protocol_source ON run (protocol_source_key);
@@ -53,4 +76,4 @@ CREATE UNIQUE INDEX ux_payload_run_sequence ON call_payload (run_id, sequence);
 ALTER TABLE call_payload ADD CONSTRAINT fk_payload_protocol_run
   FOREIGN KEY (run_id) REFERENCES run(id) ON DELETE CASCADE;
 -- Schema bookkeeping only; original application rows remain unchanged.
-UPDATE schema_version SET version_number=41 WHERE version_number=40;
+UPDATE schema_version SET version_number=42 WHERE version_number=40;

@@ -4,14 +4,12 @@ import (
 	"context"
 	"fmt"
 	"reflect"
-	"strings"
 
 	fileread "github.com/viant/agently-core/internal/datly/generatedfile/read"
 	msgread "github.com/viant/agently-core/internal/datly/message/read"
 	modelread "github.com/viant/agently-core/internal/datly/modelcall/read"
 	"github.com/viant/agently-core/internal/datly/queryselectors"
 	toolread "github.com/viant/agently-core/internal/datly/toolcall/read"
-	conversation "github.com/viant/agently-core/internal/store/conversation"
 	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/runtime/handler/provider"
@@ -40,7 +38,7 @@ func (d *Discoverer) CollectPayloadIDs(ctx context.Context, graph *Graph) ([]str
 	payloadIDs, messageIDs := []string{}, []string{}
 	query := &msgread.MessagesInput{}
 	query.SetConversationIds(conversationIDs)
-	messages, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, query, deleteSelectors("id", "attachment_payload_id", "elicitation_payload_id"))
+	messages, err := d.messageRows(ctx, query, deleteSelectors("id", "attachment_payload_id", "elicitation_payload_id"))
 	if err != nil {
 		return nil, err
 	}
@@ -52,19 +50,13 @@ func (d *Discoverer) CollectPayloadIDs(ctx context.Context, graph *Graph) ([]str
 		payloadIDs = appendPayloadID(payloadIDs, row.AttachmentPayloadId, row.ElicitationPayloadId)
 	}
 	if messageIDs = normalizeIDs(messageIDs); len(messageIDs) > 0 {
-		owner := strings.TrimSpace(d.OwnerID(ctx))
 		modelQuery := &modelread.ModelCallsInput{}
 		modelQuery.SetMessageIds(messageIDs)
-		modelValue, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: modelReaderTarget, Input: modelQuery,
-			Providers: payloadCallProviders("modelcallaccess", owner, []string{"message_id", "request_payload_id", "response_payload_id", "provider_request_payload_id", "provider_response_payload_id", "stream_payload_id"})})
+		modelRows, err := d.modelRows(ctx, modelQuery, "message_id", "request_payload_id", "response_payload_id", "provider_request_payload_id", "provider_response_payload_id", "stream_payload_id")
 		if err != nil {
 			return nil, err
 		}
-		modelOutput, ok := modelValue.(*modelread.ModelCallsOutput)
-		if !ok || modelOutput == nil {
-			return nil, fmt.Errorf("model call reader returned %T", modelValue)
-		}
-		for _, row := range modelOutput.Data {
+		for _, row := range modelRows {
 			if row != nil {
 				payloadIDs = appendPayloadID(payloadIDs, row.RequestPayloadId, row.ResponsePayloadId,
 					row.ProviderRequestPayloadId, row.ProviderResponsePayloadId, row.StreamPayloadId)
@@ -72,16 +64,11 @@ func (d *Discoverer) CollectPayloadIDs(ctx context.Context, graph *Graph) ([]str
 		}
 		toolQuery := &toolread.ToolCallsInput{}
 		toolQuery.SetMessageIds(messageIDs)
-		toolValue, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: toolReaderTarget, Input: toolQuery,
-			Providers: payloadCallProviders("toolcallaccess", owner, []string{"message_id", "request_payload_id", "response_payload_id"})})
+		toolRows, err := d.toolRows(ctx, toolQuery, "message_id", "request_payload_id", "response_payload_id")
 		if err != nil {
 			return nil, err
 		}
-		toolOutput, ok := toolValue.(*toolread.ToolCallsOutput)
-		if !ok || toolOutput == nil {
-			return nil, fmt.Errorf("tool call reader returned %T", toolValue)
-		}
-		for _, row := range toolOutput.Data {
+		for _, row := range toolRows {
 			if row != nil {
 				payloadIDs = appendPayloadID(payloadIDs, row.RequestPayloadId, row.ResponsePayloadId)
 			}
@@ -128,4 +115,34 @@ func appendPayloadID(target []string, pointers ...*string) []string {
 		}
 	}
 	return target
+}
+
+// payloadIDsFromPlan only consumes metadata read in this preparation phase.
+// Rows used for run discovery by turn are deliberately NOT deletion candidates.
+func payloadIDsFromPlan(plan *DeletePlan) []string {
+	if plan == nil {
+		return nil
+	}
+	var ids []string
+	for _, row := range plan.Messages {
+		if row != nil {
+			ids = appendPayloadID(ids, row.AttachmentPayloadId, row.ElicitationPayloadId)
+		}
+	}
+	for _, row := range plan.ModelCalls {
+		if row != nil {
+			ids = appendPayloadID(ids, row.RequestPayloadId, row.ResponsePayloadId, row.ProviderRequestPayloadId, row.ProviderResponsePayloadId, row.StreamPayloadId)
+		}
+	}
+	for _, row := range plan.ToolCalls {
+		if row != nil {
+			ids = appendPayloadID(ids, row.RequestPayloadId, row.ResponsePayloadId)
+		}
+	}
+	for _, row := range plan.GeneratedFiles {
+		if row != nil {
+			ids = appendPayloadID(ids, row.PayloadId)
+		}
+	}
+	return normalizeIDs(ids)
 }

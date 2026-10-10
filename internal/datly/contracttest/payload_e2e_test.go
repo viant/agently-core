@@ -228,7 +228,7 @@ func payloadRead(t *testing.T, rt *druntime.Runtime, key spec.Key, filters map[s
 	}
 	return rows
 }
-func payloadRuntime(t *testing.T, db *sql.DB) (*druntime.Runtime, spec.Key, spec.Key) {
+func payloadRuntime(t *testing.T, db *sql.DB, options ...druntime.Option) (*druntime.Runtime, spec.Key, spec.Key) {
 	t.Helper()
 	resources := resource.New()
 	must(t, resources.Register(binaryread.ReaderDatlyResourceNamespace, binaryread.ReaderDatlyResources))
@@ -249,7 +249,7 @@ func payloadRuntime(t *testing.T, db *sql.DB) (*druntime.Runtime, spec.Key, spec
 		{Component: binary.Component, Input: binary.Input, Output: binary.Output, OutputType: reflect.TypeFor[binaryread.Output](), Reader: binaryReader},
 		{Component: raw.Component, Input: raw.Input, Output: raw.Output, OutputType: reflect.TypeFor[rawread.PayloadRowsOutput](), Reader: rawReader},
 		{Component: mutation.Component, Input: mutation.Input, Output: mutation.Output, OutputType: reflect.TypeFor[payloadwrite.Output](), Handler: handler, Providers: []locator.Provider{views}, DataSource: dml.Source{DB: db}},
-	}, druntime.WithResources(resources))
+	}, append([]druntime.Option{druntime.WithResources(resources)}, options...)...)
 	must(t, err)
 	return rt, binary.Component.Key, raw.Component.Key
 }

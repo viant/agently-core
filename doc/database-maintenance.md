@@ -164,10 +164,124 @@ or migrate `maintenance_lease` at runtime.
 
 ## Performance diagnostics
 
+### Deletion graph reader A/B switch
+
+`AGENTLY_DELETE_GRAPH_READER=legacy|compact` selects the conversation reader
+used for deletion graph discovery, row locking and inbound topology checks.
+Unset or empty means `compact`. Set `legacy` explicitly to use the previous
+graph reader. Any other value fails the graph operation before
+its transaction starts. The choice is pinned for the complete operation,
+including nested schedule cascades and revalidation.
+
+`compact` uses the separate, generated, internal
+`dql/conversation/graph/read` component. Its SQL selects only `id`,
+`created_by_user_id`, `status`, `schedule_run_id` and the raw creation timestamp,
+with no transcript joins or content columns. It supports ID, parent-ID and
+parent-turn-ID batches and has no pagination that could truncate the graph.
+Linked-message edges, ownership, liveness, activity, references and graph size
+limits are still checked by the same deletion orchestrators. MySQL row locks
+and the single transaction for an entire tree are preserved; SQLite keeps its
+existing transaction/write-gate behavior.
+
+This does not switch conversation lists/transcripts, retention candidate or
+schedule-root selection, payload handling, or scheduler execution. General
+conversation readers remain unchanged. Use the same built
+binary, fixture and cleanup settings for A/B tests; change this environment
+variable and restart the dedicated test process. Return to `legacy` to disable
+the compact path without rebuilding. A full cleanup speedup must be measured
+end-to-end, not inferred from the smaller graph SELECT alone.
+
+### Private deletion metadata and child batching
+
+Deletion planning reuses identities and payload-reference columns from reads
+already performed within the same preparation phase. It does not reuse that
+snapshot for explicit post-lock revalidation. Dangling run IDs remain included
+in the lock/check set, and model/tool run links remain scoped by turn.
+
+Separate generated internal `conversation/cleanup/read` and `run/cleanup/read`
+components return only nine/eleven metadata columns. They require a trusted
+host capability and exactly one bounded identity predicate. The adapters split
+input IDs into at most 400 binds per read; results have no pagination truncating
+descendants. Raw nullable timestamps, execution-run filtering and row-lock
+options are preserved. These readers are used only by deletion/maintenance,
+not conversation execution, scheduler execution, public lists or transcripts.
+
+Private `conversation/children/delete` deletes message, model-call, tool-call
+and generated-file keys with one parameterized SQL per nonempty portion of at
+most 400 keys. It flushes earlier queued operations and uses the parent's
+transaction. There are no intermediate commits, pre-reads of full records,
+independent transactions, retries or silent fallbacks. Missing keys remain
+no-ops. Public writers and their normal insert/update paths are unchanged.
+The existing diagnostic flag optionally records `children_bulk_delete` table,
+key/affected counts and duration, never bodies or SQL arguments. Affected rows
+are not committed until the enclosing graph operation succeeds.
+
+These optimizations are always part of the private deletion path; the older
+graph/payload A/B switches do not disable them. They preserve lease fencing,
+saved-report/shared-payload protections and one transaction per complete tree.
+The [five-pair verification report](../script/mysql/cleanup_benchmark/OPTIMIZATION_RESULTS_20261008.md)
+documents scope, timings, actual SQL counts and rollback tests.
+
 Graph discovery and deletion planning reads project identities and fields
 needed for authorization, reference guards and liveness, rather than message
-bodies or report documents. Canonical writers' current-state reads are not
-bypassed or narrowed by this optimization.
+bodies or report documents. These working reader selectors do not project a
+writer's independent `CurrentWriter` input view.
+
+Payload cleanup therefore uses a private, generated `payload/delete` component
+whose current-state SQL and Go type contain only `id`, never `inline_body` or
+other payload contents. Both graph payload deletion and `call_payload.unused`
+use it. Ordinary payload insert/update, compression, storage and transcript
+reads retain their existing components. The private component accepts 1–400
+distinct, explicitly delete-marked identities and requires trusted `payloadaccess` access;
+it is not a public HTTP deletion endpoint. All ten inbound-reference guards
+remain on the DELETE itself, within the caller's transaction. An absent key
+at the current-state read is a no-op; a later guarded DELETE conflict is not
+ignored and still rolls back the operation, including any earlier chunks.
+Graph deletion checks references in sequential chunks of at most 400 IDs,
+projecting only `id, referenced` with an explicit page limit equal to the chunk
+size. Shared or missing rows are skipped; the remaining rows use one private
+writer invocation per nonempty chunk. This bounds component invocations, not
+necessarily the number of SQL DELETE statements generated by Datly. All chunks
+use the graph's single transaction: there are no intermediate commits and locks
+remain held until the graph commits or rolls back. Context cancellation or any
+chunk error aborts the operation. The `call_payload.unused` orphan path continues
+to submit one candidate per managed operation.
+
+`AGENTLY_DELETE_PAYLOAD_MODE=row|bulk` switches **only** payload deletion.
+The default is `bulk`; set `row` explicitly to use the generated private writer.
+`bulk` uses the separate, hand-authored internal `PayloadBulkDelete` component and executes
+one parameterized `DELETE FROM call_payload WHERE id IN (?,...)` per nonempty
+portion of at most 400 persisted keys. Its SQL is stored in
+`internal/datly/payload/delete/sql/bulk_delete.sql`; it retains the same ten
+`NOT EXISTS` reference guards as the row writer. The shared key-only pre-read
+and complete request validation remain in both modes. It flushes earlier
+buffered reference removals, then uses Datly's transaction SQL capability on
+the `agently` connector. It never opens or commits an independent transaction.
+An affected-row mismatch is a conflict and rolls back the whole operation,
+including previously executed portions and related investigation deletions.
+Missing keys at the pre-read remain no-ops. There is no silent fallback to row.
+
+The mode is read and validated before the enclosing deletion transaction,
+then pinned in its context for all nested graph and portion invocations.
+An invalid setting fails without mutation. Change the environment and restart
+the process to switch modes; setting `row` restores the previous implementation
+without rebuilding. Neither mode changes ordinary payload insert/update,
+transcript reads, scheduler execution, retention eligibility, saved reports,
+schema/indexes, or external file management. Orphan payloads still execute one
+candidate/transaction at a time, so bulk does not combine multiple orphan
+candidates or multiple trees into one transaction.
+
+With both `AGENTLY_DEBUG_CONVERSATION_DELETE=1` and
+`AGENTLY_DEBUG_CONVERSATION_DELETE_DETAILS=1`, the `payload_delete_batches` phase
+reports candidate, reference-batch, writer-batch, submitted, shared-skipped and
+missing counts, plus `mode`, successful `delete_statements` and `affected`.
+Bulk additionally reports `payload_bulk_delete` for each attempted SQL execution
+with expected/affected counts and success/error. `submitted` counts rows passed
+to writers; `affected` describes successfully executed statements, **not**
+committed deletions. Later failures can roll them all back. These phases use
+the opt-in detailed diagnostic flag, disabled by default; no payload contents
+or SQL arguments are logged.
+
 An orphan's transactional recheck renders only its selected rule and exact
 record predicate; full candidate scans still include all enabled rules.
 Dependent mutations share a generated writer invocation only when their owner
@@ -175,8 +289,10 @@ and expected-reference guards match. Writer batches remain bounded at 400 rows;
 graph lock batches retain their existing 500-row bound. Transactional fencing,
 post-lock rechecks and foreign-key deletion order are unchanged.
 
-`AGENTLY_DEBUG_CONVERSATION_DELETE=1` enables phase and component timings for
-manual deletion and maintenance. Each outer operation has a trace ID and a
+`AGENTLY_DEBUG_CONVERSATION_DELETE=1` keeps the compact manual-deletion logs.
+Set `AGENTLY_DEBUG_CONVERSATION_DELETE_DETAILS=1` as well to enable phase and
+component timings for manual deletion and maintenance. Each detailed outer
+operation has a trace ID and a
 final component-invocation count. This is not a SQL-query or affected-row count;
 one component can execute multiple statements. The outer completion includes
 managed commit/rollback. Inputs, payloads and SQL parameters are not logged.
@@ -193,6 +309,10 @@ and large message sets, reporting dependencies and unused orphan payloads.
 The message fixtures also report allocated bytes. Runtime construction and
 fixture seeding are excluded. No wall-clock threshold is enforced in CI;
 fewer component invocations do not guarantee lower latency for every fixture.
+
+The [MySQL benchmark guide](../script/mysql/cleanup_benchmark/README.md) contains
+the isolated fixture, measured before/after results and opt-in verification
+commands. Do not run benchmark seeding against an application database.
 
 ## Extension rules
 

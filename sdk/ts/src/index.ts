@@ -249,3 +249,5 @@ export * from './aguiViewProjection';
 export * from './aguiConversationTransport';
 
 export * from './aguiRemoteConversationTransport';
+
+export * from './browserMCP';

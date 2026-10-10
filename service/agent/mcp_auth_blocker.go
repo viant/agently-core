@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/viant/agently-core/genai/llm"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	"github.com/viant/agently-core/protocol/agent/execution"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -37,7 +38,7 @@ func (b *mcpAuthBlocker) AwaitMCPAuth(ctx context.Context, required *mcpauth.Lin
 	request.Message = "Connect the required provider to continue."
 	request.Mode = schema.ElicitRequestParamsMode("mcp_oauth")
 	request.Url = required.ConnectURL()
-	_, action, _, err := b.elicitation.Elicit(waitCtx, &turn, "control", request)
+	_, action, _, err := b.elicitation.Elicit(waitCtx, &turn, llm.RoleSystem.String(), request)
 	if err != nil {
 		return err
 	}

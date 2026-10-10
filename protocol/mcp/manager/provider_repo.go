@@ -53,6 +53,18 @@ func (p *RepoProvider) Options(ctx context.Context, name string) (*mcpcfg.MCPCli
 			cfg, err = p.repo.Load(ctx, alias)
 		}
 	}
+	if err == nil && cfg != nil {
+		if e := cfg.ValidateExecutionLocation(); e != nil {
+			return nil, e
+		}
+		if cfg.IsBrowserExecution() {
+			canonical := strings.ReplaceAll(strings.TrimSpace(name), "/", "_")
+			if _, e := cfg.BrowserDescriptor(canonical); e != nil {
+				return nil, e
+			}
+			return cfg, nil
+		}
+	}
 	if err != nil || cfg == nil || cfg.ClientOptions == nil {
 		return cfg, err
 	}
@@ -161,4 +173,10 @@ func expandEnvString(value string) string {
 		}
 		return ""
 	})
+}
+
+// BrowserOptions reads public execution routing before token/cookie state or
+// environment/resource providers are attached by ordinary server Options.
+func (p *RepoProvider) BrowserOptions(ctx context.Context, name string) (*mcpcfg.MCPClient, error) {
+	return p.repo.Load(ctx, name)
 }

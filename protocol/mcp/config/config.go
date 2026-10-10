@@ -18,6 +18,9 @@ type Group[T any] struct {
 
 // MCPClient augments mcp.ClientOptions with optional discovery descriptions and metadata.
 type MCPClient struct {
+	ExecutionLocation string            `json:"executionLocation,omitempty" yaml:"executionLocation,omitempty"`
+	BrowserTransport  *BrowserTransport `json:"browserTransport,omitempty" yaml:"browserTransport,omitempty"`
+	BrowserTools      []string          `json:"browserTools,omitempty" yaml:"browserTools,omitempty"`
 	// PrimitiveNamespaces optionally narrows discovered provider namespaces.
 	// An empty list accepts the namespaces authorized by the provider.
 	PrimitiveNamespaces []string `yaml:"primitiveNamespaces,omitempty" json:"primitiveNamespaces,omitempty"`

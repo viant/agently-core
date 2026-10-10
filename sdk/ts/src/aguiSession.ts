@@ -1,6 +1,6 @@
 import type { Interrupt, Message, RunAgentInput, State } from '@ag-ui/core';
 import type { AgentSubscriber, HttpAgentConfig, RunAgentParameters } from '@ag-ui/client';
-import { AgUiClient, type AgentlyExecutionSelection, type InterruptResponse } from './agui';
+import { AgUiClient, type AgentlyExecutionSelection, type InterruptResponse, type AgUiRunParameters } from './agui';
 
 export type AgUiSessionPhase = 'idle' | 'running' | 'completed' | 'interrupted' | 'cancelled' | 'failed' | 'detached';
 
@@ -107,12 +107,12 @@ export class AgUiSession {
     }
 
     /** Standard follow-up after explicit frontend-tool execution. */
-    continue(parameters: RunAgentParameters = {}) {
+    continue(parameters: AgUiRunParameters = {}) {
         this.assertIdle();
         return this.execute(() => this.client.run(parameters));
     }
 
-    resume(responses: Record<string, InterruptResponse>, parameters: Omit<RunAgentParameters, 'resume'> = {}) {
+    resume(responses: Record<string, InterruptResponse>, parameters: Omit<AgUiRunParameters, 'resume'> = {}) {
         this.assertIdle();
         return this.execute(() => this.client.resume(responses, parameters));
     }

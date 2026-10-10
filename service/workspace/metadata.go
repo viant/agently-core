@@ -15,6 +15,7 @@ import (
 	"github.com/viant/agently-core/app/executor/config"
 	llmprovider "github.com/viant/agently-core/genai/llm/provider"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
+	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	policy "github.com/viant/agently-core/service/policy"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	uistyle "github.com/viant/agently-core/service/ui/style"
@@ -25,26 +26,27 @@ import (
 
 // MetadataResponse is the response for the workspace metadata endpoint.
 type MetadataResponse struct {
-	Composer           wscfg.Composer      `json:"composer"`
-	WorkspaceID        string              `json:"workspaceId,omitempty"`
-	UIStyles           *uistyle.Descriptor `json:"uiStyles,omitempty"`
-	UIThemes           *uistyle.Descriptor `json:"uiThemes,omitempty"`
-	UIStyleDiagnostics []string            `json:"uiStyleDiagnostics,omitempty"`
-	WorkspaceRoot      string              `json:"workspaceRoot,omitempty"`
-	WorkspaceVersion   string              `json:"workspaceVersion,omitempty"`
-	MetadataVersion    string              `json:"metadataVersion,omitempty"`
-	DefaultAgent       string              `json:"defaultAgent,omitempty"`
-	DefaultModel       string              `json:"defaultModel,omitempty"`
-	DefaultEmbedder    string              `json:"defaultEmbedder,omitempty"`
-	AppName            string              `json:"appName,omitempty"`
-	AppIconRef         string              `json:"appIconRef,omitempty"`
-	Defaults           *Defaults           `json:"defaults,omitempty"`
-	Capabilities       Capabilities        `json:"capabilities,omitempty"`
-	Agents             []string            `json:"agents,omitempty"`
-	Models             []string            `json:"models,omitempty"`
-	AgentInfos         []AgentInfo         `json:"agentInfos,omitempty"`
-	ModelInfos         []ModelInfo         `json:"modelInfos,omitempty"`
-	Version            string              `json:"version,omitempty"`
+	BrowserMCP         []mcpcfg.BrowserDescriptor `json:"browserMCP,omitempty"`
+	Composer           wscfg.Composer             `json:"composer"`
+	WorkspaceID        string                     `json:"workspaceId,omitempty"`
+	UIStyles           *uistyle.Descriptor        `json:"uiStyles,omitempty"`
+	UIThemes           *uistyle.Descriptor        `json:"uiThemes,omitempty"`
+	UIStyleDiagnostics []string                   `json:"uiStyleDiagnostics,omitempty"`
+	WorkspaceRoot      string                     `json:"workspaceRoot,omitempty"`
+	WorkspaceVersion   string                     `json:"workspaceVersion,omitempty"`
+	MetadataVersion    string                     `json:"metadataVersion,omitempty"`
+	DefaultAgent       string                     `json:"defaultAgent,omitempty"`
+	DefaultModel       string                     `json:"defaultModel,omitempty"`
+	DefaultEmbedder    string                     `json:"defaultEmbedder,omitempty"`
+	AppName            string                     `json:"appName,omitempty"`
+	AppIconRef         string                     `json:"appIconRef,omitempty"`
+	Defaults           *Defaults                  `json:"defaults,omitempty"`
+	Capabilities       Capabilities               `json:"capabilities,omitempty"`
+	Agents             []string                   `json:"agents,omitempty"`
+	Models             []string                   `json:"models,omitempty"`
+	AgentInfos         []AgentInfo                `json:"agentInfos,omitempty"`
+	ModelInfos         []ModelInfo                `json:"modelInfos,omitempty"`
+	Version            string                     `json:"version,omitempty"`
 }
 
 type PublicAgentsResponse struct {
@@ -116,6 +118,7 @@ type ModelInfo struct {
 
 // MetadataHandler serves the workspace metadata endpoint.
 type MetadataHandler struct {
+	browserMCP            func(context.Context) ([]mcpcfg.BrowserDescriptor, error)
 	windowResourceCatalog WindowResourceCatalog
 	styles                *uistyle.Service
 	defaults              *config.Defaults
@@ -524,4 +527,8 @@ func firstNonEmpty(values ...string) string {
 func stringValue(value interface{}) string {
 	text, _ := value.(string)
 	return text
+}
+
+func (h *MetadataHandler) SetBrowserMCPLoader(loader func(context.Context) ([]mcpcfg.BrowserDescriptor, error)) {
+	h.browserMCP = loader
 }

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	iauth "github.com/viant/agently-core/internal/auth"
 	ws "github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
 )
@@ -39,6 +40,13 @@ func (h *MetadataHandler) Metadata(ctx context.Context) (*MetadataResponse, erro
 			StructuredElicitation: true,
 			TurnStartedEvent:      true,
 		},
+	}
+	if h.browserMCP != nil && iauth.EffectiveUserID(ctx) != "" {
+		var err error
+		resp.BrowserMCP, err = h.browserMCP(ctx)
+		if err != nil {
+			return nil, metadataFailure(http.StatusServiceUnavailable, "browser MCP configuration unavailable", err)
+		}
 	}
 	if h.defaults != nil {
 		resp.DefaultAgent = h.defaults.Agent

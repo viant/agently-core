@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import type { BrowserMCPHost } from './browserMCP';
 import { AgentlyClient } from './client';
 import { AgUiConversationTransport, type AgUiConversationProjectionFactory } from './aguiConversationTransport';
 
@@ -16,7 +17,7 @@ const projection: AgUiConversationProjectionFactory = options => ({ subscriber: 
     },
 } });
 
-function fixture(active: Array<Record<string, unknown>> = [], beforeAdmission?: (init?: RequestInit) => Promise<void>, hostActivities: unknown[] = [], beforeBootstrap?: () => Promise<void>, bootstrapTurns: () => any[] = () => [], wireThreadId?: string) {
+function fixture(active: Array<Record<string, unknown>> = [], beforeAdmission?: (init?: RequestInit) => Promise<void>, hostActivities: unknown[] = [], beforeBootstrap?: () => Promise<void>, bootstrapTurns: () => any[] = () => [], wireThreadId?: string, browserMCP?: BrowserMCPHost) {
     const posted: any[] = [];
     let metadataReads = 0;
     const controls = new Map<string, ReadableStreamDefaultController<Uint8Array>>();
@@ -60,7 +61,7 @@ function fixture(active: Array<Record<string, unknown>> = [], beforeAdmission?: 
         } }), { headers: { 'Content-Type': 'text/event-stream' } });
     });
     const host = new AgentlyClient({ baseURL: '/v1', useCookies: true, fetchImpl });
-    const transport = new AgUiConversationTransport(host, projection);
+    const transport = new AgUiConversationTransport(host, projection, browserMCP);
     const finish = (runId: string) => {
         const controller = controls.get(runId)!;
         controls.delete(runId);
@@ -255,4 +256,28 @@ describe('native web conversation orchestration', () => {
         expect(events).toHaveBeenCalledTimes(before);
         expect(f.posted.some(input => input.forwardedProps?.agently?.operation === 'run.cancel')).toBe(false);
     });
+});
+
+it('relays configured browser tools through original AG-UI call IDs and durable parent continuation', async () => {
+    const execute = vi.fn(async () => ({ content: '{"ok":true}' }));
+    const tool = { name: 'device-safe_read', description: 'Fixture', parameters: { type: 'object' } };
+    const browser = { tools: vi.fn(async () => [{ tool, execute }]), reset: vi.fn(), closeConversation: vi.fn(async () => {}) } as unknown as BrowserMCPHost;
+    const f = fixture([], undefined, [], undefined, () => [], undefined, browser);
+    const errors: string[] = []; f.transport.subscribe('thread', { onError: error => errors.push(error) });
+    await f.transport.query({ conversationId: 'thread', query: 'Use the configured browser tool' });
+    const chat = f.posted.find(input => input.forwardedProps?.agently?.operation === 'chat');
+    expect(chat.tools).toEqual([tool]);
+    const stream = f.controls.get(chat.runId)!;
+    for (const event of [
+        { type: 'TOOL_CALL_START', toolCallId: 'original-call', toolCallName: tool.name, parentMessageId: 'assistant' },
+        { type: 'TOOL_CALL_ARGS', toolCallId: 'original-call', delta: '{}' },
+        { type: 'TOOL_CALL_END', toolCallId: 'original-call' },
+        { type: 'RUN_FINISHED', threadId: 'thread', runId: chat.runId, outcome: { type: 'success', pendingToolCallIds: ['original-call'] } },
+    ]) stream.enqueue(frame(event));
+    stream.close(); f.controls.delete(chat.runId);
+    await vi.waitFor(() => expect(f.posted.some(input => input.parentRunId === chat.runId), JSON.stringify({ errors, requests: f.posted.map(input => ({runId:input.runId,parentRunId:input.parentRunId,operation:input.forwardedProps?.agently?.operation})),calls:execute.mock.calls.length })).toBe(true));
+    const continuation = f.posted.find(input => input.parentRunId === chat.runId);
+    expect(continuation.messages).toContainEqual(expect.objectContaining({ role: 'tool', toolCallId: 'original-call', content: '{"ok":true}' }));
+    expect(continuation.tools).toEqual([tool]); expect(execute).toHaveBeenCalledOnce();
+    f.finish(continuation.runId); f.transport.reset(); f.host.resetAgUiInteractions();
 });

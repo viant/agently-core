@@ -205,6 +205,9 @@ func (m *Manager) PreflightCredential(ctx context.Context, serverName string) er
 		return nil
 	}
 	opts, err := m.prov.Options(ctx, strings.TrimSpace(serverName))
+	if err == nil && opts != nil && opts.IsBrowserExecution() {
+		return ErrBrowserExecutionRequired
+	}
 	if err != nil || opts == nil || opts.ClientOptions == nil || opts.ClientOptions.Auth == nil {
 		return err
 	}
@@ -307,6 +310,17 @@ func (m *Manager) Names(ctx context.Context) ([]string, error) {
 	for _, name := range names {
 		seen[name] = true
 	}
+	filtered := make([]string, 0, len(names))
+	for _, name := range names {
+		options, err := browserOptions(ctx, m.prov, name)
+		if err != nil {
+			return nil, err
+		}
+		if options == nil || !options.IsBrowserExecution() {
+			filtered = append(filtered, name)
+		}
+	}
+	names = filtered
 	m.localMu.RLock()
 	defer m.localMu.RUnlock()
 	for name := range m.local {
@@ -331,6 +345,21 @@ func (m *Manager) Get(ctx context.Context, convID, serverName string) (mcpclient
 	if m.prov == nil {
 		if _, ok := m.localRegistration(serverName); !ok {
 			return nil, errors.New("mcp manager: provider not configured")
+		}
+	}
+	configured, configErr := m.prov.Options(ctx, serverName)
+	if configErr != nil {
+		return nil, configErr
+	}
+	if configured != nil {
+		if err := configured.ValidateExecutionLocation(); err != nil {
+			return nil, err
+		}
+		if configured.IsBrowserExecution() {
+			if _, err := configured.BrowserDescriptor(serverName); err != nil {
+				return nil, err
+			}
+			return nil, ErrBrowserExecutionRequired
 		}
 	}
 	key := m.poolKey(ctx, convID)
@@ -436,6 +465,12 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 	}
 	if opts == nil {
 		return nil, errors.New("mcp manager: nil client options")
+	}
+	if err := opts.ValidateExecutionLocation(); err != nil {
+		return nil, err
+	}
+	if opts.IsBrowserExecution() {
+		return nil, ErrBrowserExecutionRequired
 	}
 	if opts.ClientOptions == nil {
 		return nil, errors.New("mcp manager: missing client options")

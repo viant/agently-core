@@ -1,0 +1,8 @@
+SELECT c.id,
+       c.created_by_user_id,
+       c.status,
+       c.schedule_run_id,
+       CAST(c.created_at AS CHAR) AS created_at_raw
+FROM conversation c
+WHERE 1 = 1 ${predicate.Builder().CombineAnd($predicate.FilterGroup(0, "AND")).Build("AND")}
+ORDER BY c.id DESC

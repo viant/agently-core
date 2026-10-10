@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"github.com/viant/agently-core/service/browsermcp"
 	"log"
 	"net/http"
 
@@ -19,6 +20,7 @@ import (
 type HandlerOption func(*handlerConfig)
 
 type handlerConfig struct {
+	browserMCP       *browsermcp.Registry
 	authCfg          *svcauth.Config
 	authSessions     *svcauth.Manager
 	authOpts         []svcauth.HandlerOption
@@ -179,11 +181,15 @@ func withDebugHeaders(next http.Handler) http.Handler {
 }
 
 func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) {
+	if cfg.browserMCP != nil {
+		registerBrowserMCPRoutes(mux, client, cfg.authCfg, cfg.browserMCP)
+	}
+
 	mux.HandleFunc("GET /healthz", handleHealth())
 	mux.HandleFunc("GET /health", handleHealth())
 	mux.HandleFunc("POST /upload", handleStagedUpload())
 
-	mux.HandleFunc("POST /v1/ag-ui/run", handleAGUIRun(client, cfg.authCfg, AGUIWorkspaceBindings{Metadata: cfg.metadataHandler, MCPApps: cfg.mcpAppsHost}))
+	mux.HandleFunc("POST /v1/ag-ui/run", handleAGUIRun(client, cfg.authCfg, AGUIWorkspaceBindings{Metadata: cfg.metadataHandler, MCPApps: cfg.mcpAppsHost, BrowserMCP: cfg.browserMCP}))
 	if cfg.aguiDemoRegistry != nil {
 		if runtime, ok := client.(aguiRuntime); ok && runtime.aguiStore() != nil {
 			cfg.aguiDemoRegistry.localReplay = true
@@ -306,4 +312,8 @@ func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
 	if cfg.mcpUIToolCaller != nil {
 		mux.HandleFunc("POST /v1/api/mcp-ui/tools/call", handleMCPUIToolCall(cfg.mcpUIToolCaller))
 	}
+}
+
+func WithBrowserMCP(registry *browsermcp.Registry) HandlerOption {
+	return func(c *handlerConfig) { c.browserMCP = registry }
 }

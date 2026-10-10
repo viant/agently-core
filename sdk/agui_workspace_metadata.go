@@ -5,12 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/viant/agently-core/service/browsermcp"
 	workspace "github.com/viant/agently-core/service/workspace"
 )
 
 type AGUIWorkspaceBindings struct {
-	Metadata *workspace.MetadataHandler
-	MCPApps  *AGUIMCPAppsHost
+	BrowserMCP *browsermcp.Registry
+	Metadata   *workspace.MetadataHandler
+	MCPApps    *AGUIMCPAppsHost
 }
 type aguiWorkspaceBindingsKey struct{}
 

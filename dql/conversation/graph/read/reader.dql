@@ -1,0 +1,23 @@
+#package('github.com/viant/agently-core/internal/datly/conversation/graph/read')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/conversation/graph','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(conversationtreeScope/internal).Required())
+#define($_ = $IDs<[]string>(query/ids).Optional().WithPredicate(0,'in','c','id'))
+#define($_ = $ParentIDs<[]string>(query/parentIds).Optional().WithPredicate(0,'in','c','conversation_parent_id'))
+#define($_ = $ParentTurnIDs<[]string>(query/parentTurnIds).Optional().WithPredicate(0,'in','c','conversation_parent_turn_id'))
+#define($_ = $Data<[]*Conversation>(output/view))
+
+SELECT conversation.*,
+       type(conversation,'Conversation'),
+       required(conversation.id),
+       row_lock(conversation,'conversation c','c.id'),
+       set_limit(conversation,0),
+       CAST(conversation.created_by_user_id AS *string),
+       CAST(conversation.status AS *string),
+       CAST(conversation.schedule_run_id AS *string),
+       CAST(conversation.created_at_raw AS *string)
+FROM (${embed:sql/conversation.sql}) conversation

@@ -18,10 +18,14 @@ func TestAGUIInspectIncludesMCPAuthControlInterrupt(t *testing.T) {
 	record, _ := observerAdmission(t, c, observerInput())
 	require.NoError(t, nativeTestTurn(ctx, c, record.TurnID, "running"))
 	svc := elicitation.New(c.conv, nil, elicrouter.New(), elicitation.NoopAwaiterFactory())
-	_, err := svc.Record(ctx, &requestctx.TurnMeta{ConversationID: record.ConversationID, TurnID: record.TurnID}, "control", &execution.Elicitation{ElicitRequestParams: schema.ElicitRequestParams{
+	_, err := svc.Record(ctx, &requestctx.TurnMeta{ConversationID: record.ConversationID, TurnID: record.TurnID}, "system", &execution.Elicitation{ElicitRequestParams: schema.ElicitRequestParams{
 		Message: "Connect Asana", ElicitationId: "asana-connect", Mode: "mcp_oauth", Url: "/v1/api/auth/mcp/asana/initiate",
 	}})
 	require.NoError(t, err)
+	message, err := c.conv.GetMessageByElicitation(ctx, record.ConversationID, "asana-connect")
+	require.NoError(t, err)
+	require.Equal(t, "system", message.Role)
+	require.Equal(t, "control", message.Type)
 	state, err := c.native.aguiInspectRun(ctx, record)
 	require.NoError(t, err)
 	require.Len(t, state.Pending.Interrupts, 1)
@@ -36,7 +40,7 @@ func TestAGUIInspectIncludesMCPAuthControlInterrupt(t *testing.T) {
 
 func TestCanonicalMCPAuthControlPrompt(t *testing.T) {
 	id, status, content := "asana-connect", "pending", "Connect Asana"
-	msg := &conversationmodel.MessageView{Id: "control-1", Role: "control", Type: "control", ElicitationId: &id, Status: &status, Content: &content}
+	msg := &conversationmodel.MessageView{Id: "control-1", Role: "system", Type: "control", ElicitationId: &id, Status: &status, Content: &content}
 	msg.Elicitation = map[string]interface{}{"message": content, "mode": "mcp_oauth", "url": "/v1/api/auth/mcp/asana/initiate"}
 	state := BuildCanonicalState("conversation", convstore.Transcript{{Id: "turn", ConversationId: "conversation", Status: "waiting_for_user", Message: []*conversationmodel.MessageView{msg}}})
 	pending := pendingElicitation(state)

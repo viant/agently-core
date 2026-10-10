@@ -100,10 +100,11 @@ type QuerySelector = api.QuerySelector
 type TranscriptOption func(*transcriptOptions)
 
 type transcriptOptions struct {
-	selectors         map[string]*QuerySelector
-	includeFeeds      bool
-	includeModelCalls bool
-	includeToolCalls  bool
+	selectors            map[string]*QuerySelector
+	includeFeeds         bool
+	includeModelCalls    bool
+	includeToolCalls     bool
+	includeModelPayloads *bool
 }
 
 const (
@@ -132,6 +133,12 @@ func WithIncludeFeeds() TranscriptOption {
 
 func WithIncludeModelCalls() TranscriptOption {
 	return func(o *transcriptOptions) { o.includeModelCalls = true }
+}
+
+// WithIncludeModelPayloads opts into compact model steps when false.
+// Payload IDs and all model/tool metadata remain available.
+func WithIncludeModelPayloads(include bool) TranscriptOption {
+	return func(o *transcriptOptions) { o.includeModelPayloads = &include }
 }
 
 func WithIncludeToolCalls() TranscriptOption {
