@@ -223,6 +223,9 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 	var attachments []*binding.Attachment
 	if includeView {
 		attachments = attachmentsFromMessageView(msg)
+		for _, attachment := range attachments {
+			bindAttachmentResourceReference(ctx, attachment, attachment.URI)
+		}
 	}
 
 	if msg.AttachmentPayloadId == nil || strings.TrimSpace(*msg.AttachmentPayloadId) == "" {
@@ -235,7 +238,12 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 
 	if cache != nil {
 		if cached, ok := cache[payloadID]; ok && cached != nil {
-			return append(attachments, cached), nil
+			copy := *cached
+			bindAttachmentResourceReference(ctx, &copy, copy.URI)
+			if len(copy.Data) == 0 && copy.ResourceURI == "" {
+				return nil, fmt.Errorf("attachment payload %q has no data", payloadID)
+			}
+			return append(attachments, &copy), nil
 		}
 	}
 
@@ -250,17 +258,13 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 	if payload.InlineBody != nil && len(*payload.InlineBody) > 0 {
 		data = make([]byte, len(*payload.InlineBody))
 		copy(data, *payload.InlineBody)
-	} else if payload.URI != nil && strings.TrimSpace(*payload.URI) != "" {
+	} else if payload.URI != nil && strings.TrimSpace(*payload.URI) != "" && !strings.HasPrefix(strings.TrimSpace(*payload.URI), "scratchpad://artifact/") {
 		downloaded, err := afs.New().DownloadWithURL(ctx, strings.TrimSpace(*payload.URI))
 		if err != nil {
 			return nil, fmt.Errorf("download attachment payload uri %q: %w", strings.TrimSpace(*payload.URI), err)
 		}
 		data = downloaded
 	}
-	if len(data) == 0 {
-		return nil, fmt.Errorf("attachment payload %q has no data", payloadID)
-	}
-
 	name := ""
 	if msg.Content != nil {
 		name = strings.TrimSpace(*msg.Content)
@@ -279,6 +283,10 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 		URI:    uri,
 		Mime:   mimeType,
 		Data:   data,
+	}
+	bindAttachmentResourceReference(ctx, att, uri)
+	if len(data) == 0 && att.ResourceURI == "" {
+		return nil, fmt.Errorf("attachment payload %q has no data", payloadID)
 	}
 	debugAttachmentf("loaded attachment payload=%s bytes=%d mime=%s name=%s", payloadID, len(data), mimeType, name)
 	if cache != nil {
@@ -304,7 +312,7 @@ func attachmentsFromMessageView(msg *apiconv.Message) []*binding.Attachment {
 		var data []byte
 		if av.InlineBody != nil && len(*av.InlineBody) > 0 {
 			data = decodeAttachmentInlineBodyBytes(*av.InlineBody, av.Compression)
-		} else {
+		} else if av.Uri == nil || !strings.HasPrefix(strings.TrimSpace(*av.Uri), "scratchpad://artifact/") {
 			continue
 		}
 		uri := ""

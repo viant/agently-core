@@ -43,7 +43,7 @@ func (p *aguiPresentation) project(ctx context.Context, event *streaming.Event, 
 	userPatch := event.Type == streaming.EventTypeAssistant && event.Patch["role"] == "user"
 	if internal && !userPatch {
 		switch event.Type {
-		case streaming.EventTypeTextDelta, streaming.EventTypeAssistant, streaming.EventTypeItemCompleted, streaming.EventTypeNarration:
+		case streaming.EventTypeTextDelta, streaming.EventTypeAssistant, streaming.EventTypeItemCompleted:
 			return nil
 		case streaming.EventTypeModelCompleted:
 			copy := *event
@@ -131,8 +131,13 @@ func (p *aguiPresentation) project(ctx context.Context, event *streaming.Event, 
 	terminal := event.Type != streaming.EventTypeTextDelta
 	visible, rich := plainAGUIContent(state.raw, terminal)
 	copy := *event
-	if rich && (terminal || containsStreamingFenceBoundary(previousRaw, event.Content)) {
+	if rich && (terminal || containsStreamingFenceBoundary(previousRaw, event.Content) || state.fingerprint == "" && strings.Contains(state.raw, "```forge-report\n")) {
 		rendered := normalizeRenderedContent(state.raw, terminal)
+		if rendered == nil && !terminal && strings.Contains(state.raw, "```forge-report\n") {
+			// Typed progress contains no authoring fields. Completion replaces it
+			// with the validated canonical assembly using the same message identity.
+			rendered = &RenderedContent{SchemaVersion: renderedContentSchemaVersion, Parts: []*RenderedContentPart{{Kind: "text", Text: visible}}, Reports: []*RenderedReportAssembly{{Scope: "message", ID: id, Status: "rendering"}}}
+		}
 		if rendered != nil {
 			applyInlineReportWorkspaceCatalog(ctx, rendered, client)
 			encoded, _ := json.Marshal(rendered)
@@ -155,7 +160,7 @@ func (p *aguiPresentation) project(ctx context.Context, event *streaming.Event, 
 			copy.Content = visible
 			copy.ContentMode = "snapshot"
 			copy.ContentOffset = nil
-			copy.Patch = map[string]any{"role": "assistant"}
+			copy.Patch = map[string]any{"role": "assistant", "agentlyProjectionSnapshot": true}
 		}
 	} else {
 		copy.Content = visible
@@ -165,7 +170,7 @@ func (p *aguiPresentation) project(ctx context.Context, event *streaming.Event, 
 			snapshot := copy
 			snapshot.Type = streaming.EventTypeAssistant
 			snapshot.EventSeq = 0
-			snapshot.Patch = map[string]any{"role": "assistant"}
+			snapshot.Patch = map[string]any{"role": "assistant", "agentlyProjectionSnapshot": true}
 			snapshot.RenderedContent = nil
 			output = append(output, &snapshot)
 		}

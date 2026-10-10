@@ -280,6 +280,7 @@ export interface ClientPlannerState extends EntityIdentity {
 // ─── Turn ──────────────────────────────────────────────────────────────────────
 
 export interface ClientTurnState extends EntityIdentity {
+    operationalNarration?: string;
     /** Backend turnId; '' during pending-bootstrap (§4.1). */
     turnId: string;
     /** Derived/stored lifecycle (§4.3). Never set by assistant_* / model_* / tool_*. */

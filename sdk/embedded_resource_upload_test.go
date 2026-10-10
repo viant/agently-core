@@ -32,6 +32,16 @@ func TestUploadPublishesUserResource(t *testing.T) {
 	r.Close()
 	require.NoError(t, err)
 	require.Equal(t, "id\n1\n", string(data))
+	files, err := client.conv.(interface {
+		GetGeneratedFiles(context.Context, *generatedfilemodel.Input) ([]*generatedfilemodel.GeneratedFileView, error)
+	}).GetGeneratedFiles(ctx, &generatedfilemodel.Input{ConversationID: "conv"})
+	require.NoError(t, err)
+	require.Len(t, files, 1)
+	payload, err := client.conv.GetPayload(ctx, *files[0].PayloadId)
+	require.NoError(t, err)
+	require.NotNil(t, payload.URI)
+	require.Equal(t, out.Resource.URI, *payload.URI)
+
 	other := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "bob"})
 	_, _, err = scratchpadsvc.New().OpenArtifact(other, out.Resource.URI)
 	require.Error(t, err)

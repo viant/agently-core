@@ -27,8 +27,27 @@ func (s *Service) exportAsset(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	defer a.close()
 	format := strings.ToLower(req.Output.Format)
+	if req.Operation == "copy" {
+		if format != "original" || req.Select != nil {
+			return fmt.Errorf("copy requires original whole-resource output")
+		}
+		reader, err := a.reader()
+		if err != nil {
+			return err
+		}
+		d, err := scratchpadsvc.New().PublishArtifactStream(ctx, a.name, a.mime, a.uri, reader)
+		if err != nil {
+			return err
+		}
+		*result = ExportOutput{Resources: []*scratchpadsvc.ArtifactDescriptor{d}, SourceVersion: a.version, Complete: true}
+		return nil
+	}
 	if req.Operation == "render" || req.Operation == "extractImages" {
+		if err := a.materialize(); err != nil {
+			return err
+		}
 		return s.exportPDFMedia(ctx, a, req, result)
 	}
 	if req.Operation != "convert" {
@@ -94,6 +113,9 @@ func (s *Service) exportAsset(ctx context.Context, in, out interface{}) error {
 		if a.kind != "image" || req.Select != nil {
 			return fmt.Errorf("image conversion requires a whole image")
 		}
+		if err = a.materialize(); err != nil {
+			return err
+		}
 		if err = validateImageInput(a.data); err != nil {
 			return err
 		}
@@ -106,7 +128,7 @@ func (s *Service) exportAsset(ctx context.Context, in, out interface{}) error {
 	default:
 		return fmt.Errorf("unsupported export format %q", format)
 	}
-	d, err := scratchpadsvc.New().PublishArtifact(ctx, "", strings.TrimSuffix(a.name, path.Ext(a.name))+"."+format, mime, a.uri, bytes.NewReader(data))
+	d, err := scratchpadsvc.New().PublishArtifactStream(ctx, strings.TrimSuffix(a.name, path.Ext(a.name))+"."+format, mime, a.uri, bytes.NewReader(data))
 	if err != nil {
 		return err
 	}

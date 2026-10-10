@@ -10,6 +10,7 @@ import (
 	_ "image/gif"
 	_ "image/jpeg"
 	_ "image/png"
+	"io"
 	"net/http"
 	"os/exec"
 	"path"
@@ -29,6 +30,8 @@ const maxReadOutputBytes = 64 << 10
 type asset struct {
 	uri, name, mime, kind, version string
 	data                           []byte
+	stream                         io.ReadSeekCloser
+	size                           int64
 }
 
 func (s *Service) loadAsset(ctx context.Context, in *ReadInput, expected string) (*asset, error) {
@@ -38,20 +41,31 @@ func (s *Service) loadAsset(ctx context.Context, in *ReadInput, expected string)
 	}
 	a := &asset{uri: target.fullURI, name: path.Base(target.fullURI)}
 	if strings.HasPrefix(a.uri, "scratchpad://") {
-		d, e := scratchpadsvc.New().DescribeArtifact(ctx, a.uri)
+		d, reader, e := scratchpadsvc.New().OpenVerifiedArtifactStream(ctx, a.uri)
 		if e != nil {
 			return nil, e
 		}
-		a.name = d.Name
-		a.mime = d.MimeType
+		a.name, a.mime, a.version, a.size, a.stream = d.Name, d.MimeType, d.SHA256, d.SizeBytes, reader
+		a.data = make([]byte, 512)
+		n, e := io.ReadFull(reader, a.data)
+		if e != nil && e != io.EOF && e != io.ErrUnexpectedEOF {
+			reader.Close()
+			return nil, e
+		}
+		a.data = a.data[:n]
+		_, err = reader.Seek(0, io.SeekStart)
+	} else {
+		a.data, err = s.downloadResource(ctx, a.uri)
+		hash := sha256.Sum256(a.data)
+		a.version = hex.EncodeToString(hash[:])
+		a.size = int64(len(a.data))
 	}
-	a.data, err = s.downloadResource(ctx, a.uri)
 	if err != nil {
+		a.close()
 		return nil, err
 	}
-	hash := sha256.Sum256(a.data)
-	a.version = hex.EncodeToString(hash[:])
 	if expected != "" && expected != a.version {
+		a.close()
 		return nil, fmt.Errorf("resource_changed")
 	}
 	a.kind = "binary"
@@ -60,17 +74,21 @@ func (s *Service) loadAsset(ctx context.Context, in *ReadInput, expected string)
 		a.kind = "pdf"
 		a.mime = "application/pdf"
 	case bytes.HasPrefix(a.data, []byte("PK")):
-		f, e := excelize.OpenReader(bytes.NewReader(a.data), excelize.Options{UnzipSizeLimit: scratchpadsvc.MaxArtifactBytes, UnzipXMLSizeLimit: 8 << 20})
+		_, e := a.workbookMetadata()
 		if e == nil {
-			f.Close()
 			a.kind = "workbook"
 			a.mime = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 		}
 	default:
-		if _, _, e := image.DecodeConfig(bytes.NewReader(a.data)); e == nil {
+		source, sourceErr := a.reader()
+		if sourceErr != nil {
+			a.close()
+			return nil, sourceErr
+		}
+		if _, _, e := image.DecodeConfig(io.LimitReader(source, scratchpadsvc.MaxArtifactBytes)); e == nil {
 			a.kind = "image"
 			a.mime = http.DetectContentType(a.data)
-		} else if utf8.Valid(a.data) && !isBinaryContent(a.data) {
+		} else if validTextPrefix(a.data, a.stream != nil && a.size > int64(len(a.data))) {
 			declaredMime := a.mime
 			a.kind = "text"
 			a.mime = "text/plain"
@@ -85,7 +103,36 @@ func (s *Service) loadAsset(ctx context.Context, in *ReadInput, expected string)
 	}
 	return a, nil
 }
-func (a *asset) workbook() (*excelize.File, error) {
+func (a *asset) close() {
+	if a.stream != nil {
+		_ = a.stream.Close()
+	}
+}
+func (a *asset) reader() (io.Reader, error) {
+	if a.stream != nil {
+		_, err := a.stream.Seek(0, io.SeekStart)
+		return a.stream, err
+	}
+	return bytes.NewReader(a.data), nil
+}
+func (a *asset) materialize() error {
+	if a.stream == nil {
+		return nil
+	}
+	if a.size > scratchpadsvc.MaxArtifactBytes {
+		return fmt.Errorf("resource input byte limit exceeded")
+	}
+	reader, err := a.reader()
+	if err != nil {
+		return err
+	}
+	a.data, err = io.ReadAll(io.LimitReader(reader, scratchpadsvc.MaxArtifactBytes+1))
+	return err
+}
+func (a *asset) workbook(selection *ResourceSelection) (*excelize.File, error) {
+	if a.stream != nil {
+		return a.selectedWorkbook(selection)
+	}
 	return excelize.OpenReader(bytes.NewReader(a.data), excelize.Options{UnzipSizeLimit: scratchpadsvc.MaxArtifactBytes, UnzipXMLSizeLimit: 8 << 20})
 }
 func selectSheet(f *excelize.File, sel *ResourceSelection) (string, error) {
@@ -133,25 +180,25 @@ func (s *Service) inspect(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	*result = InspectOutput{URI: a.uri, Name: a.name, MimeType: a.mime, Kind: a.kind, SizeBytes: len(a.data), Version: a.version, Capabilities: map[string][]string{}, Complete: true, NativeRequiresProviderSupport: true}
+	defer a.close()
+	*result = InspectOutput{URI: a.uri, Name: a.name, MimeType: a.mime, Kind: a.kind, SizeBytes: int(a.size), Version: a.version, Capabilities: map[string][]string{}, Complete: true, NativeRequiresProviderSupport: true}
 	switch a.kind {
 	case "workbook":
-		f, e := a.workbook()
+		sheets, e := a.workbookMetadata()
 		if e != nil {
 			return e
 		}
-		defer f.Close()
 		result.Capabilities["read"] = []string{"table", "native"}
 		result.Capabilities["export"] = []string{"csv", "json", "xlsx"}
-		sheets := f.GetSheetList()
-		if len(sheets) > 1000 {
-			return fmt.Errorf("workbook sheet count exceeds inspection limit")
-		}
-		for i, n := range sheets {
-			dimension, _ := f.GetSheetDimension(n)
-			result.Components = append(result.Components, ResourceComponent{ID: fmt.Sprintf("sheet-%d", i+1), Name: n, Kind: "sheet", UsedRange: dimension, UsedRangeEstimated: true})
+		for i, sheet := range sheets {
+			result.Components = append(result.Components, ResourceComponent{ID: fmt.Sprintf("sheet-%d", i+1), Name: sheet.name, Kind: "sheet", UsedRange: sheet.dimension, UsedRangeEstimated: true})
 		}
 		if req.Select != nil {
+			f, e := a.workbook(req.Select)
+			if e != nil {
+				return e
+			}
+			defer f.Close()
 			name, e := selectSheet(f, req.Select)
 			if e != nil {
 				return e
@@ -178,7 +225,7 @@ func (s *Service) inspect(ctx context.Context, in, out interface{}) error {
 			}
 		}
 	case "pdf":
-		r, e := pdf.NewReader(bytes.NewReader(a.data), int64(len(a.data)))
+		r, e := a.pdfReader()
 		if e != nil {
 			return e
 		}
@@ -198,7 +245,11 @@ func (s *Service) inspect(ctx context.Context, in, out interface{}) error {
 			result.Components = append(result.Components, ResourceComponent{ID: fmt.Sprintf("page-%d", i), Name: strconv.Itoa(i), Kind: "page"})
 		}
 	case "image":
-		c, _, e := image.DecodeConfig(bytes.NewReader(a.data))
+		source, e := a.reader()
+		if e != nil {
+			return e
+		}
+		c, _, e := image.DecodeConfig(source)
 		if e != nil {
 			return e
 		}
@@ -251,19 +302,23 @@ func (s *Service) readAsset(ctx context.Context, input *ReadInput, output *ReadO
 	if err != nil {
 		return err
 	}
+	defer a.close()
 	if a.kind == "workbook" {
 		output.Warnings = []string{"Formula values use workbook caches; formulas are not recalculated."}
 	}
 	output.URI = a.uri
-	output.Size = len(a.data)
+	output.Size = int(a.size)
 	output.Version = a.version
 	rep := input.Representation
 	if rep == "native" {
 		if input.Select != nil || input.Options != nil || input.Cursor != "" {
 			return fmt.Errorf("native read requires the whole resource; export a selection first")
 		}
-		snapshotHash := sha256.Sum256([]byte(a.uri + "\x00" + a.version))
-		d, e := scratchpadsvc.New().PublishArtifact(ctx, "native-"+hex.EncodeToString(snapshotHash[:]), a.name, a.mime, a.uri, bytes.NewReader(a.data))
+		reader, e := a.reader()
+		if e != nil {
+			return e
+		}
+		d, e := scratchpadsvc.New().PublishArtifactStream(ctx, a.name, a.mime, a.uri, reader)
 		if e != nil {
 			return e
 		}
@@ -287,46 +342,42 @@ func (s *Service) readAsset(ctx context.Context, input *ReadInput, output *ReadO
 		maxRows = 1000
 	}
 	if rep == "table" {
-		table, e := a.table(ctx, input.Select, input.Options)
-		if e != nil {
-			return e
-		}
 		start := 0
+		var e error
 		if input.Cursor != "" {
 			start, e = decodeReadCursor(input.Cursor, a.version, input.Select, input.Options)
 			if e != nil {
 				return e
 			}
 		}
-		if start < 0 || start > len(table.Rows) {
+		if start < 0 {
 			return fmt.Errorf("invalid read cursor")
 		}
-		end := start
-		used := 0
-		for end < len(table.Rows) && end-start < maxRows {
-			n := tableRowBytes(table.Rows[end])
-			if used+n > maxBytes {
-				break
-			}
-			used += n
-			end++
+		output.Coverage = &ResourceCoverage{Selection: input.Select}
+		table, e := a.tablePage(ctx, input.Select, input.Options, start, maxRows, maxBytes, output.Coverage)
+		if e != nil {
+			return e
 		}
-		if end == start && start < len(table.Rows) {
-			return fmt.Errorf("row exceeds output limit; select fewer columns")
+		if output.Coverage.Truncated {
+			output.Cursor = encodeReadCursor(a.version, input.Select, input.Options, start+len(table.Rows))
+		} else {
+			output.Cursor = ""
 		}
-		output.Coverage = &ResourceCoverage{Selection: input.Select, ReturnedRows: end - start, Truncated: end < len(table.Rows)}
-		if end < len(table.Rows) {
-			output.Cursor = encodeReadCursor(a.version, input.Select, input.Options, end)
-			output.Coverage.NextRow = table.RowNumbers[end]
-		}
-		table.Rows = table.Rows[start:end]
-		table.RowNumbers = table.RowNumbers[start:end]
 		output.Table = table
-		output.Returned = used
+		output.Returned = 0
+		for _, row := range table.Rows {
+			output.Returned += tableRowBytes(row)
+		}
 		return nil
 	}
 	if rep != "text" {
 		return fmt.Errorf("unsupported representation %q", rep)
+	}
+	if a.stream != nil && (a.kind == "text" || a.kind == "csv") {
+		if input.Select != nil {
+			return fmt.Errorf("use byte/line ranges for text")
+		}
+		return a.readStreamText(ctx, input, output, maxBytes)
 	}
 	text, e := a.text(ctx, input.Select, input.Options)
 	if e != nil {
@@ -340,4 +391,24 @@ func (s *Service) readAsset(ctx context.Context, input *ReadInput, output *ReadO
 	output.Version = a.version
 	output.Coverage = &ResourceCoverage{Selection: input.Select, Truncated: selection.Remaining > 0}
 	return nil
+}
+
+func validTextPrefix(data []byte, partial bool) bool {
+	if partial {
+		for trim := 0; trim < utf8.UTFMax && len(data) > 0 && !utf8.Valid(data); trim++ {
+			data = data[:len(data)-1]
+		}
+	}
+	return utf8.Valid(data) && !isBinaryContent(data)
+}
+
+func (a *asset) pdfReader() (*pdf.Reader, error) {
+	if a.stream != nil {
+		source, ok := a.stream.(io.ReaderAt)
+		if !ok {
+			return nil, fmt.Errorf("resource does not support PDF access")
+		}
+		return pdf.NewReader(source, a.size)
+	}
+	return pdf.NewReader(bytes.NewReader(a.data), int64(len(a.data)))
 }

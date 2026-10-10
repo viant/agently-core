@@ -169,6 +169,7 @@ export interface LinkedConversationRenderView extends HostTrust {
 }
 
 export interface IterationRenderRow extends HostTrust {
+    operationalNarration?: string;
     attachments?: WorkspaceAttachmentState[];
     kind: 'iteration';
     renderKey: string;
@@ -478,6 +479,7 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
     const isStreaming = turn.lifecycle === 'pending' || turn.lifecycle === 'running';
     return {
         kind: 'iteration',
+        operationalNarration: turn.operationalNarration,
         attachments: turn.assistantFinal?.attachments,
         renderKey: turn.renderKey,
         connectionProfile: turn.connectionProfile,

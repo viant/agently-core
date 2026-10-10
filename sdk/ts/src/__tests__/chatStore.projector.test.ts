@@ -702,3 +702,14 @@ describe('canonical tool response ownership', () => {
         expect(state.turns.find(turn=>turn.turnId==='tool-ownership')!.pages[0].toolCalls[0].responsePayload).toEqual({name:'contract'});
     });
 });
+
+it('retains persisted public highlights beside the final report after repeated history hydration', () => {
+    const state=fresh();
+    const noteId='78d5cfea-5646-4352-896f-722494256c24', reportId='45bd6ebd-6f21-40e2-a500-bc68ee74a07f';
+    const report={schemaVersion:'1',parts:[{kind:'text',text:'[Interactive content]'}],reports:[{scope:'message',id:'owned',status:'committed',grammar:'report-document-v1',source:{title:'Owned',blocks:[{id:'summary',kind:'markdownBlock',markdown:'Owned report'}]}}]};
+    const snapshot={conversationId:state.conversationId,turns:[{turnId:'persisted-turn',status:'succeeded',messages:[{messageId:noteId,role:'assistant',mode:'task',content:'Persisted public highlights',createdAt:'2026-10-09T12:00:01Z'},{messageId:reportId,role:'assistant',mode:'task',content:'[Interactive content]',renderedContent:report,createdAt:'2026-10-09T12:00:02Z'}],assistant:{final:{messageId:reportId,content:'[Interactive content]',renderedContent:report}},execution:{activePageIdx:0,pages:[{pageId:'report-page',finalAssistantMessageId:reportId,finalResponse:true,content:'[Interactive content]',renderedContent:report,modelSteps:[],toolSteps:[]}]}}]};
+    applyTranscript(state,snapshot as any);applyTranscript(state,snapshot as any);
+    const rows=projectConversation(state);
+    expect(rows.filter(row=>row.kind==='assistant'&&row.messageId===noteId)).toHaveLength(1);
+    expect(rows.some(row=>row.kind==='iteration'&&row.rounds.some(round=>round.renderedContent?.reports?.some(assembly=>assembly.status==='committed')))).toBe(true);
+});

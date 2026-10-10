@@ -5,6 +5,7 @@ import (
 	"crypto/md5"
 	"encoding/hex"
 	"encoding/json"
+	authctx "github.com/viant/agently-core/internal/auth"
 	"log"
 	"strings"
 	"sync"
@@ -30,6 +31,8 @@ const (
 )
 
 type OperationRecord struct {
+	OriginalRequestArgs        map[string]interface{} `json:"-"`
+	RequestOwnerID             string                 `json:"-"`
 	ID                         string
 	ParentConvID               string
 	ParentTurnID               string
@@ -92,6 +95,7 @@ func (r *OperationRecord) TerminalPayload() *Extracted {
 }
 
 type RegisterInput struct {
+	OriginalRequestArgs        map[string]interface{}
 	ID                         string
 	ParentConvID               string
 	ParentTurnID               string
@@ -534,7 +538,7 @@ func (m *Manager) CancelTurnPollers(_ context.Context, convID, turnID string) {
 // OperationIDPath or a retried start-handler that double-registers —
 // so it is logged at warn and counted in Stats(). The previous record's
 // state is lost.
-func (m *Manager) Register(_ context.Context, input RegisterInput) (*OperationRecord, bool) {
+func (m *Manager) Register(ctx context.Context, input RegisterInput) (*OperationRecord, bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	id := strings.TrimSpace(input.ID)
@@ -550,6 +554,7 @@ func (m *Manager) Register(_ context.Context, input RegisterInput) (*OperationRe
 	m.registerCount.Add(1)
 	now := time.Now()
 	rec := &OperationRecord{
+		RequestOwnerID:             authctx.EffectiveUserID(ctx),
 		ID:                         id,
 		ParentConvID:               strings.TrimSpace(input.ParentConvID),
 		ParentTurnID:               strings.TrimSpace(input.ParentTurnID),
@@ -563,6 +568,7 @@ func (m *Manager) Register(_ context.Context, input RegisterInput) (*OperationRe
 		CancelToolName:             strings.TrimSpace(input.CancelToolName),
 		RequestArgsDigest:          strings.TrimSpace(input.RequestArgsDigest),
 		RequestArgs:                deepCloneMap(input.RequestArgs),
+		OriginalRequestArgs:        deepCloneMap(input.OriginalRequestArgs),
 		OperationIntent:            strings.TrimSpace(input.OperationIntent),
 		OperationSummary:           strings.TrimSpace(input.OperationSummary),
 		ExecutionMode:              NormalizeExecutionMode(input.ExecutionMode, string(ExecutionModeWait)),
@@ -1334,6 +1340,7 @@ func cloneRecord(rec *OperationRecord) *OperationRecord {
 	// were shared with the canonical record, so a consumer that mutated
 	// a returned StatusArgs["opts"].x would mutate Manager state.
 	copyRec.RequestArgs = deepCloneMap(rec.RequestArgs)
+	copyRec.OriginalRequestArgs = deepCloneMap(rec.OriginalRequestArgs)
 	copyRec.StatusArgs = deepCloneMap(rec.StatusArgs)
 	return &copyRec
 }

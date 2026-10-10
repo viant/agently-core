@@ -32,6 +32,21 @@ type changeHandler struct {
 	sequence int64
 }
 
+// Forward the sensitive-session fence through the feature's catalog-change
+// wrapper so uploads cannot lose callback isolation while retaining updates.
+func (h *changeHandler) BeginSensitivePayload() func() {
+	if fence, ok := h.Handler.(interface{ BeginSensitivePayload() func() }); ok {
+		return fence.BeginSensitivePayload()
+	}
+	return func() {}
+}
+
+func (h *changeHandler) SetConversationID(id string) {
+	if setter, ok := h.Handler.(interface{ SetConversationID(string) }); ok {
+		setter.SetConversationID(id)
+	}
+}
+
 func (h *changeHandler) OnNotification(ctx context.Context, n *jsonrpc.Notification) {
 	if n != nil {
 		switch n.Method {

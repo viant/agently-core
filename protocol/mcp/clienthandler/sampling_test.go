@@ -3,6 +3,7 @@ package clienthandler
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -190,4 +191,15 @@ type auditCaptureConversation struct {
 func (c *auditCaptureConversation) PatchPayload(_ context.Context, payload *apiconv.MutablePayload) error {
 	c.payloads = append(c.payloads, payload)
 	return nil
+}
+
+func TestArtifactDispatchBlocksServerSamplingBeforeModelAndAudit(t *testing.T) {
+	handler := New(nil, nil)
+	handler.SetConversationID("old-client-creation-conversation")
+	end := handler.BeginSensitivePayload()
+	defer end()
+	result, err := handler.CreateMessage(context.Background(), nil)
+	if result != nil || err == nil || !strings.Contains(err.Message, "artifact payload") {
+		t.Fatal("sensitive sampling callback was not fenced")
+	}
 }

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/viant/agently-core/internal/textutil"
+	"github.com/viant/agently-core/internal/tool/dispatchpayload"
 	"github.com/viant/agently-core/internal/toolvalidate"
 	"strings"
 	"sync"
@@ -206,6 +207,8 @@ type StepInfo struct {
 // ExecuteToolStep runs a tool via the registry, records transcript, and updates traces.
 // Returns normalized plan.ToolCall, span and any combined error.
 func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv apiconv.Client) (out plan.ToolCall, span plan.CallSpan, retErr error) {
+	ctx, closeArtifactDispatch := dispatchpayload.WithState(ctx)
+	defer closeArtifactDispatch()
 	span = plan.CallSpan{StartedAt: time.Now()}
 	errs := make([]error, 0, 6)
 	if strings.TrimSpace(step.ID) == "" {
@@ -320,7 +323,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	// this optional resolver, and tools it reports as unprotected, retain the
 	// existing executor-level coalescing behavior.
 	coalesceKey := ""
-	if resolver, ok := reg.(tool.ExecutionProtectionResolver); !ok || !resolver.ToolExecutionProtected(step.Name) {
+	if resolver, ok := reg.(tool.ExecutionProtectionResolver); (!ok || !resolver.ToolExecutionProtected(step.Name)) && !dispatchpayload.HasArtifactReference(step.Args) && !dispatchpayload.Active(ctx) {
 		coalesceKey = toolStepCoalesceKey(ctx, turn, step, coalesceArgs)
 	}
 	if call, owner, sharedResult, sharedErr, handled := activeToolStepCoalescer.begin(ctx, coalesceKey); handled {
@@ -898,6 +901,46 @@ func executeTool(ctx context.Context, reg tool.Registry, step StepInfo, conv api
 			}
 		}
 	}
+	if !dispatchpayload.HasArtifactReference(step.Args) && !dispatchpayload.Active(ctx) {
+		if manager, ok := AsyncManagerFromContext(ctx); ok && manager != nil {
+			if cfg, ok := asyncConfigForStep(ctx, reg, step.Name); ok && cfg != nil && sameToolName(step.Name, cfg.Status.Tool) {
+				opID := resolveAsyncStatusOperationID(ctx, manager, cfg, step)
+				if _, found := manager.Get(ctx, opID); !found && opID != "" {
+					if resumeErr := checkPersistedArtifactResume(ctx, reg, conv, cfg, opID); resumeErr != nil {
+						return plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Error: resumeErr.Error()}, "", resumeErr
+					}
+				}
+				if rec, ok := manager.Get(ctx, opID); ok && rec != nil && (dispatchpayload.HasArtifactReference(rec.RequestArgs) || dispatchpayload.HasArtifactReference(rec.OriginalRequestArgs)) {
+					message := "artifact async resumption requires the original owned dispatch context"
+					if rec.RequestOwnerID == "" || rec.RequestOwnerID != authctx.EffectiveUserID(ctx) || rec.ParentConvID != runtimerequestctx.ConversationIDFromContext(ctx) {
+						message = "artifact async operation owner mismatch"
+					}
+					return plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Error: message}, "", errors.New(message)
+				}
+			}
+		}
+	}
+	if dispatchpayload.HasArtifactReference(step.Args) {
+		dispatchpayload.SetOriginalArguments(ctx, step.Args)
+		ctx = tool.WithDispatchPayloadResolver(ctx, func(callCtx context.Context, name string, args map[string]interface{}) (map[string]interface{}, func(string) string, error) {
+			execution, payloads, err := artifactDispatchArguments(callCtx, reg, step.Name, step.Args)
+			definition, found := reg.GetDefinition(name)
+			if getter, enabled := reg.(tool.ContextDefinitionGetter); enabled {
+				definition, found = getter.GetDefinitionWithContext(callCtx, name)
+			}
+			if !dispatchpayload.HasArtifactReference(args) {
+				execution = args
+			}
+			return execution, func(text string) string {
+				safe := redactDispatchArtifactOutput(text, payloads)
+				if len(payloads) > 0 && found && definition != nil {
+					safe = redactDeclaredBinaryOutput(safe, definition.OutputSchema)
+				}
+				return safe
+			}, err
+		})
+	}
+
 	toolResult, err := reg.Execute(ctx, step.Name, step.Args)
 	out := plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: toolResult}
 	if err != nil {

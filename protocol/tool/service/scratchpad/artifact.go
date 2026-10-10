@@ -239,3 +239,56 @@ func (s *Service) ListArtifacts(ctx context.Context, cursor string, limit int) (
 	}
 	return result, "", nil
 }
+
+// ReadArtifactPayload resolves an immutable artifact in the current user's
+// configured root and verifies its publication metadata before releasing bytes.
+func (s *Service) ReadArtifactPayload(ctx context.Context, uri string) ([]byte, error) {
+	if strings.TrimSpace(authctx.EffectiveUserID(ctx)) == "" {
+		return nil, fmt.Errorf("artifact identity required")
+	}
+	d, err := s.DescribeArtifact(ctx, uri)
+	if err != nil {
+		return nil, err
+	}
+	if d.SizeBytes <= 0 || d.SizeBytes > MaxArtifactBytes || len(d.SHA256) != 64 {
+		return nil, fmt.Errorf("artifact immutable integrity metadata required")
+	}
+	root, _, err := s.resolveRootURI(ctx)
+	if err != nil {
+		return nil, err
+	}
+	note, err := s.client(ctx).Fetch(ctx, afsscratchpad.ArtifactKey(d.ID))
+	if err != nil {
+		return nil, fmt.Errorf("artifact unavailable")
+	}
+	var manifest artifactManifest
+	expected := afsurl.Join(root, "artifacts", d.ID+".bin")
+	if json.Unmarshal([]byte(note.Body), &manifest) != nil || manifest.SourceURL != expected {
+		return nil, fmt.Errorf("artifact backing owner mismatch")
+	}
+	// Open the checked process-owned path directly, never a manifest-selected URL.
+	r, err := s.fs.OpenURL(ctx, expected)
+	if err != nil {
+		return nil, fmt.Errorf("artifact unavailable")
+	}
+	defer r.Close()
+	data, err := io.ReadAll(io.LimitReader(r, MaxArtifactBytes+1))
+	if err != nil {
+		return nil, fmt.Errorf("artifact payload unavailable")
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	sum := sha256.Sum256(data)
+	if int64(len(data)) != d.SizeBytes || hex.EncodeToString(sum[:]) != d.SHA256 {
+		return nil, fmt.Errorf("artifact integrity mismatch")
+	}
+	current, err := s.DescribeArtifact(ctx, uri)
+	if err != nil {
+		return nil, err
+	}
+	if *current != *d {
+		return nil, fmt.Errorf("artifact changed during read")
+	}
+	return data, nil
+}

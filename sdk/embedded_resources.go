@@ -154,6 +154,14 @@ func (c *backendClient) storeConversationFile(ctx context.Context, input convers
 		}
 		out.Resource = d
 	}
+	if out.Resource != nil {
+		// Keep the verified immutable resource reference with the persisted
+		// attachment, so history can expose metadata without re-uploading bytes.
+		p.SetURI(out.Resource.URI)
+		if err := c.conv.PatchPayload(ctx, p); err != nil {
+			return nil, fmt.Errorf("storing uploaded resource reference: %w", err)
+		}
+	}
 	return out, nil
 }
 
