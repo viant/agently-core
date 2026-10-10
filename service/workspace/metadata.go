@@ -129,6 +129,7 @@ type MetadataHandler struct {
 	permittedRuntime      *permittedview.Runtime
 	legacyDefaults        bool
 	layoutDefault         []byte
+	layoutMenuReader      LayoutMenuReader
 	toolDefinitions       func(context.Context) ([]ToolDefinition, error)
 }
 

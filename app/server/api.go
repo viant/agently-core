@@ -32,6 +32,7 @@ import (
 type APIOptions struct {
 	Version          string
 	LayoutDefault    []byte
+	MenuReader       svcworkspace.LayoutMenuReader
 	Runtime          *executor.Runtime
 	Client           sdk.Backend
 	AgentFinder      agentmodel.Finder
@@ -50,6 +51,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	metadataHandler := svcworkspace.NewMetadataHandler(opts.Runtime.Defaults, opts.Runtime.Store, metadataVersion)
 	metadataHandler.SetLayoutDefault(opts.LayoutDefault)
+	metadataHandler.SetLayoutMenuReader(opts.MenuReader)
 	var browserRegistry *browsermcp.Registry
 	if opts.Runtime.MCPManager != nil {
 		browserRegistry = browsermcp.New(opts.Runtime.MCPManager.BrowserDescriptors)

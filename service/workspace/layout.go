@@ -16,11 +16,11 @@ import (
 	"time"
 
 	"github.com/viant/agently-core/service/policy"
+	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	ws "github.com/viant/agently-core/workspace"
 	"github.com/viant/agently-core/workspace/config"
-	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
 	forgetypes "github.com/viant/forge/backend/types"
 	"gopkg.in/yaml.v3"
 )
@@ -219,6 +219,24 @@ func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*Layout
 	if err = validateLayout(&layout); err != nil {
 		return nil, metadataFailure(http.StatusBadRequest, err.Error(), nil)
 	}
+	var menuRead *LayoutMenuRead
+	if h.layoutMenuReader != nil {
+		menuRead, err = h.layoutMenuReader(ctx)
+		if menuRead != nil && menuRead.Close != nil {
+			defer menuRead.Close()
+		}
+		if err != nil || menuRead == nil || menuRead.Revalidate == nil || menuRead.Revision == "" {
+			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
+		}
+		var applications []LayoutApplication
+		if err = json.Unmarshal(menuRead.Applications, &applications); err != nil || applications == nil {
+			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
+		}
+		layout.Applications = applications
+		if err = validateLayout(&layout); err != nil {
+			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
+		}
+	}
 	admission, capabilities := h.layoutRuntimes()
 	permitted, err := filterLayoutContextWithRuntimes(ctx, &layout, admission, capabilities, h.windowResourceCatalog)
 	if err != nil {
@@ -227,7 +245,17 @@ func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*Layout
 		}
 		return nil, metadataFailure(http.StatusServiceUnavailable, "layout authorization unavailable", nil)
 	}
-	digest := sha256.Sum256(append(append([]byte(source), 0), data...))
+	if menuRead != nil && permitted.Applications == nil {
+		permitted.Applications = make([]LayoutApplication, 0)
+	}
+	revisionBytes := append(append([]byte(source), 0), data...)
+	if menuRead != nil {
+		if err = menuRead.Revalidate(ctx); err != nil || ctx.Err() != nil {
+			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation menu unavailable", nil)
+		}
+		revisionBytes = append(append(revisionBytes, 0), menuRead.Revision...)
+	}
+	digest := sha256.Sum256(revisionBytes)
 	catalogRevisions := permitted.CatalogRevisions
 	permitted.CatalogRevisions = nil
 	return &layoutResponse{SchemaVersion: 1, LayoutRevision: hex.EncodeToString(digest[:]), WorkspaceID: root, CatalogRevisions: catalogRevisions, Layout: permitted}, nil
