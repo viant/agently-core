@@ -433,7 +433,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 		if len(toolCalls) > s.defaults.ToolCallMaxResults && s.defaults.ToolCallMaxResults > 0 {
 			toolCalls = toolCalls[len(toolCalls)-s.defaults.ToolCallMaxResults:]
 		}
-		limit := s.messagePreviewLimit(turnIdx, totalTurns, applyAging, true)
+		limit := stricterToolResultLimit(s.messagePreviewLimit(turnIdx, totalTurns, applyAging, true), s.selectedModelToolResultLimit(input))
 		for _, m := range toolCalls {
 			tcView := messageToolCall(m)
 			if tcView == nil {
@@ -447,7 +447,7 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 			// discard the result or reload original uncaptured output.
 			result := s.messageToolResultBody(ctx, m)
 			if body := result; body != "" && limit > 0 {
-				preview, overflow := buildOverflowPreview(body, limit, m.Id, allowContinuation)
+				preview, overflow := s.presentRecordedToolResult(ctx, input, body, m.Id, limit, allowContinuation)
 				if overflow {
 					overflowFound = true
 					if size := len(body); size > maxOverflowBytes {
