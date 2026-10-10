@@ -13,7 +13,8 @@ describe('AG-UI through the existing BFF client', () => {
         const fetchImpl = vi.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
             expect(init?.credentials).toBe('include');
             expect(new Headers(init?.headers).get('Authorization')).toBe('Bearer fixture-token');
-            if (url === '/v1/conversations/thread') {
+            if (String(url).startsWith('/v1/conversations/thread')) {
+                expect(url).toBe('/v1/conversations/thread?includeTranscript=false');
                 expect(init?.method).toBe('GET');
                 return new Response(JSON.stringify({id:'thread'}), {headers:{'Content-Type':'application/json'}});
             }
