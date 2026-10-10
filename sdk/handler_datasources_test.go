@@ -358,3 +358,19 @@ func TestHandleListLookupRegistry_ReturnsEntries(t *testing.T) {
 		t.Fatalf("entries mismatch: %+v", out.Entries)
 	}
 }
+
+type scopedDatasourceDeniedBackend struct{ Backend }
+
+func (scopedDatasourceDeniedBackend) FetchDatasource(context.Context, *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
+	return nil, dsproto.ErrDatasourceDenied
+}
+func TestHandleFetchDatasourcePreservesServerScopedDenialWithoutRows(t *testing.T) {
+	req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/rows/fetch", strings.NewReader(`{}`))
+	req.SetPathValue("id", "rows")
+	writer := httptest.NewRecorder()
+	handleFetchDatasource(scopedDatasourceDeniedBackend{})(writer, req)
+	var body map[string]any
+	if json.Unmarshal(writer.Body.Bytes(), &body) != nil || writer.Code != 403 || body["code"] != "datasource_denied" || body["scope"] != "dataset" || body["rows"] != nil {
+		t.Fatal(writer.Code, writer.Body.String())
+	}
+}

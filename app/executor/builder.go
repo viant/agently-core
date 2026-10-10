@@ -106,6 +106,7 @@ type Runtime struct {
 	DatasourceReadSequence         func(context.Context) (context.Context, func() error, error)
 	DatasourceReadFactsScope       resourcesvc.ReadFactsScope
 	DatasourceDefinitionAuthorizer dssvc.DefinitionAuthorizer
+	DatasourceDenialRootRead       dssvc.DefinitionAuthorizer
 	DatasourceDefinitionResolver   dssvc.ResourceDefinitionResolver
 	DatasourceProviderExecutor     dssvc.ProviderExecutor
 	DatasourceDisableCache         bool
@@ -162,57 +163,61 @@ func resolveScratchpadTemplate() string {
 }
 
 type Builder struct {
-	nativeComponentServices      []string
-	componentDispatcher          windowprotocol.ComponentDispatcher
-	reportCatalog                catalog.Provider
-	reportResourceResolver       reportingsvc.ResourceResolver
-	reportResourceService        primitive.ResourceAuthoring
-	authorizationProviders       map[string]AuthorizationProvider
-	capabilityMappings           map[string]permittedview.CapabilityMapping
-	capabilityMappingsV2         map[string]permittedview.CapabilityMappingV2
-	uiBridge                     *forgeuisvc.Service
-	defaults                     *config.Defaults
-	conversation                 conversation.Client
-	data                         data.Service
-	goalStore                    goalsys.Store
-	skipRegistryInitialize       bool
-	native                       *standalone.Server
-	registry                     tool.Registry
-	core                         *core.Service
-	agentSvc                     *agentsvc.Service
-	agentFinder                  agentmodel.Finder
-	agentDirectoryProvider       func() []llmagents.ListItem
-	agentLoader                  agentmodel.Loader
-	modelFinder                  llm.Finder
-	modelLoader                  *modelloader.Service
-	embedderFinder               embedder.Finder
-	embedderLoader               *embedderloader.Service
-	augmenter                    *augmenter.Service
-	mcpManager                   *mcpmgr.Manager
-	primitiveActor               resourcesvc.ActorResolver
-	primitiveVerifier            resourcesvc.ActorVerifier
-	primitiveLocalIdentity       string
-	primitiveGatewayIdentity     string
-	primitiveWindowAdmission     resourcesvc.WindowAdmission
-	windowOpenBootstrap          permittedview.OpenBootstrap
-	windowOpenSelection          permittedview.OpenSelectionCheck
-	primitiveDatasourceAdmission func(context.Context, identity.ResolvedResource, *dsproto.DataSource, map[string]interface{}) error
-	primitiveTargetProof         forgetypes.WindowTargetProof
-	localPrimitiveProvider       *resourcesvc.LocalProvider
-	mcpAuthRTProvider            mcpmgr.AuthRTProvider
-	mcpJarProvider               mcpmgr.JarProvider
-	mcpUserIDFn                  mcpmgr.UserIDExtractor
-	cancelRegistry               cancels.Registry
-	elicRouter                   elicrouter.ElicitationRouter
-	streamPub                    modelcallctx.StreamPublisher
-	streamBus                    streaming.Bus
-	hotSwapEnabled               bool
-	store                        workspace.Store
-	knowledgeStore               workspace.KnowledgeStore
-	stateStore                   workspace.StateStore
-	tokenProvider                token.Provider
-	reportingService             *reportingsvc.Service
-	mcpDelegatedAuth             *svcauth.DelegatedMCPAuth
+	nativeComponentServices        []string
+	componentDispatcher            windowprotocol.ComponentDispatcher
+	reportCatalog                  catalog.Provider
+	reportResourceResolver         reportingsvc.ResourceResolver
+	reportResourceService          primitive.ResourceAuthoring
+	authorizationProviders         map[string]AuthorizationProvider
+	capabilityMappings             map[string]permittedview.CapabilityMapping
+	capabilityMappingsV2           map[string]permittedview.CapabilityMappingV2
+	uiBridge                       *forgeuisvc.Service
+	defaults                       *config.Defaults
+	conversation                   conversation.Client
+	data                           data.Service
+	goalStore                      goalsys.Store
+	skipRegistryInitialize         bool
+	native                         *standalone.Server
+	registry                       tool.Registry
+	core                           *core.Service
+	agentSvc                       *agentsvc.Service
+	agentFinder                    agentmodel.Finder
+	agentDirectoryProvider         func() []llmagents.ListItem
+	agentLoader                    agentmodel.Loader
+	modelFinder                    llm.Finder
+	modelLoader                    *modelloader.Service
+	embedderFinder                 embedder.Finder
+	embedderLoader                 *embedderloader.Service
+	augmenter                      *augmenter.Service
+	mcpManager                     *mcpmgr.Manager
+	primitiveActor                 resourcesvc.ActorResolver
+	primitiveVerifier              resourcesvc.ActorVerifier
+	primitiveLocalIdentity         string
+	primitiveGatewayIdentity       string
+	primitiveWindowAdmission       resourcesvc.WindowAdmission
+	windowOpenBootstrap            permittedview.OpenBootstrap
+	windowOpenSelection            permittedview.OpenSelectionCheck
+	pinnedDatasourceRevalidator    dssvc.ResourceRevalidator
+	pinnedDatasourceResolver       dssvc.ResourceDefinitionResolver
+	pinnedDatasourceAuthorizer     dssvc.DefinitionAuthorizer
+	pinnedDatasourceDenialRootRead dssvc.DefinitionAuthorizer
+	primitiveDatasourceAdmission   func(context.Context, identity.ResolvedResource, *dsproto.DataSource, map[string]interface{}) error
+	primitiveTargetProof           forgetypes.WindowTargetProof
+	localPrimitiveProvider         *resourcesvc.LocalProvider
+	mcpAuthRTProvider              mcpmgr.AuthRTProvider
+	mcpJarProvider                 mcpmgr.JarProvider
+	mcpUserIDFn                    mcpmgr.UserIDExtractor
+	cancelRegistry                 cancels.Registry
+	elicRouter                     elicrouter.ElicitationRouter
+	streamPub                      modelcallctx.StreamPublisher
+	streamBus                      streaming.Bus
+	hotSwapEnabled                 bool
+	store                          workspace.Store
+	knowledgeStore                 workspace.KnowledgeStore
+	stateStore                     workspace.StateStore
+	tokenProvider                  token.Provider
+	reportingService               *reportingsvc.Service
+	mcpDelegatedAuth               *svcauth.DelegatedMCPAuth
 }
 
 // AuthorizationProvider is registered by the host, not workspace YAML.
@@ -269,10 +274,25 @@ func (b *Builder) WithCapabilityMappingV2(ref string, mapping permittedview.Capa
 	return b
 }
 
+// WithDatasourceDenialRootRead opts into fresh root admission after numeric
+// upstream MCP403. Missing callbacks retain global fail-closed behavior.
+func (b *Builder) WithDatasourceDenialRootRead(check dssvc.DefinitionAuthorizer) *Builder {
+	b.pinnedDatasourceDenialRootRead = check
+	return b
+}
+
 // WithUIBridge supplies a host-configured Forge bridge. Authz window mode
 // requires its catalog to report a host-installed admission callback.
 func (b *Builder) WithUIBridge(bridge *forgeuisvc.Service) *Builder {
 	b.uiBridge = bridge
+	return b
+}
+
+// WithPinnedDatasourceDefinitions installs a host-owned definition boundary.
+// The authorizer must make a fresh execution decision; pins alone grant no data
+// access. This boundary is independent of the selected permission provider.
+func (b *Builder) WithPinnedDatasourceDefinitions(revalidate dssvc.ResourceRevalidator, resolve dssvc.ResourceDefinitionResolver, authorize dssvc.DefinitionAuthorizer) *Builder {
+	b.pinnedDatasourceRevalidator, b.pinnedDatasourceResolver, b.pinnedDatasourceAuthorizer = revalidate, resolve, authorize
 	return b
 }
 
@@ -470,6 +490,9 @@ func (b *Builder) WithReportingService(v *reportingsvc.Service) *Builder {
 }
 
 func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
+	if b.pinnedDatasourceResolver != nil && (b.pinnedDatasourceRevalidator == nil || b.pinnedDatasourceAuthorizer == nil) || b.pinnedDatasourceResolver == nil && (b.pinnedDatasourceRevalidator != nil || b.pinnedDatasourceAuthorizer != nil) {
+		return nil, fmt.Errorf("pinned datasource definitions require revalidation, resolution and execution authorization")
+	}
 	if b.modelFinder == nil {
 		return nil, errors.New("executor builder requires llm model finder")
 	}
@@ -494,15 +517,19 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 
 	out := &Runtime{
-		LocalPrimitiveProvider: b.localPrimitiveProvider,
-		Defaults:               b.defaults,
-		ComponentDispatcher:    b.componentDispatcher,
-		Native:                 b.native,
-		MCPManager:             b.mcpManager,
-		Store:                  b.store,
-		KnowledgeStore:         b.knowledgeStore,
-		StateStore:             b.stateStore,
-		UIBridge:               b.uiBridge,
+		DatasourceResourceRevalidator:  b.pinnedDatasourceRevalidator,
+		DatasourceDefinitionResolver:   b.pinnedDatasourceResolver,
+		DatasourceDefinitionAuthorizer: b.pinnedDatasourceAuthorizer,
+		DatasourceDenialRootRead:       b.pinnedDatasourceDenialRootRead,
+		LocalPrimitiveProvider:         b.localPrimitiveProvider,
+		Defaults:                       b.defaults,
+		ComponentDispatcher:            b.componentDispatcher,
+		Native:                         b.native,
+		MCPManager:                     b.mcpManager,
+		Store:                          b.store,
+		KnowledgeStore:                 b.knowledgeStore,
+		StateStore:                     b.stateStore,
+		UIBridge:                       b.uiBridge,
 	}
 	if out.UIBridge == nil {
 		out.UIBridge = forgeuisvc.NewService(&forgeuisvc.Config{})
@@ -872,6 +899,13 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 	if (b.windowOpenBootstrap == nil) != (b.windowOpenSelection == nil) {
 		return nil, fmt.Errorf("window open bootstrap requires explicit selection matcher")
+	}
+	if out.PermittedResolver == nil && out.AuthorizationTool != "" && b.windowOpenBootstrap != nil {
+		execute, ok := any(out.Registry).(permittedview.ToolExecutor)
+		if !ok {
+			return nil, fmt.Errorf("configured MCP permission executor is unavailable")
+		}
+		out.PermittedResolver = &permittedview.MCPResolver{Executor: execute, ToolName: out.AuthorizationTool}
 	}
 	if out.UIBridge != nil && out.UIBridge.HasWindowOpenAdmission() && b.windowOpenBootstrap != nil {
 		return nil, fmt.Errorf("window open admission is already supplied by the host")
