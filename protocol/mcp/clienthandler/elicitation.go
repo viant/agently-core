@@ -57,7 +57,15 @@ func (h *Handler) LastRequestID() jsonrpc.RequestId {
 	return atomic.LoadInt64(&h.lastRequestID)
 }
 
-func (h *Handler) Init(_ context.Context, _ *mcpschema.ClientCapabilities) {}
+func (h *Handler) Init(_ context.Context, caps *mcpschema.ClientCapabilities) {
+	if caps == nil {
+		return
+	}
+	if caps.Extensions == nil {
+		caps.Extensions = map[string]map[string]interface{}{}
+	}
+	caps.Extensions["io.modelcontextprotocol/ui"] = map[string]interface{}{"mimeTypes": []string{"text/html;profile=mcp-app"}}
+}
 
 func (h *Handler) Implements(method string) bool {
 	switch method {

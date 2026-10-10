@@ -14,7 +14,6 @@ import (
 	schedread "github.com/viant/agently-core/internal/datly/schedule/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
 	legacyqueue "github.com/viant/agently-core/internal/datly/turnqueue/read"
-	conversation "github.com/viant/agently-core/internal/store/conversation"
 	dexec "github.com/viant/datly/exec"
 	"github.com/viant/datly/spec"
 	"github.com/viant/xdatly/state"
@@ -49,7 +48,7 @@ func (d *Discoverer) ValidateNonTerminalStatuses(ctx context.Context, graph *Gra
 	}
 	turnQuery := &turnread.TurnRowsInput{}
 	turnQuery.SetConversationIDs(ids)
-	turns, err := (&conversation.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnQuery, nil)
+	turns, err := d.turnRows(ctx, turnQuery, nil)
 	if err != nil {
 		return err
 	}
@@ -61,7 +60,7 @@ func (d *Discoverer) ValidateNonTerminalStatuses(ctx context.Context, graph *Gra
 	messageQuery := &msgread.MessagesInput{}
 	messageQuery.SetConversationIds(ids)
 	selector := state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id", "conversation_id"}}}}
-	messages, err := (&conversation.MessageStore{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListRows(ctx, messageQuery, selector)
+	messages, err := d.messageRows(ctx, messageQuery, selector)
 	if err != nil {
 		return err
 	}

@@ -1,3 +1,4 @@
+import { BrowserMCPHost, type BrowserMCPHostOptions, type BrowserMCPCatalog, type BrowserMCPAppActivity } from './browserMCP';
 import type { ReportRun, ReportContext, ReportRunResult, BeginReportRunInput, CompleteReportRunInput, AdoptReportRunInput, ReportExportJob, ReportArtifact, ReportAuditEvent } from "./types";
 import type {ListSkillsInput, ListSkillsOutput, ActivateSkillInput, ActivateSkillOutput} from './types';
 /**
@@ -59,6 +60,8 @@ export interface SessionDebugOptions {
 }
 
 export interface ClientOptions {
+    /** Generic browser-local MCP support, selected only by authenticated MCP config. */
+    browserMCP?: BrowserMCPHostOptions;
     /** Observe native mobile/CLI/scheduler work through the explicitly scoped application channel. */
     observeNativeWork?: boolean;
     /** Base URL including /v1 prefix, e.g. "http://localhost:8585/v1" */
@@ -110,6 +113,15 @@ type APIResponse = JSONValue | undefined;
 
 // ─── Client ────────────────────────────────────────────────────────────────────
 
+function isLegacyCompactPayloadSchemaRejection(error: unknown): boolean {
+    if (!(error instanceof HttpError) || error.status !== 400) return false;
+    const body = error.body;
+    return body.includes('invalidEnvelope')
+        && body.includes('conversation-v1.schema.json')
+        && /additional\s*properties?/i.test(body)
+        && body.includes('includeModelPayloads');
+}
+
 export class AgentlyClient {
     private baseURL: string;
     private tokenProvider?: TokenProvider;
@@ -124,6 +136,7 @@ export class AgentlyClient {
     private onUnauthorizedHook?: (error: HttpError) => void;
     private sessionDebug?: SessionDebugOptions;
     private agUiInteractions: AgUiConversationTransport;
+    private browserMCP?: BrowserMCPHost;
     private observeNativeWork = false;
     private nativeObservers = new Set<{ close(): void }>();
     private protocolSessionGeneration = 0;
@@ -216,8 +229,18 @@ export class AgentlyClient {
         this.onUnauthorizedHook = opts.onUnauthorized;
         this.sessionDebug = opts.sessionDebug;
         this.observeNativeWork = opts.observeNativeWork === true;
-        this.agUiInteractions = new AgUiConversationTransport(this, options => new AgUiViewProjection(options));
+        if (opts.browserMCP) this.browserMCP = new BrowserMCPHost({
+            descriptors: async () => (await this.getWorkspaceMetadata()).browserMCP ?? [],
+            register: input => this.post<BrowserMCPCatalog>('/mcp/browser/catalog', input),
+            revoke: id => this.del(`/mcp/browser/catalog/${enc(id)}`),
+            current: id => this.get<BrowserMCPCatalog>(`/mcp/browser/catalog/${enc(id)}`),
+        }, opts.browserMCP);
+        this.agUiInteractions = new AgUiConversationTransport(this, options => new AgUiViewProjection(options), this.browserMCP);
     }
+
+    subscribeBrowserMCPApps(listener: () => void): () => void { return this.browserMCP?.subscribeApps(listener) ?? (() => {}); }
+    browserMCPAppActivities(conversationId: string): BrowserMCPAppActivity[] { return this.browserMCP?.appActivities(conversationId) ?? []; }
+    browserMCPAppProxy(activity: BrowserMCPAppActivity) { if (!this.browserMCP) throw new Error('Browser app host unavailable'); return this.browserMCP.appProxy(activity); }
 
     // ── Conversations ────────────────────────────────────────────────────────
 
@@ -266,8 +289,9 @@ export class AgentlyClient {
     }
 
     /** Get a single conversation by ID. */
-    async getConversation(id: string): Promise<Conversation> {
-        return conversationDTO(await this.get<Conversation>(`/conversations/${enc(id)}`));
+    async getConversation(id: string, options?: {includeTranscript?: boolean}): Promise<Conversation> {
+        const query = options?.includeTranscript === false ? '?includeTranscript=false' : '';
+        return conversationDTO(await this.get<Conversation>(`/conversations/${enc(id)}${query}`));
     }
 
     /** Update mutable conversation fields such as visibility and shareability. */
@@ -345,6 +369,7 @@ export class AgentlyClient {
         const q = new URLSearchParams();
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
+        if (input.includeModelPayloads !== undefined) q.set('includeModelPayloads', String(input.includeModelPayloads));
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
         if (input.includeFeeds) q.set('includeFeeds', 'true');
         const selectors = { ...(options?.selectors ?? {}) } as Record<string, QuerySelector>;
@@ -376,6 +401,7 @@ export class AgentlyClient {
     async readApplicationState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
         const q = new URLSearchParams();
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
+        if (input.includeModelPayloads !== undefined) q.set('includeModelPayloads', String(input.includeModelPayloads));
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
         if (input.includeFeeds) q.set('includeFeeds', 'true');
         if (options?.selectors && Object.keys(options.selectors).length > 0) {
@@ -396,18 +422,20 @@ export class AgentlyClient {
         try { return await this.agUiInteractions.readSnapshot(input.conversationId, {
             mode:'transcript', since:input.since, includeModelCalls:input.includeModelCalls === true,
             includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
+            includeModelPayloads:input.includeModelPayloads,
             selectors:this.transcriptSelectors(options),
         }); }
-        catch (error) { if ((error as {status?:number})?.status === 403) return this.readConversationHistory(input, options); throw error; }
+        catch (error) { if ((error as {status?:number})?.status === 403 || input.includeModelPayloads === false && isLegacyCompactPayloadSchemaRejection(error)) return this.readConversationHistory(input, options); throw error; }
     }
 
     async getLiveState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
         try { return await this.agUiInteractions.readSnapshot(input.conversationId, {
             mode:'live', includeModelCalls:input.includeModelCalls === true,
             includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
+            includeModelPayloads:input.includeModelPayloads,
             selectors:this.transcriptSelectors(options),
         }); }
-        catch (error) { if ((error as {status?:number})?.status === 403) return this.readApplicationState(input, options); throw error; }
+        catch (error) { if ((error as {status?:number})?.status === 403 || input.includeModelPayloads === false && isLegacyCompactPayloadSchemaRejection(error)) return this.readApplicationState(input, options); throw error; }
     }
 
     // ── Query ────────────────────────────────────────────────────────────────

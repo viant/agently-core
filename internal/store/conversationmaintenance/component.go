@@ -69,6 +69,11 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	if input.RootID == "" || input.InactiveBefore.IsZero() || (input.Kind != Interactive && input.Kind != Scheduled && input.Kind != Fallback) || (input.Mode != shared.DryRun && input.Mode != shared.DeleteMode) {
 		return fmt.Errorf("invalid conversation maintenance request")
 	}
+	var err error
+	ctx, err = tree.PinGraphReader(ctx)
+	if err != nil {
+		return err
+	}
 	deps := dependencies{}
 	if err := session.Binder().Bind(ctx, &deps); err != nil {
 		return err

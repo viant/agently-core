@@ -178,6 +178,8 @@ export interface GetTranscriptInput {
     conversationId: string;
     since?: string;
     includeModelCalls?: boolean;
+    /** False omits model payload bodies while preserving model metadata and IDs. */
+    includeModelPayloads?: boolean;
     includeToolCalls?: boolean;
     /** Include resolved tool feed data in the response. */
     includeFeeds?: boolean;
@@ -939,6 +941,7 @@ export interface WorkspaceAssetDescriptor {
 }
 
 export interface WorkspaceMetadata {
+    browserMCP?: import('./browserMCP').BrowserMCPDescriptor[];
     workspaceId?: string;
     uiStyles?: WorkspaceAssetDescriptor;
     uiThemes?: WorkspaceAssetDescriptor;

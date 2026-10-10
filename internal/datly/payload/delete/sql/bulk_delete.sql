@@ -1,0 +1,12 @@
+DELETE FROM call_payload
+WHERE id IN (/*IDS*/)
+  AND NOT EXISTS (SELECT 1 FROM message WHERE attachment_payload_id = call_payload.id)
+  AND NOT EXISTS (SELECT 1 FROM message WHERE elicitation_payload_id = call_payload.id)
+  AND NOT EXISTS (SELECT 1 FROM model_call WHERE request_payload_id = call_payload.id)
+  AND NOT EXISTS (SELECT 1 FROM model_call WHERE response_payload_id = call_payload.id)
+  AND NOT EXISTS (SELECT 1 FROM model_call WHERE provider_request_payload_id = call_payload.id)
+  AND NOT EXISTS (SELECT 1 FROM model_call WHERE provider_response_payload_id = call_payload.id)
+  AND NOT EXISTS (SELECT 1 FROM model_call WHERE stream_payload_id = call_payload.id)
+  AND NOT EXISTS (SELECT 1 FROM tool_call WHERE request_payload_id = call_payload.id)
+  AND NOT EXISTS (SELECT 1 FROM tool_call WHERE response_payload_id = call_payload.id)
+  AND NOT EXISTS (SELECT 1 FROM generated_file WHERE payload_id = call_payload.id)

@@ -36,7 +36,7 @@ func (c *hostResultClient) CallTool(context.Context, *mcpschema.CallToolRequestP
 }
 func TestRegistryMCPAppsCaptureKeepsHostOnlyMetadataOutOfModelText(t *testing.T) {
 	client := &hostResultClient{}
-	registry, _ := newRemoteProtectionRegistry(client, nil)
+	registry, _ := newAdvertisedAppCaptureRegistry(client)
 	ctx, capture := mcpapps.WithCapture(protectedTurnContext("native-turn"), "service", "tool", "host-operation")
 	text, err := registry.Execute(ctx, "service/tool", map[string]interface{}{})
 	require.NoError(t, err)
@@ -56,7 +56,7 @@ func TestRegistryMCPAppsCaptureKeepsHostOnlyMetadataOutOfModelText(t *testing.T)
 
 func TestRegistryMCPAppsNeverRetriesAmbiguousRemoteEffect(t *testing.T) {
 	client := &protectionTestClient{err: errors.New("session not found")}
-	registry, manager := newRemoteProtectionRegistry(client, nil)
+	registry, manager := newAdvertisedAppCaptureRegistry(client)
 	ctx, _ := mcpapps.WithCapture(protectedTurnContext("native-turn"), "service", "tool", "op")
 	_, err := registry.Execute(ctx, "service/tool", map[string]interface{}{})
 	require.Error(t, err)
@@ -65,7 +65,7 @@ func TestRegistryMCPAppsNeverRetriesAmbiguousRemoteEffect(t *testing.T) {
 }
 func TestRegistryMCPAppsRawHostContentNeverBecomesNativeText(t *testing.T) {
 	client := &rawResultProtectionClient{}
-	registry, _ := newRemoteProtectionRegistry(client, nil)
+	registry, _ := newAdvertisedAppCaptureRegistry(client)
 	ctx, capture := mcpapps.WithCapture(protectedTurnContext("native-turn"), "service", "tool", "op")
 	text, err := registry.Execute(ctx, "service/tool", map[string]interface{}{})
 	require.NoError(t, err)
@@ -76,7 +76,7 @@ func TestRegistryMCPAppsRawHostContentNeverBecomesNativeText(t *testing.T) {
 
 func TestRegistryMCPAppsStructuredOnlyResultNeverEntersNativeText(t *testing.T) {
 	client := &hostResultClient{body: `{"resultType":"complete","content":[],"structuredContent":{"private":"host-only"},"_meta":{"private":"opaque"}}`}
-	registry, _ := newRemoteProtectionRegistry(client, nil)
+	registry, _ := newAdvertisedAppCaptureRegistry(client)
 	ctx, capture := mcpapps.WithCapture(protectedTurnContext("native-turn"), "service", "tool", "op")
 	text, err := registry.Execute(ctx, "service/tool", map[string]interface{}{})
 	require.NoError(t, err)
@@ -175,4 +175,13 @@ func TestRegistryMCPAppsLiteralMethodIsObservedByHTTPServer(t *testing.T) {
 	require.Equal(t, method, <-observed)
 	result, _ := capture.Snapshot()
 	require.Contains(t, string(result), `"private":"native-host"`)
+}
+
+// Host capture fixtures provide an advertised catalog just like the trusted
+// production host. A scoped capture alone cannot grant an unadvertised tool.
+func newAdvertisedAppCaptureRegistry(remote mcpclient.Interface) (*Registry, *protectionTestManager) {
+	registry, original := newRemoteProtectionRegistry(remote, nil)
+	registry.mgr = &discoveryManagerStub{options: &mcpcfg.MCPClient{ToolsListVisibility: mcpcfg.ToolsListVisibilityPublic}, getFunc: func(string, string) (mcpclient.Interface, error) { return remote, nil }}
+	registry.mergeServerTools("service", []mcpschema.Tool{{Name: "tool"}})
+	return registry, original
 }
