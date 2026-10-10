@@ -262,6 +262,9 @@ func (s *Service) filterAuthorizedProfiles(ctx context.Context, profiles []*inte
 	allowed, err := s.policy.Filter(ctx, policy.OperationIntentView,
 		runtimerequestctx.ConversationIDFromContext(ctx), candidates,
 		map[string]any{"agentId": s.currentAgentID(ctx)})
+	if errors.Is(err, policy.ErrIdentityRejected) {
+		return nil, err
+	}
 	if errors.Is(err, policy.ErrDenied) {
 		return nil, nil
 	}

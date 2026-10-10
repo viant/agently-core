@@ -2,6 +2,7 @@ package prompt
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -22,6 +23,12 @@ type promptTestFinder struct {
 
 type promptPolicyResolver struct{}
 
+type rejectedPromptPolicyResolver struct{}
+
+func (rejectedPromptPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
+	return nil, policy.ErrIdentityRejected
+}
+
 func (promptPolicyResolver) Resolve(context.Context, *policy.Request) (*policy.Decision, error) {
 	return &policy.Decision{PolicyVersion: "v1", ExpiresAt: time.Now().Add(time.Minute), Allow: true, AllowedIDs: []string{"allowed"}}, nil
 }
@@ -33,6 +40,13 @@ func TestFilterAuthorizedProfiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, got, 1)
 	assert.Equal(t, "allowed", got[0].ID)
+}
+
+func TestPromptDiscoveryPropagatesIdentityRejection(t *testing.T) {
+	svc := &Service{policy: policy.NewRuntime(rejectedPromptPolicyResolver{}, policy.OperationIntentView)}
+	if _, err := svc.filterAuthorizedProfiles(context.Background(), []*intent.Profile{{ID: "profile"}}); !errors.Is(err, policy.ErrIdentityRejected) {
+		t.Fatalf("identity rejection became empty profile list: %v", err)
+	}
 }
 
 func (f *promptTestFinder) Find(context.Context, string) (*agentmdl.Agent, error) {
