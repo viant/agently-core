@@ -29,7 +29,7 @@ require (
 	github.com/viant/forge v0.3.45-0.20261006144249-3feb061490cf
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.0
-	github.com/viant/jsonrpc v0.25.0
+	github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e
 	github.com/viant/linager v0.0.0-20250503232524-71e07f0aeb99
 	github.com/viant/mcp v0.24.1-0.20261008165059-494f36529f6e
 	github.com/viant/mcp-protocol v0.19.1-0.20261008202502-046707df5ed9
