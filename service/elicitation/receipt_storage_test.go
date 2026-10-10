@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
-	"strings"
 	"testing"
 	"time"
 
@@ -26,39 +25,58 @@ import (
 	"github.com/viant/mcp-protocol/schema"
 )
 
-func TestCheckedResolutionPayloadKindConstraintSQLite(t *testing.T) {
+func TestCheckedResolutionReceiptStorageSQLite(t *testing.T) {
 	for _, schemaFile := range []string{"schema.ddl", "schema_versioned.ddl", "schema_versioned_steward.ddl"} {
 		t.Run(schemaFile, func(t *testing.T) {
-			runSQLiteCheckedResolutionPayloadKind(t, schemaFile)
+			runSQLiteCheckedResolutionReceiptStorage(t, schemaFile)
 		})
 	}
 }
 
-func runSQLiteCheckedResolutionPayloadKind(t *testing.T, schemaFile string) {
+func runSQLiteCheckedResolutionReceiptStorage(t *testing.T, schemaFile string) {
 	t.Helper()
-	// Apply the production MySQL kind CHECK when creating this fresh SQLite
-	// fixture. The normal SQLite schema intentionally has no kind enum.
+	// Fresh MySQL schemas intentionally leave payload kinds unconstrained.
+	// Verify the storage shape without manufacturing a CHECK in SQLite.
 	_, source, _, _ := runtime.Caller(0)
 	mysqlDDL, err := os.ReadFile(filepath.Join(filepath.Dir(source), "../../script/mysql", schemaFile))
 	require.NoError(t, err)
-	checks := regexp.MustCompile(`CHECK \(kind IN\s+(\([\s\S]*?\))\)`).FindAllStringSubmatch(string(mysqlDDL), -1)
-	require.NotEmpty(t, checks)
-	// Versioned fresh provisioning finishes with a replacement kind CHECK.
-	// Exercise the effective final declaration, not an overridden CREATE list.
-	check := checks[len(checks)-1]
-	original := "CREATE TABLE IF NOT EXISTS call_payload (\n    id TEXT PRIMARY KEY,\n    tenant_id TEXT,\n    kind TEXT NOT NULL,"
-	ddl := strings.Replace(iscript.SqlListScript, original, strings.TrimSuffix(original, ",")+" CHECK (kind IN "+check[1]+"),", 1)
-	require.NotEqual(t, iscript.SqlListScript, ddl)
+	declarations := regexp.MustCompile("(?is)CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?`?call_payload`?\\s*\\((.*?)\\n\\);").FindAllStringSubmatch(string(mysqlDDL), -1)
+	require.Len(t, declarations, 1, "fresh schema must declare call_payload once")
+	definition := declarations[0][1]
+	require.NotRegexp(t, `(?i)\bCHECK\s*\(`, definition)
+	for _, column := range []string{"id", "tenant_id", "kind", "mime_type", "size_bytes", "storage", "inline_body", "compression"} {
+		require.Regexp(t, `(?im)^\s*`+column+`\s+`, definition)
+	}
+	require.Regexp(t, `(?im)^\s*id\s+[^\n]*PRIMARY KEY`, definition)
+	for _, index := range []string{"idx_payload_tenant_kind", "idx_payload_digest"} {
+		require.Regexp(t, `(?i)CREATE\s+INDEX\s+`+index+`\s+ON\s+call_payload`, string(mysqlDDL))
+	}
+
 	dsn := "file:" + filepath.Join(t.TempDir(), "receipt.db") + "?_pragma=foreign_keys(1)&_pragma=busy_timeout(5000)"
 	db, err := sql.Open("sqlite", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	_, err = db.Exec(ddl)
+	_, err = db.Exec(iscript.SqlListScript)
 	require.NoError(t, err)
-	runCheckedResolutionPayloadConstraint(t, db, "sqlite", dsn)
+	var payloadDefinition string
+	require.NoError(t, db.QueryRow("SELECT sql FROM sqlite_master WHERE type='table' AND name='call_payload'").Scan(&payloadDefinition))
+	require.NotRegexp(t, `(?i)\bCHECK\s*\(`, payloadDefinition)
+	require.Regexp(t, `(?im)^\s*id\s+TEXT\s+PRIMARY KEY`, payloadDefinition)
+	for _, index := range []string{"idx_payload_tenant_kind", "idx_payload_digest", "ux_payload_run_sequence"} {
+		var count int
+		require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM sqlite_master WHERE type='index' AND tbl_name='call_payload' AND name=?", index).Scan(&count))
+		require.Equal(t, 1, count, "canonical payload index %s must remain present", index)
+	}
+	var uniqueDefinition string
+	require.NoError(t, db.QueryRow("SELECT sql FROM sqlite_master WHERE type='index' AND name='ux_payload_run_sequence'").Scan(&uniqueDefinition))
+	require.Regexp(t, `(?i)^CREATE UNIQUE INDEX`, uniqueDefinition)
+	var foreignKeyCount int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM pragma_foreign_key_list('message') WHERE "table"='call_payload' AND "from"='elicitation_payload_id' AND "to"='id' AND on_delete='SET NULL'`).Scan(&foreignKeyCount))
+	require.Equal(t, 1, foreignKeyCount, "canonical elicitation payload foreign key must remain present")
+	runCheckedResolutionReceiptStorage(t, db, "sqlite", dsn)
 }
 
-func TestCheckedResolutionPayloadKindConstraintMySQL(t *testing.T) {
+func TestCheckedResolutionReceiptStorageMySQL(t *testing.T) {
 	dsn := os.Getenv("AGENTLY_TEST_MYSQL_DSN")
 	if dsn == "" {
 		t.Skip("AGENTLY_TEST_MYSQL_DSN must select a disposable database with the canonical fresh schema")
@@ -69,10 +87,10 @@ func TestCheckedResolutionPayloadKindConstraintMySQL(t *testing.T) {
 	db, err := sql.Open("mysql", dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
-	runCheckedResolutionPayloadConstraint(t, db, "mysql", dsn)
+	runCheckedResolutionReceiptStorage(t, db, "mysql", dsn)
 }
 
-func runCheckedResolutionPayloadConstraint(t *testing.T, db *sql.DB, driver, dsn string) {
+func runCheckedResolutionReceiptStorage(t *testing.T, db *sql.DB, driver, dsn string) {
 	t.Helper()
 	ctx := auth.WithUserInfo(context.Background(), &auth.UserInfo{Subject: "receipt-owner"})
 	server, err := native.New(ctx, native.Options{Connectors: []connector.Config{{Name: "agently", Driver: driver, DSN: dsn}}})
@@ -101,17 +119,22 @@ func runCheckedResolutionPayloadConstraint(t *testing.T, db *sql.DB, driver, dsn
 			require.NoError(t, cleanupErr)
 		}
 	})
-	invalid := conv.NewPayload()
-	invalid.SetId(prefix + "-invalid")
-	invalid.SetKind("unknown_receipt_kind")
-	invalid.SetMimeType("application/json")
-	invalid.SetStorage("inline")
-	invalid.SetSizeBytes(2)
-	invalid.SetInlineBody([]byte("{}"))
-	require.Error(t, client.PatchPayload(ctx, invalid), "the kind CHECK must remain enforced")
-	var invalidCount int
-	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM call_payload WHERE id=?", invalid.Id).Scan(&invalidCount))
-	require.Zero(t, invalidCount)
+	// Unknown kinds are valid storage rows; receipt interpretation below still
+	// rejects an ordinary payload masquerading as the exact transaction receipt.
+	unclassified := conv.NewPayload()
+	unclassified.SetId(prefix + "-unclassified")
+	unclassified.SetKind("unknown_receipt_kind")
+	unclassified.SetMimeType("application/json")
+	unclassified.SetStorage("inline")
+	unclassified.SetSizeBytes(2)
+	unclassified.SetInlineBody([]byte("{}"))
+	require.NoError(t, client.PatchPayload(ctx, unclassified), "fresh storage has no payload kind enum")
+	var unclassifiedCount int
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM call_payload WHERE id=?", unclassified.Id).Scan(&unclassifiedCount))
+	require.Equal(t, 1, unclassifiedCount)
+	unknown, err := client.GetPayload(ctx, unclassified.Id)
+	require.NoError(t, err)
+	require.Equal(t, "unknown_receipt_kind", unknown.Kind)
 
 	for _, action := range []string{"reject", "accept", "cancel"} {
 		t.Run(action, func(t *testing.T) {
