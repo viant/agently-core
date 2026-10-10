@@ -120,3 +120,26 @@ func (m *Manager) checkLocalCollision(ctx context.Context, name string) error {
 	}
 	return nil
 }
+
+// LocalProviderNames returns only process-owned registrations for a declared
+// primitive owner. It does not initialize a client or read a provider endpoint.
+// Configured external connections are deliberately not classified as local.
+func (m *Manager) LocalProviderNames(ctx context.Context, owner string) ([]string, error) {
+	if m == nil || ctx == nil || ctx.Err() != nil || strings.TrimSpace(owner) == "" {
+		return nil, fmt.Errorf("local provider inventory unavailable")
+	}
+	m.localMu.RLock()
+	names := []string{}
+	for name, registration := range m.local {
+		if registration.options != nil && registration.options.PrimitiveProviderIdentity == owner {
+			names = append(names, name)
+		}
+	}
+	m.localMu.RUnlock()
+	for _, name := range names {
+		if err := m.checkLocalCollision(ctx, name); err != nil {
+			return nil, err
+		}
+	}
+	return names, nil
+}
