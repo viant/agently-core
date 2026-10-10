@@ -87,11 +87,7 @@ func (c *WindowCatalog) ResolveDatasource(ctx context.Context, parent identity.R
 	if !c.AuthzReady() {
 		return nil, identity.ErrResourceDenied
 	}
-	connection, e := c.Gateway.ConnectionForProvider(ctx, parent.ProviderIdentity)
-	if e != nil {
-		return nil, e
-	}
-	definition, e := c.Gateway.Get(ctx, connection, identity.ResourceRef{URI: parent.URI, Revision: parent.Selector()}, &parent)
+	definition, connection, e := c.Gateway.getForProvider(ctx, parent.ProviderIdentity, identity.ResourceRef{URI: parent.URI, Revision: parent.Selector()}, &parent)
 	if e != nil {
 		return nil, e
 	}

@@ -95,11 +95,7 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 			}
 			return localRevalidate(ctx, pin)
 		}
-		connection, e := out.PrimitiveProviders.ConnectionForProvider(ctx, pin.ProviderIdentity)
-		if e != nil {
-			return nil, e
-		}
-		result, e := out.PrimitiveProviders.Get(ctx, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
+		result, e := out.PrimitiveProviders.GetForProvider(ctx, pin.ProviderIdentity, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
 		if e != nil {
 			return nil, e
 		}

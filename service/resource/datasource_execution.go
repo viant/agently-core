@@ -62,11 +62,7 @@ func (g *Gateway) ResolveDatasource(ctx context.Context, pin identity.ResolvedRe
 	if err != nil || uri.Kind != "datasource" {
 		return nil, nil, identity.ErrResourceDenied
 	}
-	connection, err := g.ConnectionForProvider(ctx, pin.ProviderIdentity)
-	if err != nil {
-		return nil, nil, err
-	}
-	result, err := g.Get(ctx, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
+	result, err := g.GetForProvider(ctx, pin.ProviderIdentity, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
 	if err != nil {
 		return nil, nil, err
 	}
