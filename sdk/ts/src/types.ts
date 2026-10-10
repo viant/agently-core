@@ -927,8 +927,21 @@ export interface MetadataTargetContext {
     capabilities?: string[];
 }
 
+export interface ResolvedDefinitionResource {
+    providerIdentity?: string;
+    uri: string;
+    kind: 'working' | 'stamped';
+    revision?: string;
+    contentFingerprint: string;
+    authorityBinding: string;
+    validUntil: string;
+}
+
 export interface ApplyPermissionInput {
+    resolvedResource?: ResolvedDefinitionResource;
     conversationId: string;
+    /** Assert the authored authorization contract version (1 numeric, 2 exact string IDs). */
+    authorizationSchemaVersion?: 1 | 2;
     resource?: JSONObject;
     windowParams?: JSONObject;
     targetContext?: MetadataTargetContext;
@@ -1032,6 +1045,8 @@ export interface DatasourceCacheMeta {
 }
 
 export interface FetchDatasourceInput {
+    resource?: ResolvedDefinitionResource;
+    windowParameters?: JSONObject;
     id: string;
     inputs?: JSONObject;
     cache?: DatasourceCacheHints;
