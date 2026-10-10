@@ -129,7 +129,11 @@ export class AgUiViewProjection {
     private metadata(value: unknown) { return this.options.profile==='agently' ? readAgentlyPresentation(value) : undefined; }
     private turnId(lane?: Lane): string { return lane?.presentation?.nativeTurnId ?? this.nativeTurnId ?? this.options.logicalTurnId ?? this.runId ?? ''; }
     private outcomeBase() { return {conversationId:this.options.conversationId,runId:this.runId ?? '',logicalTurnId:this.turnId()}; }
-    private binding(message: Message): Lane { return {...this.owned.get(message.id),presentation:this.metadata(message.metadata)??this.owned.get(message.id)?.presentation}; }
+    private binding(message: Message): Lane {
+        const owned=this.owned.get(message.id), metadata=this.metadata(message.metadata);
+        return {...owned,presentation:metadata&&owned?.presentation?.messageKind==='standalone'&&!metadata.modelCallId
+            ?{...metadata,messageKind:'standalone'}:metadata??owned?.presentation};
+    }
     private isOwned(message: Message): boolean {
         if (this.owned.has(message.id)) return true;
         const metadata = this.metadata(message.metadata);
@@ -151,7 +155,12 @@ export class AgUiViewProjection {
         }
         const id=string(event.messageId),callId=string(event.toolCallId),parent=string(event.parentMessageId);
         const lane:Lane={presentation:metadata,owner,parent,pageId:metadata?.pageId};
-        if(id&&kind!=='MESSAGES_SNAPSHOT')this.owned.set(id,{...this.owned.get(id),...lane,presentation:metadata??this.owned.get(id)?.presentation});
+        if(id&&kind!=='MESSAGES_SNAPSHOT'){
+            const previous=this.owned.get(id)?.presentation;
+            const presentation=metadata&&previous?.messageKind==='standalone'&&!metadata.modelCallId
+                ?{...metadata,messageKind:previous.messageKind}:metadata??previous;
+            this.owned.set(id,{...this.owned.get(id),...lane,presentation});
+        }
         if(callId){this.calls.set(callId,{...this.calls.get(callId),...lane,presentation:metadata??this.calls.get(callId)?.presentation});if(parent)this.owned.set(parent,{...this.owned.get(parent),...lane});}
         if(kind==='MESSAGES_SNAPSHOT'&&this.options.profile==='standard'&&Array.isArray(event.messages)){
             this.pendingStandardSnapshot=true;
@@ -160,7 +169,22 @@ export class AgUiViewProjection {
             for(const raw of event.messages){const message=object(raw),mid=string(message?.id);if(mid&&!this.baseline.has(mid))this.owned.set(mid,{});}
             if(!this.priorSnapshotIds.size)this.priorSnapshotIds=new Set([...this.baseline.keys(),...this.messages.map(message=>message.id)]);
         }
-        if(kind==='MESSAGES_SNAPSHOT'&&Array.isArray(event.messages))for(const raw of event.messages){const message=object(raw);if(!message)continue;const mid=string(message.id),p=this.metadata(message.metadata);if(mid&&p?.nativeTurnId!==undefined&&p.nativeTurnId===this.nativeTurnId&&(this.owned.has(mid)||this.baseline.get(mid)!==signature(message)))this.owned.set(mid,{presentation:p,owner:string(message.subagentRunId)});}
+        if (kind === 'MESSAGES_SNAPSHOT' && Array.isArray(event.messages)) {
+            for (const raw of event.messages) {
+                const message = object(raw);
+                if (!message) continue;
+                const mid = string(message.id), presentation = this.metadata(message.metadata);
+                if (!mid || presentation?.nativeTurnId === undefined || presentation.nativeTurnId !== this.nativeTurnId
+                    || !this.owned.has(mid) && this.baseline.get(mid) === signature(message)) continue;
+                const previous = this.owned.get(mid);
+                // A terminal snapshot can refine text without carrying the live
+                // message/add origin. Preserve that exact message classification;
+                // explicit model ownership still supersedes it.
+                const retained = previous?.presentation?.messageKind === 'standalone' && !presentation.modelCallId
+                    ? {...presentation, messageKind: previous.presentation.messageKind} : presentation;
+                this.owned.set(mid, {...previous, presentation: retained, owner: string(message.subagentRunId)});
+            }
+        }
         if(kind==='STEP_STARTED'||kind==='STEP_FINISHED'){
             const step=string(event.stepName)??'';if(kind==='STEP_STARTED')this.steps.set(step,lane);
             const found={...this.steps.get(step),...lane,presentation:metadata??this.steps.get(step)?.presentation};
@@ -198,7 +222,22 @@ export class AgUiViewProjection {
             }else if(typeof message.content!=='string'){
                 if(Array.isArray(message.content)||'encryptedValue' in message)this.descriptor(`message:${message.id}`,{kind:'protocol-message',message:structuredClone(message),hostEffectsAllowed:false});
             }else{
-                this.emit({type:message.role==='reasoning'?'reasoning_delta':'text_delta',messageId:p?.nativeMessageId??message.id,assistantMessageId:p?.nativeMessageId??message.id,content:message.content,contentMode:'snapshot',...(message.role==='assistant'&&this.options.profile==='agently'?{renderedContent:this.renderedFor(message.id)}:{}),protocolMessageId:message.id,pageId:p?.pageId??lane.pageId??p?.nativeMessageId??`${this.runId}/message/${message.id}`},lane);
+                const renderedContent = message.role === 'assistant' && this.options.profile === 'agently'
+                    ? this.renderedFor(message.id) : undefined;
+                const standalone = message.role === 'assistant' && p?.messageKind === 'standalone' && !p?.modelCallId;
+                const typedReport = message.role === 'assistant' && !!renderedContent?.reports?.length;
+                const snapshotAssistant = standalone || typedReport;
+                this.emit({
+                    type: message.role === 'reasoning' ? 'reasoning_delta' : snapshotAssistant ? 'assistant' : 'text_delta',
+                    messageId: p?.nativeMessageId ?? message.id,
+                    assistantMessageId: p?.nativeMessageId ?? message.id,
+                    content: message.content,
+                    contentMode: 'snapshot',
+                    ...(message.role === 'assistant' && this.options.profile === 'agently' ? {renderedContent} : {}),
+                    ...(snapshotAssistant ? {patch: {role: 'assistant'}} : {}),
+                    protocolMessageId: message.id,
+                    pageId: standalone ? undefined : p?.pageId ?? lane.pageId ?? p?.nativeMessageId ?? `${this.runId}/message/${message.id}`,
+                }, lane);
             }
             if(message.role==='assistant')for(const call of message.toolCalls??[]){
                 const toolLane={...lane,...this.calls.get(call.id),parent:message.id};
@@ -231,6 +270,14 @@ export class AgUiViewProjection {
             switch(activity.kind){
                 case 'agently.user-identity':this.userIds.set(activity.nativeTurnId,activity.nativeUserMessageId);break;
                 case 'agently.turn':{
+                    // Root lifecycle activity establishes the current native turn
+                    // when attach only knows the protocol run ID. Message history
+                    // and child activities must never select the run's destination.
+                    if (!this.nativeTurnId && !lane.owner
+                        && (activity.status === 'queued' || activity.status === 'running')
+                        && (!lane.presentation?.conversationId || lane.presentation.conversationId === this.options.conversationId)) {
+                        this.nativeTurnId = activity.nativeTurnId;
+                    }
                     this.nativeStatus.set(activity.nativeTurnId,activity.status);
                     if(activity.status==='queued')this.emit({type:'turn_queued',turnId:activity.nativeTurnId,status:'queued',queueSequence:activity.queueSequence,clientRequestId:this.inputUserId,content:this.options.displayQuery},lane);
                     else if(activity.status==='running')this.emit({type:'turn_started',turnId:activity.nativeTurnId,status:'running',userMessageId:activity.startedByMessageId??this.userIds.get(activity.nativeTurnId)??this.inputUserId,clientRequestId:this.inputUserId},lane);
@@ -249,7 +296,7 @@ export class AgUiViewProjection {
         if(message.activityType==='agently.rendered-content'&&content?.version==='1'&&object(content.renderedContent)){
             const id=lane.presentation?.nativeMessageId??message.id.replace(/\/activity$/,'');
             const text=this.messages.find(m=>m.id===id&&m.role==='assistant');
-            this.emit({type:'text_delta',messageId:id,assistantMessageId:id,content:typeof text?.content==='string'?text.content:'',contentMode:'snapshot',renderedContent:content.renderedContent as unknown as CanonicalRenderedContent,protocolMessageId:message.id,pageId:lane.presentation?.pageId??`${this.runId}/message/${id}`},lane,`rich:${message.id}`);
+            this.emit({type:'assistant',patch:{role:'assistant'},messageId:id,assistantMessageId:id,content:typeof text?.content==='string'?text.content:'',contentMode:'snapshot',renderedContent:content.renderedContent as unknown as CanonicalRenderedContent,protocolMessageId:message.id,pageId:lane.presentation?.pageId??`${this.runId}/message/${id}`},lane,`rich:${message.id}`);
         }else if(message.activityType==='mcp-apps'&&this.hostEffects)this.descriptor(`activity:${message.id}`,{kind:'host-activity',message:structuredClone(message),hostEffectsAllowed:true});
         else this.descriptor(`activity:${message.id}`,{kind:'unsupported-activity',messageId:message.id,activityType:message.activityType,hostEffectsAllowed:false});
     }
