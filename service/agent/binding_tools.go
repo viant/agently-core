@@ -442,8 +442,11 @@ func (s *Service) buildToolExecutions(ctx context.Context, input *QueryInput, co
 			canonicalName := mcpname2.Canonical(tcView.ToolName)
 			args := m.ToolCallArguments()
 			// Prepare result content for LLM: derive preview from message content with per-turn limit
-			result := ""
-			if body := s.messageToolResultBody(ctx, m); body != "" && limit > 0 {
+			// A disabled preview limit preserves the already recorded tool result,
+			// including producer continuation/artifact references. It must not
+			// discard the result or reload original uncaptured output.
+			result := s.messageToolResultBody(ctx, m)
+			if body := result; body != "" && limit > 0 {
 				preview, overflow := buildOverflowPreview(body, limit, m.Id, allowContinuation)
 				if overflow {
 					overflowFound = true
