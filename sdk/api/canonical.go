@@ -215,6 +215,7 @@ type ElicitationState struct {
 	Message         string            `json:"message,omitempty"`
 	RequestedSchema json.RawMessage   `json:"requestedSchema,omitempty"`
 	CallbackURL     string            `json:"callbackUrl,omitempty"`
+	Deadline        string            `json:"deadline,omitempty"`
 	ResponsePayload json.RawMessage   `json:"responsePayload,omitempty"`
 }
 
