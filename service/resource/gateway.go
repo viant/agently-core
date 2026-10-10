@@ -12,6 +12,7 @@ import (
 	manager "github.com/viant/agently-core/protocol/mcp/manager"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
+	producer "github.com/viant/agently-core/service/primitiveproducer"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 	"reflect"
@@ -24,8 +25,8 @@ import (
 var ErrCollision = errors.New("primitive provider identity collision")
 var ErrUnavailable = errors.New("primitive provider unavailable")
 
-type ActorResolver func(context.Context) (identity.VerifiedActor, error)
-type ActorVerifier func(context.Context, identity.VerifiedActor) error
+type ActorResolver = producer.ActorResolver
+type ActorVerifier = producer.ActorVerifier
 
 // Connection is a transport locator, separate from canonical resource identity.
 type Connection struct {
@@ -575,7 +576,7 @@ func (g *Gateway) Get(ctx context.Context, connection Connection, ref identity.R
 	return g.get(ctx, connection, ref, pin, false)
 }
 
-func (g *Gateway) get(ctx context.Context, connection Connection, ref identity.ResourceRef, pin *identity.ResolvedResource, force bool) (out *primitive.GetResult, err error) {
+func (g *Gateway) get(ctx context.Context, connection Connection, ref identity.ResourceRef, pin *identity.ResolvedResource, force bool, menuRead ...bool) (out *primitive.GetResult, err error) {
 	// A failed read is part of this operation's provenance. Restoring authority
 	// later cannot revive its original selected metadata or release cached rows.
 	defer func() { poisonReadSequence(ctx, err) }()
@@ -628,6 +629,13 @@ func (g *Gateway) get(ctx context.Context, connection Connection, ref identity.R
 		return nil, identity.ErrResourceDenied
 	}
 	actual := result.ResolvedResource
+	if uri.Kind == "menu" {
+		if len(menuRead) != 1 || !menuRead[0] || result.MenuProjection == nil || result.MenuProjection.SchemaVersion != 1 || result.Resource.FormatVersion != 1 || result.Resource.Lifecycle != actual.Kind || !declaresMenuFormat(c, uri.Namespace) || len(result.Resource.Definition) != 0 || len(result.Resource.DefinitionBytes) != 0 || ValidateMenu(1, result.MenuProjection.DefinitionBytes) != nil || identity.ContentFingerprint(result.MenuProjection.DefinitionBytes) != result.MenuProjection.ContentFingerprint {
+			return nil, identity.ErrResourceDenied
+		}
+	} else if result.MenuProjection != nil {
+		return nil, identity.ErrResourceDenied
+	}
 	if len(result.Resource.DefinitionBytes) > 0 {
 		if identity.ContentFingerprint(result.Resource.DefinitionBytes) != actual.ContentFingerprint {
 			return nil, identity.ErrResourceDenied
@@ -641,7 +649,7 @@ func (g *Gateway) get(ctx context.Context, connection Connection, ref identity.R
 		}
 		result.Resource.Definition = append(json.RawMessage(nil), result.Resource.DefinitionBytes...)
 	}
-	if actual.ProviderIdentity != connection.ProviderIdentity || actual.URI != ref.URI || !actual.ResourceCandidate.Valid() || !actual.ValidUntil.After(g.now()) || actual.AuthorityBinding == "" || result.Resource.URI != ref.URI || result.Resource.ContentFingerprint != actual.ContentFingerprint || identity.ContentFingerprint(result.Resource.Definition) != actual.ContentFingerprint {
+	if actual.ProviderIdentity != connection.ProviderIdentity || actual.URI != ref.URI || !actual.ResourceCandidate.Valid() || !actual.ValidUntil.After(g.now()) || actual.AuthorityBinding == "" || result.Resource.URI != ref.URI || result.Resource.ContentFingerprint != actual.ContentFingerprint || (uri.Kind != "menu" && identity.ContentFingerprint(result.Resource.Definition) != actual.ContentFingerprint) {
 		return nil, identity.ErrResourceDenied
 	}
 	if result.Resource.Kind != "" && result.Resource.Kind != uri.Kind || result.Resource.Namespace != "" && result.Resource.Namespace != uri.Namespace || result.Resource.Name != "" && result.Resource.Name != uri.Name || result.Resource.Revision != "" && result.Resource.Revision != actual.Selector() {

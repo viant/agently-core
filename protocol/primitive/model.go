@@ -102,7 +102,17 @@ type Dependency struct {
 	ContentFingerprint string `json:"contentFingerprint"`
 	SchemaFingerprint  string `json:"schemaFingerprint,omitempty"`
 }
+
+// MenuProjection explicitly distinguishes visible bytes from the exact source pin.
+// It contains no unfiltered source definition.
+type MenuProjection struct {
+	SchemaVersion      int64  `json:"schemaVersion"`
+	DefinitionBytes    []byte `json:"definitionBytes"`
+	ContentFingerprint string `json:"contentFingerprint"`
+}
+
 type GetResult struct {
+	MenuProjection   *MenuProjection            `json:"menuProjection,omitempty"`
 	Resource         *ResourceState             `json:"resource"`
 	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`
 	// ExecutionProof is runtime-only provider provenance, never an ACL grant
