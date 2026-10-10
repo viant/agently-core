@@ -941,7 +941,7 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 	if ownerID == "" {
 		return nil, fmt.Errorf("reporting export: effective user id is required")
 	}
-	if err := validateSubmitExportRequest(normalizedRequest); err != nil {
+	if err := validateSubmitExportRequest(normalizedRequest, exportValidationOptions{resourceDatasourceRequests: resourcePin != nil}); err != nil {
 		return nil, err
 	}
 	if err := s.authorizeExport(ctx, strings.TrimSpace(normalizedRequest.ArtifactRef)); err != nil {
@@ -1165,26 +1165,27 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, erro
 		ReportSpec:  cloneJSON(job.ReportSpec),
 		ReportFill:  cloneJSON(job.ReportFill),
 		ReportPrint: cloneJSON(job.ReportPrint),
-	}); err != nil {
+	}, exportValidationOptions{resourceDatasourceRequests: isUnifiedExportService(s) && job.ResourcePin != nil}); err != nil {
 		return s.failRunExport(runCtx, job.JobID, err)
 	}
 
 	result, err := s.exporter.Export(runCtx, &RenderRequest{
-		JobID:             job.JobID,
-		ArtifactRef:       job.ArtifactRef,
-		OwnerID:           job.OwnerID,
-		ConversationID:    job.ConversationID,
-		WorkspaceID:       job.WorkspaceID,
-		AuthContextRef:    job.AuthContextRef,
-		Format:            job.Format,
-		Scope:             job.Scope,
-		ReportRunID:       job.ReportRunID,
-		ReportRunRevision: job.ReportRunRevision,
-		ResourcePin:       cloneResolvedResource(job.ResourcePin),
-		ReportSpec:        cloneJSON(job.ReportSpec),
-		ReportFill:        cloneJSON(job.ReportFill),
-		ReportPrint:       cloneJSON(job.ReportPrint),
-		Metadata:          cloneJSON(job.Metadata),
+		resourceDatasourceRequests: isUnifiedExportService(s) && job.ResourcePin != nil,
+		JobID:                      job.JobID,
+		ArtifactRef:                job.ArtifactRef,
+		OwnerID:                    job.OwnerID,
+		ConversationID:             job.ConversationID,
+		WorkspaceID:                job.WorkspaceID,
+		AuthContextRef:             job.AuthContextRef,
+		Format:                     job.Format,
+		Scope:                      job.Scope,
+		ReportRunID:                job.ReportRunID,
+		ReportRunRevision:          job.ReportRunRevision,
+		ResourcePin:                cloneResolvedResource(job.ResourcePin),
+		ReportSpec:                 cloneJSON(job.ReportSpec),
+		ReportFill:                 cloneJSON(job.ReportFill),
+		ReportPrint:                cloneJSON(job.ReportPrint),
+		Metadata:                   cloneJSON(job.Metadata),
 	})
 	if err != nil {
 		return s.failRunExport(runCtx, job.JobID, err)

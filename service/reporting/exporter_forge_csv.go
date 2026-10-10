@@ -26,7 +26,11 @@ func (e *ForgeCSVExporter) Export(_ context.Context, request *RenderRequest) (*R
 	if len(bytes.TrimSpace(request.ReportFill)) == 0 {
 		return nil, fmt.Errorf("reporting forge csv export: reportFill is required")
 	}
-	report, err := reportfill.DecodeJSON(request.ReportFill)
+	decode := reportfill.DecodeJSON
+	if request.resourceDatasourceRequests {
+		decode = reportfill.DecodeDatasourceJSON
+	}
+	report, err := decode(request.ReportFill)
 	if err != nil {
 		return nil, fmt.Errorf("reporting forge csv export: %w", err)
 	}

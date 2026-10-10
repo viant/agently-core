@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	reportfill "github.com/viant/forge/backend/reporting/fill"
 	"strings"
 )
 
@@ -94,7 +95,12 @@ func mapReportExportSourceScope(from string) (ExportScope, error) {
 	}
 }
 
-func validateSubmitExportRequest(request *SubmitExportRequest) error {
+// resourceDatasourceRequests is set only by server-owned canonical execution.
+// Producer arguments are opaque objects; legacy client snapshots retain their
+// existing fixed query contract.
+type exportValidationOptions struct{ resourceDatasourceRequests bool }
+
+func validateSubmitExportRequest(request *SubmitExportRequest, options ...exportValidationOptions) error {
 	if request == nil {
 		return fmt.Errorf("reporting export: request is required")
 	}
@@ -136,8 +142,16 @@ func validateSubmitExportRequest(request *SubmitExportRequest) error {
 		}
 	}
 	if fillPresent {
-		if err := validateReportFillDocument(request.ReportFill); err != nil {
+		if err := validateReportFillDocument(request.ReportFill, options...); err != nil {
 			return fmt.Errorf("reporting export: %w", err)
+		}
+
+		if len(options) > 0 && options[0].resourceDatasourceRequests {
+			// Validate immutable producer arguments and Forge dataset provenance
+			// before persistence and before every format's renderer, including PDF.
+			if err := reportfill.ValidateDatasourceRequestProvenance(request.ReportFill); err != nil {
+				return fmt.Errorf("reporting export: %w", err)
+			}
 		}
 	}
 	if printPresent {
@@ -250,12 +264,12 @@ func validateReportSpecDocument(document json.RawMessage) error {
 	return validateReportSpecRoot(root)
 }
 
-func validateReportFillDocument(document json.RawMessage) error {
+func validateReportFillDocument(document json.RawMessage, options ...exportValidationOptions) error {
 	root, err := decodeCanonicalDocument(document, "reportFill")
 	if err != nil {
 		return err
 	}
-	return validateReportFillRoot(root)
+	return validateReportFillRoot(root, options...)
 }
 
 func validateReportPrintDocument(document json.RawMessage) error {
@@ -277,7 +291,7 @@ func decodeCanonicalDocument(document json.RawMessage, artifactKind string) (map
 	return root, nil
 }
 
-func validateReportFillRoot(root map[string]json.RawMessage) error {
+func validateReportFillRoot(root map[string]json.RawMessage, options ...exportValidationOptions) error {
 	if err := requireCanonicalFields(root, "reportFill", []string{
 		"version",
 		"kind",
@@ -321,7 +335,7 @@ func validateReportFillRoot(root map[string]json.RawMessage) error {
 	if err := requireJSONArrayForKind(root["calculatedFields"], "reportFill", "calculatedFields", true); err != nil {
 		return err
 	}
-	if err := validateReportFillDatasets(root["datasets"]); err != nil {
+	if err := validateReportFillDatasets(root["datasets"], options...); err != nil {
 		return err
 	}
 	if err := validateReportFillBlocks(root["blocks"]); err != nil {
@@ -535,7 +549,7 @@ func validateDiagnosticArray(raw json.RawMessage, artifactKind string, field str
 	return nil
 }
 
-func validateReportFillDatasets(raw json.RawMessage) error {
+func validateReportFillDatasets(raw json.RawMessage, options ...exportValidationOptions) error {
 	var datasets []json.RawMessage
 	if err := requireJSONArrayForKind(raw, "reportFill", "datasets", true, &datasets); err != nil {
 		return err
@@ -563,7 +577,7 @@ func validateReportFillDatasets(raw json.RawMessage) error {
 		if err := requireJSONStringForKind(root["dataSourceRef"], "reportFill", fmt.Sprintf("datasets[%d].dataSourceRef", index), false, new(string)); err != nil {
 			return err
 		}
-		if err := validateReportFillRequest(root["request"], index); err != nil {
+		if err := validateReportFillRequest(root["request"], index, options...); err != nil {
 			return err
 		}
 		if err := validateReportFillProvenance(root["provenance"], index); err != nil {
@@ -576,7 +590,7 @@ func validateReportFillDatasets(raw json.RawMessage) error {
 	return nil
 }
 
-func validateReportFillRequest(raw json.RawMessage, datasetIndex int) error {
+func validateReportFillRequest(raw json.RawMessage, datasetIndex int, options ...exportValidationOptions) error {
 	field := fmt.Sprintf("datasets[%d].request", datasetIndex)
 	if err := requireJSONObjectForKind(raw, "reportFill", field); err != nil {
 		return err
@@ -584,6 +598,9 @@ func validateReportFillRequest(raw json.RawMessage, datasetIndex int) error {
 	root, err := decodeCanonicalDocument(raw, "reportFill")
 	if err != nil {
 		return fmt.Errorf("invalid reportFill: %s must be an object", field)
+	}
+	if len(options) > 0 && options[0].resourceDatasourceRequests {
+		return nil
 	}
 	var requestKind string
 	if kindRaw, ok := root["kind"]; ok {
