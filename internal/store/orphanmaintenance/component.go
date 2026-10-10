@@ -6,6 +6,7 @@ import (
 	"time"
 
 	read "github.com/viant/agently-core/internal/datly/orphanmaintenance/read"
+	payloaddelete "github.com/viant/agently-core/internal/datly/payload/delete"
 	tree "github.com/viant/agently-core/internal/store/conversationtree"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
 	maintenance "github.com/viant/agently-core/internal/store/maintenancelease"
@@ -45,6 +46,10 @@ func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInp
 	defer func() { trace.Finish(retErr) }()
 	if session == nil || session.Binder() == nil || input == nil || output == nil {
 		return fmt.Errorf("orphan maintenance invocation is incomplete")
+	}
+	ctx, modeErr := payloaddelete.PinMode(ctx)
+	if modeErr != nil {
+		return modeErr
 	}
 	request, err := normalizeRequest(Request{RuleID: input.RuleID, RecordID: input.RecordID, OlderThan: input.OlderThan, Lease: input.Lease})
 	if err != nil {
@@ -115,15 +120,26 @@ func (*Apply) Exec(ctx context.Context, session handler.Session, input *ApplyInp
 		result.Reason = ReportedOnly
 		return nil
 	}
-	before := len(deps.Reporter.MutationReport().Results)
-	if err := mutate(ctx, deps.Invoker, rule, snapshot); err != nil {
-		return err
+	var evidence dexec.MutationResult
+	if rule.ID == "call_payload.unused" && payloaddelete.PinnedMode(ctx) == payloaddelete.BulkMode {
+		// Immediate transaction SQL is not queued DML and therefore does not
+		// appear in MutationReport. The private handler verifies RowsAffected;
+		// consume its successful execution output instead, with the same checks.
+		evidence, err = mutateBulkPayload(ctx, deps.Invoker, rule, snapshot)
+		if err != nil {
+			return err
+		}
+	} else {
+		before := len(deps.Reporter.MutationReport().Results)
+		if err := mutate(ctx, deps.Invoker, rule, snapshot); err != nil {
+			return err
+		}
+		report := deps.Reporter.MutationReport()
+		if len(report.Results) != before+1 {
+			return fmt.Errorf("orphan mutation produced %d execution results", len(report.Results)-before)
+		}
+		evidence = report.Results[before]
 	}
-	report := deps.Reporter.MutationReport()
-	if len(report.Results) != before+1 {
-		return fmt.Errorf("orphan mutation produced %d execution results", len(report.Results)-before)
-	}
-	evidence := report.Results[before]
 	if evidence.Error != nil {
 		return evidence.Error
 	}

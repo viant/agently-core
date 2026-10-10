@@ -8,9 +8,7 @@ import (
 
 	contextread "github.com/viant/agently-core/internal/datly/reporting/context/read"
 	runread "github.com/viant/agently-core/internal/datly/reporting/run/read"
-	"github.com/viant/bindly/locator"
 	dexec "github.com/viant/datly/exec"
-	"github.com/viant/datly/runtime/handler/provider"
 	"github.com/viant/datly/spec"
 )
 
@@ -111,18 +109,6 @@ func (d *Discoverer) ValidateReportReferences(ctx context.Context, graph *Graph)
 		}
 	}
 	return result, nil
-}
-
-func reportProviders(owner string) []locator.Provider {
-	return []locator.Provider{
-		provider.Named("reportaccess", func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
-			if name == "internal" {
-				return true, true, nil
-			}
-			return nil, false, nil
-		}),
-		provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil }),
-	}
 }
 
 func (d *Discoverer) reportRuns(ctx context.Context, input *runread.Input, owner string) ([]*runread.Run, error) {

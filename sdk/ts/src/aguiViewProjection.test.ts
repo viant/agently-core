@@ -2,22 +2,50 @@ import { describe, expect, it } from 'vitest';
 import type { Message } from '@ag-ui/core';
 import { AgUiClient } from './agui';
 import { AgUiViewProjection, type AgUiViewEvent, type AgUiViewDescriptor, type AgUiViewOutcome } from './aguiViewProjection';
-import { applyEvent, applyLocalSubmit, newConversationState } from './chatStore/reducer';
+import { applyEvent, applyTranscript, applyLocalSubmit, newConversationState } from './chatStore/reducer';
 import { projectConversation, type IterationRenderRow } from './chatStore/projector';
 
 const start={type:'RUN_STARTED',threadId:'conversation',runId:'run'};
 const finish={type:'RUN_FINISHED',threadId:'conversation',runId:'run'};
 const metadata=(extra:Record<string,unknown>={})=>({agently:{presentation:{version:'1',conversationId:'conversation',nativeTurnId:'native-turn',pageId:'page',iteration:0,...extra}}});
-function harness(profile:'standard'|'agently',events:object[],options:{baseline?:Message[];allowHostEffects?:boolean;optimistic?:boolean;displayQuery?:string}={}){
+function harness(profile:'standard'|'agently',events:object[],options:{baseline?:Message[];allowHostEffects?:boolean;optimistic?:boolean;displayQuery?:string;logicalTurnId?:string}={}){
     const views:AgUiViewEvent[]=[],descriptors:AgUiViewDescriptor[]=[],outcomes:AgUiViewOutcome[]=[];
     let store=newConversationState('conversation');
     if(options.optimistic)store=applyLocalSubmit(store,{conversationId:'conversation',clientRequestId:'client-user',content:'question'});
-    const projection=new AgUiViewProjection({profile,conversationId:'conversation',baselineMessages:options.baseline,displayQuery:options.displayQuery,allowHostEffects:options.allowHostEffects,onViewEvent:event=>{views.push(event);store=applyEvent(store,event);},onDescriptor:descriptor=>descriptors.push(descriptor),onOutcome:outcome=>outcomes.push(outcome)});
+    const projection=new AgUiViewProjection({profile,conversationId:'conversation',logicalTurnId:options.logicalTurnId,baselineMessages:options.baseline,displayQuery:options.displayQuery,allowHostEffects:options.allowHostEffects,onViewEvent:event=>{views.push(event);store=applyEvent(store,event);},onDescriptor:descriptor=>descriptors.push(descriptor),onOutcome:outcome=>outcomes.push(outcome)});
     const client=new AgUiClient({url:'/run',threadId:'conversation',initialMessages:[...(options.baseline??[]),{id:'client-user',role:'user',content:'question'}],fetch:async()=>new Response(events.map(event=>`data: ${JSON.stringify(event)}\n\n`).join(''),{headers:{'Content-Type':'text/event-stream'}})});
     return{views,descriptors,outcomes,projection,client,run:()=>client.run({runId:'run'},projection.subscriber),rows:()=>projectConversation(store),store:()=>store};
 }
 
 describe('official reduced AG-UI view projection',()=>{
+    it('finishes the current native turn without taking identity from old history or children', async () => {
+        const prior = ['prior-one', 'prior-two', 'prior-three'].map(id => ({
+            id, role: 'assistant' as const, content: 'Earlier answer',
+            metadata: metadata({nativeTurnId: id, nativeMessageId: id}),
+        }));
+        const lifecycle = (id: string, extra: Record<string, unknown> = {}) => ({
+            type: 'ACTIVITY_SNAPSHOT', messageId: `${id}-status`, activityType: 'agently.turn',
+            content: {version: '1', nativeTurnId: id, status: 'running', queueSequence: '0'},
+            metadata: metadata({nativeTurnId: id}), ...extra,
+        });
+        const events = [start, {type: 'MESSAGES_SNAPSHOT', messages: prior},
+            lifecycle('child-before', {subagentRunId: 'child-run'}),
+            lifecycle('native-turn'), lifecycle('child-after', {subagentRunId: 'child-run'}), finish];
+        const h = harness('agently', events, {baseline: prior});
+        await h.run();
+        expect(h.projection.getRunInfo().nativeTurnId).toBe('native-turn');
+        expect(h.store().turns.find(turn => turn.turnId === 'native-turn')?.lifecycle).toBe('completed');
+        expect(h.store().turns.some(turn => turn.turnId === 'run')).toBe(false);
+        expect(h.outcomes.at(-1)?.logicalTurnId).toBe('native-turn');
+        const passive = harness('standard', events, {baseline: prior});
+        await passive.run();
+        expect(passive.projection.getRunInfo().nativeTurnId).toBeUndefined();
+        expect(passive.store().turns.some(turn => turn.turnId === 'native-turn')).toBe(false);
+        const declared = harness('agently', events, {baseline: prior, logicalTurnId: 'declared-turn'});
+        await declared.run();
+        expect(declared.projection.getRunInfo().nativeTurnId).toBe('declared-turn');
+    });
+
     it('keeps native rounds stable when task text metadata omits pageId, including late old-message metadata changes',async()=>{
         const nativeMeta=(id:string,extra:Record<string,unknown>={})=>({agently:{presentation:{version:'1',conversationId:'conversation',nativeTurnId:'native-turn',nativeMessageId:id,modelCallId:id,iteration:0,mode:'task',...extra}}});
         const turn={type:'ACTIVITY_SNAPSHOT',messageId:'turn-status',activityType:'agently.turn',content:{version:'1',nativeTurnId:'native-turn',status:'running',queueSequence:'0'},metadata:metadata()};
@@ -208,4 +236,64 @@ describe('internal assistant visibility',()=>{
   expect(h.views.some(event=>event.type==='model_started')).toBe(true);
   expect(h.views.some(event=>event.type==='model_completed')).toBe(true);
  });
+});
+
+it('preserves a message-add highlight while a later report streams', async () => {
+    const h=harness('agently',[start,
+        {type:'TEXT_MESSAGE_START',messageId:'highlights',role:'assistant',metadata:metadata({nativeMessageId:'highlights',messageKind:'standalone',mode:'task',pageId:undefined})},
+        {type:'TEXT_MESSAGE_CONTENT',messageId:'highlights',delta:'Public highlights'},
+        {type:'TEXT_MESSAGE_END',messageId:'highlights'},
+        {type:'TEXT_MESSAGE_START',messageId:'report',role:'assistant',metadata:metadata({nativeMessageId:'report',mode:'task',pageId:'report-page'})},
+        {type:'TEXT_MESSAGE_CONTENT',messageId:'report',delta:'[Interactive content]'}]);
+    await h.run();
+    expect(h.rows().some(row=>row.kind==='assistant'&&row.messageId==='highlights'&&row.content==='Public highlights')).toBe(true);
+});
+
+it('keeps internal lanes hidden and model finals page-owned despite a standalone marker', async () => {
+    const h=harness('agently',[start,
+        {type:'TEXT_MESSAGE_START',messageId:'internal',role:'assistant',metadata:metadata({nativeMessageId:'internal',messageKind:'standalone',mode:'chain'})},
+        {type:'TEXT_MESSAGE_CONTENT',messageId:'internal',delta:'Internal hidden text'},
+        {type:'TEXT_MESSAGE_END',messageId:'internal'},
+        {type:'TEXT_MESSAGE_START',messageId:'model',role:'assistant',metadata:metadata({nativeMessageId:'model',messageKind:'standalone',modelCallId:'real-model',pageId:'model-page'})},
+        {type:'TEXT_MESSAGE_CONTENT',messageId:'model',delta:'Normal model answer'},{type:'TEXT_MESSAGE_END',messageId:'model'},finish]);
+    await h.run();
+    expect(h.rows().some(row=>row.kind==='assistant'&&row.messageId==='internal')).toBe(false);
+    expect(h.rows().some(row=>row.kind==='assistant'&&row.messageId==='model')).toBe(false);
+});
+
+it('projects actual Go producer note, pending report and commit without duplicate highlights', async () => {
+    const phases=JSON.parse(JSON.stringify((await import('./testdata/public-highlights-report-producer.json')).default).replaceAll('owned-stream','conversation').replaceAll('owned-run','run'));
+    const h=harness('agently',[...phases.highlights,...phases.pending,...phases.complete]);
+    await h.run();
+    expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId==='owned-highlights')).toHaveLength(1);
+    const iteration=h.rows().find(row=>row.kind==='iteration') as IterationRenderRow;
+    expect(iteration.rounds.some(round=>round.content?.includes('Owned textual highlights'))).toBe(false);
+    expect(iteration.rounds.some(round=>round.renderedContent?.reports?.some(report=>report.status==='committed'))).toBe(true);
+    expect(h.views.some(event=>event.renderedContent?.reports?.some(report=>report.status==='rendering'))).toBe(true);
+});
+
+it('typed pending report does not complete the running turn', async () => {
+    const phases=JSON.parse(JSON.stringify((await import('./testdata/public-highlights-report-producer.json')).default).replaceAll('owned-stream','conversation').replaceAll('owned-run','run'));
+    const h=harness('agently',[...phases.highlights,...phases.pending]);
+    await h.run();
+    const row=h.rows().find(row=>row.kind==='iteration') as IterationRenderRow;
+    expect(row.lifecycle).toBe('running');
+    expect(row.isStreaming).toBe(true);
+    expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId==='owned-highlights')).toHaveLength(1);
+});
+
+it('retains explicit message-add ownership through a metadata-poor terminal messages snapshot', async () => {
+    const noteId='61d8d98c-1b0f-4250-a4c8-da464ddc7fb4';
+    const finalId='f93b137d-8342-4ed8-95e5-72178cab91ce';
+    const note='Owned public findings';
+    const events=[start,
+        {type:'TEXT_MESSAGE_START',messageId:noteId,role:'assistant',metadata:metadata({nativeMessageId:noteId,messageKind:'standalone',pageId:undefined,mode:'task'})},
+        {type:'TEXT_MESSAGE_CONTENT',messageId:noteId,delta:note},{type:'TEXT_MESSAGE_END',messageId:noteId},
+        {type:'TEXT_MESSAGE_START',messageId:finalId,role:'assistant',metadata:metadata({nativeMessageId:finalId,pageId:'final-page',modelCallId:'actual-model',mode:'task'})},
+        {type:'TEXT_MESSAGE_CONTENT',messageId:finalId,delta:'Final owned report'},{type:'TEXT_MESSAGE_END',messageId:finalId},
+        {type:'MESSAGES_SNAPSHOT',messages:[{id:noteId,role:'assistant',content:note,metadata:metadata({nativeMessageId:noteId,pageId:undefined,mode:'task'})},{id:finalId,role:'assistant',content:'Final owned report',metadata:metadata({nativeMessageId:finalId,pageId:'final-page',modelCallId:'actual-model',mode:'task'})}]},finish];
+    const h=harness('agently',events,{logicalTurnId:'native-turn',allowHostEffects:true});
+    await h.run();
+    expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId===noteId)).toHaveLength(1);
+    expect((h.rows().find(row=>row.kind==='iteration') as IterationRenderRow).rounds.some(round=>round.content===note)).toBe(false);
 });

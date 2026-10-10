@@ -1100,6 +1100,8 @@ function onAssistantNarration(state: ClientConversationState, event: SSEEvent): 
     if (eventTurnId && turn.turnId === '') {
         writeField(turn, 'turnId', eventTurnId, 'event');
     }
+    if (typeof event.narration === 'string') writeField(turn, 'operationalNarration', event.narration, 'event');
+    if (event.mode === 'chain' || event.mode === 'router') return state;
     const page = ensurePageForEvent(turn, event, 'event');
     // Prefer messageId (canonical); fall back to assistantMessageId for
     // emitters that haven't yet dropped the redundant field.

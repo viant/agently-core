@@ -1,7 +1,6 @@
 package resources
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -13,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/ledongthuc/pdf"
 	"github.com/xuri/excelize/v2"
 )
 
@@ -60,6 +58,10 @@ func tableBounds(sel *ResourceSelection) (int, int, int, int, error) {
 	return c1, r1, c2, r2, nil
 }
 func (a *asset) table(ctx context.Context, sel *ResourceSelection, options *ResourceOptions) (*ResourceTable, error) {
+	return a.tablePage(ctx, sel, options, 0, 0, 0, nil)
+}
+
+func (a *asset) tablePage(ctx context.Context, sel *ResourceSelection, options *ResourceOptions, offset, rowLimit, byteLimit int, coverage *ResourceCoverage) (*ResourceTable, error) {
 	c1, r1, c2, r2, err := tableBounds(sel)
 	if err != nil {
 		return nil, err
@@ -88,7 +90,7 @@ func (a *asset) table(ctx context.Context, sel *ResourceSelection, options *Reso
 	var closeFn func() error
 	switch a.kind {
 	case "workbook":
-		f, e := a.workbook()
+		f, e := a.workbook(sel)
 		if e != nil {
 			return nil, e
 		}
@@ -116,7 +118,12 @@ func (a *asset) table(ctx context.Context, sel *ResourceSelection, options *Reso
 		if sel != nil && (sel.Sheet != "" || sel.ComponentID != "" || len(sel.Pages) > 0) {
 			return nil, fmt.Errorf("CSV has no sheets or pages")
 		}
-		reader := csv.NewReader(bytes.NewReader(a.data))
+		source, e := a.reader()
+		if e != nil {
+			return nil, e
+		}
+		bounded := &csvRecordReader{reader: source}
+		reader := csv.NewReader(bounded)
 		reader.FieldsPerRecord = -1
 		if options != nil {
 			if options.Encoding != "" && options.Encoding != "utf-8" {
@@ -130,18 +137,22 @@ func (a *asset) table(ctx context.Context, sel *ResourceSelection, options *Reso
 				reader.Comma = r[0]
 			}
 		}
-		next = reader.Read
+		next = func() ([]string, error) { bounded.remaining = 4 << 20; return reader.Read() }
 	default:
 		return nil, fmt.Errorf("table extraction unsupported for %s", a.kind)
 	}
 	if closeFn != nil {
 		defer closeFn()
 	}
+	selectedRows := 0
 	cells := 0
 	outputBytes := 0
 	for rowNum := 1; ; rowNum++ {
 		if err = ctx.Err(); err != nil {
 			return nil, err
+		}
+		if rowNum > r2 && sel != nil && sel.Range != "" {
+			break
 		}
 		row, e := next()
 		if e == io.EOF {
@@ -163,6 +174,11 @@ func (a *asset) table(ctx context.Context, sel *ResourceSelection, options *Reso
 		if rowNum > r2 {
 			break
 		}
+		if selectedRows < offset {
+			selectedRows++
+			continue
+		}
+		selectedRows++
 		end := c2
 		if end > len(row) {
 			end = len(row)
@@ -173,12 +189,29 @@ func (a *asset) table(ctx context.Context, sel *ResourceSelection, options *Reso
 		} else {
 			selected = []string{}
 		}
-		outputBytes += tableRowBytes(selected)
+		rowBytes := tableRowBytes(selected)
+		if rowLimit > 0 && (len(result.Rows) >= rowLimit || outputBytes+rowBytes > byteLimit) {
+			if len(result.Rows) == 0 {
+				return nil, fmt.Errorf("row exceeds output limit; select fewer columns")
+			}
+			if coverage != nil {
+				coverage.Truncated = true
+				coverage.NextRow = rowNum
+			}
+			break
+		}
+		outputBytes += rowBytes
 		if outputBytes > 64<<20 {
 			return nil, fmt.Errorf("table exceeds processing byte limit")
 		}
 		result.Rows = append(result.Rows, selected)
 		result.RowNumbers = append(result.RowNumbers, rowNum)
+	}
+	if selectedRows < offset {
+		return nil, fmt.Errorf("invalid read cursor")
+	}
+	if coverage != nil {
+		coverage.ReturnedRows = len(result.Rows)
 	}
 	return result, nil
 }
@@ -186,6 +219,9 @@ func (a *asset) text(ctx context.Context, sel *ResourceSelection, options *Resou
 	if a.kind == "text" || a.kind == "csv" {
 		if sel != nil {
 			return "", fmt.Errorf("use byte/line ranges for text")
+		}
+		if err := a.materialize(); err != nil {
+			return "", err
 		}
 		return string(a.data), nil
 	}
@@ -198,7 +234,7 @@ func (a *asset) text(ctx context.Context, sel *ResourceSelection, options *Resou
 	if sel != nil && (sel.Sheet != "" || sel.Range != "" || sel.ComponentID != "") {
 		return "", fmt.Errorf("PDF text requires a pages selector")
 	}
-	r, e := pdf.NewReader(bytes.NewReader(a.data), int64(len(a.data)))
+	r, e := a.pdfReader()
 	if e != nil {
 		return "", e
 	}
@@ -232,4 +268,24 @@ func (a *asset) text(ctx context.Context, sel *ResourceSelection, options *Resou
 		}
 	}
 	return b.String(), nil
+}
+
+// The CSV decoder may otherwise allocate an arbitrarily large single record.
+// Its own bounded read-ahead survives between records; reset this processing
+// allowance only when starting another record, never for each underlying read.
+type csvRecordReader struct {
+	reader    io.Reader
+	remaining int
+}
+
+func (r *csvRecordReader) Read(p []byte) (int, error) {
+	if r.remaining <= 0 {
+		return 0, fmt.Errorf("CSV record exceeds processing byte limit")
+	}
+	if len(p) > r.remaining {
+		p = p[:r.remaining]
+	}
+	n, err := r.reader.Read(p)
+	r.remaining -= n
+	return n, err
 }

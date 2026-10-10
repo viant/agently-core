@@ -130,7 +130,17 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 	if sinceMessageID != "" {
 		turns = filterTranscriptSinceMessage(turns, sinceMessageID)
 	}
+	includePayloads := true
+	if input.IncludeModelPayloads != nil {
+		includePayloads = *input.IncludeModelPayloads
+	}
+	if optState.includeModelPayloads != nil {
+		includePayloads = *optState.includeModelPayloads
+	}
 	state := BuildCanonicalState(input.ConversationID, turns)
+	if !includePayloads {
+		omitCanonicalModelPayloads(state)
+	}
 	if err = c.populateCanonicalQueueSequences(ctx, state); err != nil {
 		return nil, err
 	}

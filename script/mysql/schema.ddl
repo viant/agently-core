@@ -70,11 +70,11 @@ CREATE TABLE conversation
     conversation_parent_turn_id  VARCHAR(255),
     metadata               TEXT,
     visibility             VARCHAR(255) NOT NULL DEFAULT 'private',
-    shareable              TINYINT NOT NULL DEFAULT 0 CHECK (shareable IN (0,1)),
+    shareable              TINYINT NOT NULL DEFAULT 0,
     status                 VARCHAR(255),
 
     -- scheduling annotations
-    scheduled              TINYINT      NULL CHECK (scheduled IN (0,1)),
+    scheduled              TINYINT      NULL,
     schedule_id            VARCHAR(255) NULL,
     schedule_run_id        VARCHAR(255) NULL,
     schedule_kind          VARCHAR(32)  NULL,
@@ -126,9 +126,7 @@ CREATE TABLE turn
     origin                  VARCHAR(64) NULL,
     goal_id                 VARCHAR(255) NULL,
     status_reason           TEXT NULL,
-    status                  VARCHAR(255) NOT NULL CHECK (status IN
-                                                         ('queued', 'pending', 'running', 'waiting_for_user',
-                                                          'succeeded', 'failed', 'canceled')),
+    status                  VARCHAR(255) NOT NULL,
     error_message           TEXT,
     started_by_message_id   VARCHAR(255),
     retry_of                VARCHAR(255),
@@ -146,8 +144,6 @@ CREATE INDEX idx_turn_conversation ON turn (conversation_id);
 CREATE INDEX idx_turn_conv_status_created ON turn (conversation_id, status, created_at);
 CREATE INDEX idx_turn_conv_queue_seq ON turn (conversation_id, queue_seq);
 
-
-
 CREATE TABLE call_payload
 (
     run_id VARCHAR(255) NULL,
@@ -155,34 +151,24 @@ CREATE TABLE call_payload
 
     id                       VARCHAR(255) PRIMARY KEY,
     tenant_id                VARCHAR(255),
-    kind                     VARCHAR(255) NOT NULL CHECK (kind IN
-                                                          ('model_request', 'model_response', 'provider_request',
-                                                           'provider_response', 'model_stream', 'tool_request',
-                                                           'tool_response', 'elicitation_request',
-                                                           'elicitation_response', 'attachment', 'agui.event')),
+    kind                     VARCHAR(255) NOT NULL,
     subtype                  TEXT,
     mime_type                TEXT         NOT NULL,
     size_bytes               BIGINT       NOT NULL,
     digest                   VARCHAR(255),
-    storage                  VARCHAR(255) NOT NULL CHECK (storage IN ('inline', 'object')),
+    storage                  VARCHAR(255) NOT NULL,
     inline_body              LONGBLOB,
     uri                      TEXT,
-    compression              VARCHAR(255) NOT NULL DEFAULT 'none' CHECK (compression IN ('none', 'gzip', 'zstd')),
+    compression              VARCHAR(255) NOT NULL DEFAULT 'none',
     encryption_kms_key_id    TEXT,
     redaction_policy_version TEXT,
-    redacted                 BIGINT       NOT NULL DEFAULT 0 CHECK (redacted IN (0, 1)),
+    redacted                 BIGINT       NOT NULL DEFAULT 0,
     created_at               TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    schema_ref               TEXT,
-
-    CHECK (
-        (storage = 'inline' AND inline_body IS NOT NULL) OR
-        (storage = 'object' AND inline_body IS NULL)
-        )
+    schema_ref               TEXT
 );
 
 CREATE INDEX idx_payload_tenant_kind ON call_payload (tenant_id, kind, created_at);
 CREATE INDEX idx_payload_digest ON call_payload (digest);
-
 
 CREATE TABLE `message`
 (
@@ -194,18 +180,15 @@ CREATE TABLE `message`
     created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP,
     created_by_user_id     VARCHAR(255),
-    status                 VARCHAR(255) CHECK (status IS NULL OR status IN
-                                                                 ('', 'pending', 'accepted', 'rejected', 'cancel',
-                                                                  'open', 'summary', 'summarized','completed','error',
-                                                                  'running', 'failed', 'canceled', 'in_progress')),
+    status                 VARCHAR(255),
     mode                   VARCHAR(255),
-    role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
-    `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control', 'elicitation_request', 'elicitation_response')),
+    role                   VARCHAR(255) NOT NULL,
+    `type`                 VARCHAR(255) NOT NULL DEFAULT 'text',
     content                MEDIUMTEXT,
     summary                TEXT,
     context_summary        TEXT,
     tags                   TEXT,
-    interim                BIGINT       NOT NULL DEFAULT 0 CHECK (interim IN (0, 1)),
+    interim                BIGINT       NOT NULL DEFAULT 0,
     elicitation_id         VARCHAR(255),
     parent_message_id      VARCHAR(255),
     superseded_by          VARCHAR(255),
@@ -238,9 +221,9 @@ CREATE TABLE generated_file
     turn_id          VARCHAR(255) NULL,
     message_id       VARCHAR(255) NULL,
     provider         VARCHAR(255) NOT NULL,
-    mode             VARCHAR(32)  NOT NULL CHECK (mode IN ('interpreter', 'inline', 'tool')),
-    copy_mode        VARCHAR(32)  NOT NULL CHECK (copy_mode IN ('eager', 'lazy', 'lazy_cache')),
-    status           VARCHAR(32)  NOT NULL DEFAULT 'ready' CHECK (status IN ('pending', 'ready', 'materializing', 'expired', 'failed')),
+    mode             VARCHAR(32)  NOT NULL,
+    copy_mode        VARCHAR(32)  NOT NULL,
+    status           VARCHAR(32)  NOT NULL DEFAULT 'ready',
     payload_id       VARCHAR(255) NULL,
     container_id     VARCHAR(255) NULL,
     provider_file_id VARCHAR(255) NULL,
@@ -297,10 +280,7 @@ CREATE TABLE model_call
     turn_id                               VARCHAR(255),
     provider                              TEXT         NOT NULL,
     model                                 VARCHAR(255) NOT NULL,
-    model_kind                            VARCHAR(255) NOT NULL CHECK (model_kind IN
-                                                                       ('chat', 'completion', 'vision', 'reranker',
-                                                                        'embedding', 'other')),
-
+    model_kind                            VARCHAR(255) NOT NULL,
 
     error_code                            TEXT,
     error_message                         TEXT,
@@ -314,7 +294,7 @@ CREATE TABLE model_call
     completion_audio_tokens               BIGINT,
     completion_accepted_prediction_tokens BIGINT,
     completion_rejected_prediction_tokens BIGINT,
-    status                                VARCHAR(255) NOT NULL CHECK (status IN ('thinking', 'streaming','running', 'completed', 'failed', 'canceled')),
+    status                                VARCHAR(255) NOT NULL,
     started_at                            TIMESTAMP    NULL     DEFAULT NULL,
     completed_at                          TIMESTAMP    NULL     DEFAULT NULL,
     latency_ms                            BIGINT,
@@ -355,14 +335,13 @@ CREATE TABLE tool_call
     op_id               TEXT NOT NULL,
     attempt             BIGINT       NOT NULL DEFAULT 1,
     tool_name           VARCHAR(255) NOT NULL,
-    tool_kind           VARCHAR(255) NOT NULL CHECK (tool_kind IN ('general', 'resource')),
-    status              VARCHAR(255) NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'skipped',
-                                                                'canceled')),
+    tool_kind           VARCHAR(255) NOT NULL,
+    status              VARCHAR(255) NOT NULL,
     -- request_ref removed
     request_hash        TEXT,
     error_code          TEXT,
     error_message       TEXT,
-    retriable           BIGINT CHECK (retriable IN (0, 1)),
+    retriable           BIGINT,
     started_at          TIMESTAMP    NULL     DEFAULT NULL,
     completed_at        TIMESTAMP    NULL     DEFAULT NULL,
     latency_ms          BIGINT,
@@ -371,7 +350,6 @@ CREATE TABLE tool_call
     span_id             TEXT,
     request_payload_id  VARCHAR(255),
     response_payload_id VARCHAR(255),
-
 
     CONSTRAINT fk_tool_call_message
         FOREIGN KEY (message_id) REFERENCES `message` (id) ON DELETE CASCADE,
@@ -394,7 +372,7 @@ CREATE TABLE IF NOT EXISTS schedule (
                                         description           TEXT,
                                         created_by_user_id    VARCHAR(255),
                                         visibility            VARCHAR(255) NOT NULL DEFAULT 'private',
-                                        internal              TINYINT      NOT NULL DEFAULT 0 CHECK (internal IN (0,1)),
+                                        internal              TINYINT      NOT NULL DEFAULT 0,
                                         conversation_id       VARCHAR(255),
                                         goal_id               VARCHAR(255),
 
@@ -404,12 +382,12 @@ CREATE TABLE IF NOT EXISTS schedule (
                                         user_cred_url         TEXT,
 
     -- Enable/disable + time window
-                                        enabled               TINYINT      NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+                                        enabled               TINYINT      NOT NULL DEFAULT 1,
                                         start_at              TIMESTAMP    NULL DEFAULT NULL,
                                         end_at                TIMESTAMP    NULL DEFAULT NULL,
 
     -- Frequency
-                                        schedule_type         VARCHAR(32)  NOT NULL DEFAULT 'cron' CHECK (schedule_type IN ('adhoc','cron','interval')),
+                                        schedule_type         VARCHAR(32)  NOT NULL DEFAULT 'cron',
                                         cron_expr             VARCHAR(255),
                                         interval_seconds      BIGINT,
                                         timezone              VARCHAR(64)  NOT NULL DEFAULT 'UTC',
@@ -440,17 +418,17 @@ CREATE TABLE IF NOT EXISTS schedule_run (
                                             schedule_id            VARCHAR(255) NOT NULL,
                                             created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
                                             updated_at             TIMESTAMP    NULL DEFAULT NULL,
-                                            status                 VARCHAR(32)  NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','prechecking','skipped','running','succeeded','failed')),
+                                            status                 VARCHAR(32)  NOT NULL DEFAULT 'pending',
                                             error_message          TEXT,
 	                                            lease_owner           VARCHAR(255) NULL,
 	                                            lease_until           TIMESTAMP    NULL DEFAULT NULL,
 
                                             precondition_ran_at    TIMESTAMP    NULL DEFAULT NULL,
-                                            precondition_passed    TINYINT      NULL CHECK (precondition_passed IN (0,1)),
+                                            precondition_passed    TINYINT      NULL,
                                             precondition_result    MEDIUMTEXT,
 
 	                                            conversation_id        VARCHAR(255) NULL,
-	                                            conversation_kind      VARCHAR(32)  NOT NULL DEFAULT 'scheduled' CHECK (conversation_kind IN ('scheduled','precondition')),
+	                                            conversation_kind      VARCHAR(32)  NOT NULL DEFAULT 'scheduled',
 	                                            scheduled_for          TIMESTAMP    NULL DEFAULT NULL,
 	                                            started_at             TIMESTAMP    NULL DEFAULT NULL,
 	                                            completed_at           TIMESTAMP    NULL DEFAULT NULL,
@@ -667,7 +645,6 @@ CREATE TABLE IF NOT EXISTS report_run (
     actor_id VARCHAR(255) NULL,
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    CONSTRAINT chk_report_run_status CHECK (status IN ('running', 'completed', 'failed')),
     CONSTRAINT ux_report_run_owner_request UNIQUE (owner_id, ui_run_request_id),
     CONSTRAINT ux_report_run_owner_id UNIQUE (owner_id, report_run_id),
     KEY idx_report_run_owner_conversation_updated (owner_id, conversation_id, updated_at),
@@ -703,22 +680,6 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     export_request_id VARCHAR(128) NULL,
     CONSTRAINT ux_report_export_job_owner_conversation_request
         UNIQUE (owner_id, conversation_id, export_request_id),
-    CONSTRAINT chk_report_export_job_status
-        CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
-    CONSTRAINT chk_report_export_job_run_reference
-        CHECK (
-            (report_run_id IS NULL AND report_run_revision IS NULL AND export_request_id IS NULL)
-            OR
-            (
-                report_run_id IS NOT NULL
-                AND report_run_revision IS NOT NULL
-                AND report_run_revision > 0
-                AND export_request_id IS NOT NULL
-                AND conversation_id IS NOT NULL
-            )
-        ),
-    CONSTRAINT chk_report_export_job_run_pdf
-        CHECK (report_run_id IS NULL OR (format = 'pdf' AND scope = 'draft')),
     KEY idx_report_export_job_run (report_run_id),
     CONSTRAINT fk_report_export_job_run
         FOREIGN KEY (report_run_id) REFERENCES report_run(report_run_id) ON DELETE RESTRICT
@@ -803,15 +764,12 @@ CREATE TABLE IF NOT EXISTS tool_execution_claim (
     updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     finished_at DATETIME NULL DEFAULT NULL,
     PRIMARY KEY (claim_key),
-    CONSTRAINT chk_tool_execution_claim_state
-        CHECK (state IN ('claimed', 'completed', 'failed', 'unknown')),
     KEY idx_tool_execution_claim_turn_hash (turn_id, semantic_request_hash),
     KEY idx_tool_execution_claim_rule_tool_state_updated
         (rule_id, canonical_tool_name, state, updated_at)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 -- Durable AG-UI identity and replay. Opaque identities compare byte-for-byte.
-
 
 -- Native execution table (also defined by the existing versioned bootstrap).
 CREATE TABLE IF NOT EXISTS run
@@ -843,8 +801,7 @@ CREATE TABLE IF NOT EXISTS run
     conversation_kind       VARCHAR(32)  NOT NULL DEFAULT 'interactive',
     attempt                 INT          NOT NULL DEFAULT 1,
     resumed_from_run_id     VARCHAR(255),
-    status                  VARCHAR(32)  NOT NULL DEFAULT 'pending'
-        CHECK (status IN ('pending', 'prechecking', 'skipped', 'queued', 'running', 'completed', 'succeeded', 'failed', 'interrupted', 'canceled')),
+    status                  VARCHAR(32)  NOT NULL DEFAULT 'pending',
     error_code              VARCHAR(255),
     error_message           TEXT,
     iteration               INT          NOT NULL DEFAULT 0,
@@ -869,7 +826,7 @@ CREATE TABLE IF NOT EXISTS run
     heartbeat_interval_sec  INT DEFAULT 5,
     scheduled_for           TIMESTAMP    NULL DEFAULT NULL,
     precondition_ran_at     TIMESTAMP    NULL DEFAULT NULL,
-    precondition_passed     TINYINT      NULL CHECK (precondition_passed IN (0, 1)),
+    precondition_passed     TINYINT      NULL,
     precondition_result     MEDIUMTEXT,
     usage_prompt_tokens     BIGINT DEFAULT 0,
     usage_completion_tokens BIGINT DEFAULT 0,

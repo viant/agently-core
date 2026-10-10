@@ -31,7 +31,7 @@ export interface AgUiRunResult {
 
 export interface AgUiConversationBootstrapInput {
     mode?: 'transcript' | 'live'; since?: string;
-    includeModelCalls?: boolean; includeToolCalls?: boolean; includeFeeds?: boolean;
+    includeModelCalls?: boolean; includeModelPayloads?: boolean; includeToolCalls?: boolean; includeFeeds?: boolean;
     selectors?: Record<string, { path?: string; limit?: number; offset?: number; orderBy?: string }>;
 }
 /** Exact canonical response, including future fields; no legacy turns-only normalization. */

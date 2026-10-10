@@ -1,0 +1,31 @@
+#package('github.com/viant/agently-core/internal/datly/run/cleanup/read')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/run/cleanup','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(runcleanupScope/internal).Required())
+#define($_ = $IDs<[]string>(query/ids).Optional().WithPredicate(0,'in','t','id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIds).Optional().WithPredicate(0,'in','t','conversation_id'))
+#define($_ = $TurnIDs<[]string>(query/turnIds).Optional().WithPredicate(0,'in','t','turn_id'))
+#define($_ = $ScheduleIDs<[]string>(query/scheduleIds).Optional().WithPredicate(0,'in','t','schedule_id'))
+#define($_ = $ResumedFromRunIDs<[]string>(query/resumedFromRunIds).Optional().WithPredicate(0,'in','t','resumed_from_run_id'))
+#define($_ = $Data<[]*Run>(output/view))
+
+SELECT run.*,
+       type(run,'Run'),
+       required(run.id),
+       required(run.status),
+       required(run.conversation_kind),
+       row_lock(run,'run t','t.id'),
+       set_limit(run,0),
+       CAST(run.conversation_id AS *string),
+       CAST(run.turn_id AS *string),
+       CAST(run.schedule_id AS *string),
+       CAST(run.resumed_from_run_id AS *string),
+       CAST(run.lease_until_raw AS *string),
+       CAST(run.heartbeat_raw AS *string),
+       CAST(run.heartbeat_interval_sec AS *int),
+       CAST(run.activity_raw AS *string)
+FROM (${embed:sql/run.sql}) run

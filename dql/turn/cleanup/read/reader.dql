@@ -1,0 +1,25 @@
+#package('github.com/viant/agently-core/internal/datly/turn/cleanup/read')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/turn/cleanup','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(turncleanupscope/internal).Required())
+#define($_ = $IDs<[]string>(query/iDs).Optional().WithPredicate(0,'in','t','id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIDs).Optional().WithPredicate(0,'in','t','conversation_id'))
+#define($_ = $GoalIDs<[]string>(query/goalIDs).Optional().WithPredicate(0,'in','t','goal_id'))
+#define($_ = $StartedByMessageIDs<[]string>(query/startedByMessageIDs).Optional().WithPredicate(0,'in','t','started_by_message_id'))
+#define($_ = $RetryOfIDs<[]string>(query/retryOfIDs).Optional().WithPredicate(0,'in','t','retry_of'))
+#define($_ = $Data<[]*Turn>(output/view))
+
+SELECT metadata.*,
+       type(metadata,'Turn'),
+       required(metadata.id),
+       required(metadata.conversation_id),
+       row_lock(metadata,'turn t','t.id'),
+       set_limit(metadata,0),
+       CAST(metadata.run_id AS *string),
+       CAST(metadata.started_by_message_id AS *string),
+       CAST(metadata.retry_of AS *string)
+FROM (${embed:sql/metadata.sql}) metadata

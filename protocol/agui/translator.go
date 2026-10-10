@@ -282,7 +282,7 @@ func (t *Translator) translate(e *streaming.Event, trustedRecovery bool) []Event
 	}
 	if streaming.IsInternalMessageMode(e.Mode) || t.internalMessages[id] {
 		switch e.Type {
-		case streaming.EventTypeTextDelta, streaming.EventTypeAssistant, streaming.EventTypeItemCompleted, streaming.EventTypeNarration, streaming.EventTypeReasoningDelta:
+		case streaming.EventTypeTextDelta, streaming.EventTypeAssistant, streaming.EventTypeItemCompleted, streaming.EventTypeReasoningDelta:
 			if e.Type != streaming.EventTypeAssistant || e.Patch["role"] != "user" {
 				return out
 			}

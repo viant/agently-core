@@ -27,6 +27,7 @@ import (
 	runmodel "github.com/viant/agently-core/model/run"
 	toolapprovalqueuemodel "github.com/viant/agently-core/model/toolapprovalqueue"
 	"github.com/viant/agently-core/protocol/binding"
+	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/service/core"
 )
@@ -210,6 +211,9 @@ func (s *Service) resolveUploadedAttachment(ctx context.Context, turn runtimereq
 		}
 		att.Data = append([]byte(nil), (*payload.InlineBody)...)
 		att.PayloadID = payloadID
+		if payload.URI != nil {
+			bindAttachmentResourceReference(ctx, att, *payload.URI)
+		}
 		if strings.TrimSpace(att.Name) == "" && file.Filename != nil {
 			att.Name = strings.TrimSpace(*file.Filename)
 		}
@@ -223,6 +227,21 @@ func (s *Service) resolveUploadedAttachment(ctx context.Context, turn runtimereq
 		return nil
 	}
 	return nil
+}
+
+func bindAttachmentResourceReference(ctx context.Context, attachment *binding.Attachment, uri string) {
+	if attachment == nil {
+		return
+	}
+	attachment.ResourceURI = ""
+	if !strings.HasPrefix(uri, "scratchpad://artifact/") {
+		return
+	}
+	// Resolve only the current authenticated user's root. Missing/foreign
+	// artifacts retain legacy attachment handling without a trusted reference.
+	if descriptor, err := scratchpadsvc.New().DescribeArtifact(ctx, uri); err == nil && descriptor != nil {
+		attachment.ResourceURI = descriptor.URI
+	}
 }
 
 func parseUploadedAttachmentURI(raw string) (string, string) {

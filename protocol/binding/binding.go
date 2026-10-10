@@ -74,9 +74,11 @@ type (
 	}
 
 	Attachment struct {
-		Native        bool   `yaml:"native,omitempty" json:"native,omitempty"`
-		Name          string `yaml:"name,omitempty" json:"name,omitempty"`
-		URI           string `yaml:"uri,omitempty" json:"uri,omitempty"`
+		Native bool   `yaml:"native,omitempty" json:"native,omitempty"`
+		Name   string `yaml:"name,omitempty" json:"name,omitempty"`
+		URI    string `yaml:"uri,omitempty" json:"uri,omitempty"`
+		// ResourceURI is installed only after a current-user artifact check.
+		ResourceURI   string `yaml:"-" json:"-"`
 		StagingFolder string `yaml:"stagingFolder,omitempty" json:"stagingFolder,omitempty"`
 		Mime          string `yaml:"mime,omitempty" json:"mime,omitempty"`
 		Content       string `yaml:"content,omitempty" json:"content,omitempty"`
@@ -447,6 +449,67 @@ func (a *Attachment) MIMEType() string {
 	return "application/octet-Stream"
 }
 
+// AttachmentResourceReferences exposes only server-verified resource metadata.
+// It does not carry bytes, grant access, or turn arbitrary attachment URLs into resources.
+func AttachmentResourceReferences(attachments []*Attachment) string {
+	references := []map[string]string{}
+	for _, attachment := range attachments {
+		if attachment == nil || !strings.HasPrefix(attachment.ResourceURI, "scratchpad://artifact/") {
+			continue
+		}
+		references = append(references, map[string]string{"name": attachment.Name, "uri": attachment.ResourceURI})
+	}
+	if len(references) == 0 {
+		return ""
+	}
+	encoded, _ := json.Marshal(references)
+	return "\nUploaded resource references: " + string(encoded)
+}
+
+// ResourceMetadataOnly applies only to server-verified uploaded resources.
+// PDFs and images keep their existing provider presentation.
+func (a *Attachment) ResourceMetadataOnly() bool {
+	if a == nil || !strings.HasPrefix(a.ResourceURI, "scratchpad://artifact/") {
+		return false
+	}
+	mime := strings.ToLower(strings.TrimSpace(strings.SplitN(a.MIMEType(), ";", 2)[0]))
+	return mime != "application/pdf" && !strings.HasPrefix(mime, "image/")
+}
+
+// ModelContentItems removes uploaded resource bytes from ordered model content
+// without changing the stored attachment or the caller's content-item slice.
+func ModelContentItems(items []llm.ContentItem, attachments []*Attachment) []llm.ContentItem {
+	result := make([]llm.ContentItem, 0, len(items))
+	for _, item := range items {
+		omit := false
+		for _, attachment := range attachments {
+			if !attachment.ResourceMetadataOnly() {
+				continue
+			}
+			if item.Type != llm.ContentTypeText && attachment.Name != "" && item.Name == attachment.Name && strings.EqualFold(item.MimeType, attachment.MIMEType()) {
+				omit = true
+				break
+			}
+			if len(attachment.Data) == 0 {
+				continue
+			}
+			binary := llm.NewBinaryContent(attachment.Data, attachment.MIMEType(), attachment.Name)
+			if item.Type != llm.ContentTypeText && (item.Data == binary.Data || item.Data == string(attachment.Data)) {
+				omit = true
+				break
+			}
+			if text, ok := llm.TextAttachmentContent(attachment.Data, attachment.MIMEType(), attachment.Name); ok && item.Type == text.Type && item.Text == text.Text && item.Data == text.Data {
+				omit = true
+				break
+			}
+		}
+		if !omit {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 // ToLLM converts a prompt.Message into an llm.Message, preserving
 // attachments and role. It sorts attachments by URI to ensure
 // deterministic ordering when multiple attachments are present.
@@ -454,6 +517,8 @@ func (m *Message) ToLLM() llm.Message {
 	if m == nil {
 		return llm.Message{}
 	}
+	references := AttachmentResourceReferences(m.Attachment)
+	content := m.Content + references
 	role := llm.MessageRole(m.Role)
 	// Normalize any history messages with tool role to assistant
 	// when converting to LLM messages. Structured tool results for
@@ -463,10 +528,14 @@ func (m *Message) ToLLM() llm.Message {
 		role = llm.RoleAssistant
 	}
 	if m.ContentItems != nil {
-		return llm.Message{ID: strings.TrimSpace(m.ID), Role: role, Content: m.Content, Items: append([]llm.ContentItem(nil), m.ContentItems...)}
+		items := ModelContentItems(m.ContentItems, m.Attachment)
+		if references != "" {
+			items = append(items, llm.NewTextContent(strings.TrimSpace(references)))
+		}
+		return llm.Message{ID: strings.TrimSpace(m.ID), Role: role, Content: content, Items: items}
 	}
 	if len(m.Attachment) == 0 {
-		msg := llm.NewTextMessage(role, m.Content)
+		msg := llm.NewTextMessage(role, content)
 		msg.ID = strings.TrimSpace(m.ID)
 		return msg
 	}
@@ -479,11 +548,14 @@ func (m *Message) ToLLM() llm.Message {
 	})
 	items := make([]llm.ContentItem, 0, len(m.Attachment)+1)
 	for _, a := range m.Attachment {
-		if a == nil {
+		if a == nil || a.ResourceMetadataOnly() {
 			continue
 		}
 		if attItem, extracted := attachmentToLLMContent(a); extracted {
 			items = append(items, attItem)
+			continue
+		}
+		if len(a.Data) == 0 {
 			continue
 		}
 		item := llm.NewBinaryContent(a.Data, a.MIMEType(), a.Name)
@@ -492,10 +564,10 @@ func (m *Message) ToLLM() llm.Message {
 		}
 		items = append(items, item)
 	}
-	if strings.TrimSpace(m.Content) != "" {
-		items = append(items, llm.NewTextContent(m.Content))
+	if strings.TrimSpace(content) != "" {
+		items = append(items, llm.NewTextContent(content))
 	}
-	return llm.Message{ID: strings.TrimSpace(m.ID), Role: role, Items: items, Content: m.Content}
+	return llm.Message{ID: strings.TrimSpace(m.ID), Role: role, Items: items, Content: content}
 }
 
 func attachmentToLLMContent(a *Attachment) (llm.ContentItem, bool) {
