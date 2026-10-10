@@ -74,6 +74,12 @@ type ContextDefinitionGetter interface {
 	GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool)
 }
 
+// RawContextDefinitionGetter retains the remote contract for dispatch and
+// sanitization when model-facing output definitions are projected.
+type RawContextDefinitionGetter interface {
+	GetRawDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool)
+}
+
 // MCPIdentityResolver exposes the literal identity from a caller-visible catalog.
 // Unknown or ambiguous aliases do not establish a server identity.
 type MCPIdentityResolver interface {

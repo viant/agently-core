@@ -168,7 +168,23 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 			}
 		}
 	}
-	data, err := s.downloadResource(ctx, target.fullURI)
+	var data []byte
+	if strings.HasPrefix(target.fullURI, "scratchpad://") {
+		a, err := s.loadAsset(ctx, input, input.ExpectedVersion)
+		if err != nil {
+			return err
+		}
+		defer a.close()
+		if a.size > maxReadOutputBytes {
+			return a.readStreamText(ctx, input, output, input.MaxBytes)
+		}
+		if err = a.materialize(); err != nil {
+			return err
+		}
+		data = a.data
+	} else {
+		data, err = s.downloadResource(ctx, target.fullURI)
+	}
 	if err != nil {
 		logx.Debugf("resources", "read download error uri=%q err=%v", target.fullURI, err)
 		return err

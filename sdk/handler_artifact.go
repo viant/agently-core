@@ -4,6 +4,7 @@ import (
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/google/uuid"
@@ -29,21 +30,12 @@ func handleArtifactDownload() http.HandlerFunc {
 		}
 		service := scratchpad.New()
 		uri := scratchpad.ArtifactURI(id)
-		descriptor, err := service.DescribeArtifact(r.Context(), uri)
+		descriptor, stream, err := service.OpenVerifiedArtifactStream(r.Context(), uri)
 		if err != nil {
 			http.Error(w, "artifact unavailable", http.StatusNotFound)
 			return
 		}
-		data, err := service.ReadArtifactPayload(r.Context(), uri)
-		if err != nil {
-			http.Error(w, "artifact unavailable", http.StatusNotFound)
-			return
-		}
-		current, err := service.DescribeArtifact(r.Context(), uri)
-		if err != nil || *current != *descriptor {
-			http.Error(w, "artifact unavailable", http.StatusNotFound)
-			return
-		}
+		defer stream.Close()
 		mediaType, _, err := mime.ParseMediaType(descriptor.MimeType)
 		if err != nil || mediaType == "" {
 			http.Error(w, "artifact unavailable", http.StatusNotFound)
@@ -57,7 +49,6 @@ func handleArtifactDownload() http.HandlerFunc {
 		}
 		w.Header().Set("Content-Type", mediaType)
 		w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": name}))
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write(data)
+		http.ServeContent(w, r, name, time.Time{}, stream)
 	}
 }

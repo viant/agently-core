@@ -6,12 +6,15 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	native "github.com/viant/agently-core/app/store/native"
@@ -24,6 +27,7 @@ import (
 	resources "github.com/viant/agently-core/protocol/tool/service/resources"
 	scratchpad "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
+	"github.com/viant/agently-core/sdk"
 	"github.com/viant/agently-core/service/shared/toolexec"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/jsonrpc/transport"
@@ -37,13 +41,34 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-type outputPersistenceProvider struct{ url string }
+type outputPersistenceProvider struct {
+	url   string
+	paths bool
+}
 
 func (p *outputPersistenceProvider) Options(context.Context, string) (*mcpcfg.MCPClient, error) {
-	return &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{ProtocolVersion: schema.LatestProtocolVersion, Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: p.url}}}, ToolsListVisibility: mcpcfg.ToolsListVisibilityPublic, OutputArtifacts: map[string]mcpcfg.OutputArtifact{"Download": {Name: "spreadsheet-editor.xlsx"}}}, nil
+	policy := mcpcfg.OutputArtifact{Name: "spreadsheet-editor.xlsx", MimeType: "application/octet-stream"}
+	if p.paths {
+		policy.NamePath = "/structuredContent/file/name"
+		policy.MimeTypePath = "/structuredContent/file/mimeType"
+		policy.BytesPath = "/structuredContent/file/data"
+		policy.Encoding = "base64"
+	}
+	return &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{ProtocolVersion: schema.LatestProtocolVersion, Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: p.url}}}, ToolsListVisibility: mcpcfg.ToolsListVisibilityPublic, OutputArtifacts: map[string]mcpcfg.OutputArtifact{"Download": policy}}, nil
 }
 
 func TestOutputArtifactNativePersistenceAndTraceContainOnlyMetadata(t *testing.T) {
+	for _, paths := range []bool{false, true} {
+		label := "standard-blob"
+		if paths {
+			label = "declarative-paths"
+		}
+		t.Run(label, func(t *testing.T) { testFakeCampaign470750ArtifactRoundTrip(t, paths) })
+	}
+}
+
+// This is an owned synthetic workbook and mock writer, not live campaign data.
+func testFakeCampaign470750ArtifactRoundTrip(t *testing.T, pathMode bool) {
 	for _, key := range []string{"AGENTLY_DB_DRIVER", "AGENTLY_DB_DSN", "AGENTLY_DB_PATH", "AGENTLY_DB_SECRETS"} {
 		t.Setenv(key, "")
 	}
@@ -67,13 +92,14 @@ func TestOutputArtifactNativePersistenceAndTraceContainOnlyMetadata(t *testing.T
 	require.NoError(t, err)
 	workbook := excelize.NewFile()
 	defer workbook.Close()
-	require.NoError(t, workbook.SetCellValue("Sheet1", "A1", 563637))
+	require.NoError(t, workbook.SetCellValue("Sheet1", "A1", 470750))
 	_, err = workbook.NewSheet("Sites")
 	require.NoError(t, err)
 	require.NoError(t, workbook.SetCellValue("Sites", "A1", "owned.example"))
 	buffer, err := workbook.WriteToBuffer()
 	require.NoError(t, err)
 	data := buffer.Bytes()
+	writerAccepted := make(chan []byte, 1)
 	rpcServer, err := mcpserver.New(mcpserver.WithStreamableURI("/mcp"), mcpserver.WithNewHandler(func(ctx context.Context, n transport.Notifier, l logger.Logger, operations protocolclient.Operations) (protocol.Handler, error) {
 		handler := protocol.NewDefaultHandler(n, l, operations)
 		handler.Registry.RegisterToolWithSchema("Download", "Download generated workbook", schema.ToolInputSchema{Type: "object"}, nil, func(ctx context.Context, request *schema.CallToolRequest) (*schema.CallToolResult, *jsonrpc.Error) {
@@ -83,7 +109,25 @@ func TestOutputArtifactNativePersistenceAndTraceContainOnlyMetadata(t *testing.T
 			}
 			mime := "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 			untrustedURI := "urn:generated-workbook:" + base64.StdEncoding.EncodeToString(data) + ":signed=URI-EGRESS-SENTINEL"
+			if pathMode {
+				return &schema.CallToolResult{StructuredContent: map[string]interface{}{"file": map[string]interface{}{"name": "fresh-fake-campaign470750.xlsx", "mimeType": mime, "data": base64.StdEncoding.EncodeToString(data), "uri": untrustedURI}, "duplicate": base64.StdEncoding.EncodeToString(data)}, Content: []schema.CallToolResultContentElem{schema.TextContent{Type: "text", Text: base64.StdEncoding.EncodeToString(data)}}}, nil
+			}
 			return &schema.CallToolResult{Content: []schema.CallToolResultContentElem{schema.EmbeddedResource{Type: "resource", Resource: schema.EmbeddedResourceResource{Uri: untrustedURI, MimeType: &mime, Blob: base64.StdEncoding.EncodeToString(data)}}}}, nil
+		})
+		handler.Registry.RegisterToolWithSchema("Upload", "Fake authoritative campaign writer", schema.ToolInputSchema{Type: "object", Properties: schema.ToolInputSchemaProperties{"body": map[string]interface{}{"type": "string"}, "campaignId": map[string]interface{}{"type": "integer"}}}, nil, func(ctx context.Context, request *schema.CallToolRequest) (*schema.CallToolResult, *jsonrpc.Error) {
+			if fmt.Sprint(request.Params.Arguments["campaignId"]) != "470750" {
+				return nil, jsonrpc.NewInvalidParamsError("fake campaign target mismatch", nil)
+			}
+			encoded, ok := request.Params.Arguments["body"].(string)
+			if !ok {
+				return nil, jsonrpc.NewInvalidParamsError("binary input required", nil)
+			}
+			payload, err := base64.StdEncoding.DecodeString(encoded)
+			if err != nil {
+				return nil, jsonrpc.NewInvalidParamsError("binary input invalid", nil)
+			}
+			writerAccepted <- payload
+			return &schema.CallToolResult{StructuredContent: map[string]interface{}{"accepted": true, "campaignId": 470750}}, nil
 		})
 		return handler, nil
 	}))
@@ -93,7 +137,7 @@ func TestOutputArtifactNativePersistenceAndTraceContainOnlyMetadata(t *testing.T
 	defer peer.Close()
 	var callbacksMu sync.Mutex
 	var callbacks []*clienthandler.Handler
-	mgr, err := manager.New(&outputPersistenceProvider{url: peer.URL + "/mcp"}, manager.WithHandlerFactory(func() protocolclient.Handler {
+	mgr, err := manager.New(&outputPersistenceProvider{url: peer.URL + "/mcp", paths: pathMode}, manager.WithHandlerFactory(func() protocolclient.Handler {
 		h := clienthandler.New(nil, nil)
 		callbacksMu.Lock()
 		callbacks = append(callbacks, h)
@@ -129,6 +173,23 @@ func TestOutputArtifactNativePersistenceAndTraceContainOnlyMetadata(t *testing.T
 	descriptor, err := scratchpad.New().DescribeArtifact(ctx, metadata.Resources[0].URI)
 	require.NoError(t, err)
 	require.Empty(t, descriptor.SourceURI)
+	request := httptest.NewRequest(http.MethodGet, "/v1/artifacts/"+descriptor.ID, nil).WithContext(ctx)
+	response := httptest.NewRecorder()
+	sdk.NewHandler(nil).ServeHTTP(response, request)
+	require.Equal(t, http.StatusOK, response.Code)
+	require.True(t, bytes.Equal(data, response.Body.Bytes()), "authenticated download changed workbook")
+	macro := "${artifact[" + descriptor.ID + "].payload;xform=base64}"
+	originalArgs := map[string]interface{}{"campaignId": 470750, "body": macro}
+	uploaded, _, err := toolexec.ExecuteToolStep(ctx, reg, toolexec.StepInfo{ID: "fake-campaign470750-upload", Name: "service/Upload", Args: originalArgs}, conv)
+	require.NoError(t, err)
+	require.Equal(t, macro, originalArgs["body"])
+	require.Equal(t, macro, uploaded.Arguments["body"])
+	select {
+	case accepted := <-writerAccepted:
+		require.True(t, bytes.Equal(data, accepted), "fake authoritative writer received different workbook")
+	case <-time.After(time.Second):
+		t.Fatal("fake writer did not receive upload")
+	}
 	publicDescriptor, err := json.Marshal(descriptor)
 	require.NoError(t, err)
 	require.False(t, bytes.Contains(publicDescriptor, []byte("URI-EGRESS-SENTINEL")), "public descriptor leaked remote URI")
@@ -140,6 +201,12 @@ func TestOutputArtifactNativePersistenceAndTraceContainOnlyMetadata(t *testing.T
 	require.NoError(t, err)
 	require.False(t, bytes.Contains(inspection, []byte("URI-EGRESS-SENTINEL")), "resources:inspect leaked remote URI")
 	require.False(t, bytes.Contains(inspection, []byte(base64.StdEncoding.EncodeToString(data)[:32])), "resources:inspect leaked payload echo")
+	extract, err := resources.New(nil).Method("read")
+	require.NoError(t, err)
+	var extracted resources.ReadOutput
+	require.NoError(t, extract(ctx, &resources.ReadInput{URI: descriptor.URI, Representation: "table", Select: &resources.ResourceSelection{Sheet: "Sites", Range: "A1:A1"}, Limits: &resources.ResourceLimits{MaxRows: 1}}, &extracted))
+	require.NotNil(t, extracted.Table)
+	require.Contains(t, fmt.Sprint(extracted.Table.Rows), "owned.example", "captured URI remains available for explicit bounded extraction")
 	callbacksMu.Lock()
 	isolatedCallback := callbacks[len(callbacks)-1]
 	callbacksMu.Unlock()

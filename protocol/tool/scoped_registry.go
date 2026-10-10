@@ -90,6 +90,14 @@ func (s *scopedRegistry) GetDefinitionWithContext(ctx context.Context, name stri
 	return s.inner.GetDefinition(name)
 }
 
+func (s *scopedRegistry) GetRawDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
+	ctx = s.withConversation(ctx)
+	if getter, ok := s.inner.(RawContextDefinitionGetter); ok {
+		return getter.GetRawDefinitionWithContext(ctx, name)
+	}
+	return s.GetDefinitionWithContext(ctx, name)
+}
+
 // MustHaveTools delegates to the underlying registry.
 func (s *scopedRegistry) MustHaveTools(patterns []string) ([]llm.Tool, error) {
 	return s.inner.MustHaveTools(patterns)

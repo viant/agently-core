@@ -49,7 +49,7 @@ func TestOutputArtifactRegistryCapturesBeforeCompositionAndCache(t *testing.T) {
 	result.Content = append(result.Content, schema.TextContent{Type: "text", Text: base64.StdEncoding.EncodeToString(data)})
 	result.StructuredContent = map[string]interface{}{"File": data, "nonserializableTransient": func() {}}
 	client := &artifactRetryClient{scriptedCallClient: scriptedCallClient{result: result}}
-	mgr := &outputCaptureManager{artifactRetryManager: artifactRetryManager{scriptedReconnectManager: scriptedReconnectManager{clients: []mcpclient.Interface{&scriptedCallClient{}}}, sensitive: client}, policy: &mcpcfg.MCPClient{OutputArtifacts: map[string]mcpcfg.OutputArtifact{"Download": {Name: "workbook.xlsx", MaxBytes: 1024}}}}
+	mgr := &outputCaptureManager{artifactRetryManager: artifactRetryManager{scriptedReconnectManager: scriptedReconnectManager{clients: []mcpclient.Interface{&scriptedCallClient{}}}, sensitive: client}, policy: &mcpcfg.MCPClient{OutputArtifacts: map[string]mcpcfg.OutputArtifact{"Download": {Name: "workbook.xlsx"}}}}
 	reg := newReconnectTestRegistry(&mgr.scriptedReconnectManager)
 	reg.mgr, reg.recentTTL = mgr, time.Minute
 	out, err := reg.Execute(ctx, "service/Download", map[string]interface{}{"jobId": "owned-job"})
@@ -98,7 +98,7 @@ func TestOutputArtifactRegistryCapturesBeforeCompositionAndCache(t *testing.T) {
 	require.Equal(t, recorded, snapshot)
 }
 
-func TestOutputArtifactOptionalMIMEAndAggregateBounds(t *testing.T) {
+func TestOutputArtifactOptionalMIMEAndOccurrenceBounds(t *testing.T) {
 	t.Setenv(scratchpad.EnvScratchpadURI, "file://"+filepath.Join(t.TempDir(), "${userID}"))
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "owner"})
 	result := binaryOutput([]byte("owned"))
@@ -109,9 +109,6 @@ func TestOutputArtifactOptionalMIMEAndAggregateBounds(t *testing.T) {
 	require.NoError(t, err)
 	resource := captured.StructuredContent.(map[string]interface{})["resources"].([]map[string]interface{})[0]
 	require.Equal(t, "application/octet-stream", resource["mimeType"])
-	result.Content = append(result.Content, value)
-	_, err = captureOutputArtifacts(ctx, result, &mcpcfg.OutputArtifact{MaxBytes: 9})
-	require.Error(t, err, "two five-byte outputs exceed the aggregate limit")
 	for len(result.Content) <= 32 {
 		result.Content = append(result.Content, value)
 	}
@@ -152,9 +149,7 @@ func TestOutputArtifactRejectsUnsafeResultsWithoutExposingBytes(t *testing.T) {
 		_, err := captureOutputArtifacts(ctx, result, &mcpcfg.OutputArtifact{})
 		require.EqualError(t, err, "output artifact capture failed")
 	}
-	_, err := captureOutputArtifacts(ctx, binaryOutput([]byte("four")), &mcpcfg.OutputArtifact{MaxBytes: 3})
-	require.Error(t, err)
-	_, err = captureOutputArtifacts(context.Background(), binaryOutput([]byte("owned")), &mcpcfg.OutputArtifact{})
+	_, err := captureOutputArtifacts(context.Background(), binaryOutput([]byte("owned")), &mcpcfg.OutputArtifact{})
 	require.Error(t, err)
 }
 
