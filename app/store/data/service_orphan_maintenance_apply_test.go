@@ -4,12 +4,23 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	payloaddelete "github.com/viant/agently-core/internal/datly/payload/delete"
 	"github.com/viant/agently-core/internal/store/orphanmaintenance"
 	"testing"
 	"time"
 )
 
 func TestMaintainOrphanCandidate_SQLiteRechecksMutatesAndIsIdempotent(t *testing.T) {
+	for _, mode := range []string{"row", "bulk"} {
+		t.Run(mode, func(t *testing.T) {
+			t.Setenv(payloaddelete.ModeEnvironment, mode)
+			assertSQLiteOrphanMaintenanceRechecksMutatesAndIsIdempotent(t)
+		})
+	}
+}
+
+func assertSQLiteOrphanMaintenanceRechecksMutatesAndIsIdempotent(t *testing.T) {
+	t.Helper()
 	svc, db := newSeededServiceWithDB(t, seedSQLiteOrphanMaintenanceFixtures)
 	ctx := context.Background()
 	lease := acquireTestMaintenanceLease(t, svc)

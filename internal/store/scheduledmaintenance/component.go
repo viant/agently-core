@@ -78,6 +78,11 @@ func (*Maintain) Exec(ctx context.Context, session handler.Session, input *Input
 	if input.RunID == "" || input.InactiveBefore.IsZero() || (input.Mode != DryRun && input.Mode != DeleteMode) {
 		return fmt.Errorf("invalid scheduled maintenance request")
 	}
+	var err error
+	ctx, err = tree.PinGraphReader(ctx)
+	if err != nil {
+		return err
+	}
 	deps := dependencies{}
 	if err := session.Binder().Bind(ctx, &deps); err != nil {
 		return err
@@ -262,15 +267,15 @@ func selectRun(ctx context.Context, deps dependencies, id string, lock bool) (*s
 	fields := []string{"id", "schedule_id", "conversation_id", "activity_raw"}
 	query := &runread.RunRowsInput{}
 	query.SetId(id)
-	current, err := readRows[runread.RunRowsOutput](ctx, deps.Invoker, runTarget, query, providers("runaccess", "rows", false, fields), lock)
+	current, err := ReadCurrentRuns(ctx, deps.Invoker, query, fields, lock)
 	if err != nil {
 		return nil, err
 	}
-	if len(current.Data) > 1 {
+	if len(current) > 1 {
 		return nil, fmt.Errorf("scheduled maintenance current identity returned multiple rows")
 	}
-	if len(current.Data) == 1 && current.Data[0] != nil {
-		row := current.Data[0]
+	if len(current) == 1 && current[0] != nil {
+		row := current[0]
 		activity, ok := parseActivity(deref(row.ActivityRaw))
 		if !ok {
 			return nil, fmt.Errorf("scheduled run %q has invalid activity time %q", id, deref(row.ActivityRaw))
@@ -325,13 +330,13 @@ func graphActivity(ctx context.Context, deps dependencies, graph *tree.Graph) (t
 	}
 	query := &convread.ConversationInput{}
 	query.SetIds(ids)
-	rows, err := readRows[convread.ConversationOutput](ctx, deps.Invoker, conversationTarget, query, providers("conversationaccess", "rows", false, []string{"id", "activity_raw"}), false)
+	rows, err := ReadConversations(ctx, deps.Invoker, query, nil, false)
 	if err != nil {
 		return time.Time{}, false, err
 	}
 	seen := 0
 	var latest time.Time
-	for _, row := range rows.Data {
+	for _, row := range rows {
 		if row == nil {
 			continue
 		}
@@ -351,11 +356,11 @@ func relatedActivity(ctx context.Context, deps dependencies, plan *tree.DeletePl
 	if len(plan.RunIDs) > 0 {
 		query := &runread.RunRowsInput{}
 		query.SetIds(plan.RunIDs)
-		out, err := readRows[runread.RunRowsOutput](ctx, deps.Invoker, runTarget, query, providers("runaccess", "rows", false, fields), false)
+		out, err := ReadCurrentRuns(ctx, deps.Invoker, query, fields, false)
 		if err != nil {
 			return time.Time{}, false, err
 		}
-		for _, row := range out.Data {
+		for _, row := range out {
 			if row != nil {
 				value, ok := parseActivity(deref(row.ActivityRaw))
 				if !ok {
@@ -399,11 +404,11 @@ func validateScope(ctx context.Context, deps dependencies, graph *tree.Graph, ev
 			ids = append(ids, id)
 		}
 		query.SetIds(ids)
-		out, err := readRows[convread.ConversationOutput](ctx, deps.Invoker, conversationTarget, query, providers("conversationaccess", "rows", false, []string{"id", "schedule_id"}), false)
+		out, err := ReadConversations(ctx, deps.Invoker, query, nil, false)
 		if err != nil {
 			return err
 		}
-		for _, row := range out.Data {
+		for _, row := range out {
 			if row != nil && deref(row.ScheduleId) != "" && deref(row.ScheduleId) != selected.ScheduleID {
 				return tree.ErrGraphReferenced
 			}
@@ -491,21 +496,13 @@ func conversationRoots(ctx context.Context, invoker dexec.ComponentInvoker, ids 
 	return result, nil
 }
 
-// ReadConversations forwards a bounded request/projection to the one canonical
-// conversation reader; maintenance policies retain control over classification.
-func ReadConversations(ctx context.Context, invoker dexec.ComponentInvoker, input *convread.ConversationInput, fields []string, lock bool) ([]*convread.ConversationView, error) {
-	out, err := readRows[convread.ConversationOutput](ctx, invoker, conversationTarget, input, providers("conversationaccess", "rows", false, fields), lock)
-	if err != nil {
-		return nil, err
-	}
-	return out.Data, nil
+// Classification reads use host-only compact metadata; candidate pagination
+// and public conversation/run readers keep their existing contracts.
+func ReadConversations(ctx context.Context, invoker dexec.ComponentInvoker, input *convread.ConversationInput, _ []string, lock bool) ([]*convread.ConversationView, error) {
+	return tree.ReadCleanupConversations(ctx, invoker, input, lock)
 }
-func ReadCurrentRuns(ctx context.Context, invoker dexec.ComponentInvoker, input *runread.RunRowsInput, fields []string, lock bool) ([]*runread.RunRowsView, error) {
-	out, err := readRows[runread.RunRowsOutput](ctx, invoker, runTarget, input, providers("runaccess", "rows", false, fields), lock)
-	if err != nil {
-		return nil, err
-	}
-	return out.Data, nil
+func ReadCurrentRuns(ctx context.Context, invoker dexec.ComponentInvoker, input *runread.RunRowsInput, _ []string, lock bool) ([]*runread.RunRowsView, error) {
+	return tree.ReadCleanupRuns(ctx, invoker, input, lock)
 }
 func ReadLegacyRuns(ctx context.Context, invoker dexec.ComponentInvoker, input *legacyread.Input, fields []string, lock bool) ([]*legacyread.LegacyRun, error) {
 	out, err := readRows[legacyread.Output](ctx, invoker, legacyTarget, input, providers("schedulerunaccess", "rows", false, fields), lock)

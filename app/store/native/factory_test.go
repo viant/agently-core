@@ -71,7 +71,8 @@ type payloadRaceInvoker struct {
 }
 
 func (i *payloadRaceInvoker) InvokeComponent(ctx context.Context, request dexec.ComponentRequest) (any, error) {
-	if i.beforeWriter != nil && request.Target.Route.Method == "PATCH" && request.Target.Route.Path == "/v1/api/agently/payload" {
+	if i.beforeWriter != nil && request.Target.Route.Method == "PATCH" &&
+		(request.Target.Route.Path == "/v1/internal/agently/payload/delete" || request.Target.Route.Path == "/v1/internal/agently/payload/delete-bulk") {
 		before := i.beforeWriter
 		i.beforeWriter = nil
 		if err := before(); err != nil {
@@ -1682,7 +1683,30 @@ func TestWorkspaceRuntimePayloadRetentionEveryReference(t *testing.T) {
 	}
 }
 
+func TestWorkspaceRuntimePayloadRetentionAlreadyDeleted(t *testing.T) {
+	t.Setenv("AGENTLY_DELETE_PAYLOAD_MODE", "row")
+	orphans, _, db := orphanFixture(t)
+	_, err := db.Exec(`INSERT INTO call_payload(id,kind,mime_type,size_bytes,storage,inline_body)
+		VALUES('disappearing-payload','attachment','text/plain',1,'inline','x')`)
+	require.NoError(t, err)
+	intercepted := false
+	interceptor := &payloadRaceInvoker{next: orphans.Invoker, beforeWriter: func() error {
+		intercepted = true
+		_, err := db.Exec("DELETE FROM call_payload WHERE id='disappearing-payload'")
+		return err
+	}}
+	store := &convstore.PayloadStore{Invoker: interceptor}
+	// Disappears between the public reference pre-check and the internal writer.
+	require.NoError(t, store.DeleteUnreferencedTrusted(context.Background(), "disappearing-payload"))
+	require.True(t, intercepted)
+	require.NoError(t, store.DeleteUnreferencedTrusted(context.Background(), "disappearing-payload"))
+	var count int
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM call_payload WHERE id='disappearing-payload'").Scan(&count))
+	require.Zero(t, count)
+}
+
 func TestWorkspaceRuntimePayloadRetentionLateReference(t *testing.T) {
+	t.Setenv("AGENTLY_DELETE_PAYLOAD_MODE", "row")
 	t.Setenv("AGENTLY_DB_DRIVER", "")
 	t.Setenv("AGENTLY_DB_DSN", "")
 	t.Setenv("AGENTLY_DB_PATH", "")
@@ -1710,5 +1734,56 @@ func TestWorkspaceRuntimePayloadRetentionLateReference(t *testing.T) {
 	require.ErrorAs(t, err, &conflict)
 	var count int
 	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM call_payload WHERE id='late-payload'").Scan(&count))
+	require.Equal(t, 1, count)
+}
+
+func TestWorkspaceRuntimePayloadRetentionAlreadyDeletedBulk(t *testing.T) {
+	t.Setenv("AGENTLY_DELETE_PAYLOAD_MODE", "bulk")
+	orphans, _, db := orphanFixture(t)
+	_, err := db.Exec(`INSERT INTO call_payload(id,kind,mime_type,size_bytes,storage,inline_body)
+		VALUES('disappearing-payload-bulk','attachment','text/plain',1,'inline','x')`)
+	require.NoError(t, err)
+	interceptor := &payloadRaceInvoker{next: orphans.Invoker, beforeWriter: func() error {
+		_, err := db.Exec("DELETE FROM call_payload WHERE id='disappearing-payload-bulk'")
+		return err
+	}}
+	store := &convstore.PayloadStore{Invoker: interceptor}
+	err = store.DeleteUnreferencedTrusted(context.Background(), "disappearing-payload-bulk")
+	require.NoError(t, err)
+	var count int
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM call_payload WHERE id='disappearing-payload-bulk'").Scan(&count))
+	require.Zero(t, count)
+	require.NoError(t, store.DeleteUnreferencedTrusted(context.Background(), "disappearing-payload-bulk"))
+}
+
+func TestWorkspaceRuntimePayloadRetentionLateReferenceBulk(t *testing.T) {
+	t.Setenv("AGENTLY_DELETE_PAYLOAD_MODE", "bulk")
+	t.Setenv("AGENTLY_DB_DRIVER", "")
+	t.Setenv("AGENTLY_DB_DSN", "")
+	t.Setenv("AGENTLY_DB_PATH", "")
+	t.Setenv("AGENTLY_DB_SECRETS", "")
+	_, file, _, _ := runtime.Caller(0)
+	project := filepath.Join(filepath.Dir(file), "..", "..", "..")
+	workspaceRoot := t.TempDir()
+	server, err := native.New(context.Background(), native.Options{SourceRoot: project, WorkspaceRoot: workspaceRoot})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, server.Shutdown(context.Background())) })
+	db, err := sql.Open("sqlite", filepath.Join(workspaceRoot, "db", "agently-core.db"))
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, db.Close()) })
+	_, err = db.Exec(`INSERT INTO conversation(id) VALUES('late-payload-conversation-bulk');
+		INSERT INTO call_payload(id,kind,mime_type,size_bytes,storage) VALUES('late-payload-bulk','request','application/json',2,'inline')`)
+	require.NoError(t, err)
+	interceptor := &payloadRaceInvoker{next: server, beforeWriter: func() error {
+		_, err := db.Exec(`INSERT INTO message(id,conversation_id,role,type,attachment_payload_id)
+			VALUES('late-payload-message-bulk','late-payload-conversation-bulk','user','text','late-payload-bulk')`)
+		return err
+	}}
+	store := &convstore.PayloadStore{Invoker: interceptor}
+	err = store.DeleteUnreferencedTrusted(context.Background(), "late-payload-bulk")
+	var conflict *xhandler.Conflict
+	require.ErrorAs(t, err, &conflict)
+	var count int
+	require.NoError(t, db.QueryRow("SELECT COUNT(*) FROM call_payload WHERE id='late-payload-bulk'").Scan(&count))
 	require.Equal(t, 1, count)
 }

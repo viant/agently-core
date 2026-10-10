@@ -3,7 +3,6 @@ CREATE DATABASE IF NOT EXISTS `agently`
     COLLATE utf8mb4_0900_ai_ci;
 USE `agently`;
 
-
 DELIMITER $$
 -- Schema versioning helpers (added)
 -- Ensure schema_version table exists and initialize to version 0 if empty
@@ -11,7 +10,6 @@ CREATE TABLE IF NOT EXISTS schema_version
 (
     version_number int UNSIGNED NOT NULL
 ) $$
-
 
 DROP FUNCTION IF EXISTS get_schema_version $$
 
@@ -32,6 +30,40 @@ DELETE FROM schema_version;
 INSERT INTO schema_version VALUES (version);
 END $$
 
+-- Discover installed CHECK names; they need not match the bootstrap or Skeema.
+DROP PROCEDURE IF EXISTS agently_drop_check_constraints $$
+CREATE PROCEDURE agently_drop_check_constraints()
+BEGIN
+    DECLARE check_table VARCHAR(64);
+    DECLARE check_name VARCHAR(64);
+    WHILE EXISTS (
+        SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+        WHERE TABLE_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'CHECK'
+    ) DO
+        SELECT TABLE_NAME, CONSTRAINT_NAME INTO check_table, check_name
+        FROM information_schema.TABLE_CONSTRAINTS
+        WHERE TABLE_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'CHECK'
+        ORDER BY TABLE_NAME, CONSTRAINT_NAME LIMIT 1;
+        SET @agently_drop_check_sql = CONCAT(
+            'ALTER TABLE `', REPLACE(check_table, '`', '``'),
+            '` DROP CHECK `', REPLACE(check_name, '`', '``'), '`');
+        PREPARE agently_drop_check_stmt FROM @agently_drop_check_sql;
+        EXECUTE agently_drop_check_stmt;
+        DEALLOCATE PREPARE agently_drop_check_stmt;
+    END WHILE;
+    SET @agently_drop_check_sql = NULL;
+END $$
+
+-- Older migrations may modify columns covered by legacy CHECKs.
+DROP PROCEDURE IF EXISTS schema_prepare_without_checks $$
+CREATE PROCEDURE schema_prepare_without_checks()
+BEGIN
+    IF get_schema_version() < 41 THEN
+        CALL agently_drop_check_constraints();
+    END IF;
+END $$
+CALL schema_prepare_without_checks() $$
+DROP PROCEDURE schema_prepare_without_checks $$
 
 DROP PROCEDURE IF EXISTS schema_upgrade_1 $$
 CREATE PROCEDURE schema_upgrade_1()
@@ -84,7 +116,7 @@ CREATE TABLE conversation
     status                 VARCHAR(255),
 
     -- scheduling annotations
-    scheduled              TINYINT      NULL CHECK (scheduled IN (0,1)),
+    scheduled              TINYINT      NULL,
     schedule_id            VARCHAR(255) NULL,
     schedule_run_id        VARCHAR(255) NULL,
     schedule_kind          VARCHAR(32)  NULL,
@@ -102,9 +134,7 @@ CREATE TABLE turn
     id                      VARCHAR(255) PRIMARY KEY,
     conversation_id         VARCHAR(255) NOT NULL,
     created_at              TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    status                  VARCHAR(255) NOT NULL CHECK (status IN
-                                                         ('pending', 'running', 'waiting_for_user', 'succeeded',
-                                                          'failed', 'canceled')),
+    status                  VARCHAR(255) NOT NULL,
     error_message           TEXT,
     started_by_message_id   VARCHAR(255),
     retry_of                VARCHAR(255),
@@ -120,41 +150,29 @@ CREATE TABLE turn
 
 CREATE INDEX idx_turn_conversation ON turn (conversation_id);
 
-
-
 CREATE TABLE call_payload
 (
     id                       VARCHAR(255) PRIMARY KEY,
     tenant_id                VARCHAR(255),
-    kind                     VARCHAR(255) NOT NULL CHECK (kind IN
-                                                          ('model_request', 'model_response', 'provider_request',
-                                                           'provider_response', 'model_stream', 'tool_request',
-                                                           'tool_response', 'elicitation_request',
-                                                           'elicitation_response', 'attachment')),
+    kind                     VARCHAR(255) NOT NULL,
     subtype                  TEXT,
     mime_type                TEXT         NOT NULL,
     size_bytes               BIGINT       NOT NULL,
     digest                   VARCHAR(255),
-    storage                  VARCHAR(255) NOT NULL CHECK (storage IN ('inline', 'object')),
+    storage                  VARCHAR(255) NOT NULL,
     inline_body              LONGBLOB,
     uri                      TEXT,
-    compression              VARCHAR(255) NOT NULL DEFAULT 'none' CHECK (compression IN ('none', 'gzip', 'zstd')),
+    compression              VARCHAR(255) NOT NULL DEFAULT 'none',
     encryption_kms_key_id    TEXT,
     redaction_policy_version TEXT,
-    redacted                 BIGINT       NOT NULL DEFAULT 0 CHECK (redacted IN (0, 1)),
+    redacted                 BIGINT       NOT NULL DEFAULT 0,
     created_at               TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    schema_ref               TEXT,
-
-    CHECK (
-        (storage = 'inline' AND inline_body IS NOT NULL) OR
-        (storage = 'object' AND inline_body IS NULL)
-        )
+    schema_ref               TEXT
 );
 
 CREATE INDEX idx_payload_tenant_kind ON call_payload (tenant_id, kind, created_at);
 CREATE INDEX idx_payload_digest ON call_payload (digest);
 CREATE INDEX idx_call_payload_created_at ON call_payload (created_at);
-
 
 CREATE TABLE `message`
 (
@@ -166,18 +184,15 @@ CREATE TABLE `message`
     created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP,
     created_by_user_id     VARCHAR(255),
-    status                 VARCHAR(255) CHECK (status IS NULL OR status IN
-                                                                 ('', 'pending', 'accepted', 'rejected', 'cancel',
-                                                                  'open', 'summary', 'summarized','completed','error',
-                                                                  'running', 'failed', 'canceled', 'in_progress')),
+    status                 VARCHAR(255),
     mode                   VARCHAR(255),
-    role                   VARCHAR(255) NOT NULL CHECK (role IN ('system', 'user', 'assistant', 'tool', 'chain')),
-    `type`                 VARCHAR(255) NOT NULL DEFAULT 'text' CHECK (`type` IN ('text', 'tool_op', 'control', 'elicitation_request', 'elicitation_response')),
+    role                   VARCHAR(255) NOT NULL,
+    `type`                 VARCHAR(255) NOT NULL DEFAULT 'text',
     content                MEDIUMTEXT,
     summary                TEXT,
     context_summary        TEXT,
     tags                   TEXT,
-    interim                BIGINT       NOT NULL DEFAULT 0 CHECK (interim IN (0, 1)),
+    interim                BIGINT       NOT NULL DEFAULT 0,
     elicitation_id         VARCHAR(255),
     parent_message_id      VARCHAR(255),
     superseded_by          VARCHAR(255),
@@ -209,9 +224,9 @@ CREATE TABLE generated_file
     turn_id          VARCHAR(255) NULL,
     message_id       VARCHAR(255) NULL,
     provider         VARCHAR(255) NOT NULL,
-    mode             VARCHAR(32)  NOT NULL CHECK (mode IN ('interpreter', 'inline', 'tool')),
-    copy_mode        VARCHAR(32)  NOT NULL CHECK (copy_mode IN ('eager', 'lazy', 'lazy_cache')),
-    status           VARCHAR(32)  NOT NULL DEFAULT 'ready' CHECK (status IN ('pending', 'ready', 'materializing', 'expired', 'failed')),
+    mode             VARCHAR(32)  NOT NULL,
+    copy_mode        VARCHAR(32)  NOT NULL,
+    status           VARCHAR(32)  NOT NULL DEFAULT 'ready',
     payload_id       VARCHAR(255) NULL,
     container_id     VARCHAR(255) NULL,
     provider_file_id VARCHAR(255) NULL,
@@ -266,10 +281,7 @@ CREATE TABLE model_call
     turn_id                               VARCHAR(255),
     provider                              TEXT         NOT NULL,
     model                                 VARCHAR(255) NOT NULL,
-    model_kind                            VARCHAR(255) NOT NULL CHECK (model_kind IN
-                                                                       ('chat', 'completion', 'vision', 'reranker',
-                                                                        'embedding', 'other')),
-
+    model_kind                            VARCHAR(255) NOT NULL,
 
     error_code                            TEXT,
     error_message                         TEXT,
@@ -283,7 +295,7 @@ CREATE TABLE model_call
     completion_audio_tokens               BIGINT,
     completion_accepted_prediction_tokens BIGINT,
     completion_rejected_prediction_tokens BIGINT,
-    status                                VARCHAR(255) NOT NULL CHECK (status IN ('thinking', 'streaming','running', 'completed', 'failed', 'canceled')),
+    status                                VARCHAR(255) NOT NULL,
     started_at                            TIMESTAMP    NULL     DEFAULT NULL,
     completed_at                          TIMESTAMP    NULL     DEFAULT NULL,
     latency_ms                            BIGINT,
@@ -324,14 +336,13 @@ CREATE TABLE tool_call
     op_id               VARCHAR(255) NOT NULL,
     attempt             BIGINT       NOT NULL DEFAULT 1,
     tool_name           VARCHAR(255) NOT NULL,
-    tool_kind           VARCHAR(255) NOT NULL CHECK (tool_kind IN ('general', 'resource')),
-    status              VARCHAR(255) NOT NULL CHECK (status IN ('queued', 'running', 'completed', 'failed', 'skipped',
-                                                                'canceled')),
+    tool_kind           VARCHAR(255) NOT NULL,
+    status              VARCHAR(255) NOT NULL,
     -- request_ref removed
     request_hash        TEXT,
     error_code          TEXT,
     error_message       TEXT,
-    retriable           BIGINT CHECK (retriable IN (0, 1)),
+    retriable           BIGINT,
     started_at          TIMESTAMP    NULL     DEFAULT NULL,
     completed_at        TIMESTAMP    NULL     DEFAULT NULL,
     latency_ms          BIGINT,
@@ -340,7 +351,6 @@ CREATE TABLE tool_call
     span_id             TEXT,
     request_payload_id  VARCHAR(255),
     response_payload_id VARCHAR(255),
-
 
     CONSTRAINT fk_tool_call_message
         FOREIGN KEY (message_id) REFERENCES `message` (id) ON DELETE CASCADE,
@@ -358,14 +368,13 @@ CREATE INDEX idx_tool_call_name ON tool_call (tool_name);
 CREATE INDEX idx_tool_call_op ON tool_call (turn_id, op_id);
 CREATE INDEX idx_tool_call_trace ON tool_call (trace_id(191));
 
-
 	CREATE TABLE IF NOT EXISTS schedule (
 	                                        id                    VARCHAR(255) PRIMARY KEY,
 	    name                  VARCHAR(255) NOT NULL UNIQUE,
 	    description           TEXT,
 	    created_by_user_id    VARCHAR(255),
 	    visibility            VARCHAR(255) NOT NULL DEFAULT 'private',
-	    internal              TINYINT      NOT NULL DEFAULT 0 CHECK (internal IN (0,1)),
+	    internal              TINYINT      NOT NULL DEFAULT 0,
 	    conversation_id       VARCHAR(255),
 	    goal_id               VARCHAR(255),
 
@@ -375,12 +384,12 @@ CREATE INDEX idx_tool_call_trace ON tool_call (trace_id(191));
 	    user_cred_url         TEXT,
 
     -- Enable/disable + time window
-    enabled               TINYINT      NOT NULL DEFAULT 1 CHECK (enabled IN (0,1)),
+    enabled               TINYINT      NOT NULL DEFAULT 1,
     start_at              TIMESTAMP    NULL DEFAULT NULL,
     end_at                TIMESTAMP    NULL DEFAULT NULL,
 
     -- Frequency
-    schedule_type         VARCHAR(32)  NOT NULL DEFAULT 'cron' CHECK (schedule_type IN ('adhoc','cron','interval')),
+    schedule_type         VARCHAR(32)  NOT NULL DEFAULT 'cron',
     cron_expr             VARCHAR(255),
     interval_seconds      BIGINT,
     timezone              VARCHAR(64)  NOT NULL DEFAULT 'UTC',
@@ -408,15 +417,15 @@ CREATE TABLE IF NOT EXISTS schedule_run (
     schedule_id            VARCHAR(255) NOT NULL,
     created_at             TIMESTAMP    NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at             TIMESTAMP    NULL DEFAULT NULL,
-    status                 VARCHAR(32)  NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','prechecking','skipped','running','succeeded','failed')),
+    status                 VARCHAR(32)  NOT NULL DEFAULT 'pending',
     error_message          TEXT,
 
     precondition_ran_at    TIMESTAMP    NULL DEFAULT NULL,
-    precondition_passed    TINYINT      NULL CHECK (precondition_passed IN (0,1)),
+    precondition_passed    TINYINT      NULL,
     precondition_result    MEDIUMTEXT,
 
     conversation_id        VARCHAR(255) NULL,
-    conversation_kind      VARCHAR(32)  NOT NULL DEFAULT 'scheduled' CHECK (conversation_kind IN ('scheduled','precondition')),
+    conversation_kind      VARCHAR(32)  NOT NULL DEFAULT 'scheduled',
     started_at             TIMESTAMP    NULL DEFAULT NULL,
     completed_at           TIMESTAMP    NULL DEFAULT NULL,
 
@@ -606,32 +615,6 @@ BEGIN
         ) THEN
             ALTER TABLE turn
                 ADD COLUMN queue_seq BIGINT NULL AFTER created_at;
-        END IF;
-
-        -- Replace legacy CHECK constraint so 'queued' is allowed.
-        IF EXISTS (
-            SELECT 1
-            FROM information_schema.TABLE_CONSTRAINTS
-            WHERE CONSTRAINT_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'turn'
-              AND CONSTRAINT_NAME = 'turn_chk_1'
-              AND CONSTRAINT_TYPE = 'CHECK'
-        ) THEN
-            ALTER TABLE turn DROP CHECK turn_chk_1;
-        END IF;
-
-        IF NOT EXISTS (
-            SELECT 1
-            FROM information_schema.TABLE_CONSTRAINTS
-            WHERE CONSTRAINT_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'turn'
-              AND CONSTRAINT_NAME = 'turn_chk_1'
-              AND CONSTRAINT_TYPE = 'CHECK'
-        ) THEN
-            ALTER TABLE turn
-                ADD CONSTRAINT turn_chk_1 CHECK (status IN
-                                                 ('queued', 'pending', 'running', 'waiting_for_user',
-                                                  'succeeded', 'failed', 'canceled'));
         END IF;
 
         IF NOT EXISTS (
@@ -942,7 +925,6 @@ END $$
 CALL schema_upgrade_7() $$
 DROP PROCEDURE schema_upgrade_7 $$
 
-
 DROP PROCEDURE IF EXISTS schema_upgrade_8 $$
 CREATE PROCEDURE schema_upgrade_8()
 BEGIN
@@ -994,8 +976,7 @@ CREATE PROCEDURE schema_upgrade_10()
 BEGIN
     IF get_schema_version() = 10 THEN
         ALTER TABLE `message`
-            MODIFY COLUMN `type` VARCHAR(255) NOT NULL DEFAULT 'text'
-                CHECK (`type` IN ('text', 'tool_op', 'control', 'elicitation_request', 'elicitation_response'));
+            MODIFY COLUMN `type` VARCHAR(255) NOT NULL DEFAULT 'text';
 
         CALL set_schema_version(11);
     END IF;
@@ -1084,7 +1065,6 @@ END $$
 CALL schema_upgrade_13() $$
 DROP PROCEDURE schema_upgrade_13 $$
 
-
 DROP PROCEDURE IF EXISTS schema_upgrade_14 $$
 CREATE PROCEDURE schema_upgrade_14()
 BEGIN
@@ -1129,7 +1109,6 @@ END $$
 CALL schema_upgrade_14() $$
 DROP PROCEDURE schema_upgrade_14 $$
 
-
 DROP PROCEDURE IF EXISTS schema_upgrade_15 $$
 CREATE PROCEDURE schema_upgrade_15()
 BEGIN
@@ -1143,7 +1122,7 @@ BEGIN
               AND COLUMN_NAME = 'shareable'
         ) THEN
 ALTER TABLE conversation
-    ADD COLUMN shareable TINYINT NOT NULL DEFAULT 0 CHECK (shareable IN (0,1)) AFTER visibility;
+    ADD COLUMN shareable TINYINT NOT NULL DEFAULT 0 AFTER visibility;
 END IF;
 
 CALL set_schema_version(16);
@@ -1250,9 +1229,9 @@ BEGIN
                 turn_id          VARCHAR(255) NULL,
                 message_id       VARCHAR(255) NULL,
                 provider         VARCHAR(255) NOT NULL,
-                mode             VARCHAR(32)  NOT NULL CHECK (mode IN ('interpreter', 'inline', 'tool')),
-                copy_mode        VARCHAR(32)  NOT NULL CHECK (copy_mode IN ('eager', 'lazy', 'lazy_cache')),
-                status           VARCHAR(32)  NOT NULL DEFAULT 'ready' CHECK (status IN ('pending', 'ready', 'materializing', 'expired', 'failed')),
+                mode             VARCHAR(32)  NOT NULL,
+                copy_mode        VARCHAR(32)  NOT NULL,
+                status           VARCHAR(32)  NOT NULL DEFAULT 'ready',
                 payload_id       VARCHAR(255) NULL,
                 container_id     VARCHAR(255) NULL,
                 provider_file_id VARCHAR(255) NULL,
@@ -1316,7 +1295,6 @@ DROP PROCEDURE schema_upgrade_18 $$
 DROP PROCEDURE IF EXISTS schema_upgrade_19 $$
 CREATE PROCEDURE schema_upgrade_19()
 BEGIN
-    DECLARE has_constraint INT DEFAULT 0;
 
     IF get_schema_version() = 19 THEN
 
@@ -1368,40 +1346,6 @@ BEGIN
         ) THEN
             CREATE INDEX idx_message_iteration ON `message` (turn_id, iteration, created_at);
         END IF;
-
-        SELECT COUNT(*) INTO has_constraint
-        FROM information_schema.TABLE_CONSTRAINTS
-        WHERE CONSTRAINT_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'message'
-          AND CONSTRAINT_NAME = 'message_chk_1'
-          AND CONSTRAINT_TYPE = 'CHECK';
-        IF has_constraint > 0 THEN
-            ALTER TABLE `message` DROP CHECK message_chk_1;
-        END IF;
-
-        SELECT COUNT(*) INTO has_constraint
-        FROM information_schema.TABLE_CONSTRAINTS
-        WHERE CONSTRAINT_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'message'
-          AND CONSTRAINT_NAME = 'message_chk_3'
-          AND CONSTRAINT_TYPE = 'CHECK';
-        IF has_constraint > 0 THEN
-            ALTER TABLE `message` DROP CHECK message_chk_3;
-        END IF;
-
-        SELECT COUNT(*) INTO has_constraint
-        FROM information_schema.TABLE_CONSTRAINTS
-        WHERE CONSTRAINT_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'message'
-          AND CONSTRAINT_NAME = 'message_chk_5'
-          AND CONSTRAINT_TYPE = 'CHECK';
-        IF has_constraint > 0 THEN
-            ALTER TABLE `message` DROP CHECK message_chk_5;
-        END IF;
-
-        ALTER TABLE `message`
-            ADD CONSTRAINT message_chk_1 CHECK ((`status` IS NULL) OR (`status` IN ('', 'pending', 'accepted', 'rejected', 'cancel', 'open', 'summary', 'summarized', 'completed', 'error', 'running', 'failed', 'canceled', 'in_progress'))),
-            ADD CONSTRAINT message_chk_3 CHECK ((`type` IN ('text', 'tool_op', 'control', 'task', 'elicitation_request', 'elicitation_response')));
 
         IF NOT EXISTS (
             SELECT 1 FROM information_schema.COLUMNS
@@ -1618,7 +1562,7 @@ BEGIN
                 title               TEXT,
                 arguments           LONGBLOB     NOT NULL,
                 metadata            LONGBLOB,
-                status              VARCHAR(32)  NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'approved', 'rejected', 'canceled', 'executed', 'failed', 'timed_out')),
+                status              VARCHAR(32)  NOT NULL DEFAULT 'pending',
                 decision            TEXT,
                 approved_by_user_id VARCHAR(255),
                 approved_at         TIMESTAMP    NULL DEFAULT NULL,
@@ -1688,8 +1632,7 @@ BEGIN
                 conversation_kind       VARCHAR(32)  NOT NULL DEFAULT 'interactive',
                 attempt                 INT          NOT NULL DEFAULT 1,
                 resumed_from_run_id     VARCHAR(255),
-                status                  VARCHAR(32)  NOT NULL DEFAULT 'pending'
-                    CHECK (status IN ('pending', 'prechecking', 'skipped', 'queued', 'running', 'completed', 'succeeded', 'failed', 'interrupted', 'canceled')),
+                status                  VARCHAR(32)  NOT NULL DEFAULT 'pending',
                 error_code              VARCHAR(255),
                 error_message           TEXT,
                 iteration               INT          NOT NULL DEFAULT 0,
@@ -1714,7 +1657,7 @@ BEGIN
                 heartbeat_interval_sec  INT DEFAULT 5,
                 scheduled_for           TIMESTAMP    NULL DEFAULT NULL,
                 precondition_ran_at     TIMESTAMP    NULL DEFAULT NULL,
-                precondition_passed     TINYINT      NULL CHECK (precondition_passed IN (0, 1)),
+                precondition_passed     TINYINT      NULL,
                 precondition_result     MEDIUMTEXT,
                 usage_prompt_tokens     BIGINT DEFAULT 0,
                 usage_completion_tokens BIGINT DEFAULT 0,
@@ -1842,21 +1785,8 @@ DROP PROCEDURE schema_upgrade_20 $$
 DROP PROCEDURE IF EXISTS schema_upgrade_21 $$
 CREATE PROCEDURE schema_upgrade_21()
 BEGIN
-    DECLARE has_constraint INT DEFAULT 0;
 
     IF get_schema_version() = 21 THEN
-        SELECT COUNT(*) INTO has_constraint
-        FROM information_schema.TABLE_CONSTRAINTS
-        WHERE CONSTRAINT_SCHEMA = DATABASE()
-          AND TABLE_NAME = 'message'
-          AND CONSTRAINT_NAME = 'message_chk_1'
-          AND CONSTRAINT_TYPE = 'CHECK';
-        IF has_constraint > 0 THEN
-            ALTER TABLE `message` DROP CHECK message_chk_1;
-        END IF;
-
-        ALTER TABLE `message`
-            ADD CONSTRAINT message_chk_1 CHECK ((`status` IS NULL) OR (`status` IN ('', 'pending', 'accepted', 'rejected', 'cancel', 'open', 'summary', 'summarized', 'completed', 'error', 'running', 'failed', 'canceled', 'in_progress')));
 
         CALL set_schema_version(22);
     END IF;
@@ -1880,7 +1810,6 @@ DROP PROCEDURE schema_upgrade_22 $$
 DROP PROCEDURE IF EXISTS schema_upgrade_23 $$
 CREATE PROCEDURE schema_upgrade_23()
 BEGIN
-    DECLARE taq_status_constraint VARCHAR(255) DEFAULT NULL;
 
     IF get_schema_version() = 23 THEN
         IF EXISTS (
@@ -1976,33 +1905,6 @@ BEGIN
             ) THEN
                 ALTER TABLE tool_approval_queue
                     ADD COLUMN timed_out_at TIMESTAMP NULL DEFAULT NULL AFTER expires_at;
-            END IF;
-
-            SELECT MAX(tc.CONSTRAINT_NAME) INTO taq_status_constraint
-            FROM information_schema.TABLE_CONSTRAINTS tc
-            JOIN information_schema.CHECK_CONSTRAINTS cc
-              ON cc.CONSTRAINT_SCHEMA = tc.CONSTRAINT_SCHEMA
-             AND cc.CONSTRAINT_NAME = tc.CONSTRAINT_NAME
-            WHERE tc.CONSTRAINT_SCHEMA = DATABASE()
-              AND tc.TABLE_NAME = 'tool_approval_queue'
-              AND tc.CONSTRAINT_TYPE = 'CHECK'
-              AND cc.CHECK_CLAUSE LIKE '%status%';
-            IF taq_status_constraint IS NOT NULL THEN
-                SET @drop_taq_status_check = CONCAT('ALTER TABLE tool_approval_queue DROP CHECK `', REPLACE(taq_status_constraint, '`', '``'), '`');
-                PREPARE drop_taq_status_stmt FROM @drop_taq_status_check;
-                EXECUTE drop_taq_status_stmt;
-                DEALLOCATE PREPARE drop_taq_status_stmt;
-            END IF;
-
-            IF NOT EXISTS (
-                SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
-                WHERE CONSTRAINT_SCHEMA = DATABASE()
-                  AND TABLE_NAME = 'tool_approval_queue'
-                  AND CONSTRAINT_NAME = 'tool_approval_queue_status_chk'
-                  AND CONSTRAINT_TYPE = 'CHECK'
-            ) THEN
-                ALTER TABLE tool_approval_queue
-                    ADD CONSTRAINT tool_approval_queue_status_chk CHECK (status IN ('pending', 'approved', 'rejected', 'canceled', 'executed', 'failed', 'timed_out'));
             END IF;
 
             IF NOT EXISTS (
@@ -2209,31 +2111,11 @@ END $$
 CALL schema_upgrade_27() $$
 DROP PROCEDURE schema_upgrade_27 $$
 
-
 DROP PROCEDURE IF EXISTS schema_upgrade_28 $$
 CREATE PROCEDURE schema_upgrade_28()
 BEGIN
-    DECLARE has_constraint INT DEFAULT 0;
 
     IF get_schema_version() = 28 THEN
-        IF EXISTS (
-            SELECT 1 FROM information_schema.TABLES
-            WHERE TABLE_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'call_payload'
-        ) THEN
-            SELECT COUNT(*) INTO has_constraint
-            FROM information_schema.TABLE_CONSTRAINTS
-            WHERE CONSTRAINT_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'call_payload'
-              AND CONSTRAINT_NAME = 'call_payload_chk_1'
-              AND CONSTRAINT_TYPE = 'CHECK';
-            IF has_constraint > 0 THEN
-                ALTER TABLE call_payload DROP CHECK call_payload_chk_1;
-            END IF;
-
-            ALTER TABLE call_payload
-                ADD CONSTRAINT call_payload_chk_1 CHECK ((kind IN ('model_request', 'model_response', 'provider_request', 'provider_response', 'model_stream', 'tool_request', 'tool_response', 'elicitation_request', 'elicitation_response', 'attachment')));
-        END IF;
 
         CALL set_schema_version(29);
     END IF;
@@ -2303,23 +2185,7 @@ CREATE TABLE IF NOT EXISTS report_export_job (
     report_run_revision BIGINT NULL,
     export_request_id VARCHAR(128) NULL,
     CONSTRAINT ux_report_export_job_owner_conversation_request
-        UNIQUE (owner_id, conversation_id, export_request_id),
-    CONSTRAINT chk_report_export_job_status
-        CHECK (status IN ('queued', 'running', 'succeeded', 'failed')),
-    CONSTRAINT chk_report_export_job_run_reference
-        CHECK (
-            (report_run_id IS NULL AND report_run_revision IS NULL AND export_request_id IS NULL)
-            OR
-            (
-                report_run_id IS NOT NULL
-                AND report_run_revision IS NOT NULL
-                AND report_run_revision > 0
-                AND export_request_id IS NOT NULL
-                AND conversation_id IS NOT NULL
-            )
-        ),
-    CONSTRAINT chk_report_export_job_run_pdf
-        CHECK (report_run_id IS NULL OR (format = 'pdf' AND scope = 'draft'))
+        UNIQUE (owner_id, conversation_id, export_request_id)
     );
 
 CREATE INDEX idx_report_export_job_owner_submitted_at
@@ -2436,7 +2302,6 @@ BEGIN
             actor_id VARCHAR(255) NULL,
             created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-            CONSTRAINT chk_report_run_status CHECK (status IN ('running', 'completed', 'failed')),
             CONSTRAINT ux_report_run_owner_request UNIQUE (owner_id, ui_run_request_id),
             CONSTRAINT ux_report_run_owner_id UNIQUE (owner_id, report_run_id),
             KEY idx_report_run_owner_conversation_updated (owner_id, conversation_id, updated_at),
@@ -2537,49 +2402,6 @@ BEGIN
         END IF;
 
         IF NOT EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-            WHERE CONSTRAINT_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'report_export_job'
-              AND CONSTRAINT_NAME = 'chk_report_export_job_run_reference'
-        ) THEN
-            ALTER TABLE report_export_job
-                ADD CONSTRAINT chk_report_export_job_run_reference
-                    CHECK (
-                        (report_run_id IS NULL AND report_run_revision IS NULL AND export_request_id IS NULL)
-                        OR
-                        (
-                            report_run_id IS NOT NULL
-                            AND report_run_revision IS NOT NULL
-                            AND export_request_id IS NOT NULL
-                            AND conversation_id IS NOT NULL
-                            AND report_run_revision > 0
-                        )
-                    );
-        END IF;
-
-        IF NOT EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-            WHERE CONSTRAINT_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'report_export_job'
-              AND CONSTRAINT_NAME = 'chk_report_export_job_status'
-        ) THEN
-            ALTER TABLE report_export_job
-                ADD CONSTRAINT chk_report_export_job_status
-                    CHECK (status IN ('queued', 'running', 'succeeded', 'failed'));
-        END IF;
-
-        IF NOT EXISTS (
-            SELECT 1 FROM INFORMATION_SCHEMA.TABLE_CONSTRAINTS
-            WHERE CONSTRAINT_SCHEMA = DATABASE()
-              AND TABLE_NAME = 'report_export_job'
-              AND CONSTRAINT_NAME = 'chk_report_export_job_run_pdf'
-        ) THEN
-            ALTER TABLE report_export_job
-                ADD CONSTRAINT chk_report_export_job_run_pdf
-                    CHECK (report_run_id IS NULL OR (format = 'pdf' AND scope = 'draft'));
-        END IF;
-
-        IF NOT EXISTS (
             SELECT 1 FROM INFORMATION_SCHEMA.STATISTICS
             WHERE TABLE_SCHEMA = DATABASE()
               AND TABLE_NAME = 'report_export_artifact'
@@ -2639,8 +2461,6 @@ BEGIN
             updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
             finished_at DATETIME NULL DEFAULT NULL,
             PRIMARY KEY (claim_key),
-            CONSTRAINT chk_tool_execution_claim_state
-                CHECK (state IN ('claimed', 'completed', 'failed', 'unknown')),
             KEY idx_tool_execution_claim_turn_hash (turn_id, semantic_request_hash),
             KEY idx_tool_execution_claim_rule_tool_state_updated
                 (rule_id, canonical_tool_name, state, updated_at)
@@ -2858,7 +2678,6 @@ END $$
 CALL schema_upgrade_39() $$
 DROP PROCEDURE schema_upgrade_39 $$
 
-
 -- Version 41 adds AG-UI protocol storage by reusing existing application tables.
 DROP PROCEDURE IF EXISTS schema_upgrade_40 $$
 CREATE PROCEDURE schema_upgrade_40()
@@ -2948,9 +2767,7 @@ BEGIN
         IF NOT EXISTS (SELECT 1 FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='call_payload' AND COLUMN_NAME='sequence') THEN
             ALTER TABLE call_payload ADD COLUMN sequence BIGINT NULL;
         END IF;
-        -- Preserve all existing payload kinds, extending only the protocol event class.
-        ALTER TABLE call_payload DROP CHECK call_payload_chk_1;
-        ALTER TABLE call_payload ADD CONSTRAINT call_payload_chk_1 CHECK (kind IN ('model_request','model_response','provider_request','provider_response','model_stream','tool_request','tool_response','elicitation_request','elicitation_response','attachment','agui.event'));
+
         IF NOT EXISTS (SELECT 1 FROM information_schema.STATISTICS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='conversation' AND INDEX_NAME='ux_conversation_protocol_thread') THEN
             CREATE UNIQUE INDEX ux_conversation_protocol_thread ON conversation (protocol_thread_key);
         END IF;
@@ -2983,5 +2800,24 @@ BEGIN
 END $$
 CALL schema_upgrade_40() $$
 DROP PROCEDURE schema_upgrade_40 $$
+
+-- Version 42 removes all CHECK constraints, independently of their names.
+DROP PROCEDURE IF EXISTS schema_upgrade_41 $$
+CREATE PROCEDURE schema_upgrade_41()
+BEGIN
+    IF get_schema_version() = 41 THEN
+        CALL agently_drop_check_constraints();
+        IF EXISTS (
+            SELECT 1 FROM information_schema.TABLE_CONSTRAINTS
+            WHERE TABLE_SCHEMA = DATABASE() AND CONSTRAINT_TYPE = 'CHECK'
+        ) THEN
+            SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'CHECK constraints remain after migration';
+        END IF;
+        CALL set_schema_version(42);
+    END IF;
+END $$
+CALL schema_upgrade_41() $$
+DROP PROCEDURE schema_upgrade_41 $$
+DROP PROCEDURE agently_drop_check_constraints $$
 
 DELIMITER ;

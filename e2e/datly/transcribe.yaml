@@ -37,6 +37,8 @@ pipeline:
       - bin/datly-stock transcribe patch -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/agui/thread/write
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/agui/turn/read
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/conversation/read
+      - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/conversation/graph/read
+      - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/conversation/cleanup/read
       - bin/datly-stock transcribe patch -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/conversation/write
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/generatedfile/read
       - bin/datly-stock transcribe patch -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/generatedfile/write
@@ -56,8 +58,10 @@ pipeline:
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/payload/read
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/payload/reference
       - bin/datly-stock transcribe patch -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/payload/write
+      - bin/datly-stock transcribe patch -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/payload/delete
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/run/cube
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/run/read
+      - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/run/cleanup/read
       - bin/datly-stock transcribe get -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/runsteps/read
       - bin/datly-stock transcribe patch -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/run/write
       - bin/datly-stock transcribe patch -dir . -schema -connector agently -driver sqlite3 -dsn bin/datly-schema.db github.com/viant/agently-core/dql/run/delete

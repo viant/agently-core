@@ -1,0 +1,23 @@
+#package('github.com/viant/agently-core/internal/datly/toolcall/cleanup/read')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/toolcall/cleanup','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(toolcallcleanupscope/internal).Required())
+#define($_ = $MessageIDs<[]string>(query/messageIDs).Optional().WithPredicate(0,'in','t','message_id'))
+#define($_ = $TurnIDs<[]string>(query/turnIDs).Optional().WithPredicate(0,'in','t','turn_id'))
+#define($_ = $Data<[]*ToolCall>(output/view))
+
+SELECT metadata.*,
+       type(metadata,'ToolCall'),
+       required(metadata.message_id),
+       required(metadata.op_id),
+       row_lock(metadata,'tool_call t'),
+       set_limit(metadata,0),
+       CAST(metadata.turn_id AS *string),
+       CAST(metadata.run_id AS *string),
+       CAST(metadata.request_payload_id AS *string),
+       CAST(metadata.response_payload_id AS *string)
+FROM (${embed:sql/metadata.sql}) metadata
