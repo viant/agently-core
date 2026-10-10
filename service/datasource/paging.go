@@ -12,6 +12,10 @@ func applyPaging(rows []map[string]interface{}, dataInfo map[string]interface{},
 		return rows, dataInfo
 	}
 
+	if strings.TrimSpace(ds.Paging.Mode) != "" {
+		return applyExplicitPaging(rows, dataInfo, ds, args)
+	}
+
 	pageName := "page"
 	sizeName := "size"
 	if ds.Paging.Parameters != nil {

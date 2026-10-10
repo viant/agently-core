@@ -34,6 +34,9 @@ func project(raw interface{}, ds *types.DataSource) ([]map[string]interface{}, m
 			}
 		}
 	}
+	if ds != nil && ds.Selectors != nil && ds.Selectors.ValueColumn != "" {
+		return projectValueRows(rowsRaw, ds.Selectors.ValueColumn), dataInfo, metrics
+	}
 	rows := coerceRows(rowsRaw)
 	return rows, dataInfo, metrics
 }
