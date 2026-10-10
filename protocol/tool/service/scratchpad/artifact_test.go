@@ -124,3 +124,77 @@ func TestArtifactCancelledAndEmptyPublication(t *testing.T) {
 	_, err = svc.PublishArtifact(userCtx("alice"), "", "a", "text/plain", "", nil)
 	require.Error(t, err)
 }
+
+func TestReadArtifactPayloadRequiresCurrentOwnerAndImmutableIntegrity(t *testing.T) {
+	svc := New(WithRootURI("file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "${userID}"))))
+	ctx := userCtx("alice")
+	id := "2f1c171e-0fe9-4aa7-8f17-5eb826f72042"
+	d, err := svc.PublishArtifact(ctx, id, "sites.csv", "text/csv", "", strings.NewReader("site\nowned.example\n"))
+	require.NoError(t, err)
+	data, err := svc.ReadArtifactPayload(ctx, d.URI)
+	require.NoError(t, err)
+	require.Equal(t, "site\nowned.example\n", string(data))
+	_, err = svc.ReadArtifactPayload(userCtx("bob"), d.URI)
+	require.Error(t, err)
+	_, err = svc.ReadArtifactPayload(context.Background(), d.URI)
+	require.ErrorContains(t, err, "identity")
+	_, err = svc.ReadArtifactPayload(ctx, ArtifactURI("missing"))
+	require.Error(t, err)
+	root, _, err := svc.resolveRootURI(ctx)
+	require.NoError(t, err)
+	note, err := svc.client(ctx).Fetch(ctx, afsscratchpad.ArtifactKey(id))
+	require.NoError(t, err)
+	var manifest artifactManifest
+	require.NoError(t, json.Unmarshal([]byte(note.Body), &manifest))
+	// Tamper only this new test-owned file, never a runtime/business resource.
+	require.NoError(t, svc.fs.Upload(ctx, manifest.SourceURL, 0600, strings.NewReader("site\nforeign.example\n")))
+	_, err = svc.ReadArtifactPayload(ctx, d.URI)
+	require.ErrorContains(t, err, "integrity")
+	_ = root
+}
+
+func TestArtifactPayloadRejectsExpiryMissingIntegrityAndOversizeBeforeRead(t *testing.T) {
+	svc := New(WithRootURI("file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "${userID}"))))
+	ctx := userCtx("owned-user")
+	descriptor, err := svc.PublishArtifact(ctx, "owned-limits", "limits.bin", "application/octet-stream", "", strings.NewReader("owned"))
+	require.NoError(t, err)
+	note, err := svc.client(ctx).Fetch(ctx, afsscratchpad.ArtifactKey(descriptor.ID))
+	require.NoError(t, err)
+	var original artifactManifest
+	require.NoError(t, json.Unmarshal([]byte(note.Body), &original))
+	for _, test := range []struct {
+		name     string
+		change   func(*artifactManifest)
+		expected string
+	}{
+		{"expired", func(m *artifactManifest) { m.ExpiresAt = "2000-01-01T00:00:00Z" }, "expired"},
+		{"missing digest", func(m *artifactManifest) { m.SHA256 = "" }, "integrity metadata"},
+		{"oversize", func(m *artifactManifest) { m.SizeBytes = MaxArtifactBytes + 1 }, "integrity metadata"},
+		{"empty", func(m *artifactManifest) { m.SizeBytes = 0 }, "integrity metadata"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			manifest := original
+			test.change(&manifest)
+			raw, _ := json.Marshal(manifest)
+			_, err := svc.client(ctx).Memorize(ctx, &afsscratchpad.MemorizeInput{Key: afsscratchpad.ArtifactKey(descriptor.ID), Description: "owned artifact limits", Body: string(raw)})
+			require.NoError(t, err)
+			_, err = svc.ReadArtifactPayload(ctx, descriptor.URI)
+			require.ErrorContains(t, err, test.expected)
+		})
+	}
+}
+
+func TestArtifactPayloadRejectsForeignBackingEvenWithMatchingDigest(t *testing.T) {
+	svc := New(WithRootURI("file://" + filepath.ToSlash(filepath.Join(t.TempDir(), "${userID}"))))
+	alice, bob := userCtx("alice"), userCtx("bob")
+	a, err := svc.PublishArtifact(alice, "owned-id", "owned.bin", "application/octet-stream", "", strings.NewReader("same owned fixture bytes"))
+	require.NoError(t, err)
+	_, err = svc.PublishArtifact(bob, "owned-id", "owned.bin", "application/octet-stream", "", strings.NewReader("same owned fixture bytes"))
+	require.NoError(t, err)
+	foreignNote, err := svc.client(bob).Fetch(bob, afsscratchpad.ArtifactKey(a.ID))
+	require.NoError(t, err)
+	_, err = svc.client(alice).Memorize(alice, &afsscratchpad.MemorizeInput{Key: afsscratchpad.ArtifactKey(a.ID), Description: "owned tamper fixture", Body: foreignNote.Body})
+	require.NoError(t, err)
+	_, err = svc.ReadArtifactPayload(alice, a.URI)
+	require.ErrorContains(t, err, "backing owner mismatch")
+}

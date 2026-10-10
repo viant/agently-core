@@ -25,6 +25,9 @@ func nativePresentation(e *streaming.Event) map[string]any {
 	if value["nativeMessageId"] == nil {
 		text("nativeMessageId", e.MessageID)
 	}
+	if e.Type == streaming.EventTypeAssistant && e.ModelCallID == "" && e.PageID == "" && e.Patch["role"] != "user" && e.Patch["agentlyProjectionSnapshot"] != true && !streaming.IsInternalMessageMode(e.Mode) {
+		value["messageKind"] = "standalone"
+	}
 	text("parentMessageId", e.ParentMessageID)
 	if e.Type == streaming.EventTypeModelStarted {
 		text("nativeUserMessageId", e.ParentMessageID)

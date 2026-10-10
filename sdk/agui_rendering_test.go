@@ -2,8 +2,14 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
+	convstore "github.com/viant/agently-core/app/store/conversation"
+	conversationmodel "github.com/viant/agently-core/model/conversation"
+	"github.com/viant/agently-core/protocol/agui"
+	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/runtime/aguistate"
@@ -107,4 +113,87 @@ func TestAGUIPresentationInternalModesDoNotPublishBodies(t *testing.T) {
 		require.Len(t, visible, 1)
 		require.Equal(t, `{"classification":true}`, visible[0].Content)
 	}
+}
+
+func TestAGUIRecognizedPartialReportPublishesTypedProgressWithoutAuthorJSON(t *testing.T) {
+	p := &aguiPresentation{}
+	events := p.project(context.Background(), &streaming.Event{Type: streaming.EventTypeTextDelta, ConversationID: "thread", TurnID: "turn", MessageID: "report", Content: "```forge-report\n{\"privateAuthoring\":", ContentMode: "snapshot"}, nil)
+	require.NotEmpty(t, events)
+	found := false
+	for _, event := range events {
+		require.NotContains(t, event.Content, "privateAuthoring")
+		if event.RenderedContent != nil {
+			require.Len(t, event.RenderedContent.Reports, 1)
+			require.Equal(t, "rendering", event.RenderedContent.Reports[0].Status)
+			require.Nil(t, event.RenderedContent.Reports[0].Source)
+			found = true
+		}
+	}
+	require.True(t, found, "recognized report should have typed progress before completion")
+}
+
+func TestAGUIProjectedModelSnapshotCannotBecomeStandaloneWithoutModelIDs(t *testing.T) {
+	p := &aguiPresentation{}
+	p.project(context.Background(), &streaming.Event{Type: streaming.EventTypeTextDelta, ConversationID: "thread", TurnID: "turn", MessageID: "model", Content: "Old visible prefix", ContentMode: "snapshot"}, nil)
+	events := p.project(context.Background(), &streaming.Event{Type: streaming.EventTypeTextDelta, ConversationID: "thread", TurnID: "turn", MessageID: "model", Content: "Different visible prefix", ContentMode: "snapshot"}, nil)
+	require.Len(t, events, 1)
+	require.Equal(t, streaming.EventTypeAssistant, events[0].Type)
+	require.Equal(t, true, events[0].Patch["agentlyProjectionSnapshot"])
+}
+
+func TestExportOwnedPublicHighlightsReportProducerEvents(t *testing.T) {
+	if os.Getenv("AGENTLY_PUBLIC_STREAM_FIXTURE") == "" {
+		t.Skip("fixture export not requested")
+	}
+	tr := agui.NewTranslator("owned-stream", "owned-run")
+	p := &aguiPresentation{}
+	phases := map[string][]agui.Event{}
+	emit := func(phase string, event *streaming.Event) {
+		for _, visible := range p.project(context.Background(), event, nil) {
+			phases[phase] = append(phases[phase], tr.Translate(visible)...)
+		}
+	}
+	emit("highlights", &streaming.Event{Type: streaming.EventTypeTurnStarted, ConversationID: "owned-stream", TurnID: "owned-turn", Status: "running"})
+	emit("highlights", &streaming.Event{Type: streaming.EventTypeAssistant, ConversationID: "owned-stream", TurnID: "owned-turn", MessageID: "owned-highlights", Mode: "task", CreatedAt: time.Date(2026, 10, 9, 12, 0, 1, 0, time.UTC), Content: "Owned textual highlights arrive before the dashboard.", Patch: map[string]any{"role": "assistant"}})
+	emit("pending", &streaming.Event{Type: streaming.EventTypeNarration, ConversationID: "owned-stream", TurnID: "owned-turn", MessageID: "owned-progress", Mode: "chain", NarrationSource: "executor", Content: "Preparing owned report data", Narration: "Preparing owned report data", Status: "running"})
+	emit("pending", &streaming.Event{Type: streaming.EventTypeModelStarted, ConversationID: "owned-stream", TurnID: "owned-turn", AssistantMessageID: "owned-report", PageID: "report-page", ModelCallID: "owned-model", Mode: "task", Status: "running"})
+	emit("pending", &streaming.Event{Type: streaming.EventTypeTextDelta, ConversationID: "owned-stream", TurnID: "owned-turn", MessageID: "owned-report", PageID: "report-page", Mode: "task", CreatedAt: time.Date(2026, 10, 9, 12, 0, 2, 0, time.UTC), Content: "```forge-report\n{", ContentMode: "snapshot"})
+	complete := "```forge-report\n" + `{"version":1,"scope":"message","id":"owned-dashboard","sequence":1,"mode":"start","grammar":"report-document-v1","title":"Owned Dashboard","blocks":[{"id":"summary","kind":"markdownBlock","markdown":"Owned result: 12"}]}` + "\n```\n```forge-report\n" + `{"version":1,"scope":"message","id":"owned-dashboard","sequence":2,"mode":"commit"}` + "\n```"
+	emit("complete", &streaming.Event{Type: streaming.EventTypeTextDelta, ConversationID: "owned-stream", TurnID: "owned-turn", MessageID: "owned-report", PageID: "report-page", Mode: "task", CreatedAt: time.Date(2026, 10, 9, 12, 0, 2, 0, time.UTC), Content: complete, ContentMode: "snapshot"})
+	emit("complete", &streaming.Event{Type: streaming.EventTypeItemCompleted, ConversationID: "owned-stream", TurnID: "owned-turn", MessageID: "owned-report", PageID: "report-page", Mode: "task", CreatedAt: time.Date(2026, 10, 9, 12, 0, 2, 0, time.UTC), Content: complete})
+	emit("complete", &streaming.Event{Type: streaming.EventTypeModelCompleted, ConversationID: "owned-stream", TurnID: "owned-turn", AssistantMessageID: "owned-report", PageID: "report-page", ModelCallID: "owned-model", Mode: "task", Status: "completed"})
+	emit("complete", &streaming.Event{Type: streaming.EventTypeTurnCompleted, ConversationID: "owned-stream", TurnID: "owned-turn", Status: "completed"})
+	raw, err := json.Marshal(phases)
+	require.NoError(t, err)
+	require.NoError(t, os.WriteFile(os.Getenv("AGENTLY_PUBLIC_STREAM_FIXTURE"), raw, 0600))
+}
+
+func TestCanonicalHistoryRetainsPublicMessageAddBeforeFinalReport(t *testing.T) {
+	noteID := "78d5cfea-5646-4352-896f-722494256c24"
+	reportID := "45bd6ebd-6f21-40e2-a500-bc68ee74a07f"
+	mode := "task"
+	note := "Owned public highlights"
+	report := "```forge-report\n" + `{"version":1,"scope":"message","id":"owned","sequence":1,"mode":"start","grammar":"report-document-v1","blocks":[{"id":"summary","kind":"markdownBlock","markdown":"Owned report"}]}` + "\n```\n```forge-report\n" + `{"version":1,"scope":"message","id":"owned","sequence":2,"mode":"commit"}` + "\n```"
+	turn := &convstore.Turn{Id: "owned-turn", Status: "succeeded", Message: []*conversationmodel.MessageView{{Id: noteID, Role: "assistant", Mode: &mode, Content: &note, CreatedAt: time.Date(2026, 10, 9, 12, 0, 1, 0, time.UTC)}, {Id: reportID, Role: "assistant", Mode: &mode, Content: &report, CreatedAt: time.Date(2026, 10, 9, 12, 0, 2, 0, time.UTC)}}}
+	state := BuildCanonicalState("owned", convstore.Transcript{turn})
+	require.Len(t, state.Turns, 1)
+	found := false
+	for _, message := range state.Turns[0].Messages {
+		if message.MessageID == noteID {
+			require.Equal(t, note, message.Content)
+			require.Equal(t, "task", message.Mode)
+			found = true
+		}
+	}
+	require.True(t, found, "public message/add note survives persisted canonical history")
+	require.Equal(t, reportID, state.Turns[0].Assistant.Final.MessageID)
+}
+
+func TestOperationalInternalNarrationIsSafeStatusWhileReasoningStaysHidden(t *testing.T) {
+	p := &aguiPresentation{}
+	outputs := p.project(context.Background(), &streaming.Event{Type: streaming.EventTypeNarration, ConversationID: "thread", TurnID: "turn", MessageID: "status", Mode: "chain", NarrationSource: "executor", Content: "Preparing report data", Narration: "Preparing report data"}, nil)
+	require.Len(t, outputs, 1)
+	require.Equal(t, "Preparing report data", outputs[0].Narration)
+	hidden := p.project(context.Background(), &streaming.Event{Type: streaming.EventTypeTextDelta, ConversationID: "thread", TurnID: "turn", MessageID: "reasoning", Mode: "chain", Content: "private reasoning"}, nil)
+	require.Empty(t, hidden)
 }

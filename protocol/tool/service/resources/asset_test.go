@@ -334,3 +334,25 @@ func TestAssetCanceledAndInputLimit(t *testing.T) {
 	_, err = s.downloadResource(ctx, "file://"+file)
 	require.ErrorContains(t, err, "input byte limit")
 }
+
+func TestCopyOriginalWorkbookPreservesExactBytesAndAllSheets(t *testing.T) {
+	ctx := assetContext(t)
+	s := New(nil)
+	original := workbookFixture(t)
+	uri := publishFixture(t, ctx, "owned.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", original)
+	var out ExportOutput
+	require.NoError(t, s.exportAsset(ctx, &ExportInput{URI: uri, Operation: "copy", Output: ExportFormat{Format: "original"}}, &out))
+	require.True(t, out.Complete)
+	require.Empty(t, out.Warnings)
+	require.Len(t, out.Resources, 1)
+	copied, err := scratchpadsvc.New().ReadArtifactPayload(ctx, out.Resources[0].URI)
+	require.NoError(t, err)
+	require.Equal(t, original, copied)
+	workbook, err := excelize.OpenReader(bytes.NewReader(copied))
+	require.NoError(t, err)
+	defer workbook.Close()
+	require.Equal(t, []string{"Customers", "Orders"}, workbook.GetSheetList())
+	originalAgain, err := scratchpadsvc.New().ReadArtifactPayload(ctx, uri)
+	require.NoError(t, err)
+	require.Equal(t, original, originalAgain)
+}

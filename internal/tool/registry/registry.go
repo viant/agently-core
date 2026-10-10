@@ -26,6 +26,7 @@ import (
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	"github.com/viant/agently-core/internal/logx"
+	"github.com/viant/agently-core/internal/tool/dispatchpayload"
 	tmatch "github.com/viant/agently-core/internal/tool/matcher"
 	transform "github.com/viant/agently-core/internal/transform"
 	exportrequestmodel "github.com/viant/agently-core/model/exportrequest"
@@ -515,7 +516,7 @@ func (r *Registry) Definitions() []llm.ToolDefinition {
 	return r.DefinitionsWithContext(context.Background())
 }
 
-func (r *Registry) DefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
+func (r *Registry) rawDefinitionsWithContext(ctx context.Context) []llm.ToolDefinition {
 	ctx = r.discoveryLookupContext(ctx)
 	var defs []llm.ToolDefinition
 	// Always include virtual tools.
@@ -611,7 +612,7 @@ func (r *Registry) MatchDefinitionWithContext(ctx context.Context, pattern strin
 // discovery failures. The legacy matcher intentionally discards the error for
 // best-effort catalogue consumers; required tool-bundle resolution uses this
 // method so delegated OAuth can reach the API/UI as a typed outcome.
-func (r *Registry) MatchDefinitionWithContextResult(ctx context.Context, pattern string) ([]*llm.ToolDefinition, error) {
+func (r *Registry) rawMatchDefinitionWithContextResult(ctx context.Context, pattern string) ([]*llm.ToolDefinition, error) {
 	ctx = r.discoveryLookupContext(ctx)
 	ctx, cancel := r.withDiscoveryTimeout(ctx)
 	defer func() {
@@ -730,7 +731,7 @@ func (r *Registry) GetDefinition(name string) (*llm.ToolDefinition, bool) {
 	return r.GetDefinitionWithContext(context.Background(), name)
 }
 
-func (r *Registry) GetDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
+func (r *Registry) GetRawDefinitionWithContext(ctx context.Context, name string) (*llm.ToolDefinition, bool) {
 	// Lightweight debug hook to trace how tool definitions are resolved.
 	r.mu.RLock()
 	if def, ok := r.virtualDefs[name]; ok {
@@ -928,7 +929,17 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	h, ok := r.virtualExec[baseName]
 	r.mu.RUnlock()
 	if ok && !hostScoped {
-		out, err := h(ctx, callArgs)
+		executionArgs, sanitize, resolveErr := dispatchpayload.ResolveDispatchPayload(ctx, baseName, callArgs)
+		if resolveErr != nil {
+			return "", resolveErr
+		}
+		out, err := h(ctx, executionArgs)
+		out = sanitize(out)
+		if err != nil {
+			if safeError := sanitize(err.Error()); safeError != err.Error() {
+				err = errors.New(safeError)
+			}
+		}
 		if err != nil || selector == "" {
 			return out, err
 		}
@@ -974,7 +985,17 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		r.mu.RLock()
 		if e, ok := r.cache[baseName]; ok && e.exec != nil && !requestScopedAuth {
 			r.mu.RUnlock()
-			out, err := e.exec(ctx, callArgs)
+			executionArgs, sanitize, resolveErr := dispatchpayload.ResolveDispatchPayload(ctx, baseName, callArgs)
+			if resolveErr != nil {
+				return "", resolveErr
+			}
+			out, err := e.exec(ctx, executionArgs)
+			out = sanitize(out)
+			if err != nil {
+				if safeError := sanitize(err.Error()); safeError != err.Error() {
+					err = errors.New(safeError)
+				}
+			}
 			if err != nil || selector == "" {
 				return out, err
 			}
@@ -994,6 +1015,19 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	var options []mcpclient.RequestOption
 	if r.mgr != nil {
 		ctx = r.mgr.WithAuthTokenContext(ctx, server)
+	}
+	method := literalMethod
+	if method == "" {
+		_, method = splitToolName(baseName)
+	}
+	outputPolicy, policyErr := r.outputArtifactPolicy(ctx, server, method)
+	if policyErr != nil {
+		return "", policyErr
+	}
+	if outputPolicy != nil {
+		var closeCapture func()
+		ctx, closeCapture = dispatchpayload.WithState(ctx)
+		defer closeCapture()
 	}
 	if r.isDelegatedAuthServer(ctx, server) {
 		// Delegated servers resolve credentials through the manager-installed
@@ -1031,6 +1065,9 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		cli, err = r.mgr.Get(ctx, convID, server)
 	}
 	if err != nil {
+		if outputPolicy != nil {
+			return "", errors.New("output artifact dispatch failed")
+		}
 		debugMCPExecf("registry client get error server=%s base=%s elapsed=%s err=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), err)
 		return "", mcpauth.WrapError(err)
 	}
@@ -1051,7 +1088,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	keyArgs, _ := json.Marshal(callArgs)
 	recentKey := userID + "|" + baseName + "|" + selector + "|" + string(keyArgs)
 	var activeRecent *recentCall
-	if !protected && !mcpapps.Active(ctx) && r.recentTTL > 0 {
+	if !protected && !mcpapps.Active(ctx) && r.recentTTL > 0 && outputPolicy == nil && !dispatchpayload.HasArtifactReference(callArgs) && !dispatchpayload.Active(ctx) {
 		call, owner, out, err, handled := r.beginRecentCall(ctx, convID, recentKey)
 		if handled {
 			return out, err
@@ -1071,16 +1108,13 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		debugMCPExecf("registry proxy error server=%s base=%s elapsed=%s err=%v", server, baseName, time.Since(execStart).Round(time.Millisecond), err)
 		return "", err
 	}
-	if mcpapps.Active(ctx) {
+	artifactDispatch := dispatchpayload.HasArtifactReference(callArgs) || dispatchpayload.Active(ctx) || outputPolicy != nil
+	if mcpapps.Active(ctx) || artifactDispatch {
 		options = append(options, mcpclient.WithNoRetry())
 	}
 	maxAttempts := 3 // initial + 2 retries
-	if protected || mcpapps.Active(ctx) {
+	if protected || mcpapps.Active(ctx) || artifactDispatch {
 		maxAttempts = 1
-	}
-	method := literalMethod
-	if method == "" {
-		_, method = splitToolName(baseName)
 	}
 	appBinding, appActivity, appErr := r.resolveMCPAppBinding(ctx, server, method)
 	if appErr != nil {
@@ -1090,10 +1124,82 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		attemptStart := time.Now()
 		debugMCPExecf("registry calltool start server=%s base=%s attempt=%d argsBytes=%d", server, baseName, attempt+1, len(keyArgs))
+		executionArgs, sanitize, resolveErr := dispatchpayload.ResolveDispatchPayload(ctx, baseName, callArgs)
+		if resolveErr != nil {
+			return "", resolveErr
+		}
+		dispatchClient := cli
+		finishDispatch := func() {}
+		if artifactDispatch {
+			if r.mgr == nil {
+				return "", errors.New("artifact payload isolated session unavailable")
+			}
+			isolated, ok := r.mgr.(interface {
+				NewSensitiveClient(context.Context, string, string) (mcpclient.Interface, error)
+			})
+			if !ok {
+				return "", errors.New("artifact payload isolated session unavailable")
+			}
+			if existing, ok := dispatchpayload.Session(ctx, server); ok {
+				dispatchClient = existing.(mcpclient.Interface)
+			} else {
+				dispatchClient, err = isolated.NewSensitiveClient(ctx, convID, server)
+				if err != nil {
+					if outputPolicy != nil {
+						return "", errors.New("output artifact dispatch failed")
+					}
+					return "", err
+				}
+				closeSession := func() {
+					if closer, ok := dispatchClient.(interface{ Close() }); ok {
+						closer.Close()
+					}
+				}
+				if !dispatchpayload.StoreSession(ctx, server, dispatchClient, closeSession) {
+					finishDispatch = closeSession
+				}
+			}
+
+		}
 		if resolvedIdentity {
-			res, err = cli.CallTool(ctx, &mcpschema.CallToolRequestParams{Name: literalMethod, Arguments: callArgs}, options...)
+			res, err = dispatchClient.CallTool(ctx, &mcpschema.CallToolRequestParams{Name: literalMethod, Arguments: executionArgs}, options...)
+		} else if dispatchClient != cli {
+			artifactProxy, proxyErr := mcpproxy.NewProxy(ctx, server, dispatchClient)
+			if proxyErr != nil {
+				finishDispatch()
+				return "", proxyErr
+			}
+			res, err = artifactProxy.CallTool(ctx, baseName, executionArgs, options...)
 		} else {
-			res, err = px.CallTool(ctx, baseName, callArgs, options...)
+			res, err = px.CallTool(ctx, baseName, executionArgs, options...)
+		}
+		finishDispatch()
+		if outputPolicy != nil {
+			if err != nil {
+				return "", errors.New("output artifact dispatch failed")
+			}
+			res, err = captureOutputArtifacts(ctx, res, outputPolicy)
+			if err != nil {
+				return "", err
+			}
+		}
+		if err != nil {
+			if safeError := sanitize(err.Error()); safeError != err.Error() {
+				err = errors.New(safeError)
+			}
+		}
+		if res != nil && res.ResultType == mcpschema.ResultTypeInputRequired && (dispatchpayload.HasArtifactReference(callArgs) || dispatchpayload.Active(ctx)) {
+			return "", errors.New("artifact payload tool continuation requires a new reviewed request; opaque state is not retained")
+		}
+		if res != nil {
+			rawResult, encodeErr := json.Marshal(res)
+			if encodeErr != nil {
+				return "", errors.New("tool result serialization failed")
+			}
+			safeResult := sanitize(string(rawResult))
+			if safeResult != string(rawResult) {
+				return "", errors.New("tool result contained an artifact payload echo")
+			}
 		}
 		debugMCPExecf("registry calltool done server=%s base=%s attempt=%d elapsed=%s err=%v nilResult=%v", server, baseName, attempt+1, time.Since(attemptStart).Round(time.Millisecond), err, res == nil)
 		if err == nil {

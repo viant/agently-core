@@ -15,8 +15,6 @@ import (
 	runread "github.com/viant/agently-core/internal/datly/run/read"
 	toolread "github.com/viant/agently-core/internal/datly/toolcall/read"
 	turnread "github.com/viant/agently-core/internal/datly/turn/read"
-	agentrun "github.com/viant/agently-core/internal/store/agentrun"
-	convturn "github.com/viant/agently-core/internal/store/conversation"
 
 	"github.com/viant/agently-core/internal/datly/dbtime"
 	"github.com/viant/bindly/locator"
@@ -31,6 +29,9 @@ var ErrConversationActive = errors.New("conversation is still in progress")
 type RunEvidence struct {
 	Current []*runread.RunRowsView
 	Legacy  []*legacyread.LegacyRun
+	// Includes dangling references; deleting the referenced run must not race
+	// another writer merely because no matching row was returned by the reader.
+	ReferencedIDs []string
 }
 
 var modelReaderTarget = dexec.ComponentTarget{
@@ -49,6 +50,10 @@ var legacyReaderTarget = dexec.ComponentTarget{
 // CollectRunEvidence follows all current-run links used by the legacy graph
 // policy and reads legacy schedule-run rows. It requires an authorized graph.
 func (d *Discoverer) CollectRunEvidence(ctx context.Context, graph *Graph) (*RunEvidence, error) {
+	return d.collectRunEvidence(ctx, graph, nil)
+}
+
+func (d *Discoverer) collectRunEvidence(ctx context.Context, graph *Graph, turns []*turnread.TurnRowsView) (*RunEvidence, error) {
 	if d == nil || d.Invoker == nil || d.OwnerID == nil {
 		return nil, fmt.Errorf("conversation graph reader is not configured")
 	}
@@ -68,11 +73,15 @@ func (d *Discoverer) CollectRunEvidence(ctx context.Context, graph *Graph) (*Run
 		}
 	}
 	conversationIDs, legacyIDs = normalizeIDs(conversationIDs), normalizeIDs(legacyIDs)
-	turnInput := &turnread.TurnRowsInput{}
-	turnInput.SetConversationIDs(conversationIDs)
-	turnRows, err := (&convturn.TurnStore{Invoker: d.Invoker}).ListRows(ctx, turnInput, deleteSelectors("id", "run_id"))
-	if err != nil {
-		return nil, err
+	turnRows := turns
+	if turnRows == nil {
+		turnInput := &turnread.TurnRowsInput{}
+		turnInput.SetConversationIDs(conversationIDs)
+		var err error
+		turnRows, err = d.turnRows(ctx, turnInput, deleteSelectors("id", "run_id"))
+		if err != nil {
+			return nil, err
+		}
 	}
 	turnIDs, explicitRunIDs := []string{}, []string{}
 	for _, row := range turnRows {
@@ -98,7 +107,7 @@ func (d *Discoverer) CollectRunEvidence(ctx context.Context, graph *Graph) (*Run
 		explicitRunIDs = append(explicitRunIDs, toolRuns...)
 	}
 	explicitRunIDs = normalizeIDs(explicitRunIDs)
-	runStore := &agentrun.Store{Invoker: d.Invoker, OwnerID: d.OwnerID}
+	evidence.ReferencedIDs = explicitRunIDs
 	currentByID := map[string]*runread.RunRowsView{}
 	byConversation := &runread.RunRowsInput{}
 	byConversation.SetConversationIds(conversationIDs)
@@ -114,7 +123,7 @@ func (d *Discoverer) CollectRunEvidence(ctx context.Context, graph *Graph) (*Run
 		runQueries = append(runQueries, byID)
 	}
 	for _, query := range runQueries {
-		rows, err := runStore.ListTrusted(ctx, "rows", query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: RunEvidenceFields()}}})
+		rows, err := ReadCleanupRuns(ctx, d.Invoker, query, false)
 		if err != nil {
 			return nil, err
 		}
@@ -166,37 +175,15 @@ func (d *Discoverer) CollectRunEvidence(ctx context.Context, graph *Graph) (*Run
 }
 
 func (d *Discoverer) callRunIDs(ctx context.Context, turnIDs []string, model bool) ([]string, error) {
-	owner := strings.TrimSpace(d.OwnerID(ctx))
-	kind := "toolcallaccess"
-	if model {
-		kind = "modelcallaccess"
-	}
-	providers := []locator.Provider{
-		provider.Named(kind, func(_ context.Context, _ reflect.Type, name string) (any, bool, error) {
-			switch name {
-			case "internal":
-				return true, true, nil
-			case "mode":
-				return "rows", true, nil
-			}
-			return nil, false, nil
-		}),
-		provider.Named("visibility", func(context.Context, reflect.Type, string) (any, bool, error) { return &owner, true, nil }),
-		queryselectors.Provider(state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"message_id", "turn_id", "run_id"}}}}),
-	}
 	result := []string{}
 	if model {
 		input := &modelread.ModelCallsInput{}
 		input.SetTurnIds(turnIDs)
-		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: modelReaderTarget, Input: input, Providers: providers})
+		rows, err := d.modelRows(ctx, input, "message_id", "turn_id", "run_id")
 		if err != nil {
 			return nil, err
 		}
-		out, ok := value.(*modelread.ModelCallsOutput)
-		if !ok || out == nil {
-			return nil, fmt.Errorf("model call reader returned %T", value)
-		}
-		for _, row := range out.Data {
+		for _, row := range rows {
 			if row != nil && row.RunId != nil {
 				result = append(result, *row.RunId)
 			}
@@ -204,15 +191,11 @@ func (d *Discoverer) callRunIDs(ctx context.Context, turnIDs []string, model boo
 	} else {
 		input := &toolread.ToolCallsInput{}
 		input.SetTurnIds(turnIDs)
-		value, err := d.Invoker.InvokeComponent(ctx, dexec.ComponentRequest{Target: toolReaderTarget, Input: input, Providers: providers})
+		rows, err := d.toolRows(ctx, input, "message_id", "turn_id", "run_id")
 		if err != nil {
 			return nil, err
 		}
-		out, ok := value.(*toolread.ToolCallsOutput)
-		if !ok || out == nil {
-			return nil, fmt.Errorf("tool call reader returned %T", value)
-		}
-		for _, row := range out.Data {
+		for _, row := range rows {
 			if row != nil && row.RunId != nil {
 				result = append(result, *row.RunId)
 			}
@@ -314,7 +297,7 @@ func (d *Discoverer) CollectInitialRunIDs(ctx context.Context, graph *Graph) ([]
 	conversationIDs := sortedMapKeys(graph.Nodes)
 	query := &turnread.TurnRowsInput{}
 	query.SetConversationIDs(conversationIDs)
-	turns, err := (&convturn.TurnStore{Invoker: d.Invoker}).ListRows(ctx, query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id", "run_id"}}}})
+	turns, err := d.turnRows(ctx, query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id", "run_id"}}}})
 	if err != nil {
 		return nil, err
 	}
@@ -345,7 +328,7 @@ func (d *Discoverer) CollectInitialRunIDs(ctx context.Context, graph *Graph) ([]
 		}
 	}
 	for _, query := range runQueries {
-		rows, err := (&agentrun.Store{Invoker: d.Invoker, OwnerID: d.OwnerID}).ListTrusted(ctx, "rows", query, state.Selectors{&state.NamedSelector{Name: "reader", Selector: state.Selector{Fields: []string{"id"}}}})
+		rows, err := ReadCleanupRuns(ctx, d.Invoker, query, false)
 		if err != nil {
 			return nil, err
 		}

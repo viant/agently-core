@@ -1,0 +1,27 @@
+#package('github.com/viant/agently-core/internal/datly/message/cleanup/read')
+#setting($_ = $connector('agently'))
+#setting($_ = $internal(true))
+#setting($_ = $route('/v1/internal/agently/message/cleanup','GET'))
+#setting($_ = $input_type('Input'))
+#setting($_ = $output_type('Output'))
+#setting($_ = $case_format('lc'))
+#define($_ = $Trusted<bool>(messagecleanupscope/internal).Required())
+#define($_ = $IDs<[]string>(query/iDs).Optional().WithPredicate(0,'in','t','id'))
+#define($_ = $ConversationIDs<[]string>(query/conversationIDs).Optional().WithPredicate(0,'in','t','conversation_id'))
+#define($_ = $LinkedConversationIDs<[]string>(query/linkedConversationIDs).Optional().WithPredicate(0,'in','t','linked_conversation_id'))
+#define($_ = $ParentMessageIDs<[]string>(query/parentMessageIDs).Optional().WithPredicate(0,'in','t','parent_message_id'))
+#define($_ = $SupersededByIDs<[]string>(query/supersededByIDs).Optional().WithPredicate(0,'in','t','superseded_by'))
+#define($_ = $Data<[]*Message>(output/view))
+
+SELECT metadata.*,
+       type(metadata,'Message'),
+       required(metadata.id),
+       required(metadata.conversation_id),
+       row_lock(metadata,'message t','t.id'),
+       set_limit(metadata,0),
+       CAST(metadata.linked_conversation_id AS *string),
+       CAST(metadata.parent_message_id AS *string),
+       CAST(metadata.superseded_by AS *string),
+       CAST(metadata.attachment_payload_id AS *string),
+       CAST(metadata.elicitation_payload_id AS *string)
+FROM (${embed:sql/metadata.sql}) metadata

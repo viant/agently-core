@@ -75,3 +75,27 @@ func TestCSVAttachmentSurvivesTextOnlyExpandedPrompt(t *testing.T) {
 	require.Equal(t, llm.ContentTypeText, original.Items[0].Type)
 	require.Contains(t, original.Items[0].Text, "2026-09-09,300")
 }
+
+func TestExpandedPromptPreservesVerifiedUploadedResourceReference(t *testing.T) {
+	attachment := &binding.Attachment{Name: "owned.xlsx", URI: "/v1/files/owned", ResourceURI: "scratchpad://artifact/owned", Data: []byte("owned bytes"), Mime: "application/octet-stream"}
+	message := newExpandedUserLLMMessage("Export workbook", []*binding.Attachment{attachment}, "user")
+	require.Contains(t, message.Content, "scratchpad://artifact/owned")
+	require.NotContains(t, message.Content, "owned bytes")
+	for _, item := range message.Items {
+		require.Equal(t, llm.ContentTypeText, item.Type)
+	}
+	require.Equal(t, "user", message.ID)
+}
+
+func TestOrderedPromptPreservesVerifiedUploadedResourceReference(t *testing.T) {
+	attachment := &binding.Attachment{Name: "book.xlsx", Mime: "application/octet-stream", ResourceURI: "scratchpad://artifact/workbook", Data: []byte("workbook bytes")}
+	items := []llm.ContentItem{llm.NewTextContent("Use workbook"), llm.NewBinaryContent(attachment.Data, attachment.Mime, attachment.Name)}
+	messages := historyLLMMessagesWithExpandedCurrentPrompt(nil, "Use workbook", []*binding.Attachment{attachment}, items)
+	require.Len(t, messages, 1)
+	require.Contains(t, messages[0].Content, attachment.ResourceURI)
+	require.Len(t, messages[0].Items, 2)
+	require.Contains(t, messages[0].Items[1].Text, attachment.ResourceURI)
+	historyMessage := (&binding.Message{Role: "user", Content: "Use workbook", Attachment: []*binding.Attachment{attachment}, ContentItems: items}).ToLLM()
+	require.Len(t, historyMessage.Items, 2)
+	require.Contains(t, historyMessage.Items[1].Text, attachment.ResourceURI)
+}

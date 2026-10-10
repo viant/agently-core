@@ -47,6 +47,10 @@ func (h *Handler) canSample() bool {
 }
 
 func (h *Handler) CreateMessage(ctx context.Context, request *jsonrpc.TypedRequest[*mcpschema.CreateMessageRequest]) (*mcpschema.CreateMessageResult, *jsonrpc.Error) {
+	if h.sensitivePayloadCalls.Load() > 0 {
+		return nil, jsonrpc.NewInvalidRequest("server callback unavailable during artifact payload dispatch", nil)
+	}
+
 	if !h.canSample() {
 		return nil, jsonrpc.NewInternalError("sampling/createMessage model is not configured", nil)
 	}

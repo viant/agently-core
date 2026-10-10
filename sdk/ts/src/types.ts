@@ -178,6 +178,8 @@ export interface GetTranscriptInput {
     conversationId: string;
     since?: string;
     includeModelCalls?: boolean;
+    /** False omits model payload bodies while preserving model metadata and IDs. */
+    includeModelPayloads?: boolean;
     includeToolCalls?: boolean;
     /** Include resolved tool feed data in the response. */
     includeFeeds?: boolean;
@@ -595,6 +597,7 @@ export interface QueryInput {
 }
 
 export interface QueryAttachment {
+    resource?: UploadFileOutput['resource'];
     name: string;
     uri: string;
     size?: number;

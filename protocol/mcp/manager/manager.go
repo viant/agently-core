@@ -467,6 +467,13 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 		handler = func() protoclient.Handler { return nil }
 	}
 	h := handler()
+	if sensitive, _ := ctx.Value(sensitiveSessionKey{}).(bool); sensitive {
+		fence, ok := h.(interface{ BeginSensitivePayload() func() })
+		if !ok {
+			return nil, fmt.Errorf("artifact dispatch callback fence unavailable")
+		}
+		fence.BeginSensitivePayload() // session-owned: released only by session destruction
+	}
 	// If handler supports setting conversation id, assign it.
 	if ca, ok := h.(interface{ SetConversationID(string) }); ok {
 		ca.SetConversationID(convID)
@@ -608,7 +615,8 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 		authorizer := auth.NewAuthorizer(clientRT)
 		mcpclient.WithAuthInterceptor(authorizer)(cli)
 	}
-	return cli, nil
+	fence, _ := h.(interface{ BeginSensitivePayload() func() })
+	return &sensitiveClient{Client: cli, callback: fence}, nil
 }
 
 func closeClientBestEffort(client mcpclient.Interface) {

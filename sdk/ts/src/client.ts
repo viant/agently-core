@@ -113,6 +113,15 @@ type APIResponse = JSONValue | undefined;
 
 // ─── Client ────────────────────────────────────────────────────────────────────
 
+function isLegacyCompactPayloadSchemaRejection(error: unknown): boolean {
+    if (!(error instanceof HttpError) || error.status !== 400) return false;
+    const body = error.body;
+    return body.includes('invalidEnvelope')
+        && body.includes('conversation-v1.schema.json')
+        && /additional\s*properties?/i.test(body)
+        && body.includes('includeModelPayloads');
+}
+
 export class AgentlyClient {
     private baseURL: string;
     private tokenProvider?: TokenProvider;
@@ -280,8 +289,9 @@ export class AgentlyClient {
     }
 
     /** Get a single conversation by ID. */
-    async getConversation(id: string): Promise<Conversation> {
-        return conversationDTO(await this.get<Conversation>(`/conversations/${enc(id)}`));
+    async getConversation(id: string, options?: {includeTranscript?: boolean}): Promise<Conversation> {
+        const query = options?.includeTranscript === false ? '?includeTranscript=false' : '';
+        return conversationDTO(await this.get<Conversation>(`/conversations/${enc(id)}${query}`));
     }
 
     /** Update mutable conversation fields such as visibility and shareability. */
@@ -359,6 +369,7 @@ export class AgentlyClient {
         const q = new URLSearchParams();
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
+        if (input.includeModelPayloads !== undefined) q.set('includeModelPayloads', String(input.includeModelPayloads));
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
         if (input.includeFeeds) q.set('includeFeeds', 'true');
         const selectors = { ...(options?.selectors ?? {}) } as Record<string, QuerySelector>;
@@ -390,6 +401,7 @@ export class AgentlyClient {
     async readApplicationState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
         const q = new URLSearchParams();
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
+        if (input.includeModelPayloads !== undefined) q.set('includeModelPayloads', String(input.includeModelPayloads));
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
         if (input.includeFeeds) q.set('includeFeeds', 'true');
         if (options?.selectors && Object.keys(options.selectors).length > 0) {
@@ -410,18 +422,20 @@ export class AgentlyClient {
         try { return await this.agUiInteractions.readSnapshot(input.conversationId, {
             mode:'transcript', since:input.since, includeModelCalls:input.includeModelCalls === true,
             includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
+            includeModelPayloads:input.includeModelPayloads,
             selectors:this.transcriptSelectors(options),
         }); }
-        catch (error) { if ((error as {status?:number})?.status === 403) return this.readConversationHistory(input, options); throw error; }
+        catch (error) { if ((error as {status?:number})?.status === 403 || input.includeModelPayloads === false && isLegacyCompactPayloadSchemaRejection(error)) return this.readConversationHistory(input, options); throw error; }
     }
 
     async getLiveState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
         try { return await this.agUiInteractions.readSnapshot(input.conversationId, {
             mode:'live', includeModelCalls:input.includeModelCalls === true,
             includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
+            includeModelPayloads:input.includeModelPayloads,
             selectors:this.transcriptSelectors(options),
         }); }
-        catch (error) { if ((error as {status?:number})?.status === 403) return this.readApplicationState(input, options); throw error; }
+        catch (error) { if ((error as {status?:number})?.status === 403 || input.includeModelPayloads === false && isLegacyCompactPayloadSchemaRejection(error)) return this.readApplicationState(input, options); throw error; }
     }
 
     // ── Query ────────────────────────────────────────────────────────────────

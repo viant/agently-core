@@ -6,12 +6,43 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+	childdelete "github.com/viant/agently-core/internal/datly/conversation/children/delete"
 	investigationread "github.com/viant/agently-core/internal/datly/investigation/read"
 	investigationwrite "github.com/viant/agently-core/internal/datly/investigation/write"
 	artifactread "github.com/viant/agently-core/internal/datly/reporting/artifact/read"
 	artifactwrite "github.com/viant/agently-core/internal/datly/reporting/artifact/write"
 	dexec "github.com/viant/datly/exec"
 )
+
+func TestChildDeletionBatchesNormalizeKeysAndStopOnFailure(t *testing.T) {
+	for _, fail := range []bool{false, true} {
+		calls := 0
+		m := &Mutator{OwnerID: func(context.Context) string { return "caller" }, Invoker: mutationTestInvoker(func(_ context.Context, request dexec.ComponentRequest) (any, error) {
+			calls++
+			input := request.Input.(*childdelete.Input)
+			require.Equal(t, "message", input.Table)
+			require.Len(t, input.IDs, map[int]int{1: 400, 2: 1}[calls])
+			require.Equal(t, childdelete.Path, request.Target.Route.Path)
+			require.Len(t, request.Providers, 2)
+			if fail && calls == 2 {
+				return nil, fmt.Errorf("second batch failed")
+			}
+			return &childdelete.Output{}, nil
+		})}
+		ids := []string{"", "key-000"}
+		for i := 0; i < 401; i++ {
+			ids = append(ids, fmt.Sprintf("key-%03d", i))
+		}
+		err := m.deleteChildren(context.Background(), "message", ids)
+		if fail {
+			require.ErrorContains(t, err, "second batch failed")
+		} else {
+			require.NoError(t, err)
+		}
+		require.Equal(t, 2, calls)
+	}
+}
 
 type mutationTestInvoker func(context.Context, dexec.ComponentRequest) (any, error)
 
