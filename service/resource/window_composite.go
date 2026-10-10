@@ -64,12 +64,19 @@ func (c *CompositeWindowCatalog) List(ctx context.Context, input *service.Window
 	query := input.Query
 	out := []service.WindowDefinitionSummary{}
 	seen := map[string]bool{}
-	appendCatalog := func(catalog service.WindowDefinitionCatalog) error {
+	appendCatalog := func(catalog service.WindowDefinitionCatalog, excludedOwner string) error {
 		if catalog == nil {
 			return nil
 		}
 		for offset := 0; offset < 10000; offset += 100 {
-			page, e := catalog.List(ctx, &service.WindowDefinitionListInput{Query: query, Offset: offset, Limit: 100})
+			request := &service.WindowDefinitionListInput{Query: query, Offset: offset, Limit: 100}
+			var page *service.WindowDefinitionListOutput
+			var e error
+			if remote, ok := catalog.(*WindowCatalog); ok && excludedOwner != "" {
+				page, e = remote.listExcludingLocalProvider(ctx, request, excludedOwner)
+			} else {
+				page, e = catalog.List(ctx, request)
+			}
 			if e != nil {
 				return e
 			}
@@ -77,6 +84,9 @@ func (c *CompositeWindowCatalog) List(ctx context.Context, input *service.Window
 				return identity.ErrResource
 			}
 			for _, row := range page.Windows {
+				if excludedOwner != "" && row.ProviderIdentity == excludedOwner {
+					return ErrCollision
+				}
 				key := row.ResourceURI
 				if key == "" {
 					key = row.WindowID
@@ -96,10 +106,14 @@ func (c *CompositeWindowCatalog) List(ctx context.Context, input *service.Window
 		}
 		return identity.ErrResource
 	}
-	if e := appendCatalog(c.Local); e != nil {
+	if e := appendCatalog(c.Local, ""); e != nil {
 		return nil, e
 	}
-	if e := appendCatalog(c.Remote); e != nil {
+	excludedOwner := ""
+	if c.Local != nil {
+		excludedOwner = c.LocalProviderIdentity
+	}
+	if e := appendCatalog(c.Remote, excludedOwner); e != nil {
 		return nil, e
 	}
 	start := input.Offset

@@ -440,6 +440,10 @@ type DiscoveredNamespace struct {
 }
 
 func (g *Gateway) Discover(ctx context.Context) ([]DiscoveredNamespace, error) {
+	return g.discoverExcept(ctx, "")
+}
+
+func (g *Gateway) discoverExcept(ctx context.Context, excludedLocal string) ([]DiscoveredNamespace, error) {
 	a, e := g.actor(ctx)
 	if e != nil {
 		return nil, e
@@ -451,7 +455,19 @@ func (g *Gateway) Discover(ctx context.Context) ([]DiscoveredNamespace, error) {
 	sort.Strings(names)
 	out := []DiscoveredNamespace{}
 	owners := map[string]string{}
+	if excludedLocal != "" {
+		options, err := g.Manager.Options(ctx, excludedLocal)
+		if err != nil || options == nil || options.PrimitiveProviderIdentity == "" {
+			return nil, ErrCollision
+		}
+		// Reserve the known local owner even without contacting its endpoint.
+		// A different connection claiming that owner is still a collision.
+		owners[options.PrimitiveProviderIdentity] = excludedLocal
+	}
 	for _, name := range names {
+		if name == excludedLocal {
+			continue
+		}
 		c, e := g.discover(ctx, a, name)
 		if errors.Is(e, ErrUnavailable) {
 			continue
@@ -504,6 +520,28 @@ func operationMethod(c capabilities, namespace, kind, operation string) string {
 func plural(kind string) string { return primitive.Plural(kind) }
 
 func (g *Gateway) List(ctx context.Context, kind, namespace string) ([]LocatedResource, error) {
+	return g.listExcept(ctx, kind, namespace, "")
+}
+
+func (g *Gateway) listExcludingLocalProvider(ctx context.Context, kind, namespace, owner string) ([]LocatedResource, error) {
+	if owner == "" {
+		return g.List(ctx, kind, namespace)
+	}
+	names, err := g.Manager.LocalProviderNames(ctx, owner)
+	if err != nil {
+		return nil, err
+	}
+	if len(names) > 1 {
+		return nil, ErrCollision
+	}
+	excluded := ""
+	if len(names) == 1 {
+		excluded = names[0]
+	}
+	return g.listExcept(ctx, kind, namespace, excluded)
+}
+
+func (g *Gateway) listExcept(ctx context.Context, kind, namespace, excludedLocal string) ([]LocatedResource, error) {
 	if !identity.ValidResourceKind(kind) {
 		return nil, identity.ErrResource
 	}
@@ -511,7 +549,7 @@ func (g *Gateway) List(ctx context.Context, kind, namespace string) ([]LocatedRe
 	if e != nil {
 		return nil, e
 	}
-	discovered, e := g.Discover(ctx)
+	discovered, e := g.discoverExcept(ctx, excludedLocal)
 	if e != nil {
 		return nil, e
 	}

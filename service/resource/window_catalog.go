@@ -57,6 +57,10 @@ func (c *WindowCatalog) AuthzReady() bool {
 }
 func (c *WindowCatalog) UsesResourceResolution() bool { return true }
 func (c *WindowCatalog) List(ctx context.Context, input *service.WindowDefinitionListInput) (*service.WindowDefinitionListOutput, error) {
+	return c.listExcludingLocalProvider(ctx, input, "")
+}
+
+func (c *WindowCatalog) listExcludingLocalProvider(ctx context.Context, input *service.WindowDefinitionListInput, owner string) (*service.WindowDefinitionListOutput, error) {
 	if !c.AuthzReady() {
 		return nil, identity.ErrResourceDenied
 	}
@@ -66,7 +70,7 @@ func (c *WindowCatalog) List(ctx context.Context, input *service.WindowDefinitio
 	if input.Offset < 0 || input.Limit < 0 || input.Limit > 100 {
 		return nil, identity.ErrResource
 	}
-	rows, e := c.Gateway.List(ctx, "window", "")
+	rows, e := c.Gateway.listExcludingLocalProvider(ctx, "window", "", owner)
 	if e != nil {
 		return nil, e
 	}
