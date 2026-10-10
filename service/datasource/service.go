@@ -279,6 +279,9 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 			return nil, err
 		}
 	}
+	if err := validateExplicitPaging(&ds.DataSource); err != nil {
+		return nil, err
+	}
 	aliases, err := prepareResponseAliases(ds.ResponseAliases)
 	if err != nil {
 		return nil, fmt.Errorf("datasource %q: %w", ds.ID, err)
