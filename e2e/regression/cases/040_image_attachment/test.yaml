@@ -1,61 +1,83 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-image
+      email: e2e-image@example.test
   query:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "openai_responses_image_attachment - ask for dominant color"
+    description: openai_responses_image_attachment - ask for dominant color
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
-        JSONBody:
-          AgentID: simple
-          Query: What is the dominant color in the attached image? Answer with one word.
-          UserId: e2e-image
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 040_image_attachment-query
+        query:
+          agentID: simple
+          query: What is the dominant color in the attached image? Answer with one
+            word.
           attachments:
-            - name: red-dot.png
-              mime: image/png
-              data: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-          Body: /content:Red/
-
+          - name: red-dot.png
+            mime: image/png
+            data: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@identity.nativeConversationId': true
+          redColorWordValid: true
   attachmentMessage:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "openai_responses_image_attachment - attachment control message is persisted"
+    description: openai_responses_image_attachment - attachment control message is
+      persisted
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${query.Responses[0].JSONBody.conversationId}&roles=user&types=control
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows[0].AttachmentPayloadId": true
-            "@exists@Rows[0].Content": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${query.Responses[0].JSONBody.identity.nativeConversationId}&roles=user&types=control
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows[0].attachmentPayloadId': true
+          '@exists@Rows[0].content': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   attachmentPayload:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "openai_responses_image_attachment - payload metadata and inline body are retrievable"
+    description: openai_responses_image_attachment - payload metadata and inline body
+      are retrievable
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/api/payload/${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}?inline=1
-        Expect:
-          Code: 200
-          JSONBody:
-            Id: ${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}
-            MimeType: image/png
-            InlineBody: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC
-
+    - Method: GET
+      URL: ${authServerURL}/v1/api/payload/${attachmentMessage.Responses[0].JSONBody.Rows[0].attachmentPayloadId}?inline=1
+      Expect:
+        Code: 200
+        JSONBody:
+          Id: ${attachmentMessage.Responses[0].JSONBody.Rows[0].attachmentPayloadId}
+          MimeType: image/png
+          InlineBody: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   attachmentPayloadRaw:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "openai_responses_image_attachment - raw payload has PNG signature"
+    description: openai_responses_image_attachment - raw payload has PNG signature
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/api/payload/${attachmentMessage.Responses[0].JSONBody.Rows[0].AttachmentPayloadId}?raw=1
-        Expect:
-          Code: 200
-          Body: /PNG/
+    - Method: GET
+      URL: ${authServerURL}/v1/api/payload/${attachmentMessage.Responses[0].JSONBody.Rows[0].attachmentPayloadId}?raw=1
+      Expect:
+        Code: 200
+        Body: /PNG/
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

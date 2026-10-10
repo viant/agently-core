@@ -1,19 +1,32 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   capabilitySummaryAuto:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "multi agent selection - capability query auto-routes to selector"
+    description: multi agent selection - capability query auto-routes to selector
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 030_multi_agent_selection-capabilitySummaryAuto
+        query:
+          agentID: agent_selector
+          query: what can you do agent?
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: agent_selector
-          Query: what can you do agent?
-          UserId: e2e-test
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@messageId": true
+          '@exists@identity.nativeConversationId': true
+          '@exists@rootTurn.assistant.final.messageId': true

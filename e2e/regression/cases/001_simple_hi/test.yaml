@@ -1,19 +1,32 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   simpleHi:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "agent simple conversation - hi"
+    description: agent simple conversation - hi
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 001_simple_hi-simpleHi
+        query:
+          agentID: simple
+          query: Hi, how are you?
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: "simple"
-          Query: "Hi, how are you?"
-          UserId: "e2e-test"
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@content": true
+          '@exists@identity.nativeConversationId': true
+          '@exists@assistantText': true

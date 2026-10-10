@@ -1,60 +1,83 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-prompt-accept
+      email: e2e-prompt-accept@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt accept - create conversation"
+    description: tool approval prompt accept - create conversation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: approval_prompt_probe
+        Title: prompt-approval-accept-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: approval_prompt_probe
-          Title: prompt-approval-accept-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   startPromptQuery:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt accept - start query (elicitation will appear)"
+    description: tool approval prompt accept - start query (elicitation will appear)
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 062_tool_approval_prompt_accept-startPromptQuery
+        query:
+          conversationID: ${createConversation.Responses[0].JSONBody.id}
+          agentID: approval_prompt_probe
+          query: run the approval test tool
+      Expect:
+        Code: 200
         JSONBody:
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          AgentID: approval_prompt_probe
-          UserId: e2e-prompt-accept
-          Query: run the approval test tool
-
+          outcome:
+            type: interrupt
   waitForElicitation:
     when: $sdkKey != ''
     action: nop
     sleepTimeMs: 3000
-
   listPendingElicitations:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt accept - verify tool_approval elicitation appeared"
+    description: tool approval prompt accept - verify tool_approval elicitation appeared
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/elicitations?conversationId=${createConversation.Responses[0].JSONBody.Id}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@rows[0]": true
-            "@exists@rows[0].elicitationId": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/elicitations?conversationId=${createConversation.Responses[0].JSONBody.id}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@rows[0]': true
+          '@exists@rows[0].elicitationId': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   acceptToolApproval:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "tool approval prompt accept - accept the tool approval elicitation"
+    description: tool approval prompt accept - accept the tool approval elicitation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/elicitations/${createConversation.Responses[0].JSONBody.Id}/${listPendingElicitations.Responses[0].JSONBody.rows[0].elicitationId}/resolve
-        JSONBody:
-          action: accept
-        Expect:
-          Code: 200
+    - Method: POST
+      URL: ${authServerURL}/v1/elicitations/${createConversation.Responses[0].JSONBody.id}/${listPendingElicitations.Responses[0].JSONBody.rows[0].elicitationId}/resolve
+      JSONBody:
+        action: accept
+      Expect:
+        Code: 200
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

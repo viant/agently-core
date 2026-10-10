@@ -1,35 +1,51 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-stage-elicitation
+      email: e2e-stage-elicitation@example.test
   queryDeferredElicitation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "conversation stage elicitation - query should open deferred elicitation"
+    description: conversation stage elicitation - query should open deferred elicitation
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 046_conversation_stage_elicitation-queryDeferredElicitation
+        query:
+          agentID: elicitation_favorite_color
+          query: describe my favourite color in 3 sentences
+          elicitationMode: deferred
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: elicitation_favorite_color
-          UserId: e2e-stage-elicitation
-          Query: describe my favourite color in 3 sentences
-          ElicitationMode: deferred
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@plan.elicitation.elicitationId": true
-
+          '@exists@identity.nativeConversationId': true
+          '@exists@rootTurn.elicitation.elicitationId': true
   getConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "conversation stage elicitation - conversation and latest turn should be elicitation"
+    description: conversation stage elicitation - conversation and latest turn should
+      be elicitation
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${queryDeferredElicitation.Responses[0].JSONBody.conversationId}
-        Expect:
-          Code: 200
-          JSONBody:
-            Id: ${queryDeferredElicitation.Responses[0].JSONBody.conversationId}
-            Stage: elicitation
-            Transcript:
-              - Stage: elicitation
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/${queryDeferredElicitation.Responses[0].JSONBody.identity.nativeConversationId}
+      Expect:
+        Code: 200
+        JSONBody:
+          id: ${queryDeferredElicitation.Responses[0].JSONBody.identity.nativeConversationId}
+          stage: elicitation
+          transcript:
+          - stage: elicitation
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

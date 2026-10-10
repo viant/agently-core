@@ -1,31 +1,46 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-test
+      email: e2e-test@example.test
   query:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "chains - parent query triggers child"
+    description: chains - parent query triggers child
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 008_chains-query
+        query:
+          agentID: chain_parent
+          query: What are the three primary colors?
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: chain_parent
-          Query: What are the three primary colors?
-          UserId: e2e-test
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@content": true
-
+          '@exists@identity.nativeConversationId': true
+          '@exists@assistantText': true
   getMessages:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "chains - verify child response in messages"
+    description: chains - verify child response in messages
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${query.Responses[0].JSONBody.conversationId}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Rows": true
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${query.Responses[0].JSONBody.identity.nativeConversationId}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@Rows': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

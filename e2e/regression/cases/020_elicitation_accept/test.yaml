@@ -1,74 +1,93 @@
 pipeline:
-  queryForAccept:
-    when: $sdkKey != ''
+  mintToken:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-elicitation-accept
+      email: e2e-elicitation-accept@example.test
+  canonical020:
     action: http/runner:send
-    description: "elicitation accept - query should create elicitation"
+    TimeoutMs: 240000
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Authorization: ["Bearer ${mintToken.TokenString}"]
+      JSONBody:
+        target: ${authServerURL}
+        probeId: canonical-focused-020
+        query:
+          agentId: elicitation_favorite_color
+          query: describe my favourite color in 3 sentences
+          elicitationMode: deferred
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: elicitation_favorite_color
-          UserId: e2e-elicitation-accept
-          Query: describe my favourite color in 3 sentences
-          ElicitationMode: deferred
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@plan.elicitation.elicitationId": true
-
-  verifyTranscriptElicitationShape:
-    when: $sdkKey != ''
+          "@exists@identity.nativeConversationId": true
+          "@exists@transcript.conversation.turns[0].elicitation.elicitationId": true
+          outcome:
+            type: interrupt
+          http:
+            - method: POST
+              path: /v1/conversations
+              statusCode: 200
+            - method: GET
+              statusCode: 200
+            - method: POST
+              path: /v1/ag-ui/run
+              statusCode: 200
+            - method: GET
+              statusCode: 200
+          "@exists@events[0]": true
+  verifyStructuredElicitation:
     action: http/runner:send
-    description: "elicitation accept - transcript exposes structured elicitation instead of raw JSON content"
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${queryForAccept.Responses[0].JSONBody.conversationId}/transcript
-        Expect:
-          Code: 200
-          Body: /Please provide your favorite color so I can describe it in 3 sentences./
-
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/${canonical020.Responses[0].JSONBody.identity.nativeConversationId}/transcript
+      Header:
+        Authorization: ["Bearer ${mintToken.TokenString}"]
+      Expect:
+        Code: 200
+        Body: /Please provide your favorite color so I can describe it in 3 sentences./
   resolveAccept:
-    when: $sdkKey != ''
     action: http/runner:send
-    description: "elicitation accept - resolve with favoriteColor payload"
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/elicitations/${queryForAccept.Responses[0].JSONBody.conversationId}/${queryForAccept.Responses[0].JSONBody.plan.elicitation.elicitationId}/resolve
+    - Method: POST
+      URL: ${authServerURL}/v1/elicitations/${canonical020.Responses[0].JSONBody.identity.nativeConversationId}/${canonical020.Responses[0].JSONBody.transcript.conversation.turns[0].elicitation.elicitationId}/resolve
+      Header:
+        Authorization: ["Bearer ${mintToken.TokenString}"]
+      JSONBody:
+        action: accept
+        payload:
+          favoriteColor: blue
+      Expect:
+        Code: 200
         JSONBody:
-          action: accept
-          payload:
-            favoriteColor: blue
-        Expect:
-          Code: 200
-          JSONBody:
-            status: ok
-
+          status: ok
   verifyAcceptedMessage:
-    when: $sdkKey != ''
     action: http/runner:send
-    description: "elicitation accept - persisted assistant elicitation message should be accepted"
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${queryForAccept.Responses[0].JSONBody.conversationId}&roles=assistant&types=text
-        Expect:
-          Code: 200
-          JSONBody:
-            Rows:
-              "@indexBy@": ElicitationId
-              "${queryForAccept.Responses[0].JSONBody.plan.elicitation.elicitationId}":
-                Status: accepted
-                "@exists@ElicitationPayloadId": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${canonical020.Responses[0].JSONBody.identity.nativeConversationId}&roles=assistant&types=text
+      Header:
+        Authorization: ["Bearer ${mintToken.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          Rows:
+            "@indexBy@": elicitationId
+            "${canonical020.Responses[0].JSONBody.transcript.conversation.turns[0].elicitation.elicitationId}":
+              status: accepted
+              "@exists@elicitationPayloadId": true
   verifyUserElicitationResponse:
-    when: $sdkKey != ''
     action: http/runner:send
-    description: "elicitation accept - user elicitation response message should be persisted"
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/messages?conversationId=${queryForAccept.Responses[0].JSONBody.conversationId}&roles=user&types=elicitation_response
-        Expect:
-          Code: 200
-          Body: /favoriteColor/
+    - Method: GET
+      URL: ${authServerURL}/v1/messages?conversationId=${canonical020.Responses[0].JSONBody.identity.nativeConversationId}&roles=user&types=elicitation_response
+      Header:
+        Authorization: ["Bearer ${mintToken.TokenString}"]
+      Expect:
+        Code: 200
+        Body: /favoriteColor/

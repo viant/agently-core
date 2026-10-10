@@ -1,48 +1,68 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-file
+      email: e2e-file@example.test
   query:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "openai_responses_generated_file_output - create a deterministic image artifact"
+    description: openai_responses_generated_file_output - create a deterministic image
+      artifact
     TimeoutMs: 240000
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 042_generated_file_output-query
+        query:
+          agentID: image_generator
+          query: Generate a tiny red square PNG image and reply with only the filename.
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: image_generator
-          Query: Generate a tiny red square PNG image and reply with only the filename.
-          UserId: e2e-file
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@content": true
-
+          '@exists@identity.nativeConversationId': true
+          '@exists@assistantText': true
   listFiles:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "openai_responses_generated_file_output - generated file metadata is listed"
+    description: openai_responses_generated_file_output - generated file metadata
+      is listed
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/files?conversationId=${query.Responses[0].JSONBody.conversationId}
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Files[0].ID": true
-            "@exists@Files[0].Name": true
-            "@exists@Files[0].ContentType": true
-
+    - Method: GET
+      URL: ${authServerURL}/v1/files?conversationId=${query.Responses[0].JSONBody.identity.nativeConversationId}
+      Expect:
+        Code: 200
+        JSONBody:
+          '@exists@files[0].id': true
+          '@exists@files[0].name': true
+          '@exists@files[0].contentType': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   downloadFile:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "openai_responses_generated_file_output - generated file content is downloadable"
+    description: openai_responses_generated_file_output - generated file content is
+      downloadable
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/files/${listFiles.Responses[0].JSONBody.Files[0].ID}?conversationId=${query.Responses[0].JSONBody.conversationId}
-        Expect:
-          Code: 200
-          JSONBody:
-            Name: generated-image.png
-            ContentType: image/png
-            "@exists@Data": true
+    - Method: GET
+      URL: ${authServerURL}/v1/files/${listFiles.Responses[0].JSONBody.files[0].id}?conversationId=${query.Responses[0].JSONBody.identity.nativeConversationId}
+      Expect:
+        Code: 200
+        JSONBody:
+          Name: generated-image.png
+          ContentType: image/png
+          '@exists@Data': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

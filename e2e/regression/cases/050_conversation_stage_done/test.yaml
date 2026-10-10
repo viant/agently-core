@@ -1,35 +1,51 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-stage-test
+      email: e2e-stage-test@example.test
   query:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "conversation stage done - simple query should complete successfully"
+    description: conversation stage done - simple query should complete successfully
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 050_conversation_stage_done-query
+        query:
+          agentID: simple
+          query: Hi
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: simple
-          UserId: e2e-stage-test
-          Query: Hi
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
-            "@exists@messageId": true
-
+          '@exists@identity.nativeConversationId': true
+          '@exists@rootTurn.assistant.final.messageId': true
   getConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "conversation stage done - conversation and latest turn should be done"
+    description: conversation stage done - conversation and latest turn should be
+      done
     requests:
-      - Method: GET
-        URL: ${serverURL}/v1/conversations/${query.Responses[0].JSONBody.conversationId}
-        Expect:
-          Code: 200
-          JSONBody:
-            Id: ${query.Responses[0].JSONBody.conversationId}
-            Stage: done
-            Transcript:
-              - Stage: done
-                Status: succeeded
+    - Method: GET
+      URL: ${authServerURL}/v1/conversations/${query.Responses[0].JSONBody.identity.nativeConversationId}
+      Expect:
+        Code: 200
+        JSONBody:
+          id: ${query.Responses[0].JSONBody.identity.nativeConversationId}
+          stage: done
+          transcript:
+          - stage: done
+            status: succeeded
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}

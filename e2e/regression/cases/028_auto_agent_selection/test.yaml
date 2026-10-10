@@ -1,34 +1,49 @@
 pipeline:
+  mintCanonicalOwner:
+    action: secret:signJWT
+    expiryInSec: 3600
+    PrivateKey:
+      URL: ${jwtPrivKey}
+    claimsMap:
+      sub: e2e-auto-agent-selection
+      email: e2e-auto-agent-selection@example.test
   createConversation:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto agent selection - create conversation with explicit agent"
+    description: auto agent selection - create conversation with explicit agent
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/conversations
+    - Method: POST
+      URL: ${authServerURL}/v1/conversations
+      JSONBody:
+        AgentID: knowledge_system
+        Title: auto-agent-selection-e2e
+      Expect:
+        Code: 200
         JSONBody:
-          AgentID: knowledge_system
-          Title: auto-agent-selection-e2e
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@Id": true
-
+          '@exists@id': true
+      Header:
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
   autoAgentSelect:
     when: $sdkKey != ''
     action: http/runner:send
-    description: "auto agent selection - continue with AgentID auto"
+    description: auto agent selection - continue with AgentID auto
     requests:
-      - Method: POST
-        URL: ${serverURL}/v1/agent/query
-        Header:
-          Connection: [close]
+    - Method: POST
+      URL: ${aguiProbeURL}/run
+      Header:
+        Connection:
+        - close
+        Authorization:
+        - Bearer ${mintCanonicalOwner.TokenString}
+      JSONBody:
+        target: ${authServerURL}
+        probeId: 028_auto_agent_selection-autoAgentSelect
+        query:
+          conversationID: ${createConversation.Responses[0].JSONBody.id}
+          agentID: auto
+          query: summarize the previous guidance in one sentence
+      Expect:
+        Code: 200
         JSONBody:
-          ConversationID: ${createConversation.Responses[0].JSONBody.Id}
-          AgentID: auto
-          Query: summarize the previous guidance in one sentence
-          UserId: e2e-auto-agent-selection
-        Expect:
-          Code: 200
-          JSONBody:
-            "@exists@conversationId": true
+          '@exists@identity.nativeConversationId': true

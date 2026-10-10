@@ -57,7 +57,7 @@ const (
 func main() {
 	var (
 		port = flag.Int("port", 18091, "MCP HTTP port")
-		mode = flag.String("mode", "resources", "server mode: resources|elicitation_form|elicitation_oob|approval_tool")
+		mode = flag.String("mode", "resources", "server mode: resources|elicitation_form|elicitation_oob|approval_tool|large_result")
 	)
 	flag.Parse()
 
@@ -99,6 +99,8 @@ func main() {
 
 func (h *handler) register() error {
 	switch h.mode {
+	case "large_result":
+		return h.registerLargeResult()
 	case "resources":
 		h.RegisterResource(mcpschema.Resource{Name: "about", Uri: "mcp:resources:/about"},
 			func(_ context.Context, req *mcpschema.ReadResourceRequest) (*mcpschema.ReadResourceResult, *jsonrpc.Error) {
