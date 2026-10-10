@@ -203,6 +203,9 @@ func buildElicitationState(msg *conversationmodel.MessageView) *ElicitationState
 		if schema, ok := msg.Elicitation["requestedSchema"]; ok {
 			es.RequestedSchema = marshalToRawJSON(schema)
 		}
+		if deadline, ok := msg.Elicitation["deadline"].(string); ok {
+			es.Deadline = strings.TrimSpace(deadline)
+		}
 		if cb, ok := msg.Elicitation["callbackUrl"].(string); ok {
 			es.CallbackURL = strings.TrimSpace(cb)
 		}
@@ -224,6 +227,9 @@ func buildElicitationState(msg *conversationmodel.MessageView) *ElicitationState
 			es.URL, _ = payload["url"].(string)
 			if schema, ok := payload["requestedSchema"]; ok {
 				es.RequestedSchema = marshalToRawJSON(schema)
+			}
+			if deadline, ok := payload["deadline"].(string); ok {
+				es.Deadline = strings.TrimSpace(deadline)
 			}
 			if cb, ok := payload["callbackUrl"].(string); ok {
 				es.CallbackURL = strings.TrimSpace(cb)
