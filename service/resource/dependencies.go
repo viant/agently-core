@@ -13,6 +13,9 @@ func (g *Gateway) dependencyConnection(ctx context.Context, parent Connection, o
 	if owner == parent.ProviderIdentity {
 		return parent, nil
 	}
+	if connection, found, err := g.declaredOwnerConnection(ctx, owner); found || err != nil {
+		return connection, err
+	}
 	discovered, e := g.Discover(ctx)
 	if e != nil {
 		return Connection{}, e
@@ -30,6 +33,50 @@ func (g *Gateway) dependencyConnection(ctx context.Context, parent Connection, o
 		return found, identity.ErrResourceDenied
 	}
 	return found, nil
+}
+
+// An explicit configured owner is a routing claim, never an authorization
+// grant. Validate all configured claims without contacting unrelated endpoints,
+// then verify the selected provider's live identity under the current actor.
+func (g *Gateway) declaredOwnerConnection(ctx context.Context, owner string) (Connection, bool, error) {
+	if owner == "" {
+		return Connection{}, false, nil
+	}
+	actor, err := g.actor(ctx)
+	if err != nil {
+		return Connection{}, true, err
+	}
+	names, err := g.Manager.Names(ctx)
+	if err != nil {
+		return Connection{}, true, err
+	}
+	selected := ""
+	for _, name := range names {
+		options, err := g.Manager.Options(ctx, name)
+		if err != nil {
+			return Connection{}, true, err
+		}
+		if options != nil && options.PrimitiveProviderIdentity == owner {
+			if selected != "" {
+				return Connection{}, true, ErrCollision
+			}
+			selected = name
+		}
+	}
+	if selected == "" {
+		return Connection{}, false, nil
+	}
+	caps, err := g.discover(ctx, actor, selected)
+	if err != nil {
+		return Connection{}, true, err
+	}
+	if caps.connection.ProviderIdentity != owner {
+		return Connection{}, true, ErrCollision
+	}
+	if err = g.final(ctx, actor); err != nil {
+		return Connection{}, true, err
+	}
+	return caps.connection, true, nil
 }
 
 // ResolveDependencyPins authorizes each explicit child candidate and compares
