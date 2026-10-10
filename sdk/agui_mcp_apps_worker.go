@@ -52,6 +52,7 @@ func runAGUIMCPProxyWorker(ctx context.Context, client Client, store aguistore.S
 		}
 	}()
 	ctx = leaseCtx
+	var completion *mcpapps.CompletionReceipt
 	var pending aguiMCPProxyPending
 	if err = json.Unmarshal(record.Pending, &pending); err != nil && len(record.Pending) > 0 && !bytes.Equal(bytes.TrimSpace(record.Pending), []byte("[]")) {
 		return err
@@ -96,8 +97,12 @@ func runAGUIMCPProxyWorker(ctx context.Context, client Client, store aguistore.S
 			if turnID == "" {
 				turnID = record.TurnID
 			}
-			if err := finishGuest(turnID, status, toolFailure); err != nil {
-				return err
+			binding, bound := ctx.Value(mcpAppsBindingKey{}).(AGUIMCPAppsBindings)
+			completed := bound && completion.Matches(record.Principal, binding.App.ThreadID, turnID, record.RunID, pending.NativeOperationID, status, result)
+			if !completed {
+				if err := finishGuest(turnID, status, toolFailure); err != nil {
+					return err
+				}
 			}
 		}
 		return appendEvents([]json.RawMessage{rawAGUI(map[string]any{"type": "RUN_FINISHED", "threadId": record.ThreadID, "runId": record.RunID, "result": result, "outcome": map[string]any{"type": "success"}})})
@@ -149,6 +154,15 @@ func runAGUIMCPProxyWorker(ctx context.Context, client Client, store aguistore.S
 		}
 		return finish(nil, fmt.Errorf("MCP proxy dispatch interrupted without a durable host receipt; effect will not be repeated"))
 	}
+	// Recovery above and all resumed/queued paths retain full finalization.
+	if prior == nil && proxy.Method == "tools/call" {
+		if binding, ok := ctx.Value(mcpAppsBindingKey{}).(AGUIMCPAppsBindings); ok {
+			var name string
+			if json.Unmarshal(proxy.Params["name"], &name) == nil && name != "" {
+				ctx, completion = mcpapps.WithCompletionReceipt(ctx, record.Principal, binding.App.ThreadID, record.TurnID, record.RunID, binding.App.ServerID, name)
+			}
+		}
+	}
 	if err = appendEvents([]json.RawMessage{rawAGUI(map[string]any{"type": "RUN_STARTED", "threadId": record.ThreadID, "runId": record.RunID, "protocolVersion": "1.0"})}); err != nil {
 		return err
 	}
@@ -165,7 +179,13 @@ func runAGUIMCPProxyWorker(ctx context.Context, client Client, store aguistore.S
 		pending.HostResult = append(json.RawMessage(nil), result...)
 		pending.NativeTurnID = record.TurnID
 		pending.NativeOperationID = native
-		return appendEvents(nil)
+		if err := appendEvents(nil); err != nil {
+			return err
+		}
+		if completion != nil {
+			completion.RecordDurable(native, result)
+		}
+		return nil
 	})
 	ctx = mcpapps.WithTurnID(ctx, record.TurnID)
 	if prior != nil {
