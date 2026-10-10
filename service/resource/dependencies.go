@@ -46,6 +46,29 @@ func (g *Gateway) declaredOwnerConnection(ctx context.Context, owner string) (Co
 	if err != nil {
 		return Connection{}, true, err
 	}
+	connection, found, err := g.configuredOwnerConnection(ctx, owner)
+	if !found || err != nil {
+		return connection, found, err
+	}
+	caps, err := g.discover(ctx, actor, connection.Name)
+	if err != nil {
+		return Connection{}, true, err
+	}
+	if caps.connection != connection {
+		return Connection{}, true, ErrCollision
+	}
+	if err = g.final(ctx, actor); err != nil {
+		return Connection{}, true, err
+	}
+	return caps.connection, true, nil
+}
+
+// configuredOwnerConnection resolves only trusted routing claims. Its caller
+// must perform a fresh provider operation before using any resource or facts.
+func (g *Gateway) configuredOwnerConnection(ctx context.Context, owner string) (Connection, bool, error) {
+	if g == nil || g.Manager == nil || owner == "" || ctx == nil || ctx.Err() != nil {
+		return Connection{}, true, identity.ErrResourceDenied
+	}
 	names, err := g.Manager.Names(ctx)
 	if err != nil {
 		return Connection{}, true, err
@@ -66,17 +89,7 @@ func (g *Gateway) declaredOwnerConnection(ctx context.Context, owner string) (Co
 	if selected == "" {
 		return Connection{}, false, nil
 	}
-	caps, err := g.discover(ctx, actor, selected)
-	if err != nil {
-		return Connection{}, true, err
-	}
-	if caps.connection.ProviderIdentity != owner {
-		return Connection{}, true, ErrCollision
-	}
-	if err = g.final(ctx, actor); err != nil {
-		return Connection{}, true, err
-	}
-	return caps.connection, true, nil
+	return Connection{Name: selected, ProviderIdentity: owner, Generation: g.generation(selected)}, true, nil
 }
 
 // ResolveDependencyPins authorizes each explicit child candidate and compares

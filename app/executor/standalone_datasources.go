@@ -55,11 +55,7 @@ func (b *Builder) configureStandaloneDatasourceProviders(out *Runtime) {
 	}
 	out.DatasourceResourceRevalidator = func(ctx context.Context, pin identity.ResolvedResource) (*identity.ResolvedResource, error) {
 		if strings.HasPrefix(pin.URI, "datasource://") {
-			connection, err := gateway.ConnectionForProvider(ctx, pin.ProviderIdentity)
-			if err != nil {
-				return nil, err
-			}
-			result, err := gateway.Get(ctx, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
+			result, err := gateway.GetForProvider(ctx, pin.ProviderIdentity, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
 			if err != nil {
 				return nil, err
 			}
