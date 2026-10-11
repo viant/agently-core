@@ -3,6 +3,8 @@ package resource
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"sync"
 	"testing"
 
@@ -32,7 +34,9 @@ func (c *countedReportClient) CallTool(ctx context.Context, request *schema.Call
 	return c.Interface.CallTool(ctx, request, options...)
 }
 
-func TestReportThreePageGatewayCallCounts(t *testing.T) {
+func TestReportThreePageGatewayCallCounts(t *testing.T)           { runThreePageReportCounts(t, false) }
+func TestReportThreePageHTTPAdmittedScopeCallCounts(t *testing.T) { runThreePageReportCounts(t, true) }
+func runThreePageReportCounts(t *testing.T, httpScope bool) {
 	catalog, source, _, _, provider := reportGatewayFixture(t)
 	descriptor := &dsproto.DataSource{ID: "rows", Backend: &dsproto.Backend{Kind: dsproto.BackendMCPTool, Service: "producer", Method: "read"}, DataSource: types.DataSource{Paging: &types.PagingConfig{Enabled: true, Mode: "cursor", Parameters: &types.PagingParameters{Page: "resume"}, DataInfoSelectors: &types.DataInfoSelectors{HasMore: "more", NextCursor: "next"}}}}
 	rawDescriptor, err := json.Marshal(descriptor)
@@ -43,8 +47,20 @@ func TestReportThreePageGatewayCallCounts(t *testing.T) {
 	source.mu.Lock()
 	source.raw = raw
 	source.mu.Unlock()
-	client, err := NewLocalMCPClient(provider)
-	require.NoError(t, err)
+	var client mcpclient.Interface
+	if httpScope {
+		handler, err := NewMCPHandler(provider, func(next http.Handler) http.Handler { return next })
+		require.NoError(t, err)
+		server := httptest.NewServer(handler)
+		t.Cleanup(server.Close)
+		httpClient, err := mcp.NewClient(nil, &mcp.ClientOptions{Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: server.URL + "/mcp"}}})
+		require.NoError(t, err)
+		client = httpClient
+	} else {
+		var err error
+		client, err = NewLocalMCPClient(provider)
+		require.NoError(t, err)
+	}
 	counter := &countedReportClient{Interface: client, calls: map[string]int{}}
 	mgr, err := manager.New(nil)
 	require.NoError(t, err)
@@ -56,6 +72,12 @@ func TestReportThreePageGatewayCallCounts(t *testing.T) {
 	service := reporting.New(reporting.Options{Store: reporting.NewMemoryStore(), Compiler: gatewayReportCompiler(func(_ context.Context, in *reporting.CompileRequest) (*reporting.CompileResult, error) {
 		return &reporting.CompileResult{ReportSpec: in.Document}, nil
 	})})
+	if httpScope {
+		catalog.BeginMetadataRead = func(ctx context.Context) (context.Context, func() error, error) {
+			return catalog.Gateway.BeginReadSequence(ctx, nil)
+		}
+		service.SetReportCatalog(catalog)
+	}
 	service.SetResourceReaderFactory(catalog.Reader)
 	dataCalls := 0
 	service.SetResourceDatasetExecutor(func(ctx context.Context, _ identity.ResolvedResource, exact *dsproto.DataSource, args map[string]interface{}) (*dsproto.FetchResult, error) {
@@ -76,8 +98,14 @@ func TestReportThreePageGatewayCallCounts(t *testing.T) {
 	counter.mu.Lock()
 	defer counter.mu.Unlock()
 	t.Logf("actual three-page run: reports/get=%d namespaces/list=%d namespaces/get=%d data=%d", counter.calls["reports/get"], counter.calls["namespaces/list"], counter.calls["namespaces/get"], dataCalls)
-	require.Equal(t, 10, counter.calls["reports/get"])
-	require.Equal(t, 11, counter.calls["namespaces/list"])
-	require.Equal(t, 11, counter.calls["namespaces/get"])
+	if httpScope {
+		require.Equal(t, 3, counter.calls["reports/get"], "one PRE admission pair and one final publication read, independent of pages")
+		require.LessOrEqual(t, counter.calls["namespaces/list"], 10, "namespace contracts bounded by dispatch phases")
+		require.Equal(t, counter.calls["namespaces/list"], counter.calls["namespaces/get"])
+	} else {
+		require.Equal(t, 8, counter.calls["reports/get"])
+		require.Equal(t, 9, counter.calls["namespaces/list"])
+		require.Equal(t, 9, counter.calls["namespaces/get"])
+	}
 	require.Equal(t, 3, dataCalls)
 }

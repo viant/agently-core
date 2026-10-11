@@ -949,7 +949,7 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 	}
 	if resourcePin != nil {
 		probe := &ExportJob{DependencyPins: cloneDependencyPins(normalizedRequest.DependencyPins), DependencyToken: normalizedRequest.DependencyToken, ArtifactRef: normalizedRequest.ArtifactRef, ResourcePin: cloneResolvedResource(resourcePin)}
-		if err := s.validateExportResourcePin(ctx, probe, "report.export"); err != nil {
+		if err := s.validateExportResourcePinFresh(ctx, probe, "report.export"); err != nil {
 			return nil, err
 		}
 	}
@@ -1117,7 +1117,7 @@ type runExportStartKey struct{}
 type internalExportFailureKey struct{}
 type resourceExportCompletionKey struct{}
 
-func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, error) {
+func (s *Service) RunExport(ctx context.Context, jobID string) (out *ExportJob, resultErr error) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
@@ -1152,6 +1152,24 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, erro
 	if err != nil {
 		return s.failRunExport(ctx, job.JobID, err)
 	}
+	publicationCtx := runCtx
+	scoped, finish, scopeErr := s.beginReportOperation(runCtx)
+	if scopeErr != nil {
+		return s.failRunExport(runCtx, job.JobID, scopeErr)
+	}
+	if scoped == nil || finish == nil {
+		return s.failRunExport(runCtx, job.JobID, identity.ErrResourceDenied)
+	}
+	finished := false
+	defer func() {
+		if !finished {
+			if err := finish(); err != nil {
+				out = nil
+				resultErr = errors.Join(resultErr, err)
+			}
+		}
+	}()
+	runCtx = scoped
 	if err := s.authorizeExport(runCtx, job.ArtifactRef); err != nil {
 		return s.failRunExport(runCtx, job.JobID, err)
 	}
@@ -1196,10 +1214,17 @@ func (s *Service) RunExport(ctx context.Context, jobID string) (*ExportJob, erro
 	if len(result.Data) == 0 {
 		return s.failRunExport(runCtx, job.JobID, fmt.Errorf("reporting export execution: exporter returned empty artifact data"))
 	}
-	if err := s.validateExportResourcePin(runCtx, job, "report.export"); err != nil {
+	if err := s.validateExportResourcePinFresh(runCtx, job, "report.export"); err != nil {
 		return s.failRunExport(runCtx, job.JobID, err)
 	}
-	completed, err := s.CompleteExport(context.WithValue(runCtx, resourceExportCompletionKey{}, job.JobID), &CompleteExportRequest{
+	// Complete the reusable read phase before any artifact publication or
+	// completion transaction. Subsequent persistence checks use the original
+	// context and retain their fresh provider/actor admission behavior.
+	finished = true
+	if err := finish(); err != nil {
+		return s.failRunExport(publicationCtx, job.JobID, err)
+	}
+	completed, err := s.CompleteExport(context.WithValue(publicationCtx, resourceExportCompletionKey{}, job.JobID), &CompleteExportRequest{
 		JobID:        job.JobID,
 		ContentType:  strings.TrimSpace(result.ContentType),
 		Data:         append([]byte{}, result.Data...),
@@ -1472,7 +1497,7 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 			Cause:        err.Error(),
 		})
 	}
-	if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
+	if err := s.validateExportResourcePinFresh(ctx, job, "report.export"); err != nil {
 		return nil, err
 	}
 	if runStore, ok := s.store.(RunExportStore); ok {
@@ -1893,7 +1918,23 @@ func (s *Service) listExportArtifactsTool(ctx context.Context, in, out interface
 }
 
 // GetArtifact returns an artifact visible to the current principal.
-func (s *Service) GetArtifact(ctx context.Context, artifactID string) (*Artifact, error) {
+func (s *Service) GetArtifact(ctx context.Context, artifactID string) (out *Artifact, resultErr error) {
+	scoped, finish, err := s.beginReportOperation(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if scoped == nil || finish == nil {
+		return nil, identity.ErrResourceDenied
+	}
+	defer func() {
+		if err := finish(); err != nil {
+			out = nil
+			resultErr = errors.Join(resultErr, err)
+		}
+	}()
+	return s.getArtifactUnscoped(scoped, artifactID)
+}
+func (s *Service) getArtifactUnscoped(ctx context.Context, artifactID string) (*Artifact, error) {
 	artifact, err := s.store.GetArtifact(ctx, strings.TrimSpace(artifactID))
 	if err != nil {
 		return nil, err

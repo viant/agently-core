@@ -668,7 +668,10 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 	var result primitive.GetResult
 	found := false
 	if sequence := sequenceFromContext(ctx); sequence != nil && !force {
-		result, found, e = sequence.selectedRead(ctx, connection, pin, binding.key)
+		result, found, e = sequence.reportRead(connection, pin, binding.key)
+		if e == nil && !found {
+			result, found, e = sequence.selectedRead(ctx, connection, pin, binding.key)
+		}
 	}
 	if e == nil {
 		e = g.checkReadBinding(ctx, a, binding)

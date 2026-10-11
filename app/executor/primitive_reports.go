@@ -33,7 +33,7 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 		}
 	}
 	out.Reporting.SetResourceDatasetExecutor(reporting.NewResourceDatasetExecutorWithProvider(out.Registry, out.Reporting.AuthorizeResourceDataset, out.providerReportDatasource, out.ComponentDispatcher))
-	catalog := &resources.ReportGatewayCatalog{Gateway: out.PrimitiveProviders, Capabilities: func(ctx context.Context, _ identity.VerifiedActor, _ reportcatalog.ReportCatalogCandidate, pin identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
+	catalog := &resources.ReportGatewayCatalog{Gateway: out.PrimitiveProviders, BeginMetadataRead: out.DatasourceReadSequence, Capabilities: func(ctx context.Context, _ identity.VerifiedActor, _ reportcatalog.ReportCatalogCandidate, pin identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
 		result := reportcatalog.ReportCapabilities{}
 		for _, check := range []struct {
 			operation string

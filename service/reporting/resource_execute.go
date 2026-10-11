@@ -3,6 +3,7 @@ package reporting
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -54,7 +55,26 @@ func (s *Service) SetResourceDatasetExecutor(execute ResourceDatasetExecutor) {
 		s.resourceDatasetExecutor = execute
 	}
 }
-func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceRequest) (*ExecuteResourceResult, error) {
+func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceRequest) (out *ExecuteResourceResult, resultErr error) {
+	if s != nil && s.reportCatalog != nil && s.hasResourceReader() {
+		scoped, finish, err := s.reportCatalog.MetadataRead(ctx)
+		if err != nil {
+			return nil, err
+		}
+		if scoped == nil || finish == nil {
+			return nil, identity.ErrResourceDenied
+		}
+		defer func() {
+			if err := finish(); err != nil {
+				out = nil
+				resultErr = errors.Join(resultErr, err)
+			}
+		}()
+		ctx = scoped
+	}
+	return s.executeResourceUnscoped(ctx, request)
+}
+func (s *Service) executeResourceUnscoped(ctx context.Context, request *ExecuteResourceRequest) (*ExecuteResourceResult, error) {
 	if request == nil || !s.hasResourceReader() || s.resourceDatasetExecutor == nil {
 		return nil, identity.ErrResourceDenied
 	}
@@ -77,20 +97,14 @@ func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceR
 		return nil, identity.ErrResourceDenied
 	}
 	pin := cloneResolvedResource(request.ResolvedResource)
-	if pin == nil {
-		pin, err = resolver.Resolve(ctx, ref)
-		if err != nil {
-			return nil, err
-		}
-	} else if pin.URI != ref.URI || ref.Revision != "" && ref.Revision != pin.Selector() {
-		return nil, identity.ErrResourceDenied
-	}
-	// Execute admission precedes compilation. Only this exact selected identity
-	// may enter the metadata-only compiler; denied users never invoke it.
+	// Select and deliver through one admitted read; no discarded definition.
 	original := cloneResolvedResource(pin)
-	admittedRaw, pin, err := resolver.ReadResolved(ctx, *pin)
+	admittedRaw, pin, err := selectResourceRead(ctx, resolver, ref, pin)
 	if err != nil {
 		return nil, err
+	}
+	if original == nil {
+		original = cloneResolvedResource(pin)
 	}
 	dependencyPins, dependencyToken := cloneDependencyPins(request.DependencyPins), request.DependencyToken
 	if dependencyPins != nil && !original.ValidUntil.Equal(pin.ValidUntil) {
@@ -148,8 +162,13 @@ func (s *Service) ExecuteResource(ctx context.Context, request *ExecuteResourceR
 		if ctx.Err() != nil || !pin.ValidUntil.After(s.now()) {
 			return identity.ErrResourceDenied
 		}
-		return s.verifyDependencies(ctx, *pin, envelope, compiled.DependencyPins, compiled.DependencyToken)
+		// Page dispatch uses the already admitted immutable definition and original
+		// dependency pins. Managing MCP authorizes every data call; all original
+		// children are freshly revalidated at the final publication barrier.
+		return nil
 	}
+	// Compile has already revalidated the complete original child mapping;
+	// publication revalidates it again after all managing-MCP data dispatch.
 	if err = check(); err != nil {
 		return nil, err
 	}

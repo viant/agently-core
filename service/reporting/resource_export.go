@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -99,7 +100,15 @@ func decodeExportDependencies(raw json.RawMessage) (map[string]identity.Resolved
 
 // validateExportResourcePin rechecks a stored export against its exact original
 // revision. It never resolves an omitted selector or substitutes a new pin.
+type freshExportValidationKey struct{}
+
+func (s *Service) validateExportResourcePinFresh(ctx context.Context, job *ExportJob, action string) error {
+	return s.validateExportResourcePin(context.WithValue(ctx, freshExportValidationKey{}, true), job, action)
+}
 func (s *Service) validateExportResourcePin(ctx context.Context, job *ExportJob, action string) error {
+	return s.validateExportResourcePinUnscoped(ctx, job, action)
+}
+func (s *Service) validateExportResourcePinUnscoped(ctx context.Context, job *ExportJob, action string) error {
 	if s == nil || !s.hasResourceReader() {
 		return nil
 	}
@@ -118,7 +127,13 @@ func (s *Service) validateExportResourcePin(ctx context.Context, job *ExportJob,
 	if resolver == nil {
 		return identity.ErrResourceDenied
 	}
-	raw, fresh, err := resolver.ReadResolved(ctx, *pin)
+	var raw json.RawMessage
+	var fresh *identity.ResolvedResource
+	if ctx.Value(freshExportValidationKey{}) == true {
+		raw, fresh, err = readResourceFresh(ctx, resolver, *pin)
+	} else {
+		raw, fresh, err = resolver.ReadResolved(ctx, *pin)
+	}
 	if err != nil {
 		return err
 	}
@@ -147,7 +162,27 @@ func validateUnifiedExportInput(request *SubmitExportRequest) error {
 	return nil
 }
 
-func (s *Service) prepareUnifiedExportRequest(ctx context.Context, request *SubmitExportRequest) (*SubmitExportRequest, *identity.ResolvedResource, error) {
+func (s *Service) prepareUnifiedExportRequest(ctx context.Context, request *SubmitExportRequest) (out *SubmitExportRequest, pin *identity.ResolvedResource, resultErr error) {
+	if s.reportCatalog != nil {
+		scoped, finish, err := s.reportCatalog.MetadataRead(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		if scoped == nil || finish == nil {
+			return nil, nil, identity.ErrResourceDenied
+		}
+		defer func() {
+			if err := finish(); err != nil {
+				out = nil
+				pin = nil
+				resultErr = errors.Join(resultErr, err)
+			}
+		}()
+		ctx = scoped
+	}
+	return s.prepareUnifiedExportRequestUnscoped(ctx, request)
+}
+func (s *Service) prepareUnifiedExportRequestUnscoped(ctx context.Context, request *SubmitExportRequest) (*SubmitExportRequest, *identity.ResolvedResource, error) {
 	if err := validateUnifiedExportInput(request); err != nil {
 		return nil, nil, err
 	}
@@ -188,15 +223,12 @@ func (s *Service) prepareUnifiedExportRequest(ctx context.Context, request *Subm
 	if exportReader == nil {
 		return nil, nil, identity.ErrResourceDenied
 	}
-	if originalPin == nil {
-		originalPin, err = exportReader.Resolve(ctx, *ref)
-		if err != nil {
-			return nil, nil, err
-		}
-	}
-	exportRaw, exportPin, err := exportReader.ReadResolved(ctx, *originalPin)
+	exportRaw, exportPin, err := selectResourceRead(ctx, exportReader, *ref, originalPin)
 	if err != nil {
 		return nil, nil, err
+	}
+	if originalPin == nil {
+		originalPin = cloneResolvedResource(exportPin)
 	}
 	var exportDefinition registry.ReportEnvelope
 	if json.Unmarshal(exportRaw, &exportDefinition) != nil {
