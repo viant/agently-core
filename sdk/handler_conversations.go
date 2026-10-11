@@ -90,8 +90,13 @@ func handleCreateConversation(client Client, authCfg *svcauth.Config) http.Handl
 	}
 }
 
-func handleGetConversation(client Client) http.HandlerFunc {
+func handleGetConversation(client Client, configs ...*svcauth.Config) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		var allowed bool
+		r, allowed = applicationRequestPrincipal(w, r, "", configs)
+		if !allowed {
+			return
+		}
 		id := r.PathValue("id")
 		if id == "" {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("conversation ID is required"))

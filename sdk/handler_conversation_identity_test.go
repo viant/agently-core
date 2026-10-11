@@ -63,3 +63,42 @@ func TestCreateConversationRequiresAuthenticatedPrincipal(t *testing.T) {
 	require.Empty(t, client.owner)
 	require.Empty(t, response.Result().Cookies())
 }
+
+func (c *conversationIdentityClient) GetConversation(ctx context.Context, id string) (*conversation.Conversation, error) {
+	c.owner = iauth.EffectiveUserID(ctx)
+	return &conversation.Conversation{Id: id, CreatedByUserId: &c.owner}, nil
+}
+func (c *conversationIdentityClient) aguiThreadReference(ctx context.Context, _ string) (*string, error) {
+	value := "bound:" + iauth.EffectiveUserID(ctx)
+	return &value, nil
+}
+func TestGetConversationUsesSamePrincipalForHeaderAndThreadBinding(t *testing.T) {
+	for _, authenticated := range []bool{false, true} {
+		t.Run(map[bool]string{false: "anonymous", true: "authenticated"}[authenticated], func(t *testing.T) {
+			client := &conversationIdentityClient{}
+			req := httptest.NewRequest("GET", "/v1/conversations/thread?includeTranscript=false", nil)
+			req.SetPathValue("id", "thread")
+			req.AddCookie(&http.Cookie{Name: anonymousUserCookieName, Value: "anonymous:header-fixture"})
+			expected := "anonymous:header-fixture"
+			if authenticated {
+				expected = "authenticated-owner"
+				req = req.WithContext(iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: expected}))
+			}
+			response := httptest.NewRecorder()
+			handleGetConversation(client, &svcauth.Config{Enabled: authenticated})(response, req)
+			require.Equal(t, http.StatusOK, response.Code, response.Body.String())
+			require.Equal(t, expected, client.owner)
+			require.Contains(t, response.Body.String(), `"aguiThreadId":"bound:`+expected+`"`)
+		})
+	}
+}
+func TestGetConversationAuthenticatedModeRejectsAnonymousCookie(t *testing.T) {
+	client := &conversationIdentityClient{}
+	req := httptest.NewRequest("GET", "/v1/conversations/thread", nil)
+	req.SetPathValue("id", "thread")
+	req.AddCookie(&http.Cookie{Name: anonymousUserCookieName, Value: "anonymous:header-fixture"})
+	response := httptest.NewRecorder()
+	handleGetConversation(client, &svcauth.Config{Enabled: true})(response, req)
+	require.Equal(t, http.StatusUnauthorized, response.Code)
+	require.Empty(t, client.owner)
+}
