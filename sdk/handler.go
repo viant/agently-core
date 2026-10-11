@@ -35,11 +35,12 @@ type handlerConfig struct {
 	uiBridgeHandler  http.Handler
 	reportRunHandler http.Handler
 
-	mcpUIResourceReader MCPUIResourceReader
-	mcpUIToolCaller     MCPUIToolCaller
-	mcpAppsHost         *AGUIMCPAppsHost
-	aguiDemoBackends    []AGUIDemoBackend
-	aguiDemoRegistry    *aguiDemoRegistry
+	mcpUIResourceReader        MCPUIResourceReader
+	mcpUIResourceContextBinder MCPUIResourceContextBinder
+	mcpUIToolCaller            MCPUIToolCaller
+	mcpAppsHost                *AGUIMCPAppsHost
+	aguiDemoBackends           []AGUIDemoBackend
+	aguiDemoRegistry           *aguiDemoRegistry
 }
 
 // SchedulerOptions controls scheduler behavior at the SDK level.
@@ -309,6 +310,9 @@ func registerOptionalRoutes(mux *http.ServeMux, cfg *handlerConfig) {
 	}
 	if cfg.mcpUIResourceReader != nil {
 		mux.HandleFunc("GET /v1/api/mcp-ui/resources/read", handleMCPUIResourceRead(cfg.mcpUIResourceReader))
+		if cfg.mcpUIResourceContextBinder != nil {
+			mux.HandleFunc("POST /v1/api/mcp-ui/resources/read", handleMCPUIResourceContextRead(cfg.mcpUIResourceReader, cfg.mcpUIResourceContextBinder))
+		}
 	}
 	if cfg.mcpUIToolCaller != nil {
 		mux.HandleFunc("POST /v1/api/mcp-ui/tools/call", handleMCPUIToolCall(cfg.mcpUIToolCaller))
