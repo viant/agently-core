@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -558,7 +559,9 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 		return nil, err
 	}
 	definition = &types.Window{}
-	if err := json.Unmarshal(encoded, definition); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
+	decoder.UseNumber()
+	if err := decoder.Decode(definition); err != nil {
 		return nil, err
 	}
 	definition.Resource = fresh
