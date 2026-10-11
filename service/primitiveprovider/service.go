@@ -164,13 +164,16 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 			}
 			resolved, err := s.windowDefinitionForOpen(ctx, &WindowDefinitionGetInput{WindowID: windowKey, Resource: request.Resource, ResolvedResource: request.ResolvedResource, Target: request.Target})
 			if err != nil || resolved == nil || resolved.Definition == nil || resolved.Definition.Resource == nil {
-				return nil, errors.New("window definition is not available")
+				return nil, windowDefinitionFailure(err, "window definition is not available")
 			}
 			parameters, _ := params["parameters"].(map[string]any)
 			approved := resolved.Definition
 			admitted, err := s.admitWindowOpen(ctx, approved, parameters)
 			if err != nil || admitted == nil {
-				return nil, identity.ErrResourceDenied
+				if err == nil {
+					err = identity.ErrResourceDenied
+				}
+				return nil, windowVerificationFailure(err, "window admission is not available")
 			}
 			openedDefinition, openedParameters, openedLease = approved, parameters, admitted.ValidUntil
 			resolved.Definition = admitted.Window
@@ -362,7 +365,7 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 			return nil, err
 		}
 		if _, err := s.revalidateWindowPin(ctx, windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget}); err != nil {
-			return nil, identity.ErrResourceDenied
+			return nil, windowVerificationFailure(err, "window access changed")
 		}
 		if resp.OK {
 			var result struct {

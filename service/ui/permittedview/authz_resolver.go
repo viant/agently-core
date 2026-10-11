@@ -19,7 +19,7 @@ import (
 
 // ErrUnavailable marks an authorization dependency failure. Callers must
 // invalidate protected metadata and may return a retryable service status.
-var ErrUnavailable = errors.New("permitted view authorization unavailable")
+var ErrUnavailable = fmt.Errorf("permitted view authorization unavailable: %w", authz.ErrUnavailable)
 
 // CapabilityMapping is server-owned. It translates an authored capability to
 // the exact ACL resource/action and, for resource capabilities, selected entity.

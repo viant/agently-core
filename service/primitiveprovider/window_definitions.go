@@ -12,6 +12,8 @@ import (
 	"strings"
 
 	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/authz"
+	"github.com/viant/authz/gating"
 	"github.com/viant/forge/backend/handlers"
 	"github.com/viant/forge/backend/service/meta"
 	"github.com/viant/forge/backend/types"
@@ -200,6 +202,51 @@ func (c *MetadataWindowCatalog) ConfiguredWindowIDs() []string {
 func (c *MetadataWindowCatalog) AuthzReady() bool {
 	return c != nil && (c.authorize != nil || c.resolveResource != nil)
 }
+
+// windowDefinitionFailure preserves trusted classifications while replacing
+// dependency text with a fixed catalog diagnostic. Unknown errors retain their
+// existing untyped, fail-closed behavior; error messages never determine status.
+func windowDefinitionSentinel(err error) error {
+	switch {
+	case errors.Is(err, identity.ErrResourceDenied):
+		return identity.ErrResourceDenied
+	case errors.Is(err, identity.ErrResourceStale):
+		return identity.ErrResourceStale
+	case errors.Is(err, context.DeadlineExceeded):
+		return context.DeadlineExceeded
+	case errors.Is(err, ErrWindowSelectionUnavailable), errors.Is(err, authz.ErrUnavailable), errors.Is(err, gating.ErrUnavailable):
+		return ErrWindowSelectionUnavailable
+	case errors.Is(err, context.Canceled):
+		return context.Canceled
+	default:
+		return nil
+	}
+}
+func windowDefinitionFailure(err error, message string) error {
+	if sentinel := windowDefinitionSentinel(err); sentinel != nil {
+		return fmt.Errorf("%s: %w", message, sentinel)
+	}
+	return errors.New(message)
+}
+
+// Verification failures retain a typed denial fallback. Availability and timeout
+// sentinels remain distinguishable, but an unknown verifier cannot become 500.
+func windowVerificationFailure(err error, message string) error {
+	if windowDefinitionSentinel(err) == nil {
+		err = identity.ErrResourceDenied
+	}
+	return windowDefinitionFailure(err, message)
+}
+
+// Scope wrappers preserve existing catalog-owned diagnostics for unknown
+// failures. Canonical dependency failures are already sanitized in getResolved.
+func knownWindowDefinitionFailure(err error, message string) error {
+	if windowDefinitionSentinel(err) != nil {
+		return windowDefinitionFailure(err, message)
+	}
+	return err
+}
+
 func (c *MetadataWindowCatalog) checkEntry(ctx context.Context, entry SavedWindow) (bool, error) {
 	allowed, err := c.checkEntryAccess(ctx, entry)
 	if err != nil || !allowed {
@@ -210,7 +257,7 @@ func (c *MetadataWindowCatalog) checkEntry(ctx context.Context, entry SavedWindo
 	}
 	resolver, ref, err := c.resolveResource(ctx, entry.WindowID)
 	if err != nil || resolver == nil {
-		return false, errors.New("window resource authority unavailable")
+		return false, windowDefinitionFailure(err, "window resource authority unavailable")
 	}
 	uri, err := identity.ParseResourceURI(ref.URI)
 	if err != nil || uri.Kind != "window" || entry.ResourceURI != "" && entry.ResourceURI != ref.URI {
@@ -221,18 +268,25 @@ func (c *MetadataWindowCatalog) checkEntry(ctx context.Context, entry SavedWindo
 		return false, nil
 	}
 	if err != nil {
-		return false, errors.New("window resource authority unavailable")
+		return false, windowDefinitionFailure(err, "window resource authority unavailable")
 	}
 	return true, nil
 }
 func (c *MetadataWindowCatalog) checkEntryAccess(ctx context.Context, entry SavedWindow) (bool, error) {
 	if ctx == nil || ctx.Err() != nil {
-		return false, errors.New("window admission context unavailable")
+		var contextErr error
+		if ctx != nil {
+			contextErr = ctx.Err()
+		}
+		return false, windowDefinitionFailure(contextErr, "window admission context unavailable")
 	}
 	if c.authorize != nil {
 		allowed, err := c.authorize(ctx, entry.WindowID)
 		if err != nil || ctx.Err() != nil {
-			return false, errors.New("window admission authority unavailable")
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
+			return false, windowDefinitionFailure(err, "window admission authority unavailable")
 		}
 		if !allowed {
 			return false, nil
@@ -243,14 +297,17 @@ func (c *MetadataWindowCatalog) checkEntryAccess(ctx context.Context, entry Save
 			if c.authorize == nil {
 				return false, nil
 			}
-			return false, errors.New("window role authority unavailable")
+			return false, windowDefinitionFailure(nil, "window role authority unavailable")
 		}
 		actual, err := c.roles(ctx)
 		if err != nil || ctx.Err() != nil {
 			if c.authorize == nil {
 				return false, nil
 			}
-			return false, errors.New("window role authority unavailable")
+			if ctx.Err() != nil {
+				err = ctx.Err()
+			}
+			return false, windowDefinitionFailure(err, "window role authority unavailable")
 		}
 		matched := false
 		for _, required := range entry.Roles {
@@ -368,11 +425,11 @@ func (c *MetadataWindowCatalog) list(ctx context.Context, in *WindowDefinitionLi
 func (c *MetadataWindowCatalog) Get(ctx context.Context, in *WindowDefinitionGetInput) (*WindowDefinitionGetOutput, error) {
 	readCtx, finish, err := BeginMetadataReadScope(ctx, c.metadataScope)
 	if err != nil {
-		return nil, err
+		return nil, knownWindowDefinitionFailure(err, "window definition is not available")
 	}
 	result, readErr := c.get(readCtx, in)
 	if err := FinishMetadataReadScope(finish, readErr); err != nil {
-		return nil, err
+		return nil, knownWindowDefinitionFailure(err, "window definition is not available")
 	}
 	return result, nil
 }
@@ -469,11 +526,11 @@ func (s *Service) WindowDefinitionGet(ctx context.Context, in *WindowDefinitionG
 	}
 	readCtx, finish, err := BeginMetadataReadScope(ctx, s.cfg.MetadataScope)
 	if err != nil {
-		return nil, err
+		return nil, knownWindowDefinitionFailure(err, "window definition is not available")
 	}
 	result, readErr := s.cfg.WindowDefinitions.Get(readCtx, in)
 	if err := FinishMetadataReadScope(finish, readErr); err != nil {
-		return nil, err
+		return nil, knownWindowDefinitionFailure(err, "window definition is not available")
 	}
 	if result != nil {
 		copy := *result
@@ -508,7 +565,7 @@ func (s *Service) windowDefinitionForOpen(ctx context.Context, in *WindowDefinit
 func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWindow, requested *identity.ResourceRef, pinned *identity.ResolvedResource, target *types.WindowTarget) (*WindowDefinitionGetOutput, error) {
 	resolver, ref, err := c.resolveResource(ctx, entry.WindowID)
 	if err != nil || resolver == nil {
-		return nil, errors.New("window resource authority unavailable")
+		return nil, windowDefinitionFailure(err, "window resource authority unavailable")
 	}
 	uri, err := identity.ParseResourceURI(ref.URI)
 	if err != nil || uri.Kind != "window" || entry.ResourceURI != "" && entry.ResourceURI != ref.URI {
@@ -524,21 +581,24 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	// revision policy. The source is read only after explicit candidate admission.
 	allowed, err := c.checkEntryAccess(ctx, entry)
 	if err != nil || !allowed {
-		return nil, errors.New("window definition is not available")
+		if err == nil {
+			err = identity.ErrResourceDenied
+		}
+		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	pin := pinned
 	if pin == nil {
 		pin, err = resolver.Resolve(ctx, ref)
 		if err != nil {
-			return nil, errors.New("window definition is not available")
+			return nil, windowDefinitionFailure(err, "window definition is not available")
 		}
 	}
 	if pin.URI != ref.URI || ref.Revision != "" && pin.Selector() != ref.Revision {
-		return nil, errors.New("window definition is not available")
+		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	raw, fresh, err := resolver.ReadResolved(ctx, *pin)
 	if err != nil {
-		return nil, errors.New("window definition is not available")
+		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	variant, selectErr := types.SelectWindowResource(raw, target)
 	if selectErr != nil && target != nil && c.legacyTargets != nil {
@@ -560,28 +620,28 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	if c.loadResolvedDefinition != nil {
 		selected, encodeErr := json.Marshal(definition)
 		if encodeErr != nil {
-			return nil, encodeErr
+			return nil, windowDefinitionFailure(encodeErr, "window definition is not available")
 		}
 		definition, err = c.loadResolvedDefinition(ctx, entry.WindowID, *fresh, selected)
 	}
 	if err != nil || definition == nil {
-		return nil, errors.New("window definition is not available")
+		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	// Clone host-owned values before attaching this request's authority pin.
 	encoded, err := json.Marshal(definition)
 	if err != nil {
-		return nil, err
+		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	definition = &types.Window{}
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.UseNumber()
 	if err := decoder.Decode(definition); err != nil {
-		return nil, err
+		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	definition.SelectionBinding = nil
 	definition.Resource = fresh
 	if _, _, err := resolver.ReadResolved(ctx, *fresh); err != nil {
-		return nil, errors.New("window definition is not available")
+		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	normalized := types.WindowTarget{}
 	if target != nil {
@@ -589,16 +649,16 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	}
 	normalized, err = normalized.Normalize()
 	if err != nil {
-		return nil, err
+		return nil, windowDefinitionFailure(err, "window definition is not available")
 	}
 	if normalized.SelectionToken != "" {
 		if err := c.VerifyWindowTarget(ctx, *fresh, normalized, variant.Fingerprint); err != nil {
-			return nil, err
+			return nil, windowDefinitionFailure(err, "window definition is not available")
 		}
 	} else {
 		normalized.SelectionToken, err = c.targetProof.Sign(ctx, *fresh, normalized, variant.Fingerprint)
 		if err != nil {
-			return nil, err
+			return nil, windowDefinitionFailure(err, "window definition is not available")
 		}
 	}
 	definition.ResourceTarget = &normalized
