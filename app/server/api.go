@@ -30,18 +30,20 @@ import (
 )
 
 type APIOptions struct {
-	Version          string
-	LayoutDefault    []byte
-	MenuReader       svcworkspace.LayoutMenuReader
-	Runtime          *executor.Runtime
-	Client           sdk.Backend
-	AgentFinder      agentmodel.Finder
-	AgentIDs         []string
-	AuthRuntime      *svcauth.Runtime
-	SchedulerService *svcscheduler.Service
-	SchedulerOptions *sdk.SchedulerOptions
-	UIBridgeHandler  http.Handler
-	AGUIDemoBackends []sdk.AGUIDemoBackend
+	MCPUIResourceReader        sdk.MCPUIResourceReader
+	MCPUIResourceContextBinder sdk.MCPUIResourceContextBinder
+	Version                    string
+	LayoutDefault              []byte
+	MenuReader                 svcworkspace.LayoutMenuReader
+	Runtime                    *executor.Runtime
+	Client                     sdk.Backend
+	AgentFinder                agentmodel.Finder
+	AgentIDs                   []string
+	AuthRuntime                *svcauth.Runtime
+	SchedulerService           *svcscheduler.Service
+	SchedulerOptions           *sdk.SchedulerOptions
+	UIBridgeHandler            http.Handler
+	AGUIDemoBackends           []sdk.AGUIDemoBackend
 }
 
 func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
@@ -89,6 +91,12 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		sdk.WithFileBrowser(fileBrowserHandler),
 		sdk.WithA2AHandler(a2aHandler),
 		sdk.WithAGUIDemoBackends(opts.AGUIDemoBackends...),
+	}
+	if opts.MCPUIResourceContextBinder != nil {
+		handlerOpts = append(handlerOpts, sdk.WithMCPUIResourceContextBinder(opts.MCPUIResourceContextBinder))
+	}
+	if opts.MCPUIResourceReader != nil {
+		handlerOpts = append(handlerOpts, sdk.WithMCPUIResourceReader(opts.MCPUIResourceReader))
 	}
 	// Callback dispatcher — mounted only when the runtime built one
 	// (requires a tool registry; see executor builder). When auth is
