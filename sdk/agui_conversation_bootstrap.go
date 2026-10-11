@@ -21,6 +21,7 @@ type AGUIConversationBootstrapInput struct {
 	IncludeModelCalls    *bool                     `json:"includeModelCalls,omitempty"`
 	IncludeToolCalls     *bool                     `json:"includeToolCalls,omitempty"`
 	IncludeModelPayloads *bool                     `json:"includeModelPayloads,omitempty"`
+	IncludeToolPayloads  *bool                     `json:"includeToolPayloads,omitempty"`
 	IncludeFeeds         *bool                     `json:"includeFeeds,omitempty"`
 	Selectors            map[string]*QuerySelector `json:"selectors,omitempty"`
 }
@@ -92,6 +93,9 @@ func dispatchAGUIConversationBootstrap(ctx context.Context, client Client, store
 	}
 	for name, selector := range input.Selectors {
 		options = append(options, WithTranscriptSelector(name, selector))
+	}
+	if input.IncludeToolPayloads != nil {
+		options = append(options, WithIncludeToolPayloads(*input.IncludeToolPayloads))
 	}
 	if input.IncludeModelPayloads != nil {
 		options = append(options, WithIncludeModelPayloads(*input.IncludeModelPayloads))

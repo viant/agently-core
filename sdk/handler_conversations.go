@@ -212,6 +212,9 @@ func handleGetTranscript(client Client) http.HandlerFunc {
 				opts = append(opts, WithTranscriptSelector(name, selector))
 			}
 		}
+		if q.Get("includeToolPayloads") == "false" {
+			opts = append(opts, WithIncludeToolPayloads(false))
+		}
 		if q.Get("includeModelPayloads") == "false" {
 			opts = append(opts, WithIncludeModelPayloads(false))
 		}
@@ -387,6 +390,9 @@ func handleGetLiveState(client Client) http.HandlerFunc {
 		}
 		q := r.URL.Query()
 		var opts []TranscriptOption
+		if q.Get("includeToolPayloads") == "false" {
+			opts = append(opts, WithIncludeToolPayloads(false))
+		}
 		if q.Get("includeModelPayloads") == "false" {
 			opts = append(opts, WithIncludeModelPayloads(false))
 		}

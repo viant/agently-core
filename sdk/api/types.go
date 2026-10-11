@@ -684,6 +684,7 @@ type GetTranscriptInput struct {
 	IncludeModelCalls    bool
 	IncludeToolCalls     bool
 	IncludeModelPayloads *bool `json:"includeModelPayloads,omitempty"`
+	IncludeToolPayloads  *bool `json:"includeToolPayloads,omitempty"`
 }
 
 type QuerySelector struct {

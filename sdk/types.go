@@ -105,6 +105,7 @@ type transcriptOptions struct {
 	includeModelCalls    bool
 	includeToolCalls     bool
 	includeModelPayloads *bool
+	includeToolPayloads  *bool
 }
 
 const (
@@ -139,6 +140,13 @@ func WithIncludeModelCalls() TranscriptOption {
 // Payload IDs and all model/tool metadata remain available.
 func WithIncludeModelPayloads(include bool) TranscriptOption {
 	return func(o *transcriptOptions) { o.includeModelPayloads = &include }
+}
+
+// WithIncludeToolPayloads(false) omits completed ordinary tool bodies when
+// durable payload IDs permit lazy detail reads. Renderer and pending/error
+// carriers remain intact; default detail/replay responses remain full.
+func WithIncludeToolPayloads(include bool) TranscriptOption {
+	return func(o *transcriptOptions) { o.includeToolPayloads = &include }
 }
 
 func WithIncludeToolCalls() TranscriptOption {

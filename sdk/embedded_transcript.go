@@ -158,6 +158,16 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 	if c.feeds != nil && state != nil && optState != nil && optState.includeFeeds {
 		resp.Feeds = c.resolveActiveFeedsFromState(ctx, state)
 	}
+	includeToolPayloads := true
+	if input.IncludeToolPayloads != nil {
+		includeToolPayloads = *input.IncludeToolPayloads
+	}
+	if optState.includeToolPayloads != nil {
+		includeToolPayloads = *optState.includeToolPayloads
+	}
+	if !includeToolPayloads {
+		c.omitCanonicalToolPayloads(state)
+	}
 	return resp, nil
 }
 
