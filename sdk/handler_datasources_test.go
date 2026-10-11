@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -14,9 +15,13 @@ import (
 	"github.com/viant/agently-core/app/store/conversation"
 	convdata "github.com/viant/agently-core/app/store/data"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
+	identity "github.com/viant/agently-core/protocol/resource"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
 	dssvc "github.com/viant/agently-core/service/datasource"
+	"github.com/viant/agently-core/service/ui/permittedview"
+	"github.com/viant/authz"
+	"github.com/viant/authz/gating"
 )
 
 type delayedCampaignMutationExecutor struct {
@@ -373,4 +378,53 @@ func TestHandleFetchDatasourcePreservesServerScopedDenialWithoutRows(t *testing.
 	if json.Unmarshal(writer.Body.Bytes(), &body) != nil || writer.Code != 403 || body["code"] != "datasource_denied" || body["scope"] != "dataset" || body["rows"] != nil {
 		t.Fatal(writer.Code, writer.Body.String())
 	}
+}
+
+func TestHandleFetchDatasource_TypedAdmissionFailuresStayRetryableWithoutDispatch(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		err    error
+		status int
+		redact bool
+	}{
+		{"timeout", fmt.Errorf("sensitive authority payload: %w", context.DeadlineExceeded), 504, true},
+		{"unavailable", fmt.Errorf("sensitive authority payload: %w", permittedview.ErrUnavailable), 503, true},
+		{"generic authz unavailable", fmt.Errorf("sensitive authority payload: %w", authz.ErrUnavailable), 503, true},
+		{"generic gate unavailable", fmt.Errorf("sensitive authority payload: %w", gating.ErrUnavailable), 503, true},
+		{"unauthorized", &dsproto.UpstreamAuthorizationError{Status: 401, Cause: errors.New("sensitive authority payload")}, 401, true},
+		{"forbidden", identity.ErrResourceDenied, 403, false},
+		{"revoke", dsproto.ErrDatasourceDenied, 403, false},
+		{"denial wins over outage", errors.Join(identity.ErrResourceDenied, permittedview.ErrUnavailable), 403, false},
+		{"authz denial wins over outage", errors.Join(authz.ErrDenied, permittedview.ErrUnavailable), 403, false},
+		{"availability text is not a trusted status", errors.New("dependency unavailable"), 500, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := dssvc.NewMemoryStore()
+			store.Put(&dsproto.DataSource{ID: "change", Backend: &dsproto.Backend{Kind: dsproto.BackendMCPTool, Service: "arbitrary", Method: "Patch"}})
+			dispatches := 0
+			service := dssvc.New(dssvc.Options{Store: store, AuthorizeDefinition: func(context.Context, *dsproto.DataSource, map[string]interface{}) error { return tc.err }, Executor: datasourceErrorExecutor(func(context.Context, string, map[string]interface{}) (string, error) { dispatches++; return "{}", nil })})
+			backend := datasourceServiceBackend{service: service}
+			for attempt := 0; attempt < 2; attempt++ {
+				req := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/change/fetch", strings.NewReader(`{"inputs":{}}`))
+				req.SetPathValue("id", "change")
+				writer := httptest.NewRecorder()
+				handleFetchDatasource(backend)(writer, req)
+				if writer.Code != tc.status {
+					t.Fatalf("want%d got%d: %s", tc.status, writer.Code, writer.Body.String())
+				}
+				if tc.redact && strings.Contains(writer.Body.String(), "sensitive authority payload") {
+					t.Fatalf("authority payload leaked: %s", writer.Body.String())
+				}
+			}
+			if dispatches != 0 {
+				t.Fatalf("admission failure dispatched%d mutations", dispatches)
+			}
+		})
+	}
+}
+
+type datasourceErrorExecutor func(context.Context, string, map[string]interface{}) (string, error)
+
+func (f datasourceErrorExecutor) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	return f(ctx, name, args)
 }
