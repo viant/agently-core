@@ -154,9 +154,9 @@ func dispatchAGUIWorkspace(ctx context.Context, client Client, threadID, operati
 		result, err := client.ImportResources(ctx, &input)
 		return result, true, err
 	case "feed.list":
-		backend, ok := client.(interface{ ListFeedSpecs() []*FeedSpec })
-		if !ok {
-			return nil, true, fmt.Errorf("feed registry is not configured")
+		specs, err := listClientFeedSpecs(ctx, client)
+		if err != nil {
+			return nil, true, err
 		}
 		type summary struct {
 			ID            string            `json:"id"`
@@ -166,9 +166,9 @@ func dispatchAGUIWorkspace(ctx context.Context, client Client, threadID, operati
 			Match         FeedMatch         `json:"match"`
 		}
 		results := make([]summary, 0)
-		for _, spec := range backend.ListFeedSpecs() {
+		for _, spec := range specs {
 			if spec != nil {
-				results = append(results, summary{spec.ID, spec.Title, spec.DeveloperOnly, normalizedFeedPresentation(spec), spec.Match})
+				results = append(results, summary{feedIdentity(spec), spec.Title, spec.DeveloperOnly, normalizedFeedPresentation(spec), spec.Match})
 			}
 		}
 		return map[string]any{"feeds": results}, true, nil
@@ -179,19 +179,9 @@ func dispatchAGUIWorkspace(ctx context.Context, client Client, threadID, operati
 		if err := decode(&input); err != nil {
 			return nil, true, err
 		}
-		backend, ok := client.(interface{ ListFeedSpecs() []*FeedSpec })
-		if !ok {
-			return nil, true, fmt.Errorf("feed registry is not configured")
-		}
-		var spec *FeedSpec
-		for _, candidate := range backend.ListFeedSpecs() {
-			if candidate != nil && candidate.ID == input.ID {
-				spec = candidate
-				break
-			}
-		}
-		if spec == nil {
-			return nil, true, fmt.Errorf("feed %q not found", input.ID)
+		spec, err := getClientFeedSpec(ctx, client, input.ID)
+		if err != nil {
+			return nil, true, err
 		}
 		transcript, err := client.GetTranscript(ctx, &GetTranscriptInput{ConversationID: threadID, IncludeModelCalls: true, IncludeToolCalls: true}, WithIncludeFeeds())
 		if err != nil {
@@ -200,14 +190,14 @@ func dispatchAGUIWorkspace(ctx context.Context, client Client, threadID, operati
 		var data any
 		if transcript != nil {
 			for _, feed := range transcript.Feeds {
-				if feed != nil && feed.FeedID == spec.ID {
+				if feed != nil && feed.FeedID == feedIdentity(spec) {
 					data = feed.Data
 					break
 				}
 			}
 			if data == nil && transcript.Conversation != nil {
 				for _, feed := range transcript.Conversation.Feeds {
-					if feed != nil && feed.FeedID == spec.ID {
+					if feed != nil && feed.FeedID == feedIdentity(spec) {
 						data = feed.Data
 						break
 					}

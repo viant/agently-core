@@ -155,7 +155,7 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 		Conversation:  state,
 		Usage:         usageSummaryFromConversation(conv),
 	}
-	if c.feeds != nil && state != nil && optState != nil && optState.includeFeeds {
+	if (c.feeds != nil || c.primitiveProviders != nil) && state != nil && optState != nil && optState.includeFeeds {
 		resp.Feeds = c.resolveActiveFeedsFromState(ctx, state)
 	}
 	includeToolPayloads := true
@@ -166,7 +166,7 @@ func (c *backendClient) GetTranscript(ctx context.Context, input *GetTranscriptI
 		includeToolPayloads = *optState.includeToolPayloads
 	}
 	if !includeToolPayloads {
-		c.omitCanonicalToolPayloads(state)
+		c.omitCanonicalToolPayloads(state, ctx)
 	}
 	return resp, nil
 }
