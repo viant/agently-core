@@ -18,6 +18,7 @@ import (
 	"github.com/viant/agently-core/service/ui/permittedview"
 	"github.com/viant/authz"
 	"github.com/viant/authz/gating"
+	"github.com/viant/jsonrpc"
 )
 
 // ErrDatasourceStackNotConfigured is returned by Backend implementations that
@@ -109,6 +110,10 @@ func handleListLookupRegistry(client Backend) http.HandlerFunc {
 // clients can distinguish it from genuine internal errors.
 func statusForDatasourceErr(err error) int {
 	var upstream *dsproto.UpstreamAuthorizationError
+	var rpcError *jsonrpc.Error
+	if errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
+		return rpcError.Code
+	}
 	if errors.Is(err, dsproto.ErrDatasourceDenied) {
 		return http.StatusForbidden
 	}
@@ -136,6 +141,10 @@ func statusForDatasourceErr(err error) int {
 // Availability is classified by trusted sentinels; upstream payloads are omitted.
 func writeDatasourceError(w http.ResponseWriter, err error) {
 	status := statusForDatasourceErr(err)
+	var rpcError *jsonrpc.Error
+	if isAuthStatus(status) && errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
+		err = &dsproto.UpstreamAuthorizationError{Status: status, Cause: err}
+	}
 	switch status {
 	case http.StatusGatewayTimeout:
 		err = context.DeadlineExceeded
