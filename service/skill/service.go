@@ -1335,7 +1335,10 @@ func (s *Service) ListForSelection(ctx context.Context, conversationID, agentID 
 	if agent == nil {
 		return nil, nil, fmt.Errorf("agent not found")
 	}
-	meta, _ := s.Visible(agent)
+	meta, err := s.ListVisible(ctx, agent)
+	if err != nil {
+		return nil, s.Diagnostics(), err
+	}
 	return meta, s.Diagnostics(), nil
 }
 
@@ -1348,7 +1351,10 @@ func (s *Service) ListForConversation(ctx context.Context, conversationID string
 	if err != nil {
 		return nil, nil, err
 	}
-	meta, _ := s.Visible(agent)
+	meta, err := s.ListVisible(ctx, agent)
+	if err != nil {
+		return nil, s.Diagnostics(), err
+	}
 	return meta, s.Diagnostics(), nil
 }
 

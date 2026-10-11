@@ -1178,7 +1178,11 @@ func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) 
 	}
 	out := &ListSkillsOutput{Diagnostics: diags}
 	for _, item := range items {
-		out.Items = append(out.Items, SkillItem{Name: item.Name, Description: item.Description})
+		name := item.Name
+		if item.URI != "" {
+			name = item.URI
+		}
+		out.Items = append(out.Items, SkillItem{Name: name, Description: item.Description})
 	}
 	return out, nil
 }
