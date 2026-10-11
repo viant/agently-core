@@ -54,7 +54,7 @@ func handleFetchDatasource(client Backend) http.HandlerFunc {
 		}
 		out, err := client.FetchDatasource(ctx, &in)
 		if err != nil {
-			writeDatasourceError(w, err)
+			writeDatasourceFetchError(w, err, in.Resource)
 			return
 		}
 		if out == nil {
@@ -139,6 +139,22 @@ func writeDatasourceError(w http.ResponseWriter, err error) {
 		err = permittedview.ErrUnavailable
 	}
 	httpError(w, status, err)
+}
+
+// A window artifact failure is distinct from managing-MCP data denial. The
+// request selects the artifact kind; only trusted error types set this scope.
+func writeDatasourceFetchError(w http.ResponseWriter, err error, resource *identity.ResolvedResource) {
+	if resource != nil && statusForDatasourceErr(err) == http.StatusForbidden &&
+		(errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale)) {
+		uri, parseErr := identity.ParseResourceURI(resource.URI)
+		if parseErr == nil && uri.Kind == "window" {
+			httpJSON(w, http.StatusForbidden, map[string]string{
+				"error": "window artifact access denied", "code": "resource_denied", "scope": "window",
+			})
+			return
+		}
+	}
+	writeDatasourceError(w, err)
 }
 
 type datasourceErrorEnvelope struct {
