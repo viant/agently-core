@@ -27,6 +27,7 @@ func (m *Manager) invalidateToolCatalogLocked(server string) {
 		m.toolCatalogGeneration = map[string]uint64{}
 	}
 	m.toolCatalogGeneration[server]++
+	m.visibleCatalogs = nil
 	for key, page := range m.toolCatalog {
 		if page.server == server {
 			delete(m.toolCatalog, key)

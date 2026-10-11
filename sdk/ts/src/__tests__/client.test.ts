@@ -1721,6 +1721,19 @@ describe('skills', () => {
         expect(String(fetch.mock.calls[0][0])).toBe('http://localhost:8585/v1/skills?agentId=coder');
         expect(result.items?.[0].name).toBe('report');
     });
+    it('sends additive skill page and literal term groups without changing activation', async () => {
+        const fetch = mockFetch(200, {items: [{name: 'review'}], nextCursor: 'opaque', complete: false, total: 3});
+        const result = await client(fetch).listSkills({agentId: 'coder', namespace: 'native', nameTerms: ['Alpha', 'Beta'], descriptionTerms: ['sales'], keywords: ['review'], limit: 2, cursor: 'prior'});
+        const url = new URL(String(fetch.mock.calls[0][0]));
+        expect(url.searchParams.getAll('nameTerms')).toEqual(['Alpha', 'Beta']);
+        expect(url.searchParams.getAll('descriptionTerms')).toEqual(['sales']);
+        expect(url.searchParams.getAll('keywords')).toEqual(['review']);
+        expect(url.searchParams.get('namespace')).toBe('native');
+        expect(url.searchParams.get('limit')).toBe('2');
+        expect(url.searchParams.get('cursor')).toBe('prior');
+        expect(result.nextCursor).toBe('opaque');
+        expect(result.complete).toBe(false);
+    });
     it('activates a named skill only through an explicit activation call', async () => {
         const fetch = mockFetch(200, {name: 'report', body: 'Instructions'});
         await client(fetch).activateSkill({name: 'report', conversationId: 'c1', args: 'data'});

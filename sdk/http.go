@@ -729,6 +729,29 @@ func (c *HTTPClient) ListSkills(ctx context.Context, input *ListSkillsInput) (*L
 		return nil, errors.New("conversation ID or agent ID is required")
 	}
 	path := "/v1/skills?conversationId=" + url.QueryEscape(strings.TrimSpace(input.ConversationID))
+	query := url.Values{}
+	if input.Namespace != "" {
+		query.Set("namespace", input.Namespace)
+	}
+	if input.Cursor != "" {
+		query.Set("cursor", input.Cursor)
+	}
+	if input.Limit > 0 {
+		query.Set("limit", strconv.Itoa(input.Limit))
+	}
+	for _, term := range input.NameTerms {
+		query.Add("nameTerms", term)
+	}
+	for _, term := range input.DescriptionTerms {
+		query.Add("descriptionTerms", term)
+	}
+	for _, term := range input.Keywords {
+		query.Add("keywords", term)
+	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "&" + encoded
+	}
+
 	if agentID := strings.TrimSpace(input.AgentID); agentID != "" {
 		path += "&agentId=" + url.QueryEscape(agentID)
 	}

@@ -28,7 +28,14 @@ type NamespaceListRequest struct {
 type NamespaceGetRequest struct {
 	Namespace string `json:"namespace"`
 }
+type NamespaceMetadata struct {
+	Description string   `json:"description,omitempty"`
+	UseCases    []string `json:"useCases,omitempty"`
+}
+
 type Namespace struct {
+	SupportedKinds []KindSupport `json:"supportedKinds,omitempty"`
+	NamespaceMetadata
 	Name  string   `json:"name"`
 	Kinds []string `json:"kinds,omitempty"`
 }
@@ -43,6 +50,7 @@ type KindSupport struct {
 	Methods map[string]string `json:"methods,omitempty"`
 }
 type NamespaceCapabilities struct {
+	NamespaceMetadata
 	ProviderIdentity string        `json:"providerIdentity"`
 	Namespace        string        `json:"namespace"`
 	Kinds            []KindSupport `json:"kinds"`
@@ -72,6 +80,7 @@ type Locator struct {
 	Resource         identity.ResourceRef `json:"resource"`
 }
 type ResourceState struct {
+	Description   string          `json:"description,omitempty"`
 	Stamp         int64           `json:"stamp,omitempty"`
 	Kind          string          `json:"kind"`
 	Namespace     string          `json:"namespace"`

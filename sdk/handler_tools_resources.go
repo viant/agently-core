@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	"github.com/viant/agently-core/workspace"
 	"io"
 	"net/http"
@@ -40,7 +41,9 @@ func handleListToolDefinitions(client Client) http.HandlerFunc {
 
 func handleListSkills(client Client) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
 		out, err := client.ListSkills(r.Context(), &ListSkillsInput{
+			CatalogQuery:   primitive.CatalogQuery{Namespace: r.URL.Query().Get("namespace"), NameTerms: r.URL.Query()["nameTerms"], DescriptionTerms: r.URL.Query()["descriptionTerms"], Keywords: r.URL.Query()["keywords"], Cursor: r.URL.Query().Get("cursor"), Limit: limit},
 			AgentID:        strings.TrimSpace(r.URL.Query().Get("agentId")),
 			ConversationID: strings.TrimSpace(r.URL.Query().Get("conversationId")),
 		})

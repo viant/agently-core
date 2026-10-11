@@ -1333,9 +1333,10 @@ export interface UpdateFeedDraftOutput {
 }
 
 /** Visible skill catalog for a draft agent or an existing conversation. */
-export interface ListSkillsInput { conversationId?: string; agentId?: string; }
+export interface CatalogQuery { namespace?: string; nameTerms?: string[]; descriptionTerms?: string[]; keywords?: string[]; cursor?: string; limit?: number; }
+export interface ListSkillsInput extends CatalogQuery { conversationId?: string; agentId?: string; }
 export interface SkillItem { name: string; description?: string; }
-export interface ListSkillsOutput { items?: SkillItem[]; diagnostics?: string[]; }
+export interface ListSkillsOutput { items?: SkillItem[]; diagnostics?: string[]; nextCursor?: string; complete?: boolean; total?: number; }
 export interface ActivateSkillInput { name: string; conversationId: string; args?: string; }
 export interface ActivateSkillOutput { name: string; body: string; }
 

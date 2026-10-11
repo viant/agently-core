@@ -382,6 +382,12 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 			if detail.ProviderIdentity != owner || detail.Namespace != ns.Name {
 				return capabilities{}, ErrCollision
 			}
+			if detail.Description == "" {
+				detail.Description = ns.Description
+			}
+			if len(detail.UseCases) == 0 {
+				detail.UseCases = append([]string(nil), ns.UseCases...)
+			}
 			seenKinds := map[string]bool{}
 			for _, kind := range detail.Kinds {
 				if !identity.ValidResourceKind(kind.Kind) || seenKinds[kind.Kind] {

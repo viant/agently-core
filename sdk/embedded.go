@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	"sort"
 	"strings"
 	"sync"
@@ -1159,6 +1160,27 @@ func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) 
 	if input == nil || (strings.TrimSpace(input.ConversationID) == "" && strings.TrimSpace(input.AgentID) == "") {
 		return nil, errors.New("conversation ID or agent ID is required")
 	}
+	if input.Limit != 0 || input.Cursor != "" || input.Namespace != "" || len(input.NameTerms)+len(input.DescriptionTerms)+len(input.Keywords) != 0 {
+		paging, ok := c.skills.(interface {
+			ListPageForSelection(context.Context, string, string, primitive.CatalogQuery) (*primitive.CatalogPage[skillproto.Metadata], []string, error)
+		})
+		if !ok {
+			return nil, errors.New("skill catalog paging unavailable")
+		}
+		page, diags, err := paging.ListPageForSelection(ctx, strings.TrimSpace(input.ConversationID), strings.TrimSpace(input.AgentID), input.CatalogQuery)
+		if err != nil {
+			return nil, err
+		}
+		out := &ListSkillsOutput{Diagnostics: diags, NextCursor: page.NextCursor, Complete: page.Complete, Total: page.Total}
+		for _, item := range page.Items {
+			name := item.Name
+			if item.URI != "" {
+				name = item.URI
+			}
+			out.Items = append(out.Items, SkillItem{Name: name, Description: item.Description})
+		}
+		return out, nil
+	}
 	var items []skillproto.Metadata
 	var diags []string
 	var err error
@@ -1176,7 +1198,7 @@ func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) 
 	if err != nil {
 		return nil, err
 	}
-	out := &ListSkillsOutput{Diagnostics: diags}
+	out := &ListSkillsOutput{Diagnostics: diags, Complete: true, Total: len(items)}
 	for _, item := range items {
 		name := item.Name
 		if item.URI != "" {

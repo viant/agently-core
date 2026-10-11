@@ -3,6 +3,7 @@ package primitiveproducer_test
 import (
 	"context"
 	"encoding/json"
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	producer "github.com/viant/agently-core/service/primitiveproducer"
 	"github.com/viant/mcp"
@@ -148,5 +149,42 @@ func TestStandaloneProtectedHTTPMCPMenus(t *testing.T) {
 	r = call("menus/get", map[string]interface{}{"uri": uri.String()})
 	if r.IsError == nil || !*r.IsError {
 		t.Fatal("expired actor released menu")
+	}
+}
+
+func TestNamespaceDescriptionsAreExplicitOptionalConfiguration(t *testing.T) {
+	actor := identity.VerifiedActor{Subject: "reader", Issuer: "issuer", TenantID: "tenant", AccountID: "account", IdentityRevision: "1", ValidUntil: time.Now().Add(time.Minute)}
+	config := producer.LocalConfig{ProviderIdentity: "local", Actor: func(context.Context) (identity.VerifiedActor, error) { return actor, nil }, Verify: func(context.Context, identity.VerifiedActor) error { return nil }, Authorize: func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) error { return nil }, Bindings: []producer.LocalResourceBinding{{URI: "intent://tenant/review", FormatVersion: 1, Resolver: func(context.Context, identity.VerifiedActor, string) (*identity.ResourceResolver, error) {
+		t.Fatal("namespace filtering must not resolve definitions")
+		return nil, nil
+	}}}, Validators: map[string]producer.LocalResourceValidator{"intent": func(int64, json.RawMessage) error { return nil }}}
+	plain, err := producer.NewLocalProvider(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	old, err := plain.NamespaceList(context.Background(), primitive.NamespaceListRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Namespaces[0].Description != "" || len(old.Namespaces[0].UseCases) != 0 {
+		t.Fatal("namespace descriptions invented")
+	}
+	config.NamespaceMetadata = map[string]primitive.NamespaceMetadata{"tenant": {Description: "Published review intents", UseCases: []string{"Review selected records"}}}
+	described, err := producer.NewLocalProvider(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := described.NamespaceList(context.Background(), primitive.NamespaceListRequest{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Namespaces[0].Description != "Published review intents" || len(result.Namespaces[0].UseCases) != 1 {
+		t.Fatal(result)
+	}
+	if len(result.Namespaces[0].SupportedKinds) != 1 || len(result.Namespaces[0].SupportedKinds[0].Operations) != 2 {
+		t.Fatal("explicit namespace overview did not preserve declared operations")
+	}
+	if len(result.Namespaces[0].Kinds) != 1 || result.Namespaces[0].Kinds[0] != "intent" {
+		t.Fatal("configured descriptions altered capabilities")
 	}
 }

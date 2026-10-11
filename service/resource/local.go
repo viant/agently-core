@@ -19,6 +19,7 @@ type LocalWindowListVisibility = producer.LocalWindowListVisibility
 type LocalWindowIndex = producer.LocalWindowIndex
 type LocalConfig = producer.LocalConfig
 type LocalProvider struct {
+	namespaceMetadata         map[string]primitive.NamespaceMetadata
 	identity                  string
 	actor                     ActorResolver
 	verify                    ActorVerifier
@@ -36,7 +37,7 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 	if _, err := producer.NewLocalProvider(config); err != nil {
 		return nil, err
 	}
-	p := &LocalProvider{identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, now: config.Now, definitionValidationCache: config.DefinitionValidationCache}
+	p := &LocalProvider{namespaceMetadata: config.NamespaceMetadata, identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, now: config.Now, definitionValidationCache: config.DefinitionValidationCache}
 	for kind, validator := range config.Validators {
 		p.validators[kind] = validator
 	}
@@ -56,7 +57,7 @@ func (p *LocalProvider) neutral() (*producer.LocalProvider, error) {
 	for _, b := range p.bindings {
 		bindings = append(bindings, b)
 	}
-	config := LocalConfig{ProviderIdentity: p.identity, Actor: p.actor, Verify: p.verify, Authorize: p.authorizer, Bindings: bindings, Validators: p.validators, WindowListVisibility: p.windowListVisibility, WindowIndex: p.windowIndex, Now: p.now, DefinitionValidationCache: p.definitionValidationCache}
+	config := LocalConfig{NamespaceMetadata: p.namespaceMetadata, ProviderIdentity: p.identity, Actor: p.actor, Verify: p.verify, Authorize: p.authorizer, Bindings: bindings, Validators: p.validators, WindowListVisibility: p.windowListVisibility, WindowIndex: p.windowIndex, Now: p.now, DefinitionValidationCache: p.definitionValidationCache}
 	if config.DefinitionValidationCache == nil {
 		config.DefinitionValidationCache = func(source identity.ResourceSource, kind string, version int64, fingerprint string, validator LocalResourceValidator) bool {
 			cached, ok := source.(interface {

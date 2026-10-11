@@ -255,6 +255,9 @@ export class AgentlyClient {
         const q = new URLSearchParams();
         if (input.conversationId) q.set('conversationId', input.conversationId);
         if (input.agentId) q.set('agentId', input.agentId);
+        for (const key of ['namespace', 'cursor'] as const) { if (input[key]) q.set(key, input[key]!); }
+        if (input.limit !== undefined) q.set('limit', String(input.limit));
+        for (const key of ['nameTerms', 'descriptionTerms', 'keywords'] as const) { for (const term of input[key] || []) q.append(key, term); }
         return this.get('/skills', q);
     }
 
