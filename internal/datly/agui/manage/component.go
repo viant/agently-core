@@ -33,7 +33,9 @@ import (
 )
 
 type ManageComponent struct {
-	Contract xdatly.Component[store.Request, store.Response] `component:"Manage,path=/v1/internal/agently/ag-ui/manage,method=POST,connector=agently,handler=NewManage,internal=true"`
+	// Child writers must drain their prefix before the coordinator reads it.
+	// Imperative composition retains the same parent-owned transaction.
+	Contract xdatly.Component[store.Request, store.Response] `component:"Manage,path=/v1/internal/agently/ag-ui/manage,method=POST,connector=agently,handler=NewManage,internal=true" componentCallPolicy:"imperative"`
 }
 
 var ManageDatly = reflect.TypeFor[ManageComponent]()

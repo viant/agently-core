@@ -15,8 +15,10 @@ import (
 	"github.com/viant/xdatly/handler"
 )
 
+// The command coordinator observes child writes and appends the terminal
+// journal inside one owned transaction; its children cannot be buffered.
 type CommandComponent struct {
-	Contract xdatly.Component[store.CommandInput, store.CommandOutput] `component:"Command,path=/v1/internal/agently/ag-ui/command,method=POST,connector=agently,handler=NewCommand,internal=true"`
+	Contract xdatly.Component[store.CommandInput, store.CommandOutput] `component:"Command,path=/v1/internal/agently/ag-ui/command,method=POST,connector=agently,handler=NewCommand,internal=true" componentCallPolicy:"imperative"`
 }
 
 var CommandDatly = reflect.TypeFor[CommandComponent]()
