@@ -150,9 +150,6 @@ type Registry struct {
 	discoverySurfaceTimeout time.Duration
 	discoveryStrictTTL      time.Duration
 	discoveryFailTTL        time.Duration
-	discoveryToolsTTL       time.Duration
-	discoveryTools          map[string]discoveryToolsCacheEntry
-	discoveryVisibility     map[string]string
 	discoveryScopeSeq       uint64
 }
 
@@ -181,15 +178,11 @@ type recentCall struct {
 }
 
 type discoveryIdentity struct {
-	userID  string
-	tokenFP string
-	useID   bool
-	seenAt  time.Time
-}
-
-type discoveryToolsCacheEntry struct {
-	tools     []mcpschema.Tool
-	expiresAt time.Time
+	userID      string
+	tokenFP     string
+	useID       bool
+	seenAt      time.Time
+	catalogSeen bool
 }
 
 const (
@@ -232,10 +225,16 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		discoverySurfaceTimeout: 3 * time.Second,
 		discoveryStrictTTL:      30 * time.Second,
 		discoveryFailTTL:        30 * time.Second,
-		discoveryToolsTTL:       5 * time.Minute,
-		discoveryTools:          map[string]discoveryToolsCacheEntry{},
-		discoveryVisibility:     map[string]string{},
 	}
+	mgr.OnCatalogChange(func(server string) {
+		r.mu.Lock()
+		defer r.mu.Unlock()
+		for name, entry := range r.cache {
+			if entry != nil && entry.def.Name == server+"/"+entry.mcpDef.Name {
+				delete(r.cache, name)
+			}
+		}
+	})
 	// Internal MCP services are app-owned plugins; registries start empty.
 	return r, nil
 }
@@ -2116,10 +2115,7 @@ func (r *Registry) shouldWarmServer(ctx context.Context, server string) bool {
 	if r.isInternalServer(server) {
 		return true
 	}
-	if !r.canAutoProbeToolCatalog(ctx, server) {
-		return false
-	}
-	return r.toolCatalogVisibility(ctx, server) != mcpcfg.ToolsListVisibilityPrivate
+	return r.toolCatalogVisibility(ctx, server) == mcpcfg.ToolsListVisibilityPublic
 }
 
 func (r *Registry) isPublicToolCatalog(ctx context.Context, server string) bool {
@@ -2149,14 +2145,6 @@ func (r *Registry) isInternalServer(server string) bool {
 	return ok
 }
 
-func (r *Registry) canAutoProbeToolCatalog(ctx context.Context, server string) bool {
-	if r == nil || r.mgr == nil || strings.TrimSpace(server) == "" {
-		return false
-	}
-	cfg, err := r.mgr.Options(ctx, strings.TrimSpace(server))
-	return err == nil && cfg != nil
-}
-
 func (r *Registry) toolCatalogVisibility(ctx context.Context, server string) string {
 	server = strings.TrimSpace(server)
 	if server == "" {
@@ -2166,30 +2154,21 @@ func (r *Registry) toolCatalogVisibility(ctx context.Context, server string) str
 		if cfg, err := r.mgr.Options(ctx, server); err == nil && cfg != nil {
 			switch strings.ToLower(strings.TrimSpace(cfg.ToolsListVisibility)) {
 			case mcpcfg.ToolsListVisibilityPublic:
+				if scope, ok := r.mgr.(interface {
+					IsToolsListPublic(context.Context, string) bool
+				}); ok && !scope.IsToolsListPublic(ctx, server) {
+					return mcpcfg.ToolsListVisibilityPrivate
+				}
+				if cfg.ClientOptions != nil && (cfg.Auth != nil || cfg.CookieJar != nil) {
+					return mcpcfg.ToolsListVisibilityPrivate
+				}
 				return mcpcfg.ToolsListVisibilityPublic
 			case mcpcfg.ToolsListVisibilityPrivate:
 				return mcpcfg.ToolsListVisibilityPrivate
 			}
 		}
 	}
-	r.mu.RLock()
-	visibility := r.discoveryVisibility[strings.ToLower(server)]
-	r.mu.RUnlock()
-	return visibility
-}
-
-func (r *Registry) setLearnedToolCatalogVisibility(server, visibility string) {
-	server = strings.ToLower(strings.TrimSpace(server))
-	visibility = strings.ToLower(strings.TrimSpace(visibility))
-	if server == "" || (visibility != mcpcfg.ToolsListVisibilityPublic && visibility != mcpcfg.ToolsListVisibilityPrivate) {
-		return
-	}
-	r.mu.Lock()
-	if r.discoveryVisibility == nil {
-		r.discoveryVisibility = map[string]string{}
-	}
-	r.discoveryVisibility[server] = visibility
-	r.mu.Unlock()
+	return ""
 }
 
 func (r *Registry) hasCachedServerTools(server string) bool {
@@ -2523,21 +2502,16 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	}
 	visibility := r.toolCatalogVisibility(ctx, server)
 	publicCatalog := visibility == mcpcfg.ToolsListVisibilityPublic
-	privateCatalog := visibility == mcpcfg.ToolsListVisibilityPrivate
 	backgroundDiscovery := runtimediscovery.BackgroundFromContext(ctx) || authctx.EffectiveUserID(ctx) == ""
-	anonymousProbe := backgroundDiscovery && visibility == "" && r.canAutoProbeToolCatalog(ctx, server)
-	if backgroundDiscovery && !publicCatalog && !anonymousProbe {
+	if backgroundDiscovery && !publicCatalog {
 		return nil, nil
 	}
-	if backgroundDiscovery && privateCatalog {
-		return nil, nil
-	}
-	if !publicCatalog && !anonymousProbe {
+	if !publicCatalog {
 		ctx = r.mgr.WithAuthTokenContext(ctx, server)
 	}
 	useID := r.mgr.UseIDToken(ctx, server)
 	token := ""
-	if !publicCatalog && !anonymousProbe {
+	if !publicCatalog {
 		token = authctx.MCPAuthToken(ctx, useID)
 	}
 	if r.isDelegatedAuthServer(ctx, server) {
@@ -2548,11 +2522,6 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 	scope := r.discoveryClientScope(ctx, server)
 	r.observeSharedDiscoveryIdentity(server, scope, userID, token, useID)
-	if !publicCatalog {
-		if tools, ok := r.loadPrincipalDiscoveryTools(server, userID, token, useID); ok {
-			return tools, nil
-		}
-	}
 	if err := r.discoveryFailureFor(server, scope); err != nil {
 		if r.shouldBypassDiscoveryCooldown(server, scope) {
 			r.clearDiscoveryFailure(server, scope)
@@ -2572,11 +2541,6 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		return getErr
 	})
 	if err != nil {
-		if anonymousProbe && isToolCatalogAuthorizationError(err) {
-			r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPrivate)
-			r.clearDiscoveryFailure(server, scope)
-			return nil, nil
-		}
 		r.noteDiscoveryFailure(server, scope, err)
 		if shouldSkipBestEffortToolSurfaceDiscoveryError(ctx, err) {
 			return nil, nil
@@ -2603,18 +2567,10 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 					return nil, err
 				}
 				r.clearDiscoveryFailure(server, scope)
-				if anonymousProbe && len(retried) > 0 {
-					r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPublic)
-				}
 				return retried, nil
 			} else {
 				err = retryErr
 			}
-		}
-		if anonymousProbe && isToolCatalogAuthorizationError(err) {
-			r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPrivate)
-			r.clearDiscoveryFailure(server, scope)
-			return nil, nil
 		}
 		r.noteDiscoveryFailure(server, scope, err)
 		if shouldSkipBestEffortToolSurfaceDiscoveryError(ctx, err) {
@@ -2627,89 +2583,13 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		return nil, err
 	}
 	r.clearDiscoveryFailure(server, scope)
-	if anonymousProbe {
-		// An empty anonymous response does not establish catalog visibility.
-		if len(tools) > 0 {
-			r.setLearnedToolCatalogVisibility(server, mcpcfg.ToolsListVisibilityPublic)
-		}
-	} else if !publicCatalog {
-		r.storePrincipalDiscoveryTools(server, userID, token, useID, tools)
-	}
-	return tools, nil
-}
-
-func isToolCatalogAuthorizationError(err error) bool {
-	if err == nil {
-		return false
-	}
-	if _, required := mcpauth.FromError(err); required {
-		return true
-	}
-	message := strings.ToLower(strings.TrimSpace(err.Error()))
-	for _, marker := range []string{
-		"401", "403", "unauthorized", "forbidden", "authorization required",
-		"authentication required", "missing token", "token is missing", "oauth link required",
-	} {
-		if strings.Contains(message, marker) {
-			return true
-		}
-	}
-	return false
-}
-
-func (r *Registry) principalDiscoveryToolsKey(server, userID, token string, useID bool) string {
-	server = strings.ToLower(strings.TrimSpace(server))
-	userID = strings.TrimSpace(userID)
-	if server == "" || userID == "" {
-		return ""
-	}
-	return strings.Join([]string{server, userID, strconv.FormatBool(useID), tokenFingerprint(token)}, "\x1f")
-}
-
-func (r *Registry) loadPrincipalDiscoveryTools(server, userID, token string, useID bool) ([]mcpschema.Tool, bool) {
-	if r == nil {
-		return nil, false
-	}
-	key := r.principalDiscoveryToolsKey(server, userID, token, useID)
-	if key == "" {
-		return nil, false
-	}
-	now := time.Now()
-	r.mu.RLock()
-	entry, ok := r.discoveryTools[key]
-	r.mu.RUnlock()
-	if !ok || entry.expiresAt.IsZero() || !entry.expiresAt.After(now) {
-		if ok {
-			r.mu.Lock()
-			delete(r.discoveryTools, key)
-			r.mu.Unlock()
-		}
-		return nil, false
-	}
-	return append([]mcpschema.Tool(nil), entry.tools...), true
-}
-
-func (r *Registry) storePrincipalDiscoveryTools(server, userID, token string, useID bool, tools []mcpschema.Tool) {
-	if r == nil {
-		return
-	}
-	key := r.principalDiscoveryToolsKey(server, userID, token, useID)
-	if key == "" {
-		return
-	}
-	ttl := r.discoveryToolsTTL
-	if ttl <= 0 {
-		ttl = 5 * time.Minute
-	}
 	r.mu.Lock()
-	if r.discoveryTools == nil {
-		r.discoveryTools = map[string]discoveryToolsCacheEntry{}
-	}
-	r.discoveryTools[key] = discoveryToolsCacheEntry{
-		tools:     append([]mcpschema.Tool(nil), tools...),
-		expiresAt: time.Now().Add(ttl),
-	}
+	identityKey := discoveryIdentityKey(server, scope)
+	observed := r.discoveryShared[identityKey]
+	observed.catalogSeen = true
+	r.discoveryShared[identityKey] = observed
 	r.mu.Unlock()
+	return tools, nil
 }
 
 func (r *Registry) retrySharedDiscoveryListTools(ctx context.Context, scope, server string, opts []mcpclient.RequestOption) ([]mcpschema.Tool, error) {
@@ -3179,6 +3059,7 @@ func (r *Registry) observeSharedDiscoveryIdentity(server, scope, userID, token s
 	if r.discoveryShared == nil {
 		r.discoveryShared = map[string]discoveryIdentity{}
 	}
+	cur.catalogSeen = prev.catalogSeen
 	r.discoveryShared[identityKey] = cur
 	r.mu.Unlock()
 

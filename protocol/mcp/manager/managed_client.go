@@ -95,7 +95,7 @@ func (c *managedClient) ListTools(ctx context.Context, cursor *string, options .
 		return nil, err
 	}
 	defer release()
-	return client.ListTools(ctx, cursor, options...)
+	return c.listTools(ctx, client, cursor, options...)
 }
 
 func (c *managedClient) ReadResource(ctx context.Context, params *mcpschema.ReadResourceRequestParams, options ...mcpclient.RequestOption) (*mcpschema.ReadResourceResult, error) {

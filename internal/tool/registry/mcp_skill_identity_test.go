@@ -58,7 +58,7 @@ func skillIdentityRegistry(t *testing.T, private bool) *registry.Registry {
 	reg, err := registry.NewWithManager(manager)
 	require.NoError(t, err)
 	if !private {
-		reg.Initialize(context.Background())
+		reg.MatchDefinitionWithContext(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"}), "datly:*")
 	}
 	return reg
 }

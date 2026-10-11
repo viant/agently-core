@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"strings"
 
-	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/runtime/mcpapps"
 	"github.com/viant/agently-core/runtime/requestctx"
 	mcpschema "github.com/viant/mcp-protocol/schema"
@@ -29,13 +28,14 @@ func (r *Registry) resolveMCPAppBinding(ctx context.Context, server, method stri
 		}
 		r.mu.RUnlock()
 	} else {
-		scoped := r.mgr.WithAuthTokenContext(ctx, server)
-		useID := r.mgr.UseIDToken(scoped, server)
-		token := authctx.MCPAuthToken(scoped, useID)
-		if r.isDelegatedAuthServer(scoped, server) {
-			token = ""
+		if !r.hasObservedCatalog(ctx, server) {
+			return nil, false, nil
 		}
-		tools, _ = r.loadPrincipalDiscoveryTools(server, authctx.EffectiveUserID(scoped), token, useID)
+		var err error
+		tools, err = r.listServerTools(ctx, server)
+		if err != nil {
+			return nil, false, err
+		}
 	}
 	resourceURI := ""
 	for _, tool := range tools {
