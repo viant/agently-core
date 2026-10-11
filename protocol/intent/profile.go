@@ -2,6 +2,7 @@ package intent
 
 import (
 	"fmt"
+	toolbundle "github.com/viant/agently-core/protocol/tool/bundle"
 
 	agent "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/lookup/overlay"
@@ -10,9 +11,15 @@ import (
 // Profile is a scenario configuration unit pairing instruction messages,
 // tool bundles, and one default plus optional additional output templates.
 type Profile struct {
-	ID          string `yaml:"id"                       json:"id"`
-	Name        string `yaml:"name,omitempty"           json:"name,omitempty"`
-	Description string `yaml:"description,omitempty"    json:"description,omitempty"`
+	// ResourceURI is host-supplied admitted routing metadata, not authored authority.
+	ResourceURI              string `json:"-" yaml:"-"`
+	ResourceProviderIdentity string `json:"-" yaml:"-"`
+	ResourceFingerprint      string `json:"-" yaml:"-"`
+	// ToolBundleDefinitions are producer-compiled owning-intent attachments.
+	ToolBundleDefinitions []*toolbundle.Bundle `json:"toolBundleDefinitions,omitempty" yaml:"-"`
+	ID                    string               `yaml:"id"                       json:"id"`
+	Name                  string               `yaml:"name,omitempty"           json:"name,omitempty"`
+	Description           string               `yaml:"description,omitempty"    json:"description,omitempty"`
 	// Model optionally overrides the selected agent model for turns using this
 	// profile. Intake classification keeps its independently configured model.
 	Model            string            `yaml:"model,omitempty"          json:"model,omitempty"`

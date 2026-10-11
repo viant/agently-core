@@ -32,6 +32,7 @@ import (
 	intakesvc "github.com/viant/agently-core/service/intake"
 	planner "github.com/viant/agently-core/service/planner"
 	policy "github.com/viant/agently-core/service/policy"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/reactor"
 	skillsvc "github.com/viant/agently-core/service/skill"
 	uireg "github.com/viant/agently-core/service/ui/window/registry"
@@ -41,7 +42,6 @@ import (
 	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	bundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	"github.com/viant/datly/standalone"
-	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 )
 
 // Option customises Service instances.
@@ -195,6 +195,15 @@ func WithNewElicitationAwaiter(newAwaiter func() elicitation.Awaiter) Option {
 // when executing Agent.Query. When nil, cancel registration is skipped.
 func WithCancelRegistry(reg cancels.Registry) Option {
 	return func(s *Service) { s.cancelReg = reg }
+}
+
+// WithAuthoredDefinitions binds main-worker reads to the same host readers as intake/tools.
+func WithAuthoredDefinitions(profiles *intakerepo.Repository, templates *tplrepo.Repository, templateBundles *tplbundlerepo.Repository) Option {
+	return func(s *Service) {
+		s.promptRepo = profiles
+		s.templateRepo = templates
+		s.templateBundleRepo = templateBundles
+	}
 }
 
 // WithMCPManager attaches an MCP Manager to resolve resources via MCP servers.

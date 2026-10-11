@@ -16,6 +16,7 @@ import (
 	"github.com/viant/agently-core/genai/llm"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
 	mcpexpose "github.com/viant/agently-core/protocol/mcp/expose"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/protocol/tool"
 	uiresource "github.com/viant/agently-core/protocol/ui/resource"
 	"github.com/viant/agently-core/sdk"
@@ -26,6 +27,7 @@ import (
 	"github.com/viant/agently-core/service/ui/permittedview"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	svcworkspace "github.com/viant/agently-core/service/workspace"
+	"github.com/viant/agently-core/workspace"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 )
 
@@ -34,6 +36,7 @@ type APIOptions struct {
 	MCPUIResourceContextBinder sdk.MCPUIResourceContextBinder
 	Version                    string
 	LayoutDefault              []byte
+	NativeLayoutSource         *resourcesvc.CapturedLayoutSource
 	MenuReader                 svcworkspace.LayoutMenuReader
 	Runtime                    *executor.Runtime
 	Client                     sdk.Backend
@@ -53,7 +56,33 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	}
 	metadataHandler := svcworkspace.NewMetadataHandler(opts.Runtime.Defaults, opts.Runtime.Store, metadataVersion)
 	metadataHandler.SetLayoutDefault(opts.LayoutDefault)
-	metadataHandler.SetLayoutMenuReader(opts.MenuReader)
+	captured := opts.NativeLayoutSource
+	if captured == nil {
+		captured = opts.Runtime.NativeLayoutSource
+	}
+	if captured == nil {
+		root := workspace.Root()
+		if opts.Runtime.Store != nil {
+			root = opts.Runtime.Store.Root()
+		}
+		var err error
+		captured, err = resourcesvc.CaptureNativeLayoutSource(ctx, root, opts.LayoutDefault)
+		if err != nil {
+			return nil, err
+		}
+	}
+	layoutDefault := opts.LayoutDefault
+	if captured != nil {
+		if err := metadataHandler.SetCapturedLayout(captured.Root, captured.Source, captured.Raw, captured.Check); err != nil {
+			return nil, err
+		}
+		layoutDefault = captured.Raw
+	}
+	menuReader := opts.MenuReader
+	if menuReader == nil && opts.Runtime.NativeLayoutSource != nil && opts.NativeLayoutSource == nil {
+		menuReader = svcworkspace.NewGatewayLayoutMenuReader(opts.Runtime.PrimitiveProviders, []svcworkspace.GatewayMenuSource{{Resource: identity.ResourceRef{URI: "menu://workspace/layout"}, ProviderIdentity: resourcesvc.InternalProviderIdentity}})
+	}
+	metadataHandler.SetLayoutMenuReader(menuReader)
 	var browserRegistry *browsermcp.Registry
 	if opts.Runtime.MCPManager != nil {
 		browserRegistry = browsermcp.New(opts.Runtime.MCPManager.BrowserDescriptors)
@@ -70,7 +99,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 		}
 		return result, nil
 	})
-	windowloader.ConfigureRemoteWindowProvider(opts.Runtime.Registry, opts.LayoutDefault)
+	windowloader.ConfigureRemoteWindowProvider(opts.Runtime.Registry, layoutDefault)
 	windowloader.ConfigureRemoteWindowAuthorization(metadataHandler.AuthorizeRemoteWindow)
 	metadataHandler.SetReportingCapabilityEnabled(opts.Runtime.Reporting != nil)
 	var permittedRuntime *permittedview.Runtime

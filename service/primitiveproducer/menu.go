@@ -1,6 +1,7 @@
 package primitiveproducer
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 // MenuActionVisibility is a trusted host check for each authored action. It
 // receives the current verified actor and logical menu identity, never an owner
 // or server URL inferred from the action. Execution still uses backend guards.
+type MenuVisibilityProjection func(context.Context, identity.VerifiedActor, identity.ResourceURI, json.RawMessage) (json.RawMessage, error)
+
 type MenuActionVisibility func(context.Context, identity.VerifiedActor, identity.ResourceURI, json.RawMessage) (bool, error)
 
 // ValidateMenu validates the portable navigation envelope. Node fields remain
@@ -109,6 +112,16 @@ func filterMenuNodes(ctx context.Context, nodes []json.RawMessage, visible func(
 }
 
 func (p *LocalProvider) projectMenu(ctx context.Context, actor identity.VerifiedActor, uri identity.ResourceURI, raw json.RawMessage) (json.RawMessage, error) {
+	if p.menuVisibilityProjection != nil {
+		visible, err := p.menuVisibilityProjection(ctx, actor, uri, append(json.RawMessage(nil), raw...))
+		if err != nil {
+			return nil, err
+		}
+		if ValidateMenu(1, visible) != nil || !menuProjectionSubset(raw, visible) {
+			return nil, identity.ErrResourceDenied
+		}
+		return visible, nil
+	}
 	if p.menuActionVisibility == nil {
 		return nil, identity.ErrResourceDenied
 	}
@@ -175,4 +188,75 @@ func (p *LocalProvider) getMenuProjection(ctx context.Context, actor identity.Ve
 	}
 	fingerprint := identity.ContentFingerprint(projected)
 	return &primitive.GetResult{Resource: &primitive.ResourceState{Kind: "menu", Namespace: uri.Namespace, Name: uri.Name, URI: uri.String(), Title: binding.Title, Lifecycle: pin.Kind, Revision: pin.Selector(), FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint}, ResolvedResource: pin, MenuProjection: &primitive.MenuProjection{SchemaVersion: 1, DefinitionBytes: append([]byte(nil), projected...), ContentFingerprint: fingerprint}}, nil
+}
+
+// menuProjectionSubset permits filtering only. A trusted projection still may
+// not rewrite an action, move it to another ancestor, reorder it or add fields.
+func menuProjectionSubset(original, visible json.RawMessage) bool {
+	var source, target map[string]json.RawMessage
+	if json.Unmarshal(original, &source) != nil || json.Unmarshal(visible, &target) != nil {
+		return false
+	}
+	if !reflect.DeepEqual(source["schemaVersion"], target["schemaVersion"]) {
+		return false
+	}
+	var subset func(json.RawMessage, json.RawMessage) bool
+	subset = func(a, b json.RawMessage) bool {
+		var original, projected []json.RawMessage
+		if json.Unmarshal(a, &original) != nil || json.Unmarshal(b, &projected) != nil {
+			return false
+		}
+		index := 0
+		for _, candidate := range projected {
+			var desired map[string]json.RawMessage
+			if json.Unmarshal(candidate, &desired) != nil {
+				return false
+			}
+			matched := false
+			for index < len(original) {
+				var node map[string]json.RawMessage
+				err := json.Unmarshal(original[index], &node)
+				index++
+				if err != nil {
+					return false
+				}
+				if len(node) != len(desired) {
+					continue
+				}
+				same := true
+				for key, value := range node {
+					other, ok := desired[key]
+					if !ok {
+						same = false
+						break
+					}
+					if key == "menus" || key == "children" {
+						if !subset(value, other) {
+							same = false
+							break
+						}
+					} else {
+						var left, right any
+						leftDecoder := json.NewDecoder(bytes.NewReader(value))
+						leftDecoder.UseNumber()
+						rightDecoder := json.NewDecoder(bytes.NewReader(other))
+						rightDecoder.UseNumber()
+						if leftDecoder.Decode(&left) != nil || rightDecoder.Decode(&right) != nil || !reflect.DeepEqual(left, right) {
+							same = false
+							break
+						}
+					}
+				}
+				if same {
+					matched = true
+					break
+				}
+			}
+			if !matched {
+				return false
+			}
+		}
+		return true
+	}
+	return subset(source["applications"], target["applications"])
 }

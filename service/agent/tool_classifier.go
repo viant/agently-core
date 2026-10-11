@@ -214,7 +214,9 @@ func (s *Service) availableToolBundles(ctx context.Context) []*toolbundle.Bundle
 		return nil
 	}
 	var bundles []*toolbundle.Bundle
-	if s.toolBundles != nil {
+	if profile := selectedPromptProfileFromContext(ctx); profile != nil && profile.ResourceURI != "" {
+		bundles = append(bundles, profile.ToolBundleDefinitions...)
+	} else if s.toolBundles != nil {
 		if list, err := s.toolBundles(ctx); err == nil && len(list) > 0 {
 			bundles = append(bundles, list...)
 		}

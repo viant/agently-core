@@ -10,6 +10,7 @@ type ListInput struct{}
 // guidance only so that orchestrators can choose a profile without seeing its
 // full instruction text.
 type ListItem struct {
+	URI              string                  `json:"uri,omitempty"`
 	ID               string                  `json:"id"`
 	Name             string                  `json:"name,omitempty"`
 	Description      string                  `json:"description,omitempty"`
