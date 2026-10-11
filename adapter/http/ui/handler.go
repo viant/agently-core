@@ -271,7 +271,11 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			}
 		}
 		if canonical {
-			if _, err := settings.windows.WindowDefinitionGet(r.Context(), &forgeservice.WindowDefinitionGetInput{WindowID: strings.Join(pathParts, "/"), ResolvedResource: aWindow.Resource, Target: aWindow.ResourceTarget}); err != nil {
+			revalidationKey := strings.Join(pathParts, "/")
+			if r.URL.Query().Get("namespace") != "" && aWindow.Resource != nil {
+				revalidationKey = aWindow.Resource.URI
+			}
+			if _, err := settings.windows.WindowDefinitionGet(r.Context(), &forgeservice.WindowDefinitionGetInput{WindowID: revalidationKey, ResolvedResource: aWindow.Resource, Target: aWindow.ResourceTarget}); err != nil {
 				switch {
 				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, forgeservice.ErrWindowSelectionUnavailable), errors.Is(err, identity.ErrResourceDenied), errors.Is(err, identity.ErrResourceStale), errors.Is(err, context.Canceled):
 					writeOpenAdmissionError(w, err)
