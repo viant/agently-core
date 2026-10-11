@@ -689,13 +689,61 @@ func (w *aguiJournalWriter) writeOnce(raw []json.RawMessage, pending *aguiPendin
 			}
 		}
 	}()
-	thread, err := w.store.GetThread(w.ctx, w.run.Principal, w.run.ThreadID)
+	var next *aguistore.Run
+	var err error
+	atomic, native := w.store.(aguistore.PreparedAppender)
+	if native && atomic.OwnsPreparedAppend(w.store) {
+		// These checkpoints are immutable and bounded by this run revision.
+		// Validate before preparation so no nested Manage invocation occurs.
+		// Every candidate sequence is > LastSequence; ancestry clamps its
+		// prefix to LastSequence, so a multi-event batch has the same check.
+		// Snapshot alias preservation only rewrites MESSAGES_SNAPSHOT, which
+		// ancestry does not inspect. Actual alias sequences are assigned below.
+		// Append retains the original run CAS if that prefix changes meanwhile.
+		for _, event := range raw {
+			registered, checkErr := registerMCPAppActivity(event, w.run, w.run.LastSequence+1)
+			if checkErr != nil {
+				return checkErr
+			}
+			if checkErr = validateMCPAppJournalAncestry(w.ctx, w.store, w.run, registered, w.run.LastSequence+1); checkErr != nil {
+				return checkErr
+			}
+		}
+		next, err = atomic.AppendPrepared(w.ctx, w.run.Principal, w.run.ThreadID, w.run.RunID, w.run.Revision, func(thread *aguistore.Thread) ([]json.RawMessage, *aguistore.Change, error) {
+			return w.prepareWrite(thread, raw, pending, false)
+		})
+	} else {
+		var thread *aguistore.Thread
+		thread, err = w.store.GetThread(w.ctx, w.run.Principal, w.run.ThreadID)
+		if err == nil {
+			var events []json.RawMessage
+			var change *aguistore.Change
+			events, change, err = w.prepareWrite(thread, raw, pending, true)
+			if err == nil {
+				next, err = w.store.Append(w.ctx, w.run.Principal, w.run.ThreadID, w.run.RunID, w.run.Revision, events, change)
+			}
+		}
+	}
 	if err != nil {
 		return err
 	}
+	becameTerminal := !aguiRunTerminal(w.run.Status) && aguiRunTerminal(next.Status)
+	w.run = next
+	w.messageBaseline = rawAGUI(w.projection.Messages)
+	w.stateBaseline = rawAGUI(w.projection.State)
+	w.threadRevision++
+	committed = true
+	if becameTerminal && next.TurnID != "" {
+		notifyAGUIRunUpdated(w.ctx, w.client, next.ConversationID)
+	}
+	return nil
+}
+
+func (w *aguiJournalWriter) prepareWrite(thread *aguistore.Thread, raw []json.RawMessage, pending *aguiPending, checkAncestry bool) ([]json.RawMessage, *aguistore.Change, error) {
+	var err error
 	var latest []aguistate.Object
 	if err = decodeAGUIValue(thread.Messages, &latest); err != nil {
-		return err
+		return nil, nil, err
 	}
 	var baseline []aguistate.Object
 	baselineJSON := w.messageBaseline
@@ -703,20 +751,20 @@ func (w *aguiJournalWriter) writeOnce(raw []json.RawMessage, pending *aguiPendin
 		baselineJSON = thread.Messages
 	}
 	if err = decodeAGUIValue(baselineJSON, &baseline); err != nil {
-		return err
+		return nil, nil, err
 	}
 	w.threadRevision = thread.Revision
 	intentionalState, err := aguiIntentionalStateWrite(raw, w.stateBaseline)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	if intentionalState {
 		same, compareErr := aguistate.EqualJSON(w.stateBaseline, thread.State)
 		if compareErr != nil {
-			return compareErr
+			return nil, nil, compareErr
 		}
 		if !same {
-			return fmt.Errorf("%w: shared state changed concurrently", aguistore.ErrConflict)
+			return nil, nil, fmt.Errorf("%w: shared state changed concurrently", aguistore.ErrConflict)
 		}
 	}
 	var events []json.RawMessage
@@ -732,43 +780,45 @@ func (w *aguiJournalWriter) writeOnce(raw []json.RawMessage, pending *aguiPendin
 		if header.Type == "STATE_SNAPSHOT" && !intentionalState {
 			event, err = aguiEchoSnapshot(event, thread.State)
 			if err != nil {
-				return err
+				return nil, nil, err
 			}
 		}
 		event, err = preserveMCPAppSnapshotAliases(event, w.projection.Messages)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		event, err = registerMCPAppActivity(event, w.run, w.run.LastSequence+int64(len(events))+1)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
-		if err = validateMCPAppJournalAncestry(w.ctx, w.store, w.run, event, w.run.LastSequence+int64(len(events))+1); err != nil {
-			return err
+		if checkAncestry {
+			if err = validateMCPAppJournalAncestry(w.ctx, w.store, w.run, event, w.run.LastSequence+int64(len(events))+1); err != nil {
+				return nil, nil, err
+			}
 		}
 		normalized, err := w.projection.Apply(event)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 		merged, mergeErr := aguiChangedMessages(baseline, w.projection.Messages, latest)
 		if mergeErr != nil {
-			return mergeErr
+			return nil, nil, mergeErr
 		}
 		for _, item := range normalized {
 			canonical, canonicalErr := aguiCanonicalSnapshot(item, merged)
 			if canonicalErr != nil {
-				return canonicalErr
+				return nil, nil, canonicalErr
 			}
 			events = append(events, canonical)
 		}
 	}
 	state, _, err := w.projection.Snapshot()
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	merged, err := aguiChangedMessages(baseline, w.projection.Messages, latest)
 	if err != nil {
-		return err
+		return nil, nil, err
 	}
 	messages := rawAGUI(merged)
 	change := &aguistore.Change{Messages: messages, ExpectedThreadRevision: w.threadRevision, LeaseOwner: w.leaseOwner}
@@ -778,23 +828,10 @@ func (w *aguiJournalWriter) writeOnce(raw []json.RawMessage, pending *aguiPendin
 	if pending != nil {
 		change.Pending, err = json.Marshal(pending)
 		if err != nil {
-			return err
+			return nil, nil, err
 		}
 	}
-	next, err := w.store.Append(w.ctx, w.run.Principal, w.run.ThreadID, w.run.RunID, w.run.Revision, events, change)
-	if err != nil {
-		return err
-	}
-	becameTerminal := !aguiRunTerminal(w.run.Status) && aguiRunTerminal(next.Status)
-	w.run = next
-	w.messageBaseline = rawAGUI(w.projection.Messages)
-	w.stateBaseline = rawAGUI(w.projection.State)
-	w.threadRevision++
-	committed = true
-	if becameTerminal && next.TurnID != "" {
-		notifyAGUIRunUpdated(w.ctx, w.client, next.ConversationID)
-	}
-	return nil
+	return events, change, nil
 }
 
 func mergeAGUIMessages(existing, incoming []aguistate.Object) []aguistate.Object {
