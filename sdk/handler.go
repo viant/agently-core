@@ -199,7 +199,7 @@ func registerCoreRoutes(mux *http.ServeMux, client Backend, cfg *handlerConfig) 
 	}
 
 	mux.HandleFunc("POST /v1/conversations", handleCreateConversation(client, cfg.authCfg))
-	mux.HandleFunc("GET /v1/conversations/{id}", handleGetConversation(client))
+	mux.HandleFunc("GET /v1/conversations/{id}", handleGetConversation(client, cfg.authCfg))
 	mux.HandleFunc("PATCH /v1/conversations/{id}", handleUpdateConversation(client))
 	mux.HandleFunc("DELETE /v1/conversations/{id}", handleDeleteConversation(client))
 	mux.HandleFunc("GET /v1/conversations/{id}/goal", handleGetGoal(client, cfg.authCfg))
