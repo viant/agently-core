@@ -39,9 +39,10 @@ type probeRequest struct {
 	ConversationID string               `json:"nativeConversationId,omitempty"`
 }
 type transportObservation struct {
-	Method     string `json:"method"`
-	Path       string `json:"path"`
-	StatusCode int    `json:"statusCode"`
+	Method     string                           `json:"method"`
+	Path       string                           `json:"path"`
+	StatusCode int                              `json:"statusCode"`
+	Metadata   *conversationMetadataObservation `json:"conversationMetadata,omitempty"`
 }
 type observer struct {
 	next     http.RoundTripper
@@ -53,8 +54,21 @@ func (o *observer) RoundTrip(r *http.Request) (*http.Response, error) {
 	response, err := o.next.RoundTrip(r)
 	if response != nil {
 		o.mu.Lock()
-		o.requests = append(o.requests, transportObservation{r.Method, r.URL.Path, response.StatusCode})
+		index := len(o.requests)
+		id, captureMetadata := metadataRequestID(r)
+		observedPath := r.URL.Path
+		if captureMetadata {
+			observedPath = "/v1/conversations/{id}"
+		}
+		o.requests = append(o.requests, transportObservation{Method: r.Method, Path: observedPath, StatusCode: response.StatusCode})
 		o.mu.Unlock()
+		if captureMetadata && response.Body != nil {
+			response.Body = &metadataCaptureBody{original: response.Body, requestedID: id, publish: func(value conversationMetadataObservation) {
+				o.mu.Lock()
+				o.requests[index].Metadata = &value
+				o.mu.Unlock()
+			}}
+		}
 	}
 	return response, err
 }
