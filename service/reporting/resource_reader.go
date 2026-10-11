@@ -59,3 +59,47 @@ func checkedResourceReader(reader ResourceReader, err error) (ResourceReader, er
 	}
 	return reader, nil
 }
+
+// ResourceSelectionReader combines selection and delivery without discarding
+// the definition returned by selection. Existing readers retain their contract.
+type ResourceSelectionReader interface {
+	ReadResource(context.Context, identity.ResourceRef, *identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error)
+}
+
+func selectResourceRead(ctx context.Context, reader ResourceReader, ref identity.ResourceRef, pin *identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error) {
+	if reader == nil || pin != nil && (pin.URI != ref.URI || ref.Revision != "" && ref.Revision != pin.Selector()) {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	if combined, ok := reader.(ResourceSelectionReader); ok {
+		return combined.ReadResource(ctx, ref, pin)
+	}
+	if pin == nil {
+		var err error
+		pin, err = reader.Resolve(ctx, ref)
+		if err != nil {
+			return nil, nil, err
+		}
+	}
+	return reader.ReadResolved(ctx, *pin)
+}
+
+// FreshResourceReader explicitly ends reuse before an export state mutation.
+type FreshResourceReader interface {
+	ReadResolvedFresh(context.Context, identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error)
+}
+
+func readResourceFresh(ctx context.Context, reader ResourceReader, pin identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error) {
+	if fresh, ok := reader.(FreshResourceReader); ok {
+		return fresh.ReadResolvedFresh(ctx, pin)
+	}
+	return reader.ReadResolved(ctx, pin)
+}
+func (s *Service) beginReportOperation(ctx context.Context) (context.Context, func() error, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if s == nil || s.reportCatalog == nil || !s.hasResourceReader() {
+		return ctx, func() error { return ctx.Err() }, nil
+	}
+	return s.reportCatalog.MetadataRead(ctx)
+}

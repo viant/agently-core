@@ -48,6 +48,20 @@ func (c *ReportGatewayCatalog) MetadataRead(ctx context.Context) (context.Contex
 	if c == nil || c.Gateway == nil || c.Admission == nil && c.AdmissionLease == nil {
 		return nil, nil, identity.ErrResourceDenied
 	}
+	if sequence := sequenceFromContext(ctx); sequence != nil {
+		if sequence.gateway != c.Gateway {
+			return nil, nil, identity.ErrResourceDenied
+		}
+		scoped, err := ReadContext(ctx)
+		if err != nil {
+			return nil, nil, err
+		}
+		actor, err := c.Gateway.actor(scoped)
+		if err != nil {
+			return nil, nil, err
+		}
+		return scoped, func() error { return c.Gateway.final(scoped, actor) }, nil
+	}
 	if c.BeginMetadataRead != nil {
 		return c.BeginMetadataRead(ctx)
 	}
@@ -117,7 +131,7 @@ type gatewayReportReader struct {
 	operation string
 }
 
-func readReport[T any](ctx context.Context, r *gatewayReportReader, ref identity.ResourceRef, pin *identity.ResolvedResource, ownerHint string) (*Result[T], error) {
+func readReport[T any](ctx context.Context, r *gatewayReportReader, ref identity.ResourceRef, pin *identity.ResolvedResource, ownerHint string, refresh ...bool) (*Result[T], error) {
 	uri, err := identity.ParseResourceURI(ref.URI)
 	if err != nil || uri.Kind != "report" {
 		return nil, identity.ErrResourceDenied
@@ -146,7 +160,8 @@ func readReport[T any](ctx context.Context, r *gatewayReportReader, ref identity
 	if err != nil {
 		return nil, err
 	}
-	got, err := Get[T](ctx, r.catalog.Gateway, connection, ref, pin)
+	force := len(refresh) > 0 && refresh[0]
+	got, err := get[T](ctx, r.catalog.Gateway, connection, ref, pin, force, false)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +172,7 @@ func readReport[T any](ctx context.Context, r *gatewayReportReader, ref identity
 	originalDeadline := got.ResolvedResource.ValidUntil
 	// Revalidate buffered output after host admission, which can observe a new
 	// policy/content/identity state or take longer than the provider lease.
-	freshResult, err := Get[json.RawMessage](ctx, r.catalog.Gateway, connection, identity.ResourceRef{URI: ref.URI, Revision: got.ResolvedResource.Selector()}, got.ResolvedResource)
+	freshResult, err := get[json.RawMessage](ctx, r.catalog.Gateway, connection, identity.ResourceRef{URI: ref.URI, Revision: got.ResolvedResource.Selector()}, got.ResolvedResource, force, false)
 	if err != nil {
 		return nil, err
 	}
@@ -178,6 +193,9 @@ func readReport[T any](ctx context.Context, r *gatewayReportReader, ref identity
 	if ctx.Err() != nil || !got.ResolvedResource.ValidUntil.After(r.catalog.Gateway.now()) {
 		return nil, identity.ErrResourceDenied
 	}
+	if err = r.recordReportRead(ctx, connection, &got.GetResult); err != nil {
+		return nil, err
+	}
 	pinCopy := *got.ResolvedResource
 	got.ResolvedResource = &pinCopy
 	return got, nil
@@ -189,9 +207,22 @@ func (r *gatewayReportReader) read(ctx context.Context, ref identity.ResourceRef
 	}
 	return append(json.RawMessage(nil), result.Resource.DefinitionBytes...), result.ResolvedResource, nil
 }
+
+// ReadResource selects and delivers one report in the existing admission pair,
+// avoiding an otherwise discarded Resolve body followed by the same read.
+func (r *gatewayReportReader) ReadResource(ctx context.Context, ref identity.ResourceRef, pin *identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error) {
+	return r.read(ctx, ref, pin, "")
+}
 func (r *gatewayReportReader) Resolve(ctx context.Context, ref identity.ResourceRef) (*identity.ResolvedResource, error) {
 	_, pin, err := r.read(ctx, ref, nil, "")
 	return pin, err
+}
+func (r *gatewayReportReader) ReadResolvedFresh(ctx context.Context, pin identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error) {
+	result, err := readReport[json.RawMessage](ctx, r, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin, "", true)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append(json.RawMessage(nil), result.Resource.DefinitionBytes...), result.ResolvedResource, nil
 }
 func (r *gatewayReportReader) ReadResolved(ctx context.Context, pin identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error) {
 	return r.read(ctx, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin, "")

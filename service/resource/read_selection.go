@@ -35,6 +35,7 @@ type selectedDatasourceBundle struct {
 }
 
 func selectionResourceID(connection Connection, pin identity.ResolvedResource) string {
+	pin.ValidUntil = pin.ValidUntil.UTC()
 	raw, _ := json.Marshal(struct {
 		Connection Connection
 		Pin        identity.ResolvedResource
@@ -42,14 +43,38 @@ func selectionResourceID(connection Connection, pin identity.ResolvedResource) s
 	hash := sha256.Sum256(raw)
 	return hex.EncodeToString(hash[:])
 }
+
+// GetResult contains scalar identities and explicit byte/slice carriers. Copy
+// those carriers directly, preserving exact approved bytes and nil values.
+// JSON round-tripping needlessly reparses large immutable report definitions.
 func detachedGet(result *primitive.GetResult) (primitive.GetResult, error) {
-	var detached primitive.GetResult
-	raw, err := json.Marshal(result)
-	if err != nil {
-		return detached, err
+	if result == nil {
+		return primitive.GetResult{}, identity.ErrResourceDenied
 	}
-	err = json.Unmarshal(raw, &detached)
-	return detached, err
+	out := *result
+	if result.Resource != nil {
+		resource := *result.Resource
+		resource.Definition = bytes.Clone(result.Resource.Definition)
+		resource.DefinitionBytes = bytes.Clone(result.Resource.DefinitionBytes)
+		if result.Resource.Dependencies != nil {
+			resource.Dependencies = append([]primitive.Dependency{}, result.Resource.Dependencies...)
+		}
+		out.Resource = &resource
+	}
+	if result.ResolvedResource != nil {
+		pin := *result.ResolvedResource
+		out.ResolvedResource = &pin
+	}
+	if result.ExecutionProof != nil {
+		proof := *result.ExecutionProof
+		out.ExecutionProof = &proof
+	}
+	if result.MenuProjection != nil {
+		menu := *result.MenuProjection
+		menu.DefinitionBytes = bytes.Clone(result.MenuProjection.DefinitionBytes)
+		out.MenuProjection = &menu
+	}
+	return out, nil
 }
 func (s *resourceReadSequence) selectionKey(ctx context.Context, read selectedResourceRead) (string, error) {
 	actor, err := s.gateway.actor(ctx)

@@ -47,6 +47,8 @@ type resourceReadSequence struct {
 	reads                        map[string]namespaceRead
 	originalReads                map[string]namespaceRead
 	selection, originalSelection *selectedDatasourceBundle
+	reportReads                  map[string]selectedResourceRead
+	reportAdmissions             map[string]func(context.Context) error
 }
 
 // BeginReadSequence owns one operation's PRE/POST metadata facts. Resource
@@ -450,6 +452,9 @@ func (s *resourceReadSequence) finish(ctx context.Context) error {
 	s.ending = true
 	s.mu.Unlock()
 	err := s.endPhase(ctx)
+	if err == nil {
+		err = s.refreshReportReads(ctx)
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed {
@@ -457,6 +462,7 @@ func (s *resourceReadSequence) finish(ctx context.Context) error {
 	}
 	s.closed, s.reads, s.originalReads = true, nil, nil
 	s.selection, s.originalSelection = nil, nil
+	s.reportReads, s.reportAdmissions = nil, nil
 	if err == nil && s.failed != nil {
 		err = s.failed
 	}

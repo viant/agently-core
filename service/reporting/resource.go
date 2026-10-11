@@ -45,16 +45,8 @@ func (s *Service) compileResolved(ctx context.Context, request *CompileRequest) 
 	var pin *identity.ResolvedResource
 	if request.ResolvedResource != nil {
 		pin = cloneResolvedResource(request.ResolvedResource)
-		if pin.URI != ref.URI || ref.Revision != "" && ref.Revision != pin.Selector() {
-			return nil, nil, nil, identity.ErrResourceDenied
-		}
-	} else {
-		pin, err = resolver.Resolve(ctx, ref)
-		if err != nil {
-			return nil, nil, nil, err
-		}
 	}
-	raw, pin, err := resolver.ReadResolved(ctx, *pin)
+	raw, pin, err := selectResourceRead(ctx, resolver, ref, pin)
 	if err != nil {
 		return nil, nil, nil, err
 	}

@@ -106,6 +106,7 @@ func (g *Gateway) resolveDependencyReads(ctx context.Context, parent Connection,
 	}
 	result := make(map[string]identity.ResolvedResource, len(refs))
 	reads := []selectedResourceRead{}
+	reportSequence := sequenceFromContext(ctx) != nil && strings.HasPrefix(parentPin.URI, "report://")
 	for id, ref := range refs {
 		if ref.Validate(parentPin.Kind == identity.StampedCandidate) != nil || descriptors[id] == nil {
 			return nil, nil, identity.ErrResourceDenied
@@ -165,11 +166,20 @@ func (g *Gateway) resolveDependencyReads(ctx context.Context, parent Connection,
 			return nil, nil, identity.ErrResourceDenied
 		}
 		result[id] = *child.ResolvedResource
-		if collect {
-			if original == nil {
+		if collect || reportSequence {
+			if collect && original == nil {
 				return nil, nil, identity.ErrResourceDenied
 			}
-			reads = append(reads, selectedResourceRead{connection: connection, pin: *original, result: child.GetResult})
+			selected := *child.ResolvedResource
+			if original != nil {
+				selected = *original
+			}
+			reads = append(reads, selectedResourceRead{connection: connection, pin: selected, result: child.GetResult})
+		}
+	}
+	if reportSequence {
+		if err := g.recordReportDependencies(ctx, parentPin, reads); err != nil {
+			return nil, nil, err
 		}
 	}
 	return result, reads, nil
