@@ -27,9 +27,10 @@ func (m *Manager) OnCatalogChange(listener func(string)) func() {
 
 type changeHandler struct {
 	protoclient.Handler
-	manager  *Manager
-	server   string
-	sequence int64
+	manager     *Manager
+	server      string
+	sequence    int64
+	initialized int64
 }
 
 // Forward the sensitive-session fence through the feature's catalog-change
@@ -51,15 +52,7 @@ func (h *changeHandler) OnNotification(ctx context.Context, n *jsonrpc.Notificat
 	if n != nil {
 		switch n.Method {
 		case "notifications/resources/list_changed", "notifications/resources/updated", "notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/skills/list_changed":
-			h.manager.mu.Lock()
-			listeners := make([]func(string), 0, len(h.manager.changeListeners))
-			for _, listener := range h.manager.changeListeners {
-				listeners = append(listeners, listener)
-			}
-			h.manager.mu.Unlock()
-			for _, listener := range listeners {
-				listener(h.server)
-			}
+			h.manager.notifyCatalogChange(h.server)
 		}
 	}
 	if h.Handler != nil {
@@ -70,6 +63,9 @@ func (h *changeHandler) Implements(method string) bool {
 	return h.Handler != nil && h.Handler.Implements(method)
 }
 func (h *changeHandler) Init(ctx context.Context, c *schema.ClientCapabilities) {
+	if atomic.AddInt64(&h.initialized, 1) > 1 {
+		h.manager.notifyCatalogChange(h.server)
+	}
 	if h.Handler != nil {
 		h.Handler.Init(ctx, c)
 	}
@@ -109,4 +105,17 @@ func (h *changeHandler) Elicit(ctx context.Context, r *jsonrpc.TypedRequest[*sch
 		return h.Handler.Elicit(ctx, r)
 	}
 	return nil, jsonrpc.NewMethodNotFound("client elicitation unavailable", nil)
+}
+
+func (m *Manager) notifyCatalogChange(server string) {
+	m.mu.Lock()
+	m.invalidateToolCatalogLocked(server)
+	listeners := make([]func(string), 0, len(m.changeListeners))
+	for _, listener := range m.changeListeners {
+		listeners = append(listeners, listener)
+	}
+	m.mu.Unlock()
+	for _, listener := range listeners {
+		listener(server)
+	}
 }

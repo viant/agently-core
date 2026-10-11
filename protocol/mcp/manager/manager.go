@@ -123,20 +123,23 @@ type Manager struct {
 	localMu sync.RWMutex
 	local   map[string]localRegistration
 
-	changeListeners  map[uint64]func(string)
-	changeListenerID uint64
-	prov             Provider
-	ttl              time.Duration
-	newHandler       func() protoclient.Handler
-	newClientFn      func(context.Context, string, string) (mcpclient.Interface, error)
-	cookieJar        http.CookieJar
-	jarProvider      JarProvider
-	authRT           *authtransport.RoundTripper
-	authRTProvider   AuthRTProvider
-	userIDFn         UserIDExtractor
-	tokenProvider    token.Provider
-	credResolver     authcfg.CredentialResolver
-	providerRegistry authcfg.ProviderRegistry
+	changeListeners       map[uint64]func(string)
+	changeListenerID      uint64
+	toolCatalog           map[string]*toolCatalogPage
+	toolCatalogGeneration map[string]uint64
+	protectedToolCatalog  map[string][32]byte
+	prov                  Provider
+	ttl                   time.Duration
+	newHandler            func() protoclient.Handler
+	newClientFn           func(context.Context, string, string) (mcpclient.Interface, error)
+	cookieJar             http.CookieJar
+	jarProvider           JarProvider
+	authRT                *authtransport.RoundTripper
+	authRTProvider        AuthRTProvider
+	userIDFn              UserIDExtractor
+	tokenProvider         token.Provider
+	credResolver          authcfg.CredentialResolver
+	providerRegistry      authcfg.ProviderRegistry
 	// bindings persists validated non-secret challenge-learned MCP auth
 	// bindings (workspace StateStore); explicit configuration always wins.
 	bindings *AuthBindingStore
@@ -549,7 +552,7 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 		if err := opts.ClientOptions.Auth.Validate(); err != nil {
 			return nil, err
 		}
-		opts.ClientOptions.Auth.ExternalResolver = m.credResolver
+		opts.ClientOptions.Auth.ExternalResolver = catalogCredentialResolver{m.credResolver}
 		if opts.ClientOptions.Auth.ProviderRegistry == nil {
 			opts.ClientOptions.Auth.ProviderRegistry = m.providerRegistry
 		}
@@ -726,6 +729,7 @@ func (m *Manager) evictEntryLocked(key, serverName string, e *entry) mcpclient.I
 	if e == nil {
 		return nil
 	}
+	m.invalidateToolCatalogLocked(serverName)
 	e.evicted = true
 	if perServer := m.pool[key]; perServer != nil {
 		delete(perServer, serverName)
@@ -978,6 +982,7 @@ func (m *Manager) Reconnect(ctx context.Context, convID, serverName string) (mcp
 	// Drop existing entry to force re-creation
 	var toClose mcpclient.Interface
 	m.mu.Lock()
+	m.invalidateToolCatalogLocked(serverName)
 	if m.pool[key] != nil {
 		if e := m.pool[key][serverName]; e != nil && e.client != nil {
 			toClose = m.evictEntryLocked(key, serverName, e)
@@ -985,6 +990,7 @@ func (m *Manager) Reconnect(ctx context.Context, convID, serverName string) (mcp
 	}
 	summary := m.poolSummaryLogLinesLocked(time.Now())
 	m.mu.Unlock()
+	m.notifyCatalogChange(serverName)
 	scopeType := poolScopeType(key, serverName)
 	log.Printf("[warn][mcp-client-pool] reconnect server=%q scope_type=%s conv_id=%q pool_key=%q closing_existing=%v",
 		serverName, scopeType, convID, key, toClose != nil)

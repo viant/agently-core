@@ -21,7 +21,7 @@ func discoveryUserContext() context.Context {
 	return authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "test-user"})
 }
 
-func TestListServerTools_ReusesPrincipalCatalogAcrossConversations(t *testing.T) {
+func TestListServerTools_SeparatesCatalogAcrossConversations(t *testing.T) {
 	stub := &discoveryManagerStub{
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
 			switch convID {
@@ -48,13 +48,13 @@ func TestListServerTools_ReusesPrincipalCatalogAcrossConversations(t *testing.T)
 	if err != nil {
 		t.Fatalf("listServerTools(conv-2) error: %v", err)
 	}
-	if len(tools2) != 1 || tools2[0].Name != "alpha" {
+	if len(tools2) != 1 || tools2[0].Name != "beta" {
 		t.Fatalf("unexpected tools for conv-2: %+v", tools2)
 	}
 
 	getCalls := stub.getCallsSnapshot()
-	if len(getCalls) != 1 {
-		t.Fatalf("expected one manager Get call reused for the principal, got %d", len(getCalls))
+	if len(getCalls) != 2 {
+		t.Fatalf("expected two scoped manager Get calls, got %d", len(getCalls))
 	}
 	if getCalls[0].convID != "conv-1" {
 		t.Fatalf("expected initial conversation scope conv-1, got %+v", getCalls)
@@ -160,7 +160,7 @@ func TestGetDefinition_UsesStableBackgroundScopeWithoutConversationID(t *testing
 	}
 }
 
-func TestListServerTools_ReusesPrincipalCatalogWithoutConversationID(t *testing.T) {
+func TestListServerTools_IsolatesMissingConversationID(t *testing.T) {
 	stub := &discoveryManagerStub{
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
 			if convID == "" {
@@ -184,20 +184,20 @@ func TestListServerTools_ReusesPrincipalCatalogWithoutConversationID(t *testing.
 	}
 
 	getCalls := stub.getCallsSnapshot()
-	if len(getCalls) != 1 {
-		t.Fatalf("expected one manager Get call reused for the principal, got %d", len(getCalls))
+	if len(getCalls) != 2 {
+		t.Fatalf("expected two scoped manager Get calls, got %d", len(getCalls))
 	}
 	if getCalls[0].convID == "" {
 		t.Fatalf("expected synthetic discovery scopes, got %+v", getCalls)
 	}
-	if first[0].Name != getCalls[0].convID || second[0].Name != getCalls[0].convID {
+	if first[0].Name != getCalls[0].convID || second[0].Name != getCalls[1].convID {
 		t.Fatalf("unexpected tool mapping for synthetic scopes: tools1=%+v tools2=%+v calls=%+v", first, second, getCalls)
 	}
 }
 
-func TestListServerTools_AutoClassifiesPublicCatalogAndUsesSharedCache(t *testing.T) {
+func TestListServerTools_ExplicitPublicCatalogUsesSharedRegistration(t *testing.T) {
 	stub := &discoveryManagerStub{
-		options: &config.MCPClient{},
+		options: &config.MCPClient{ToolsListVisibility: config.ToolsListVisibilityPublic},
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
 			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "alpha"}}}, nil
 		},
@@ -225,27 +225,25 @@ func TestListServerTools_AutoClassifiesPublicCatalogAndUsesSharedCache(t *testin
 	}
 }
 
-func TestListServerTools_AutoClassifiesPrivateAndCachesPerPrincipal(t *testing.T) {
+func TestListServerTools_UnknownCatalogStaysPrivate(t *testing.T) {
 	var calls int
 	stub := &discoveryManagerStub{
 		options: &config.MCPClient{},
 		getFunc: func(convID, server string) (mcpclient.Interface, error) {
 			calls++
-			if calls == 1 {
-				return &discoveryListClient{listErr: errors.New("401 Unauthorized")}, nil
-			}
+
 			return &discoveryListClient{tools: []mcpschema.Tool{{Name: "secret"}}}, nil
 		},
 	}
-	reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}, discoveryToolsTTL: time.Minute}
+	reg := &Registry{mgr: stub, cache: map[string]*toolCacheEntry{}}
 	background := runtimediscovery.WithBackground(context.Background())
 
 	tools, err := reg.listServerTools(background, "helper")
 	if err != nil || len(tools) != 0 {
 		t.Fatalf("private anonymous probe = %+v, %v", tools, err)
 	}
-	if got := reg.toolCatalogVisibility(background, "helper"); got != config.ToolsListVisibilityPrivate {
-		t.Fatalf("visibility = %q, want private", got)
+	if got := reg.toolCatalogVisibility(background, "helper"); got != "" {
+		t.Fatalf("unknown visibility = %q", got)
 	}
 
 	principal := memory.WithConversationID(discoveryUserContext(), "conv-private")

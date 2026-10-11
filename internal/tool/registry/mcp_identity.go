@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"strings"
-	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/mcpname"
@@ -36,12 +35,6 @@ func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (serv
 	for _, entry := range r.cache {
 		entries = append(entries, entry)
 	}
-	// Private catalogs remain in their existing principal/token cache. Snapshot
-	// candidates, then check their exact scoped key before inspecting tool names.
-	catalogs := make(map[string]discoveryToolsCacheEntry, len(r.discoveryTools))
-	for key, entry := range r.discoveryTools {
-		catalogs[key] = entry
-	}
 	r.mu.RUnlock()
 	for _, entry := range entries {
 		if entry == nil || entry.mcpDef.Name == "" {
@@ -56,27 +49,23 @@ func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (serv
 			add(server, entry.mcpDef.Name)
 		}
 	}
-	user := strings.TrimSpace(authctx.EffectiveUserID(ctx))
-	if user != "" {
-		for key, entry := range catalogs {
-			if !entry.expiresAt.After(time.Now()) {
+	if authctx.EffectiveUserID(ctx) != "" {
+		servers, listErr := r.listServers(ctx)
+		if listErr != nil {
+			return "", "", false, listErr
+		}
+		for _, server := range servers {
+			if r.isInternalServer(server) || r.isPublicToolCatalog(ctx, server) {
 				continue
 			}
-			server := strings.SplitN(key, "\x1f", 2)[0]
-			scoped := ctx
-			useID := false
-			if r.mgr != nil {
-				scoped = r.mgr.WithAuthTokenContext(ctx, server)
-				useID = r.mgr.UseIDToken(scoped, server)
-			}
-			token := authctx.MCPAuthToken(scoped, useID)
-			if r.isDelegatedAuthServer(scoped, server) {
-				token = ""
-			}
-			if key != r.principalDiscoveryToolsKey(server, user, token, useID) {
+			if !r.hasObservedCatalog(ctx, server) {
 				continue
 			}
-			for _, tool := range entry.tools {
+			tools, listErr := r.listServerTools(ctx, server)
+			if listErr != nil {
+				return "", "", false, listErr
+			}
+			for _, tool := range tools {
 				add(server, tool.Name)
 			}
 		}
@@ -88,4 +77,15 @@ func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (serv
 		return match.server, match.method, true, nil
 	}
 	return "", "", false, nil
+}
+
+func (r *Registry) hasObservedCatalog(ctx context.Context, server string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	for key, identity := range r.discoveryShared {
+		if strings.HasPrefix(key, server+"|") && identity.userID == authctx.EffectiveUserID(ctx) && identity.catalogSeen {
+			return true
+		}
+	}
+	return false
 }

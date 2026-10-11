@@ -3,7 +3,6 @@ package tool
 import (
 	"context"
 	"fmt"
-	authctx "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/runtime/mcpapps"
 )
 
@@ -30,14 +29,8 @@ func (r *Registry) MCPToolVisible(ctx context.Context, name, audience string) (b
 		}
 		r.mu.RUnlock()
 	} else if r.mgr != nil {
-		scoped := r.mgr.WithAuthTokenContext(ctx, server)
-		useID := r.mgr.UseIDToken(scoped, server)
-		token := authctx.MCPAuthToken(scoped, useID)
-		if r.isDelegatedAuthServer(scoped, server) {
-			token = ""
-		}
-		tools, ok := r.loadPrincipalDiscoveryTools(server, authctx.EffectiveUserID(scoped), token, useID)
-		if ok {
+		tools, err := r.listServerTools(ctx, server)
+		if err == nil {
 			for _, tool := range tools {
 				if tool.Name == method {
 					metadata, foundMetadata = tool.Meta, true
