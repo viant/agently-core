@@ -117,7 +117,7 @@ func (c *WindowCatalog) ResolveDatasource(ctx context.Context, parent identity.R
 	if e = c.registerSelectedDatasource(ctx, parent, target, id, variant, reads); e != nil {
 		return nil, e
 	}
-	if _, e = c.Gateway.Get(ctx, connection, identity.ResourceRef{URI: parent.URI}, &parent); e != nil {
+	if _, e = Get[json.RawMessage](ctx, c.Gateway, connection, identity.ResourceRef{URI: parent.URI}, &parent); e != nil {
 		return nil, e
 	}
 	if e = c.VerifyDependencies(ctx, parent, target, variant); e != nil {

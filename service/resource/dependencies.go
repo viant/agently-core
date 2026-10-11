@@ -122,7 +122,7 @@ func (g *Gateway) resolveDependencyReads(ctx context.Context, parent Connection,
 			}
 			original = &pin
 		}
-		child, e := g.Get(ctx, connection, ref.Resource, original)
+		child, e := Get[json.RawMessage](ctx, g, connection, ref.Resource, original)
 		if e != nil {
 			return nil, nil, e
 		}
@@ -169,7 +169,7 @@ func (g *Gateway) resolveDependencyReads(ctx context.Context, parent Connection,
 			if original == nil {
 				return nil, nil, identity.ErrResourceDenied
 			}
-			reads = append(reads, selectedResourceRead{connection: connection, pin: *original, result: *child})
+			reads = append(reads, selectedResourceRead{connection: connection, pin: *original, result: child.GetResult})
 		}
 	}
 	return result, reads, nil

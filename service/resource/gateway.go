@@ -520,7 +520,8 @@ func operationMethod(c capabilities, namespace, kind, operation string) string {
 func plural(kind string) string { return primitive.Plural(kind) }
 
 func (g *Gateway) List(ctx context.Context, kind, namespace string) ([]LocatedResource, error) {
-	return g.listExcept(ctx, kind, namespace, "")
+	rows, err := List[json.RawMessage](ctx, g, kind, namespace)
+	return untypedLocations(rows), err
 }
 
 func (g *Gateway) listExcludingLocalProvider(ctx context.Context, kind, namespace, owner string) ([]LocatedResource, error) {
@@ -538,10 +539,11 @@ func (g *Gateway) listExcludingLocalProvider(ctx context.Context, kind, namespac
 	if len(names) == 1 {
 		excluded = names[0]
 	}
-	return g.listExcept(ctx, kind, namespace, excluded)
+	rows, err := list[json.RawMessage](ctx, g, kind, namespace, excluded)
+	return untypedLocations(rows), err
 }
 
-func (g *Gateway) listExcept(ctx context.Context, kind, namespace, excludedLocal string) ([]LocatedResource, error) {
+func list[T any](ctx context.Context, g *Gateway, kind, namespace, excludedLocal string) ([]Located[T], error) {
 	if !identity.ValidResourceKind(kind) {
 		return nil, identity.ErrResource
 	}
@@ -553,7 +555,7 @@ func (g *Gateway) listExcept(ctx context.Context, kind, namespace, excludedLocal
 	if e != nil {
 		return nil, e
 	}
-	out := []LocatedResource{}
+	out := []Located[T]{}
 	seen := map[string]bool{}
 	for _, ns := range discovered {
 		if namespace != "" && ns.Namespace != namespace {
@@ -584,7 +586,11 @@ func (g *Gateway) listExcept(ctx context.Context, kind, namespace, excludedLocal
 					return nil, identity.ErrResource
 				}
 				seen[key] = true
-				out = append(out, LocatedResource{Connection: ns.Connection, Resource: *entry})
+				definition, err := decodeDefinition[T](entry.Definition)
+				if err != nil {
+					return nil, err
+				}
+				out = append(out, Located[T]{LocatedResource: LocatedResource{Connection: ns.Connection, Resource: *entry}, Definition: definition})
 			}
 			complete, next := listed.Complete, listed.NextCursor
 			if complete {
@@ -611,10 +617,14 @@ func (g *Gateway) listExcept(ctx context.Context, kind, namespace, excludedLocal
 // Get reuses an exact provider locator. Passing a pin prevents default/current
 // reselection; both provider drift and definition-byte drift fail closed.
 func (g *Gateway) Get(ctx context.Context, connection Connection, ref identity.ResourceRef, pin *identity.ResolvedResource) (*primitive.GetResult, error) {
-	return g.get(ctx, connection, ref, pin, false)
+	result, err := get[json.RawMessage](ctx, g, connection, ref, pin, false, false)
+	if err != nil {
+		return nil, err
+	}
+	return &result.GetResult, nil
 }
 
-func (g *Gateway) get(ctx context.Context, connection Connection, ref identity.ResourceRef, pin *identity.ResolvedResource, force bool, menuRead ...bool) (out *primitive.GetResult, err error) {
+func get[T any](ctx context.Context, g *Gateway, connection Connection, ref identity.ResourceRef, pin *identity.ResolvedResource, force, menuRead bool, decoders ...DefinitionDecoder[T]) (out *Result[T], err error) {
 	// A failed read is part of this operation's provenance. Restoring authority
 	// later cannot revive its original selected metadata or release cached rows.
 	defer func() { poisonReadSequence(ctx, err) }()
@@ -668,7 +678,7 @@ func (g *Gateway) get(ctx context.Context, connection Connection, ref identity.R
 	}
 	actual := result.ResolvedResource
 	if uri.Kind == "menu" {
-		if len(menuRead) != 1 || !menuRead[0] || result.MenuProjection == nil || result.MenuProjection.SchemaVersion != 1 || result.Resource.FormatVersion != 1 || result.Resource.Lifecycle != actual.Kind || !declaresMenuFormat(c, uri.Namespace) || len(result.Resource.Definition) != 0 || len(result.Resource.DefinitionBytes) != 0 || ValidateMenu(1, result.MenuProjection.DefinitionBytes) != nil || identity.ContentFingerprint(result.MenuProjection.DefinitionBytes) != result.MenuProjection.ContentFingerprint {
+		if !menuRead || result.MenuProjection == nil || result.MenuProjection.SchemaVersion != 1 || result.Resource.FormatVersion != 1 || result.Resource.Lifecycle != actual.Kind || !declaresMenuFormat(c, uri.Namespace) || len(result.Resource.Definition) != 0 || len(result.Resource.DefinitionBytes) != 0 || ValidateMenu(1, result.MenuProjection.DefinitionBytes) != nil || identity.ContentFingerprint(result.MenuProjection.DefinitionBytes) != result.MenuProjection.ContentFingerprint {
 			return nil, identity.ErrResourceDenied
 		}
 	} else if result.MenuProjection != nil {
@@ -728,7 +738,34 @@ func (g *Gateway) get(ctx context.Context, connection Connection, ref identity.R
 			return nil, err
 		}
 	}
-	return &result, nil
+	raw := result.Resource.Definition
+	if result.MenuProjection != nil {
+		raw = result.MenuProjection.DefinitionBytes
+	}
+	var definition T
+	if len(decoders) > 1 {
+		return nil, identity.ErrResource
+	}
+	if len(decoders) == 1 {
+		if decoders[0] == nil {
+			return nil, identity.ErrResource
+		}
+		definition, err = decoders[0](raw)
+	} else {
+		definition, err = decodeDefinition[T](raw)
+	}
+	if err != nil {
+		return nil, err
+	}
+	// A host decoder may take time or consult request state. Typed delivery
+	// retains the same final actor and lease checks as raw delivery.
+	if e = g.final(ctx, a); e != nil {
+		return nil, e
+	}
+	if !actual.ValidUntil.After(g.now()) {
+		return nil, identity.ErrResourceDenied
+	}
+	return &Result[T]{GetResult: result, Definition: definition}, nil
 }
 func semanticJSON(raw []byte) (any, error) {
 	if !json.Valid(raw) {

@@ -22,7 +22,7 @@ func (c *WindowCatalog) fetchReferencedDatasource(ctx context.Context, parent id
 		return nil, err
 	}
 	check := func() error {
-		result, err := c.Gateway.Get(ctx, connection, identity.ResourceRef{URI: parent.URI, Revision: parent.Selector()}, &parent)
+		result, err := Get[json.RawMessage](ctx, c.Gateway, connection, identity.ResourceRef{URI: parent.URI, Revision: parent.Selector()}, &parent)
 		if err != nil {
 			return err
 		}

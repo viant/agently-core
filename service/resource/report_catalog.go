@@ -117,74 +117,77 @@ type gatewayReportReader struct {
 	operation string
 }
 
-func (r *gatewayReportReader) read(ctx context.Context, ref identity.ResourceRef, pin *identity.ResolvedResource, ownerHint string) (json.RawMessage, *identity.ResolvedResource, error) {
+func readReport[T any](ctx context.Context, r *gatewayReportReader, ref identity.ResourceRef, pin *identity.ResolvedResource, ownerHint string) (*Result[T], error) {
 	uri, err := identity.ParseResourceURI(ref.URI)
 	if err != nil || uri.Kind != "report" {
-		return nil, nil, identity.ErrResourceDenied
+		return nil, identity.ErrResourceDenied
 	}
 	captured, err := r.catalog.Gateway.actor(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	owner := ownerHint
 	if pin != nil {
 		owner = pin.ProviderIdentity
 		if pin.URI != ref.URI || owner == "" {
-			return nil, nil, identity.ErrResourceDenied
+			return nil, identity.ErrResourceDenied
 		}
 	}
-	connection, err := r.catalog.Gateway.ConnectionForResource(ctx, uri, owner)
-	if err != nil {
-		return nil, nil, err
+	var connection Connection
+	if owner != "" {
+		var found bool
+		connection, found, err = r.catalog.Gateway.configuredOwnerConnection(ctx, owner)
+		if err == nil && !found {
+			connection, err = r.catalog.Gateway.ConnectionForResource(ctx, uri, owner)
+		}
+	} else {
+		connection, err = r.catalog.Gateway.ConnectionForResource(ctx, uri, owner)
 	}
-	got, err := r.catalog.Gateway.Get(ctx, connection, ref, pin)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
+	}
+	got, err := Get[T](ctx, r.catalog.Gateway, connection, ref, pin)
+	if err != nil {
+		return nil, err
 	}
 	raw := append(json.RawMessage(nil), got.Resource.DefinitionBytes...)
 	if err = r.catalog.admit(ctx, r.operation, got.ResolvedResource, raw); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	originalDeadline := got.ResolvedResource.ValidUntil
 	// Revalidate buffered output after host admission, which can observe a new
 	// policy/content/identity state or take longer than the provider lease.
-	got, err = r.catalog.Gateway.Get(ctx, connection, identity.ResourceRef{URI: ref.URI, Revision: got.ResolvedResource.Selector()}, got.ResolvedResource)
+	freshResult, err := Get[json.RawMessage](ctx, r.catalog.Gateway, connection, identity.ResourceRef{URI: ref.URI, Revision: got.ResolvedResource.Selector()}, got.ResolvedResource)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	raw = append(json.RawMessage(nil), got.Resource.DefinitionBytes...)
-	if got.ResolvedResource.ValidUntil.After(originalDeadline) {
-		got.ResolvedResource.ValidUntil = originalDeadline
-	}
-	if err = r.catalog.admit(ctx, r.operation, got.ResolvedResource, raw); err != nil {
-		return nil, nil, err
-	}
-	if got.ResolvedResource.ValidUntil.Before(originalDeadline) {
-		originalDeadline = got.ResolvedResource.ValidUntil
-	}
-	got, err = r.catalog.Gateway.Get(ctx, connection, identity.ResourceRef{URI: ref.URI, Revision: got.ResolvedResource.Selector()}, got.ResolvedResource)
-	if err != nil {
-		return nil, nil, err
-	}
-	raw = append(json.RawMessage(nil), got.Resource.DefinitionBytes...)
+	got.GetResult = freshResult.GetResult
 	if got.ResolvedResource.ValidUntil.After(originalDeadline) {
 		got.ResolvedResource.ValidUntil = originalDeadline
 	}
 	fresh, err := r.catalog.Gateway.actor(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if !sameLocalActor(captured, fresh) || !got.ResolvedResource.ValidUntil.After(r.catalog.Gateway.now()) {
-		return nil, nil, identity.ErrResourceDenied
+		return nil, identity.ErrResourceDenied
 	}
 	if err = r.catalog.Gateway.final(ctx, captured); err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if ctx.Err() != nil || !got.ResolvedResource.ValidUntil.After(r.catalog.Gateway.now()) {
-		return nil, nil, identity.ErrResourceDenied
+		return nil, identity.ErrResourceDenied
 	}
 	pinCopy := *got.ResolvedResource
-	return raw, &pinCopy, nil
+	got.ResolvedResource = &pinCopy
+	return got, nil
+}
+func (r *gatewayReportReader) read(ctx context.Context, ref identity.ResourceRef, pin *identity.ResolvedResource, ownerHint string) (json.RawMessage, *identity.ResolvedResource, error) {
+	result, err := readReport[json.RawMessage](ctx, r, ref, pin, ownerHint)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append(json.RawMessage(nil), result.Resource.DefinitionBytes...), result.ResolvedResource, nil
 }
 func (r *gatewayReportReader) Resolve(ctx context.Context, ref identity.ResourceRef) (*identity.ResolvedResource, error) {
 	_, pin, err := r.read(ctx, ref, nil, "")
@@ -248,7 +251,7 @@ func (c *ReportGatewayCatalog) List(ctx context.Context, input catalog.ReportCat
 			return nil, identity.ErrResource
 		}
 	}
-	rows, err := c.Gateway.List(ctx, "report", input.Namespace)
+	rows, err := List[json.RawMessage](ctx, c.Gateway, "report", input.Namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -269,20 +272,18 @@ func (c *ReportGatewayCatalog) List(ctx context.Context, input catalog.ReportCat
 		if resource.URI <= after || input.CurrentUserOnly && resource.OwnerID != actor.Subject {
 			continue
 		}
-		raw, pin, err := reader.read(ctx, identity.ResourceRef{URI: resource.URI}, nil, "")
+		got, err := readReport[registry.ReportEnvelope](ctx, reader, identity.ResourceRef{URI: resource.URI}, nil, "")
 		if errors.Is(err, identity.ErrResourceDenied) && !reportIdentityRejected(err) {
 			continue
 		}
 		if err != nil {
 			return nil, err
 		}
+		pin := got.ResolvedResource
 		if pin.ContentFingerprint != resource.ContentFingerprint {
 			return nil, identity.ErrResourceStale
 		}
-		var envelope registry.ReportEnvelope
-		if json.Unmarshal(raw, &envelope) != nil {
-			return nil, identity.ErrResourceDenied
-		}
+		envelope := got.Definition
 		candidate := catalog.ReportCatalogCandidate{URI: resource.URI, Title: resource.Title, OwnerID: resource.OwnerID, BuilderRef: envelope.BuilderRef, BuilderWindow: c.BuilderWindows[envelope.BuilderRef], ReportID: resource.URI}
 		capabilities := catalog.ReportCapabilities{}
 		if c.Capabilities != nil {

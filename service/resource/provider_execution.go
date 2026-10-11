@@ -48,7 +48,7 @@ func (c *WindowCatalog) FetchProviderDatasource(ctx context.Context, pin identit
 		return nil, err
 	}
 	check := func() error {
-		result, err := c.Gateway.Get(ctx, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
+		result, err := Get[json.RawMessage](ctx, c.Gateway, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
 		if err != nil {
 			return err
 		}
