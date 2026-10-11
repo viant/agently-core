@@ -16,7 +16,10 @@ func project(raw interface{}, ds *types.DataSource) ([]map[string]interface{}, m
 	if ds != nil && ds.Selectors != nil {
 		if ds.Selectors.Data != "" {
 			rowsRaw = selectPath(ds.Selectors.Data, raw)
-			if rowsRaw == nil && strings.EqualFold(strings.TrimSpace(ds.Selectors.Data), "data") {
+			if len(ds.Selectors.DataFallbacks) > 0 {
+				rowsRaw = selectDataPath(ds.Selectors.Data, ds.Selectors.DataFallbacks, raw)
+			}
+			if len(ds.Selectors.DataFallbacks) == 0 && rowsRaw == nil && strings.EqualFold(strings.TrimSpace(ds.Selectors.Data), "data") {
 				switch raw.(type) {
 				case []map[string]interface{}, []interface{}:
 					rowsRaw = raw
@@ -39,6 +42,66 @@ func project(raw interface{}, ds *types.DataSource) ([]map[string]interface{}, m
 	}
 	rows := coerceRows(rowsRaw)
 	return rows, dataInfo, metrics
+}
+
+// selectDataPath uses declared alternatives only when the preceding path is
+// absent. An explicitly present nil, empty array, false or zero wins.
+func selectDataPath(primary string, fallbacks []string, root interface{}) interface{} {
+	for _, path := range append([]string{primary}, fallbacks...) {
+		if value, present := lookupDataPath(path, root); present {
+			return value
+		}
+	}
+	return nil
+}
+
+// lookupDataPath is scoped to opt-in data fallbacks; selectPath retains its
+// existing behavior for info/metrics and definitions without alternatives.
+func lookupDataPath(selector string, root interface{}) (interface{}, bool) {
+	norm := strings.TrimPrefix(strings.ReplaceAll(strings.ReplaceAll(strings.TrimSpace(selector), "[", "."), "]", ""), ".")
+	cur := root
+	for _, token := range strings.Split(norm, ".") {
+		token = strings.TrimSpace(token)
+		if token == "" {
+			continue
+		}
+		switch actual := cur.(type) {
+		case map[string]interface{}:
+			value, present := actual[token]
+			if !present {
+				return nil, false
+			}
+			cur = value
+		case []map[string]interface{}:
+			idx, ok := dataPathIndex(token, len(actual))
+			if !ok {
+				return nil, false
+			}
+			cur = actual[idx]
+		case []interface{}:
+			idx, ok := dataPathIndex(token, len(actual))
+			if !ok {
+				return nil, false
+			}
+			cur = actual[idx]
+		default:
+			return nil, false
+		}
+	}
+	return cur, true
+}
+
+func dataPathIndex(token string, size int) (int, bool) {
+	for _, char := range token {
+		if char < '0' || char > '9' {
+			return 0, false
+		}
+	}
+	idx := -1
+	if _, err := fmt.Sscanf(token, "%d", &idx); err != nil || idx < 0 || idx >= size {
+		return 0, false
+	}
+	return idx, true
 }
 
 // coerceRows turns whatever the selector returned into []map[string]interface{}.
