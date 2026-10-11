@@ -80,7 +80,7 @@ func (c *HTTPClient) PrepareAGUIChat(ctx context.Context, input *agentsvc.QueryI
 		ID       string  `json:"id"`
 		ThreadID *string `json:"aguiThreadId"`
 	}
-	if err := c.doJSON(ctx, http.MethodGet, c.conversationsPath+"/"+url.PathEscape(conversationID), nil, &metadata); err != nil {
+	if err := c.doJSON(ctx, http.MethodGet, c.conversationsPath+"/"+url.PathEscape(conversationID)+"?includeTranscript=false", nil, &metadata); err != nil {
 		return nil, err
 	}
 	if metadata.ID != conversationID {
