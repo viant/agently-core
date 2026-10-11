@@ -388,7 +388,7 @@ func (s *resourceReadSequence) refreshSelectedResources(ctx context.Context) err
 				return identity.ErrResourceDenied
 			}
 		}
-		current, err := s.gateway.get(ctx, held.connection, identity.ResourceRef{URI: held.pin.URI, Revision: held.pin.Selector()}, &held.pin, true)
+		current, err := get[json.RawMessage](ctx, s.gateway, held.connection, identity.ResourceRef{URI: held.pin.URI, Revision: held.pin.Selector()}, &held.pin, true, false)
 		if err != nil {
 			return err
 		}
@@ -396,7 +396,7 @@ func (s *resourceReadSequence) refreshSelectedResources(ctx context.Context) err
 		if expected.Resource == nil {
 			expected = originals[id].result
 		}
-		if !sameSelectedContent(expected, *current) {
+		if !sameSelectedContent(expected, current.GetResult) {
 			return identity.ErrResourceStale
 		}
 	}

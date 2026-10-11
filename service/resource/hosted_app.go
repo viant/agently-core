@@ -193,7 +193,7 @@ func (r *HostedAppReader) Read(ctx context.Context, uri string) (*schema.ReadRes
 		return nil, err
 	}
 	// The fresh provider proof is for the explicit held candidate, never default/latest.
-	current, err := r.Gateway.Get(ctx, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
+	current, err := Get[json.RawMessage](ctx, r.Gateway, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
 	if err != nil || current == nil || current.ExecutionProof == nil || current.ResolvedResource == nil || !sameHostedPin(*current.ResolvedResource, pin) {
 		return nil, identity.ErrResourceDenied
 	}

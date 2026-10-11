@@ -63,7 +63,10 @@ func TestReportGatewayExecutionRetainsLaterShorterGrantAcrossRegrant(t *testing.
 		if action == "report.execute" {
 			switch stage {
 			case 1:
-				stage = 2
+				// The sole final admission observes a shorter grant after rows
+				// were fetched; advance past that exact deadline before release.
+				stage = 3
+				now = base.Add(5 * time.Second)
 				return short, nil
 			case 2:
 				stage = 3
@@ -128,7 +131,7 @@ func TestReportGatewayExportWorkerRejectsShorterGrantDespiteLaterRegrant(t *test
 	require.NoError(t, err)
 	failed, err := svc.RunExport(ctx, job.JobID)
 	require.Error(t, err)
-	require.Equal(t, 3, stage)
+	require.Equal(t, 2, stage, "the sole final admission narrowed the worker grant")
 	require.Equal(t, 1, renders)
 	if failed != nil {
 		require.Empty(t, failed.ArtifactID, "the earlier shorter grant must discard rendered PDF bytes")

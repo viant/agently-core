@@ -134,7 +134,7 @@ func TestReportGatewayFinalAdmissionCannotExtendExpiredLeaseOrChangeActor(t *tes
 			calls := 0
 			catalog.Admission = func(_ context.Context, _ string, pin identity.ResolvedResource, raw json.RawMessage) error {
 				calls++
-				if calls == 2 {
+				if calls == 1 {
 					if scenario == "lease" {
 						now = pin.ValidUntil.Add(time.Nanosecond)
 						// Actor remains valid beyond the original shorter provider lease.
@@ -158,7 +158,7 @@ func TestReportGatewayFinalAdmissionCannotReleaseRevokedProvider(t *testing.T) {
 	calls := 0
 	catalog.Admission = func(context.Context, string, identity.ResolvedResource, json.RawMessage) error {
 		calls++
-		if calls == 2 {
+		if calls == 1 {
 			allowed.Store(false)
 		}
 		return nil

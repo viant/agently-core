@@ -156,12 +156,14 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 		}
 		ref = *input.Resource
 	}
-	result, e := c.Gateway.Get(ctx, loc.Connection, ref, input.ResolvedResource)
+	result, e := Get[*types.WindowResourceVariant](ctx, c.Gateway, loc.Connection, ref, input.ResolvedResource, func(raw json.RawMessage) (*types.WindowResourceVariant, error) {
+		return types.SelectWindowResourceWithReferences(raw, input.Target)
+	})
 	if e != nil {
 		return nil, e
 	}
-	selected, e := types.SelectWindowResourceWithReferences(result.Resource.Definition, input.Target)
-	if e != nil || selected == nil {
+	selected := result.Definition
+	if selected == nil {
 		return nil, identity.ErrResourceDenied
 	}
 	pin := *result.ResolvedResource
@@ -240,7 +242,7 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 		return nil, e
 	}
 	// No source fallback: only the exact provider bytes above enter the window.
-	final, e := c.Gateway.Get(ctx, loc.Connection, identity.ResourceRef{URI: loc.URI}, &pin)
+	final, e := Get[json.RawMessage](ctx, c.Gateway, loc.Connection, identity.ResourceRef{URI: loc.URI}, &pin)
 	if e != nil {
 		return nil, e
 	}
@@ -348,7 +350,7 @@ func (c *WindowCatalog) CheckWindowContent(ctx context.Context, key string, pin 
 		if err != nil {
 			return err
 		}
-		result, err := c.Gateway.Get(ctx, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
+		result, err := Get[json.RawMessage](ctx, c.Gateway, connection, identity.ResourceRef{URI: pin.URI, Revision: pin.Selector()}, &pin)
 		if err != nil {
 			return err
 		}
