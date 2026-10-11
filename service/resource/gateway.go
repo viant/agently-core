@@ -120,7 +120,7 @@ func (g *Gateway) actor(ctx context.Context) (identity.VerifiedActor, error) {
 	if e != nil {
 		return a, e
 	}
-	if !a.Valid(g.now()) || ctx.Err() != nil {
+	if !a.ReadValid(g.now()) || ctx.Err() != nil {
 		return a, identity.ErrResourceDenied
 	}
 	if e = g.Verify(ctx, a); e != nil {
@@ -156,13 +156,13 @@ func (g *Gateway) final(ctx context.Context, a identity.VerifiedActor) error {
 			return err
 		}
 	}
-	if !a.Valid(g.now()) || ctx.Err() != nil {
+	if !a.ReadValid(g.now()) || ctx.Err() != nil {
 		return identity.ErrResourceDenied
 	}
 	return g.Verify(ctx, a)
 }
 func actorKey(a identity.VerifiedActor, name string, generation uint64) string {
-	raw, _ := json.Marshal([]any{a.Issuer, a.Subject, a.TenantID, a.AccountID, a.IdentityRevision, name, generation})
+	raw, _ := json.Marshal([]any{a.PublicRead, a.Issuer, a.Subject, a.TenantID, a.AccountID, a.IdentityRevision, name, generation})
 	return string(raw)
 }
 func (g *Gateway) client(ctx context.Context, name string) (mcpclient.Interface, error) {

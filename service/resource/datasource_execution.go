@@ -17,6 +17,12 @@ import (
 	mcpclient "github.com/viant/mcp/client"
 )
 
+// DecodeDatasourceDefinition decodes the same exact standalone datasource
+// envelope used by gateway execution and generic definition resolution.
+func DecodeDatasourceDefinition(raw json.RawMessage) (*dsproto.DataSource, error) {
+	return datasourceDefinition(raw)
+}
+
 func datasourceDefinition(raw json.RawMessage) (*dsproto.DataSource, error) {
 	var envelope struct {
 		SchemaVersion int64           `json:"schemaVersion"`
@@ -32,7 +38,9 @@ func datasourceDefinition(raw json.RawMessage) (*dsproto.DataSource, error) {
 		return nil, err
 	}
 	var descriptor dsproto.DataSource
-	if json.Unmarshal(canonical, &descriptor) != nil || descriptor.ID == "" {
+	descriptorDecoder := json.NewDecoder(strings.NewReader(string(canonical)))
+	descriptorDecoder.UseNumber()
+	if descriptorDecoder.Decode(&descriptor) != nil || descriptor.ID == "" {
 		return nil, identity.ErrResourceDenied
 	}
 	return &descriptor, nil

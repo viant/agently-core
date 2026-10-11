@@ -63,9 +63,5 @@ func SnapshotToolfeedDefinitions(ctx context.Context, root string, directories [
 			return nil, identity.ErrResource
 		}
 	}
-	var definitions []NativeSnapshotDefinition
-	_, err := extensionBindings(ctx, root, directories, func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) (identity.ResourceRevisionPolicy, error) {
-		return nil, nil
-	}, &definitions)
-	return definitions, err
+	return SnapshotExtensionDefinitions(ctx, root, directories)
 }

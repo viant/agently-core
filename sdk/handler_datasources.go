@@ -92,7 +92,11 @@ func handleListLookupRegistry(client Backend) http.HandlerFunc {
 			httpError(w, http.StatusBadRequest, fmt.Errorf("context query parameter is required (e.g. ?context=template:foo)"))
 			return
 		}
-		out, err := client.ListLookupRegistry(r.Context(), &api.ListLookupRegistryInput{Context: ctxParam})
+		input := &api.ListLookupRegistryInput{Context: ctxParam, ProviderIdentity: r.URL.Query().Get("providerIdentity")}
+		if owner := strings.TrimSpace(r.URL.Query().Get("owner")); owner != "" {
+			input.Owner = &identity.ResourceRef{URI: owner, Revision: r.URL.Query().Get("revision")}
+		}
+		out, err := client.ListLookupRegistry(r.Context(), input)
 		if err != nil {
 			writeDatasourceError(w, err)
 			return

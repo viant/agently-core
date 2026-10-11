@@ -1,7 +1,9 @@
 package window
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"strings"
@@ -63,7 +65,7 @@ func mergeWorkspaceForgeAssetsWithOptionsAt(ctx context.Context, workspaceRoot s
 	resolver := newAssignmentResolver(window, catalog)
 	normalized := assignment.Normalized()
 	if containsChat(window.View.Content) {
-		if err := attachNamedLookupReferences(ctx, svc, normalized); err != nil {
+		if err := attachNamedLookupReferences(ctx, svc, normalized, window); err != nil {
 			return err
 		}
 	}
@@ -453,7 +455,7 @@ func containsChat(container *forgeTypes.Container) bool {
 	return false
 }
 
-func attachNamedLookupReferences(ctx context.Context, svc *wsmeta.Service, assignment *ResourceAssignment) error {
+func attachNamedLookupReferences(ctx context.Context, svc *wsmeta.Service, assignment *ResourceAssignment, window *forgeTypes.Window) error {
 	paths, err := svc.ListRecursive(ctx, workspace.KindForgeLookup)
 	if err != nil {
 		return nil
@@ -469,6 +471,23 @@ func attachNamedLookupReferences(ctx context.Context, svc *wsmeta.Service, assig
 		// Agent-specific overlays require an explicit owning-window assignment.
 		if definition.Target.ID != "" || definition.Target.IDGlob != "" {
 			continue
+		}
+		// The original selected overlay is presentation metadata owned by this
+		// compiled chat definition. Retain it alongside its datasource/dialog
+		// closure so execution never needs an ambient workspace overlay store.
+		raw, err := json.Marshal(&definition)
+		if err != nil {
+			return err
+		}
+		present := false
+		for _, original := range window.LookupOverlays {
+			if bytes.Equal(original, raw) {
+				present = true
+				break
+			}
+		}
+		if !present {
+			window.LookupOverlays = append(window.LookupOverlays, raw)
 		}
 		for _, binding := range definition.Bindings {
 			if binding.Named == nil || binding.Named.Name == "" {

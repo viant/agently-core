@@ -201,9 +201,6 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 		}
 	}
 	c.primitiveProviders = rt.PrimitiveProviders
-	if c.primitiveProviders == nil {
-		c.feeds = NewFeedRegistry()
-	}
 	c.skills = rt.Skills
 	// Wire the datasource + overlay stack. Loads any datasources/ and
 	// lookups/ YAML from the workspace and installs the refiner hook. If

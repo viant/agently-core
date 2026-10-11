@@ -31,6 +31,7 @@ type Refiner interface {
 type Service struct {
 	client         apiconv.Client
 	refiner        Refiner
+	contextRefiner func(context.Context, *schema.ElicitRequestParamsRequestedSchema) error
 	router         elicrouter.ElicitationRouter
 	awaiterFactory func() Awaiter
 	streamPub      streaming.Publisher
@@ -164,6 +165,22 @@ func (s *Service) emitElicitationResolved(ctx context.Context, convID, elicitati
 	}
 }
 
+// ConfigureContextRefiner installs a startup-only instance presentation refiner.
+// Its context belongs to the current operation; it does not authorize tool data.
+func (s *Service) ConfigureContextRefiner(refine func(context.Context, *schema.ElicitRequestParamsRequestedSchema) error) {
+	if s != nil {
+		s.contextRefiner = refine
+	}
+}
+
+func (s *Service) RefineRequestedSchemaContext(ctx context.Context, rs *schema.ElicitRequestParamsRequestedSchema) error {
+	if s != nil && s.contextRefiner != nil {
+		return s.contextRefiner(ctx, rs)
+	}
+	s.RefineRequestedSchema(rs)
+	return nil
+}
+
 func (s *Service) RefineRequestedSchema(rs *schema.ElicitRequestParamsRequestedSchema) {
 	if rs == nil {
 		return
@@ -187,7 +204,9 @@ func (s *Service) Record(ctx context.Context, turn *runtimerequestctx.TurnMeta, 
 		elic.ElicitationId = uuid.New().String()
 	}
 	logx.Infof("conversation", "elicitation record start convo=%q turn=%q elicitation_id=%q role=%q", strings.TrimSpace(turn.ConversationID), strings.TrimSpace(turn.TurnID), strings.TrimSpace(elic.ElicitationId), strings.TrimSpace(role))
-	s.RefineRequestedSchema(&elic.RequestedSchema)
+	if err := s.RefineRequestedSchemaContext(ctx, &elic.RequestedSchema); err != nil {
+		return nil, err
+	}
 	// Provide a unified callback URL when not already set
 	if strings.TrimSpace(elic.CallbackURL) == "" && turn != nil {
 		elic.CallbackURL = fmt.Sprintf("/v1/api/conversations/%s/elicitation/%s", turn.ConversationID, elic.ElicitationId)

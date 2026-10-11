@@ -54,7 +54,9 @@ type InvalidateDatasourceCacheInput struct {
 
 // ListLookupRegistryInput — GET /v1/api/lookups/registry?context=<target-kind>:<target-id>.
 type ListLookupRegistryInput struct {
-	Context string `json:"context"`
+	Context          string                `json:"context"`
+	Owner            *identity.ResourceRef `json:"owner,omitempty"`
+	ProviderIdentity string                `json:"providerIdentity,omitempty"`
 }
 
 // LookupRegistryEntry describes a single named-token binding available in a
