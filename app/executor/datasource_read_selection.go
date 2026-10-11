@@ -39,8 +39,10 @@ func registerDatasourceReadAdmission(ctx context.Context, pin identity.ResolvedR
 		}
 		// Preserve the caller's Go scalar types; JSON guards make any mutation
 		// fail closed before dispatch/release rather than changing argument types.
-		if err := check(checkCtx, pin, &held, inputs); err != nil {
-			return err
+		if check != nil {
+			if err := check(checkCtx, pin, &held, inputs); err != nil {
+				return err
+			}
 		}
 		after, e := json.Marshal(inputs)
 		if e != nil || !bytes.Equal(arguments, after) {

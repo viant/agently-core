@@ -132,15 +132,14 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 			}
 			return localAuthorize(ctx, descriptor, inputs)
 		}
-		if b.primitiveDatasourceAdmission == nil {
-			return identity.ErrResourceDenied
-		}
 		target, _ := requestctx.WindowTargetFromContext(ctx)
 		if _, e := remote.ResolveDatasource(ctx, *pin, target, descriptor.ID); e != nil {
 			return e
 		}
-		if err := b.primitiveDatasourceAdmission(ctx, *pin, descriptor, inputs); err != nil {
-			return err
+		if b.primitiveDatasourceAdmission != nil {
+			if err := b.primitiveDatasourceAdmission(ctx, *pin, descriptor, inputs); err != nil {
+				return err
+			}
 		}
 		return registerDatasourceReadAdmission(ctx, *pin, target, descriptor, inputs, b.primitiveDatasourceAdmission)
 	}
