@@ -86,7 +86,7 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 			return nil, err
 		}
 	}
-	opts := dssvc.FetchOptions{Resource: in.Resource, Target: in.Target, ResourceProof: in.ResourceProof, WindowParameters: in.WindowParameters}
+	opts := dssvc.FetchOptions{SelectionBinding: in.SelectionBinding, Resource: in.Resource, Target: in.Target, ResourceProof: in.ResourceProof, WindowParameters: in.WindowParameters}
 	if in.Cache != nil {
 		opts.BypassCache = in.Cache.BypassCache
 		opts.WriteThrough = in.Cache.WriteThrough

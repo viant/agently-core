@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/sdk/api"
 )
 
@@ -25,10 +26,11 @@ func TestHTTPClient_FetchDatasource_ForwardsCacheHints(t *testing.T) {
 	}))
 
 	_, err := c.FetchDatasource(context.Background(), &api.FetchDatasourceInput{
-		ID:             " sources/main ",
-		ConversationID: " conv-1 ",
-		Inputs:         map[string]interface{}{"q": "acm"},
-		Cache:          &api.DatasourceCacheHints{BypassCache: true, WriteThrough: true},
+		SelectionBinding: &identity.SelectionBinding{InstanceID: "original-instance", Token: "original-token"},
+		ID:               " sources/main ",
+		ConversationID:   " conv-1 ",
+		Inputs:           map[string]interface{}{"q": "acm"},
+		Cache:            &api.DatasourceCacheHints{BypassCache: true, WriteThrough: true},
 	})
 	if err != nil {
 		t.Fatalf("fetch: %v", err)
@@ -44,6 +46,9 @@ func TestHTTPClient_FetchDatasource_ForwardsCacheHints(t *testing.T) {
 	}
 	if _, ok := gotBody["permitVersion"]; ok {
 		t.Fatalf("public fetch leaked permit version: %v", gotBody)
+	}
+	if gotBody["selectionBinding"].(map[string]any)["token"] != "original-token" {
+		t.Fatalf("selection binding dropped: %v", gotBody)
 	}
 	if gotBody["cache"] == nil {
 		t.Fatalf("cache hints not forwarded; body=%v", gotBody)
