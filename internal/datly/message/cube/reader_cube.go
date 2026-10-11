@@ -9,6 +9,10 @@ import (
 	reflect "reflect"
 )
 
+func init() {}
+
+var _anchorReaderCubeComponent = reflect.TypeFor[ReaderCubeComponent]()
+
 type ReaderCubeInput struct {
 	Dimensions ReaderCubeDimensions "json:\"dimensions,omitempty\" desc:\"Selected grouping dimensions\" parameter:\"Dimensions,kind=body,in=dimensions\""
 	Measures   ReaderCubeMeasures   "json:\"measures,omitempty\" desc:\"Selected aggregate measures\" parameter:\"Measures,kind=body,in=measures\""
@@ -91,5 +95,4 @@ func (ReaderCubeComponent) DatlyHandler(name string) func() (rhandler.TypedHandl
 func ReaderCubeDatlyType() reflect.Type { return reflect.TypeFor[ReaderCubeComponent]() }
 
 var ReaderCubeDatly = new(ReaderCubeComponent)
-var _datlyReachableReaderCubeComponent = reflect.TypeFor[ReaderCubeComponent]()
 var ReaderCubeHandler = ReaderCubeComponent{}.DatlyHandler

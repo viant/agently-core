@@ -9,6 +9,6 @@ import (
 // SessionOutput is the generated output scaffold for reader.
 type SessionOutput struct {
 	response.Status `parameter:",kind=output,in=status"`
-	Metrics         response.Metrics `parameter:",kind=output,in=metrics"`
-	Data            []*SessionView   `parameter:"Data,kind=output,in=view,dataType=[]*SessionView" view:"reader,type=SessionView,rowLock=session s,table=session" sql:"uri=datly_session_read_reader:sql/reader.sql"`
+	Metrics         response.Metrics `parameter:",kind=output,in=metrics" json:"metrics"`
+	Data            []*SessionView   `parameter:"Data,kind=output,in=view,dataType=[]*SessionView" view:"reader,type=SessionView,rowLock=session s,table=session" json:"data" sql:"uri=datly_session_read_reader:sql/reader.sql"`
 }

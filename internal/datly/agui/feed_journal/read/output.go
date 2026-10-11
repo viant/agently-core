@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*FeedEvent `parameter:"Data,kind=output,in=view,dataType=[]*FeedEvent" view:"reader,type=FeedEvent,table=run,selectorNoLimit=true" sql:"uri=agui_feed_journal_read_reader:sql/reader.sql"`
+	Data []*FeedEvent `parameter:"Data,kind=output,in=view,dataType=[]*FeedEvent" view:"reader,type=FeedEvent,table=run,selectorNoLimit=true" json:"data" sql:"uri=agui_feed_journal_read_reader:sql/reader.sql"`
 }

@@ -4,5 +4,5 @@ package claim
 
 // Output is the generated output scaffold for writer.
 type Output struct {
-	Data []*QueueClaim `parameter:"Data,kind=output,in=body,dataType=[]*QueueClaim"`
+	Data []*QueueClaim `parameter:"Data,kind=output,in=body,dataType=[]*QueueClaim" json:"data,omitempty"`
 }

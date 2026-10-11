@@ -9,6 +9,6 @@ import (
 // Output is the generated output scaffold for reader.
 type Output struct {
 	response.Status `parameter:",kind=output,in=status"`
-	Metrics         response.Metrics `parameter:",kind=output,in=metrics"`
-	Data            []*PayloadView   `parameter:"Data,kind=output,in=view,dataType=[]*PayloadView" view:"reader,type=PayloadView,table=call_payload,selectorProjection=true,selectorOrderBy=true,selectorCriteria=true,selectorLimit=true,selectorOffset=true,selectorPage=true,selectorFilterable={*},selectorOrderable={id,created_at,size_bytes}" sql:"uri=datly_payload_reference_reader:sql/reader.sql"`
+	Metrics         response.Metrics `parameter:",kind=output,in=metrics" json:"metrics"`
+	Data            []*PayloadView   `parameter:"Data,kind=output,in=view,dataType=[]*PayloadView" view:"reader,type=PayloadView,table=call_payload,selectorProjection=true,selectorOrderBy=true,selectorCriteria=true,selectorLimit=true,selectorOffset=true,selectorPage=true,selectorFilterable={*},selectorOrderable={id,created_at,size_bytes}" json:"data" sql:"uri=datly_payload_reference_reader:sql/reader.sql"`
 }

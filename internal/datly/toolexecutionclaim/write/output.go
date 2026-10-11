@@ -4,5 +4,5 @@ package write
 
 // Output is the generated output scaffold for writer.
 type Output struct {
-	Data []*Claim `parameter:"Data,kind=output,in=body,dataType=[]*Claim"`
+	Data []*Claim `parameter:"Data,kind=output,in=body,dataType=[]*Claim" json:"data"`
 }

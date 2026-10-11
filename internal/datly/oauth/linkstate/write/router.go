@@ -10,6 +10,10 @@ import (
 
 func init() {}
 
+var _anchorWriteComponent = reflect.TypeFor[WriteComponent]()
+
+var _anchorLifecycle_WriteComponent = reflect.TypeFor[Lifecycle]()
+
 // Component is the generated component scaffold for write.
 type WriteComponent struct {
 	Contract xdatly.Component[Input, Output] "component:\"write,path=/v1/internal/agently/user/oauth/linkstate/write,method=PATCH,connector=agently,view=write,internal=true\" routeName:\"write\" mutation:\"patch\" caseFormat:\"lc\""
@@ -18,9 +22,8 @@ type WriteComponent struct {
 // WriteDatlyType returns the public component type.
 func WriteDatlyType() reflect.Type { return reflect.TypeOf((*WriteComponent)(nil)).Elem() }
 
-// The package-level value keeps this real component type reachable for runtime discovery.
+// The public value supports explicit component wiring.
 var WriteDatly = new(WriteComponent)
-var _datlyReachableWriteComponent = reflect.TypeFor[WriteComponent]()
 
 func (WriteComponent) EmbedFS() *embed.FS {
 	return &WriteDatlyResources

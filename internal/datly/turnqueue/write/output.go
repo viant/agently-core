@@ -4,5 +4,5 @@ package write
 
 // Output is the generated output scaffold for writer.
 type Output struct {
-	Data []*TurnQueue `parameter:"Data,kind=output,in=body,dataType=[]*TurnQueue"`
+	Data []*TurnQueue `parameter:"Data,kind=output,in=body,dataType=[]*TurnQueue" json:"data"`
 }
