@@ -205,6 +205,7 @@ type Builder struct {
 	pinnedDatasourceDenialRootRead dssvc.DefinitionAuthorizer
 	primitiveDatasourceAdmission   func(context.Context, identity.ResolvedResource, *dsproto.DataSource, map[string]interface{}) error
 	primitiveTargetProof           forgetypes.WindowTargetProof
+	primitiveReportDependencyProof forgetypes.WindowTargetProof
 	localPrimitiveProvider         *resourcesvc.LocalProvider
 	mcpAuthRTProvider              mcpmgr.AuthRTProvider
 	mcpJarProvider                 mcpmgr.JarProvider
@@ -403,6 +404,13 @@ func (b *Builder) WithPrimitiveAuthority(actor resourcesvc.ActorResolver, verify
 // The distinct local authoritative YAML source may still be a provider.
 func (b *Builder) WithPrimitiveGatewayIdentity(identity string) *Builder {
 	b.primitiveGatewayIdentity = identity
+	return b
+}
+
+// WithPrimitiveReportDependencyProof installs the startup proof verifier for
+// canonical report datasource dependencies without enabling delegated windows.
+func (b *Builder) WithPrimitiveReportDependencyProof(proof forgetypes.WindowTargetProof) *Builder {
+	b.primitiveReportDependencyProof = proof
 	return b
 }
 
@@ -1006,7 +1014,11 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		if out.ReportRuns != nil {
 			out.ReportRuns.RequireCanonicalExecution()
 		}
-		out.Reporting.SetResourceDatasetExecutor(reportingsvc.NewResourceDatasetExecutorWithProvider(out.Registry, out.Reporting.AuthorizeResourceDataset, out.providerReportDatasource, out.ComponentDispatcher))
+		// Custom service/catalog contracts retain their caller-owned executor.
+		_, knownCatalog := b.reportCatalog.(*catalog.ReportCatalogService)
+		if b.reportingService == nil || knownCatalog || out.LocalPrimitiveProvider != nil {
+			out.Reporting.SetResourceDatasetExecutor(reportingsvc.NewResourceDatasetExecutorWithProvider(out.Registry, out.Reporting.AuthorizeResourceDataset, out.providerReportDatasource, out.ComponentDispatcher))
+		}
 	}
 	if out.Registry != nil && out.Reporting != nil {
 		if out.ReportAuthorizer != nil {
