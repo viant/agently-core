@@ -63,6 +63,7 @@ type Store interface {
 
 // Service is the public entry point. Construct with New, then call Fetch.
 type Service struct {
+	newDeliveryPreparer NewDeliveryPreparer
 	beginReadSequence   func(context.Context) (context.Context, func() error, error)
 	readContext         func(context.Context) (context.Context, error)
 	resourceReader      MCPResourceReader
@@ -109,6 +110,8 @@ type MCPResourceReader interface {
 }
 
 type Options struct {
+	// NewDeliveryPreparer is optional trusted server wiring; never a wire callback.
+	NewDeliveryPreparer NewDeliveryPreparer
 	// ReadSequence owns pure PRE/POST metadata facts; dispatch barriers end PRE.
 	ReadSequence        func(context.Context) (context.Context, func() error, error)
 	ReadContext         func(context.Context) (context.Context, error)
@@ -146,7 +149,7 @@ func New(opts Options) *Service {
 	if nowFn == nil {
 		nowFn = time.Now
 	}
-	return &Service{beginReadSequence: opts.ReadSequence, readContext: opts.ReadContext, resourceReader: opts.ResourceReader, providerExecute: opts.ProviderExecute, executionContext: opts.ExecutionContext, permissions: opts.PermissionResolver, components: opts.ComponentDispatcher, resolveResource: opts.ResolveResource, authorizeDefinition: opts.AuthorizeDefinition, denialRootRead: opts.DenialRootRead, resolveDefinition: opts.ResolveDefinition,
+	return &Service{newDeliveryPreparer: opts.NewDeliveryPreparer, beginReadSequence: opts.ReadSequence, readContext: opts.ReadContext, resourceReader: opts.ResourceReader, providerExecute: opts.ProviderExecute, executionContext: opts.ExecutionContext, permissions: opts.PermissionResolver, components: opts.ComponentDispatcher, resolveResource: opts.ResolveResource, authorizeDefinition: opts.AuthorizeDefinition, denialRootRead: opts.DenialRootRead, resolveDefinition: opts.ResolveDefinition,
 		store:        opts.Store,
 		executor:     opts.Executor,
 		identity:     id,
@@ -160,6 +163,7 @@ func New(opts Options) *Service {
 
 // FetchOptions are per-call overrides carried on the wire.
 type FetchOptions struct {
+	SelectionBinding *identity.SelectionBinding
 	WindowParameters map[string]any
 	// ResourceProof is opaque provider provenance for a standalone datasource.
 	// The provider still verifies the signature and fresh resource authorization.
@@ -194,6 +198,13 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 			return nil, err
 		}
 	}
+	var preparationErr error
+	var finishPreparation func()
+	ctx, opts, finishPreparation, preparationErr = s.prepareNewDelivery(ctx, opts)
+	if preparationErr != nil {
+		return nil, preparationErr
+	}
+	defer finishPreparation()
 	_, inheritedPin := runtimerequestctx.ResolvedResourceFromContext(ctx)
 	if s.beginReadSequence != nil && (opts.Resource != nil || inheritedPin) && !runtimerequestctx.HasResourceReadDispatch(ctx) {
 		parent := opts.Resource
