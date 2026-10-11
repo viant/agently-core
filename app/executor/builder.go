@@ -65,6 +65,7 @@ import (
 	callbackrepo "github.com/viant/agently-core/workspace/repository/callback"
 	intakerepo "github.com/viant/agently-core/workspace/repository/intake"
 	tplrepo "github.com/viant/agently-core/workspace/repository/template"
+	tplbundlerepo "github.com/viant/agently-core/workspace/repository/templatebundle"
 	toolbundlerepo "github.com/viant/agently-core/workspace/repository/toolbundle"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
 	"github.com/viant/authz"
@@ -74,6 +75,7 @@ import (
 )
 
 type Runtime struct {
+	NativeLayoutSource       *resourcesvc.CapturedLayoutSource
 	ExecutionContext         func(context.Context) context.Context
 	registryWarmupMu         sync.Mutex
 	registryWarmupCancel     context.CancelFunc
@@ -164,6 +166,7 @@ func resolveScratchpadTemplate() string {
 }
 
 type Builder struct {
+	nativeLayoutDefault            []byte
 	nativeComponentServices        []string
 	componentDispatcher            windowprotocol.ComponentDispatcher
 	reportCatalog                  catalog.Provider
@@ -365,6 +368,13 @@ func (b *Builder) WithSkipRegistryInitialize(skip bool) *Builder {
 // WithGoalStore supplies a domain store using the shared Datly 1.0 invoker.
 func (b *Builder) WithGoalStore(store goalsys.Store) *Builder {
 	b.goalStore = store
+	return b
+}
+
+// WithNativeLayoutDefault supplies trusted process-owned authored layout bytes.
+// The configured workspace layout retains precedence over this startup fallback.
+func (b *Builder) WithNativeLayoutDefault(raw []byte) *Builder {
+	b.nativeLayoutDefault = append([]byte(nil), raw...)
 	return b
 }
 
@@ -887,7 +897,13 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			agentOpts = append(agentOpts, agentsvc.WithDataService(out.Data))
 		}
 		promptRepo := intakerepo.NewWithStore(out.Store)
+		if out.PrimitiveProviders != nil {
+			promptRepo = intakerepo.NewWithReader(resourcesvc.NewIntentReader(out.PrimitiveProviders))
+		}
 		templateRepo := tplrepo.NewWithStore(out.Store)
+		if out.PrimitiveProviders != nil {
+			templateRepo = tplrepo.NewWithReader(resourcesvc.NewTemplateReader(out.PrimitiveProviders))
+		}
 		bundleRepo := toolbundlerepo.NewWithStore(out.Store)
 		intakeSvc := intakesvc.New(out.Core,
 			intakesvc.WithConversationClient(out.Conversation),
@@ -896,6 +912,11 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 			intakesvc.WithBundleRepo(bundleRepo),
 		)
 		agentOpts = append(agentOpts, agentsvc.WithIntakeService(intakeSvc))
+		templateBundles := tplbundlerepo.NewWithStore(out.Store)
+		if out.PrimitiveProviders != nil {
+			templateBundles = tplbundlerepo.NewWithReader(resourcesvc.NewTemplateBundleReader(out.PrimitiveProviders))
+		}
+		agentOpts = append(agentOpts, agentsvc.WithAuthoredDefinitions(promptRepo, templateRepo, templateBundles))
 		agentOpts = append(agentOpts, agentsvc.WithSkillService(out.Skills))
 		out.Agent = agentsvc.New(out.Core, b.agentFinder, aug, out.Registry, out.Defaults, out.Conversation, agentOpts...)
 	}
@@ -1064,6 +1085,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 	}
 	promptRepo := intakerepo.NewWithStore(out.Store)
+	if out.PrimitiveProviders != nil {
+		promptRepo = intakerepo.NewWithReader(resourcesvc.NewIntentReader(out.PrimitiveProviders))
+	}
 	if err := tool.AddInternalService(out.Registry, llmagents.New(out.Agent,
 		llmagents.WithDirectoryProvider(localAgentDirectory(b.agentFinder, b.agentDirectoryProvider)),
 		llmagents.WithConversationClient(out.Conversation),

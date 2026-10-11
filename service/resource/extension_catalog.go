@@ -33,12 +33,14 @@ type ExtensionLoader func(context.Context, *ExtensionReader, string) (json.RawMe
 // order-dependent override. Suffixes identify definition entry points, such as
 // .yaml/.yml or /SKILL.md. A package suffix uses its containing folder as name.
 type ExtensionDirectory struct {
-	Kind          string
-	Namespace     string
-	Directory     string
-	FormatVersion int64
-	Suffixes      []string
-	Load          ExtensionLoader
+	Kind               string
+	Namespace          string
+	Directory          string
+	FormatVersion      int64
+	Suffixes           []string
+	ExcludeDirectories []string
+	FallbackDirectory  string
+	Load               ExtensionLoader
 }
 
 // ExtensionReader confines native loader reads to a trusted workspace directory.
@@ -343,9 +345,25 @@ func extensionBindings(ctx context.Context, rootPath string, directories []Exten
 		if !info.IsDir() {
 			return nil, fmt.Errorf("extension directory must be a directory")
 		}
+		if directory.FallbackDirectory != "" && !extensionPath(directory.FallbackDirectory) {
+			return nil, identity.ErrResource
+		}
+		for _, excluded := range directory.ExcludeDirectories {
+			if !extensionPath(excluded) {
+				return nil, identity.ErrResource
+			}
+		}
 		err = fs.WalkDir(root.FS(), directory.Directory, func(file string, entry fs.DirEntry, walkErr error) error {
 			if walkErr != nil {
 				return walkErr
+			}
+			if entry.IsDir() {
+				relative := strings.TrimPrefix(file, directory.Directory+"/")
+				for _, excluded := range directory.ExcludeDirectories {
+					if relative == excluded {
+						return fs.SkipDir
+					}
+				}
 			}
 			if err := ctx.Err(); err != nil {
 				return err
@@ -373,6 +391,16 @@ func extensionBindings(ctx context.Context, rootPath string, directories []Exten
 			}
 			if name == "" {
 				return nil
+			}
+			if directory.FallbackDirectory != "" {
+				for _, suffix := range suffixes {
+					existing := path.Join(directory.FallbackDirectory, name+suffix)
+					if _, e := root.Stat(existing); e == nil {
+						return nil
+					} else if !os.IsNotExist(e) {
+						return e
+					}
+				}
 			}
 			uri := identity.ResourceURI{Kind: directory.Kind, Namespace: directory.Namespace, Name: name}
 			if !uri.Valid() {

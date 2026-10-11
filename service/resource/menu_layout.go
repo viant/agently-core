@@ -43,13 +43,17 @@ func (s *layoutMenuSource) read(ctx context.Context, uri identity.ResourceURI) (
 	if err != nil {
 		return nil, err
 	}
+	return layoutMenuDefinition(raw)
+}
+
+func layoutMenuDefinition(raw []byte) (json.RawMessage, error) {
 	if len(raw) > 4<<20 {
 		return nil, fmt.Errorf("layout menu exceeds size limit")
 	}
 	var layout struct {
 		Applications []map[string]interface{} `yaml:"applications"`
 	}
-	if err = yaml.Unmarshal(raw, &layout); err != nil {
+	if err := yaml.Unmarshal(raw, &layout); err != nil {
 		return nil, err
 	}
 	if layout.Applications == nil {

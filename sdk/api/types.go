@@ -314,6 +314,7 @@ type HostedWorkspaceRestoreState struct {
 type ListTemplatesInput struct{}
 
 type TemplateListItem struct {
+	URI         string `json:"uri,omitempty"`
 	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 	Format      string `json:"format,omitempty"`

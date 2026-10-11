@@ -64,6 +64,7 @@ type LocalConfig struct {
 	DefinitionValidationCache DefinitionValidationCache
 	WindowListVisibility      LocalWindowListVisibility
 	MenuActionVisibility      MenuActionVisibility
+	MenuVisibilityProjection  MenuVisibilityProjection
 	WindowIndex               LocalWindowIndex
 	Now                       func() time.Time
 }
@@ -79,6 +80,7 @@ type LocalProvider struct {
 	definitionValidationCache DefinitionValidationCache
 	windowListVisibility      LocalWindowListVisibility
 	menuActionVisibility      MenuActionVisibility
+	menuVisibilityProjection  MenuVisibilityProjection
 	windowIndex               LocalWindowIndex
 	now                       func() time.Time
 }
@@ -98,7 +100,7 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 	if config.WindowListVisibility != nil && config.WindowIndex == nil {
 		return nil, fmt.Errorf("window list visibility requires a trusted static window index")
 	}
-	p := &LocalProvider{namespaceMetadata: config.NamespaceMetadata, identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, now: config.Now}
+	p := &LocalProvider{namespaceMetadata: config.NamespaceMetadata, identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
 	if p.now == nil {
 		p.now = time.Now
 	}
@@ -113,7 +115,7 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 		if err != nil || primitive.Plural(uri.Kind) == "" || binding.Resolver == nil || binding.FormatVersion < 1 || p.validators[uri.Kind] == nil {
 			return nil, fmt.Errorf("local resource binding requires an explicit resolver, format version, and kind validator")
 		}
-		if uri.Kind == "menu" && config.MenuActionVisibility == nil {
+		if uri.Kind == "menu" && config.MenuActionVisibility == nil && config.MenuVisibilityProjection == nil {
 			return nil, fmt.Errorf("menu binding requires action visibility")
 		}
 		if _, exists := p.bindings[binding.URI]; exists {

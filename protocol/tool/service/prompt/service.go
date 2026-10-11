@@ -86,6 +86,7 @@ func (s *Service) list(ctx context.Context, in, out interface{}) error {
 			continue
 		}
 		items = append(items, ListItem{
+			URI:              p.ResourceURI,
 			ID:               strings.TrimSpace(p.ID),
 			Name:             strings.TrimSpace(p.Name),
 			Description:      strings.TrimSpace(p.Description),
@@ -124,15 +125,25 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 		if p == nil {
 			continue
 		}
-		if strings.EqualFold(strings.TrimSpace(p.ID), id) {
+		if strings.EqualFold(strings.TrimSpace(p.ID), id) || p.ResourceURI == id {
+			if selected != nil {
+				return fmt.Errorf("ambiguous authored definition: %s", id)
+			}
 			selected = p
-			break
 		}
 	}
 	if selected == nil {
 		return fmt.Errorf("intake profile %q not found", id)
 	}
 
+	fresh, err := s.repo.AdmitSelected(ctx, id, selected)
+	if err != nil {
+		return err
+	}
+	if fresh == nil {
+		return fmt.Errorf("intent not found")
+	}
+	selected = fresh
 	go_.ID = strings.TrimSpace(selected.ID)
 	go_.Name = strings.TrimSpace(selected.Name)
 	go_.Description = strings.TrimSpace(selected.Description)

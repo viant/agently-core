@@ -9,6 +9,7 @@ import (
 )
 
 type MenuActionVisibility = producer.MenuActionVisibility
+type MenuVisibilityProjection = producer.MenuVisibilityProjection
 
 var ValidateMenu = producer.ValidateMenu
 

@@ -13,10 +13,10 @@ import (
 	"net/http"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/viant/agently-core/service/policy"
 	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
+	"github.com/viant/agently-core/service/ui/layoutgate"
 	"github.com/viant/agently-core/service/ui/permittedview"
 	windowloader "github.com/viant/agently-core/service/ui/window"
 	ws "github.com/viant/agently-core/workspace"
@@ -173,51 +173,66 @@ type LayoutRequest struct{}
 
 func (h *MetadataHandler) Layout(ctx context.Context, _ *LayoutRequest) (*LayoutResponse, error) {
 	root := ws.Root()
-	cfg, err := config.Load(root)
-	if err != nil {
-		return nil, metadataFailure(http.StatusInternalServerError, err.Error(), nil)
-	}
-	ref := "ui/layout.yaml"
-	explicit := false
-	if cfg != nil {
-		if ui, ok := cfg.Raw["ui"].(map[string]any); ok {
-			if layout, ok := ui["layout"].(map[string]any); ok {
-				if value, ok := layout["ref"].(string); ok && strings.TrimSpace(value) != "" {
-					ref, explicit = value, true
+	var data []byte
+	var source string
+	var layout Layout
+	var err error
+	if h.capturedLayoutCheck != nil {
+		root = h.capturedLayoutRoot
+		data, source = h.layoutDefault, h.capturedLayoutSource
+		var captured *Layout
+		captured, err = h.capturedLayout(ctx)
+		if err != nil {
+			return nil, metadataFailure(http.StatusServiceUnavailable, "navigation source unavailable", nil)
+		}
+		layout = *captured
+	} else {
+		cfg, loadErr := config.Load(root)
+		err = loadErr
+		if err != nil {
+			return nil, metadataFailure(http.StatusInternalServerError, err.Error(), nil)
+		}
+		ref := "ui/layout.yaml"
+		explicit := false
+		if cfg != nil {
+			if ui, ok := cfg.Raw["ui"].(map[string]any); ok {
+				if layout, ok := ui["layout"].(map[string]any); ok {
+					if value, ok := layout["ref"].(string); ok && strings.TrimSpace(value) != "" {
+						ref, explicit = value, true
+					}
 				}
 			}
 		}
-	}
-	layoutPath, pathErr := ws.ResolveChildPath(root, ref)
-	if pathErr != nil {
-		return nil, metadataFailure(http.StatusBadRequest, pathErr.Error(), nil)
-	}
-	data, err := os.ReadFile(layoutPath)
-	source := ref
-	if os.IsNotExist(err) && !explicit {
-		data, err, source = h.layoutDefault, nil, "embedded"
-	}
-	if err != nil {
-		return nil, metadataFailure(http.StatusInternalServerError, "load workspace layout: "+err.Error(), nil)
-	}
-	if len(data) == 0 {
-		return nil, metadataFailure(http.StatusServiceUnavailable, "layout default is unavailable", nil)
-	}
-	var node yaml.Node
-	if err = yaml.Unmarshal(data, &node); err != nil {
-		return nil, metadataFailure(http.StatusBadRequest, "invalid layout YAML: "+err.Error(), nil)
-	}
-	if err = validateLayoutYAML(&node); err != nil {
-		return nil, metadataFailure(http.StatusBadRequest, err.Error(), nil)
-	}
-	var layout Layout
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err = decoder.Decode(&layout); err != nil {
-		return nil, metadataFailure(http.StatusBadRequest, err.Error(), nil)
-	}
-	if err = validateLayout(&layout); err != nil {
-		return nil, metadataFailure(http.StatusBadRequest, err.Error(), nil)
+		layoutPath, pathErr := ws.ResolveChildPath(root, ref)
+		if pathErr != nil {
+			return nil, metadataFailure(http.StatusBadRequest, pathErr.Error(), nil)
+		}
+		data, err = os.ReadFile(layoutPath)
+		source = ref
+		if os.IsNotExist(err) && !explicit {
+			data, err, source = h.layoutDefault, nil, "embedded"
+		}
+		if err != nil {
+			return nil, metadataFailure(http.StatusInternalServerError, "load workspace layout: "+err.Error(), nil)
+		}
+		if len(data) == 0 {
+			return nil, metadataFailure(http.StatusServiceUnavailable, "layout default is unavailable", nil)
+		}
+		var node yaml.Node
+		if err = yaml.Unmarshal(data, &node); err != nil {
+			return nil, metadataFailure(http.StatusBadRequest, "invalid layout YAML: "+err.Error(), nil)
+		}
+		if err = validateLayoutYAML(&node); err != nil {
+			return nil, metadataFailure(http.StatusBadRequest, err.Error(), nil)
+		}
+		decoder := yaml.NewDecoder(bytes.NewReader(data))
+		decoder.KnownFields(true)
+		if err = decoder.Decode(&layout); err != nil {
+			return nil, metadataFailure(http.StatusBadRequest, err.Error(), nil)
+		}
+		if err = validateLayout(&layout); err != nil {
+			return nil, metadataFailure(http.StatusBadRequest, err.Error(), nil)
+		}
 	}
 	var menuRead *LayoutMenuRead
 	if h.layoutMenuReader != nil {
@@ -753,38 +768,7 @@ func resolveNodeContext(ctx context.Context, spec *forgetypes.AuthorizationSpec,
 }
 
 func resolveNodeContextWithRuntime(ctx context.Context, spec *forgetypes.AuthorizationSpec, condition any, inherited *permittedview.Snapshot, runtime *permittedview.Runtime) (bool, *permittedview.Snapshot, error) {
-	snapshot := inherited
-	if spec != nil {
-		if runtime == nil || runtime.Resolver == nil {
-			return false, nil, fmt.Errorf("authorization resolver unavailable")
-		}
-		if spec.Resource != nil {
-			return false, nil, fmt.Errorf("resource-bound shell authorization requires parameter binding")
-		}
-		if spec.ResourceType == "" {
-			return false, nil, fmt.Errorf("authorization resource type required")
-		}
-		schemaVersion := permittedview.SchemaVersion(spec)
-		if schemaVersion != 1 && schemaVersion != 2 {
-			return false, nil, fmt.Errorf("unsupported authorization schema version")
-		}
-		var err error
-		snapshot, err = runtime.Resolver.Resolve(ctx, &permittedview.Request{SchemaVersion: schemaVersion, ResourceType: spec.ResourceType, RequestedGlobalCapabilities: spec.RequestedGlobalCapabilities, IncludePrincipal: true})
-		if err != nil {
-			return false, nil, err
-		}
-		if snapshot == nil || snapshot.AuthorizationVersion == "" || !time.Now().Before(snapshot.ExpiresAt) || (schemaVersion == 2 && snapshot.SchemaVersion != 2) {
-			return false, nil, fmt.Errorf("invalid authorization snapshot")
-		}
-	}
-	if condition == nil {
-		return true, snapshot, nil
-	}
-	if snapshot == nil {
-		return false, nil, fmt.Errorf("condition has no authorization snapshot")
-	}
-	allowed, err := permittedview.EvaluateAuthorizationCondition(condition, snapshot, nil)
-	return allowed, snapshot, err
+	return layoutgate.ResolveNode(ctx, spec, condition, inherited, runtime)
 }
 
 func (h *MetadataHandler) handleRemoteDatasource() http.HandlerFunc {
@@ -844,47 +828,55 @@ func (h *MetadataHandler) handleRemoteDatasource() http.HandlerFunc {
 // AuthorizeRemoteWindow applies the workspace-authored application gate on
 // direct, restored, and datasource-triggered remote definition loads.
 func (h *MetadataHandler) AuthorizeRemoteWindow(ctx context.Context, providerID, key string) error {
-	root := ws.Root()
-	cfg, err := config.Load(root)
-	if err != nil {
-		return err
-	}
-	ref, explicit := "ui/layout.yaml", false
-	if cfg != nil {
-		if ui, ok := cfg.Raw["ui"].(map[string]any); ok {
-			if layout, ok := ui["layout"].(map[string]any); ok {
-				if value, ok := layout["ref"].(string); ok && strings.TrimSpace(value) != "" {
-					ref, explicit = value, true
+	var layout Layout
+	if h.capturedLayoutCheck != nil {
+		captured, err := h.capturedLayout(ctx)
+		if err != nil {
+			return err
+		}
+		layout = *captured
+	} else {
+		root := ws.Root()
+		cfg, err := config.Load(root)
+		if err != nil {
+			return err
+		}
+		ref, explicit := "ui/layout.yaml", false
+		if cfg != nil {
+			if ui, ok := cfg.Raw["ui"].(map[string]any); ok {
+				if layout, ok := ui["layout"].(map[string]any); ok {
+					if value, ok := layout["ref"].(string); ok && strings.TrimSpace(value) != "" {
+						ref, explicit = value, true
+					}
 				}
 			}
 		}
-	}
-	layoutPath, err := ws.ResolveChildPath(root, ref)
-	if err != nil {
-		return err
-	}
-	data, err := os.ReadFile(layoutPath)
-	if os.IsNotExist(err) && !explicit {
-		data, err = h.layoutDefault, nil
-	}
-	if err != nil {
-		return err
-	}
-	var layout Layout
-	var node yaml.Node
-	if err := yaml.Unmarshal(data, &node); err != nil {
-		return err
-	}
-	if err := validateLayoutYAML(&node); err != nil {
-		return err
-	}
-	decoder := yaml.NewDecoder(bytes.NewReader(data))
-	decoder.KnownFields(true)
-	if err := decoder.Decode(&layout); err != nil {
-		return err
-	}
-	if err := validateLayout(&layout); err != nil {
-		return err
+		layoutPath, err := ws.ResolveChildPath(root, ref)
+		if err != nil {
+			return err
+		}
+		data, err := os.ReadFile(layoutPath)
+		if os.IsNotExist(err) && !explicit {
+			data, err = h.layoutDefault, nil
+		}
+		if err != nil {
+			return err
+		}
+		var node yaml.Node
+		if err := yaml.Unmarshal(data, &node); err != nil {
+			return err
+		}
+		if err := validateLayoutYAML(&node); err != nil {
+			return err
+		}
+		decoder := yaml.NewDecoder(bytes.NewReader(data))
+		decoder.KnownFields(true)
+		if err := decoder.Decode(&layout); err != nil {
+			return err
+		}
+		if err := validateLayout(&layout); err != nil {
+			return err
+		}
 	}
 	for _, app := range layout.Applications {
 		if !appUsesRemoteWindow(app, providerID, key) {

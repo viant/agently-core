@@ -7,6 +7,8 @@ import (
 )
 
 type Template struct {
+	// ResourceURI is host-supplied admitted routing metadata, not authored authority.
+	ResourceURI     string                     `json:"-" yaml:"-"`
 	ID              string                     `yaml:"id" json:"id"`
 	Name            string                     `yaml:"name" json:"name"`
 	Description     string                     `yaml:"description,omitempty" json:"description,omitempty"`

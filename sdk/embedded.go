@@ -1318,6 +1318,7 @@ func (c *backendClient) ListTemplates(ctx context.Context, input *ListTemplatesI
 	out := &ListTemplatesOutput{Items: make([]TemplateListItem, 0, len(raw.Items))}
 	for _, item := range raw.Items {
 		out.Items = append(out.Items, TemplateListItem{
+			URI:         item.URI,
 			Name:        item.Name,
 			Description: item.Description,
 			Format:      item.Format,
@@ -1369,6 +1370,10 @@ func (c *backendClient) templateService() *templatesvc.Service {
 		fs := afs.New()
 		templates = tplrepo.New(fs)
 		bundles = tplbundlerepo.New(fs)
+	}
+	if c != nil && c.primitiveProviders != nil {
+		templates = tplrepo.NewWithReader(resourcesvc.NewTemplateReader(c.primitiveProviders))
+		bundles = tplbundlerepo.NewWithReader(resourcesvc.NewTemplateBundleReader(c.primitiveProviders))
 	}
 	opts := []func(*templatesvc.Service){}
 	if c != nil && c.conv != nil {

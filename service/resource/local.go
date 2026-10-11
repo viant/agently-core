@@ -28,6 +28,7 @@ type LocalProvider struct {
 	validators                map[string]LocalResourceValidator
 	windowListVisibility      LocalWindowListVisibility
 	menuActionVisibility      MenuActionVisibility
+	menuVisibilityProjection  MenuVisibilityProjection
 	windowIndex               LocalWindowIndex
 	now                       func() time.Time
 	definitionValidationCache producer.DefinitionValidationCache
@@ -37,7 +38,7 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 	if _, err := producer.NewLocalProvider(config); err != nil {
 		return nil, err
 	}
-	p := &LocalProvider{namespaceMetadata: config.NamespaceMetadata, identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, now: config.Now, definitionValidationCache: config.DefinitionValidationCache}
+	p := &LocalProvider{namespaceMetadata: config.NamespaceMetadata, identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now, definitionValidationCache: config.DefinitionValidationCache}
 	for kind, validator := range config.Validators {
 		p.validators[kind] = validator
 	}
@@ -71,6 +72,7 @@ func (p *LocalProvider) neutral() (*producer.LocalProvider, error) {
 			return p.menuActionVisibility(ctx, a, u, raw)
 		}
 	}
+	config.MenuVisibilityProjection = p.menuVisibilityProjection
 	return producer.NewLocalProvider(config)
 }
 func (p *LocalProvider) ProviderIdentity() string {

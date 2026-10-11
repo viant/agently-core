@@ -13,12 +13,21 @@ import (
 	"github.com/viant/agently-core/workspace/repository/base"
 )
 
+type Reader interface {
+	LoadAll(context.Context) ([]*intent.Profile, error)
+	Load(context.Context, string) (*intent.Profile, error)
+}
+
 type Repository struct {
+	reader Reader
 	*base.Repository[intent.Profile]
 	legacy *base.Repository[intent.Profile]
 	fs     afs.Service
 	store  workspace.Store
 }
+
+// NewWithReader binds definition consumption to a host-owned reader.
+func NewWithReader(reader Reader) *Repository { return &Repository{reader: reader} }
 
 func New(fs afs.Service) *Repository {
 	return &Repository{
@@ -75,6 +84,9 @@ func (r *Repository) sourceExists(ctx context.Context, kind string, repo *base.R
 }
 
 func (r *Repository) Load(ctx context.Context, name string) (*intent.Profile, error) {
+	if r != nil && r.reader != nil {
+		return r.reader.Load(ctx, name)
+	}
 	source, err := r.source(ctx, name)
 	if err != nil {
 		return nil, err
@@ -129,6 +141,9 @@ func (r *Repository) List(ctx context.Context) ([]string, error) {
 }
 
 func (r *Repository) LoadAll(ctx context.Context) ([]*intent.Profile, error) {
+	if r != nil && r.reader != nil {
+		return r.reader.LoadAll(ctx)
+	}
 	if r == nil || r.Repository == nil {
 		return nil, fmt.Errorf("prompt repository not configured")
 	}
@@ -177,4 +192,12 @@ func FilterAllowedProfiles(profiles []*intent.Profile, allow []string) []*intent
 		}
 	}
 	return filtered
+}
+
+// AdmitSelected freshly reads delegated definitions; explicit filesystem repositories retain their original behavior.
+func (r *Repository) AdmitSelected(ctx context.Context, key string, selected *intent.Profile) (*intent.Profile, error) {
+	if r != nil && r.reader != nil {
+		return r.reader.Load(ctx, key)
+	}
+	return selected, nil
 }

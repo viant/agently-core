@@ -36,6 +36,11 @@ type resolvedToolSurface struct {
 //     and do not gate by agent patterns (explicit allow-list).
 //   - Otherwise, resolve tools from agent patterns.
 func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm.Tool, err error) {
+	if profile, loadErr := s.selectedPromptProfileAny(ctx, qi); loadErr != nil {
+		return nil, loadErr
+	} else if profile != nil {
+		ctx = withSelectedPromptProfile(ctx, profile)
+	}
 	defer func() {
 		if err != nil {
 			return
@@ -317,6 +322,9 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 
 func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, control agenttool.Selection) ([]llm.ToolDefinition, error) {
 	key := toolSelectionCacheKey(control)
+	if profile := selectedPromptProfileFromContext(ctx); profile != nil && profile.ResourceURI != "" {
+		key += "|" + profile.ResourceURI + "|" + profile.ResourceProviderIdentity + "|" + profile.ResourceFingerprint
+	}
 	if len(browsermcp.Definitions(ctx)) > 0 {
 		key = ""
 	}
@@ -511,6 +519,16 @@ func (s *Service) resolveDirectBundleDefinitions(ctx context.Context, bundleID s
 }
 
 func (s *Service) loadBundles(ctx context.Context) (map[string]*toolbundle.Bundle, error) {
+	if profile := selectedPromptProfileFromContext(ctx); profile != nil && profile.ResourceURI != "" {
+		own := indexBundlesByID(profile.ToolBundleDefinitions)
+		for _, id := range profile.ToolBundles {
+			if own[strings.ToLower(strings.TrimSpace(id))] == nil {
+				return nil, fmt.Errorf("admitted intent lacks declared tool bundle %q", id)
+			}
+		}
+		return own, nil
+	}
+
 	if s.toolBundles == nil {
 		if s.toolBundleRepo == nil {
 			return nil, nil

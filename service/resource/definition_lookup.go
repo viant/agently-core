@@ -9,7 +9,31 @@ import (
 
 // ResolveDefinition selects an exact URI or a unique authored alias from the
 // same private manager snapshot, then freshly admits the selected definition.
+// DefinitionScope contains routing expectations from an admitted parent. It grants no access.
+type DefinitionScope struct {
+	Namespace        string
+	ProviderIdentity string
+}
+
+type definitionScopeKey struct{}
+
+// WithDefinitionScope carries routing expectations from an admitted parent;
+// it changes no provider authority or actor admission.
+func WithDefinitionScope(ctx context.Context, scope DefinitionScope) context.Context {
+	return context.WithValue(ctx, definitionScopeKey{}, scope)
+}
+func definitionScope(ctx context.Context) DefinitionScope {
+	if ctx == nil {
+		return DefinitionScope{}
+	}
+	scope, _ := ctx.Value(definitionScopeKey{}).(DefinitionScope)
+	return scope
+}
+
 func ResolveDefinition[T any](ctx context.Context, g *Gateway, kind, key string, alias func(T) string, decoder ...DefinitionDecoder[T]) (*Result[T], error) {
+	return ResolveDefinitionIn[T](ctx, g, kind, key, definitionScope(ctx), alias, decoder...)
+}
+func ResolveDefinitionIn[T any](ctx context.Context, g *Gateway, kind, key string, scope DefinitionScope, alias func(T) string, decoder ...DefinitionDecoder[T]) (*Result[T], error) {
 	query := CatalogQuery{Limit: 100}
 	var selected *Located[json.RawMessage]
 	parsed, parseErr := identity.ParseResourceURI(key)
@@ -20,6 +44,9 @@ func ResolveDefinition[T any](ctx context.Context, g *Gateway, kind, key string,
 			return nil, err
 		}
 		for _, candidate := range page.Items {
+			if !exactURI && ((scope.Namespace != "" && candidate.Resource.Namespace != scope.Namespace) || (scope.ProviderIdentity != "" && candidate.Connection.ProviderIdentity != scope.ProviderIdentity)) {
+				continue
+			}
 			matches := candidate.Resource.URI == key
 			if !exactURI && alias != nil {
 				var projection T
