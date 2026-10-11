@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	identity "github.com/viant/agently-core/protocol/resource"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
@@ -150,11 +151,16 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			}
 
 		}
+		if aWindow != nil {
+			copy := *aWindow
+			copy.SelectionBinding = nil
+			aWindow = &copy
+		}
 		var authorization *permittedview.Snapshot
 		var openOriginal *forgeTypes.Window
 		var openParameters map[string]any
 		var openLease time.Time
-		if aWindow.Authorization != nil && applyPermissionRequested(r) {
+		if applyPermissionRequested(r) && (aWindow.Authorization != nil || canonical) {
 			runtime := capabilities
 			if runtime == nil && useDefaults {
 				runtime = permittedview.DefaultRuntime()
@@ -168,7 +174,7 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 				http.Error(w, err.Error(), http.StatusBadRequest)
 				return
 			}
-			if rawVersion := strings.TrimSpace(r.URL.Query().Get("authorizationSchemaVersion")); rawVersion != "" {
+			if rawVersion := strings.TrimSpace(r.URL.Query().Get("authorizationSchemaVersion")); rawVersion != "" && aWindow.Authorization != nil {
 				version, e := strconv.Atoi(rawVersion)
 				if e != nil || version != permittedview.SchemaVersion(aWindow.Authorization) {
 					http.Error(w, "authorization schema version mismatch", http.StatusBadRequest)
@@ -278,6 +284,22 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			cancel()
 			if err != nil {
 				writeOpenAdmissionError(w, err)
+				return
+			}
+		}
+		if canonical && applyPermissionRequested(r) {
+			if emitter, ok := settings.windows.(interface {
+				EmitWindowSelection(context.Context, *forgeTypes.Window, map[string]any) (*forgeTypes.Window, error)
+			}); ok {
+				emitted, err := emitter.EmitWindowSelection(r.Context(), aWindow, openParameters)
+				if err != nil || emitted == nil {
+					writeOpenAdmissionError(w, err)
+					return
+				}
+				aWindow = emitted
+			}
+			if !openLease.IsZero() && !openLease.After(time.Now()) {
+				http.Error(w, "window admission expired", http.StatusForbidden)
 				return
 			}
 		}
@@ -427,8 +449,13 @@ func windowParametersFromRequest(r *http.Request) (map[string]interface{}, error
 		return result, nil
 	}
 	if raw := strings.TrimSpace(r.URL.Query().Get("windowParams")); raw != "" {
-		if err := json.Unmarshal([]byte(raw), &result); err != nil {
+		decoder := json.NewDecoder(strings.NewReader(raw))
+		decoder.UseNumber()
+		if err := decoder.Decode(&result); err != nil {
 			return nil, fmt.Errorf("invalid windowParams: %w", err)
+		}
+		if decoder.Decode(new(any)) != io.EOF {
+			return nil, fmt.Errorf("invalid windowParams")
 		}
 	}
 	return result, nil
@@ -481,7 +508,7 @@ func writeOpenAdmissionError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, context.DeadlineExceeded):
 		status, message = http.StatusGatewayTimeout, "permission service timed out"
-	case errors.Is(err, permittedview.ErrUnavailable):
+	case errors.Is(err, permittedview.ErrUnavailable) || errors.Is(err, forgeservice.ErrWindowSelectionUnavailable):
 		status, message = http.StatusServiceUnavailable, "permission service unavailable"
 	case errors.Is(err, identity.ErrResource):
 		status, message = http.StatusBadRequest, "invalid window parameters"

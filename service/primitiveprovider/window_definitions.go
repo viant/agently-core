@@ -413,13 +413,13 @@ func (c *MetadataWindowCatalog) get(ctx context.Context, in *WindowDefinitionGet
 			if definition == nil {
 				return nil, errors.New("window definition is not available")
 			}
-			return &WindowDefinitionGetOutput{WindowID: entry.WindowID, Definition: definition}, nil
+			return &WindowDefinitionGetOutput{WindowID: entry.WindowID, Definition: withoutWindowSelectionBinding(definition)}, nil
 		}
 		definition, err := handlers.LoadWindow(ctx, c.loader, c.baseURL, entry.Key, entry.SubKey, nil)
 		if err != nil {
 			return nil, fmt.Errorf("load window definition %s: %w", entry.WindowID, err)
 		}
-		return &WindowDefinitionGetOutput{WindowID: entry.WindowID, Definition: definition}, nil
+		return &WindowDefinitionGetOutput{WindowID: entry.WindowID, Definition: withoutWindowSelectionBinding(definition)}, nil
 	}
 	return nil, errors.New("window definition is not available")
 }
@@ -475,6 +475,11 @@ func (s *Service) WindowDefinitionGet(ctx context.Context, in *WindowDefinitionG
 	if err := FinishMetadataReadScope(finish, readErr); err != nil {
 		return nil, err
 	}
+	if result != nil {
+		copy := *result
+		copy.Definition = withoutWindowSelectionBinding(result.Definition)
+		result = &copy
+	}
 	return result, nil
 }
 
@@ -483,12 +488,21 @@ func (s *Service) windowDefinitionForOpen(ctx context.Context, in *WindowDefinit
 		return nil, errors.New("saved window definition catalog is not configured")
 	}
 	ctx = WithoutMetadataReadScope(ctx, s.cfg.MetadataScope)
+	var result *WindowDefinitionGetOutput
+	var err error
 	if catalog, ok := s.cfg.WindowDefinitions.(interface {
 		GetForOpen(context.Context, *WindowDefinitionGetInput) (*WindowDefinitionGetOutput, error)
 	}); ok {
-		return catalog.GetForOpen(ctx, in)
+		result, err = catalog.GetForOpen(ctx, in)
+	} else {
+		result, err = s.cfg.WindowDefinitions.Get(ctx, in)
 	}
-	return s.cfg.WindowDefinitions.Get(ctx, in)
+	if result != nil {
+		copy := *result
+		copy.Definition = withoutWindowSelectionBinding(result.Definition)
+		result = &copy
+	}
+	return result, err
 }
 
 func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWindow, requested *identity.ResourceRef, pinned *identity.ResolvedResource, target *types.WindowTarget) (*WindowDefinitionGetOutput, error) {
@@ -564,6 +578,7 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 	if err := decoder.Decode(definition); err != nil {
 		return nil, err
 	}
+	definition.SelectionBinding = nil
 	definition.Resource = fresh
 	if _, _, err := resolver.ReadResolved(ctx, *fresh); err != nil {
 		return nil, errors.New("window definition is not available")
@@ -587,7 +602,7 @@ func (c *MetadataWindowCatalog) getResolved(ctx context.Context, entry SavedWind
 		}
 	}
 	definition.ResourceTarget = &normalized
-	return &WindowDefinitionGetOutput{WindowID: entry.WindowID, Definition: definition}, nil
+	return &WindowDefinitionGetOutput{WindowID: entry.WindowID, Definition: withoutWindowSelectionBinding(definition)}, nil
 }
 
 func (c *MetadataWindowCatalog) VerifyWindowTarget(ctx context.Context, pin identity.ResolvedResource, target types.WindowTarget, variant string) error {

@@ -13,6 +13,7 @@ type Config struct {
 	NamespaceResolver       NamespaceResolver
 	WindowReadDecisionScope WindowReadDecisionScope
 	WindowOpenAdmission     WindowOpenAdmission
+	WindowSelectionEmitter  WindowSelectionEmitter
 	ReportCatalog           catalog.Provider
 	// ResolvedWindowAuthorizer authorizes UI commands (including selected query
 	// inputs/actions) against the server-held instance pin. Required for targeted
