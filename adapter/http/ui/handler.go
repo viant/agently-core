@@ -92,7 +92,12 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			var err error
 			aWindow, err = resolvedHTTPWindow(r, settings.windows, strings.Join(pathParts, "/"))
 			if err != nil {
-				http.Error(w, "window not found or access denied", http.StatusNotFound)
+				switch {
+				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, forgeservice.ErrWindowSelectionUnavailable):
+					writeOpenAdmissionError(w, err)
+				default:
+					http.Error(w, "window not found or access denied", http.StatusNotFound)
+				}
 				return
 			}
 		} else {
@@ -267,7 +272,12 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 		}
 		if canonical {
 			if _, err := settings.windows.WindowDefinitionGet(r.Context(), &forgeservice.WindowDefinitionGetInput{WindowID: strings.Join(pathParts, "/"), ResolvedResource: aWindow.Resource, Target: aWindow.ResourceTarget}); err != nil {
-				http.Error(w, "window access changed", http.StatusForbidden)
+				switch {
+				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, forgeservice.ErrWindowSelectionUnavailable), errors.Is(err, identity.ErrResourceDenied), errors.Is(err, identity.ErrResourceStale), errors.Is(err, context.Canceled):
+					writeOpenAdmissionError(w, err)
+				default:
+					http.Error(w, "window access changed", http.StatusForbidden)
+				}
 				return
 			}
 		}
