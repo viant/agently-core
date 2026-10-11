@@ -37,12 +37,15 @@ func (m *Manager) CatalogScope(ctx context.Context, conversation string, names [
 		if err != nil {
 			return "", false, err
 		}
-		raw, err := json.Marshal(cfg)
+		effective := m.WithAuthTokenContext(ctx, name)
+		cli, err := m.Get(effective, conversation, name)
 		if err != nil {
 			return "", false, err
 		}
-		effective := m.WithAuthTokenContext(ctx, name)
-		cli, err := m.Get(effective, conversation, name)
+		// Client initialization normalizes shared options (for example missing
+		// Name/Version). Capture the effective configuration after that normal
+		// initialization, before the catalog load and its final drift check.
+		raw, err := json.Marshal(cfg)
 		if err != nil {
 			return "", false, err
 		}
