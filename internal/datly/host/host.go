@@ -34,10 +34,20 @@ import (
 func New(ctx context.Context, options standalone.Options) (*standalone.Server, error) {
 	options.RequireLinked = true
 	if options.Config != nil && options.Config.GoBootstrap == nil {
-		options.Config.GoBootstrap = &config.Packages{LinkedOnly: true, Packages: []string{
-			"github.com/viant/agently-core/internal/datly/...",
-			"github.com/viant/agently-core/internal/store/...",
-		}}
+		// Materialize linked contracts before request transactions reserve the bounded
+		// connector pool; cold schema discovery otherwise competes for those slots.
+		options.Config.GoBootstrap = &config.Packages{
+			LinkedOnly: true,
+			PreloadPackages: []string{
+				"github.com/viant/agently-core/internal/datly/agui/...",
+				// Message writes read this dependency while reserving their sequence.
+				"github.com/viant/agently-core/internal/datly/message/base",
+			},
+			Packages: []string{
+				"github.com/viant/agently-core/internal/datly/...",
+				"github.com/viant/agently-core/internal/store/...",
+			},
+		}
 	}
 	server, err := standalone.New(ctx, options)
 	if err != nil {
