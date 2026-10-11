@@ -23,6 +23,7 @@ const MCPLinkCSRFHeader = "X-Agently-Csrf"
 // enforces its own session authentication, canonical user, CSRF and rate
 // limits.
 func (a *authExtension) registerMCPLinkRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /v1/api/auth/mcp/connectors", a.handleMCPConnectors())
 	mux.HandleFunc("GET /v1/api/auth/mcp/callback", a.handleMCPOAuthCallback())
 	mux.HandleFunc("POST /v1/api/auth/mcp/callback", a.handleMCPOAuthCallback())
 	mux.HandleFunc("GET /v1/api/auth/mcp/{server}/status", a.handleMCPOAuthStatus())

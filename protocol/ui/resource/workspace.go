@@ -145,7 +145,7 @@ func ListWorkspaceResources(ctx context.Context) ([]mcpschema.Resource, error) {
 // flows through MCP UI without inventing a parallel app-specific tool or
 // rendering path.
 func ReadWorkspaceResource(ctx context.Context, uri string) (*mcpschema.ReadResourceResult, error) {
-	parsed, err := mcpuiresource.ValidateUIURI(uri)
+	parsed, err := mcpuiresource.ValidateScopedUIURI(uri)
 	if err != nil {
 		return nil, err
 	}
