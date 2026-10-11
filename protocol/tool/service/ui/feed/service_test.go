@@ -2,6 +2,7 @@ package feed
 
 import (
 	"context"
+	"fmt"
 	"testing"
 )
 
@@ -22,5 +23,26 @@ func TestUpdateValidatesPatchContract(t *testing.T) {
 	}
 	if err := service.update(context.Background(), &UpdateInput{FeedID: "media-plan", Operations: []Operation{{DataSourceRef: "draft", Op: "move", Path: "/budget"}}}, output); err == nil {
 		t.Fatal("expected unsupported operation to fail")
+	}
+}
+
+func TestFeedIdentityResolverPreservesLegacyAndPropagatesRoutingFailures(t *testing.T) {
+	legacy := New(nil)
+	id, err := legacy.feedIdentity(context.Background(), "media-plan")
+	if err != nil || id != "media-plan" {
+		t.Fatalf("legacy identity %q %v", id, err)
+	}
+	routed := New(nil, WithIdentityResolver(func(_ context.Context, requested string) (string, error) {
+		if requested != "media-plan" {
+			return "", fmt.Errorf("ambiguous or missing feed")
+		}
+		return "toolfeed://ownedfeeds/media-plan", nil
+	}))
+	id, err = routed.feedIdentity(context.Background(), "media-plan")
+	if err != nil || id != "toolfeed://ownedfeeds/media-plan" {
+		t.Fatalf("routing identity %q %v", id, err)
+	}
+	if _, err = routed.feedIdentity(context.Background(), "unknown"); err == nil {
+		t.Fatal("resolver failure ignored")
 	}
 }
