@@ -163,3 +163,43 @@ func TestAGUIDetachedRejectsUnboundNativeInvocationWithoutObserving(t *testing.T
 	require.EqualValues(t, 0, child.LastSequence)
 	require.Nil(t, child.LeaseUntil)
 }
+
+func TestAGUIAnonymousOpaqueHistoryReentryKeepsCookiePrincipal(t *testing.T) {
+	c := &mappedHistoryClient{newDatlyObservedClient(t, 128)}
+	wireThread := "opaque-cookie-thread"
+	principal := "anonymous:history-fixture"
+	c.query = func(_ context.Context, in *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
+		return &agentsvc.QueryOutput{ConversationID: in.ConversationID, Content: "Saved answer"}, nil
+	}
+	aguiHandler := handleAGUIRun(c, nil)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			r.SetPathValue("id", strings.TrimPrefix(r.URL.Path, "/native/"))
+			handleGetConversation(c)(w, r)
+			return
+		}
+		aguiHandler(w, r)
+	}))
+	defer server.Close()
+	headers := map[string]string{"Cookie": anonymousUserCookieName + "=" + principal}
+	request := rawAGUI(map[string]any{"threadId": wireThread, "runId": "original", "messages": []any{map[string]any{"id": "user", "role": "user", "content": "Hello"}}})
+	status, events := durablePost(t, server, string(request), headers)
+	require.Equal(t, 200, status, events)
+	assertAGUITerminal(t, decodeAGUISSE(t, strings.NewReader(events)), "RUN_FINISHED")
+	record, err := c.store.GetRun(recoveryContext(), principal, wireThread, "original")
+	require.NoError(t, err)
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/native/"+record.ConversationID+"?includeTranscript=false", nil)
+	require.NoError(t, err)
+	req.Header.Set("Cookie", headers["Cookie"])
+	response, err := server.Client().Do(req)
+	require.NoError(t, err)
+	defer response.Body.Close()
+	raw, err := io.ReadAll(response.Body)
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, response.StatusCode, string(raw))
+	var header struct {
+		AguiThreadID string `json:"aguiThreadId"`
+	}
+	require.NoError(t, json.Unmarshal(raw, &header))
+	require.Equal(t, wireThread, header.AguiThreadID)
+}
