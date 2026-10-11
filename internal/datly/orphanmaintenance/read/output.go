@@ -4,5 +4,5 @@ package read
 
 // ReportOutput is the generated output scaffold for reader.
 type ReportOutput struct {
-	Data []*OrphanRow `parameter:"Data,kind=output,in=view,dataType=[]*OrphanRow" view:"reader,type=OrphanRow,selectorLimit=true" sql:"uri=datly_orphanmaintenance_read_reader:sql/reader.sql"`
+	Data []*OrphanRow `parameter:"Data,kind=output,in=view,dataType=[]*OrphanRow" view:"reader,type=OrphanRow,selectorLimit=true" json:"data" sql:"uri=datly_orphanmaintenance_read_reader:sql/reader.sql"`
 }

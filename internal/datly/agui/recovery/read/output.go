@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Candidate `parameter:"Data,kind=output,in=view,dataType=[]*Candidate" view:"reader,type=Candidate,table=run,selectorNoLimit=true" sql:"uri=agui_recovery_read_reader:sql/reader.sql"`
+	Data []*Candidate `parameter:"Data,kind=output,in=view,dataType=[]*Candidate" view:"reader,type=Candidate,table=run,selectorNoLimit=true" json:"data" sql:"uri=agui_recovery_read_reader:sql/reader.sql"`
 }

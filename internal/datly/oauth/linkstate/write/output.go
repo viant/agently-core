@@ -4,9 +4,9 @@ package write
 
 // Output is the generated output scaffold for write.
 type Output struct {
-	Data            []*LinkState `parameter:"Data,kind=output,in=body,dataType=[]*LinkState"`
-	Deleted         int          `parameter:"Deleted,kind=output,in=deleted,dataType=int"`
-	OldestExpiresAt string       `parameter:"OldestExpiresAt,kind=output,in=oldestExpiresAt,dataType=string"`
-	Created         bool         `parameter:"Created,kind=output,in=created,dataType=bool"`
-	Outcome         string       `parameter:"Outcome,kind=output,in=outcome,dataType=string"`
+	Data            []*LinkState `parameter:"Data,kind=output,in=body,dataType=[]*LinkState" json:"data"`
+	Deleted         int          `parameter:"Deleted,kind=output,in=deleted,dataType=int" json:"deleted"`
+	OldestExpiresAt string       `parameter:"OldestExpiresAt,kind=output,in=oldestExpiresAt,dataType=string" json:"oldestExpiresAt"`
+	Created         bool         `parameter:"Created,kind=output,in=created,dataType=bool" json:"created"`
+	Outcome         string       `parameter:"Outcome,kind=output,in=outcome,dataType=string" json:"outcome"`
 }

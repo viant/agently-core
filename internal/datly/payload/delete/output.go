@@ -4,5 +4,5 @@ package delete
 
 // Output is the generated output scaffold for writer.
 type Output struct {
-	Data []*PayloadDelete `parameter:"Data,kind=output,in=body,dataType=[]*PayloadDelete"`
+	Data []*PayloadDelete `parameter:"Data,kind=output,in=body,dataType=[]*PayloadDelete" json:"data,omitempty"`
 }

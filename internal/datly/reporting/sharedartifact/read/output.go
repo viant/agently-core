@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*SharedArtifact `parameter:"Data,kind=output,in=view,dataType=[]*SharedArtifact" view:"reader,type=SharedArtifact,table=report_shared_artifact,selectorProjection=true,selectorOrderBy=true,selectorLimit=true,selectorOffset=true" sql:"uri=reporting_sharedartifact_read_reader:sql/reader.sql"`
+	Data []*SharedArtifact `parameter:"Data,kind=output,in=view,dataType=[]*SharedArtifact" view:"reader,type=SharedArtifact,table=report_shared_artifact,selectorProjection=true,selectorOrderBy=true,selectorLimit=true,selectorOffset=true" json:"data" sql:"uri=reporting_sharedartifact_read_reader:sql/reader.sql"`
 }

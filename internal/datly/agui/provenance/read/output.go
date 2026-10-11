@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Provenance `parameter:"Data,kind=output,in=view,dataType=[]*Provenance" view:"reader,type=Provenance,table=conversation,selectorNoLimit=true" sql:"uri=agui_provenance_read_reader:sql/reader.sql"`
+	Data []*Provenance `parameter:"Data,kind=output,in=view,dataType=[]*Provenance" view:"reader,type=Provenance,table=conversation,selectorNoLimit=true" json:"data" sql:"uri=agui_provenance_read_reader:sql/reader.sql"`
 }

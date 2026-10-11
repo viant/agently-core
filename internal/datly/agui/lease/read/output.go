@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Lease `parameter:"Data,kind=output,in=view,dataType=[]*Lease" view:"reader,type=Lease,rowLock=run c,table=run" sql:"uri=agui_lease_read_reader:sql/reader.sql"`
+	Data []*Lease `parameter:"Data,kind=output,in=view,dataType=[]*Lease" view:"reader,type=Lease,rowLock=run c,table=run" json:"data" sql:"uri=agui_lease_read_reader:sql/reader.sql"`
 }

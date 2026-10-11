@@ -4,5 +4,5 @@ package read
 
 // Output is the generated output scaffold for reader.
 type Output struct {
-	Data []*Thread `parameter:"Data,kind=output,in=view,dataType=[]*Thread" view:"reader,type=Thread,rowLock=conversation c,table=conversation" sql:"uri=agui_thread_read_reader:sql/reader.sql"`
+	Data []*Thread `parameter:"Data,kind=output,in=view,dataType=[]*Thread" view:"reader,type=Thread,rowLock=conversation c,table=conversation" json:"data" sql:"uri=agui_thread_read_reader:sql/reader.sql"`
 }

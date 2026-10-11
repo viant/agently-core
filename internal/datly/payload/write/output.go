@@ -9,5 +9,5 @@ import (
 // Output is the generated output scaffold for writer.
 type Output struct {
 	response.Status `parameter:",kind=output,in=status"`
-	Data            []*Payload `parameter:"Data,kind=output,in=body,dataType=[]*Payload"`
+	Data            []*Payload `parameter:"Data,kind=output,in=body,dataType=[]*Payload" json:"data,omitempty"`
 }
