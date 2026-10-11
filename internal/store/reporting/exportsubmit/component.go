@@ -32,7 +32,8 @@ var (
 )
 
 type Component struct {
-	Contract xdatly.Component[Input, Output] `component:"RunExportSubmit,path=/v1/internal/forge/reporting/export/submit,method=POST,handler=NewSubmit,internal=true"`
+	// The coordinator reads the inserted job before its owned transaction commits.
+	Contract xdatly.Component[Input, Output] `component:"RunExportSubmit,path=/v1/internal/forge/reporting/export/submit,method=POST,handler=NewSubmit,internal=true" componentCallPolicy:"imperative"`
 }
 
 // Input retains the caller fields that the legacy candidate validator checks.
