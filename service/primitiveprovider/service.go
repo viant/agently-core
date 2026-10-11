@@ -260,7 +260,13 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 		clientID, _ = s.hub.DefaultClient(ns)
 	}
 	var commandPin *windowResourcePin
-	if s.canonicalWindowCatalog() && openedPin == nil {
+	conversationFeed := s.canonicalWindowCatalog() && isConversationFeedCommand(in.Method)
+	if conversationFeed {
+		if err := s.authorizeConversationFeedCommand(ctx, ns, clientID, in.Params); err != nil {
+			return nil, err
+		}
+	}
+	if s.canonicalWindowCatalog() && openedPin == nil && !conversationFeed {
 		var err error
 		commandPin, err = s.authorizePinnedCommand(ctx, ns, clientID, in.Method, in.Params)
 		if err != nil {
@@ -377,6 +383,11 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 			if err := s.rememberWindowPin(ctx, windowPinKey{Namespace: ns, ClientID: clientID, WindowID: result.WindowID}, windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget}); err != nil {
 				return nil, err
 			}
+		}
+	}
+	if conversationFeed {
+		if err := s.authorizeConversationFeedCommand(ctx, ns, clientID, in.Params); err != nil {
+			return nil, err
 		}
 	}
 	if commandPin != nil {

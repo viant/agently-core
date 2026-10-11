@@ -9,8 +9,8 @@ import (
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 )
 
 const Name = "ui/feed"
@@ -45,13 +45,42 @@ type GetOutput struct {
 	Data     interface{} `json:"data,omitempty"`
 }
 
-type Service struct {
-	bridge *forgeuisvc.Service
-	reg    *uireg.Registry
+// IdentityResolver routes a visible authored alias or exact identity to the
+// current renderer identity. The embedding definition gateway owns admission.
+type IdentityResolver func(context.Context, string) (string, error)
+type Option func(*Service)
+
+func WithIdentityResolver(resolve IdentityResolver) Option {
+	return func(s *Service) { s.resolveIdentity = resolve }
 }
 
-func New(bridge *forgeuisvc.Service) *Service {
-	return &Service{bridge: bridge, reg: uireg.New(bridge)}
+type Service struct {
+	resolveIdentity IdentityResolver
+	bridge          *forgeuisvc.Service
+	reg             *uireg.Registry
+}
+
+func New(bridge *forgeuisvc.Service, options ...Option) *Service {
+	s := &Service{bridge: bridge, reg: uireg.New(bridge)}
+	for _, option := range options {
+		option(s)
+	}
+	return s
+}
+
+func (s *Service) feedIdentity(ctx context.Context, requested string) (string, error) {
+	id := strings.TrimSpace(requested)
+	if s.resolveIdentity != nil {
+		var err error
+		id, err = s.resolveIdentity(ctx, id)
+		if err != nil {
+			return "", err
+		}
+	}
+	if id == "" || strings.TrimSpace(id) != id {
+		return "", fmt.Errorf("feed identity unavailable")
+	}
+	return id, nil
 }
 func (s *Service) Name() string { return Name }
 func (s *Service) Methods() svc.Signatures {
@@ -87,11 +116,16 @@ func (s *Service) client(ctx context.Context, requested string) (*uireg.ClientSn
 		preferred = strings.TrimSpace(runtimerequestctx.PreferredUIClientIDFromContext(ctx))
 	}
 	selected := clients[0]
+	found := false
 	for _, candidate := range clients {
 		if preferred != "" && candidate.ClientID == preferred {
 			selected = candidate
+			found = true
 			break
 		}
+	}
+	if strings.TrimSpace(requested) != "" && !found {
+		return nil, "", fmt.Errorf("requested UI client is unavailable for conversation")
 	}
 	return &selected, conversationID, nil
 }
@@ -112,9 +146,13 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 	if err != nil {
 		return err
 	}
+	feedID, err := s.feedIdentity(ctx, input.FeedID)
+	if err != nil {
+		return err
+	}
 	resp, err := s.bridge.UICommand(ctx, &forgeuisvc.UICommandInput{ClientID: selected.ClientID, Namespace: selected.Namespace, Method: "ui.feed.get", Params: map[string]interface{}{
 		"conversationId": conversationID,
-		"feedId":         strings.TrimSpace(input.FeedID),
+		"feedId":         feedID,
 		"dataSourceRefs": input.DataSourceRefs,
 	}})
 	if err != nil {
@@ -160,6 +198,10 @@ func (s *Service) update(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	selected, conversationID, err := s.client(ctx, input.ClientID)
+	if err != nil {
+		return err
+	}
+	feedID, err = s.feedIdentity(ctx, feedID)
 	if err != nil {
 		return err
 	}
