@@ -102,6 +102,7 @@ type Runtime struct {
 	WindowAuthorizer               func(context.Context, string) (bool, error)
 	PermittedResolver              permittedview.Resolver
 	DatasourceAuthorizer           func(context.Context, string, map[string]interface{}) error
+	DatasourceNewDeliveryPreparer  dssvc.NewDeliveryPreparer
 	DatasourceResourceRevalidator  dssvc.ResourceRevalidator
 	DatasourceReadSequence         func(context.Context) (context.Context, func() error, error)
 	DatasourceReadFactsScope       resourcesvc.ReadFactsScope
@@ -197,6 +198,7 @@ type Builder struct {
 	primitiveWindowAdmission       resourcesvc.WindowAdmission
 	windowOpenBootstrap            permittedview.OpenBootstrap
 	windowOpenSelection            permittedview.OpenSelectionCheck
+	newDatasourceDeliveryPreparer  dssvc.NewDeliveryPreparer
 	pinnedDatasourceRevalidator    dssvc.ResourceRevalidator
 	pinnedDatasourceResolver       dssvc.ResourceDefinitionResolver
 	pinnedDatasourceAuthorizer     dssvc.DefinitionAuthorizer
@@ -271,6 +273,15 @@ func (b *Builder) WithCapabilityMappingV2(ref string, mapping permittedview.Capa
 		b.capabilityMappingsV2 = map[string]permittedview.CapabilityMappingV2{}
 	}
 	b.capabilityMappingsV2[ref] = mapping
+	return b
+}
+
+// WithNewDatasourceDeliveryPreparer installs trusted server preparation for new
+// datasource interactions. The host verifies original selection and current
+// credentials; normal read/write permission remains with the managing MCP.
+// This callback is optional, never serialized, and never invoked at startup.
+func (b *Builder) WithNewDatasourceDeliveryPreparer(preparer dssvc.NewDeliveryPreparer) *Builder {
+	b.newDatasourceDeliveryPreparer = preparer
 	return b
 }
 
@@ -517,6 +528,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	}
 
 	out := &Runtime{
+		DatasourceNewDeliveryPreparer:  b.newDatasourceDeliveryPreparer,
 		DatasourceResourceRevalidator:  b.pinnedDatasourceRevalidator,
 		DatasourceDefinitionResolver:   b.pinnedDatasourceResolver,
 		DatasourceDefinitionAuthorizer: b.pinnedDatasourceAuthorizer,
