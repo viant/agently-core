@@ -428,3 +428,50 @@ type datasourceErrorExecutor func(context.Context, string, map[string]interface{
 func (f datasourceErrorExecutor) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
 	return f(ctx, name, args)
 }
+
+type scopedFetchErrorBackend struct {
+	Backend
+	err error
+}
+
+func (b scopedFetchErrorBackend) FetchDatasource(context.Context, *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
+	return nil, b.err
+}
+
+func TestFetchDatasourceErrorSeparatesWindowArtifactFromManagingData(t *testing.T) {
+	for _, tc := range []struct {
+		name, uri, code, scope string
+		err                    error
+		status                 int
+	}{
+		{"artifact", "window://team/detail", "resource_denied", "window", identity.ErrResourceDenied, 403},
+		{"stale artifact", "window://team/detail", "resource_denied", "window", identity.ErrResourceStale, 403},
+		{"artifact beats local denial", "window://team/detail", "resource_denied", "window", errors.Join(identity.ErrResourceDenied, dsproto.ErrDatasourceDenied), 403},
+		{"managed dataset", "window://team/detail", "datasource_denied", "dataset", dsproto.ErrDatasourceDenied, 403},
+		{"unclassified managing denial", "window://team/detail", "", "", &dsproto.UpstreamAuthorizationError{Status: 403}, 403},
+		{"identity", "window://team/detail", "", "", &dsproto.UpstreamAuthorizationError{Status: 401}, 401},
+		{"different artifact kind", "report://team/detail", "", "", identity.ErrResourceDenied, 403},
+		{"no artifact", "", "", "", identity.ErrResourceDenied, 403},
+		{"message is not scope", "window://team/detail", "", "", errors.New("resource revision denied"), 500},
+		{"availability", "window://team/detail", "", "", permittedview.ErrUnavailable, 503},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			input := api.FetchDatasourceInput{}
+			if tc.uri != "" {
+				input.Resource = &identity.ResolvedResource{URI: tc.uri}
+			}
+			body, err := json.Marshal(input)
+			if err != nil {
+				t.Fatal(err)
+			}
+			r := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/rows/fetch", strings.NewReader(string(body)))
+			r.SetPathValue("id", "rows")
+			w := httptest.NewRecorder()
+			handleFetchDatasource(scopedFetchErrorBackend{err: tc.err})(w, r)
+			var result map[string]string
+			if json.Unmarshal(w.Body.Bytes(), &result) != nil || w.Code != tc.status || result["code"] != tc.code || result["scope"] != tc.scope {
+				t.Fatal(w.Code, w.Body.String())
+			}
+		})
+	}
+}
