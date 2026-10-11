@@ -37,19 +37,34 @@ func New(ctx context.Context, options Options) (*standalone.Server, error) {
 		return nil, fmt.Errorf("native Datly context is required")
 	}
 	connectors := options.Connectors
+	var bootstrap *config.Packages
 	if len(connectors) == 0 {
 		config, err := connectorFromEnvironment(ctx, options.WorkspaceRoot)
 		if err != nil {
 			return nil, err
 		}
 		connectors = []connector.Config{config}
+		// This path opens the managed Core database. Compile components used
+		// inside native transactions before those transactions reserve the pool.
+		// Explicit connectors retain lazy startup and may provide only metadata.
+		bootstrap = host.DefaultBootstrap()
+		bootstrap.PreloadPackages = []string{
+			"github.com/viant/agently-core/internal/datly/agui/...",
+			"github.com/viant/agently-core/internal/datly/message/base",
+			"github.com/viant/agently-core/internal/datly/conversation/read",
+			"github.com/viant/agently-core/internal/datly/goal/read",
+			"github.com/viant/agently-core/internal/datly/goal/write",
+			"github.com/viant/agently-core/internal/datly/schedule/read",
+			"github.com/viant/agently-core/internal/datly/schedule/write",
+		}
 	}
 	providers := AccessProviders()
 	providers = append(providers, options.Providers...)
 	return host.New(ctx, standalone.Options{
 		Config: &config.Config{
-			Connector:  "agently",
-			Connectors: connectors,
+			Connector:   "agently",
+			Connectors:  connectors,
+			GoBootstrap: bootstrap,
 		},
 		Providers:            providers,
 		DefaultAuthenticator: options.DefaultAuthenticator,
