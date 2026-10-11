@@ -17,6 +17,9 @@ import (
 )
 
 func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
+	if err := b.configurePublicPrimitiveProviders(out); err != nil {
+		return err
+	}
 	if out.LocalPrimitiveProvider != nil && !out.localPrimitiveRegistered {
 		if out.MCPManager == nil || out.LocalPrimitiveProvider.ProviderIdentity() == "" {
 			return fmt.Errorf("internal primitives require a manager and declared provider identity")

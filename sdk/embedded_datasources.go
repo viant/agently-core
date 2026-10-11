@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -9,11 +10,14 @@ import (
 
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	loproto "github.com/viant/agently-core/protocol/lookup/overlay"
+	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
 	authctx "github.com/viant/agently-core/service/auth"
 	dssvc "github.com/viant/agently-core/service/datasource"
 	"github.com/viant/agently-core/service/elicitation/refiner"
 	oversvc "github.com/viant/agently-core/service/lookup/overlay"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 )
 
 // SetDatasourceStack wires the datasource + overlay services into the
@@ -33,6 +37,12 @@ func (c *backendClient) SetDatasourceStack(ds *dssvc.Service, overlay *oversvc.S
 	}
 	c.datasourceSvc = ds
 	c.overlaySvc = overlay
+	c.configureLookupRefiner()
+	if c.primitiveProviders != nil {
+		// Gateway instances own their context-aware refinement. Do not replace
+		// a legacy runtime's process hook with this instance's overlays.
+		return
+	}
 	if overlay != nil {
 		// Install a wildcard hook so overlays targeted at any kind
 		// (template, tool, elicitation, …) all get a chance to fire, and
@@ -62,6 +72,37 @@ func (c *backendClient) InlineReportWorkspaceDataSources(ctx context.Context) ([
 	if strings.TrimSpace(authctx.EffectiveUserID(ctx)) == "" {
 		return nil, fmt.Errorf("effective authenticated user is required")
 	}
+	if c.primitiveProviders != nil {
+		var result []string
+		aliases := map[string]int{}
+		query := resourcesvc.CatalogQuery{Limit: 100}
+		for {
+			page, err := resourcesvc.ListPage[json.RawMessage](ctx, c.primitiveProviders, "datasource", query, true)
+			if err != nil {
+				return nil, err
+			}
+			for _, row := range page.Items {
+				definition, err := resourcesvc.DecodeDatasourceDefinition(row.Definition)
+				if err != nil {
+					return nil, err
+				}
+				result = append(result, row.Resource.URI)
+				aliases[definition.ID]++
+			}
+			if page.Complete {
+				break
+			}
+			query.Cursor = page.NextCursor
+		}
+		for alias, count := range aliases {
+			if count == 1 {
+				result = append(result, alias)
+			}
+		}
+		sort.Strings(result)
+		return result, nil
+	}
+
 	if err := c.refreshDatasourceStack(ctx); err != nil {
 		return nil, err
 	}
@@ -81,11 +122,28 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 	if in == nil || strings.TrimSpace(in.ID) == "" {
 		return nil, fmt.Errorf("datasource id is required")
 	}
-	if in.Resource == nil {
+	raw, err := json.Marshal(in)
+	if err != nil {
+		return nil, err
+	}
+	var request api.FetchDatasourceInput
+	if err = json.Unmarshal(raw, &request); err != nil {
+		return nil, err
+	}
+	if request.Resource == nil && c.primitiveProviders != nil {
+		resolved, err := resourcesvc.ResolveDefinition[*dsproto.DataSource](ctx, c.primitiveProviders, "datasource", request.ID, func(ds *dsproto.DataSource) string { return ds.ID }, resourcesvc.DecodeDatasourceDefinition)
+		if err != nil {
+			return nil, err
+		}
+		request.ID = resolved.Definition.ID
+		request.Resource = resolved.ResolvedResource
+		request.ResourceProof = resolved.ExecutionProof
+	} else if request.Resource == nil {
 		if err := c.refreshDatasourceStack(ctx); err != nil {
 			return nil, err
 		}
 	}
+	in = &request
 	opts := dssvc.FetchOptions{SelectionBinding: in.SelectionBinding, Resource: in.Resource, Target: in.Target, ResourceProof: in.ResourceProof, WindowParameters: in.WindowParameters}
 	if in.Cache != nil {
 		opts.BypassCache = in.Cache.BypassCache
@@ -103,11 +161,18 @@ func (c *backendClient) InvalidateDatasourceCache(ctx context.Context, in *api.I
 	if c.datasourceSvc == nil {
 		return ErrDatasourceStackNotConfigured
 	}
-	if err := c.refreshDatasourceStack(ctx); err != nil {
-		return err
-	}
 	if in == nil || strings.TrimSpace(in.ID) == "" {
 		return fmt.Errorf("datasource id is required")
+	}
+	if c.primitiveProviders != nil {
+		resolved, err := resourcesvc.ResolveDefinition[*dsproto.DataSource](ctx, c.primitiveProviders, "datasource", in.ID, func(ds *dsproto.DataSource) string { return ds.ID }, resourcesvc.DecodeDatasourceDefinition)
+		if err != nil {
+			return err
+		}
+		return c.datasourceSvc.InvalidateDefinitionCache(requestctx.WithResolvedResource(ctx, *resolved.ResolvedResource), resolved.Definition, in.InputsHash)
+	}
+	if err := c.refreshDatasourceStack(ctx); err != nil {
+		return err
 	}
 	return c.datasourceSvc.InvalidateCache(ctx, in.ID, in.InputsHash)
 }
@@ -116,6 +181,27 @@ func (c *backendClient) InvalidateDatasourceCache(ctx context.Context, in *api.I
 func (c *backendClient) ListLookupRegistry(ctx context.Context, in *api.ListLookupRegistryInput) (*api.ListLookupRegistryOutput, error) {
 	if c.overlaySvc == nil {
 		return nil, ErrDatasourceStackNotConfigured
+	}
+	if in != nil && c.primitiveProviders != nil {
+		copy := *in
+		if copy.Owner == nil {
+			if uri, err := identity.ParseResourceURI(copy.Context); err == nil {
+				copy.Owner = &identity.ResourceRef{URI: uri.String()}
+				copy.Context = uri.Kind + ":" + uri.Name
+			}
+		}
+		if copy.Owner != nil {
+			owner, err := c.lookupOwner(ctx, &copy)
+			if err != nil {
+				return nil, err
+			}
+			service, err := oversvc.ReadAttachments(ctx, c.primitiveProviders, *owner)
+			if err != nil {
+				return nil, err
+			}
+			kind, id := splitContext(copy.Context)
+			return &api.ListLookupRegistryOutput{Entries: toAPIRegistryEntries(service.Registry(kind, id))}, nil
+		}
 	}
 	if err := c.refreshDatasourceStack(ctx); err != nil {
 		return nil, err

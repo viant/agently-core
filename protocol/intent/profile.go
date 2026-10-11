@@ -1,6 +1,11 @@
 package intent
 
-import agent "github.com/viant/agently-core/protocol/agent"
+import (
+	"fmt"
+
+	agent "github.com/viant/agently-core/protocol/agent"
+	"github.com/viant/agently-core/protocol/lookup/overlay"
+)
 
 // Profile is a scenario configuration unit pairing instruction messages,
 // tool bundles, and one default plus optional additional output templates.
@@ -31,12 +36,28 @@ type Profile struct {
 	// profile is selected for the current turn. The roots must already be
 	// authorized on the selected agent. This keeps large knowledge corpora out
 	// of unrelated turns while retaining the agent resource boundary.
-	Knowledge []KnowledgeMatch `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
+	Knowledge       []KnowledgeMatch           `yaml:"knowledge,omitempty" json:"knowledge,omitempty"`
+	LookupOverlays  []*overlay.Overlay         `yaml:"lookupOverlays,omitempty" json:"lookupOverlays,omitempty"`
+	LookupLibraries []overlay.LibraryReference `yaml:"lookupLibraries,omitempty" json:"lookupLibraries,omitempty"`
 	// ParallelToolCalls optionally overrides the selected agent's default
 	// parallel tool execution preference for turns using this profile.
 	ParallelToolCalls *bool      `yaml:"parallelToolCalls,omitempty" json:"parallelToolCalls,omitempty"`
 	Expansion         *Expansion `yaml:"expansion,omitempty"      json:"expansion,omitempty"`
 	Execution         *Execution `yaml:"execution,omitempty" json:"execution,omitempty"`
+}
+
+// Validate keeps optional lookup attachments bound to explicit original
+// template identities. Immutable parent revisions require stamped references.
+func (p *Profile) Validate() error { return p.ValidateForParent(false) }
+
+func (p *Profile) ValidateForParent(immutableParent bool) error {
+	if p == nil {
+		return fmt.Errorf("profile was nil")
+	}
+	if err := overlay.ValidateLibraryReferences(p.LookupLibraries, immutableParent); err != nil {
+		return fmt.Errorf("profile.lookupLibraries: %w", err)
+	}
+	return nil
 }
 
 // KnowledgeMatch configures one profile-scoped semantic resource lookup.

@@ -93,7 +93,7 @@ func (c *backendClient) refreshDatasourceStack(ctx context.Context) error {
 }
 
 func (c *backendClient) refreshForgeDatasources(ctx context.Context) error {
-	if c == nil || c.store == nil || c.datasourceStore == nil {
+	if c == nil || c.primitiveProviders != nil || c.store == nil || c.datasourceStore == nil {
 		return nil
 	}
 	repo := forgedatasource.NewWithStore(c.store)

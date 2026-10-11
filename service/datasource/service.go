@@ -352,6 +352,19 @@ func (s *Service) Fetch(ctx context.Context, id string, inputs map[string]interf
 	scopeID := s.scopeID(ctx, policy.Scope)
 	normalizedInputs := normalizeFilterSemantics(inputs, &ds.DataSource)
 	mergedArgs := expandNestedArgs(mergeArgs(normalizedInputs, ds.Backend.Pinned))
+	// A definition delivery is not a grant to reuse rows across managing-MCP
+	// authorization changes. Canonical managed datasources use the existing
+	// fresh-backend path; the server remains free to cache its business data.
+	if pin, bound := runtimerequestctx.ResolvedResourceFromContext(ctx); bound && strings.HasPrefix(pin.URI, "datasource://") {
+		switch ds.Backend.Kind {
+		case dsproto.BackendMCPTool, dsproto.BackendMCPTools, dsproto.BackendMCPFanout:
+			opts.BypassCache = true
+		case dsproto.BackendDatly:
+			if ds.Backend.Ownership == "provider" {
+				opts.BypassCache = true
+			}
+		}
+	}
 	cacheKey := responseAliasCacheKey(buildCacheKey(scopeID, ds.ID, policy.Key, mergedArgs), aliases)
 	if pin, bound := runtimerequestctx.ResolvedResourceFromContext(ctx); bound {
 		target := opts.Target
@@ -544,12 +557,36 @@ func (s *Service) InvalidateCache(ctx context.Context, id, inputsHash string) er
 	if !ok {
 		return fmt.Errorf("datasource %q not found", id)
 	}
+	return s.InvalidateDefinitionCache(ctx, ds, inputsHash)
+}
+
+// InvalidateDefinitionCache uses a caller's freshly resolved definition without
+// publishing it into a shared datasource registry.
+func (s *Service) InvalidateDefinitionCache(ctx context.Context, ds *dsproto.DataSource, inputsHash string) error {
+	if s.disableCache {
+		return nil
+	}
+	if ds == nil {
+		return fmt.Errorf("datasource definition is required")
+	}
 	policy := dsproto.CachePolicyOrDefault(ds.Cache)
 	if policy.Enabled != nil && !*policy.Enabled {
 		return nil
 	}
 	scopeID := s.scopeID(ctx, policy.Scope)
 	prefix := scopeID + "|" + ds.ID + "|"
+	if pin, bound := runtimerequestctx.ResolvedResourceFromContext(ctx); bound {
+		target, _ := runtimerequestctx.WindowTargetFromContext(ctx)
+		resourceKey, err := boundResourceCacheKey("", *pin, target, ds, Identity{User: internalAuth.EffectiveUserID(ctx)})
+		if err != nil {
+			return err
+		}
+		if inputsHash != "" {
+			prefix += inputsHash + "|"
+		}
+		s.cache.dropResource(prefix, resourceKey)
+		return nil
+	}
 	if inputsHash == "" {
 		s.cache.dropPrefix(prefix)
 		return nil
@@ -637,9 +674,9 @@ func (s *Service) runBackendRaw(ctx context.Context, ds *dsproto.DataSource, arg
 		inputs := transportArguments(args, ds.Backend.RequestMetadata)
 		if exact, ok := s.executor.(interface {
 			ExecuteExactJSON(context.Context, string, map[string]interface{}, string) (string, error)
-		}); ok && ds.Paging != nil && ds.Paging.Enabled && strings.TrimSpace(ds.Paging.Mode) != "" {
+		}); ok && (canonicalDatasource(ctx) || ds.Paging != nil && ds.Paging.Enabled && strings.TrimSpace(ds.Paging.Mode) != "") {
 			path := ""
-			if strings.EqualFold(strings.TrimSpace(ds.Paging.Mode), "cursor") && ds.Selectors != nil && ds.Paging.DataInfoSelectors != nil {
+			if ds.Paging != nil && strings.EqualFold(strings.TrimSpace(ds.Paging.Mode), "cursor") && ds.Selectors != nil && ds.Paging.DataInfoSelectors != nil {
 				path = ds.Selectors.DataInfo + "." + ds.Paging.DataInfoSelectors.NextCursor
 			}
 			raw, err = exact.ExecuteExactJSON(ctx, name, inputs, path)
@@ -996,4 +1033,36 @@ func (c *memoryCache) dropPrefix(prefix string) {
 		keep = append(keep, k)
 	}
 	c.ord = keep
+}
+
+// dropResource removes only one original resource/actor partition from the
+// existing cache; equal authored IDs in other namespaces remain distinct.
+func (c *memoryCache) dropResource(prefix, resource string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	keep := c.ord[:0]
+	for _, key := range c.ord {
+		if strings.HasPrefix(key, prefix) && (strings.HasSuffix(key, resource) || strings.Contains(key, resource+"|")) {
+			delete(c.m, key)
+			continue
+		}
+		keep = append(keep, key)
+	}
+	c.ord = keep
+}
+
+func canonicalDatasource(ctx context.Context) bool {
+	pin, ok := runtimerequestctx.ResolvedResourceFromContext(ctx)
+	return ok && strings.HasPrefix(pin.URI, "datasource://")
+}
+
+func (s *Service) executeManagingTool(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	if canonicalDatasource(ctx) {
+		if exact, ok := s.executor.(interface {
+			ExecuteExactJSON(context.Context, string, map[string]interface{}, string) (string, error)
+		}); ok {
+			return exact.ExecuteExactJSON(ctx, name, args, "")
+		}
+	}
+	return s.executor.Execute(ctx, name, args)
 }

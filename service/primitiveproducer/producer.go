@@ -139,7 +139,7 @@ func (p *LocalProvider) currentActor(ctx context.Context) (identity.VerifiedActo
 	if err != nil {
 		return identity.VerifiedActor{}, err
 	}
-	if !actor.Valid(p.nowTime()) || ctx.Err() != nil {
+	if !actor.ReadValid(p.nowTime()) || ctx.Err() != nil {
 		return identity.VerifiedActor{}, identity.ErrResourceDenied
 	}
 	if err := p.verify(ctx, actor); err != nil {
@@ -149,21 +149,21 @@ func (p *LocalProvider) currentActor(ctx context.Context) (identity.VerifiedActo
 }
 
 func (p *LocalProvider) finishActor(ctx context.Context, actor identity.VerifiedActor) error {
-	if p == nil || p.actor == nil || p.verify == nil || ctx == nil || ctx.Err() != nil || !actor.Valid(p.nowTime()) {
+	if p == nil || p.actor == nil || p.verify == nil || ctx == nil || ctx.Err() != nil || !actor.ReadValid(p.nowTime()) {
 		return identity.ErrResourceDenied
 	}
 	fresh, err := p.actor(ctx)
 	if err != nil {
 		return err
 	}
-	if !fresh.Valid(p.nowTime()) || !sameLocalActor(actor, fresh) {
+	if !fresh.ReadValid(p.nowTime()) || !sameLocalActor(actor, fresh) {
 		return identity.ErrResourceDenied
 	}
 	return p.verify(ctx, fresh)
 }
 
 func sameLocalActor(left, right identity.VerifiedActor) bool {
-	return left.Subject == right.Subject && left.Issuer == right.Issuer && left.TenantID == right.TenantID && left.AccountID == right.AccountID && left.IdentityRevision == right.IdentityRevision
+	return left.PublicRead == right.PublicRead && left.Subject == right.Subject && left.Issuer == right.Issuer && left.TenantID == right.TenantID && left.AccountID == right.AccountID && left.IdentityRevision == right.IdentityRevision
 }
 
 func (p *LocalProvider) authorize(ctx context.Context, actor identity.VerifiedActor, uri identity.ResourceURI, action string) error {

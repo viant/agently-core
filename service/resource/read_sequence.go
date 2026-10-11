@@ -164,7 +164,7 @@ func (s *resourceReadSequence) startPhase(ctx context.Context) error {
 		return err
 	}
 	s.mu.Lock()
-	if s.actor.Subject == "" {
+	if s.actor.ValidUntil.IsZero() {
 		s.actor, s.lease = actor, actor.ValidUntil
 	}
 	if deadline, ok := s.base.Deadline(); ok && deadline.Before(s.lease) {
@@ -180,7 +180,7 @@ func (s *resourceReadSequence) checkActor(actor identity.VerifiedActor) error {
 	if s.closed || s.failed != nil || !s.lease.IsZero() && !s.lease.After(s.gateway.now()) {
 		return identity.ErrResourceDenied
 	}
-	if s.actor.Subject != "" && (actor.Subject != s.actor.Subject || actor.Issuer != s.actor.Issuer || actor.TenantID != s.actor.TenantID || actor.AccountID != s.actor.AccountID || actor.IdentityRevision != s.actor.IdentityRevision || actor.ValidUntil.Before(s.lease)) {
+	if !s.actor.ValidUntil.IsZero() && (actor.PublicRead != s.actor.PublicRead || actor.Subject != s.actor.Subject || actor.Issuer != s.actor.Issuer || actor.TenantID != s.actor.TenantID || actor.AccountID != s.actor.AccountID || actor.IdentityRevision != s.actor.IdentityRevision || actor.ValidUntil.Before(s.lease)) {
 		s.failed = identity.ErrResourceDenied
 		return identity.ErrResourceDenied
 	}

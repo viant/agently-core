@@ -428,3 +428,13 @@ func NewInternalProvider(ctx context.Context, root string, directories []Extensi
 	config.ProviderIdentity, config.Bindings = InternalProviderIdentity, bindings
 	return NewLocalProvider(config)
 }
+
+// SnapshotExtensionDefinitions inventories declared deterministic native loaders
+// once. It carries no policy; the provider supplies admission for the snapshot.
+func SnapshotExtensionDefinitions(ctx context.Context, root string, directories []ExtensionDirectory) ([]NativeSnapshotDefinition, error) {
+	var definitions []NativeSnapshotDefinition
+	_, err := extensionBindings(ctx, root, directories, func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) (identity.ResourceRevisionPolicy, error) {
+		return nil, nil
+	}, &definitions)
+	return definitions, err
+}

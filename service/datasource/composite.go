@@ -168,7 +168,7 @@ func (s *Service) executeCompositeCall(ctx context.Context, call dsproto.MCPCall
 	if strings.TrimSpace(call.Service) == "" || strings.TrimSpace(call.Method) == "" {
 		return nil, fmt.Errorf("service and method are required")
 	}
-	raw, err := s.executor.Execute(ctx, call.Service+":"+call.Method, transportArguments(expandNestedArgs(args), metadata))
+	raw, err := s.executeManagingTool(ctx, call.Service+":"+call.Method, transportArguments(expandNestedArgs(args), metadata))
 	if err != nil {
 		return nil, err
 	}

@@ -3,6 +3,8 @@ package window
 import (
 	"bytes"
 	"context"
+	"encoding/json"
+	lookupProto "github.com/viant/agently-core/protocol/lookup/overlay"
 	"log"
 	"path/filepath"
 	"strings"
@@ -610,6 +612,16 @@ bindings:
 		chat := &forgeTypes.Window{WindowKey: "chat/new", View: forgeTypes.View{Content: &forgeTypes.Container{Chat: &forgeTypes.Chat{}}}}
 		if err := MergeWorkspaceForgeAssets(context.Background(), chat, nil); err != nil {
 			t.Fatal(err)
+		}
+		if len(chat.LookupOverlays) != 1 {
+			t.Fatalf("original named overlay missing from compiled owning chat: count=%d", len(chat.LookupOverlays))
+		}
+		var original lookupProto.Overlay
+		if err := json.Unmarshal(chat.LookupOverlays[0], &original); err != nil {
+			t.Fatal(err)
+		}
+		if original.ID != "order_lookup" || len(original.Bindings) != 1 || original.Bindings[0].Named.Name != "order" {
+			t.Fatal("named lookup declaration changed")
 		}
 		if _, ok := chat.DataSource["order_lookup"]; !ok {
 			t.Fatal("named lookup datasource missing")
