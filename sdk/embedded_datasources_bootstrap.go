@@ -49,7 +49,7 @@ func (c *backendClient) bootstrapDatasourceStack(rt *executor.Runtime) error {
 	// Build the datasource service. Executor stays nil when the runtime
 	// has no tool registry — inline / feed_ref backends continue to work;
 	// mcp_tool backends return a clear error at Fetch time.
-	opts := dssvc.Options{ReadSequence: rt.DatasourceReadSequence, ReadContext: resourcesvc.ReadContext, ProviderExecute: rt.DatasourceProviderExecutor, ExecutionContext: rt.ExecutionContext, PermissionResolver: rt.PermittedResolver, ComponentDispatcher: rt.ComponentDispatcher, Store: dsStore, ResolveDefinition: rt.DatasourceDefinitionResolver, ResolveResource: rt.DatasourceResourceRevalidator, AuthorizeDefinition: rt.DatasourceDefinitionAuthorizer, DenialRootRead: rt.DatasourceDenialRootRead, Authorize: rt.DatasourceAuthorizer, DisableCache: rt.DatasourceDisableCache}
+	opts := dssvc.Options{NewDeliveryPreparer: rt.DatasourceNewDeliveryPreparer, ReadSequence: rt.DatasourceReadSequence, ReadContext: resourcesvc.ReadContext, ProviderExecute: rt.DatasourceProviderExecutor, ExecutionContext: rt.ExecutionContext, PermissionResolver: rt.PermittedResolver, ComponentDispatcher: rt.ComponentDispatcher, Store: dsStore, ResolveDefinition: rt.DatasourceDefinitionResolver, ResolveResource: rt.DatasourceResourceRevalidator, AuthorizeDefinition: rt.DatasourceDefinitionAuthorizer, DenialRootRead: rt.DatasourceDenialRootRead, Authorize: rt.DatasourceAuthorizer, DisableCache: rt.DatasourceDisableCache}
 	if rt.Registry != nil {
 		if reg, ok := rt.Registry.(dsadapter.ToolRegistry); ok {
 			opts.Executor = dsadapter.FromRegistry(reg)
