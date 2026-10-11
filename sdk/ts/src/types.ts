@@ -939,6 +939,9 @@ export interface ResolvedDefinitionResource {
 }
 
 export interface ApplyPermissionInput {
+    /** Optional routing for the admitted local framework chat instance. */
+    clientId?: string;
+    windowId?: string;
     resolvedResource?: ResolvedDefinitionResource;
     conversationId: string;
     /** Assert the authored authorization contract version (1 numeric, 2 exact string IDs). */

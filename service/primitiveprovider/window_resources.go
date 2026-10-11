@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/viant/agently-core/runtime/requestctx"
+	"strings"
 	"time"
 
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -77,6 +78,9 @@ func (s *Service) rememberWindowPin(ctx context.Context, key windowPinKey, pin w
 	}
 	s.resourceMu.Lock()
 	defer s.resourceMu.Unlock()
+	if ctx == nil || ctx.Err() != nil || !pin.Resource.ValidUntil.After(time.Now()) {
+		return identity.ErrResourceDenied
+	}
 	if s.resourcePins == nil {
 		s.resourcePins = map[windowPinKey]windowResourcePin{}
 	}
@@ -281,4 +285,30 @@ func (s *Service) checkWindowContentCurrent(ctx context.Context, pin windowResou
 		return identity.ErrResourceDenied
 	}
 	return nil
+}
+
+// BindAdmittedFrameworkWindow retains the existing local chat instance after
+// the HTTP OPEN admission. Routing identifiers never supply resource authority.
+func (s *Service) BindAdmittedFrameworkWindow(ctx context.Context, clientID, windowID, windowKey string, admitted *types.Window) error {
+	clientID, windowID, windowKey = strings.TrimSpace(clientID), strings.TrimSpace(windowID), strings.TrimSpace(windowKey)
+	if !s.canonicalWindowCatalog() || clientID == "" || windowID != "chat/new" || windowKey != "chat/new" || admitted == nil || admitted.Resource == nil {
+		return identity.ErrResourceDenied
+	}
+	owner, err := s.ns.Identity(ctx)
+	if err != nil {
+		return err
+	}
+	if !containsClient(s.hub.ListClients(owner.Namespace), clientID) {
+		return identity.ErrResourceDenied
+	}
+	if !owner.ValidUntil.IsZero() {
+		var stop context.CancelFunc
+		ctx, stop = context.WithDeadline(ctx, owner.ValidUntil)
+		defer stop()
+	}
+	pin := *admitted.Resource
+	if deadline, ok := ctx.Deadline(); ok && deadline.Before(pin.ValidUntil) {
+		pin.ValidUntil = deadline
+	}
+	return s.rememberWindowPin(ctx, windowPinKey{Namespace: owner.Namespace, ClientID: clientID, WindowID: windowID}, windowResourcePin{WindowKey: windowKey, Resource: pin, Target: admitted.ResourceTarget})
 }

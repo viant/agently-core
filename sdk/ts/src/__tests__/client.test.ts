@@ -1187,6 +1187,15 @@ describe('Forge Window Metadata', () => {
         expect(call.url).toContain('windowParams=');
     });
 
+    it('applyPermission forwards optional exact framework routing without changing original authority', async () => {
+        const f = mockFetch(200, {data: {key: 'chat/new'}}); const c = client(f);
+        await c.applyPermission('chat/new', {conversationId:'conv-1',clientId:' active-client ',windowId:' chat/new '});
+        const url = new URL(lastCall(f).url);
+        expect(url.searchParams.get('clientId')).toBe('active-client');
+        expect(url.searchParams.get('windowId')).toBe('chat/new');
+        expect(url.searchParams.has('namespace')).toBe(false);
+    });
+
     it('applyPermission preserves v2 string IDs', async () => {
         const id = '9007199254740993';
         const f = mockFetch(200, {data: {authorizationSnapshot: {schemaVersion: 2, resources: {[id]: {type: 'customer', id, capabilities: {read: true}}}}}});
