@@ -1,7 +1,10 @@
 package datasource
 
 import (
+	"encoding/json"
 	"math"
+	"math/big"
+	"strconv"
 	"strings"
 
 	"github.com/viant/forge/backend/types"
@@ -174,6 +177,34 @@ func intArg(holder map[string]interface{}, key string, fallback int) int {
 		return int(actual)
 	case float32:
 		return int(actual)
+	case json.Number:
+		// Strict JSON decoders retain paging inputs as json.Number.
+		if integer, err := actual.Int64(); err == nil {
+			if strconv.IntSize == 32 && (integer < math.MinInt32 || integer > math.MaxInt32) {
+				return fallback
+			}
+			return int(integer)
+		}
+		if number, err := actual.Float64(); err == nil && !math.IsNaN(number) && !math.IsInf(number, 0) {
+			// Float-to-int conversion outside the representable range is
+			// implementation-dependent and can wrap to a plausible page value.
+			limit := math.Ldexp(1, strconv.IntSize-1)
+			if number < -limit || number >= limit {
+				return fallback
+			}
+			// Float64 can round values just below the signed minimum up to
+			// -limit. Compare the original decimal exactly only at that boundary.
+			if number == -limit {
+				if exact, ok := new(big.Rat).SetString(actual.String()); ok {
+					lower := new(big.Rat).SetInt(new(big.Int).Neg(new(big.Int).Lsh(big.NewInt(1), uint(strconv.IntSize-1))))
+					if exact.Cmp(lower) < 0 {
+						return fallback
+					}
+				}
+			}
+			return int(number)
+		}
+		return fallback
 	default:
 		return fallback
 	}
