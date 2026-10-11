@@ -188,6 +188,52 @@ func TestBuildHistory_ActualNativeEditedApprovalExecution(t *testing.T) {
 	require.Equal(t, []interface{}{"HOME", "PATH"}, call.Arguments["names"], "live result records actual executed arguments")
 	stored, err := conv.GetConversation(ctx, "review-conversation", apiconv.WithIncludeTranscript(true), apiconv.WithIncludeToolCall(true))
 	require.NoError(t, err)
+	var persistedOriginalNames []string
+	var persistedEditedNames []interface{}
+	var persistedNativeRequestNames []interface{}
+	for _, persistedTurn := range stored.GetTranscript() {
+		for _, persistedMessage := range persistedTurn.GetMessages() {
+			if persistedMessage.MessageToolCall != nil && persistedMessage.MessageToolCall.RequestPayloadId != nil {
+				requestPayload, payloadErr := conv.GetPayload(ctx, *persistedMessage.MessageToolCall.RequestPayloadId)
+				require.NoError(t, payloadErr)
+				require.NotNil(t, requestPayload.InlineBody)
+				requestBody := decodePayloadInlineBody(string(*requestPayload.InlineBody), requestPayload.Compression)
+				var nativeRequest map[string]interface{}
+				require.NoError(t, json.Unmarshal([]byte(requestBody), &nativeRequest))
+				persistedNativeRequestNames = nativeRequest["names"].([]interface{})
+			}
+			if persistedMessage.ElicitationPayloadId == nil {
+				continue
+			}
+			payload, payloadErr := conv.GetPayload(ctx, *persistedMessage.ElicitationPayloadId)
+			require.NoError(t, payloadErr)
+			require.NotNil(t, payload.InlineBody)
+			switch payload.Kind {
+			case "elicitation_request":
+				var request map[string]interface{}
+				require.NoError(t, json.Unmarshal(*payload.InlineBody, &request))
+				schema := request["requestedSchema"].(map[string]interface{})
+				properties := schema["properties"].(map[string]interface{})
+				metaProperty := properties["_approvalMeta"].(map[string]interface{})
+				var meta map[string]interface{}
+				require.NoError(t, json.Unmarshal([]byte(metaProperty["const"].(string)), &meta))
+				editors := meta["editors"].([]interface{})
+				require.Len(t, editors, 1)
+				options := editors[0].(map[string]interface{})["options"].([]interface{})
+				for _, option := range options {
+					persistedOriginalNames = append(persistedOriginalNames, option.(map[string]interface{})["id"].(string))
+				}
+			case "elicitation_response":
+				var response map[string]interface{}
+				require.NoError(t, json.Unmarshal(*payload.InlineBody, &response))
+				edited := response["editedFields"].(map[string]interface{})
+				persistedEditedNames = edited["names"].([]interface{})
+			}
+		}
+	}
+	require.Equal(t, []interface{}{"HOME", "SHELL", "PATH"}, persistedNativeRequestNames, "durable original native tool request keeps all submitted arguments")
+	require.Equal(t, []string{"HOME", "SHELL", "PATH"}, persistedOriginalNames, "durable request schema keeps all pre-approval choices")
+	require.Equal(t, []interface{}{"HOME", "PATH"}, persistedEditedNames, "durable elicitation response records only accepted choices")
 	svc := &Service{conversation: conv}
 	history, err := svc.buildChronologicalHistory(ctx, stored.GetTranscript(), nil, false)
 	require.NoError(t, err)

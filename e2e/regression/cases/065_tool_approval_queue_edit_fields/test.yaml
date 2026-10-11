@@ -160,28 +160,18 @@ pipeline:
             publicToolCallId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.publicToolCallId}
             effectMessageId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.effectMessageId}
           approvedRequest:
+            '@length@names': 2
             names: [HOME, PATH]
           actualResponse:
+            '@length@values': 2
             values:
-              '@exists@HOME': true
-              '@exists@PATH': true
-              '@exists@SHELL': false
-  verifyQuotedHOME:
-    action: validator:assert
-    actual: ${verifyOriginalApprovedEffect.Responses[0].JSONBody.literalEffectContent}
-    expect: '/"HOME"/'
-  verifyQuotedPATH:
-    action: validator:assert
-    actual: ${verifyOriginalApprovedEffect.Responses[0].JSONBody.literalEffectContent}
-    expect: '/"PATH"/'
-  verifyNoQuotedSHELL:
-    action: validator:assert
-    actual: ${verifyOriginalApprovedEffect.Responses[0].JSONBody.literalEffectContent}
-    expect: '!/"SHELL"/'
+              HOME: '@exists@'
+              PATH: '@exists@'
+              SHELL: '@!exists@'
   observeOriginalFinalAssistant:
     when: $sdkKey != ''
     action: http/runner:send
-    description: preserve original final assistant HOME/PATH and no SHELL assertions
+    description: observe completion and final content of the original approved native turn
     requests:
     - Method: GET
       URL: ${aguiProbeURL}/await-native/approval-continuation-65
@@ -191,19 +181,20 @@ pipeline:
         Code: 200
         JSONBody:
           nativeStatus: completed
-          '@exists@literalFinalContent': true
-  verifyOriginalAssistantQuotedHOME:
-    when: $sdkKey != ''
+          literalFinalContent: '@exists@'
+  verifyOriginalAssistantIdentity:
     action: validator:assert
-    actual: ${observeOriginalFinalAssistant.Responses[0].JSONBody.literalFinalContent}
-    expect: '/"HOME"/'
-  verifyOriginalAssistantQuotedPATH:
-    when: $sdkKey != ''
-    action: validator:assert
-    actual: ${observeOriginalFinalAssistant.Responses[0].JSONBody.literalFinalContent}
-    expect: '/"PATH"/'
-  verifyOriginalAssistantNoQuotedSHELL:
-    when: $sdkKey != ''
-    action: validator:assert
-    actual: ${observeOriginalFinalAssistant.Responses[0].JSONBody.literalFinalContent}
-    expect: '!/"SHELL"/'
+    description: verify completion of the original approved turn without imposing a prose format
+    actual: ${observeOriginalFinalAssistant.Responses[0].JSONBody}
+    expect:
+      nativeStatus: completed
+      identity:
+        nativeConversationId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.nativeConversationId}
+        nativeTurnId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.nativeTurnId}
+      rootTurn:
+        turnId: ${captureOriginalApproval.Responses[0].JSONBody.tuple.nativeTurnId}
+        status: completed
+        assistant:
+          final:
+            messageId: '@exists@'
+            content: '@exists@'
