@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/forge/backend/types"
@@ -8,6 +10,8 @@ import (
 
 // FetchDatasourceInput is the wire request for POST /v1/api/datasources/{id}/fetch.
 type FetchDatasourceInput struct {
+	// SelectionBinding is original provenance for optional server NEW delivery preparation.
+	SelectionBinding *identity.SelectionBinding `json:"selectionBinding,omitempty"`
 	// WindowParameters select entities; the server independently authorizes them.
 	WindowParameters map[string]any             `json:"windowParameters,omitempty"`
 	ResourceProof    *primitive.ExecutionProof  `json:"resourceProof,omitempty"`
@@ -90,4 +94,29 @@ type LookupParameter struct {
 // ListLookupRegistryOutput is the wire response.
 type ListLookupRegistryOutput struct {
 	Entries []LookupRegistryEntry `json:"entries"`
+}
+
+// UnmarshalJSON preserves exact selection numbers, including IDs outside the
+// float64 integer range. Other legacy datasource inputs retain their decoder.
+func (in *FetchDatasourceInput) UnmarshalJSON(raw []byte) error {
+	type wire FetchDatasourceInput
+	var decoded wire
+	if err := json.Unmarshal(raw, &decoded); err != nil {
+		return err
+	}
+	var selection struct {
+		WindowParameters json.RawMessage `json:"windowParameters"`
+	}
+	if err := json.Unmarshal(raw, &selection); err != nil {
+		return err
+	}
+	if len(selection.WindowParameters) > 0 {
+		decoder := json.NewDecoder(bytes.NewReader(selection.WindowParameters))
+		decoder.UseNumber()
+		if err := decoder.Decode(&decoded.WindowParameters); err != nil {
+			return err
+		}
+	}
+	*in = FetchDatasourceInput(decoded)
+	return nil
 }
