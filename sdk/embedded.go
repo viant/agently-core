@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	resourcesvc "github.com/viant/agently-core/service/resource"
 	"sort"
 	"strings"
 	"sync"
@@ -108,6 +109,7 @@ type backendClient struct {
 	schedulerSvc           *scheduler.Service
 	asyncManager           *asynccfg.Manager
 	feeds                  *FeedRegistry
+	primitiveProviders     *resourcesvc.Gateway
 	skills                 skillBackend
 	// Installed by SetDatasourceStack; nil until runtime bootstrap wires
 	// them. See sdk/embedded_datasources.go.
@@ -198,7 +200,10 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 			}
 		}
 	}
-	c.feeds = NewFeedRegistry()
+	c.primitiveProviders = rt.PrimitiveProviders
+	if c.primitiveProviders == nil {
+		c.feeds = NewFeedRegistry()
+	}
 	c.skills = rt.Skills
 	// Wire the datasource + overlay stack. Loads any datasources/ and
 	// lookups/ YAML from the workspace and installs the refiner hook. If
@@ -227,8 +232,12 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 func (c *backendClient) Mode() Mode { return ModeEmbedded }
 
 func (c *backendClient) Query(ctx context.Context, input *agentsvc.QueryInput) (*agentsvc.QueryOutput, error) {
-	if c.feeds != nil && c.streaming != nil {
-		ctx = toolexec.WithFeedNotifier(ctx, newFeedNotifier(c.feeds, c.streaming))
+	if (c.feeds != nil || c.primitiveProviders != nil) && c.streaming != nil {
+		notifier := newFeedNotifier(c.feeds, c.streaming)
+		if c.primitiveProviders != nil {
+			notifier.resolve = c.matchFeedSpecsContext
+		}
+		ctx = toolexec.WithFeedNotifier(ctx, notifier)
 	}
 	out := &agentsvc.QueryOutput{}
 	if err := c.agent.Query(ctx, input, out); err != nil {

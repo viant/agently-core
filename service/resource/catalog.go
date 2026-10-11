@@ -17,7 +17,7 @@ type CatalogQuery = primitive.CatalogQuery
 
 type NamespacePage = primitive.CatalogPage[DiscoveredNamespace]
 
-func (g *Gateway) catalog(ctx context.Context, kind string, load func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error)) (*primitive.Catalog[json.RawMessage], identity.VerifiedActor, error) {
+func (g *Gateway) catalog(ctx context.Context, kind string, load func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error), sourceLease ...func() time.Time) (*primitive.Catalog[json.RawMessage], identity.VerifiedActor, error) {
 	actor, err := g.actor(ctx)
 	if err != nil {
 		return nil, actor, err
@@ -40,7 +40,7 @@ func (g *Gateway) catalog(ctx context.Context, kind string, load func(context.Co
 	}
 	generation := g.catalogGeneration(names)
 	key := fmt.Sprintf("primitive:%p:%s:%s:%s:%x", g, actorKey(actor, "", 0), scope, kind, generation)
-	index, err := g.Manager.VisibleCatalog(ctx, key, until, load)
+	index, err := g.Manager.VisibleCatalog(ctx, key, until, load, sourceLease...)
 	if err != nil {
 		return nil, actor, err
 	}
@@ -59,17 +59,44 @@ func (g *Gateway) catalog(ctx context.Context, kind string, load func(context.Co
 
 // ListPage queries one cached visible metadata snapshot. Legacy List and all
 // Get/data execution paths remain fresh and do not consume this snapshot.
-func ListPage[T any](ctx context.Context, g *Gateway, kind string, query CatalogQuery) (*primitive.CatalogPage[Located[T]], error) {
+func ListPage[T any](ctx context.Context, g *Gateway, kind string, query CatalogQuery, hydrateDefinitions ...bool) (*primitive.CatalogPage[Located[T]], error) {
 	if !identity.ValidResourceKind(kind) {
 		return nil, identity.ErrResource
 	}
-	index, actor, err := g.catalog(ctx, kind, func(ctx context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
+	hydrated := len(hydrateDefinitions) > 0 && hydrateDefinitions[0]
+	catalogKind := kind
+	if hydrated {
+		catalogKind += ":definitions"
+	}
+	var definitionLease time.Time
+	index, actor, err := g.catalog(ctx, catalogKind, func(ctx context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
 		rows, err := g.List(ctx, kind, "")
 		if err != nil {
 			return nil, err
 		}
+		if hydrated && len(rows) > primitive.MaxCatalogPageSize {
+			return nil, identity.ErrResource
+		}
 		items := make([]primitive.CatalogItem[json.RawMessage], 0, len(rows))
 		for _, row := range rows {
+			if hydrated {
+				fresh, e := Get[json.RawMessage](ctx, g, row.Connection, identity.ResourceRef{URI: row.Resource.URI, Revision: row.Resource.Revision}, nil)
+				if e != nil {
+					return nil, e
+				}
+				if row.Resource.ContentFingerprint != "" && row.Resource.ContentFingerprint != fresh.Resource.ContentFingerprint {
+					return nil, identity.ErrResourceStale
+				}
+				if fresh.ResolvedResource == nil {
+					return nil, identity.ErrResourceDenied
+				}
+				if definitionLease.IsZero() || fresh.ResolvedResource.ValidUntil.Before(definitionLease) {
+					definitionLease = fresh.ResolvedResource.ValidUntil
+				}
+				row.Resource = *fresh.Resource
+				row.Resource.Definition = fresh.Definition
+				row.Resource.DefinitionBytes = nil // One exact definition carrier in the private snapshot.
+			}
 			raw, err := json.Marshal(row)
 			if err != nil {
 				return nil, err
@@ -77,7 +104,7 @@ func ListPage[T any](ctx context.Context, g *Gateway, kind string, query Catalog
 			items = append(items, primitive.CatalogItem[json.RawMessage]{Name: row.Resource.Name, Description: row.Resource.Description, Namespace: row.Resource.Namespace, URI: row.Resource.URI, Provider: row.Connection.ProviderIdentity, Value: raw})
 		}
 		return items, nil
-	})
+	}, func() time.Time { return definitionLease })
 	if err != nil {
 		return nil, err
 	}

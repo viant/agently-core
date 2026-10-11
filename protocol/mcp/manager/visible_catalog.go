@@ -16,9 +16,10 @@ import (
 )
 
 type visibleCatalog struct {
-	ready chan struct{}
-	index *primitive.Catalog[json.RawMessage]
-	until time.Time
+	ready       chan struct{}
+	index       *primitive.Catalog[json.RawMessage]
+	until       time.Time
+	sourceUntil time.Time
 }
 
 // CatalogScope keeps visible metadata private, regardless of tools/list's
@@ -81,7 +82,7 @@ func (m *Manager) CatalogScope(ctx context.Context, conversation string, names [
 
 // VisibleCatalog is the one manager-owned snapshot store used by primitive
 // and native/ordinary skill adapters. A snapshot is metadata, never authority.
-func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Time, load func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error)) (*primitive.Catalog[json.RawMessage], error) {
+func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Time, load func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error), sourceLease ...func() time.Time) (*primitive.Catalog[json.RawMessage], error) {
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
@@ -134,6 +135,18 @@ func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Tim
 		snapshot := fmt.Sprintf("%s:%x:%d", key, m.catalogEpoch, m.catalogSequence)
 		m.mu.Unlock()
 		items, err := load(ctx)
+		var sourceUntil time.Time
+		if err == nil && len(sourceLease) > 0 && sourceLease[0] != nil {
+			sourceUntil = sourceLease[0]()
+			if !sourceUntil.IsZero() {
+				if !sourceUntil.After(time.Now()) {
+					err = primitive.ErrCatalogCursor
+				}
+				if !until.IsZero() && sourceUntil.Before(until) {
+					until = sourceUntil
+				}
+			}
+		}
 		var index *primitive.Catalog[json.RawMessage]
 		if err == nil && ctx.Err() == nil {
 			index = primitive.NewCatalog(snapshot, items)
@@ -146,6 +159,7 @@ func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Tim
 			if err == nil && ctx.Err() == nil {
 				pending.index = index
 				pending.until = until
+				pending.sourceUntil = sourceUntil
 			} else {
 				delete(m.visibleCatalogs, key)
 			}
@@ -171,7 +185,7 @@ func (m *Manager) CheckVisibleCatalog(ctx context.Context, index *primitive.Cata
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for _, held := range m.visibleCatalogs {
-		if held.ready == nil && held.index == index && (held.until.IsZero() || held.until.After(time.Now())) {
+		if held.ready == nil && held.index == index && (held.until.IsZero() || held.until.After(time.Now())) && (held.sourceUntil.IsZero() || held.sourceUntil.After(time.Now())) {
 			return nil
 		}
 	}

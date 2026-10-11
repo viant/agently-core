@@ -1,15 +1,19 @@
 package api
 
-// FeedSpec describes a tool feed loaded from workspace YAML.
+// FeedSpec retains authored tool feed configuration and optional admitted routing identity.
 type FeedSpec struct {
-	ID            string                 `yaml:"id" json:"id"`
-	Title         string                 `yaml:"title,omitempty" json:"title,omitempty"`
-	DeveloperOnly bool                   `yaml:"developerOnly,omitempty" json:"developerOnly,omitempty"`
-	Presentation  *FeedPresentation      `yaml:"presentation,omitempty" json:"presentation,omitempty"`
-	Match         FeedMatch              `yaml:"match" json:"match"`
-	Activation    FeedActivation         `yaml:"activation,omitempty" json:"activation,omitempty"`
-	DataSource    map[string]interface{} `yaml:"dataSource,omitempty" json:"dataSource,omitempty"`
-	UI            interface{}            `yaml:"ui,omitempty" json:"ui,omitempty"`
+	URI                   string                 `yaml:"-" json:"uri,omitempty"`
+	ProviderIdentity      string                 `yaml:"-" json:"providerIdentity,omitempty"`
+	DefinitionFingerprint string                 `yaml:"-" json:"-"`
+	DefinitionRevision    string                 `yaml:"-" json:"-"`
+	ID                    string                 `yaml:"id" json:"id"`
+	Title                 string                 `yaml:"title,omitempty" json:"title,omitempty"`
+	DeveloperOnly         bool                   `yaml:"developerOnly,omitempty" json:"developerOnly,omitempty"`
+	Presentation          *FeedPresentation      `yaml:"presentation,omitempty" json:"presentation,omitempty"`
+	Match                 FeedMatch              `yaml:"match" json:"match"`
+	Activation            FeedActivation         `yaml:"activation,omitempty" json:"activation,omitempty"`
+	DataSource            map[string]interface{} `yaml:"dataSource,omitempty" json:"dataSource,omitempty"`
+	UI                    interface{}            `yaml:"ui,omitempty" json:"ui,omitempty"`
 }
 
 // FeedPresentation contains optional, workspace-owned visual hints. Clients

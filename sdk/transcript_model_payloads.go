@@ -45,10 +45,15 @@ func omitCanonicalModelPayloads(state *ConversationState) {
 
 // This is an output projection after canonical role/workspace/render/feed
 // derivation. Originals and lazy payload references are never modified.
-func (c *backendClient) omitCanonicalToolPayloads(state *ConversationState) {
+func (c *backendClient) omitCanonicalToolPayloads(state *ConversationState, contexts ...context.Context) {
 	if state == nil {
 		return
 	}
+	ctx := context.Background()
+	if len(contexts) > 0 {
+		ctx = contexts[0]
+	}
+	specs, _ := c.feedSpecs(ctx)
 	for _, turn := range state.Turns {
 		if turn == nil || turn.Execution == nil {
 			continue
@@ -58,7 +63,7 @@ func (c *backendClient) omitCanonicalToolPayloads(state *ConversationState) {
 				continue
 			}
 			for _, step := range page.ToolSteps {
-				if step == nil || step.Status != "completed" || step.ResponsePayloadID == "" || c.toolPayloadNeededForRendering(step) {
+				if step == nil || step.Status != "completed" || step.ResponsePayloadID == "" || c.toolPayloadNeededForRendering(step, specs) {
 					continue
 				}
 				step.Content = ""
@@ -70,7 +75,7 @@ func (c *backendClient) omitCanonicalToolPayloads(state *ConversationState) {
 		}
 	}
 }
-func (c *backendClient) toolPayloadNeededForRendering(step *ToolStepState) bool {
+func (c *backendClient) toolPayloadNeededForRendering(step *ToolStepState, scopedSpecs ...[]*FeedSpec) bool {
 	if step.UIResourceURI != "" || step.AsyncOperation != nil {
 		return true
 	}
@@ -104,8 +109,14 @@ func (c *backendClient) toolPayloadNeededForRendering(step *ToolStepState) bool 
 	case "ui/view/open", "ui/window/open", "ui/window/list", "ui/window/get", "ui/window/show", "ui/window/close", "ui/window/setformdata", "ui/context/get":
 		return true
 	}
-	if c.feeds != nil {
-		for _, spec := range c.feeds.Specs() {
+	var specs []*FeedSpec
+	if len(scopedSpecs) > 0 {
+		specs = scopedSpecs[0]
+	} else if c.feeds != nil {
+		specs = c.feeds.Specs()
+	}
+	if specs != nil {
+		for _, spec := range specs {
 			if spec != nil && matchesRule(spec.Match, service, method) {
 				return true
 			}

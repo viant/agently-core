@@ -12,6 +12,8 @@ import (
 
 // CatalogQuery applies literal, case-insensitive contains matching locally.
 // Terms are OR within a group; supplied groups and Namespace are AND.
+const MaxCatalogPageSize = 1000
+
 type CatalogQuery struct {
 	Namespace        string   `json:"namespace,omitempty"`
 	NameTerms        []string `json:"nameTerms,omitempty"`
@@ -106,8 +108,8 @@ func (c *Catalog[T]) Page(ctx context.Context, query CatalogQuery) (*CatalogPage
 	if query.Limit <= 0 {
 		query.Limit = 100
 	}
-	if query.Limit > 1000 {
-		query.Limit = 1000
+	if query.Limit > MaxCatalogPageSize {
+		query.Limit = MaxCatalogPageSize
 	}
 	cursor := query.Cursor
 	query.Cursor = ""
