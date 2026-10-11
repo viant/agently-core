@@ -67,6 +67,26 @@ pipeline:
       Header:
         Authorization:
         - Bearer ${mintCanonicalOwner.TokenString}
+  captureOriginalPrompt:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: pin the original pending elicitation and linked native tool before accepting edits
+    requests:
+    - Method: GET
+      URL: ${aguiProbeURL}/prompt-approval-capture/064_tool_approval_prompt_edit_fields-startPromptQuery?id=${listPendingElicitations.Responses[0].JSONBody.rows[0].elicitationId}
+      Header:
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
+      Expect:
+        Code: 200
+        JSONBody:
+          sameOwner: true
+          originalRequest:
+            nameCount: 3
+            '@length@names': 3
+            names:
+              HOME: '@exists@'
+              PATH: '@exists@'
+              SHELL: '@exists@'
   acceptEditedApproval:
     when: $sdkKey != ''
     action: http/runner:send
@@ -86,38 +106,68 @@ pipeline:
       Header:
         Authorization:
         - Bearer ${mintCanonicalOwner.TokenString}
-  verifyFilteredResult:
+  verifyOriginalNativeCompletion:
     when: $sdkKey != ''
     action: http/runner:send
-    description: verify canonical live-state contains HOME and PATH and excludes SHELL
+    description: await the same original native turn after the accepted edit
     requests:
     - Method: GET
       URL: ${aguiProbeURL}/await-native/064_tool_approval_prompt_edit_fields-startPromptQuery
       Header:
-        Authorization:
-        - Bearer ${mintCanonicalOwner.TokenString}
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
       Expect:
         Code: 200
         JSONBody:
           nativeStatus: completed
-          literalFinalContent: '/"HOME"/'
+          identity:
+            nativeConversationId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeConversationId}
+            nativeTurnId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeTurnId}
+          rootTurn:
+            turnId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeTurnId}
+            status: completed
+            assistant:
+              final:
+                messageId: '@exists@'
+                content: '@exists@'
+  verifyOriginalPromptEffect:
+    when: $sdkKey != ''
+    action: http/runner:send
+    description: verify the accepted edit and exact original committed tool result without imposing prose formatting
+    requests:
     - Method: GET
-      URL: ${aguiProbeURL}/await-native/064_tool_approval_prompt_edit_fields-startPromptQuery
+      URL: ${aguiProbeURL}/prompt-approval-receipt/064_tool_approval_prompt_edit_fields-startPromptQuery?id=${captureOriginalPrompt.Responses[0].JSONBody.tuple.approvalId}
       Header:
-        Authorization:
-        - Bearer ${mintCanonicalOwner.TokenString}
+        Authorization: ["Bearer ${mintCanonicalOwner.TokenString}"]
       Expect:
         Code: 200
         JSONBody:
+          sameOwner: true
           nativeStatus: completed
-          literalFinalContent: '/"PATH"/'
-    - Method: GET
-      URL: ${aguiProbeURL}/await-native/064_tool_approval_prompt_edit_fields-startPromptQuery
-      Header:
-        Authorization:
-        - Bearer ${mintCanonicalOwner.TokenString}
-      Expect:
-        Code: 200
-        JSONBody:
-          nativeStatus: completed
-          literalFinalContent: '!/"SHELL"/'
+          elicitationStatus: accepted
+          effectCount: 1
+          tuple:
+            approvalId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.approvalId}
+            nativeConversationId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeConversationId}
+            nativeTurnId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeTurnId}
+            nativeOperationId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.nativeOperationId}
+            queueParentMessageId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.queueParentMessageId}
+            effectMessageId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.effectMessageId}
+            requestPayloadId: ${captureOriginalPrompt.Responses[0].JSONBody.tuple.requestPayloadId}
+          acceptedResponse:
+            editedFields:
+              '@length@names': 2
+              names: [HOME, PATH]
+          originalRequest:
+            nameCount: 3
+            '@length@names': 3
+            names:
+              HOME: '@exists@'
+              PATH: '@exists@'
+              SHELL: '@exists@'
+          actualResponse:
+            valueKeyCount: 2
+            '@length@values': 2
+            values:
+              HOME: '@exists@'
+              PATH: '@exists@'
+              SHELL: '@!exists@'

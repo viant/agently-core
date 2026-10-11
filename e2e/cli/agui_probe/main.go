@@ -140,6 +140,14 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		write(w, 200, map[string]string{"status": "ok"})
 		return
 	}
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/prompt-approval-capture/") {
+		h.promptApproval(w, r, true)
+		return
+	}
+	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/prompt-approval-receipt/") {
+		h.promptApproval(w, r, false)
+		return
+	}
 	if r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/approval-capture/") {
 		h.approval(w, r, true)
 		return
