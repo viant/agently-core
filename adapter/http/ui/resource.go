@@ -7,8 +7,8 @@ import (
 	"io"
 	"net/http"
 
-	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
 	identity "github.com/viant/agently-core/protocol/resource"
+	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
 	forgetypes "github.com/viant/forge/backend/types"
 )
 
@@ -50,7 +50,7 @@ func resolvedHTTPWindow(r *http.Request, provider WindowResourceProvider, key st
 	}
 	requested := targetContextFromRequest(r)
 	target := &forgetypes.WindowTarget{Platform: requested.Platform, FormFactor: requested.FormFactor, Surface: requested.Surface, Capabilities: requested.Capabilities}
-	output, err := provider.WindowDefinitionGet(r.Context(), &forgeservice.WindowDefinitionGetInput{WindowID: key, Resource: ref, ResolvedResource: pin, Target: target})
+	output, err := provider.WindowDefinitionGet(r.Context(), &forgeservice.WindowDefinitionGetInput{WindowID: key, Resource: ref, ResolvedResource: pin, Target: target, Namespace: r.URL.Query().Get("namespace"), ProviderIdentity: r.URL.Query().Get("providerIdentity")})
 	if err != nil {
 		return nil, err
 	}

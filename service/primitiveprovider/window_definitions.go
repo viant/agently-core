@@ -46,6 +46,9 @@ type WindowDefinitionListOutput struct {
 }
 
 type WindowDefinitionGetInput struct {
+	// Routing hints select an existing catalog identity; they confer no authority.
+	Namespace        string                     `json:"namespace,omitempty"`
+	ProviderIdentity string                     `json:"providerIdentity,omitempty"`
 	Target           *types.WindowTarget        `json:"target,omitempty"`
 	Resource         *identity.ResourceRef      `json:"resource,omitempty"`
 	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`

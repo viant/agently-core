@@ -167,6 +167,9 @@ func (c *CompositeWindowCatalog) Get(ctx context.Context, input *service.WindowD
 		copy.WindowID = selected
 		return c.Get(ctx, &copy)
 	}
+	if input.Namespace != "" || input.ProviderIdentity != "" {
+		return c.getScopedWindow(ctx, input)
+	}
 	if c.Local == nil {
 		return nil, identity.ErrResourceDenied
 	}
@@ -259,4 +262,105 @@ func (c *CompositeWindowCatalog) CheckWindowContent(ctx context.Context, key str
 		return nil
 	}
 	return c.Remote.CheckWindowContent(ctx, key, pin, target)
+}
+
+// getScopedWindow resolves an authored relative key from visible metadata, then
+// performs the existing fresh Get. Catalog visibility is never OPEN authority.
+func (c *CompositeWindowCatalog) getScopedWindow(ctx context.Context, input *service.WindowDefinitionGetInput) (*service.WindowDefinitionGetOutput, error) {
+	if !c.AuthzReady() || input.Namespace == "" || strings.TrimSpace(input.Namespace) != input.Namespace || strings.TrimSpace(input.ProviderIdentity) != input.ProviderIdentity {
+		return nil, identity.ErrResourceDenied
+	}
+	if input.ProviderIdentity != "" && input.ProviderIdentity == c.LocalProviderIdentity {
+		if c.Local == nil {
+			return nil, identity.ErrResourceDenied
+		}
+		var matched string
+		complete := false
+		for offset := 0; offset < 10000; offset += 100 {
+			page, err := c.Local.List(ctx, &service.WindowDefinitionListInput{Offset: offset, Limit: 100})
+			if err != nil {
+				return nil, err
+			}
+			if page == nil {
+				return nil, identity.ErrResourceDenied
+			}
+			for _, row := range page.Windows {
+				uri, err := identity.ParseResourceURI(row.ResourceURI)
+				if err != nil || uri.Kind != "window" || uri.Namespace != input.Namespace {
+					continue
+				}
+				if row.WindowID != input.WindowID && row.Name != input.WindowID && uri.Name != input.WindowID {
+					continue
+				}
+				if matched != "" {
+					return nil, ErrCollision
+				}
+				matched = row.WindowID
+			}
+			if !page.HasMore {
+				complete = true
+				break
+			}
+			if len(page.Windows) == 0 {
+				return nil, identity.ErrResourceDenied
+			}
+		}
+		if !complete || matched == "" {
+			return nil, identity.ErrResourceDenied
+		}
+		copy := *input
+		copy.WindowID = matched
+		return c.Local.Get(ctx, &copy)
+	}
+	query := CatalogQuery{Namespace: input.Namespace, Limit: 100}
+	var selected *LocatedResource
+	for {
+		page, err := c.Remote.Gateway.ListPage(ctx, "window", query)
+		if err != nil {
+			return nil, err
+		}
+		for _, row := range page.Items {
+			if row.Connection.ProviderIdentity == c.LocalProviderIdentity || input.ProviderIdentity != "" && row.Connection.ProviderIdentity != input.ProviderIdentity {
+				continue
+			}
+			uri, err := identity.ParseResourceURI(row.Resource.URI)
+			if err != nil || uri.Kind != "window" || uri.Namespace != input.Namespace {
+				continue
+			}
+			if row.Resource.Name != input.WindowID && uri.Name != input.WindowID {
+				continue
+			}
+			if selected != nil {
+				return nil, ErrCollision
+			}
+			copy := row.LocatedResource
+			selected = &copy
+		}
+		if page.Complete {
+			break
+		}
+		if page.NextCursor == "" {
+			return nil, identity.ErrResourceDenied
+		}
+		query.Cursor = page.NextCursor
+	}
+	if selected == nil {
+		return nil, identity.ErrResourceDenied
+	}
+	copy := *input
+	copy.WindowID = encodeWindowLocator(selected.Connection, selected.Resource.URI)
+	output, err := c.Remote.Get(ctx, &copy)
+	if err != nil {
+		return nil, err
+	}
+	if output == nil || output.Definition == nil {
+		return nil, identity.ErrResourceDenied
+	}
+	// Trusted callbacks use the selected canonical identity. The browser retains
+	// the authored relative window key in its own native presentation state.
+	definition := *output.Definition
+	definition.WindowKey = selected.Resource.URI
+	result := *output
+	result.Definition = &definition
+	return &result, nil
 }
