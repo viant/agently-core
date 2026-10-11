@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
+	iauth "github.com/viant/agently-core/internal/auth"
 	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	toolapprovalqueue "github.com/viant/agently-core/protocol/tool/approvalqueue"
 	"github.com/viant/agently-core/runtime/mcpapps"
@@ -129,7 +130,11 @@ func (s *Service) RunGuestToolCall(ctx context.Context, input *GuestToolCallInpu
 	default:
 		out.Status = GuestToolStatusOK
 		out.Result = call.Result
-		return out, s.CompleteGuestToolCall(ctx, conversationID, turnID, "succeeded", nil)
+		completionErr := s.CompleteGuestToolCall(ctx, conversationID, turnID, "succeeded", nil)
+		if completionErr == nil {
+			mcpapps.RecordCompletion(ctx, iauth.EffectiveUserID(ctx), conversationID, turnID)
+		}
+		return out, completionErr
 	}
 }
 
