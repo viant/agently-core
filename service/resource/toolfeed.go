@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	identity "github.com/viant/agently-core/protocol/resource"
 	"gopkg.in/yaml.v3"
 )
 
@@ -52,4 +53,19 @@ func NativeToolfeedLoader(ctx context.Context, reader *ExtensionReader, file str
 func ValidateToolfeedDefinition(version int64, raw json.RawMessage) error {
 	_, err := primitive.DecodeToolfeedDefinition(version, raw)
 	return err
+}
+
+// SnapshotToolfeedDefinitions reuses the same confined startup inventory. These
+// static loaders grant no authority; the existing provider supplies its policy.
+func SnapshotToolfeedDefinitions(ctx context.Context, root string, directories []ExtensionDirectory) ([]NativeSnapshotDefinition, error) {
+	for _, directory := range directories {
+		if directory.Kind != primitive.ToolfeedKind || directory.FormatVersion != primitive.ToolfeedFormatVersion {
+			return nil, identity.ErrResource
+		}
+	}
+	var definitions []NativeSnapshotDefinition
+	_, err := extensionBindings(ctx, root, directories, func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) (identity.ResourceRevisionPolicy, error) {
+		return nil, nil
+	}, &definitions)
+	return definitions, err
 }
