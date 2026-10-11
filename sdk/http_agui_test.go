@@ -12,6 +12,8 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	convstore "github.com/viant/agently-core/app/store/conversation"
+	agentmdl "github.com/viant/agently-core/protocol/agent"
 	"github.com/viant/agently-core/protocol/agui"
 	agentsvc "github.com/viant/agently-core/service/agent"
 )
@@ -93,6 +95,7 @@ func TestPrepareAGUIChatPreservesScopeAndRejectsNativeOnlyControls(t *testing.T)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
 		require.Equal(t, "/v1/conversations/native", r.URL.Path)
+		require.Equal(t, "false", r.URL.Query().Get("includeTranscript"))
 		_ = json.NewEncoder(w).Encode(map[string]string{"id": "native", "aguiThreadId": " wire "})
 	}))
 	defer server.Close()
@@ -148,5 +151,157 @@ func TestOldConversationWireRoutesAreNotMounted(t *testing.T) {
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, httptest.NewRequest(method, path, nil))
 		require.Equal(t, http.StatusNotFound, rec.Code)
+	}
+}
+
+func TestPrepareAGUIChatUsesNativeHeaderAfterPersistedModelAndTool(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	c := newDatlyObservedClient(t, 8)
+	ctx := recoveryContext()
+	handler, err := NewHandlerWithContext(ctx, c.native)
+	require.NoError(t, err)
+	requests := map[string]int{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Trusted synthetic ingress for this owned SQLite fixture only. There is no
+		// caller-provided userId in either SDK query or conversation body.
+		if r.Header.Get("Authorization") != "Bearer owned-fixture-token" {
+			w.WriteHeader(401)
+			return
+		}
+		if r.Method == "POST" && r.URL.Path == "/v1/conversations" {
+			requests["create"]++
+		} else if r.Method == "GET" {
+			requests["get"]++
+			if r.URL.Query().Get("includeTranscript") != "false" {
+				t.Error("chat preparation requested full conversation state")
+				w.WriteHeader(400)
+				return
+			}
+		} else {
+			t.Error("unexpected execution route")
+			w.WriteHeader(500)
+			return
+		}
+		handler.ServeHTTP(w, r.WithContext(ctx))
+	}))
+	defer server.Close()
+	client, err := NewHTTP(server.URL, WithHTTPClient(server.Client()), WithAuthToken("owned-fixture-token"))
+	require.NoError(t, err)
+	first, err := client.PrepareAGUIChat(ctx, &agentsvc.QueryInput{AgentID: "mcp_large_result_probe", Query: "Produce the large MCP result.", ModelOverride: "openai_gpt4o_mini_responses_preview"})
+	require.NoError(t, err, "initial Create/Get preparation must work")
+	require.NotNil(t, first)
+	id := first.ConversationID
+	require.NotEmpty(t, id)
+	turn := convstore.NewTurn()
+	turn.SetId("owned-first")
+	turn.SetConversationID(id)
+	turn.SetStatus("succeeded")
+	require.NoError(t, c.conv.PatchTurn(ctx, turn))
+	for _, entry := range []struct{ id, role, kind string }{{"owned-assistant", "assistant", "text"}, {"owned-tool", "tool", "tool_op"}} {
+		m := convstore.NewMessage()
+		m.SetId(entry.id)
+		m.SetConversationID(id)
+		m.SetTurnID("owned-first")
+		m.SetRole(entry.role)
+		m.SetType(entry.kind)
+		m.SetContent("Owned fixture result")
+		if entry.role == "tool" {
+			m.SetParentMessageID("owned-assistant")
+		}
+		require.NoError(t, c.conv.PatchMessage(ctx, m))
+	}
+	for _, pid := range []string{"owned-model-request", "owned-tool-request", "owned-tool-response"} {
+		p := convstore.NewPayload()
+		p.SetId(pid)
+		p.SetKind("model_request")
+		p.SetMimeType("application/json")
+		p.SetStorage("inline")
+		raw, err := json.Marshal(map[string]any{"owned": strings.Repeat("界", 1<<16), "exact": json.Number("9007199254740993")})
+		require.NoError(t, err)
+		p.SetInlineBody(raw)
+		p.SetSizeBytes(len(raw))
+		require.NoError(t, c.conv.PatchPayload(ctx, p))
+	}
+	model := convstore.NewModelCall()
+	model.SetMessageID("owned-assistant")
+	model.SetTurnID("owned-first")
+	model.SetProvider("fixture")
+	model.SetModel("owned")
+	model.SetModelKind("chat")
+	model.SetStatus("completed")
+	pid := "owned-model-request"
+	model.RequestPayloadID = &pid
+	model.Has.RequestPayloadID = true
+	require.NoError(t, c.conv.PatchModelCall(ctx, model))
+	tool := convstore.NewToolCall()
+	tool.SetMessageID("owned-tool")
+	tool.SetTurnID("owned-first")
+	tool.SetOpID("owned-op")
+	tool.SetToolName("fixture/tool")
+	tool.SetToolKind("function")
+	tool.SetStatus("completed")
+	reqID, resID := "owned-tool-request", "owned-tool-response"
+	tool.RequestPayloadID = &reqID
+	tool.Has.RequestPayloadID = true
+	tool.ResponsePayloadID = &resID
+	tool.Has.ResponsePayloadID = true
+	require.NoError(t, c.conv.PatchToolCall(ctx, tool))
+	// Inspect only safe shape/equality, preserving the exact requested-ID check.
+	for _, suffix := range []string{"", "?includeTranscript=false"} {
+		request := httptest.NewRequest("GET", "/v1/conversations/"+id+suffix, nil).WithContext(ctx)
+		request.SetPathValue("id", id)
+		response := httptest.NewRecorder()
+		handleGetConversation(c.native)(response, request)
+		require.Equal(t, 200, response.Code)
+		var body struct {
+			ID string `json:"id"`
+		}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
+		require.Equal(t, id, body.ID, "native metadata must retain requested identity")
+	}
+	exposure := agentmdl.ToolCallExposure("conversation")
+	second, err := client.PrepareAGUIChat(ctx, &agentsvc.QueryInput{AgentID: "tool_exposure_probe", ConversationID: id, Query: "probe", ToolCallExposure: &exposure, ModelOverride: "openai_gpt4o_mini_responses_preview"})
+	require.NoError(t, err, "second preparation must preserve exact requested ID after persisted first execution")
+	require.Equal(t, id, second.ConversationID)
+	require.Equal(t, first.Input.ThreadID, second.Input.ThreadID)
+	require.Equal(t, 1, requests["create"])
+	require.Equal(t, 2, requests["get"])
+	t.Log("Create/Get protocol accepted before and after persisted model+tool; same native identity and wire thread; model/AGUI dispatches=0")
+}
+
+func TestPrepareAGUIChatRejectsMissingOrForeignHeaderIdentity(t *testing.T) {
+	for _, fresh := range []bool{false, true} {
+		for _, body := range []string{"null", `{}`, `{"id":"foreign","aguiThreadId":"native"}`} {
+			t.Run(fmt.Sprintf("fresh=%v/body=%s", fresh, body), func(t *testing.T) {
+				calls := 0
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls++
+					w.Header().Set("Content-Type", "application/json")
+					if r.Method == http.MethodPost && r.URL.Path == "/v1/conversations" {
+						fmt.Fprint(w, `{"id":"native"}`)
+						return
+					}
+					require.Equal(t, http.MethodGet, r.Method)
+					require.Equal(t, "/v1/conversations/native", r.URL.Path)
+					require.Equal(t, "false", r.URL.Query().Get("includeTranscript"))
+					fmt.Fprint(w, body)
+				}))
+				defer server.Close()
+				client, err := NewHTTP(server.URL)
+				require.NoError(t, err)
+				input := &agentsvc.QueryInput{ConversationID: "native", AgentID: "agent", Query: "task"}
+				if fresh {
+					input.ConversationID = ""
+				}
+				output, err := client.PrepareAGUIChat(context.Background(), input)
+				require.ErrorContains(t, err, "conversation metadata identity mismatch")
+				require.Nil(t, output)
+				expected := 1
+				if fresh {
+					expected = 2
+				}
+				require.Equal(t, expected, calls, "identity mismatch must not retry or dispatch a run")
+			})
+		}
 	}
 }
