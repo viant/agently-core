@@ -313,6 +313,25 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 				return
 			}
 		}
+		if canonical && applyPermissionRequested(r) && (r.URL.Query().Get("clientId") != "" || r.URL.Query().Get("windowId") != "") {
+			binder, ok := settings.windows.(interface {
+				BindAdmittedFrameworkWindow(context.Context, string, string, string, *forgeTypes.Window) error
+			})
+			if !ok {
+				writeOpenAdmissionError(w, identity.ErrResourceDenied)
+				return
+			}
+			bindContext := r.Context()
+			if !openLease.IsZero() {
+				var stop context.CancelFunc
+				bindContext, stop = context.WithDeadline(bindContext, openLease)
+				defer stop()
+			}
+			if err := binder.BindAdmittedFrameworkWindow(bindContext, r.URL.Query().Get("clientId"), r.URL.Query().Get("windowId"), strings.Join(pathParts, "/"), aWindow); err != nil {
+				writeOpenAdmissionError(w, err)
+				return
+			}
+		}
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(permittedWindowResponse{
 			Status:        "ok",

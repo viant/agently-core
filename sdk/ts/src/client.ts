@@ -1140,6 +1140,8 @@ export class AgentlyClient {
         if (!key) throw new Error('window key is required');
         const query = targetContextQuery(input.targetContext);
         query.set('applyPermission', 'true');
+        if (input.clientId) query.set('clientId', String(input.clientId).trim());
+        if (input.windowId) query.set('windowId', String(input.windowId).trim());
         if (input.resolvedResource) query.set('resolvedResource', JSON.stringify(input.resolvedResource));
         if (input.authorizationSchemaVersion !== undefined) {
             if (input.authorizationSchemaVersion !== 1 && input.authorizationSchemaVersion !== 2) throw new Error('authorization schema version must be 1 or 2');
