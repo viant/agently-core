@@ -2,17 +2,20 @@ import Foundation
 
 public struct ApplyPermissionInput: Sendable {
     public var conversationId: String
+    public var authorizationSchemaVersion: Int?
     public var resource: [String: JSONValue]
     public var windowParams: [String: JSONValue]?
     public var targetContext: MetadataTargetContext?
 
     public init(
         conversationId: String,
+        authorizationSchemaVersion: Int? = nil,
         resource: [String: JSONValue],
         windowParams: [String: JSONValue]? = nil,
         targetContext: MetadataTargetContext? = nil
     ) {
         self.conversationId = conversationId
+        self.authorizationSchemaVersion = authorizationSchemaVersion
         self.resource = resource
         self.windowParams = windowParams
         self.targetContext = targetContext
@@ -42,6 +45,10 @@ public extension AgentlyClient {
         let key = try normalizedForgeWindowKey(windowKey)
         var query = metadataTargetQueryItems(from: input.targetContext)
         query.append(URLQueryItem(name: "applyPermission", value: "true"))
+        if let version = input.authorizationSchemaVersion {
+            guard version == 1 || version == 2 else { throw AgentlySDKError.invalidArgument("authorization schema version must be 1 or 2") }
+            query.append(URLQueryItem(name: "authorizationSchemaVersion", value: String(version)))
+        }
         let conversationId = input.conversationId.trimmingCharacters(in: .whitespacesAndNewlines)
         if !conversationId.isEmpty {
             query.append(URLQueryItem(name: "conversationId", value: conversationId))

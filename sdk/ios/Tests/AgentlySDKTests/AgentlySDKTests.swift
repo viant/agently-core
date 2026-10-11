@@ -1493,6 +1493,67 @@ final class AgentlySDKTests: XCTestCase {
         URLProtocolStub.requestHandler = nil
     }
 
+    func testApplyPermissionForwardsV2AndPreservesOpaqueStringIdentifiers() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session, metadataSession: session)
+
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let items = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)).queryItems ?? []
+            func value(_ name: String) -> String? { items.first(where: { $0.name == name })?.value }
+            XCTAssertEqual(value("authorizationSchemaVersion"), "2")
+            XCTAssertTrue(value("resource")?.contains("9007199254740993") == true)
+            XCTAssertTrue(value("windowParams")?.contains("9007199254740993") == true)
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
+            return (response, #"{"data":{"id":"advertiser","authorizationSnapshot":{"schemaVersion":2,"resources":{"9007199254740993":{"type":"advertiser","id":"9007199254740993","capabilities":{"read":true}}}}}}"#.data(using: .utf8)!)
+        }
+
+        let metadata = try await client.applyPermission(
+            windowKey: "advertiser",
+            input: ApplyPermissionInput(
+                conversationId: "conv-1",
+                authorizationSchemaVersion: 2,
+                resource: ["advertiserId": .string("9007199254740993")],
+                windowParams: ["AdvertiserId": .array([.string("9007199254740993")])]
+            )
+        )
+        if case .object(let object) = metadata,
+           case .object(let snapshot)? = object["authorizationSnapshot"],
+           case .object(let resources)? = snapshot["resources"],
+           case .object(let selected)? = resources["9007199254740993"] {
+            XCTAssertEqual(selected["id"], .string("9007199254740993"))
+        } else {
+            XCTFail("v2 snapshot lost exact string ID")
+        }
+        URLProtocolStub.requestHandler = nil
+    }
+
+    func testApplyPermissionRejectsUnsupportedAuthorizationSchemaVersionBeforeDispatch() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session, metadataSession: session)
+        URLProtocolStub.requestHandler = { _ in
+            XCTFail("unsupported schema version must be rejected before transport")
+            throw URLError(.cancelled)
+        }
+
+        do {
+            _ = try await client.applyPermission(
+                windowKey: "advertiser",
+                input: ApplyPermissionInput(conversationId: "conv-1", authorizationSchemaVersion: 3, resource: [:])
+            )
+            XCTFail("expected unsupported version to fail")
+        } catch AgentlySDKError.invalidArgument(let message) {
+            XCTAssertEqual(message, "authorization schema version must be 1 or 2")
+        }
+        URLProtocolStub.requestHandler = nil
+    }
+
     func testListConversationsBuildsExpectedQueryParameters() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [URLProtocolStub.self]
