@@ -1036,6 +1036,12 @@ func (c *HTTPClient) GetTranscript(ctx context.Context, input *GetTranscriptInpu
 	if input.IncludeToolCalls {
 		q.Set("includeToolCalls", "true")
 	}
+	if input.IncludeToolPayloads != nil {
+		q.Set("includeToolPayloads", strconv.FormatBool(*input.IncludeToolPayloads))
+	}
+	if optState.includeToolPayloads != nil {
+		q.Set("includeToolPayloads", strconv.FormatBool(*optState.includeToolPayloads))
+	}
 	if input.IncludeModelPayloads != nil {
 		q.Set("includeModelPayloads", strconv.FormatBool(*input.IncludeModelPayloads))
 	}

@@ -1772,3 +1772,13 @@ it('falls back only for an old compact-field envelope schema rejection', async (
         await expect(c.getTranscript({conversationId:'owned',includeModelPayloads:false})).rejects.toBe(error);
     }
 });
+
+describe('compact tool transcript payload option', () => {
+    it('preserves explicit false in the public history HTTP query', async () => {
+        const fetch = mockFetch(200, {schemaVersion:'2', conversation:{conversationId:'owned',turns:[]}});
+        await client(fetch).readConversationHistory({conversationId:'owned',includeToolCalls:true,includeToolPayloads:false});
+        const url = new URL(String(fetch.mock.calls[0][0]));
+        expect(url.searchParams.get('includeToolPayloads')).toBe('false');
+        expect(url.searchParams.get('includeToolCalls')).toBe('true');
+    });
+});

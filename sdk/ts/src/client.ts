@@ -119,7 +119,7 @@ function isLegacyCompactPayloadSchemaRejection(error: unknown): boolean {
     return body.includes('invalidEnvelope')
         && body.includes('conversation-v1.schema.json')
         && /additional\s*properties?/i.test(body)
-        && body.includes('includeModelPayloads');
+        && (body.includes('includeModelPayloads') || body.includes('includeToolPayloads'));
 }
 
 export class AgentlyClient {
@@ -373,6 +373,7 @@ export class AgentlyClient {
         if (input.since) q.set('since', input.since);
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
         if (input.includeModelPayloads !== undefined) q.set('includeModelPayloads', String(input.includeModelPayloads));
+        if (input.includeToolPayloads !== undefined) q.set('includeToolPayloads', String(input.includeToolPayloads));
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
         if (input.includeFeeds) q.set('includeFeeds', 'true');
         const selectors = { ...(options?.selectors ?? {}) } as Record<string, QuerySelector>;
@@ -405,6 +406,7 @@ export class AgentlyClient {
         const q = new URLSearchParams();
         if (input.includeModelCalls) q.set('includeModelCalls', 'true');
         if (input.includeModelPayloads !== undefined) q.set('includeModelPayloads', String(input.includeModelPayloads));
+        if (input.includeToolPayloads !== undefined) q.set('includeToolPayloads', String(input.includeToolPayloads));
         if (input.includeToolCalls) q.set('includeToolCalls', 'true');
         if (input.includeFeeds) q.set('includeFeeds', 'true');
         if (options?.selectors && Object.keys(options.selectors).length > 0) {
@@ -426,9 +428,10 @@ export class AgentlyClient {
             mode:'transcript', since:input.since, includeModelCalls:input.includeModelCalls === true,
             includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
             includeModelPayloads:input.includeModelPayloads,
+            includeToolPayloads:input.includeToolPayloads,
             selectors:this.transcriptSelectors(options),
         }); }
-        catch (error) { if ((error as {status?:number})?.status === 403 || input.includeModelPayloads === false && isLegacyCompactPayloadSchemaRejection(error)) return this.readConversationHistory(input, options); throw error; }
+        catch (error) { if ((error as {status?:number})?.status === 403 || (input.includeModelPayloads === false || input.includeToolPayloads === false) && isLegacyCompactPayloadSchemaRejection(error)) return this.readConversationHistory(input, options); throw error; }
     }
 
     async getLiveState(input: GetTranscriptInput, options?: GetTranscriptOptions): Promise<TranscriptOutput> {
@@ -436,9 +439,10 @@ export class AgentlyClient {
             mode:'live', includeModelCalls:input.includeModelCalls === true,
             includeToolCalls:input.includeToolCalls === true, includeFeeds:input.includeFeeds === true,
             includeModelPayloads:input.includeModelPayloads,
+            includeToolPayloads:input.includeToolPayloads,
             selectors:this.transcriptSelectors(options),
         }); }
-        catch (error) { if ((error as {status?:number})?.status === 403 || input.includeModelPayloads === false && isLegacyCompactPayloadSchemaRejection(error)) return this.readApplicationState(input, options); throw error; }
+        catch (error) { if ((error as {status?:number})?.status === 403 || (input.includeModelPayloads === false || input.includeToolPayloads === false) && isLegacyCompactPayloadSchemaRejection(error)) return this.readApplicationState(input, options); throw error; }
     }
 
     // ── Query ────────────────────────────────────────────────────────────────
