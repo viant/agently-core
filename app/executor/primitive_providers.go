@@ -51,14 +51,21 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 			return out.PrimitiveProviders.BeginReadSequence(ctx, out.DatasourceReadFactsScope)
 		}
 	}
-	if out.Reporting != nil && out.PrimitiveProviders != nil && b.primitiveTargetProof != nil {
+	reportProof := b.primitiveReportDependencyProof
+	if reportProof == nil {
+		reportProof = b.primitiveTargetProof
+	}
+	if out.Reporting != nil && out.PrimitiveProviders != nil && reportProof != nil {
 		out.Reporting.SetResourceDependencies(func(ctx context.Context, pin identity.ResolvedResource, refs map[string]primitive.DataSourceReference, descriptors map[string]json.RawMessage, original map[string]identity.ResolvedResource) (map[string]identity.ResolvedResource, error) {
 			parent, e := out.PrimitiveProviders.ConnectionForProvider(ctx, pin.ProviderIdentity)
 			if e != nil {
 				return nil, e
 			}
 			return out.PrimitiveProviders.ResolveDependencyPins(ctx, parent, pin, refs, descriptors, original)
-		}, b.primitiveTargetProof)
+		}, reportProof)
+	}
+	if err := b.configurePrimitiveReports(out); err != nil {
+		return err
 	}
 	if b.primitiveWindowAdmission == nil || out.PrimitiveWindows != nil {
 		b.configureStandaloneDatasourceProviders(out)
