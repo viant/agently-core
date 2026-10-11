@@ -18,6 +18,7 @@ import (
 	agentmdl "github.com/viant/agently-core/protocol/agent"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
 	"github.com/viant/agently-core/protocol/mcp/manager"
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	authsvc "github.com/viant/agently-core/service/auth"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/mcp"
@@ -89,6 +90,16 @@ func (f *remoteSDKSkillHTTP) serve(w http.ResponseWriter, r *http.Request) {
 			URI  string         `json:"uri"`
 		}
 		_ = json.Unmarshal(q.Params, &p)
+		if p.Name == "skills/list" {
+			for key := range p.Args {
+				if key != "cursor" {
+					rpc = map[string]any{"code": -32602, "message": "unsupported skill list argument"}
+				}
+			}
+			if rpc != nil {
+				break
+			}
+		}
 		name := p.Name
 		if q.Method == "resources/read" {
 			name = q.Method
@@ -216,4 +227,57 @@ func TestSDKHTTPRemoteSkillListAndInlineActivationPreservePinnedIdentity(t *test
 	for _, name := range []string{"skills/list", "skills/get", "resources/read"} {
 		require.Positive(t, fixture.calls[name])
 	}
+}
+
+func TestSDKHTTPVisibleSkillPagingUsesCachedMetadataWithoutResourceReads(t *testing.T) {
+	for _, name := range []string{"AGENTLY_DB_DRIVER", "AGENTLY_DB_DSN", "AGENTLY_DB_PATH", "AGENTLY_DB_SECRETS"} {
+		t.Setenv(name, "")
+	}
+	root := t.TempDir()
+	previousRoot, previousRuntimeRoot := workspace.Root(), workspace.RuntimeRoot()
+	workspace.SetRoot(root)
+	workspace.SetRuntimeRoot(root)
+	t.Cleanup(func() { workspace.SetRoot(previousRoot); workspace.SetRuntimeRoot(previousRuntimeRoot) })
+	for _, name := range []string{"alpha", "zulu"} {
+		directory := filepath.Join(root, "skills", name)
+		require.NoError(t, os.MkdirAll(directory, 0700))
+		require.NoError(t, os.WriteFile(filepath.Join(directory, "SKILL.md"), []byte("---\nname: "+name+"\ndescription: Local sales review\n---\nBODY_MUST_NOT_BE_FETCHED_TO_FILTER\n"), 0600))
+	}
+	fixture := &remoteSDKSkillHTTP{calls: map[string]int{}, allAuthenticated: true}
+	upstream := httptest.NewServer(http.HandlerFunc(fixture.serve))
+	defer upstream.Close()
+	mgr, err := manager.New(remoteSDKSkillOptions{upstream.URL})
+	require.NoError(t, err)
+	agent := &agentmdl.Agent{Identity: agentmdl.Identity{ID: "owned", Name: "Owned"}, Skills: []string{"alpha", "zulu", "remote-fixture/remote-review"}}
+	runtime, err := executor.NewBuilder().WithAgentFinder(&streamTestAgentFinder{agent: agent}).WithModelFinder(&streamTestModelFinder{model: &streamTestModel{}}).WithMCPManager(mgr).Build(context.Background())
+	require.NoError(t, err)
+	defer runtime.Close(context.Background())
+	backend, err := newBackendFromRuntime(runtime)
+	require.NoError(t, err)
+	handler := NewHandler(backend)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ctx := authsvc.InjectTokens(authsvc.InjectUser(r.Context(), "owned-user"), &scyauth.Token{Token: oauth2.Token{AccessToken: remoteSDKCredential}, IDToken: remoteSDKCredential})
+		handler.ServeHTTP(w, r.WithContext(ctx))
+	}))
+	defer server.Close()
+	client, err := NewHTTP(server.URL)
+	require.NoError(t, err)
+	first, err := client.ListSkills(context.Background(), &ListSkillsInput{AgentID: "owned", CatalogQuery: primitive.CatalogQuery{Limit: 1}})
+	require.NoError(t, err)
+	require.Equal(t, "alpha", first.Items[0].Name)
+	require.Equal(t, 3, first.Total)
+	second, err := client.ListSkills(context.Background(), &ListSkillsInput{AgentID: "owned", CatalogQuery: primitive.CatalogQuery{Limit: 1, Cursor: first.NextCursor}})
+	require.NoError(t, err)
+	require.Contains(t, second.Items[0].Name, "remote-review")
+	filtered, err := client.ListSkills(context.Background(), &ListSkillsInput{AgentID: "owned", CatalogQuery: primitive.CatalogQuery{Namespace: "fixture", NameTerms: []string{"REMOTE", "absent"}, DescriptionTerms: []string{"owned"}, Keywords: []string{"review"}, Limit: 10}})
+	require.NoError(t, err)
+	require.Len(t, filtered.Items, 1)
+	_, err = client.ListSkills(context.Background(), &ListSkillsInput{AgentID: "owned", CatalogQuery: primitive.CatalogQuery{Limit: 1, Cursor: first.NextCursor, Keywords: []string{"changed"}}})
+	require.Error(t, err)
+	fixture.mu.Lock()
+	defer fixture.mu.Unlock()
+	require.Equal(t, 1, fixture.calls["skills/list"])
+	require.Zero(t, fixture.calls["skills/get"])
+	require.Zero(t, fixture.calls["resources/read"])
+	require.True(t, fixture.allAuthenticated)
 }

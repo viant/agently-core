@@ -3452,4 +3452,27 @@ final class AgentlySDKTests: XCTestCase {
         XCTAssertEqual(snapshot.usage?.embeddingTokens, 5)
         XCTAssertEqual(snapshot.usage?.totalTokens, 155)
     }
+    func testSkillCatalogPagingUsesRepeatedLiteralTermsAndEmptyPages() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [URLProtocolStub.self]
+        let session = URLSession(configuration: configuration)
+        let endpoint = EndpointConfig(baseURL: try XCTUnwrap(URL(string: "http://localhost:8585")))
+        let client = AgentlyClient(endpoints: ["appAPI": endpoint], session: session)
+        URLProtocolStub.requestHandler = { request in
+            let url = try XCTUnwrap(request.url)
+            let items = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false)).queryItems ?? []
+            XCTAssertEqual(items.filter { $0.name == "nameTerms" }.compactMap(\.value), ["Alpha", "Beta"])
+            XCTAssertEqual(items.first { $0.name == "namespace" }?.value, "native")
+            XCTAssertEqual(items.first { $0.name == "cursor" }?.value, "opaque")
+            XCTAssertEqual(items.first { $0.name == "limit" }?.value, "2")
+            let response = try XCTUnwrap(HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"]))
+            return (response, Data(#"{"complete":true,"total":0}"#.utf8))
+        }
+        defer { URLProtocolStub.requestHandler = nil }
+        let page = try await client.listSkills(ListSkillsInput(agentID: "draft", namespace: "native", nameTerms: ["Alpha", "Beta"], descriptionTerms: ["sales"], keywords: ["review"], cursor: "opaque", limit: 2))
+        XCTAssertTrue(page.items.isEmpty)
+        XCTAssertEqual(page.complete, true)
+        XCTAssertEqual(page.total, 0)
+    }
+
 }

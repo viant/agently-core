@@ -1,6 +1,7 @@
 package api
 
 import (
+	primitive "github.com/viant/agently-core/protocol/primitive"
 	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	"time"
 
@@ -339,6 +340,7 @@ type GetTemplateOutput struct {
 }
 
 type ListSkillsInput struct {
+	primitive.CatalogQuery
 	AgentID        string `json:"agentId,omitempty"`
 	ConversationID string `json:"conversationId,omitempty"`
 }
@@ -349,6 +351,9 @@ type SkillItem struct {
 }
 
 type ListSkillsOutput struct {
+	NextCursor  string      `json:"nextCursor,omitempty"`
+	Complete    bool        `json:"complete"`
+	Total       int         `json:"total,omitempty"`
 	Items       []SkillItem `json:"items,omitempty"`
 	Diagnostics []string    `json:"diagnostics,omitempty"`
 }

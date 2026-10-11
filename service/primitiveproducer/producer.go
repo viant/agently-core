@@ -54,6 +54,7 @@ type DefinitionValidationCache func(identity.ResourceSource, string, int64, stri
 // LocalConfig installs one authoritative local catalog. It has no aggregation
 // or mutation path; only list/get operations are advertised.
 type LocalConfig struct {
+	NamespaceMetadata         map[string]primitive.NamespaceMetadata
 	ProviderIdentity          string
 	Actor                     ActorResolver
 	Verify                    ActorVerifier
@@ -68,6 +69,7 @@ type LocalConfig struct {
 }
 
 type LocalProvider struct {
+	namespaceMetadata         map[string]primitive.NamespaceMetadata
 	identity                  string
 	actor                     ActorResolver
 	verify                    ActorVerifier
@@ -96,7 +98,7 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 	if config.WindowListVisibility != nil && config.WindowIndex == nil {
 		return nil, fmt.Errorf("window list visibility requires a trusted static window index")
 	}
-	p := &LocalProvider{identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, now: config.Now}
+	p := &LocalProvider{namespaceMetadata: config.NamespaceMetadata, identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, now: config.Now}
 	if p.now == nil {
 		p.now = time.Now
 	}
@@ -264,7 +266,11 @@ func (p *LocalProvider) NamespaceList(ctx context.Context, input primitive.Names
 			kinds = append(kinds, kind)
 		}
 		sort.Strings(kinds)
-		visible = append(visible, primitive.Namespace{Name: name, Kinds: kinds})
+		summary := primitive.Namespace{NamespaceMetadata: p.namespaceMetadata[name], Name: name, Kinds: kinds}
+		if _, published := p.namespaceMetadata[name]; published {
+			summary.SupportedKinds = p.namespaceKinds(name)
+		}
+		visible = append(visible, summary)
 	}
 	if err := p.finishActor(ctx, actor); err != nil {
 		return nil, err
@@ -289,38 +295,11 @@ func (p *LocalProvider) NamespaceGet(ctx context.Context, input primitive.Namesp
 	if err := p.authorize(ctx, actor, probe, "namespace.get"); err != nil {
 		return nil, err
 	}
-	typesByKind := map[string]map[int64]bool{}
-	for _, binding := range p.bindings {
-		u, _ := identity.ParseResourceURI(binding.URI)
-		if u.Namespace == input.Namespace {
-			if typesByKind[u.Kind] == nil {
-				typesByKind[u.Kind] = map[int64]bool{}
-			}
-			typesByKind[u.Kind][binding.FormatVersion] = true
-		}
-	}
-	if len(typesByKind) == 0 {
+	kinds := p.namespaceKinds(input.Namespace)
+	if len(kinds) == 0 {
 		return nil, identity.ErrResourceDenied
 	}
-	kinds := make([]string, 0, len(typesByKind))
-	for k := range typesByKind {
-		kinds = append(kinds, k)
-	}
-	sort.Strings(kinds)
-	out := &primitive.NamespaceCapabilities{ProviderIdentity: p.identity, Namespace: input.Namespace, Kinds: []primitive.KindSupport{}}
-	for _, kind := range kinds {
-		versions := make([]int64, 0, len(typesByKind[kind]))
-		for v := range typesByKind[kind] {
-			versions = append(versions, v)
-		}
-		sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
-		ops := []string{"list", "get"}
-		support := primitive.KindSupport{Kind: kind, FormatVersions: versions, Operations: ops, TestSupported: false, Methods: primitive.Methods(kind, ops)}
-		if kind == primitive.ToolfeedKind {
-			support.SchemaURI = primitive.ToolfeedSchemaURI
-		}
-		out.Kinds = append(out.Kinds, support)
-	}
+	out := &primitive.NamespaceCapabilities{NamespaceMetadata: p.namespaceMetadata[input.Namespace], ProviderIdentity: p.identity, Namespace: input.Namespace, Kinds: kinds}
 	if err := p.authorize(ctx, actor, probe, "namespace.get"); err != nil {
 		return nil, err
 	}
@@ -384,7 +363,7 @@ func (p *LocalProvider) List(ctx context.Context, kind string, input primitive.L
 				continue
 			}
 		}
-		out.Resources = append(out.Resources, &primitive.ResourceState{Kind: kind, Namespace: uri.Namespace, Name: uri.Name, URI: value, Title: binding.Title, Lifecycle: pin.Kind, Revision: pin.Selector(), FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint})
+		out.Resources = append(out.Resources, &primitive.ResourceState{Description: binding.Description, Kind: kind, Namespace: uri.Namespace, Name: uri.Name, URI: value, Title: binding.Title, Lifecycle: pin.Kind, Revision: pin.Selector(), FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint})
 	}
 	if err := p.finishActor(ctx, actor); err != nil {
 		return nil, err
@@ -580,7 +559,7 @@ func (p *LocalProvider) Get(ctx context.Context, kind string, input primitive.Ge
 	if kind == "menu" {
 		return p.getMenuProjection(ctx, actor, binding, uri, raw, pin)
 	}
-	return &primitive.GetResult{Resource: &primitive.ResourceState{Kind: kind, Namespace: uri.Namespace, Name: uri.Name, URI: input.URI, Title: binding.Title, Lifecycle: "working", Revision: identity.WorkingCandidate, FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint, Definition: raw, DefinitionBytes: append([]byte(nil), raw...)}, ResolvedResource: pin}, nil
+	return &primitive.GetResult{Resource: &primitive.ResourceState{Description: binding.Description, Kind: kind, Namespace: uri.Namespace, Name: uri.Name, URI: input.URI, Title: binding.Title, Lifecycle: "working", Revision: identity.WorkingCandidate, FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint, Definition: raw, DefinitionBytes: append([]byte(nil), raw...)}, ResolvedResource: pin}, nil
 }
 
 func (p *LocalProvider) InstalledTools() []string {
@@ -784,3 +763,36 @@ func NewMCPHandler(provider *LocalProvider, protect func(http.Handler) http.Hand
 }
 
 var _ interface{ Implements(string) bool } = (*localMCPHandler)(nil)
+
+func (p *LocalProvider) namespaceKinds(namespace string) []primitive.KindSupport {
+	typesByKind := map[string]map[int64]bool{}
+	for _, binding := range p.bindings {
+		u, _ := identity.ParseResourceURI(binding.URI)
+		if u.Namespace == namespace {
+			if typesByKind[u.Kind] == nil {
+				typesByKind[u.Kind] = map[int64]bool{}
+			}
+			typesByKind[u.Kind][binding.FormatVersion] = true
+		}
+	}
+	kinds := make([]string, 0, len(typesByKind))
+	for k := range typesByKind {
+		kinds = append(kinds, k)
+	}
+	sort.Strings(kinds)
+	out := []primitive.KindSupport{}
+	for _, kind := range kinds {
+		versions := make([]int64, 0, len(typesByKind[kind]))
+		for v := range typesByKind[kind] {
+			versions = append(versions, v)
+		}
+		sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+		ops := []string{"list", "get"}
+		support := primitive.KindSupport{Kind: kind, FormatVersions: versions, Operations: ops, TestSupported: false, Methods: primitive.Methods(kind, ops)}
+		if kind == primitive.ToolfeedKind {
+			support.SchemaURI = primitive.ToolfeedSchemaURI
+		}
+		out = append(out, support)
+	}
+	return out
+}

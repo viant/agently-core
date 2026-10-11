@@ -128,6 +128,9 @@ type Manager struct {
 	toolCatalog           map[string]*toolCatalogPage
 	toolCatalogGeneration map[string]uint64
 	protectedToolCatalog  map[string][32]byte
+	visibleCatalogs       map[string]*visibleCatalog
+	catalogSequence       uint64
+	catalogEpoch          [16]byte
 	prov                  Provider
 	ttl                   time.Duration
 	newHandler            func() protoclient.Handler

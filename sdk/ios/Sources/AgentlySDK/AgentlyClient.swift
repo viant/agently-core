@@ -782,7 +782,15 @@ public final class AgentlyClient: Sendable {
     }
 
     public func listSkills(_ input: ListSkillsInput) async throws -> ListSkillsOutput {
-        try await get("/v1/skills", query: try queryItems(from: input), as: ListSkillsOutput.self)
+        var query: [URLQueryItem] = []
+        for (key, value) in [("conversationId", input.conversationID), ("agentId", input.agentID), ("namespace", input.namespace), ("cursor", input.cursor)] {
+            if let value { query.append(URLQueryItem(name: key, value: value)) }
+        }
+        if let limit = input.limit { query.append(URLQueryItem(name: "limit", value: String(limit))) }
+        for (key, terms) in [("nameTerms", input.nameTerms), ("descriptionTerms", input.descriptionTerms), ("keywords", input.keywords)] {
+            for term in terms ?? [] { query.append(URLQueryItem(name: key, value: term)) }
+        }
+        return try await get("/v1/skills", query: query, as: ListSkillsOutput.self)
     }
 
     public func activateSkill(_ input: ActivateSkillInput) async throws -> ActivateSkillOutput {
