@@ -30,7 +30,8 @@ var (
 )
 
 type Component struct {
-	Contract xdatly.Component[Input, Output] `component:"ExportComplete,path=/v1/internal/forge/reporting/export/complete,method=POST,handler=NewComplete,internal=true"`
+	// Child writes must be visible to the final read in the same owned transaction.
+	Contract xdatly.Component[Input, Output] `component:"ExportComplete,path=/v1/internal/forge/reporting/export/complete,method=POST,handler=NewComplete,internal=true" componentCallPolicy:"imperative"`
 }
 
 // Input contains candidate artifact bytes and completion metadata. The job
