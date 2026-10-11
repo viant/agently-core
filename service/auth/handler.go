@@ -120,8 +120,9 @@ func (h *Handler) handleMe() http.HandlerFunc {
 			return
 		}
 		resp := map[string]interface{}{
-			"subject": ui.Subject,
-			"email":   ui.Email,
+			"subject":        ui.Subject,
+			"email":          ui.Email,
+			"sessionBinding": meSessionBinding(r.Context(), "jwt", ui.Subject, nil),
 		}
 		if h.users != nil {
 			lookupCtx, cancel := durableAuthLookupContext(r.Context())
