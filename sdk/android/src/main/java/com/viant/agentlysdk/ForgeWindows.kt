@@ -9,7 +9,8 @@ data class ApplyPermissionInput(
     val conversationId: String,
     val resource: Map<String, JsonElement>,
     val windowParams: Map<String, JsonElement>? = null,
-    val targetContext: MetadataTargetContext? = null
+    val targetContext: MetadataTargetContext? = null,
+    val authorizationSchemaVersion: Int? = null
 )
 
 suspend fun AgentlyClient.getForgeWindowMetadata(
@@ -36,6 +37,10 @@ suspend fun AgentlyClient.applyPermission(
     val key = normalizedForgeWindowKey(windowKey)
     val query = input.targetContext.toTargetQuery().toMutableList()
     query += "applyPermission" to "true"
+    input.authorizationSchemaVersion?.let {
+        require(it == 1 || it == 2) { "authorization schema version must be 1 or 2" }
+        query += "authorizationSchemaVersion" to it.toString()
+    }
     input.conversationId.trim().takeIf { it.isNotEmpty() }?.let { query += "conversationId" to it }
     if (input.resource.isNotEmpty()) query += "resource" to JsonObject(input.resource).toString()
     input.windowParams?.let { query += "windowParams" to JsonObject(it).toString() }
