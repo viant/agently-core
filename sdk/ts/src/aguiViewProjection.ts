@@ -234,7 +234,7 @@ export class AgUiViewProjection {
                     content: message.content,
                     contentMode: 'snapshot',
                     ...(message.role === 'assistant' && this.options.profile === 'agently' ? {renderedContent} : {}),
-                    ...(snapshotAssistant ? {patch: {role: 'assistant'}} : {}),
+                    ...(snapshotAssistant ? {patch: {role: 'assistant', ...(p?.mode ? {mode: p.mode} : {})}} : {}),
                     protocolMessageId: message.id,
                     pageId: standalone ? undefined : p?.pageId ?? lane.pageId ?? p?.nativeMessageId ?? `${this.runId}/message/${message.id}`,
                 }, lane);
