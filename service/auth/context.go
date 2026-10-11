@@ -50,3 +50,11 @@ func InjectTokens(ctx context.Context, tokens *scyauth.Token) context.Context {
 	}
 	return ctx
 }
+
+// CanonicalUserID reads the canonical mapping populated by trusted ingress.
+// It never falls back to subject/email or injects identity authority.
+func CanonicalUserID(ctx context.Context) string { return iauth.CanonicalUserID(ctx) }
+
+// VerifiedProvider reads the provider name populated by trusted ingress after
+// credential verification. Token/user injection alone does not populate it.
+func VerifiedProvider(ctx context.Context) string { return iauth.Provider(ctx) }

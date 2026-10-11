@@ -1,6 +1,7 @@
 package permittedview
 
 import (
+	"encoding/json"
 	"fmt"
 	"math"
 	"reflect"
@@ -189,6 +190,8 @@ func intValue(value any) (int, error) {
 			return 0, fmt.Errorf("unsafe integer value")
 		}
 		return int(actual), nil
+	case json.Number:
+		return exactJSONInteger(actual)
 	case jsonNumber:
 		parsed, err := strconv.Atoi(string(actual))
 		if err == nil && (int64(parsed) > maxSafeID || int64(parsed) < -maxSafeID) {
@@ -204,6 +207,73 @@ func intValue(value any) (int, error) {
 	default:
 		return 0, fmt.Errorf("unsupported integer value %T", value)
 	}
+}
+
+// exactJSONInteger normalizes integral decimal/exponent syntax without float
+// rounding or unbounded big-number allocation. The existing v1 int64 path still
+// owns MaxSafeID and machine-range constraints.
+func exactJSONInteger(number json.Number) (int, error) {
+	text := number.String()
+	if len(text) == 0 || len(text) > 256 || !json.Valid([]byte(text)) {
+		return 0, fmt.Errorf("unsafe integer value")
+	}
+	negative := strings.HasPrefix(text, "-")
+	if negative {
+		text = text[1:]
+	}
+	exponent := int64(0)
+	if index := strings.IndexAny(text, "eE"); index >= 0 {
+		var err error
+		exponent, err = strconv.ParseInt(text[index+1:], 10, 64)
+		if err != nil {
+			return 0, fmt.Errorf("unsafe integer value")
+		}
+		text = text[:index]
+	}
+	fraction := 0
+	if index := strings.IndexByte(text, '.'); index >= 0 {
+		fraction = len(text) - index - 1
+		text = text[:index] + text[index+1:]
+	}
+	for _, digit := range text {
+		if digit < '0' || digit > '9' {
+			return 0, fmt.Errorf("unsafe integer value")
+		}
+	}
+	digits := strings.TrimLeft(text, "0")
+	if digits == "" {
+		return 0, nil
+	}
+	// Input length bounds every mantissa allocation. Large exponents cannot
+	// describe a representable nonzero v1 integer and are rejected before scaling.
+	if exponent > 1024 || exponent < -1024 {
+		return 0, fmt.Errorf("unsafe integer value")
+	}
+	scale := exponent - int64(fraction)
+	if scale >= 0 {
+		if int64(len(digits))+scale > 16 {
+			return 0, fmt.Errorf("unsafe integer value")
+		}
+		digits += strings.Repeat("0", int(scale))
+	} else {
+		drop := -scale
+		if drop >= int64(len(digits)) {
+			return 0, fmt.Errorf("unsafe integer value")
+		}
+		tail := digits[len(digits)-int(drop):]
+		if strings.Trim(tail, "0") != "" {
+			return 0, fmt.Errorf("unsafe integer value")
+		}
+		digits = digits[:len(digits)-int(drop)]
+	}
+	if negative {
+		digits = "-" + digits
+	}
+	parsed, err := strconv.ParseInt(digits, 10, 64)
+	if err != nil {
+		return 0, fmt.Errorf("unsafe integer value")
+	}
+	return intValue(parsed)
 }
 
 type jsonNumber string

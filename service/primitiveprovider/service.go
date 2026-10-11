@@ -151,7 +151,7 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 				return nil, errors.New("window definition is not available")
 			}
 			var params map[string]any
-			if json.Unmarshal(raw, &params) != nil {
+			if decodeSelectionJSON(raw, &params) != nil {
 				return nil, errors.New("window definition is not available")
 			}
 			var request struct {
@@ -209,7 +209,7 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 			if definition.Definition.Authorization != nil {
 				raw, _ := json.Marshal(in.Params)
 				var params map[string]any
-				if json.Unmarshal(raw, &params) != nil {
+				if decodeSelectionJSON(raw, &params) != nil {
 					return nil, identity.ErrResourceDenied
 				}
 				parameters, _ := params["parameters"].(map[string]any)
@@ -298,6 +298,30 @@ func (s *Service) UICommand(ctx context.Context, in *UICommandInput) (output *UI
 		var stop context.CancelFunc
 		callCtx, stop = context.WithDeadline(ctx, lease)
 		defer stop()
+	}
+	if openedPin != nil && s.cfg.WindowSelectionEmitter != nil {
+		// Signing occurs only after final successful PRE admission and source checks,
+		// immediately before metadata send. POST receiver checks remain independent.
+		if callCtx.Err() != nil {
+			return nil, sanitizedSelectionError(callCtx.Err())
+		}
+		admitted, err := s.AdmitWindowOpen(callCtx, openedDefinition, openedParameters)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.checkWindowContentCurrent(callCtx, windowResourcePin{WindowKey: openedKey, Resource: *openedPin, Target: openedTarget}); err != nil {
+			return nil, err
+		}
+		emitted, err := s.EmitWindowSelection(callCtx, admitted, openedParameters)
+		if err != nil {
+			return nil, err
+		}
+		params := in.Params.(map[string]any)
+		options := params["options"].(map[string]any)
+		options["inlineMetadata"] = emitted
+		if in.Method == "ui.window.openDynamic" {
+			params["metadata"] = emitted
+		}
 	}
 	resp, err := s.hub.Call(callCtx, ns, in.ClientID, in.Method, in.Params)
 	if err != nil {
