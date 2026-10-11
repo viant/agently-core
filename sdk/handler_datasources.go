@@ -15,6 +15,9 @@ import (
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
 	"github.com/viant/agently-core/sdk/api"
 	"github.com/viant/agently-core/service/policy"
+	"github.com/viant/agently-core/service/ui/permittedview"
+	"github.com/viant/authz"
+	"github.com/viant/authz/gating"
 )
 
 // ErrDatasourceStackNotConfigured is returned by Backend implementations that
@@ -51,7 +54,7 @@ func handleFetchDatasource(client Backend) http.HandlerFunc {
 		}
 		out, err := client.FetchDatasource(ctx, &in)
 		if err != nil {
-			httpError(w, statusForDatasourceErr(err), err)
+			writeDatasourceError(w, err)
 			return
 		}
 		if out == nil {
@@ -75,7 +78,7 @@ func handleInvalidateDatasourceCache(client Backend) http.HandlerFunc {
 		if err := client.InvalidateDatasourceCache(r.Context(), &api.InvalidateDatasourceCacheInput{
 			ID: id, InputsHash: inputsHash,
 		}); err != nil {
-			httpError(w, statusForDatasourceErr(err), err)
+			writeDatasourceError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
@@ -91,7 +94,7 @@ func handleListLookupRegistry(client Backend) http.HandlerFunc {
 		}
 		out, err := client.ListLookupRegistry(r.Context(), &api.ListLookupRegistryInput{Context: ctxParam})
 		if err != nil {
-			httpError(w, statusForDatasourceErr(err), err)
+			writeDatasourceError(w, err)
 			return
 		}
 		httpJSON(w, http.StatusOK, out)
@@ -108,8 +111,14 @@ func statusForDatasourceErr(err error) int {
 	if errors.As(err, &upstream) && (upstream.Status == 401 || upstream.Status == 403) {
 		return upstream.Status
 	}
-	if errors.Is(err, policy.ErrDenied) || errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) {
+	if errors.Is(err, policy.ErrDenied) || errors.Is(err, identity.ErrResourceDenied) || errors.Is(err, identity.ErrResourceStale) || errors.Is(err, authz.ErrDenied) {
 		return http.StatusForbidden
+	}
+	if errors.Is(err, context.DeadlineExceeded) {
+		return http.StatusGatewayTimeout
+	}
+	if errors.Is(err, permittedview.ErrUnavailable) || errors.Is(err, authz.ErrUnavailable) || errors.Is(err, gating.ErrUnavailable) {
+		return http.StatusServiceUnavailable
 	}
 	if errors.Is(err, ErrDatasourceStackNotConfigured) {
 		return http.StatusNotImplemented
@@ -118,6 +127,18 @@ func statusForDatasourceErr(err error) int {
 		return status
 	}
 	return http.StatusInternalServerError
+}
+
+// Availability is classified by trusted sentinels; upstream payloads are omitted.
+func writeDatasourceError(w http.ResponseWriter, err error) {
+	status := statusForDatasourceErr(err)
+	switch status {
+	case http.StatusGatewayTimeout:
+		err = context.DeadlineExceeded
+	case http.StatusServiceUnavailable:
+		err = permittedview.ErrUnavailable
+	}
+	httpError(w, status, err)
 }
 
 type datasourceErrorEnvelope struct {
