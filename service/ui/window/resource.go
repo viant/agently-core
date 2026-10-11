@@ -62,7 +62,7 @@ func NewWorkspaceResourceSource(root string, bindings []ResourceBinding, enrich 
 		result.windows[binding.URI] = binding.WindowKey
 		for _, target := range binding.Targets {
 			normalized, e := target.Normalize()
-			if e != nil || len(normalized.Capabilities) > 0 || normalized.SelectionToken != "" || len(normalized.DependencyPins) > 0 {
+			if e != nil || len(normalized.Capabilities) > 0 || normalized.SelectionToken != "" || len(normalized.DependencyPins) > 0 || normalized.ExecutionProof != nil {
 				return nil, fmt.Errorf("invalid declared window target")
 			}
 			result.targets[binding.URI] = append(result.targets[binding.URI], normalized)
@@ -208,7 +208,9 @@ func LoadWorkspaceDatasourceDescriptorsWithOptionsAt(ctx context.Context, root, 
 			if descriptor.ID == "" {
 				descriptor.ID = id
 			}
+			producer := descriptor.DataSource
 			descriptor.DataSource = inline
+			descriptor.Selectors = executionSelectors(producer, inline, id)
 		}
 		raw, err := json.Marshal(descriptor)
 		if err != nil {

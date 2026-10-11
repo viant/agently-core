@@ -57,6 +57,7 @@ func ValidateWindowBundle(formatVersion int64, raw json.RawMessage) error {
 	var bundle forgeTypes.WindowResourceEnvelope
 	d := json.NewDecoder(bytes.NewReader(raw))
 	d.DisallowUnknownFields()
+	d.UseNumber()
 	if err := d.Decode(&bundle); err != nil {
 		return err
 	}

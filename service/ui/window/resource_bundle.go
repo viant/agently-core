@@ -1,6 +1,7 @@
 package window
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -30,6 +31,28 @@ func (s *WorkspaceResourceSource) loadBundle(ctx context.Context, uri identity.R
 
 // LoadBundleWithOptions materializes every native target using one confined host filesystem.
 func (s *WorkspaceResourceSource) LoadBundleWithOptions(ctx context.Context, uri identity.ResourceURI, options LoaderOptions) (result json.RawMessage, failure error) {
+	return s.loadBundleWithBase(ctx, uri, options, nil)
+}
+
+// LoadComposedWindowBundleWithOptionsAt composes a trusted linked window with
+// the same authored workspace assignment closure as native windows. The loader
+// is startup-owned; request actors and authorization never enter compilation.
+func LoadComposedWindowBundleWithOptionsAt(ctx context.Context, root string, binding ResourceBinding, load func(context.Context, *types.WindowTarget) (*types.Window, error), enrich WorkspaceWindowEnricher, options LoaderOptions) (json.RawMessage, error) {
+	if load == nil {
+		return nil, identity.ErrResourceDenied
+	}
+	source, err := NewWorkspaceResourceSource(root, []ResourceBinding{binding}, enrich)
+	if err != nil {
+		return nil, err
+	}
+	uri, err := identity.ParseResourceURI(binding.URI)
+	if err != nil {
+		return nil, err
+	}
+	return source.loadBundleWithBase(ctx, uri, options, load)
+}
+
+func (s *WorkspaceResourceSource) loadBundleWithBase(ctx context.Context, uri identity.ResourceURI, options LoaderOptions, base func(context.Context, *types.WindowTarget) (*types.Window, error)) (result json.RawMessage, failure error) {
 	defer func() {
 		if err := options.check(); err != nil {
 			result = nil
@@ -121,9 +144,33 @@ func (s *WorkspaceResourceSource) LoadBundleWithOptions(ctx context.Context, uri
 			}
 			signature = "target:" + strings.Join(branches, "|")
 		}
+		// A linked loader owns a different target tree; workspace directory
+		// precedence cannot prove two linked profiles equivalent.
+		if base != nil {
+			signature = "linked:" + key
+		}
 		variantID := materialized[signature]
 		if variantID == "" {
-			window, err := LoadWorkspaceWindowWithOptionsAt(ctx, s.root, s.windows[uri.String()], target, s.enrich, options)
+			var window *types.Window
+			var err error
+			if base == nil {
+				window, err = LoadWorkspaceWindowWithOptionsAt(ctx, s.root, s.windows[uri.String()], target, s.enrich, options)
+			} else {
+				var declared *types.WindowTarget
+				if key != (types.WindowTarget{}).ProfileKey() {
+					copied := profile
+					declared = &copied
+				}
+				window, err = base(ctx, declared)
+				if err == nil && window != nil {
+					// Trusted loaders may return immutable shared declarations. Detach
+					// before merging or stripping runtime metadata for this variant.
+					window, err = cloneComposedWindowDeclaration(window)
+					if err == nil {
+						err = mergeWorkspaceForgeAssetsWithOptionsAt(ctx, s.root, window, nil, s.enrich, options)
+					}
+				}
+			}
 			if err != nil {
 				return nil, err
 			}
@@ -158,10 +205,15 @@ func (s *WorkspaceResourceSource) LoadBundleWithOptions(ctx context.Context, uri
 					if json.Unmarshal(base, &descriptor) != nil {
 						return nil, fmt.Errorf("invalid datasource descriptor")
 					}
+					producer := descriptor.DataSource
 					// Backend/cache stay from the trusted producer declaration. The
 					// selected window owns its effective inline schema, defaults,
 					// parameter bindings, selectors and rendering contract.
 					descriptor.DataSource = inline
+					// The native browser loader projects service-less producers onto
+					// a rows/dataInfo fetch envelope. Keep that browser projection in
+					// Window.DataSource; execution must select the producer response.
+					descriptor.Selectors = executionSelectors(producer, inline, id)
 				}
 				raw, err := json.Marshal(descriptor)
 				if err != nil {
@@ -187,4 +239,20 @@ func (s *WorkspaceResourceSource) LoadBundleWithOptions(ctx context.Context, uri
 		return nil, err
 	}
 	return json.Marshal(envelope)
+}
+
+// cloneComposedWindowDeclaration detaches authored interface values without
+// routing identifiers and defaults through float64 during static compilation.
+func cloneComposedWindowDeclaration(source *types.Window) (*types.Window, error) {
+	raw, err := json.Marshal(source)
+	if err != nil {
+		return nil, err
+	}
+	var detached *types.Window
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err = decoder.Decode(&detached); err != nil {
+		return nil, err
+	}
+	return detached, nil
 }
