@@ -67,7 +67,11 @@ func TestAppendCurrentMessages_AdvancesAnchorToCurrentTurn(t *testing.T) {
 		TurnID:         "turn-current",
 		ConversationID: "conv-1",
 	})
-	cont := (&core.Service{}).BuildContinuationRequest(ctx, req, history)
+	if cont := (&core.Service{}).BuildContinuationRequest(ctx, req, history); cont != nil {
+		t.Fatal("unconfigured continuation must fail closed")
+	}
+	continuationService, verifiedCtx := verifiedContinuationFixture(t, ctx, req, "resp-current")
+	cont := continuationService.BuildContinuationRequest(verifiedCtx, req, history)
 	if cont == nil {
 		t.Fatalf("expected continuation request")
 	}

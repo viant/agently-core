@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,12 +16,31 @@ import (
 
 type capturePatchRunsService struct {
 	data.Service
+	mu   sync.Mutex
 	rows []*runmodel.MutableRunView
 }
 
 func (s *capturePatchRunsService) PatchRuns(_ context.Context, rows []*runmodel.MutableRunView) ([]*runmodel.MutableRunView, error) {
-	s.rows = append(s.rows, rows...)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, row := range rows {
+		b, err := json.Marshal(row)
+		if err != nil {
+			return nil, err
+		}
+		var snapshot runmodel.MutableRunView
+		if err = json.Unmarshal(b, &snapshot); err != nil {
+			return nil, err
+		}
+		s.rows = append(s.rows, &snapshot)
+	}
 	return rows, nil
+}
+
+func (s *capturePatchRunsService) snapshot() []*runmodel.MutableRunView {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]*runmodel.MutableRunView(nil), s.rows...)
 }
 
 func TestEnsureRunRecordPreservesScheduledKind(t *testing.T) {
@@ -139,10 +160,11 @@ func TestStartRunHeartbeatPatchesInteractiveRunLiveness(t *testing.T) {
 	defer stop()
 
 	require.Eventually(t, func() bool {
-		return len(store.rows) > 0
+		return len(store.snapshot()) > 0
 	}, 3*time.Second, 50*time.Millisecond)
 
-	last := store.rows[len(store.rows)-1]
+	rows := store.snapshot()
+	last := rows[len(rows)-1]
 	require.Equal(t, "run-heartbeat", last.Id)
 	require.NotNil(t, last.LastHeartbeatAt)
 	require.NotNil(t, last.LeaseUntil)
