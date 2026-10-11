@@ -168,6 +168,12 @@ func (s *Service) get(ctx context.Context, in, out interface{}) error {
 		}
 	}
 	output.ClientID = selected.ClientID
+	// Renderer identity remains canonical. The public tool result preserves the
+	// original requested alias only after an exact canonical receiver response.
+	if value, ok := data.(map[string]interface{}); ok && value["feedId"] == feedID && input.FeedID != feedID {
+		value["resourceURI"] = feedID
+		value["feedId"] = input.FeedID
+	}
 	output.Data = data
 	return nil
 }

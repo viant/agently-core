@@ -290,6 +290,10 @@ func (s *extensionSource) ReadCandidate(ctx context.Context, uri identity.Resour
 // This grants no authority: both namespace authorizer and revision policy remain
 // trusted host responsibilities. Missing configured folders fail closed.
 func ExtensionBindings(ctx context.Context, rootPath string, directories []ExtensionDirectory, policy LocalRevisionPolicyFactory) ([]LocalResourceBinding, error) {
+	return extensionBindings(ctx, rootPath, directories, policy, nil)
+}
+
+func extensionBindings(ctx context.Context, rootPath string, directories []ExtensionDirectory, policy LocalRevisionPolicyFactory, definitions *[]NativeSnapshotDefinition) ([]LocalResourceBinding, error) {
 	if ctx == nil || ctx.Err() != nil || strings.TrimSpace(rootPath) == "" || len(directories) == 0 || policy == nil {
 		return nil, fmt.Errorf("extension inventory requires root, directories and revision policy")
 	}
@@ -376,6 +380,9 @@ func ExtensionBindings(ctx context.Context, rootPath string, directories []Exten
 			}
 			if _, exists := indexed[uri.String()]; exists {
 				return fmt.Errorf("duplicate extension resource %s", uri.String())
+			}
+			if definitions != nil {
+				*definitions = append(*definitions, NativeSnapshotDefinition{URI: uri.String(), Title: path.Base(name), FormatVersion: directory.FormatVersion, File: file, Load: directory.Load})
 			}
 			source := &extensionSource{rootInfo: rootInfo, root: rootPath, file: file, uri: uri.String(), load: directory.Load}
 			binding := LocalResourceBinding{URI: uri.String(), Title: path.Base(name), FormatVersion: directory.FormatVersion}
