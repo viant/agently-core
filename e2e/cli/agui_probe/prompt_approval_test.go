@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	messagemodel "github.com/viant/agently-core/model/message"
 	"github.com/viant/agently-core/sdk"
 	"github.com/viant/agently-core/sdk/api"
 )
@@ -100,6 +101,10 @@ func TestPromptReceiptProjectionNeverExposesEnvironmentValues(t *testing.T) {
 func TestPromptReceiptUsesOriginalSDKHTTPPayloadsAndSameOwner(t *testing.T) {
 	snapshot, actual, pending, _ := promptFixture()
 	original := `{"names":["HOME","SHELL","PATH"]}`
+	acceptedBody := `{"editedFields":{"names":["HOME","PATH"]}}`
+	acceptedPayloadID := "accepted-payload"
+	acceptedMessageID := "accepted-user-message"
+	pageHasMore := false
 	result := `{"values":{"HOME":"must-not-appear-in-probe-output","PATH":"must-not-appear-in-probe-output"}}`
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "GET" || r.Header.Get("Authorization") != "Bearer fixture-owner" {
@@ -116,6 +121,11 @@ func TestPromptReceiptUsesOriginalSDKHTTPPayloadsAndSameOwner(t *testing.T) {
 			_ = json.NewEncoder(w).Encode(snapshot)
 		case strings.Contains(r.URL.Path, "/elicitations"):
 			_ = json.NewEncoder(w).Encode(map[string]any{"rows": []any{pending}})
+		case strings.Contains(r.URL.Path, "/messages"):
+			eid, parent, turn := pending.ElicitationID, pending.MessageID, actual.TurnID
+			_ = json.NewEncoder(w).Encode(&sdk.MessagePage{HasMore: pageHasMore, Rows: []*messagemodel.MessageRowsView{{Id: acceptedMessageID, ConversationId: actual.ConversationID, TurnId: &turn, ParentMessageId: &parent, ElicitationId: &eid, ElicitationPayloadId: &acceptedPayloadID, Role: "user", Type: "elicitation_response"}}})
+		case strings.Contains(r.URL.Path, "/payload/accepted"):
+			_, _ = io.WriteString(w, acceptedBody)
 		case strings.HasSuffix(r.URL.Path, "/payload/request-original"):
 			_, _ = io.WriteString(w, original)
 		case strings.HasSuffix(r.URL.Path, "/payload/response-original"):
@@ -161,13 +171,28 @@ func TestPromptReceiptUsesOriginalSDKHTTPPayloadsAndSameOwner(t *testing.T) {
 	if receipt["effectCount"] != float64(1) || receipt["sameOwner"] != true {
 		t.Fatal("original effect receipt differs")
 	}
-	for _, bad := range []json.RawMessage{nil, json.RawMessage(`null`), json.RawMessage(`{}`), json.RawMessage(`{"editedFields":{"names":[]}}`)} {
-		root.Elicitation.ResponsePayload = bad
+	// Canonical persisted transcript does not expose this response body.
+	root.Elicitation.ResponsePayload = nil
+	if w := request("/prompt-approval-receipt/probe?id=prompt", "fixture-owner"); w.Code != 200 {
+		t.Fatal("actual linked response was not used")
+	}
+	for _, bad := range []string{`null`, `{}`, `{"editedFields":{"names":[]}}`} {
+		acceptedBody = bad
 		if w := request("/prompt-approval-receipt/probe?id=prompt", "fixture-owner"); w.Code != 409 {
-			t.Fatal("missing accepted edit evidence accepted")
+			t.Fatal("missing actual accepted edit evidence accepted")
 		}
 	}
-	root.Elicitation.ResponsePayload = json.RawMessage(`{"editedFields":{"names":["HOME","PATH"]}}`)
+	acceptedBody = `{"editedFields":{"names":["HOME","PATH"]}}`
+	for _, mutate := range []func(){func() { acceptedPayloadID = "accepted-drift" }, func() { acceptedMessageID = "accepted-user-drift" }, func() { acceptedBody = `{"editedFields":{"names":["PATH","HOME"]}}` }, func() { pageHasMore = true }} {
+		mutate()
+		if w := request("/prompt-approval-receipt/probe?id=prompt", "fixture-owner"); w.Code != 409 {
+			t.Fatal("accepted response identity/body drift or incomplete page accepted")
+		}
+		acceptedPayloadID = "accepted-payload"
+		acceptedMessageID = "accepted-user-message"
+		acceptedBody = `{"editedFields":{"names":["HOME","PATH"]}}`
+		pageHasMore = false
+	}
 	if w := request("/prompt-approval-receipt/probe?id=foreign", "fixture-owner"); w.Code != 409 {
 		t.Fatal("uncaptured foreign tuple replay accepted")
 	}
@@ -205,5 +230,40 @@ func TestOriginalPromptNamesAreASetWithoutMutatingOriginalOrder(t *testing.T) {
 	}
 	if promptOriginalNameSet(map[string]any{"names": []any{"HOME", 7, "PATH"}}) != nil {
 		t.Fatal("nonstring name shape accepted")
+	}
+}
+
+func TestPromptAcceptedMessageRequiresExactLinkedUniqueResponse(t *testing.T) {
+	_, _, _, tuple := promptFixture()
+	id, turn, parent, eid, payload := "accepted", tuple.TurnID, tuple.QueueParentMessageID, tuple.ApprovalID, "accepted-payload"
+	good := &sdk.MessagePage{Rows: []*messagemodel.MessageRowsView{{Id: id, ConversationId: tuple.ConversationID, TurnId: &turn, ParentMessageId: &parent, ElicitationId: &eid, ElicitationPayloadId: &payload, Role: "user", Type: "elicitation_response"}}}
+	if mid, pid, err := promptAcceptedMessage(good, tuple); err != nil || mid != id || pid != payload {
+		t.Fatal("exact accepted response rejected")
+	}
+	raw, _ := json.Marshal(good)
+	mutants := []struct {
+		name   string
+		mutate func(*sdk.MessagePage)
+	}{
+		{"incompletePage", func(p *sdk.MessagePage) { p.HasMore = true }},
+		{"missing", func(p *sdk.MessagePage) { p.Rows = nil }},
+		{"duplicate", func(p *sdk.MessagePage) { p.Rows = append(p.Rows, p.Rows[0]) }},
+		{"foreignConversation", func(p *sdk.MessagePage) { p.Rows[0].ConversationId = "foreign" }},
+		{"foreignTurn", func(p *sdk.MessagePage) { x := "foreign"; p.Rows[0].TurnId = &x }},
+		{"wrongParent", func(p *sdk.MessagePage) { x := "foreign"; p.Rows[0].ParentMessageId = &x }},
+		{"wrongElicitation", func(p *sdk.MessagePage) { x := "foreign"; p.Rows[0].ElicitationId = &x }},
+		{"wrongRole", func(p *sdk.MessagePage) { p.Rows[0].Role = "assistant" }},
+		{"wrongType", func(p *sdk.MessagePage) { p.Rows[0].Type = "text" }},
+		{"missingPayload", func(p *sdk.MessagePage) { p.Rows[0].ElicitationPayloadId = nil }},
+	}
+	for _, tc := range mutants {
+		t.Run(tc.name, func(t *testing.T) {
+			var changed sdk.MessagePage
+			_ = json.Unmarshal(raw, &changed)
+			tc.mutate(&changed)
+			if _, _, err := promptAcceptedMessage(&changed, tuple); err == nil {
+				t.Fatal("unproven accepted response accepted")
+			}
+		})
 	}
 }

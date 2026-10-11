@@ -86,14 +86,15 @@ type identity struct {
 	ClientMessageID string `json:"clientMessageId,omitempty"`
 }
 type observedRun struct {
-	mu        sync.Mutex
-	ownerHash string
-	target    string
-	identity  identity
-	deadline  time.Time
-	events    []json.RawMessage
-	queue     *agui.QueueValue
-	approvals map[string]approvalTuple
+	mu              sync.Mutex
+	ownerHash       string
+	target          string
+	identity        identity
+	deadline        time.Time
+	events          []json.RawMessage
+	queue           *agui.QueueValue
+	approvals       map[string]approvalTuple
+	promptResponses map[string]promptResponsePin
 }
 type result struct {
 	RedColorWordValid   bool                           `json:"redColorWordValid"`

@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/http"
 	"reflect"
@@ -197,9 +196,19 @@ func (h *handler) promptApproval(w http.ResponseWriter, r *http.Request, capture
 		fail("response")
 		return
 	}
-	var accepted any
-	if json.Unmarshal(root.Elicitation.ResponsePayload, &accepted) != nil {
-		fail("accepted-edit")
+	acceptedPage, err := client.GetMessages(ctx, &sdk.GetMessagesInput{ConversationID: tuple.ConversationID, TurnID: tuple.TurnID, Roles: []string{"user"}, Types: []string{"elicitation_response"}, Page: &sdk.PageInput{Limit: 1000}})
+	if err != nil {
+		fail("accepted-message-read")
+		return
+	}
+	acceptedMessageID, acceptedPayloadID, err := promptAcceptedMessage(acceptedPage, tuple)
+	if err != nil {
+		fail("accepted-message-identity")
+		return
+	}
+	accepted, acceptedText, err := rawOwnedPayload(ctx, target, token(r), acceptedPayloadID)
+	if err != nil {
+		fail("accepted-payload-read")
 		return
 	}
 	acceptedNames := promptAcceptedNames(accepted)
@@ -207,10 +216,22 @@ func (h *handler) promptApproval(w http.ResponseWriter, r *http.Request, capture
 		fail("accepted-edit-shape")
 		return
 	}
+	pin := promptResponsePin{MessageID: acceptedMessageID, PayloadID: acceptedPayloadID, BodyDigest: digest(acceptedText)}
+	record.mu.Lock()
+	if record.promptResponses == nil {
+		record.promptResponses = map[string]promptResponsePin{}
+	}
+	if previous, exists := record.promptResponses[id]; exists && previous != pin {
+		record.mu.Unlock()
+		fail("accepted-response-drift")
+		return
+	}
+	record.promptResponses[id] = pin
+	record.mu.Unlock()
 	// Expose actual typed evidence, never substitute the fixture's expected edits.
 	publicTuple := tuple
 	publicTuple.OriginalArgs = nil
-	write(w, 200, map[string]any{"tuple": publicTuple, "sameOwner": true, "nativeStatus": root.Status, "elicitationStatus": root.Elicitation.Status, "acceptedResponse": acceptedNames, "originalRequest": promptOriginalNameSet(tuple.OriginalArgs), "actualResponse": promptResultKeys(response), "effectCount": 1, "responsePayloadId": step.ResponsePayloadID})
+	write(w, 200, map[string]any{"tuple": publicTuple, "sameOwner": true, "nativeStatus": root.Status, "elicitationStatus": root.Elicitation.Status, "acceptedResponse": acceptedNames, "originalRequest": promptOriginalNameSet(tuple.OriginalArgs), "actualResponse": promptResultKeys(response), "effectCount": 1, "responsePayloadId": step.ResponsePayloadID, "acceptedResponseMessageId": acceptedMessageID, "acceptedResponsePayloadId": acceptedPayloadID})
 }
 
 // Projection deliberately retains names and key-presence, never environment values.
@@ -256,4 +277,32 @@ func promptOriginalNameSet(args map[string]any) any {
 		}
 	}
 	return map[string]any{"nameCount": len(names), "names": present}
+}
+
+type promptResponsePin struct{ MessageID, PayloadID, BodyDigest string }
+
+// The canonical transcript exposes elicitation status/schema, but its persisted
+// projection does not populate ResponsePayload. Read the actual user response
+// through the SDK message API and retain its exact original linkage instead.
+func promptAcceptedMessage(page *sdk.MessagePage, tuple approvalTuple) (string, string, error) {
+	if page == nil || page.HasMore {
+		return "", "", fmt.Errorf("accepted response page incomplete")
+	}
+	messageID, payloadID := "", ""
+	for _, row := range page.Rows {
+		if row == nil || row.ElicitationId == nil || *row.ElicitationId != tuple.ApprovalID {
+			continue
+		}
+		if row.ConversationId != tuple.ConversationID || row.TurnId == nil || *row.TurnId != tuple.TurnID || row.ParentMessageId == nil || *row.ParentMessageId != tuple.QueueParentMessageID || row.Role != "user" || row.Type != "elicitation_response" || row.Id == "" || row.ElicitationPayloadId == nil || *row.ElicitationPayloadId == "" {
+			return "", "", fmt.Errorf("accepted response identity differs")
+		}
+		if messageID != "" {
+			return "", "", fmt.Errorf("accepted response ambiguous")
+		}
+		messageID, payloadID = row.Id, *row.ElicitationPayloadId
+	}
+	if messageID == "" {
+		return "", "", fmt.Errorf("accepted response absent")
+	}
+	return messageID, payloadID, nil
 }
