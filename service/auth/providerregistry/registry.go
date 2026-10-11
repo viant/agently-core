@@ -240,6 +240,20 @@ func (r *Registry) load(ctx context.Context) (*snapshot, error) {
 	return snap, nil
 }
 
+// References lists configured provider IDs without returning secret references.
+func (r *Registry) References(ctx context.Context) ([]string, error) {
+	snap, err := r.load(ctx)
+	if err != nil {
+		return nil, err
+	}
+	refs := make([]string, 0, len(snap.byRef))
+	for ref := range snap.byRef {
+		refs = append(refs, ref)
+	}
+	sort.Strings(refs)
+	return refs, nil
+}
+
 // Provider returns the provider document registered under ref, including its
 // administrative state. Disabled providers are returned so callers can apply
 // the kill switch explicitly; ResolveProvider rejects them.
