@@ -96,26 +96,21 @@ type ListLookupRegistryOutput struct {
 	Entries []LookupRegistryEntry `json:"entries"`
 }
 
-// UnmarshalJSON preserves exact selection numbers, including IDs outside the
-// float64 integer range. Other legacy datasource inputs retain their decoder.
+// UnmarshalJSON preserves exact numbers in datasource inputs and the complete
+// window selection. This decoder is specific to fetch requests; other SDK
+// request types keep their existing JSON behavior.
 func (in *FetchDatasourceInput) UnmarshalJSON(raw []byte) error {
 	type wire FetchDatasourceInput
 	var decoded wire
-	if err := json.Unmarshal(raw, &decoded); err != nil {
+	// Validate the entire value before decoding, including trailing data.
+	if !json.Valid(raw) {
+		var invalid wire
+		return json.Unmarshal(raw, &invalid)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	if err := decoder.Decode(&decoded); err != nil {
 		return err
-	}
-	var selection struct {
-		WindowParameters json.RawMessage `json:"windowParameters"`
-	}
-	if err := json.Unmarshal(raw, &selection); err != nil {
-		return err
-	}
-	if len(selection.WindowParameters) > 0 {
-		decoder := json.NewDecoder(bytes.NewReader(selection.WindowParameters))
-		decoder.UseNumber()
-		if err := decoder.Decode(&decoded.WindowParameters); err != nil {
-			return err
-		}
 	}
 	*in = FetchDatasourceInput(decoded)
 	return nil

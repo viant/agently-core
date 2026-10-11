@@ -475,3 +475,71 @@ func TestFetchDatasourceErrorSeparatesWindowArtifactFromManagingData(t *testing.
 		})
 	}
 }
+
+// The HTTP handler must preserve IDs in both the signed selection and the
+// execution inputs, rather than rounding them before host fidelity checks.
+type exactFetchBackend struct {
+	Backend
+	calls int
+	input *api.FetchDatasourceInput
+}
+
+func (b *exactFetchBackend) FetchDatasource(_ context.Context, in *api.FetchDatasourceInput) (*api.FetchDatasourceOutput, error) {
+	b.calls++
+	b.input = in
+	return &api.FetchDatasourceOutput{}, nil
+}
+
+func TestHandleFetchDatasourcePreservesExactNestedNumbers(t *testing.T) {
+	body := `{"inputs":{"id":9007199254740993,"nested":[{"ratio":1.25,"id":9007199254740995}]},"windowParameters":{"ids":[9007199254740993],"parent":{"id":9007199254740995}}}`
+	backend := &exactFetchBackend{}
+	r := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/rows/fetch", strings.NewReader(body))
+	r.SetPathValue("id", "rows")
+	w := httptest.NewRecorder()
+	handleFetchDatasource(backend)(w, r)
+	if w.Code != http.StatusOK || backend.calls != 1 {
+		t.Fatalf("status=%d calls=%d", w.Code, backend.calls)
+	}
+	encoded, err := json.Marshal(backend.input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var original, received map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(body), &original); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(encoded, &received); err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"inputs", "windowParameters"} {
+		var want, got interface{}
+		wantDecoder := json.NewDecoder(strings.NewReader(string(original[key])))
+		wantDecoder.UseNumber()
+		gotDecoder := json.NewDecoder(strings.NewReader(string(received[key])))
+		gotDecoder.UseNumber()
+		if err := wantDecoder.Decode(&want); err != nil {
+			t.Fatal(err)
+		}
+		if err := gotDecoder.Decode(&got); err != nil {
+			t.Fatal(err)
+		}
+		wantJSON, _ := json.Marshal(want)
+		gotJSON, _ := json.Marshal(got)
+		if string(wantJSON) != string(gotJSON) {
+			t.Fatalf("%s changed: %s", key, gotJSON)
+		}
+	}
+}
+
+func TestHandleFetchDatasourceRejectsTrailingJSONBeforeDispatch(t *testing.T) {
+	for _, body := range []string{`{"inputs":{"id":9007199254740993}} {}`, `{"inputs":`} {
+		backend := &exactFetchBackend{}
+		r := httptest.NewRequest(http.MethodPost, "/v1/api/datasources/rows/fetch", strings.NewReader(body))
+		r.SetPathValue("id", "rows")
+		w := httptest.NewRecorder()
+		handleFetchDatasource(backend)(w, r)
+		if w.Code != http.StatusBadRequest || backend.calls != 0 {
+			t.Fatalf("status=%d calls=%d", w.Code, backend.calls)
+		}
+	}
+}
