@@ -23,7 +23,7 @@ import (
 // Exercise the production submit -> execute -> materialize -> worker -> CSV
 // chain with the independent HTTP MCP server, including its strict tool schema.
 func TestOrdinaryMCPUnifiedExportIncludesEveryPageAndRejectsPartialPersistence(t *testing.T) {
-	for _, scenario := range []string{"cursor", "offset", "page", "unpaged", "cursor pdf", "cursor xlsx", "offset xlsx", "page xlsx", "unpaged xlsx", "tampered request after submit", "tampered request after submit pdf", "tampered rows after submit", "revoked after rendering", "expired after rendering", "drift after rendering", "unknown completeness", "repeat", "emptyMore", "pageError", "revoked", "drift", "expired", "cancelled"} {
+	for _, scenario := range []string{"cursor", "offset", "page", "unpaged", "cursor pdf", "cursor xlsx", "offset xlsx", "page xlsx", "unpaged xlsx", "tampered request after submit", "tampered request after submit pdf", "tampered rows after submit", "revoked after rendering", "expired after rendering", "drift after rendering", "unknown completeness", "repeat", "emptyMore", "pageError", "revoked", "drift", "expired", "cancelled", "managing MCP denied page two"} {
 		t.Run(scenario, func(t *testing.T) {
 			format := reporting.ExportFormatCSV
 			if strings.HasSuffix(scenario, " xlsx") {
@@ -107,6 +107,9 @@ func TestOrdinaryMCPUnifiedExportIncludesEveryPageAndRejectsPartialPersistence(t
 			service := reporting.New(reporting.Options{Store: store, Compiler: reporting.NewReportSpecCompiler(time.Now), Exporter: exporter, ResourceResolver: func(context.Context, string) (*identity.ResourceResolver, error) { return resolver, nil }})
 			service.SetResourceDatasetExecutor(reporting.NewResourceDatasetExecutor(executor, service.AuthorizeResourceDataset))
 			fixture.mu.Lock()
+			if scenario == "managing MCP denied page two" {
+				fixture.denyPage = 2
+			}
 			fixture.during = func(page int) {
 				if page != 1 {
 					return
@@ -130,6 +133,13 @@ func TestOrdinaryMCPUnifiedExportIncludesEveryPageAndRejectsPartialPersistence(t
 			if !success {
 				if err == nil || job != nil {
 					t.Fatalf("partial export submission escaped: %#v %v", job, err)
+				}
+				if scenario == "managing MCP denied page two" {
+					fixture.mu.Lock()
+					if len(fixture.calls) != 2 || fixture.deniedCalls != 1 {
+						t.Fatalf("managing calls=%d denied=%d; expected exactly two calls/one denied without replay", len(fixture.calls), fixture.deniedCalls)
+					}
+					fixture.mu.Unlock()
 				}
 				jobs, _ := store.ListJobs(context.Background())
 				artifacts, _ := store.ListArtifacts(context.Background())

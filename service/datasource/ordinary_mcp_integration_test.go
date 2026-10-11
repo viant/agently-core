@@ -45,6 +45,8 @@ type ordinaryMCPFixture struct {
 	mu                  sync.Mutex
 	methods             []string
 	during              func(int)
+	denyPage            int
+	deniedCalls         int
 	structured          bool
 	cursorTokenOverride any
 	calls               []ordinaryMCPCall
@@ -153,7 +155,15 @@ func (f *ordinaryMCPFixture) serve(w http.ResponseWriter, r *http.Request) {
 		json.Unmarshal(q.Params, &wire)
 		f.calls = append(f.calls, ordinaryMCPCall{p.Name, p.Arguments, wire.Arguments})
 		ordinal, during := len(f.calls), f.during
+		denied := f.denyPage == ordinal
+		if denied {
+			f.deniedCalls++
+		}
 		f.mu.Unlock()
+		if denied {
+			result = map[string]any{"isError": true, "content": []any{map[string]any{"type": "text", "text": "403 Forbidden"}}}
+			break
+		}
 		if during != nil {
 			during(ordinal)
 		}
