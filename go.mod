@@ -25,7 +25,7 @@ require (
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e
-	github.com/viant/datly v1.1.1-0.20261012144747-65fb3aa69e67
+	github.com/viant/datly v1.1.1-0.20261012150720-636d0bfdcbba
 	github.com/viant/embedius v0.5.6
 	github.com/viant/forge v0.3.45-0.20261010035027-6f63f883a89e
 	github.com/viant/gds v0.6.0
