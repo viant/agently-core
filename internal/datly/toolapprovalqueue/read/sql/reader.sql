@@ -1,6 +1,9 @@
 SELECT queue_rows.* FROM  (
  SELECT q.* FROM (
- SELECT q.*,
+ SELECT q.id, q.user_id, q.conversation_id, q.turn_id, q.message_id,
+ q.tool_name, q.title, q.arguments, q.metadata, q.status, q.decision,
+ q.approved_by_user_id, q.approved_at, q.executed_at, q.error_message,
+ q.created_at, q.updated_at, q.expires_at, q.timed_out_at,
  CASE
  WHEN LOWER(COALESCE(q.status,''))='timed_out' THEN q.timed_out_at
  WHEN LOWER(COALESCE(q.status,''))='executed' THEN q.executed_at
