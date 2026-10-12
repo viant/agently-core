@@ -79,7 +79,13 @@ func (r *StaticResolver) Resolve(_ context.Context, _ *agentmdl.Agent) (Contract
 	return r.contract, nil
 }
 
+type DocumentReader interface {
+	ReadURI(context.Context, string) ([]byte, error)
+	ContainsURI(string) bool
+}
+
 type FileResolver struct {
+	reader         DocumentReader
 	fs             afs.Service
 	candidateNames []string
 }
@@ -94,6 +100,8 @@ func NewFileResolver(fs afs.Service) *FileResolver {
 	}
 }
 
+func (r *FileResolver) SetDocumentReader(reader DocumentReader) { r.reader = reader }
+
 func (r *FileResolver) Resolve(ctx context.Context, plannerAgent *agentmdl.Agent) (Contract, error) {
 	if plannerAgent == nil || plannerAgent.Source == nil || strings.TrimSpace(plannerAgent.Source.URL) == "" {
 		return nil, fmt.Errorf("planner contract source is not configured")
@@ -101,7 +109,12 @@ func (r *FileResolver) Resolve(ctx context.Context, plannerAgent *agentmdl.Agent
 	baseURL, _ := afsurl.Split(strings.TrimSpace(plannerAgent.Source.URL), file.Scheme)
 	for _, name := range r.candidateNames {
 		schemaURL := afsurl.JoinUNC(baseURL, name)
-		ok, err := r.fs.Exists(ctx, schemaURL)
+		ok, err := false, error(nil)
+		if r.reader != nil {
+			ok = r.reader.ContainsURI(schemaURL)
+		} else {
+			ok, err = r.fs.Exists(ctx, schemaURL)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("planner contract existence check failed for %s: %w", schemaURL, err)
 		}
@@ -111,7 +124,12 @@ func (r *FileResolver) Resolve(ctx context.Context, plannerAgent *agentmdl.Agent
 		validationURL := ""
 		for _, candidate := range []string{"planner.validation.json", "validation.json"} {
 			rulesURL := afsurl.JoinUNC(baseURL, candidate)
-			rulesOK, rulesErr := r.fs.Exists(ctx, rulesURL)
+			rulesOK, rulesErr := false, error(nil)
+			if r.reader != nil {
+				rulesOK = r.reader.ContainsURI(rulesURL)
+			} else {
+				rulesOK, rulesErr = r.fs.Exists(ctx, rulesURL)
+			}
 			if rulesErr != nil {
 				return nil, fmt.Errorf("planner contract validation existence check failed for %s: %w", rulesURL, rulesErr)
 			}
@@ -120,12 +138,13 @@ func (r *FileResolver) Resolve(ctx context.Context, plannerAgent *agentmdl.Agent
 				break
 			}
 		}
-		return &FileContract{fs: r.fs, schemaURL: schemaURL, validationURL: validationURL}, nil
+		return &FileContract{reader: r.reader, fs: r.fs, schemaURL: schemaURL, validationURL: validationURL}, nil
 	}
 	return nil, fmt.Errorf("planner contract schema not found next to %s", strings.TrimSpace(plannerAgent.Source.URL))
 }
 
 type FileContract struct {
+	reader        DocumentReader
 	fs            afs.Service
 	schemaURL     string
 	validationURL string
@@ -135,7 +154,13 @@ func (c *FileContract) Schema(ctx context.Context) (map[string]interface{}, erro
 	if c == nil || c.fs == nil || strings.TrimSpace(c.schemaURL) == "" {
 		return nil, fmt.Errorf("planner contract schema location is not configured")
 	}
-	data, err := c.fs.DownloadWithURL(ctx, strings.TrimSpace(c.schemaURL))
+	var data []byte
+	var err error
+	if c.reader != nil {
+		data, err = c.reader.ReadURI(ctx, strings.TrimSpace(c.schemaURL))
+	} else {
+		data, err = c.fs.DownloadWithURL(ctx, strings.TrimSpace(c.schemaURL))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to load planner contract schema: %w", err)
 	}
@@ -203,7 +228,13 @@ func (c *FileContract) rules(ctx context.Context) ([]ValidationRule, error) {
 	if strings.TrimSpace(c.validationURL) == "" {
 		return nil, fmt.Errorf("planner validation rules location is not configured")
 	}
-	data, err := c.fs.DownloadWithURL(ctx, strings.TrimSpace(c.validationURL))
+	var data []byte
+	var err error
+	if c.reader != nil {
+		data, err = c.reader.ReadURI(ctx, strings.TrimSpace(c.validationURL))
+	} else {
+		data, err = c.fs.DownloadWithURL(ctx, strings.TrimSpace(c.validationURL))
+	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to load planner validation rules: %w", err)
 	}

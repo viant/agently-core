@@ -13,7 +13,12 @@ import (
 )
 
 // Repository loads global tool bundles from $AGENTLY_WORKSPACE/tools/bundles.
+type Reader interface {
+	LoadAll(context.Context) ([]*bundle.Bundle, error)
+}
+
 type Repository struct {
+	reader Reader
 	*base.Repository[bundle.Bundle]
 }
 
@@ -26,8 +31,13 @@ func NewWithStore(store workspace.Store) *Repository {
 	return &Repository{Repository: base.NewWithStore[bundle.Bundle](store, workspace.KindToolBundle)}
 }
 
+func NewWithReader(reader Reader) *Repository { return &Repository{reader: reader} }
+
 // LoadAll loads and validates all bundles.
 func (r *Repository) LoadAll(ctx context.Context) ([]*bundle.Bundle, error) {
+	if r != nil && r.reader != nil {
+		return r.reader.LoadAll(ctx)
+	}
 	if r == nil || r.Repository == nil {
 		return nil, fmt.Errorf("tool bundle repository not configured")
 	}

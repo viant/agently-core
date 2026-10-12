@@ -48,17 +48,20 @@ import (
 type Option func(*Service)
 
 type Service struct {
-	evidenceFactory      evidence.Factory
-	proactiveCompactions sync.Map // conversation -> last eligible original-history signature
-	ownedNative          *standalone.Server
-	closeNativeOnce      sync.Once
-	closeNativeError     error
-	llm                  *core.Service
-	registry             tool.Registry
-	fs                   afs.Service
-	agentFinder          agent.Finder
-	augmenter            *augmenter.Service
-	orchestrator         *reactor.Service
+	hostDocuments              HostDocumentReader
+	toolBundlesConfigured      bool
+	plannerContractsConfigured bool
+	evidenceFactory            evidence.Factory
+	proactiveCompactions       sync.Map // conversation -> last eligible original-history signature
+	ownedNative                *standalone.Server
+	closeNativeOnce            sync.Once
+	closeNativeError           error
+	llm                        *core.Service
+	registry                   tool.Registry
+	fs                         afs.Service
+	agentFinder                agent.Finder
+	augmenter                  *augmenter.Service
+	orchestrator               *reactor.Service
 
 	defaults *config.Defaults
 
@@ -211,7 +214,7 @@ func WithMCPManager(m *mcpmgr.Manager) Option { return func(s *Service) { s.mcpM
 
 // WithToolBundles configures a provider returning global tool bundles.
 func WithToolBundles(provider func(ctx context.Context) ([]*toolbundle.Bundle, error)) Option {
-	return func(s *Service) { s.toolBundles = provider }
+	return func(s *Service) { s.toolBundles = provider; s.toolBundlesConfigured = provider != nil }
 }
 
 // WithTokenProvider injects a token provider for auth token lifecycle management.
@@ -254,7 +257,7 @@ func WithSkillService(svc *skillsvc.Service) Option {
 }
 
 func WithPlannerContractResolver(resolver planner.Resolver) Option {
-	return func(s *Service) { s.plannerContracts = resolver }
+	return func(s *Service) { s.plannerContracts = resolver; s.plannerContractsConfigured = resolver != nil }
 }
 
 func WithAuthorizationPolicy(runtime *policy.Runtime) Option {
