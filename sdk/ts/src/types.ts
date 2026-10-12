@@ -943,6 +943,10 @@ export interface ApplyPermissionInput {
     clientId?: string;
     windowId?: string;
     resolvedResource?: ResolvedDefinitionResource;
+    /** Integrity of the original frame for a fresh OPEN; supplies no authority. */
+    expectedResource?: Pick<ResolvedDefinitionResource, 'providerIdentity' | 'uri' | 'kind' | 'revision' | 'contentFingerprint'>;
+    /** Current negotiated UI transport, not resource authority. */
+    bridgeSessionId?: string;
     conversationId: string;
     /** Assert the authored authorization contract version (1 numeric, 2 exact string IDs). */
     authorizationSchemaVersion?: 1 | 2;

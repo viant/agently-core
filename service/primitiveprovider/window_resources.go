@@ -318,6 +318,12 @@ func (s *Service) BindAdmittedFrameworkWindow(ctx context.Context, clientID, win
 	if err != nil {
 		return err
 	}
+	if requestctx.UIBridgeSessionIDFromContext(ctx) != "" {
+		_, session, err := s.nativePresentationSession(ctx)
+		if err != nil || session.clientID != clientID {
+			return identity.ErrResourceDenied
+		}
+	}
 	if !containsClient(s.hub.ListClients(owner.Namespace), clientID) {
 		return identity.ErrResourceDenied
 	}

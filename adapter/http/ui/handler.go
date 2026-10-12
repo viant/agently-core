@@ -161,6 +161,12 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			copy.SelectionBinding = nil
 			aWindow = &copy
 		}
+		if r.URL.Query().Get("expectedResource") != "" {
+			if !canonical || !applyPermissionRequested(r) || r.Header.Get("Mcp-Session-Id") == "" || r.URL.Query().Get("windowId") == "" || r.URL.Query().Get("clientId") == "" || checkExpectedWindowResource(r, aWindow.Resource) != nil {
+				writeOpenAdmissionError(w, identity.ErrResourceDenied)
+				return
+			}
+		}
 		var authorization *permittedview.Snapshot
 		var openOriginal *forgeTypes.Window
 		var openParameters map[string]any

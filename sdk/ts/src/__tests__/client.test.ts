@@ -1196,6 +1196,17 @@ describe('Forge Window Metadata', () => {
         expect(url.searchParams.has('namespace')).toBe(false);
     });
 
+    it('fresh OPEN forwards selector integrity and negotiated transport separately', async () => {
+        const f = mockFetch(200,{data:{key:'chat/new'}}); const c=client(f);
+        const expectedResource={providerIdentity:'framework',uri:'window://agently/chat-new',kind:'working' as const,contentFingerprint:'a'.repeat(64)};
+        await c.applyPermission('chat/new',{conversationId:'conv',clientId:'owned',windowId:'chat/new',expectedResource,bridgeSessionId:'negotiated',windowParams:{EntityId:['original']}});
+        const call=lastCall(f);const url=new URL(call.url);
+        expect(JSON.parse(url.searchParams.get('expectedResource') || '{}')).toEqual(expectedResource);
+        expect(url.searchParams.has('resolvedResource')).toBe(false);
+        expect(call.headers?.['Mcp-Session-Id']).toBe('negotiated');
+        expect(JSON.parse(url.searchParams.get('windowParams') || '{}')).toEqual({EntityId:['original']});
+    });
+
     it('applyPermission preserves v2 string IDs', async () => {
         const id = '9007199254740993';
         const f = mockFetch(200, {data: {authorizationSnapshot: {schemaVersion: 2, resources: {[id]: {type: 'customer', id, capabilities: {read: true}}}}}});
