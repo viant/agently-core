@@ -40,9 +40,4 @@ type CurrentWriteView struct {
 	ExpiresAt   string  `sqlx:"expires_at,required=true" json:"expiresAt,omitempty"`
 	ConsumedAt  *string `sqlx:"consumed_at" json:"consumedAt,omitempty"`
 	CreatedAt   string  `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
-	Now         string  `sqlx:"now" json:"now"`
-}
-
-type WriteKeysRow struct {
-	FlowHash string `sqlx:"flow_hash"`
 }

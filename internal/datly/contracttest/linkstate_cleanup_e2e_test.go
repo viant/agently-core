@@ -19,13 +19,83 @@ import (
 	dsql "github.com/viant/datly/sql"
 	"github.com/viant/datly/sql/dml"
 	viewprovider "github.com/viant/datly/sql/reader/provider"
+	dtranscribe "github.com/viant/datly/transcribe"
+	dcolumn "github.com/viant/datly/transcribe/column"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"strings"
 	"testing"
+
+	_ "modernc.org/sqlite"
 )
+
+func TestLinkStateWriterSQLiteColumnDiscovery(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
+	dbPath := filepath.Join(t.TempDir(), "linkstate-discovery.db")
+	db, err := sql.Open("sqlite", dbPath)
+	must(t, err)
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	ddl, err := os.ReadFile(filepath.Join(project, "tools/schema/schema.sql"))
+	must(t, err)
+	_, err = db.Exec(string(ddl))
+	must(t, err)
+
+	compiled, err := (&dtranscribe.Discovery{
+		BaseDir:       project,
+		Include:       []string{"github.com/viant/agently-core/dql/oauth/linkstate/write"},
+		TypeInclude:   []string{"github.com/viant/agently-core/internal/datly/oauth/linkstate/write"},
+		Holders:       []any{&replace.WriteComponent{}},
+		RequireLinked: true,
+		Connector:     "agently",
+		ColumnRefiner: dcolumn.New(dcolumn.Connections{"agently": db}),
+	}).Compile(context.Background())
+	must(t, err)
+	if len(compiled.Components) != 1 {
+		t.Fatalf("discovered %d link-state writer components, expected one", len(compiled.Components))
+	}
+	if _, ok := reflect.TypeFor[replace.CurrentWriteView]().FieldByName("Now"); ok {
+		t.Fatal("CurrentWrite projected the transient request clock")
+	}
+
+	createdAt := "2026-01-02 00:00:00"
+	request := httptest.NewRequest("PATCH", "/v1/internal/agently/user/oauth/linkstate/write", strings.NewReader(`{"data":[{"stateHash":"state-init","flowHash":"flow-init","userId":"user-init","sessionHash":"session-init","provider":"idp","expiresAt":"2027-01-01 00:00:00","now":"`+createdAt+`"}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	scope, err := requestprovider.New(request)
+	must(t, err)
+	defer scope.Close()
+	result, err := linkStateConsumeRuntime(t, db).ExecuteRoute(context.Background(), "PATCH", "/v1/internal/agently/user/oauth/linkstate/write", scope)
+	must(t, err)
+	if !result.(*replace.Output).Created {
+		t.Fatalf("initiation did not create the state: %+v", result)
+	}
+	var persisted string
+	must(t, db.QueryRow("SELECT created_at FROM oauth_link_state WHERE flow_hash='flow-init'").Scan(&persisted))
+	if persisted != "2026-01-02T00:00:00Z" {
+		t.Fatalf("persisted creation clock=%q, expected the supplied body clock", persisted)
+	}
+
+	consumeRequest := httptest.NewRequest("PATCH", "/v1/internal/agently/user/oauth/linkstate/write?mode=consume", strings.NewReader(`{"data":[{"stateHash":"state-init","flowHash":"flow-init","userId":"user-init","sessionHash":"session-init","now":"2026-01-02 00:00:00"}]}`))
+	consumeRequest.Header.Set("Content-Type", "application/json")
+	consumeScope, err := requestprovider.New(consumeRequest)
+	must(t, err)
+	defer consumeScope.Close()
+	consumed, err := linkStateConsumeRuntime(t, db).ExecuteRoute(context.Background(), "PATCH", "/v1/internal/agently/user/oauth/linkstate/write", consumeScope)
+	must(t, err)
+	if outcome := consumed.(*replace.Output).Outcome; outcome != "consumed" {
+		t.Fatalf("callback consumption outcome=%q expected consumed", outcome)
+	}
+	var consumedAt string
+	must(t, db.QueryRow("SELECT consumed_at FROM oauth_link_state WHERE flow_hash='flow-init'").Scan(&consumedAt))
+	if consumedAt != "2026-01-02T00:00:00Z" {
+		t.Fatalf("persisted callback clock=%q, expected the supplied body clock", consumedAt)
+	}
+}
 
 func TestLinkStateCleanupNativeContract(t *testing.T) {
 	_, file, _, _ := runtime.Caller(0)
