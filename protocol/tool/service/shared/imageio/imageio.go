@@ -17,7 +17,9 @@ type Options struct {
 	MaxWidth  int
 	MaxHeight int
 	MaxBytes  int
-	Format    string // "", "png", "jpeg"
+	// MaxPatches optionally bounds ceil(width/32)*ceil(height/32).
+	MaxPatches int
+	Format     string // "", "png", "jpeg"
 }
 
 type EncodedImage struct {
@@ -79,6 +81,7 @@ func EncodeToFit(raw []byte, options Options) (*EncodedImage, error) {
 	}
 
 	targetW, targetH := fitBox(srcWidth, srcHeight, opts.MaxWidth, opts.MaxHeight)
+	targetW, targetH = fitPatchBudget(targetW, targetH, opts.MaxPatches)
 	if targetW <= 0 || targetH <= 0 {
 		return nil, fmt.Errorf("invalid target dimensions")
 	}
@@ -100,6 +103,25 @@ func EncodeToFit(raw []byte, options Options) (*EncodedImage, error) {
 		Width:    targetW,
 		Height:   targetH,
 	}, nil
+}
+
+func fitPatchBudget(width, height, maximum int) (int, int) {
+	patches := func(w, h int) int64 { return int64((w+31)/32) * int64((h+31)/32) }
+	if maximum <= 0 || patches(width, height) <= int64(maximum) {
+		return width, height
+	}
+	low, high := 0.0, 1.0
+	bestWidth, bestHeight := 1, 1
+	for iteration := 0; iteration < 48; iteration++ {
+		scale := (low + high) / 2
+		w, h := max(1, int(float64(width)*scale)), max(1, int(float64(height)*scale))
+		if patches(w, h) <= int64(maximum) {
+			low, bestWidth, bestHeight = scale, w, h
+		} else {
+			high = scale
+		}
+	}
+	return bestWidth, bestHeight
 }
 
 func fitBox(width, height, maxWidth, maxHeight int) (int, int) {

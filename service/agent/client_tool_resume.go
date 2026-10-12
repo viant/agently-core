@@ -132,6 +132,9 @@ func (s *Service) ResumeContinuation(ctx context.Context, input *QueryInput, tur
 	if err = s.ensureAgent(ctx, input); err != nil {
 		return err
 	}
+	if input.EmbeddingModel == "" && s.defaults != nil {
+		input.EmbeddingModel = s.defaults.Embedder
+	}
 	if input.ModelOverride == "" && persistedTurn.ModelOverride != nil {
 		input.ModelOverride = *persistedTurn.ModelOverride
 	}

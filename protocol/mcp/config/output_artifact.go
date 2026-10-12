@@ -13,6 +13,8 @@ import (
 // text. Paths are JSON Pointers into raw MCP content/structuredContent; remote
 // URIs are never interpreted as paths or public provenance.
 type OutputArtifact struct {
+	// Role is trusted workspace policy, never inferred from a MIME type or name.
+	Role         string `json:"role,omitempty" yaml:"role,omitempty"`
 	Name         string `json:"name,omitempty" yaml:"name,omitempty"`
 	NamePath     string `json:"namePath,omitempty" yaml:"namePath,omitempty"`
 	BytesPath    string `json:"bytesPath,omitempty" yaml:"bytesPath,omitempty"`
@@ -22,6 +24,9 @@ type OutputArtifact struct {
 }
 
 func (p OutputArtifact) Validate() error {
+	if p.Role != "" && p.Role != "screenshot" {
+		return fmt.Errorf("invalid output artifact role")
+	}
 	if p.MimeType != "" {
 		if _, _, err := mime.ParseMediaType(p.MimeType); err != nil || len(p.MimeType) > 256 {
 			return fmt.Errorf("invalid output artifact MIME type")

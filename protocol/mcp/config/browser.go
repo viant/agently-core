@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -15,10 +16,11 @@ type BrowserTransport struct {
 	RequestTimeoutMs int    `json:"requestTimeoutMs,omitempty" yaml:"requestTimeoutMs,omitempty"`
 }
 type BrowserDescriptor struct {
-	Name              string           `json:"name"`
-	ExecutionLocation string           `json:"executionLocation"`
-	Transport         BrowserTransport `json:"transport"`
-	AllowedTools      []string         `json:"allowedTools"`
+	Name              string                    `json:"name"`
+	ExecutionLocation string                    `json:"executionLocation"`
+	Transport         BrowserTransport          `json:"transport"`
+	AllowedTools      []string                  `json:"allowedTools"`
+	OutputArtifacts   map[string]OutputArtifact `json:"outputArtifacts,omitempty"`
 }
 
 var browserName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9_-]{0,31}$`)
@@ -49,7 +51,25 @@ func (c *MCPClient) BrowserDescriptor(name string) (BrowserDescriptor, error) {
 			return BrowserDescriptor{}, fail
 		}
 	}
-	return BrowserDescriptor{Name: name, ExecutionLocation: "browser", Transport: t, AllowedTools: patterns}, nil
+	var artifacts map[string]OutputArtifact
+	if len(c.OutputArtifacts) > 0 {
+		if len(c.OutputArtifacts) > 64 {
+			return BrowserDescriptor{}, fail
+		}
+		for method, policy := range c.OutputArtifacts {
+			if method == "" || len(method) > 256 || strings.ContainsAny(method, "\x00\r\n") || policy.Validate() != nil {
+				return BrowserDescriptor{}, fail
+			}
+		}
+		raw, err := json.Marshal(c.OutputArtifacts)
+		if err != nil {
+			return BrowserDescriptor{}, fail
+		}
+		if json.Unmarshal(raw, &artifacts) != nil {
+			return BrowserDescriptor{}, fail
+		}
+	}
+	return BrowserDescriptor{Name: name, ExecutionLocation: "browser", Transport: t, AllowedTools: patterns, OutputArtifacts: artifacts}, nil
 }
 func (c *MCPClient) ValidateExecutionLocation() error {
 	if c == nil || c.ExecutionLocation == "" || c.ExecutionLocation == "server" {

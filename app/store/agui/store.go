@@ -69,6 +69,18 @@ func (s *ComponentStore) Admit(ctx context.Context, admission Admission) (*Run, 
 	}
 	return out.Run, out.New, nil
 }
+
+// AdmitPendingRecovery atomically consumes the prior CAS and publishes its
+// replacement pending journal. No execution worker or transient empty wait is
+// observable between these existing guarded operations.
+func (s *ComponentStore) AdmitPendingRecovery(ctx context.Context, admission Admission, events []json.RawMessage, pending json.RawMessage) (*Run, bool, error) {
+	out, err := s.invoke(ctx, &Request{Operation: "admitPendingRecovery", Principal: admission.Principal, ThreadID: admission.ThreadID, RunID: admission.RunID, Admission: &admission, Events: events, Change: &Change{Pending: pending}})
+	if err != nil {
+		return nil, false, err
+	}
+	return out.Run, out.New, nil
+}
+
 func (s *ComponentStore) GetRun(ctx context.Context, principal, threadID, runID string) (*Run, error) {
 	out, err := s.invoke(ctx, &Request{Operation: "get", Principal: principal, ThreadID: threadID, RunID: runID})
 	if err != nil {

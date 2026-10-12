@@ -48,6 +48,12 @@ func (s *Service) resolveTools(ctx context.Context, qi *QueryInput) (tools []llm
 		}
 		filtered := make([]llm.Tool, 0, len(tools))
 		for _, tool := range tools {
+			// Browser definitions already passed the originating catalog's model
+			// visibility check. They have no server-side discovery/dispatch path.
+			if _, browser := browsermcp.Definitions(ctx)[mcpname2.Canonical(tool.Definition.Name)]; browser {
+				filtered = append(filtered, tool)
+				continue
+			}
 			allowed, checkErr := visibility.MCPToolVisible(ctx, tool.Definition.Name, "model")
 			if checkErr != nil {
 				tools, err = nil, checkErr
@@ -735,11 +741,26 @@ func (s *Service) matchDefinitions(ctx context.Context, pattern string) []*llm.T
 func (s *Service) matchDefinitionsResult(ctx context.Context, pattern string) ([]*llm.ToolDefinition, error) {
 	ctx = toolSurfaceDiscoveryContext(ctx)
 	var matched []*llm.ToolDefinition
-	for _, definition := range browsermcp.Definitions(ctx) {
-		if toolmatcher.Match(pattern, definition.Name) {
+	browserDefinitions := browsermcp.Definitions(ctx)
+	namespace := mcpname2.Name(mcpname2.Canonical(strings.TrimSpace(pattern))).Service()
+	browserNamespace := false
+	for _, definition := range browserDefinitions {
+		if namespace != "" && !strings.ContainsAny(namespace, "*?[]") && mcpname2.Name(definition.Name).Service() == namespace {
+			browserNamespace = true
+			break
+		}
+	}
+	for _, definition := range browserDefinitions {
+		if toolmatcher.Match(pattern, definition.Name) && (!browserNamespace || mcpname2.Name(definition.Name).Service() == namespace) {
 			copy := definition
 			matched = append(matched, &copy)
 		}
+	}
+	if browserNamespace {
+		// This exact server's available tools come only from the verified
+		// browser catalog, including empty matches used by bundle exclusions.
+		// Never discover a backend client or cache these document-bound tools.
+		return matched, nil
 	}
 	var backend []*llm.ToolDefinition
 	var err error

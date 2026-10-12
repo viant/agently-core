@@ -126,6 +126,12 @@ func (c *backendClient) reconcileAGUIApprovalCandidate(ctx context.Context, stor
 		if err = json.Unmarshal(record.Pending, &pending); err != nil {
 			return err
 		}
+		if handled, timeoutErr := c.aguiClientToolTimeout(ctx, store, record, pending); handled || timeoutErr != nil {
+			return timeoutErr
+		}
+		if handled, recoveryErr := c.aguiClientToolRecoveryGrace(ctx, store, record, pending); handled || recoveryErr != nil {
+			return recoveryErr
+		}
 		approvals := false
 		for _, interrupt := range pending.Interrupts {
 			if interrupt.Reason != "approval" {
@@ -194,6 +200,10 @@ func (c *backendClient) reconcileAGUIApprovalCandidate(ctx context.Context, stor
 	if err = json.Unmarshal(prior.Pending, &pending); err != nil {
 		return err
 	}
+	if isClientToolTimeoutRun(record) {
+		_, timeoutErr := c.aguiClientToolTimeout(ctx, store, prior, pending)
+		return timeoutErr
+	}
 	approvals := false
 	for _, interrupt := range pending.Interrupts {
 		if interrupt.Reason == "approval" {
@@ -256,6 +266,11 @@ func (c *backendClient) IsAGUIApprovalRecoveryOwnedTurn(ctx context.Context, con
 			if err = json.Unmarshal(run.Pending, &pending); err != nil {
 				return false, err
 			}
+			for _, call := range pending.ClientTools {
+				if call.DeadlineAt != "" || (len(pending.Dependencies) == 0 && call.ID != "") {
+					return true, nil
+				}
+			}
 			for _, interrupt := range pending.Interrupts {
 				if interrupt.Reason == "approval" {
 					return true, nil
@@ -272,7 +287,7 @@ func (c *backendClient) IsAGUIApprovalRecoveryOwnedTurn(ctx context.Context, con
 		if err = json.Unmarshal(prior.Pending, &pending); err != nil {
 			return false, err
 		}
-		approval := false
+		approval := isClientToolTimeoutRun(run)
 		for _, interrupt := range pending.Interrupts {
 			if interrupt.Reason == "approval" {
 				approval = true

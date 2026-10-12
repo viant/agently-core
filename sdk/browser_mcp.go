@@ -70,12 +70,16 @@ func registerBrowserMCPRoutes(mux *http.ServeMux, client Client, authCfg *svcaut
 		}
 		catalog, err := registry.Current(ctx, user, r.PathValue("id"))
 		if err != nil {
-			httpError(w, 403, browsermcp.ErrUnavailable)
+			httpError(w, 403, err)
 			return
 		}
 		conv, err := client.GetConversation(ctx, catalog.ConversationID)
-		if err != nil || conv == nil || conv.CreatedByUserId == nil || *conv.CreatedByUserId != user {
-			httpError(w, 403, browsermcp.ErrUnavailable)
+		if err != nil || conv == nil {
+			httpError(w, 403, errors.New("browser MCP catalog unavailable for this conversation (conversationUnavailable)"))
+			return
+		}
+		if conv.CreatedByUserId == nil || *conv.CreatedByUserId != user {
+			httpError(w, 403, errors.New("browser MCP catalog unavailable for this conversation (conversationOwnerMismatch)"))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")

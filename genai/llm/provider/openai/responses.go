@@ -409,7 +409,7 @@ func toResponsesContentItems(content interface{}, isAssistant bool) []ResponsesC
 				items = append(items, ResponsesContentItem{Type: "input_image", ImageURL: url, Detail: detail})
 			case "image_file":
 				if it.File != nil && it.File.FileID != "" {
-					items = append(items, ResponsesContentItem{Type: "input_image", FileID: it.File.FileID})
+					items = append(items, ResponsesContentItem{Type: "input_image", FileID: it.File.FileID, Detail: it.ImageDetail})
 				}
 			case "file":
 				if it.File != nil && it.File.FileID != "" {

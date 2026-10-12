@@ -333,8 +333,27 @@ type PreviewSettings struct {
 
 // Projection groups prompt-history projection settings.
 type Projection struct {
+	ScreenshotRetention  *ScreenshotRetention  `yaml:"screenshotRetention,omitempty" json:"screenshotRetention,omitempty"`
 	Relevance            *RelevanceProjection  `yaml:"relevance,omitempty" json:"relevance,omitempty"`
 	ToolCallSupersession *ToolCallSupersession `yaml:"toolCallSupersession,omitempty" json:"toolCallSupersession,omitempty"`
+}
+
+// ScreenshotRetention applies only to artifacts classified by server policy.
+type ScreenshotRetention struct {
+	Enabled   *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	MaxImages *int  `yaml:"maxImages,omitempty" json:"maxImages,omitempty"`
+}
+
+func (p *Projection) ScreenshotImageLimit() int {
+	if p != nil && p.ScreenshotRetention != nil {
+		if p.ScreenshotRetention.Enabled != nil && !*p.ScreenshotRetention.Enabled {
+			return -1
+		}
+		if p.ScreenshotRetention.MaxImages != nil {
+			return max(1, min(64, *p.ScreenshotRetention.MaxImages))
+		}
+	}
+	return 2
 }
 
 // RelevanceProjection controls optional selector-based hiding of irrelevant

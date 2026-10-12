@@ -25,7 +25,7 @@ import (
 )
 
 type ManageComponent struct {
-	Contract xdatly.Component[store.Request, store.Response] `component:"Manage,path=/v1/internal/agently/reporting-evidence/manage,method=POST,connector=agently,handler=NewManage,internal=true"`
+	Contract xdatly.Component[store.Request, store.Response] `component:"Manage,path=/v1/internal/agently/reporting-evidence/manage,method=POST,connector=agently,handler=NewManage,internal=true" componentCallPolicy:"imperative"`
 }
 
 var ManageDatly = reflect.TypeFor[ManageComponent]()

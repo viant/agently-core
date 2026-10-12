@@ -9,7 +9,7 @@ import (
 	"github.com/viant/agently-core/runtime/evidence"
 )
 
-// prepareEvidenceRequest runs before request payload capture, coalescing and
+// prepareEvidenceRequest runs before request payload capture and
 // dispatch. The server's effective arguments are the arguments all three see.
 func prepareEvidenceRequest(ctx context.Context, step StepInfo) (StepInfo, error) {
 	hook := evidence.ToolsFromContext(ctx)

@@ -151,6 +151,7 @@ type CallSpan struct {
 }
 
 type AttachmentItem struct {
+	Detail   string `json:"detail,omitempty"`
 	Native   bool   `json:"native,omitempty"`
 	Name     string `json:"name,omitempty"`
 	MimeType string `json:"mimeType,omitempty"`
@@ -416,6 +417,12 @@ func NewMessageWithBinaries(role MessageRole, attachItems []*AttachmentItem, con
 		item := NewBinaryContent(a.Data, a.MimeType, a.Name)
 		if a.Native {
 			item.Metadata = map[string]interface{}{"nativePresentation": true}
+		}
+		if a.Detail != "" {
+			if item.Metadata == nil {
+				item.Metadata = map[string]interface{}{}
+			}
+			item.Metadata["detail"] = a.Detail
 		}
 		items = append(items, item)
 	}
