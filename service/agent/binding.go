@@ -27,6 +27,8 @@ import (
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding.Binding, error) {
+	ctx = s.withBindingPayloadReads(ctx)
+	defer closeBindingPayloadReads(ctx)
 	if input != nil {
 		input.normalizeIntentProfileID()
 	}
