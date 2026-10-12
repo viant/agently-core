@@ -22,6 +22,7 @@ import (
 	svcauth "github.com/viant/agently-core/service/auth"
 	resourcepolicy "github.com/viant/agently-core/service/policy"
 	"github.com/viant/authz"
+	"github.com/viant/jsonrpc"
 )
 
 func handleListToolDefinitions(client Client) http.HandlerFunc {
@@ -338,6 +339,10 @@ func statusForToolExecuteError(err error) int {
 	if toolpolicy.IsPolicyError(err) {
 		return http.StatusConflict
 	}
+	var rpcError *jsonrpc.Error
+	if errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
+		return rpcError.Code
+	}
 	if status, ok := upstreamAuthStatusFromError(err); ok {
 		return status
 	}
@@ -362,6 +367,15 @@ func writeToolExecuteError(w http.ResponseWriter, err error, result string) {
 	if status == http.StatusUnauthorized || status == http.StatusForbidden {
 		// Partial definitions/data cannot accompany failed authorization.
 		result = ""
+		var rpcError *jsonrpc.Error
+		if errors.As(err, &rpcError) && isAuthStatus(rpcError.Code) {
+			// Managing-server error messages/data can contain private payloads.
+			if status == http.StatusUnauthorized {
+				err = errors.New("managing server requires authentication")
+			} else {
+				err = errors.New("managing server denied access")
+			}
+		}
 	}
 	httpErrorWithResult(w, status, err, result)
 }
