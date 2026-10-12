@@ -187,8 +187,12 @@ export class AgUiViewProjection {
         }
         if(kind==='STEP_STARTED'||kind==='STEP_FINISHED'){
             const step=string(event.stepName)??'';if(kind==='STEP_STARTED')this.steps.set(step,lane);
-            const found={...this.steps.get(step),...lane,presentation:metadata??this.steps.get(step)?.presentation};
-            this.emit({type:kind==='STEP_STARTED'?'model_started':'model_completed',modelCallId:metadata?.modelCallId??step,status:kind==='STEP_STARTED'?'running':'completed'},found);
+            const held=this.steps.get(step);
+            // Native terminal closures can omit presentation. Retain the exact
+            // started lane; absent terminal fields must not move it to a parent.
+            const presentation=metadata?.modelCallId?metadata:held?.presentation??metadata;
+            const found:Lane={presentation,owner:owner??held?.owner,parent:parent??held?.parent,pageId:presentation?.pageId??held?.pageId??lane.pageId};
+            this.emit({type:kind==='STEP_STARTED'?'model_started':'model_completed',modelCallId:found.presentation?.modelCallId??step,status:kind==='STEP_STARTED'?'running':'completed'},found);
         }
         if(kind==='CUSTOM'&&this.options.profile==='agently'){
             if(event.name==='agently.usage'){const usage=readAgentlyUsage(event.value);if(usage)this.emit({type:'usage',modelCallId:usage.modelCallId,turnId:usage.nativeTurnId,usage:{...usage.usage,scope:usage.scope} as SSEEvent['usage']},lane);}

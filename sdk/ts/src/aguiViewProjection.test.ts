@@ -18,6 +18,54 @@ function harness(profile:'standard'|'agently',events:object[],options:{baseline?
 }
 
 describe('official reduced AG-UI view projection',()=>{
+    it('correlates bare terminal steps with the retained native model and tool identities', async () => {
+        const model = metadata({modelCallId:'native-model',nativeMessageId:'model-message',pageId:'model-page'});
+        const tool = metadata({modelCallId:'native-model',nativeMessageId:'model-message',nativeToolCallId:'native-tool',toolMessageId:'tool-message',pageId:'model-page'});
+        const h = harness('agently', [start,
+            {type:'STEP_STARTED',stepName:'model/native-model',metadata:model},
+            {type:'TOOL_CALL_START',toolCallId:'protocol-tool',toolCallName:'fixture_tool',parentMessageId:'model-message',metadata:tool},
+            {type:'TOOL_CALL_ARGS',toolCallId:'protocol-tool',delta:'{}',metadata:tool},
+            {type:'TOOL_CALL_END',toolCallId:'protocol-tool',metadata:tool},
+            {type:'TOOL_CALL_RESULT',toolCallId:'protocol-tool',messageId:'tool-message',content:'done',metadata:tool},
+            {type:'STEP_FINISHED',stepName:'model/native-model'}, finish]);
+        await h.run();
+        // Replayed terminal observation is idempotent at the projection boundary;
+        // the official wire verifier correctly rejects duplicate STEP_FINISHED.
+        h.projection.subscriber.onEvent?.({event:{type:'STEP_FINISHED',stepName:'model/native-model'}} as any);
+        const terminal = h.views.filter(event => event.type === 'model_completed');
+        expect(terminal).toHaveLength(1);
+        expect(terminal[0]).toMatchObject({modelCallId:'native-model',turnId:'native-turn',pageId:'model-page',status:'completed'});
+        const models = h.store().turns.flatMap(turn => turn.pages.flatMap(page => page.modelSteps));
+        expect(models).toHaveLength(1);
+        expect(models[0]).toMatchObject({modelCallId:'native-model',status:'completed'});
+        const tools = h.store().turns.flatMap(turn => turn.pages.flatMap(page => page.toolCalls));
+        expect(tools).toHaveLength(1);
+        expect(tools[0]).toMatchObject({toolCallId:'native-tool',status:'completed'});
+    });
+    it('keeps the started lane when terminal turn metadata has no model identity', async () => {
+        const held = metadata({modelCallId:'native-model',nativeMessageId:'model-message',pageId:'model-page'});
+        const terminalTurn = metadata({nativeTurnId:'terminal-turn',pageId:'terminal-page'});
+        const h = harness('agently', [start,
+            {type:'STEP_STARTED',stepName:'model/native-model',metadata:held},
+            {type:'STEP_FINISHED',stepName:'model/native-model',metadata:terminalTurn},finish]);
+        await h.run();
+        expect(h.views.find(event=>event.type==='model_completed')).toMatchObject({modelCallId:'native-model',turnId:'native-turn',pageId:'model-page',status:'completed'});
+        const models = h.store().turns.flatMap(turn => turn.pages.flatMap(page => page.modelSteps));
+        expect(models).toEqual([expect.objectContaining({modelCallId:'native-model',status:'completed'})]);
+    });
+    it('retains child owner and page for a bare terminal without moving it to the root', async () => {
+        const child = {agently:{presentation:{version:'1',conversationId:'conversation',nativeTurnId:'child-turn',pageId:'child-page',modelCallId:'child-model',nativeMessageId:'child-message',iteration:0}}};
+        const h = harness('agently', [start,
+            {type:'STEP_STARTED',stepName:'model/child-model',subagentRunId:'child-run',metadata:child},
+            {type:'STEP_FINISHED',stepName:'model/child-model',subagentRunId:'child-run'}, finish]);
+        await h.run();
+        const terminal = h.views.find(event => event.type === 'model_completed');
+        expect(terminal).toMatchObject({modelCallId:'child-model',turnId:'child-turn',pageId:'child-page',subagentRunId:'child-run'});
+        const childTurn = h.store().turns.find(turn => turn.turnId === 'child-turn');
+        expect(childTurn?.pages.flatMap(page => page.modelSteps)).toEqual([expect.objectContaining({modelCallId:'child-model',status:'completed'})]);
+        expect(h.store().turns.filter(turn => turn.turnId !== 'child-turn').flatMap(turn => turn.pages.flatMap(page => page.modelSteps))).toHaveLength(0);
+    });
+
     it('finishes the current native turn without taking identity from old history or children', async () => {
         const prior = ['prior-one', 'prior-two', 'prior-three'].map(id => ({
             id, role: 'assistant' as const, content: 'Earlier answer',
