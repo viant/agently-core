@@ -1181,6 +1181,8 @@ github.com/viant/datly v1.1.1-0.20261012142806-48aed25023b5 h1:ykz9diyAkiTVU6EAJ
 github.com/viant/datly v1.1.1-0.20261012142806-48aed25023b5/go.mod h1:ppSykXp2+wFIkP7BsRyeXQY77YilTcZWBvAp4Tz4zJA=
 github.com/viant/datly v1.1.1-0.20261012144747-65fb3aa69e67 h1:hi7DMJCwrCV//xlShU5vJNqYI0vtCnqexxToIp7paMU=
 github.com/viant/datly v1.1.1-0.20261012144747-65fb3aa69e67/go.mod h1:ppSykXp2+wFIkP7BsRyeXQY77YilTcZWBvAp4Tz4zJA=
+github.com/viant/datly v1.1.1-0.20261012150720-636d0bfdcbba h1:xTShn/mC4w3sxjubQFmv8uWoK+7eiWe+Cs+CoSI/yU8=
+github.com/viant/datly v1.1.1-0.20261012150720-636d0bfdcbba/go.mod h1:ppSykXp2+wFIkP7BsRyeXQY77YilTcZWBvAp4Tz4zJA=
 github.com/viant/embedius v0.5.6 h1:CLpwc/tztpQArGyea5D+xiYSlHjwTv01ytUJRfs1k1k=
 github.com/viant/embedius v0.5.6/go.mod h1:klyTcRglmMvW/EzFCS4S3RmgCDwaXqC9FWu7RZOtBkc=
 github.com/viant/forge v0.3.45-0.20261010035027-6f63f883a89e h1:IjNYOPOAnVF58yHlUPGHfYAxB+1mRA5HuPu8oI/eyRg=
