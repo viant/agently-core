@@ -347,6 +347,7 @@ type ListSkillsInput struct {
 }
 
 type SkillItem struct {
+	URI         string `json:"uri,omitempty"`
 	Name        string `json:"name,omitempty"`
 	Description string `json:"description,omitempty"`
 }

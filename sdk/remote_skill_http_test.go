@@ -71,7 +71,7 @@ func (f *remoteSDKSkillHTTP) serve(w http.ResponseWriter, r *http.Request) {
 	var value any
 	var rpc any
 	sum := sha256.Sum256([]byte(remoteSDKSkillDocument))
-	entry := map[string]any{"uri": remoteSDKSkillURI, "frontmatter": map[string]any{"name": "remote-review", "description": "Owned remote review", "metadata": map[string]any{"agently-context": "inline"}}, "resources": []any{map[string]any{"uri": remoteSDKSkillURI, "size": len(remoteSDKSkillDocument), "digest": fmt.Sprintf("sha256:%x", sum[:])}}}
+	entry := map[string]any{"localSelector": "local-review", "uri": remoteSDKSkillURI, "frontmatter": map[string]any{"name": "remote-review", "description": "Owned remote review", "metadata": map[string]any{"agently-context": "inline"}}, "resources": []any{map[string]any{"uri": remoteSDKSkillURI, "size": len(remoteSDKSkillDocument), "digest": fmt.Sprintf("sha256:%x", sum[:])}}}
 	wrap := func(v any) any {
 		body, _ := json.Marshal(v)
 		return map[string]any{"structuredContent": v, "content": []any{map[string]any{"type": "text", "text": string(body)}}}
@@ -184,9 +184,11 @@ func TestSDKHTTPRemoteSkillListAndInlineActivationPreservePinnedIdentity(t *test
 	localFound := false
 	for _, item := range listed.Items {
 		if item.Name == "local-review" {
+			require.Equal(t, "skill://workspace/local-review/SKILL.md", item.URI)
 			localFound = true
 		}
 		if strings.HasPrefix(item.Name, "skill://remote-fixture/remote-review~") {
+			require.Equal(t, item.Name, item.URI)
 			remoteName = item.Name
 		}
 	}
@@ -200,6 +202,13 @@ func TestSDKHTTPRemoteSkillListAndInlineActivationPreservePinnedIdentity(t *test
 	active, err := client.ActivateSkill(ctx, &ActivateSkillInput{ConversationID: conv.Id, Name: remoteName})
 	require.NoError(t, err)
 	require.Equal(t, remoteName, active.Name)
+	localActive, err := client.ActivateSkill(ctx, &ActivateSkillInput{ConversationID: conv.Id, Name: "local-review"})
+	require.NoError(t, err)
+	require.Equal(t, "local-review", localActive.Name)
+	require.Contains(t, localActive.Body, "LOCAL_INLINE_BODY")
+	canonicalLocal, err := client.ActivateSkill(ctx, &ActivateSkillInput{ConversationID: conv.Id, Name: "skill://workspace/local-review/SKILL.md"})
+	require.NoError(t, err)
+	require.Contains(t, canonicalLocal.Body, "LOCAL_INLINE_BODY")
 	require.Contains(t, active.Body, "REMOTE_INLINE_STATIC_BODY")
 	require.Contains(t, active.Body, `configured server "remote-fixture"`)
 	anon, err := client.ListSkills(context.Background(), &ListSkillsInput{AgentID: "owned"})
@@ -265,6 +274,7 @@ func TestSDKHTTPVisibleSkillPagingUsesCachedMetadataWithoutResourceReads(t *test
 	first, err := client.ListSkills(context.Background(), &ListSkillsInput{AgentID: "owned", CatalogQuery: primitive.CatalogQuery{Limit: 1}})
 	require.NoError(t, err)
 	require.Equal(t, "alpha", first.Items[0].Name)
+	require.Equal(t, "skill://workspace/alpha/SKILL.md", first.Items[0].URI)
 	require.Equal(t, 3, first.Total)
 	second, err := client.ListSkills(context.Background(), &ListSkillsInput{AgentID: "owned", CatalogQuery: primitive.CatalogQuery{Limit: 1, Cursor: first.NextCursor}})
 	require.NoError(t, err)
