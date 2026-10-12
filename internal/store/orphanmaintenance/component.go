@@ -17,8 +17,10 @@ import (
 	"github.com/viant/xdatly/handler"
 )
 
+// The coordinator consumes actual child mutation evidence before proceeding.
+// Imperative composition preserves the same parent-owned transaction.
 type ApplyComponent struct {
-	Contract xdatly.Component[ApplyInput, ApplyOutput] `component:"OrphanMaintenanceApply,path=/v1/internal/agently/orphan-maintenance/apply,method=POST,handler=NewApply,internal=true"`
+	Contract xdatly.Component[ApplyInput, ApplyOutput] `component:"OrphanMaintenanceApply,path=/v1/internal/agently/orphan-maintenance/apply,method=POST,handler=NewApply,internal=true" componentCallPolicy:"imperative"`
 }
 type ApplyInput struct {
 	RuleID    string            `parameter:"RuleID,kind=body,in=ruleId"`

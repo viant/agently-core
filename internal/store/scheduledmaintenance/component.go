@@ -37,8 +37,11 @@ type Output struct {
 	ConversationCount                       int
 	LastActivity                            time.Time
 }
+
+// Scheduled retention shares immediate fence and graph-child visibility.
+// Imperative composition preserves the same parent-owned transaction.
 type Component struct {
-	Contract xdatly.Component[Input, Output] `component:"ScheduledRunMaintenance,path=/v1/internal/agently/scheduled-run/maintenance,method=POST,handler=NewMaintain,internal=true"`
+	Contract xdatly.Component[Input, Output] `component:"ScheduledRunMaintenance,path=/v1/internal/agently/scheduled-run/maintenance,method=POST,handler=NewMaintain,internal=true" componentCallPolicy:"imperative"`
 }
 type Maintain struct{}
 

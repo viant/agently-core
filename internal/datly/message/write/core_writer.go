@@ -17,8 +17,10 @@ import (
 )
 
 // CoreWriterComponent keeps the original per-turn business allocation around the canonical native writer.
+// Rollback recovery rereads the collided sequence through the scoped invoker.
+// Imperative composition preserves the same parent-owned transaction.
 type CoreWriterComponent struct {
-	Contract xdatly.Component[Input, Output] `component:"CoreWrite,path=/v1/internal/agently/message/write,method=PATCH,connector=agently,view=writer,handler=CoreWrite,internal=true" caseFormat:"lc"`
+	Contract xdatly.Component[Input, Output] `component:"CoreWrite,path=/v1/internal/agently/message/write,method=PATCH,connector=agently,view=writer,handler=CoreWrite,internal=true" caseFormat:"lc" componentCallPolicy:"imperative"`
 }
 
 func (CoreWriterComponent) EmbedFS() *embed.FS     { return &WriterDatlyResources }

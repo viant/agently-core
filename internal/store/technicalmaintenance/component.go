@@ -16,8 +16,10 @@ import (
 	"github.com/viant/xdatly/handler"
 )
 
+// The live owner/token fence must fail before retention mutations proceed.
+// Imperative composition preserves the same parent-owned transaction.
 type Component struct {
-	Contract xdatly.Component[Request, Result] `component:"TechnicalMaintenance,path=/v1/internal/agently/technical-maintenance,method=POST,handler=NewMaintain,internal=true"`
+	Contract xdatly.Component[Request, Result] `component:"TechnicalMaintenance,path=/v1/internal/agently/technical-maintenance,method=POST,handler=NewMaintain,internal=true" componentCallPolicy:"imperative"`
 }
 type Maintain struct{}
 
