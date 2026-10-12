@@ -437,6 +437,12 @@ it('continues all original browser interrupts with terminal transport failures i
         expect(entry.metadata).toEqual(catalog.tools[0].metadata);
     }
     expect(continuation.tools).toEqual(chat.tools);
+    for (const phase of ['handoff.pendingToHandler', 'handoff.terminalToHandler', 'handoff.handlers']) {
+        const entries = performance.getEntriesByName(`agently.browserMCP.${phase}`);
+        expect(entries).toHaveLength(1);
+        expect(entries[0].duration).toBeGreaterThanOrEqual(0);
+        expect((entries[0] as PerformanceMeasure).detail).toBeNull();
+    }
     expect(request.mock.calls.filter(([method]) => method === 'tools/call')).toHaveLength(1);
     expect(revoke).not.toHaveBeenCalled();
     f.finish(continuation.runId); f.transport.reset(); f.host.resetAgUiInteractions();

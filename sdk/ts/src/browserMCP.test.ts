@@ -540,3 +540,39 @@ it('distinguishes every original catalog guard with a closed condition and zero 
         binding.catalog = savedCatalog; f.host.reset();
     }
 });
+
+it('executes compact catalog validation through the extension transport without a fixed wait or duplicate request', async () => {
+    let receive!: (message: any) => void;
+    let catalog!: BrowserMCPCatalog;
+    const posted: any[] = [];
+    const port = { postMessage: (request: any) => {
+        posted.push(request);
+        queueMicrotask(() => receive({ type: 'result', requestId: request.requestId,
+            result: request.operation === 'tools/list' ? { tools: [{ name: 'safe_read', inputSchema: { type: 'object' } }] }
+                : request.operation === 'tools/call' ? { content: [{ type: 'text', text: 'PUBLIC_FIXTURE_RESULT' }] } : {} }));
+    }, disconnect: vi.fn(), onMessage: { addListener: (fn: any) => { receive = fn; } }, onDisconnect: { addListener: vi.fn() } };
+    const api = { descriptors: async () => [descriptor], register: async (input: any) => {
+        catalog = { ...input, id: 'catalog', hash: 'hash', expiresAt: new Date(Date.now() + 60000).toISOString(), tools: [{ name: 'device-safe_read', parameters: { type: 'object' }, metadata: { browserMCP: { catalogId: 'catalog', connectionId: input.connectionId, server: input.server, tool: 'safe_read' } } }] };
+        return catalog;
+    }, current: vi.fn(async () => { const { tools, resources, ...status } = catalog; return status; }), revoke: vi.fn(async () => {}) };
+    const host = new BrowserMCPHost(api, { transportFactory: () => {
+        const connection = new ChromeExtensionMCPConnection(descriptor, undefined, { connect: () => port });
+        queueMicrotask(() => receive({ type: 'approved' })); return connection;
+    } });
+    const [tool] = await host.tools('conversation', 'thread');
+    const original = { id: 'original', type: 'function' as const, function: { name: tool.tool.name, arguments: '{}' } };
+    const started = performance.now();
+    const result = await tool.execute({}, original);
+    expect(result.content).toContain('PUBLIC_FIXTURE_RESULT');
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(await tool.execute({}, original)).toEqual(result);
+    expect(posted.filter(item => item.operation === 'tools/call')).toHaveLength(1);
+    for (const phase of ['tool.total', 'tool.catalogCurrent', 'tool.nativeRequest', 'tool.resultProjection', 'transport.queue', 'transport.roundTrip']) {
+        const entries = performance.getEntriesByName(`agently.browserMCP.${phase}`);
+        expect(entries).toHaveLength(1);
+        expect(entries[0].duration).toBeGreaterThanOrEqual(0);
+        expect((entries[0] as PerformanceMeasure).detail).toBeNull();
+    }
+    await expect(tool.execute({ different: true }, { ...original, function: { ...original.function, arguments: '{"different":true}' } })).rejects.toThrow('conflicting');
+    await host.closeConversation('conversation');
+});

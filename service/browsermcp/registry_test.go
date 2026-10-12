@@ -236,3 +236,54 @@ func TestValidateDiagnosticsAndContinuationRoundTrip(t *testing.T) {
 		})
 	}
 }
+
+func TestCurrentStatusUsesOnlyFreshRegisteredConfigAndDoesNotHydrateTools(t *testing.T) {
+	descriptor := cfg.BrowserDescriptor{Name: "device", ExecutionLocation: "browser", AllowedTools: []string{"read"}}
+	allReads, singleReads := 0, 0
+	var registry *Registry
+	revokedDuringRead := false
+	catalogIDForStatusTest := ""
+	registry = New(func(context.Context) ([]cfg.BrowserDescriptor, error) {
+		allReads++
+		return []cfg.BrowserDescriptor{descriptor}, nil
+	}, func(_ context.Context, name string) (cfg.BrowserDescriptor, error) {
+		singleReads++
+		if name != "device" {
+			t.Fatal("caller selected another server")
+		}
+		if revokedDuringRead {
+			_ = registry.Revoke("owner", catalogIDForStatusTest)
+		}
+		return descriptor, nil
+	})
+	catalog, err := registry.Register(context.Background(), "owner", Registration{ConversationID: "conversation", ThreadID: "thread", Server: "device", ConnectionID: "connection", Tools: []Tool{{Name: "read", Description: strings.Repeat("large fixture description ", 300), InputSchema: json.RawMessage(`{"type":"object"}`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalogIDForStatusTest = catalog.ID
+	before := allReads
+	started := time.Now()
+	for i := 0; i < 20; i++ {
+		status, e := registry.CurrentStatus(context.Background(), "owner", catalog.ID)
+		if e != nil || status.Hash != catalog.Hash || status.ConnectionID != catalog.ConnectionID {
+			t.Fatal(e)
+		}
+		raw, _ := json.Marshal(status)
+		if len(raw) > 512 || strings.Contains(string(raw), "description") || strings.Contains(string(raw), "tools") {
+			t.Fatal("status hydrated catalog")
+		}
+	}
+	if allReads != before || singleReads != 20 {
+		t.Fatal("hot path enumerated unrelated configurations", allReads, singleReads)
+	}
+	t.Logf("20 fresh compact validations: %s", time.Since(started))
+	descriptor.AllowedTools = []string{"changed"}
+	if _, err = registry.CurrentStatus(context.Background(), "owner", catalog.ID); err == nil {
+		t.Fatal("config change not observed")
+	}
+	descriptor.AllowedTools = []string{"read"}
+	revokedDuringRead = true
+	if _, err = registry.CurrentStatus(context.Background(), "owner", catalog.ID); err == nil {
+		t.Fatal("revocation during config read lost")
+	}
+}
