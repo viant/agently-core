@@ -80,6 +80,46 @@ func TestApprovalReaderLegacyParity(t *testing.T) {
 		})
 	}
 }
+
+func TestApprovalReaderCompletedAtPreservesNullAndTerminalTimestamp(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
+	db, _ := approvalReaderFixture(t, project)
+	_, err := db.Exec(`INSERT INTO tool_approval_queue(id,user_id,tool_name,arguments,status,created_at,approved_at) VALUES
+	 ('pending-no-completion','u1','system/exec',X'7B7D','pending','2026-01-01 10:00:00',NULL),
+	 ('approved-with-completion','u1','system/exec',X'7B7D','approved','2026-01-01 10:00:00','2026-01-02 11:12:13')`)
+	must(t, err)
+	rt, key := approvalReaderRuntime(t, db, "u1", "rows", false, true)
+	result, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{
+		Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/tool-approval"}},
+		Input:  approvalReadInput(t, nil),
+	})
+	must(t, err)
+	rows := result.(*read.ApprovalRowsOutput).Data
+	byID := make(map[string]*read.ApprovalView, len(rows))
+	for _, row := range rows {
+		byID[row.Id] = row
+	}
+	pending := byID["pending-no-completion"]
+	if pending == nil {
+		t.Fatal("pending fixture row was not returned")
+	}
+	if got := pending.CompletedAt; got != nil {
+		t.Fatalf("pending completedAt=%v expected null", *got)
+	}
+	approved := byID["approved-with-completion"]
+	if approved == nil {
+		t.Fatal("approved fixture row was not returned")
+	}
+	completed := approved.CompletedAt
+	if completed == nil {
+		t.Fatal("approved completedAt is null")
+	}
+	if got, want := completed.UTC().Format("2006-01-02 15:04:05"), "2026-01-02 11:12:13"; got != want {
+		t.Fatalf("approved completedAt=%s expected %s", got, want)
+	}
+}
+
 func approvalReaderFixture(t *testing.T, project string) (*sql.DB, string) {
 	db, path := approvalFixture(t, project)
 	_, err := db.Exec(`INSERT INTO tool_approval_queue(id,user_id,conversation_id,tool_name,arguments,status,created_at,approved_at,executed_at,timed_out_at,updated_at) VALUES

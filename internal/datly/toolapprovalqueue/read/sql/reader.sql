@@ -1,6 +1,13 @@
 SELECT queue_rows.* FROM  (
  SELECT q.* FROM (
- SELECT q.*, CASE
+ SELECT q.*,
+ CASE
+ WHEN LOWER(COALESCE(q.status,''))='timed_out' THEN q.timed_out_at
+ WHEN LOWER(COALESCE(q.status,''))='executed' THEN q.executed_at
+ WHEN LOWER(COALESCE(q.status,'')) IN ('approved','rejected','canceled') THEN q.approved_at
+ WHEN LOWER(COALESCE(q.status,''))='failed' THEN q.updated_at
+ ELSE NULL END AS completed_at,
+ CASE
  WHEN LOWER(COALESCE(q.status,''))='timed_out' THEN q.timed_out_at
  WHEN LOWER(COALESCE(q.status,''))='executed' THEN q.executed_at
  WHEN LOWER(COALESCE(q.status,'')) IN ('approved','rejected','canceled') THEN q.approved_at
@@ -13,5 +20,4 @@ SELECT queue_rows.* FROM  (
  CASE WHEN $ReadMode='outcome' THEN q.id END ASC,
  CASE WHEN $ReadMode='rows' THEN q.created_at END DESC,
  CASE WHEN $ReadMode='rows' THEN q.id END DESC
-
 )  queue_rows

@@ -42,6 +42,7 @@ func TestService_ToolApprovalQueue_CreateReadUpdate(t *testing.T) {
 	require.Equal(t, "pending", rows[0].Status)
 	require.NotNil(t, rows[0].Title)
 	require.Equal(t, "Initial title", *rows[0].Title)
+	require.Nil(t, rows[0].CompletedAt)
 
 	patch := &toolapprovalqueuemodel.ToolApprovalQueue{Has: &toolapprovalqueuemodel.ToolApprovalQueueHas{}}
 	patch.SetId("q-service-1")
@@ -49,6 +50,8 @@ func TestService_ToolApprovalQueue_CreateReadUpdate(t *testing.T) {
 	patch.SetToolName("system/exec")
 	patch.SetArguments([]byte(`{"cmd":"echo ok"}`))
 	patch.SetStatus("approved")
+	completedAt := time.Date(2026, 1, 2, 11, 12, 13, 0, time.UTC)
+	patch.SetApprovedAt(completedAt)
 	require.NoError(t, svc.PatchToolApprovalQueue(ctx, patch))
 
 	rows, err = svc.ListToolApprovalQueues(ctx, &toolapprovalqueuemodel.QueueRowsInput{
@@ -60,6 +63,8 @@ func TestService_ToolApprovalQueue_CreateReadUpdate(t *testing.T) {
 	require.Equal(t, "approved", rows[0].Status)
 	require.NotNil(t, rows[0].Title)
 	require.Equal(t, "Initial title", *rows[0].Title, "unpatched title should be preserved")
+	require.NotNil(t, rows[0].CompletedAt)
+	require.Equal(t, completedAt, *rows[0].CompletedAt)
 }
 
 func TestService_ToolApprovalQueue_UserScope(t *testing.T) {
