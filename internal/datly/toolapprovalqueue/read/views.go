@@ -9,6 +9,7 @@ import (
 // ApprovalView is generated canonical view metadata for reader.
 type ApprovalView struct {
 	TransitionAt     *string    `sqlx:"transition_at" json:"transitionAt"`
+	CompletedAt      *time.Time `sqlx:"completed_at" json:"completedAt"`
 	Id               string     `sqlx:"id,primaryKey=true" json:"id"`
 	UserId           string     `sqlx:"user_id,required=true" json:"userId"`
 	ToolName         string     `sqlx:"tool_name,required=true" json:"toolName"`

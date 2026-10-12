@@ -87,7 +87,7 @@ func approvalBaseRow(row *read.ApprovalView) toolapprovalqueuemodel.QueueRowView
 		Title: row.Title, Arguments: row.Arguments, Metadata: row.Metadata,
 		Status: row.Status, Decision: row.Decision, ExpiresAt: row.ExpiresAt,
 		TimedOutAt: row.TimedOutAt, ApprovedByUserId: row.ApprovedByUserId,
-		ApprovedAt: row.ApprovedAt, ExecutedAt: row.ExecutedAt,
+		ApprovedAt: row.ApprovedAt, ExecutedAt: row.ExecutedAt, CompletedAt: row.CompletedAt,
 		ErrorMessage: row.ErrorMessage, CreatedAt: row.CreatedAt, UpdatedAt: row.UpdatedAt,
 	}
 }
