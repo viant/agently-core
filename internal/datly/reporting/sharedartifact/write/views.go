@@ -10,27 +10,27 @@ import (
 type SharedArtifact struct {
 	ShouldDelete         bool               `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
 	ArtifactId           string             `sqlx:"artifact_id,primaryKey" json:"artifactId,omitempty"`
-	ArtifactRef          string             `sqlx:"artifact_ref,required=true" json:"artifactRef,omitempty"`
-	OwnerId              string             `sqlx:"owner_id,required=true" json:"ownerId,omitempty"`
+	ArtifactRef          string             "sqlx:\"artifact_ref|`artifact_ref`,required=true\" json:\"artifactRef,omitempty\""
+	OwnerId              string             "sqlx:\"owner_id|`owner_id`,required=true\" json:\"ownerId,omitempty\""
 	OwnerRef             string             `sqlx:"owner_ref" json:"ownerRef,omitempty"`
-	Kind                 string             `sqlx:"kind,required=true" json:"kind,omitempty"`
-	Lifecycle            string             `sqlx:"lifecycle,required=true" json:"lifecycle,omitempty"`
-	Version              int                `sqlx:"version,required=true" json:"version,omitempty"`
+	Kind                 string             "sqlx:\"kind|`kind`,required=true\" json:\"kind,omitempty\""
+	Lifecycle            string             "sqlx:\"lifecycle|`lifecycle`,required=true\" json:\"lifecycle,omitempty\""
+	Version              int                "sqlx:\"version|`version`,required=true\" json:\"version,omitempty\""
 	ReportId             string             `sqlx:"report_id" json:"reportId,omitempty"`
 	Title                string             `sqlx:"title" json:"title,omitempty"`
 	SourceArtifactId     string             `sqlx:"source_artifact_id" json:"sourceArtifactId,omitempty"`
 	BaseArtifactRef      string             `sqlx:"base_artifact_ref" json:"baseArtifactRef,omitempty"`
 	PolicyRef            string             `sqlx:"policy_ref" json:"policyRef,omitempty"`
-	DocumentVersion      int                `sqlx:"document_version,required=true" json:"documentVersion,omitempty"`
-	ReportDocumentJson   []byte             `json:"document,omitempty" sqlx:"report_document_json"`
-	ReportSpecJson       []byte             `json:"reportSpec,omitempty" sqlx:"report_spec_json"`
-	CompileStateJson     []byte             `json:"compileState,omitempty" sqlx:"compile_state_json"`
-	ReportFillJson       []byte             `json:"reportFill,omitempty" sqlx:"report_fill_json"`
-	ReportPrintJson      []byte             `json:"reportPrint,omitempty" sqlx:"report_print_json"`
-	SavedViewOverlayJson []byte             `json:"savedViewOverlay,omitempty" sqlx:"saved_view_overlay_json"`
-	MetadataJson         []byte             `json:"metadata,omitempty" sqlx:"metadata_json"`
-	CreatedAt            time.Time          `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
-	UpdatedAt            *time.Time         `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	DocumentVersion      int                "sqlx:\"document_version|`document_version`,required=true\" json:\"documentVersion,omitempty\""
+	ReportDocumentJson   []byte             "json:\"document,omitempty\" sqlx:\"report_document_json|`report_document_json`\""
+	ReportSpecJson       []byte             "json:\"reportSpec,omitempty\" sqlx:\"report_spec_json|`report_spec_json`\""
+	CompileStateJson     []byte             "json:\"compileState,omitempty\" sqlx:\"compile_state_json|`compile_state_json`\""
+	ReportFillJson       []byte             "json:\"reportFill,omitempty\" sqlx:\"report_fill_json|`report_fill_json`\""
+	ReportPrintJson      []byte             "json:\"reportPrint,omitempty\" sqlx:\"report_print_json|`report_print_json`\""
+	SavedViewOverlayJson []byte             "json:\"savedViewOverlay,omitempty\" sqlx:\"saved_view_overlay_json|`saved_view_overlay_json`\""
+	MetadataJson         []byte             "json:\"metadata,omitempty\" sqlx:\"metadata_json|`metadata_json`\""
+	CreatedAt            time.Time          "sqlx:\"created_at|`created_at`,required=true\" json:\"createdAt,omitempty\""
+	UpdatedAt            *time.Time         "sqlx:\"updated_at|`updated_at`\" json:\"updatedAt,omitempty\""
 	Has                  *SharedArtifactHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"SharedArtifactHas"`
 }
 
@@ -63,27 +63,27 @@ type SharedArtifactHas struct {
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
 	ArtifactId           string     `sqlx:"artifact_id,primaryKey" json:"artifactId,omitempty"`
-	ArtifactRef          string     `sqlx:"artifact_ref,required=true" json:"artifactRef,omitempty"`
-	OwnerId              string     `sqlx:"owner_id,required=true" json:"ownerId,omitempty"`
+	ArtifactRef          string     "sqlx:\"artifact_ref|`artifact_ref`,required=true\" json:\"artifactRef,omitempty\""
+	OwnerId              string     "sqlx:\"owner_id|`owner_id`,required=true\" json:\"ownerId,omitempty\""
 	OwnerRef             string     `sqlx:"owner_ref" json:"ownerRef,omitempty"`
-	Kind                 string     `sqlx:"kind,required=true" json:"kind,omitempty"`
-	Lifecycle            string     `sqlx:"lifecycle,required=true" json:"lifecycle,omitempty"`
-	Version              int        `sqlx:"version,required=true" json:"version,omitempty"`
+	Kind                 string     "sqlx:\"kind|`kind`,required=true\" json:\"kind,omitempty\""
+	Lifecycle            string     "sqlx:\"lifecycle|`lifecycle`,required=true\" json:\"lifecycle,omitempty\""
+	Version              int        "sqlx:\"version|`version`,required=true\" json:\"version,omitempty\""
 	ReportId             string     `sqlx:"report_id" json:"reportId,omitempty"`
 	Title                string     `sqlx:"title" json:"title,omitempty"`
 	SourceArtifactId     string     `sqlx:"source_artifact_id" json:"sourceArtifactId,omitempty"`
 	BaseArtifactRef      string     `sqlx:"base_artifact_ref" json:"baseArtifactRef,omitempty"`
 	PolicyRef            string     `sqlx:"policy_ref" json:"policyRef,omitempty"`
-	DocumentVersion      int        `sqlx:"document_version,required=true" json:"documentVersion,omitempty"`
-	ReportDocumentJson   []byte     `json:"document,omitempty" sqlx:"report_document_json"`
-	ReportSpecJson       []byte     `json:"reportSpec,omitempty" sqlx:"report_spec_json"`
-	CompileStateJson     []byte     `json:"compileState,omitempty" sqlx:"compile_state_json"`
-	ReportFillJson       []byte     `json:"reportFill,omitempty" sqlx:"report_fill_json"`
-	ReportPrintJson      []byte     `json:"reportPrint,omitempty" sqlx:"report_print_json"`
-	SavedViewOverlayJson []byte     `json:"savedViewOverlay,omitempty" sqlx:"saved_view_overlay_json"`
-	MetadataJson         []byte     `json:"metadata,omitempty" sqlx:"metadata_json"`
-	CreatedAt            time.Time  `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
-	UpdatedAt            *time.Time `sqlx:"updated_at" json:"updatedAt,omitempty"`
+	DocumentVersion      int        "sqlx:\"document_version|`document_version`,required=true\" json:\"documentVersion,omitempty\""
+	ReportDocumentJson   []byte     "json:\"document,omitempty\" sqlx:\"report_document_json|`report_document_json`\""
+	ReportSpecJson       []byte     "json:\"reportSpec,omitempty\" sqlx:\"report_spec_json|`report_spec_json`\""
+	CompileStateJson     []byte     "json:\"compileState,omitempty\" sqlx:\"compile_state_json|`compile_state_json`\""
+	ReportFillJson       []byte     "json:\"reportFill,omitempty\" sqlx:\"report_fill_json|`report_fill_json`\""
+	ReportPrintJson      []byte     "json:\"reportPrint,omitempty\" sqlx:\"report_print_json|`report_print_json`\""
+	SavedViewOverlayJson []byte     "json:\"savedViewOverlay,omitempty\" sqlx:\"saved_view_overlay_json|`saved_view_overlay_json`\""
+	MetadataJson         []byte     "json:\"metadata,omitempty\" sqlx:\"metadata_json|`metadata_json`\""
+	CreatedAt            time.Time  "sqlx:\"created_at|`created_at`,required=true\" json:\"createdAt,omitempty\""
+	UpdatedAt            *time.Time "sqlx:\"updated_at|`updated_at`\" json:\"updatedAt,omitempty\""
 }
 
 type WriterKeysRow struct {

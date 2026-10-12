@@ -5,6 +5,7 @@ package write
 import (
 	context "context"
 	fmt "fmt"
+	predicate "github.com/viant/agently-core/internal/datly/predicate"
 	xshape "github.com/viant/x/shape"
 	xhandler "github.com/viant/xdatly/handler"
 	reflect "reflect"
@@ -13,6 +14,55 @@ import (
 
 type WriterHandlerCurrentWriterSlice []*CurrentWriterView
 
+func WriterHandlerCurrentWriterIndexByConditionKey(value *CurrentWriterView) (predicate.RunPatchCondition, bool) {
+	var zero predicate.RunPatchCondition
+	if value == nil {
+		return zero, false
+	}
+	if value.Condition == nil {
+		return zero, false
+	}
+	return *value.Condition, true
+}
+
+type WriterHandlerCurrentWriterIndexedByCondition map[predicate.RunPatchCondition]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByCondition() (WriterHandlerCurrentWriterIndexedByCondition, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByCondition)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByConditionKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByCondition")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByCondition) Has(key predicate.RunPatchCondition) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByCondition map[predicate.RunPatchCondition][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByCondition() WriterHandlerCurrentWriterGroupedByCondition {
+	result := make(WriterHandlerCurrentWriterGroupedByCondition)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByConditionKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByCondition) Has(key predicate.RunPatchCondition) bool {
+	_, ok := index[key]
+	return ok
+}
 func WriterHandlerCurrentWriterIndexByIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -3061,6 +3111,9 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			loaded, err := projection.Fields(ordinal)
 			if err != nil {
 				return nil, err
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Condition") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Condition")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Id") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.Id")
