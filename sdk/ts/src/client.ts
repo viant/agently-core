@@ -1143,6 +1143,7 @@ export class AgentlyClient {
         if (input.clientId) query.set('clientId', String(input.clientId).trim());
         if (input.windowId) query.set('windowId', String(input.windowId).trim());
         if (input.resolvedResource) query.set('resolvedResource', JSON.stringify(input.resolvedResource));
+        if (input.expectedResource) query.set('expectedResource', JSON.stringify(input.expectedResource));
         if (input.authorizationSchemaVersion !== undefined) {
             if (input.authorizationSchemaVersion !== 1 && input.authorizationSchemaVersion !== 2) throw new Error('authorization schema version must be 1 or 2');
             query.set('authorizationSchemaVersion', String(input.authorizationSchemaVersion));
@@ -1151,7 +1152,7 @@ export class AgentlyClient {
         if (conversationId) query.set('conversationId', conversationId);
         if (input?.resource && Object.keys(input.resource).length > 0) query.set('resource', JSON.stringify(input.resource));
         if (input.windowParams) query.set('windowParams', JSON.stringify(input.windowParams));
-        const decoded = await this.get<JSONValue>(`/api/agently/forge/window/${enc(key)}`, query);
+        const decoded = await this.get<JSONValue>(`/api/agently/forge/window/${enc(key)}`, query, input.bridgeSessionId ? {'Mcp-Session-Id': input.bridgeSessionId} : {});
         if (isJSONObject(decoded) && Object.prototype.hasOwnProperty.call(decoded, 'data')) {
             return decoded.data as JSONValue;
         }
@@ -1509,10 +1510,10 @@ export class AgentlyClient {
 
     // ── Internal HTTP ────────────────────────────────────────────────────────
 
-    private async get<T = APIResponse>(path: string, params?: URLSearchParams): Promise<T> {
+    private async get<T = APIResponse>(path: string, params?: URLSearchParams, extraHeaders: Record<string,string> = {}): Promise<T> {
         const qs = params?.toString();
         const url = qs ? `${this.baseURL}${path}?${qs}` : `${this.baseURL}${path}`;
-        return this.request<T>('GET', url);
+        return this.request<T>('GET', url, undefined, extraHeaders);
     }
 
     private async post<T = APIResponse>(path: string, body: RequestBody): Promise<T> {
