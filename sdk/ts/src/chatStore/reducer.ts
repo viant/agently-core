@@ -1513,6 +1513,16 @@ export function applyTranscript(
         const turn = state.turns.find(item => item.turnId === snapshotTurn.turnId);
         if (turn) applyHostTrust(turn,snapshotTurn);
     }
+    // A live submit may precede the initial history response. Preserve the
+    // server's declared transcript order, then retain newer event/local turns
+    // absent from that response in their existing relative order. Reorder only
+    // the existing objects; event-owned messages, pages and render keys survive.
+    const byTurnId = new Map(state.turns.map(turn => [turn.turnId, turn]));
+    const orderedTurns = (snapshot.turns ?? [])
+        .map(turn => byTurnId.get(turn.turnId))
+        .filter((turn): turn is ClientTurnState => !!turn);
+    const declared = new Set(orderedTurns);
+    state.turns = [...declared, ...state.turns.filter(turn => !declared.has(turn))];
     return state;
 }
 

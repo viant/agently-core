@@ -374,3 +374,40 @@ describe('native rendered model message ownership', () => {
         expect(h.rows().some(row=>row.kind==='assistant'&&row.content==='Public highlight retained.')).toBe(true);
     });
 });
+
+
+describe('late initial history during a new native turn', () => {
+    it('keeps canonical history before the live turn without losing its standalone highlight or pending execution', async () => {
+        const live='451275ed-7d2c-4cea-9874-d1c45e23ae8a';
+        const note='93244293-3f54-4b9f-b06d-b18efb5c172f';
+        const lane=metadata({nativeTurnId:live,nativeMessageId:'live-model',modelCallId:'live-model',pageId:'live-model',iteration:1});
+        const standalone=metadata({nativeTurnId:live,nativeMessageId:note,pageId:undefined,messageKind:'standalone',iteration:0});
+        const h=harness('agently',[start,
+            {type:'ACTIVITY_SNAPSHOT',messageId:'live-status',activityType:'agently.turn',content:{version:'1',nativeTurnId:live,status:'running',queueSequence:'0'},metadata:metadata({nativeTurnId:live})},
+            {type:'STEP_STARTED',stepName:'live-model',metadata:lane},
+            {type:'TOOL_CALL_START',toolCallId:'pending-protocol',toolCallName:'fixture_pending',parentMessageId:'live-model',metadata:metadata({...lane.agently.presentation,nativeToolCallId:'pending-native'})},
+            {type:'TEXT_MESSAGE_START',messageId:note,role:'assistant',metadata:standalone},
+            {type:'TEXT_MESSAGE_CONTENT',messageId:note,delta:'Public highlight retained.'},
+        ]);
+        await h.run();
+        const state=h.store();
+        const heldPage=state.turns.find(turn=>turn.turnId===live)?.pages[0];
+        const heldNote=state.turns.find(turn=>turn.turnId===live)?.messages.find(message=>message.messageId===note);
+        const history={conversationId:'conversation',turns:[
+            {turnId:'older-91',status:'completed',user:{messageId:'user-91',content:'Earlier request'}},
+            {turnId:'older-92',status:'completed',user:{messageId:'user-92',content:'Earlier request'}},
+        ]};
+        // The initial canonical GET began before the submit and settles afterwards.
+        applyTranscript(state,history as any);
+        expect(state.turns.map(turn=>turn.turnId)).toEqual(['older-91','older-92',live]);
+        expect(state.turns.find(turn=>turn.turnId===live)?.pages[0]).toBe(heldPage);
+        expect(state.turns.find(turn=>turn.turnId===live)?.messages.find(message=>message.messageId===note)).toBe(heldNote);
+        expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId===note)).toHaveLength(1);
+        expect(heldPage?.toolCalls).toEqual([expect.objectContaining({toolCallId:'pending-native',status:'requested'})]);
+        applyTranscript(state,{...history,turns:[...history.turns,{turnId:live,status:'running',messages:[{messageId:note,role:'assistant',content:'Stale note'}]}]} as any);
+        applyTranscript(state,history as any);
+        expect(state.turns.map(turn=>turn.turnId)).toEqual(['older-91','older-92',live]);
+        expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId===note)).toEqual([expect.objectContaining({content:'Public highlight retained.'})]);
+        expect(heldPage?.toolCalls[0].status).toBe('requested');
+    });
+});
