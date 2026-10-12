@@ -61,11 +61,17 @@ func TestDefaultPublicEmptyAndAuthenticatedComposition(t *testing.T) {
 	out := &Runtime{MCPManager: mgr}
 	require.NoError(t, NewBuilder().configurePrimitiveProviders(out))
 	require.NotNil(t, out.PrimitiveProviders)
-	require.Nil(t, out.LocalPrimitiveProvider)
+	// Bootstrapped standard host documents may have a metadata-only provider.
+	// Empty composition still declares no business primitive capabilities.
+	namespaces, err := out.PrimitiveProviders.Discover(context.Background())
+	require.NoError(t, err)
+	require.Empty(t, namespaces)
 	page, err := resources.ListPage[primitive.ToolfeedDefinition](context.Background(), out.PrimitiveProviders, primitive.ToolfeedKind, resources.CatalogQuery{}, true)
 	require.NoError(t, err)
 	require.Empty(t, page.Items)
-	protected := &Runtime{MCPManager: mgr, AuthConfig: &auth.Config{Enabled: true}}
+	protectedManager, err := manager.New(nil)
+	require.NoError(t, err)
+	protected := &Runtime{MCPManager: protectedManager, AuthConfig: &auth.Config{Enabled: true}}
 	require.NoError(t, NewBuilder().configurePrimitiveProviders(protected))
 	require.NotNil(t, protected.PrimitiveProviders)
 	_, err = resources.ListPage[primitive.ToolfeedDefinition](context.Background(), protected.PrimitiveProviders, primitive.ToolfeedKind, resources.CatalogQuery{}, true)

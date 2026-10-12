@@ -39,6 +39,11 @@ func (s *Service) authorizeConversationFeedCommand(ctx context.Context, namespac
 	if conversation == "" || input.ConversationID != conversation {
 		return identity.ErrResourceDenied
 	}
+	return s.authorizeConversationClient(ctx, namespace, clientID, conversation)
+}
+
+// authorizeConversationClient retains the existing current conversation attachment check.
+func (s *Service) authorizeConversationClient(ctx context.Context, namespace, clientID, conversation string) error {
 	now := time.Now()
 	for _, entry := range s.hub.SnapshotEntries() {
 		if entry.Namespace != namespace || entry.ClientID != clientID {

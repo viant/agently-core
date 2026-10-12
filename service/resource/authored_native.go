@@ -258,7 +258,7 @@ func decodeNativeAuthored(ctx context.Context, r *ExtensionReader, file string, 
 	if err := strictAuthoredYAML(raw, &node); err != nil {
 		return err
 	}
-	if err := meta.ResolveImports(ctx, &nativeImportReader{reader: r}, &node, path.Dir(file)); err != nil {
+	if err := resolveNativeAuthoredImports(ctx, r, file, &node); err != nil {
 		return err
 	}
 	resolved, err := yaml.Marshal(&node)
@@ -266,4 +266,8 @@ func decodeNativeAuthored(ctx context.Context, r *ExtensionReader, file string, 
 		return err
 	}
 	return strictAuthoredYAML(resolved, target)
+}
+
+func resolveNativeAuthoredImports(ctx context.Context, r *ExtensionReader, file string, node *yaml.Node) error {
+	return meta.ResolveImports(ctx, &nativeImportReader{reader: r}, node, path.Dir(file))
 }

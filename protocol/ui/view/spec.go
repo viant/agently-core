@@ -4,6 +4,8 @@ package view
 // It does not duplicate the Forge Window payload; it points to an
 // existing windowKey and adds model-facing metadata for routing.
 type Spec struct {
+	// ResourceURI is admitted routing provenance, never authored authority.
+	ResourceURI        string         `json:"-" yaml:"-"`
 	ID                 string         `json:"id" yaml:"id"`
 	Title              string         `json:"title,omitempty" yaml:"title,omitempty"`
 	Description        string         `json:"description,omitempty" yaml:"description,omitempty"`

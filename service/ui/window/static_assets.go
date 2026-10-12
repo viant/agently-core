@@ -1,6 +1,7 @@
 package window
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -49,57 +50,10 @@ func cloneStaticValue[T any](value T) (T, error) {
 	if err != nil {
 		return clone, err
 	}
-	err = json.Unmarshal(raw, &clone)
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	err = decoder.Decode(&clone)
 	return clone, err
-}
-func cloneWorkspaceCatalog(source *workspaceCatalog) (*workspaceCatalog, error) {
-	result := newWorkspaceCatalog()
-	var err error
-	if result.dataSources, err = cloneStaticValue(source.dataSources); err != nil {
-		return nil, err
-	}
-	for key, value := range source.dataSourcePaths {
-		result.dataSourcePaths[key] = value
-	}
-	for key, value := range source.dialogs {
-		dialog, err := cloneStaticValue(value.dialog)
-		if err != nil {
-			return nil, err
-		}
-		result.dialogs[key] = workspaceDialogAsset{path: value.path, dialog: dialog}
-	}
-	for key, value := range source.registries {
-		schemas, err := cloneStaticValue(value.Schemas)
-		if err != nil {
-			return nil, err
-		}
-		models, err := cloneStaticValue(value.ResourceModels)
-		if err != nil {
-			return nil, err
-		}
-		result.registries[key] = &modelRegistry{name: value.name, path: value.path, Schemas: schemas, ResourceModels: models}
-	}
-	for key, value := range source.schemas {
-		schema, err := cloneStaticValue(value.schema)
-		if err != nil {
-			return nil, err
-		}
-		result.schemas[key] = catalogSchema{schema: schema, registry: value.registry}
-	}
-	for key, value := range source.models {
-		model, err := cloneStaticValue(value.model)
-		if err != nil {
-			return nil, err
-		}
-		result.models[key] = catalogModel{model: model, registry: value.registry}
-	}
-	for key, value := range source.conflictedSchemas {
-		result.conflictedSchemas[key] = value
-	}
-	for key, value := range source.conflictedModels {
-		result.conflictedModels[key] = value
-	}
-	return result, nil
 }
 func (o LoaderOptions) catalog(ctx context.Context, root string, svc *wsmeta.Service) (*workspaceCatalog, error) {
 	if o.StaticAssets == nil {
@@ -109,5 +63,7 @@ func (o LoaderOptions) catalog(ctx context.Context, root string, svc *wsmeta.Ser
 	if err != nil {
 		return nil, err
 	}
-	return cloneWorkspaceCatalog(parsed)
+	// Resolution only reads the immutable compilation catalog; attachment clones
+	// the requested transitive closure, never every unrelated workspace asset.
+	return parsed, nil
 }

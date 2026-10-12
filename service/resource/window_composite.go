@@ -171,6 +171,9 @@ func (c *CompositeWindowCatalog) Get(ctx context.Context, input *service.WindowD
 		return c.getScopedWindow(ctx, input)
 	}
 	if c.Local == nil {
+		if c.Remote.DefaultNamespace != "" {
+			return c.Remote.Get(ctx, input)
+		}
 		return nil, identity.ErrResourceDenied
 	}
 	return c.Local.Get(ctx, input)
@@ -209,6 +212,9 @@ func (c *CompositeWindowCatalog) ResourceReference(ctx context.Context, key stri
 		ResourceReference(context.Context, string) (identity.ResourceRef, error)
 	})
 	if !ok {
+		if c.Remote.DefaultNamespace != "" {
+			return c.Remote.ResourceReference(ctx, key)
+		}
 		return identity.ResourceRef{}, identity.ErrResourceDenied
 	}
 	return local.ResourceReference(ctx, key)
@@ -221,6 +227,9 @@ func (c *CompositeWindowCatalog) CheckWindowAdmission(ctx context.Context, key s
 		CheckWindowAdmission(context.Context, string) (bool, error)
 	})
 	if !ok {
+		if c.Remote.DefaultNamespace != "" {
+			return c.Remote.CheckWindowAdmission(ctx, key)
+		}
 		return false, identity.ErrResourceDenied
 	}
 	return checker.CheckWindowAdmission(ctx, key)

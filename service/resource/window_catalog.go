@@ -19,6 +19,8 @@ type WindowAdmission func(context.Context, identity.ResolvedResource, *types.Win
 type WindowContentCheck func(context.Context, identity.ResolvedResource) error
 
 type WindowCatalog struct {
+	// DefaultNamespace is trusted host routing for original unqualified keys.
+	DefaultNamespace string
 	// ContentCurrent is supplied only by the authoritative host for each owner.
 	// Unregistered providers retain an exact, authorized Get as the final check.
 	ContentCurrent map[string]WindowContentCheck
@@ -100,6 +102,9 @@ func (c *WindowCatalog) listExcludingLocalProvider(ctx context.Context, input *s
 func (c *WindowCatalog) locate(ctx context.Context, key, owner string) (windowLocator, error) {
 	if strings.HasPrefix(key, locatorPrefix) {
 		return decodeWindowLocator(key)
+	}
+	if !strings.Contains(key, "://") && c.DefaultNamespace != "" {
+		key = "window://" + c.DefaultNamespace + "/" + key
 	}
 	uri, e := identity.ParseResourceURI(key)
 	if e != nil || uri.Kind != "window" {
