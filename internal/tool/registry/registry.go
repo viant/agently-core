@@ -1090,6 +1090,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		if resolveErr != nil {
 			return "", resolveErr
 		}
+		executionArgs = r.promoteLegacyBodyArgs(ctx, server, method, executionArgs)
 		dispatchClient := cli
 		finishDispatch := func() {}
 		if artifactDispatch {
