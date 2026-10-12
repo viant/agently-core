@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
+	"time"
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	svcauth "github.com/viant/agently-core/service/auth"
@@ -68,12 +70,30 @@ func registerBrowserMCPRoutes(mux *http.ServeMux, client Client, authCfg *svcaut
 		if iauth.EffectiveUserID(ctx) == "" {
 			ctx = iauth.WithUserInfo(ctx, &iauth.UserInfo{Subject: user})
 		}
-		catalog, err := registry.Current(ctx, user, r.PathValue("id"))
+		view := r.URL.Query().Get("view")
+		if view != "" && view != "status" {
+			httpError(w, 400, errors.New("unsupported browser catalog projection"))
+			return
+		}
+		started := time.Now()
+		var catalog browsermcp.Catalog
+		var status browsermcp.CatalogStatus
+		var err error
+		if view == "status" {
+			status, err = registry.CurrentStatus(ctx, user, r.PathValue("id"))
+			catalog.ConversationID = status.ConversationID
+		} else {
+			catalog, err = registry.Current(ctx, user, r.PathValue("id"))
+		}
+		w.Header().Set("Server-Timing", fmt.Sprintf("catalog;dur=%.3f", float64(time.Since(started).Microseconds())/1000))
+		w.Header().Set("Cache-Control", "no-store")
 		if err != nil {
 			httpError(w, 403, err)
 			return
 		}
+		ownershipStarted := time.Now()
 		conv, err := client.GetConversation(ctx, catalog.ConversationID)
+		w.Header().Set("Server-Timing", w.Header().Get("Server-Timing")+fmt.Sprintf(", ownership;dur=%.3f", float64(time.Since(ownershipStarted).Microseconds())/1000))
 		if err != nil || conv == nil {
 			httpError(w, 403, errors.New("browser MCP catalog unavailable for this conversation (conversationUnavailable)"))
 			return
@@ -83,7 +103,11 @@ func registerBrowserMCPRoutes(mux *http.ServeMux, client Client, authCfg *svcaut
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(catalog)
+		if view == "status" {
+			json.NewEncoder(w).Encode(status)
+		} else {
+			json.NewEncoder(w).Encode(catalog)
+		}
 	})
 	mux.HandleFunc("DELETE /v1/mcp/browser/catalog/{id}", func(w http.ResponseWriter, r *http.Request) {
 		user := resolveQueryUserID(w, r, "", authCfg)

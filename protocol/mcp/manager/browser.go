@@ -56,3 +56,19 @@ func browserOptions(ctx context.Context, p Provider, name string) (*mcpcfg.MCPCl
 	}
 	return p.Options(ctx, name)
 }
+
+// BrowserDescriptor revalidates one already-registered browser server without
+// enumerating or loading unrelated server configurations or credential state.
+func (m *Manager) BrowserDescriptor(ctx context.Context, name string) (mcpcfg.BrowserDescriptor, error) {
+	if authctx.EffectiveUserID(ctx) == "" || name == "" {
+		return mcpcfg.BrowserDescriptor{}, errors.New("authenticated browser configuration required")
+	}
+	c, err := browserOptions(ctx, m.prov, name)
+	if err != nil {
+		return mcpcfg.BrowserDescriptor{}, err
+	}
+	if c == nil || c.ValidateExecutionLocation() != nil || !c.IsBrowserExecution() {
+		return mcpcfg.BrowserDescriptor{}, ErrBrowserExecutionRequired
+	}
+	return c.BrowserDescriptor(name)
+}

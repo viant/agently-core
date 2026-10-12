@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -13,6 +14,10 @@ import (
 // Query finishes recording the wait boundary. The receipt must not start a
 // second execution while that first call is still returning.
 func (c *backendClient) aguiAwaitDeferredBoundary(ctx context.Context, record *aguistore.Run) error {
+	started := time.Now()
+	defer func() {
+		log.Printf("AG-UI client-tool phase=deferredBoundary durationMs=%d", time.Since(started).Milliseconds())
+	}()
 	if c == nil || c.data == nil || record == nil {
 		return fmt.Errorf("native continuation boundary inspection unavailable")
 	}

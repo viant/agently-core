@@ -1,4 +1,4 @@
-import { browserMCPSetupMessage, recordBrowserMCPLifecycle, type BrowserMCPHost } from './browserMCP';
+import { browserMCPSetupMessage, finishBrowserTiming, recordBrowserMCPLifecycle, type BrowserMCPHost } from './browserMCP';
 import type { ClientTool } from './agui';
 import type { AgentSubscriber } from '@ag-ui/client';
 import type { Message, State } from '@ag-ui/core';
@@ -44,6 +44,9 @@ interface RunSlot {
     session: AgUiSession;
     nativeTurnId?: string;
     hasBrowserTools?: boolean;
+    browserToolNames?: Set<string>;
+    firstBrowserToolAt?: number;
+    terminalAt?: number;
     stopProjection(): void;
     completion: Promise<unknown>;
 }
@@ -132,6 +135,7 @@ export class AgUiConversationTransport {
             }
         }, input.displayQuery);
         slot.hasBrowserTools = browserTools.length > 0;
+        slot.browserToolNames = new Set(browserTools.map(item => item.tool.name));
         const selection = {
             agentId: input.agentId, model: input.model, backendTools: input.tools,
             toolBundles: input.toolBundles, autoSelectTools: input.autoSelectTools,
@@ -270,6 +274,9 @@ export class AgUiConversationTransport {
                         canonicalCount: pendingNames.filter(name => canonicalKeys.filter(key => key === canonical(name)).length === 1).length,
                         slashCount: pendingNames.filter(name => name.includes('/')).length, dashCount: pendingNames.filter(name => name.includes('-')).length });
                 }
+                finishBrowserTiming('handoff.pendingToHandler', current.firstBrowserToolAt);
+                finishBrowserTiming('handoff.terminalToHandler', current.terminalAt);
+                const handlersStarted = globalThis.performance?.now();
                 let responses: Record<string, import('./agui').InterruptResponse> | undefined;
                 if (snapshot.pendingToolCallIds.length) await session.client.executeClientTools(tools);
                 else if (snapshot.interrupts.length && snapshot.interrupts.every(interrupt => {
@@ -277,15 +284,20 @@ export class AgUiConversationTransport {
                     return interrupt.reason === 'agently.client_tool' && marker?.version === '1' && marker?.kind === 'client-tool';
                 })) responses = await session.client.executeClientToolInterrupts(tools);
                 else return; // Human approvals and unrelated interrupts keep their ordinary UI flow.
+                finishBrowserTiming('handoff.handlers', handlersStarted);
                 current.stopProjection();
                 if (entry.runs.get(current.id) === current) entry.runs.delete(current.id);
                 const nextRunId = crypto.randomUUID();
                 current = this.track(entry, nextRunId, session, session.getSnapshot().messages);
                 current.hasBrowserTools = true;
+                current.browserToolNames = new Set(tools.map(item => item.tool.name));
                 const parameters = { runId: nextRunId, parentRunId: snapshot.runId, tools: tools.map(item => item.tool) };
                 recordBrowserMCPLifecycle('continuation', { stage: 'resume', pendingCount: snapshot.pendingToolCallIds.length, interruptCount: snapshot.interrupts.length });
-                if (responses) await session.resume(responses, parameters);
-                else await session.continue(parameters);
+                const continuationStarted = globalThis.performance?.now();
+                try {
+                    if (responses) await session.resume(responses, parameters);
+                    else await session.continue(parameters);
+                } finally { finishBrowserTiming('handoff.continuation', continuationStarted); }
             }
             throw new Error('Browser MCP continuation budget exhausted');
         } catch (error) {
@@ -320,7 +332,9 @@ export class AgUiConversationTransport {
         const slot: RunSlot = { id: runId, session, stopProjection: () => {}, completion: Promise.resolve() };
         const identity = session.subscribeProtocol({ onRunStartedEvent: ({ event }) => {
             slot.nativeTurnId = readAgentlyPresentation(event.metadata)?.nativeTurnId;
-        } });
+        }, onToolCallStartEvent: ({ event }) => {
+            if (slot.firstBrowserToolAt === undefined && slot.browserToolNames?.has(event.toolCallName)) slot.firstBrowserToolAt = globalThis.performance?.now();
+        }, onRunFinishedEvent: () => { slot.terminalAt = globalThis.performance?.now(); } });
         const projection = this.project({ profile: 'agently', conversationId: entry.id, runId,
             baselineMessages, displayQuery, allowHostEffects: true,
             onDescriptor: descriptor => {

@@ -83,3 +83,43 @@ func TestBrowserMCPRepoProviderDoesNotCreateCredentialState(t *testing.T) {
 		t.Fatal("browser provider created credential/runtime state")
 	}
 }
+
+type exactBrowserProvider struct {
+	config *cfg.MCPClient
+	reads  int
+}
+
+func (p *exactBrowserProvider) Options(_ context.Context, name string) (*cfg.MCPClient, error) {
+	if name != "device" {
+		return nil, errors.New("unexpected config")
+	}
+	p.reads++
+	return p.config, nil
+}
+func (p *exactBrowserProvider) Names(context.Context) ([]string, error) {
+	return nil, errors.New("unrelated enumeration must not run")
+}
+func TestBrowserDescriptorRevalidatesExactConfigWithoutEnumeration(t *testing.T) {
+	p := &exactBrowserProvider{config: &cfg.MCPClient{ExecutionLocation: "browser", BrowserTransport: &cfg.BrowserTransport{Type: "chrome-extension", ExtensionID: strings.Repeat("a", 32), PortName: "fixture"}}}
+	m, err := New(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = m.BrowserDescriptor(context.Background(), "device"); err == nil || p.reads != 0 {
+		t.Fatal("anonymous config read")
+	}
+	ctx := iauth.WithUserInfo(context.Background(), &iauth.UserInfo{Subject: "owner"})
+	for i := 0; i < 3; i++ {
+		d, e := m.BrowserDescriptor(ctx, "device")
+		if e != nil || d.Name != "device" {
+			t.Fatal(d, e)
+		}
+	}
+	if p.reads != 3 {
+		t.Fatal("config validation was cached")
+	}
+	p.config = nil
+	if _, err = m.BrowserDescriptor(ctx, "device"); !errors.Is(err, ErrBrowserExecutionRequired) {
+		t.Fatal("removed config admitted", err)
+	}
+}
