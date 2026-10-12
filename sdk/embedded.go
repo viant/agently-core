@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	identity "github.com/viant/agently-core/protocol/resource"
 	resourcesvc "github.com/viant/agently-core/service/resource"
+	"github.com/viant/forge/backend/types"
 	"sort"
 	"strings"
 	"sync"
@@ -87,30 +89,31 @@ type turnQueuePatcher interface {
 }
 
 type backendClient struct {
-	approvalRecoveryMu     sync.Mutex
-	approvalRecoveryCursor string
-	approvalTokenProvider  token.Provider
-	approvalMCPHost        *AGUIMCPAppsHost
-	agent                  *agentsvc.Service
-	conv                   conversation.Client
-	data                   data.Service
-	goalRepo               goalsys.Repository
-	goalInvoker            dexec.ComponentInvoker
-	registry               tool.Registry
-	mcpMgr                 *mcpmgr.Manager
-	toolPolicy             *tool.Policy
-	cancelRegistry         cancels.Registry
-	elicRouter             elicrouter.ElicitationRouter
-	elicSvc                *elicsvc.Service
-	streaming              streaming.Bus
-	store                  workspace.Store
-	rawResourceBoundary    *workspace.RawResourceBoundary
-	a2aSvc                 *a2a.Service
-	schedulerSvc           *scheduler.Service
-	asyncManager           *asynccfg.Manager
-	feeds                  *FeedRegistry
-	primitiveProviders     *resourcesvc.Gateway
-	skills                 skillBackend
+	approvalRecoveryMu            sync.Mutex
+	approvalRecoveryCursor        string
+	approvalTokenProvider         token.Provider
+	approvalMCPHost               *AGUIMCPAppsHost
+	agent                         *agentsvc.Service
+	conv                          conversation.Client
+	data                          data.Service
+	goalRepo                      goalsys.Repository
+	goalInvoker                   dexec.ComponentInvoker
+	registry                      tool.Registry
+	mcpMgr                        *mcpmgr.Manager
+	toolPolicy                    *tool.Policy
+	cancelRegistry                cancels.Registry
+	elicRouter                    elicrouter.ElicitationRouter
+	elicSvc                       *elicsvc.Service
+	streaming                     streaming.Bus
+	store                         workspace.Store
+	rawResourceBoundary           *workspace.RawResourceBoundary
+	a2aSvc                        *a2a.Service
+	schedulerSvc                  *scheduler.Service
+	asyncManager                  *asynccfg.Manager
+	feeds                         *FeedRegistry
+	primitiveProviders            *resourcesvc.Gateway
+	prepareNativePresentationRead func(context.Context, *identity.ResolvedResource, *types.WindowTarget) (*identity.ResolvedResource, *types.WindowTarget, error)
+	skills                        skillBackend
 	// Installed by SetDatasourceStack; nil until runtime bootstrap wires
 	// them. See sdk/embedded_datasources.go.
 	datasourceSvc *dssvc.Service
@@ -201,6 +204,9 @@ func newBackendFromRuntime(rt *executor.Runtime) (*backendClient, error) {
 		}
 	}
 	c.primitiveProviders = rt.PrimitiveProviders
+	if rt.UIBridge != nil {
+		c.prepareNativePresentationRead = rt.UIBridge.PrepareNativePresentationRead
+	}
 	c.skills = rt.Skills
 	// Wire the datasource + overlay stack. Loads any datasources/ and
 	// lookups/ YAML from the workspace and installs the refiner hook. If

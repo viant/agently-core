@@ -63,7 +63,11 @@ func NativeWindowLoader(bindings []workspacewindow.ResourceBinding, enrich works
 		if err != nil {
 			return nil, err
 		}
-		return source.LoadBundleWithOptions(ctx, uri, options)
+		raw, err := source.LoadBundleWithOptions(ctx, uri, options)
+		if err != nil {
+			return nil, err
+		}
+		return attachNativeWindowViewMetadata(ctx, reader, file, raw)
 	}
 }
 

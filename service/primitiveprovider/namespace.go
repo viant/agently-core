@@ -138,3 +138,6 @@ func (s *NamespaceService) Identity(ctx context.Context) (NamespaceIdentity, err
 	}
 	return identity, nil
 }
+
+// HasNamespaceResolver reports trusted startup UI-owner wiring only.
+func (s *Service) HasNamespaceResolver() bool { return s != nil && s.ns != nil && s.ns.Resolver != nil }

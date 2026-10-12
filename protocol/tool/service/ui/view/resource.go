@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"strings"
 
+	identity "github.com/viant/agently-core/protocol/resource"
 	viewproto "github.com/viant/agently-core/protocol/ui/view"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
-	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/forge/backend/types"
 )
 
@@ -51,6 +51,17 @@ func (s *Service) loadRequested(ctx context.Context, id string, ref *identity.Re
 	if err != nil {
 		return nil, err
 	}
+	if id != "" {
+		count := 0
+		for _, spec := range all {
+			if spec != nil && strings.EqualFold(strings.TrimSpace(spec.ID), id) {
+				count++
+			}
+		}
+		if count > 1 {
+			return nil, fmt.Errorf("ambiguous view id %q; select its canonical resource", id)
+		}
+	}
 	for _, spec := range all {
 		if spec == nil || id != "" && !strings.EqualFold(strings.TrimSpace(spec.ID), id) {
 			continue
@@ -92,6 +103,9 @@ func (s *Service) loadRequested(ctx context.Context, id string, ref *identity.Re
 }
 
 func (s *Service) canonicalCatalogReference(ctx context.Context, spec *viewproto.Spec) (string, identity.ResourceRef, error) {
+	if spec.ResourceURI != "" {
+		return spec.ResourceURI, identity.ResourceRef{URI: spec.ResourceURI}, nil
+	}
 	// A configured catalogue identity owns its resource even if the underlying
 	// browser activation key is a shared renderer such as reportBuilder.
 	for _, key := range []string{strings.TrimSpace(spec.ID), strings.TrimSpace(spec.WindowKey)} {

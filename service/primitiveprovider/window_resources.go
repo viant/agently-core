@@ -17,6 +17,10 @@ type windowResourcePin struct {
 	WindowKey string
 	Resource  identity.ResolvedResource
 	Target    *types.WindowTarget
+	// PresentedTarget is the original integrity target delivered to this exact
+	// native public instance; fresh server admission uses Target.
+	PresentedTarget   *types.WindowTarget
+	PresentedResource *identity.ResolvedResource
 }
 
 func (s *Service) canonicalWindowCatalog() bool {
@@ -85,7 +89,7 @@ func (s *Service) rememberWindowPin(ctx context.Context, key windowPinKey, pin w
 		s.resourcePins = map[windowPinKey]windowResourcePin{}
 	}
 	for key, value := range s.resourcePins {
-		if !value.Resource.ValidUntil.After(time.Now()) {
+		if !value.Resource.ValidUntil.After(time.Now()) && !defaultPresentationPin(value) {
 			delete(s.resourcePins, key)
 		}
 	}
@@ -118,7 +122,8 @@ func (s *Service) authorizePinnedCommand(ctx context.Context, ns, clientID, meth
 	if id == "" {
 		return nil, errors.New("resolved window instance is required")
 	}
-	pin, ok := s.getWindowPin(windowPinKey{Namespace: ns, ClientID: clientID, WindowID: id})
+	key := windowPinKey{Namespace: ns, ClientID: clientID, WindowID: id}
+	pin, ok := s.getWindowPin(key)
 	if !ok {
 		return nil, identity.ErrResourceDenied
 	}
@@ -126,11 +131,17 @@ func (s *Service) authorizePinnedCommand(ctx context.Context, ns, clientID, meth
 		if value, exists := input[key]; exists {
 			raw, err := json.Marshal(value)
 			var target *types.WindowTarget
-			if err != nil || json.Unmarshal(raw, &target) != nil || !types.SameWindowTarget(target, pin.Target) {
+			if err != nil || json.Unmarshal(raw, &target) != nil || (!types.SameWindowTarget(target, pin.Target) && (pin.PresentedTarget == nil || !types.SameWindowTarget(target, pin.PresentedTarget))) {
 				return nil, identity.ErrResourceDenied
 			}
 		}
 	}
+	var renewalErr error
+	pin, renewalErr = s.renewDefaultPresentationPin(ctx, key, pin)
+	if renewalErr != nil {
+		return nil, renewalErr
+	}
+
 	fresh, err := s.revalidateWindowPin(ctx, pin)
 	if err != nil {
 		return nil, errors.New("window resource is unavailable")
@@ -159,6 +170,10 @@ func (s *Service) filterResourceSnapshot(ctx context.Context, ns, clientID strin
 		}
 		pin, ok := s.getWindowPin(windowPinKey{Namespace: ns, ClientID: clientID, WindowID: item.WindowID})
 		if !ok || item.WindowKey != pin.WindowKey {
+			continue
+		}
+		pin, err = s.renewDefaultPresentationPin(ctx, windowPinKey{Namespace: ns, ClientID: clientID, WindowID: item.WindowID}, pin)
+		if err != nil {
 			continue
 		}
 		if _, err := s.revalidateWindowPin(ctx, pin); err != nil {
@@ -218,6 +233,11 @@ func (s *Service) WindowResource(ctx context.Context, namespace, clientID, windo
 	pin, ok := s.getWindowPin(windowPinKey{Namespace: namespace, ClientID: clientID, WindowID: windowID})
 	if !ok || windowKey != "" && pin.WindowKey != windowKey {
 		return nil, identity.ErrResourceDenied
+	}
+	var renewalErr error
+	pin, renewalErr = s.renewDefaultPresentationPin(ctx, windowPinKey{Namespace: namespace, ClientID: clientID, WindowID: windowID}, pin)
+	if renewalErr != nil {
+		return nil, renewalErr
 	}
 	// Only this exact pinned read shares verified facts. The local phase ends
 	// before callers persist events or execute any component/datasource action.
@@ -311,4 +331,59 @@ func (s *Service) BindAdmittedFrameworkWindow(ctx context.Context, clientID, win
 		pin.ValidUntil = deadline
 	}
 	return s.rememberWindowPin(ctx, windowPinKey{Namespace: owner.Namespace, ClientID: clientID, WindowID: windowID}, windowResourcePin{WindowKey: windowKey, Resource: pin, Target: admitted.ResourceTarget})
+}
+
+func (s *Service) renewDefaultPresentationPin(ctx context.Context, key windowPinKey, pin windowResourcePin) (windowResourcePin, error) {
+	if !pin.Resource.ValidUntil.After(time.Now()) {
+		if !defaultPresentationPin(pin) {
+			return windowResourcePin{}, identity.ErrResourceDenied
+		}
+		renewal, has := s.cfg.WindowDefinitions.(interface {
+			RenewDefaultPresentation(context.Context, string, identity.ResolvedResource, *types.WindowTarget) (*WindowDefinitionGetOutput, error)
+		})
+		if !has {
+			return windowResourcePin{}, identity.ErrResourceDenied
+		}
+		got, err := renewal.RenewDefaultPresentation(ctx, pin.WindowKey, pin.Resource, pin.Target)
+		if err != nil || got == nil || got.Definition == nil || got.Definition.Resource == nil {
+			return windowResourcePin{}, identity.ErrResourceDenied
+		}
+		fresh := got.Definition.Resource
+		if fresh.URI != pin.Resource.URI || fresh.ProviderIdentity != pin.Resource.ProviderIdentity || fresh.ResourceCandidate != pin.Resource.ResourceCandidate || fresh.AuthorityBinding != pin.Resource.AuthorityBinding || !samePresentationDimensions(pin.Target, got.Definition.ResourceTarget) {
+			return windowResourcePin{}, identity.ErrResourceDenied
+		}
+		s.resourceMu.Lock()
+		held, exists := s.resourcePins[key]
+		if ctx == nil || ctx.Err() != nil || !got.Definition.Resource.ValidUntil.After(time.Now()) || !exists || held.Resource != pin.Resource || !types.SameWindowTarget(held.Target, pin.Target) {
+			s.resourceMu.Unlock()
+			return windowResourcePin{}, identity.ErrResourceDenied
+		}
+		if pin.PresentedTarget == nil {
+			pin.PresentedTarget = pin.Target
+			previous := pin.Resource
+			pin.PresentedResource = &previous
+		}
+		pin.Resource = *got.Definition.Resource
+		pin.Target = got.Definition.ResourceTarget
+		s.resourcePins[key] = pin
+		s.resourceMu.Unlock()
+	}
+	return pin, nil
+}
+
+func defaultPresentationPin(pin windowResourcePin) bool {
+	if pin.Resource.ProviderIdentity != "internal" || pin.Resource.AuthorityBinding != "public-local-definition" || pin.Target == nil || len(pin.Target.DependencyPins) != 0 || pin.Target.ExecutionProof != nil {
+		return false
+	}
+	uri, err := identity.ParseResourceURI(pin.Resource.URI)
+	return err == nil && uri.Kind == "window" && uri.Namespace == "workspace"
+}
+
+func samePresentationDimensions(a, b *types.WindowTarget) bool {
+	if a == nil || b == nil {
+		return false
+	}
+	left, right := *a, *b
+	left.SelectionToken, right.SelectionToken = "", ""
+	return types.SameWindowTarget(&left, &right)
 }

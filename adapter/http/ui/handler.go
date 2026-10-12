@@ -331,9 +331,23 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 				bindContext, stop = context.WithDeadline(bindContext, openLease)
 				defer stop()
 			}
-			if err := binder.BindAdmittedFrameworkWindow(bindContext, r.URL.Query().Get("clientId"), r.URL.Query().Get("windowId"), strings.Join(pathParts, "/"), aWindow); err != nil {
-				writeOpenAdmissionError(w, err)
-				return
+			bindContext = runtimerequestctx.WithUIBridgeSessionID(bindContext, r.Header.Get("Mcp-Session-Id"))
+			handled := false
+			if native, ok := settings.windows.(interface {
+				BindAdmittedNativePresentationWindow(context.Context, string, string, string, *forgeTypes.Window) (bool, error)
+			}); ok {
+				var err error
+				handled, err = native.BindAdmittedNativePresentationWindow(bindContext, r.URL.Query().Get("clientId"), r.URL.Query().Get("windowId"), strings.Join(pathParts, "/"), aWindow)
+				if err != nil {
+					writeOpenAdmissionError(w, err)
+					return
+				}
+			}
+			if !handled {
+				if err := binder.BindAdmittedFrameworkWindow(bindContext, r.URL.Query().Get("clientId"), r.URL.Query().Get("windowId"), strings.Join(pathParts, "/"), aWindow); err != nil {
+					writeOpenAdmissionError(w, err)
+					return
+				}
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")

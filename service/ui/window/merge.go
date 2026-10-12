@@ -303,7 +303,11 @@ func (r *assignmentResolver) attach() error {
 		if _, exists := window.DataSource[id]; exists {
 			continue
 		}
-		window.DataSource[id] = r.catalog.dataSources[id]
+		value, err := cloneStaticValue(r.catalog.dataSources[id])
+		if err != nil {
+			return err
+		}
+		window.DataSource[id] = value
 	}
 	if len(r.schemas) > 0 && window.Schemas == nil {
 		window.Schemas = map[string]forgeTypes.ResourceSchema{}
@@ -313,7 +317,11 @@ func (r *assignmentResolver) attach() error {
 			log.Printf("workspace forge: ignoring workspace resource schema %q because window %s owns that name", name, windowIdentity(window))
 			continue
 		}
-		window.Schemas[name] = r.catalog.schemas[name].schema
+		value, err := cloneStaticValue(r.catalog.schemas[name].schema)
+		if err != nil {
+			return err
+		}
+		window.Schemas[name] = value
 	}
 	if len(r.models) > 0 && window.ResourceModels == nil {
 		window.ResourceModels = map[string]forgeTypes.ResourceModel{}
@@ -323,7 +331,11 @@ func (r *assignmentResolver) attach() error {
 			log.Printf("workspace forge: ignoring workspace resource model %q because window %s owns that name", name, windowIdentity(window))
 			continue
 		}
-		window.ResourceModels[name] = r.catalog.models[name].model
+		value, err := cloneStaticValue(r.catalog.models[name].model)
+		if err != nil {
+			return err
+		}
+		window.ResourceModels[name] = value
 	}
 	for _, id := range sortedKeys(r.dialogs) {
 		asset := r.catalog.dialogs[id]
@@ -337,7 +349,11 @@ func (r *assignmentResolver) attach() error {
 			log.Printf("workspace forge: skipping invalid workspace dialog %s (%s) required by window %s: %v", id, workspaceAssetPath(asset.path), windowIdentity(window), err)
 			continue
 		}
-		window.Dialogs = append(window.Dialogs, asset.dialog)
+		value, err := cloneStaticValue(asset.dialog)
+		if err != nil {
+			return err
+		}
+		window.Dialogs = append(window.Dialogs, value)
 	}
 	return nil
 }

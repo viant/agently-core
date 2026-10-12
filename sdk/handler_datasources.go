@@ -40,7 +40,8 @@ func handleFetchDatasource(client Backend) http.HandlerFunc {
 			return
 		}
 		in.ID = id
-		ctx := r.Context()
+		ctx := runtimerequestctx.WithUIBridgeSessionID(r.Context(), r.Header.Get("Mcp-Session-Id"))
+		ctx = runtimerequestctx.WithUIWindowID(ctx, r.URL.Query().Get("windowId"))
 		convID := strings.TrimSpace(in.ConversationID)
 		if convID == "" {
 			convID = strings.TrimSpace(r.URL.Query().Get("conversationId"))

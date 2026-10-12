@@ -143,6 +143,15 @@ func (c *backendClient) FetchDatasource(ctx context.Context, in *api.FetchDataso
 			return nil, err
 		}
 	}
+	if request.Resource != nil && request.Resource.ProviderIdentity == resourcesvc.InternalProviderIdentity && request.Resource.AuthorityBinding == "public-local-definition" && strings.HasPrefix(request.Resource.URI, "window://workspace/") && !request.Resource.ValidUntil.After(time.Now()) {
+		if c.prepareNativePresentationRead == nil {
+			return nil, identity.ErrResourceDenied
+		}
+		request.Resource, request.Target, err = c.prepareNativePresentationRead(ctx, request.Resource, request.Target)
+		if err != nil {
+			return nil, err
+		}
+	}
 	in = &request
 	opts := dssvc.FetchOptions{SelectionBinding: in.SelectionBinding, Resource: in.Resource, Target: in.Target, ResourceProof: in.ResourceProof, WindowParameters: in.WindowParameters}
 	if in.Cache != nil {

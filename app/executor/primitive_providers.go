@@ -49,6 +49,9 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 			out.PrimitiveProviders = resourcesvc.NewGateway(out.MCPManager, actor, verify, b.primitiveGatewayIdentity)
 		}
 	}
+	if err := b.configureDefaultWindowDelivery(out); err != nil {
+		return err
+	}
 	if out.NativeHostDocuments != nil {
 		out.NativeHostDocuments.Gateway = out.PrimitiveProviders
 	}
@@ -91,7 +94,11 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 	if out.PrimitiveProviders == nil || out.UIBridge == nil {
 		return fmt.Errorf("delegated windows require verified primitive authority and a host UI bridge")
 	}
-	remote := &resourcesvc.WindowCatalog{Gateway: out.PrimitiveProviders, Admission: b.primitiveWindowAdmission, TargetProof: b.primitiveTargetProof}
+	defaultNamespace := ""
+	if out.publicPrimitiveDefault {
+		defaultNamespace = "workspace"
+	}
+	remote := &resourcesvc.WindowCatalog{DefaultNamespace: defaultNamespace, Gateway: out.PrimitiveProviders, Admission: b.primitiveWindowAdmission, TargetProof: b.primitiveTargetProof}
 	out.UIBridge.ConfigureWindowCatalog(func(local forge.WindowDefinitionCatalog) forge.WindowDefinitionCatalog {
 		out.PrimitiveWindows = &resourcesvc.CompositeWindowCatalog{Local: local, LocalProviderIdentity: b.primitiveLocalIdentity, Remote: remote}
 		return out.PrimitiveWindows

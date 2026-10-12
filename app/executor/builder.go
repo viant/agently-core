@@ -75,6 +75,7 @@ import (
 )
 
 type Runtime struct {
+	publicPrimitiveDefault    bool
 	NativeLayoutSource        *resourcesvc.CapturedLayoutSource
 	ExecutionContext          func(context.Context) context.Context
 	registryWarmupMu          sync.Mutex
@@ -168,6 +169,7 @@ func resolveScratchpadTemplate() string {
 }
 
 type Builder struct {
+	nativeWindowDefaults           []resourcesvc.NativeFrameworkWindowBinding
 	nativeLayoutDefault            []byte
 	nativeComponentServices        []string
 	componentDispatcher            windowprotocol.ComponentDispatcher
@@ -370,6 +372,16 @@ func (b *Builder) WithSkipRegistryInitialize(skip bool) *Builder {
 // WithGoalStore supplies a domain store using the shared Datly 1.0 invoker.
 func (b *Builder) WithGoalStore(store goalsys.Store) *Builder {
 	b.goalStore = store
+	return b
+}
+
+// WithNativeWindowDefaults declares trusted linked framework source loaders.
+// Workspace window entry points retain the original first-loader precedence.
+func (b *Builder) WithNativeWindowDefaults(entries []resourcesvc.NativeFrameworkWindowBinding) *Builder {
+	b.nativeWindowDefaults = append([]resourcesvc.NativeFrameworkWindowBinding(nil), entries...)
+	for i := range b.nativeWindowDefaults {
+		b.nativeWindowDefaults[i].Resource.Targets = append([]forgetypes.WindowTarget(nil), entries[i].Resource.Targets...)
+	}
 	return b
 }
 
@@ -1136,6 +1148,8 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if err := b.configurePrimitiveProviders(out); err != nil {
 		return nil, err
 	}
+	b.configureDefaultUIOwner(out)
+	b.configureDefaultWindowOpenAdmission(out)
 	if out.Agent != nil && out.NativeHostDocuments != nil {
 		out.Agent.SetHostDocuments(out.NativeHostDocuments)
 	}
