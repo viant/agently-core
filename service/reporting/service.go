@@ -1998,7 +1998,9 @@ func (s *Service) getArtifactTool(ctx context.Context, in, out interface{}) erro
 		return err
 	}
 	*output = *cloneArtifact(artifact)
-	if !input.IncludeData {
+	// Recorded tool results become transcript/model context. The existing
+	// tool-message sink is host context, never a caller-controlled trust flag.
+	if !input.IncludeData || runtimerequestctx.ToolMessageIDFromContext(ctx) != "" {
 		output.Data = nil
 	}
 	return nil

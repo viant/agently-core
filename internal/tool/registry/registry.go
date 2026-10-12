@@ -1129,7 +1129,13 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	// Deduplicate rapid identical calls per conversation (memoization)
 	// Key uses fully qualified tool name and a stable JSON for args.
 	keyArgs, _ := json.Marshal(callArgs)
-	recentKey := userID + "|" + baseName + "|" + selector + "|" + string(keyArgs)
+	// Native tool output may differ for recorded model context versus direct
+	// downloads. Reuse stays within the same presentation sink.
+	sink := "direct"
+	if runtimerequestctx.ToolMessageIDFromContext(ctx) != "" {
+		sink = "recorded"
+	}
+	recentKey := userID + "|" + sink + "|" + baseName + "|" + selector + "|" + string(keyArgs)
 	var activeRecent *recentCall
 	if !protected && reuseAllowed && !mcpapps.Active(ctx) && r.recentTTL > 0 && outputPolicy == nil && !dispatchpayload.HasArtifactReference(callArgs) && !dispatchpayload.Active(ctx) {
 		call, owner, out, err, handled := r.beginRecentCall(ctx, convID, recentKey)

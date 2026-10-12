@@ -3,6 +3,7 @@ package tool
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"sync"
@@ -401,7 +402,7 @@ func TestRegistryExecutionProtectionBypassesRecentResults(t *testing.T) {
 		newProtectionGuard(t, newRegistryClaimRepository()),
 	)
 	protectedRegistry.recentResults["conv-1"] = map[string]recentItem{
-		"|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "cached-result"},
+		"|direct|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "cached-result"},
 	}
 	result, err := protectedRegistry.Execute(protectedTurnContext("turn-protected"), "service/tool", map[string]interface{}{"body": "same"})
 	if err != nil || result != "provider-result" || protectedClient.calls.Load() != 1 {
@@ -411,7 +412,7 @@ func TestRegistryExecutionProtectionBypassesRecentResults(t *testing.T) {
 	unprotectedClient := &protectionTestClient{result: "provider-result"}
 	unprotectedRegistry, _ := newRemoteProtectionRegistry(unprotectedClient, nil)
 	unprotectedRegistry.recentResults["conv-1"] = map[string]recentItem{
-		"|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "cached-result"},
+		"|direct|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "cached-result"},
 	}
 	result, err = unprotectedRegistry.Execute(protectedTurnContext("turn-unprotected"), "service/tool", map[string]interface{}{"body": "same"})
 	if err != nil || result != "cached-result" || unprotectedClient.calls.Load() != 0 {
@@ -425,7 +426,7 @@ func TestAuthorizationGuardBypassesRecentToolResults(t *testing.T) {
 	checks := 0
 	registry.SetAuthorizationGuard(func(context.Context, string, map[string]interface{}) error { checks++; return nil })
 	registry.recentResults["conv-1"] = map[string]recentItem{
-		"|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "previous-account-result"},
+		"|direct|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "previous-account-result"},
 	}
 	for i := 0; i < 2; i++ {
 		result, err := registry.Execute(protectedTurnContext("turn-current"), "service/tool", map[string]interface{}{"body": "same"})
@@ -443,7 +444,7 @@ func TestAccountBoundModeBypassesRecentResultsWithoutToolGuard(t *testing.T) {
 	registry, _ := newRemoteProtectionRegistry(client, nil)
 	registry.SetResultReuseDisabled(true)
 	registry.recentResults["conv-1"] = map[string]recentItem{
-		"|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "previous-account-result"},
+		"|direct|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "previous-account-result"},
 	}
 	for i := 0; i < 2; i++ {
 		result, err := registry.Execute(protectedTurnContext("turn-current"), "service/tool", map[string]interface{}{"body": "same"})
@@ -457,6 +458,12 @@ func TestAccountBoundModeBypassesRecentResultsWithoutToolGuard(t *testing.T) {
 }
 
 func TestRegistryRecentResultsCoalescesConcurrentUnprotectedCalls(t *testing.T) {
+	for _, recorded := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recorded=%t", recorded), func(t *testing.T) { testRegistryConcurrentRecentResults(t, recorded) })
+	}
+}
+
+func testRegistryConcurrentRecentResults(t *testing.T, recorded bool) {
 	started := make(chan struct{}, 2)
 	release := make(chan struct{})
 	client := &protectionTestClient{
@@ -470,6 +477,10 @@ func TestRegistryRecentResultsCoalescesConcurrentUnprotectedCalls(t *testing.T) 
 		},
 	}
 	registry, _ := newRemoteProtectionRegistry(client, nil)
+	ctx := protectedTurnContext("turn-unprotected")
+	if recorded {
+		ctx = runtimerequestctx.WithToolMessageID(ctx, "host-tool-message")
+	}
 	start := make(chan struct{})
 	results := make(chan string, 2)
 	errs := make(chan error, 2)
@@ -479,7 +490,7 @@ func TestRegistryRecentResultsCoalescesConcurrentUnprotectedCalls(t *testing.T) 
 		go func() {
 			defer wait.Done()
 			<-start
-			result, err := registry.Execute(protectedTurnContext("turn-unprotected"), "service/tool", map[string]interface{}{"body": "same"})
+			result, err := registry.Execute(ctx, "service/tool", map[string]interface{}{"body": "same"})
 			results <- result
 			errs <- err
 		}()
@@ -671,5 +682,30 @@ func TestRegistryExecutionProtectionFinishIsDetachedAndBounded(t *testing.T) {
 	case <-guard.finished:
 	case <-time.After(time.Second):
 		t.Fatal("Finish goroutine did not terminate")
+	}
+}
+
+func TestRegistryRecentResultsSeparatesPresentationSinks(t *testing.T) {
+	for _, recordedFirst := range []bool{false, true} {
+		t.Run(fmt.Sprintf("recorded-first=%t", recordedFirst), func(t *testing.T) {
+			client := &rawResultProtectionClient{}
+			registry, _ := newRemoteProtectionRegistry(client, nil)
+			direct := protectedTurnContext("turn-unprotected")
+			recorded := runtimerequestctx.WithToolMessageID(direct, "host-tool-message")
+			contexts := []context.Context{direct, recorded}
+			if recordedFirst {
+				contexts[0], contexts[1] = recorded, direct
+			}
+			for index, ctx := range contexts {
+				for repeat := 0; repeat < 2; repeat++ {
+					if _, err := registry.Execute(ctx, "service/tool", map[string]interface{}{"body": "same"}); err != nil {
+						t.Fatal(err)
+					}
+					if got := client.calls.Load(); got != int64(index+1) {
+						t.Fatalf("sink %d repeat %d provider calls=%d", index, repeat, got)
+					}
+				}
+			}
+		})
 	}
 }
