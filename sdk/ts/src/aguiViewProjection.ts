@@ -300,7 +300,7 @@ export class AgUiViewProjection {
         if(message.activityType==='agently.rendered-content'&&content?.version==='1'&&object(content.renderedContent)){
             const id=lane.presentation?.nativeMessageId??message.id.replace(/\/activity$/,'');
             const text=this.messages.find(m=>m.id===id&&m.role==='assistant');
-            this.emit({type:'assistant',patch:{role:'assistant'},messageId:id,assistantMessageId:id,content:typeof text?.content==='string'?text.content:'',contentMode:'snapshot',renderedContent:content.renderedContent as unknown as CanonicalRenderedContent,protocolMessageId:message.id,pageId:lane.presentation?.pageId??`${this.runId}/message/${id}`},lane,`rich:${message.id}`);
+            this.emit({type:'assistant',patch:{role:'assistant'},messageId:id,assistantMessageId:id,content:typeof text?.content==='string'?text.content:'',contentMode:'snapshot',renderedContent:content.renderedContent as unknown as CanonicalRenderedContent,protocolMessageId:message.id,pageId:lane.presentation?.pageId??lane.presentation?.nativeMessageId??`${this.runId}/message/${id}`},lane,`rich:${message.id}`);
         }else if(message.activityType==='mcp-apps'&&this.hostEffects)this.descriptor(`activity:${message.id}`,{kind:'host-activity',message:structuredClone(message),hostEffectsAllowed:true});
         else this.descriptor(`activity:${message.id}`,{kind:'unsupported-activity',messageId:message.id,activityType:message.activityType,hostEffectsAllowed:false});
     }
