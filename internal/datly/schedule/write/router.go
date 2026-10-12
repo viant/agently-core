@@ -16,7 +16,7 @@ var _anchorLifecycle_WriterComponent = reflect.TypeFor[Lifecycle]()
 
 // Component is the generated component scaffold for writer.
 type WriterComponent struct {
-	Contract xdatly.Component[Input, Output] "component:\"writer,path=/v1/api/agently/scheduler/,method=PATCH,connector=agently,view=writer,internal=true\" routeName:\"writer\" mutation:\"patch\" caseFormat:\"lc\""
+	Contract xdatly.Component[Input, Output] "component:\"writer,path=/v1/api/agently/scheduler/,method=PATCH,connector=agently,view=writer,internal=true\" routeName:\"writer\" componentCallPolicy:\"imperative\" mutation:\"patch\" caseFormat:\"lc\""
 }
 
 // WriterDatlyType returns the public component type.

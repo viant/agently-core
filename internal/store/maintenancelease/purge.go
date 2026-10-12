@@ -22,8 +22,10 @@ const expiredRetention = 7 * 24 * time.Hour
 
 var ErrLeaseLost = errors.New("maintenance lease is no longer owned by this worker")
 
+// The owner/token fence must execute before any retention deletion proceeds.
+// Its conflict remains visible to this coordinator in the same transaction.
 type PurgeComponent struct {
-	Contract xdatly.Component[PurgeInput, PurgeOutput] `component:"MaintenanceLeasePurge,path=/v1/internal/agently/maintenance-lease/purge,method=POST,handler=NewPurge,internal=true"`
+	Contract xdatly.Component[PurgeInput, PurgeOutput] `component:"MaintenanceLeasePurge,path=/v1/internal/agently/maintenance-lease/purge,method=POST,handler=NewPurge,internal=true" componentCallPolicy:"imperative"`
 }
 
 type PurgeInput struct {

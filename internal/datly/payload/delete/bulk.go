@@ -15,8 +15,10 @@ import (
 
 // BulkDeleteComponent is authored, not generated. It shares the row writer's
 // trusted contract and key-only pre-read, but never queues per-row mutations.
+// Immediate SQL depends on the existing same-transaction prefix drain.
+// This writer must not enter protected buffered child composition.
 type BulkDeleteComponent struct {
-	Contract xdatly.Component[Input, Output] `component:"PayloadBulkDelete,path=/v1/internal/agently/payload/delete-bulk,method=PATCH,connector=agently,view=writer,handler=NewBulkDelete,internal=true"`
+	Contract xdatly.Component[Input, Output] `component:"PayloadBulkDelete,path=/v1/internal/agently/payload/delete-bulk,method=PATCH,connector=agently,view=writer,handler=NewBulkDelete,internal=true" componentCallPolicy:"imperative"`
 }
 
 var BulkDeleteDatly = new(BulkDeleteComponent)

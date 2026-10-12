@@ -2,6 +2,7 @@
 #import('time','time')
 #import('predicate','github.com/viant/agently-core/internal/datly/predicate')
 #setting($_ = $connector('agently'))
+#setting($_ = $component_call_policy('imperative'))
 #setting($_ = $internal(true))
 #setting($_ = $route('/v1/api/agently/run','PATCH'))
 #setting($_ = $input_type('Input'))
