@@ -166,7 +166,7 @@ func (s *Service) buildChronologicalHistory(
 						continue
 					}
 					role := strings.ToLower(strings.TrimSpace(item.msg.Role))
-					if role != "user" {
+					if role != "user" || isAttachmentCarrier(item.msg) {
 						continue
 					}
 					userIdxs = append(userIdxs, i)
@@ -185,7 +185,7 @@ func (s *Service) buildChronologicalHistory(
 							// turn that normalize to the same content.
 							if i < last && item.turnIdx == currentTurnIdx && item.msg != nil {
 								role := strings.ToLower(strings.TrimSpace(item.msg.Role))
-								if role == "user" {
+								if role == "user" && !isAttachmentCarrier(item.msg) {
 									if normalizeUserTaskContent(item.msg.GetContent()) == lastText {
 										continue
 									}
@@ -488,6 +488,11 @@ func (s *Service) buildChronologicalHistory(
 		out.Messages = append(out.Messages, t.Messages...)
 	}
 
+	var extra []*binding.Attachment
+	if input != nil {
+		extra = input.Attachments
+	}
+	s.projectScreenshotAttachments(&out, extra)
 	return &HistoryResult{History: out, Elicitation: elicitation, Overflow: overflow, MaxOverflowBytes: maxOverflowBytes}, nil
 }
 

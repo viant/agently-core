@@ -2,8 +2,12 @@ package tool
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
+	"github.com/google/uuid"
 	"mime"
 	"strings"
 
@@ -12,6 +16,14 @@ import (
 	scratchpad "github.com/viant/agently-core/protocol/tool/service/scratchpad"
 	schema "github.com/viant/mcp-protocol/schema"
 )
+
+// ErrOutputArtifactBytesMissing identifies a metadata-only MCP result. Resource
+// references are not binary content and do not authorize fetching another URI.
+var ErrOutputArtifactBytesMissing error = outputArtifactMissingBytes{}
+
+type outputArtifactMissingBytes struct{}
+
+func (outputArtifactMissingBytes) Error() string { return "output artifact capture failed" }
 
 func (r *Registry) outputArtifactPolicy(ctx context.Context, server, method string) (*mcpcfg.OutputArtifact, error) {
 	if r.mgr == nil || r.isInternalServer(server) {
@@ -39,7 +51,7 @@ func (r *Registry) outputArtifactPolicy(ctx context.Context, server, method stri
 
 // captureOutputArtifacts is called before result serialization, app recording,
 // errors, caches or transcript handling. Original content is never returned.
-func captureOutputArtifacts(ctx context.Context, result *schema.CallToolResult, policy *mcpcfg.OutputArtifact) (*schema.CallToolResult, error) {
+func captureOutputArtifacts(ctx context.Context, result *schema.CallToolResult, policy *mcpcfg.OutputArtifact, publicationScope ...string) (*schema.CallToolResult, error) {
 	failure := func() (*schema.CallToolResult, error) { return nil, errors.New("output artifact capture failed") }
 	if policy == nil || policy.Validate() != nil || strings.TrimSpace(authctx.EffectiveUserID(ctx)) == "" {
 		return failure()
@@ -108,8 +120,29 @@ func captureOutputArtifacts(ctx context.Context, result *schema.CallToolResult, 
 		case schema.TextContent, *schema.TextContent:
 			// Discard text duplicates, including legacy binary text echoes.
 			continue
+		case schema.ImageContent:
+			if !strings.HasPrefix(value.MimeType, "image/") || value.Data == "" {
+				return failure()
+			}
+			blobs = append(blobs, pending{encoded: value.Data, mime: value.MimeType})
+			continue
+		case *schema.ImageContent:
+			if value == nil || !strings.HasPrefix(value.MimeType, "image/") || value.Data == "" {
+				return failure()
+			}
+			blobs = append(blobs, pending{encoded: value.Data, mime: value.MimeType})
+			continue
 		case map[string]interface{}:
 			if value["type"] == "text" {
+				continue
+			}
+			if value["type"] == "image" {
+				encoded, encodedOK := value["data"].(string)
+				media, mediaOK := value["mimeType"].(string)
+				if !encodedOK || !mediaOK || encoded == "" || !strings.HasPrefix(media, "image/") {
+					return failure()
+				}
+				blobs = append(blobs, pending{encoded: encoded, mime: media})
 				continue
 			}
 			if value["type"] != "resource" {
@@ -157,10 +190,10 @@ func captureOutputArtifacts(ctx context.Context, result *schema.CallToolResult, 
 		blobs = append(blobs, pending{encoded: resource.Blob, mime: mediaType})
 	}
 	if len(blobs) == 0 {
-		return failure()
+		return nil, ErrOutputArtifactBytesMissing
 	}
 	resources := make([]map[string]interface{}, 0, len(blobs))
-	for _, blob := range blobs {
+	for index, blob := range blobs {
 		if len(blob.mime) > 256 || artifactMetadataEcho(name, blob.encoded) || artifactMetadataEcho(blob.mime, blob.encoded) {
 			return failure()
 		}
@@ -170,11 +203,30 @@ func captureOutputArtifacts(ctx context.Context, result *schema.CallToolResult, 
 		}
 		// Wire resource URIs are untrusted metadata and may contain payload
 		// echoes or credentials. Never persist them as public provenance.
-		d, err := scratchpad.New().PublishArtifactStream(ctx, name, mediaType, "", base64.NewDecoder(base64.StdEncoding.Strict(), strings.NewReader(blob.encoded)))
+		body := base64.NewDecoder(base64.StdEncoding.Strict(), strings.NewReader(blob.encoded))
+		var d *scratchpad.ArtifactDescriptor
+		if len(publicationScope) > 0 && publicationScope[0] != "" {
+			// A durable browser answer can be delivered again after a lost reply.
+			// Reuse the existing idempotent publisher, without rerunning the tool.
+			encodedPolicy, _ := json.Marshal(policy)
+			identity, _ := json.Marshal([]any{authctx.EffectiveUserID(ctx), publicationScope[0], string(encodedPolicy), index, blob.encoded})
+			digest := sha256.Sum256(identity)
+			id := uuid.NewSHA1(uuid.NameSpaceOID, []byte(hex.EncodeToString(digest[:]))).String()
+			d, err = scratchpad.New().PublishArtifact(ctx, id, name, mediaType, "", body, policy.Role)
+		} else {
+			d, err = scratchpad.New().PublishArtifactStream(ctx, name, mediaType, "", body, policy.Role)
+		}
 		if err != nil {
 			return failure()
 		}
 		resources = append(resources, map[string]interface{}{"id": d.ID, "uri": d.URI, "name": d.Name, "mimeType": d.MimeType, "sizeBytes": d.SizeBytes, "sha256": d.SHA256, "downloadURI": "/v1/artifacts/" + d.ID})
 	}
 	return &schema.CallToolResult{StructuredContent: map[string]interface{}{"resources": resources}}, nil
+}
+
+// CaptureOutputArtifacts reuses the server-MCP extraction policy for durable
+// browser results. A nonempty scope identifies one owned original tool call.
+// The returned result contains references only, never the original payload.
+func CaptureOutputArtifacts(ctx context.Context, result *schema.CallToolResult, policy *mcpcfg.OutputArtifact, publicationScope string) (*schema.CallToolResult, error) {
+	return captureOutputArtifacts(ctx, result, policy, publicationScope)
 }

@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -41,6 +42,10 @@ type aguiRecoveredNative struct {
 func recoverAGUIDurable(ctx context.Context, client Client, runtime aguiRuntime, store aguistore.Store, record *aguistore.Run) (retErr error) {
 	if client == nil || runtime == nil || store == nil || record == nil {
 		return fmt.Errorf("AG-UI recovery requires runtime, store and run")
+	}
+	// MCP Tasks aliases are protocol control ledgers, never native executions.
+	if isMCPTaskLedgerRun(record) {
+		return nil
 	}
 	latest, err := store.GetRun(ctx, record.Principal, record.ThreadID, record.RunID)
 	if err != nil {
@@ -492,6 +497,32 @@ func aguiRecoverClientContinuation(ctx context.Context, client Client, runtime a
 	var input agui.RunAgentInput
 	if err = json.Unmarshal(record.Input, &input); err != nil {
 		return false, err
+	}
+	if isClientToolTimeoutRun(record) {
+		backend, ok := client.(*backendClient)
+		if !ok {
+			return false, fmt.Errorf("client tool timeout recovery requires trusted backend")
+		}
+		prepared, due, err := prepareClientToolTimeout(ctx, backend.conv, writer.store, prior, pending, time.Now().UTC())
+		if err != nil {
+			return false, err
+		}
+		if !due || prepared == nil || !bytes.Equal(rawAGUI(prepared), rawAGUI(&input)) {
+			return false, fmt.Errorf("client tool timeout recovery evidence changed")
+		}
+		var props agui.ForwardedProps
+		if err = json.Unmarshal(input.ForwardedProps, &props); err != nil {
+			return false, err
+		}
+		query, err := queryForAGUI(&input, record.Principal, record.TurnID, props.Agently, prior)
+		if err != nil {
+			return false, err
+		}
+		session, err := clienttool.NewSession(nil)
+		if err != nil {
+			return false, err
+		}
+		return true, executeAGUIRuntime(clienttool.WithSession(ctx, session), client, runtime, writer, translator, &input, query, pending, prior)
 	}
 	var original struct {
 		Messages []json.RawMessage `json:"messages"`
@@ -964,7 +995,22 @@ func (c *backendClient) aguiInspectRun(ctx context.Context, record *aguistore.Ru
 		calls, _ := owner["toolCalls"].([]any)
 		owner["toolCalls"] = append(calls, map[string]any{"id": publicID, "type": "function", "function": map[string]any{"name": name, "arguments": args}})
 		if !approvalCalls[call.OpId] && call.Status == "waiting_for_user" && definitions[strings.ToLower(mcpname.Canonical(call.ToolName))] != "" {
-			result.Pending.ClientTools = append(result.Pending.ClientTools, clienttool.PendingCall{ID: call.OpId, ProtocolID: publicID, Name: name, Arguments: arguments, ToolMessageID: msg.Id, AssistantMessageID: parent, ConversationID: record.ConversationID, TurnID: record.TurnID, Iteration: aguiRecoveryInt(call.Iteration)})
+			recovered := clienttool.PendingCall{ID: call.OpId, ProtocolID: publicID, Name: name, Arguments: arguments, ToolMessageID: msg.Id, AssistantMessageID: parent, ConversationID: record.ConversationID, TurnID: record.TurnID, Iteration: aguiRecoveryInt(call.Iteration)}
+			var saved aguiPending
+			// Datly's initial admission represents an empty pending graph as [].
+			// It contains no prior deadline evidence; nonempty arrays still fail.
+			pendingBytes := bytes.TrimSpace(record.Pending)
+			if len(pendingBytes) > 0 && !bytes.Equal(pendingBytes, []byte("[]")) && json.Unmarshal(pendingBytes, &saved) != nil {
+				return nil, fmt.Errorf("pending client tool deadline evidence invalid")
+			}
+			for _, prior := range saved.ClientTools {
+				if prior.ID == recovered.ID && prior.ToolMessageID == recovered.ToolMessageID && prior.ConversationID == recovered.ConversationID && prior.TurnID == recovered.TurnID {
+					recovered.DeadlineAt = prior.DeadlineAt
+					recovered.RecoveryObservedAt = prior.RecoveryObservedAt
+					recovered.Metadata = append(json.RawMessage(nil), prior.Metadata...)
+				}
+			}
+			result.Pending.ClientTools = append(result.Pending.ClientTools, recovered)
 		} else if !agui.ToolStatusPending(valueOrEmpty(msg.Status)) && (call.Status == "completed" || call.Status == "failed" || call.Status == "canceled") {
 			var content any = msg.GetContent()
 			if valueOrEmpty(msg.ContextSummary) == clienttool.ContentMIME {

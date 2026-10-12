@@ -13,6 +13,7 @@ import (
 
 	iauth "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/agui"
+	"github.com/viant/agently-core/runtime/clienttool"
 	"github.com/viant/agently-core/runtime/streaming"
 	agentsvc "github.com/viant/agently-core/service/agent"
 	svcauth "github.com/viant/agently-core/service/auth"
@@ -235,7 +236,7 @@ func handleAGUIRun(client Client, authCfg *svcauth.Config, bindings ...AGUIWorks
 }
 
 func decodeAGUIRequest(w http.ResponseWriter, r *http.Request, input *agui.RunAgentInput) error {
-	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
+	r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
 	data, err := io.ReadAll(r.Body)
 	if err != nil {
 		return err
@@ -334,6 +335,14 @@ func writeAGUIEvents(w http.ResponseWriter, events []agui.Event) bool {
 // Persistence events carry payload references rather than the tool result body.
 // Resolve those behind the protocol boundary, through the authenticated backend.
 func hydrateAGUITool(ctx context.Context, client Client, event *streaming.Event) error {
+	// Native conversation notifications use display names (service/method).
+	// Frontend dispatch must retain the exact declared alias from this request,
+	// before the translator reserves the first tool-call opener.
+	if session := clienttool.FromContext(ctx); session != nil {
+		if definition, declared := session.Lookup(event.ToolName); declared {
+			event.ToolName = definition.Name
+		}
+	}
 	switch event.Type {
 	case streaming.EventTypeToolCallStarted, streaming.EventTypeToolCallCompleted, streaming.EventTypeToolCallFailed, streaming.EventTypeToolCallCanceled:
 	default:

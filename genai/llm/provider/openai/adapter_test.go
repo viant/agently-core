@@ -376,8 +376,8 @@ func TestToRequest_ModelArtifactGenerationDoesNotOverrideFunctionTools(t *testin
 	assert.Equal(t, "workspace-ForecastCube", got.Tools[0].Function.Name)
 }
 
-func TestToRequest_SkipsTemperatureForUnsupportedGPT5Models(t *testing.T) {
-	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"} {
+func TestToRequest_SkipsTemperatureForUnsupportedModels(t *testing.T) {
+	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6.1-sol"} {
 		t.Run(model, func(t *testing.T) {
 			in := llm.GenerateRequest{
 				Messages: []llm.Message{llm.NewUserMessage("analyze this repo")},
@@ -394,8 +394,8 @@ func TestToRequest_SkipsTemperatureForUnsupportedGPT5Models(t *testing.T) {
 	}
 }
 
-func TestClientToRequest_SkipsTemperatureForClientDefaultGPT5Models(t *testing.T) {
-	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol"} {
+func TestClientToRequest_SkipsTemperatureForClientDefaultModels(t *testing.T) {
+	for _, model := range []string{"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6.1-sol"} {
 		t.Run(model, func(t *testing.T) {
 			temperature := 0.2
 			client := &Client{Config: basecfg.Config{Model: model}, Temperature: &temperature}

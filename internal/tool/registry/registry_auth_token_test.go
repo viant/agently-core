@@ -105,8 +105,7 @@ func TestExecute_UsesRefreshedAuthContextForMCPCall(t *testing.T) {
 				return "stale-discovery-client", nil
 			}},
 		},
-		internal:      map[string]mcpclient.Interface{},
-		recentResults: map[string]map[string]recentItem{},
+		internal: map[string]mcpclient.Interface{},
 	}
 
 	ctx := context.Background()
@@ -198,10 +197,9 @@ func TestExecute_PreservesInputRequiredResult(t *testing.T) {
 		RequestState:  &state,
 	}}
 	reg := &Registry{
-		mgr:           &reconnectManagerStub{client: client},
-		cache:         map[string]*toolCacheEntry{},
-		internal:      map[string]mcpclient.Interface{},
-		recentResults: map[string]map[string]recentItem{},
+		mgr:      &reconnectManagerStub{client: client},
+		cache:    map[string]*toolCacheEntry{},
+		internal: map[string]mcpclient.Interface{},
 	}
 	_, err := reg.Execute(context.Background(), "helper/ping", map[string]interface{}{})
 	var inputErr *InputRequiredError
@@ -266,10 +264,9 @@ func TestExecute_RetriesOnHandshakeMissingSessionHeader(t *testing.T) {
 		client: &reconnectingCallClient{errOnCall: errors.New("code: -32603, message: handshake missing Mcp-Session-Id header")},
 	}
 	reg := &Registry{
-		mgr:           mgr,
-		cache:         map[string]*toolCacheEntry{},
-		internal:      map[string]mcpclient.Interface{},
-		recentResults: map[string]map[string]recentItem{},
+		mgr:      mgr,
+		cache:    map[string]*toolCacheEntry{},
+		internal: map[string]mcpclient.Interface{},
 	}
 
 	ctx := context.Background()
@@ -449,10 +446,9 @@ func (c *scriptedCallClient) CallTool(ctx context.Context, params *mcpschema.Cal
 
 func newReconnectTestRegistry(mgr *scriptedReconnectManager) *Registry {
 	return &Registry{
-		mgr:           mgr,
-		cache:         map[string]*toolCacheEntry{},
-		internal:      map[string]mcpclient.Interface{},
-		recentResults: map[string]map[string]recentItem{},
+		mgr:      mgr,
+		cache:    map[string]*toolCacheEntry{},
+		internal: map[string]mcpclient.Interface{},
 	}
 }
 

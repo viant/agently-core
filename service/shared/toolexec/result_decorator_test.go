@@ -50,12 +50,9 @@ func TestDurableDecoratorRunsAfterFinalizationAndNeverOnPersistenceFailure(t *te
 		})
 	}
 }
-func TestCoalescedCallsDecorateTheirOwnDurableOperation(t *testing.T) {
-	previous := activeToolStepCoalescer
-	activeToolStepCoalescer = newToolStepCoalescer(5 * time.Second)
-	t.Cleanup(func() { activeToolStepCoalescer = previous })
+func TestIndependentCallsDecorateTheirOwnDurableOperation(t *testing.T) {
 	conv := &stubConv{}
-	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "coalesce-decorate-conv", TurnID: "coalesce-decorate-turn"})
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "independent-decorate-conv", TurnID: "independent-decorate-turn"})
 	ctx = WithDurableResultDecorator(ctx, func(_ context.Context, step StepInfo, raw string) (string, bool, error) {
 		conv.mu.Lock()
 		defer conv.mu.Unlock()
@@ -66,8 +63,7 @@ func TestCoalescedCallsDecorateTheirOwnDurableOperation(t *testing.T) {
 		}
 		return "", true, fmt.Errorf("own op incomplete")
 	})
-	reg := &heldCoalesceRegistry{scriptedRegistry: &scriptedRegistry{script: []scriptedResult{{result: `{"status":"ok"}`}}}, entered: make(chan struct{}), release: make(chan struct{})}
-	waiter := make(chan struct{})
+	reg := &independentHeldRegistry{scriptedRegistry: &scriptedRegistry{script: []scriptedResult{{result: `{"status":"ok"}`}}}, started: make(chan struct{}, 2), release: make(chan struct{})}
 	var wg sync.WaitGroup
 	results := make(chan string, 2)
 	errors := make(chan error, 2)
@@ -75,17 +71,20 @@ func TestCoalescedCallsDecorateTheirOwnDurableOperation(t *testing.T) {
 		wg.Add(1)
 		go func(id string) {
 			defer wg.Done()
-			callCtx := ctx
-			if id == "second" {
-				<-reg.entered
-				callCtx = &coalesceWaiterContext{Context: ctx, entered: waiter}
-			}
-			out, _, e := ExecuteToolStep(callCtx, reg, StepInfo{ID: id, Name: "steward/ForecastingCube", Args: map[string]interface{}{"date": "same"}}, conv)
+			out, _, e := ExecuteToolStep(ctx, reg, StepInfo{ID: id, Name: "steward/ForecastingCube", Args: map[string]interface{}{"date": "same"}}, conv)
 			results <- out.Result
 			errors <- e
 		}(id)
 	}
-	<-waiter
+	for i := 0; i < 2; i++ {
+		select {
+		case <-reg.started:
+		case <-time.After(5 * time.Second):
+			close(reg.release)
+			wg.Wait()
+			t.Fatal("both calls must execute independently")
+		}
+	}
 	close(reg.release)
 	wg.Wait()
 	close(results)
@@ -98,6 +97,7 @@ func TestCoalescedCallsDecorateTheirOwnDurableOperation(t *testing.T) {
 		got = append(got, r)
 	}
 	require.ElementsMatch(t, []string{"receipt:first", "receipt:second"}, got)
+	require.Equal(t, 2, reg.calls)
 }
 
 // Compile-time check that existing conversation clients are unaffected by the

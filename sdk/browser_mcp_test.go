@@ -3,6 +3,7 @@ package sdk
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -67,5 +68,102 @@ func TestBrowserMCPDurableResultRequiresOriginalCatalogProvenance(t *testing.T) 
 	input.Messages[0].Metadata = json.RawMessage(`{"browserMCP":{"catalogId":"catalog1","connectionId":"other"}}`)
 	if err := preflightAGUIResume(context.Background(), nil, input, pending); err == nil {
 		t.Fatal("connection-substituted result accepted")
+	}
+}
+
+func TestBrowserMCPGetCatalogProjectsOnlyClosedFailureReasons(t *testing.T) {
+	for _, mode := range []string{"ready", "catalogMissing", "catalogOwnerMismatch", "catalogConfigUnavailable", "catalogConfigChanged", "conversationUnavailable", "conversationOwnerMismatch"} {
+		t.Run(mode, func(t *testing.T) {
+			c := newAGUITestClient()
+			c.owner = "PRIVATE-owner"
+			descriptor := cfg.BrowserDescriptor{Name: "device", ExecutionLocation: "browser", AllowedTools: []string{"read"}}
+			var providerErr error
+			registry := browsermcp.New(func(context.Context) ([]cfg.BrowserDescriptor, error) {
+				return []cfg.BrowserDescriptor{descriptor}, providerErr
+			})
+			catalog, e := registry.Register(context.Background(), "PRIVATE-owner", browsermcp.Registration{ConversationID: "PRIVATE-conversation", ThreadID: "PRIVATE-thread", Server: "device", ConnectionID: "PRIVATE-connection", Tools: []browsermcp.Tool{{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}}})
+			if e != nil {
+				t.Fatal(e)
+			}
+			user, id := "PRIVATE-owner", catalog.ID
+			switch mode {
+			case "catalogMissing":
+				id = "PRIVATE-missing"
+			case "catalogOwnerMismatch":
+				user = "PRIVATE-other"
+			case "catalogConfigUnavailable":
+				providerErr = errors.New("PRIVATE provider error")
+			case "catalogConfigChanged":
+				descriptor.AllowedTools = []string{"changed"}
+			case "conversationUnavailable":
+				c.conversationErr = errors.New("PRIVATE conversation error")
+			case "conversationOwnerMismatch":
+				c.owner = "PRIVATE-other"
+			}
+			mux := http.NewServeMux()
+			registerBrowserMCPRoutes(mux, c, nil, registry)
+			req := httptest.NewRequest("GET", "/v1/mcp/browser/catalog/"+id, nil)
+			req = req.WithContext(iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: user}))
+			reply := httptest.NewRecorder()
+			mux.ServeHTTP(reply, req)
+			if mode == "ready" {
+				if reply.Code != 200 {
+					t.Fatal(reply.Code, reply.Body.String())
+				}
+				return
+			}
+			var body map[string]string
+			if json.Unmarshal(reply.Body.Bytes(), &body) != nil || reply.Code != 403 || len(body) != 1 || body["error"] != browsermcp.ErrUnavailable.Error()+" ("+mode+")" || strings.Contains(reply.Body.String(), "PRIVATE") {
+				t.Fatal(reply.Code, reply.Body.String())
+			}
+		})
+	}
+}
+
+func TestBrowserMCPContinuationReturnsClosedValidationReasonBeforeResume(t *testing.T) {
+	for _, mode := range []string{"catalogMetadataMissing", "catalogThreadMismatch", "catalogDescriptionChanged", "catalogSchemaChanged", "catalogMetadataChanged", "catalogMissing"} {
+		t.Run(mode, func(t *testing.T) {
+			c := &durableAGUIClient{aguiTestClient: newAGUITestClient(), store: browserThreadStore{}}
+			c.owner = "owner"
+			registry := browsermcp.New(func(context.Context) ([]cfg.BrowserDescriptor, error) {
+				return []cfg.BrowserDescriptor{{Name: "device", ExecutionLocation: "browser", AllowedTools: []string{"read"}}}, nil
+			})
+			catalog, e := registry.Register(context.Background(), "owner", browsermcp.Registration{ConversationID: "owned", ThreadID: "wire", Server: "device", ConnectionID: "PRIVATE-connection", Tools: []browsermcp.Tool{{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}}})
+			if e != nil {
+				t.Fatal(e)
+			}
+			input := agui.RunAgentInput{ThreadID: "wire", RunID: "continuation", Tools: catalog.Tools, Messages: []agui.Message{{ID: "result", Role: "tool", ToolCallID: "original", Content: json.RawMessage(`"done"`), Metadata: catalog.Tools[0].Metadata}}}
+			switch mode {
+			case "catalogMetadataMissing":
+				input.Tools[0].Metadata = nil
+			case "catalogThreadMismatch":
+				input.ThreadID = "PRIVATE-other"
+			case "catalogDescriptionChanged":
+				input.Tools[0].Description = "PRIVATE-modified"
+			case "catalogSchemaChanged":
+				input.Tools[0].Parameters = json.RawMessage(`{"type":"object","properties":{"PRIVATE":{"type":"string"}}}`)
+			case "catalogMetadataChanged":
+				var m map[string]any
+				json.Unmarshal(input.Tools[0].Metadata, &m)
+				m["extra"] = "PRIVATE-value"
+				input.Tools[0].Metadata, _ = json.Marshal(m)
+			case "catalogMissing":
+				if e = registry.Revoke("owner", catalog.ID); e != nil {
+					t.Fatal(e)
+				}
+			}
+			raw, _ := json.Marshal(input)
+			request := httptest.NewRequest("POST", "/v1/agui/run", strings.NewReader(string(raw)))
+			request = request.WithContext(iauth.WithUserInfo(request.Context(), &iauth.UserInfo{Subject: "owner"}))
+			response := httptest.NewRecorder()
+			handleAGUIDurable(c, c, nil, AGUIWorkspaceBindings{BrowserMCP: registry})(response, request)
+			var body map[string]string
+			if json.Unmarshal(response.Body.Bytes(), &body) != nil || response.Code != 403 || body["error"] != browsermcp.ErrUnavailable.Error()+" ("+mode+")" || strings.Contains(response.Body.String(), "PRIVATE") {
+				t.Fatal(response.Code, response.Body.String())
+			}
+			if c.queries.Load() != 0 || c.resumes.Load() != 0 || c.completions.Load() != 0 {
+				t.Fatal("invalid continuation executed")
+			}
+		})
 	}
 }

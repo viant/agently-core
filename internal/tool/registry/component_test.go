@@ -12,7 +12,7 @@ import (
 
 func TestLegacyClientBoundComponentAPIsFailWithoutDispatch(t *testing.T) {
 	client := &authCaptureClient{}
-	reg := &Registry{mgr: &executeAuthManagerStub{client: client}, internal: map[string]mcpclient.Interface{}, cache: map[string]*toolCacheEntry{}, recentResults: map[string]map[string]recentItem{}}
+	reg := &Registry{mgr: &executeAuthManagerStub{client: client}, internal: map[string]mcpclient.Interface{}, cache: map[string]*toolCacheEntry{}}
 	if _, err := reg.ObserveNativeComponent(context.Background(), "old-producer", "read"); err == nil || !strings.Contains(err.Error(), "provider-owned resource/datasource") {
 		t.Fatalf("legacy observation did not fail clearly: %v", err)
 	}

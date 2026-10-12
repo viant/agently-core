@@ -48,8 +48,12 @@ func (r *artifactStreamReader) Read(data []byte) (int, error) {
 // PublishArtifactStream streams to the configured current-user AFS root. The
 // fresh UUID object is private staging until its manifest is published last;
 // no provider-specific rename or fixed local destination is required.
-func (s *Service) PublishArtifactStream(ctx context.Context, name, mimeType, sourceURI string, body io.Reader) (*ArtifactDescriptor, error) {
+func (s *Service) PublishArtifactStream(ctx context.Context, name, mimeType, sourceURI string, body io.Reader, roles ...string) (*ArtifactDescriptor, error) {
 	failure := func() (*ArtifactDescriptor, error) { return nil, fmt.Errorf("artifact stream publication failed") }
+	role, err := publicationRole(roles, mimeType)
+	if err != nil {
+		return failure()
+	}
 	if strings.TrimSpace(authctx.EffectiveUserID(ctx)) == "" || body == nil || len(name) > 1024 || len(mimeType) > 256 || len(sourceURI) > 4096 {
 		return failure()
 	}
@@ -98,7 +102,7 @@ func (s *Service) PublishArtifactStream(ctx context.Context, name, mimeType, sou
 		mimeType = "application/octet-stream"
 	}
 	digest := hex.EncodeToString(stream.hash.Sum(nil))
-	manifest := artifactManifest{Artifact: afsscratchpad.Artifact{Kind: "artifact", ArtifactID: id, Name: name, ContentType: mimeType, SourceURL: target}, SizeBytes: stream.size, SHA256: digest, SourceURI: sourceURI}
+	manifest := artifactManifest{Artifact: afsscratchpad.Artifact{Kind: "artifact", ArtifactID: id, Name: name, ContentType: mimeType, SourceURL: target}, SizeBytes: stream.size, SHA256: digest, SourceURI: sourceURI, Role: role}
 	encoded, _ := json.Marshal(manifest)
 	if _, err = s.client(ctx).Memorize(ctx, &afsscratchpad.MemorizeInput{Key: afsscratchpad.ArtifactKey(id), Description: "Artifact " + name, Body: string(encoded)}); err != nil {
 		return failure()
