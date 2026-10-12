@@ -27,6 +27,7 @@ var publicationMu sync.Mutex
 
 // ArtifactDescriptor is public resource metadata, never a backing storage URL.
 type ArtifactDescriptor struct {
+	Role      string `json:"role,omitempty"`
 	URI       string `json:"uri"`
 	ID        string `json:"id"`
 	Name      string `json:"name"`
@@ -37,6 +38,7 @@ type ArtifactDescriptor struct {
 }
 type artifactManifest struct {
 	afsscratchpad.Artifact
+	Role      string `json:"role,omitempty"`
 	SizeBytes int64  `json:"sizeBytes,omitempty"`
 	SHA256    string `json:"sha256,omitempty"`
 	SourceURI string `json:"sourceURI,omitempty"`
@@ -95,7 +97,10 @@ func (s *Service) DescribeArtifact(ctx context.Context, uri string) (*ArtifactDe
 			return nil, fmt.Errorf("artifact expired")
 		}
 	}
-	return &ArtifactDescriptor{URI: ArtifactURI(id), ID: id, Name: m.Name, MimeType: m.ContentType, SizeBytes: m.SizeBytes, SHA256: m.SHA256, SourceURI: m.SourceURI}, nil
+	if _, err := publicationRole([]string{m.Role}, m.ContentType); err != nil {
+		return nil, fmt.Errorf("invalid artifact manifest")
+	}
+	return &ArtifactDescriptor{URI: ArtifactURI(id), ID: id, Name: m.Name, MimeType: m.ContentType, SizeBytes: m.SizeBytes, SHA256: m.SHA256, SourceURI: m.SourceURI, Role: m.Role}, nil
 }
 
 func (s *Service) OpenArtifact(ctx context.Context, uri string) (*ArtifactDescriptor, io.ReadCloser, error) {
@@ -113,7 +118,11 @@ func (s *Service) OpenArtifact(ctx context.Context, uri string) (*ArtifactDescri
 // PublishArtifact writes immutable bytes before exposing the private manifest.
 // A repeated id is accepted only for identical content. IDs should be unique
 // across producers; the lock coordinates publication in this process.
-func (s *Service) PublishArtifact(ctx context.Context, id, name, mime, sourceURI string, body io.Reader) (*ArtifactDescriptor, error) {
+func (s *Service) PublishArtifact(ctx context.Context, id, name, mime, sourceURI string, body io.Reader, roles ...string) (*ArtifactDescriptor, error) {
+	role, err := publicationRole(roles, mime)
+	if err != nil {
+		return nil, err
+	}
 	if _, _, err := s.resolveRootURI(ctx); err != nil {
 		return nil, err
 	}
@@ -191,13 +200,23 @@ func (s *Service) PublishArtifact(ctx context.Context, id, name, mime, sourceURI
 	if mime == "" {
 		mime = "application/octet-stream"
 	}
-	m := artifactManifest{Artifact: afsscratchpad.Artifact{Kind: "artifact", ArtifactID: id, Name: name, ContentType: mime, SourceURL: target}, SizeBytes: int64(len(data)), SHA256: digest, SourceURI: sourceURI}
+	m := artifactManifest{Artifact: afsscratchpad.Artifact{Kind: "artifact", ArtifactID: id, Name: name, ContentType: mime, SourceURL: target}, SizeBytes: int64(len(data)), SHA256: digest, SourceURI: sourceURI, Role: role}
 	encoded, _ := json.Marshal(m)
 	if _, err = client.Memorize(ctx, &afsscratchpad.MemorizeInput{Key: afsscratchpad.ArtifactKey(id), Description: "Artifact " + name, Body: string(encoded)}); err != nil {
 		_ = s.fs.Delete(ctx, target)
 		return nil, fmt.Errorf("artifact publication failed")
 	}
 	return s.DescribeArtifact(ctx, uri)
+}
+
+func publicationRole(roles []string, mimeType string) (string, error) {
+	if len(roles) == 0 {
+		return "", nil
+	}
+	if len(roles) != 1 || roles[0] != "" && (roles[0] != "screenshot" || !strings.HasPrefix(mimeType, "image/")) {
+		return "", fmt.Errorf("invalid artifact publication role")
+	}
+	return roles[0], nil
 }
 
 // ListArtifacts returns user-owned public descriptors in stable ID order.

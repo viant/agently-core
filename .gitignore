@@ -14,3 +14,7 @@ e2e/database/agently/script/schema.ddl
 sdk/ios/.build/
 
 service/workspace/.agently/
+
+# Local runtime and test workspaces must not become source fixtures.
+.agently/
+.gocache/

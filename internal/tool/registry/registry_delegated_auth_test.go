@@ -28,10 +28,9 @@ func (m *delegatedManagerStub) IsDelegatedAuth(ctx context.Context, serverName s
 func TestExecute_DelegatedServerNeverAttachesWorkspaceToken(t *testing.T) {
 	client := &authCaptureClient{}
 	reg := &Registry{
-		mgr:           &delegatedManagerStub{executeAuthManagerStub{client: client}},
-		cache:         map[string]*toolCacheEntry{},
-		internal:      map[string]mcpclient.Interface{},
-		recentResults: map[string]map[string]recentItem{},
+		mgr:      &delegatedManagerStub{executeAuthManagerStub{client: client}},
+		cache:    map[string]*toolCacheEntry{},
+		internal: map[string]mcpclient.Interface{},
 	}
 	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
 	out, err := reg.Execute(ctx, "helper/ping", map[string]interface{}{"q": "x"})
@@ -69,10 +68,9 @@ func (m *delegatedLinkErrManagerStub) Get(ctx context.Context, convID, serverNam
 
 func TestExecute_MapsLinkRequiredToTypedError(t *testing.T) {
 	reg := &Registry{
-		mgr:           &delegatedLinkErrManagerStub{},
-		cache:         map[string]*toolCacheEntry{},
-		internal:      map[string]mcpclient.Interface{},
-		recentResults: map[string]map[string]recentItem{},
+		mgr:      &delegatedLinkErrManagerStub{},
+		cache:    map[string]*toolCacheEntry{},
+		internal: map[string]mcpclient.Interface{},
 	}
 	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
 	_, err := reg.Execute(ctx, "helper/ping", map[string]interface{}{})
@@ -94,7 +92,6 @@ func TestMatchDefinitionWithContextResult_MapsDiscoveryLinkRequired(t *testing.T
 		cache:              map[string]*toolCacheEntry{},
 		internal:           map[string]mcpclient.Interface{},
 		virtualDefs:        map[string]llm.ToolDefinition{},
-		recentResults:      map[string]map[string]recentItem{},
 		discoveryShared:    map[string]discoveryIdentity{},
 		discoveryWarnAt:    map[string]time.Time{},
 		discoveryFailUntil: map[string]time.Time{},

@@ -143,6 +143,9 @@ func (s *Service) prepareContinuation(ctx context.Context, input *QueryInput, tu
 	if err = s.ensureAgent(ctx, input); err != nil {
 		return nil, err
 	}
+	if input.EmbeddingModel == "" && s.defaults != nil {
+		input.EmbeddingModel = s.defaults.Embedder
+	}
 	if input.ModelOverride == "" && persistedTurn.ModelOverride != nil {
 		input.ModelOverride = *persistedTurn.ModelOverride
 	}

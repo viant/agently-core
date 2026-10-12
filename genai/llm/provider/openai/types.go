@@ -62,11 +62,12 @@ type InputAudio struct {
 	Format string `json:"format"`
 }
 type ContentItem struct {
-	InputAudio *InputAudio `json:"input_audio,omitempty"`
-	Type       string      `json:"type"`
-	Text       string      `json:"text,omitempty"`
-	ImageURL   *ImageURL   `json:"image_url,omitempty"`
-	File       *File       `json:"file,omitempty"`
+	ImageDetail string      `json:"-"`
+	InputAudio  *InputAudio `json:"input_audio,omitempty"`
+	Type        string      `json:"type"`
+	Text        string      `json:"text,omitempty"`
+	ImageURL    *ImageURL   `json:"image_url,omitempty"`
+	File        *File       `json:"file,omitempty"`
 }
 
 type File struct {

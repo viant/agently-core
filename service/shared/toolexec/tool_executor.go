@@ -10,7 +10,6 @@ import (
 	"github.com/viant/agently-core/internal/tool/dispatchpayload"
 	"github.com/viant/agently-core/internal/toolvalidate"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -54,77 +53,6 @@ var (
 	errToolPromptDeclined = errors.New("tool execution declined by user")
 	errToolPromptCanceled = errors.New("tool execution canceled by user")
 )
-
-var activeToolStepCoalescer = newToolStepCoalescer(5 * time.Second)
-
-type toolStepCoalescer struct {
-	mu       sync.Mutex
-	inFlight map[string]*toolStepCall
-	ttl      time.Duration
-}
-
-type toolStepCall struct {
-	done       chan struct{}
-	toolResult string
-	err        error
-}
-
-func newToolStepCoalescer(ttl time.Duration) *toolStepCoalescer {
-	return &toolStepCoalescer{
-		inFlight: map[string]*toolStepCall{},
-		ttl:      ttl,
-	}
-}
-
-func (c *toolStepCoalescer) begin(ctx context.Context, key string) (*toolStepCall, bool, string, error, bool) {
-	if c == nil || strings.TrimSpace(key) == "" || c.ttl <= 0 {
-		return nil, false, "", nil, false
-	}
-	c.mu.Lock()
-	if call := c.inFlight[key]; call != nil {
-		c.mu.Unlock()
-		select {
-		case <-call.done:
-			return nil, false, call.toolResult, call.err, true
-		case <-ctx.Done():
-			return nil, false, "", ctx.Err(), true
-		}
-	}
-	call := &toolStepCall{done: make(chan struct{})}
-	c.inFlight[key] = call
-	c.mu.Unlock()
-	return call, true, "", nil, false
-}
-
-func (c *toolStepCoalescer) finish(key string, call *toolStepCall, toolResult string, err error) {
-	if c == nil || call == nil || strings.TrimSpace(key) == "" {
-		return
-	}
-	c.mu.Lock()
-	call.toolResult = toolResult
-	call.err = err
-	close(call.done)
-	if c.inFlight[key] == call {
-		delete(c.inFlight, key)
-	}
-	c.mu.Unlock()
-}
-
-func toolStepCoalesceKey(ctx context.Context, turn runtimerequestctx.TurnMeta, step StepInfo, args map[string]interface{}) string {
-	turnID := strings.TrimSpace(turn.TurnID)
-	toolName := strings.TrimSpace(mcpname2.Canonical(step.Name))
-	if turnID == "" || toolName == "" {
-		return ""
-	}
-	if cfg, ok := toolapprovalqueue.ConfigFor(ctx, step.Name); ok && cfg != nil {
-		return ""
-	}
-	data, err := json.Marshal(args)
-	if err != nil {
-		return ""
-	}
-	return turnID + "|" + toolName + "|" + string(data)
-}
 
 // IsQueued reports whether err signals that a tool execution was routed to the
 // approval queue. It hides whether the queued sentinel is wrapped one or more
@@ -232,7 +160,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 			out.ResultMessageID = toolMsgID
 		}
 		// Decoration may read only durably completed source records. It runs
-		// after each branch (including coalesced results) has finalized its own
+		// after each branch has finalized its own
 		// op ID, never before persistence or from an overflow preview alone.
 		if retErr == nil && durablyCompleted {
 			projected, handled, err := decorateDurableResult(ctx, step, out.Result)
@@ -263,6 +191,11 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	if session := clienttool.FromContext(ctx); session != nil {
 		if definition, declared := session.Lookup(step.Name); declared {
 			step.Name = definition.Name
+			if resolver, ok := reg.(tool.TimeoutResolver); ok {
+				if timeout, exists := resolver.ToolTimeout(step.Name); exists && timeout > 0 {
+					ctx = WithToolTimeout(ctx, timeout)
+				}
+			}
 			out, retErr = deferClientTool(ctx, session, step, conv, turn, span.StartedAt)
 			return
 		}
@@ -315,40 +248,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 		})
 	}
 	var toolResult string
-	coalesceArgs := stripAgentlyControlArgs(step.Args)
-	// Durable at-most-once protection lives in the registry, so every protected
-	// call must reach reg.Execute independently: the first call acquires the
-	// claim and a concurrent duplicate receives duplicate_suppressed. Leaving
-	// the key empty uses the coalescer's existing no-op path. Registries without
-	// this optional resolver, and tools it reports as unprotected, retain the
-	// existing executor-level coalescing behavior.
-	coalesceKey := ""
-	if resolver, ok := reg.(tool.ExecutionProtectionResolver); (!ok || !resolver.ToolExecutionProtected(step.Name)) && !dispatchpayload.HasArtifactReference(step.Args) && !dispatchpayload.Active(ctx) {
-		coalesceKey = toolStepCoalesceKey(ctx, turn, step, coalesceArgs)
-	}
-	if call, owner, sharedResult, sharedErr, handled := activeToolStepCoalescer.begin(ctx, coalesceKey); handled {
-		span.SetEnd(time.Now())
-		var infrastructure *InfrastructureError
-		if errors.As(sharedErr, &infrastructure) {
-			retErr = sharedErr
-			return
-		}
-		if pErr := persistCoalescedToolResult(ctx, conv, turn, span.StartedAt, step, coalesceArgs, sharedResult, sharedErr); pErr != nil {
-			retErr = pErr
-			return out, span, retErr
-		}
-		out = plan.ToolCall{ID: step.ID, Name: step.Name, Arguments: step.Args, Result: sharedResult}
-		if sharedErr != nil {
-			out.Error = sharedErr.Error()
-		}
-		replayable = true
-		durablyCompleted = sharedErr == nil
-		return out, span, sharedErr
-	} else if owner {
-		defer func() {
-			activeToolStepCoalescer.finish(coalesceKey, call, toolResult, infrastructureError(retErr, replayable))
-		}()
-	}
+	executionArgs := stripAgentlyControlArgs(step.Args)
 	toolCallStarted := false
 	toolCallClosed := false
 	toolCallManagedAsync := false
@@ -431,7 +331,7 @@ func ExecuteToolStep(ctx context.Context, reg tool.Registry, step StepInfo, conv
 	var execErr error
 	executionErrorCount := 0
 	callStep := step
-	callStep.Args = coalesceArgs
+	callStep.Args = executionArgs
 	activatedStatusPolling := false
 	if asyncCfg, ok := asyncConfigForStep(ctx, reg, step.Name); ok && asyncCfg != nil && sameToolName(step.Name, asyncCfg.Status.Tool) {
 		if activatedOut, activatedResult, activatedErr, handled := maybeExecuteActivatedStatusTool(ctx, reg, step, conv, asyncCfg); handled {

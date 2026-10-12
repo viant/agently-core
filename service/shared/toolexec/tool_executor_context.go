@@ -8,18 +8,21 @@ import (
 )
 
 // toolExecContext returns a bounded context for tool execution. It uses AGENTLY_TOOLCALL_TIMEOUT
-// environment variable when set (e.g., "45s", "2m"), otherwise defaults to 60s.
+// environment variable when set (e.g., "45s", "2m"), otherwise defaults to 3 minutes.
 func toolExecContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	return context.WithTimeout(ctx, toolExecutionTimeout(ctx))
+}
+func toolExecutionTimeout(ctx context.Context) time.Duration {
 	const defaultTimeout = 3 * time.Minute
 	if d, ok := toolTimeoutFromContext(ctx); ok && d > 0 {
-		return context.WithTimeout(ctx, d)
+		return d
 	}
 	if v := strings.TrimSpace(os.Getenv("AGENTLY_TOOLCALL_TIMEOUT")); v != "" {
 		if d, err := time.ParseDuration(v); err == nil && d > 0 {
-			return context.WithTimeout(ctx, d)
+			return d
 		}
 	}
-	return context.WithTimeout(ctx, defaultTimeout)
+	return defaultTimeout
 }
 
 // ---------------- context helpers ----------------
@@ -107,4 +110,17 @@ func WorkdirFromContext(ctx context.Context) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// ClientToolDeadline uses the same trusted execution timeout as server tools.
+// The original start anchors the deadline; reconnect and recovery cannot reset it.
+func ClientToolDeadline(ctx context.Context, startedAt time.Time) time.Time {
+	if startedAt.IsZero() {
+		return time.Time{}
+	}
+	deadline := startedAt.Add(toolExecutionTimeout(ctx))
+	if parent, ok := ctx.Deadline(); ok && parent.Before(deadline) {
+		deadline = parent
+	}
+	return deadline.UTC()
 }

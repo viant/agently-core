@@ -224,6 +224,7 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 	if includeView {
 		attachments = attachmentsFromMessageView(msg)
 		for _, attachment := range attachments {
+			attachment.PresentationAt = msg.CreatedAt
 			bindAttachmentResourceReference(ctx, attachment, attachment.URI)
 		}
 	}
@@ -239,6 +240,7 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 	if cache != nil {
 		if cached, ok := cache[payloadID]; ok && cached != nil {
 			copy := *cached
+			copy.PresentationAt = msg.CreatedAt
 			bindAttachmentResourceReference(ctx, &copy, copy.URI)
 			if len(copy.Data) == 0 && copy.ResourceURI == "" {
 				return nil, fmt.Errorf("attachment payload %q has no data", payloadID)
@@ -278,11 +280,12 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 	}
 	mimeType := strings.TrimSpace(payload.MimeType)
 	att := &binding.Attachment{
-		Native: payload.Subtype != nil && (*payload.Subtype == "native_file" || *payload.Subtype == "native_image"),
-		Name:   name,
-		URI:    uri,
-		Mime:   mimeType,
-		Data:   data,
+		PresentationAt: msg.CreatedAt,
+		Native:         payload.Subtype != nil && (*payload.Subtype == "native_file" || *payload.Subtype == "native_image"),
+		Name:           name,
+		URI:            uri,
+		Mime:           mimeType,
+		Data:           data,
 	}
 	bindAttachmentResourceReference(ctx, att, uri)
 	if len(data) == 0 && att.ResourceURI == "" {

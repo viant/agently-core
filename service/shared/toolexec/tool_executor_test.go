@@ -261,131 +261,79 @@ func TestExecuteToolStep_RetryBehavior(t *testing.T) {
 	}
 }
 
-func TestExecuteToolStep_CoalescesConcurrentDuplicateActiveTurnSteps(t *testing.T) {
-	previousCoalescer := activeToolStepCoalescer
-	activeToolStepCoalescer = newToolStepCoalescer(5 * time.Second)
-	t.Cleanup(func() { activeToolStepCoalescer = previousCoalescer })
-
-	turn := memory.TurnMeta{ConversationID: "c-coalesce", TurnID: "t-coalesce", ParentMessageID: "p-coalesce"}
-	ctx := memory.WithTurnMeta(context.Background(), turn)
-	reg := &heldCoalesceRegistry{scriptedRegistry: &scriptedRegistry{script: []scriptedResult{{result: `{"clientId":"ios-ui-test","ok":true}`}}}, entered: make(chan struct{}), release: make(chan struct{})}
-	t.Cleanup(func() {
-		select {
-		case <-reg.release:
-		default:
-			close(reg.release)
-		}
-	})
-	waiterEntered := make(chan struct{})
-	conv := &stubConv{}
-	args := map[string]interface{}{
-		"clientId": "ios-ui-test",
-		"windowId": "forecastingCubeBuilder__c-coalesce",
-		"replace":  false,
-		"values": map[string]interface{}{
-			"prefill": map[string]interface{}{
-				"includeCountry":        []interface{}{"US"},
-				"includePostalCodeList": []interface{}{70731},
-			},
-		},
-	}
-	results := make(chan llm.ToolCall, 2)
-	errs := make(chan error, 2)
-	var wait sync.WaitGroup
-	for _, id := range []string{"call-a", "call-b"} {
-		wait.Add(1)
-		go func(id string) {
-			defer wait.Done()
-			callCtx := ctx
-			if id == "call-b" {
-				callCtx = &coalesceWaiterContext{Context: ctx, entered: waiterEntered}
+func TestExecuteToolStep_IdenticalArgumentsDistinctIDsExecuteIndependently(t *testing.T) {
+	for _, concurrent := range []bool{false, true} {
+		t.Run(fmt.Sprintf("concurrent=%v", concurrent), func(t *testing.T) {
+			turn := memory.TurnMeta{ConversationID: "independent-conv", TurnID: "independent-turn"}
+			ctx := memory.WithTurnMeta(context.Background(), turn)
+			conv := &stubConv{}
+			reg := &independentHeldRegistry{scriptedRegistry: &scriptedRegistry{script: []scriptedResult{{result: "provider-first"}, {result: "provider-second"}}}, started: make(chan struct{}, 2), release: make(chan struct{})}
+			if !concurrent {
+				close(reg.release)
 			}
-			call, _, err := ExecuteToolStep(callCtx, reg, StepInfo{
-				ID:         id,
-				Name:       "ui/window/setFormData",
-				Args:       args,
-				ResponseID: "resp-coalesce",
-			}, conv)
-			results <- call
-			errs <- err
-		}(id)
-		if id == "call-a" {
-			select {
-			case <-reg.entered:
-			case <-time.After(5 * time.Second):
-				t.Fatal("owner did not enter registry")
+			args := map[string]interface{}{"body": "same"}
+			results := make(chan llm.ToolCall, 2)
+			errs := make(chan error, 2)
+			execute := func(id string) {
+				call, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: id, Name: "service/tool", Args: args, ResponseID: "same-response"}, conv)
+				results <- call
+				errs <- err
 			}
-		}
+			var wait sync.WaitGroup
+			for _, id := range []string{"call-a", "call-b"} {
+				if concurrent {
+					wait.Add(1)
+					go func(id string) { defer wait.Done(); execute(id) }(id)
+				} else {
+					execute(id)
+				}
+			}
+			if concurrent {
+				for i := 0; i < 2; i++ {
+					select {
+					case <-reg.started:
+					case <-time.After(5 * time.Second):
+						close(reg.release)
+						wait.Wait()
+						t.Fatal("both distinct calls must reach the provider before either finishes")
+					}
+				}
+				close(reg.release)
+				wait.Wait()
+			}
+			close(results)
+			close(errs)
+			for err := range errs {
+				require.NoError(t, err)
+			}
+			seenIDs := map[string]bool{}
+			var outputs []string
+			for call := range results {
+				seenIDs[call.ID] = true
+				outputs = append(outputs, call.Result)
+				require.NotEmpty(t, call.ResultMessageID)
+			}
+			require.Equal(t, map[string]bool{"call-a": true, "call-b": true}, seenIDs)
+			require.ElementsMatch(t, []string{"provider-first", "provider-second"}, outputs)
+			require.Equal(t, 2, reg.calls)
+			completed := map[string]string{}
+			messageIDs := map[string]bool{}
+			for _, call := range conv.patchedToolCalls {
+				if call.Status == "completed" {
+					require.NotNil(t, call.ResponsePayloadID)
+					completed[call.OpID] = *call.ResponsePayloadID
+					messageIDs[call.MessageID] = true
+				}
+			}
+			require.Len(t, completed, 2, "both original model call IDs must have separate durable results")
+			require.NotEqual(t, completed["call-a"], completed["call-b"])
+			require.Len(t, messageIDs, 2)
+			require.Len(t, conv.patchedPayloads, 4, "each execution persists its request and actual response")
+		})
 	}
-	// Done is evaluated in begin's waiter select only after finding the active
-	// owner's call. This proves overlap without depending on scheduler delays.
-	select {
-	case <-waiterEntered:
-	case <-time.After(5 * time.Second):
-		t.Fatal("duplicate did not join active owner")
-	}
-	close(reg.release)
-	wait.Wait()
-	close(results)
-	close(errs)
-
-	for err := range errs {
-		require.NoError(t, err)
-	}
-	seenIDs := map[string]bool{}
-	for call := range results {
-		assert.Equal(t, `{"clientId":"ios-ui-test","ok":true}`, call.Result)
-		seenIDs[call.ID] = true
-	}
-	assert.True(t, seenIDs["call-a"])
-	assert.True(t, seenIDs["call-b"])
-	assert.Equal(t, 1, reg.calls, "duplicate steps should share one registry execution")
-	statusCounts := map[string]int{}
-	for _, call := range conv.patchedToolCalls {
-		if strings.TrimSpace(call.OpID) != "" {
-			statusCounts[strings.TrimSpace(call.Status)]++
-		}
-	}
-	assert.Equal(t, 2, statusCounts["running"])
-	assert.Equal(t, 2, statusCounts["completed"], "both model tool call IDs should reach a supported terminal status")
-	assert.Zero(t, statusCounts["coalesced"], "coalescing is an execution detail, not a durable lifecycle status")
-	messageStatusCounts := map[string]int{}
-	for _, message := range conv.patchedMessages {
-		messageStatusCounts[strings.TrimSpace(derefString(message.Status))]++
-	}
-	assert.Equal(t, 2, messageStatusCounts["completed"], "both tool messages should be terminal")
-	assert.Len(t, conv.patchedPayloads, 4, "each model call id needs request/response payloads for history replay")
 }
 
-func TestPersistCoalescedToolResult_SharedErrorRemainsFailed(t *testing.T) {
-	turn := memory.TurnMeta{ConversationID: "c-coalesced-error", TurnID: "t-coalesced-error", ParentMessageID: "p-coalesced-error"}
-	ctx := memory.WithTurnMeta(context.Background(), turn)
-	conv := &stubConv{}
-
-	err := persistCoalescedToolResult(ctx, conv, turn, time.Now(), StepInfo{
-		ID:         "call-coalesced-error",
-		Name:       "ui/window/setFormData",
-		ResponseID: "resp-coalesced-error",
-	}, map[string]interface{}{"clientId": "ios-ui-test"}, "", assert.AnError)
-	require.NoError(t, err)
-
-	statusCounts := map[string]int{}
-	for _, call := range conv.patchedToolCalls {
-		if strings.TrimSpace(call.OpID) == "call-coalesced-error" {
-			statusCounts[strings.TrimSpace(call.Status)]++
-		}
-	}
-	assert.Equal(t, 1, statusCounts["running"])
-	assert.Equal(t, 1, statusCounts["failed"])
-	assert.Zero(t, statusCounts["completed"])
-	assert.Zero(t, statusCounts["coalesced"])
-}
-
-func TestExecuteToolStep_ProtectedConcurrentDuplicatesBypassCoalescing(t *testing.T) {
-	previousCoalescer := activeToolStepCoalescer
-	activeToolStepCoalescer = newToolStepCoalescer(5 * time.Second)
-	t.Cleanup(func() { activeToolStepCoalescer = previousCoalescer })
-
+func TestExecuteToolStep_ExplicitProtectionReceivesEachConcurrentCall(t *testing.T) {
 	turn := memory.TurnMeta{ConversationID: "c-protected", TurnID: "t-protected", ParentMessageID: "p-protected"}
 	ctx := memory.WithTurnMeta(context.Background(), turn)
 	reg := &scriptedRegistry{
@@ -1181,33 +1129,20 @@ func TestSynthesizeToolStep_ParentMessageID(t *testing.T) {
 		"synthesized tool should also point to assistant message from context")
 }
 
-// heldCoalesceRegistry keeps the owner's provider call active while allowing
-// the second call's credential preflight to proceed independently.
-type heldCoalesceRegistry struct {
+// independentHeldRegistry proves that both provider calls overlap without sharing work.
+type independentHeldRegistry struct {
 	*scriptedRegistry
-	entered, release chan struct{}
-	once             sync.Once
+	started, release chan struct{}
 }
 
-func (r *heldCoalesceRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
-	r.once.Do(func() { close(r.entered) })
+func (r *independentHeldRegistry) Execute(ctx context.Context, name string, args map[string]interface{}) (string, error) {
+	r.started <- struct{}{}
 	select {
 	case <-r.release:
 	case <-ctx.Done():
 		return "", ctx.Err()
 	}
 	return r.scriptedRegistry.Execute(ctx, name, args)
-}
-
-type coalesceWaiterContext struct {
-	context.Context
-	entered chan struct{}
-	once    sync.Once
-}
-
-func (c *coalesceWaiterContext) Done() <-chan struct{} {
-	c.once.Do(func() { close(c.entered) })
-	return c.Context.Done()
 }
 
 // The fixture records values at the write boundary, like a persisted store.

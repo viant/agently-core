@@ -78,12 +78,17 @@ type (
 		Name   string `yaml:"name,omitempty" json:"name,omitempty"`
 		URI    string `yaml:"uri,omitempty" json:"uri,omitempty"`
 		// ResourceURI is installed only after a current-user artifact check.
-		ResourceURI   string `yaml:"-" json:"-"`
-		StagingFolder string `yaml:"stagingFolder,omitempty" json:"stagingFolder,omitempty"`
-		Mime          string `yaml:"mime,omitempty" json:"mime,omitempty"`
-		Content       string `yaml:"content,omitempty" json:"content,omitempty"`
-		Data          []byte `yaml:"data,omitempty" json:"data,omitempty"`
-		PayloadID     string `yaml:"-" json:"-"`
+		ResourceURI string `yaml:"-" json:"-"`
+		// Installed from the owned artifact manifest, not caller metadata.
+		Role           string    `yaml:"-" json:"-"`
+		ImageDetail    string    `yaml:"-" json:"-"`
+		PresentationAt time.Time `yaml:"-" json:"-"`
+		OmitModelBytes bool      `yaml:"-" json:"-"`
+		StagingFolder  string    `yaml:"stagingFolder,omitempty" json:"stagingFolder,omitempty"`
+		Mime           string    `yaml:"mime,omitempty" json:"mime,omitempty"`
+		Content        string    `yaml:"content,omitempty" json:"content,omitempty"`
+		Data           []byte    `yaml:"data,omitempty" json:"data,omitempty"`
+		PayloadID      string    `yaml:"-" json:"-"`
 	}
 
 	Turn struct {
@@ -467,10 +472,14 @@ func AttachmentResourceReferences(attachments []*Attachment) string {
 }
 
 // ResourceMetadataOnly applies only to server-verified uploaded resources.
-// PDFs and images keep their existing provider presentation.
+// PDFs and ordinary images keep their existing provider presentation. Verified
+// screenshots outside the active retention window keep only owned references.
 func (a *Attachment) ResourceMetadataOnly() bool {
 	if a == nil || !strings.HasPrefix(a.ResourceURI, "scratchpad://artifact/") {
 		return false
+	}
+	if a.Role == "screenshot" && a.OmitModelBytes {
+		return true
 	}
 	mime := strings.ToLower(strings.TrimSpace(strings.SplitN(a.MIMEType(), ";", 2)[0]))
 	return mime != "application/pdf" && !strings.HasPrefix(mime, "image/")
@@ -483,6 +492,11 @@ func ModelContentItems(items []llm.ContentItem, attachments []*Attachment) []llm
 	for _, item := range items {
 		omit := false
 		for _, attachment := range attachments {
+			// Screenshot projection applies to server-created attachment carriers,
+			// never to an independently supplied ordered user image with the same name.
+			if attachment != nil && attachment.Role == "screenshot" && attachment.OmitModelBytes {
+				continue
+			}
 			if !attachment.ResourceMetadataOnly() {
 				continue
 			}
@@ -561,6 +575,12 @@ func (m *Message) ToLLM() llm.Message {
 		item := llm.NewBinaryContent(a.Data, a.MIMEType(), a.Name)
 		if a.Native {
 			item.Metadata = map[string]interface{}{"nativePresentation": true}
+		}
+		if a.ImageDetail != "" {
+			if item.Metadata == nil {
+				item.Metadata = map[string]interface{}{}
+			}
+			item.Metadata["detail"] = a.ImageDetail
 		}
 		items = append(items, item)
 	}

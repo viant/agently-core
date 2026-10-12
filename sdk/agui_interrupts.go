@@ -39,8 +39,27 @@ func preflightAGUIResume(ctx context.Context, client Client, input *agui.RunAgen
 			return err
 		}
 	}
+	var deadlineAnswers []agui.WireResumeEntry
+	_ = json.Unmarshal(input.Resume, &deadlineAnswers)
 	expectedCalls := map[string]bool{}
 	for _, call := range pending.ClientTools {
+		if call.DeadlineAt != "" {
+			deadline, err := time.Parse(time.RFC3339Nano, call.DeadlineAt)
+			if err != nil || deadline.IsZero() {
+				return fmt.Errorf("client tool deadline is invalid")
+			}
+			if !deadline.After(time.Now().UTC()) {
+				cancelled := false
+				for _, answer := range deadlineAnswers {
+					if answer.InterruptId == aguiPendingCallID(call) && answer.Status == "cancelled" {
+						cancelled = true
+					}
+				}
+				if !cancelled {
+					return fmt.Errorf("client tool deadline exceeded; terminal timeout recovery required")
+				}
+			}
+		}
 		expectedCalls[aguiPendingCallID(call)] = true
 	}
 	seenTools := map[string]bool{}

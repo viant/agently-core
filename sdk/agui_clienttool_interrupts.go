@@ -15,7 +15,12 @@ func aguiClientToolInterrupt(call clienttool.PendingCall) agui.WireInterrupt {
 	metadata := agui.WireMetadata{"agently": rawAGUI(map[string]any{"version": "1", "kind": "client-tool"})}
 	schema := map[string]json.RawMessage{"type": rawAGUI("object"), "properties": json.RawMessage(`{"content":{"anyOf":[{"type":"string"},{"type":"array","items":{"type":"object"}}]},"error":{"type":"string"}}`), "required": json.RawMessage(`["content"]`), "additionalProperties": rawAGUI(false)}
 	message := "Execute frontend tool " + call.Name
-	return agui.WireInterrupt{ID: id, Reason: "agently.client_tool", ToolCallID: &id, Message: &message, Metadata: &metadata, ResponseSchema: &schema}
+	interrupt := agui.WireInterrupt{ID: id, Reason: "agently.client_tool", ToolCallID: &id, Message: &message, Metadata: &metadata, ResponseSchema: &schema}
+	if call.DeadlineAt != "" {
+		deadline := call.DeadlineAt
+		interrupt.ExpiresAt = &deadline
+	}
+	return interrupt
 }
 func aguiClientToolAnswer(call clienttool.PendingCall, answer agui.WireResumeEntry) (json.RawMessage, string, error) {
 	if answer.InterruptId != aguiPendingCallID(call) {

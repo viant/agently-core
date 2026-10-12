@@ -128,12 +128,6 @@ type Registry struct {
 
 	warnings []string
 
-	// recentResults memoizes identical tool calls per conversation for a short TTL
-	recentMu       sync.Mutex
-	recentResults  map[string]map[string]recentItem  // convID -> key -> item
-	recentInFlight map[string]map[string]*recentCall // convID -> key -> call
-	recentTTL      time.Duration
-
 	executionProtection toolprotection.Guard
 
 	// background refresh configuration
@@ -164,17 +158,6 @@ type toolCacheEntry struct {
 type timeoutSupport struct {
 	native   bool
 	injected bool
-}
-
-type recentItem struct {
-	when time.Time
-	out  string
-}
-
-type recentCall struct {
-	done chan struct{}
-	out  string
-	err  error
 }
 
 type discoveryIdentity struct {
@@ -209,9 +192,6 @@ func NewWithManager(mgr *manager.Manager) (*Registry, error) {
 		internalMethodRetry:   map[string]map[string]bool{},
 		asyncByTool:           map[string]*asynccfg.Config{},
 		internalMethods:       map[string]map[string]svc.Signature{},
-		recentResults:         map[string]map[string]recentItem{},
-		recentInFlight:        map[string]map[string]*recentCall{},
-		recentTTL:             5 * time.Second,
 		refreshEvery:          30 * time.Second,
 		virtualTimeout:        map[string]timeoutSupport{},
 		discoveryShared:       map[string]discoveryIdentity{},
@@ -962,7 +942,6 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		}
 	}
 	convID := runtimerequestctx.ConversationIDFromContext(ctx)
-	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
 
 	// virtual tool?
 	r.mu.RLock()
@@ -1126,30 +1105,6 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		defer cancel()
 	}
 
-	// Deduplicate rapid identical calls per conversation (memoization)
-	// Key uses fully qualified tool name and a stable JSON for args.
-	keyArgs, _ := json.Marshal(callArgs)
-	// Native tool output may differ for recorded model context versus direct
-	// downloads. Reuse stays within the same presentation sink.
-	sink := "direct"
-	if runtimerequestctx.ToolMessageIDFromContext(ctx) != "" {
-		sink = "recorded"
-	}
-	recentKey := userID + "|" + sink + "|" + baseName + "|" + selector + "|" + string(keyArgs)
-	var activeRecent *recentCall
-	if !protected && reuseAllowed && !mcpapps.Active(ctx) && r.recentTTL > 0 && outputPolicy == nil && !dispatchpayload.HasArtifactReference(callArgs) && !dispatchpayload.Active(ctx) {
-		call, owner, out, err, handled := r.beginRecentCall(ctx, convID, recentKey)
-		if handled {
-			return out, err
-		}
-		if owner {
-			activeRecent = call
-			defer func() {
-				r.finishRecentCall(convID, recentKey, activeRecent, result, retErr)
-			}()
-		}
-	}
-
 	// Use proxy to normalize tool name and execute with reconnect-aware retry.
 	px, _ := mcpproxy.NewProxy(ctx, server, cli)
 	if px == nil {
@@ -1169,11 +1124,11 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	if appErr != nil {
 		return "", appErr
 	}
-
+	encodedArgs, _ := json.Marshal(callArgs)
 	var res *mcpschema.CallToolResult
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		attemptStart := time.Now()
-		debugMCPExecf("registry calltool start server=%s base=%s attempt=%d argsBytes=%d", server, baseName, attempt+1, len(keyArgs))
+		debugMCPExecf("registry calltool start server=%s base=%s attempt=%d argsBytes=%d", server, baseName, attempt+1, len(encodedArgs))
 		executionArgs, sanitize, resolveErr := dispatchpayload.ResolveDispatchPayload(ctx, baseName, callArgs)
 		if resolveErr != nil {
 			return "", resolveErr
@@ -1371,14 +1326,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(text, selector)
 			}
-			if !protected && reuseAllowed && !mcpapps.Active(ctx) && r.recentTTL > 0 {
-				r.recentMu.Lock()
-				if r.recentResults[convID] == nil {
-					r.recentResults[convID] = map[string]recentItem{}
-				}
-				r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: text}
-				r.recentMu.Unlock()
-			}
+
 			return text, nil
 		}
 	}
@@ -1391,14 +1339,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(out, selector)
 			}
-			if !protected && reuseAllowed && !mcpapps.Active(ctx) && r.recentTTL > 0 {
-				r.recentMu.Lock()
-				if r.recentResults[convID] == nil {
-					r.recentResults[convID] = map[string]recentItem{}
-				}
-				r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: out}
-				r.recentMu.Unlock()
-			}
+
 			return out, nil
 		}
 		if data, err := json.Marshal(res.StructuredContent); err == nil {
@@ -1407,14 +1348,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(out, selector)
 			}
-			if !protected && reuseAllowed && !mcpapps.Active(ctx) && r.recentTTL > 0 {
-				r.recentMu.Lock()
-				if r.recentResults[convID] == nil {
-					r.recentResults[convID] = map[string]recentItem{}
-				}
-				r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: out}
-				r.recentMu.Unlock()
-			}
+
 			return out, nil
 		}
 	}
@@ -1424,14 +1358,7 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 			if selector != "" {
 				return r.applySelector(text, selector)
 			}
-			if !protected && reuseAllowed && !mcpapps.Active(ctx) && r.recentTTL > 0 {
-				r.recentMu.Lock()
-				if r.recentResults[convID] == nil {
-					r.recentResults[convID] = map[string]recentItem{}
-				}
-				r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: text}
-				r.recentMu.Unlock()
-			}
+
 			return text, nil
 		}
 	}
@@ -1474,63 +1401,6 @@ func (r *Registry) PreflightCredential(ctx context.Context, name string) error {
 		return nil
 	}
 	return preflight.PreflightCredential(ctx, server)
-}
-
-func (r *Registry) beginRecentCall(ctx context.Context, convID, recentKey string) (*recentCall, bool, string, error, bool) {
-	r.recentMu.Lock()
-	if m := r.recentResults[convID]; m != nil {
-		if it, ok := m[recentKey]; ok && time.Since(it.when) <= r.recentTTL {
-			r.recentMu.Unlock()
-			return nil, false, it.out, nil, true
-		}
-	}
-	if r.recentInFlight == nil {
-		r.recentInFlight = map[string]map[string]*recentCall{}
-	}
-	if m := r.recentInFlight[convID]; m != nil {
-		if call := m[recentKey]; call != nil {
-			r.recentMu.Unlock()
-			select {
-			case <-call.done:
-				return nil, false, call.out, call.err, true
-			case <-ctx.Done():
-				return nil, false, "", ctx.Err(), true
-			}
-		}
-	}
-	if r.recentInFlight[convID] == nil {
-		r.recentInFlight[convID] = map[string]*recentCall{}
-	}
-	call := &recentCall{done: make(chan struct{})}
-	r.recentInFlight[convID][recentKey] = call
-	r.recentMu.Unlock()
-	return call, true, "", nil, false
-}
-
-func (r *Registry) finishRecentCall(convID, recentKey string, call *recentCall, out string, err error) {
-	if call == nil {
-		return
-	}
-	r.recentMu.Lock()
-	call.out = out
-	call.err = err
-	if err == nil {
-		if r.recentResults == nil {
-			r.recentResults = map[string]map[string]recentItem{}
-		}
-		if r.recentResults[convID] == nil {
-			r.recentResults[convID] = map[string]recentItem{}
-		}
-		r.recentResults[convID][recentKey] = recentItem{when: time.Now(), out: out}
-	}
-	close(call.done)
-	if m := r.recentInFlight[convID]; m != nil && m[recentKey] == call {
-		delete(m, recentKey)
-		if len(m) == 0 {
-			delete(r.recentInFlight, convID)
-		}
-	}
-	r.recentMu.Unlock()
 }
 
 func structuredContentString(structured interface{}) (string, bool) {

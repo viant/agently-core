@@ -48,7 +48,7 @@ func TestGenericRPCRegistryDatasourceAndReportWithoutVendorMetadata(t *testing.T
 	client := mcpclient.New("generic", "1", tr, mcpclient.WithProtocolVersion(schema.LatestProtocolVersion))
 	// The in-memory transport handles real client discovery before effect RPCs.
 	remote := client
-	reg := &Registry{mgr: &executeAuthManagerStub{client: remote}, internal: map[string]mcpclient.Interface{}, cache: map[string]*toolCacheEntry{}, recentResults: map[string]map[string]recentItem{}}
+	reg := &Registry{mgr: &executeAuthManagerStub{client: remote}, internal: map[string]mcpclient.Interface{}, cache: map[string]*toolCacheEntry{}}
 	reg.SetComponentProducerClassifier(func(server string) bool { return server == "ordinary" })
 	store := datasource.NewMemoryStore()
 	store.Put(&dsproto.DataSource{ID: "generic", DataSource: types.DataSource{Selectors: &types.Selectors{Data: "data", DataInfo: "$"}}, Backend: &dsproto.Backend{Kind: dsproto.BackendMCPTool, Service: "ordinary", Method: "rows"}})

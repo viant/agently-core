@@ -16,6 +16,11 @@ import (
 )
 
 type PendingCall struct {
+	// DeadlineAt is assigned by the server at deferral, or by the explicit
+	// legacy recovery policy below. It is never extended by reconnect.
+	// RecoveryObservedAt marks legacy grace; it is not the original admission time.
+	RecoveryObservedAt string                 `json:"recoveryObservedAt,omitempty"`
+	DeadlineAt         string                 `json:"deadlineAt,omitempty"`
 	Metadata           json.RawMessage        `json:"metadata,omitempty"`
 	ProtocolID         string                 `json:"protocolId,omitempty"`
 	ID                 string                 `json:"id"`

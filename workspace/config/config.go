@@ -706,6 +706,9 @@ func mergeDefaults(dst, src *execconfig.Defaults) {
 	if src.Projection.ToolCallSupersession != nil {
 		dst.Projection.ToolCallSupersession = src.Projection.ToolCallSupersession
 	}
+	if src.Projection.ScreenshotRetention != nil {
+		dst.Projection.ScreenshotRetention = src.Projection.ScreenshotRetention
+	}
 	if src.ToolCallMaxResults > 0 {
 		dst.ToolCallMaxResults = src.ToolCallMaxResults
 	}

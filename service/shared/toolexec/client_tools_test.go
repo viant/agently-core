@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
@@ -22,6 +23,7 @@ func TestClientToolDeferralPersistsOpenCallAndNeverExecutesBackend(t *testing.T)
 	ctx = memory.WithTurnMeta(ctx, memory.TurnMeta{ConversationID: "conversation", TurnID: "turn"})
 	ctx = memory.WithModelMessageID(ctx, "assistant")
 	ctx = memory.WithRunMeta(ctx, memory.RunMeta{RunID: "turn", Iteration: 2})
+	ctx = WithToolTimeout(ctx, 12*time.Second)
 	reg := &scriptedRegistry{preflight: []error{fmt.Errorf("must not preflight")}, script: []scriptedResult{{result: "must not execute"}}}
 	conv := &stubConv{}
 	step := StepInfo{ID: "call", Name: "frontend-lookup", Args: map[string]interface{}{"id": 7}}
@@ -45,6 +47,10 @@ func TestClientToolDeferralPersistsOpenCallAndNeverExecutesBackend(t *testing.T)
 	pending := session.Pending()[0]
 	require.Equal(t, "assistant", pending.AssistantMessageID)
 	require.Equal(t, 2, pending.Iteration)
+	deadline, err := time.Parse(time.RFC3339Nano, pending.DeadlineAt)
+	require.NoError(t, err)
+	require.True(t, deadline.After(time.Now().Add(10*time.Second)))
+	require.True(t, deadline.Before(time.Now().Add(13*time.Second)))
 	require.Len(t, conv.patchedPayloads, 1)
 	require.Len(t, conv.patchedToolCalls, 3)
 	call := conv.patchedToolCalls[2]

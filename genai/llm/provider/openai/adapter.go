@@ -38,7 +38,7 @@ const defaultToolResultPreviewLimit = 8 * 1024
 func supportsExplicitTemperature(model string) bool {
 	switch strings.ToLower(strings.TrimSpace(model)) {
 	case "gpt-5", "gpt-5-mini", "gpt-5.2", "gpt-5.3-codex", "gpt-5.4", "gpt-5.5",
-		"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol":
+		"gpt-5.6-luna", "gpt-5.6-terra", "gpt-5.6-sol", "gpt-6.1-sol":
 		return false
 	}
 	return true
@@ -442,6 +442,9 @@ func (c *Client) ToRequestContext(ctx context.Context, request *llm.GenerateRequ
 							// For images, inline as data URL to support vision (OpenAI expects image_url)
 							contentItem.Type = "image_url"
 							contentItem.ImageURL = &ImageURL{URL: dataURLForBase64(openAIInlineImageMimeType(item.MimeType, item.Name), item.Data)}
+							if detail, ok := item.Metadata["detail"].(string); ok {
+								contentItem.ImageURL.Detail = detail
+							}
 						} else if isOpenAIInputFileSupported(item.MimeType, item.Name) && item.Data != "" {
 							contentItem.Type = "file"
 							contentItem.File = &File{
@@ -463,6 +466,9 @@ func (c *Client) ToRequestContext(ctx context.Context, request *llm.GenerateRequ
 							} else {
 								contentItem.Type = "image_file"
 								contentItem.File = &File{FileID: fileID}
+								if detail, ok := item.Metadata["detail"].(string); ok {
+									contentItem.ImageDetail = detail
+								}
 							}
 						} else if isOpenAIInputFileSupported(item.MimeType, item.Name) {
 							fileID, err := c.uploadInputFileAndGetID(ctx, item.Data, item.Name, item.MimeType, agentID, ttlSec, openai.FilePurposeUserData)

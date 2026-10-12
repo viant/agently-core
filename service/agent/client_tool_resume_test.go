@@ -143,6 +143,32 @@ func TestResumeContinuationReusesTurnAndContinuesAtNextModelIteration(t *testing
 	require.Len(t, conv.GetTranscript(), 1)
 }
 
+func TestResumeContinuationRestoresEmbeddingSelectionWithoutReadmittingTurn(t *testing.T) {
+	for _, test := range []struct {
+		name, override, expected string
+	}{
+		{name: "workspace default", expected: "workspace-embedder"},
+		{name: "explicit override", override: "selected-embedder", expected: "selected-embedder"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			svc, input, store, finder := continuationFixture(t)
+			svc.defaults.Embedder = "workspace-embedder"
+			input.EmbeddingModel = test.override
+			output := &QueryOutput{}
+			require.NoError(t, svc.ResumeContinuation(context.Background(), input, "resume-turn", 0, output))
+			require.Equal(t, test.expected, input.EmbeddingModel)
+			require.Equal(t, "resume-turn", output.TurnID)
+			require.Equal(t, "resumed", output.Content)
+			require.EqualValues(t, 1, finder.calls.Load())
+			require.Equal(t, 1, store.claims)
+			require.Equal(t, 3, store.row.Iteration)
+			conv, err := svc.conversation.GetConversation(context.Background(), "resume-conv", apiconv.WithIncludeTranscript(true))
+			require.NoError(t, err)
+			require.Len(t, conv.GetTranscript(), 1)
+		})
+	}
+}
+
 func TestContinuationClaimUsesRealDatlyWriterShapes(t *testing.T) {
 	ctx := context.Background()
 	native, err := data.NewThinServiceInMemory(ctx)

@@ -318,7 +318,12 @@ func TestMCPProxyInboxObservesInFlightNativeClaimWithoutRepeatingEffect(t *testi
 	go func() {
 		workerDone <- runAGUIMCPProxyWorker(bound, f.backend, f.store, direct, &input, f.proxy, f.original)
 	}()
-	<-f.registry.started // The native claim is now committed, outcome still absent.
+	select {
+	case <-f.registry.started:
+		// The native claim is now committed, outcome still absent.
+	case err := <-workerDone:
+		t.Fatalf("worker ended before entering the native tool: %v", err)
+	}
 	owned, err = f.backend.IsAGUIApprovalRecoveryOwnedTurn(ctx, "native-host", f.original.TurnID)
 	require.NoError(t, err)
 	require.True(t, owned)

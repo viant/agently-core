@@ -234,6 +234,7 @@ func bindAttachmentResourceReference(ctx context.Context, attachment *binding.At
 		return
 	}
 	attachment.ResourceURI = ""
+	attachment.Role, attachment.ImageDetail = "", ""
 	if !strings.HasPrefix(uri, "scratchpad://artifact/") {
 		return
 	}
@@ -241,6 +242,10 @@ func bindAttachmentResourceReference(ctx context.Context, attachment *binding.At
 	// artifacts retain legacy attachment handling without a trusted reference.
 	if descriptor, err := scratchpadsvc.New().DescribeArtifact(ctx, uri); err == nil && descriptor != nil {
 		attachment.ResourceURI = descriptor.URI
+		attachment.Role = descriptor.Role
+		if descriptor.Role == "screenshot" {
+			attachment.ImageDetail = "high"
+		}
 	}
 }
 

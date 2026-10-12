@@ -67,7 +67,7 @@ func (*Manage) Exec(ctx context.Context, session handler.Session, input *store.R
 	if deps.Invoker == nil {
 		return fmt.Errorf("AG-UI component capability is unavailable")
 	}
-	mutation := input.Operation == "preparedAppend" || input.Operation == "admit" || input.Operation == "append" || input.Operation == "claim" || input.Operation == "renew" || input.Operation == "promote"
+	mutation := input.Operation == "preparedAppend" || input.Operation == "admit" || input.Operation == "admitPendingRecovery" || input.Operation == "append" || input.Operation == "claim" || input.Operation == "renew" || input.Operation == "promote"
 	snapshotRead := input.Operation == "replay" || input.Operation == "pending" || input.Operation == "active" || input.Operation == "turnruns" || input.Operation == "feedfacts"
 	if mutation || snapshotRead {
 		ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
@@ -123,6 +123,8 @@ func (*Manage) Exec(ctx context.Context, session handler.Session, input *store.R
 		prepared := *input
 		prepared.Events, prepared.Change = events, change
 		return tx.append(&prepared, output)
+	case "admitPendingRecovery":
+		return tx.admitPendingRecovery(input, output)
 	case "append":
 		return tx.append(input, output)
 	case "thread":

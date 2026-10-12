@@ -1,4 +1,4 @@
-import type { BrowserMCPHost } from './browserMCP';
+import { browserMCPSetupMessage, recordBrowserMCPLifecycle, type BrowserMCPHost } from './browserMCP';
 import type { ClientTool } from './agui';
 import type { AgentSubscriber } from '@ag-ui/client';
 import type { Message, State } from '@ag-ui/core';
@@ -43,10 +43,12 @@ interface RunSlot {
     id: string;
     session: AgUiSession;
     nativeTurnId?: string;
+    hasBrowserTools?: boolean;
     stopProjection(): void;
     completion: Promise<unknown>;
 }
 interface Entry {
+    pendingSubmissions: number;
     protocolThreadId?: string;
     reads: Set<{ abortTransport(): void }>;
     id: string;
@@ -54,6 +56,7 @@ interface Entry {
     listeners: Set<AgUiConversationHandlers>;
     runs: Map<string, RunSlot>;
     terminalTurns: Set<string>;
+    browserNativeTurns: Set<string>;
     state: State;
     hostActivities: Map<string, Message>;
     unavailableHostActivityIds: string[];
@@ -89,7 +92,7 @@ export class AgUiConversationTransport {
             if (closed) return;
             closed = true;
             entry.listeners.delete(handlers);
-            if (!entry.listeners.size) void this.browserMCP?.closeConversation(entry.id);
+            this.closeBrowserIfIdle(entry);
             // A view subscription does not own the submitted request. Navigation
             // remounts the composer during admission; aborting here can prevent
             // the POST from reaching the server at all. Keep coordinator-owned
@@ -101,9 +104,18 @@ export class AgUiConversationTransport {
         if (input.elicitationMode && input.elicitationMode !== 'deferred') throw new Error('AG-UI uses deferred interrupts for elicitation');
         const conversationId = input.conversationId || (await this.host.createConversation({ agentId: input.agentId })).id;
         const entry = this.entry(conversationId);
+        entry.pendingSubmissions++;
+        try {
         const bootstrap = await this.refresh(conversationId);
         if (!this.current(entry)) throw new Error('Conversation session was invalidated');
-        const browserTools = await this.browserMCP?.tools(conversationId, entry.protocolThreadId ?? conversationId) ?? [];
+        const browserTools = await (this.browserMCP?.tools(conversationId, entry.protocolThreadId ?? conversationId) ?? Promise.resolve([])).catch(cause => {
+            // Catalog discovery happens before a model run exists. Surface its
+            // failure to the subscribed conversation instead of leaving a blank
+            // transcript, and do not submit without the configured tools.
+            const error = new Error(browserMCPSetupMessage(cause));
+            if (this.current(entry)) this.error(entry, error);
+            throw error;
+        });
         if (!this.current(entry)) throw new Error('Conversation identity changed while connecting browser tools');
         const runId = crypto.randomUUID();
         const messageId = input.messageId || crypto.randomUUID();
@@ -119,6 +131,7 @@ export class AgUiConversationTransport {
                 accept({ conversationId, content: '', turnId: nativeTurnId, messageId: nativeTurnId });
             }
         }, input.displayQuery);
+        slot.hasBrowserTools = browserTools.length > 0;
         const selection = {
             agentId: input.agentId, model: input.model, backendTools: input.tools,
             toolBundles: input.toolBundles, autoSelectTools: input.autoSelectTools,
@@ -145,6 +158,7 @@ export class AgUiConversationTransport {
             else if (session.getSnapshot().phase !== 'detached') this.error(entry, error);
         }).finally(() => this.settled(entry, slot));
         return admission;
+        } finally { entry.pendingSubmissions--; this.closeBrowserIfIdle(entry); }
     }
 
     /** Explicit refresh on navigation, a domain action, or an availability notification. */
@@ -173,8 +187,7 @@ export class AgUiConversationTransport {
             entry.bootstrap = result;
             entry.state = result.state ?? {};
             this.replaceHostActivities(entry, result);
-            entry.terminalTurns = new Set((result.transcript.conversation.turns ?? [])
-                .filter(turn => ['completed', 'succeeded', 'failed', 'canceled', 'cancelled'].includes(turn.status)).map(turn => turn.turnId));
+            this.updateTerminalTurns(entry, result);
             for (const listener of entry.listeners) listener.onSnapshot?.(transcriptDTO(result.transcript));
             if (entry.listeners.size) {
                 for (const run of result.runs) {
@@ -238,6 +251,25 @@ export class AgUiConversationTransport {
             for (let round = 0; round < 32; round++) {
                 if (!this.current(entry)) throw new Error('Original browser conversation is unavailable');
                 const snapshot = session.getSnapshot();
+                recordBrowserMCPLifecycle('continuation', { stage: snapshot.pendingToolCallIds.length ? 'execute' : snapshot.interrupts.length ? 'interrupts' : 'idle', pendingCount: snapshot.pendingToolCallIds.length, interruptCount: snapshot.interrupts.length });
+                const pendingIds = new Set(snapshot.pendingToolCallIds.length ? snapshot.pendingToolCallIds : snapshot.interrupts.map(item => item.toolCallId));
+                const pendingNames = snapshot.messages.flatMap(message => message.role === 'assistant' ? message.toolCalls ?? [] : [])
+                    .filter(call => pendingIds.has(call.id)).map(call => call.function.name);
+                if (pendingNames.length) {
+                    const canonical = (name: string) => {
+                        if (name.includes('-') && !/[\/.:]/.test(name)) return name;
+                        let index = name.lastIndexOf('.');
+                        if (index < 0) index = name.lastIndexOf(':');
+                        if (index < 0 && name.includes('/')) index = name.lastIndexOf('-');
+                        if (index < 0) index = name.lastIndexOf('/');
+                        return index < 0 ? name : `${name.slice(0, index).replaceAll('/', '_')}-${name.slice(index + 1)}`;
+                    };
+                    const exact = new Set(tools.map(item => item.tool.name));
+                    const canonicalKeys = tools.map(item => canonical(item.tool.name));
+                    recordBrowserMCPLifecycle('aliases', { pendingCount: pendingNames.length, exactCount: pendingNames.filter(name => exact.has(name)).length,
+                        canonicalCount: pendingNames.filter(name => canonicalKeys.filter(key => key === canonical(name)).length === 1).length,
+                        slashCount: pendingNames.filter(name => name.includes('/')).length, dashCount: pendingNames.filter(name => name.includes('-')).length });
+                }
                 let responses: Record<string, import('./agui').InterruptResponse> | undefined;
                 if (snapshot.pendingToolCallIds.length) await session.client.executeClientTools(tools);
                 else if (snapshot.interrupts.length && snapshot.interrupts.every(interrupt => {
@@ -249,11 +281,24 @@ export class AgUiConversationTransport {
                 if (entry.runs.get(current.id) === current) entry.runs.delete(current.id);
                 const nextRunId = crypto.randomUUID();
                 current = this.track(entry, nextRunId, session, session.getSnapshot().messages);
+                current.hasBrowserTools = true;
                 const parameters = { runId: nextRunId, parentRunId: snapshot.runId, tools: tools.map(item => item.tool) };
+                recordBrowserMCPLifecycle('continuation', { stage: 'resume', pendingCount: snapshot.pendingToolCallIds.length, interruptCount: snapshot.interrupts.length });
                 if (responses) await session.resume(responses, parameters);
                 else await session.continue(parameters);
             }
             throw new Error('Browser MCP continuation budget exhausted');
+        } catch (error) {
+            const message = error instanceof Error ? error.message : '';
+            const failure = message.startsWith('Missing pending tool call:') || message.startsWith('Missing interrupted tool call:') ? 'missingPendingCall'
+                : message.startsWith('No client handler for tool:') ? 'missingClientHandler'
+                : message.includes(' has expired') ? 'interruptExpired'
+                : error instanceof SyntaxError ? 'argumentsInvalid'
+                : message.startsWith('Original browser MCP catalog is unavailable') || message.startsWith('browser MCP catalog unavailable') ? 'catalogUnavailable'
+                : 'executionFailed';
+            const snapshot = session.getSnapshot();
+            recordBrowserMCPLifecycle('continuation', { stage: 'error', failure, pendingCount: snapshot.pendingToolCallIds.length, interruptCount: snapshot.interrupts.length });
+            throw error;
         } finally {
             if (current !== initial) { current.stopProjection(); if (entry.runs.get(current.id) === current) entry.runs.delete(current.id); }
         }
@@ -263,7 +308,7 @@ export class AgUiConversationTransport {
         if (!id) throw new Error('A conversation identity is required');
         let entry = this.entries.get(id);
         if (!entry) {
-            entry = { reads: new Set(), id, generation: this.generation, listeners: new Set(), runs: new Map(), terminalTurns: new Set(), state: {}, hostActivities: new Map(), unavailableHostActivityIds: [] };
+            entry = { pendingSubmissions: 0, reads: new Set(), id, generation: this.generation, listeners: new Set(), runs: new Map(), terminalTurns: new Set(), browserNativeTurns: new Set(), state: {}, hostActivities: new Map(), unavailableHostActivityIds: [] };
             this.entries.set(id, entry);
         }
         return entry;
@@ -288,6 +333,7 @@ export class AgUiConversationTransport {
                 for (const listener of entry.listeners) listener.onOutcome?.(outcome);
             }, onViewEvent: event => {
                 if (!this.current(entry)) return;
+                if (event.turnId && ['turn_started', 'turn_queued'].includes(event.type)) slot.nativeTurnId = event.turnId;
                 onViewEvent?.(event);
                 if (event.turnId && entry.terminalTurns.has(event.turnId) && /^(turn_started|turn_queued|model_|tool_call_|text_delta|reasoning_delta)/.test(event.type)) return;
                 for (const listener of entry.listeners) {
@@ -312,10 +358,22 @@ export class AgUiConversationTransport {
         }).finally(() => this.settled(entry, slot));
     }
 
+    private closeBrowserIfIdle(entry: Entry) {
+        if (this.current(entry) && !entry.listeners.size && !entry.pendingSubmissions && !entry.runs.size && !entry.browserNativeTurns.size) void this.browserMCP?.closeConversation(entry.id, 'conversationIdle');
+    }
+
     private settled(entry: Entry, slot: RunSlot) {
+        // Protocol completion does not prove the native turn is terminal.
+        // Retain its original browser catalog until authoritative native
+        // history confirms completion, including while tool results are pending.
+        if (slot.hasBrowserTools && slot.nativeTurnId && !entry.terminalTurns.has(slot.nativeTurnId)) {
+            entry.browserNativeTurns.add(slot.nativeTurnId);
+        }
+        if (slot.hasBrowserTools) recordBrowserMCPLifecycle('settled', { phase: slot.session.getSnapshot().phase, nativeIdentity: !!slot.nativeTurnId, browserTools: true, retained: !!entry.browserNativeTurns.size, pendingCount: slot.session.getSnapshot().pendingToolCallIds.length, interruptCount: slot.session.getSnapshot().interrupts.length });
         slot.stopProjection();
         if (entry.runs.get(slot.id) === slot) entry.runs.delete(slot.id);
-        if (this.current(entry) && entry.listeners.size && slot.session.getSnapshot().phase !== 'detached') {
+        this.closeBrowserIfIdle(entry);
+        if (this.current(entry) && (entry.listeners.size || slot.hasBrowserTools) && slot.session.getSnapshot().phase !== 'detached') {
             // One authoritative refresh after completion; no permanent polling
             // loop or implicit resubmission of an interrupted protocol run.
             void this.refreshAfterCompletion(entry).catch(error => this.error(entry, error));
@@ -328,6 +386,7 @@ export class AgUiConversationTransport {
         const result = await commands.execute('conversation.bootstrap', { mode: 'live' }, { threadId: entry.protocolThreadId ?? entry.id, runId, requestId: runId });
         if (!result || !this.current(entry)) return;
         entry.bootstrap = result;
+        this.updateTerminalTurns(entry, result);
         this.replaceHostActivities(entry, result);
         for (const listener of entry.listeners) listener.onSnapshot?.(transcriptDTO(result.transcript));
     }
@@ -336,6 +395,14 @@ export class AgUiConversationTransport {
         entry.hostActivities = new Map((result.hostActivities ?? []).map(message => [message.id, structuredClone(message)]));
         entry.unavailableHostActivityIds = [...(result.unavailableHostActivityIds ?? [])];
         for (const listener of entry.listeners) listener.onHostActivities?.([...entry.hostActivities.values()], entry.unavailableHostActivityIds);
+    }
+
+    private updateTerminalTurns(entry: Entry, result: AgUiConversationBootstrapResult) {
+        entry.terminalTurns = new Set((result.transcript.conversation.turns ?? [])
+            .filter(turn => ['completed', 'succeeded', 'failed', 'canceled', 'cancelled'].includes(turn.status)).map(turn => turn.turnId));
+        let released = false;
+        for (const turnId of entry.terminalTurns) released = entry.browserNativeTurns.delete(turnId) || released;
+        if (released) this.closeBrowserIfIdle(entry);
     }
 
     private error(entry: Entry, error: unknown) {

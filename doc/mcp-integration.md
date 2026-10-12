@@ -84,6 +84,32 @@ See [resources.md](resources.md) for upload, export, and handoff examples.
 
 ## Browser execution location
 
+An output artifact policy can opt a screenshot tool into bounded model previews
+and context retention with `role: screenshot`. The role is saved in the owned
+artifact manifest; image MIME types and filenames do not classify an image.
+
+```yaml
+outputArtifacts:
+  capture_window:
+    name: screenshot.png
+    role: screenshot
+```
+
+`resources/readImage` keeps the received artifact unchanged. Classified screenshot
+previews preserve aspect ratio, never upscale, and fit within a 2048-pixel longest
+edge and 2500 patches of 32×32 pixels. `detail: original` explicitly reads the
+stored image bytes. Ordinary images retain the existing 2048×768 preview default.
+Classified screenshots use provider `detail: high`, including uploaded image IDs;
+ordinary images keep provider-default detail.
+
+Active prompt history retains the newest two unique classified screenshots by
+default. Older screenshot bytes are omitted from model input while their owned
+artifact references and durable transcript remain available. Reading an older
+artifact explicitly makes it current again. Workspace defaults can configure
+`projection.screenshotRetention.maxImages` (1–64), or disable this projection with
+`projection.screenshotRetention.enabled: false`. Uploaded images without a trusted
+screenshot role remain unaffected.
+
 A configured MCP server can execute in the originating web browser while keeping
 its ordinary `server-tool` names and agent/tool-bundle selection. This route uses
 standard MCP initialize/tools/list/tools/call and durable AG-UI frontend-tool
@@ -239,3 +265,188 @@ connect to a deployed backend or read runtime configuration. Run with
 Deployment of the separate sandbox origin and extension-specific support for
 `initialize` capability parameters / `resources/read` must be verified by the
 consuming runtime. Source tests are not deployed browser or application proof.
+
+See the [dated compatibility audit](mcp-compatibility-audit.md) for authoritative
+versions, tested surfaces and remaining host/release gates.
+
+## MCP Tasks extension adapter
+
+`github.com/viant/mcp-tasks` owns the generic stable 2026-07-28 Tasks contract.
+Agently's adapter is `sdk.MCPTasksBackend`, configured with the existing durable
+AG-UI store and native ownership/status/resume/cancel controls. The adapter does
+not schedule tools or replace async execution. Opaque task aliases and control
+receipts are journaled in protocol-only ledgers in the existing store. They have
+no native turn, are excluded from AG-UI execution recovery, and cannot be resumed
+through the ordinary AG-UI endpoint; the captured native execution stays
+canonical. On reconstruction, aliases resolve the same owned run and follow
+validated native continuation links instead of repeating work.
+Existing async run/status/cancel tool pairs, operation selectors, wait/detach
+and skill fork remain supported native APIs. MCP Tasks adapts these executions
+for standard clients; it does not deprecate their tools or change their modes.
+
+`protocol/mcp/expose.WithTasks` is an explicit transport decorator. Supply an
+already-authorized normal handler, a backend, the real owner resolver, and a
+trusted read-only capture of the native execution admitted by the ordinary tool
+path. Non-negotiated `tools/call` delegates unchanged. Negotiated calls remain
+ordinary results unless capture returns an existing durable native reference.
+Never reconstruct that authority from caller arguments or an unverified response
+ID. The owner/capture callbacks must apply the same exported tool policy and
+principal checks as normal dispatch; there is no self-approval shortcut.
+
+`sdk.MCPTasksAGUIControls` delegates resume to existing AG-UI admission/preflight
+and scoped cancellation to the existing native cancellation route. The standard
+input response transports an ordinary elicitation result; the original approval
+schema and approval path remain authoritative. Partial answers are durably
+collected before one native resume. A dispatched response with an uncertain
+outcome is not replayed. Task cancellation acknowledgement records control intent
+and remains distinct from terminal native cancellation.
+
+Fork and detach retain their existing meaning. Capture a waiting fork's native
+parent execution when its contract waits for the child result. Capture the
+actual existing detached child when its task should outlive its parent. Preserve
+conversation/turn/run/invocation/operation links in the trusted reference.
+Cancelling an HTTP connection or polling context never cancels these executions.
+AG-UI continues projecting the original native events; Tasks is another owned
+observation/control protocol, not another event or execution owner.
+
+The default `MCPTasksAGUISnapshot` reads existing journal status/interrupts and
+requires a complete original MCP result to report completion. It refuses to
+convert a mere queue receipt, arbitrary model response or bare native RUN_ERROR
+into a fabricated final MCP result. Native errors without a canonical MCP
+outcome require an explicit host Snapshot projection. A host whose detached async operation uses a different canonical result
+store must supply its own `Snapshot` callback and authorize its exact operation
+and causal relationship. Unrepresentable frontend-only interrupts are rejected;
+this adapter does not silently grant browser-tool execution.
+
+The optional transport decorator and Tasks subscription transport are
+implemented. Automatic registration inside the closed `viant/mcp` handler switch
+and application-specific capture/policy configuration remain integration steps.
+Core pins the published base Tasks module; the new subscription exports require
+publishing and pinning the subscription revision (or an explicit local workspace
+replacement during development). No runtime config, endpoint,
+UI, scheduler, credentials or deployment is changed by this source adapter.
+
+Source validation covers native-store alias reconstruction and owner/tenant
+isolation, detached child observation after parent completion, original MCP
+result/tool-error preservation, partial inputs and causal continuation, unknown
+resume nonreplay, TTL, standard JSON-RPC polling, normal-call preservation, and
+a real existing live AG-UI waiter waking without restarting its query. Existing
+fork/detach/async/AG-UI regression suites remain applicable; deployment and the
+host's exact native operation capture still need end-to-end qualification.
+
+
+### Task subscriptions through native AG-UI events
+
+The adapter implements `tasks.ChangeSource` in `sdk/mcp_tasks_subscription.go`.
+`MCPTasksAGUIControls` attaches subscriptions to the existing native execution
+bus through `subscribeNativeEvents`; it subscribes before the initial full-state
+snapshot. Only invalidation hints are forwarded internally. The Tasks stream
+re-reads the owned canonical run/journal after each hint, on a bounded timer, and
+on reconnect, covering dropped/overflowed hints and other-process commits. Native
+AG-UI progress/logging payloads never become Tasks notifications.
+
+Enable the actual transport in the MCP handler factory using
+`expose.WithTaskSubscriptions(notifier, taskrpc.SubscriptionOptions{...})` on
+`expose.WithTasks`. The notifier must be the request/session transport notifier.
+For stateless HTTP, `taskrpc.HTTPHandler` supplies a request-scoped SSE notifier.
+The source adapter makes no subscription claim or acknowledgement when this
+transport option is absent. Authentication and exported-tool capture still use
+the host's real policy; subscription IDs or caller task IDs are not authority.
+
+`subscriptions/listen` accepts a bounded set of owned `notifications.taskIds`,
+acknowledges the exact set first, then sends `notifications/tasks` with the same
+complete detailed state that `tasks/get` would return. Every message carries
+the originating string/integer subscription request ID in `_meta` (the typed
+HTTP client generates positive integers). Input-required states
+are checked against the subscribing client's ordinary input capabilities.
+Foreign owners/tenants and mixed unsupported task/base filters are rejected
+before any acknowledgement or task payload is sent. Reauthorization continues
+through canonical reads throughout the stream.
+
+A terminal task notification contains the original result/error, and the stream
+ends gracefully once all selected tasks are terminal or its bounded lifetime
+expires. Cancelling the SSE request, closing an observer, or cancelling a stdio
+subscription stops observation only. Explicit `tasks/cancel` still invokes the
+existing native scoped cancellation route; its acknowledgement is not a claim
+that execution stopped. Fork parents and detached children keep their existing
+native scope and lifetime.
+
+The generic typed HTTP client `Subscribe` validates acknowledgement ordering,
+subscription metadata, task IDs, notification type and full state. Reconnect is
+bounded, uses a fresh subscription ID and canonical snapshot, and never repeats
+a tool call, input response or cancellation. HTTP frame budgets are independent
+of total stream lifetime. Malformed frames, owner/policy errors and callback
+failures are not retried. No second scheduler, execution owner or AG-UI event
+projection is created.
+
+Source tests include a real HTTP Tasks stream with native AG-UI event wakeups,
+detached-child completion after parent completion, missing-hint reconciliation,
+observer disconnect, cancellation terminal state, and tenant/owner rejection.
+The wakeup test uses a one-hour reconcile timer and still receives the terminal
+state within one second, proving that the existing native event bus drives it.
+
+### Browser setup timing diagnostics
+
+The browser SDK records bounded User Timing measures named
+`agently.browserMCP.metadata`, `agently.browserMCP.initialize`,
+`agently.browserMCP.catalog`, `agently.browserMCP.register`, and
+`agently.browserMCP.setup`. Each name retains its latest measurement only.
+Measures contain durations, not credentials, arguments, tool schemas, origins,
+or conversation identities. Instrumentation failure never changes execution.
+
+Inspect these with browser developer tools or `performance.getEntriesByName`.
+`setup` covers one setup attempt, including metadata lookup. A reused connection
+updates `setup` and `metadata` without another initialize/catalog/register pass;
+those stage values may therefore describe the earlier cold connection. They
+exclude model generation and subsequent tool execution. Failed attempts are
+also timed, so confirm successful setup before reporting normal latency.
+
+No workspace browser-MCP descriptor means no extension connection or catalog
+registration. A configured browser server uses the browser-provided catalog;
+it must never fall back to opening that server from the backend.
+
+### Browser tool terminal results and deadlines
+
+The browser SDK returns a bounded terminal error for a transport timeout or
+loss, retaining the original call ID and catalog metadata. An in-flight call
+has an **unknown** effect outcome; a queued call that never reached the port is
+`notDispatched`. Repeated identical IDs share or return the cached result;
+conflicting IDs and late replies never dispatch another input. Socket loss
+blocks new sends and app resource access, while preserving a still-valid
+catalog only long enough to report original results. Explicit close, account
+reset, catalog revocation, expiry, and ownership checks remain enforced.
+
+New deferred client calls also carry a server-owned immutable deadline in the
+existing pending-call journal. It uses the configured tool timeout when
+available (`ToolCallTimeoutSec`, the scoped tool timeout, or
+`AGENTLY_TOOLCALL_TIMEOUT`), otherwise the existing three-minute default, capped
+by the parent deadline. The existing watchdog runs at startup and every 60
+seconds by default. Timeout delivery therefore includes up to a sweep interval
+plus bounded discovery, backlog, and completion work; this is not an exact
+nine-second guarantee.
+
+A due call is completed through a deterministic successor and the existing
+prior-revision compare-and-swap. The client result and timeout producer compete
+for that same continuation. The winner commits one original terminal result;
+restart recovery adopts it rather than replaying browser input. Timeout results
+state that the effect is unknown. They are persisted before attempting model
+continuation, so a later missing browser bundle or model configuration cannot
+erase the timeout receipt. No revoked browser capability is recreated.
+
+Human approvals and calls with later deadlines remain pending on the successor
+without being answered. Legacy pending calls without a saved deadline receive
+an explicit **three-minute recovery grace**, measured from the first verified
+recovery observation that commits successfully. This does not claim to recover
+an original admission timeout. The existing Datly-owned journal atomically
+consumes the prior revision CAS and publishes a replacement pending wait with
+immutable `recoveryObservedAt` and `deadlineAt`; there is no intermediate missing
+pending run. A lost commit reply, restart, or later sweep adopts those exact
+values without extending the grace. A normal result winning the prior CAS
+prevents migration; a result arriving during the grace can resolve the same
+original call IDs. The watchdog's normal sweep/backlog latency still applies.
+No tool or model is executed by the recovery-grace journal itself.
+
+Cross-conversation delegated dependency graphs remain with their existing
+dependency coordinator and are excluded from this timeout producer. These are
+explicit recovery limits, not evidence that every browser workflow is
+production-stable.

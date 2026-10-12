@@ -27,6 +27,13 @@ const Prefix = "browser_mcp_"
 
 var ErrUnavailable = errors.New("browser MCP catalog unavailable for this conversation")
 
+// currentFailure carries only a fixed predicate name, never catalog metadata,
+// configuration values or the underlying provider's error text.
+type currentFailure string
+
+func (e currentFailure) Error() string { return ErrUnavailable.Error() + " (" + string(e) + ")" }
+func (e currentFailure) Unwrap() error { return ErrUnavailable }
+
 type Tool struct {
 	Meta        json.RawMessage `json:"_meta,omitempty"`
 	Name        string          `json:"name"`
@@ -84,6 +91,9 @@ func alias(server, name string) string {
 	}
 	return prefix + "tool_" + hash(name)[:16]
 }
+
+// ToolAlias is the model-safe alias of an exact original MCP tool identity.
+func ToolAlias(server, name string) string { return alias(server, name) }
 func (r *Registry) Register(ctx context.Context, user string, in Registration) (Catalog, error) {
 	if user == "" || in.ThreadID == "" || in.ConversationID == "" || !regexp.MustCompile(`^[A-Za-z0-9._:-]{1,128}$`).MatchString(in.ConnectionID) || len(in.Tools) == 0 || len(in.Tools) > 64 {
 		return Catalog{}, ErrUnavailable
@@ -134,6 +144,9 @@ func (r *Registry) Register(ctx context.Context, user string, in Registration) (
 		}
 		parameters, _ := json.Marshal(input)
 		metadata := map[string]any{"browserMCP": map[string]any{"catalogId": id, "connectionId": in.ConnectionID, "server": in.Server, "tool": tool.Name}}
+		if _, configured := config.OutputArtifacts[tool.Name]; configured {
+			metadata["browserMCP"].(map[string]any)["outputArtifact"] = true
+		}
 		if len(tool.Meta) > 0 {
 			if len(tool.Meta) > 8192 {
 				return Catalog{}, ErrUnavailable
@@ -172,7 +185,11 @@ func (r *Registry) Register(ctx context.Context, user string, in Registration) (
 			}
 		}
 		meta, _ := json.Marshal(metadata)
-		tools = append(tools, agui.Tool{Name: alias(in.Server, tool.Name), Description: "[" + in.Server + "/" + tool.Name + "] " + tool.Description, Parameters: parameters, Metadata: meta})
+		description := "[" + in.Server + "/" + tool.Name + "] " + tool.Description
+		if _, configured := config.OutputArtifacts[tool.Name]; configured {
+			description += " Binary output is extracted into owned artifacts; only resource references and metadata are returned. Use resources/readImage with an image artifact URI for native visual input."
+		}
+		tools = append(tools, agui.Tool{Name: alias(in.Server, tool.Name), Description: description, Parameters: parameters, Metadata: meta})
 	}
 	catalog := Catalog{ID: id, Hash: hash(tools), ConnectionID: in.ConnectionID, ConversationID: in.ConversationID, ThreadID: in.ThreadID, Server: in.Server, Tools: tools, Resources: in.Resources, ExpiresAt: time.Now().Add(15 * time.Minute)}
 	raw, _ := json.Marshal(catalog)
@@ -224,7 +241,7 @@ func (r *Registry) Validate(ctx context.Context, user, thread string, tools []ag
 			var err error
 			configs, err = r.Descriptors(ctx)
 			if err != nil {
-				return nil, ErrUnavailable
+				return nil, currentFailure("catalogConfigUnavailable")
 			}
 		}
 		configuredBrowser := false
@@ -236,8 +253,11 @@ func (r *Registry) Validate(ctx context.Context, user, thread string, tools []ag
 		if !hasBrowser && !configuredBrowser {
 			continue
 		}
-		if r == nil || !hasBrowser {
-			return nil, ErrUnavailable
+		if r == nil {
+			return nil, currentFailure("catalogRegistryUnavailable")
+		}
+		if !hasBrowser {
+			return nil, currentFailure("catalogMetadataMissing")
 		}
 		var meta struct {
 			Browser struct {
@@ -245,13 +265,22 @@ func (r *Registry) Validate(ctx context.Context, user, thread string, tools []ag
 			} `json:"browserMCP"`
 		}
 		if json.Unmarshal(tool.Metadata, &meta) != nil || meta.Browser.CatalogID == "" {
-			return nil, ErrUnavailable
+			return nil, currentFailure("catalogMetadataInvalid")
 		}
 		r.mu.Lock()
 		entry, ok := r.catalogs[meta.Browser.CatalogID]
 		r.mu.Unlock()
-		if !ok || entry.owner != user || entry.catalog.ThreadID != thread || !entry.catalog.ExpiresAt.After(time.Now()) {
-			return nil, ErrUnavailable
+		if !ok {
+			return nil, currentFailure("catalogMissing")
+		}
+		if entry.owner != user {
+			return nil, currentFailure("catalogOwnerMismatch")
+		}
+		if entry.catalog.ThreadID != thread {
+			return nil, currentFailure("catalogThreadMismatch")
+		}
+		if !entry.catalog.ExpiresAt.After(time.Now()) {
+			return nil, currentFailure("catalogExpired")
 		}
 		configCurrent := false
 		for _, config := range configs {
@@ -260,7 +289,7 @@ func (r *Registry) Validate(ctx context.Context, user, thread string, tools []ag
 			}
 		}
 		if !configCurrent {
-			return nil, ErrUnavailable
+			return nil, currentFailure("catalogConfigChanged")
 		}
 		matched := false
 		for _, expected := range entry.catalog.Tools {
@@ -273,17 +302,23 @@ func (r *Registry) Validate(ctx context.Context, user, thread string, tools []ag
 			var am, bm map[string]any
 			json.Unmarshal(expected.Metadata, &am)
 			json.Unmarshal(tool.Metadata, &bm)
-			if expected.Description != tool.Description || !reflect.DeepEqual(a, b) || !reflect.DeepEqual(am, bm) {
-				return nil, ErrUnavailable
+			if expected.Description != tool.Description {
+				return nil, currentFailure("catalogDescriptionChanged")
+			}
+			if !reflect.DeepEqual(a, b) {
+				return nil, currentFailure("catalogSchemaChanged")
+			}
+			if !reflect.DeepEqual(am, bm) {
+				return nil, currentFailure("catalogMetadataChanged")
 			}
 			if !mcpapps.Visible(am, "model") {
-				return nil, ErrUnavailable
+				return nil, currentFailure("catalogToolNotModelVisible")
 			}
 			verified[tool.Name] = llm.ToolDefinition{Name: tool.Name, Description: tool.Description, Parameters: a}
 			matched = true
 		}
 		if !matched {
-			return nil, ErrUnavailable
+			return nil, currentFailure("catalogToolMissing")
 		}
 	}
 	return verified, nil
@@ -306,22 +341,37 @@ func VerifyResultMetadata(name string, expected, actual json.RawMessage) error {
 	if left["browserMCP"] == nil && right["browserMCP"] == nil {
 		return nil
 	}
-	if left["browserMCP"] == nil || !reflect.DeepEqual(left, right) {
-		return ErrUnavailable
+	if left["browserMCP"] == nil {
+		return currentFailure("catalogResultMetadataUnexpected")
+	}
+	if right["browserMCP"] == nil {
+		return currentFailure("catalogResultMetadataMissing")
+	}
+	if !reflect.DeepEqual(left, right) {
+		return currentFailure("catalogResultMetadataChanged")
 	}
 	return nil
 }
 
 func (r *Registry) Current(ctx context.Context, user, id string) (Catalog, error) {
+	if r == nil {
+		return Catalog{}, currentFailure("catalogMissing")
+	}
 	r.mu.Lock()
 	entry, ok := r.catalogs[id]
 	r.mu.Unlock()
-	if !ok || entry.owner != user || !entry.catalog.ExpiresAt.After(time.Now()) {
-		return Catalog{}, ErrUnavailable
+	if !ok {
+		return Catalog{}, currentFailure("catalogMissing")
+	}
+	if entry.owner != user {
+		return Catalog{}, currentFailure("catalogOwnerMismatch")
+	}
+	if !entry.catalog.ExpiresAt.After(time.Now()) {
+		return Catalog{}, currentFailure("catalogExpired")
 	}
 	configs, err := r.Descriptors(ctx)
 	if err != nil {
-		return Catalog{}, ErrUnavailable
+		return Catalog{}, currentFailure("catalogConfigUnavailable")
 	}
 	for _, config := range configs {
 		if config.Name == entry.catalog.Server && hash(config) == entry.configHash {
@@ -331,7 +381,7 @@ func (r *Registry) Current(ctx context.Context, user, id string) (Catalog, error
 			return result, nil
 		}
 	}
-	return Catalog{}, ErrUnavailable
+	return Catalog{}, currentFailure("catalogConfigChanged")
 }
 
 func boundedSchema(value any, depth int, budget *int) bool {

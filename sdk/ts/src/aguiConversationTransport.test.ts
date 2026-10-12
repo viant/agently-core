@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { BrowserMCPHost } from './browserMCP';
+import { BrowserMCPHost, BrowserMCPSetupError, type BrowserMCPCatalog, type BrowserMCPConnection } from './browserMCP';
 import { AgentlyClient } from './client';
 import { AgUiConversationTransport, type AgUiConversationProjectionFactory } from './aguiConversationTransport';
 
@@ -17,7 +17,7 @@ const projection: AgUiConversationProjectionFactory = options => ({ subscriber: 
     },
 } });
 
-function fixture(active: Array<Record<string, unknown>> = [], beforeAdmission?: (init?: RequestInit) => Promise<void>, hostActivities: unknown[] = [], beforeBootstrap?: () => Promise<void>, bootstrapTurns: () => any[] = () => [], wireThreadId?: string, browserMCP?: BrowserMCPHost) {
+function fixture(active: Array<Record<string, unknown>> = [], beforeAdmission?: (init?: RequestInit) => Promise<void>, hostActivities: unknown[] = [], beforeBootstrap?: () => Promise<void>, bootstrapTurns: () => any[] = () => [], wireThreadId?: string, browserMCP?: BrowserMCPHost, initialNativeIdentity = true) {
     const posted: any[] = [];
     let metadataReads = 0;
     const bindingRequests: string[] = [];
@@ -36,7 +36,7 @@ function fixture(active: Array<Record<string, unknown>> = [], beforeAdmission?: 
         const input = JSON.parse(String(init?.body));
         posted.push(input);
         const start = { type: 'RUN_STARTED', threadId: input.threadId, runId: input.runId,
-            metadata: { agently: { identityVersion: '1', nativeTurnId: `native-${input.runId}` } } };
+            ...(initialNativeIdentity ? { metadata: { agently: { identityVersion: '1', nativeTurnId: `native-${input.runId}` } } } : {}) };
         if (input.forwardedProps?.agently?.operation === 'conversation.bootstrap') {
             const committedTurns = structuredClone(bootstrapTurns());
             await beforeBootstrap?.();
@@ -273,6 +273,19 @@ describe('native web conversation orchestration', () => {
     });
 });
 
+it('reports browser setup failure to the conversation before sending any model request', async () => {
+    const browser = { tools: vi.fn(async () => { throw new Error('PRIVATE_TRANSPORT_DETAIL'); }), reset: vi.fn(), closeConversation: vi.fn(async () => {}) } as unknown as BrowserMCPHost;
+    const f = fixture([], undefined, [], undefined, () => [], undefined, browser);
+    const errors: string[] = [];
+    f.transport.subscribe('thread', { onError: error => errors.push(error) });
+    await expect(f.transport.query({ conversationId: 'thread', query: 'Use the configured browser tool' })).rejects.toThrow('Your message was not sent');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toContain('Browser tools are not connected');
+    expect(errors[0]).not.toContain('PRIVATE_TRANSPORT_DETAIL');
+    expect(f.posted.filter(input => input.forwardedProps?.agently?.operation === 'chat')).toEqual([]);
+    f.transport.reset(); f.host.resetAgUiInteractions();
+});
+
 it('relays configured browser tools through original AG-UI call IDs and durable parent continuation', async () => {
     const execute = vi.fn(async () => ({ content: '{"ok":true}' }));
     const tool = { name: 'device-safe_read', description: 'Fixture', parameters: { type: 'object' } };
@@ -294,5 +307,138 @@ it('relays configured browser tools through original AG-UI call IDs and durable 
     const continuation = f.posted.find(input => input.parentRunId === chat.runId);
     expect(continuation.messages).toContainEqual(expect.objectContaining({ role: 'tool', toolCallId: 'original-call', content: '{"ok":true}' }));
     expect(continuation.tools).toEqual([tool]); expect(execute).toHaveBeenCalledOnce();
+    f.finish(continuation.runId); f.transport.reset(); f.host.resetAgUiInteractions();
+});
+
+it('keeps browser approval and active work across a composer remount, then closes idle ownership', async () => {
+    let approve!: () => void;
+    const ready = new Promise<[]>(resolve => { approve = () => resolve([]); });
+    const tools = vi.fn(() => ready), closeConversation = vi.fn(async () => {});
+    const browser = { tools, closeConversation, reset: vi.fn() } as unknown as BrowserMCPHost;
+    const turns: any[] = [];
+    const f = fixture([], undefined, [], undefined, () => turns, undefined, browser);
+    const first = f.transport.subscribe('thread', {});
+    const query = f.transport.query({conversationId:'thread', agentId:'coder', query:'Synthetic ordinary task'});
+    await vi.waitFor(() => expect(tools).toHaveBeenCalledOnce());
+    first.close();
+    expect(closeConversation).not.toHaveBeenCalled();
+    const replacement = f.transport.subscribe('thread', {});
+    approve(); await query;
+    const run = [...f.controls.keys()][0];
+    replacement.close();
+    expect(closeConversation).not.toHaveBeenCalled();
+    turns.push({ turnId: `native-${run}`, status: 'completed' });
+    f.finish(run);
+    await vi.waitFor(() => expect(closeConversation).toHaveBeenCalledOnce());
+    f.transport.reset(); f.host.resetAgUiInteractions();
+});
+
+it.each(['interrupted', 'completed', 'failed'])('retains the original browser catalog across a view replacement while protocol phase is %s and the native turn waits', async phase => {
+    const tool = { name: 'device-safe_read', description: 'Fixture', parameters: { type: 'object' } };
+    const execute = vi.fn(), closeConversation = vi.fn(async () => {}), reset = vi.fn();
+    const browser = { tools: vi.fn(async () => [{ tool, execute }]), closeConversation, reset } as unknown as BrowserMCPHost;
+    let turns: any[] = [];
+    const f = fixture([], undefined, [], undefined, () => turns, undefined, browser, false);
+    const first = f.transport.subscribe('thread', {});
+    await f.transport.query({ conversationId: 'thread', query: 'Fixture approval task' });
+    const chat = f.posted.find(input => input.forwardedProps?.agently?.operation === 'chat');
+    const stream = f.controls.get(chat.runId)!;
+    stream.enqueue(frame(phase === 'failed' ? { type: 'RUN_ERROR', message: 'Fixture protocol error' } : {
+        type: 'RUN_FINISHED', threadId: 'thread', runId: chat.runId,
+        outcome: phase === 'interrupted' ? { type: 'interrupt', interrupts: [{ id: 'approval', reason: 'agently.tool_approval',
+            metadata: { agently: { version: '1', kind: 'tool-approval' } } }] } : { type: 'success' },
+    }));
+    stream.close(); f.controls.delete(chat.runId);
+    await vi.waitFor(() => expect((f.transport as any).entries.get('thread').browserNativeTurns.size).toBe(1));
+    first.close();
+    expect(closeConversation).not.toHaveBeenCalled();
+    const replacement = f.transport.subscribe('thread', {});
+    replacement.close();
+    expect(closeConversation).not.toHaveBeenCalled();
+    expect(execute).not.toHaveBeenCalled();
+    expect(f.posted.filter(input => input.forwardedProps?.agently?.operation === 'chat')).toHaveLength(1);
+    turns = [{ turnId: `native-${chat.runId}`, status: 'completed' }];
+    await f.transport.reconcile('thread');
+    expect(closeConversation).toHaveBeenCalledOnce();
+    f.transport.reset();
+    expect(reset).toHaveBeenCalledOnce();
+    f.host.resetAgUiInteractions();
+});
+
+it.each(['executor', 'displayAlias'])('retains the original catalog when success with pending calls fails before continuation (%s)', async failure => {
+    const tool = { name: 'device-safe_read', description: 'Fixture', parameters: { type: 'object' } };
+    const execute = vi.fn(async () => { throw new Error('Fixture execution unavailable'); });
+    const closeConversation = vi.fn(async () => {});
+    const browser = { tools: vi.fn(async () => [{ tool, execute }]), closeConversation, reset: vi.fn() } as unknown as BrowserMCPHost;
+    let turns: any[] = [];
+    const f = fixture([], undefined, [], undefined, () => turns, undefined, browser);
+    const errors: string[] = [];
+    const subscription = f.transport.subscribe('thread', { onError: error => errors.push(error) });
+    await f.transport.query({ conversationId: 'thread', query: 'Fixture original input' });
+    const chat = f.posted.find(input => input.forwardedProps?.agently?.operation === 'chat');
+    const stream = f.controls.get(chat.runId)!;
+    for (const event of [
+        { type: 'TOOL_CALL_START', toolCallId: 'original-call', toolCallName: failure === 'displayAlias' ? 'device/safe_read' : tool.name, parentMessageId: 'assistant' },
+        { type: 'TOOL_CALL_ARGS', toolCallId: 'original-call', delta: '{}' },
+        { type: 'TOOL_CALL_END', toolCallId: 'original-call' },
+        { type: 'RUN_FINISHED', threadId: 'thread', runId: chat.runId, outcome: { type: 'success', pendingToolCallIds: ['original-call'] } },
+    ]) stream.enqueue(frame(event));
+    stream.close(); f.controls.delete(chat.runId);
+    await vi.waitFor(() => expect(errors).toEqual([failure === 'displayAlias' ? 'No client handler for tool: device/safe_read' : 'Fixture execution unavailable']));
+    subscription.close();
+    expect(closeConversation).not.toHaveBeenCalled();
+    expect(execute).toHaveBeenCalledTimes(failure === 'displayAlias' ? 0 : 1);
+    expect(f.posted.some(input => input.parentRunId === chat.runId)).toBe(false);
+    expect((performance.getEntriesByName('agently.browserMCP.lifecycle.settled').at(-1) as PerformanceMark | undefined)?.detail).toMatchObject({ phase: 'completed', nativeIdentity: true, retained: true, pendingCount: 1 });
+    expect((performance.getEntriesByName('agently.browserMCP.lifecycle.continuation').at(-1) as PerformanceMark | undefined)?.detail).toMatchObject({ stage: 'error', pendingCount: 1, failure: failure === 'displayAlias' ? 'missingClientHandler' : 'executionFailed' });
+    expect((performance.getEntriesByName('agently.browserMCP.lifecycle.aliases').at(-1) as PerformanceMark | undefined)?.detail).toMatchObject({ pendingCount: 1, exactCount: failure === 'displayAlias' ? 0 : 1, canonicalCount: 1, slashCount: failure === 'displayAlias' ? 1 : 0, dashCount: failure === 'displayAlias' ? 0 : 1 });
+    turns = [{ turnId: `native-${chat.runId}`, status: 'canceled' }];
+    await f.transport.reconcile('thread');
+    expect(closeConversation).toHaveBeenCalledOnce();
+    f.transport.reset(); f.host.resetAgUiInteractions();
+});
+
+it('continues all original browser interrupts with terminal transport failures instead of stranding the turn', async () => {
+    let catalog!: BrowserMCPCatalog;
+    let connection!: BrowserMCPConnection;
+    const request = vi.fn(async (method: string) => {
+        if (method === 'initialize') return {};
+        if (method === 'tools/list') return { tools: [{ name: 'safe_read', inputSchema: { type: 'object' } }] };
+        connection.onclose?.();
+        throw new BrowserMCPSetupError('connectionLost', 'unknown');
+    });
+    const revoke = vi.fn(async () => {});
+    const browser = new BrowserMCPHost({
+        descriptors: async () => [{ name: 'device', executionLocation: 'browser', transport: { type: 'chrome-extension', extensionId: 'a'.repeat(32), portName: 'fixture' }, allowedTools: ['safe_read'] }],
+        register: async input => {
+            catalog = { ...input, id: 'catalog', hash: 'hash', expiresAt: new Date(Date.now() + 60000).toISOString(), tools: [{ name: 'device-safe_read', description: 'Read fixture', parameters: { type: 'object' }, metadata: { browserMCP: { catalogId: 'catalog', connectionId: input.connectionId, server: input.server, tool: 'safe_read' } } }] };
+            return catalog;
+        }, current: async () => catalog, revoke,
+    }, { transportFactory: () => connection = { request, close: vi.fn() } });
+    const f = fixture([], undefined, [], undefined, () => [], undefined, browser);
+    const errors: string[] = [];
+    f.transport.subscribe('thread', { onError: error => errors.push(error) });
+    await f.transport.query({ conversationId: 'thread', query: 'Fixture original input' });
+    const chat = f.posted.find(input => input.forwardedProps?.agently?.operation === 'chat');
+    const stream = f.controls.get(chat.runId)!;
+    for (let i = 1; i <= 3; i++) {
+        stream.enqueue(frame({ type: 'TOOL_CALL_START', toolCallId: `original-${i}`, toolCallName: 'device-safe_read', parentMessageId: 'assistant' }));
+        stream.enqueue(frame({ type: 'TOOL_CALL_ARGS', toolCallId: `original-${i}`, delta: '{}' }));
+        stream.enqueue(frame({ type: 'TOOL_CALL_END', toolCallId: `original-${i}` }));
+    }
+    stream.enqueue(frame({ type: 'RUN_FINISHED', threadId: 'thread', runId: chat.runId, outcome: { type: 'interrupt', interrupts: [1, 2, 3].map(i => ({ id: `interrupt-${i}`, toolCallId: `original-${i}`, reason: 'agently.client_tool', metadata: { agently: { version: '1', kind: 'client-tool' } } })) } }));
+    stream.close(); f.controls.delete(chat.runId);
+    await vi.waitFor(() => expect(f.posted.some(input => input.parentRunId === chat.runId)).toBe(true));
+    const continuation = f.posted.find(input => input.parentRunId === chat.runId);
+    expect(errors).toEqual([]);
+    expect(continuation.resume.map((entry: any) => entry.interruptId)).toEqual(['interrupt-1', 'interrupt-2', 'interrupt-3']);
+    expect(continuation.resume.map((entry: any) => JSON.parse(entry.payload.content).dispatchState)).toEqual(['unknown', 'notDispatched', 'notDispatched']);
+    for (const entry of continuation.resume) {
+        expect(entry.status).toBe('resolved'); expect(entry.payload.error).toBeTruthy();
+        expect(entry.metadata).toEqual(catalog.tools[0].metadata);
+    }
+    expect(continuation.tools).toEqual(chat.tools);
+    expect(request.mock.calls.filter(([method]) => method === 'tools/call')).toHaveLength(1);
+    expect(revoke).not.toHaveBeenCalled();
     f.finish(continuation.runId); f.transport.reset(); f.host.resetAgUiInteractions();
 });
