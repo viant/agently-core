@@ -13,7 +13,7 @@ import (
 )
 
 type ResolveComponent struct {
-	Contract xdatly.Component[elicitationreceipt.Input, elicitationreceipt.Output] `component:"Resolve,path=/v1/internal/agently/elicitation/resolve,method=POST,connector=agently,handler=NewResolve,internal=true"`
+	Contract xdatly.Component[elicitationreceipt.Input, elicitationreceipt.Output] `component:"Resolve,path=/v1/internal/agently/elicitation/resolve,method=POST,connector=agently,handler=NewResolve,internal=true" componentCallPolicy:"imperative"`
 }
 
 var ResolveDatly = reflect.TypeFor[ResolveComponent]()

@@ -9,7 +9,9 @@ import (
 	"fmt"
 	authctx "github.com/viant/agently-core/internal/auth"
 	scratchpadsvc "github.com/viant/agently-core/protocol/tool/service/scratchpad"
+	"image"
 	"io"
+	"net/http"
 	pathpkg "path"
 	"strings"
 	"unicode/utf8"
@@ -90,6 +92,8 @@ type ReadOutput struct {
 }
 
 type ReadImageInput struct {
+	// Detail selects high (bounded screenshot preview) or original (stored bytes).
+	Detail string `json:"detail,omitempty"`
 	// URI is an absolute URI; when provided, RootURI/RootID/Path are ignored.
 	URI string `json:"uri,omitempty"`
 	// RootURI/RootID + Path select an image under a root.
@@ -243,7 +247,44 @@ func (s *Service) readImage(ctx context.Context, in, out interface{}) error {
 		MaxBytes:  input.MaxBytes,
 		Format:    strings.TrimSpace(input.Format),
 	})
-	encoded, err := imageio.EncodeToFit(raw, options)
+	if input.Detail != "" && input.Detail != "high" && input.Detail != "original" {
+		return fmt.Errorf("invalid image detail")
+	}
+	role := ""
+	if strings.HasPrefix(readTarget.fullURI, "scratchpad://artifact/") {
+		d, err := scratchpadsvc.New().DescribeArtifact(ctx, readTarget.fullURI)
+		if err != nil {
+			return err
+		}
+		role = d.Role
+	}
+	if role == "screenshot" && input.Detail != "original" {
+		options.MaxWidth, options.MaxHeight = 2048, 2048
+		if input.MaxWidth > 0 {
+			options.MaxWidth = min(input.MaxWidth, 2048)
+		}
+		if input.MaxHeight > 0 {
+			options.MaxHeight = min(input.MaxHeight, 2048)
+		}
+		options.MaxPatches = 2500
+	}
+	var encoded *imageio.EncodedImage
+	if input.Detail == "original" {
+		limit := input.MaxBytes
+		if limit <= 0 {
+			limit = 8 << 20
+		}
+		if len(raw) > limit {
+			return fmt.Errorf("original image exceeds requested byte limit")
+		}
+		config, _, e := image.DecodeConfig(bytes.NewReader(raw))
+		if e != nil {
+			return e
+		}
+		encoded = &imageio.EncodedImage{Bytes: raw, MimeType: http.DetectContentType(raw), Width: config.Width, Height: config.Height}
+	} else {
+		encoded, err = imageio.EncodeToFit(raw, options)
+	}
 	if err != nil {
 		return err
 	}
@@ -275,7 +316,7 @@ func (s *Service) readImage(ctx context.Context, in, out interface{}) error {
 		snapshotHash := sha256.New()
 		snapshotHash.Write([]byte(readTarget.fullURI + "\x00" + encoded.MimeType))
 		snapshotHash.Write(encoded.Bytes)
-		d, err := scratchpadsvc.New().PublishArtifact(ctx, "image-"+hex.EncodeToString(snapshotHash.Sum(nil)), output.Name, encoded.MimeType, readTarget.fullURI, bytes.NewReader(encoded.Bytes))
+		d, err := scratchpadsvc.New().PublishArtifact(ctx, "image-"+hex.EncodeToString(snapshotHash.Sum(nil)), output.Name, encoded.MimeType, readTarget.fullURI, bytes.NewReader(encoded.Bytes), role)
 		if err != nil {
 			return err
 		}

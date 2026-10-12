@@ -131,7 +131,6 @@ func TestExecute_TimeoutMsInjectedFromMCPToolCacheIsStrippedForAllAliases(t *tes
 				mgr:            mgr,
 				cache:          map[string]*toolCacheEntry{},
 				virtualTimeout: map[string]timeoutSupport{},
-				recentResults:  map[string]map[string]recentItem{},
 			}
 			properties := mcpschema.ToolInputSchemaProperties{"foo": {"type": "string"}}
 			tool := mcpschema.Tool{Name: "ping", InputSchema: mcpschema.ToolInputSchema{Type: "object", Properties: properties}}
@@ -177,7 +176,6 @@ func TestExecute_TimeoutMsNativeFromMCPToolSchemaIsPreserved(t *testing.T) {
 		mgr:            mgr,
 		cache:          map[string]*toolCacheEntry{},
 		virtualTimeout: map[string]timeoutSupport{},
-		recentResults:  map[string]map[string]recentItem{},
 	}
 	properties := mcpschema.ToolInputSchemaProperties{
 		"foo":          {"type": "string"},
@@ -413,7 +411,6 @@ func TestExecute_LeavesJSONRPCRequestIDToClient(t *testing.T) {
 		internal:       map[string]mcpclient.Interface{"db": client},
 		cache:          map[string]*toolCacheEntry{},
 		virtualTimeout: map[string]timeoutSupport{},
-		recentResults:  map[string]map[string]recentItem{},
 	}
 	const calls = 12
 	var wg sync.WaitGroup
@@ -449,7 +446,6 @@ func TestExecute_PropagatesCancellationWithoutExplicitJSONRPCRequestID(t *testin
 		internal:       map[string]mcpclient.Interface{"db": client},
 		cache:          map[string]*toolCacheEntry{},
 		virtualTimeout: map[string]timeoutSupport{},
-		recentResults:  map[string]map[string]recentItem{},
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

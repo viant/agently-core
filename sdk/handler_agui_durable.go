@@ -41,7 +41,7 @@ type aguiPending struct {
 func handleAGUIDurable(client Client, runtime aguiRuntime, authCfg *svcauth.Config, bindings ...AGUIWorkspaceBindings) http.HandlerFunc {
 	store := runtime.aguiStore()
 	return func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 4<<20))
+		body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<20))
 		if err != nil {
 			httpError(w, 400, err)
 			return
@@ -280,6 +280,10 @@ func handleAGUIDurable(client Client, runtime aguiRuntime, authCfg *svcauth.Conf
 		}
 		admission := aguistore.Admission{ThreadID: input.ThreadID, RunID: input.RunID, Principal: userID, ParentRunID: input.ParentRunID, Input: body}
 		existing, lookupErr := store.GetRun(ctx, userID, input.ThreadID, input.RunID)
+		if isMCPTaskLedgerRun(existing) {
+			httpError(w, http.StatusConflict, fmt.Errorf("MCP task aliases are controlled through tasks/get, tasks/update and tasks/cancel"))
+			return
+		}
 		if lookupErr != nil && !errors.Is(lookupErr, aguistore.ErrNotFound) {
 			httpError(w, 500, lookupErr)
 			return
@@ -314,6 +318,16 @@ func handleAGUIDurable(client Client, runtime aguiRuntime, authCfg *svcauth.Conf
 					}
 					admission.Input = rawAGUI(&input)
 				}
+				var savedInput agui.RunAgentInput
+				if err = json.Unmarshal(existing.Input, &savedInput); err != nil {
+					httpError(w, 409, err)
+					return
+				}
+				if err = validateArtifactReplay(&input, &savedInput, originalPending); err != nil {
+					httpError(w, 409, err)
+					return
+				}
+				admission.Input = rawAGUI(&input)
 			}
 		} else if resourceCommand || proxy != nil && len(input.Resume) == 0 {
 			// A resource command owns a protocol run, not a model execution turn.
@@ -343,6 +357,10 @@ func handleAGUIDurable(client Client, runtime aguiRuntime, authCfg *svcauth.Conf
 				}
 			}
 			if err = preflightAGUIResume(ctx, client, &resumeInput, pending); err != nil {
+				httpError(w, 409, err)
+				return
+			}
+			if err = normalizeAGUIToolOutputs(ctx, client, &input, pending); err != nil {
 				httpError(w, 409, err)
 				return
 			}
@@ -1119,6 +1137,9 @@ func executeAGUIRuntime(ctx context.Context, client Client, runtime aguiRuntime,
 			}
 		}
 	}
+	if handled, timeoutErr := finishClientToolTimeoutWait(writer, translator, input, pending); handled || timeoutErr != nil {
+		return timeoutErr
+	}
 	type result struct {
 		output *agentsvc.QueryOutput
 		err    error
@@ -1388,6 +1409,32 @@ func executeAGUIRuntime(ctx context.Context, client Client, runtime aguiRuntime,
 			}
 			if got.output == nil {
 				return fmt.Errorf("agent returned no output")
+			}
+			if len(input.Tools) > 0 {
+				boundaryStatus := got.output.ExecutionStatus
+				switch boundaryStatus {
+				case "succeeded", "completed", "waiting_for_user", "blocked", "failed", "canceled", "cancelled", "queued":
+				default:
+					boundaryStatus = "unknown"
+				}
+				log.Printf("AG-UI continuation boundary native_status=%s client_tools=%d dependencies=%d elicitation=%t", boundaryStatus, len(got.output.ClientToolCalls), len(got.output.ClientToolDependencies), got.output.Elicitation != nil)
+			}
+			if (got.output.ExecutionStatus == "waiting_for_user" || got.output.ExecutionStatus == "blocked") && len(got.output.ClientToolCalls) == 0 && len(got.output.ClientToolDependencies) == 0 && got.output.Elicitation == nil {
+				// A waiting native turn cannot become a successful protocol
+				// completion just because its returned output omitted the handoff.
+				// Recover the original durable calls through the existing inspector.
+				inspector, ok := runtime.(aguiRecoveryRuntime)
+				if !ok {
+					return fmt.Errorf("waiting native execution requires continuation inspection")
+				}
+				native, inspectErr := inspector.aguiInspectRun(ctx, writer.run)
+				if inspectErr != nil {
+					return inspectErr
+				}
+				if native == nil {
+					return fmt.Errorf("waiting native execution disappeared")
+				}
+				return aguiFinishRecovered(writer, translator, native)
 			}
 			nextPending := aguiPending{ClientTools: got.output.ClientToolCalls, Dependencies: got.output.ClientToolDependencies}
 			if discovery, ok := client.(interface {

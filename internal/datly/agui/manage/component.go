@@ -33,7 +33,7 @@ import (
 )
 
 type ManageComponent struct {
-	Contract xdatly.Component[store.Request, store.Response] `component:"Manage,path=/v1/internal/agently/ag-ui/manage,method=POST,connector=agently,handler=NewManage,internal=true"`
+	Contract xdatly.Component[store.Request, store.Response] `component:"Manage,path=/v1/internal/agently/ag-ui/manage,method=POST,connector=agently,handler=NewManage,internal=true" componentCallPolicy:"imperative"`
 }
 
 var ManageDatly = reflect.TypeFor[ManageComponent]()
@@ -65,7 +65,7 @@ func (*Manage) Exec(ctx context.Context, session handler.Session, input *store.R
 	if deps.Invoker == nil {
 		return fmt.Errorf("AG-UI component capability is unavailable")
 	}
-	mutation := input.Operation == "admit" || input.Operation == "append" || input.Operation == "claim" || input.Operation == "renew" || input.Operation == "promote"
+	mutation := input.Operation == "admit" || input.Operation == "admitPendingRecovery" || input.Operation == "append" || input.Operation == "claim" || input.Operation == "renew" || input.Operation == "promote"
 	snapshotRead := input.Operation == "replay" || input.Operation == "pending" || input.Operation == "active" || input.Operation == "turnruns" || input.Operation == "feedfacts"
 	if mutation || snapshotRead {
 		ctx = dexec.WithTransactionIsolation(ctx, dexec.IsolationSerializable)
@@ -100,6 +100,8 @@ func (*Manage) Exec(ctx context.Context, session handler.Session, input *store.R
 		return tx.claim(input, output)
 	case "admit":
 		return tx.admit(input, output)
+	case "admitPendingRecovery":
+		return tx.admitPendingRecovery(input, output)
 	case "append":
 		return tx.append(input, output)
 	case "thread":

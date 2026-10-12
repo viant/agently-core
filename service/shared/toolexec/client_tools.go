@@ -73,7 +73,7 @@ func deferClientTool(ctx context.Context, session *clienttool.Session, step Step
 		if meta, ok := runtimerequestctx.RunMetaFromContext(ctx); ok {
 			iteration = meta.Iteration
 		}
-		return clienttool.PendingCall{ToolMessageID: messageID, AssistantMessageID: runtimerequestctx.ModelMessageIDFromContext(ctx), ConversationID: turn.ConversationID, TurnID: turn.TurnID, Iteration: iteration}, nil
+		return clienttool.PendingCall{DeadlineAt: ClientToolDeadline(ctx, startedAt).Format(time.RFC3339Nano), ToolMessageID: messageID, AssistantMessageID: runtimerequestctx.ModelMessageIDFromContext(ctx), ConversationID: turn.ConversationID, TurnID: turn.TurnID, Iteration: iteration}, nil
 	})
 	if err != nil {
 		return llm.ToolCall{}, err

@@ -27,10 +27,11 @@ import (
 
 type durableAGUIClient struct {
 	*aguiTestClient
-	store            aguistore.Store
-	resumes          atomic.Int32
-	completions      atomic.Int32
-	completedContent string
+	store              aguistore.Store
+	resumes            atomic.Int32
+	completions        atomic.Int32
+	completedContent   string
+	nativeConversation conversation.Client
 }
 
 func (c *durableAGUIClient) aguiStore() aguistore.Store { return c.store }
@@ -57,7 +58,7 @@ func newDurableAGUIServer(t *testing.T) (*durableAGUIClient, *httptest.Server) {
 	owned.SetId("thread")
 	owned.SetCreatedByUserID("owner")
 	require.NoError(t, nativeConversations.PatchConversations(ctx, owned))
-	c := &durableAGUIClient{aguiTestClient: newAGUITestClient(), store: aguistore.New(backend)}
+	c := &durableAGUIClient{aguiTestClient: newAGUITestClient(), store: aguistore.New(backend), nativeConversation: nativeConversations}
 	c.owner = "owner"
 	h := handleAGUIRun(c, nil)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

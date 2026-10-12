@@ -62,7 +62,6 @@ type ToolCallHas struct {
 
 // CurrentWriterView is generated canonical view metadata for writer.
 type CurrentWriterView struct {
-	ResponseOverflow  bool       `sqlx:"response_overflow" json:"responseOverflow,omitempty"`
 	MessageId         string     `validate:"required" sqlx:"message_id,primaryKey,refTable=message,refColumn=id" json:"messageId"`
 	OpId              string     `validate:"required" json:"opId" sqlx:"op_id,required=true"`
 	Attempt           int        `json:"attempt" sqlx:"attempt,required=true"`

@@ -5,7 +5,6 @@ import (
 	"errors"
 	apiconv "github.com/viant/agently-core/app/store/conversation"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	memory "github.com/viant/agently-core/runtime/requestctx"
@@ -62,22 +61,6 @@ func TestExecuteToolStep_TerminalPersistenceFailureIsInfrastructure(t *testing.T
 	require.Equal(t, 1, reg.calls, "the side effect must execute only once")
 }
 
-type failedResponsePayloadClient struct {
-	apiconv.Client
-	cause error
-}
-
-func (c *failedResponsePayloadClient) PatchPayload(context.Context, *apiconv.MutablePayload) error {
-	return c.cause
-}
-
-func TestPersistCoalescedToolResult_DoesNotHidePersistenceFailureBehindToolError(t *testing.T) {
-	cause := errors.New("response payload store unavailable")
-	conv := &failedResponsePayloadClient{Client: &stubConv{}, cause: cause}
-	err := persistCoalescedToolResult(context.Background(), conv, memory.TurnMeta{ConversationID: "integrity", TurnID: "coalesced-failure"}, time.Now(), StepInfo{ID: "coalesced-call", Name: "forecast/cube"}, nil, "", errors.New("tool failed"))
-	require.ErrorIs(t, err, cause)
-}
-
 func TestExecuteToolStep_RequestPayloadLinkFailureStopsBeforeTool(t *testing.T) {
 	cause := errors.New("request payload link write locked")
 	conv := &stubConv{failPatchToolCallAt: map[int]error{2: cause}}
@@ -89,4 +72,24 @@ func TestExecuteToolStep_RequestPayloadLinkFailureStopsBeforeTool(t *testing.T) 
 	require.ErrorAs(t, err, &infra)
 	require.Zero(t, reg.calls, "tool must not run without its durable request link")
 	require.Equal(t, "request-link-call", call.ID)
+}
+
+type failedResponsePayloadClient struct {
+	apiconv.Client
+	cause error
+}
+
+func (c *failedResponsePayloadClient) PatchPayload(context.Context, *apiconv.MutablePayload) error {
+	return c.cause
+}
+
+func TestExecuteToolStep_DoesNotHidePersistenceFailureBehindToolError(t *testing.T) {
+	cause := errors.New("response payload store unavailable")
+	conv := &failedResponsePayloadClient{Client: &stubConv{}, cause: cause}
+	ctx := memory.WithTurnMeta(context.Background(), memory.TurnMeta{ConversationID: "integrity", TurnID: "payload-failure"})
+	reg := &scriptedRegistry{script: []scriptedResult{{err: errors.New("tool failed")}}}
+	call, _, err := ExecuteToolStep(ctx, reg, StepInfo{ID: "original-call", Name: "forecast/cube"}, conv)
+	require.ErrorIs(t, err, cause)
+	require.Equal(t, "original-call", call.ID)
+	require.Equal(t, 1, reg.calls)
 }

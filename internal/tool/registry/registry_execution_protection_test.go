@@ -70,8 +70,6 @@ func newProtectedVirtualRegistry(t *testing.T, handler Handler) (*Registry, *reg
 		virtualTimeout:      map[string]timeoutSupport{},
 		cache:               map[string]*toolCacheEntry{},
 		internal:            map[string]mcpclient.Interface{},
-		recentResults:       map[string]map[string]recentItem{},
-		recentTTL:           5 * time.Second,
 		executionProtection: guard,
 	}, repository
 }
@@ -236,8 +234,6 @@ func newRemoteProtectionRegistry(client mcpclient.Interface, guard toolprotectio
 		cache:               map[string]*toolCacheEntry{},
 		internal:            map[string]mcpclient.Interface{},
 		internalMethods:     map[string]map[string]svc.Signature{},
-		recentResults:       map[string]map[string]recentItem{},
-		recentTTL:           5 * time.Second,
 		executionProtection: guard,
 	}, manager
 }
@@ -360,8 +356,8 @@ func TestRegistryExecutionProtectionAppliesSameScopeAcrossTurnKinds(t *testing.T
 			t.Fatalf("unprotected result = %q, want sent", result)
 		}
 	}
-	if client.calls.Load() != 4 {
-		t.Fatalf("unprotected downstream calls = %d, want total 4", client.calls.Load())
+	if client.calls.Load() != 5 {
+		t.Fatalf("unprotected downstream calls = %d, want total 5", client.calls.Load())
 	}
 	repository.mu.Lock()
 	claimCount := len(repository.claims)
@@ -394,32 +390,7 @@ func TestRegistryExecutionProtectionLimitsReconnectAttempts(t *testing.T) {
 	}
 }
 
-func TestRegistryExecutionProtectionBypassesRecentResults(t *testing.T) {
-	protectedClient := &protectionTestClient{result: "provider-result"}
-	protectedRegistry, _ := newRemoteProtectionRegistry(
-		protectedClient,
-		newProtectionGuard(t, newRegistryClaimRepository()),
-	)
-	protectedRegistry.recentResults["conv-1"] = map[string]recentItem{
-		"|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "cached-result"},
-	}
-	result, err := protectedRegistry.Execute(protectedTurnContext("turn-protected"), "service/tool", map[string]interface{}{"body": "same"})
-	if err != nil || result != "provider-result" || protectedClient.calls.Load() != 1 {
-		t.Fatalf("protected Execute() = %q, %v calls=%d", result, err, protectedClient.calls.Load())
-	}
-
-	unprotectedClient := &protectionTestClient{result: "provider-result"}
-	unprotectedRegistry, _ := newRemoteProtectionRegistry(unprotectedClient, nil)
-	unprotectedRegistry.recentResults["conv-1"] = map[string]recentItem{
-		"|service/tool||{\"body\":\"same\"}": {when: time.Now(), out: "cached-result"},
-	}
-	result, err = unprotectedRegistry.Execute(protectedTurnContext("turn-unprotected"), "service/tool", map[string]interface{}{"body": "same"})
-	if err != nil || result != "cached-result" || unprotectedClient.calls.Load() != 0 {
-		t.Fatalf("unprotected Execute() = %q, %v calls=%d", result, err, unprotectedClient.calls.Load())
-	}
-}
-
-func TestRegistryRecentResultsCoalescesConcurrentUnprotectedCalls(t *testing.T) {
+func TestRegistryExecutesConcurrentIdenticalUnprotectedCallsIndependently(t *testing.T) {
 	started := make(chan struct{}, 2)
 	release := make(chan struct{})
 	client := &protectionTestClient{
@@ -448,10 +419,13 @@ func TestRegistryRecentResultsCoalescesConcurrentUnprotectedCalls(t *testing.T) 
 		}()
 	}
 	close(start)
-	select {
-	case <-started:
-	case <-time.After(time.Second):
-		t.Fatal("provider call did not start")
+	for i := 0; i < 2; i++ {
+		select {
+		case <-started:
+		case <-time.After(time.Second):
+			close(release)
+			t.Fatal("both provider calls must start independently")
+		}
 	}
 	close(release)
 	wait.Wait()
@@ -467,8 +441,8 @@ func TestRegistryRecentResultsCoalescesConcurrentUnprotectedCalls(t *testing.T) 
 			t.Fatalf("Execute() result = %q, want provider-result", result)
 		}
 	}
-	if client.calls.Load() != 1 {
-		t.Fatalf("downstream calls = %d, want 1", client.calls.Load())
+	if client.calls.Load() != 2 {
+		t.Fatalf("downstream calls = %d, want 2", client.calls.Load())
 	}
 }
 
@@ -487,7 +461,7 @@ func (c *rawResultProtectionClient) CallTool(_ context.Context, params *mcpschem
 	}}, nil
 }
 
-func TestRegistryRecentResultsCachesSequentialRawUnprotectedCalls(t *testing.T) {
+func TestRegistryExecutesSequentialIdenticalUnprotectedCallsIndependently(t *testing.T) {
 	client := &rawResultProtectionClient{}
 	registry, _ := newRemoteProtectionRegistry(client, nil)
 	args := map[string]interface{}{"body": "same"}
@@ -502,8 +476,8 @@ func TestRegistryRecentResultsCachesSequentialRawUnprotectedCalls(t *testing.T) 
 	if first != second {
 		t.Fatalf("sequential raw results differ: first=%q second=%q", first, second)
 	}
-	if client.calls.Load() != 1 {
-		t.Fatalf("downstream calls = %d, want 1", client.calls.Load())
+	if client.calls.Load() != 2 {
+		t.Fatalf("downstream calls = %d, want 2", client.calls.Load())
 	}
 }
 

@@ -7,7 +7,6 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/viant/agently-core/genai/llm"
@@ -38,7 +37,7 @@ func (m *outputCaptureManager) NewSensitiveClient(ctx context.Context, conversat
 	return m.sensitive, nil
 }
 
-func TestOutputArtifactRegistryCapturesBeforeCompositionAndCache(t *testing.T) {
+func TestOutputArtifactRegistryCapturesBeforeComposition(t *testing.T) {
 	t.Setenv(scratchpad.EnvScratchpadURI, "file://"+filepath.Join(t.TempDir(), "${userID}"))
 	ctx := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "owner"})
 	data := []byte{'P', 'K', 0, 255, 128, 34, '\n'}
@@ -51,7 +50,7 @@ func TestOutputArtifactRegistryCapturesBeforeCompositionAndCache(t *testing.T) {
 	client := &artifactRetryClient{scriptedCallClient: scriptedCallClient{result: result}}
 	mgr := &outputCaptureManager{artifactRetryManager: artifactRetryManager{scriptedReconnectManager: scriptedReconnectManager{clients: []mcpclient.Interface{&scriptedCallClient{}}}, sensitive: client}, policy: &mcpcfg.MCPClient{OutputArtifacts: map[string]mcpcfg.OutputArtifact{"Download": {Name: "workbook.xlsx"}}}}
 	reg := newReconnectTestRegistry(&mgr.scriptedReconnectManager)
-	reg.mgr, reg.recentTTL = mgr, time.Minute
+	reg.mgr = mgr
 	out, err := reg.Execute(ctx, "service/Download", map[string]interface{}{"jobId": "owned-job"})
 	require.NoError(t, err)
 	require.Equal(t, 1, mgr.isolatedCalls)
@@ -77,11 +76,6 @@ func TestOutputArtifactRegistryCapturesBeforeCompositionAndCache(t *testing.T) {
 	descriptor, err := scratchpad.New().DescribeArtifact(ctx, metadata.Resources[0].URI)
 	require.NoError(t, err)
 	require.Empty(t, descriptor.SourceURI)
-	for _, byKey := range reg.recentResults {
-		for _, item := range byKey {
-			require.NotContains(t, item.out, base64.StdEncoding.EncodeToString(data))
-		}
-	}
 	// A host recorder must receive only the replaced metadata result too.
 	mgr.policy.ToolsListVisibility = mcpcfg.ToolsListVisibilityPublic
 	reg.cache["service/Download"] = &toolCacheEntry{def: llm.ToolDefinition{Name: "service/Download"}, mcpDef: schema.Tool{Name: "Download"}}

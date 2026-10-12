@@ -348,6 +348,9 @@ func mergePromptAttachments(task, history []*binding.Attachment) []*binding.Atta
 			digest := sha256.Sum256(a.Data)
 			key := fmt.Sprintf("%s:%x", a.MIMEType(), digest)
 			if i, ok := seen[key]; ok {
+				if !result[i].OmitModelBytes && a.OmitModelBytes {
+					continue
+				}
 				if a.Native {
 					result[i] = a
 				}
@@ -372,6 +375,7 @@ func newExpandedUserLLMMessage(content string, attachments []*binding.Attachment
 				continue
 			}
 			items = append(items, &llm.AttachmentItem{
+				Detail:   attachment.ImageDetail,
 				Native:   attachment.Native,
 				Name:     attachment.Name,
 				MimeType: attachment.Mime,
