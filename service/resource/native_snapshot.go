@@ -145,7 +145,7 @@ func NewNativeAssetSnapshot(ctx context.Context, root string, definitions []Nati
 	seen := map[string]bool{}
 	for _, definition := range snapshot.definitions {
 		uri, err := identity.ParseResourceURI(definition.URI)
-		if err != nil || definition.Load == nil || !extensionPath(definition.File) || seen[definition.URI] || !(uri.Kind == "window" && (definition.FormatVersion == 2 || definition.FormatVersion == 3) || uri.Kind == "report" && definition.FormatVersion == 1 || uri.Kind == primitive.ToolfeedKind && definition.FormatVersion == primitive.ToolfeedFormatVersion || uri.Kind == "datasource" && definition.FormatVersion == 1 || (uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "menu") && definition.FormatVersion == 1) {
+		if err != nil || definition.Load == nil || !extensionPath(definition.File) || seen[definition.URI] || !(uri.Kind == "window" && (definition.FormatVersion == 2 || definition.FormatVersion == 3) || uri.Kind == "report" && definition.FormatVersion == 1 || uri.Kind == primitive.ToolfeedKind && definition.FormatVersion == primitive.ToolfeedFormatVersion || uri.Kind == "datasource" && definition.FormatVersion == 1 || (uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "menu" || uri.Kind == "skill") && definition.FormatVersion == 1) {
 			return nil, fmt.Errorf("unsupported or duplicate native snapshot definition")
 		}
 		seen[definition.URI] = true
@@ -291,6 +291,8 @@ func (s *NativeAssetSnapshot) rebuild(ctx context.Context) error {
 			validator = ValidateIntentDefinition
 		} else if uri.Kind == "menu" {
 			validator = ValidateMenu
+		} else if uri.Kind == "skill" {
+			validator = ValidateNativeSkillDefinition
 		}
 		if err = validator(definition.FormatVersion, raw); err != nil {
 			return err
@@ -486,7 +488,7 @@ func pureLocalValidator(kind string, validator LocalResourceValidator) bool {
 		return false
 	}
 	pointer := reflect.ValueOf(validator).Pointer()
-	return kind == "window" && pointer == reflect.ValueOf(ValidateWindowBundle).Pointer() || kind == "report" && pointer == reflect.ValueOf(ValidateReportEnvelope).Pointer()
+	return kind == "skill" && pointer == reflect.ValueOf(ValidateNativeSkillDefinition).Pointer() || kind == "window" && pointer == reflect.ValueOf(ValidateWindowBundle).Pointer() || kind == "report" && pointer == reflect.ValueOf(ValidateReportEnvelope).Pointer()
 }
 
 // CheckCandidate verifies deterministic authored content and all tracked imports

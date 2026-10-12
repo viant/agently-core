@@ -45,7 +45,7 @@ func (s *Service) HasMCPSource() bool {
 	}
 	for _, name := range names {
 		cfg, err := s.mcpSource.Options(ctx, name)
-		if err == nil && cfg != nil && cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled {
+		if err == nil && cfg != nil && (cfg.SkillDiscovery != nil && cfg.SkillDiscovery.Enabled || s.delivery != nil && cfg.PrimitiveProviderIdentity != "") {
 			return true
 		}
 	}
@@ -269,6 +269,9 @@ func markdownMIME(s string) bool {
 // for prompt binding so ordinary turns cause no remote discovery.
 func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]skillproto.Metadata, error) {
 	local, _ := s.Visible(agent)
+	if s.delivery != nil {
+		local = nil
+	}
 	entries, err := s.remoteEntries(ctx, agent, "")
 	if err != nil {
 		return nil, err
@@ -276,6 +279,11 @@ func (s *Service) ListVisible(ctx context.Context, agent *agentmdl.Agent) ([]ski
 	for _, entry := range entries {
 		local = append(local, entry.metadata)
 	}
+	generic, err := s.primitiveMetadata(ctx, agent)
+	if err != nil {
+		return nil, err
+	}
+	local = append(local, generic...)
 	sort.SliceStable(local, func(i, j int) bool {
 		a, b := local[i].URI, local[j].URI
 		if a == "" {
@@ -297,9 +305,12 @@ func (s *Service) GetVisible(ctx context.Context, agent *agentmdl.Agent, name st
 	}
 	if !strings.Contains(name, "/") && !strings.Contains(name, ":") {
 		if local, err := s.findVisibleSkill(agent, name); err == nil {
-			return local, nil
+			return s.getNativeLocal(ctx, local)
 		}
 		return nil, fmt.Errorf("skill not available; use a qualified reference for MCP skills")
+	}
+	if item, handled, err := s.getPrimitive(ctx, agent, name); handled {
+		return item, err
 	}
 	var ref skillproto.Ref
 	var err error

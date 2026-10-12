@@ -7,8 +7,10 @@ import (
 	"fmt"
 	proto "github.com/viant/agently-core/protocol/skill"
 	schema "github.com/viant/mcp-protocol/schema"
+	"net/http"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 func (s *Service) readSupporting(ctx context.Context, item *proto.Skill, relative string) (string, string, string, error) {
@@ -18,6 +20,21 @@ func (s *Service) readSupporting(ctx context.Context, item *proto.Skill, relativ
 	for _, part := range strings.Split(relative, "/") {
 		if part == "" || part == "." || part == ".." {
 			return "", "", "", fmt.Errorf("invalid skill file path")
+		}
+	}
+	if item.Source != "mcp" && s.delivery != nil {
+		if local, ok := s.delivery.(interface {
+			ReadSupporting(context.Context, *proto.Skill, string) ([]byte, error)
+		}); ok {
+			raw, err := local.ReadSupporting(ctx, item, relative)
+			if err != nil {
+				return "", "", "", err
+			}
+			mime := http.DetectContentType(raw)
+			if utf8.Valid(raw) {
+				return string(raw), "", mime, nil
+			}
+			return "", base64.StdEncoding.EncodeToString(raw), mime, nil
 		}
 	}
 	target := strings.TrimSuffix(item.RemoteURI, "SKILL.md") + relative

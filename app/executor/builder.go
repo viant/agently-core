@@ -1134,6 +1134,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if err := b.configurePrimitiveProviders(out); err != nil {
 		return nil, err
 	}
+	if err := b.configurePrimitiveSkills(ctx, out); err != nil {
+		return nil, err
+	}
 	if b.hotSwapEnabled {
 		mgr, err := initHotSwap(ctx, b)
 		if err != nil {

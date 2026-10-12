@@ -45,6 +45,7 @@ type Skill struct {
 }
 
 type Metadata struct {
+	Namespace     string `json:"namespace,omitempty"`
 	URI           string `json:"uri,omitempty"`
 	QualifiedName string `json:"qualifiedName,omitempty"`
 	ServerID      string `json:"serverId,omitempty"`
