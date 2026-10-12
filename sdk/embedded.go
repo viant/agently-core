@@ -1183,7 +1183,10 @@ func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) 
 			if item.URI != "" {
 				name = item.URI
 			}
-			out.Items = append(out.Items, SkillItem{Name: name, Description: item.Description})
+			if item.LocalSelector != "" {
+				name = item.LocalSelector
+			}
+			out.Items = append(out.Items, SkillItem{Name: name, URI: item.URI, Description: item.Description})
 		}
 		return out, nil
 	}
@@ -1210,7 +1213,10 @@ func (c *backendClient) ListSkills(ctx context.Context, input *ListSkillsInput) 
 		if item.URI != "" {
 			name = item.URI
 		}
-		out.Items = append(out.Items, SkillItem{Name: name, Description: item.Description})
+		if item.LocalSelector != "" {
+			name = item.LocalSelector
+		}
+		out.Items = append(out.Items, SkillItem{Name: name, URI: item.URI, Description: item.Description})
 	}
 	return out, nil
 }

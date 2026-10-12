@@ -210,6 +210,7 @@ func (d *primitiveSkillDelivery) List(ctx context.Context) ([]proto.Metadata, er
 			if row.Connection.Name == nativeSkillConnection && row.Connection.ProviderIdentity == nativeSkillProvider {
 				if original := d.originals[row.Resource.URI]; original != nil {
 					meta.Name = original.Frontmatter.Name
+					meta.LocalSelector = original.Frontmatter.Name
 					meta.ExecutionMode = original.Frontmatter.ContextMode()
 				}
 			}
