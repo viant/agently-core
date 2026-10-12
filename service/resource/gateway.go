@@ -13,6 +13,7 @@ import (
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	producer "github.com/viant/agently-core/service/primitiveproducer"
+	"github.com/viant/jsonrpc"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 	"reflect"
@@ -291,6 +292,10 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 		for page := 0; page < 100; page++ {
 			tools, e := c.ListTools(ctx, toolCursor)
 			if e != nil {
+				var rpc *jsonrpc.Error
+				if errors.As(e, &rpc) && rpc.Code == -32601 {
+					return capabilities{}, ErrUnavailable
+				}
 				return capabilities{}, e
 			}
 			if tools == nil {

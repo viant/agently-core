@@ -46,6 +46,7 @@ type nestedToolCallRecord struct {
 }
 
 type Service struct {
+	delivery     Delivery
 	mcpSource    MCPSource
 	toolRegistry tool.Registry
 	defaults     *execconfig.Defaults

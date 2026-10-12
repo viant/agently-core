@@ -19,7 +19,7 @@ import (
 type catalogOwner interface {
 	CheckVisibleCatalog(context.Context, *primitive.Catalog[json.RawMessage]) error
 	CatalogScope(context.Context, string, []string) (string, bool, error)
-	VisibleCatalog(context.Context, string, time.Time, func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error)) (*primitive.Catalog[json.RawMessage], error)
+	VisibleCatalog(context.Context, string, time.Time, func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error), ...func() time.Time) (*primitive.Catalog[json.RawMessage], error)
 }
 
 // ListVisiblePage adapts existing native and ordinary MCP metadata discovery
@@ -173,6 +173,12 @@ func (s *Service) ListPageForConversation(ctx context.Context, conversationID st
 // Legacy non-skill resource URIs have no canonical namespace, so their existing
 // ServerID is the fallback partition; no namespace is invented for local names.
 func skillCatalogNamespace(entry skillproto.Metadata) string {
+	if entry.Namespace != "" {
+		return entry.Namespace
+	}
+	if u, err := url.Parse(entry.URI); err == nil && u.Scheme == "skill" && u.Host != "" && u.User == nil && strings.HasSuffix(u.Path, "/SKILL.md") && !strings.Contains(u.Path, "~") {
+		return u.Host
+	}
 	if ref, err := skillproto.ParseRef(entry.URI); err == nil && ref.ResourceURI != "" {
 		if upstream, err := url.Parse(ref.ResourceURI); err == nil && upstream.Scheme == "skill" && upstream.Host != "" && upstream.User == nil && strings.HasSuffix(upstream.Path, "/SKILL.md") {
 			return upstream.Host

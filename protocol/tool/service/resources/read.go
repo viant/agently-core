@@ -164,12 +164,23 @@ func (s *Service) read(ctx context.Context, in, out interface{}) error {
 					meta := observation.RecordRead(ctx, target.fullURI, []byte(body), true)
 					output.Observation = &meta
 					return nil
+				} else if s.skillSvc.OwnsNativePath(target.fullURI) {
+					return err
 				}
 			}
 		}
 	}
 	var data []byte
-	if strings.HasPrefix(target.fullURI, "scratchpad://") {
+	native := false
+	if s.skillSvc != nil {
+		data, native, err = s.skillSvc.ReadNativeFile(ctx, target.fullURI)
+		if err != nil {
+			return err
+		}
+	}
+	if native {
+		// The owned snapshot supplied exact bytes through fresh primitive Get.
+	} else if strings.HasPrefix(target.fullURI, "scratchpad://") {
 		a, err := s.loadAsset(ctx, input, input.ExpectedVersion)
 		if err != nil {
 			return err
