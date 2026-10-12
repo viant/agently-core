@@ -345,3 +345,32 @@ it('retains explicit message-add ownership through a metadata-poor terminal mess
     expect(h.rows().filter(row=>row.kind==='assistant'&&row.messageId===noteId)).toHaveLength(1);
     expect((h.rows().find(row=>row.kind==='iteration') as IterationRenderRow).rounds.some(round=>round.content===note)).toBe(false);
 });
+
+
+describe('native rendered model message ownership', () => {
+    it('keeps rich activity on its declared model page and preserves pending tools and public highlights', async () => {
+        const pending=metadata({nativeMessageId:'pending-model',modelCallId:'pending-model',pageId:'pending-model',iteration:2});
+        const finalStart=metadata({nativeMessageId:'final-model',modelCallId:'final-model',pageId:'final-model',iteration:3});
+        // Actual99 activity carries exact model identity, omitting pageId.
+        const finalContent=metadata({nativeMessageId:'final-model',modelCallId:'final-model',pageId:undefined,iteration:0});
+        const highlight=metadata({nativeMessageId:'public-highlight',pageId:undefined,messageKind:'standalone',iteration:0});
+        const rich={schemaVersion:1,parts:[{kind:'text',text:'Synthetic report complete.'}],reports:[],diagnostics:[]};
+        const h=harness('agently',[start,
+            {type:'STEP_STARTED',stepName:'pending-model',metadata:pending},
+            {type:'TOOL_CALL_START',toolCallId:'pending-protocol-tool',toolCallName:'fixture_pending',parentMessageId:'pending-model',metadata:metadata({...pending.agently.presentation,nativeToolCallId:'pending-native-tool'})},
+            {type:'TEXT_MESSAGE_START',messageId:'public-highlight',role:'assistant',metadata:highlight},
+            {type:'TEXT_MESSAGE_CONTENT',messageId:'public-highlight',delta:'Public highlight retained.'},
+            {type:'STEP_STARTED',stepName:'final-model',metadata:finalStart},
+            {type:'TEXT_MESSAGE_START',messageId:'final-model',role:'assistant',metadata:finalContent},
+            {type:'TEXT_MESSAGE_CONTENT',messageId:'final-model',delta:'Synthetic report complete.'},
+            {type:'ACTIVITY_SNAPSHOT',messageId:'final-model/activity',activityType:'agently.rendered-content',content:{version:'1',renderedContent:rich},metadata:finalContent},
+            {type:'STEP_FINISHED',stepName:'final-model',metadata:metadata({...finalContent.agently.presentation,pageId:'final-model',status:'completed'})},
+        ]);
+        await h.run();
+        const pages=h.store().turns.flatMap(turn=>turn.pages);
+        expect(pages.map(page=>page.pageId)).toEqual(['pending-model','final-model']);
+        expect(pages.find(page=>page.pageId==='final-model')?.renderedContent).toEqual(rich);
+        expect(pages.find(page=>page.pageId==='pending-model')?.toolCalls).toEqual([expect.objectContaining({toolCallId:'pending-native-tool',status:'requested'})]);
+        expect(h.rows().some(row=>row.kind==='assistant'&&row.content==='Public highlight retained.')).toBe(true);
+    });
+});
