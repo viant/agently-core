@@ -31,6 +31,7 @@
 SELECT queue_rows.*,
        row_lock(queue_rows,'tool_approval_queue q'),
        CAST(queue_rows.transition_at AS *string),
+       CAST(queue_rows.completed_at AS *time.Time),
        type(queue_rows,'ApprovalView'),
        required(queue_rows.id),
        required(queue_rows.user_id),
