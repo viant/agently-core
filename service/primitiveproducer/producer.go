@@ -54,6 +54,7 @@ type DefinitionValidationCache func(identity.ResourceSource, string, int64, stri
 // LocalConfig installs one authoritative local catalog. It has no aggregation
 // or mutation path; only list/get operations are advertised.
 type LocalConfig struct {
+	NativeResources           []NativeResource
 	NamespaceMetadata         map[string]primitive.NamespaceMetadata
 	ProviderIdentity          string
 	Actor                     ActorResolver
@@ -70,6 +71,7 @@ type LocalConfig struct {
 }
 
 type LocalProvider struct {
+	nativeResources           []NativeResource
 	namespaceMetadata         map[string]primitive.NamespaceMetadata
 	identity                  string
 	actor                     ActorResolver
@@ -94,13 +96,16 @@ func (p *LocalProvider) ProviderIdentity() string {
 }
 
 func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
-	if strings.TrimSpace(config.ProviderIdentity) == "" || strings.TrimSpace(config.ProviderIdentity) != config.ProviderIdentity || config.Actor == nil || config.Verify == nil || config.Authorize == nil || len(config.Bindings) == 0 {
+	if strings.TrimSpace(config.ProviderIdentity) == "" || strings.TrimSpace(config.ProviderIdentity) != config.ProviderIdentity || config.Actor == nil || config.Verify == nil || config.Authorize == nil || len(config.Bindings) == 0 && len(config.NativeResources) == 0 {
 		return nil, fmt.Errorf("local resource provider requires identity, verified actor, namespace authorizer, and bindings")
 	}
 	if config.WindowListVisibility != nil && config.WindowIndex == nil {
 		return nil, fmt.Errorf("window list visibility requires a trusted static window index")
 	}
-	p := &LocalProvider{namespaceMetadata: config.NamespaceMetadata, identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
+	if err := checkNativeResources(config.NativeResources); err != nil {
+		return nil, err
+	}
+	p := &LocalProvider{nativeResources: append([]NativeResource(nil), config.NativeResources...), namespaceMetadata: config.NamespaceMetadata, identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
 	if p.now == nil {
 		p.now = time.Now
 	}
@@ -701,6 +706,9 @@ func NewMCPServer(provider *LocalProvider, compact ...bool) (*mcp.Server, error)
 	compactNative := len(compact) > 0 && compact[0]
 	return mcp.New(mcp.WithImplementation(schema.Implementation{Name: "agently-local-resources", Version: "1"}), mcp.WithStreamableURI("/mcp"), mcp.WithRootRedirect(false), mcp.WithNewHandler(func(_ context.Context, n transport.Notifier, l logger.Logger, c client.Operations) (protocol.Handler, error) {
 		h := &localMCPHandler{DefaultHandler: protocol.NewDefaultHandler(n, l, c), provider: provider}
+		if err := h.registerNativeResources(); err != nil {
+			return nil, err
+		}
 		for _, method := range provider.InstalledTools() {
 			name := method
 			description := "List authorized local resource definitions"

@@ -20,6 +20,9 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 	if err := b.configurePublicPrimitiveProviders(out); err != nil {
 		return err
 	}
+	if err := b.configureNativeHostDocuments(out); err != nil {
+		return err
+	}
 	if out.LocalPrimitiveProvider != nil && !out.localPrimitiveRegistered {
 		if out.MCPManager == nil || out.LocalPrimitiveProvider.ProviderIdentity() == "" {
 			return fmt.Errorf("internal primitives require a manager and declared provider identity")
@@ -46,8 +49,19 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 			out.PrimitiveProviders = resourcesvc.NewGateway(out.MCPManager, actor, verify, b.primitiveGatewayIdentity)
 		}
 	}
+	if out.NativeHostDocuments != nil {
+		out.NativeHostDocuments.Gateway = out.PrimitiveProviders
+	}
 	if (b.primitiveWindowAdmission == nil) != (b.primitiveTargetProof == nil) {
 		return fmt.Errorf("delegated windows require host admission and target proof")
+	}
+	// A raw-document-only fallback is not an admission source for business
+	// datasource/report/window adapters. Preserve their configured boundaries.
+	if out.nativeDocumentOnlyGateway {
+		if b.primitiveWindowAdmission != nil {
+			return fmt.Errorf("delegated windows require verified primitive authority and a host UI bridge")
+		}
+		return nil
 	}
 	if out.PrimitiveProviders != nil {
 		out.DatasourceReadSequence = func(ctx context.Context) (context.Context, func() error, error) {

@@ -28,12 +28,18 @@ import (
 )
 
 // Service runs the intake sidecar LLM call and returns an intake Context.
+type HostDocumentReader interface {
+	ReadURI(context.Context, string) ([]byte, error)
+	RootURI() string
+}
+
 type Service struct {
-	llm          *core.Service
-	conversation apiconv.Client
-	profileRepo  *intakerepo.Repository
-	templateRepo *tplrepo.Repository
-	bundleRepo   *toolbundlerepo.Repository
+	hostDocuments HostDocumentReader
+	llm           *core.Service
+	conversation  apiconv.Client
+	profileRepo   *intakerepo.Repository
+	templateRepo  *tplrepo.Repository
+	bundleRepo    *toolbundlerepo.Repository
 }
 
 // TranscriptMessage is a compact, generic transcript row provided to intent.
@@ -572,6 +578,26 @@ func (s *Service) buildSystemPrompt(ctx context.Context, cfg *agentmdl.Intake) (
 }
 
 func (s *Service) resolveIntakePromptText(ctx context.Context, prompt agentmdl.IntakePrompt) (string, error) {
+	if s.hostDocuments != nil {
+		text := prompt.Text
+		base := s.hostDocuments.RootURI() + "/intake/inline-intent.tmpl"
+		if prompt.URI != "" {
+			if text != "" {
+				return text, nil
+			}
+			base = prompt.URI
+			if !strings.Contains(base, "://") && !filepath.IsAbs(base) {
+				base = s.hostDocuments.RootURI() + "/" + base
+			}
+			raw, err := s.hostDocuments.ReadURI(ctx, base)
+			if err != nil {
+				return "", err
+			}
+			text = string(raw)
+		}
+		return binding.ResolveTextImportsWithReader(ctx, s.hostDocuments.ReadURI, text, base)
+	}
+
 	if strings.TrimSpace(prompt.URI) != "" {
 		resolved := prompt
 		if !filepath.IsAbs(strings.TrimSpace(resolved.URI)) && !strings.Contains(resolved.URI, "://") {
@@ -1030,4 +1056,9 @@ func unmarshalContext(data []byte, tc *Context) error {
 		tc.Planner.AgentID = wire.PlannerAgentID
 	}
 	return nil
+}
+
+func (s *Service) SetHostDocuments(reader HostDocumentReader, bundles *toolbundlerepo.Repository) {
+	s.hostDocuments = reader
+	s.bundleRepo = bundles
 }

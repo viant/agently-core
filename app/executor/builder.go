@@ -75,28 +75,30 @@ import (
 )
 
 type Runtime struct {
-	NativeLayoutSource       *resourcesvc.CapturedLayoutSource
-	ExecutionContext         func(context.Context) context.Context
-	registryWarmupMu         sync.Mutex
-	registryWarmupCancel     context.CancelFunc
-	registryWarmupDone       chan struct{}
-	registryRefreshDone      chan struct{}
-	closed                   bool
-	ownedNative              *standalone.Server
-	ownedAugmenter           *augmenter.Service
-	ownedReportingCancel     context.CancelFunc
-	ownedReportingWorker     *reportingsvc.Worker
-	closeOnce                sync.Once
-	closeError               error
-	RawResourceBoundary      *workspace.RawResourceBoundary
-	ComponentDispatcher      windowprotocol.ComponentDispatcher
-	ComponentAuthority       policy.AuthoritySnapshotResolver
-	PrimitiveProviders       *resourcesvc.Gateway
-	PrimitiveWindows         *resourcesvc.CompositeWindowCatalog
-	LocalPrimitiveProvider   *resourcesvc.LocalProvider
-	localPrimitiveRegistered bool
-	standaloneDSConfigured   bool
-	Defaults                 *config.Defaults
+	NativeLayoutSource        *resourcesvc.CapturedLayoutSource
+	ExecutionContext          func(context.Context) context.Context
+	registryWarmupMu          sync.Mutex
+	registryWarmupCancel      context.CancelFunc
+	registryWarmupDone        chan struct{}
+	registryRefreshDone       chan struct{}
+	closed                    bool
+	ownedNative               *standalone.Server
+	ownedAugmenter            *augmenter.Service
+	ownedReportingCancel      context.CancelFunc
+	ownedReportingWorker      *reportingsvc.Worker
+	closeOnce                 sync.Once
+	closeError                error
+	RawResourceBoundary       *workspace.RawResourceBoundary
+	ComponentDispatcher       windowprotocol.ComponentDispatcher
+	ComponentAuthority        policy.AuthoritySnapshotResolver
+	PrimitiveProviders        *resourcesvc.Gateway
+	PrimitiveWindows          *resourcesvc.CompositeWindowCatalog
+	LocalPrimitiveProvider    *resourcesvc.LocalProvider
+	NativeHostDocuments       *resourcesvc.HostDocuments
+	localPrimitiveRegistered  bool
+	standaloneDSConfigured    bool
+	nativeDocumentOnlyGateway bool
+	Defaults                  *config.Defaults
 	// AuthorizationTool is the workspace-configured MCP adapter for permitted
 	// Forge views.
 	AuthorizationTool              string
@@ -1133,6 +1135,9 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 
 	if err := b.configurePrimitiveProviders(out); err != nil {
 		return nil, err
+	}
+	if out.Agent != nil && out.NativeHostDocuments != nil {
+		out.Agent.SetHostDocuments(out.NativeHostDocuments)
 	}
 	if err := b.configurePrimitiveSkills(ctx, out); err != nil {
 		return nil, err

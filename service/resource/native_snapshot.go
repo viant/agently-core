@@ -25,6 +25,8 @@ import (
 // decisions. File/import bytes and static native enrichment are its only input.
 // Every authorization/lease decision remains in LocalProvider and its policy.
 type NativeSnapshotDefinition struct {
+	// RawDocument is an internal standard-MCP document, never a primitive kind.
+	RawDocument   bool
 	URI           string
 	Title         string
 	FormatVersion int64
@@ -145,7 +147,10 @@ func NewNativeAssetSnapshot(ctx context.Context, root string, definitions []Nati
 	seen := map[string]bool{}
 	for _, definition := range snapshot.definitions {
 		uri, err := identity.ParseResourceURI(definition.URI)
-		if err != nil || definition.Load == nil || !extensionPath(definition.File) || seen[definition.URI] || !(uri.Kind == "window" && (definition.FormatVersion == 2 || definition.FormatVersion == 3) || uri.Kind == "report" && definition.FormatVersion == 1 || uri.Kind == primitive.ToolfeedKind && definition.FormatVersion == primitive.ToolfeedFormatVersion || uri.Kind == "datasource" && definition.FormatVersion == 1 || (uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "menu" || uri.Kind == "skill") && definition.FormatVersion == 1) {
+		if definition.RawDocument && (err != nil || uri.Kind != "agently-runtime" || definition.FormatVersion != 0) {
+			return nil, fmt.Errorf("invalid native raw document")
+		}
+		if err != nil || definition.Load == nil || !extensionPath(definition.File) || seen[definition.URI] || !(definition.RawDocument && definition.FormatVersion == 0 || uri.Kind == "window" && (definition.FormatVersion == 2 || definition.FormatVersion == 3) || uri.Kind == "report" && definition.FormatVersion == 1 || uri.Kind == primitive.ToolfeedKind && definition.FormatVersion == primitive.ToolfeedFormatVersion || uri.Kind == "datasource" && definition.FormatVersion == 1 || (uri.Kind == "template" || uri.Kind == "intent" || uri.Kind == "menu" || uri.Kind == "skill") && definition.FormatVersion == 1) {
 			return nil, fmt.Errorf("unsupported or duplicate native snapshot definition")
 		}
 		seen[definition.URI] = true
@@ -294,8 +299,10 @@ func (s *NativeAssetSnapshot) rebuild(ctx context.Context) error {
 		} else if uri.Kind == "skill" {
 			validator = ValidateNativeSkillDefinition
 		}
-		if err = validator(definition.FormatVersion, raw); err != nil {
-			return err
+		if !definition.RawDocument {
+			if err = validator(definition.FormatVersion, raw); err != nil {
+				return err
+			}
 		}
 		values[definition.URI] = nativeSnapshotValue{raw: append(json.RawMessage(nil), raw...), fingerprint: identity.ContentFingerprint(raw), kind: uri.Kind, version: definition.FormatVersion}
 		s.compilations.Add(1)
@@ -421,6 +428,9 @@ func (s *NativeAssetSnapshot) Bindings(provider string, policy LocalRevisionPoli
 	}
 	result := make([]LocalResourceBinding, 0, len(s.definitions))
 	for _, definition := range s.definitions {
+		if definition.RawDocument {
+			continue
+		}
 		uri, _ := identity.ParseResourceURI(definition.URI)
 		result = append(result, LocalResourceBinding{URI: definition.URI, Title: definition.Title, FormatVersion: definition.FormatVersion, Resolver: func(ctx context.Context, actor identity.VerifiedActor, action string) (*identity.ResourceResolver, error) {
 			p, err := policy(ctx, actor, uri, action)

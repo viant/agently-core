@@ -28,8 +28,23 @@ func (s *Service) appendToolPlaybooks(ctx context.Context, defs []*llm.ToolDefin
 	if !services["webdriver"] {
 		return nil
 	}
-	repo := toolplaybook.New(s.fs)
-	content, uri, err := repo.Load(ctx, "webdriver.md")
+	var content, uri string
+	var err error
+	if s.hostDocuments != nil {
+		for _, name := range []string{"tools/instructions/webdriver.md", "tools/webdriver.md"} {
+			candidate := s.hostDocuments.RootURI() + "/" + name
+			if !s.hostDocuments.ContainsURI(candidate) {
+				continue
+			}
+			raw, readErr := s.hostDocuments.ReadURI(ctx, candidate)
+			content, uri, err = string(raw), candidate, readErr
+			break
+		}
+	} else {
+		repo := toolplaybook.New(s.fs)
+		content, uri, err = repo.Load(ctx, "webdriver.md")
+	}
+
 	if err != nil {
 		return err
 	}
