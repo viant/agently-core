@@ -13,6 +13,52 @@ import (
 
 type WriterHandlerCurrentWriterSlice []*CurrentWriterView
 
+func WriterHandlerCurrentWriterIndexByResponseOverflowKey(value *CurrentWriterView) (bool, bool) {
+	var zero bool
+	if value == nil {
+		return zero, false
+	}
+	return value.ResponseOverflow, true
+}
+
+type WriterHandlerCurrentWriterIndexedByResponseOverflow map[bool]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) IndexByResponseOverflow() (WriterHandlerCurrentWriterIndexedByResponseOverflow, error) {
+	result := make(WriterHandlerCurrentWriterIndexedByResponseOverflow)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByResponseOverflowKey(row)
+		if !ok {
+			continue
+		}
+		if _, exists := result[key]; exists {
+			return nil, fmt.Errorf("ambiguous application index WriterHandlerCurrentWriterSlice.IndexByResponseOverflow")
+		}
+		result[key] = row
+	}
+	return result, nil
+}
+func (index WriterHandlerCurrentWriterIndexedByResponseOverflow) Has(key bool) bool {
+	_, ok := index[key]
+	return ok
+}
+
+type WriterHandlerCurrentWriterGroupedByResponseOverflow map[bool][]*CurrentWriterView
+
+func (rows WriterHandlerCurrentWriterSlice) GroupByResponseOverflow() WriterHandlerCurrentWriterGroupedByResponseOverflow {
+	result := make(WriterHandlerCurrentWriterGroupedByResponseOverflow)
+	for _, row := range rows {
+		key, ok := WriterHandlerCurrentWriterIndexByResponseOverflowKey(row)
+		if !ok {
+			continue
+		}
+		result[key] = append(result[key], row)
+	}
+	return result
+}
+func (index WriterHandlerCurrentWriterGroupedByResponseOverflow) Has(key bool) bool {
+	_, ok := index[key]
+	return ok
+}
 func WriterHandlerCurrentWriterIndexByMessageIdKey(value *CurrentWriterView) (string, bool) {
 	var zero string
 	if value == nil {
@@ -1092,6 +1138,9 @@ func BuildWriterHandlerReadIndexes(ctx context.Context, input *Input) (*WriterHa
 			loaded, err := projection.Fields(ordinal)
 			if err != nil {
 				return nil, err
+			}
+			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("ResponseOverflow") {
+				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.ResponseOverflow")
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("MessageId") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWriter.MessageId")

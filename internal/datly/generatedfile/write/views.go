@@ -11,23 +11,23 @@ type GeneratedFile struct {
 	ShouldDelete   bool              `sqlx:"-" writer:"delete" json:"shouldDelete,omitempty"`
 	Id             string            `validate:"required" sqlx:"id,primaryKey" json:"id"`
 	ConversationId string            "validate:\"required\" json:\"conversationId\" sqlx:\"conversation_id|`conversation_id`,refTable=conversation,refColumn=id,required=true\""
-	Provider       string            `validate:"required" json:"provider" sqlx:"provider,required=true"`
-	Mode           string            `validate:"required" json:"mode" sqlx:"mode,required=true"`
-	CopyMode       string            `validate:"required" json:"copyMode" sqlx:"copy_mode,required=true"`
-	Status         string            `validate:"required" json:"status" sqlx:"status,required=true"`
-	TurnId         *string           `sqlx:"turn_id" json:"turnId,omitempty"`
-	MessageId      *string           `sqlx:"message_id" json:"messageId,omitempty"`
-	PayloadId      *string           `sqlx:"payload_id" json:"payloadId,omitempty"`
-	ContainerId    *string           `sqlx:"container_id" json:"containerId,omitempty"`
-	ProviderFileId *string           `sqlx:"provider_file_id" json:"providerFileId,omitempty"`
-	Filename       *string           `sqlx:"filename" json:"filename,omitempty"`
-	MimeType       *string           `sqlx:"mime_type" json:"mimeType,omitempty"`
-	SizeBytes      *int              `sqlx:"size_bytes" json:"sizeBytes,omitempty"`
-	Checksum       *string           `sqlx:"checksum" json:"checksum,omitempty"`
-	ErrorMessage   *string           `sqlx:"error_message" json:"errorMessage,omitempty"`
-	ExpiresAt      *time.Time        `sqlx:"expires_at" json:"expiresAt,omitempty"`
-	CreatedAt      *time.Time        `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
-	UpdatedAt      *time.Time        `sqlx:"updated_at,required=true" json:"updatedAt,omitempty"`
+	Provider       string            "validate:\"required\" json:\"provider\" sqlx:\"provider|`provider`,required=true\""
+	Mode           string            "validate:\"required\" json:\"mode\" sqlx:\"mode|`mode`,required=true\""
+	CopyMode       string            "validate:\"required\" json:\"copyMode\" sqlx:\"copy_mode|`copy_mode`,required=true\""
+	Status         string            "validate:\"required\" json:\"status\" sqlx:\"status|`status`,required=true\""
+	TurnId         *string           "sqlx:\"turn_id|`turn_id`\" json:\"turnId,omitempty\""
+	MessageId      *string           "sqlx:\"message_id|`message_id`\" json:\"messageId,omitempty\""
+	PayloadId      *string           "sqlx:\"payload_id|`payload_id`\" json:\"payloadId,omitempty\""
+	ContainerId    *string           "sqlx:\"container_id|`container_id`\" json:\"containerId,omitempty\""
+	ProviderFileId *string           "sqlx:\"provider_file_id|`provider_file_id`\" json:\"providerFileId,omitempty\""
+	Filename       *string           "sqlx:\"filename|`filename`\" json:\"filename,omitempty\""
+	MimeType       *string           "sqlx:\"mime_type|`mime_type`\" json:\"mimeType,omitempty\""
+	SizeBytes      *int              "sqlx:\"size_bytes|`size_bytes`\" json:\"sizeBytes,omitempty\""
+	Checksum       *string           "sqlx:\"checksum|`checksum`\" json:\"checksum,omitempty\""
+	ErrorMessage   *string           "sqlx:\"error_message|`error_message`\" json:\"errorMessage,omitempty\""
+	ExpiresAt      *time.Time        "sqlx:\"expires_at|`expires_at`\" json:\"expiresAt,omitempty\""
+	CreatedAt      *time.Time        "sqlx:\"created_at|`created_at`,required=true\" json:\"createdAt,omitempty\""
+	UpdatedAt      *time.Time        "sqlx:\"updated_at|`updated_at`,required=true\" json:\"updatedAt,omitempty\""
 	Has            *GeneratedFileHas `setMarker:"true" format:"-" sqlx:"-" diff:"-" json:"-" typeName:"GeneratedFileHas"`
 }
 
@@ -58,23 +58,23 @@ type GeneratedFileHas struct {
 type CurrentWriterView struct {
 	Id             string     `validate:"required" sqlx:"id,primaryKey" json:"id"`
 	ConversationId string     "validate:\"required\" json:\"conversationId\" sqlx:\"conversation_id|`conversation_id`,refTable=conversation,refColumn=id,required=true\""
-	Provider       string     `validate:"required" json:"provider" sqlx:"provider,required=true"`
-	Mode           string     `validate:"required" json:"mode" sqlx:"mode,required=true"`
-	CopyMode       string     `validate:"required" json:"copyMode" sqlx:"copy_mode,required=true"`
-	Status         string     `validate:"required" json:"status" sqlx:"status,required=true"`
-	TurnId         *string    `sqlx:"turn_id" json:"turnId,omitempty"`
-	MessageId      *string    `sqlx:"message_id" json:"messageId,omitempty"`
-	PayloadId      *string    `sqlx:"payload_id" json:"payloadId,omitempty"`
-	ContainerId    *string    `sqlx:"container_id" json:"containerId,omitempty"`
-	ProviderFileId *string    `sqlx:"provider_file_id" json:"providerFileId,omitempty"`
-	Filename       *string    `sqlx:"filename" json:"filename,omitempty"`
-	MimeType       *string    `sqlx:"mime_type" json:"mimeType,omitempty"`
-	SizeBytes      *int       `sqlx:"size_bytes" json:"sizeBytes,omitempty"`
-	Checksum       *string    `sqlx:"checksum" json:"checksum,omitempty"`
-	ErrorMessage   *string    `sqlx:"error_message" json:"errorMessage,omitempty"`
-	ExpiresAt      *time.Time `sqlx:"expires_at" json:"expiresAt,omitempty"`
-	CreatedAt      *time.Time `sqlx:"created_at,required=true" json:"createdAt,omitempty"`
-	UpdatedAt      *time.Time `sqlx:"updated_at,required=true" json:"updatedAt,omitempty"`
+	Provider       string     "validate:\"required\" json:\"provider\" sqlx:\"provider|`provider`,required=true\""
+	Mode           string     "validate:\"required\" json:\"mode\" sqlx:\"mode|`mode`,required=true\""
+	CopyMode       string     "validate:\"required\" json:\"copyMode\" sqlx:\"copy_mode|`copy_mode`,required=true\""
+	Status         string     "validate:\"required\" json:\"status\" sqlx:\"status|`status`,required=true\""
+	TurnId         *string    "sqlx:\"turn_id|`turn_id`\" json:\"turnId,omitempty\""
+	MessageId      *string    "sqlx:\"message_id|`message_id`\" json:\"messageId,omitempty\""
+	PayloadId      *string    "sqlx:\"payload_id|`payload_id`\" json:\"payloadId,omitempty\""
+	ContainerId    *string    "sqlx:\"container_id|`container_id`\" json:\"containerId,omitempty\""
+	ProviderFileId *string    "sqlx:\"provider_file_id|`provider_file_id`\" json:\"providerFileId,omitempty\""
+	Filename       *string    "sqlx:\"filename|`filename`\" json:\"filename,omitempty\""
+	MimeType       *string    "sqlx:\"mime_type|`mime_type`\" json:\"mimeType,omitempty\""
+	SizeBytes      *int       "sqlx:\"size_bytes|`size_bytes`\" json:\"sizeBytes,omitempty\""
+	Checksum       *string    "sqlx:\"checksum|`checksum`\" json:\"checksum,omitempty\""
+	ErrorMessage   *string    "sqlx:\"error_message|`error_message`\" json:\"errorMessage,omitempty\""
+	ExpiresAt      *time.Time "sqlx:\"expires_at|`expires_at`\" json:\"expiresAt,omitempty\""
+	CreatedAt      *time.Time "sqlx:\"created_at|`created_at`,required=true\" json:\"createdAt,omitempty\""
+	UpdatedAt      *time.Time "sqlx:\"updated_at|`updated_at`,required=true\" json:\"updatedAt,omitempty\""
 }
 
 type WriterKeysRow struct {
