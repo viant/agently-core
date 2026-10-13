@@ -9,7 +9,6 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
-	"net/url"
 	"strings"
 	"time"
 )
@@ -275,14 +274,8 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 	if err = json.Unmarshal(projected, &clientDefinition); err != nil {
 		return nil, err
 	}
-	for id := range selected.DataSources {
-		entry, ok := clientDefinition.DataSource[id]
-		if !ok {
-			return nil, identity.ErrResourceDenied
-		}
-		entry.Service = &types.Service{Endpoint: "agentlyAPI", URI: "/v1/api/datasources/" + url.PathEscape(id) + "/fetch", Method: "POST"}
-		entry.Selectors = &types.Selectors{Data: "rows", DataInfo: "dataInfo", Metrics: "metrics"}
-		clientDefinition.DataSource[id] = entry
+	if err := projectWindowDatasourceTransport(&clientDefinition, selected.DataSources); err != nil {
+		return nil, err
 	}
 	if c.Gateway.generation(loc.Connection.Name) != loc.Connection.Generation {
 		return nil, identity.ErrResourceStale
