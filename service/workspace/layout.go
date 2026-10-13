@@ -619,6 +619,17 @@ func filterLayoutContextWithRuntimes(ctx context.Context, layout *Layout, admiss
 		if err != nil {
 			return nil, err
 		}
+		candidates := []policy.Candidate{}
+		seen := map[string]bool{}
+		for _, preparedApp := range prepared {
+			collectLayoutWindowCandidates(preparedApp.app.Menus, &candidates, seen, true)
+		}
+		if layout.Topbar != nil {
+			collectLayoutWindowCandidates(layout.Topbar.Actions, &candidates, seen, true)
+		}
+		if err := addVisibleLayoutAliases(ctx, catalog, allowedWindows, candidates); err != nil {
+			return nil, err
+		}
 	} else if runtime := admission; runtime != nil && runtime.IsEnabled(policy.OperationWindowView) {
 		exactWindowIDs = runtime.ExactIDs
 		candidates := []policy.Candidate{}
