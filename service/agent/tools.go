@@ -323,7 +323,7 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 
 func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, control agenttool.Selection) ([]llm.ToolDefinition, error) {
 	key := toolSelectionCacheKey(control)
-	if browserKey := browserToolSurfaceCacheKey(ctx); browserKey != "" {
+	if browserKey := browserToolSurfaceCacheKey(ctx, control); browserKey != "" {
 		key += "\x1e" + browserKey
 	}
 	if key != "" {
@@ -363,12 +363,23 @@ func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, cont
 	return cloneToolDefinitions(entry.Definitions), nil
 }
 
-func browserToolSurfaceCacheKey(ctx context.Context) string {
+func browserToolSurfaceCacheKey(ctx context.Context, control agenttool.Selection) string {
 	definitions := browsermcp.Definitions(ctx)
 	if len(definitions) == 0 {
 		return ""
 	}
-	raw, err := json.Marshal(definitions)
+	selected := map[string]llm.ToolDefinition{}
+	for _, pattern := range control.Tools {
+		for name := range definitions {
+			if toolmatcher.Match(pattern, name) {
+				selected[name] = definitions[name]
+			}
+		}
+	}
+	if len(selected) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(selected)
 	if err != nil {
 		return ""
 	}
@@ -430,6 +441,9 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 		AsyncByID:    map[string]*llm.Tool{},
 		Complete:     true,
 	}
+	// Bundle rules and exclusions often repeat the same patterns. Reuse their
+	// matches during this resolution without caching across users or catalogs.
+	patternMatches := map[string][]*llm.ToolDefinition{}
 	for _, id := range bundleIDs {
 		key := strings.ToLower(strings.TrimSpace(id))
 		b := bundles[key]
@@ -451,9 +465,15 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 			continue
 		}
 		res := toolbundle.ResolveDefinitionsWithOptions(b, func(pattern string) []*llm.ToolDefinition {
+			if definitions, ok := patternMatches[pattern]; ok {
+				return definitions
+			}
 			definitions, matchErr := s.matchDefinitionsResult(ctx, pattern)
 			if err == nil && matchErr != nil {
 				err = matchErr
+			}
+			if matchErr == nil {
+				patternMatches[pattern] = definitions
 			}
 			return definitions
 		})
