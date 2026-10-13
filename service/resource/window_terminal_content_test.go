@@ -18,7 +18,7 @@ func TestWindowTerminalContentCallbackAndAuthoritativeFallback(t *testing.T) {
 	p.definition = localWindowBytes(t)
 	g, _, _ := fixtureGateway(t, map[string]*fixtureProvider{"remote": p})
 	proof, _ := types.NewWindowTargetHMAC(bytes.Repeat([]byte{1}, 32))
-	catalog := &WindowCatalog{Gateway: g, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }}
+	catalog := &WindowCatalog{Gateway: g, TargetProof: proof}
 	opened, err := catalog.Get(context.Background(), &ui.WindowDefinitionGetInput{WindowID: "window://example/sales"})
 	require.NoError(t, err)
 	pin := *opened.Definition.Resource
@@ -78,7 +78,7 @@ func TestCompositeTerminalOlderLocalExactAuthorizedFallback(t *testing.T) {
 	p.definition = localWindowBytes(t)
 	g, _, _ := fixtureGateway(t, map[string]*fixtureProvider{"remote": p})
 	proof, _ := types.NewWindowTargetHMAC(bytes.Repeat([]byte{1}, 32))
-	remote := &WindowCatalog{Gateway: g, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }}
+	remote := &WindowCatalog{Gateway: g, TargetProof: proof}
 	opened, err := remote.Get(context.Background(), &ui.WindowDefinitionGetInput{WindowID: "window://example/sales"})
 	require.NoError(t, err)
 	pin := *opened.Definition.Resource

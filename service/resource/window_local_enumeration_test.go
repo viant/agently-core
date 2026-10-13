@@ -5,7 +5,6 @@ import (
 	"context"
 	"github.com/stretchr/testify/require"
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
-	identity "github.com/viant/agently-core/protocol/resource"
 	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
 	"github.com/viant/mcp"
@@ -21,7 +20,7 @@ func enumerationComposite(t *testing.T, g *Gateway, owner, uri string) *Composit
 	t.Helper()
 	proof, err := types.NewWindowTargetHMAC(bytes.Repeat([]byte{3}, 32))
 	require.NoError(t, err)
-	return &CompositeWindowCatalog{Local: localCatalogStub{service.WindowDefinitionSummary{WindowID: "native", ResourceURI: uri, ProviderIdentity: owner}}, LocalProviderIdentity: owner, Remote: &WindowCatalog{Gateway: g, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }}}
+	return &CompositeWindowCatalog{Local: localCatalogStub{service.WindowDefinitionSummary{WindowID: "native", ResourceURI: uri, ProviderIdentity: owner}}, LocalProviderIdentity: owner, Remote: &WindowCatalog{Gateway: g, TargetProof: proof}}
 }
 func TestCompositeEnumeratesProcessOwnedLocalConnectionOnlyThroughLocalCatalog(t *testing.T) {
 	remote := provider("remote-owner")

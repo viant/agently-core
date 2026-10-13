@@ -29,7 +29,7 @@ func TestBuilderInstallsOneSourceAwarePrimitiveWindowPath(t *testing.T) {
 	require.NoError(t, e)
 	bridge := service.NewService(&service.Config{WindowDefinitions: primitiveLocalCatalog{}, DynamicWindowAuthorizer: func(context.Context, string) (bool, error) { return true, nil }})
 	runtime := &Runtime{MCPManager: mgr, UIBridge: bridge}
-	builder := NewBuilder().WithPrimitiveAuthority(func(context.Context) (identity.VerifiedActor, error) { return actor, nil }, func(context.Context, identity.VerifiedActor) error { return nil }, "local-workspace").WithPrimitiveGatewayIdentity("gateway").WithPrimitiveWindows(func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }, proof)
+	builder := NewBuilder().WithPrimitiveAuthority(func(context.Context) (identity.VerifiedActor, error) { return actor, nil }, func(context.Context, identity.VerifiedActor) error { return nil }, "local-workspace").WithPrimitiveGatewayIdentity("gateway").WithPrimitiveWindows(proof)
 	require.NoError(t, builder.configurePrimitiveProviders(runtime))
 	require.NotNil(t, runtime.PrimitiveProviders)
 	require.NotNil(t, runtime.PrimitiveWindows)
@@ -50,6 +50,6 @@ func TestBuilderInstallsOneSourceAwarePrimitiveWindowPath(t *testing.T) {
 }
 func TestBuilderRejectsIncompletePrimitiveHostGuards(t *testing.T) {
 	builder := NewBuilder()
-	builder.primitiveWindowAdmission = func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }
+	builder.primitiveTargetProof, _ = types.NewWindowTargetHMAC([]byte(strings.Repeat("k", 32)))
 	require.Error(t, builder.configurePrimitiveProviders(&Runtime{}))
 }

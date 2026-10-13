@@ -146,7 +146,7 @@ func (s *Service) authorizePinnedCommand(ctx context.Context, ns, clientID, meth
 	if err != nil {
 		return nil, errors.New("window resource is unavailable")
 	}
-	if s.cfg.ResolvedWindowAuthorizer == nil || s.cfg.ResolvedWindowAuthorizer(ctx, *fresh, method, input) != nil {
+	if fresh == nil || fresh.URI != pin.Resource.URI || fresh.ProviderIdentity != pin.Resource.ProviderIdentity || fresh.ResourceCandidate != pin.Resource.ResourceCandidate || fresh.AuthorityBinding != pin.Resource.AuthorityBinding || fresh.ValidUntil.After(pin.Resource.ValidUntil) || !fresh.ValidUntil.After(time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
 	return &pin, nil

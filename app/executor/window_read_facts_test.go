@@ -65,7 +65,7 @@ func actualWindowFactFixture(t *testing.T) (*slowWindowIdentity, *ui.Service, *w
 		return nil
 	}}
 	composite := &resources.CompositeWindowCatalog{Remote: actual}
-	service := ui.NewService(&ui.Config{WindowDefinitions: composite, MetadataScope: sharedWindowMetadataFacts{source}, WindowReadDecisionScope: source.prepared.provider.WindowReadDecisionScope, ResolvedWindowAuthorizer: func(context.Context, identity.ResolvedResource, string, map[string]any) error { return nil }})
+	service := ui.NewService(&ui.Config{WindowDefinitions: composite, MetadataScope: sharedWindowMetadataFacts{source}, WindowReadDecisionScope: source.prepared.provider.WindowReadDecisionScope})
 	service.ConfigureNamespaceResolver(trustedUINamespace(source.prepared.provider.AuthoritySnapshot, source.prepared.provider.ExecutionContext), source.prepared.provider.ExecutionContext)
 	return source, service, bytes, ctx, cleanup
 }

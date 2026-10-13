@@ -9,6 +9,7 @@ import (
 	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/service/ui/layoutgate"
 	"github.com/viant/agently-core/service/ui/permittedview"
+	workspacewindow "github.com/viant/agently-core/service/ui/window"
 	"github.com/viant/agently-core/workspace"
 	wscfg "github.com/viant/agently-core/workspace/config"
 	"github.com/viant/forge/backend/reporting/registry"
@@ -25,6 +26,9 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	if out == nil || out.MCPManager == nil || out.PrimitiveProviders != nil || out.LocalPrimitiveProvider != nil || out.ComponentAuthority != nil || b.primitiveActor != nil || b.primitiveVerifier != nil || b.pinnedDatasourceRevalidator != nil || b.pinnedDatasourceResolver != nil || b.pinnedDatasourceAuthorizer != nil {
 		return nil
 	}
+	// Existing canonical window consumers retain their configured owning-server
+	// path. Other default primitives still publish independently below.
+	captureWorkspaceWindows := out.UIBridge == nil || !out.UIBridge.UsesWindowResourceResolution()
 	actor, verify := resources.PublicReadActors()
 	if out.AuthConfig != nil && out.AuthConfig.Enabled {
 		publicActor, publicVerify := actor, verify
@@ -69,9 +73,13 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		assets = append(assets, directory.Directory)
 	}
 
-	windowBindings, err := resources.NativeWorkspaceWindowBindings(context.Background(), root, "workspace")
-	if err != nil {
-		return err
+	var windowBindings []workspacewindow.ResourceBinding
+	var err error
+	if captureWorkspaceWindows {
+		windowBindings, err = resources.NativeWorkspaceWindowBindings(context.Background(), root, "workspace")
+		if err != nil {
+			return err
+		}
 	}
 	var windowDefs []resources.NativeSnapshotDefinition
 	if len(windowBindings) > 0 {
@@ -89,9 +97,12 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	if _, err := os.Stat(filepath.Join(root, "extension/forge")); err == nil {
 		assets = append(assets, "extension/forge")
 	}
-	defs, err := resources.SnapshotExtensionDefinitions(context.Background(), root, directories)
-	if err != nil {
-		return err
+	var defs []resources.NativeSnapshotDefinition
+	if len(directories) > 0 {
+		defs, err = resources.SnapshotExtensionDefinitions(context.Background(), root, directories)
+		if err != nil {
+			return err
+		}
 	}
 	reportRoot := ""
 	config, err := wscfg.Load(root)

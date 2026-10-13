@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	authctx "github.com/viant/agently-core/internal/auth"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
 	manager "github.com/viant/agently-core/protocol/mcp/manager"
@@ -27,6 +28,9 @@ type executingProvider struct {
 	signer     *types.WindowTargetHMAC
 	calls      int
 	afterFetch func()
+	inputs     map[string]interface{}
+	bearer     string
+	idToken    string
 }
 
 func (p *executingProvider) ListTools(ctx context.Context, cursor *string, options ...mcpclient.RequestOption) (*schema.ListToolsResult, error) {
@@ -39,6 +43,7 @@ func (p *executingProvider) ListTools(ctx context.Context, cursor *string, optio
 func (p *executingProvider) CallTool(ctx context.Context, r *schema.CallToolRequestParams, options ...mcpclient.RequestOption) (*schema.CallToolResult, error) {
 	if r.Name == "windows/datasource" {
 		p.calls++
+		p.bearer, p.idToken = authctx.Bearer(ctx), authctx.IDToken(ctx)
 		var in struct {
 			Resource       identity.ResolvedResource `json:"resource"`
 			ExecutionProof *primitive.ExecutionProof `json:"executionProof"`
@@ -47,6 +52,7 @@ func (p *executingProvider) CallTool(ctx context.Context, r *schema.CallToolRequ
 		}
 		raw, _ := json.Marshal(r.Arguments)
 		_ = json.Unmarshal(raw, &in)
+		p.inputs = in.Inputs
 		if !mcpclient.NewRequestOptions(options).NoRetry || in.ExecutionProof == nil || in.DataSourceID != "rows" || in.Resource.ValidUntil.After(in.ExecutionProof.Resource.ValidUntil) || p.signer.Verify(ctx, in.ExecutionProof.Resource, types.WindowTarget{}, in.ExecutionProof.Binding, in.ExecutionProof.Token) != nil {
 			return dependencyToolError(identity.ErrResourceDenied), nil
 		}
@@ -82,7 +88,7 @@ func (p *executingProvider) CallTool(ctx context.Context, r *schema.CallToolRequ
 }
 
 func TestProviderOwnedDatasourcePipelineRetainsBothProofsAndBuffersFinalDenial(t *testing.T) {
-	ctx := context.Background()
+	ctx := authctx.WithIDToken(authctx.WithBearer(context.Background(), "window-access"), "window-id")
 	base := provider("studio-a")
 	signer, e := types.NewWindowTargetHMAC(bytes.Repeat([]byte{1}, 32))
 	require.NoError(t, e)
@@ -116,12 +122,7 @@ func TestProviderOwnedDatasourcePipelineRetainsBothProofsAndBuffersFinalDenial(t
 	defer g.Close()
 	hostSigner, e := types.NewWindowTargetHMAC(bytes.Repeat([]byte{2}, 32))
 	require.NoError(t, e)
-	catalog := &WindowCatalog{Gateway: g, TargetProof: hostSigner, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error {
-		if revoked {
-			return identity.ErrResourceDenied
-		}
-		return nil
-	}}
+	catalog := &WindowCatalog{Gateway: g, TargetProof: hostSigner}
 	opened, e := catalog.Get(ctx, &bridge.WindowDefinitionGetInput{WindowID: "window://example/sales"})
 	require.NoError(t, e)
 	parent := *opened.Definition.Resource
@@ -151,10 +152,14 @@ func TestProviderOwnedDatasourcePipelineRetainsBothProofsAndBuffersFinalDenial(t
 		target, _ := requestctx.WindowTargetFromContext(ctx)
 		return catalog.FetchProviderDatasource(ctx, *pin, target, ds, args)
 	}})
-	result, e := svc.Fetch(ctx, "rows", nil, dssvc.FetchOptions{Resource: &parent, Target: target})
+	inputs := map[string]interface{}{"filter": "authored", "ids": []interface{}{float64(7), "literal"}}
+	result, e := svc.Fetch(ctx, "rows", inputs, dssvc.FetchOptions{Resource: &parent, Target: target})
 	require.NoError(t, e)
 	require.Len(t, result.Rows, 1)
 	require.EqualValues(t, 1, p.calls)
+	require.Equal(t, inputs, p.inputs, "consumer must preserve ordinary datasource inputs")
+	require.Equal(t, "window-access", p.bearer)
+	require.Equal(t, "window-id", p.idToken)
 	_, e = svc.Fetch(ctx, "rows", nil, dssvc.FetchOptions{Resource: &parent, Target: target})
 	require.NoError(t, e)
 	require.EqualValues(t, 2, p.calls, "provider execution cannot be hidden by a generic datasource cache")
@@ -168,26 +173,20 @@ func TestProviderOwnedDatasourcePipelineRetainsBothProofsAndBuffersFinalDenial(t
 	require.EqualValues(t, 2, p.calls, "tampered host proof must deny before provider execution")
 	// A successful fresh verifier is insufficient if it consumes the original
 	// lease. Advance the test clock in the terminal verifier, after the final
-	// source read and admission; no sleeps or deadline renewal are involved.
-	armAdmission, armFinal := false, false
-	originalAdmission, originalVerify := catalog.Admission, g.Verify
-	catalog.Admission = func(ctx context.Context, pin identity.ResolvedResource, w *types.Window) error {
-		if armAdmission {
-			armFinal = true
-		}
-		return originalAdmission(ctx, pin, w)
-	}
+	// source read; no sleeps or deadline renewal are involved.
+	armFinal := false
+	originalVerify := g.Verify
 	g.Verify = func(ctx context.Context, actor identity.VerifiedActor) error {
 		if armFinal {
 			g.Now = func() time.Time { return parent.ValidUntil.Add(time.Nanosecond) }
 		}
 		return originalVerify(ctx, actor)
 	}
-	p.afterFetch = func() { armAdmission = true }
+	p.afterFetch = func() { armFinal = true }
 	body, e := catalog.FetchProviderDatasource(ctx, parent, target, &descriptor, nil)
 	require.ErrorIs(t, e, identity.ErrResourceDenied)
 	require.Nil(t, body, "terminal fresh authorization cannot release rows after the original lease")
-	g.Now, g.Verify, catalog.Admission = nil, originalVerify, originalAdmission
+	g.Now, g.Verify = nil, originalVerify
 	p.afterFetch = func() { revoked = true }
 	result, e = svc.Fetch(ctx, "rows", nil, dssvc.FetchOptions{Resource: &parent, Target: target})
 	require.Error(t, e)

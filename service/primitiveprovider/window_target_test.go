@@ -43,7 +43,7 @@ func TestWindowInstanceActionsAndSnapshotsRetainExactTarget(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	svc := NewService(&Config{WindowDefinitions: catalog, ResolvedWindowAuthorizer: func(context.Context, identity.ResolvedResource, string, map[string]any) error { return nil }})
+	svc := NewService(&Config{WindowDefinitions: catalog})
 	pin := windowResourcePin{WindowKey: "sales", Resource: *definition.Definition.Resource, Target: definition.Definition.ResourceTarget}
 	key := windowPinKey{Namespace: "workspace", ClientID: "client", WindowID: "instance"}
 	if err := svc.rememberWindowPin(context.Background(), key, pin); err != nil {

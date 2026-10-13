@@ -36,7 +36,7 @@ func feedOwnershipFixture(t *testing.T) (*Service, context.Context, *atomic.Bool
 		}
 		return NamespaceIdentity{Namespace: owner, ValidUntil: time.Now().Add(time.Minute)}, nil
 	}
-	svc := NewService(&Config{WindowDefinitions: feedCanonicalCatalog{}, NamespaceResolver: resolver, ResolvedWindowAuthorizer: func(context.Context, identity.ResolvedResource, string, map[string]any) error { return nil }})
+	svc := NewService(&Config{WindowDefinitions: feedCanonicalCatalog{}, NamespaceResolver: resolver})
 	ctx := requestctx.WithConversationID(context.WithValue(context.Background(), feedOwnerKey{}, "alice"), "conv-a")
 	require.NotNil(t, svc.Hub().registerHTTPClient("alice", "client-a", ctx))
 	svc.Hub().setSnapshot("alice", "client-a", json.RawMessage(`{"conversationId":"conv-a","windows":[]}`))

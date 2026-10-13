@@ -102,9 +102,6 @@ func (s *Service) shareCanonicalReport(ctx context.Context, request *ShareArtifa
 	if json.Unmarshal(raw, &envelope) != nil || envelope.SchemaVersion != 1 || len(envelope.ReportDocument) == 0 {
 		return nil, identity.ErrResource
 	}
-	if err := s.authorizeAction(ctx, "report.retrieve", pin.URI); err != nil {
-		return nil, err
-	}
 	ownerID := effectiveActorID(ctx)
 	if ownerID == "" || ownerID != actor.Subject {
 		return nil, identity.ErrResourceDenied

@@ -11,14 +11,14 @@ import (
 	"time"
 
 	"github.com/viant/afs"
+	identity "github.com/viant/agently-core/protocol/resource"
 	contexttool "github.com/viant/agently-core/protocol/tool/service/ui/context"
 	datasourcetool "github.com/viant/agently-core/protocol/tool/service/ui/datasource"
 	eventstool "github.com/viant/agently-core/protocol/tool/service/ui/events"
 	windowtool "github.com/viant/agently-core/protocol/tool/service/ui/window"
 	"github.com/viant/agently-core/runtime/requestctx"
-	repo "github.com/viant/agently-core/workspace/repository/forgewindow"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
-	identity "github.com/viant/agently-core/protocol/resource"
+	repo "github.com/viant/agently-core/workspace/repository/forgewindow"
 	"github.com/viant/forge/backend/service/meta"
 )
 
@@ -90,12 +90,8 @@ func canonicalLifecycleFixture(t *testing.T, root string) (*Service, *forgeuisvc
 	if err != nil {
 		t.Fatal(err)
 	}
-	bridge := forgeuisvc.NewService(&forgeuisvc.Config{WindowDefinitions: catalog, DynamicWindowAuthorizer: func(context.Context, string) (bool, error) { return true, nil }, ResolvedWindowAuthorizer: func(ctx context.Context, pin identity.ResolvedResource, method string, params map[string]any) error {
-		if trusted, ok := requestctx.ResolvedResourceFromContext(ctx); ok && (trusted.ResourceCandidate != pin.ResourceCandidate || trusted.AuthorityBinding != pin.AuthorityBinding) {
-			return identity.ErrResourceDenied
-		}
-		return nil
-	}})
+	bridge := forgeuisvc.NewService(&forgeuisvc.Config{WindowDefinitions: catalog, DynamicWindowAuthorizer: func(context.Context, string) (bool, error) { return true, nil }})
+
 	postUIRPC(t, bridge, "ui.hello", map[string]any{"clientId": "client"})
 	postUIRPC(t, bridge, "ui.snapshot", map[string]any{"clientId": "client", "data": map[string]any{"conversationId": "conversation", "clientId": "client", "windows": []any{map[string]any{"windowId": "chat/new", "windowKey": "chat/new", "conversationId": "conversation"}}}})
 	ctx := requestctx.WithConversationID(context.Background(), "conversation")

@@ -17,6 +17,7 @@ import (
 	reporting "github.com/viant/agently-core/service/reporting"
 	reportcatalog "github.com/viant/agently-core/service/reporting/catalog"
 	"github.com/viant/mcp"
+	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 )
 
@@ -69,18 +70,11 @@ func reportGatewayFixture(t *testing.T) (*ReportGatewayCatalog, *localFixtureSou
 	require.NoError(t, mgr.RegisterLocal(context.Background(), "internal", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "internal"}, func(context.Context) (mcpclient.Interface, error) { return NewLocalMCPClient(provider) }))
 	gateway := NewGateway(mgr, actorFn, verify, "aggregate")
 	t.Cleanup(gateway.Close)
-	return &ReportGatewayCatalog{Gateway: gateway, Admission: func(context.Context, string, identity.ResolvedResource, json.RawMessage) error { return nil }}, source, actor, allowed, provider
+	return &ReportGatewayCatalog{Gateway: gateway}, source, actor, allowed, provider
 }
 func TestReportingServiceUsesGatewayForListGetCompileAndRechecks(t *testing.T) {
 	ctx := context.Background()
-	catalog, source, _, _, _ := reportGatewayFixture(t)
-	var deny atomic.Bool
-	catalog.Admission = func(_ context.Context, operation string, _ identity.ResolvedResource, _ json.RawMessage) error {
-		if operation == "report.compile" && deny.Load() {
-			return identity.ErrResourceDenied
-		}
-		return nil
-	}
+	catalog, source, _, allowed, _ := reportGatewayFixture(t)
 	calls := 0
 	drift := false
 	service := reporting.New(reporting.Options{Store: reporting.NewMemoryStore(), ReportCatalog: catalog, Compiler: gatewayReportCompiler(func(_ context.Context, request *reporting.CompileRequest) (*reporting.CompileResult, error) {
@@ -110,12 +104,12 @@ func TestReportingServiceUsesGatewayForListGetCompileAndRechecks(t *testing.T) {
 	require.Equal(t, original.AuthorityBinding, compiled.Resource.AuthorityBinding)
 	require.False(t, compiled.Resource.ValidUntil.After(original.ValidUntil))
 	require.Equal(t, 1, calls)
-	deny.Store(true)
+	allowed.Store(false)
 	result, err := service.Compile(ctx, &reporting.CompileRequest{ResolvedResource: compiled.Resource})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	require.Nil(t, result)
 	require.Equal(t, 1, calls)
-	deny.Store(false)
+	allowed.Store(true)
 	drift = true
 	result, err = service.Compile(ctx, &reporting.CompileRequest{ResolvedResource: compiled.Resource})
 	require.Error(t, err)
@@ -125,24 +119,18 @@ func TestReportingServiceUsesGatewayForListGetCompileAndRechecks(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, got)
 }
-func TestReportGatewayFinalAdmissionCannotExtendExpiredLeaseOrChangeActor(t *testing.T) {
+func TestReportGatewayManagingReadCannotReleaseExpiredPinOrChangedActor(t *testing.T) {
 	for _, scenario := range []string{"lease", "actor"} {
 		t.Run(scenario, func(t *testing.T) {
-			catalog, _, actor, _, _ := reportGatewayFixture(t)
+			catalog, source, actor, _, _ := reportGatewayFixture(t)
 			now := time.Now()
 			catalog.Gateway.Now = func() time.Time { return now }
-			calls := 0
-			catalog.Admission = func(_ context.Context, _ string, pin identity.ResolvedResource, raw json.RawMessage) error {
-				calls++
-				if calls == 1 {
-					if scenario == "lease" {
-						now = pin.ValidUntil.Add(time.Nanosecond)
-						// Actor remains valid beyond the original shorter provider lease.
-					} else {
-						actor.IdentityRevision = "revoked-r2"
-					}
+			source.onRead = func() {
+				if scenario == "lease" {
+					now = now.Add(2 * time.Minute)
+				} else {
+					actor.IdentityRevision = "revoked-r2"
 				}
-				return nil
 			}
 			reader, err := catalog.Reader(context.Background(), "report.compile")
 			require.NoError(t, err)
@@ -153,16 +141,9 @@ func TestReportGatewayFinalAdmissionCannotExtendExpiredLeaseOrChangeActor(t *tes
 	}
 }
 
-func TestReportGatewayFinalAdmissionCannotReleaseRevokedProvider(t *testing.T) {
-	catalog, _, _, allowed, _ := reportGatewayFixture(t)
-	calls := 0
-	catalog.Admission = func(context.Context, string, identity.ResolvedResource, json.RawMessage) error {
-		calls++
-		if calls == 1 {
-			allowed.Store(false)
-		}
-		return nil
-	}
+func TestReportGatewayManagingMCPRevocationDiscardsRead(t *testing.T) {
+	catalog, source, _, allowed, _ := reportGatewayFixture(t)
+	source.onRead = func() { allowed.Store(false) }
 	reader, err := catalog.Reader(context.Background(), "report.compile")
 	require.NoError(t, err)
 	pin, err := reader.Resolve(context.Background(), identity.ResourceRef{URI: "report://steward/sales"})
@@ -187,9 +168,9 @@ func TestReportGatewayMetadataFinishCannotReleaseExpiredPins(t *testing.T) {
 	now := time.Now()
 	catalog.Gateway.Now = func() time.Time { return now }
 	var expires time.Time
-	catalog.Admission = func(_ context.Context, _ string, pin identity.ResolvedResource, _ json.RawMessage) error {
+	catalog.Capabilities = func(_ context.Context, _ identity.VerifiedActor, _ reportcatalog.ReportCatalogCandidate, pin identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
 		expires = pin.ValidUntil
-		return nil
+		return reportcatalog.ReportCapabilities{}, nil
 	}
 	catalog.BeginMetadataRead = func(ctx context.Context) (context.Context, func() error, error) {
 		return ctx, func() error { now = expires.Add(time.Nanosecond); return nil }, nil
@@ -204,19 +185,19 @@ func TestReportGatewayListHidesOrdinaryDenialButRejectsIdentityAndOutages(t *tes
 		name    string
 		failure error
 		hide    bool
-	}{{"policy-permission", policy.ErrDenied, true}, {"authz-permission", authz.ErrDenied, true}, {"identity", policy.ErrIdentityRejected, false}, {"identity-joined-denial", errors.Join(identity.ErrResourceDenied, authz.ErrIdentityDenied), false}, {"outage", errors.New("host report policy unavailable"), false}} {
+	}{{"managing-permission", identity.ErrResourceDenied, true}, {"identity", policy.ErrIdentityRejected, false}, {"identity-joined-denial", errors.Join(identity.ErrResourceDenied, authz.ErrIdentityDenied), false}, {"outage", errors.New("host report policy unavailable"), false}} {
 		t.Run(scenario.name, func(t *testing.T) {
 			catalog, _, _, _, provider := reportGatewayFixture(t)
 			hidden := localProviderBinding(provider, "report://steward/sales")
 			hidden.URI = "report://steward/hidden"
 			hidden.Title = "Hidden"
 			updateLocalProvider(t, provider, func(config *LocalConfig) { setLocalConfigBinding(config, hidden) })
-			catalog.Admission = func(_ context.Context, _ string, pin identity.ResolvedResource, _ json.RawMessage) error {
-				if pin.URI == hidden.URI {
+			attachReportConsumerClient(t, catalog, provider, func(_ context.Context, request *schema.CallToolRequestParams) error {
+				if request.Name == "reports/get" && request.Arguments["uri"] == hidden.URI {
 					return scenario.failure
 				}
 				return nil
-			}
+			})
 			result, err := catalog.List(context.Background(), reportcatalog.ReportCatalogQuery{Namespace: "steward"})
 			if scenario.hide {
 				require.NoError(t, err)

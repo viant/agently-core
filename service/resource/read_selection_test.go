@@ -325,7 +325,7 @@ func TestSelectedDatasourceConcurrentRegistrationAndCancellationCannotPassBarrie
 	require.NoError(t, err)
 	entered := make(chan struct{})
 	release := make(chan struct{})
-	stack.catalog.Admission = func(ctx context.Context, _ identity.ResolvedResource, _ *types.Window) error {
+	require.NoError(t, RegisterDatasourceSelectionAdmission(ctx, parent, target, "orders", fp, func(ctx context.Context) error {
 		close(entered)
 		select {
 		case <-release:
@@ -333,13 +333,13 @@ func TestSelectedDatasourceConcurrentRegistrationAndCancellationCannotPassBarrie
 		case <-ctx.Done():
 			return ctx.Err()
 		}
-	}
+	}))
 	completed := make(chan error, 1)
 	go func() { _, err := requestctx.BeginResourceReadDispatch(ctx); completed <- err }()
 	select {
 	case <-entered:
 	case <-time.After(time.Second):
-		t.Fatal("barrier did not enter host admission")
+		t.Fatal("barrier did not enter selected descriptor check")
 	}
 	require.Error(t, RegisterDatasourceSelectionAdmission(ctx, parent, target, "orders", fp, func(context.Context) error { return nil }), "new checks cannot enter a barrier already in progress")
 	cancel()
@@ -480,17 +480,17 @@ func TestSelectedDatasourceFinalBarrierRejectsConcurrentRegistration(t *testing.
 	fingerprint, err := types.WindowDescriptorFingerprint(raw)
 	require.NoError(t, err)
 	entered, release := make(chan struct{}), make(chan struct{})
-	stack.catalog.Admission = func(context.Context, identity.ResolvedResource, *types.Window) error {
+	require.NoError(t, RegisterDatasourceSelectionAdmission(ctx, parent, target, "orders", fingerprint, func(context.Context) error {
 		close(entered)
 		<-release
 		return nil
-	}
+	}))
 	done := make(chan error, 1)
 	go func() { done <- finish() }()
 	select {
 	case <-entered:
 	case <-time.After(time.Second):
-		t.Fatal("final barrier did not enter admission")
+		t.Fatal("final barrier did not enter selected descriptor check")
 	}
 	registration := RegisterDatasourceSelectionAdmission(ctx, parent, target, "orders", fingerprint, func(context.Context) error { return nil })
 	close(release)

@@ -31,7 +31,7 @@ func TestDelegatedWindowProjectsOnlySelectedDatasourceHostFetchRoutes(t *testing
 	gateway, _, revoked := fixtureGateway(t, map[string]*fixtureProvider{"studio": provider})
 	proof, err := types.NewWindowTargetHMAC(bytes.Repeat([]byte{4}, 32))
 	require.NoError(t, err)
-	catalog := &WindowCatalog{Gateway: gateway, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }}
+	catalog := &WindowCatalog{Gateway: gateway, TargetProof: proof}
 	result, err := catalog.Get(context.Background(), &service.WindowDefinitionGetInput{WindowID: "window://example/sales"})
 	require.NoError(t, err)
 	fetch := result.Definition.DataSource[id].Service

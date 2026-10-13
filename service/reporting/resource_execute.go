@@ -389,9 +389,9 @@ func (s *Service) executeResourceTool(ctx context.Context, in, out interface{}) 
 	return nil
 }
 
-// AuthorizeResourceDataset reconciles the exact typed descriptor with the
-// pinned source before/after dispatch. Registry.Execute applies normal MCP
-// input/entity admission under the same identity context.
+// AuthorizeResourceDataset validates that the dispatched descriptor matches the
+// immutable report definition. The managing MCP authorizes each tool call using
+// the forwarded caller credentials; no local report policy is evaluated here.
 func (s *Service) AuthorizeResourceDataset(ctx context.Context, descriptor *dsproto.DataSource, _ map[string]interface{}) error {
 	pin, ok := requestctx.ResolvedResourceFromContext(ctx)
 	if !ok || descriptor == nil || !s.hasResourceReader() {
@@ -436,5 +436,5 @@ func (s *Service) AuthorizeResourceDataset(ctx context.Context, descriptor *dspr
 	if !reflect.DeepEqual(&expected, descriptor) {
 		return identity.ErrResourceDenied
 	}
-	return s.authorizeAction(ctx, "report.execute", pin.URI)
+	return nil
 }

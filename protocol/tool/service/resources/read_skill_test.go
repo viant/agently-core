@@ -16,6 +16,7 @@ import (
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	memory "github.com/viant/agently-core/runtime/requestctx"
 	skillsvc "github.com/viant/agently-core/service/skill"
+	"github.com/viant/agently-core/workspace"
 )
 
 func TestRead_SKILLMD_ActivatesVisibleSkill(t *testing.T) {
@@ -114,7 +115,7 @@ func (deniedNativeSkillDelivery) Read(context.Context, string) (*skillproto.Skil
 func TestRead_SKILLMD_DeniedDeliveryDoesNotFallBackToFilesystem(t *testing.T) {
 	rootURL := tempDirURL(t)
 	rootPath := strings.TrimPrefix(rootURL, "file://")
-	skillDir := filepath.Join(rootPath, "demo")
+	skillDir := filepath.Join(rootPath, "skills", "demo")
 	require.NoError(t, os.MkdirAll(skillDir, 0o755))
 	require.NoError(t, os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: demo\ndescription: Demo skill.\n---\n\nbody\n"), 0o644))
 
@@ -132,7 +133,7 @@ func TestRead_SKILLMD_DeniedDeliveryDoesNotFallBackToFilesystem(t *testing.T) {
 		},
 		Skills: []string{"demo"},
 	}
-	skillService := skillsvc.New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{rootPath}}}, convClient, &testAgentFinder{agent: agent})
+	skillService := skillsvc.New(&execconfig.Defaults{Skills: execconfig.SkillsDefaults{Roots: []string{filepath.Join(rootPath, "skills")}}}, convClient, &testAgentFinder{agent: agent})
 	require.NoError(t, skillService.Load(context.Background()))
 	skillService.SetDelivery(nil, deniedNativeSkillDelivery{})
 
@@ -140,13 +141,14 @@ func TestRead_SKILLMD_DeniedDeliveryDoesNotFallBackToFilesystem(t *testing.T) {
 		WithConversationClient(convClient),
 		WithAgentFinder(&testAgentFinder{agent: agent}),
 		WithSkillService(skillService),
+		WithRawResourceBoundary(workspace.NewRawResourceBoundary(rootPath)),
 	)
 
 	ctx := memory.WithConversationID(context.Background(), "conv-1")
 	var out ReadOutput
 	err := svc.read(ctx, &ReadInput{
 		RootID: "local",
-		Path:   "demo/SKILL.md",
+		Path:   "skills/demo/SKILL.md",
 		Mode:   "text",
 	}, &out)
 	require.ErrorIs(t, err, identity.ErrResourceDenied)

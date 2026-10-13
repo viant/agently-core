@@ -41,7 +41,7 @@ func TestDefaultPresentationRolloverRetainsExactBrowserInstance(t *testing.T) {
 	old := &types.WindowTarget{Platform: "web", SelectionToken: "original"}
 	pin := identity.ResolvedResource{URI: "window://workspace/media", ProviderIdentity: "internal", AuthorityBinding: "public-local-definition", ValidUntil: time.Now().Add(-time.Second)}
 	catalog := &presentationCatalog{}
-	svc := NewService(&Config{WindowDefinitions: catalog, ResolvedWindowAuthorizer: func(context.Context, identity.ResolvedResource, string, map[string]any) error { return nil }})
+	svc := NewService(&Config{WindowDefinitions: catalog})
 	key := windowPinKey{Namespace: "default", ClientID: "client", WindowID: "media-instance"}
 	svc.resourcePins = map[windowPinKey]windowResourcePin{key: {WindowKey: "media", Resource: pin, Target: old}}
 	command := map[string]any{"windowId": key.WindowID, "target": old}

@@ -4,21 +4,20 @@ import (
 	"context"
 	"crypto/rand"
 	identity "github.com/viant/agently-core/protocol/resource"
-	"github.com/viant/agently-core/service/policy"
+
 	forge "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/agently-core/service/ui/permittedview"
 
 	auth "github.com/viant/agently-core/service/auth"
 	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/forge/backend/types"
-	"strings"
 )
 
-// configureDefaultWindowDelivery preserves the original host OPEN policy.
+// configureDefaultWindowDelivery signs exact target/definition selections.
 // Target signatures prove exact definition/variant integrity, not identity or
 // business permission. Managing MCP still authorizes every data/tool call.
 func (b *Builder) configureDefaultWindowDelivery(out *Runtime) error {
-	if !out.publicPrimitiveDefault || out.UIBridge == nil || b.primitiveWindowAdmission != nil {
+	if !out.publicPrimitiveDefault || out.UIBridge == nil || b.primitiveTargetProof != nil || out.UIBridge.UsesWindowResourceResolution() {
 		return nil
 	}
 	secret := make([]byte, 32)
@@ -30,34 +29,11 @@ func (b *Builder) configureDefaultWindowDelivery(out *Runtime) error {
 		return err
 	}
 	b.primitiveTargetProof = proof
-	b.primitiveWindowAdmission = func(ctx context.Context, pin identity.ResolvedResource, w *types.Window) error {
-		if ctx == nil || ctx.Err() != nil {
-			return identity.ErrResourceDenied
-		}
-		key := pin.URI
-		if parsed, err := identity.ParseResourceURI(pin.URI); err == nil && parsed.Namespace == "workspace" {
-			key = parsed.Name
-		}
-		if pin.ProviderIdentity == resources.InternalProviderIdentity && w != nil && strings.TrimSpace(w.WindowKey) != "" {
-			key = w.WindowKey
-		}
-		if out.AuthorizationPolicy != nil && out.AuthorizationPolicy.IsEnabled(policy.OperationWindowView) {
-			return out.AuthorizationPolicy.Authorize(ctx, policy.OperationWindowView, "", policy.Candidate{ID: key, Kind: "window"}, nil)
-		}
-		return nil
-	}
-	if out.UIBridge != nil {
-		out.UIBridge.ConfigureResolvedWindowAuthorizer(func(ctx context.Context, pin identity.ResolvedResource, _ string, _ map[string]any) error {
-			// The bridge first checks this current namespace/client/window's held pin.
-			// This callback retains original host window admission only.
-			return b.primitiveWindowAdmission(ctx, pin, nil)
-		})
-	}
 	return nil
 }
 
 func (b *Builder) configureDefaultWindowOpenAdmission(out *Runtime) {
-	if !out.publicPrimitiveDefault || out.UIBridge == nil || out.UIBridge.HasWindowOpenAdmission() {
+	if !out.publicPrimitiveDefault || out.UIBridge == nil || out.UIBridge.HasWindowOpenAdmission() || out.PrimitiveWindows == nil && out.UIBridge.UsesWindowResourceResolution() {
 		return
 	}
 	admission := &permittedview.OpenAdmission{Runtime: permittedview.NewRuntime(out.PermittedResolver), Bootstrap: b.windowOpenBootstrap, MatchSelection: b.windowOpenSelection}

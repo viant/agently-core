@@ -58,11 +58,8 @@ func (s *Service) PrepareNativePresentationRead(ctx context.Context, resource *i
 	if err != nil {
 		return nil, nil, err
 	}
-	// A warm renewal still rechecks current original OPEN/source admission.
+	// A warm renewal still rechecks the owning catalog and original source.
 	if _, err = s.revalidateWindowPin(ctx, fresh); err != nil {
-		return nil, nil, identity.ErrResourceDenied
-	}
-	if s.cfg.ResolvedWindowAuthorizer == nil || s.cfg.ResolvedWindowAuthorizer(ctx, fresh.Resource, "ui.datasource.refresh", nil) != nil {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	if bridge.sessionInfoByID(sessionID) != session || ctx.Err() != nil || !fresh.Resource.ValidUntil.After(time.Now()) {

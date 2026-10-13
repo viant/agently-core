@@ -7,6 +7,7 @@ import (
 	"github.com/viant/agently-core/protocol/mcp/manager"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	auth "github.com/viant/agently-core/service/auth"
+	service "github.com/viant/agently-core/service/primitiveprovider"
 	resources "github.com/viant/agently-core/service/resource"
 	"github.com/viant/agently-core/workspace"
 	fsstore "github.com/viant/agently-core/workspace/store/fs"
@@ -139,4 +140,38 @@ func TestDefaultPublicDatasourceAndFeedShareNativeGateway(t *testing.T) {
 	current, err := os.ReadFile(file)
 	require.NoError(t, err)
 	require.Equal(t, body, current, "authored YAML stays exact")
+}
+
+type configuredCanonicalWindowCatalog struct{ primitiveLocalCatalog }
+
+func (configuredCanonicalWindowCatalog) UsesResourceResolution() bool { return true }
+
+func TestDefaultPublicOtherPrimitivesPreserveConfiguredCanonicalWindowConsumer(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "feeds"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "feeds/media.yaml"), []byte("id: media-plan\nmatch: {service: synthetic, method: update}\nui: {title: Original}\n"), 0600))
+	// A saved consumer locator is not an authored local window definition.
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "extension/forge/windows"), 0700))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "extension/forge/windows/overview.yaml"), []byte("id: overview\nwindowKey: primitive:existing-provider-locator\n"), 0600))
+	mgr, err := manager.New(nil)
+	require.NoError(t, err)
+	configured := &configuredCanonicalWindowCatalog{}
+	bridge := service.NewService(&service.Config{WindowDefinitions: configured})
+	out := &Runtime{MCPManager: mgr, Store: fsstore.New(root), UIBridge: bridge}
+	builder := NewBuilder()
+	require.NoError(t, builder.configurePrimitiveProviders(out))
+	defer out.PrimitiveProviders.Close()
+	builder.configureDefaultWindowOpenAdmission(out)
+	require.Nil(t, out.PrimitiveWindows, "default composition must retain the configured window consumer")
+	require.Nil(t, builder.primitiveTargetProof, "default composition must not create a second window selection owner")
+	bridge.ConfigureWindowCatalog(func(actual service.WindowDefinitionCatalog) service.WindowDefinitionCatalog {
+		require.Same(t, configured, actual)
+		return actual
+	})
+	require.False(t, bridge.HasWindowOpenAdmission(), "default startup must not overlay the explicit consumer's UI admission")
+	got, err := resources.ResolveDefinition[primitive.ToolfeedDefinition](context.Background(), out.PrimitiveProviders, primitive.ToolfeedKind, "media-plan", func(v primitive.ToolfeedDefinition) string { return v.ID })
+	require.NoError(t, err, "other default primitives still publish through the existing manager")
+	require.Equal(t, "toolfeed://workspace/media", got.Resource.URI)
+	require.Equal(t, "media-plan", got.Definition.ID)
+	require.JSONEq(t, `{"title":"Original"}`, string(got.Definition.UI))
 }

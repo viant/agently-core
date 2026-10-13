@@ -29,7 +29,6 @@ type selectedDatasourceBundle struct {
 	descriptor   string
 	fingerprint  string
 	resources    map[string]selectedResourceRead
-	verify       func(context.Context) error
 	verifyTarget func(context.Context) error
 	admissions   map[string]func(context.Context) error
 }
@@ -220,12 +219,8 @@ func (c *WindowCatalog) registerSelectedDatasource(ctx context.Context, parent i
 		return err
 	}
 	bundle := &selectedDatasourceBundle{parent: parent, target: targetBytes, alias: alias, descriptor: descriptor, fingerprint: variant.Fingerprint, resources: map[string]selectedResourceRead{}, admissions: map[string]func(context.Context) error{}}
-	// Capture detached window metadata and target. The original caller's target
-	// is also compared at every barrier, so mutations cannot broaden eligibility.
-	windowBytes, err := json.Marshal(variant.Window)
-	if err != nil {
-		return err
-	}
+	// Capture the target; every barrier compares the caller's target and verifies
+	// its original selection proof before using the owning-provider resources.
 	bundle.verifyTarget = func(checkCtx context.Context) error {
 		current, err := json.Marshal(target)
 		if err != nil || !bytes.Equal(current, targetBytes) {
@@ -236,16 +231,6 @@ func (c *WindowCatalog) registerSelectedDatasource(ctx context.Context, parent i
 			return identity.ErrResourceDenied
 		}
 		return c.VerifyWindowTarget(checkCtx, parent, held, variant.Fingerprint)
-	}
-	bundle.verify = func(checkCtx context.Context) error {
-		if err := bundle.verifyTarget(checkCtx); err != nil {
-			return err
-		}
-		var window types.Window
-		if json.Unmarshal(windowBytes, &window) != nil {
-			return identity.ErrResourceDenied
-		}
-		return c.Admission(checkCtx, parent, &window)
 	}
 	if target.ExecutionProof != nil {
 		if !target.ExecutionProof.Resource.ValidUntil.After(s.gateway.now()) {
@@ -362,7 +347,7 @@ func (s *resourceReadSequence) checkSelectedAdmissions(ctx context.Context) erro
 	if bundle == nil {
 		return nil
 	}
-	if err := bundle.verify(ctx); err != nil {
+	if err := bundle.verifyTarget(ctx); err != nil {
 		return err
 	}
 	for _, check := range checks {
