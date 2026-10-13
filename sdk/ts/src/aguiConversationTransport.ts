@@ -197,7 +197,7 @@ export class AgUiConversationTransport {
         const runId = crypto.randomUUID();
         const commands = new AgUiCommands(this.host.agUiTransport());
         const pending = this.resolveProtocolThread(entry).then(threadId => {
-        const command = commands.start('conversation.bootstrap', { mode: 'live', includeModelCalls: true, includeToolCalls: true, includeFeeds: true }, { threadId, runId, requestId: runId });
+        const command = commands.start('conversation.bootstrap', { mode: 'live', includeModelCalls: true, includeToolCalls: true, includeFeeds: true, includeModelPayloads: false }, { threadId, runId, requestId: runId });
         entry.bootstrapHandle = command;
         return command.result;
         }).then(result => {
@@ -416,7 +416,7 @@ export class AgUiConversationTransport {
     private async refreshAfterCompletion(entry: Entry) {
         const commands = new AgUiCommands(this.host.agUiTransport());
         const runId = crypto.randomUUID();
-        const result = await commands.execute('conversation.bootstrap', { mode: 'live' }, { threadId: entry.protocolThreadId ?? entry.id, runId, requestId: runId });
+        const result = await commands.execute('conversation.bootstrap', { mode: 'live', includeModelPayloads: false }, { threadId: entry.protocolThreadId ?? entry.id, runId, requestId: runId });
         if (!result || !this.current(entry)) return;
         entry.bootstrap = result;
         this.updateTerminalTurns(entry, result);
