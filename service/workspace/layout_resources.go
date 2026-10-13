@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 
+	identity "github.com/viant/agently-core/protocol/resource"
+	"github.com/viant/agently-core/service/policy"
+
 	forgeservice "github.com/viant/agently-core/service/primitiveprovider"
 )
 
@@ -50,4 +53,40 @@ func catalogWindowIDs(ctx context.Context, catalog WindowResourceCatalog) (map[s
 		offset += len(page.Windows)
 	}
 	return nil, fmt.Errorf("window catalog exceeds navigation limit")
+}
+
+// Logical keys come only from the catalog's configured routing capability.
+// A canonical visible inventory entry is required; routing alone grants nothing.
+func addVisibleLayoutAliases(ctx context.Context, catalog WindowResourceCatalog, allowed map[string]bool, candidates []policy.Candidate) error {
+	mapper, ok := catalog.(interface {
+		WindowResourceReference(context.Context, string) (identity.ResourceRef, error)
+	})
+	if !ok {
+		return nil
+	}
+	seen := map[string]bool{}
+	for _, candidate := range candidates {
+		if seen[candidate.ID] {
+			continue
+		}
+		seen[candidate.ID] = true
+		if allowed[candidate.ID] {
+			continue
+		}
+		ref, err := mapper.WindowResourceReference(ctx, candidate.ID)
+		if err != nil {
+			if err == identity.ErrResource || err == identity.ErrResourceDenied {
+				continue
+			}
+			return err
+		}
+		uri, err := identity.ParseResourceURI(ref.URI)
+		if err != nil || uri.Kind != "window" {
+			return fmt.Errorf("window catalog returned invalid resource reference")
+		}
+		if allowed[ref.URI] {
+			allowed[candidate.ID] = true
+		}
+	}
+	return nil
 }
