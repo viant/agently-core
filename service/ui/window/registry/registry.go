@@ -5,14 +5,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	forgetypes "github.com/viant/forge/backend/types"
 	"sort"
 	"strings"
 	"time"
 
-	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
-	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
 	identity "github.com/viant/agently-core/protocol/resource"
+	workspaceproto "github.com/viant/agently-core/protocol/ui/workspace"
+	requestctx "github.com/viant/agently-core/runtime/requestctx"
+	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	forgetypes "github.com/viant/forge/backend/types"
 )
 
 type Registry struct {
@@ -642,6 +643,10 @@ func (r *Registry) admitEvent(ctx context.Context, event UIEvent) (bool, error) 
 	if !r.canonicalResources() {
 		return true, nil
 	}
+	if conversationOnlyEvent(event) {
+		owner, err := r.bridge.UIIdentity(ctx)
+		return err == nil && event.Namespace == owner.Namespace && event.ConversationID == requestctx.ConversationIDFromContext(ctx), err
+	}
 	if event.Resource == nil || event.Namespace == "" || event.WindowID == "" || event.ClientID == "" {
 		return false, nil
 	}
@@ -676,7 +681,16 @@ func (r *Registry) RecordConversationEventContext(ctx context.Context, conversat
 		return UIEvent{}, fmt.Errorf("ui conversation event unavailable")
 	}
 	event.ConversationID = conversationID
-	if r.canonicalResources() {
+	if r.canonicalResources() && conversationOnlyEvent(event) {
+		if requestctx.ConversationIDFromContext(ctx) != conversationID {
+			return UIEvent{}, fmt.Errorf("conversation scope unavailable")
+		}
+		owner, err := r.bridge.UIIdentity(ctx)
+		if err != nil {
+			return UIEvent{}, err
+		}
+		event.Namespace = owner.Namespace
+	} else if r.canonicalResources() {
 		pin, err := r.bridge.WindowResource(ctx, namespace, event.ClientID, event.WindowID, event.WindowKey)
 		if err != nil {
 			return UIEvent{}, fmt.Errorf("window resource unavailable")
@@ -715,4 +729,8 @@ func (r *Registry) FindAuthorizedConversationWindowContext(ctx context.Context, 
 		return UIEvent{}, false
 	}
 	return event, true
+}
+
+func conversationOnlyEvent(event UIEvent) bool {
+	return event.ConversationID != "" && event.Resource == nil && event.ClientID == "" && event.WindowID == "" && event.WindowKey == ""
 }

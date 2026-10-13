@@ -8,8 +8,8 @@ import (
 
 	svc "github.com/viant/agently-core/protocol/tool/service"
 	runtimerequestctx "github.com/viant/agently-core/runtime/requestctx"
-	uireg "github.com/viant/agently-core/service/ui/window/registry"
 	forgeuisvc "github.com/viant/agently-core/service/primitiveprovider"
+	uireg "github.com/viant/agently-core/service/ui/window/registry"
 )
 
 const Name = "ui/events"
@@ -146,8 +146,7 @@ func (s *Service) record(ctx context.Context, in, out interface{}) error {
 	// hosted window is visible. Explicit window/client identities still require
 	// the normal registry authorization below.
 	if clientID == "" && windowID == "" && windowKey == "" && isInlineReportEvent(kind, input.Detail) {
-		record("", "", "")
-		return nil
+		return record("", "", "", "")
 	}
 	for _, item := range items {
 		if clientID != "" && strings.TrimSpace(item.ClientID) != clientID {

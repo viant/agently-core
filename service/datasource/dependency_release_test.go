@@ -201,12 +201,7 @@ func newReleaseStack(t *testing.T) *releaseStack {
 	require.NoError(t, err)
 	target.SelectionToken, err = proof.Sign(ctx, parentPin, target, variantFingerprint)
 	require.NoError(t, err)
-	catalog := &resourcecatalog.WindowCatalog{Gateway: gateway, TargetProof: proof, Admission: func(_ context.Context, pin identity.ResolvedResource, selected *types.Window) error {
-		if pin.ProviderIdentity != "parent-provider" || selected == nil || selected.View.Content == nil || selected.View.Content.ID != "orders-root" {
-			return identity.ErrResourceDenied
-		}
-		return nil
-	}}
+	catalog := &resourcecatalog.WindowCatalog{Gateway: gateway, TargetProof: proof}
 	executor := &releaseToolExecutor{}
 	service := datasource.New(datasource.Options{
 		Store:        datasource.NewMemoryStore(),

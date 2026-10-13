@@ -141,3 +141,12 @@ func (s *NamespaceService) Identity(ctx context.Context) (NamespaceIdentity, err
 
 // HasNamespaceResolver reports trusted startup UI-owner wiring only.
 func (s *Service) HasNamespaceResolver() bool { return s != nil && s.ns != nil && s.ns.Resolver != nil }
+
+// UIIdentity exposes the existing verified UI ownership scope for conversation
+// state that has no window resource, such as inline report progress events.
+func (s *Service) UIIdentity(ctx context.Context) (NamespaceIdentity, error) {
+	if s == nil || s.ns == nil {
+		return NamespaceIdentity{}, fmt.Errorf("UI identity unavailable")
+	}
+	return s.ns.Identity(ctx)
+}
