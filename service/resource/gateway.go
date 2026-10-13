@@ -523,7 +523,7 @@ func (g *Gateway) discoverExcept(ctx context.Context, excludedLocal string) ([]D
 			continue
 		}
 		c, e := g.discover(ctx, a, name)
-		if errors.Is(e, ErrUnavailable) {
+		if errors.Is(e, ErrUnavailable) || aggregateLinkRequired(e) {
 			continue
 		}
 		if e != nil {
@@ -545,6 +545,21 @@ func (g *Gateway) discoverExcept(ctx context.Context, excludedLocal string) ([]D
 	}
 	return out, nil
 }
+
+// Missing optional connector credentials do not make the aggregate catalog
+// unavailable. Direct routing still returns the original typed link outcome.
+// A joined failure can also contain integrity, authorization or network errors;
+// it is not a pure optional-link outcome and must remain visible.
+func aggregateLinkRequired(err error) bool {
+	for current := err; current != nil; current = errors.Unwrap(current) {
+		if _, joined := current.(interface{ Unwrap() []error }); joined {
+			return false
+		}
+	}
+	_, required := manager.LinkRequired(err)
+	return required
+}
+
 func supports(c capabilities, namespace, kind, operation string) bool {
 	for _, ns := range c.namespaces {
 		if namespace != "" && ns.Namespace != namespace {
