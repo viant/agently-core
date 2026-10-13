@@ -577,9 +577,11 @@ export class AgentlyClient {
                     return;
                 }
                 handlers.onEvent?.(event);
-                // Native deltas need not carry the originating user's text.
-                // Reconcile once on completion to recover its canonical row.
-                if (['turn_completed', 'turn_failed', 'turn_canceled'].includes(event.type)) reconcile();
+                // External native turns need their canonical user row, but a
+                // primary run supplies the view and owns completion recovery,
+                // including when the native notification arrives first.
+                if (['turn_completed', 'turn_failed', 'turn_canceled'].includes(event.type)
+                    && !this.agUiInteractions.observesTurn(conversationId, event.turnId || '')) reconcile();
                 if (event.type === 'conversation_meta_updated' && event.patch?.aguiUpdated === true) reconcile();
             },
         });
