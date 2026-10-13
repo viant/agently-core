@@ -109,6 +109,13 @@ type countingRegistry struct {
 	matchCalls int
 }
 
+func (r *countingRegistry) ToolSurfaceCacheIdentity(context.Context, string) (string, string) {
+	if len(r.defs) == 0 {
+		return "public", ""
+	}
+	return "public", fmt.Sprintf("%#v", r.defs)
+}
+
 func (r *countingRegistry) MatchDefinition(pattern string) []*llm.ToolDefinition {
 	r.matchCalls++
 	return r.fakeRegistry.MatchDefinition(pattern)
