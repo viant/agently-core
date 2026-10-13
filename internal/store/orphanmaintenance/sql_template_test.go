@@ -1,11 +1,14 @@
 package orphanmaintenance
 
 import (
+	"database/sql"
 	"os"
 	"strings"
 	"testing"
 
+	_ "github.com/mattn/go-sqlite3"
 	"github.com/viant/velty"
+	_ "modernc.org/sqlite"
 )
 
 func TestOrphanTemplateSelectsOnlyExactRuleAndRecord(t *testing.T) {
@@ -53,6 +56,9 @@ func TestOrphanTemplateSelectsOnlyExactRuleAndRecord(t *testing.T) {
 				t.Fatal(err)
 			}
 			query := state.Buffer.String()
+			if strings.Contains(strings.ToLower(query), "printf(") {
+				t.Fatalf("mysql=%t rule=%s report discovery SQL still requires SQLite printf", mysql, rule)
+			}
 			_, enabled := FindRule(mysql, rule)
 			switch {
 			case rule == "":
@@ -69,5 +75,54 @@ func TestOrphanTemplateSelectsOnlyExactRuleAndRecord(t *testing.T) {
 				}
 			}
 		}
+	}
+}
+
+func TestOrphanCompositeKeyConcatPreservesSQLiteEncoding(t *testing.T) {
+	const query = `SELECT
+ CAST(printf('%s%s%s', COALESCE(CAST(first AS CHAR), ''), CHAR(31), COALESCE(CAST(second AS CHAR), '')) AS CHAR),
+ CAST(CONCAT(COALESCE(CAST(first AS CHAR), ''), CHAR(31), COALESCE(CAST(second AS CHAR), '')) AS CHAR)
+ FROM (SELECT ? AS first, ? AS second)`
+	for _, driver := range []string{"sqlite", "sqlite3"} {
+		t.Run(driver, func(t *testing.T) {
+			db, err := sql.Open(driver, ":memory:")
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() {
+				if err := db.Close(); err != nil {
+					t.Error(err)
+				}
+			})
+			if err := db.Ping(); err != nil {
+				if driver == "sqlite3" && strings.Contains(err.Error(), "requires cgo") {
+					t.Skip("sqlite3 requires a CGO-enabled build")
+				}
+				t.Fatal(err)
+			}
+			for _, tc := range []struct {
+				name          string
+				first, second any
+				want          string
+			}{
+				{"nulls", nil, nil, RecordSeparator},
+				{"null owner", nil, "conversation", RecordSeparator + "conversation"},
+				{"null reference", "owner", nil, "owner" + RecordSeparator},
+				{"empty", "", "", RecordSeparator},
+				{"ordinary", "owner", "conversation", "owner" + RecordSeparator + "conversation"},
+				{"unicode and format characters", "zażółć%s", "🙂'conversation", "zażółć%s" + RecordSeparator + "🙂'conversation"},
+				{"embedded separator", "owner" + RecordSeparator, "line\nid", "owner" + RecordSeparator + RecordSeparator + "line\nid"},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					var before, after string
+					if err := db.QueryRow(query, tc.first, tc.second).Scan(&before, &after); err != nil {
+						t.Fatal(err)
+					}
+					if before != tc.want || after != before {
+						t.Fatalf("key encoding changed: printf=%q concat=%q want=%q", before, after, tc.want)
+					}
+				})
+			}
+		})
 	}
 }
