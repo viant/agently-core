@@ -1,8 +1,6 @@
 package service
 
 import (
-	"context"
-	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/reporting/catalog"
 )
 
@@ -15,10 +13,6 @@ type Config struct {
 	WindowOpenAdmission     WindowOpenAdmission
 	WindowSelectionEmitter  WindowSelectionEmitter
 	ReportCatalog           catalog.Provider
-	// ResolvedWindowAuthorizer authorizes UI commands (including selected query
-	// inputs/actions) against the server-held instance pin. Required for targeted
-	// commands when canonical window resolution is enabled.
-	ResolvedWindowAuthorizer func(context.Context, identity.ResolvedResource, string, map[string]any) error
 	// PrimitiveProvider exposes published remote windows and provider execution.
 	PrimitiveProvider *PrimitiveProvider
 	// WindowDefinitions is the host-owned catalog of saved Forge definitions.

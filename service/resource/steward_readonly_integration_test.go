@@ -103,7 +103,7 @@ func TestStewardReadonlyInternalGatewayOriginalYAML(t *testing.T) {
 	require.NoError(t, mgr.RegisterLocal(ctx, "internal", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "internal"}, func(context.Context) (mcpclient.Interface, error) { return NewLocalMCPClient(provider) }))
 	gateway := NewGateway(mgr, actorResolver, verify, "synthetic-gateway")
 	defer gateway.Close()
-	reportGateway := &ReportGatewayCatalog{Gateway: gateway, Admission: func(context.Context, string, identity.ResolvedResource, json.RawMessage) error { return nil }}
+	reportGateway := &ReportGatewayCatalog{Gateway: gateway}
 	reportService := reporting.New(reporting.Options{Store: reporting.NewMemoryStore(), ReportCatalog: reportGateway, Compiler: reporting.NewReportSpecCompiler(time.Now)})
 	reportService.SetResourceReaderFactory(reportGateway.Reader)
 

@@ -53,8 +53,6 @@ func (r *gatewayReportReader) recordReportRead(ctx context.Context, connection C
 		return err
 	}
 	id := selectionResourceID(connection, read.pin)
-	raw := append(json.RawMessage(nil), result.Resource.DefinitionBytes...)
-	pin := read.pin
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.closed || s.failed != nil || s.ending || !s.active {
@@ -62,7 +60,6 @@ func (r *gatewayReportReader) recordReportRead(ctx context.Context, connection C
 	}
 	if s.reportReads == nil {
 		s.reportReads = map[string]selectedResourceRead{}
-		s.reportAdmissions = map[string]func(context.Context) error{}
 	}
 	if held, ok := s.reportReads[id]; ok {
 		if held.key != read.key || !sameSelectedContent(held.result, read.result) {
@@ -71,31 +68,16 @@ func (r *gatewayReportReader) recordReportRead(ctx context.Context, connection C
 	} else {
 		s.reportReads[id] = read
 	}
-	s.reportAdmissions[id+":"+r.operation] = func(check context.Context) error { copy := pin; return r.catalog.admit(check, r.operation, &copy, raw) }
 	return nil
 }
 func (s *resourceReadSequence) refreshReportReads(ctx context.Context) error {
 	s.mu.Lock()
 	reads := map[string]selectedResourceRead{}
-	checks := map[string]func(context.Context) error{}
 	for k, v := range s.reportReads {
 		reads[k] = v
 	}
-	for k, v := range s.reportAdmissions {
-		checks[k] = v
-	}
 	s.mu.Unlock()
-	ids := make([]string, 0, len(checks))
-	for k := range checks {
-		ids = append(ids, k)
-	}
-	sort.Strings(ids)
-	for _, k := range ids {
-		if err := checks[k](ctx); err != nil {
-			return err
-		}
-	}
-	ids = ids[:0]
+	ids := make([]string, 0, len(reads))
 	for k := range reads {
 		ids = append(ids, k)
 	}

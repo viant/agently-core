@@ -29,7 +29,7 @@ func TestDelegatedDatasourceProjectionUsesNormalizedHostResponseSelectors(t *tes
 	gateway, _, _ := fixtureGateway(t, map[string]*fixtureProvider{"owned": p})
 	proof, err := types.NewWindowTargetHMAC(make([]byte, 32))
 	require.NoError(t, err)
-	catalog := &WindowCatalog{Gateway: gateway, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }}
+	catalog := &WindowCatalog{Gateway: gateway, TargetProof: proof}
 	opened, err := catalog.Get(context.Background(), &service.WindowDefinitionGetInput{WindowID: "window://example/sales"})
 	require.NoError(t, err)
 	require.Equal(t, &types.Selectors{Data: "rows", DataInfo: "dataInfo", Metrics: "metrics"}, opened.Definition.DataSource["records"].Selectors, "the host fetch endpoint returns its normalized rows/dataInfo/metrics envelope")

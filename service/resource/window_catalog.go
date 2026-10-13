@@ -13,9 +13,6 @@ import (
 	"time"
 )
 
-// WindowAdmission is an explicit host intersection with delegated provider
-// authorization. It receives only the server-read exact definition and pin.
-type WindowAdmission func(context.Context, identity.ResolvedResource, *types.Window) error
 type WindowContentCheck func(context.Context, identity.ResolvedResource) error
 
 type WindowCatalog struct {
@@ -25,7 +22,6 @@ type WindowCatalog struct {
 	// Unregistered providers retain an exact, authorized Get as the final check.
 	ContentCurrent map[string]WindowContentCheck
 	Gateway        *Gateway
-	Admission      WindowAdmission
 	TargetProof    types.WindowTargetProof
 }
 type windowLocator struct {
@@ -55,7 +51,7 @@ func decodeWindowLocator(value string) (windowLocator, error) {
 	return out, nil
 }
 func (c *WindowCatalog) AuthzReady() bool {
-	return c != nil && c.Gateway != nil && c.Admission != nil && c.TargetProof != nil
+	return c != nil && c.Gateway != nil && c.TargetProof != nil
 }
 func (c *WindowCatalog) UsesResourceResolution() bool { return true }
 func (c *WindowCatalog) List(ctx context.Context, input *service.WindowDefinitionListInput) (*service.WindowDefinitionListOutput, error) {
@@ -82,7 +78,7 @@ func (c *WindowCatalog) listExcludingLocalProvider(ctx context.Context, input *s
 			continue
 		}
 		// List is metadata only. Provider list admission decides visibility; opening
-		// always intersects the exact selected definition with host admission.
+		// validates the exact selected definition through its owning provider.
 		summaries = append(summaries, service.WindowDefinitionSummary{ProviderIdentity: row.Connection.ProviderIdentity, ResourceURI: row.Resource.URI, Name: row.Resource.Name, WindowID: encodeWindowLocator(row.Connection, row.Resource.URI), Title: row.Resource.Title, Namespace: row.Resource.Namespace})
 	}
 	offset := input.Offset
@@ -233,9 +229,6 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 	} else if input.Target != nil && len(input.Target.DependencyPins) > 0 {
 		return nil, identity.ErrResourceDenied
 	}
-	if e = c.Admission(ctx, pin, definition); e != nil {
-		return nil, e
-	}
 	target := types.WindowTarget{}
 	if input.Target != nil {
 		target = *input.Target
@@ -249,9 +242,6 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 	// No source fallback: only the exact provider bytes above enter the window.
 	final, e := Get[json.RawMessage](ctx, c.Gateway, loc.Connection, identity.ResourceRef{URI: loc.URI}, &pin)
 	if e != nil {
-		return nil, e
-	}
-	if e = c.Admission(ctx, pin, definition); e != nil {
 		return nil, e
 	}
 	if len(dependencyPins) > 0 {
@@ -282,7 +272,7 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 		}
 	}
 	// Project host transport only after provider definition, target, source and
-	// admission checks complete. Never rewrite provider bytes or descriptors.
+	// integrity checks complete. Never rewrite provider bytes or descriptors.
 	projected, err := json.Marshal(definition)
 	if err != nil {
 		return nil, err
@@ -307,7 +297,7 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 }
 
 // RevalidateWindowResource is used only with a host-held instance pin/target.
-// Get performs fresh source/admission checks without replacing either proof.
+// Get performs fresh owning-provider/source checks without replacing either proof.
 func (c *WindowCatalog) RevalidateWindowResource(ctx context.Context, key string, pin identity.ResolvedResource, target *types.WindowTarget) (*identity.ResolvedResource, error) {
 	result, err := c.Get(ctx, &service.WindowDefinitionGetInput{WindowID: key, ResolvedResource: &pin, Target: target})
 	if err != nil {

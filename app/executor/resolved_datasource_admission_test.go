@@ -78,7 +78,7 @@ func TestBuilderRemoteDatasourceForwardsWithoutHostBusinessAdmission(t *testing.
 			proof, err := types.NewWindowTargetHMAC([]byte(strings.Repeat("p", 32)))
 			require.NoError(t, err)
 			runtime := &Runtime{MCPManager: mgr, UIBridge: ui.NewService(&ui.Config{WindowDefinitions: primitiveLocalCatalog{}})}
-			builder := NewBuilder().WithPrimitiveAuthority(actorSource, verify, "host").WithPrimitiveWindows(func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }, proof)
+			builder := NewBuilder().WithPrimitiveAuthority(actorSource, verify, "host").WithPrimitiveWindows(proof)
 			hookCalls := 0
 			hookErr := errors.New("explicit consumer declined")
 			if hook != "absent" {

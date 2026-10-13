@@ -12,8 +12,8 @@ import (
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
 	manager "github.com/viant/agently-core/protocol/mcp/manager"
 	primitive "github.com/viant/agently-core/protocol/primitive"
-	forgeMCP "github.com/viant/agently-core/service/primitiveprovider"
 	identity "github.com/viant/agently-core/protocol/resource"
+	forgeMCP "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
 	"github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
@@ -234,14 +234,12 @@ func newDependencyStack(t *testing.T, childLease time.Time) *dependencyStack {
 	gateway := NewGateway(mgr, actorResolver, actorVerifier, "host-provider")
 	proof, err := types.NewWindowTargetHMAC([]byte(strings.Repeat("dependency-fixture-hmac-key-", 2)))
 	require.NoError(t, err)
-	catalog := &WindowCatalog{Gateway: gateway, TargetProof: proof, Admission: func(_ context.Context, pin identity.ResolvedResource, selected *types.Window) error {
-		if pin.ProviderIdentity != "parent-provider" || selected == nil || selected.View.Content == nil || selected.View.Content.ID != "orders-root" {
-			return identity.ErrResourceDenied
-		}
-		return nil
-	}}
+	catalog := &WindowCatalog{Gateway: gateway, TargetProof: proof}
+
 	opened, err := catalog.Get(ctx, &forgeMCP.WindowDefinitionGetInput{WindowID: parentURI})
 	require.NoError(t, err)
+	require.Equal(t, "parent-provider", opened.Definition.Resource.ProviderIdentity)
+	require.Equal(t, "orders-root", opened.Definition.View.Content.ID)
 	return &dependencyStack{parentURI: parentURI, childURI: childURI, parent: parent, child: child, provider: childProvider, manager: mgr, gateway: gateway, catalog: catalog, actor: actor, opened: opened}
 }
 

@@ -423,9 +423,3 @@ func commandWindowKey(params interface{}) (string, error) {
 	}
 	return value.WindowKey, nil
 }
-
-// ConfigureResolvedWindowAuthorizer installs trusted host UI admission. It is
-// called during startup, before any client window instance is registered.
-func (s *Service) ConfigureResolvedWindowAuthorizer(check func(context.Context, identity.ResolvedResource, string, map[string]any) error) {
-	s.cfg.ResolvedWindowAuthorizer = check
-}

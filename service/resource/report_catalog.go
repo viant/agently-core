@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
-	"time"
 
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/policy"
@@ -16,23 +15,11 @@ import (
 	"github.com/viant/forge/backend/reporting/registry"
 )
 
-// ReportAdmission intersects gateway delivery with the host's existing report
-// operation policy. It must authorize the exact pin/definition for the supplied
-// operation; gateway visibility is never compile/run/export authorization.
-type ReportAdmission func(context.Context, string, identity.ResolvedResource, json.RawMessage) error
-
-// ReportLeaseAdmission returns the current host action's maximum deadline.
-// A reader intersects it with the original provider/action lease; subsequent
-// authorization may shorten that deadline but can never renew it.
-type ReportLeaseAdmission func(context.Context, string, identity.ResolvedResource, json.RawMessage) (time.Time, error)
-
 // ReportGatewayCatalog connects ordinary reporting service list/get/compile
 // paths to the same gateway as windows. It never rewrites provider authority,
 // fingerprints, revision or lease, and never grants mutation capabilities.
 type ReportGatewayCatalog struct {
 	Gateway           *Gateway
-	Admission         ReportAdmission
-	AdmissionLease    ReportLeaseAdmission
 	BeginMetadataRead func(context.Context) (context.Context, func() error, error)
 	BuilderWindows    map[string]string
 	Capabilities      func(context.Context, identity.VerifiedActor, catalog.ReportCatalogCandidate, identity.ResolvedResource) (catalog.ReportCapabilities, error)
@@ -45,7 +32,7 @@ func (c *ReportGatewayCatalog) CurrentActor(ctx context.Context) (identity.Verif
 	return c.Gateway.actor(ctx)
 }
 func (c *ReportGatewayCatalog) MetadataRead(ctx context.Context) (context.Context, func() error, error) {
-	if c == nil || c.Gateway == nil || c.Admission == nil && c.AdmissionLease == nil {
+	if c == nil || c.Gateway == nil {
 		return nil, nil, identity.ErrResourceDenied
 	}
 	if sequence := sequenceFromContext(ctx); sequence != nil {
@@ -72,43 +59,15 @@ func (c *ReportGatewayCatalog) MetadataRead(ctx context.Context) (context.Contex
 	return ctx, func() error { return c.Gateway.final(ctx, actor) }, nil
 }
 func (c *ReportGatewayCatalog) Reader(ctx context.Context, operation string) (reporting.ResourceReader, error) {
-	if c == nil || c.Gateway == nil || c.Admission == nil && c.AdmissionLease == nil || operation == "" {
+	if c == nil || c.Gateway == nil || operation == "" {
 		return nil, identity.ErrResourceDenied
 	}
 	if _, err := c.Gateway.actor(ctx); err != nil {
 		return nil, err
 	}
-	return &gatewayReportReader{catalog: c, operation: operation}, nil
+	return &gatewayReportReader{catalog: c}, nil
 }
 
-func (c *ReportGatewayCatalog) admit(ctx context.Context, operation string, pin *identity.ResolvedResource, raw json.RawMessage) error {
-	if pin == nil || !pin.ValidUntil.After(c.Gateway.now()) {
-		return identity.ErrResourceDenied
-	}
-	if c.Admission != nil {
-		if err := c.Admission(ctx, operation, *pin, append(json.RawMessage(nil), raw...)); err != nil {
-			return normalizeReportAdmissionError(err)
-		}
-	}
-	if c.AdmissionLease != nil {
-		deadline, err := c.AdmissionLease(ctx, operation, *pin, append(json.RawMessage(nil), raw...))
-		if err != nil {
-			return normalizeReportAdmissionError(err)
-		}
-		if !deadline.After(c.Gateway.now()) {
-			return identity.ErrResourceDenied
-		}
-		if deadline.Before(pin.ValidUntil) {
-			pin.ValidUntil = deadline
-		}
-	} else if c.Admission == nil {
-		return identity.ErrResourceDenied
-	}
-	if ctx.Err() != nil || !pin.ValidUntil.After(c.Gateway.now()) {
-		return identity.ErrResourceDenied
-	}
-	return nil
-}
 func (c *ReportGatewayCatalog) Read(ctx context.Context, ref identity.ResourceRef, pin *identity.ResolvedResource) ([]byte, *identity.ResolvedResource, error) {
 	reader, err := c.Reader(ctx, "report.retrieve")
 	if err != nil {
@@ -127,8 +86,7 @@ func (c *ReportGatewayCatalog) Read(ctx context.Context, ref identity.ResourceRe
 }
 
 type gatewayReportReader struct {
-	catalog   *ReportGatewayCatalog
-	operation string
+	catalog *ReportGatewayCatalog
 }
 
 func readReport[T any](ctx context.Context, r *gatewayReportReader, ref identity.ResourceRef, pin *identity.ResolvedResource, ownerHint string, refresh ...bool) (*Result[T], error) {
@@ -165,21 +123,6 @@ func readReport[T any](ctx context.Context, r *gatewayReportReader, ref identity
 	if err != nil {
 		return nil, err
 	}
-	raw := append(json.RawMessage(nil), got.Resource.DefinitionBytes...)
-	if err = r.catalog.admit(ctx, r.operation, got.ResolvedResource, raw); err != nil {
-		return nil, err
-	}
-	originalDeadline := got.ResolvedResource.ValidUntil
-	// Revalidate buffered output after host admission, which can observe a new
-	// policy/content/identity state or take longer than the provider lease.
-	freshResult, err := get[json.RawMessage](ctx, r.catalog.Gateway, connection, identity.ResourceRef{URI: ref.URI, Revision: got.ResolvedResource.Selector()}, got.ResolvedResource, force, false)
-	if err != nil {
-		return nil, err
-	}
-	got.GetResult = freshResult.GetResult
-	if got.ResolvedResource.ValidUntil.After(originalDeadline) {
-		got.ResolvedResource.ValidUntil = originalDeadline
-	}
 	fresh, err := r.catalog.Gateway.actor(ctx)
 	if err != nil {
 		return nil, err
@@ -208,8 +151,8 @@ func (r *gatewayReportReader) read(ctx context.Context, ref identity.ResourceRef
 	return append(json.RawMessage(nil), result.Resource.DefinitionBytes...), result.ResolvedResource, nil
 }
 
-// ReadResource selects and delivers one report in the existing admission pair,
-// avoiding an otherwise discarded Resolve body followed by the same read.
+// ReadResource selects and delivers one report through its owning MCP, avoiding
+// an otherwise discarded Resolve body followed by the same read.
 func (r *gatewayReportReader) ReadResource(ctx context.Context, ref identity.ResourceRef, pin *identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error) {
 	return r.read(ctx, ref, pin, "")
 }
@@ -287,7 +230,7 @@ func (c *ReportGatewayCatalog) List(ctx context.Context, input catalog.ReportCat
 		return nil, err
 	}
 	sort.Slice(rows, func(i, j int) bool { return rows[i].Resource.URI < rows[j].Resource.URI })
-	reader := &gatewayReportReader{catalog: c, operation: "report.retrieve"}
+	reader := &gatewayReportReader{catalog: c}
 	result := &catalog.ReportCatalogResult{Reports: []catalog.ReportCatalogEntry{}}
 	limit := input.Limit
 	if limit == 0 {
@@ -343,10 +286,4 @@ var _ catalog.Provider = (*ReportGatewayCatalog)(nil)
 
 func reportIdentityRejected(err error) bool {
 	return errors.Is(err, policy.ErrIdentityRejected) || errors.Is(err, authz.ErrIdentityDenied)
-}
-func normalizeReportAdmissionError(err error) error {
-	if err != nil && !reportIdentityRejected(err) && (errors.Is(err, policy.ErrDenied) || errors.Is(err, authz.ErrDenied)) {
-		return errors.Join(identity.ErrResourceDenied, err)
-	}
-	return err
 }

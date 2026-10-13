@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -53,7 +52,7 @@ func TestWindowExplicitRevisionReadAndOpenDoNotResolveOmittedDefault(t *testing.
 	if err != nil || got.Definition.Resource.Revision != "1" || got.Definition.View.Content.ID != "approved" {
 		t.Fatalf("explicit old get=%+v %v", got, err)
 	}
-	svc := NewService(&Config{WindowDefinitions: catalog, ResolvedWindowAuthorizer: func(context.Context, identity.ResolvedResource, string, map[string]any) error { return nil }})
+	svc := NewService(&Config{WindowDefinitions: catalog})
 	svc.Hub().registerHTTPClient("default", "client-a")
 	command := make(chan rpcRequest, 1)
 	workerError := make(chan error, 1)
@@ -108,10 +107,8 @@ func TestWindowExplicitRevisionReadAndOpenDoNotResolveOmittedDefault(t *testing.
 		t.Fatal("changed-account instance executed")
 	}
 	policy.binding = pin.Resource.AuthorityBinding
-	svc.cfg.ResolvedWindowAuthorizer = func(context.Context, identity.ResolvedResource, string, map[string]any) error {
-		return errors.New("selected entity denied")
-	}
+	policy.allowed = false
 	if _, err := svc.UICommand(context.Background(), &UICommandInput{ClientID: "client-a", Method: "ui.data.fetch", Params: map[string]any{"windowId": "instance-1"}}); err == nil {
-		t.Fatal("selected entity denial executed")
+		t.Fatal("owning catalog denial executed")
 	}
 }

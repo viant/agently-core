@@ -25,7 +25,7 @@ func TestCompositeWindowListFinalAuthorityFailureDiscardsCombinedRows(t *testing
 		g, _, _ := fixtureGateway(t, map[string]*fixtureProvider{"remote": p})
 		proof, err := types.NewWindowTargetHMAC(make([]byte, 32))
 		require.NoError(t, err)
-		remote := &WindowCatalog{Gateway: g, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }}
+		remote := &WindowCatalog{Gateway: g, TargetProof: proof}
 		finished := 0
 		local := scopedLocalWindowCatalog{localCatalogStub{service.WindowDefinitionSummary{WindowID: "local", ResourceURI: "window://local/home"}}, func() error {
 			finished++

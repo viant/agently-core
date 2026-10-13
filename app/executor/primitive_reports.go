@@ -2,7 +2,6 @@ package executor
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -27,7 +26,7 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 	}
 	// A custom legacy catalog has no trusted inventory contract. Preserve its
 	// reader and executor; gateway presence alone says nothing about reports.
-	if b.reportCatalog != nil && out.LocalPrimitiveProvider == nil {
+	if b.reportCatalog != nil {
 		if _, known := b.reportCatalog.(*reportcatalog.ReportCatalogService); !known || b.reportResourceResolver == nil {
 			return nil
 		}
@@ -51,12 +50,8 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 			*check.allowed = true
 		}
 		return result, nil
-	}, Admission: func(ctx context.Context, operation string, pin identity.ResolvedResource, _ json.RawMessage) error {
-		if out.ReportAuthorizer != nil {
-			return out.ReportAuthorizer(requestctx.WithResolvedResource(ctx, pin), operation, pin.URI)
-		}
-		return nil // Verified gateway delivery is the boundary when no host policy is configured.
 	}}
+
 	if b.reportCatalog != nil && out.LocalPrimitiveProvider == nil {
 		local, ok := b.reportCatalog.(*reportcatalog.ReportCatalogService)
 		if !ok || b.reportResourceResolver == nil {

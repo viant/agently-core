@@ -23,8 +23,9 @@ func matchProviderProof(pin identity.ResolvedResource, proof *primitive.Executio
 	return nil
 }
 
-// FetchProviderDatasource retains the original provider and host proofs. New
-// reads can reauthorize content but cannot replace either original lease/proof.
+// FetchProviderDatasource retains the provider execution and window selection
+// proofs. Owning-provider reads verify current content without replacing the
+// original leases or proofs.
 func (c *WindowCatalog) FetchProviderDatasource(ctx context.Context, pin identity.ResolvedResource, target *types.WindowTarget, expected *dsproto.DataSource, inputs map[string]interface{}) (json.RawMessage, error) {
 	if !c.AuthzReady() || target == nil || target.SelectionToken == "" || expected == nil || expected.Backend == nil || expected.Backend.Kind != dsproto.BackendDatly || expected.Backend.Ownership != "provider" || expected.Backend.Service != "" || expected.Backend.Component == nil {
 		return nil, identity.ErrResourceDenied
@@ -57,9 +58,6 @@ func (c *WindowCatalog) FetchProviderDatasource(ctx context.Context, pin identit
 			return err
 		}
 		if err = c.VerifyDependencies(ctx, pin, target, variant); err != nil {
-			return err
-		}
-		if err = c.Admission(ctx, pin, variant.Window); err != nil {
 			return err
 		}
 		var actual dsproto.DataSource

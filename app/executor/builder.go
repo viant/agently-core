@@ -202,7 +202,6 @@ type Builder struct {
 	primitiveVerifier              resourcesvc.ActorVerifier
 	primitiveLocalIdentity         string
 	primitiveGatewayIdentity       string
-	primitiveWindowAdmission       resourcesvc.WindowAdmission
 	windowOpenBootstrap            permittedview.OpenBootstrap
 	windowOpenSelection            permittedview.OpenSelectionCheck
 	newDatasourceDeliveryPreparer  dssvc.NewDeliveryPreparer
@@ -447,8 +446,8 @@ func (b *Builder) WithWindowOpenBootstrap(load permittedview.OpenBootstrap, matc
 	return b
 }
 
-func (b *Builder) WithPrimitiveWindows(admit resourcesvc.WindowAdmission, proof forgetypes.WindowTargetProof) *Builder {
-	b.primitiveWindowAdmission, b.primitiveTargetProof = admit, proof
+func (b *Builder) WithPrimitiveWindows(proof forgetypes.WindowTargetProof) *Builder {
+	b.primitiveTargetProof = proof
 	return b
 }
 func (b *Builder) WithPrimitiveDatasourceAdmission(admit func(context.Context, identity.ResolvedResource, *dsproto.DataSource, map[string]interface{}) error) *Builder {
@@ -1051,7 +1050,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 		}
 		// Custom service/catalog contracts retain their caller-owned executor.
 		_, knownCatalog := b.reportCatalog.(*catalog.ReportCatalogService)
-		if b.reportingService == nil || knownCatalog || out.LocalPrimitiveProvider != nil {
+		if b.reportingService == nil || knownCatalog {
 			out.Reporting.SetResourceDatasetExecutor(reportingsvc.NewResourceDatasetExecutorWithProvider(out.Registry, out.Reporting.AuthorizeResourceDataset, out.providerReportDatasource, out.ComponentDispatcher))
 		}
 	}

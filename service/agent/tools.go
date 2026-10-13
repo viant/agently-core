@@ -191,7 +191,10 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 	if qi == nil {
 		return agenttool.Selection{}, nil
 	}
-	hasVisibleSkills := s.hasVisibleSkills(qi.Agent)
+	hasVisibleSkills, err := s.hasVisibleSkills(ctx, qi.Agent)
+	if err != nil {
+		return agenttool.Selection{}, err
+	}
 	agentSelection := agenttool.FromAgentTool(agentmdlTool(qi.Agent))
 	if hasVisibleSkills {
 		agentSelection.Tools = append(agentSelection.Tools, skillproto.ListToolName, skillproto.GetToolName, skillproto.ActivateToolName)
@@ -223,14 +226,20 @@ func (s *Service) resolveToolControl(ctx context.Context, qi *QueryInput) (agent
 	return effective.Final, nil
 }
 
-func (s *Service) hasVisibleSkills(agent *agentmdl.Agent) bool {
+func (s *Service) hasVisibleSkills(ctx context.Context, agent *agentmdl.Agent) (bool, error) {
 	if s == nil || s.skillSvc == nil {
-		return false
+		return false, nil
 	}
-	if agent != nil && len(agent.Skills) > 0 && s.skillSvc.HasMCPSource() {
-		return true
+	if len(s.skillSvc.VisibleSkillsByName(agent, configuredAgentSkills(agent))) > 0 {
+		return true, nil
 	}
-	return len(s.skillSvc.VisibleSkillsByName(agent, configuredAgentSkills(agent))) > 0
+	if agent == nil || len(agent.Skills) == 0 || !s.skillSvc.HasMCPSource() {
+		return false, nil
+	}
+	// A primitive connection may publish windows or datasources without skills.
+	// Use the owning producers' existing visible catalog, not connection presence.
+	visible, err := s.skillSvc.ListVisible(ctx, agent)
+	return len(visible) > 0, err
 }
 
 func withoutSkillControlSelection(in agenttool.Selection) agenttool.Selection {

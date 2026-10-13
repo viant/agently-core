@@ -56,7 +56,7 @@ func TestWindowViewAndSelectedOpenUsePartialOrdinaryMCPHTTP(t *testing.T) {
 	require.Equal(t, "window://team/sales", specs[0].ResourceURI, "authored metadata cannot supply routing authority")
 	proof, err := types.NewWindowTargetHMAC(make([]byte, 32))
 	require.NoError(t, err)
-	catalog := &WindowCatalog{Gateway: gateway, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }}
+	catalog := &WindowCatalog{Gateway: gateway, TargetProof: proof}
 	selected, err := catalog.Get(context.Background(), &service.WindowDefinitionGetInput{WindowID: specs[0].ResourceURI})
 	require.NoError(t, err)
 	require.Equal(t, "Original Sales", selected.Definition.Title)

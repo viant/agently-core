@@ -5,33 +5,30 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/stretchr/testify/require"
-	service "github.com/viant/agently-core/service/primitiveprovider"
+	cfg "github.com/viant/agently-core/protocol/mcp/config"
+	"github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
+	service "github.com/viant/agently-core/service/primitiveprovider"
 	"github.com/viant/forge/backend/types"
+	"github.com/viant/mcp-protocol/schema"
+	mcpclient "github.com/viant/mcp/client"
 	"testing"
+	"time"
 )
 
 func TestDelegatedWindowCatalogUsesExactProviderAndTarget(t *testing.T) {
 	p := provider("studio-a")
 	p.definition = localWindowBytes(t)
-	g, _, revoked := fixtureGateway(t, map[string]*fixtureProvider{"remote": p})
+	g, _, _ := fixtureGateway(t, map[string]*fixtureProvider{"remote": p})
 	proof, e := types.NewWindowTargetHMAC(bytes.Repeat([]byte{1}, 32))
 	require.NoError(t, e)
-	calls := 0
-	catalog := &WindowCatalog{Gateway: g, TargetProof: proof, Admission: func(_ context.Context, pin identity.ResolvedResource, w *types.Window) error {
-		calls++
-		if *revoked || pin.ProviderIdentity != "studio-a" || w.View.Content.ID != "root" {
-			return identity.ErrResourceDenied
-		}
-		return nil
-	}}
+	catalog := &WindowCatalog{Gateway: g, TargetProof: proof}
 	listed, e := catalog.List(context.Background(), nil)
 	require.NoError(t, e)
 	require.Len(t, listed.Windows, 1)
 	input := &service.WindowDefinitionGetInput{WindowID: listed.Windows[0].WindowID}
 	opened, e := catalog.Get(context.Background(), input)
 	require.NoError(t, e)
-	require.Equal(t, 2, calls)
 	require.Equal(t, "studio-a", opened.Definition.Resource.ProviderIdentity)
 	require.NotEmpty(t, opened.Definition.ResourceTarget.SelectionToken)
 	input.ResolvedResource = opened.Definition.Resource
@@ -54,25 +51,39 @@ func TestDelegatedWindowCatalogUsesExactProviderAndTarget(t *testing.T) {
 	_, e = catalog.Get(context.Background(), input)
 	require.Error(t, e)
 }
-func TestDelegatedWindowCatalogDiscardsHostRevocation(t *testing.T) {
+func TestDelegatedWindowCatalogDiscardsOwningServerDenial(t *testing.T) {
 	p := provider("studio-a")
 	p.definition = localWindowBytes(t)
-	g, _, _ := fixtureGateway(t, map[string]*fixtureProvider{"remote": p})
-	proof, e := types.NewWindowTargetHMAC(bytes.Repeat([]byte{1}, 32))
-	require.NoError(t, e)
-	calls := 0
-	catalog := &WindowCatalog{Gateway: g, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error {
-		calls++
-		if calls == 2 {
-			return identity.ErrResourceDenied
+	upstream := &denyingWindowProvider{fixtureProvider: p}
+	actor := identity.VerifiedActor{Subject: "alice", Issuer: "fixture", TenantID: "example", AccountID: "account", IdentityRevision: "1", ValidUntil: time.Now().Add(time.Minute)}
+	mgr, err := manager.New(fixtureOptions{"remote": &cfg.MCPClient{}}, manager.WithClientFactory(func(context.Context, string, string) (mcpclient.Interface, error) { return upstream, nil }))
+	require.NoError(t, err)
+	gateway := NewGateway(mgr, func(context.Context) (identity.VerifiedActor, error) { return actor, nil }, func(context.Context, identity.VerifiedActor) error { return nil }, "host")
+	defer gateway.Close()
+	proof, err := types.NewWindowTargetHMAC(bytes.Repeat([]byte{1}, 32))
+	require.NoError(t, err)
+	catalog := &WindowCatalog{Gateway: gateway, TargetProof: proof}
+	rows, err := catalog.List(context.Background(), nil)
+	require.NoError(t, err)
+	result, err := catalog.Get(context.Background(), &service.WindowDefinitionGetInput{WindowID: rows.Windows[0].WindowID})
+	require.Error(t, err)
+	require.Nil(t, result, "owning-server denial at final read must discard selected window bytes")
+	require.Equal(t, 2, upstream.gets)
+}
+
+type denyingWindowProvider struct {
+	*fixtureProvider
+	gets int
+}
+
+func (p *denyingWindowProvider) CallTool(ctx context.Context, r *schema.CallToolRequestParams, options ...mcpclient.RequestOption) (*schema.CallToolResult, error) {
+	if r.Name == "windows/get" {
+		p.gets++
+		if p.gets == 2 {
+			return nil, identity.ErrResourceDenied
 		}
-		return nil
-	}}
-	rows, e := catalog.List(context.Background(), nil)
-	require.NoError(t, e)
-	result, e := catalog.Get(context.Background(), &service.WindowDefinitionGetInput{WindowID: rows.Windows[0].WindowID})
-	require.ErrorIs(t, e, identity.ErrResourceDenied)
-	require.Nil(t, result)
+	}
+	return p.fixtureProvider.CallTool(ctx, r, options...)
 }
 
 type localCatalogStub struct {
@@ -92,7 +103,7 @@ func TestCompositeWindowCatalogPreservesLocalAndRejectsConflictingURI(t *testing
 	g, _, _ := fixtureGateway(t, map[string]*fixtureProvider{"remote": p})
 	proof, e := types.NewWindowTargetHMAC(bytes.Repeat([]byte{1}, 32))
 	require.NoError(t, e)
-	remote := &WindowCatalog{Gateway: g, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error { return nil }}
+	remote := &WindowCatalog{Gateway: g, TargetProof: proof}
 	local := localCatalogStub{service.WindowDefinitionSummary{WindowID: "local", ResourceURI: "window://local/home"}}
 	composite := &CompositeWindowCatalog{Local: local, Remote: remote}
 	rows, e := composite.List(context.Background(), nil)

@@ -316,9 +316,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	require.NoError(t, err)
 	builder := executor.NewBuilder().WithAgentFinder(stubAgentFinder{}).WithModelFinder(stubModelFinder{}).WithMCPManager(mgr).WithPrimitiveAuthority(func(context.Context) (identity.VerifiedActor, error) { return actor, nil }, verify, "local-workspace").WithDefaults(&execconfig.Defaults{Reporting: execconfig.ReportingDefaults{Enabled: true, QueueIntervalMs: 60000}})
 	if mode == "windows" {
-		builder = builder.WithUIBridge(primitiveprovider.NewService(&primitiveprovider.Config{})).WithPrimitiveWindows(func(context.Context, identity.ResolvedResource, *types.Window) error {
-			return identity.ErrResourceDenied
-		}, proof)
+		builder = builder.WithUIBridge(primitiveprovider.NewService(&primitiveprovider.Config{})).WithPrimitiveWindows(proof)
 	} else if mode == "headless-proof" {
 		builder = builder.WithPrimitiveReportDependencyProof(proof)
 	}
@@ -422,14 +420,16 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 		}
 		return nil
 	}
-	built.Reporting.SetActionAuthorizer(built.ReportAuthorizer)
-	_, deniedRunErr := built.Reporting.ExecuteResource(ctx, &reportingsvc.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: reportURI}})
-	require.ErrorIs(t, deniedRunErr, identity.ErrResourceDenied)
+	visibility, err := built.Reporting.ListReports(ctx, &reportingsvc.ListReportsInput{Namespace: "steward"})
+	require.NoError(t, err)
+	require.Len(t, visibility.Reports, 1)
+	require.False(t, visibility.Reports[0].Capabilities.Run, "local controls may hide Run")
+	_, managingRunErr := built.Reporting.ExecuteResource(ctx, &reportingsvc.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: reportURI}})
+	require.NoError(t, managingRunErr, "the managing MCP owns resource execution authorization")
 	ordinary.mu.Lock()
-	require.Equal(t, baselineCalls, len(ordinary.calls), "report.execute denial must happen before managing datasource dispatch")
+	require.Greater(t, len(ordinary.calls), baselineCalls, "control visibility cannot block managing datasource dispatch")
 	ordinary.mu.Unlock()
 	built.ReportAuthorizer = priorAuthorizer
-	built.Reporting.SetActionAuthorizer(priorAuthorizer)
 
 	// A foreign own-account filter is rejected by the managing MCP endpoint itself.
 	ordinary.mu.Lock()

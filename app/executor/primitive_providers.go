@@ -18,10 +18,10 @@ import (
 
 func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 	if err := b.configurePublicPrimitiveProviders(out); err != nil {
-		return err
+		return fmt.Errorf("public primitive providers: %w", err)
 	}
 	if err := b.configureNativeHostDocuments(out); err != nil {
-		return err
+		return fmt.Errorf("native host documents: %w", err)
 	}
 	if out.LocalPrimitiveProvider != nil && !out.localPrimitiveRegistered {
 		if out.MCPManager == nil || out.LocalPrimitiveProvider.ProviderIdentity() == "" {
@@ -55,13 +55,10 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 	if out.NativeHostDocuments != nil {
 		out.NativeHostDocuments.Gateway = out.PrimitiveProviders
 	}
-	if (b.primitiveWindowAdmission == nil) != (b.primitiveTargetProof == nil) {
-		return fmt.Errorf("delegated windows require host admission and target proof")
-	}
 	// A raw-document-only fallback is not an admission source for business
 	// datasource/report/window adapters. Preserve their configured boundaries.
 	if out.nativeDocumentOnlyGateway {
-		if b.primitiveWindowAdmission != nil {
+		if b.primitiveTargetProof != nil {
 			return fmt.Errorf("delegated windows require verified primitive authority and a host UI bridge")
 		}
 		return nil
@@ -85,9 +82,9 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 		}, reportProof)
 	}
 	if err := b.configurePrimitiveReports(out); err != nil {
-		return err
+		return fmt.Errorf("primitive reports: %w", err)
 	}
-	if b.primitiveWindowAdmission == nil || out.PrimitiveWindows != nil {
+	if b.primitiveTargetProof == nil || out.PrimitiveWindows != nil {
 		b.configureStandaloneDatasourceProviders(out)
 		return nil
 	}
@@ -98,7 +95,7 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 	if out.publicPrimitiveDefault {
 		defaultNamespace = "workspace"
 	}
-	remote := &resourcesvc.WindowCatalog{DefaultNamespace: defaultNamespace, Gateway: out.PrimitiveProviders, Admission: b.primitiveWindowAdmission, TargetProof: b.primitiveTargetProof}
+	remote := &resourcesvc.WindowCatalog{DefaultNamespace: defaultNamespace, Gateway: out.PrimitiveProviders, TargetProof: b.primitiveTargetProof}
 	out.UIBridge.ConfigureWindowCatalog(func(local forge.WindowDefinitionCatalog) forge.WindowDefinitionCatalog {
 		out.PrimitiveWindows = &resourcesvc.CompositeWindowCatalog{Local: local, LocalProviderIdentity: b.primitiveLocalIdentity, Remote: remote}
 		return out.PrimitiveWindows

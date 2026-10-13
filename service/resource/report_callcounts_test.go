@@ -99,13 +99,13 @@ func runThreePageReportCounts(t *testing.T, httpScope bool) {
 	defer counter.mu.Unlock()
 	t.Logf("actual three-page run: reports/get=%d namespaces/list=%d namespaces/get=%d data=%d", counter.calls["reports/get"], counter.calls["namespaces/list"], counter.calls["namespaces/get"], dataCalls)
 	if httpScope {
-		require.Equal(t, 3, counter.calls["reports/get"], "one PRE admission pair and one final publication read, independent of pages")
+		require.Equal(t, 2, counter.calls["reports/get"], "one owning read and one final publication check, independent of pages")
 		require.LessOrEqual(t, counter.calls["namespaces/list"], 10, "namespace contracts bounded by dispatch phases")
 		require.Equal(t, counter.calls["namespaces/list"], counter.calls["namespaces/get"])
 	} else {
-		require.Equal(t, 8, counter.calls["reports/get"])
-		require.Equal(t, 9, counter.calls["namespaces/list"])
-		require.Equal(t, 9, counter.calls["namespaces/get"])
+		require.Equal(t, 4, counter.calls["reports/get"], "each separate report read dispatches once without local policy intersection")
+		require.Equal(t, 5, counter.calls["namespaces/list"])
+		require.Equal(t, 5, counter.calls["namespaces/get"])
 	}
 	require.Equal(t, 3, dataCalls)
 }

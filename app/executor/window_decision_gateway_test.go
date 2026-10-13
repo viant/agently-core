@@ -226,18 +226,9 @@ func windowDecisionFixture(t *testing.T, scoped bool) (*slowWindowIdentity, *ui.
 			return identity.ErrResourceStale
 		}
 		return nil
-	}}, Gateway: gateway, TargetProof: proof, Admission: func(ctx context.Context, pin identity.ResolvedResource, _ *types.Window) error {
-		resolver, e := prepared.ResourceResolver(policy.OperationWindowView, source, nil)
-		if resolver != nil {
-			resolver.ProviderIdentity = "internal"
-		}
-		if e != nil {
-			return e
-		}
-		_, _, e = resolver.ReadResolved(ctx, pin)
-		return e
-	}}
-	config := &ui.Config{WindowDefinitions: windowWireCatalog{remote}, ResolvedWindowAuthorizer: func(ctx context.Context, pin identity.ResolvedResource, _ string, _ map[string]any) error { return nil }}
+	}}, Gateway: gateway, TargetProof: proof}
+
+	config := &ui.Config{WindowDefinitions: windowWireCatalog{remote}}
 	if scoped {
 		config.WindowReadDecisionScope = prepared.provider.WindowReadDecisionScope
 	}
