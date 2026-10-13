@@ -50,8 +50,9 @@ func TestDefaultPublicFeedUsesOneNativeGateway(t *testing.T) {
 	require.Equal(t, "turn", got.Definition.Activation.Scope)
 	require.NoError(t, os.WriteFile(file, append(body, []byte("title: changed\n")...), 0600))
 	got, err = resources.ResolveDefinition[primitive.ToolfeedDefinition](ctx, out.PrimitiveProviders, primitive.ToolfeedKind, "media-plan", func(v primitive.ToolfeedDefinition) string { return v.ID })
-	require.Error(t, err, "changed immutable source cannot supply a selected definition")
-	require.Nil(t, got)
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.JSONEq(t, `{"title":"Original","controls":{"draftOnly":true}}`, string(got.Definition.UI), "file edits cannot replace captured definition bytes")
 }
 func TestDefaultPublicEmptyAndAuthenticatedComposition(t *testing.T) {
 	old := workspace.Root()

@@ -60,7 +60,6 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	defer authored.Release()
 	declared := []resources.ExtensionDirectory{resources.ToolfeedDirectory("workspace", "feeds"), resources.DatasourceDirectory("workspace", workspace.KindForgeDataSource), authored.TemplateDirectory("workspace"), intents.IntentDirectory("workspace"), legacy}
 	var directories []resources.ExtensionDirectory
-	var assets []string
 	for _, directory := range declared {
 		_, err := os.Stat(filepath.Join(root, directory.Directory))
 		if os.IsNotExist(err) {
@@ -70,7 +69,6 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 			return err
 		}
 		directories = append(directories, directory)
-		assets = append(assets, directory.Directory)
 	}
 
 	var windowBindings []workspacewindow.ResourceBinding
@@ -94,9 +92,6 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		workspaceKeys[binding.WindowKey] = true
 	}
 
-	if _, err := os.Stat(filepath.Join(root, "extension/forge")); err == nil {
-		assets = append(assets, "extension/forge")
-	}
 	var defs []resources.NativeSnapshotDefinition
 	if len(directories) > 0 {
 		defs, err = resources.SnapshotExtensionDefinitions(context.Background(), root, directories)
@@ -171,7 +166,6 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		out.NativeLayoutSource = &resources.CapturedLayoutSource{Root: root, Source: layoutRef, Raw: append([]byte(nil), raw...)}
 		return nil
 	}
-	embeddedLayout := false
 	_, layoutErr := os.Stat(layoutPath)
 	if layoutErr == nil {
 		definition, err := resources.SnapshotLayoutMenuDefinition(layoutRef, menuURI)
@@ -180,7 +174,6 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		}
 		definition.Load = resources.NativeLayoutMenuLoaderWithCapture(capture)
 		defs = append(defs, definition)
-		assets = append(assets, layoutRef)
 	} else if !os.IsNotExist(layoutErr) || explicit {
 		return layoutErr
 	} else if len(b.nativeLayoutDefault) != 0 {
@@ -188,18 +181,12 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		if err != nil {
 			return err
 		}
-		embeddedLayout = true
 		layoutRef = "embedded"
 		defs = append(defs, definition)
 	}
 	checkLayoutSource := func(ctx context.Context) error {
 		if ctx == nil || ctx.Err() != nil {
 			return identity.ErrResourceDenied
-		}
-		if embeddedLayout {
-			if _, err := os.Lstat(layoutPath); !os.IsNotExist(err) {
-				return identity.ErrResourceStale
-			}
 		}
 		return nil
 	}
@@ -252,10 +239,7 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 		return nil
 	}
 	if len(defs) != 0 {
-		if assets == nil {
-			assets = []string{}
-		}
-		snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, defs, resources.NativeSnapshotOptions{AssetPaths: assets, ImmutableUntilRestart: true, BeforeCompile: func(ctx context.Context, r *resources.ExtensionReader) error {
+		snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, defs, resources.NativeSnapshotOptions{BeforeCompile: func(ctx context.Context, r *resources.ExtensionReader) error {
 			confined, check, err := resources.ConfinedReportingOptions(ctx, r, reportOptions)
 			if err != nil {
 				return err

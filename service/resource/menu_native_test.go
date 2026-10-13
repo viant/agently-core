@@ -31,7 +31,7 @@ func TestNativeMenuSharesSnapshotAndRetainsLiveVisibility(t *testing.T) {
 		reads++
 		return native(ctx, r, file)
 	}
-	snapshot, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{def}, NativeSnapshotOptions{AssetPaths: []string{"ui/layout.yaml"}, ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{def}, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 1, reads)
 	p, _, actor, revoked := menuFixtureProvider(t)
@@ -80,7 +80,13 @@ func TestNativeMenuSharesSnapshotAndRetainsLiveVisibility(t *testing.T) {
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	*revoked = false
 	require.NoError(t, os.WriteFile(file, append(original, []byte("\n# changed original\n")...), 0600))
+	retained, err := Get[json.RawMessage](ctx, gateway, connection, identity.ResourceRef{URI: def.URI}, nil)
+	require.NoError(t, err)
+	require.Equal(t, fingerprint, retained.Resource.ContentFingerprint)
+	require.Contains(t, string(retained.Definition), "advertiserList")
+	require.Equal(t, 1, reads, "edits cannot replace startup bytes")
+	require.NoError(t, snapshot.Reload(ctx))
+	require.Equal(t, 2, reads)
 	_, err = Get[json.RawMessage](ctx, gateway, connection, identity.ResourceRef{URI: def.URI}, nil)
-	require.Error(t, err, "changed original cannot reuse startup definition")
-	require.Equal(t, 1, reads, "changed immutable snapshot denies without YAML reload")
+	require.NoError(t, err)
 }

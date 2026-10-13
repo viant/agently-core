@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"os"
@@ -60,7 +61,7 @@ applications:
 		loads++
 		return handler.SetCapturedLayout(root, "ui/layout.yaml", bytes, func(ctx context.Context) error { _, err := snapshot.Candidates(ctx, uri); return err })
 	})
-	snapshot, err = resources.NewNativeAssetSnapshot(ctx, root, []resources.NativeSnapshotDefinition{def}, resources.NativeSnapshotOptions{AssetPaths: []string{"ui/layout.yaml"}, ImmutableUntilRestart: true})
+	snapshot, err = resources.NewNativeAssetSnapshot(ctx, root, []resources.NativeSnapshotDefinition{def}, resources.NativeSnapshotOptions{})
 	require.NoError(t, err)
 	actor := identity.VerifiedActor{Issuer: "https://fixture.invalid", Subject: "owner", TenantID: "team", AccountID: "account", IdentityRevision: "current", ValidUntil: time.Now().Add(time.Minute)}
 	resolve := func(context.Context) (identity.VerifiedActor, error) { return actor, nil }
@@ -110,11 +111,19 @@ applications:
 	require.Equal(t, "public", got.Layout.Applications[0].ID)
 	require.NoError(t, handler.AuthorizeRemoteWindow(ctx, "operations-ui", "same"), "public ancestor remains independent from protected identical action")
 	require.Equal(t, 1, loads)
-	require.NoError(t, os.WriteFile(file, append(raw, []byte("# drift\n")...), 0600))
-	_, err = handler.Layout(ctx, &LayoutRequest{})
-	require.Error(t, err)
-	require.Error(t, handler.AuthorizeRemoteWindow(ctx, "operations-ui", "same"))
+	changed := bytes.Replace(raw, []byte("id: original"), []byte("id: reloaded"), 1)
+	require.NoError(t, os.WriteFile(file, changed, 0600))
+	frozen, err := handler.Layout(ctx, &LayoutRequest{})
+	require.NoError(t, err)
+	require.Equal(t, "original", frozen.Layout.ID)
+	require.NoError(t, handler.AuthorizeRemoteWindow(ctx, "operations-ui", "same"), "visible public ancestor remains allowed despite an unobserved file edit")
 	require.Equal(t, 1, loads)
+	require.NoError(t, snapshot.Reload(ctx))
+	reloaded, err := handler.Layout(ctx, &LayoutRequest{})
+	require.NoError(t, err)
+	require.Equal(t, "reloaded", reloaded.Layout.ID)
+	require.NoError(t, handler.AuthorizeRemoteWindow(ctx, "operations-ui", "same"))
+	require.Equal(t, 2, loads)
 }
 
 type mutableLayoutFacts struct{ features []string }

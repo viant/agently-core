@@ -41,11 +41,11 @@ func TestWindowTerminalContentCallbackAndAuthoritativeFallback(t *testing.T) {
 	require.Error(t, catalog.CheckWindowContent(context.Background(), "window://example/sales", other, nil))
 	require.Equal(t, 1, callbackCalls)
 }
-func TestNativeTerminalCheckStickyImportDrift(t *testing.T) {
+func TestNativeTerminalCheckUsesCapturedGenerationUntilExplicitReload(t *testing.T) {
 	root, bindings := nativeWindowFixture(t)
 	defs, err := SnapshotWindowDefinitions(context.Background(), root, bindings, nil)
 	require.NoError(t, err)
-	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	uri, _ := identity.ParseResourceURI(bindings[0].URI)
 	candidates, err := snapshot.Candidates(context.Background(), uri)
@@ -55,10 +55,14 @@ func TestNativeTerminalCheckStickyImportDrift(t *testing.T) {
 	original, err := os.ReadFile(imported)
 	require.NoError(t, err)
 	require.NoError(t, os.WriteFile(imported, append(original, byte(32)), 0600))
+	require.NoError(t, snapshot.CheckCandidate(context.Background(), uri, candidates[0]))
+	require.NoError(t, snapshot.Reload(context.Background()))
 	require.ErrorIs(t, snapshot.CheckCandidate(context.Background(), uri, candidates[0]), identity.ErrResourceStale)
 	require.NoError(t, os.WriteFile(imported, original, 0600))
 	require.ErrorIs(t, snapshot.CheckCandidate(context.Background(), uri, candidates[0]), identity.ErrResourceStale)
-	require.EqualValues(t, 1, snapshot.CompileCount())
+	require.EqualValues(t, 2, snapshot.CompileCount())
+	require.NoError(t, snapshot.Reload(context.Background()))
+	require.NoError(t, snapshot.CheckCandidate(context.Background(), uri, candidates[0]))
 }
 
 type olderTerminalLocal struct {

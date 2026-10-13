@@ -46,15 +46,16 @@ func TestPublicNativeMenuStartupPrecedenceAndProtectedGate(t *testing.T) {
 				require.NotContains(t, string(got.Definition), "Embedded")
 				require.Equal(t, "ui/layout.yaml", rt.NativeLayoutSource.Source)
 				require.NoError(t, os.WriteFile(filepath.Join(root, "ui/layout.yaml"), []byte("applications: []"), 0600))
-				require.Error(t, rt.NativeLayoutSource.Check(context.Background()))
+				require.NoError(t, rt.NativeLayoutSource.Check(context.Background()))
 			} else {
 				require.Contains(t, string(got.Definition), "Embedded")
 				require.Equal(t, "embedded", rt.NativeLayoutSource.Source)
 				require.NoError(t, os.MkdirAll(filepath.Join(root, "ui"), 0700))
 				require.NoError(t, os.WriteFile(filepath.Join(root, "ui/layout.yaml"), []byte("applications: []"), 0600))
-				require.Error(t, rt.NativeLayoutSource.Check(context.Background()))
-				_, err = resources.Get[json.RawMessage](context.Background(), rt.PrimitiveProviders, connection, identity.ResourceRef{URI: uri.String()}, nil)
-				require.Error(t, err, "later authored source cannot replace captured embedded menu without restart")
+				require.NoError(t, rt.NativeLayoutSource.Check(context.Background()))
+				retained, err := resources.Get[json.RawMessage](context.Background(), rt.PrimitiveProviders, connection, identity.ResourceRef{URI: uri.String()}, nil)
+				require.NoError(t, err)
+				require.Contains(t, string(retained.Definition), "Embedded", "later authored source cannot replace captured embedded menu without explicit recapture")
 			}
 		})
 	}

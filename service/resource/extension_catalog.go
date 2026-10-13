@@ -10,13 +10,53 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 )
+
+type materializationFileMetadata struct {
+	info  os.FileInfo
+	size  int64
+	mtime time.Time
+	ctime string
+}
+
+func metadataOf(info os.FileInfo) materializationFileMetadata {
+	change := ""
+	value := reflect.ValueOf(info.Sys())
+	if value.IsValid() {
+		if value.Kind() == reflect.Pointer {
+			value = value.Elem()
+		}
+		if value.IsValid() && value.Kind() == reflect.Struct {
+			for _, field := range []string{"Ctim", "Ctimespec"} {
+				stamp := value.FieldByName(field)
+				if stamp.IsValid() && stamp.CanInterface() {
+					change = fmt.Sprint(stamp.Interface())
+					break
+				}
+			}
+		}
+	}
+	return materializationFileMetadata{info: info, size: info.Size(), mtime: info.ModTime(), ctime: change}
+}
+func (a materializationFileMetadata) same(info os.FileInfo) bool {
+	b := metadataOf(info)
+	return os.SameFile(a.info, info) && a.info.Mode() == info.Mode() && a.size == b.size && a.mtime.Equal(b.mtime) && a.ctime == b.ctime
+}
+
+func nativeMetadataMatches(name string, expected materializationFileMetadata, info os.FileInfo) bool {
+	if name == "." {
+		return os.SameFile(expected.info, info) && expected.info.Mode() == info.Mode()
+	}
+	return expected.same(info)
+}
 
 // InternalProviderIdentity is transport provenance, not a namespace default.
 const InternalProviderIdentity = "internal"

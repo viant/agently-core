@@ -46,17 +46,18 @@ func configuredSnapshotRoot(t *testing.T) string {
 	return root
 }
 
-func TestNativeSnapshotConfiguredRootAssetAndTracedImport(t *testing.T) {
+func TestFrozenNativeSnapshotConfiguredRootAssetAndTracedImport(t *testing.T) {
 	for _, changed := range []string{"window.json", "shared/title.txt"} {
 		t.Run(changed, func(t *testing.T) {
 			ctx := context.Background()
 			root := configuredSnapshotRoot(t)
-			options := NativeSnapshotOptions{AssetPaths: []string{"window.json"}, ImmutableUntilRestart: true}
+			options := NativeSnapshotOptions{}
 			snapshot, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{configuredSnapshotDefinition()}, options)
 			require.NoError(t, err)
-			options.AssetPaths[0] = "untrusted-later-change"
 			uri, _ := identity.ParseResourceURI("window://studio/overview")
 			candidates, err := snapshot.Candidates(ctx, uri)
+			require.NoError(t, err)
+			original, err := snapshot.ReadCandidate(ctx, uri, candidates[0])
 			require.NoError(t, err)
 			for i := 0; i < 5; i++ {
 				_, err := snapshot.ReadCandidate(ctx, uri, candidates[0])
@@ -73,13 +74,14 @@ func TestNativeSnapshotConfiguredRootAssetAndTracedImport(t *testing.T) {
 			} else {
 				raw = []byte("two")
 			}
-			// Preserve size and mtime; ctime still detects changed dependencies.
+			// Even same-size edits with preserved mtime cannot replace frozen bytes.
 			require.NoError(t, os.WriteFile(file, raw, 0600))
 			require.NoError(t, os.Chtimes(file, info.ModTime(), info.ModTime()))
-			_, err = snapshot.ReadCandidate(ctx, uri, candidates[0])
-			require.ErrorIs(t, err, identity.ErrResourceStale)
-			require.EqualValues(t, 1, snapshot.CompileCount(), "changed files must not silently recompile")
-			fresh, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{configuredSnapshotDefinition()}, NativeSnapshotOptions{AssetPaths: []string{"window.json"}, ImmutableUntilRestart: true})
+			captured, readErr := snapshot.ReadCandidate(ctx, uri, candidates[0])
+			require.NoError(t, readErr)
+			require.Equal(t, original, captured)
+			require.EqualValues(t, 1, snapshot.CompileCount(), "frozen snapshots never recompile after startup")
+			fresh, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{configuredSnapshotDefinition()}, NativeSnapshotOptions{})
 			require.NoError(t, err)
 			current, err := fresh.Candidates(ctx, uri)
 			require.NoError(t, err)
@@ -90,13 +92,15 @@ func TestNativeSnapshotConfiguredRootAssetAndTracedImport(t *testing.T) {
 	}
 }
 
-func TestNativeSnapshotConfiguredAssetPathsRejectEscapes(t *testing.T) {
+func TestNativeSnapshotStartupLoaderRejectsEscapingAndLinkedPaths(t *testing.T) {
 	for _, asset := range []string{"/absolute", "../escape", "shared/../window.json", "", ".", "shared//title.txt", "missing", "link.json", "linked/title.txt"} {
 		t.Run(asset, func(t *testing.T) {
 			root := configuredSnapshotRoot(t)
 			require.NoError(t, os.Symlink("window.json", filepath.Join(root, "link.json")))
 			require.NoError(t, os.Symlink("shared", filepath.Join(root, "linked")))
-			_, err := NewNativeAssetSnapshot(context.Background(), root, []NativeSnapshotDefinition{configuredSnapshotDefinition()}, NativeSnapshotOptions{AssetPaths: []string{asset}, ImmutableUntilRestart: true})
+			definition := configuredSnapshotDefinition()
+			definition.File = asset
+			_, err := NewNativeAssetSnapshot(context.Background(), root, []NativeSnapshotDefinition{definition})
 			require.Error(t, err)
 		})
 	}

@@ -86,5 +86,12 @@ func TestDefaultWindowHTTPAndViewConsumeSameMCPDefinition(t *testing.T) {
 	require.NoError(t, os.WriteFile(file, append(raw, []byte("chipName: changed\n")...), 0600))
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest("GET", "/window/original?applyPermission=true", nil))
-	require.NotEqual(t, 200, response.Code, "source change cannot fall back to direct YAML")
+	require.Equal(t, 200, response.Code, "file edits do not implicitly reload a captured source")
+	var retained struct {
+		Data *types.Window `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &retained))
+	require.NotNil(t, retained.Data)
+	require.Equal(t, window.Resource.ResourceCandidate, retained.Data.Resource.ResourceCandidate)
+	require.Equal(t, "Original", retained.Data.Title, "direct YAML cannot replace captured bytes")
 }

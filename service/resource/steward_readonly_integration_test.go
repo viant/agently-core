@@ -82,7 +82,7 @@ func TestStewardReadonlyInternalGatewayOriginalYAML(t *testing.T) {
 		definitions = append(definitions, NativeSnapshotDefinition{URI: entry.URI, Title: entry.Title, FormatVersion: 1, File: paths[entry.URI], Load: NativeReportLoader(entry.URI, reportOptions, nil)})
 	}
 	preloadStart := time.Now()
-	snapshot, err := NewNativeAssetSnapshot(ctx, root, definitions, NativeSnapshotOptions{ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(ctx, root, definitions, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	t.Logf("startup nativepreload elapsed=%s compiles=%d", time.Since(preloadStart), snapshot.CompileCount())
 	bindings, err := snapshot.Bindings("internal", extensionPolicy)

@@ -12,7 +12,7 @@ import (
 	identity "github.com/viant/agently-core/protocol/resource"
 )
 
-func TestNativeSnapshotHonestlyValidatesVersionThreeReferencesAndSourceDrift(t *testing.T) {
+func TestFrozenNativeSnapshotValidatesVersionThreeReferencesAndKeepsStartupBytes(t *testing.T) {
 	stack := newDependencyStack(t, time.Now().Add(time.Minute))
 	root := t.TempDir()
 	file := "extension/forge/windows/references.json"
@@ -22,7 +22,7 @@ func TestNativeSnapshotHonestlyValidatesVersionThreeReferencesAndSourceDrift(t *
 	definition := NativeSnapshotDefinition{URI: "window://team/orders", Title: "Orders", FormatVersion: 3, File: file, Load: func(ctx context.Context, r *ExtensionReader, name string) (json.RawMessage, error) {
 		return r.ReadFile(ctx, name)
 	}}
-	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, []NativeSnapshotDefinition{definition}, NativeSnapshotOptions{ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, []NativeSnapshotDefinition{definition}, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	require.NoError(t, ValidateWindowBundle(3, raw))
 	require.Error(t, ValidateWindowBundle(2, raw), "references cannot lie about format2")
@@ -34,7 +34,8 @@ func TestNativeSnapshotHonestlyValidatesVersionThreeReferencesAndSourceDrift(t *
 	require.NoError(t, err)
 	require.Equal(t, raw, got)
 	require.NoError(t, os.WriteFile(filepath.Join(root, file), append(append([]byte(nil), raw...), byte(' ')), 0600))
-	_, err = snapshot.ReadCandidate(context.Background(), uri, pins[0])
-	require.ErrorIs(t, err, identity.ErrResourceStale)
+	captured, err := snapshot.ReadCandidate(context.Background(), uri, pins[0])
+	require.NoError(t, err)
+	require.Equal(t, raw, captured)
 	require.EqualValues(t, 1, snapshot.CompileCount())
 }

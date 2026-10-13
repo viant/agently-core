@@ -154,7 +154,7 @@ func TestPublicReadNativeFeedMatchingAndUI(t *testing.T) {
 	dirs := []resources.ExtensionDirectory{resources.ToolfeedDirectory("workspace", "feeds")}
 	defs, err := resources.SnapshotToolfeedDefinitions(context.Background(), root, dirs)
 	require.NoError(t, err)
-	snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, defs, resources.NativeSnapshotOptions{AssetPaths: []string{"feeds"}, ImmutableUntilRestart: true})
+	snapshot, err := resources.NewNativeAssetSnapshot(context.Background(), root, defs, resources.NativeSnapshotOptions{})
 	require.NoError(t, err)
 	actor, verify := resources.PublicReadActors()
 	var lease atomic.Int64

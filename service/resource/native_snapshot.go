@@ -4,15 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
 	"sort"
-	"strings"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -35,57 +32,12 @@ type NativeSnapshotDefinition struct {
 }
 
 // StaticWorkspaceWindowEnricher promises actor-independent authored enrichment.
-// Mutable registry state must be refreshed for the current asset generation in
-// BeforeCompile, or captured as an immutable registry for each rebuild.
+// Static registry state is captured by BeforeCompile during startup or Reload.
 type StaticWorkspaceWindowEnricher func(context.Context, *types.Window) error
 type NativeSnapshotOptions struct {
-	// AssetPaths is a trusted set of relative files/directories to monitor.
-	// Nil preserves the workspace extension/forge inventory. Imported files
-	// read by the loader remain tracked even outside these initial paths.
-	AssetPaths []string
-	// ImmutableUntilRestart denies changed assets rather than refreshing content
-	// under host visibility/group configuration captured at startup.
-	ImmutableUntilRestart bool
-	// BeforeCompile refreshes only static authored dependencies, never authority.
-	// It is invoked once per startup/rebuild before any definition is compiled.
+	// BeforeCompile prepares static authored dependencies before initial capture
+	// or explicit Reload. It must not make identity or permission decisions.
 	BeforeCompile func(context.Context, *ExtensionReader) error
-}
-type nativeFileMetadata struct {
-	info  os.FileInfo
-	size  int64
-	mtime time.Time
-	ctime string
-}
-
-func metadataOf(info os.FileInfo) nativeFileMetadata {
-	change := ""
-	value := reflect.ValueOf(info.Sys())
-	if value.IsValid() {
-		if value.Kind() == reflect.Pointer {
-			value = value.Elem()
-		}
-		if value.IsValid() && value.Kind() == reflect.Struct {
-			for _, field := range []string{"Ctim", "Ctimespec"} {
-				stamp := value.FieldByName(field)
-				if stamp.IsValid() && stamp.CanInterface() {
-					change = fmt.Sprint(stamp.Interface())
-					break
-				}
-			}
-		}
-	}
-	return nativeFileMetadata{info: info, size: info.Size(), mtime: info.ModTime(), ctime: change}
-}
-func (a nativeFileMetadata) same(info os.FileInfo) bool {
-	b := metadataOf(info)
-	return os.SameFile(a.info, info) && a.info.Mode() == info.Mode() && a.size == b.size && a.mtime.Equal(b.mtime) && a.ctime == b.ctime
-}
-
-func nativeMetadataMatches(name string, expected nativeFileMetadata, info os.FileInfo) bool {
-	if name == "." {
-		return os.SameFile(expected.info, info) && expected.info.Mode() == info.Mode()
-	}
-	return expected.same(info)
 }
 
 type nativeSnapshotValue struct {
@@ -95,17 +47,16 @@ type nativeSnapshotValue struct {
 	version     int64
 }
 
-// NativeAssetSnapshot preloads immutable compiled content and checks cheap file
-// metadata on every serve. It caches no actors, policies, grants or leases. The
-// complete Forge tree (including fragments/imports/directories) is invalidated
-// on changes; extra files read through reader are also tracked.
+// NativeAssetSnapshot captures validated authored bytes once. Reads use the
+// captured map until explicit Reload or restart; no filesystem polling or asset
+// manifest is maintained. Actors, policies, grants and leases remain fresh.
 type NativeAssetSnapshot struct {
 	root         string
 	anchor       os.FileInfo
 	definitions  []NativeSnapshotDefinition
 	options      NativeSnapshotOptions
-	mu           sync.Mutex
-	manifest     map[string]nativeFileMetadata
+	mu           sync.RWMutex
+	reloadMu     sync.Mutex
 	values       map[string]nativeSnapshotValue
 	compilations atomic.Uint64
 }
@@ -130,20 +81,8 @@ func NewNativeAssetSnapshot(ctx context.Context, root string, definitions []Nati
 	snapshot := &NativeAssetSnapshot{root: absolute, anchor: anchor, definitions: append([]NativeSnapshotDefinition(nil), definitions...)}
 	if len(options) == 1 {
 		snapshot.options = options[0]
-		if options[0].AssetPaths != nil {
-			if len(options[0].AssetPaths) > 128 {
-				return nil, fmt.Errorf("native snapshot requires bounded asset paths")
-			}
-			seenPaths := map[string]bool{}
-			for _, asset := range options[0].AssetPaths {
-				if !extensionPath(asset) || seenPaths[asset] {
-					return nil, fmt.Errorf("invalid or duplicate native asset path")
-				}
-				seenPaths[asset] = true
-			}
-			snapshot.options.AssetPaths = append([]string{}, options[0].AssetPaths...)
-		}
 	}
+
 	seen := map[string]bool{}
 	for _, definition := range snapshot.definitions {
 		uri, err := identity.ParseResourceURI(definition.URI)
@@ -155,7 +94,7 @@ func NewNativeAssetSnapshot(ctx context.Context, root string, definitions []Nati
 		}
 		seen[definition.URI] = true
 	}
-	if err = snapshot.rebuild(ctx); err != nil {
+	if err = snapshot.Reload(ctx); err != nil {
 		return nil, err
 	}
 	return snapshot, nil
@@ -166,106 +105,39 @@ func (s *NativeAssetSnapshot) CompileCount() uint64 {
 	}
 	return s.compilations.Load()
 }
-func (s *NativeAssetSnapshot) scan(ctx context.Context) (map[string]nativeFileMetadata, error) {
-	root, err := os.OpenRoot(s.root)
-	if err != nil {
-		return nil, err
+
+// Reload compiles off the read path and publishes one complete validated
+// generation atomically. Failed or canceled reloads retain the prior bytes.
+// The owning host/provider emits its resource-change event after success.
+func (s *NativeAssetSnapshot) Reload(ctx context.Context) error {
+	if s == nil || ctx == nil || ctx.Err() != nil {
+		return identity.ErrResourceDenied
 	}
-	defer root.Close()
-	current, err := root.Stat(".")
-	if err != nil {
-		return nil, err
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	if ctx.Err() != nil {
+		return ctx.Err()
 	}
-	if !os.SameFile(s.anchor, current) {
-		return nil, identity.ErrResourceStale
-	}
-	result := map[string]nativeFileMetadata{".": metadataOf(current)}
-	assets := s.options.AssetPaths
-	if assets == nil {
-		assets = []string{"extension/forge"}
-	}
-	for _, asset := range assets {
-		// WalkDir does not reject symlinks in the ancestors of its start path.
-		// Validate each original prefix through the confined root first.
-		prefix := ""
-		for _, segment := range strings.Split(asset, "/") {
-			if prefix != "" {
-				prefix += "/"
-			}
-			prefix += segment
-			info, err := root.Lstat(prefix)
-			if err != nil {
-				return nil, err
-			}
-			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() && !info.Mode().IsRegular() {
-				return nil, identity.ErrResourceDenied
-			}
-			result[prefix] = metadataOf(info)
-		}
-		err = fs.WalkDir(root.FS(), asset, func(name string, entry fs.DirEntry, err error) error {
-			if err != nil {
-				return err
-			}
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-			info, err := entry.Info()
-			if err != nil {
-				return err
-			}
-			if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() && !info.Mode().IsRegular() {
-				return identity.ErrResourceDenied
-			}
-			result[name] = metadataOf(info)
-			return nil
-		})
-		if err != nil {
-			return nil, err
-		}
-	}
-	return result, err
-}
-func (s *NativeAssetSnapshot) changed(ctx context.Context, manifest map[string]nativeFileMetadata) (bool, error) {
-	for name, expected := range manifest {
-		if ctx.Err() != nil {
-			return false, ctx.Err()
-		}
-		location := s.root
-		if name != "." {
-			location = filepath.Join(s.root, filepath.FromSlash(name))
-		}
-		current, err := os.Lstat(location)
-		if err != nil {
-			if os.IsNotExist(err) {
-				return true, nil
-			}
-			return false, err
-		}
-		if current.Mode()&os.ModeSymlink != 0 || !current.IsDir() && !current.Mode().IsRegular() {
-			return false, identity.ErrResourceDenied
-		}
-		if !nativeMetadataMatches(name, expected, current) {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-func (s *NativeAssetSnapshot) rebuild(ctx context.Context) error {
+
 	// Static compilation receives no caller values, actor, grants or request data.
+	requestCtx := ctx
 	compileCtx, cancel := context.WithCancel(context.Background())
 	stop := context.AfterFunc(ctx, cancel)
 	defer func() { stop(); cancel() }()
 	ctx = compileCtx
 
-	before, err := s.scan(ctx)
-	if err != nil {
-		return err
-	}
 	root, err := os.OpenRoot(s.root)
 	if err != nil {
 		return err
 	}
 	defer root.Close()
+	current, err := root.Stat(".")
+	if err != nil {
+		return err
+	}
+	if !os.SameFile(s.anchor, current) {
+		return identity.ErrResourceStale
+	}
 	reader := &ExtensionReader{root: root}
 	defer reader.close()
 	if s.options.BeforeCompile != nil {
@@ -307,55 +179,32 @@ func (s *NativeAssetSnapshot) rebuild(ctx context.Context) error {
 		values[definition.URI] = nativeSnapshotValue{raw: append(json.RawMessage(nil), raw...), fingerprint: identity.ContentFingerprint(raw), kind: uri.Kind, version: definition.FormatVersion}
 		s.compilations.Add(1)
 	}
-	// Outside-Forge imports and their parent directories are part of the same
-	// immutable source generation. Reader records metadata without caching bytes.
-	reader.mu.Lock()
-	for name, info := range reader.dependencies {
-		if expected, ok := before[name]; ok {
-			if !nativeMetadataMatches(name, expected, info) {
-				reader.mu.Unlock()
-				return identity.ErrResourceStale
-			}
-		} else {
-			before[name] = metadataOf(info)
-		}
-	}
-	reader.mu.Unlock()
-	if changed, err := s.changed(ctx, before); err != nil {
+	if err := ctx.Err(); err != nil {
 		return err
-	} else if changed {
-		return identity.ErrResourceStale
 	}
-	s.manifest, s.values = before, values
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err := requestCtx.Err(); err != nil {
+		return err
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	s.values = values
+
 	return nil
 }
 func (s *NativeAssetSnapshot) value(ctx context.Context, uri identity.ResourceURI) (nativeSnapshotValue, error) {
 	if s == nil || ctx == nil || ctx.Err() != nil || !uri.Valid() {
 		return nativeSnapshotValue{}, identity.ErrResourceDenied
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.refreshLocked(ctx); err != nil {
-		return nativeSnapshotValue{}, err
-	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	value, ok := s.values[uri.String()]
 	if !ok {
 		return nativeSnapshotValue{}, identity.ErrResourceDenied
 	}
 	return value, nil
-}
-func (s *NativeAssetSnapshot) refreshLocked(ctx context.Context) error {
-	changed, err := s.changed(ctx, s.manifest)
-	if err != nil {
-		return err
-	}
-	if changed {
-		if s.options.ImmutableUntilRestart {
-			return identity.ErrResourceStale
-		}
-		return s.rebuild(ctx)
-	}
-	return nil
 }
 
 // WindowIndex returns trusted metadata without loading/resolving any definition
@@ -365,11 +214,8 @@ func (s *NativeAssetSnapshot) WindowIndex(ctx context.Context) ([]primitive.Reso
 	if s == nil || ctx == nil || ctx.Err() != nil {
 		return nil, identity.ErrResourceDenied
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	if err := s.refreshLocked(ctx); err != nil {
-		return nil, err
-	}
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	result := []primitive.ResourceState{}
 	for _, definition := range s.definitions {
 		uri, _ := identity.ParseResourceURI(definition.URI)
@@ -413,8 +259,8 @@ func (s *NativeAssetSnapshot) localDefinitionCurrent(ctx context.Context, uri id
 	return nil
 }
 func (s *NativeAssetSnapshot) localDefinitionValidated(kind string, version int64, fingerprint string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	for _, value := range s.values {
 		if value.kind == kind && value.version == version && value.fingerprint == fingerprint {
 			return true
@@ -501,8 +347,8 @@ func pureLocalValidator(kind string, validator LocalResourceValidator) bool {
 	return kind == "skill" && pointer == reflect.ValueOf(ValidateNativeSkillDefinition).Pointer() || kind == "window" && pointer == reflect.ValueOf(ValidateWindowBundle).Pointer() || kind == "report" && pointer == reflect.ValueOf(ValidateReportEnvelope).Pointer()
 }
 
-// CheckCandidate verifies deterministic authored content and all tracked imports
-// against an original candidate. It makes no identity or permission decision.
+// CheckCandidate compares captured validated content against an exact original
+// candidate without reading the filesystem. It makes no identity or permission decision.
 func (s *NativeAssetSnapshot) CheckCandidate(ctx context.Context, uri identity.ResourceURI, candidate identity.ResourceCandidate) error {
 	if s == nil || !candidate.Valid() {
 		return identity.ErrResourceStale
