@@ -169,6 +169,7 @@ export interface LinkedConversationRenderView extends HostTrust {
 }
 
 export interface IterationRenderRow extends HostTrust {
+    waitKind?: ClientTurnState['waitKind'];
     operationalNarration?: string;
     attachments?: WorkspaceAttachmentState[];
     kind: 'iteration';
@@ -486,6 +487,7 @@ function iterationRow(turn: ClientTurnState): IterationRenderRow {
         hostEffectsAllowed: turn.hostEffectsAllowed,
         turnId: turn.turnId,
         lifecycle: turn.lifecycle,
+        waitKind: turn.waitKind,
         errorMessage: turn.errorMessage,
         turnStartedAt: turn.createdAt,
         rounds,
