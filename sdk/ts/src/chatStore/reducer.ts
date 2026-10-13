@@ -519,6 +519,14 @@ function applyEventInternal(
     switch (event.type) {
         case 'turn_queued':
             return onTurnQueued(state,event);
+        case 'turn_wait_kind': {
+            // This hint belongs only to the exact live conversation/turn.
+            const turn=state.turns.find(item=>item.turnId===event.turnId);
+            if (!turn || !['pending','running'].includes(turn.lifecycle)) return state;
+            const kind=event.waitKind==='client_tool' && (event.connectionProfile!=='agently' || event.hostEffectsAllowed!==true) ? 'unknown':event.waitKind;
+            if (['client_tool','approval','elicitation','unknown','none'].includes(kind ?? '')) writeField(turn,'waitKind',kind,'event');
+            return state;
+        }
         case 'turn_started':
             return onTurnStarted(state, event);
         case 'turn_completed':
@@ -677,6 +685,7 @@ function onTurnStarted(state: ClientConversationState, event: SSEEvent): ClientC
         writeField(turn, 'turnId', eventTurnId, 'event');
     }
     writeField(turn, 'lifecycle', 'running', 'event');
+    writeField(turn, 'waitKind', 'none', 'event');
     writeField(turn,'nativeStatus','running','event');
     if (event.createdAt) writeField(turn, 'createdAt', event.createdAt, 'event');
 
@@ -727,6 +736,7 @@ function onTurnTerminal(state: ClientConversationState, event: SSEEvent): Client
         'cancelled';
 
     writeField(turn, 'lifecycle', lifecycle, 'event');
+    writeField(turn, 'waitKind', 'none', 'event');
     if (event.createdAt) writeField(turn, 'updatedAt', event.createdAt, 'event');
 
     const page = ensureAnchorPageForLifecycle(turn, event, 'event');
@@ -1563,6 +1573,7 @@ function mergeTranscriptTurn(
         }
         if (snapshotTurn.createdAt) writeField(turn, 'createdAt', snapshotTurn.createdAt, 'transcript');
     }
+    if (isTerminalLifecycle(turn.lifecycle)) forceTranscriptRefinement(turn, 'waitKind', 'none');
     dropMatchedPendingBootstrapTurn(state, turn, snapshotTurn);
     // Canonical queue state is current committed state, while admission events
     // can be historical replay. A fresh snapshot owns order and requeue status.
