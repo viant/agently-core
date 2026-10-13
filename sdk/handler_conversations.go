@@ -56,9 +56,6 @@ func statusForDeleteConversationError(err error) int {
 	if strings.Contains(msg, "still in progress") || strings.Contains(msg, "active") {
 		return http.StatusConflict
 	}
-	if strings.Contains(msg, "permission denied") || strings.Contains(msg, "forbidden") {
-		return http.StatusForbidden
-	}
 	if strings.Contains(msg, "required") || strings.Contains(msg, "invalid") {
 		return http.StatusBadRequest
 	}
