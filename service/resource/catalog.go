@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"time"
@@ -17,7 +18,7 @@ type CatalogQuery = primitive.CatalogQuery
 
 type NamespacePage = primitive.CatalogPage[DiscoveredNamespace]
 
-func (g *Gateway) catalog(ctx context.Context, kind string, load func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error), sourceLease ...func() time.Time) (*primitive.Catalog[json.RawMessage], identity.VerifiedActor, error) {
+func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error), sourceLease ...func() time.Time) (*primitive.Catalog[json.RawMessage], identity.VerifiedActor, error) {
 	actor, err := g.actor(ctx)
 	if err != nil {
 		return nil, actor, err
@@ -40,7 +41,8 @@ func (g *Gateway) catalog(ctx context.Context, kind string, load func(context.Co
 	}
 	generation := g.catalogGeneration(names)
 	key := fmt.Sprintf("primitive:%p:%s:%s:%s:%x", g, actorKey(actor, "", 0), scope, kind, generation)
-	index, err := g.Manager.VisibleCatalog(ctx, key, until, load, sourceLease...)
+	partition := g.Manager.CatalogPartition(ctx, catalogPrincipalScope(actor), category)
+	index, err := g.Manager.VisibleCatalogInPartition(ctx, key, partition, until, load, sourceLease...)
 	if err != nil {
 		return nil, actor, err
 	}
@@ -69,7 +71,7 @@ func ListPage[T any](ctx context.Context, g *Gateway, kind string, query Catalog
 		catalogKind += ":definitions"
 	}
 	var definitionLease time.Time
-	index, actor, err := g.catalog(ctx, catalogKind, func(ctx context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
+	index, actor, err := g.catalog(ctx, catalogKind, kind, func(ctx context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
 		rows, err := g.List(ctx, kind, "")
 		if err != nil {
 			return nil, err
@@ -81,6 +83,9 @@ func ListPage[T any](ctx context.Context, g *Gateway, kind string, query Catalog
 		for _, row := range rows {
 			if hydrated {
 				fresh, e := Get[json.RawMessage](ctx, g, row.Connection, identity.ResourceRef{URI: row.Resource.URI, Revision: row.Resource.Revision}, nil)
+				if errors.Is(e, identity.ErrResourceDenied) && !resourceIdentityRejected(e) {
+					continue
+				}
 				if e != nil {
 					return nil, e
 				}
@@ -93,6 +98,7 @@ func ListPage[T any](ctx context.Context, g *Gateway, kind string, query Catalog
 				if definitionLease.IsZero() || fresh.ResolvedResource.ValidUntil.Before(definitionLease) {
 					definitionLease = fresh.ResolvedResource.ValidUntil
 				}
+				row.ResolvedResource = fresh.ResolvedResource
 				row.Resource = *fresh.Resource
 				row.Resource.Definition = fresh.Definition
 				row.Resource.DefinitionBytes = nil // One exact definition carrier in the private snapshot.
@@ -101,7 +107,7 @@ func ListPage[T any](ctx context.Context, g *Gateway, kind string, query Catalog
 			if err != nil {
 				return nil, err
 			}
-			items = append(items, primitive.CatalogItem[json.RawMessage]{Name: row.Resource.Name, Description: row.Resource.Description, Namespace: row.Resource.Namespace, URI: row.Resource.URI, Provider: row.Connection.ProviderIdentity, Value: raw})
+			items = append(items, primitive.CatalogItem[json.RawMessage]{Name: row.Resource.Name, Description: row.Resource.Description, Namespace: row.Resource.Namespace, URI: row.Resource.URI, Provider: row.Connection.ProviderIdentity, OwnerID: row.Resource.OwnerID, Value: raw})
 		}
 		return items, nil
 	}, func() time.Time { return definitionLease })
@@ -139,7 +145,7 @@ func (g *Gateway) ListPage(ctx context.Context, kind string, query CatalogQuery)
 // NamespacePage describes explicitly published provider metadata and declared
 // supported operations; it never invents capabilities or fetches definitions.
 func (g *Gateway) NamespacePage(ctx context.Context, query CatalogQuery) (*NamespacePage, error) {
-	index, actor, err := g.catalog(ctx, "namespace", func(ctx context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
+	index, actor, err := g.catalog(ctx, "namespace", "namespace", func(ctx context.Context) ([]primitive.CatalogItem[json.RawMessage], error) {
 		namespaces, err := g.Discover(ctx)
 		if err != nil {
 			return nil, err
@@ -187,4 +193,12 @@ func (g *Gateway) catalogGeneration(names []string) [32]byte {
 	g.mu.Unlock()
 	raw, _ := json.Marshal(generations)
 	return sha256.Sum256(raw)
+}
+
+// Full catalog keys retain account/revision/credential isolation. Mutation tags
+// identify the stable user realm so successful writes also expire that user's
+// older account/revision/session variants without touching other principals.
+func catalogPrincipalScope(actor identity.VerifiedActor) string {
+	raw, _ := json.Marshal([]any{actor.PublicRead, actor.Issuer, actor.Subject, actor.TenantID})
+	return string(raw)
 }

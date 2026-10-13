@@ -15,6 +15,7 @@ import (
 	"time"
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/jsonrpc"
 	"github.com/viant/jsonrpc/transport"
@@ -75,6 +76,7 @@ type LocalConfig struct {
 
 type LocalProvider struct {
 	catalog                   LocalCatalog
+	observedNamespaces        map[string]bool
 	authoring                 primitive.ResourceAuthoring
 	catalogOperations         map[string]map[string]map[string]bool
 	catalogKinds              map[string]map[string]map[int64]bool
@@ -112,7 +114,7 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 	if err := checkNativeResources(config.NativeResources); err != nil {
 		return nil, err
 	}
-	p := &LocalProvider{authoring: config.Authoring, nativeResources: append([]NativeResource(nil), config.NativeResources...), namespaceMetadata: cloneNamespaceMetadata(config.NamespaceMetadata), identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
+	p := &LocalProvider{observedNamespaces: map[string]bool{}, authoring: config.Authoring, nativeResources: append([]NativeResource(nil), config.NativeResources...), namespaceMetadata: cloneNamespaceMetadata(config.NamespaceMetadata), identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
 	if p.now == nil {
 		p.now = time.Now
 	}
@@ -137,6 +139,7 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 			return nil, fmt.Errorf("duplicate local resource binding")
 		}
 		p.bindings[binding.URI] = binding
+		p.observedNamespaces[uri.Namespace] = true
 	}
 	return p, nil
 }
@@ -186,7 +189,11 @@ func (p *LocalProvider) nowTime() time.Time {
 	return time.Now()
 }
 
-func (p *LocalProvider) currentActor(ctx context.Context) (identity.VerifiedActor, error) {
+func (p *LocalProvider) currentActor(ctx context.Context) (timingActor identity.VerifiedActor, timingErr error) {
+	if p != nil && observe.Enabled(ctx) {
+		span := p.timing(ctx, observe.Identity, "resource", "")
+		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheBypass) }()
+	}
 	if p == nil || p.actor == nil || p.verify == nil || ctx == nil || ctx.Err() != nil {
 		return identity.VerifiedActor{}, identity.ErrResourceDenied
 	}
@@ -203,7 +210,11 @@ func (p *LocalProvider) currentActor(ctx context.Context) (identity.VerifiedActo
 	return actor, nil
 }
 
-func (p *LocalProvider) finishActor(ctx context.Context, actor identity.VerifiedActor) error {
+func (p *LocalProvider) finishActor(ctx context.Context, actor identity.VerifiedActor) (timingErr error) {
+	if p != nil && observe.Enabled(ctx) {
+		span := p.timing(ctx, observe.Identity, "resource", "")
+		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheBypass) }()
+	}
 	if p == nil || p.actor == nil || p.verify == nil || ctx == nil || ctx.Err() != nil || !actor.ReadValid(p.nowTime()) {
 		return identity.ErrResourceDenied
 	}
@@ -221,7 +232,11 @@ func sameLocalActor(left, right identity.VerifiedActor) bool {
 	return left.PublicRead == right.PublicRead && left.Subject == right.Subject && left.Issuer == right.Issuer && left.TenantID == right.TenantID && left.AccountID == right.AccountID && left.IdentityRevision == right.IdentityRevision
 }
 
-func (p *LocalProvider) authorize(ctx context.Context, actor identity.VerifiedActor, uri identity.ResourceURI, action string) error {
+func (p *LocalProvider) authorize(ctx context.Context, actor identity.VerifiedActor, uri identity.ResourceURI, action string) (timingErr error) {
+	if p != nil && observe.Enabled(ctx) {
+		span := p.timing(ctx, observe.Authorization, uri.Kind, uri.Namespace)
+		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheBypass) }()
+	}
 	if p == nil || p.authorizer == nil || !uri.Valid() {
 		return identity.ErrResourceDenied
 	}
@@ -235,7 +250,9 @@ func (p *LocalProvider) checkedRead(ctx context.Context, actor identity.Verified
 	if err := p.authorize(ctx, actor, uri, action); err != nil {
 		return nil, nil, err
 	}
+	resolverSpan := p.timing(ctx, observe.BindingResolver, uri.Kind, uri.Namespace)
 	resolver, err := binding.Resolver(ctx, actor, action)
+	resolverSpan.End(observe.OutcomeFor(err), observe.CacheBypass)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -247,25 +264,39 @@ func (p *LocalProvider) checkedRead(ctx context.Context, actor identity.Verified
 	}
 	// Preserve omission so host policy can honor an authorized main/exposure
 	// selection. Explicit working is supported; stamped selectors are not.
+	resolveSpan := p.timing(ctx, observe.RevisionResolve, uri.Kind, uri.Namespace)
 	pin, err := resolver.Resolve(ctx, identity.ResourceRef{URI: uri.String(), Revision: requested})
+	resolveSpan.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, nil, err
 	}
 	if pin == nil || pin.ProviderIdentity != p.identity || pin.URI != uri.String() || !pin.ResourceCandidate.Valid() || (uri.Kind != "menu" && (pin.Kind != identity.WorkingCandidate || pin.Revision != "")) || !pin.ValidUntil.After(p.nowTime()) {
 		return nil, nil, identity.ErrResourceDenied
 	}
+	readSpan := p.timing(ctx, observe.RevisionRead, uri.Kind, uri.Namespace)
 	raw, fresh, err := resolver.ReadResolved(ctx, *pin)
+	readSpan.End(observe.OutcomeFor(err), observe.CacheUnknown)
 	if err != nil {
 		return nil, nil, err
 	}
 	if fresh == nil || fresh.ProviderIdentity != p.identity || fresh.URI != pin.URI || fresh.ResourceCandidate != pin.ResourceCandidate || fresh.AuthorityBinding != pin.AuthorityBinding {
 		return nil, nil, identity.ErrResourceDenied
 	}
+	validationSpan := p.timing(ctx, observe.Validation, uri.Kind, uri.Namespace)
 	validator := p.validators[uri.Kind]
 	validated := p.definitionValidationCache != nil && p.definitionValidationCache(resolver.Source, uri.Kind, binding.FormatVersion, fresh.ContentFingerprint, validator)
+	cache := observe.CacheBypass
+	if p.definitionValidationCache != nil {
+		cache = observe.CacheMiss
+	}
+	if validated {
+		cache = observe.CacheHit
+	}
 	if validator == nil || !validated && validator(binding.FormatVersion, raw) != nil {
+		validationSpan.End(observe.Error, cache)
 		return nil, nil, fmt.Errorf("invalid local %s definition", uri.Kind)
 	}
+	validationSpan.End(observe.OK, cache)
 	if err := p.authorize(ctx, actor, uri, action); err != nil {
 		return nil, nil, err
 	}
@@ -285,7 +316,11 @@ func (p *LocalProvider) checkedRead(ctx context.Context, actor identity.Verified
 	return append(json.RawMessage(nil), raw...), fresh, nil
 }
 
-func (p *LocalProvider) NamespaceList(ctx context.Context, input primitive.NamespaceListRequest) (*primitive.NamespaceListResult, error) {
+func (p *LocalProvider) NamespaceList(ctx context.Context, input primitive.NamespaceListRequest) (timingResult *primitive.NamespaceListResult, timingErr error) {
+	if observe.Enabled(ctx) {
+		span := p.timing(ctx, observe.ProviderNamespaceList, "resource", "")
+		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheUnknown) }()
+	}
 	offset, limit, err := pageRequest(input.Cursor, input.Limit)
 	if err != nil {
 		return nil, err
@@ -346,7 +381,11 @@ func (p *LocalProvider) NamespaceList(ctx context.Context, input primitive.Names
 	return out, nil
 }
 
-func (p *LocalProvider) NamespaceGet(ctx context.Context, input primitive.NamespaceGetRequest) (*primitive.NamespaceCapabilities, error) {
+func (p *LocalProvider) NamespaceGet(ctx context.Context, input primitive.NamespaceGetRequest) (timingResult *primitive.NamespaceCapabilities, timingErr error) {
+	if observe.Enabled(ctx) {
+		span := p.timing(ctx, observe.ProviderNamespaceGet, "resource", input.Namespace)
+		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheUnknown) }()
+	}
 	if strings.TrimSpace(input.Namespace) == "" || strings.TrimSpace(input.Namespace) != input.Namespace {
 		return nil, identity.ErrResource
 	}
@@ -372,7 +411,11 @@ func (p *LocalProvider) NamespaceGet(ctx context.Context, input primitive.Namesp
 	return out, nil
 }
 
-func (p *LocalProvider) List(ctx context.Context, kind string, input primitive.ListRequest) (*primitive.ListResult, error) {
+func (p *LocalProvider) List(ctx context.Context, kind string, input primitive.ListRequest) (timingResult *primitive.ListResult, timingErr error) {
+	if observe.Enabled(ctx) {
+		span := p.timing(ctx, observe.ProviderList, kind, input.Namespace)
+		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheUnknown) }()
+	}
 	plural := primitive.Plural(kind)
 	offset, limit, pageErr := pageRequest(input.Cursor, input.Limit)
 	if plural == "" || pageErr != nil {
@@ -606,7 +649,11 @@ func pageBounds(offset, limit, total int) (int, int, string, bool, error) {
 	return offset, end, next, complete, nil
 }
 
-func (p *LocalProvider) Get(ctx context.Context, kind string, input primitive.GetRequest) (*primitive.GetResult, error) {
+func (p *LocalProvider) Get(ctx context.Context, kind string, input primitive.GetRequest) (timingResult *primitive.GetResult, timingErr error) {
+	if observe.Enabled(ctx) {
+		span := p.timing(ctx, observe.ProviderGet, kind, "")
+		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheUnknown) }()
+	}
 	uri, err := identity.ParseResourceURI(input.URI)
 	if err != nil || uri.Kind != kind || input.WorkspaceID != "" {
 		return nil, identity.ErrResource
@@ -676,7 +723,12 @@ func (p *LocalProvider) InstalledTools() []string {
 	return tools
 }
 
-func (p *LocalProvider) Call(ctx context.Context, method string, raw json.RawMessage) (any, error) {
+func (p *LocalProvider) Call(ctx context.Context, method string, raw json.RawMessage) (timingValue any, timingErr error) {
+	if observe.Enabled(ctx) {
+		prefix, _, _ := strings.Cut(method, "/")
+		span := p.timing(ctx, observe.MCPDispatch, primitive.Kind(prefix), "")
+		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheUnknown) }()
+	}
 	switch method {
 	case "namespaces/list":
 		var in primitive.NamespaceListRequest
@@ -826,7 +878,9 @@ func NewMCPServer(provider *LocalProvider, compact ...bool) (*mcp.Server, error)
 				return nil, schemaErr
 			}
 			h.Registry.RegisterToolWithSchema(name, description, input, nil, func(ctx context.Context, r *schema.CallToolRequest) (*schema.CallToolResult, *jsonrpc.Error) {
+				serializeSpan := provider.timing(ctx, observe.Serialization, "", "")
 				raw, e := json.Marshal(r.Params.Arguments)
+				serializeSpan.End(observe.OutcomeFor(e), observe.CacheBypass)
 				if e != nil {
 					return nil, jsonrpc.NewInvalidParamsError("invalid resource request", nil)
 				}
@@ -849,7 +903,9 @@ func NewMCPServer(provider *LocalProvider, compact ...bool) (*mcp.Server, error)
 				encoded := []byte("Resource definition returned in structuredContent.")
 				var marshalErr error
 				if !compactGet {
+					responseSpan := provider.timing(ctx, observe.Serialization, "", "")
 					encoded, marshalErr = json.Marshal(value)
+					responseSpan.End(observe.OutcomeFor(marshalErr), observe.CacheBypass)
 				}
 				if marshalErr != nil {
 					return nil, jsonrpc.NewInternalError("resource response unavailable", nil)

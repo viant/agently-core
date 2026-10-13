@@ -81,16 +81,19 @@ func ValidateReportEnvelope(formatVersion int64, raw json.RawMessage) error {
 	if err := d.Decode(&envelope); err != nil {
 		return err
 	}
-	if d.Decode(new(any)) != io.EOF || envelope.SchemaVersion != 1 || !validJSONObject(envelope.ReportDocument) {
+	if d.Decode(new(any)) != io.EOF || envelope.SchemaVersion != 1 ||
+		len(envelope.ReportDocument) == 0 && len(envelope.ReportSpec) == 0 ||
+		len(envelope.ReportDocument) > 0 && !validJSONObject(envelope.ReportDocument) ||
+		len(envelope.ReportSpec) > 0 && !validJSONObject(envelope.ReportSpec) {
 		return fmt.Errorf("invalid report envelope")
 	}
 	switch envelope.Format {
 	case "":
-		if !validJSONObject(envelope.ReportSpec) || len(envelope.BuilderDefinition) != 0 {
+		if len(envelope.ReportSpec) > 0 && !validJSONObject(envelope.ReportSpec) || len(envelope.BuilderDefinition) != 0 {
 			return fmt.Errorf("invalid native report envelope")
 		}
 	case registry.AuthoredReportFormat:
-		if envelope.BuilderRef == "" || !validJSONObject(envelope.BuilderDefinition) {
+		if !validJSONObject(envelope.ReportDocument) || envelope.BuilderRef == "" || !validJSONObject(envelope.BuilderDefinition) {
 			return fmt.Errorf("invalid authored report envelope")
 		}
 	default:

@@ -81,7 +81,7 @@ func TestReportingCompileToolUsesPinnedStoredDefinition(t *testing.T) {
 	if err := method(context.Background(), input, &CompileResult{}); err == nil {
 		t.Fatal("compiler result released after source drift")
 	}
-	if _, err := service.Compile(context.Background(), &CompileRequest{ArtifactRef: "legacy-unmapped", Document: input.Document}); err == nil {
+	if _, err := service.Compile(context.Background(), &CompileRequest{Resource: &identity.ResourceRef{URI: "legacy-unmapped"}, Document: input.Document}); err == nil {
 		t.Fatal("canonical mode allowed legacy unbound compilation")
 	}
 }
@@ -122,5 +122,29 @@ func TestPinnedAuthoredReportCompilesThroughOfficialLowerer(t *testing.T) {
 	content, _ = json.Marshal(definition)
 	if _, err := service.Compile(context.Background(), request); err == nil {
 		t.Fatal("invalid authored dependencies compiled")
+	}
+}
+
+func TestResourceDraftCanOpenButCannotRunWithoutSpec(t *testing.T) {
+	uri, _ := identity.ParseResourceURI("report://users/alice/draft")
+	raw := json.RawMessage(`{"schemaVersion":1,"reportDocument":{"title":"Unfinished draft"}}`)
+	resolver := &identity.ResourceResolver{
+		Source: &identity.LocalResource{URI: uri, Load: func(context.Context) (json.RawMessage, error) { return raw, nil }},
+		Policy: reportPolicyFunc(func(_ context.Context, _ identity.ResourceRef, candidates []identity.ResourceCandidate) (identity.ResourceDecision, error) {
+			return identity.ResourceDecision{Candidate: candidates[0], AuthorityBinding: "owner", ValidUntil: time.Now().Add(time.Minute)}, nil
+		}),
+	}
+	compilerCalls := 0
+	service := New(Options{Store: NewMemoryStore(), ResourceResolver: func(context.Context, string) (*identity.ResourceResolver, error) { return resolver, nil }, Compiler: reportCompilerFunc(func(context.Context, *CompileRequest) (*CompileResult, error) {
+		compilerCalls++
+		return &CompileResult{}, nil
+	})})
+	ref := &identity.ResourceRef{URI: uri.String()}
+	opened, err := service.GetReport(context.Background(), &GetReportInput{Resource: ref})
+	if err != nil || opened.Title != "Unfinished draft" || len(opened.ReportSpec) != 0 {
+		t.Fatalf("draft definition was lost or given a fabricated spec: %+v %v", opened, err)
+	}
+	if _, err := service.Compile(context.Background(), &CompileRequest{Resource: ref}); err == nil || compilerCalls != 0 {
+		t.Fatalf("incomplete draft reached compiler: calls=%d err=%v", compilerCalls, err)
 	}
 }

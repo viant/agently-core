@@ -3,6 +3,11 @@ package executor
 import (
 	"context"
 	"errors"
+	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
+	provider "github.com/viant/agently-core/service/resource/provider"
+	userprovider "github.com/viant/agently-core/service/resource/provider/user"
+	mcp "github.com/viant/mcp"
+	mcpclient "github.com/viant/mcp/client"
 
 	identity "github.com/viant/agently-core/protocol/resource"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -29,6 +34,11 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 	if b.reportCatalog != nil {
 		if _, known := b.reportCatalog.(*reportcatalog.ReportCatalogService); !known || b.reportResourceResolver == nil {
 			return nil
+		}
+	}
+	if b.reportResourceService == nil {
+		if err := b.configureUserReports(out); err != nil {
+			return err
 		}
 	}
 	out.Reporting.SetResourceDatasetExecutor(reporting.NewResourceDatasetExecutorWithProvider(out.Registry, out.Reporting.AuthorizeResourceDataset, out.providerReportDatasource, out.ComponentDispatcher))
@@ -74,5 +84,35 @@ func (b *Builder) configurePrimitiveReports(out *Runtime) error {
 	}
 	out.Reporting.SetReportCatalog(catalog)
 	out.Reporting.SetResourceReaderFactory(catalog.Reader)
+	return nil
+}
+
+// configureUserReports registers an owning source through the same in-memory
+// MCP protocol as workspace YAML. The reporting consumer receives only its
+// generic gateway authoring facade; it never gets a direct store write path.
+func (b *Builder) configureUserReports(out *Runtime) error {
+	const name = "workspace-users"
+	source, err := userprovider.NewReports(out.Reporting.Store(), name)
+	if err != nil {
+		return err
+	}
+	local, err := provider.NewLocalProvider(provider.LocalConfig{
+		ProviderIdentity: name, Actor: out.PrimitiveProviders.Actor, Verify: out.PrimitiveProviders.Verify,
+		Catalog: source, Authoring: source, Authorize: userprovider.Authorize,
+		Validators: map[string]provider.LocalResourceValidator{"report": resources.ValidateReportEnvelope},
+	})
+	if err != nil {
+		return err
+	}
+	if err = out.MCPManager.RegisterLocal(context.Background(), name, &mcpcfg.MCPClient{
+		ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: name, PrimitiveNamespaces: []string{"users"},
+	}, func(context.Context) (mcpclient.Interface, error) { return provider.NewLocalMCPClient(local) }); err != nil {
+		return err
+	}
+	writer, err := resources.NewAuthoring(out.PrimitiveProviders, name)
+	if err != nil {
+		return err
+	}
+	out.Reporting.SetReportResourceService(writer)
 	return nil
 }

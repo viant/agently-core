@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	iauth "github.com/viant/agently-core/internal/auth"
 	"os"
 	"strings"
 	"sync"
@@ -84,7 +85,7 @@ func trustedExecution(pin *identity.ResolvedResource) *ExecuteResourceResult {
 
 func submitPinnedExport(t *testing.T, service *Service, pin *identity.ResolvedResource) *ExportJob {
 	t.Helper()
-	ctx := authsvc.InjectUser(context.Background(), "owner")
+	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "owner"), "owner"), "fixture-oauth")
 	job, err := service.SubmitExport(ctx, &SubmitExportRequest{Format: ExportFormatPDF, execution: trustedExecution(pin)})
 	if err != nil {
 		t.Fatal(err)
@@ -113,13 +114,13 @@ func (e *pinAwareExporter) Export(_ context.Context, request *RenderRequest) (*R
 func TestUnifiedExportRequiresExecutedPinAndPersistsIt(t *testing.T) {
 	exporter := &pinAwareExporter{}
 	service, store, _, pin := newPinnedExportService(t, exporter)
-	ctx := authsvc.InjectUser(context.Background(), "owner")
-	legacy := &SubmitExportRequest{ArtifactRef: pin.URI, Format: ExportFormatPDF, ReportPrint: json.RawMessage(validTestReportPrintJSON())}
+	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "owner"), "owner"), "fixture-oauth")
+	legacy := &SubmitExportRequest{Resource: &identity.ResourceRef{URI: pin.URI}, Format: ExportFormatPDF, ReportPrint: json.RawMessage(validTestReportPrintJSON())}
 	if _, err := service.SubmitExport(ctx, legacy); !errors.Is(err, identity.ErrResourceDenied) {
 		t.Fatalf("unified mode accepted a legacy snapshot: %v", err)
 	}
-	if _, err := service.SubmitExport(ctx, &SubmitExportRequest{ReportRunID: "run-without-resource-pin", Format: ExportFormatPDF}); !errors.Is(err, identity.ErrResourceDenied) {
-		t.Fatalf("unified mode accepted a run reference without a canonical resource pin: %v", err)
+	if _, err := service.SubmitExport(ctx, &SubmitExportRequest{ReportRunID: "run-without-resource-pin", Format: ExportFormatPDF}); err == nil {
+		t.Fatalf("unknown run reference was accepted: %v", err)
 	}
 	job := submitPinnedExport(t, service, pin)
 	if job.ResourcePin == nil || !sameResourcePin(job.ResourcePin, pin) || job.ArtifactRef != pin.URI {
@@ -183,7 +184,7 @@ func TestUnifiedExportExecutesTheExactResourceInsteadOfAcceptingSnapshots(t *tes
 		seenDatasources[name] = true
 		return `{"data":[{"eventDate":"2026-10-07","spend":12.5}]}`, nil
 	}), service.AuthorizeResourceDataset))
-	ctx := authsvc.InjectUser(context.Background(), "export-owner")
+	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "export-owner"), "export-owner"), "fixture-oauth")
 	job, err := service.SubmitExport(ctx, &SubmitExportRequest{Resource: &identity.ResourceRef{URI: uri.String()}, Format: ExportFormatPDF})
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +192,7 @@ func TestUnifiedExportExecutesTheExactResourceInsteadOfAcceptingSnapshots(t *tes
 	if calls < 2 || len(seenDatasources) < 2 || job.ResourcePin == nil || job.ResourcePin.URI != uri.String() || len(job.ReportPrint) == 0 {
 		t.Fatalf("unified submit did not execute and pin canonical resource: calls=%d job=%+v", calls, job)
 	}
-	if _, err := service.SubmitExport(ctx, &SubmitExportRequest{ArtifactRef: uri.String(), Format: ExportFormatPDF, ReportPrint: json.RawMessage(validTestReportPrintJSON())}); !errors.Is(err, identity.ErrResourceDenied) {
+	if _, err := service.SubmitExport(ctx, &SubmitExportRequest{Resource: &identity.ResourceRef{URI: uri.String()}, Format: ExportFormatPDF, ReportPrint: json.RawMessage(validTestReportPrintJSON())}); !errors.Is(err, identity.ErrResourceDenied) {
 		t.Fatalf("unified submit accepted a client snapshot: %v", err)
 	}
 }
@@ -213,7 +214,7 @@ func TestUnifiedExportRejectsTamperedPinAndExpiredLeaseBeforeRendering(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := service.validateExportResourcePin(authsvc.InjectUser(context.Background(), "owner"), persistedJob, "report.export"); !errors.Is(err, identity.ErrResourceDenied) {
+	if err := service.validateExportResourcePin(iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "owner"), "owner"), "fixture-oauth"), persistedJob, "report.export"); !errors.Is(err, identity.ErrResourceDenied) {
 		t.Fatalf("tampered persisted pin was accepted: %v", err)
 	}
 	tampered, err := store.GetJob(context.Background(), job.JobID)
@@ -224,7 +225,7 @@ func TestUnifiedExportRejectsTamperedPinAndExpiredLeaseBeforeRendering(t *testin
 	if err := store.UpdateJob(context.Background(), tampered); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := service.RunExport(authsvc.InjectUser(context.Background(), "owner"), job.JobID); !errors.Is(err, identity.ErrResourceDenied) {
+	if _, err := service.RunExport(iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "owner"), "owner"), "fixture-oauth"), job.JobID); !errors.Is(err, identity.ErrResourceDenied) {
 		t.Fatalf("tampered pin reached renderer: %v", err)
 	}
 	if exporter.calls != 0 {
@@ -237,7 +238,7 @@ func TestUnifiedExportRejectsTamperedPinAndExpiredLeaseBeforeRendering(t *testin
 	state.mu.Lock()
 	state.now = pin.ValidUntil.Add(time.Second)
 	state.mu.Unlock()
-	if _, err := service.RunExport(authsvc.InjectUser(context.Background(), "owner"), job.JobID); !errors.Is(err, identity.ErrResourceDenied) {
+	if _, err := service.RunExport(iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "owner"), "owner"), "fixture-oauth"), job.JobID); !errors.Is(err, identity.ErrResourceDenied) {
 		t.Fatalf("expired pin reached renderer: %v", err)
 	}
 	if exporter.calls != 0 {
@@ -253,7 +254,7 @@ func TestUnifiedExportDriftAfterRenderDoesNotPersistArtifact(t *testing.T) {
 	service, store, state, pin := newPinnedExportService(t, exporter)
 	exporter.state = state
 	job := submitPinnedExport(t, service, pin)
-	completed, err := service.RunExport(authsvc.InjectUser(context.Background(), "owner"), job.JobID)
+	completed, err := service.RunExport(iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "owner"), "owner"), "fixture-oauth"), job.JobID)
 	if !errors.Is(err, identity.ErrResourceStale) {
 		t.Fatalf("source drift was not reported after render: job=%+v err=%v", completed, err)
 	}
@@ -269,14 +270,14 @@ func TestUnifiedExportResultReadsRevalidatePinnedAuthority(t *testing.T) {
 	exporter := &pinAwareExporter{}
 	service, _, state, pin := newPinnedExportService(t, exporter)
 	job := submitPinnedExport(t, service, pin)
-	completed, err := service.RunExport(authsvc.InjectUser(context.Background(), "owner"), job.JobID)
+	completed, err := service.RunExport(iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "owner"), "owner"), "fixture-oauth"), job.JobID)
 	if err != nil || completed.Status != JobStatusSucceeded {
 		t.Fatalf("export completion=%+v err=%v", completed, err)
 	}
 	state.mu.Lock()
 	state.denied["report.exportResult.read"] = true
 	state.mu.Unlock()
-	ctx := authsvc.InjectUser(context.Background(), "owner")
+	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "owner"), "owner"), "fixture-oauth")
 	if _, err := service.GetExportStatus(ctx, job.JobID); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("status released after pinned authority denial: %v", err)
 	}
@@ -321,7 +322,7 @@ func TestUnifiedArtifactsDoNotPublishAnUnguardedScratchpadURL(t *testing.T) {
 func TestUnifiedDirectCompletionCannotSupplyArtifactBytes(t *testing.T) {
 	service, _, _, pin := newPinnedExportService(t, &pinAwareExporter{})
 	job := submitPinnedExport(t, service, pin)
-	ctx := authsvc.InjectUser(context.Background(), "owner")
+	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "owner"), "owner"), "fixture-oauth")
 	if _, err := service.CompleteExport(ctx, &CompleteExportRequest{JobID: job.JobID, Data: []byte("forged artifact")}); !errors.Is(err, identity.ErrResourceDenied) {
 		t.Fatalf("untrusted artifact bytes completed canonical job: %v", err)
 	}

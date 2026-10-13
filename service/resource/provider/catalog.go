@@ -6,6 +6,7 @@ import (
 	"fmt"
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 )
 
@@ -110,7 +111,9 @@ func (p *LocalProvider) listBindings(ctx context.Context, actor identity.Verifie
 			bindings[value] = binding
 		}
 	}
+	span := p.timing(ctx, observe.SourceInventory, kind, namespace)
 	dynamic, err := p.catalog.List(ctx, actor, kind, namespace)
+	span.End(observe.OutcomeFor(err), observe.CacheBypass)
 	if err != nil {
 		return nil, err
 	}
@@ -129,7 +132,9 @@ func (p *LocalProvider) listBindings(ctx context.Context, actor identity.Verifie
 func (p *LocalProvider) lookupBinding(ctx context.Context, actor identity.VerifiedActor, uri identity.ResourceURI) (LocalResourceBinding, error) {
 	static, exists := p.bindings[uri.String()]
 	if p.catalogSupports(uri.Kind, uri.Namespace) {
+		span := p.timing(ctx, observe.SourceLookup, uri.Kind, uri.Namespace)
 		dynamic, err := p.catalog.Lookup(ctx, actor, uri)
+		span.End(observe.OutcomeFor(err), observe.CacheBypass)
 		if err == nil {
 			if err = p.validateCatalogBinding(dynamic, uri.Kind, uri.Namespace); err != nil {
 				return LocalResourceBinding{}, err

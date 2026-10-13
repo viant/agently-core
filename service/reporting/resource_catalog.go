@@ -4,6 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	iauth "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/protocol/primitive"
+	useruri "github.com/viant/agently-core/protocol/resource/user"
 	"github.com/viant/agently-core/service/reporting/catalog"
 	"strings"
 	"time"
@@ -78,11 +81,30 @@ func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetRepor
 	if ref.URI == "" {
 		ref.URI = strings.TrimSpace(input.ReportID)
 	}
+	if ref.URI == "" && input.Resource == nil && input.ResolvedResource == nil && input.ArtifactID != "" {
+		ref.URI = strings.TrimSpace(input.ArtifactID)
+		if !strings.Contains(ref.URI, "://") {
+			uri, err := useruri.NewURI("report", iauth.CanonicalUserID(ctx), ref.URI)
+			if err != nil {
+				return nil, err
+			}
+			ref.URI = uri.String()
+		}
+	}
 	if input.Resource != nil {
 		ref = *input.Resource
 	} else if input.ResolvedResource != nil {
 		ref.URI = input.ResolvedResource.URI
 		ref.Revision = input.ResolvedResource.Selector()
+	}
+	// A bare saved-report ID is a relative name in the authenticated user's
+	// namespace. Absolute references keep their provider-defined identity.
+	if ref.URI != "" && !strings.Contains(ref.URI, "://") {
+		uri, err := useruri.NewURI("report", iauth.CanonicalUserID(ctx), ref.URI)
+		if err != nil {
+			return nil, err
+		}
+		ref.URI = uri.String()
 	}
 	uri, err := identity.ParseResourceURI(ref.URI)
 	if err != nil || uri.Kind != "report" {
@@ -96,25 +118,39 @@ func (s *Service) getResourceReportUnscoped(ctx context.Context, input *GetRepor
 		return nil, identity.ErrResourceDenied
 	}
 	pin := cloneResolvedResource(input.ResolvedResource)
-	if pin == nil {
-		pin, err = resolver.Resolve(ctx, ref)
+	var raw json.RawMessage
+	var state *primitive.ResourceState
+	if reader, ok := resolver.(ResourceDefinitionReader); ok {
+		got, readErr := reader.ReadDefinition(ctx, ref, pin)
+		if readErr != nil {
+			return nil, readErr
+		}
+		if got == nil || got.Resource == nil || got.ResolvedResource == nil {
+			return nil, identity.ErrResource
+		}
+		state, pin = got.Resource, got.ResolvedResource
+		raw = append(json.RawMessage(nil), state.DefinitionBytes...)
+	} else {
+		raw, pin, err = selectResourceRead(ctx, resolver, ref, pin)
 		if err != nil {
 			return nil, err
 		}
 	}
-	if pin.URI != ref.URI || ref.Revision != "" && ref.Revision != pin.Selector() {
+	if pin == nil || pin.URI != ref.URI || ref.Revision != "" && ref.Revision != pin.Selector() {
 		return nil, identity.ErrResourceDenied
 	}
-	raw, pin, err := resolver.ReadResolved(ctx, *pin)
-	if err != nil {
-		return nil, err
-	}
 	var definition registry.ReportEnvelope
-	if json.Unmarshal(raw, &definition) != nil || definition.SchemaVersion != 1 || len(definition.ReportDocument) == 0 {
+	if json.Unmarshal(raw, &definition) != nil || definition.SchemaVersion != 1 || len(definition.ReportDocument) == 0 && len(definition.ReportSpec) == 0 {
 		return nil, identity.ErrResource
 	}
-	report := &SharedArtifact{Resource: pin, ResourceDefinition: cloneJSON(raw), ArtifactRef: pin.URI, ReportID: pin.URI, Kind: savedReportArtifactKind, Document: cloneJSON(definition.ReportDocument), ReportSpec: cloneJSON(definition.ReportSpec), Title: jsonObjectText(definition.ReportDocument, "title")}
-	if s.reportResourceService != nil {
+	report := &SharedArtifact{ArtifactID: pin.URI, Resource: pin, ResourceDefinition: cloneJSON(raw), ArtifactRef: pin.URI, ReportID: pin.URI, Kind: savedReportArtifactKind, Document: cloneJSON(definition.ReportDocument), ReportSpec: cloneJSON(definition.ReportSpec), ReportFill: cloneJSON(definition.ReportFill), ReportPrint: cloneJSON(definition.ReportPrint), CompileState: cloneJSON(definition.CompileState), Metadata: cloneJSON(definition.Metadata), Title: jsonObjectText(definition.ReportDocument, "title")}
+	if state != nil {
+		report.RowEtag, report.DraftRevision, report.LatestStamp = state.RowEtag, state.DraftRevision, state.LatestStamp
+		report.WorkspaceID, report.OwnerID, report.Lifecycle = state.WorkspaceID, state.OwnerID, state.Lifecycle
+		if state.Title != "" {
+			report.Title = state.Title
+		}
+	} else if s.reportResourceService != nil {
 		header, err := s.reportResourceService.GetResource(ctx, pin.URI)
 		if err != nil {
 			return nil, err

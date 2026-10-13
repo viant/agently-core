@@ -104,8 +104,8 @@ func runThreePageReportCounts(t *testing.T, httpScope bool) {
 		require.Equal(t, counter.calls["namespaces/list"], counter.calls["namespaces/get"])
 	} else {
 		require.Equal(t, 4, counter.calls["reports/get"], "each separate report read dispatches once without local policy intersection")
-		require.Equal(t, 5, counter.calls["namespaces/list"])
-		require.Equal(t, 5, counter.calls["namespaces/get"])
+		require.Equal(t, 1, counter.calls["namespaces/list"])
+		require.Equal(t, 1, counter.calls["namespaces/get"])
 	}
 	require.Equal(t, 3, dataCalls)
 }

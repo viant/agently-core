@@ -15,6 +15,7 @@ import (
 const MaxCatalogPageSize = 1000
 
 type CatalogQuery struct {
+	OwnerIDs         []string `json:"ownerIds,omitempty"`
 	Namespace        string   `json:"namespace,omitempty"`
 	NameTerms        []string `json:"nameTerms,omitempty"`
 	DescriptionTerms []string `json:"descriptionTerms,omitempty"`
@@ -29,8 +30,8 @@ type CatalogPage[T any] struct {
 	Total      int    `json:"total"`
 }
 type CatalogItem[T any] struct {
-	Name, Description, Namespace, URI, Provider string
-	Value                                       T
+	Name, Description, Namespace, URI, Provider, OwnerID string
+	Value                                                T
 }
 type catalogText struct{ name, description string }
 
@@ -87,6 +88,25 @@ func normalizeTerms(terms []string) []string {
 	sort.Strings(out)
 	return out
 }
+
+// Owner filters are exact identity matches; unlike search terms they are never
+// case-folded or interpreted as access grants.
+func normalizeOwners(owners []string) []string {
+	out := append([]string(nil), owners...)
+	sort.Strings(out)
+	return out
+}
+func matchesOwner(owner string, owners []string) bool {
+	if len(owners) == 0 {
+		return true
+	}
+	for _, candidate := range owners {
+		if owner != "" && owner == candidate {
+			return true
+		}
+	}
+	return false
+}
 func containsAny(value string, terms []string) bool {
 	if len(terms) == 0 {
 		return true
@@ -102,6 +122,7 @@ func (c *Catalog[T]) Page(ctx context.Context, query CatalogQuery) (*CatalogPage
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
+	query.OwnerIDs = normalizeOwners(query.OwnerIDs)
 	query.NameTerms = normalizeTerms(query.NameTerms)
 	query.DescriptionTerms = normalizeTerms(query.DescriptionTerms)
 	query.Keywords = normalizeTerms(query.Keywords)
@@ -140,6 +161,9 @@ func (c *Catalog[T]) Page(ctx context.Context, query CatalogQuery) (*CatalogPage
 			if err := ctx.Err(); err != nil {
 				return nil, err
 			}
+		}
+		if !matchesOwner(c.items[i].OwnerID, query.OwnerIDs) {
+			continue
 		}
 		text := c.text[i]
 		if !containsAny(text.name, query.NameTerms) || !containsAny(text.description, query.DescriptionTerms) {

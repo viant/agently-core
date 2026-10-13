@@ -77,3 +77,26 @@ func TestCatalogLocalQueriesUseOneSortedNamespaceIndex(t *testing.T) {
 		t.Fatal("terms interpreted as patterns")
 	}
 }
+
+func TestCatalogOwnerFilterIsExactAndBindsCursor(t *testing.T) {
+	index := NewCatalog("owner-filter", []CatalogItem[int]{
+		{Name: "a", OwnerID: "Alice", Namespace: "users", Value: 1},
+		{Name: "b", OwnerID: "alice", Namespace: "users", Value: 2},
+		{Name: "c", OwnerID: "Alice", Namespace: "users", Value: 3},
+		{Name: "d", Namespace: "public", Value: 4},
+	})
+	query := CatalogQuery{OwnerIDs: []string{"Alice"}, Limit: 1}
+	first, err := index.Page(context.Background(), query)
+	if err != nil || !reflect.DeepEqual(first.Items, []int{1}) || first.Total != 2 {
+		t.Fatalf("owner matching changed case or included unowned rows: %+v %v", first, err)
+	}
+	query.Cursor = first.NextCursor
+	second, err := index.Page(context.Background(), query)
+	if err != nil || !reflect.DeepEqual(second.Items, []int{3}) || !second.Complete {
+		t.Fatalf("owner page: %+v %v", second, err)
+	}
+	query.OwnerIDs = []string{"alice"}
+	if _, err := index.Page(context.Background(), query); err != ErrCatalogCursor {
+		t.Fatalf("owner change reused prior cursor: %v", err)
+	}
+}

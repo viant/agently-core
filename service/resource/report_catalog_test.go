@@ -150,7 +150,7 @@ func TestReportGatewayManagingMCPRevocationDiscardsRead(t *testing.T) {
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	require.Nil(t, pin)
 }
-func TestReportGatewayCatalogueCapabilitiesCannotReleaseDrift(t *testing.T) {
+func TestReportGatewayCatalogSnapshotDoesNotReReadForUIProjection(t *testing.T) {
 	catalog, source, _, _, _ := reportGatewayFixture(t)
 	catalog.Capabilities = func(context.Context, identity.VerifiedActor, reportcatalog.ReportCatalogCandidate, identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
 		source.mu.Lock()
@@ -159,8 +159,13 @@ func TestReportGatewayCatalogueCapabilitiesCannotReleaseDrift(t *testing.T) {
 		return reportcatalog.ReportCapabilities{Open: true}, nil
 	}
 	result, err := catalog.List(context.Background(), reportcatalog.ReportCatalogQuery{Namespace: "steward"})
-	require.Error(t, err)
-	require.Nil(t, result)
+	require.NoError(t, err)
+	require.Len(t, result.Reports, 1)
+	require.Equal(t, "Approved", result.Reports[0].Title)
+	reader, err := catalog.Reader(context.Background(), "report.retrieve")
+	require.NoError(t, err)
+	_, _, err = reader.ReadResolved(context.Background(), *result.Reports[0].Resource)
+	require.Error(t, err, "opening a cached entry must still use its managing provider")
 }
 
 func TestReportGatewayMetadataFinishCannotReleaseExpiredPins(t *testing.T) {
@@ -209,4 +214,15 @@ func TestReportGatewayListHidesOrdinaryDenialButRejectsIdentityAndOutages(t *tes
 			}
 		})
 	}
+}
+
+func TestReportGatewayCatalogDiscardsProviderInvalidationDuringProjection(t *testing.T) {
+	catalog, _, _, _, _ := reportGatewayFixture(t)
+	catalog.Capabilities = func(context.Context, identity.VerifiedActor, reportcatalog.ReportCatalogCandidate, identity.ResolvedResource) (reportcatalog.ReportCapabilities, error) {
+		catalog.Gateway.Invalidate("internal")
+		return reportcatalog.ReportCapabilities{Open: true}, nil
+	}
+	result, err := catalog.List(context.Background(), reportcatalog.ReportCatalogQuery{})
+	require.ErrorIs(t, err, identity.ErrResourceStale)
+	require.Nil(t, result)
 }

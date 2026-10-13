@@ -11,11 +11,57 @@ import (
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
 	authtransport "github.com/viant/mcp/client/auth/transport"
 )
 
+// VisibleCatalogPartition tags snapshots by stable authenticated owner and
+// resource category. It is cache infrastructure, never a protocol grant.
+type VisibleCatalogPartition struct {
+	manager  *Manager
+	owner    [32]byte
+	category string
+}
+
+// CatalogPartition excludes connection generations, credentials and conversation
+// IDs so writes invalidate the same owner's retained credential/session variants.
+// verifiedScope supplies the gateway's stable verified issuer/subject/tenant.
+// A canonical workspace user unifies its verified session/provider variants.
+func (m *Manager) CatalogPartition(ctx context.Context, verifiedScope, category string) VisibleCatalogPartition {
+	if m == nil || ctx == nil || verifiedScope == "" || category == "" {
+		return VisibleCatalogPartition{}
+	}
+	user := authctx.EffectiveUserID(ctx)
+	if m.userIDFn != nil {
+		user = m.userIDFn(ctx)
+	}
+	principal := []string{user, authctx.EffectiveUserID(ctx), authctx.Provider(ctx), verifiedScope}
+	if canonical := authctx.CanonicalUserID(ctx); canonical != "" {
+		principal = []string{"canonical", canonical}
+	}
+	raw, _ := json.Marshal(principal)
+	return VisibleCatalogPartition{manager: m, owner: sha256.Sum256(raw), category: category}
+}
+
+// InvalidateVisibleCatalogPartition removes only matching completed or pending
+// slots. Existing publication and CheckVisibleCatalog fences reject every
+// removed slot, including late populations and cursors held by an earlier read.
+func (m *Manager) InvalidateVisibleCatalogPartition(partition VisibleCatalogPartition) {
+	if partition.manager != m || partition.category == "" {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for key, held := range m.visibleCatalogs {
+		if held.partition == partition {
+			delete(m.visibleCatalogs, key)
+		}
+	}
+}
+
 type visibleCatalog struct {
+	partition   VisibleCatalogPartition
 	ready       chan struct{}
 	index       *primitive.Catalog[json.RawMessage]
 	until       time.Time
@@ -24,11 +70,19 @@ type visibleCatalog struct {
 
 // CatalogScope keeps visible metadata private, regardless of tools/list's
 // visibility. It reuses current configured/authenticated connection identity.
-func (m *Manager) CatalogScope(ctx context.Context, conversation string, names []string) (string, bool, error) {
+func (m *Manager) CatalogScope(ctx context.Context, conversation string, names []string) (key string, cacheable bool, failure error) {
+	timing := observe.Start(ctx, observe.Phase("manager.catalog.scope"), observe.Labels{})
+	defer func() {
+		cache := observe.CacheUnknown
+		if failure == nil && !cacheable {
+			cache = observe.CacheBypass
+		}
+		timing.End(observe.OutcomeFor(failure), cache)
+	}()
 	scope := []string{m.poolKey(ctx, conversation), authctx.EffectiveUserID(ctx), authctx.CanonicalUserID(ctx), requestctx.ConversationIDFromContext(ctx), authctx.Provider(ctx), authctx.Bearer(ctx), authctx.IDToken(ctx), authctx.MCPAuthToken(ctx, false), authctx.MCPAuthToken(ctx, true)}
 	names = append([]string(nil), names...)
 	sort.Strings(names)
-	cacheable := true
+	cacheable = true
 	for _, name := range names {
 		if !m.IsLocalClient(name) && (m.cookieJar != nil || m.jarProvider != nil || m.authRT != nil || m.authRTProvider != nil) {
 			cacheable = false
@@ -86,10 +140,21 @@ func (m *Manager) CatalogScope(ctx context.Context, conversation string, names [
 // VisibleCatalog is the one manager-owned snapshot store used by primitive
 // and native/ordinary skill adapters. A snapshot is metadata, never authority.
 func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Time, load func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error), sourceLease ...func() time.Time) (*primitive.Catalog[json.RawMessage], error) {
+	return m.VisibleCatalogInPartition(ctx, key, VisibleCatalogPartition{}, until, load, sourceLease...)
+}
+
+// VisibleCatalogInPartition uses the same snapshot store and publication fences
+// as VisibleCatalog, attaching an explicit owner/category for scoped mutation.
+func (m *Manager) VisibleCatalogInPartition(ctx context.Context, key string, partition VisibleCatalogPartition, until time.Time, load func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error), sourceLease ...func() time.Time) (*primitive.Catalog[json.RawMessage], error) {
+	if partition.manager != nil && partition.manager != m {
+		return nil, primitive.ErrCatalogCursor
+	}
+
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		lookup := observe.Start(ctx, observe.Phase("manager.cache.lookup"), observe.Labels{})
 		m.mu.Lock()
 		if m.visibleCatalogs == nil {
 			m.visibleCatalogs = map[string]*visibleCatalog{}
@@ -99,16 +164,21 @@ func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Tim
 			if held.ready != nil {
 				ready := held.ready
 				m.mu.Unlock()
+				lookup.End(observe.OK, observe.CacheMiss)
+				wait := observe.Start(ctx, observe.Phase("manager.cache.wait"), observe.Labels{})
 				select {
 				case <-ready:
+					wait.End(observe.OK, observe.CacheUnknown)
 					continue
 				case <-ctx.Done():
+					wait.End(observe.Canceled, observe.CacheUnknown)
 					return nil, ctx.Err()
 				}
 			}
-			if held.until.After(now) {
+			if held.partition == partition && held.until.After(now) {
 				index := held.index
 				m.mu.Unlock()
+				lookup.End(observe.OK, observe.CacheHit)
 				return index, nil
 			}
 			delete(m.visibleCatalogs, key)
@@ -120,23 +190,27 @@ func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Tim
 		}
 		if len(m.visibleCatalogs) >= 128 {
 			m.mu.Unlock()
+			lookup.End(observe.Error, observe.CacheBypass)
 			return nil, fmt.Errorf("visible catalog cache capacity exceeded")
 		}
 		if !until.After(now) {
 			until = time.Time{}
 		}
-		pending := &visibleCatalog{ready: make(chan struct{})}
+		pending := &visibleCatalog{partition: partition, ready: make(chan struct{})}
 		m.visibleCatalogs[key] = pending
 		if m.catalogSequence == 0 {
 			if _, err := rand.Read(m.catalogEpoch[:]); err != nil {
 				delete(m.visibleCatalogs, key)
 				m.mu.Unlock()
+				lookup.End(observe.OutcomeFor(err), observe.CacheMiss)
 				return nil, err
 			}
 		}
 		m.catalogSequence++
 		snapshot := fmt.Sprintf("%s:%x:%d", key, m.catalogEpoch, m.catalogSequence)
 		m.mu.Unlock()
+		lookup.End(observe.OK, observe.CacheMiss)
+		populate := observe.Start(ctx, observe.Phase("manager.cache.populate"), observe.Labels{})
 		items, err := load(ctx)
 		var sourceUntil time.Time
 		if err == nil && len(sourceLease) > 0 && sourceLease[0] != nil {
@@ -154,6 +228,12 @@ func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Tim
 		if err == nil && ctx.Err() == nil {
 			index = primitive.NewCatalog(snapshot, items)
 		}
+		outcomeErr := err
+		if outcomeErr == nil {
+			outcomeErr = ctx.Err()
+		}
+		populate.End(observe.OutcomeFor(outcomeErr), observe.CacheMiss)
+		publish := observe.Start(ctx, observe.Phase("manager.cache.publish"), observe.Labels{})
 		m.mu.Lock()
 		if m.visibleCatalogs[key] != pending && err == nil {
 			err = primitive.ErrCatalogCursor
@@ -170,6 +250,11 @@ func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Tim
 		close(pending.ready)
 		pending.ready = nil
 		m.mu.Unlock()
+		outcomeErr = err
+		if outcomeErr == nil {
+			outcomeErr = ctx.Err()
+		}
+		publish.End(observe.OutcomeFor(outcomeErr), observe.CacheMiss)
 		if err != nil {
 			return nil, err
 		}
@@ -182,15 +267,20 @@ func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Tim
 
 // CheckVisibleCatalog linearizes delivery against invalidation and eviction.
 func (m *Manager) CheckVisibleCatalog(ctx context.Context, index *primitive.Catalog[json.RawMessage]) error {
+	timing := observe.Start(ctx, observe.Phase("manager.cache.validate"), observe.Labels{})
 	if err := ctx.Err(); err != nil {
+		timing.End(observe.OutcomeFor(err), observe.CacheBypass)
 		return err
 	}
 	m.mu.Lock()
-	defer m.mu.Unlock()
 	for _, held := range m.visibleCatalogs {
 		if held.ready == nil && held.index == index && (held.until.IsZero() || held.until.After(time.Now())) && (held.sourceUntil.IsZero() || held.sourceUntil.After(time.Now())) {
+			m.mu.Unlock()
+			timing.End(observe.OK, observe.CacheHit)
 			return nil
 		}
 	}
+	m.mu.Unlock()
+	timing.End(observe.Error, observe.CacheMiss)
 	return primitive.ErrCatalogCursor
 }

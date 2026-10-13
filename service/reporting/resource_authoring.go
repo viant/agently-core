@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	iauth "github.com/viant/agently-core/internal/auth"
 	"github.com/viant/agently-core/protocol/primitive"
+	useruri "github.com/viant/agently-core/protocol/resource/user"
 	"strings"
 
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -77,14 +79,21 @@ func (s *Service) readAuthoringResource(ctx context.Context, ref identity.Resour
 	}
 	return resolver.ReadResolved(ctx, *selected)
 }
-func reportEnvelope(doc, spec, definition json.RawMessage) (json.RawMessage, error) {
+func reportEnvelope(doc, spec, definition json.RawMessage, saved ...*SaveReportRequest) (json.RawMessage, error) {
 	if len(definition) > 0 {
 		return cloneJSON(definition), nil
 	}
-	if len(doc) == 0 || len(spec) == 0 {
-		return nil, fmt.Errorf("report definition requires a complete envelope or document and spec")
+	if len(doc) == 0 && len(spec) == 0 {
+		return nil, fmt.Errorf("report definition requires an envelope or document")
 	}
-	return json.Marshal(registry.ReportEnvelope{SchemaVersion: 1, ReportDocument: normalizeToolJSONPayload(doc), ReportSpec: normalizeToolJSONPayload(spec)})
+	envelope := registry.ReportEnvelope{SchemaVersion: 1, ReportDocument: normalizeToolJSONPayload(doc), ReportSpec: normalizeToolJSONPayload(spec)}
+	if len(saved) > 0 && saved[0] != nil {
+		envelope.ReportFill = normalizeToolJSONPayload(saved[0].ReportFill)
+		envelope.ReportPrint = normalizeToolJSONPayload(saved[0].ReportPrint)
+		envelope.CompileState = normalizeToolJSONPayload(saved[0].CompileState)
+		envelope.Metadata = normalizeToolJSONPayload(saved[0].Metadata)
+	}
+	return json.Marshal(envelope)
 }
 func (s *Service) resourceWriteResult(ctx context.Context, result *primitive.ResourceResult) (*SharedArtifact, error) {
 	// The metadata read scope applies to the public get_report projection. A
@@ -99,6 +108,27 @@ func (s *Service) resourceWriteResult(ctx context.Context, result *primitive.Res
 	report.LatestStamp = result.LatestStamp
 	return report, nil
 }
+
+// newReportRef supplies the user namespace for an unnamed new report. Explicit
+// targets remain unchanged; the managing writer enforces its namespace scope.
+func (s *Service) newReportRef(ctx context.Context, input *SaveReportRequest) (identity.ResourceRef, error) {
+	if input.Resource != nil || input.ResolvedResource != nil || strings.Contains(input.ArtifactRef, "://") || strings.Contains(input.ReportID, "://") {
+		return authoringRef(input.Resource, input.ResolvedResource, input.ArtifactRef, input.ReportID)
+	}
+	path := input.ReportID
+	if path == "" {
+		path = jsonObjectText(input.ReportDocument, "id")
+	}
+	if path == "" {
+		path = s.newID()
+	}
+	uri, err := useruri.NewURI("report", iauth.CanonicalUserID(ctx), path)
+	if err != nil {
+		return identity.ResourceRef{}, err
+	}
+	return identity.ResourceRef{URI: uri.String()}, nil
+}
+
 func (s *Service) saveResourceReport(ctx context.Context, input *SaveReportRequest) (*SharedArtifact, error) {
 	if input == nil {
 		return nil, fmt.Errorf("report save input required")
@@ -106,14 +136,14 @@ func (s *Service) saveResourceReport(ctx context.Context, input *SaveReportReque
 	if err := s.requireReportWriter(); err != nil {
 		return nil, err
 	}
-	ref, err := authoringRef(input.Resource, input.ResolvedResource, input.ArtifactRef, input.ReportID)
+	ref, err := s.newReportRef(ctx, input)
 	if err != nil {
 		return nil, err
 	}
 	if ref.Revision != "" || input.ResolvedResource != nil {
 		return nil, fmt.Errorf("create requires a new logical resource")
 	}
-	raw, err := reportEnvelope(input.ReportDocument, input.ReportSpec, input.Definition)
+	raw, err := reportEnvelope(input.ReportDocument, input.ReportSpec, input.Definition, input)
 	if err != nil {
 		return nil, err
 	}
@@ -139,10 +169,7 @@ func (s *Service) updateResourceReport(ctx context.Context, input *UpdateReportR
 		return nil, fmt.Errorf("only the mutable report draft can be updated")
 	}
 	expectedFP := input.ExpectedContentFingerprint
-	if expectedFP == "" {
-		expectedFP = pin.ContentFingerprint
-	}
-	if expectedFP != pin.ContentFingerprint {
+	if expectedFP != "" && expectedFP != pin.ContentFingerprint {
 		return nil, identity.ErrResourceDenied
 	}
 	if len(input.Definition) > 0 {

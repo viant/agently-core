@@ -29,6 +29,20 @@ func (g *Gateway) resolveReadBinding(ctx context.Context, actor identity.Verifie
 	if options == nil {
 		return nil, ErrUnavailable
 	}
+	// Initialize the normal manager client before pinning effective options:
+	// initialization may fill shared Name/Version defaults. Those defaults are
+	// part of the stable contract, not request-time configuration drift.
+	client, err := g.client(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	options, err = g.Manager.Options(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if options == nil {
+		return nil, ErrUnavailable
+	}
 	// Provider configurations may return a shared pointer. Pin its value, rather
 	// than letting later mutation change the invocation's original options.
 	raw, err := json.Marshal(options)
@@ -40,10 +54,6 @@ func (g *Gateway) resolveReadBinding(ctx context.Context, actor identity.Verifie
 	decoder.UseNumber()
 	if decoder.Decode(detached) != nil {
 		return nil, identity.ErrResourceDenied
-	}
-	client, err := g.client(ctx, name)
-	if err != nil {
-		return nil, err
 	}
 	key, err := g.namespaceReadKey(ctx, actor, name, detached, client)
 	if err != nil {

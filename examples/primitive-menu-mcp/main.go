@@ -8,7 +8,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	identity "github.com/viant/agently-core/protocol/resource"
-	producer "github.com/viant/agently-core/service/primitiveproducer"
+	producer "github.com/viant/agently-core/service/resource/provider"
 	"log"
 	"net/http"
 	"os"

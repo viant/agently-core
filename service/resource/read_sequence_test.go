@@ -52,7 +52,7 @@ func readSequenceFixture(t *testing.T) (*Gateway, *mutableNamespaceFixture, *ide
 	return g, p, actor, options
 }
 
-func TestReadSequenceMemoizesOnlyCatalogWithinPurePreAndPostPhases(t *testing.T) {
+func TestReadSequenceReusesContractAcrossPhasesWithFreshResourceReads(t *testing.T) {
 	g, p, _, _ := readSequenceFixture(t)
 	ctx, finish, err := g.BeginReadSequence(context.Background(), nil)
 	require.NoError(t, err)
@@ -66,23 +66,23 @@ func TestReadSequenceMemoizesOnlyCatalogWithinPurePreAndPostPhases(t *testing.T)
 	require.Equal(t, 1, p.calls["namespaces/get"])
 	endDispatch, err := requestctx.BeginResourceReadDispatch(ctx)
 	require.NoError(t, err)
-	require.Equal(t, 2, p.calls["namespaces/list"], "PRE catalog must refresh at the actual dispatch barrier")
+	require.Equal(t, 1, p.calls["namespaces/list"], "dispatch retains the same authenticated namespace contract")
 	require.NoError(t, endDispatch())
 	for i := 0; i < 2; i++ {
 		_, err := g.GetForProvider(ctx, "owned", ref, nil)
 		require.NoError(t, err)
 	}
 	require.Equal(t, 5, p.calls["windows/get"])
-	require.Equal(t, 3, p.calls["namespaces/list"], "POST starts with fresh namespace facts")
+	require.Equal(t, 1, p.calls["namespaces/list"], "POST reuses metadata while resource Gets remain fresh")
 	require.NoError(t, finish())
-	require.Equal(t, 4, p.calls["namespaces/list"], "release must refresh the POST catalog")
+	require.Equal(t, 1, p.calls["namespaces/list"], "release fences transport without another namespace RPC")
 	_, err = g.GetForProvider(ctx, "owned", ref, nil)
 	require.Error(t, err, "an escaped completed operation cannot reuse either phase")
 	newCtx, newFinish, err := g.BeginReadSequence(context.Background(), nil)
 	require.NoError(t, err)
 	_, err = g.GetForProvider(newCtx, "owned", ref, nil)
 	require.NoError(t, err)
-	require.Equal(t, 5, p.calls["namespaces/list"], "another operation has no shared namespace authority")
+	require.Equal(t, 1, p.calls["namespaces/list"], "another operation shares only the cached contract")
 	require.NoError(t, newFinish())
 }
 
@@ -100,10 +100,13 @@ func TestReadSequenceRejectsCatalogCredentialActorGenerationAndDeadlineDrift(t *
 			switch change {
 			case "visibility":
 				p.hidden = true
+				g.Invalidate("remote")
 			case "methods":
 				p.changed = true
+				g.Invalidate("remote")
 			case "unavailable":
 				p.unavailable = true
+				g.Invalidate("remote")
 			case "credential":
 				ctx = authctx.WithIDToken(ctx, "different-session-credential")
 			case "identity":
@@ -152,6 +155,7 @@ func TestReadSequencePostPhaseCannotAdoptChangedMethodContract(t *testing.T) {
 	endDispatch, err := requestctx.BeginResourceReadDispatch(ctx)
 	require.NoError(t, err)
 	p.changed = true
+	g.Invalidate("remote")
 	require.NoError(t, endDispatch())
 	_, err = g.GetForProvider(ctx, "owned", ref, nil)
 	require.Error(t, err, "a fresh POST phase must compare the original method contract rather than silently adopting drift")

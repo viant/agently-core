@@ -109,10 +109,16 @@ func (s *Service) validateExportResourcePin(ctx context.Context, job *ExportJob,
 	return s.validateExportResourcePinUnscoped(ctx, job, action)
 }
 func (s *Service) validateExportResourcePinUnscoped(ctx context.Context, job *ExportJob, action string) error {
-	if s == nil || !s.hasResourceReader() {
+	if s == nil || job == nil {
+		return identity.ErrResourceDenied
+	}
+	if job.ResourcePin == nil {
 		return nil
 	}
-	if ctx == nil || ctx.Err() != nil || job == nil || job.ResourcePin == nil {
+	if !s.hasResourceReader() {
+		return identity.ErrResourceDenied
+	}
+	if ctx == nil || ctx.Err() != nil {
 		return identity.ErrResourceDenied
 	}
 	pin := job.ResourcePin
@@ -300,4 +306,57 @@ func sameResourcePin(a, b *identity.ResolvedResource) bool {
 
 func exportPinLeaseValid(pin *identity.ResolvedResource, now time.Time) bool {
 	return pin != nil && pin.ResourceCandidate.Valid() && pin.AuthorityBinding != "" && pin.ValidUntil.After(now)
+}
+
+// exportUsesResource distinguishes selected stored definitions from supplied
+// rendering content. A rendering label is not a resource lookup request.
+func exportUsesResource(request *SubmitExportRequest) bool {
+	return request != nil && (request.Resource != nil || request.ResolvedResource != nil || request.execution != nil || request.Source != nil && strings.EqualFold(strings.TrimSpace(request.Source.Kind), "report"))
+}
+func (s *Service) prepareReferenceExportRequest(ctx context.Context, request *SubmitExportRequest) (*SubmitExportRequest, *identity.ResolvedResource, error) {
+	if request.Source == nil || !strings.EqualFold(strings.TrimSpace(request.Source.Kind), "report") {
+		return s.prepareUnifiedExportRequest(ctx, request)
+	}
+	if request.Resource != nil || request.ResolvedResource != nil || request.execution != nil || request.ReportExportRequest != nil || len(bytes.TrimSpace(request.Source.ReportSpec)) > 0 || len(bytes.TrimSpace(request.Source.ReportFill)) > 0 || len(bytes.TrimSpace(request.Source.ReportPrint)) > 0 || len(bytes.TrimSpace(request.ReportSpec)) > 0 || len(bytes.TrimSpace(request.ReportFill)) > 0 || len(bytes.TrimSpace(request.ReportPrint)) > 0 {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	selected, err := s.GetReport(ctx, &GetReportInput{ArtifactID: request.Source.ArtifactID, ArtifactRef: request.Source.ArtifactRef, ReportID: request.Source.ReportID})
+	if err != nil {
+		return nil, nil, err
+	}
+	if selected == nil || selected.Resource == nil {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	reader, err := s.resourceReaderFor(ctx, "report.export")
+	if err != nil {
+		return nil, nil, err
+	}
+	ref := identity.ResourceRef{URI: selected.Resource.URI, Revision: selected.Resource.Selector()}
+	raw, pin, err := selectResourceRead(ctx, reader, ref, selected.Resource)
+	if err != nil {
+		return nil, nil, err
+	}
+	var envelope registry.ReportEnvelope
+	if json.Unmarshal(raw, &envelope) != nil {
+		return nil, nil, identity.ErrResource
+	}
+	next := cloneSubmitExportRequest(request)
+	next.Source = nil
+	next.ArtifactRef = pin.URI
+	if request.ArtifactRef != "" && request.ArtifactRef != pin.URI {
+		return nil, nil, identity.ErrResourceDenied
+	}
+	if len(bytes.TrimSpace(envelope.ReportFill)) == 0 && len(bytes.TrimSpace(envelope.ReportPrint)) == 0 {
+		next.ArtifactRef = ""
+		next.Resource = &ref
+		next.ResolvedResource = pin
+		return s.prepareUnifiedExportRequest(ctx, next)
+	}
+	next.Scope = ExportScopeSavedPayload
+	next.ReportSpec = cloneJSON(envelope.ReportSpec)
+	next.ReportFill = cloneJSON(envelope.ReportFill)
+	next.ReportPrint = cloneJSON(envelope.ReportPrint)
+	next.Metadata = buildExportContextMetadata(next.ConversationID, next.WorkspaceID, envelope.Metadata, next.Metadata)
+	normalized, err := normalizeSubmitExportRequest(next)
+	return normalized, pin, err
 }
