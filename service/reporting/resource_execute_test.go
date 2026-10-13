@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	iauth "github.com/viant/agently-core/internal/auth"
 	dsproto "github.com/viant/agently-core/protocol/datasource"
 	identity "github.com/viant/agently-core/protocol/resource"
 	requestctx "github.com/viant/agently-core/runtime/requestctx"
@@ -78,7 +79,7 @@ func TestAuthoredResourceExecutesRealDatasourcePipeline(t *testing.T) {
 		during()
 		return `{"data":[{"channelV2":"CTV","eventDate":"2026-10-07","avails":10,"hhUniqs":5}]}`, nil
 	}), service.AuthorizeResourceDataset))
-	ctx := authsvc.InjectUser(context.Background(), "fixture-user")
+	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(authsvc.InjectUser(context.Background(), "fixture-user"), "fixture-user"), "fixture-oauth")
 	request := &ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: uri.String()}}
 	result, err := service.ExecuteResource(ctx, request)
 	if err != nil {

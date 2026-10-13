@@ -172,7 +172,7 @@ func TestGatewayPartitionAndBufferedRevocation(t *testing.T) {
 	before := p.calls["namespaces/get"]
 	_, e = g.Discover(ctx)
 	require.NoError(t, e)
-	require.Greater(t, p.calls["namespaces/get"], before)
+	require.Equal(t, p.calls["namespaces/get"], before, "unchanged scoped namespace metadata should reuse the advertised contract")
 	actor.IdentityRevision = "2"
 	_, e = g.Discover(ctx)
 	require.NoError(t, e)

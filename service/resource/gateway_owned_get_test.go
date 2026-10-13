@@ -67,8 +67,9 @@ func TestOwnerBoundGetPerformsOneFreshDiscoveryAndRetainsTerminalChecks(t *testi
 			if failure == "none" {
 				require.NoError(t, err)
 				require.NotNil(t, got)
-				require.Equal(t, 2, p.calls["namespaces/list"], "every read refreshes namespace authority once")
-				require.Equal(t, 2, p.calls["namespaces/get"])
+				require.Equal(t, 1, p.calls["namespaces/list"], "unchanged namespace metadata must not repeat authority roundtrips")
+				require.Equal(t, 1, p.calls["namespaces/get"])
+				require.Equal(t, 2, p.calls["windows/get"], "both initial and pinned reads must reach the managing endpoint")
 			} else {
 				require.Error(t, err)
 				require.Nil(t, got)

@@ -43,7 +43,11 @@ func (s *Service) artifactScratchpadContext(ctx context.Context, ownerID string)
 }
 
 func (s *Service) publishArtifactToScratchpad(ctx context.Context, artifact *Artifact) error {
-	if isUnifiedExportService(s) {
+	pinned, err := s.artifactHasResourcePin(ctx, artifact)
+	if err != nil {
+		return err
+	}
+	if pinned {
 		if artifact != nil {
 			artifact.SourceURL = ""
 		}
@@ -98,7 +102,11 @@ func (s *Service) enrichArtifactWithScratchpad(ctx context.Context, artifact *Ar
 		return nil, nil
 	}
 	next := cloneArtifact(artifact)
-	if isUnifiedExportService(s) {
+	pinned, err := s.artifactHasResourcePin(ctx, next)
+	if err != nil {
+		return nil, err
+	}
+	if pinned {
 		if next != nil {
 			next.SourceURL = ""
 		}
@@ -121,4 +129,23 @@ func (s *Service) enrichArtifactWithScratchpad(ctx context.Context, artifact *Ar
 		return nil, err
 	}
 	return next, nil
+}
+
+func (s *Service) artifactHasResourcePin(ctx context.Context, artifact *Artifact) (bool, error) {
+	if s == nil || artifact == nil {
+		return false, nil
+	}
+	// An unassociated artifact cannot be released through raw scratchpad in a
+	// resource-enabled host. Real inline exports always retain their job ID.
+	if strings.TrimSpace(artifact.JobID) == "" {
+		return s.hasResourceReader(), nil
+	}
+	job, err := s.store.GetJob(ctx, artifact.JobID)
+	if err != nil {
+		return false, err
+	}
+	if job == nil {
+		return false, ErrNotFound
+	}
+	return job.ResourcePin != nil, nil
 }

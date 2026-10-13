@@ -2,10 +2,10 @@ package resource
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"sort"
+	iauth "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/protocol/primitive"
 
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/policy"
@@ -153,6 +153,14 @@ func (r *gatewayReportReader) read(ctx context.Context, ref identity.ResourceRef
 
 // ReadResource selects and delivers one report through its owning MCP, avoiding
 // an otherwise discarded Resolve body followed by the same read.
+func (r *gatewayReportReader) ReadDefinition(ctx context.Context, ref identity.ResourceRef, pin *identity.ResolvedResource) (*primitive.GetResult, error) {
+	got, err := readReport[json.RawMessage](ctx, r, ref, pin, "")
+	if err != nil {
+		return nil, err
+	}
+	return &got.GetResult, nil
+}
+
 func (r *gatewayReportReader) ReadResource(ctx context.Context, ref identity.ResourceRef, pin *identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error) {
 	return r.read(ctx, ref, pin, "")
 }
@@ -213,51 +221,37 @@ func (c *ReportGatewayCatalog) List(ctx context.Context, input catalog.ReportCat
 	if err != nil {
 		return nil, err
 	}
-	after := ""
-	if input.Cursor != "" {
-		decoded, err := base64.RawURLEncoding.DecodeString(input.Cursor)
-		if err != nil || base64.RawURLEncoding.EncodeToString(decoded) != input.Cursor {
-			return nil, identity.ErrResource
+	query := CatalogQuery{Namespace: input.Namespace, Cursor: input.Cursor, Limit: input.Limit}
+	if query.Limit == 0 {
+		query.Limit = primitive.MaxCatalogPageSize
+	}
+	if input.CurrentUserOnly {
+		for _, owner := range []string{actor.Subject, iauth.CanonicalUserID(ctx)} {
+			if owner != "" {
+				query.OwnerIDs = append(query.OwnerIDs, owner)
+			}
 		}
-		after = string(decoded)
-		uri, err := identity.ParseResourceURI(after)
-		if err != nil || uri.Kind != "report" {
-			return nil, identity.ErrResource
+		if iauth.Provider(ctx) != "" && iauth.EffectiveUserID(ctx) != "" {
+			query.OwnerIDs = append(query.OwnerIDs, iauth.EffectiveUserID(ctx))
+		}
+		if len(query.OwnerIDs) == 0 {
+			if input.Cursor != "" {
+				return nil, primitive.ErrCatalogCursor
+			}
+			return &catalog.ReportCatalogResult{Reports: []catalog.ReportCatalogEntry{}}, nil
 		}
 	}
-	rows, err := List[json.RawMessage](ctx, c.Gateway, "report", input.Namespace)
+	page, err := ListPage[registry.ReportEnvelope](ctx, c.Gateway, "report", query, true)
 	if err != nil {
 		return nil, err
 	}
-	sort.Slice(rows, func(i, j int) bool { return rows[i].Resource.URI < rows[j].Resource.URI })
-	reader := &gatewayReportReader{catalog: c}
-	result := &catalog.ReportCatalogResult{Reports: []catalog.ReportCatalogEntry{}}
-	limit := input.Limit
-	if limit == 0 {
-		limit = 1000
-	}
-	seen := map[string]bool{}
-	for _, row := range rows {
-		resource := row.Resource
-		if seen[resource.URI] {
-			return nil, ErrCollision
-		}
-		seen[resource.URI] = true
-		if resource.URI <= after || input.CurrentUserOnly && resource.OwnerID != actor.Subject {
-			continue
-		}
-		got, err := readReport[registry.ReportEnvelope](ctx, reader, identity.ResourceRef{URI: resource.URI}, nil, "")
-		if errors.Is(err, identity.ErrResourceDenied) && !reportIdentityRejected(err) {
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-		pin := got.ResolvedResource
-		if pin.ContentFingerprint != resource.ContentFingerprint {
+	result := &catalog.ReportCatalogResult{Reports: []catalog.ReportCatalogEntry{}, NextCursor: page.NextCursor}
+	for _, row := range page.Items {
+		resource, pin := row.Resource, row.ResolvedResource
+		if pin == nil || pin.ContentFingerprint != resource.ContentFingerprint {
 			return nil, identity.ErrResourceStale
 		}
-		envelope := got.Definition
+		envelope := row.Definition
 		candidate := catalog.ReportCatalogCandidate{URI: resource.URI, Title: resource.Title, OwnerID: resource.OwnerID, BuilderRef: envelope.BuilderRef, BuilderWindow: c.BuilderWindows[envelope.BuilderRef], ReportID: resource.URI}
 		capabilities := catalog.ReportCapabilities{}
 		if c.Capabilities != nil {
@@ -266,24 +260,25 @@ func (c *ReportGatewayCatalog) List(ctx context.Context, input catalog.ReportCat
 				return nil, err
 			}
 		}
-		_, pin, err = reader.ReadResolved(ctx, *pin)
-		if err != nil {
-			return nil, err
+		if c.Gateway.generation(row.Connection.Name) != row.Connection.Generation {
+			return nil, identity.ErrResourceStale
 		}
-		if !pin.ValidUntil.After(c.Gateway.now()) {
-			return nil, identity.ErrResourceDenied
-		}
-		if len(result.Reports) == limit {
-			result.NextCursor = base64.RawURLEncoding.EncodeToString([]byte(result.Reports[len(result.Reports)-1].URI))
-			break
-		}
-		result.Reports = append(result.Reports, catalog.ReportCatalogEntry{ReportCatalogCandidate: candidate, Namespace: resource.Namespace, Name: resource.Name, OwnedByCurrentUser: resource.OwnerID != "" && resource.OwnerID == actor.Subject, Resource: pin, Capabilities: capabilities})
+		result.Reports = append(result.Reports, catalog.ReportCatalogEntry{ReportCatalogCandidate: candidate, Namespace: resource.Namespace, Name: resource.Name, OwnedByCurrentUser: reportOwnedByCurrentUser(ctx, actor, resource.OwnerID), Resource: pin, Capabilities: capabilities})
 	}
 	return result, nil
 }
 
 var _ catalog.Provider = (*ReportGatewayCatalog)(nil)
 
-func reportIdentityRejected(err error) bool {
+func resourceIdentityRejected(err error) bool {
 	return errors.Is(err, policy.ErrIdentityRejected) || errors.Is(err, authz.ErrIdentityDenied)
+}
+
+// Ownership here is a UI catalog filter, never permission to read a resource.
+// The managing provider has already filtered the supplied catalog.
+func reportOwnedByCurrentUser(ctx context.Context, actor identity.VerifiedActor, owner string) bool {
+	if owner == "" {
+		return false
+	}
+	return owner == actor.Subject || owner == iauth.CanonicalUserID(ctx) || iauth.Provider(ctx) != "" && owner == iauth.EffectiveUserID(ctx)
 }

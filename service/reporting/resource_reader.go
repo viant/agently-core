@@ -3,6 +3,7 @@ package reporting
 import (
 	"context"
 	"encoding/json"
+	"github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"reflect"
 )
@@ -13,6 +14,12 @@ import (
 type ResourceReader interface {
 	Resolve(context.Context, identity.ResourceRef) (*identity.ResolvedResource, error)
 	ReadResolved(context.Context, identity.ResolvedResource) (json.RawMessage, *identity.ResolvedResource, error)
+}
+
+// ResourceDefinitionReader returns the managing provider's complete get result,
+// keeping header metadata and definition on the same delivery path.
+type ResourceDefinitionReader interface {
+	ReadDefinition(context.Context, identity.ResourceRef, *identity.ResolvedResource) (*primitive.GetResult, error)
 }
 
 // ProviderResourceReader refreshes a durable bookmark only at its stored provider.

@@ -29,10 +29,11 @@ type persistedSharedResourcePin struct {
 }
 
 type sharedResourceMetadataEnvelope struct {
-	Format   string                      `json:"format"`
-	Metadata json.RawMessage             `json:"metadata,omitempty"`
-	Resource *persistedSharedResourcePin `json:"resource,omitempty"`
-	Actor    *sharedReportActorScope     `json:"actor,omitempty"`
+	DefinitionBytes []byte                      `json:"definitionBytes,omitempty"`
+	Format          string                      `json:"format"`
+	Metadata        json.RawMessage             `json:"metadata,omitempty"`
+	Resource        *persistedSharedResourcePin `json:"resource,omitempty"`
+	Actor           *sharedReportActorScope     `json:"actor,omitempty"`
 }
 
 func isCanonicalReportURI(value string) bool {
@@ -246,16 +247,16 @@ func (s *Service) reauthorizeSharedReport(ctx context.Context, artifact *SharedA
 	return readFresh, raw, nil
 }
 
-func encodeSharedArtifactMetadata(metadata json.RawMessage, resource *identity.ResolvedResource, actor *sharedReportActorScope) json.RawMessage {
+func encodeSharedArtifactMetadata(metadata json.RawMessage, resource *identity.ResolvedResource, actor *sharedReportActorScope, definition json.RawMessage) json.RawMessage {
 	var top map[string]json.RawMessage
 	if json.Unmarshal(metadata, &top) == nil {
-		if _, reserved := top[canonicalSharedResourceEnvelopeKey]; !reserved && resource == nil && actor == nil {
+		if _, reserved := top[canonicalSharedResourceEnvelopeKey]; !reserved && resource == nil && actor == nil && len(definition) == 0 {
 			return cloneJSON(metadata)
 		}
-	} else if resource == nil && actor == nil {
+	} else if resource == nil && actor == nil && len(definition) == 0 {
 		return cloneJSON(metadata)
 	}
-	envelope := sharedResourceMetadataEnvelope{Format: canonicalSharedResourceEnvelopeFormat, Metadata: cloneJSON(metadata)}
+	envelope := sharedResourceMetadataEnvelope{Format: canonicalSharedResourceEnvelopeFormat, Metadata: cloneJSON(metadata), DefinitionBytes: append([]byte(nil), definition...)}
 	if resource != nil {
 		envelope.Resource = &persistedSharedResourcePin{ProviderIdentity: resource.ProviderIdentity, URI: resource.URI, ResourceCandidate: resource.ResourceCandidate, AuthorityBinding: resource.AuthorityBinding}
 	}
@@ -267,25 +268,28 @@ func encodeSharedArtifactMetadata(metadata json.RawMessage, resource *identity.R
 	return encoded
 }
 
-func decodeSharedArtifactMetadata(metadata json.RawMessage) (json.RawMessage, *identity.ResolvedResource, *sharedReportActorScope, error) {
+func decodeSharedArtifactMetadata(metadata json.RawMessage) (json.RawMessage, *identity.ResolvedResource, *sharedReportActorScope, json.RawMessage, error) {
 	var top map[string]json.RawMessage
 	if json.Unmarshal(metadata, &top) != nil || top == nil {
-		return cloneJSON(metadata), nil, nil, nil
+		return cloneJSON(metadata), nil, nil, nil, nil
 	}
 	raw, ok := top[canonicalSharedResourceEnvelopeKey]
 	if !ok {
-		return cloneJSON(metadata), nil, nil, nil
+		return cloneJSON(metadata), nil, nil, nil, nil
 	}
 	var envelope sharedResourceMetadataEnvelope
 	if err := json.Unmarshal(raw, &envelope); err != nil || envelope.Format != canonicalSharedResourceEnvelopeFormat {
-		return nil, nil, nil, fmt.Errorf("invalid shared report metadata envelope")
+		return nil, nil, nil, nil, fmt.Errorf("invalid shared report metadata envelope")
+	}
+	if len(envelope.DefinitionBytes) > 0 && !json.Valid(envelope.DefinitionBytes) {
+		return nil, nil, nil, nil, fmt.Errorf("invalid persisted report definition")
 	}
 	var pin *identity.ResolvedResource
 	if envelope.Resource != nil {
 		if !isCanonicalReportURI(envelope.Resource.URI) || !envelope.Resource.ResourceCandidate.Valid() || strings.TrimSpace(envelope.Resource.AuthorityBinding) == "" {
-			return nil, nil, nil, fmt.Errorf("invalid persisted shared report pin")
+			return nil, nil, nil, nil, fmt.Errorf("invalid persisted shared report pin")
 		}
 		pin = &identity.ResolvedResource{ProviderIdentity: envelope.Resource.ProviderIdentity, URI: envelope.Resource.URI, ResourceCandidate: envelope.Resource.ResourceCandidate, AuthorityBinding: envelope.Resource.AuthorityBinding}
 	}
-	return cloneJSON(envelope.Metadata), pin, cloneSharedReportActorScope(envelope.Actor), nil
+	return cloneJSON(envelope.Metadata), pin, cloneSharedReportActorScope(envelope.Actor), append(json.RawMessage(nil), envelope.DefinitionBytes...), nil
 }

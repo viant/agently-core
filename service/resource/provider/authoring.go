@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 )
 
@@ -65,7 +66,11 @@ func (p *LocalProvider) authoringTarget(kind, operation, value string) (identity
 	}
 	return uri, nil
 }
-func (p *LocalProvider) callAuthoring(ctx context.Context, kind, operation string, raw json.RawMessage) (any, error) {
+func (p *LocalProvider) callAuthoring(ctx context.Context, kind, operation string, raw json.RawMessage) (timingValue any, timingErr error) {
+	if observe.Enabled(ctx) {
+		span := p.timing(ctx, observe.ProviderWrite, kind, "")
+		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheUnknown) }()
+	}
 	if p.authoring == nil || !authoringOperation(operation) {
 		return nil, identity.ErrResource
 	}
@@ -128,7 +133,10 @@ func (p *LocalProvider) callAuthoring(ctx context.Context, kind, operation strin
 		if !p.catalogKinds[uri.Namespace][kind][version] || len(definition) == 0 {
 			return nil, identity.ErrResource
 		}
-		if err := p.validators[kind](version, definition); err != nil {
+		validationSpan := p.timing(ctx, observe.Validation, kind, uri.Namespace)
+		err := p.validators[kind](version, definition)
+		validationSpan.End(observe.OutcomeFor(err), observe.CacheBypass)
+		if err != nil {
 			return nil, err
 		}
 	}
@@ -139,7 +147,9 @@ func (p *LocalProvider) callAuthoring(ctx context.Context, kind, operation strin
 	if err = p.authorize(ctx, actor, uri, "resource."+operation); err != nil {
 		return nil, err
 	}
+	writeSpan := p.timing(ctx, observe.SourceWrite, kind, uri.Namespace)
 	result, err := dispatch()
+	writeSpan.End(observe.OutcomeFor(err), observe.CacheBypass)
 	if err != nil {
 		return nil, err
 	}
@@ -157,7 +167,9 @@ func (p *LocalProvider) mergeAuthoringMetadata(ctx context.Context, actor identi
 	if !p.hasAuthoring(resource.Kind, resource.Namespace) {
 		return nil
 	}
+	metadataSpan := p.timing(ctx, observe.SourceMetadata, resource.Kind, resource.Namespace)
 	descriptor, err := p.authoring.GetResource(ctx, resource.URI)
+	metadataSpan.End(observe.OutcomeFor(err), observe.CacheBypass)
 	if err != nil {
 		return err
 	}

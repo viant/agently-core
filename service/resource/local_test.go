@@ -297,6 +297,14 @@ func TestLocalReportValidatorRequiresTypedDefinition(t *testing.T) {
 	require.Error(t, ValidateReportEnvelope(2, json.RawMessage(`{}`)))
 	good := json.RawMessage(`{"schemaVersion":1,"reportDocument":{"title":"Demo"},"reportSpec":{"version":1}}`)
 	require.NoError(t, ValidateReportEnvelope(1, good))
+	require.NoError(t, ValidateReportEnvelope(1, json.RawMessage(`{"schemaVersion":1,"reportSpec":{"version":1,"kind":"reportSpec"}}`)))
+	require.Error(t, ValidateReportEnvelope(1, json.RawMessage(`{"schemaVersion":1}`)))
+	require.Error(t, ValidateReportEnvelope(1, json.RawMessage(`{"schemaVersion":1,"reportDocument":[],"reportSpec":{"version":1}}`)))
+	// An editable draft may not have a compiled spec yet. Discovery preserves
+	// the document; executing it still requires a valid runnable definition.
+	require.NoError(t, ValidateReportEnvelope(1, json.RawMessage(`{"schemaVersion":1,"reportDocument":{"title":"Draft"}}`)))
+	require.Error(t, ValidateReportEnvelope(1, json.RawMessage(`{"schemaVersion":1,"reportDocument":{"title":"Draft"},"reportSpec":null}`)))
+	require.Error(t, ValidateReportEnvelope(1, json.RawMessage(`{"schemaVersion":1,"reportDocument":{"title":"Draft"},"reportSpec":[]}`)))
 }
 
 func TestLocalProviderRejectsValidatorFailureBeforeReturningDefinition(t *testing.T) {

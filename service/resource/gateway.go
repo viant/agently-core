@@ -11,6 +11,7 @@ import (
 	cfg "github.com/viant/agently-core/protocol/mcp/config"
 	manager "github.com/viant/agently-core/protocol/mcp/manager"
 	primitive "github.com/viant/agently-core/protocol/primitive"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	identity "github.com/viant/agently-core/protocol/resource"
 	producer "github.com/viant/agently-core/service/resource/provider"
 	"github.com/viant/jsonrpc"
@@ -36,14 +37,16 @@ type Connection struct {
 	Generation       uint64 `json:"generation"`
 }
 type LocatedResource struct {
-	Connection Connection              `json:"connection"`
-	Resource   primitive.ResourceState `json:"resource"`
+	ResolvedResource *identity.ResolvedResource `json:"resolvedResource,omitempty"`
+	Connection       Connection                 `json:"connection"`
+	Resource         primitive.ResourceState    `json:"resource"`
 }
 type capabilities struct {
 	actor      identity.VerifiedActor
 	connection Connection
 	namespaces []primitive.NamespaceCapabilities
 	installed  map[string]bool
+	bindingKey string
 	expires    time.Time
 }
 type Gateway struct {
@@ -173,24 +176,44 @@ func (g *Gateway) client(ctx context.Context, name string) (mcpclient.Interface,
 	}
 	return &gatewayAuthClient{Interface: client, manager: g.Manager, name: name}, nil
 }
-func toolRaw(ctx context.Context, c mcpclient.Interface, method string, in any) (json.RawMessage, error) {
+func toolRaw(ctx context.Context, c mcpclient.Interface, method string, in any) (output json.RawMessage, failure error) {
+	labels := observe.Labels{}
+	if observe.Enabled(ctx) {
+		if client, ok := c.(*gatewayAuthClient); ok {
+			labels.Provider = client.name
+		}
+		prefix, _, _ := strings.Cut(method, "/")
+		labels.Kind = primitive.Kind(prefix)
+	}
+	total := observe.Start(ctx, observe.Phase("gateway.tool"), labels)
+	defer func() { total.End(observe.OutcomeFor(failure), observe.CacheUnknown) }()
+	encoding := observe.Start(ctx, observe.Phase("gateway.request.encode"), labels)
 	raw, e := json.Marshal(in)
 	if e != nil {
+		encoding.End(observe.OutcomeFor(e), observe.CacheUnknown)
 		return nil, e
 	}
 	var args map[string]any
 	decoder := json.NewDecoder(strings.NewReader(string(raw)))
 	decoder.UseNumber()
 	if e = decoder.Decode(&args); e != nil {
+		encoding.End(observe.OutcomeFor(e), observe.CacheUnknown)
 		return nil, e
 	}
+	encoding.End(observe.OK, observe.CacheUnknown)
+	dispatch := observe.Start(ctx, observe.Phase("gateway.mcp.call"), labels)
 	result, e := c.CallTool(ctx, &schema.CallToolRequestParams{Name: method, Arguments: args}, mcpclient.WithNoRetry())
 	if e != nil {
+		dispatch.End(observe.OutcomeFor(e), observe.CacheUnknown)
 		return nil, e
 	}
 	if result == nil || result.IsError != nil && *result.IsError {
+		dispatch.End(observe.Denied, observe.CacheUnknown)
 		return nil, identity.ErrResourceDenied
 	}
+	dispatch.End(observe.OK, observe.CacheUnknown)
+	decoding := observe.Start(ctx, observe.Phase("gateway.response.decode"), labels)
+	defer func() { decoding.End(observe.OutcomeFor(failure), observe.CacheUnknown) }()
 	if result.StructuredContent != nil {
 		return json.Marshal(result.StructuredContent)
 	}
@@ -241,23 +264,17 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 		}
 		options, c = binding.options, binding.client
 	} else {
-		options, e = g.Manager.Options(ctx, name)
+		binding, e = g.resolveReadBinding(ctx, a, name)
 		if e != nil {
 			return capabilities{}, e
 		}
-		if options == nil {
-			return capabilities{}, ErrUnavailable
-		}
-		c, e = g.client(ctx, name)
-		if e != nil {
-			return capabilities{}, e
-		}
+		options, c = binding.options, binding.client
 	}
 	restrictions := append([]string(nil), options.PrimitiveNamespaces...)
 	sort.Strings(restrictions)
 	restrictionKey, _ := json.Marshal(restrictions)
 	generation := g.generation(name)
-	key := actorKey(a, name, generation) + string(restrictionKey) + options.PrimitiveProviderIdentity
+	key := actorKey(a, name, generation) + string(restrictionKey) + options.PrimitiveProviderIdentity + binding.key
 	g.mu.Lock()
 	cached, ok := g.cache[key]
 	g.mu.Unlock()
@@ -282,11 +299,29 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 			return read, nil
 		}
 	}
+	if !force && ok && cached.expires.After(g.now()) && cached.bindingKey == binding.key {
+		if e = g.checkReadBinding(ctx, a, binding); e != nil {
+			return capabilities{}, e
+		}
+		if e = g.final(ctx, a); e != nil {
+			return capabilities{}, e
+		}
+		if sequence != nil {
+			if e = sequence.record(name, binding.key, cached); e != nil {
+				return capabilities{}, e
+			}
+		}
+		return cached, nil
+	}
 	installed := map[string]bool{}
 	owners := map[string]bool{}
-	if !force && ok && cached.expires.After(g.now()) {
-		installed = cached.installed
-		owners[cached.connection.ProviderIdentity] = true
+	configuredOwner := options.PrimitiveProviderIdentity
+	if configuredOwner != "" {
+		// Trusted configured provenance permits direct namespace discovery. Its
+		// methods are metadata contracts; each resource call is still managed
+		// and authorized freshly by the owning endpoint.
+		installed["namespaces/list"], installed["namespaces/get"] = true, true
+		owners[configuredOwner] = true
 	} else {
 		toolCursor := (*string)(nil)
 		for page := 0; page < 100; page++ {
@@ -354,7 +389,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 	for _, ns := range options.PrimitiveNamespaces {
 		allowed[ns] = true
 	}
-	result := capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed}
+	result := capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed, bindingKey: binding.key}
 	// Capability caching remains bounded even when a source issues long tokens.
 	if until := g.now().Add(time.Minute); result.expires.After(until) {
 		result.expires = until
@@ -401,8 +436,11 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 				seenKinds[kind.Kind] = true
 				for _, operation := range kind.Operations {
 					method := kind.Methods[operation]
-					if method == "" || !installed[method] {
+					if method == "" || configuredOwner == "" && !installed[method] {
 						return capabilities{}, identity.ErrResource
+					}
+					if configuredOwner != "" {
+						installed[method] = true
 					}
 				}
 			}
@@ -421,6 +459,9 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 	}
 	if g.generation(name) != generation {
 		return capabilities{}, identity.ErrResourceStale
+	}
+	if e = g.checkReadBinding(ctx, a, binding); e != nil {
+		return capabilities{}, e
 	}
 	if e = g.final(ctx, a); e != nil {
 		return capabilities{}, e
@@ -490,7 +531,10 @@ func (g *Gateway) discoverExcept(ctx context.Context, excludedLocal string) ([]D
 			return nil, ErrCollision
 		}
 		owners[c.connection.ProviderIdentity] = name
-		for _, ns := range c.namespaces {
+		// Export detached contract maps; caller mutation must not alter the
+		// manager-bound metadata reused by internal Get/action dispatch.
+		exported := cloneCapabilities(c)
+		for _, ns := range exported.namespaces {
 			out = append(out, DiscoveredNamespace{Connection: c.connection, NamespaceCapabilities: ns})
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/viant/agently-core/protocol/primitive/observe"
 	"reflect"
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
@@ -111,7 +112,11 @@ func filterMenuNodes(ctx context.Context, nodes []json.RawMessage, visible func(
 	return out, nil
 }
 
-func (p *LocalProvider) projectMenu(ctx context.Context, actor identity.VerifiedActor, uri identity.ResourceURI, raw json.RawMessage) (json.RawMessage, error) {
+func (p *LocalProvider) projectMenu(ctx context.Context, actor identity.VerifiedActor, uri identity.ResourceURI, raw json.RawMessage) (timingValue json.RawMessage, timingErr error) {
+	if observe.Enabled(ctx) {
+		span := p.timing(ctx, observe.MenuVisibility, "menu", uri.Namespace)
+		defer func() { span.End(observe.OutcomeFor(timingErr), observe.CacheBypass) }()
+	}
 	if p.menuVisibilityProjection != nil {
 		visible, err := p.menuVisibilityProjection(ctx, actor, uri, append(json.RawMessage(nil), raw...))
 		if err != nil {

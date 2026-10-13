@@ -165,6 +165,15 @@ func (s *Service) SetAuthorizationPolicy(runtime *policy.Runtime) {
 	}
 }
 
+// Store exposes the configured storage to trusted startup composition. Runtime
+// resource consumers use the managing MCP provider, never this accessor.
+func (s *Service) Store() Store {
+	if s == nil {
+		return nil
+	}
+	return s.store
+}
+
 // SetActionAuthorizer installs host-owned backend action checks. UI metadata
 // visibility never authorizes a saved-report read or mutation by itself.
 func (s *Service) SetActionAuthorizer(authorize func(context.Context, string, string) error) {
@@ -580,7 +589,7 @@ func (s *Service) compileUnscoped(ctx context.Context, request *CompileRequest) 
 	}
 	var pin *identity.ResolvedResource
 	var resolver ResourceReader
-	if s.hasResourceReader() || request.Resource != nil || request.ResolvedResource != nil {
+	if request.Resource != nil || request.ResolvedResource != nil {
 		var err error
 		request, pin, resolver, err = s.compileResolved(ctx, request)
 		if err != nil {
@@ -916,11 +925,6 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 	if request == nil {
 		return nil, fmt.Errorf("reporting export: request is required")
 	}
-	if isUnifiedExportService(s) {
-		if strings.TrimSpace(request.ReportRunID) != "" {
-			return nil, identity.ErrResourceDenied
-		}
-	}
 	if strings.TrimSpace(request.ReportRunID) != "" {
 		return s.submitExportFromRun(ctx, request)
 	}
@@ -929,8 +933,8 @@ func (s *Service) SubmitExport(ctx context.Context, request *SubmitExportRequest
 		resourcePin       *identity.ResolvedResource
 		err               error
 	)
-	if isUnifiedExportService(s) {
-		normalizedRequest, resourcePin, err = s.prepareUnifiedExportRequest(ctx, request)
+	if exportUsesResource(request) && (s.hasResourceReader() || request.Resource != nil || request.ResolvedResource != nil || request.execution != nil) {
+		normalizedRequest, resourcePin, err = s.prepareReferenceExportRequest(ctx, request)
 	} else {
 		normalizedRequest, err = s.resolveSubmitExportRequest(ctx, request)
 	}
@@ -1433,9 +1437,6 @@ func (s *Service) startExportTool(ctx context.Context, in, out interface{}) erro
 // CompleteExport persists a finished export artifact and marks the job
 // succeeded.
 func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportRequest) (*ExportJob, error) {
-	if isUnifiedExportService(s) && (request == nil || ctx == nil || ctx.Value(resourceExportCompletionKey{}) != request.JobID) {
-		return nil, identity.ErrResourceDenied
-	}
 	if request == nil {
 		return nil, fmt.Errorf("reporting export completion: request is required")
 	}
@@ -1445,6 +1446,9 @@ func (s *Service) CompleteExport(ctx context.Context, request *CompleteExportReq
 	}
 	if job == nil {
 		return nil, ErrNotFound
+	}
+	if job.ResourcePin != nil && (ctx == nil || ctx.Value(resourceExportCompletionKey{}) != request.JobID) {
+		return nil, identity.ErrResourceDenied
 	}
 	if err := s.validateExportResourcePin(ctx, job, "report.export"); err != nil {
 		return nil, err
@@ -3074,6 +3078,9 @@ func buildAuthContextRef(ctx context.Context) string {
 		return ""
 	}
 	parts := []string{}
+	if canonical := strings.TrimSpace(iauth.CanonicalUserID(ctx)); canonical != "" {
+		parts = append(parts, "canonical="+canonical)
+	}
 	if actorID != "" {
 		parts = append(parts, "actor="+actorID)
 	}
@@ -3114,6 +3121,16 @@ func (s *Service) ensureRunExportAuthContext(ctx context.Context, job *ExportJob
 		return ctx, nil
 	}
 	meta := parseAuthContextRef(job.AuthContextRef)
+	canonical := strings.TrimSpace(meta["canonical"])
+	if current := strings.TrimSpace(iauth.CanonicalUserID(ctx)); current != "" && canonical != "" && current != canonical {
+		return ctx, identity.ErrResourceDenied
+	}
+	if job.ResourcePin != nil && canonical == "" {
+		return ctx, identity.ErrResourceDenied
+	}
+	if canonical != "" {
+		ctx = iauth.WithCanonicalUserID(ctx, canonical)
+	}
 	actorID := strings.TrimSpace(meta["actor"])
 	if actorID == "" {
 		actorID = strings.TrimSpace(job.OwnerID)

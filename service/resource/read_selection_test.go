@@ -604,7 +604,7 @@ func (p *selectedNamespaceDrift) CallTool(ctx context.Context, in *schema.CallTo
 	}
 	return p.Interface.CallTool(ctx, in, opts...)
 }
-func TestSelectedDatasourceHostAdmissionCannotChangeCatalogBeforeBarrierRelease(t *testing.T) {
+func TestSelectedDatasourceInvalidatedCatalogCannotEscapeBarrierRelease(t *testing.T) {
 	for _, boundary := range []string{"dispatch", "release"} {
 		t.Run(boundary, func(t *testing.T) {
 			stack := newDependencyStack(t, time.Now().Add(time.Minute))
@@ -632,6 +632,7 @@ func TestSelectedDatasourceHostAdmissionCannotChangeCatalogBeforeBarrierRelease(
 			require.NoError(t, RegisterDatasourceSelectionAdmission(ctx, parent, target, "orders", fingerprint, func(context.Context) error {
 				if mutate {
 					child.hidden = true
+					stack.gateway.Invalidate("child")
 				}
 				return nil
 			}))

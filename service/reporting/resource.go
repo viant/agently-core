@@ -56,7 +56,7 @@ func (s *Service) compileResolved(ctx context.Context, request *CompileRequest) 
 	if err := decoder.Decode(&definition); err != nil {
 		return nil, nil, nil, fmt.Errorf("invalid resolved report envelope")
 	}
-	if decoder.Decode(new(any)) != io.EOF || len(definition.ReportDocument) == 0 || !(definition.SchemaVersion == 1 && definition.Format != registry.ResourceReportFormat && len(definition.DataSourceResources) == 0 && definition.SourceFormat == "" || definition.SchemaVersion == 2 && definition.Format == registry.ResourceReportFormat && len(definition.DataSourceResources) > 0) {
+	if decoder.Decode(new(any)) != io.EOF || (len(definition.ReportDocument) == 0 && len(definition.ReportSpec) == 0) || !(definition.SchemaVersion == 1 && definition.Format != registry.ResourceReportFormat && len(definition.DataSourceResources) == 0 && definition.SourceFormat == "" || definition.SchemaVersion == 2 && definition.Format == registry.ResourceReportFormat && len(definition.DataSourceResources) > 0) {
 		return nil, nil, nil, fmt.Errorf("invalid resolved report definition")
 	}
 	dependencyPins, dependencyToken, err := s.bindOperationDependencies(ctx, request.ResolvedResource, pin, definition, request.DependencyPins, request.DependencyToken)

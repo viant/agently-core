@@ -230,6 +230,9 @@ func (g *Gateway) namespaceReadKeyForCredential(ctx context.Context, actor ident
 func cloneCapabilities(c capabilities) capabilities {
 	copy := c
 	raw, _ := json.Marshal(c.namespaces)
+	// Unmarshal must allocate detached slices/maps instead of reusing the
+	// copied slice's original backing array and cached method maps.
+	copy.namespaces = nil
 	_ = json.Unmarshal(raw, &copy.namespaces)
 	copy.installed = make(map[string]bool, len(c.installed))
 	for name, installed := range c.installed {
@@ -337,21 +340,17 @@ func (s *resourceReadSequence) endPhase(ctx context.Context) (err error) {
 		return err
 	}
 	for name, held := range reads {
-		current, err := s.gateway.discoverMode(ctx, actor, name, true)
+		// Discovery is a cached method contract, not resource authority. Fence
+		// transport/identity changes here; fresh owner Gets below decide access.
+		binding, err := s.gateway.resolveReadBinding(ctx, actor, name)
 		if err != nil {
 			return err
 		}
-		options, err := s.gateway.Manager.Options(ctx, name)
-		if err != nil {
-			return err
-		}
-		client, err := s.gateway.client(ctx, name)
-		if err != nil {
-			return err
-		}
-		key, err := s.gateway.namespaceReadKey(ctx, actor, name, options, client)
-		if err != nil || key != held.key || current.connection != held.cap.connection || !sameNamespaceContracts(current.namespaces, held.cap.namespaces) || !reflect.DeepEqual(current.installed, held.cap.installed) {
+		if binding.key != held.key || s.gateway.generation(name) != held.cap.connection.Generation || !held.cap.expires.After(s.gateway.now()) {
 			return identity.ErrResourceDenied
+		}
+		if err := s.gateway.checkReadBinding(ctx, actor, binding); err != nil {
+			return err
 		}
 	}
 	if err := s.refreshSelectedResources(ctx); err != nil {
