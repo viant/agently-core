@@ -341,6 +341,8 @@ export class BrowserMCPHost {
         if (identity?.connectionId !== binding.connectionId) throw new BrowserMCPBindingError('connectionIdentityMismatch');
         const current = await measureBrowserSetup('tool.catalogCurrent', () => this.api.current(catalog.id));
         if (binding.closed || current.hash !== catalog.hash || current.connectionId !== binding.connectionId || current.threadId !== binding.threadId) throw new Error('Browser MCP catalog was revoked or changed');
+        if (!Number.isFinite(Date.parse(current.expiresAt)) || Date.parse(current.expiresAt) <= Date.now()) throw new BrowserMCPBindingError('catalogExpired');
+        catalog.expiresAt = current.expiresAt;
         const boundArgs = JSON.parse(call.function.arguments);
         if (JSON.stringify(boundArgs) !== JSON.stringify(args)) throw new Error('Browser MCP arguments differ from the pending call');
         const fingerprint = JSON.stringify([binding.conversationId, binding.threadId, binding.connectionId, tool.name, call.function.arguments]);
@@ -465,6 +467,8 @@ export class BrowserMCPHost {
                 if (!binding.resources) throw new Error('Browser MCP server does not advertise resources');
                 const current = await measureBrowserSetup('resource.catalogCurrent', () => this.api.current(identity.catalogId));
                 if (disposed || binding.closed || binding.transportLost || current.hash !== original.content.serverHash || current.connectionId !== binding.connectionId || current.threadId !== binding.threadId || current.conversationId !== binding.conversationId) throw new Error('Browser app catalog changed');
+                if (!Number.isFinite(Date.parse(current.expiresAt)) || Date.parse(current.expiresAt) <= Date.now()) throw new BrowserMCPBindingError('catalogExpired');
+                if (binding.catalog) binding.catalog.expiresAt = current.expiresAt;
                 const result = await measureBrowserSetup('resource.nativeRequest', () => binding.connection.request('resources/read', { uri: original.content.resourceUri }));
                 if (disposed || binding.closed || binding.transportLost) throw new Error('Browser app connection closed');
                 return result;
