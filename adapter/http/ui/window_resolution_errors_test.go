@@ -67,18 +67,31 @@ func TestCanonicalHTTPOpenPreservesTrustedResolutionFailures(t *testing.T) {
 					t.Fatal(err)
 				}
 				emissions := 0
-				bridge := service.NewService(&service.Config{WindowDefinitions: catalog, WindowSelectionEmitter: func(context.Context, *types.Window, map[string]any) (*identity.SelectionBinding, error) {
+				bridge := service.NewService(&service.Config{WindowDefinitions: catalog, WindowSelectionEmitter: func(_ context.Context, _ *types.Window, parameters map[string]any) (*identity.SelectionBinding, error) {
 					emissions++
-					return nil, nil
+					digest, _ := identity.SelectionParametersDigest(parameters)
+					return &identity.SelectionBinding{Actor: identity.CanonicalActor{Issuer: "fixture", Subject: "owner", TenantID: "team", AccountID: "account"}, InstanceID: "instance", ParametersDigest: digest, Token: "fixture-signed"}, nil
 				}})
 				handler := NewEmbeddedHandlerWithAuthorization(root, nil, nil, nil, WithWindowResourceProvider(bridge))
 				response := httptest.NewRecorder()
 				handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/window/view?applyPermission=true", nil))
 				expected := test.status
-				if late && (test.name == "unknown" || test.name == "denied" || test.name == "stale") {
-					expected = 403
+				expectedEmissions := 0
+				if late {
+					if response.Code != http.StatusOK || emissions != 1 {
+						t.Fatalf("first admitted request was reloaded: status=%d emissions=%d reads=%d", response.Code, emissions, source.reads)
+					}
+					var body struct {
+						Data *types.Window `json:"data"`
+					}
+					if json.Unmarshal(response.Body.Bytes(), &body) != nil || body.Data == nil || body.Data.View.Content.ID != "safe" {
+						t.Fatal("original admitted frame lost")
+					}
+					response = httptest.NewRecorder()
+					handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/window/view?applyPermission=true", nil))
+					expectedEmissions = 1 // The next failed request must not emit another binding.
 				}
-				if response.Code != expected || emissions != 0 || strings.Contains(response.Body.String(), "private") || strings.Contains(response.Body.String(), "selectionBinding") {
+				if response.Code != expected || emissions != expectedEmissions || strings.Contains(response.Body.String(), "private") || strings.Contains(response.Body.String(), "selectionBinding") {
 					t.Fatalf("canonical chain wrong status/release: %d %s emissions=%d reads=%d", response.Code, response.Body.String(), emissions, source.reads)
 				}
 			})

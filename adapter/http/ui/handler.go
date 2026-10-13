@@ -8,6 +8,7 @@ import (
 	"fmt"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -92,6 +93,7 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 			var err error
 			aWindow, err = resolvedHTTPWindow(r, settings.windows, strings.Join(pathParts, "/"))
 			if err != nil {
+				log.Printf("window metadata lookup failed: %v", err)
 				switch {
 				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, forgeservice.ErrWindowSelectionUnavailable):
 					writeOpenAdmissionError(w, err)
@@ -274,21 +276,6 @@ func buildHandler(root string, efs *embed.FS, admission *policy.Runtime, capabil
 				if raw, marshalErr := json.Marshal(authorization); marshalErr == nil {
 					_ = json.Unmarshal(raw, &aWindow.AuthorizationSnapshot)
 				}
-			}
-		}
-		if canonical {
-			revalidationKey := strings.Join(pathParts, "/")
-			if r.URL.Query().Get("namespace") != "" && aWindow.Resource != nil {
-				revalidationKey = aWindow.Resource.URI
-			}
-			if _, err := settings.windows.WindowDefinitionGet(r.Context(), &forgeservice.WindowDefinitionGetInput{WindowID: revalidationKey, ResolvedResource: aWindow.Resource, Target: aWindow.ResourceTarget}); err != nil {
-				switch {
-				case errors.Is(err, context.DeadlineExceeded), errors.Is(err, forgeservice.ErrWindowSelectionUnavailable), errors.Is(err, identity.ErrResourceDenied), errors.Is(err, identity.ErrResourceStale), errors.Is(err, context.Canceled):
-					writeOpenAdmissionError(w, err)
-				default:
-					http.Error(w, "window access changed", http.StatusForbidden)
-				}
-				return
 			}
 		}
 		if openOriginal != nil {

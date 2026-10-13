@@ -99,7 +99,9 @@ func TestFrameworkHandoffCannotInstallPinAfterAdmissionExpires(t *testing.T) {
 	catalog := &delayedFrameworkHandoffCatalog{}
 	svc := NewService(&Config{WindowDefinitions: catalog})
 	svc.hub.registerHTTPClient("default", "owned-client", context.Background())
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+	// Binding must reject an already expired admission, independent of
+	// incidental latency from a redundant source read.
+	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(-time.Millisecond))
 	defer cancel()
 	if err := svc.BindAdmittedFrameworkWindow(ctx, "owned-client", "chat/new", "chat/new", &types.Window{Resource: &pin}); err == nil {
 		t.Fatal("expired admission handoff succeeded")

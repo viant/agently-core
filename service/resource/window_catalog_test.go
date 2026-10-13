@@ -66,8 +66,12 @@ func TestDelegatedWindowCatalogDiscardsOwningServerDenial(t *testing.T) {
 	rows, err := catalog.List(context.Background(), nil)
 	require.NoError(t, err)
 	result, err := catalog.Get(context.Background(), &service.WindowDefinitionGetInput{WindowID: rows.Windows[0].WindowID})
+	require.NoError(t, err)
+	require.NotNil(t, result.Definition, "one request retains its admitted provider frame")
+	require.Equal(t, 1, upstream.gets)
+	result, err = catalog.Get(context.Background(), &service.WindowDefinitionGetInput{WindowID: rows.Windows[0].WindowID})
 	require.Error(t, err)
-	require.Nil(t, result, "owning-server denial at final read must discard selected window bytes")
+	require.Nil(t, result, "next request must receive managing-provider denial")
 	require.Equal(t, 2, upstream.gets)
 }
 

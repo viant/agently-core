@@ -32,16 +32,20 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	// configured names in the transport/tool scope so configuration and schema
 	// changes still fence enumeration, including newly supporting providers.
 	dependencies := names
+	scopeNames := make([]string, 0, len(names))
 	if category != "" {
 		dependencies = nil
-		for _, name := range names {
-			caps, discoverErr := g.discover(ctx, actor, name)
-			if errors.Is(discoverErr, ErrUnavailable) {
-				continue
-			}
-			if discoverErr != nil {
-				return nil, actor, discoverErr
-			}
+	}
+	for _, name := range names {
+		caps, discoverErr := g.discover(ctx, actor, name)
+		if aggregateLinkRequired(discoverErr) {
+			continue
+		}
+		if discoverErr != nil && !errors.Is(discoverErr, ErrUnavailable) {
+			return nil, actor, discoverErr
+		}
+		scopeNames = append(scopeNames, name)
+		if category != "" && discoverErr == nil {
 			for _, namespace := range caps.namespaces {
 				if supports(caps, namespace.Namespace, category, "list") {
 					dependencies = append(dependencies, name)
@@ -50,8 +54,32 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 			}
 		}
 	}
+	// Unlinked connectors do not participate in transport initialization. Their
+	// configured definitions still fence this catalog and its original cursor.
+	configuredScope := func() (string, error) {
+		definitions := make([]any, 0, len(names))
+		for _, name := range names {
+			options, err := g.Manager.Options(ctx, name)
+			if err != nil {
+				return "", err
+			}
+			definitions = append(definitions, struct {
+				Name    string
+				Options any
+			}{name, options})
+		}
+		raw, err := json.Marshal(definitions)
+		if err != nil {
+			return "", err
+		}
+		return fmt.Sprintf("%x", sha256.Sum256(raw)), nil
+	}
 	partition := g.Manager.WithCatalogSources(ctx, g.Manager.CatalogPartition(ctx, catalogPrincipalScope(actor), category), dependencies)
-	scope, cacheable, err := g.Manager.CatalogScopeForResources(ctx, "", names, dependencies)
+	scope, cacheable, err := g.Manager.CatalogScopeForResources(ctx, "", scopeNames, dependencies)
+	if err != nil {
+		return nil, actor, err
+	}
+	configuration, err := configuredScope()
 	if err != nil {
 		return nil, actor, err
 	}
@@ -63,17 +91,21 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 		until = g.now()
 	}
 	generation := g.catalogGeneration(names)
-	key := fmt.Sprintf("primitive:%p:%s:%s:%s:%x", g, actorKey(actor, "", 0), scope, kind, generation)
+	key := fmt.Sprintf("primitive:%p:%s:%s:%s:%x", g, actorKey(actor, "", 0), scope+":"+configuration, kind, generation)
 
 	index, err := g.Manager.VisibleCatalogInPartition(ctx, key, partition, until, load, sourceLease...)
 	if err != nil {
 		return nil, actor, err
 	}
-	current, _, err := g.Manager.CatalogScopeForResources(ctx, "", names, dependencies)
+	current, _, err := g.Manager.CatalogScopeForResources(ctx, "", scopeNames, dependencies)
 	if err != nil {
 		return nil, actor, err
 	}
-	if current != scope || generation != g.catalogGeneration(names) {
+	currentConfiguration, configErr := configuredScope()
+	if configErr != nil {
+		return nil, actor, configErr
+	}
+	if current != scope || currentConfiguration != configuration || generation != g.catalogGeneration(names) {
 		return nil, actor, primitive.ErrCatalogCursor
 	}
 	if err = g.final(ctx, actor); err != nil {

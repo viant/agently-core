@@ -61,7 +61,7 @@ func TestCanonicalMetadataPreservesFullRegisteredWindowID(t *testing.T) {
 	provider.allow, provider.allowedID, provider.calls = true, "chat/new", 0
 	response = httptest.NewRecorder()
 	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/window/chat/new", nil))
-	if response.Code != http.StatusOK || provider.calls != 2 || provider.requestedID != "chat/new" {
+	if response.Code != http.StatusOK || provider.calls != 1 || provider.requestedID != "chat/new" {
 		t.Fatalf("full canonical key lost at resolution/revalidation: status=%d calls=%d id=%q", response.Code, provider.calls, provider.requestedID)
 	}
 }

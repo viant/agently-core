@@ -77,9 +77,6 @@ func (s *Service) rememberWindowPin(ctx context.Context, key windowPinKey, pin w
 		}
 		pin.Target = &normalized
 	}
-	if _, err := s.revalidateWindowPin(ctx, pin); err != nil {
-		return errors.New("window resource is unavailable")
-	}
 	s.resourceMu.Lock()
 	defer s.resourceMu.Unlock()
 	if ctx == nil || ctx.Err() != nil || !pin.Resource.ValidUntil.After(time.Now()) {
