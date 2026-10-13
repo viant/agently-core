@@ -352,8 +352,6 @@ func privateFrameworkComposite(t *testing.T, controls *frameworkHandoffCatalog, 
 	if err != nil {
 		t.Fatal(err)
 	}
-	remote := &resources.WindowCatalog{Gateway: gateway, TargetProof: proof, Admission: func(context.Context, identity.ResolvedResource, *types.Window) error {
-		return identity.ErrResourceDenied
-	}}
+	remote := &resources.WindowCatalog{Gateway: gateway, TargetProof: proof}
 	return &resources.CompositeWindowCatalog{Local: &recordingPrivateFrameworkCatalog{MetadataWindowCatalog: local, controls: controls}, LocalProviderIdentity: controls.window.Resource.ProviderIdentity, Remote: remote}
 }
