@@ -1,4 +1,4 @@
-package primitiveproducer
+package provider
 
 import (
 	"encoding/json"

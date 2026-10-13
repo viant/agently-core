@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
-	producer "github.com/viant/agently-core/service/primitiveproducer"
+	producer "github.com/viant/agently-core/service/resource/provider"
 )
 
 type MenuActionVisibility = producer.MenuActionVisibility

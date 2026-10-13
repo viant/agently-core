@@ -6,7 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	identity "github.com/viant/agently-core/protocol/resource"
-	producer "github.com/viant/agently-core/service/primitiveproducer"
+	producer "github.com/viant/agently-core/service/resource/provider"
 	"github.com/viant/mcp-protocol/schema"
 	"path/filepath"
 )

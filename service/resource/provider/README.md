@@ -1,4 +1,4 @@
-# Standalone primitive producer
+# Reusable resource provider
 
 This package exports an authoritative primitive catalog through standard MCP
 `tools/list` and `tools/call`. It depends on neutral primitive/resource contracts,
@@ -17,7 +17,7 @@ A menu is optional. Without an explicit menu binding the producer advertises no
 requires `ValidateMenu` and a trusted `MenuActionVisibility` callback. The callback
 checks every authored action, including actions on groups; groups whose children
 are all denied disappear. Callback inputs are logical menu identity and current
-verified actor. Host window execution guards remain authoritative for actions.
+verified actor. Managing MCPs authorize window and datasource operations; menu checks control UI visibility only.
 
 Menu source format:
 
@@ -27,7 +27,7 @@ Menu source format:
 
 Node fields, action payloads and parameters retain their JSON meaning. Envelope
 fields are exactly `schemaVersion` and `applications`; nested groups preserve `children` (existing layout) or `menus`.
-Hosts decide which authored menus to publish; no server URL supplies a namespace,
+Providers decide which authored menus to publish; no server URL supplies a namespace,
 and authoring a menu does not automatically install or expose it.
 
 `menus/get` returns `primitive.GetResult`. Its `resource` has exact source metadata
@@ -38,7 +38,7 @@ lease. `menuProjection` contains format version (`schemaVersion:1`), visible
 projection hash is never represented as an authored source hash. Neither MCP
 text output nor structured content includes denied source bytes.
 
-The producer resolves omitted revisions through injected policy. Menu resolvers
+The provider resolves omitted revisions through injected policy. Menu resolvers
 may expose working and stamped candidates; explicit stamps resolve exactly and
 are independently authorized. Reads repeat exact-source, visibility and actor
 checks and retain the original lease. Working-only local layout adapters belong
@@ -58,7 +58,7 @@ IdP verification, revocation, account scope and revision policy callbacks.
 Validation:
 
 ```sh
-go test -race ./service/primitiveproducer ./service/resource
+go test -race ./service/resource/provider ./service/resource
 ```
 
 For an unpublished feature checkout, use an explicit local module graph that
@@ -71,3 +71,5 @@ MCP client/server, exercising tools discovery, namespace capability, menu list/g
 nested denied targets, lossless parameters, source/projection isolation, expiry
 and revocation. Host tests add exact stamped selection, YAML preservation, source
 drift, gateway provenance, collision and authority isolation.
+
+Dynamic inventories implement `LocalCatalog` and are registered once in `LocalConfig.Catalog`. The existing MCP list/get handler performs direct lookups through that source; it does not reconstruct a provider on each call. Optional `Authoring` uses the existing lifecycle DTOs and advertises only the operations explicitly declared by each namespace. Read-only sources remain read-only.
