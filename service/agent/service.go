@@ -124,6 +124,25 @@ func (s *Service) Finder() agent.Finder {
 	return s.agentFinder
 }
 
+// WarmToolSurface resolves an agent's configured backend tool bundles once so
+// the first interactive turn can reuse the completed surface. Browser MCP
+// definitions are absent from this startup context and remain conversation-
+// scoped.
+func (s *Service) WarmToolSurface(ctx context.Context, agentID string) error {
+	if s == nil || s.agentFinder == nil || s.registry == nil {
+		return nil
+	}
+	selected, err := s.agentFinder.Find(ctx, strings.TrimSpace(agentID))
+	if err != nil {
+		return err
+	}
+	if selected == nil {
+		return fmt.Errorf("agent %q was not found", strings.TrimSpace(agentID))
+	}
+	_, err = s.buildToolSignatures(ctx, &QueryInput{AgentID: agentID, Agent: selected})
+	return err
+}
+
 // AsyncManager returns the async Manager owned by this service. Exposed so
 // bootstrap wiring (e.g. executor.Builder) can forward workspace-level
 // `default.async` settings into `manager.StartGC` / narrator overrides

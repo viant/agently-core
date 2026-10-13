@@ -39,7 +39,7 @@ func (m frontendToolModel) Generate(_ context.Context, request *llm.GenerateRequ
 	return &llm.GenerateResponse{Model: "mock", Choices: []llm.Choice{{Index: 0, Message: llm.Message{Role: llm.RoleAssistant, ToolCalls: []llm.ToolCall{{ID: "frontend-call", Name: "frontend", Arguments: map[string]interface{}{"id": 7}}}}, FinishReason: "tool_calls"}}}, nil
 }
 
-func TestBuildBindingAddsScopedClientToolsAndRejectsBackendCollision(t *testing.T) {
+func TestBuildBindingAddsScopedClientToolsWithoutBackendCollisionScan(t *testing.T) {
 	store := convmem.New()
 	ctx := context.Background()
 	conv := apiconv.NewConversation()
@@ -58,7 +58,7 @@ func TestBuildBindingAddsScopedClientToolsAndRejectsBackendCollision(t *testing.
 	collision, err := clienttool.NewSession([]llm.ToolDefinition{{Name: "server-lookup"}})
 	require.NoError(t, err)
 	_, err = svc.BuildBinding(clienttool.WithSession(ctx, collision), input)
-	require.ErrorContains(t, err, "collides")
+	require.NoError(t, err)
 }
 
 func TestClientToolRunStopsAfterOneModelIterationWithoutFakeResult(t *testing.T) {

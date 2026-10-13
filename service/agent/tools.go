@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -10,7 +11,6 @@ import (
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/binding"
 	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	toolctx "github.com/viant/agently-core/protocol/tool"
@@ -323,8 +323,8 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 
 func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, control agenttool.Selection) ([]llm.ToolDefinition, error) {
 	key := toolSelectionCacheKey(control)
-	if len(browsermcp.Definitions(ctx)) > 0 {
-		key = ""
+	if browserKey := browserToolSurfaceCacheKey(ctx); browserKey != "" {
+		key += "\x1e" + browserKey
 	}
 	if key != "" {
 		if cached, ok := s.toolSurfaceCache.Load(key); ok {
@@ -363,6 +363,19 @@ func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, cont
 	return cloneToolDefinitions(entry.Definitions), nil
 }
 
+func browserToolSurfaceCacheKey(ctx context.Context) string {
+	definitions := browsermcp.Definitions(ctx)
+	if len(definitions) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(definitions)
+	if err != nil {
+		return ""
+	}
+	digest := sha256.Sum256(raw)
+	return fmt.Sprintf("browser:%x", digest[:])
+}
+
 func (s *Service) promptApprovalConfigsForSelection(ctx context.Context, control agenttool.Selection) (map[string]*llm.ApprovalConfig, error) {
 	if s == nil {
 		return nil, nil
@@ -388,39 +401,6 @@ func (s *Service) promptApprovalConfigsForSelection(ctx context.Context, control
 		return nil, nil
 	}
 	return out, nil
-}
-
-func (s *Service) reapplyPromptApprovalReviewToolSurface(ctx context.Context, input *QueryInput, b *binding.Binding) error {
-	if s == nil || input == nil || b == nil || len(b.Tools.Signatures) == 0 {
-		return nil
-	}
-	control, err := s.resolveToolControl(ctx, input)
-	if err != nil {
-		return err
-	}
-	approvalByID, err := s.promptApprovalConfigsForSelection(ctx, control)
-	if err != nil {
-		return err
-	}
-	if len(approvalByID) == 0 {
-		return nil
-	}
-	defs := make([]llm.ToolDefinition, 0, len(b.Tools.Signatures))
-	for _, sig := range b.Tools.Signatures {
-		if sig == nil {
-			continue
-		}
-		defs = append(defs, cloneToolDefinition(*sig))
-	}
-	defs = augmentPromptApprovalReviewDefinitions(defs, approvalByID)
-	updated := make([]*llm.ToolDefinition, 0, len(defs))
-	for i := range defs {
-		def := defs[i]
-		def.Normalize()
-		updated = append(updated, &def)
-	}
-	b.Tools.Signatures = dedupeToolDefinitions(updated)
-	return nil
 }
 
 func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []string) ([]llm.ToolDefinition, error) {
