@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	service "github.com/viant/agently-core/service/primitiveprovider"
@@ -18,6 +19,10 @@ type WindowContentCheck func(context.Context, identity.ResolvedResource) error
 type WindowCatalog struct {
 	// DefaultNamespace is trusted host routing for original unqualified keys.
 	DefaultNamespace string
+	// DefaultProviderIdentity and Aliases are startup-owned routing for local
+	// unqualified window keys. They avoid discovery of unrelated MCPs.
+	DefaultProviderIdentity string
+	Aliases                 map[string]string
 	// ContentCurrent is supplied only by the authoritative host for each owner.
 	// Unregistered providers retain an exact, authorized Get as the final check.
 	ContentCurrent map[string]WindowContentCheck
@@ -100,7 +105,14 @@ func (c *WindowCatalog) locate(ctx context.Context, key, owner string) (windowLo
 		return decodeWindowLocator(key)
 	}
 	if !strings.Contains(key, "://") && c.DefaultNamespace != "" {
-		key = "window://" + c.DefaultNamespace + "/" + key
+		if uri := c.Aliases[key]; uri != "" {
+			key = uri
+		} else {
+			key = "window://" + c.DefaultNamespace + "/" + key
+		}
+		if owner == "" {
+			owner = c.DefaultProviderIdentity
+		}
 	}
 	uri, e := identity.ParseResourceURI(key)
 	if e != nil || uri.Kind != "window" {
@@ -145,7 +157,7 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 	}
 	loc, e := c.locate(ctx, input.WindowID, owner)
 	if e != nil {
-		return nil, e
+		return nil, fmt.Errorf("window locate: %w", e)
 	}
 	if explicitOwner != "" && loc.Connection.ProviderIdentity != explicitOwner {
 		return nil, identity.ErrResourceDenied
@@ -161,7 +173,7 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 		return types.SelectWindowResourceWithReferences(raw, input.Target)
 	})
 	if e != nil {
-		return nil, e
+		return nil, fmt.Errorf("window read/select: %w", e)
 	}
 	selected := result.Definition
 	if selected == nil {

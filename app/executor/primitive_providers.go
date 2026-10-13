@@ -96,6 +96,10 @@ func (b *Builder) configurePrimitiveProviders(out *Runtime) error {
 		defaultNamespace = "workspace"
 	}
 	remote := &resourcesvc.WindowCatalog{DefaultNamespace: defaultNamespace, Gateway: out.PrimitiveProviders, TargetProof: b.primitiveTargetProof}
+	if out.publicPrimitiveDefault {
+		remote.DefaultProviderIdentity = resourcesvc.InternalProviderIdentity
+		remote.Aliases = b.nativeWindowAliases
+	}
 	out.UIBridge.ConfigureWindowCatalog(func(local forge.WindowDefinitionCatalog) forge.WindowDefinitionCatalog {
 		out.PrimitiveWindows = &resourcesvc.CompositeWindowCatalog{Local: local, LocalProviderIdentity: b.primitiveLocalIdentity, Remote: remote}
 		return out.PrimitiveWindows

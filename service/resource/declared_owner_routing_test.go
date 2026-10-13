@@ -74,6 +74,15 @@ func TestDeclaredOwnerRoutingDoesNotContactUnrelatedOfflineProvider(t *testing.T
 			require.NoError(t, err)
 			require.NotNil(t, definition.Definition)
 			require.Zero(t, remoteCalls)
+			catalog.DefaultNamespace = "example"
+			catalog.DefaultProviderIdentity = "native-owner"
+			catalog.Aliases = map[string]string{"original-key": uri.String()}
+			for _, key := range []string{"sales", "original-key"} {
+				definition, err = catalog.Get(context.Background(), &service.WindowDefinitionGetInput{WindowID: key})
+				require.NoError(t, err)
+				require.Equal(t, uri.String(), definition.Definition.Resource.URI)
+				require.Zero(t, remoteCalls, "known local windows must not discover unrelated MCP connections")
+			}
 			local.after = func(method string) {
 				if method == "windows/get" {
 					revoked = true
