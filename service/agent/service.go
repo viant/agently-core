@@ -91,13 +91,15 @@ type Service struct {
 	// events such as turn_queued. Wired via SetElicitationStreamPublisher.
 	streamPub streaming.Publisher
 
-	asyncManager     *asynccfg.Manager
-	asyncPollers     sync.Map
-	asyncGoalWatches sync.Map
-	bootstrapCache   sync.Map
-	toolSurfaceCache sync.Map
-	goalRuntime      *goalruntime.Runtime
-	goalWakeups      goalWakeupScheduler
+	asyncManager            *asynccfg.Manager
+	asyncPollers            sync.Map
+	asyncGoalWatches        sync.Map
+	bootstrapCache          sync.Map
+	publicToolSurfaceCache  sync.Map
+	privateToolSurfaceCache sync.Map
+	browserToolSurfaceCache sync.Map
+	goalRuntime             *goalruntime.Runtime
+	goalWakeups             goalWakeupScheduler
 
 	relevanceSelector func(context.Context, relevanceSelectorInput) (*relevanceSelectorOutput, error)
 
