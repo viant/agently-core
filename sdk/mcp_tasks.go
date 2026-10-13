@@ -486,7 +486,8 @@ func (b *MCPTasksBackend) Cancel(ctx context.Context, owner tasks.Owner, id stri
 			return tasks.Acknowledgement{ResultType: tasks.ResultComplete}, nil
 		}
 		pending.CancelStage = "dispatching"
-		pending.UpdatedAt = b.options.Clock().UTC()
+		// A private dispatch receipt does not change the canonical task state.
+		// Get advances UpdatedAt when the authoritative native projection changes.
 		_, err = b.store.Append(ctx, owner.Subject, id, id, run.Revision, nil, &aguistore.Change{Pending: rawAGUI(pending)})
 		if errors.Is(err, aguistore.ErrConflict) {
 			continue

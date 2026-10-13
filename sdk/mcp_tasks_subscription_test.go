@@ -209,3 +209,61 @@ func TestMCPTasksActiveStreamReconcilesMissingHintsAndStreamsCancellation(t *tes
 	require.Zero(t, base.queries.Load())
 	require.Zero(t, base.resumes.Load())
 }
+
+func TestMCPTasksCancellationReceiptDoesNotChangeCanonicalWorkingState(t *testing.T) {
+	base, _ := newDurableAGUIServer(t)
+	store := base.store
+	ctx := mcpTasksOwnerContext()
+	owner := tasks.Owner{Tenant: "workspace", Subject: "owner"}
+	native := mcpTasksRun(t, store, ctx, "cancel-receipt", "native", "", "wait")
+	entered, release := make(chan struct{}), make(chan struct{})
+	var released atomic.Bool
+	releaseControl := func() {
+		if released.CompareAndSwap(false, true) {
+			close(release)
+		}
+	}
+	t.Cleanup(releaseControl)
+	var cancellations atomic.Int32
+	controls := mcpTasksControls(store, func(context.Context, tasks.Owner, MCPTaskReference, []agui.WireResumeEntry) error { return nil }, func(context.Context, tasks.Owner, MCPTaskReference) error {
+		cancellations.Add(1)
+		close(entered)
+		<-release
+		return nil
+	})
+	createdAt := time.Date(2026, 10, 12, 0, 0, 0, 0, time.UTC)
+	backend, err := NewMCPTasksBackend(store, controls, MCPTasksOptions{Tenant: "workspace", Clock: func() time.Time { return createdAt }})
+	require.NoError(t, err)
+	created, err := backend.Create(ctx, owner, mcpTasksCaps(), MCPTaskOrigin(MCPTaskReference{ThreadID: native.ThreadID, RunID: native.RunID}))
+	require.NoError(t, err)
+	before, err := backend.Get(ctx, owner, created.TaskID)
+	require.NoError(t, err)
+	backend.options.Clock = func() time.Time { return createdAt.Add(time.Minute) }
+	done := make(chan error, 1)
+	go func() {
+		_, err := backend.Cancel(ctx, owner, created.TaskID)
+		done <- err
+	}()
+	select {
+	case <-entered:
+	case <-time.After(time.Second):
+		t.Fatal("cancellation control did not start")
+	}
+	// The private dispatch receipt is committed, while the native execution is
+	// still working. Full-state subscriptions must not emit a timestamp-only
+	// working update before the authoritative native cancellation arrives.
+	during, err := backend.Get(ctx, owner, created.TaskID)
+	require.NoError(t, err)
+	require.Equal(t, tasks.Working, during.Status)
+	require.Equal(t, before.DetailedTask, during.DetailedTask)
+	_, err = backend.Cancel(ctx, owner, created.TaskID)
+	require.NoError(t, err)
+	require.EqualValues(t, 1, cancellations.Load(), "same cancellation receipt must not redispatch")
+	releaseControl()
+	select {
+	case err := <-done:
+		require.NoError(t, err)
+	case <-time.After(time.Second):
+		t.Fatal("cancellation control did not finish")
+	}
+}

@@ -13,6 +13,7 @@ import (
 	"github.com/viant/bindly"
 	rh "github.com/viant/datly/runtime/handler"
 	"github.com/viant/datly/runtime/handler/provider"
+	"github.com/viant/sqlx"
 	xhandler "github.com/viant/xdatly/handler"
 )
 
@@ -22,6 +23,9 @@ type bulkSQLProbe struct {
 	args           []any
 	affected       int64
 	err, flushErr  error
+	anchorTable    string
+	anchorKey      any
+	criteria       *sqlx.Criteria
 }
 
 func (p *bulkSQLProbe) Connector(_ context.Context, name string) (rh.TransactionSQL, error) {
@@ -30,7 +34,24 @@ func (p *bulkSQLProbe) Connector(_ context.Context, name string) (rh.Transaction
 	}
 	return p, nil
 }
-func (p *bulkSQLProbe) Flush(context.Context, string) error { p.flushes++; return p.flushErr }
+func (*bulkSQLProbe) Insert(string, any) error     { panic("unexpected insert") }
+func (*bulkSQLProbe) Update(string, any) error     { panic("unexpected update") }
+func (*bulkSQLProbe) Delete(string, any) error     { panic("unguarded deletion") }
+func (*bulkSQLProbe) Execute(string, ...any) error { panic("unexpected SQL") }
+func (*bulkSQLProbe) UpdateWithCriteria(string, any, *sqlx.Criteria, ...xhandler.Option) error {
+	panic("unexpected update")
+}
+func (p *bulkSQLProbe) DeleteWithCriteria(table string, key any, criteria *sqlx.Criteria, _ ...xhandler.Option) error {
+	p.anchorTable, p.anchorKey, p.criteria = table, key, criteria
+	return nil
+}
+func (p *bulkSQLProbe) Flush(_ context.Context, table string) error {
+	p.flushes++
+	if table != p.anchorTable || p.anchorKey == nil || p.criteria == nil {
+		return errors.New("flush lacks guarded deletion anchor")
+	}
+	return p.flushErr
+}
 func (p *bulkSQLProbe) ExecContext(_ context.Context, query string, args ...any) (sql.Result, error) {
 	if p.flushes != 1 {
 		return nil, errors.New("reference writes not flushed")
@@ -55,7 +76,7 @@ func (bulkResult) LastInsertId() (int64, error)   { return 0, errors.New("not an
 func TestBulkDeleteOneParameterizedStatement(t *testing.T) {
 	for _, count := range []int{0, 1, 399, 400} {
 		t.Run(fmt.Sprint(count), func(t *testing.T) {
-			probe := &bulkSQLProbe{affected: int64(count)}
+			probe := &bulkSQLProbe{affected: int64(count - 1)}
 			input := &Input{DeleteUnreferenced: true}
 			for i := 0; i < count; i++ {
 				input.Payloads = append(input.Payloads, &PayloadDelete{Id: strings.Repeat("x", i+1)})
@@ -68,9 +89,16 @@ func TestBulkDeleteOneParameterizedStatement(t *testing.T) {
 				require.Zero(t, probe.flushes)
 				return
 			}
+			require.Equal(t, "call_payload", probe.anchorTable)
+			require.Equal(t, 1, probe.flushes)
+			require.Equal(t, 10, strings.Count(probe.criteria.Expression, "NOT EXISTS"))
+			if count == 1 {
+				require.Zero(t, probe.calls)
+				return
+			}
 			require.Equal(t, 1, probe.calls)
-			require.Equal(t, count, strings.Count(probe.query, "?"))
-			require.Len(t, probe.args, count)
+			require.Equal(t, count-1, strings.Count(probe.query, "?"))
+			require.Len(t, probe.args, count-1)
 			require.Equal(t, 10, strings.Count(probe.query, "NOT EXISTS"))
 			require.NotContains(t, probe.query, "inline_body")
 		})
@@ -81,7 +109,7 @@ func TestBulkDeleteOneParameterizedStatement(t *testing.T) {
 func TestBulkDeleteFailureNeverFallsBack(t *testing.T) {
 	for _, kind := range []string{"predicate_mismatch", "exec_error", "flush_error", "cancelled"} {
 		t.Run(kind, func(t *testing.T) {
-			probe := &bulkSQLProbe{affected: 1}
+			probe := &bulkSQLProbe{affected: 0}
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			failure := errors.New("injected failure")
@@ -131,6 +159,7 @@ func invokeBulkProbeContext(t *testing.T, ctx context.Context, input *Input, pro
 	t.Helper()
 	injector, err := bindly.NewInjector(bindly.WithProviders(
 		provider.New(rh.TransactionSQLCapabilityKey, func(context.Context) (any, bool, error) { return probe, true, nil }),
+		provider.New(xhandler.DMLKey, func(context.Context) (any, bool, error) { return probe, true, nil }),
 		provider.New(xhandler.FlusherKey, func(context.Context) (any, bool, error) { return probe, true, nil }),
 	))
 	require.NoError(t, err)

@@ -85,7 +85,7 @@ func NewAPIHandler(ctx context.Context, opts APIOptions) (http.Handler, error) {
 	metadataHandler.SetLayoutMenuReader(menuReader)
 	var browserRegistry *browsermcp.Registry
 	if opts.Runtime.MCPManager != nil {
-		browserRegistry = browsermcp.New(opts.Runtime.MCPManager.BrowserDescriptors)
+		browserRegistry = browsermcp.New(opts.Runtime.MCPManager.BrowserDescriptors, opts.Runtime.MCPManager.BrowserDescriptor)
 		metadataHandler.SetBrowserMCPLoader(browserRegistry.Descriptors)
 	}
 	metadataHandler.SetToolDefinitionsLoader(func(ctx context.Context) ([]svcworkspace.ToolDefinition, error) {

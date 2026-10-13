@@ -94,13 +94,15 @@ type Service struct {
 	// events such as turn_queued. Wired via SetElicitationStreamPublisher.
 	streamPub streaming.Publisher
 
-	asyncManager     *asynccfg.Manager
-	asyncPollers     sync.Map
-	asyncGoalWatches sync.Map
-	bootstrapCache   sync.Map
-	toolSurfaceCache sync.Map
-	goalRuntime      *goalruntime.Runtime
-	goalWakeups      goalWakeupScheduler
+	asyncManager            *asynccfg.Manager
+	asyncPollers            sync.Map
+	asyncGoalWatches        sync.Map
+	bootstrapCache          sync.Map
+	publicToolSurfaceCache  sync.Map
+	privateToolSurfaceCache sync.Map
+	browserToolSurfaceCache sync.Map
+	goalRuntime             *goalruntime.Runtime
+	goalWakeups             goalWakeupScheduler
 
 	relevanceSelector func(context.Context, relevanceSelectorInput) (*relevanceSelectorOutput, error)
 
@@ -125,6 +127,25 @@ type Service struct {
 
 func (s *Service) Finder() agent.Finder {
 	return s.agentFinder
+}
+
+// WarmToolSurface resolves an agent's configured backend tool bundles once so
+// the first interactive turn can reuse the completed surface. Browser MCP
+// definitions are absent from this startup context and remain conversation-
+// scoped.
+func (s *Service) WarmToolSurface(ctx context.Context, agentID string) error {
+	if s == nil || s.agentFinder == nil || s.registry == nil {
+		return nil
+	}
+	selected, err := s.agentFinder.Find(ctx, strings.TrimSpace(agentID))
+	if err != nil {
+		return err
+	}
+	if selected == nil {
+		return fmt.Errorf("agent %q was not found", strings.TrimSpace(agentID))
+	}
+	_, err = s.buildToolSignatures(ctx, &QueryInput{AgentID: agentID, Agent: selected})
+	return err
 }
 
 // AsyncManager returns the async Manager owned by this service. Exposed so

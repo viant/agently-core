@@ -5,12 +5,14 @@ import (
 	"database/sql"
 	"encoding/json"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"strings"
 	"testing"
 
+	"github.com/go-sql-driver/mysql"
 	"github.com/viant/agently-core/internal/datly/queryselectors"
 	read "github.com/viant/agently-core/internal/datly/toolapprovalqueue/read"
 	"github.com/viant/bindly/locator"
@@ -80,6 +82,100 @@ func TestApprovalReaderLegacyParity(t *testing.T) {
 		})
 	}
 }
+
+func TestApprovalReaderCompletedAtPreservesNullAndTerminalTimestamp(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
+	db, _ := approvalReaderFixture(t, project)
+	_, err := db.Exec(`INSERT INTO tool_approval_queue(id,user_id,tool_name,arguments,status,created_at,approved_at) VALUES
+	 ('pending-no-completion','u1','system/exec',X'7B7D','pending','2026-01-01 10:00:00',NULL),
+	 ('approved-with-completion','u1','system/exec',X'7B7D','approved','2026-01-01 10:00:00','2026-01-02 11:12:13')`)
+	must(t, err)
+	rt, key := approvalReaderRuntime(t, db, "u1", "rows", false, true)
+	result, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{
+		Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/tool-approval"}},
+		Input:  approvalReadInput(t, nil),
+	})
+	must(t, err)
+	rows := result.(*read.ApprovalRowsOutput).Data
+	byID := make(map[string]*read.ApprovalView, len(rows))
+	for _, row := range rows {
+		byID[row.Id] = row
+	}
+	pending := byID["pending-no-completion"]
+	if pending == nil {
+		t.Fatal("pending fixture row was not returned")
+	}
+	if got := pending.CompletedAt; got != nil {
+		t.Fatalf("pending completedAt=%v expected null", *got)
+	}
+	approved := byID["approved-with-completion"]
+	if approved == nil {
+		t.Fatal("approved fixture row was not returned")
+	}
+	completed := approved.CompletedAt
+	if completed == nil {
+		t.Fatal("approved completedAt is null")
+	}
+	if got, want := completed.UTC().Format("2006-01-02 15:04:05"), "2026-01-02 11:12:13"; got != want {
+		t.Fatalf("approved completedAt=%s expected %s", got, want)
+	}
+}
+
+func TestApprovalReaderWithPhysicalCompletedAt(t *testing.T) {
+	_, file, _, _ := runtime.Caller(0)
+	project := filepath.Dir(filepath.Dir(filepath.Dir(filepath.Dir(file))))
+	db, _ := approvalReaderFixture(t, project)
+	_, err := db.Exec(`ALTER TABLE tool_approval_queue ADD COLUMN completed_at DATETIME`)
+	must(t, err)
+	_, err = db.Exec(`UPDATE tool_approval_queue SET completed_at='2026-01-09 00:00:00' WHERE id IN ('approved', 'existing')`)
+	must(t, err)
+	rt, key := approvalReaderRuntime(t, db, "u1", "rows", false, true)
+	result, err := rt.InvokeComponent(context.Background(), dexec.ComponentRequest{
+		Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/tool-approval"}},
+		Input:  approvalReadInput(t, nil),
+	})
+	must(t, err)
+	rows := result.(*read.ApprovalRowsOutput).Data
+	byID := make(map[string]*read.ApprovalView, len(rows))
+	for _, row := range rows {
+		byID[row.Id] = row
+	}
+	if got := byID["existing"].CompletedAt; got != nil {
+		t.Fatalf("pending completedAt=%v expected null", *got)
+	}
+	if got := byID["approved"].CompletedAt; got == nil || got.UTC().Format("2006-01-02 15:04:05") != "2026-01-04 00:00:00" {
+		t.Fatalf("approved completedAt=%v expected derived approval time", got)
+	}
+}
+
+func TestApprovalReaderMySQLPhysicalCompletedAtDiscovery(t *testing.T) {
+	dsn := os.Getenv("AGENTLY_TEST_MYSQL_DSN")
+	if dsn == "" {
+		t.Skip("set AGENTLY_TEST_MYSQL_DSN to a local MySQL DSN with a production-shaped tool_approval_queue")
+	}
+	config, err := mysql.ParseDSN(dsn)
+	must(t, err)
+	if config.Net != "tcp" || (config.Addr != "127.0.0.1:3307" && config.Addr != "localhost:3307") {
+		t.Fatal("test database must be local MySQL on port 3307")
+	}
+	db, err := sql.Open("mysql", dsn)
+	must(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	var columns int
+	err = db.QueryRow(`SELECT COUNT(*) FROM information_schema.COLUMNS WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='tool_approval_queue' AND COLUMN_NAME='completed_at'`).Scan(&columns)
+	must(t, err)
+	if columns != 1 {
+		t.Fatal("test database must contain a physical tool_approval_queue.completed_at column")
+	}
+	rt, key := approvalReaderRuntime(t, db, "", "rows", true, true)
+	_, err = rt.InvokeComponent(context.Background(), dexec.ComponentRequest{
+		Target: dexec.ComponentTarget{Component: key, Route: spec.RouteRef{Method: "GET", Path: "/v1/internal/agently/tool-approval"}},
+		Input:  approvalReadInput(t, map[string]any{"id": "__approval_schema_probe__"}),
+	})
+	must(t, err)
+}
+
 func approvalReaderFixture(t *testing.T, project string) (*sql.DB, string) {
 	db, path := approvalFixture(t, project)
 	_, err := db.Exec(`INSERT INTO tool_approval_queue(id,user_id,conversation_id,tool_name,arguments,status,created_at,approved_at,executed_at,timed_out_at,updated_at) VALUES

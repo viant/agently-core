@@ -2,7 +2,9 @@ package sdk
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 	conversation "github.com/viant/agently-core/app/store/conversation"
@@ -56,7 +58,9 @@ func TestAGUIClientToolDeferralNativeStreamPreservesDeclaredAlias(t *testing.T) 
 	// Use the registry's service/method interpretation of a model-safe alias,
 	// then the real executor and Datly-backed native conversation notifications.
 	name := mcpname.Name(mcpname.Canonical("device-safe_read"))
+	deferralStarted := time.Now()
 	_, _, err = toolexec.ExecuteToolStep(ctx, nil, toolexec.StepInfo{ID: "alias-call", Name: name.Service() + "/" + name.Method(), Args: map[string]interface{}{"target": "public"}}, conv)
+	deferralDuration := time.Since(deferralStarted)
 	require.NoError(t, err)
 	require.Len(t, session.Pending(), 1)
 	require.Equal(t, "device-safe_read", session.Pending()[0].Name)
@@ -83,4 +87,19 @@ func TestAGUIClientToolDeferralNativeStreamPreservesDeclaredAlias(t *testing.T) 
 	foreign := &streaming.Event{Type: streaming.EventTypeToolCallStarted, ToolName: "other/safe_read"}
 	require.NoError(t, hydrateAGUITool(ctx, newAGUITestClient(), foreign))
 	require.Equal(t, "other/safe_read", foreign.ToolName, "unregistered names do not gain aliases")
+	// Exercise the production SDK result-persistence entry against the same
+	// Datly-backed original call; replay cannot create a second result/effect.
+	completionStarted := time.Now()
+	runtime := &backendClient{conv: conv}
+	pending := session.Pending()[0]
+	require.NoError(t, runtime.aguiCompleteTool(ctx, pending, json.RawMessage(`"public fixture result"`), ""))
+	completionDuration := time.Since(completionStarted)
+	require.NoError(t, runtime.aguiCompleteTool(ctx, pending, json.RawMessage(`"public fixture result"`), ""))
+	require.Error(t, runtime.aguiCompleteTool(ctx, pending, json.RawMessage(`"changed result"`), ""))
+	message, e := conv.GetMessage(ctx, pending.ToolMessageID, conversation.WithIncludeToolCall(true))
+	require.NoError(t, e)
+	require.Equal(t, "public fixture result", message.GetContent())
+	t.Logf("actual Datly client-tool deferral=%s resultPersist=%s", deferralDuration, completionDuration)
+	require.Less(t, deferralDuration+completionDuration, 3*time.Second, "public no-model proxy persistence must not impose a multi-second wait")
+
 }

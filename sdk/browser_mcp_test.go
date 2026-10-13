@@ -167,3 +167,52 @@ func TestBrowserMCPContinuationReturnsClosedValidationReasonBeforeResume(t *test
 		})
 	}
 }
+
+func TestBrowserMCPCatalogStatusProjectionRetainsOwnershipAndFiniteTiming(t *testing.T) {
+	c := newAGUITestClient()
+	c.owner = "owner"
+	descriptor := cfg.BrowserDescriptor{Name: "device", ExecutionLocation: "browser", AllowedTools: []string{"read"}}
+	registry := browsermcp.New(func(context.Context) ([]cfg.BrowserDescriptor, error) {
+		return []cfg.BrowserDescriptor{descriptor}, nil
+	})
+	catalog, err := registry.Register(context.Background(), "owner", browsermcp.Registration{ConversationID: "owned", ThreadID: "thread", Server: "device", ConnectionID: "connection", Tools: []browsermcp.Tool{{Name: "read", Description: strings.Repeat("fixture ", 900), InputSchema: json.RawMessage(`{"type":"object"}`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux := http.NewServeMux()
+	registerBrowserMCPRoutes(mux, c, nil, registry)
+	get := func(view, user string) *httptest.ResponseRecorder {
+		req := httptest.NewRequest("GET", "/v1/mcp/browser/catalog/"+catalog.ID+view, nil)
+		req = req.WithContext(iauth.WithUserInfo(req.Context(), &iauth.UserInfo{Subject: user}))
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, req)
+		return response
+	}
+	full := get("", "owner")
+	compact := get("?view=status", "owner")
+	if full.Code != 200 || compact.Code != 200 || compact.Body.Len() > 512 || full.Body.Len() < 7000 {
+		t.Fatal("projection size/status", full.Code, compact.Code, full.Body.Len(), compact.Body.Len())
+	}
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(compact.Body.Bytes(), &fields) != nil || len(fields) != 7 || fields["tools"] != nil || fields["resources"] != nil {
+		t.Fatal("unexpected projection fields")
+	}
+	if compact.Header().Get("Cache-Control") != "no-store" || !strings.HasPrefix(compact.Header().Get("Server-Timing"), "catalog;dur=") || !strings.Contains(compact.Header().Get("Server-Timing"), "ownership;dur=") {
+		t.Fatal("missing bounded timing")
+	}
+	if get("?view=status", "foreign").Code != 403 {
+		t.Fatal("foreign owner accepted")
+	}
+	if get("?view=other", "owner").Code != 400 {
+		t.Fatal("unknown projection accepted")
+	}
+	c.owner = "changed"
+	if get("?view=status", "owner").Code != 403 {
+		t.Fatal("conversation owner change accepted")
+	}
+	c.owner = "owner"
+	descriptor.AllowedTools = []string{"other"}
+	if get("?view=status", "owner").Code != 403 {
+		t.Fatal("config change accepted")
+	}
+}

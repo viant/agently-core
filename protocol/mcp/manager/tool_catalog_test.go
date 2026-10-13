@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
 	mcpcfg "github.com/viant/agently-core/protocol/mcp/config"
@@ -248,7 +249,14 @@ func TestToolCatalogThroughHTTPManager(t *testing.T) {
 	if calls.Load() != 6 {
 		t.Fatalf("delegated cache HTTP calls=%d", calls.Load())
 	}
+	delegatedIdentity, _, err := m.ToolCatalogSnapshot(alice, "delegated-session", "server")
+	if err != nil || delegatedIdentity == "" {
+		t.Fatal("missing delegated snapshot", err)
+	}
 	resolver.token = "delegated-b"
+	if identity, _, err := m.ToolCatalogSnapshot(alice, "delegated-session", "server"); err != nil || identity != "" {
+		t.Fatal("delegated rotation reused snapshot", err)
+	}
 	_, err = delegated.ListTools(alice, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -260,6 +268,10 @@ func TestToolCatalogThroughHTTPManager(t *testing.T) {
 	if calls.Load() != 7 {
 		t.Fatalf("delegated rotation HTTP calls=%d", calls.Load())
 	}
+	rotatedIdentity, _, err := m.ToolCatalogSnapshot(alice, "delegated-session", "server")
+	if err != nil || rotatedIdentity == "" || rotatedIdentity == delegatedIdentity {
+		t.Fatal("missing rotated delegated snapshot", err)
+	}
 
 }
 
@@ -270,4 +282,96 @@ type rotatingCatalogResolver struct {
 
 func (r *rotatingCatalogResolver) Resolve(context.Context, authcfg.Requirement) (*authcfg.Credential, error) {
 	return &authcfg.Credential{Token: r.token}, nil
+}
+
+func TestToolCatalogSnapshotRequiresCompleteCurrentPrincipalPages(t *testing.T) {
+	m, p, client, a, b := catalogSetup(t, false)
+	alice := authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"})
+	first, err := a.ListTools(alice, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if identity, _, err := a.toolCatalogSnapshot(alice); err != nil || identity != "" {
+		t.Fatalf("partial catalog snapshot: %q %v", identity, err)
+	}
+	_, err = a.ListTools(alice, first.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !m.MayHaveToolCatalogAlias("server", "server/generic/tool") || m.MayHaveToolCatalogAlias("server", "absent/tool") {
+		t.Fatal("catalog candidate hint mismatch")
+	}
+	identity, tools, err := a.toolCatalogSnapshot(alice)
+	if err != nil || identity == "" || len(tools) != 2 {
+		t.Fatalf("complete snapshot: %q %v %v", identity, tools, err)
+	}
+	tools[0].Name = "mutated"
+	same, fresh, err := a.toolCatalogSnapshot(alice)
+	if err != nil || same != identity || fresh[0].Name == "mutated" {
+		t.Fatal("snapshot identity or isolation changed", err)
+	}
+	for _, check := range []struct {
+		c       *managedClient
+		ctx     context.Context
+		options []mcpclient.RequestOption
+	}{
+		{b, alice, nil}, {a, authctx.WithBearer(alice, "rotated"), nil}, {a, authctx.WithUserInfo(alice, &authctx.UserInfo{Subject: "bob"}), nil}, {a, alice, []mcpclient.RequestOption{mcpclient.WithAuthToken("override")}},
+	} {
+		if other, _, err := check.c.toolCatalogSnapshot(check.ctx, check.options...); err != nil || other != "" {
+			t.Fatalf("cross-scope snapshot: %q %v", other, err)
+		}
+	}
+	if client.calls.Load() != 2 {
+		t.Fatal("snapshot lookup rediscovered tools")
+	}
+	p.cfg.Transport.URL = "https://changed.test/mcp"
+	if other, _, err := a.toolCatalogSnapshot(alice); err != nil || other != "" {
+		t.Fatal("configuration reused snapshot", err)
+	}
+	p.cfg.Transport.URL = "https://example.test/mcp"
+	m.mu.Lock()
+	for _, page := range m.toolCatalog {
+		page.expires = time.Now().Add(-time.Second)
+	}
+	m.mu.Unlock()
+	if other, _, err := a.toolCatalogSnapshot(alice); err != nil || other != "" {
+		t.Fatal("expired pages reused snapshot", err)
+	}
+	_, _ = a.ListTools(alice, nil)
+	_, _ = a.ListTools(alice, first.NextCursor)
+	renewed, _, err := a.toolCatalogSnapshot(alice)
+	if err != nil || renewed == "" || renewed == identity {
+		t.Fatal("republication did not change snapshot", err)
+	}
+	h := &changeHandler{manager: m, server: "server"}
+	h.OnNotification(alice, &jsonrpc.Notification{Method: "notifications/tools/list_changed"})
+	if other, _, err := a.toolCatalogSnapshot(alice); err != nil || other != "" {
+		t.Fatal("notification reused snapshot", err)
+	}
+	if !m.MayHaveToolCatalogAlias("server", "server/generic/tool") {
+		t.Fatal("missing catalog must remain an unknown candidate")
+	}
+}
+
+func TestToolCatalogPublicSnapshotSharesAcrossConnections(t *testing.T) {
+	_, _, client, a, b := catalogSetup(t, true)
+	first, err := a.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = a.ListTools(context.Background(), first.NextCursor)
+	if err != nil {
+		t.Fatal(err)
+	}
+	identity, _, err := a.toolCatalogSnapshot(context.Background())
+	if err != nil || identity == "" {
+		t.Fatal("missing public snapshot", err)
+	}
+	other, _, err := b.toolCatalogSnapshot(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "bob"}))
+	if err != nil || identity != other {
+		t.Fatal("public snapshot not shared", err)
+	}
+	if client.calls.Load() != 2 {
+		t.Fatal("public snapshot rediscovered")
+	}
 }

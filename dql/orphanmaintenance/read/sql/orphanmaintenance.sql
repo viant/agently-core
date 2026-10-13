@@ -676,13 +676,13 @@ WHERE (TRIM(COALESCE(crc.active_report_run_id, '')) = '' OR NOT EXISTS (SELECT 1
 #if(($RuleID == "") || ($RuleID == "conversation_report_context.missing_active_report_run"))
 UNION ALL
 SELECT 'conversation_report_context.missing_active_report_run' AS rule_id, 'safe-delete' AS action, 1080 AS priority,
-       'conversation_report_context' AS table_name, CAST(printf('%s%s%s', COALESCE(CAST(crc.owner_id AS CHAR), ''), CHAR(31), COALESCE(CAST(crc.conversation_id AS CHAR), '')) AS CHAR) AS record_id,
-       'report_run' AS reference_table, COALESCE(CAST(printf('%s%s%s', COALESCE(CAST(crc.owner_id AS CHAR), ''), CHAR(31), COALESCE(CAST(crc.active_report_run_id AS CHAR), '')) AS CHAR),'') AS reference_id,
+       'conversation_report_context' AS table_name, CAST(CONCAT(COALESCE(CAST(crc.owner_id AS CHAR), ''), CHAR(31), COALESCE(CAST(crc.conversation_id AS CHAR), '')) AS CHAR) AS record_id,
+       'report_run' AS reference_table, COALESCE(CAST(CONCAT(COALESCE(CAST(crc.owner_id AS CHAR), ''), CHAR(31), COALESCE(CAST(crc.active_report_run_id AS CHAR), '')) AS CHAR),'') AS reference_id,
        CAST(crc.updated_at AS CHAR) AS observed_at_raw
 FROM conversation_report_context crc
 WHERE (TRIM(COALESCE(crc.active_report_run_id, '')) = '' OR NOT EXISTS (SELECT 1 FROM report_run orphan_parent WHERE orphan_parent.owner_id = crc.owner_id AND orphan_parent.report_run_id = crc.active_report_run_id)) AND crc.updated_at IS NOT NULL AND crc.updated_at <= $OlderThan
 #if($RecordID != "")
-  AND CAST(printf('%s%s%s', COALESCE(CAST(crc.owner_id AS CHAR), ''), CHAR(31), COALESCE(CAST(crc.conversation_id AS CHAR), '')) AS CHAR) = $RecordID
+  AND CAST(CONCAT(COALESCE(CAST(crc.owner_id AS CHAR), ''), CHAR(31), COALESCE(CAST(crc.conversation_id AS CHAR), '')) AS CHAR) = $RecordID
 #end
 #end
 #end
@@ -705,13 +705,13 @@ WHERE (TRIM(COALESCE(crc.conversation_id, '')) = '' OR NOT EXISTS (SELECT 1 FROM
 #if(($RuleID == "") || ($RuleID == "conversation_report_context.missing_conversation"))
 UNION ALL
 SELECT 'conversation_report_context.missing_conversation' AS rule_id, 'safe-delete' AS action, 1080 AS priority,
-       'conversation_report_context' AS table_name, CAST(printf('%s%s%s', COALESCE(CAST(crc.owner_id AS CHAR), ''), CHAR(31), COALESCE(CAST(crc.conversation_id AS CHAR), '')) AS CHAR) AS record_id,
+       'conversation_report_context' AS table_name, CAST(CONCAT(COALESCE(CAST(crc.owner_id AS CHAR), ''), CHAR(31), COALESCE(CAST(crc.conversation_id AS CHAR), '')) AS CHAR) AS record_id,
        'conversation' AS reference_table, COALESCE(CAST(crc.conversation_id AS CHAR),'') AS reference_id,
        CAST(crc.updated_at AS CHAR) AS observed_at_raw
 FROM conversation_report_context crc
 WHERE (TRIM(COALESCE(crc.conversation_id, '')) = '' OR NOT EXISTS (SELECT 1 FROM conversation orphan_parent WHERE orphan_parent.id = crc.conversation_id)) AND crc.updated_at IS NOT NULL AND crc.updated_at <= $OlderThan
 #if($RecordID != "")
-  AND CAST(printf('%s%s%s', COALESCE(CAST(crc.owner_id AS CHAR), ''), CHAR(31), COALESCE(CAST(crc.conversation_id AS CHAR), '')) AS CHAR) = $RecordID
+  AND CAST(CONCAT(COALESCE(CAST(crc.owner_id AS CHAR), ''), CHAR(31), COALESCE(CAST(crc.conversation_id AS CHAR), '')) AS CHAR) = $RecordID
 #end
 #end
 #end

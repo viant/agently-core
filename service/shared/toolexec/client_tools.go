@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/viant/agently-core/protocol/mcpname"
+	"log"
 	"strings"
 	"time"
 
@@ -16,6 +17,10 @@ import (
 )
 
 func deferClientTool(ctx context.Context, session *clienttool.Session, step StepInfo, conv apiconv.Client, turn runtimerequestctx.TurnMeta, startedAt time.Time) (llm.ToolCall, error) {
+	phaseStarted := time.Now()
+	defer func() {
+		log.Printf("AG-UI client-tool phase=deferral durationMs=%d", time.Since(phaseStarted).Milliseconds())
+	}()
 	if runtimerequestctx.ModelMessageIDFromContext(ctx) == "" {
 		if assistantID := runtimerequestctx.TurnModelMessageID(turn.TurnID); assistantID != "" {
 			ctx = runtimerequestctx.WithModelMessageID(ctx, assistantID)

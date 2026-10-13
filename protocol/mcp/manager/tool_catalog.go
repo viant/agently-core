@@ -2,12 +2,14 @@ package manager
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"time"
 
 	authctx "github.com/viant/agently-core/internal/auth"
+	"github.com/viant/agently-core/protocol/mcpname"
 	mcpschema "github.com/viant/mcp-protocol/schema"
 	mcpclient "github.com/viant/mcp/client"
 	authtransport "github.com/viant/mcp/client/auth/transport"
@@ -16,10 +18,12 @@ import (
 // Only tools/list metadata is retained. Bytes preserve arbitrary _meta and
 // prevent callers from mutating the catalog shared with another request.
 type toolCatalogPage struct {
-	server  string
-	ready   chan struct{}
-	bytes   []byte
-	expires time.Time
+	server   string
+	ready    chan struct{}
+	bytes    []byte
+	expires  time.Time
+	revision [16]byte
+	names    []string
 }
 
 func (m *Manager) invalidateToolCatalogLocked(server string) {
@@ -37,57 +41,12 @@ func (m *Manager) invalidateToolCatalogLocked(server string) {
 
 func (c *managedClient) listTools(ctx context.Context, client mcpclient.Interface, cursor *string, options ...mcpclient.RequestOption) (*mcpschema.ListToolsResult, error) {
 	m := c.mgr
-	cfg, err := m.Options(ctx, c.serverName)
+	ctx, raw, scope, witness, delegatedToken, cacheable, err := c.toolCatalogScope(ctx, options...)
 	if err != nil {
 		return nil, err
 	}
-	// In-process handlers can inspect arbitrary context authority. Cookie jars,
-	// custom auth transports can change credentials
-	// without a visible token; these calls cannot safely reuse metadata.
-	if cfg == nil || cfg.ClientOptions == nil || m.IsLocalClient(c.serverName) || cfg.CookieJar != nil || m.cookieJar != nil || m.jarProvider != nil || (!cfg.IsDelegatedAuth() && (m.authRT != nil || m.authRTProvider != nil)) {
+	if !cacheable {
 		return client.ListTools(ctx, cursor, options...)
-	}
-	raw, err := json.Marshal(cfg)
-	if err != nil {
-		return client.ListTools(ctx, cursor, options...)
-	}
-	request := mcpclient.NewRequestOptions(options)
-	// Request IDs and replay controls retain their normal transport semantics.
-	if request.RequestId != nil || request.NoRetry || request.JsonrpcVersion != "" {
-		return client.ListTools(ctx, cursor, options...)
-	}
-	token, _ := ctx.Value(authtransport.ContextAuthTokenKey).(string)
-	delegatedToken := ""
-	var witness *catalogAuthUse
-	if cfg.IsDelegatedAuth() {
-		if m.credResolver == nil {
-			return client.ListTools(ctx, cursor, options...)
-		}
-		requirement, compileErr := cfg.Auth.CompileRequirement(ctx, c.serverName, cfg.Transport.URL)
-		if compileErr != nil {
-			return nil, compileErr
-		}
-		resolved, resolveErr := m.credResolver.Resolve(ctx, *requirement)
-		if resolveErr != nil {
-			return nil, resolveErr
-		}
-		if resolved == nil || resolved.Verify(requirement, time.Now()) != nil {
-			return client.ListTools(ctx, cursor, options...)
-		}
-		delegatedToken = resolved.Token
-		witness = &catalogAuthUse{}
-		ctx = context.WithValue(ctx, catalogAuthKey{}, witness)
-	}
-	principal := authctx.EffectiveUserID(ctx)
-	if m.userIDFn != nil {
-		principal = m.userIDFn(ctx)
-	}
-	credential, _ := json.Marshal([]string{principal, delegatedToken, token, request.StringToken, authctx.MCPAuthToken(ctx, false), authctx.MCPAuthToken(ctx, true), authctx.Provider(ctx), authctx.EffectiveUserID(ctx)})
-	scope := fmt.Sprintf("private:%p:%x", c.entry, sha256.Sum256(credential))
-	// Explicit public visibility is necessary. Any configured authentication
-	// or request credential keeps the page within its connection/principal.
-	if m.IsToolsListPublic(ctx, c.serverName) && token == "" && request.StringToken == "" {
-		scope = "public"
 	}
 	pageCursor := "first"
 	if cursor != nil {
@@ -156,6 +115,9 @@ func (c *managedClient) listTools(ctx context.Context, client mcpclient.Interfac
 		var cacheErr error
 		if err == nil && result != nil {
 			bytes, cacheErr = json.Marshal(result)
+			if cacheErr == nil {
+				_, cacheErr = rand.Read(pending.revision[:])
+			}
 		}
 		m.mu.Lock()
 		if result != nil && result.CacheScope == mcpschema.ListToolsResultCacheScopePrivate {
@@ -167,6 +129,10 @@ func (c *managedClient) listTools(ctx context.Context, client mcpclient.Interfac
 		if m.toolCatalog[key] == pending {
 			if validCredential && cacheErr == nil && err == nil && result != nil && ctx.Err() == nil && generation == m.toolCatalogGeneration[c.serverName] && !(scope == "public" && result.CacheScope == mcpschema.ListToolsResultCacheScopePrivate) && !(result.CacheScope != "" && result.TtlMs == 0) {
 				pending.bytes = bytes
+				pending.names = make([]string, len(result.Tools))
+				for i, tool := range result.Tools {
+					pending.names[i] = tool.Name
+				}
 				ttl := 5 * time.Minute
 				if result.TtlMs > 0 && time.Duration(result.TtlMs)*time.Millisecond < ttl {
 					ttl = time.Duration(result.TtlMs) * time.Millisecond
@@ -202,4 +168,155 @@ func (m *Manager) IsToolsListPublic(ctx context.Context, server string) bool {
 		return false
 	}
 	return cfg.IsToolsListPublic() && cfg.Auth == nil && !m.IsLocalClient(server) && cfg.CookieJar == nil && m.cookieJar == nil && m.jarProvider == nil && m.authRT == nil && m.authRTProvider == nil && m.newClientFn == nil && cfg.Transport.URL != ""
+}
+
+// toolCatalogScope is shared by population and read-only snapshot lookup, so
+// consumers cannot invent a second credential or visibility policy.
+func (c *managedClient) toolCatalogScope(ctx context.Context, options ...mcpclient.RequestOption) (context.Context, []byte, string, *catalogAuthUse, string, bool, error) {
+	m := c.mgr
+	cfg, err := m.Options(ctx, c.serverName)
+	if err != nil {
+		return ctx, nil, "", nil, "", false, err
+	}
+	// In-process handlers can inspect arbitrary context authority. Cookie jars,
+	// custom auth transports can change credentials
+	// without a visible token; these calls cannot safely reuse metadata.
+	if cfg == nil || cfg.ClientOptions == nil || m.IsLocalClient(c.serverName) || cfg.CookieJar != nil || m.cookieJar != nil || m.jarProvider != nil || (!cfg.IsDelegatedAuth() && (m.authRT != nil || m.authRTProvider != nil)) {
+		return ctx, nil, "", nil, "", false, nil
+	}
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return ctx, nil, "", nil, "", false, nil
+	}
+	request := mcpclient.NewRequestOptions(options)
+	// Request IDs and replay controls retain their normal transport semantics.
+	if request.RequestId != nil || request.NoRetry || request.JsonrpcVersion != "" {
+		return ctx, nil, "", nil, "", false, nil
+	}
+	token, _ := ctx.Value(authtransport.ContextAuthTokenKey).(string)
+	delegatedToken := ""
+	var witness *catalogAuthUse
+	if cfg.IsDelegatedAuth() {
+		if m.credResolver == nil {
+			return ctx, nil, "", nil, "", false, nil
+		}
+		requirement, compileErr := cfg.Auth.CompileRequirement(ctx, c.serverName, cfg.Transport.URL)
+		if compileErr != nil {
+			return ctx, nil, "", nil, "", false, compileErr
+		}
+		resolved, resolveErr := m.credResolver.Resolve(ctx, *requirement)
+		if resolveErr != nil {
+			return ctx, nil, "", nil, "", false, resolveErr
+		}
+		if resolved == nil || resolved.Verify(requirement, time.Now()) != nil {
+			return ctx, nil, "", nil, "", false, nil
+		}
+		delegatedToken = resolved.Token
+		witness = &catalogAuthUse{}
+		ctx = context.WithValue(ctx, catalogAuthKey{}, witness)
+	}
+	principal := authctx.EffectiveUserID(ctx)
+	if m.userIDFn != nil {
+		principal = m.userIDFn(ctx)
+	}
+	credential, _ := json.Marshal([]string{principal, delegatedToken, token, request.StringToken, authctx.MCPAuthToken(ctx, false), authctx.MCPAuthToken(ctx, true), authctx.Provider(ctx), authctx.EffectiveUserID(ctx)})
+	scope := fmt.Sprintf("private:%p:%x", c.entry, sha256.Sum256(credential))
+	// Explicit public visibility is necessary. Any configured authentication
+	// or request credential keeps the page within its connection/principal.
+	if m.IsToolsListPublic(ctx, c.serverName) && token == "" && request.StringToken == "" {
+		scope = "public"
+	}
+	return ctx, raw, scope, witness, delegatedToken, true, nil
+}
+
+// ToolCatalogSnapshot returns only an already cached, complete tools/list
+// catalog. Its opaque identity expires with the source pages and changes on
+// publication, connection/configuration changes or invalidation. It never lists
+// tools or stores a parallel catalog.
+func (m *Manager) ToolCatalogSnapshot(ctx context.Context, conversation, server string, options ...mcpclient.RequestOption) (string, []mcpschema.Tool, error) {
+	client, err := m.Get(ctx, conversation, server)
+	if err != nil {
+		return "", nil, err
+	}
+	managed, ok := client.(*managedClient)
+	if !ok {
+		return "", nil, nil
+	}
+	return managed.toolCatalogSnapshot(ctx, options...)
+}
+
+func (c *managedClient) toolCatalogSnapshot(ctx context.Context, options ...mcpclient.RequestOption) (string, []mcpschema.Tool, error) {
+	_, raw, scope, _, _, cacheable, err := c.toolCatalogScope(ctx, options...)
+	if err != nil || !cacheable {
+		return "", nil, err
+	}
+	m := c.mgr
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	cursor := "first"
+	seen := map[string]bool{}
+	var tools []mcpschema.Tool
+	var revisions []string
+	now := time.Now()
+	for {
+		if seen[cursor] {
+			return "", nil, nil
+		}
+		seen[cursor] = true
+		key := fmt.Sprintf("%s:%s:%x:%d:%s", c.serverName, scope, sha256.Sum256(raw), m.toolCatalogGeneration[c.serverName], cursor)
+		page := m.toolCatalog[key]
+		if page == nil || page.ready != nil || !page.expires.After(now) {
+			return "", nil, nil
+		}
+		type plain mcpschema.ListToolsResult
+		var result plain
+		wire := struct {
+			*plain
+			CacheScope string `json:"cacheScope"`
+		}{plain: &result}
+		if err := json.Unmarshal(page.bytes, &wire); err != nil {
+			return "", nil, err
+		}
+		tools = append(tools, result.Tools...)
+		revisions = append(revisions, fmt.Sprintf("%s:%x", key, page.revision))
+		if result.NextCursor == nil || *result.NextCursor == "" {
+			break
+		}
+		cursor = "cursor:" + *result.NextCursor
+	}
+	encoded, _ := json.Marshal(revisions)
+	return fmt.Sprintf("%x", sha256.Sum256(encoded)), tools, nil
+}
+
+// ToolCatalogGeneration exposes invalidation state without catalog contents.
+func (m *Manager) ToolCatalogGeneration(server string) uint64 {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.toolCatalogGeneration[server]
+}
+
+// MayHaveToolCatalogAlias is only a candidate hint: it cannot authorize or return a
+// tool. Callers must subsequently select the current scoped snapshot. Keeping
+// names beside the manager's serialized pages avoids decoding unrelated
+// catalogs and resolving credentials for aliases that cannot match. Missing
+// reusable pages remain an unknown candidate so local/uncacheable clients keep
+// their normal discovery path.
+func (m *Manager) MayHaveToolCatalogAlias(server, alias string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	now := time.Now()
+	observed := false
+	for _, page := range m.toolCatalog {
+		if page.server != server || page.ready != nil || !page.expires.After(now) {
+			continue
+		}
+		observed = true
+		for _, name := range page.names {
+			full, colon := server+"/"+name, server+":"+name
+			if alias == full || alias == colon || alias == mcpname.Canonical(full) || alias == mcpname.Canonical(colon) {
+				return true
+			}
+		}
+	}
+	return !observed
 }
