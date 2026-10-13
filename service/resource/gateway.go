@@ -42,12 +42,13 @@ type LocatedResource struct {
 	Resource         primitive.ResourceState    `json:"resource"`
 }
 type capabilities struct {
-	actor      identity.VerifiedActor
-	connection Connection
-	namespaces []primitive.NamespaceCapabilities
-	installed  map[string]bool
-	bindingKey string
-	expires    time.Time
+	actor           identity.VerifiedActor
+	connection      Connection
+	namespaces      []primitive.NamespaceCapabilities
+	installed       map[string]bool
+	bindingKey      string
+	resourceVersion [2]uint64
+	expires         time.Time
 }
 type Gateway struct {
 	Manager                 *manager.Manager
@@ -274,6 +275,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 	sort.Strings(restrictions)
 	restrictionKey, _ := json.Marshal(restrictions)
 	generation := g.generation(name)
+	resourceVersion := g.Manager.ResourceCatalogGeneration(ctx, name)
 	key := actorKey(a, name, generation) + string(restrictionKey) + options.PrimitiveProviderIdentity + binding.key
 	g.mu.Lock()
 	cached, ok := g.cache[key]
@@ -299,7 +301,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 			return read, nil
 		}
 	}
-	if !force && ok && cached.expires.After(g.now()) && cached.bindingKey == binding.key {
+	if !force && ok && cached.expires.After(g.now()) && cached.bindingKey == binding.key && cached.resourceVersion == resourceVersion {
 		if e = g.checkReadBinding(ctx, a, binding); e != nil {
 			return capabilities{}, e
 		}
@@ -389,7 +391,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 	for _, ns := range options.PrimitiveNamespaces {
 		allowed[ns] = true
 	}
-	result := capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed, bindingKey: binding.key}
+	result := capabilities{actor: a, connection: Connection{Name: name, ProviderIdentity: owner, Generation: generation}, expires: a.ValidUntil, installed: installed, bindingKey: binding.key, resourceVersion: resourceVersion}
 	// Capability caching remains bounded even when a source issues long tokens.
 	if until := g.now().Add(time.Minute); result.expires.After(until) {
 		result.expires = until
@@ -457,7 +459,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 		}
 		cursor = listed.NextCursor
 	}
-	if g.generation(name) != generation {
+	if g.generation(name) != generation || g.Manager.ResourceCatalogGeneration(ctx, name) != resourceVersion {
 		return capabilities{}, identity.ErrResourceStale
 	}
 	if e = g.checkReadBinding(ctx, a, binding); e != nil {

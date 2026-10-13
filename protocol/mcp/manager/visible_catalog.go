@@ -19,9 +19,11 @@ import (
 // VisibleCatalogPartition tags snapshots by stable authenticated owner and
 // resource category. It is cache infrastructure, never a protocol grant.
 type VisibleCatalogPartition struct {
-	manager  *Manager
-	owner    [32]byte
-	category string
+	manager        *Manager
+	owner          [32]byte
+	category       string
+	sources        *map[string]bool
+	sourceVersions *map[string][2]uint64
 }
 
 // CatalogPartition excludes connection generations, credentials and conversation
@@ -54,13 +56,15 @@ func (m *Manager) InvalidateVisibleCatalogPartition(partition VisibleCatalogPart
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	for key, held := range m.visibleCatalogs {
-		if held.partition == partition {
+		if sameCatalogPartition(held.partition, partition) {
 			delete(m.visibleCatalogs, key)
 		}
 	}
 }
 
 type visibleCatalog struct {
+	sources     map[string]bool
+	receiver    [32]byte
 	partition   VisibleCatalogPartition
 	ready       chan struct{}
 	index       *primitive.Catalog[json.RawMessage]
@@ -70,7 +74,13 @@ type visibleCatalog struct {
 
 // CatalogScope keeps visible metadata private, regardless of tools/list's
 // visibility. It reuses current configured/authenticated connection identity.
-func (m *Manager) CatalogScope(ctx context.Context, conversation string, names []string) (key string, cacheable bool, failure error) {
+func (m *Manager) CatalogScope(ctx context.Context, conversation string, names []string) (string, bool, error) {
+	return m.CatalogScopeForResources(ctx, conversation, names, names)
+}
+
+// CatalogScopeForResources retains all transport/schema fences while resource
+// events affect only the catalog's actual contributing servers.
+func (m *Manager) CatalogScopeForResources(ctx context.Context, conversation string, names []string, resourceNames []string) (key string, cacheable bool, failure error) {
 	timing := observe.Start(ctx, observe.Phase("manager.catalog.scope"), observe.Labels{})
 	defer func() {
 		cache := observe.CacheUnknown
@@ -132,6 +142,11 @@ func (m *Manager) CatalogScope(ctx context.Context, conversation string, names [
 		m.mu.Unlock()
 		scope = append(scope, fmt.Sprintf("%s:%s:%p:%d:%s:%s", name, raw, cli, generation, transportToken, credential))
 	}
+	dependencies := append([]string(nil), resourceNames...)
+	sort.Strings(dependencies)
+	for _, name := range dependencies {
+		scope = append(scope, fmt.Sprintf("resource:%s:%v", name, m.ResourceCatalogGeneration(ctx, name)))
+	}
 	raw, _ := json.Marshal(scope)
 	sum := sha256.Sum256(raw)
 	return fmt.Sprintf("%x", sum), cacheable, nil
@@ -140,7 +155,15 @@ func (m *Manager) CatalogScope(ctx context.Context, conversation string, names [
 // VisibleCatalog is the one manager-owned snapshot store used by primitive
 // and native/ordinary skill adapters. A snapshot is metadata, never authority.
 func (m *Manager) VisibleCatalog(ctx context.Context, key string, until time.Time, load func(context.Context) ([]primitive.CatalogItem[json.RawMessage], error), sourceLease ...func() time.Time) (*primitive.Catalog[json.RawMessage], error) {
-	return m.VisibleCatalogInPartition(ctx, key, VisibleCatalogPartition{}, until, load, sourceLease...)
+	names, err := m.Names(ctx)
+	if err != nil {
+		return nil, err
+	}
+	partition := VisibleCatalogPartition{}
+	if len(names) > 0 {
+		partition = m.WithCatalogSources(ctx, partition, names)
+	}
+	return m.VisibleCatalogInPartition(ctx, key, partition, until, load, sourceLease...)
 }
 
 // VisibleCatalogInPartition uses the same snapshot store and publication fences
@@ -150,12 +173,22 @@ func (m *Manager) VisibleCatalogInPartition(ctx context.Context, key string, par
 		return nil, primitive.ErrCatalogCursor
 	}
 
+	receiver := m.resourceReceiver(ctx)
 	for {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
 		lookup := observe.Start(ctx, observe.Phase("manager.cache.lookup"), observe.Labels{})
 		m.mu.Lock()
+		if partition.sourceVersions != nil {
+			for name, held := range *partition.sourceVersions {
+				if m.resourceCatalogGenerationLocked(name, receiver) != held {
+					m.mu.Unlock()
+					lookup.End(observe.Error, observe.CacheMiss)
+					return nil, primitive.ErrCatalogCursor
+				}
+			}
+		}
 		if m.visibleCatalogs == nil {
 			m.visibleCatalogs = map[string]*visibleCatalog{}
 		}
@@ -175,7 +208,7 @@ func (m *Manager) VisibleCatalogInPartition(ctx context.Context, key string, par
 					return nil, ctx.Err()
 				}
 			}
-			if held.partition == partition && held.until.After(now) {
+			if sameCatalogPartition(held.partition, partition) && held.until.After(now) {
 				index := held.index
 				m.mu.Unlock()
 				lookup.End(observe.OK, observe.CacheHit)
@@ -196,7 +229,10 @@ func (m *Manager) VisibleCatalogInPartition(ctx context.Context, key string, par
 		if !until.After(now) {
 			until = time.Time{}
 		}
-		pending := &visibleCatalog{partition: partition, ready: make(chan struct{})}
+		pending := &visibleCatalog{partition: partition, ready: make(chan struct{}), receiver: receiver}
+		if partition.sources != nil {
+			pending.sources = *partition.sources
+		}
 		m.visibleCatalogs[key] = pending
 		if m.catalogSequence == 0 {
 			if _, err := rand.Read(m.catalogEpoch[:]); err != nil {

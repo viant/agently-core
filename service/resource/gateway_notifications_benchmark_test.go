@@ -1,9 +1,11 @@
 package resource
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -28,8 +30,10 @@ import (
 )
 
 type primitiveBenchEventBus struct {
-	mu        sync.Mutex
-	notifiers map[transport.Notifier]*protocol.DefaultHandler
+	callOverride func(context.Context, string, json.RawMessage) (any, bool, error)
+	mu           sync.Mutex
+	notifiers    map[transport.Notifier]*protocol.DefaultHandler
+	ordered      []transport.Notifier
 }
 
 func (b *primitiveBenchEventBus) register(n transport.Notifier, h *protocol.DefaultHandler) {
@@ -39,6 +43,9 @@ func (b *primitiveBenchEventBus) register(n transport.Notifier, h *protocol.Defa
 	b.mu.Lock()
 	if b.notifiers == nil {
 		b.notifiers = map[transport.Notifier]*protocol.DefaultHandler{}
+	}
+	if _, exists := b.notifiers[n]; !exists {
+		b.ordered = append(b.ordered, n)
 	}
 	b.notifiers[n] = h
 	b.mu.Unlock()
@@ -68,10 +75,20 @@ func (b *primitiveBenchEventBus) emit(method string) error {
 	return nil
 }
 
+// emitFirst selects a session by server-side connection creation order. No
+// user claims or synthetic fields enter the native notification payload.
+func (b *primitiveBenchEventBus) emitFirst(method string) error {
+	b.mu.Lock()
+	n := b.ordered[0]
+	b.mu.Unlock()
+	return n.Notify(context.Background(), &jsonrpc.Notification{Jsonrpc: "2.0", Method: method})
+}
+
 type primitiveBenchMutableCatalog struct {
 	mu               sync.RWMutex
 	owner            string
 	kind             string
+	operations       []string
 	items            map[string]producer.LocalResourceBinding
 	raw              map[string]json.RawMessage
 	entered, release chan struct{}
@@ -79,7 +96,11 @@ type primitiveBenchMutableCatalog struct {
 }
 
 func (c *primitiveBenchMutableCatalog) Namespaces() []primitive.NamespaceCapabilities {
-	return []primitive.NamespaceCapabilities{{ProviderIdentity: c.owner, Namespace: "bench", Kinds: []primitive.KindSupport{{Kind: c.kind, FormatVersions: []int64{1}, Operations: []string{"list", "get"}}}}}
+	operations := c.operations
+	if len(operations) == 0 {
+		operations = []string{"list", "get"}
+	}
+	return []primitive.NamespaceCapabilities{{ProviderIdentity: c.owner, Namespace: "bench", Kinds: []primitive.KindSupport{{Kind: c.kind, FormatVersions: []int64{1}, Operations: operations}}}}
 }
 func (c *primitiveBenchMutableCatalog) List(ctx context.Context, _ identity.VerifiedActor, kind, namespace string) ([]producer.LocalResourceBinding, error) {
 	c.mu.Lock()
@@ -180,10 +201,31 @@ func TestPrimitiveGatewayResourceNotificationBenchmark(t *testing.T) {
 		}
 		handler, err := primitiveBenchSDKHandler(t, provider, name, func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				var raw []byte
+				if r.Body != nil {
+					raw, _ = io.ReadAll(r.Body)
+					r.Body = io.NopCloser(bytes.NewReader(raw))
+				}
+				method := r.Method
+				if r.Method == http.MethodPost {
+					var request struct {
+						Method string `json:"method"`
+						Params struct {
+							Name string `json:"name"`
+						} `json:"params"`
+					}
+					if json.Unmarshal(raw, &request) == nil && request.Method != "" {
+						method = request.Method
+						if method == "tools/call" {
+							method = request.Params.Name
+						}
+					}
+				}
 				counts.mu.Lock()
-				counts.requests[r.Method]++
+				counts.requests[method]++
+				counts.requestBytes += int64(len(raw))
 				counts.mu.Unlock()
-				next.ServeHTTP(w, r.WithContext(observe.WithObserver(r.Context(), counts)))
+				next.ServeHTTP(&primitiveBenchResponse{ResponseWriter: w, counts: counts}, r.WithContext(observe.WithObserver(r.Context(), counts)))
 			})
 		}, bus)
 		if err != nil {
@@ -193,6 +235,7 @@ func TestPrimitiveGatewayResourceNotificationBenchmark(t *testing.T) {
 		endpoints = append(endpoints, endpoint)
 		options[name] = &cfg.MCPClient{PrimitiveProviderIdentity: name, ClientOptions: &mcp.ClientOptions{Name: name, Version: "1", ProtocolVersion: "2025-11-25", Transport: mcp.ClientTransport{Type: "streamable", ClientTransportHTTP: mcp.ClientTransportHTTP{URL: endpoint.URL + "/mcp"}}}}
 	}
+	options["event-provider-1"].ToolsListVisibility = cfg.ToolsListVisibilityPublic
 	defer func() {
 		for _, e := range endpoints {
 			e.Close()
@@ -208,9 +251,12 @@ func TestPrimitiveGatewayResourceNotificationBenchmark(t *testing.T) {
 	alice := observe.WithObserver(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "alice"}), counts)
 	bob := observe.WithObserver(authctx.WithUserInfo(context.Background(), &authctx.UserInfo{Subject: "bob"}), counts)
 	var notifications atomic.Int64
-	stop := mgr.OnCatalogChange(func(server string) {
+	var publicNotifications atomic.Int64
+	stop := mgr.OnResourceCatalogChange(func(server string) {
 		if server == "event-provider-0" {
 			notifications.Add(1)
+		} else {
+			publicNotifications.Add(1)
 		}
 	})
 	defer stop()
@@ -281,13 +327,47 @@ func TestPrimitiveGatewayResourceNotificationBenchmark(t *testing.T) {
 			}
 		}
 		requests, events, input, output := counts.snapshot()
-		raw, _ := json.Marshal(map[string]interface{}{"scenario": action, "protocol": "2025-11-25 stateful real SDK notifications/resources/list_changed", "emitted": emitted, "received": notifications.Load() - initial, "invalidateMS": float64(invalidated) / float64(time.Millisecond), "nextVisibleMS": float64(time.Since(started)) / float64(time.Millisecond), "names": primitiveBenchIDs(refreshed), "unrelatedUserOldCursorRejected": cursorError != nil, "unrelatedProviderOldCursorRejected": unrelatedCursorError != nil, "unrelatedProviderGenerationChanged": owner1.Generation != initialOwner1.Generation, "requests": requests, "observations": events, "requestBytes": input, "responseBytes": output})
+		raw, _ := json.Marshal(map[string]interface{}{"scenario": action, "protocol": "2025-11-25 stateful real SDK notifications/resources/list_changed", "emitted": emitted, "received": notifications.Load() - initial, "invalidateMS": float64(invalidated) / float64(time.Millisecond), "nextVisibleMS": float64(time.Since(started)) / float64(time.Millisecond), "names": primitiveBenchIDs(refreshed), "otherNotifiedClientOldCursorRejected": cursorError != nil, "unrelatedProviderOldCursorRejected": unrelatedCursorError != nil, "unrelatedProviderGenerationChanged": owner1.Generation != initialOwner1.Generation, "requests": requests, "observations": events, "requestBytes": input, "responseBytes": output})
 		t.Log("PRIMITIVE_EVENTS " + string(raw))
 		before = refreshed
 	}
 	_ = before
 
 	// Actual standard subscription gates the optional resources/updated event.
+	// A private event delivered only to Alice retains Bob and the unrelated
+	// public provider. Conversely a public source change reaches all clients'
+	// snapshots even if only Alice's transport receives the notification.
+	bobPrompt, err := ListPage[json.RawMessage](bob, gateway, "prompt", CatalogQuery{Namespace: "bench", Limit: 1}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforePrivate := notifications.Load()
+	if err = buses[0].emitFirst("notifications/resources/list_changed"); err != nil {
+		t.Fatal(err)
+	}
+	primitiveBenchWait(t, func() bool { return notifications.Load() > beforePrivate })
+	_, err = ListPage[json.RawMessage](bob, gateway, "prompt", CatalogQuery{Namespace: "bench", Limit: 1, Cursor: bobPrompt.NextCursor}, true)
+	if err != nil {
+		t.Fatalf("unnotified private user cursor was invalidated: %v", err)
+	}
+	_, err = ListPage[json.RawMessage](alice, gateway, "eval", CatalogQuery{Namespace: "bench", Limit: 1, Cursor: unrelated.NextCursor}, true)
+	if err != nil {
+		t.Fatalf("unrelated public provider cursor was invalidated: %v", err)
+	}
+	bobEval, err := ListPage[json.RawMessage](bob, gateway, "eval", CatalogQuery{Namespace: "bench", Limit: 1}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforePublic := publicNotifications.Load()
+	if err = buses[1].emitFirst("notifications/resources/list_changed"); err != nil {
+		t.Fatal(err)
+	}
+	primitiveBenchWait(t, func() bool { return publicNotifications.Load() > beforePublic })
+	_, err = ListPage[json.RawMessage](bob, gateway, "eval", CatalogQuery{Namespace: "bench", Limit: 1, Cursor: bobEval.NextCursor}, true)
+	if err == nil {
+		t.Fatal("shared public provider notification left another client stale")
+	}
+	t.Log("PRIMITIVE_ISOLATION privateOneReceiverPreservesOtherUser=true unrelatedPublicProviderPreserved=true publicOneReceiverInvalidatesOtherClient=true toolGenerationUnchanged=true")
 	client, err := mgr.Get(alice, "", "event-provider-0")
 	if err != nil {
 		t.Fatal(err)
@@ -328,5 +408,5 @@ func TestPrimitiveGatewayResourceNotificationBenchmark(t *testing.T) {
 		t.Fatal("inflight catalog survived real resource notification")
 	}
 	t.Logf("PRIMITIVE_INFLIGHT received=%d invalidateMS=%.3f latePopulationRejected=true", notifications.Load()-initial, float64(time.Since(started))/float64(time.Millisecond))
-	t.Log("Current manager invalidates tools/list generation for notifying provider AND all VisibleCatalog slots globally;burst has no debounce/coalescing. Native resource updated requires actual subscription; latest SDK also supports2026 subscriptions/listen,which this compatibility fixture does not invent or substitute.")
+	t.Log("Resource generations are separate from tools/connection identity; burst invalidation is immediate and refresh coalesces through lazy singleflight. Native resource updated requires actual subscription; latest SDK also supports2026 subscriptions/listen,which this compatibility fixture does not invent or substitute.")
 }

@@ -28,7 +28,30 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 		return nil, actor, err
 	}
 	sort.Strings(names)
-	scope, cacheable, err := g.Manager.CatalogScope(ctx, "", names)
+	// Only contributors to this kind depend on resource notifications. Keep all
+	// configured names in the transport/tool scope so configuration and schema
+	// changes still fence enumeration, including newly supporting providers.
+	dependencies := names
+	if category != "" {
+		dependencies = nil
+		for _, name := range names {
+			caps, discoverErr := g.discover(ctx, actor, name)
+			if errors.Is(discoverErr, ErrUnavailable) {
+				continue
+			}
+			if discoverErr != nil {
+				return nil, actor, discoverErr
+			}
+			for _, namespace := range caps.namespaces {
+				if supports(caps, namespace.Namespace, category, "list") {
+					dependencies = append(dependencies, name)
+					break
+				}
+			}
+		}
+	}
+	partition := g.Manager.WithCatalogSources(ctx, g.Manager.CatalogPartition(ctx, catalogPrincipalScope(actor), category), dependencies)
+	scope, cacheable, err := g.Manager.CatalogScopeForResources(ctx, "", names, dependencies)
 	if err != nil {
 		return nil, actor, err
 	}
@@ -41,12 +64,12 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 	}
 	generation := g.catalogGeneration(names)
 	key := fmt.Sprintf("primitive:%p:%s:%s:%s:%x", g, actorKey(actor, "", 0), scope, kind, generation)
-	partition := g.Manager.CatalogPartition(ctx, catalogPrincipalScope(actor), category)
+
 	index, err := g.Manager.VisibleCatalogInPartition(ctx, key, partition, until, load, sourceLease...)
 	if err != nil {
 		return nil, actor, err
 	}
-	current, _, err := g.Manager.CatalogScope(ctx, "", names)
+	current, _, err := g.Manager.CatalogScopeForResources(ctx, "", names, dependencies)
 	if err != nil {
 		return nil, actor, err
 	}
