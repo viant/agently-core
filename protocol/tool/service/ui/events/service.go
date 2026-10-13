@@ -136,6 +136,14 @@ func (s *Service) record(ctx context.Context, in, out interface{}) error {
 		output.Recorded = true
 		output.Event = event
 	}
+	// Inline reports live in conversation messages and have no bridge window.
+	// Keep their advisory events at conversation scope, even when an unrelated
+	// hosted window is visible. Explicit window/client identities still require
+	// the normal registry authorization below.
+	if clientID == "" && windowID == "" && windowKey == "" && isInlineReportEvent(kind, input.Detail) {
+		record("", "", "")
+		return nil
+	}
 	for _, item := range items {
 		if clientID != "" && strings.TrimSpace(item.ClientID) != clientID {
 			continue
@@ -223,6 +231,18 @@ func normalizeOptionalClientID(raw string) string {
 func isDurableReportRunEvent(kind string) bool {
 	switch strings.TrimSpace(kind) {
 	case "report.run_start", "report.run":
+		return true
+	default:
+		return false
+	}
+}
+
+func isInlineReportEvent(kind string, detail map[string]interface{}) bool {
+	if detail["sourceKind"] != "inline" {
+		return false
+	}
+	switch kind {
+	case "report.context_updated", "report.export_start", "report.export_complete":
 		return true
 	default:
 		return false
