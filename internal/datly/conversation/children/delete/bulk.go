@@ -12,6 +12,7 @@ import (
 
 	"github.com/viant/agently-core/internal/store/maintenancebatch"
 	"github.com/viant/agently-core/internal/store/maintenancediag"
+	dexec "github.com/viant/datly/exec"
 	rh "github.com/viant/datly/runtime/handler"
 	"github.com/viant/xdatly"
 	xhandler "github.com/viant/xdatly/handler"
@@ -26,7 +27,7 @@ type Input struct {
 }
 type Output struct{ Affected int64 }
 type Component struct {
-	Contract xdatly.Component[Input, Output] `component:"writer,path=/v1/internal/agently/conversation/children/delete,method=PATCH,connector=agently,handler=NewDelete,internal=true"`
+	Contract xdatly.Component[Input, Output] `component:"writer,path=/v1/internal/agently/conversation/children/delete,method=PATCH,connector=agently,handler=NewDelete,internal=true" protectedFlushTables:"[\"message\",\"model_call\",\"tool_call\",\"generated_file\"]"`
 }
 
 var DeleteDatly = new(Component)
@@ -107,40 +108,69 @@ func (*Delete) Execute(ctx context.Context, invocation rh.Invocation) (_ any, re
 		return output, nil
 	}
 	deps := struct {
-		SQL     rh.TransactionSQLProvider `bind:"kind=transactionSQL,required"`
-		Flusher xhandler.Flusher          `bind:"kind=flusher,required"`
+		SQL      rh.TransactionSQLProvider `bind:"kind=transactionSQL,required"`
+		DML      xhandler.DML              `bind:"kind=dml,required"`
+		Flusher  xhandler.Flusher          `bind:"kind=flusher,required"`
+		Reporter dexec.MutationReporter    `bind:"kind=mutationReporter,required"`
 	}{}
 	if err := invocation.Binder.Bind(ctx, &deps); err != nil {
 		return nil, err
 	}
-	if deps.SQL == nil || deps.Flusher == nil {
+	if deps.SQL == nil || deps.DML == nil || deps.Flusher == nil || deps.Reporter == nil {
 		return nil, fmt.Errorf("conversation child deletion capabilities unavailable")
 	}
-	// Previously queued detaches/removals must be visible in the SAME transaction.
-	if err := deps.Flusher.Flush(ctx, ""); err != nil {
+	deleteStatements := 1
+	if len(input.IDs) > 1 {
+		deleteStatements++
+	}
+	done := maintenancediag.Phase(ctx, "children_bulk_delete")
+	defer func() {
+		done(retErr, fmt.Sprintf("table=%s keys=%d affected=%d delete_statements=%d", input.Table, len(input.IDs), output.Affected, deleteStatements))
+	}()
+	// The first real deletion anchors a protected prefix, so earlier queued
+	// detaches/removals become visible in the same transaction before bulk SQL.
+	before := len(deps.Reporter.MutationReport().Results)
+	anchor := input.IDs[0]
+	var key any = &struct {
+		ID string `sqlx:"id,primaryKey"`
+	}{ID: anchor}
+	if input.Table == "model_call" || input.Table == "tool_call" {
+		key = &struct {
+			MessageID string `sqlx:"message_id,primaryKey"`
+		}{MessageID: anchor}
+	}
+	if err := deps.DML.Delete(input.Table, key); err != nil {
 		return nil, err
+	}
+	if err := deps.Flusher.Flush(ctx, input.Table); err != nil {
+		return nil, err
+	}
+	results := deps.Reporter.MutationReport().Results
+	if len(results) <= before {
+		return nil, fmt.Errorf("conversation child deletion anchor was not reported")
+	}
+	output.Affected = results[len(results)-1].Affected
+	if len(input.IDs) == 1 {
+		return output, nil
 	}
 	tx, err := deps.SQL.Connector(ctx, "agently")
 	if err != nil {
 		return nil, err
 	}
-	args := make([]any, len(input.IDs))
-	for i, id := range input.IDs {
+	args := make([]any, len(input.IDs)-1)
+	for i, id := range input.IDs[1:] {
 		args[i] = id
 	}
 	query := strings.Replace(queries[input.Table], "/*IDS*/", strings.TrimSuffix(strings.Repeat("?,", len(args)), ","), 1)
-	done := maintenancediag.Phase(ctx, "children_bulk_delete")
-	defer func() {
-		done(retErr, fmt.Sprintf("table=%s keys=%d affected=%d delete_statements=1", input.Table, len(args), output.Affected))
-	}()
 	result, err := tx.ExecContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	output.Affected, err = result.RowsAffected()
+	affected, err := result.RowsAffected()
 	if err != nil {
 		return nil, err
 	}
+	output.Affected += affected
 	// As with canonical onDeleteNotFound=ignore, absent keys are a safe no-op.
 	// No BEGIN/COMMIT, fallback or retry here: any error rolls back the parent.
 	return output, nil

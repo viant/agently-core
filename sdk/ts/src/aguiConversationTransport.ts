@@ -3,7 +3,7 @@ import type { ClientTool } from './agui';
 import type { AgentSubscriber } from '@ag-ui/client';
 import type { Message, State } from '@ag-ui/core';
 import { AgUiCommands, type AgUiConversationBootstrapResult, type AgUiConversationBootstrapInput } from './aguiCommands';
-import { readAgentlyPresentation } from './aguiPresentation';
+import { readAgentlyPresentation, readAgentlyPresentationActivity } from './aguiPresentation';
 import type { AgUiViewOutcome, AgUiViewDescriptor } from './aguiViewProjection';
 import type { AgUiSession } from './aguiSession';
 import type { AgentlyClient } from './client';
@@ -47,6 +47,7 @@ interface RunSlot {
     browserToolNames?: Set<string>;
     firstBrowserToolAt?: number;
     terminalAt?: number;
+    protocolCompleted?: boolean;
     stopProjection(): void;
     completion: Promise<unknown>;
 }
@@ -359,11 +360,32 @@ export class AgUiConversationTransport {
 
     private track(entry: Entry, runId: string, session: AgUiSession, baselineMessages: readonly Message[], onViewEvent?: (event: SSEEvent) => void, displayQuery?: string): RunSlot {
         const slot: RunSlot = { id: runId, session, stopProjection: () => {}, completion: Promise.resolve() };
-        const identity = session.subscribeProtocol({ onRunStartedEvent: ({ event }) => {
-            slot.nativeTurnId = readAgentlyPresentation(event.metadata)?.nativeTurnId;
+        // ACTIVITY_DELTA callbacks precede reduction; read the official reduced
+        // message graph after that event rather than accumulating a second graph.
+        let pendingNativeDelta: { messageId: string; subagentRunId?: string } | undefined;
+        // View projection also synthesizes terminal rows for protocol outcomes and
+        // network failures. Only a validated primary native activity is evidence
+        // that committed history was fully streamed.
+        const recordNativeActivity = (message: Message | undefined, event: { subagentRunId?: string }) => {
+            if (!message || event.subagentRunId || message.subagentRunId) return;
+            const activity = readAgentlyPresentationActivity(message);
+            if (activity?.kind !== 'agently.turn' || activity.presentation?.conversationId && activity.presentation.conversationId !== entry.id) return;
+            if (!slot.nativeTurnId && ['queued', 'running'].includes(activity.status)) slot.nativeTurnId = activity.nativeTurnId;
+            if (activity.nativeTurnId === slot.nativeTurnId && ['completed', 'failed', 'canceled'].includes(activity.status)) entry.streamedTerminalTurns.add(activity.nativeTurnId);
+        };
+        const identity = session.subscribeProtocol({ onEvent: ({ event }) => {
+            pendingNativeDelta = event.type === 'ACTIVITY_DELTA' && 'messageId' in event && typeof event.messageId === 'string'
+                ? { messageId: event.messageId, ...('subagentRunId' in event && typeof event.subagentRunId === 'string' ? { subagentRunId: event.subagentRunId } : {}) } : undefined;
+        }, onMessagesChanged: ({ messages }) => {
+            if (pendingNativeDelta) recordNativeActivity(messages.find(message => message.id === pendingNativeDelta?.messageId), pendingNativeDelta);
+        }, onRunStartedEvent: ({ event }) => {
+            if (!('subagentRunId' in event && event.subagentRunId)) slot.nativeTurnId = readAgentlyPresentation(event.metadata)?.nativeTurnId;
         }, onToolCallStartEvent: ({ event }) => {
             if (slot.firstBrowserToolAt === undefined && slot.browserToolNames?.has(event.toolCallName)) slot.firstBrowserToolAt = globalThis.performance?.now();
-        }, onRunFinishedEvent: () => { slot.terminalAt = globalThis.performance?.now(); } });
+        }, onActivitySnapshotEvent: ({ event }) => {
+            recordNativeActivity({ id: event.messageId, role: 'activity', activityType: event.activityType, content: event.content, metadata: event.metadata }, event);
+        }, onRunFinishedEvent: () => { slot.protocolCompleted = true; slot.terminalAt = globalThis.performance?.now(); },
+            onRunErrorEvent: () => { slot.protocolCompleted = true; } });
         const projection = this.project({ profile: 'agently', conversationId: entry.id, runId,
             baselineMessages, displayQuery, allowHostEffects: true,
             onDescriptor: descriptor => {
@@ -376,10 +398,7 @@ export class AgUiConversationTransport {
                 for (const listener of entry.listeners) listener.onOutcome?.(outcome);
             }, onViewEvent: event => {
                 if (!this.current(entry)) return;
-                if (event.turnId && ['turn_started', 'turn_queued'].includes(event.type)) slot.nativeTurnId = event.turnId;
-                if (event.turnId && ['turn_completed', 'turn_failed', 'turn_canceled'].includes(event.type)) {
-                    entry.streamedTerminalTurns.add(event.turnId);
-                }
+                if (event.turnId && !('subagentRunId' in event && event.subagentRunId) && event.conversationId === entry.id && ['turn_started', 'turn_queued'].includes(event.type)) slot.nativeTurnId = event.turnId;
                 onViewEvent?.(event);
                 if (event.turnId && entry.terminalTurns.has(event.turnId) && /^(turn_started|turn_queued|model_|tool_call_|text_delta|reasoning_delta)/.test(event.type)) return;
                 for (const listener of entry.listeners) {
@@ -419,7 +438,7 @@ export class AgUiConversationTransport {
         slot.stopProjection();
         if (entry.runs.get(slot.id) === slot) entry.runs.delete(slot.id);
         this.closeBrowserIfIdle(entry);
-        const viewComplete = !!slot.nativeTurnId && entry.streamedTerminalTurns.has(slot.nativeTurnId);
+        const viewComplete = slot.protocolCompleted === true && !!slot.nativeTurnId && entry.streamedTerminalTurns.has(slot.nativeTurnId);
         if (this.current(entry) && (entry.listeners.size || slot.hasBrowserTools) && slot.session.getSnapshot().phase !== 'detached'
             && (!viewComplete || slot.hasBrowserTools)) {
             // One authoritative refresh after completion; no permanent polling
