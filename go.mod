@@ -36,9 +36,9 @@ require (
 	github.com/viant/afs v1.30.1-0.20260914155934-90e95d483861
 	github.com/viant/afsc v1.18.0
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e
-	github.com/viant/datly v1.1.1-0.20261012144747-65fb3aa69e67
+	github.com/viant/datly v1.1.1-0.20261012194200-cff45ee940be
 	github.com/viant/embedius v0.5.6
-	github.com/viant/forge v0.3.45-0.20261010035027-6f63f883a89e
+	github.com/viant/forge v0.3.45-0.20261012192952-36079cd69f06
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1-0.20261007222529-b829eaaf687b
 	github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e
@@ -160,7 +160,7 @@ require (
 	github.com/viant/sqlparser v0.13.1-0.20261012001419-edea4bd5d9c1 // indirect
 	github.com/viant/sqlx v0.26.1-0.20261012000356-69034efb5257
 	github.com/viant/structology v0.10.1-0.20261010052450-67e71257a7da
-	github.com/viant/structql v0.5.5-0.20261008164328-d0b837beaa3a // indirect
+	github.com/viant/structql v0.5.5-0.20261012183420-6a47e96ff5b5 // indirect
 	github.com/viant/tagly v0.4.1-0.20261007173811-969600917520 // indirect
 	github.com/viant/vec v0.2.4-0.20250819200643-7e16b6ea443c // indirect
 	github.com/viant/x v0.5.1-0.20260915043005-1bc42b9eef47

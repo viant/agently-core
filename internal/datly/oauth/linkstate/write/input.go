@@ -2,6 +2,10 @@
 
 package write
 
+import (
+	flowkeys "github.com/viant/agently-core/internal/datly/oauth/linkstate/writekeys"
+)
+
 // Input is the generated input scaffold for write.
 type Input struct {
 	Mode                     string                   `parameter:"Mode,kind=query,in=mode,dataType=string,value=create,required=false"`
@@ -14,8 +18,8 @@ type Input struct {
 	Unconsumed               bool                     `parameter:"Unconsumed,kind=query,in=unconsumed,dataType=bool,required=false" predicate:"is_null,group=7,oauth_link_state,consumed_at"`
 	NotExpiredAfter          string                   `parameter:"NotExpiredAfter,kind=query,in=notExpiredAfter,dataType=string,required=false" predicate:"expr,group=7,oauth_link_state.expires_at > ?"`
 	Before                   string                   `parameter:"Before,kind=query,in=before,dataType=string,required=false" predicate:"expr,group=7,'oauth_link_state.expires_at <= ?'"`
-	WriteKeys                []WriteKeysRow           `parameter:"WriteKeys,kind=param,in=States,cardinality=Many" codec:"structql,'uri=oauth_linkstate_write_write:sql/write_keys.sql'"`
-	CurrentWrite             []*CurrentWriteView      `parameter:"CurrentWrite,kind=view,in=CurrentWrite,cardinality=Many" view:"CurrentWrite,table=oauth_link_state" sql:"uri=oauth_linkstate_write_write:sql/current_write.sql"`
+	WriteKeys                []*flowkeys.Flow         `parameter:"WriteKeys,kind=param,in=States,dataType=[]*flowkeys.Flow" codec:"structql,'uri=oauth_linkstate_write_write:sql/write_keys.sql'"`
+	CurrentWrite             []*CurrentWriteView      `parameter:"CurrentWrite,kind=view,in=CurrentWrite,dataType=[]*CurrentWriteView,cardinality=many" view:"CurrentWrite,type=CurrentWriteView,table=oauth_link_state" sql:"uri=oauth_linkstate_write_write:sql/current_write.sql"`
 	_writeHandlerReadIndexes *WriteHandlerReadIndexes `json:"-" sqlx:"-"`
 	Has                      *InputHas                `setMarker:"true" typeName:"InputHas" json:"-" sqlx:"-"`
 }

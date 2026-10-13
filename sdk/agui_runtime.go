@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"time"
 
 	aguistore "github.com/viant/agently-core/app/store/agui"
 	"github.com/viant/agently-core/genai/llm"
@@ -21,9 +23,17 @@ type aguiRuntime interface {
 
 func (c *backendClient) aguiStore() aguistore.Store { return aguistore.New(c.goalInvoker) }
 func (c *backendClient) aguiResume(ctx context.Context, input *agentsvc.QueryInput, turnID string, output *agentsvc.QueryOutput) error {
+	started := time.Now()
+	defer func() {
+		log.Printf("AG-UI client-tool phase=continuation durationMs=%d", time.Since(started).Milliseconds())
+	}()
 	return c.agent.ResumeContinuation(ctx, input, turnID, 0, output)
 }
 func (c *backendClient) aguiCompleteTool(ctx context.Context, call clienttool.PendingCall, content json.RawMessage, toolError string) error {
+	started := time.Now()
+	defer func() {
+		log.Printf("AG-UI client-tool phase=resultPersist durationMs=%d", time.Since(started).Milliseconds())
+	}()
 	return toolexec.CompleteClientToolResult(ctx, c.conv, call, content, toolError)
 }
 

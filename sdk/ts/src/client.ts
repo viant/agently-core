@@ -1,4 +1,4 @@
-import { BrowserMCPHost, type BrowserMCPHostOptions, type BrowserMCPCatalog, type BrowserMCPAppActivity } from './browserMCP';
+import { BrowserMCPHost, type BrowserMCPHostOptions, type BrowserMCPCatalog, type BrowserMCPCatalogStatus, type BrowserMCPAppActivity } from './browserMCP';
 import type { ReportRun, ReportContext, ReportRunResult, BeginReportRunInput, CompleteReportRunInput, AdoptReportRunInput, ReportExportJob, ReportArtifact, ReportAuditEvent } from "./types";
 import type {ListSkillsInput, ListSkillsOutput, ActivateSkillInput, ActivateSkillOutput} from './types';
 /**
@@ -233,7 +233,7 @@ export class AgentlyClient {
             descriptors: async () => (await this.getWorkspaceMetadata()).browserMCP ?? [],
             register: input => this.post<BrowserMCPCatalog>('/mcp/browser/catalog', input),
             revoke: id => this.del(`/mcp/browser/catalog/${enc(id)}`),
-            current: id => this.get<BrowserMCPCatalog>(`/mcp/browser/catalog/${enc(id)}`),
+            current: id => this.get<BrowserMCPCatalogStatus>(`/mcp/browser/catalog/${enc(id)}?view=status`),
         }, opts.browserMCP);
         this.agUiInteractions = new AgUiConversationTransport(this, options => new AgUiViewProjection(options), this.browserMCP);
     }
@@ -584,9 +584,11 @@ export class AgentlyClient {
                     return;
                 }
                 handlers.onEvent?.(event);
-                // Native deltas need not carry the originating user's text.
-                // Reconcile once on completion to recover its canonical row.
-                if (['turn_completed', 'turn_failed', 'turn_canceled'].includes(event.type)) reconcile();
+                // External native turns need their canonical user row, but a
+                // primary run supplies the view and owns completion recovery,
+                // including when the native notification arrives first.
+                if (['turn_completed', 'turn_failed', 'turn_canceled'].includes(event.type)
+                    && !this.agUiInteractions.observesTurn(conversationId, event.turnId || '')) reconcile();
                 if (event.type === 'conversation_meta_updated' && event.patch?.aguiUpdated === true) reconcile();
             },
         });

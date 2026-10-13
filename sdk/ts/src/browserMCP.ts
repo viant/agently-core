@@ -17,6 +17,7 @@ export interface BrowserMCPCatalog {
     id: string; hash: string; connectionId: string; conversationId: string; threadId: string; server: string;
     tools: Tool[]; resources?: boolean; expiresAt: string;
 }
+export type BrowserMCPCatalogStatus = Omit<BrowserMCPCatalog, 'tools' | 'resources'>;
 export interface BrowserMCPHostOptions {
     transportFactory?: (descriptor: BrowserMCPDescriptor, binding: { conversationId: string; threadId: string; connectionId: string }) => BrowserMCPConnection;
     onApprovalRequired?: (server: string) => void | (() => void);
@@ -25,7 +26,7 @@ interface BrowserMCPAPI {
     descriptors(): Promise<BrowserMCPDescriptor[]>;
     register(input: { conversationId: string; threadId: string; server: string; connectionId: string; tools: unknown[]; resources?: boolean }): Promise<BrowserMCPCatalog>;
     revoke(id: string): Promise<unknown>;
-    current(id: string): Promise<BrowserMCPCatalog>;
+    current(id: string): Promise<BrowserMCPCatalogStatus>;
 }
 type ChromePort = { postMessage(value: unknown): void; disconnect(): void; onMessage: { addListener(callback: (value: any) => void): void }; onDisconnect: { addListener(callback: () => void): void } };
 type ChromeRuntime = { connect(extensionId: string, options: { name: string }): ChromePort; lastError?: unknown };
@@ -113,18 +114,18 @@ function setupFailure(error: unknown, code: SetupCode): never {
 
 // Bounded User Timing diagnostics: durations only, never tool arguments,
 // credentials, origins, conversation IDs, or catalog contents.
-async function measureBrowserSetup<T>(phase: string, operation: () => Promise<T>): Promise<T> {
-    const clock = globalThis.performance, started = clock?.now();
+export function finishBrowserTiming(phase: 'setup' | 'metadata' | 'initialize' | 'catalog' | 'register' | 'tool.total' | 'tool.catalogCurrent' | 'tool.nativeRequest' | 'tool.resultProjection' | 'transport.queue' | 'transport.roundTrip' | 'resource.catalogCurrent' | 'resource.nativeRequest' | 'handoff.pendingToHandler' | 'handoff.terminalToHandler' | 'handoff.handlers' | 'handoff.continuation', started: number | undefined): void {
+    if (started === undefined) return;
+    try {
+        const clock = globalThis.performance, name = `agently.browserMCP.${phase}`;
+        clock.clearMeasures(name);
+        clock.measure(name, { start: started, end: clock.now() });
+    } catch { /* Diagnostics must not affect execution. */ }
+}
+async function measureBrowserSetup<T>(phase: Parameters<typeof finishBrowserTiming>[0], operation: () => Promise<T>): Promise<T> {
+    const started = globalThis.performance?.now();
     try { return await operation(); }
-    finally {
-        if (started !== undefined) {
-            try {
-                const name = `agently.browserMCP.${phase}`;
-                clock.clearMeasures(name);
-                clock.measure(name, { start: started, end: clock.now() });
-            } catch { /* Diagnostics must not affect execution. */ }
-        }
-    }
+    finally { finishBrowserTiming(phase, started); }
 }
 
 /** Generic extension MCP envelope adapter: public addressing only, no HTTP,
@@ -203,17 +204,19 @@ export class ChromeExtensionMCPConnection implements BrowserMCPConnection {
     async request(method: 'initialize' | 'tools/list' | 'tools/call' | 'resources/read' | 'ping', params?: Record<string, unknown>): Promise<any> {
         if (this.closed || this.queued >= 16) throw new BrowserMCPSetupError('connectionRequestUnavailable', 'notDispatched');
         this.queued++;
+        const queuedAt = globalThis.performance?.now();
         const run = this.queue.then(async () => {
             await this.ready;
+            finishBrowserTiming('transport.queue', queuedAt);
             if (this.closed) throw new BrowserMCPSetupError('connectionLost', 'notDispatched');
             const requestId = crypto.randomUUID();
             const request = { type: 'request', requestId, operation: method, deadlineUnixMs: Date.now() + this.timeout, ...(params ? { params } : {}) };
             if (new TextEncoder().encode(JSON.stringify(request)).length > 65536) throw new Error('Browser MCP request exceeds transport budget');
-            return new Promise((resolve, reject) => {
+            return measureBrowserSetup('transport.roundTrip', () => new Promise((resolve, reject) => {
                 const timer = setTimeout(() => { this.pending.delete(requestId); reject(new BrowserMCPSetupError('requestDeadlineExceeded', 'unknown')); }, this.timeout);
                 this.pending.set(requestId, { resolve, reject, timer, maxResultBytes: method === 'tools/call' ? maxToolResultBytes : 256 * 1024 });
                 try { this.port.postMessage(request); } catch { clearTimeout(timer); this.pending.delete(requestId); reject(new Error('Browser MCP transport unavailable')); }
-            });
+            }));
         });
         this.queue = run.catch(() => undefined);
         try { return await run; } finally { this.queued--; }
@@ -327,14 +330,19 @@ export class BrowserMCPHost {
         return result;
     }
     private async call(binding: Binding, tool: Tool, args: unknown, call: ToolCall): Promise<ClientToolResult> {
+        return measureBrowserSetup('tool.total', () => this.callBound(binding, tool, args, call));
+    }
+    private async callBound(binding: Binding, tool: Tool, args: unknown, call: ToolCall): Promise<ClientToolResult> {
         const metadata = tool.metadata as any;
         const identity = metadata?.browserMCP;
         const catalog = this.requireOriginalCatalog(binding);
         if (call.function.name !== tool.name) throw new BrowserMCPBindingError('toolNameMismatch');
         if (identity?.catalogId !== catalog.id) throw new BrowserMCPBindingError('catalogIdentityMismatch');
         if (identity?.connectionId !== binding.connectionId) throw new BrowserMCPBindingError('connectionIdentityMismatch');
-        const current = await this.api.current(catalog.id);
+        const current = await measureBrowserSetup('tool.catalogCurrent', () => this.api.current(catalog.id));
         if (binding.closed || current.hash !== catalog.hash || current.connectionId !== binding.connectionId || current.threadId !== binding.threadId) throw new Error('Browser MCP catalog was revoked or changed');
+        if (!Number.isFinite(Date.parse(current.expiresAt)) || Date.parse(current.expiresAt) <= Date.now()) throw new BrowserMCPBindingError('catalogExpired');
+        catalog.expiresAt = current.expiresAt;
         const boundArgs = JSON.parse(call.function.arguments);
         if (JSON.stringify(boundArgs) !== JSON.stringify(args)) throw new Error('Browser MCP arguments differ from the pending call');
         const fingerprint = JSON.stringify([binding.conversationId, binding.threadId, binding.connectionId, tool.name, call.function.arguments]);
@@ -362,59 +370,62 @@ export class BrowserMCPHost {
             };
             if (binding.transportLost) return terminalFailure('browserTransportUnavailable', 'notDispatched');
             let result: any;
-            try { result = await binding.connection.request('tools/call', { name: identity.tool, arguments: boundArgs }); }
+            try { result = await measureBrowserSetup('tool.nativeRequest', () => binding.connection.request('tools/call', { name: identity.tool, arguments: boundArgs })); }
             catch (error) {
                 if (error instanceof BrowserMCPSetupError && (error.code === 'resultTransferInvalid' || error.code === 'resultTransferTimeout' || error.code === 'resultTransferTooLarge')) return terminalFailure(error.code, 'unknown');
                 return terminalFailure(error instanceof BrowserMCPSetupError && error.code === 'requestDeadlineExceeded' ? 'browserTransportTimeout' : 'browserTransportUnavailable', error instanceof BrowserMCPSetupError && error.dispatchState === 'notDispatched' ? 'notDispatched' : 'unknown');
             }
-            if (binding.closed) throw new Error('Browser MCP result unavailable for the original conversation');
-            if (!result || !Array.isArray(result.content)) return terminalFailure('browserTransportUnavailable', 'unknown');
-            if (result.resultType !== undefined && result.resultType !== 'complete') return terminalFailure('resultTransferInvalid', 'unknown');
-            // MCP _meta is host/UI-only and must not become model content.
-            const images = result.content.filter((item: any) => item?.type === 'image');
-            let totalImageBytes = 0;
-            for (const item of images) {
-                if (!/^(image\/(png|jpeg|webp|gif))$/.test(item.mimeType)) return terminalFailure('resultTransferInvalid', 'unknown');
-                try { totalImageBytes += imageDataBytes(item.data); }
-                catch { return terminalFailure('resultTransferInvalid', 'unknown'); }
-                if (totalImageBytes > maxImageBytes) return terminalFailure('resultTransferTooLarge', 'unknown');
-            }
-            let content: ClientToolResult['content'];
-            const artifactPolicy = (JSON.parse(binding.config) as BrowserMCPDescriptor).outputArtifacts?.[identity.tool];
-            if (artifactPolicy !== undefined) {
-                // Preserve the canonical MCP shape for backend JSON-pointer
-                // extraction. Backend policy, not browser metadata, owns it.
-                const cleanBlock = (value: any): any => Array.isArray(value) ? value.map(cleanBlock) : value && typeof value === 'object'
-                    ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== '_meta').map(([key, item]) => [key, cleanBlock(item)])) : value;
-                content = JSON.stringify({ content: result.content.map(cleanBlock), ...(result.structuredContent !== undefined ? { structuredContent: result.structuredContent } : {}), ...(result.isError !== undefined ? { isError: result.isError } : {}) });
-            } else if (images.length) {
-                const parts: any[] = [];
-                if (result.structuredContent !== undefined) parts.push({ type: 'text', text: JSON.stringify(result.structuredContent) });
-                for (const item of result.content) {
-                    if (item?.type === 'text' && typeof item.text === 'string') {
-                        // Canonical structured metadata replaces its duplicate text
-                        // block, while image order remains unchanged.
-                        if (result.structuredContent === undefined) parts.push({ type: 'text', text: item.text });
-                    } else if (item?.type === 'image') {
-                        parts.push({ type: 'image', source: { type: 'data', value: item.data, mimeType: item.mimeType } });
-                    }
+            const projectionStarted = globalThis.performance?.now();
+            try {
+                if (binding.closed) throw new Error('Browser MCP result unavailable for the original conversation');
+                if (!result || !Array.isArray(result.content)) return terminalFailure('browserTransportUnavailable', 'unknown');
+                if (result.resultType !== undefined && result.resultType !== 'complete') return terminalFailure('resultTransferInvalid', 'unknown');
+                // MCP _meta is host/UI-only and must not become model content.
+                const images = result.content.filter((item: any) => item?.type === 'image');
+                let totalImageBytes = 0;
+                for (const item of images) {
+                    if (!/^(image\/(png|jpeg|webp|gif))$/.test(item.mimeType)) return terminalFailure('resultTransferInvalid', 'unknown');
+                    try { totalImageBytes += imageDataBytes(item.data); }
+                    catch { return terminalFailure('resultTransferInvalid', 'unknown'); }
+                    if (totalImageBytes > maxImageBytes) return terminalFailure('resultTransferTooLarge', 'unknown');
                 }
-                content = parts;
-            } else content = JSON.stringify(result.structuredContent ?? result.content);
-            const relayContent = typeof content === 'string' ? content : JSON.stringify(content);
-            if (new TextEncoder().encode(relayContent).length > maxToolResultBytes) return terminalFailure('resultTransferTooLarge', 'unknown');
-            const answer: ClientToolResult = { content, ...(result.isError ? { error: 'Browser MCP tool returned an error' } : {}), metadata: structuredClone(tool.metadata) };
-            binding.attempts.set(call.id, { fingerprint, result: structuredClone(answer) });
-            const resourceUri = metadata?.ui?.resourceUri;
-            if (typeof resourceUri === 'string' && resourceUri.startsWith('ui://')) {
-                const appInstanceId = crypto.randomUUID();
-                binding.apps.set(call.id, { mountKey: appInstanceId, content: { resourceUri, result: structuredClone(result), toolInput: boundArgs,
-                    serverId: catalog.server, serverHash: catalog.hash,
-                    _agentlyApp: { appInstanceId, threadId: binding.threadId, nativeTurnId: '' },
-                    _browserMCP: { catalogId: catalog.id, connectionId: binding.connectionId, callId: call.id, conversationId: binding.conversationId } } });
-                for (const listener of this.appListeners) listener();
-            }
-            return answer;
+                let content: ClientToolResult['content'];
+                const artifactPolicy = (JSON.parse(binding.config) as BrowserMCPDescriptor).outputArtifacts?.[identity.tool];
+                if (artifactPolicy !== undefined) {
+                    // Preserve the canonical MCP shape for backend JSON-pointer
+                    // extraction. Backend policy, not browser metadata, owns it.
+                    const cleanBlock = (value: any): any => Array.isArray(value) ? value.map(cleanBlock) : value && typeof value === 'object'
+                        ? Object.fromEntries(Object.entries(value).filter(([key]) => key !== '_meta').map(([key, item]) => [key, cleanBlock(item)])) : value;
+                    content = JSON.stringify({ content: result.content.map(cleanBlock), ...(result.structuredContent !== undefined ? { structuredContent: result.structuredContent } : {}), ...(result.isError !== undefined ? { isError: result.isError } : {}) });
+                } else if (images.length) {
+                    const parts: any[] = [];
+                    if (result.structuredContent !== undefined) parts.push({ type: 'text', text: JSON.stringify(result.structuredContent) });
+                    for (const item of result.content) {
+                        if (item?.type === 'text' && typeof item.text === 'string') {
+                            // Canonical structured metadata replaces its duplicate text
+                            // block, while image order remains unchanged.
+                            if (result.structuredContent === undefined) parts.push({ type: 'text', text: item.text });
+                        } else if (item?.type === 'image') {
+                            parts.push({ type: 'image', source: { type: 'data', value: item.data, mimeType: item.mimeType } });
+                        }
+                    }
+                    content = parts;
+                } else content = JSON.stringify(result.structuredContent ?? result.content);
+                const relayContent = typeof content === 'string' ? content : JSON.stringify(content);
+                if (new TextEncoder().encode(relayContent).length > maxToolResultBytes) return terminalFailure('resultTransferTooLarge', 'unknown');
+                const answer: ClientToolResult = { content, ...(result.isError ? { error: 'Browser MCP tool returned an error' } : {}), metadata: structuredClone(tool.metadata) };
+                binding.attempts.set(call.id, { fingerprint, result: structuredClone(answer) });
+                const resourceUri = metadata?.ui?.resourceUri;
+                if (typeof resourceUri === 'string' && resourceUri.startsWith('ui://')) {
+                    const appInstanceId = crypto.randomUUID();
+                    binding.apps.set(call.id, { mountKey: appInstanceId, content: { resourceUri, result: structuredClone(result), toolInput: boundArgs,
+                        serverId: catalog.server, serverHash: catalog.hash,
+                        _agentlyApp: { appInstanceId, threadId: binding.threadId, nativeTurnId: '' },
+                        _browserMCP: { catalogId: catalog.id, connectionId: binding.connectionId, callId: call.id, conversationId: binding.conversationId } } });
+                    for (const listener of this.appListeners) listener();
+                }
+                return answer;
+            } finally { finishBrowserTiming('tool.resultProjection', projectionStarted); }
         })();
         attempt.pending = completion;
         // Validation failures remain reserved and non-replayable. Only a
@@ -454,9 +465,11 @@ export class BrowserMCPHost {
                 // advertise no serverTools until an approval-aware route exists.
                 if (method !== 'resources/read' || params.uri !== original.content.resourceUri) throw new Error('Browser app method outside resource binding');
                 if (!binding.resources) throw new Error('Browser MCP server does not advertise resources');
-                const current = await this.api.current(identity.catalogId);
+                const current = await measureBrowserSetup('resource.catalogCurrent', () => this.api.current(identity.catalogId));
                 if (disposed || binding.closed || binding.transportLost || current.hash !== original.content.serverHash || current.connectionId !== binding.connectionId || current.threadId !== binding.threadId || current.conversationId !== binding.conversationId) throw new Error('Browser app catalog changed');
-                const result = await binding.connection.request('resources/read', { uri: original.content.resourceUri });
+                if (!Number.isFinite(Date.parse(current.expiresAt)) || Date.parse(current.expiresAt) <= Date.now()) throw new BrowserMCPBindingError('catalogExpired');
+                if (binding.catalog) binding.catalog.expiresAt = current.expiresAt;
+                const result = await measureBrowserSetup('resource.nativeRequest', () => binding.connection.request('resources/read', { uri: original.content.resourceUri }));
                 if (disposed || binding.closed || binding.transportLost) throw new Error('Browser app connection closed');
                 return result;
             }, dispose: () => { disposed = true; }, observeOutcome: () => false, refreshPending: async () => {},

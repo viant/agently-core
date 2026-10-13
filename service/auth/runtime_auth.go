@@ -308,6 +308,10 @@ func writeRuntimeAuthDebugHeaders(w http.ResponseWriter, req *http.Request, r *R
 		w.Header().Set("X-Auth-Verify-Error", truncateHeader(err.Error(), 180))
 		return
 	}
+	if err := validateConfiguredOAuthScopes(runtimeOAuthClient(r), nil, token); err != nil {
+		w.Header().Set("X-Auth-Reason", "bearer_oauth_scope_rejected")
+		return
+	}
 	w.Header().Set("X-Auth-Reason", "bearer_verified_but_no_runtime_user")
 }
 

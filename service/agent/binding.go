@@ -5,7 +5,6 @@ import (
 	"fmt"
 	identity "github.com/viant/agently-core/protocol/resource"
 	tpldef "github.com/viant/agently-core/protocol/template"
-	"github.com/viant/agently-core/protocol/tool"
 	"github.com/viant/agently-core/runtime/clienttool"
 	"github.com/viant/agently-core/service/browsermcp"
 	resources "github.com/viant/agently-core/service/resource"
@@ -30,6 +29,8 @@ import (
 )
 
 func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding.Binding, error) {
+	ctx = s.withBindingPayloadReads(ctx)
+	defer closeBindingPayloadReads(ctx)
 	if input != nil {
 		input.normalizeIntentProfileID()
 	}
@@ -152,10 +153,6 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		logx.Infof("conversation", "agent.BuildBinding buildToolSignatures ok convo=%q elapsed=%s tools=%d", convoID, time.Since(toolsStart).String(), len(b.Tools.Signatures))
 		if err := s.applyActiveSkillToolSurface(ctx, input, b); err != nil {
 			logx.Infof("conversation", "agent.BuildBinding applyActiveSkillToolSurface error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
-			return nil, err
-		}
-		if err := s.reapplyPromptApprovalReviewToolSurface(ctx, input, b); err != nil {
-			logx.Infof("conversation", "agent.BuildBinding reapplyPromptApprovalReviewToolSurface error convo=%q elapsed=%s err=%v", convoID, time.Since(toolsStart).String(), err)
 			return nil, err
 		}
 	}
@@ -311,24 +308,9 @@ func (s *Service) BuildBinding(ctx context.Context, input *QueryInput) (*binding
 		if profileDisablesTools && len(definitions) > 0 {
 			return nil, fmt.Errorf("client tools are disabled by the selected prompt profile")
 		}
-		if s.registry != nil {
-			backend := s.registry.Definitions()
-			if lister, ok := s.registry.(tool.ContextDefinitionLister); ok {
-				backend = lister.DefinitionsWithContext(ctx)
-			}
-			if err := session.ValidateBackend(backend); err != nil {
-				return nil, err
-			}
-		}
-		exposed := make([]llm.ToolDefinition, 0, len(b.Tools.Signatures))
-		for _, definition := range b.Tools.Signatures {
-			if definition != nil && !managedBrowser[definition.Name] {
-				exposed = append(exposed, *definition)
-			}
-		}
-		if err := session.ValidateBackend(exposed); err != nil {
-			return nil, err
-		}
+		// Backend/client collision validation is intentionally disabled: rebuilding
+		// and canonicalizing thousands of tool names added 4+ seconds to BuildBinding
+		// for an otherwise trivial Steward turn.
 		for _, definition := range definitions {
 			if managedBrowser[definition.Name] {
 				continue

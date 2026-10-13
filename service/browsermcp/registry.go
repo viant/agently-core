@@ -25,6 +25,8 @@ import (
 
 const Prefix = "browser_mcp_"
 
+const catalogIdleTTL = 24 * time.Hour
+
 var ErrUnavailable = errors.New("browser MCP catalog unavailable for this conversation")
 
 // currentFailure carries only a fixed predicate name, never catalog metadata,
@@ -65,13 +67,18 @@ type catalogEntry struct {
 	catalog    Catalog
 }
 type Registry struct {
-	mu       sync.Mutex
-	configs  func(context.Context) ([]cfg.BrowserDescriptor, error)
-	catalogs map[string]catalogEntry
+	descriptor func(context.Context, string) (cfg.BrowserDescriptor, error)
+	mu         sync.Mutex
+	configs    func(context.Context) ([]cfg.BrowserDescriptor, error)
+	catalogs   map[string]catalogEntry
 }
 
-func New(loader func(context.Context) ([]cfg.BrowserDescriptor, error)) *Registry {
-	return &Registry{configs: loader, catalogs: map[string]catalogEntry{}}
+func New(loader func(context.Context) ([]cfg.BrowserDescriptor, error), descriptor ...func(context.Context, string) (cfg.BrowserDescriptor, error)) *Registry {
+	r := &Registry{configs: loader, catalogs: map[string]catalogEntry{}}
+	if len(descriptor) == 1 {
+		r.descriptor = descriptor[0]
+	}
+	return r
 }
 func (r *Registry) Descriptors(ctx context.Context) ([]cfg.BrowserDescriptor, error) {
 	if r == nil || r.configs == nil {
@@ -191,7 +198,7 @@ func (r *Registry) Register(ctx context.Context, user string, in Registration) (
 		}
 		tools = append(tools, agui.Tool{Name: alias(in.Server, tool.Name), Description: description, Parameters: parameters, Metadata: meta})
 	}
-	catalog := Catalog{ID: id, Hash: hash(tools), ConnectionID: in.ConnectionID, ConversationID: in.ConversationID, ThreadID: in.ThreadID, Server: in.Server, Tools: tools, Resources: in.Resources, ExpiresAt: time.Now().Add(15 * time.Minute)}
+	catalog := Catalog{ID: id, Hash: hash(tools), ConnectionID: in.ConnectionID, ConversationID: in.ConversationID, ThreadID: in.ThreadID, Server: in.Server, Tools: tools, Resources: in.Resources, ExpiresAt: time.Now().Add(catalogIdleTTL)}
 	raw, _ := json.Marshal(catalog)
 	if len(raw) > 256*1024 {
 		return Catalog{}, ErrUnavailable
@@ -353,35 +360,101 @@ func VerifyResultMetadata(name string, expected, actual json.RawMessage) error {
 	return nil
 }
 
-func (r *Registry) Current(ctx context.Context, user, id string) (Catalog, error) {
+// CatalogStatus is the per-call identity/revocation projection. Tool schemas
+// are immutable within a catalog and were already delivered at registration.
+type CatalogStatus struct {
+	ID             string    `json:"id"`
+	Hash           string    `json:"hash"`
+	ConnectionID   string    `json:"connectionId"`
+	ConversationID string    `json:"conversationId"`
+	ThreadID       string    `json:"threadId"`
+	Server         string    `json:"server"`
+	ExpiresAt      time.Time `json:"expiresAt"`
+}
+
+func (r *Registry) currentEntry(ctx context.Context, user, id string) (catalogEntry, error) {
 	if r == nil {
-		return Catalog{}, currentFailure("catalogMissing")
+		return catalogEntry{}, currentFailure("catalogMissing")
 	}
 	r.mu.Lock()
 	entry, ok := r.catalogs[id]
 	r.mu.Unlock()
 	if !ok {
-		return Catalog{}, currentFailure("catalogMissing")
+		return catalogEntry{}, currentFailure("catalogMissing")
 	}
 	if entry.owner != user {
-		return Catalog{}, currentFailure("catalogOwnerMismatch")
+		return catalogEntry{}, currentFailure("catalogOwnerMismatch")
 	}
 	if !entry.catalog.ExpiresAt.After(time.Now()) {
-		return Catalog{}, currentFailure("catalogExpired")
+		return catalogEntry{}, currentFailure("catalogExpired")
 	}
-	configs, err := r.Descriptors(ctx)
-	if err != nil {
-		return Catalog{}, currentFailure("catalogConfigUnavailable")
-	}
-	for _, config := range configs {
-		if config.Name == entry.catalog.Server && hash(config) == entry.configHash {
-			raw, _ := json.Marshal(entry.catalog)
-			var result Catalog
-			_ = json.Unmarshal(raw, &result)
-			return result, nil
+	current := false
+	if r.descriptor != nil {
+		config, err := r.descriptor(ctx, entry.catalog.Server)
+		if err != nil {
+			return catalogEntry{}, currentFailure("catalogConfigUnavailable")
+		}
+		current = config.Name == entry.catalog.Server && hash(config) == entry.configHash
+	} else {
+		configs, err := r.Descriptors(ctx)
+		if err != nil {
+			return catalogEntry{}, currentFailure("catalogConfigUnavailable")
+		}
+		for _, config := range configs {
+			if config.Name == entry.catalog.Server && hash(config) == entry.configHash {
+				current = true
+				break
+			}
 		}
 	}
-	return Catalog{}, currentFailure("catalogConfigChanged")
+	if !current {
+		return catalogEntry{}, currentFailure("catalogConfigChanged")
+	}
+	if err := ctx.Err(); err != nil {
+		return catalogEntry{}, err
+	}
+	// Reconfiguration/revocation during the fresh descriptor read must win.
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	after, present := r.catalogs[id]
+	if !present {
+		return catalogEntry{}, currentFailure("catalogMissing")
+	}
+	if after.owner != user {
+		return catalogEntry{}, currentFailure("catalogOwnerMismatch")
+	}
+	if after.configHash != entry.configHash || after.catalog.Hash != entry.catalog.Hash || after.catalog.ConnectionID != entry.catalog.ConnectionID {
+		return catalogEntry{}, currentFailure("catalogConfigChanged")
+	}
+	if !after.catalog.ExpiresAt.After(time.Now()) {
+		return catalogEntry{}, currentFailure("catalogExpired")
+	}
+	if err := ctx.Err(); err != nil {
+		return catalogEntry{}, err
+	}
+	// Only this authenticated, freshly config-validated request renews the
+	// existing catalog identity. Revocation and ownership checks above win.
+	after.catalog.ExpiresAt = time.Now().Add(catalogIdleTTL)
+	r.catalogs[id] = after
+	return after, nil
+}
+func (r *Registry) CurrentStatus(ctx context.Context, user, id string) (CatalogStatus, error) {
+	entry, err := r.currentEntry(ctx, user, id)
+	if err != nil {
+		return CatalogStatus{}, err
+	}
+	c := entry.catalog
+	return CatalogStatus{c.ID, c.Hash, c.ConnectionID, c.ConversationID, c.ThreadID, c.Server, c.ExpiresAt}, nil
+}
+func (r *Registry) Current(ctx context.Context, user, id string) (Catalog, error) {
+	entry, err := r.currentEntry(ctx, user, id)
+	if err != nil {
+		return Catalog{}, err
+	}
+	raw, _ := json.Marshal(entry.catalog)
+	var result Catalog
+	_ = json.Unmarshal(raw, &result)
+	return result, nil
 }
 
 func boundedSchema(value any, depth int, budget *int) bool {

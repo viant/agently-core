@@ -50,6 +50,7 @@ type QueueRowView struct {
 	ApprovedByUserId *string    `sqlx:"approved_by_user_id"`
 	ApprovedAt       *time.Time `sqlx:"approved_at"`
 	ExecutedAt       *time.Time `sqlx:"executed_at"`
+	CompletedAt      *time.Time `sqlx:"completed_at" json:"completedAt"`
 	ErrorMessage     *string    `sqlx:"error_message"`
 	CreatedAt        time.Time  `sqlx:"created_at"`
 	UpdatedAt        *time.Time `sqlx:"updated_at"`

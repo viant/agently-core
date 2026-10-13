@@ -10,7 +10,6 @@ import (
 	"github.com/viant/agently-core/internal/auth/mcpauth"
 	toolmatcher "github.com/viant/agently-core/internal/tool/matcher"
 	agentmdl "github.com/viant/agently-core/protocol/agent"
-	"github.com/viant/agently-core/protocol/binding"
 	mcpname2 "github.com/viant/agently-core/protocol/mcpname"
 	skillproto "github.com/viant/agently-core/protocol/skill"
 	toolctx "github.com/viant/agently-core/protocol/tool"
@@ -327,22 +326,6 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 }
 
 func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, control agenttool.Selection) ([]llm.ToolDefinition, error) {
-	key := toolSelectionCacheKey(control)
-	if profile := selectedPromptProfileFromContext(ctx); profile != nil && profile.ResourceURI != "" {
-		key += "|" + profile.ResourceURI + "|" + profile.ResourceProviderIdentity + "|" + profile.ResourceFingerprint
-	}
-	if len(browsermcp.Definitions(ctx)) > 0 {
-		key = ""
-	}
-	if key != "" {
-		if cached, ok := s.toolSurfaceCache.Load(key); ok {
-			if entry, ok := cached.(*resolvedToolSurface); ok && entry != nil {
-				s.applyResolvedToolSurfaceMetadata(ctx, entry)
-				return cloneToolDefinitions(entry.Definitions), nil
-			}
-		}
-	}
-
 	entry := &resolvedToolSurface{Complete: true}
 	if len(control.Bundles) > 0 {
 		res, err := s.resolveBundleResult(ctx, control.Bundles)
@@ -361,12 +344,9 @@ func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, cont
 	}
 	entry.Definitions = dedupeDefinitions(entry.Definitions)
 	entry.Definitions = augmentPromptApprovalReviewDefinitions(entry.Definitions, entry.ApprovalByID)
-	// External MCP definitions can become available after delegated OAuth or a
-	// lazy discovery reconnect. Caching an empty surface makes that transient
-	// state permanent for the process, so only cache successful resolutions.
-	if key != "" && len(entry.Definitions) > 0 && entry.Complete {
-		s.toolSurfaceCache.Store(key, entry)
-	}
+	// Assemble bundle/approval metadata from independently cached catalog
+	// components. A whole-selection cache can leak private tools across users
+	// or invalidate unrelated backend tools when a browser catalog changes.
 	s.applyResolvedToolSurfaceMetadata(ctx, entry)
 	return cloneToolDefinitions(entry.Definitions), nil
 }
@@ -398,39 +378,6 @@ func (s *Service) promptApprovalConfigsForSelection(ctx context.Context, control
 	return out, nil
 }
 
-func (s *Service) reapplyPromptApprovalReviewToolSurface(ctx context.Context, input *QueryInput, b *binding.Binding) error {
-	if s == nil || input == nil || b == nil || len(b.Tools.Signatures) == 0 {
-		return nil
-	}
-	control, err := s.resolveToolControl(ctx, input)
-	if err != nil {
-		return err
-	}
-	approvalByID, err := s.promptApprovalConfigsForSelection(ctx, control)
-	if err != nil {
-		return err
-	}
-	if len(approvalByID) == 0 {
-		return nil
-	}
-	defs := make([]llm.ToolDefinition, 0, len(b.Tools.Signatures))
-	for _, sig := range b.Tools.Signatures {
-		if sig == nil {
-			continue
-		}
-		defs = append(defs, cloneToolDefinition(*sig))
-	}
-	defs = augmentPromptApprovalReviewDefinitions(defs, approvalByID)
-	updated := make([]*llm.ToolDefinition, 0, len(defs))
-	for i := range defs {
-		def := defs[i]
-		def.Normalize()
-		updated = append(updated, &def)
-	}
-	b.Tools.Signatures = dedupeToolDefinitions(updated)
-	return nil
-}
-
 func (s *Service) resolveBundleDefinitions(ctx context.Context, bundleIDs []string) ([]llm.ToolDefinition, error) {
 	res, err := s.resolveBundleResult(ctx, bundleIDs)
 	if err != nil {
@@ -458,6 +405,9 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 		AsyncByID:    map[string]*llm.Tool{},
 		Complete:     true,
 	}
+	// Bundle rules and exclusions often repeat the same patterns. Reuse their
+	// matches during this resolution without caching across users or catalogs.
+	patternMatches := map[string][]*llm.ToolDefinition{}
 	for _, id := range bundleIDs {
 		key := strings.ToLower(strings.TrimSpace(id))
 		b := bundles[key]
@@ -479,9 +429,15 @@ func (s *Service) resolveBundleResult(ctx context.Context, bundleIDs []string) (
 			continue
 		}
 		res := toolbundle.ResolveDefinitionsWithOptions(b, func(pattern string) []*llm.ToolDefinition {
+			if definitions, ok := patternMatches[pattern]; ok {
+				return definitions
+			}
 			definitions, matchErr := s.matchDefinitionsResult(ctx, pattern)
 			if err == nil && matchErr != nil {
 				err = matchErr
+			}
+			if matchErr == nil {
+				patternMatches[pattern] = definitions
 			}
 			return definitions
 		})
@@ -778,17 +734,9 @@ func (s *Service) matchDefinitionsResult(ctx context.Context, pattern string) ([
 		// This exact server's available tools come only from the verified
 		// browser catalog, including empty matches used by bundle exclusions.
 		// Never discover a backend client or cache these document-bound tools.
-		return matched, nil
+		return s.cachedBrowserToolDefinitions(ctx, namespace, pattern, matched), nil
 	}
-	var backend []*llm.ToolDefinition
-	var err error
-	if cm, ok := s.registry.(toolctx.ContextMatcherWithError); ok {
-		backend, err = cm.MatchDefinitionWithContextResult(ctx, pattern)
-	} else if cm, ok := s.registry.(toolctx.ContextMatcher); ok {
-		backend = cm.MatchDefinitionWithContext(ctx, pattern)
-	} else {
-		backend = s.registry.MatchDefinition(pattern)
-	}
+	backend, err := s.cachedBackendToolDefinitions(ctx, pattern)
 	return append(backend, matched...), err
 }
 

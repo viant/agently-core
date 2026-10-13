@@ -102,7 +102,7 @@ func (s *Service) toolMessageResponseBody(ctx context.Context, tm *conversationm
 	}
 	payloadID := strings.TrimSpace(tm.ToolCall.ResponsePayload.Id)
 	if payloadID != "" && s != nil && s.conversation != nil {
-		payload, err := s.conversation.GetPayload(ctx, payloadID)
+		payload, err := s.bindingPayload(ctx, payloadID)
 		if err != nil && logx.Enabled() {
 			tn := ""
 			if tm.ToolName != nil {
@@ -249,7 +249,7 @@ func (s *Service) attachmentsFromMessage(ctx context.Context, msg *apiconv.Messa
 		}
 	}
 
-	payload, err := s.conversation.GetPayload(ctx, payloadID)
+	payload, err := s.bindingPayload(ctx, payloadID)
 	if err != nil {
 		return nil, fmt.Errorf("get attachment payload %q: %w", payloadID, err)
 	}

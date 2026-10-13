@@ -1,4 +1,4 @@
-import { browserMCPSetupMessage, recordBrowserMCPLifecycle, type BrowserMCPHost } from './browserMCP';
+import { browserMCPSetupMessage, finishBrowserTiming, recordBrowserMCPLifecycle, type BrowserMCPHost } from './browserMCP';
 import type { ClientTool } from './agui';
 import type { AgentSubscriber } from '@ag-ui/client';
 import type { Message, State } from '@ag-ui/core';
@@ -44,6 +44,9 @@ interface RunSlot {
     session: AgUiSession;
     nativeTurnId?: string;
     hasBrowserTools?: boolean;
+    browserToolNames?: Set<string>;
+    firstBrowserToolAt?: number;
+    terminalAt?: number;
     stopProjection(): void;
     completion: Promise<unknown>;
 }
@@ -56,6 +59,7 @@ interface Entry {
     listeners: Set<AgUiConversationHandlers>;
     runs: Map<string, RunSlot>;
     terminalTurns: Set<string>;
+    streamedTerminalTurns: Set<string>;
     browserNativeTurns: Set<string>;
     state: State;
     hostActivities: Map<string, Message>;
@@ -132,6 +136,7 @@ export class AgUiConversationTransport {
             }
         }, input.displayQuery);
         slot.hasBrowserTools = browserTools.length > 0;
+        slot.browserToolNames = new Set(browserTools.map(item => item.tool.name));
         const selection = {
             agentId: input.agentId, model: input.model, backendTools: input.tools,
             toolBundles: input.toolBundles, autoSelectTools: input.autoSelectTools,
@@ -173,13 +178,26 @@ export class AgUiConversationTransport {
         });
     }
 
+    /** Only primary-stream terminal events prove the subscribed view is complete. */
+    hasStreamedTurnCompletion(conversationId: string, turnId: string): boolean {
+        return !!turnId && this.entries.get(conversationId)?.streamedTerminalTurns.has(turnId) === true;
+    }
+
+    /** A primary run owns recovery if its native completion arrives first. */
+    observesTurn(conversationId: string, turnId: string): boolean {
+        if (!turnId) return false;
+        const entry = this.entries.get(conversationId);
+        return !!entry && (entry.streamedTerminalTurns.has(turnId)
+            || [...entry.runs.values()].some(slot => slot.nativeTurnId === turnId));
+    }
+
     refresh(conversationId: string): Promise<AgUiConversationBootstrapResult> {
         const entry = this.entry(conversationId);
         if (entry.loading) return entry.loading;
         const runId = crypto.randomUUID();
         const commands = new AgUiCommands(this.host.agUiTransport());
         const pending = this.resolveProtocolThread(entry).then(threadId => {
-        const command = commands.start('conversation.bootstrap', { mode: 'live', includeModelCalls: true, includeToolCalls: true, includeFeeds: true }, { threadId, runId, requestId: runId });
+        const command = commands.start('conversation.bootstrap', { mode: 'live', includeModelCalls: true, includeToolCalls: true, includeFeeds: true, includeModelPayloads: false }, { threadId, runId, requestId: runId });
         entry.bootstrapHandle = command;
         return command.result;
         }).then(result => {
@@ -270,6 +288,9 @@ export class AgUiConversationTransport {
                         canonicalCount: pendingNames.filter(name => canonicalKeys.filter(key => key === canonical(name)).length === 1).length,
                         slashCount: pendingNames.filter(name => name.includes('/')).length, dashCount: pendingNames.filter(name => name.includes('-')).length });
                 }
+                finishBrowserTiming('handoff.pendingToHandler', current.firstBrowserToolAt);
+                finishBrowserTiming('handoff.terminalToHandler', current.terminalAt);
+                const handlersStarted = globalThis.performance?.now();
                 let responses: Record<string, import('./agui').InterruptResponse> | undefined;
                 if (snapshot.pendingToolCallIds.length) await session.client.executeClientTools(tools);
                 else if (snapshot.interrupts.length && snapshot.interrupts.every(interrupt => {
@@ -277,15 +298,20 @@ export class AgUiConversationTransport {
                     return interrupt.reason === 'agently.client_tool' && marker?.version === '1' && marker?.kind === 'client-tool';
                 })) responses = await session.client.executeClientToolInterrupts(tools);
                 else return; // Human approvals and unrelated interrupts keep their ordinary UI flow.
+                finishBrowserTiming('handoff.handlers', handlersStarted);
                 current.stopProjection();
                 if (entry.runs.get(current.id) === current) entry.runs.delete(current.id);
                 const nextRunId = crypto.randomUUID();
                 current = this.track(entry, nextRunId, session, session.getSnapshot().messages);
                 current.hasBrowserTools = true;
+                current.browserToolNames = new Set(tools.map(item => item.tool.name));
                 const parameters = { runId: nextRunId, parentRunId: snapshot.runId, tools: tools.map(item => item.tool) };
                 recordBrowserMCPLifecycle('continuation', { stage: 'resume', pendingCount: snapshot.pendingToolCallIds.length, interruptCount: snapshot.interrupts.length });
-                if (responses) await session.resume(responses, parameters);
-                else await session.continue(parameters);
+                const continuationStarted = globalThis.performance?.now();
+                try {
+                    if (responses) await session.resume(responses, parameters);
+                    else await session.continue(parameters);
+                } finally { finishBrowserTiming('handoff.continuation', continuationStarted); }
             }
             throw new Error('Browser MCP continuation budget exhausted');
         } catch (error) {
@@ -308,7 +334,7 @@ export class AgUiConversationTransport {
         if (!id) throw new Error('A conversation identity is required');
         let entry = this.entries.get(id);
         if (!entry) {
-            entry = { pendingSubmissions: 0, reads: new Set(), id, generation: this.generation, listeners: new Set(), runs: new Map(), terminalTurns: new Set(), browserNativeTurns: new Set(), state: {}, hostActivities: new Map(), unavailableHostActivityIds: [] };
+            entry = { pendingSubmissions: 0, reads: new Set(), id, generation: this.generation, listeners: new Set(), runs: new Map(), terminalTurns: new Set(), streamedTerminalTurns: new Set(), browserNativeTurns: new Set(), state: {}, hostActivities: new Map(), unavailableHostActivityIds: [] };
             this.entries.set(id, entry);
         }
         return entry;
@@ -320,7 +346,9 @@ export class AgUiConversationTransport {
         const slot: RunSlot = { id: runId, session, stopProjection: () => {}, completion: Promise.resolve() };
         const identity = session.subscribeProtocol({ onRunStartedEvent: ({ event }) => {
             slot.nativeTurnId = readAgentlyPresentation(event.metadata)?.nativeTurnId;
-        } });
+        }, onToolCallStartEvent: ({ event }) => {
+            if (slot.firstBrowserToolAt === undefined && slot.browserToolNames?.has(event.toolCallName)) slot.firstBrowserToolAt = globalThis.performance?.now();
+        }, onRunFinishedEvent: () => { slot.terminalAt = globalThis.performance?.now(); } });
         const projection = this.project({ profile: 'agently', conversationId: entry.id, runId,
             baselineMessages, displayQuery, allowHostEffects: true,
             onDescriptor: descriptor => {
@@ -334,6 +362,9 @@ export class AgUiConversationTransport {
             }, onViewEvent: event => {
                 if (!this.current(entry)) return;
                 if (event.turnId && ['turn_started', 'turn_queued'].includes(event.type)) slot.nativeTurnId = event.turnId;
+                if (event.turnId && ['turn_completed', 'turn_failed', 'turn_canceled'].includes(event.type)) {
+                    entry.streamedTerminalTurns.add(event.turnId);
+                }
                 onViewEvent?.(event);
                 if (event.turnId && entry.terminalTurns.has(event.turnId) && /^(turn_started|turn_queued|model_|tool_call_|text_delta|reasoning_delta)/.test(event.type)) return;
                 for (const listener of entry.listeners) {
@@ -373,7 +404,9 @@ export class AgUiConversationTransport {
         slot.stopProjection();
         if (entry.runs.get(slot.id) === slot) entry.runs.delete(slot.id);
         this.closeBrowserIfIdle(entry);
-        if (this.current(entry) && (entry.listeners.size || slot.hasBrowserTools) && slot.session.getSnapshot().phase !== 'detached') {
+        const viewComplete = !!slot.nativeTurnId && entry.streamedTerminalTurns.has(slot.nativeTurnId);
+        if (this.current(entry) && (entry.listeners.size || slot.hasBrowserTools) && slot.session.getSnapshot().phase !== 'detached'
+            && (!viewComplete || slot.hasBrowserTools)) {
             // One authoritative refresh after completion; no permanent polling
             // loop or implicit resubmission of an interrupted protocol run.
             void this.refreshAfterCompletion(entry).catch(error => this.error(entry, error));
@@ -383,7 +416,7 @@ export class AgUiConversationTransport {
     private async refreshAfterCompletion(entry: Entry) {
         const commands = new AgUiCommands(this.host.agUiTransport());
         const runId = crypto.randomUUID();
-        const result = await commands.execute('conversation.bootstrap', { mode: 'live' }, { threadId: entry.protocolThreadId ?? entry.id, runId, requestId: runId });
+        const result = await commands.execute('conversation.bootstrap', { mode: 'live', includeModelPayloads: false }, { threadId: entry.protocolThreadId ?? entry.id, runId, requestId: runId });
         if (!result || !this.current(entry)) return;
         entry.bootstrap = result;
         this.updateTerminalTurns(entry, result);

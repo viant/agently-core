@@ -180,6 +180,11 @@ func resumeTurnQuery(turn *apiconv.Turn) string {
 		if message == nil || !strings.EqualFold(strings.TrimSpace(message.Role), "user") {
 			continue
 		}
+		// Tool-produced attachment carriers are user-role transport data, not
+		// a new user instruction. Keep the latest actual task or follow-up.
+		if isAttachmentCarrier((*apiconv.Message)(message)) {
+			continue
+		}
 		if message.ContextSummary != nil && *message.ContextSummary == clienttool.ItemsMIME && message.RawContent != nil {
 			var items []llm.ContentItem
 			if json.Unmarshal([]byte(*message.RawContent), &items) == nil {
