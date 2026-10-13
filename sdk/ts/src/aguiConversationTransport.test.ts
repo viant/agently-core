@@ -92,7 +92,7 @@ describe('native web conversation orchestration', () => {
         expect(f.transport.observesTurn('thread', turnId)).toBe(true);
         expect(f.transport.observesTurn('thread', 'external-turn')).toBe(false);
         f.controls.get(runId)!.enqueue(frame({ type: 'ACTIVITY_SNAPSHOT', messageId: `activity-${runId}`,
-            activityType: 'agently.turn', content: { version: '1', nativeTurnId: turnId, status } }));
+            activityType: 'agently.turn', content: { version: '1', nativeTurnId: turnId, status, queueSequence: '0' } }));
         await vi.waitFor(() => expect(f.transport.hasStreamedTurnCompletion('thread', turnId)).toBe(true));
         f.finish(runId);
         // Let the run completion/finally callbacks settle before checking reads.
