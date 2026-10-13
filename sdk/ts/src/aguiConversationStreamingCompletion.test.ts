@@ -58,7 +58,10 @@ describe('stream-owned conversation completion', () => {
             f.send({ type: 'ACTIVITY_SNAPSHOT', messageId: 'answer/activity', activityType: 'agently.rendered-content', content: { version: '1', renderedContent: { parts: [{ kind: 'data', data: { id: 'image-reference', payload: { uri: 'scratchpad://public/screenshot.png' } } }] } }, metadata });
             f.send({ type: 'ACTIVITY_SNAPSHOT', messageId: 'host-artifact', activityType: 'mcp-apps', content: { resourceUri: 'ui://public/artifact' } });
             f.send(lifecycle(status)); f.terminal(status); await f.settled();
+            expect(initial).toBe(1);
             expect(f.bootstraps()).toHaveLength(initial);
+            expect(f.posted).toHaveLength(2);
+            expect(f.transport.hasStreamedTurnCompletion('thread', 'native-turn')).toBe(true);
             expect(f.views.some(e => e.type === 'text_delta' && e.content === 'public answer')).toBe(true);
             expect(f.views.some(e => e.type === 'tool_call_completed' && e.responsePayload?.resources?.[0]?.uri === 'scratchpad://public/screenshot.png')).toBe(true);
             expect(f.views.some(e => e.renderedContent?.parts?.[0]?.data?.payload?.uri === 'scratchpad://public/screenshot.png')).toBe(true);
@@ -70,21 +73,37 @@ describe('stream-owned conversation completion', () => {
         } finally { f.close(); }
     });
 
-    it.each(['missing', 'foreign', 'child', 'invalid'])('reconciles one compact snapshot when native terminal is %s', async kind => {
+    it.each(['completed', 'failed', 'canceled'])('uses reduced native %s activity deltas without rediscovery', async status => {
+        const f = fixture();
+        try {
+            await f.transport.query({ conversationId: 'thread', query: 'public synthetic question' });
+            f.send({ type: 'ACTIVITY_DELTA', messageId: 'native-turn/status', activityType: 'agently.turn', patch: [{ op: 'replace', path: '/status', value: status }] });
+            await vi.waitFor(() => expect(f.transport.hasStreamedTurnCompletion('thread', 'native-turn')).toBe(true));
+            f.terminal(status); await f.settled();
+            expect(f.bootstraps()).toHaveLength(1);
+            expect(f.posted).toHaveLength(2);
+            expect(f.bootstraps()[0].forwardedProps.agently.payload.includeModelPayloads).toBe(false);
+        } finally { f.close(); }
+    });
+
+    it.each(['missing', 'foreign', 'foreign-conversation', 'child', 'invalid'])('reconciles one compact snapshot when native terminal is %s', async kind => {
         const f = fixture();
         try {
             await f.transport.query({ conversationId: 'thread', query: 'public synthetic question' }); const initial = f.bootstraps().length;
             if (kind === 'foreign') f.send({ ...lifecycle('completed'), content: { version: '1', nativeTurnId: 'different-turn', status: 'completed', queueSequence: '0' } });
+            if (kind === 'foreign-conversation') f.send(lifecycle('completed', { metadata: { agently: { presentation: { ...metadata.agently.presentation, conversationId: 'other-thread' } } } }));
             if (kind === 'child') f.send(lifecycle('completed', { subagentRunId: 'child-run' }));
             if (kind === 'invalid') f.send({ ...lifecycle('completed'), content: { nativeTurnId: 'native-turn', status: 'completed' } });
             f.terminal('completed'); await f.settled();
             await vi.waitFor(() => expect(f.bootstraps()).toHaveLength(initial + 1));
             expect(f.bootstraps().at(-1).forwardedProps.agently.payload.includeModelPayloads).toBe(false);
             expect(f.posted.filter(p => p.forwardedProps?.agently?.operation !== 'conversation.bootstrap')).toHaveLength(1);
+            expect(f.posted).toHaveLength(initial + 2);
+            expect(f.bootstraps().every(input => input.forwardedProps.agently.payload.includeModelPayloads === false)).toBe(true);
         } finally { f.close(); }
     });
 
-    it('keeps native waiting and original browser calls through a handoff, then uses the final streamed terminal', async () => {
+    it('keeps native waiting and original browser calls through a handoff, then reconciles browser ownership once after the final streamed terminal', async () => {
         let release!: () => void;
         const waiting = new Promise<void>(resolve => { release = resolve; });
         const execute = vi.fn(async () => { await waiting; return { content: '{"resources":[{"uri":"scratchpad://public/result.png"}]}' }; });
@@ -105,7 +124,11 @@ describe('stream-owned conversation completion', () => {
             expect(continued.parentRunId).toBe(original.runId);
             expect(continued.messages).toContainEqual(expect.objectContaining({ role: 'tool', toolCallId: 'original-call', content: '{"resources":[{"uri":"scratchpad://public/result.png"}]}' }));
             f.send(lifecycle('completed')); f.terminal('completed'); await f.settled();
-            expect(f.bootstraps()).toHaveLength(initial); expect(execute).toHaveBeenCalledOnce();
+            await vi.waitFor(() => expect(f.bootstraps()).toHaveLength(initial + 1));
+            expect(f.bootstraps().every(input => input.forwardedProps.agently.payload.includeModelPayloads === false)).toBe(true);
+            expect(f.posted).toHaveLength(initial + 3); // two chat requests and one final browser reconciliation
+            expect(f.snapshots.at(-1).turns[0]).toMatchObject({ turnId: 'native-turn', status: 'completed' });
+            expect(execute).toHaveBeenCalledOnce();
         } finally { release(); f.close(); }
     });
 
@@ -117,6 +140,8 @@ describe('stream-owned conversation completion', () => {
             await vi.waitFor(() => expect(f.bootstraps()).toHaveLength(initial + 1));
             expect(f.bootstraps().at(-1).forwardedProps.agently.payload.includeModelPayloads).toBe(false);
             expect(f.posted.filter(p => p.forwardedProps?.agently?.operation !== 'conversation.bootstrap')).toHaveLength(1);
+            expect(f.posted).toHaveLength(initial + 2);
+            expect(f.bootstraps().every(input => input.forwardedProps.agently.payload.includeModelPayloads === false)).toBe(true);
         } finally { f.close(); }
     });
 
@@ -128,6 +153,8 @@ describe('stream-owned conversation completion', () => {
             f.disconnect(); await vi.waitFor(() => expect(f.bootstraps()).toHaveLength(initial + 1));
             expect(f.bootstraps().at(-1).forwardedProps.agently.payload.includeModelPayloads).toBe(false);
             expect(f.posted.filter(p => p.forwardedProps?.agently?.operation !== 'conversation.bootstrap')).toHaveLength(1);
+            expect(f.posted).toHaveLength(initial + 2);
+            expect(f.bootstraps().every(input => input.forwardedProps.agently.payload.includeModelPayloads === false)).toBe(true);
         } finally { f.close(); }
     });
 });
