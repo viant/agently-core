@@ -304,3 +304,45 @@ func TestDurableRunEventsUsePersistedLifecycleAfterRestartAndExactWindowID(t *te
 		t.Fatal("cross-owner durable report.run was accepted")
 	}
 }
+
+func TestRecordInlineReportEventsWithoutBridgeWindow(t *testing.T) {
+	for _, withWindow := range []bool{false, true} {
+		bridge := forgeuisvc.NewService(&forgeuisvc.Config{})
+		if withWindow {
+			seedEventWindow(t, bridge)
+		}
+		service := New(bridge)
+		ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+		for _, kind := range []string{"report.context_updated", "report.export_start", "report.export_complete"} {
+			out := &RecordOutput{}
+			err := service.record(ctx, &RecordInput{Kind: kind, Detail: map[string]interface{}{
+				"sourceKind": "inline", "reportId": "spend-drop",
+			}}, out)
+			if err != nil {
+				t.Fatalf("record %s (window=%v): %v", kind, withWindow, err)
+			}
+			if !out.Recorded || out.Event.ConversationID != "conv-1" || out.Event.WindowID != "" || out.Event.ClientID != "" || out.Event.WindowKey != "" {
+				t.Fatalf("expected conversation-scoped inline event, got %#v", out)
+			}
+		}
+	}
+}
+
+func TestInlineReportEventsDoNotBypassWindowAuthorization(t *testing.T) {
+	service := New(forgeuisvc.NewService(&forgeuisvc.Config{}))
+	ctx := runtimerequestctx.WithConversationID(context.Background(), "conv-1")
+	for _, input := range []*RecordInput{
+		{Kind: "report.export_start", WindowID: "unknown", Detail: map[string]interface{}{"sourceKind": "inline"}},
+		{Kind: "report.export_start", ClientID: "unknown", Detail: map[string]interface{}{"sourceKind": "inline"}},
+		{Kind: "report.export_start", WindowKey: "unknown", Detail: map[string]interface{}{"sourceKind": "inline"}},
+		{Kind: "report.run_start", Detail: map[string]interface{}{"sourceKind": "inline"}},
+		{Kind: "report.export_start"},
+	} {
+		if err := service.record(ctx, input, &RecordOutput{}); err == nil {
+			t.Fatalf("expected rejection for %#v", input)
+		}
+	}
+	if err := service.record(context.Background(), &RecordInput{Kind: "report.export_start", Detail: map[string]interface{}{"sourceKind": "inline"}}, &RecordOutput{}); err == nil {
+		t.Fatal("expected missing conversation to be rejected")
+	}
+}
