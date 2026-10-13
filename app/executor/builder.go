@@ -949,7 +949,7 @@ func (b *Builder) Build(ctx context.Context) (*Runtime, error) {
 	if (b.windowOpenBootstrap == nil) != (b.windowOpenSelection == nil) {
 		return nil, fmt.Errorf("window open bootstrap requires explicit selection matcher")
 	}
-	if out.PermittedResolver == nil && out.AuthorizationTool != "" && b.windowOpenBootstrap != nil {
+	if out.PermittedResolver == nil && out.AuthorizationTool != "" {
 		execute, ok := any(out.Registry).(permittedview.ToolExecutor)
 		if !ok {
 			return nil, fmt.Errorf("configured MCP permission executor is unavailable")
