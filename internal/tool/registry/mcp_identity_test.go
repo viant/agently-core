@@ -19,6 +19,38 @@ type exactIdentityClient struct {
 	called string
 }
 
+type countedIdentityManager struct {
+	discoveryManagerStub
+	optionCalls int
+}
+
+func (m *countedIdentityManager) Options(ctx context.Context, server string) (*config.MCPClient, error) {
+	m.optionCalls++
+	return m.discoveryManagerStub.Options(ctx, server)
+}
+
+func TestAdvertisedIdentityChecksOnlyMatchingCatalogAuthority(t *testing.T) {
+	m := &countedIdentityManager{discoveryManagerStub: discoveryManagerStub{options: &config.MCPClient{ToolsListVisibility: config.ToolsListVisibilityPublic}}}
+	r := &Registry{mgr: m, cache: map[string]*toolCacheEntry{}}
+	tools := make([]schema.Tool, 2000)
+	for i := range tools {
+		tools[i].Name = fmt.Sprintf("tool%d", i)
+	}
+	r.mergeServerTools("large", tools)
+	m.optionCalls = 0
+	server, method, found, err := r.discoveredMCPIdentity(context.Background(), "large/tool123")
+	require.NoError(t, err)
+	require.True(t, found)
+	require.Equal(t, "large", server)
+	require.Equal(t, "tool123", method)
+	require.LessOrEqual(t, m.optionCalls, 2, "unrelated tool aliases must not load configuration")
+	m.optionCalls = 0
+	_, _, found, err = r.discoveredMCPIdentity(context.Background(), "absent/tool")
+	require.NoError(t, err)
+	require.False(t, found)
+	require.Zero(t, m.optionCalls)
+}
+
 func (c *exactIdentityClient) CallTool(_ context.Context, p *schema.CallToolRequestParams, _ ...client.RequestOption) (*schema.CallToolResult, error) {
 	c.called = p.Name
 	return &schema.CallToolResult{}, nil
