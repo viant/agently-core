@@ -118,9 +118,11 @@ func indexedWindowFixture(t *testing.T, uris ...string) (*LocalProvider, map[str
 
 func TestLocalWindowIndexListDoesNotResolveOrReadWindowBodies(t *testing.T) {
 	provider, sources, _, indexCalls := indexedWindowFixture(t, "window://team/orders", "window://team/inventory")
-	provider.windowListVisibility = func(context.Context, identity.VerifiedActor, LocalResourceBinding) (bool, error) {
-		return true, nil
-	}
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.WindowListVisibility = func(context.Context, identity.VerifiedActor, LocalResourceBinding) (bool, error) {
+			return true, nil
+		}
+	})
 	listed, err := provider.List(context.Background(), "window", primitive.ListRequest{Namespace: "team", Limit: 1})
 	require.NoError(t, err)
 	require.Len(t, listed.Resources, 1)
@@ -142,9 +144,11 @@ func TestLocalWindowIndexListDoesNotResolveOrReadWindowBodies(t *testing.T) {
 
 func TestLocalWindowIndexFiltersGroupsAndPrivateNamespaces(t *testing.T) {
 	provider, sources, _, _ := indexedWindowFixture(t, "window://team/hidden", "window://private/owner-only")
-	provider.windowListVisibility = func(_ context.Context, _ identity.VerifiedActor, binding LocalResourceBinding) (bool, error) {
-		return binding.URI != "window://team/hidden", nil
-	}
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.WindowListVisibility = func(_ context.Context, _ identity.VerifiedActor, binding LocalResourceBinding) (bool, error) {
+			return binding.URI != "window://team/hidden", nil
+		}
+	})
 	listed, err := provider.List(context.Background(), "window", primitive.ListRequest{})
 	require.NoError(t, err)
 	require.Empty(t, listed.Resources)
@@ -160,7 +164,9 @@ func TestLocalWindowIndexFiltersGroupsAndPrivateNamespaces(t *testing.T) {
 
 func TestLocalWindowIndexRequiresAuthenticatedActorBeforeSnapshot(t *testing.T) {
 	provider, _, _, indexCalls := indexedWindowFixture(t, "window://team/orders")
-	provider.actor = func(context.Context) (identity.VerifiedActor, error) { return identity.VerifiedActor{}, nil }
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.Actor = func(context.Context) (identity.VerifiedActor, error) { return identity.VerifiedActor{}, nil }
+	})
 	listed, err := provider.List(context.Background(), "window", primitive.ListRequest{})
 	require.Nil(t, listed)
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
@@ -171,13 +177,21 @@ func TestLocalWindowIndexDoesNotExtendOriginalActorLease(t *testing.T) {
 	provider, _, _, indexCalls := indexedWindowFixture(t, "window://team/orders")
 	clock := time.Now().UTC()
 	actor := identity.VerifiedActor{Subject: "index-user", Issuer: "https://fixture.invalid", TenantID: "team", AccountID: "account-index", IdentityRevision: "index-facts-1", ValidUntil: clock.Add(time.Second)}
-	provider.now = func() time.Time { return clock }
-	provider.actor = func(context.Context) (identity.VerifiedActor, error) { return actor, nil }
-	provider.verify = func(context.Context, identity.VerifiedActor) error { return nil }
-	provider.windowListVisibility = func(context.Context, identity.VerifiedActor, LocalResourceBinding) (bool, error) {
-		clock = actor.ValidUntil.Add(time.Nanosecond)
-		return true, nil
-	}
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.Now = func() time.Time { return clock }
+	})
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.Actor = func(context.Context) (identity.VerifiedActor, error) { return actor, nil }
+	})
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.Verify = func(context.Context, identity.VerifiedActor) error { return nil }
+	})
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.WindowListVisibility = func(context.Context, identity.VerifiedActor, LocalResourceBinding) (bool, error) {
+			clock = actor.ValidUntil.Add(time.Nanosecond)
+			return true, nil
+		}
+	})
 	listed, err := provider.List(context.Background(), "window", primitive.ListRequest{})
 	require.Nil(t, listed)
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
@@ -195,13 +209,15 @@ func TestLocalWindowIndexRejectsCallerRolesAndMetadataDrift(t *testing.T) {
 	}
 
 	mutated := false
-	provider.windowListVisibility = func(_ context.Context, _ identity.VerifiedActor, _ LocalResourceBinding) (bool, error) {
-		if !mutated {
-			(*index)[0].Title = "changed-during-visibility"
-			mutated = true
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.WindowListVisibility = func(_ context.Context, _ identity.VerifiedActor, _ LocalResourceBinding) (bool, error) {
+			if !mutated {
+				(*index)[0].Title = "changed-during-visibility"
+				mutated = true
+			}
+			return true, nil
 		}
-		return true, nil
-	}
+	})
 	listed, err := provider.List(context.Background(), "window", primitive.ListRequest{Namespace: "team"})
 	require.Nil(t, listed)
 	require.ErrorIs(t, err, identity.ErrResourceStale)
@@ -222,12 +238,14 @@ func TestLocalWindowIndexDoesNotWeakenAuthenticatedGet(t *testing.T) {
 	require.Equal(t, 1, sources["window://team/orders"].candidates)
 	require.Equal(t, 1, sources["window://team/orders"].reads)
 
-	provider.authorizer = func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, action string) error {
-		if action == "resource.get" {
-			return identity.ErrResourceDenied
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.Authorize = func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, action string) error {
+			if action == "resource.get" {
+				return identity.ErrResourceDenied
+			}
+			return nil
 		}
-		return nil
-	}
+	})
 	result, err = provider.Get(context.Background(), "window", primitive.GetRequest{URI: "window://team/orders"})
 	require.Nil(t, result)
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
@@ -235,15 +253,19 @@ func TestLocalWindowIndexDoesNotWeakenAuthenticatedGet(t *testing.T) {
 
 func TestLocalWindowIndexSuppressesGroupDenialAndFailsClosedOnProviderError(t *testing.T) {
 	provider, _, _, _ := indexedWindowFixture(t, "window://team/orders")
-	provider.windowListVisibility = func(context.Context, identity.VerifiedActor, LocalResourceBinding) (bool, error) {
-		return false, identity.ErrResourceDenied
-	}
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.WindowListVisibility = func(context.Context, identity.VerifiedActor, LocalResourceBinding) (bool, error) {
+			return false, identity.ErrResourceDenied
+		}
+	})
 	listed, err := provider.List(context.Background(), "window", primitive.ListRequest{})
 	require.NoError(t, err)
 	require.Empty(t, listed.Resources)
-	provider.windowListVisibility = func(context.Context, identity.VerifiedActor, LocalResourceBinding) (bool, error) {
-		return false, errors.New("visibility backend unavailable")
-	}
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.WindowListVisibility = func(context.Context, identity.VerifiedActor, LocalResourceBinding) (bool, error) {
+			return false, errors.New("visibility backend unavailable")
+		}
+	})
 	listed, err = provider.List(context.Background(), "window", primitive.ListRequest{})
 	require.Nil(t, listed)
 	require.ErrorContains(t, err, "visibility backend unavailable")
@@ -259,17 +281,19 @@ func TestLocalWindowIndexRechecksVisibilityAfterAllInitialGroupChecks(t *testing
 	provider, sources, _, indexCalls := indexedWindowFixture(t, uris...)
 	visibilityCalls := 0
 	revoked := false
-	provider.windowListVisibility = func(_ context.Context, _ identity.VerifiedActor, binding LocalResourceBinding) (bool, error) {
-		visibilityCalls++
-		if visibilityCalls == 20 {
-			// The last initial check revokes group-a without changing the actor.
-			revoked = true
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.WindowListVisibility = func(_ context.Context, _ identity.VerifiedActor, binding LocalResourceBinding) (bool, error) {
+			visibilityCalls++
+			if visibilityCalls == 20 {
+				// The last initial check revokes group-a without changing the actor.
+				revoked = true
+			}
+			if revoked && strings.HasPrefix(binding.URI, "window://team/group-a-") {
+				return false, nil
+			}
+			return true, nil
 		}
-		if revoked && strings.HasPrefix(binding.URI, "window://team/group-a-") {
-			return false, nil
-		}
-		return true, nil
-	}
+	})
 
 	listed, err := provider.List(context.Background(), "window", primitive.ListRequest{})
 	require.NoError(t, err)
@@ -288,7 +312,9 @@ func TestLocalWindowIndexRechecksVisibilityAfterAllInitialGroupChecks(t *testing
 
 func TestLocalWindowIndexWithoutGroupCallbackStaysMetadataOnly(t *testing.T) {
 	provider, sources, _, indexCalls := indexedWindowFixture(t, "window://team/orders", "window://team/inventory")
-	provider.windowListVisibility = nil
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.WindowListVisibility = nil
+	})
 	listed, err := provider.List(context.Background(), "window", primitive.ListRequest{Namespace: "team"})
 	require.NoError(t, err)
 	require.Len(t, listed.Resources, 2)

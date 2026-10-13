@@ -207,10 +207,10 @@ func TestReportGatewayListHidesOrdinaryDenialButRejectsIdentityAndOutages(t *tes
 	}{{"policy-permission", policy.ErrDenied, true}, {"authz-permission", authz.ErrDenied, true}, {"identity", policy.ErrIdentityRejected, false}, {"identity-joined-denial", errors.Join(identity.ErrResourceDenied, authz.ErrIdentityDenied), false}, {"outage", errors.New("host report policy unavailable"), false}} {
 		t.Run(scenario.name, func(t *testing.T) {
 			catalog, _, _, _, provider := reportGatewayFixture(t)
-			hidden := provider.bindings["report://steward/sales"]
+			hidden := localProviderBinding(provider, "report://steward/sales")
 			hidden.URI = "report://steward/hidden"
 			hidden.Title = "Hidden"
-			provider.bindings[hidden.URI] = hidden
+			updateLocalProvider(t, provider, func(config *LocalConfig) { setLocalConfigBinding(config, hidden) })
 			catalog.Admission = func(_ context.Context, _ string, pin identity.ResolvedResource, _ json.RawMessage) error {
 				if pin.URI == hidden.URI {
 					return scenario.failure

@@ -45,8 +45,12 @@ func TestGatewayLocalCallsPreserveOriginalIdentityWithSavedOAuthTokens(t *testin
 		}
 		return nil
 	}
-	provider.actor = resolve
-	provider.verify = verify
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.Actor = resolve
+	})
+	updateLocalProvider(t, provider, func(config *LocalConfig) {
+		config.Verify = verify
+	})
 	mgr, err := manager.New(nil, manager.WithTokenProvider(tokens))
 	require.NoError(t, err)
 	// An arbitrary registered name proves the distinction comes from manager

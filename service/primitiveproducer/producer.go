@@ -105,7 +105,7 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 	if err := checkNativeResources(config.NativeResources); err != nil {
 		return nil, err
 	}
-	p := &LocalProvider{nativeResources: append([]NativeResource(nil), config.NativeResources...), namespaceMetadata: config.NamespaceMetadata, identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
+	p := &LocalProvider{nativeResources: append([]NativeResource(nil), config.NativeResources...), namespaceMetadata: cloneNamespaceMetadata(config.NamespaceMetadata), identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
 	if p.now == nil {
 		p.now = time.Now
 	}
@@ -129,6 +129,42 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 		p.bindings[binding.URI] = binding
 	}
 	return p, nil
+}
+
+// ConfigurationSnapshot returns owned catalog containers for trusted host
+// recomposition. It captures configuration only, never request actors, grants,
+// resolved resources or source bytes. Existing handlers retain their generation.
+func (p *LocalProvider) ConfigurationSnapshot() LocalConfig {
+	if p == nil {
+		return LocalConfig{}
+	}
+	config := LocalConfig{
+		NativeResources:   append([]NativeResource(nil), p.nativeResources...),
+		NamespaceMetadata: cloneNamespaceMetadata(p.namespaceMetadata),
+		ProviderIdentity:  p.identity, Actor: p.actor, Verify: p.verify,
+		Authorize: p.authorizer, Validators: make(map[string]LocalResourceValidator, len(p.validators)),
+		DefinitionValidationCache: p.definitionValidationCache,
+		WindowListVisibility:      p.windowListVisibility, WindowIndex: p.windowIndex,
+		MenuActionVisibility: p.menuActionVisibility, MenuVisibilityProjection: p.menuVisibilityProjection,
+		Now: p.now,
+	}
+	for _, binding := range p.bindings {
+		config.Bindings = append(config.Bindings, binding)
+	}
+	sort.Slice(config.Bindings, func(i, j int) bool { return config.Bindings[i].URI < config.Bindings[j].URI })
+	for kind, validator := range p.validators {
+		config.Validators[kind] = validator
+	}
+	return config
+}
+
+func cloneNamespaceMetadata(metadata map[string]primitive.NamespaceMetadata) map[string]primitive.NamespaceMetadata {
+	out := make(map[string]primitive.NamespaceMetadata, len(metadata))
+	for namespace, value := range metadata {
+		value.UseCases = append([]string(nil), value.UseCases...)
+		out[namespace] = value
+	}
+	return out
 }
 
 func (p *LocalProvider) nowTime() time.Time {

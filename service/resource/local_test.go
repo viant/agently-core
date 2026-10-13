@@ -14,10 +14,10 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
-	workspacewindow "github.com/viant/agently-core/service/ui/window"
-	"github.com/viant/agently-core/workspace"
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
+	workspacewindow "github.com/viant/agently-core/service/ui/window"
+	"github.com/viant/agently-core/workspace"
 	forgeTypes "github.com/viant/forge/backend/types"
 	"github.com/viant/jsonrpc/transport/client/http/streamable"
 	"github.com/viant/mcp-protocol/schema"
@@ -123,11 +123,11 @@ func TestLocalProviderIsSingleWorkingCatalogAndValidatesBindings(t *testing.T) {
 func TestLocalProviderPreservesOmittedRevisionForHostSelection(t *testing.T) {
 	p, source, _, _ := localFixture(t)
 	seen := "not-called"
-	binding := p.bindings["window://team/sales"]
+	binding := localProviderBinding(p, "window://team/sales")
 	binding.Resolver = func(_ context.Context, a identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
-		return &identity.ResourceResolver{ProviderIdentity: p.identity, Source: source, Policy: localFixturePolicy{actor: a, denyOmitted: true, seenRevision: &seen}}, nil
+		return &identity.ResourceResolver{ProviderIdentity: p.ProviderIdentity(), Source: source, Policy: localFixturePolicy{actor: a, denyOmitted: true, seenRevision: &seen}}, nil
 	}
-	p.bindings[binding.URI] = binding
+	updateLocalProvider(t, p, func(config *LocalConfig) { setLocalConfigBinding(config, binding) })
 	_, err := p.Get(context.Background(), "window", primitive.GetRequest{URI: binding.URI})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
 	require.Equal(t, "", seen, "omitted selector must reach trusted host policy unchanged")

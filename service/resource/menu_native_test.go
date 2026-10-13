@@ -35,24 +35,26 @@ func TestNativeMenuSharesSnapshotAndRetainsLiveVisibility(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, 1, reads)
 	p, _, actor, revoked := menuFixtureProvider(t)
-	bindings, err := snapshot.Bindings(p.identity, func(_ context.Context, a identity.VerifiedActor, _ identity.ResourceURI, _ string) (identity.ResourceRevisionPolicy, error) {
+	bindings, err := snapshot.Bindings(p.ProviderIdentity(), func(_ context.Context, a identity.VerifiedActor, _ identity.ResourceURI, _ string) (identity.ResourceRevisionPolicy, error) {
 		return localFixturePolicy{actor: a}, nil
 	})
 	require.NoError(t, err)
-	p.bindings = map[string]LocalResourceBinding{def.URI: bindings[0]}
-	p.menuActionVisibility = func(_ context.Context, a identity.VerifiedActor, _ identity.ResourceURI, action json.RawMessage) (bool, error) {
-		if strings.Contains(string(action), "advertiserList") {
-			return a.Subject == "alice", nil
+	updateLocalProvider(t, p, func(config *LocalConfig) { config.Bindings = bindings })
+	updateLocalProvider(t, p, func(config *LocalConfig) {
+		config.MenuActionVisibility = func(_ context.Context, a identity.VerifiedActor, _ identity.ResourceURI, action json.RawMessage) (bool, error) {
+			if strings.Contains(string(action), "advertiserList") {
+				return a.Subject == "alice", nil
+			}
+			return true, nil
 		}
-		return true, nil
-	}
+	})
 	mgr, err := manager.New(nil)
 	require.NoError(t, err)
 	defer mgr.CloseConversation("")
-	require.NoError(t, mgr.RegisterLocal(ctx, "local-menu", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: p.identity}, func(context.Context) (mcpclient.Interface, error) { return NewLocalMCPClient(p) }))
-	gateway := NewGateway(mgr, p.actor, p.verify, "host")
+	require.NoError(t, mgr.RegisterLocal(ctx, "local-menu", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: p.ProviderIdentity()}, func(context.Context) (mcpclient.Interface, error) { return NewLocalMCPClient(p) }))
+	gateway := NewGateway(mgr, localProviderConfig(p).Actor, localProviderConfig(p).Verify, "host")
 	defer gateway.Close()
-	connection, err := gateway.ConnectionForProvider(ctx, p.identity)
+	connection, err := gateway.ConnectionForProvider(ctx, p.ProviderIdentity())
 	require.NoError(t, err)
 	var fingerprint string
 	for i := 0; i < 6; i++ {
