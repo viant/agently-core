@@ -3,7 +3,7 @@ import type { ClientTool } from './agui';
 import type { AgentSubscriber } from '@ag-ui/client';
 import type { Message, State } from '@ag-ui/core';
 import { AgUiCommands, type AgUiConversationBootstrapResult, type AgUiConversationBootstrapInput } from './aguiCommands';
-import { readAgentlyPresentation } from './aguiPresentation';
+import { readAgentlyPresentation, readAgentlyPresentationActivity } from './aguiPresentation';
 import type { AgUiViewOutcome, AgUiViewDescriptor } from './aguiViewProjection';
 import type { AgUiSession } from './aguiSession';
 import type { AgentlyClient } from './client';
@@ -47,6 +47,8 @@ interface RunSlot {
     browserToolNames?: Set<string>;
     firstBrowserToolAt?: number;
     terminalAt?: number;
+    protocolTerminal?: boolean;
+    nativeTerminal?: boolean;
     stopProjection(): void;
     completion: Promise<unknown>;
 }
@@ -312,7 +314,11 @@ export class AgUiConversationTransport {
             recordBrowserMCPLifecycle('continuation', { stage: 'error', failure, pendingCount: snapshot.pendingToolCallIds.length, interruptCount: snapshot.interrupts.length });
             throw error;
         } finally {
-            if (current !== initial) { current.stopProjection(); if (entry.runs.get(current.id) === current) entry.runs.delete(current.id); }
+            if (current !== initial) {
+                initial.nativeTerminal = current.nativeTerminal;
+                initial.protocolTerminal = current.protocolTerminal;
+                current.stopProjection(); if (entry.runs.get(current.id) === current) entry.runs.delete(current.id);
+            }
         }
     }
 
@@ -330,11 +336,24 @@ export class AgUiConversationTransport {
 
     private track(entry: Entry, runId: string, session: AgUiSession, baselineMessages: readonly Message[], onViewEvent?: (event: SSEEvent) => void, displayQuery?: string): RunSlot {
         const slot: RunSlot = { id: runId, session, stopProjection: () => {}, completion: Promise.resolve() };
+        const nativeTerminal = (message: Message) => {
+            const activity = readAgentlyPresentationActivity(message);
+            if (activity?.kind !== 'agently.turn' || !slot.nativeTurnId || activity.nativeTurnId !== slot.nativeTurnId
+                || (message as Message & { subagentRunId?: string }).subagentRunId
+                || activity.presentation?.conversationId && activity.presentation.conversationId !== entry.id
+                || !['completed', 'failed', 'canceled'].includes(activity.status)) return;
+            slot.nativeTerminal = true;
+        };
         const identity = session.subscribeProtocol({ onRunStartedEvent: ({ event }) => {
             slot.nativeTurnId = readAgentlyPresentation(event.metadata)?.nativeTurnId;
         }, onToolCallStartEvent: ({ event }) => {
             if (slot.firstBrowserToolAt === undefined && slot.browserToolNames?.has(event.toolCallName)) slot.firstBrowserToolAt = globalThis.performance?.now();
-        }, onRunFinishedEvent: () => { slot.terminalAt = globalThis.performance?.now(); } });
+        }, onActivitySnapshotEvent: ({ event }) => {
+            nativeTerminal({ ...event, id: event.messageId, role: 'activity' });
+        }, onMessagesSnapshotEvent: ({ event }) => {
+            for (const message of event.messages) nativeTerminal(message);
+        }, onRunFinishedEvent: () => { slot.protocolTerminal = true; slot.terminalAt = globalThis.performance?.now(); },
+        onRunErrorEvent: () => { slot.protocolTerminal = true; } });
         const projection = this.project({ profile: 'agently', conversationId: entry.id, runId,
             baselineMessages, displayQuery, allowHostEffects: true,
             onDescriptor: descriptor => {
@@ -377,9 +396,16 @@ export class AgUiConversationTransport {
     }
 
     private settled(entry: Entry, slot: RunSlot) {
+        const snapshot = slot.session.getSnapshot();
+        const streamedTerminal = slot.protocolTerminal && slot.nativeTerminal && slot.nativeTurnId
+            && !snapshot.pendingToolCallIds.length && !snapshot.interrupts.length;
+        if (streamedTerminal) {
+            entry.terminalTurns.add(slot.nativeTurnId!);
+            entry.browserNativeTurns.delete(slot.nativeTurnId!);
+        }
         // Protocol completion does not prove the native turn is terminal.
         // Retain its original browser catalog until authoritative native
-        // history confirms completion, including while tool results are pending.
+        // lifecycle or history confirms completion, including while tools wait.
         if (slot.hasBrowserTools && slot.nativeTurnId && !entry.terminalTurns.has(slot.nativeTurnId)) {
             entry.browserNativeTurns.add(slot.nativeTurnId);
         }
@@ -387,9 +413,9 @@ export class AgUiConversationTransport {
         slot.stopProjection();
         if (entry.runs.get(slot.id) === slot) entry.runs.delete(slot.id);
         this.closeBrowserIfIdle(entry);
-        if (this.current(entry) && (entry.listeners.size || slot.hasBrowserTools) && slot.session.getSnapshot().phase !== 'detached') {
-            // One authoritative refresh after completion; no permanent polling
-            // loop or implicit resubmission of an interrupted protocol run.
+        if (this.current(entry) && !streamedTerminal && (entry.listeners.size || slot.hasBrowserTools) && snapshot.phase !== 'detached') {
+            // Reconcile missing native lifecycle or a lost stream. A complete
+            // native/protocol terminal already carries the final UI projection.
             void this.refreshAfterCompletion(entry).catch(error => this.error(entry, error));
         }
     }
