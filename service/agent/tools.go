@@ -2,7 +2,6 @@ package agent
 
 import (
 	"context"
-	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -322,19 +321,6 @@ func (s *Service) resolveStructuredToolDefinitions(ctx context.Context, control 
 }
 
 func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, control agenttool.Selection) ([]llm.ToolDefinition, error) {
-	key := toolSelectionCacheKey(control)
-	if browserKey := browserToolSurfaceCacheKey(ctx, control); browserKey != "" {
-		key += "\x1e" + browserKey
-	}
-	if key != "" {
-		if cached, ok := s.toolSurfaceCache.Load(key); ok {
-			if entry, ok := cached.(*resolvedToolSurface); ok && entry != nil {
-				s.applyResolvedToolSurfaceMetadata(ctx, entry)
-				return cloneToolDefinitions(entry.Definitions), nil
-			}
-		}
-	}
-
 	entry := &resolvedToolSurface{Complete: true}
 	if len(control.Bundles) > 0 {
 		res, err := s.resolveBundleResult(ctx, control.Bundles)
@@ -353,38 +339,11 @@ func (s *Service) resolveStructuredToolDefinitionsOnce(ctx context.Context, cont
 	}
 	entry.Definitions = dedupeDefinitions(entry.Definitions)
 	entry.Definitions = augmentPromptApprovalReviewDefinitions(entry.Definitions, entry.ApprovalByID)
-	// External MCP definitions can become available after delegated OAuth or a
-	// lazy discovery reconnect. Caching an empty surface makes that transient
-	// state permanent for the process, so only cache successful resolutions.
-	if key != "" && len(entry.Definitions) > 0 && entry.Complete {
-		s.toolSurfaceCache.Store(key, entry)
-	}
+	// Assemble bundle/approval metadata from independently cached catalog
+	// components. A whole-selection cache can leak private tools across users
+	// or invalidate unrelated backend tools when a browser catalog changes.
 	s.applyResolvedToolSurfaceMetadata(ctx, entry)
 	return cloneToolDefinitions(entry.Definitions), nil
-}
-
-func browserToolSurfaceCacheKey(ctx context.Context, control agenttool.Selection) string {
-	definitions := browsermcp.Definitions(ctx)
-	if len(definitions) == 0 {
-		return ""
-	}
-	selected := map[string]llm.ToolDefinition{}
-	for _, pattern := range control.Tools {
-		for name := range definitions {
-			if toolmatcher.Match(pattern, name) {
-				selected[name] = definitions[name]
-			}
-		}
-	}
-	if len(selected) == 0 {
-		return ""
-	}
-	raw, err := json.Marshal(selected)
-	if err != nil {
-		return ""
-	}
-	digest := sha256.Sum256(raw)
-	return fmt.Sprintf("browser:%x", digest[:])
 }
 
 func (s *Service) promptApprovalConfigsForSelection(ctx context.Context, control agenttool.Selection) (map[string]*llm.ApprovalConfig, error) {
@@ -760,17 +719,9 @@ func (s *Service) matchDefinitionsResult(ctx context.Context, pattern string) ([
 		// This exact server's available tools come only from the verified
 		// browser catalog, including empty matches used by bundle exclusions.
 		// Never discover a backend client or cache these document-bound tools.
-		return matched, nil
+		return s.cachedBrowserToolDefinitions(ctx, namespace, pattern, matched), nil
 	}
-	var backend []*llm.ToolDefinition
-	var err error
-	if cm, ok := s.registry.(toolctx.ContextMatcherWithError); ok {
-		backend, err = cm.MatchDefinitionWithContextResult(ctx, pattern)
-	} else if cm, ok := s.registry.(toolctx.ContextMatcher); ok {
-		backend = cm.MatchDefinitionWithContext(ctx, pattern)
-	} else {
-		backend = s.registry.MatchDefinition(pattern)
-	}
+	backend, err := s.cachedBackendToolDefinitions(ctx, pattern)
 	return append(backend, matched...), err
 }
 
