@@ -88,7 +88,7 @@ func TestScopedPlainWindowRoutesExactVisibleMetadataWithoutLocalShadow(t *testin
 	require.Zero(t, local.gets)
 	require.Zero(t, local.lists)
 	require.Equal(t, 1, p.calls["windows/list"], "contextual routing reuses the shared visible snapshot")
-	require.Equal(t, 4, p.calls["windows/get"], "catalog metadata never replaces fresh Get")
+	require.Equal(t, 2, p.calls["windows/get"], "intermediate single-read path calls provider once per request")
 	_, err := c.Get(ctx, &service.WindowDefinitionGetInput{WindowID: "nested/sales"})
 	require.NoError(t, err)
 	require.Equal(t, 1, local.gets)
@@ -103,7 +103,7 @@ func TestScopedPlainWindowRoutesExactVisibleMetadataWithoutLocalShadow(t *testin
 	local.deny = true
 	_, err = c.Get(ctx, &service.WindowDefinitionGetInput{WindowID: "nested/sales"})
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
-	require.Equal(t, 4, p.calls["windows/get"])
+	require.Equal(t, 2, p.calls["windows/get"])
 }
 func TestScopedPlainWindowRejectsMissingAndAmbiguousAliases(t *testing.T) {
 	c, p, _ := routingFixture(t)
