@@ -383,52 +383,6 @@ func (index WriteHandlerCurrentWriteGroupedByCreatedAt) Has(key string) bool {
 	_, ok := index[key]
 	return ok
 }
-func WriteHandlerCurrentWriteIndexByNowKey(value *CurrentWriteView) (string, bool) {
-	var zero string
-	if value == nil {
-		return zero, false
-	}
-	return value.Now, true
-}
-
-type WriteHandlerCurrentWriteIndexedByNow map[string]*CurrentWriteView
-
-func (rows WriteHandlerCurrentWriteSlice) IndexByNow() (WriteHandlerCurrentWriteIndexedByNow, error) {
-	result := make(WriteHandlerCurrentWriteIndexedByNow)
-	for _, row := range rows {
-		key, ok := WriteHandlerCurrentWriteIndexByNowKey(row)
-		if !ok {
-			continue
-		}
-		if _, exists := result[key]; exists {
-			return nil, fmt.Errorf("ambiguous application index WriteHandlerCurrentWriteSlice.IndexByNow")
-		}
-		result[key] = row
-	}
-	return result, nil
-}
-func (index WriteHandlerCurrentWriteIndexedByNow) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
-
-type WriteHandlerCurrentWriteGroupedByNow map[string][]*CurrentWriteView
-
-func (rows WriteHandlerCurrentWriteSlice) GroupByNow() WriteHandlerCurrentWriteGroupedByNow {
-	result := make(WriteHandlerCurrentWriteGroupedByNow)
-	for _, row := range rows {
-		key, ok := WriteHandlerCurrentWriteIndexByNowKey(row)
-		if !ok {
-			continue
-		}
-		result[key] = append(result[key], row)
-	}
-	return result
-}
-func (index WriteHandlerCurrentWriteGroupedByNow) Has(key string) bool {
-	_, ok := index[key]
-	return ok
-}
 
 type WriteHandlerReadIndexes struct {
 	CurrentWrite           WriteHandlerCurrentWriteSlice
@@ -521,9 +475,6 @@ func BuildWriteHandlerReadIndexes(ctx context.Context, input *Input) (*WriteHand
 			}
 			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("CreatedAt") {
 				return nil, fmt.Errorf("application index field was not loaded: CurrentWrite.CreatedAt")
-			}
-			if (xshape.Runtime{}).IsNil(loaded) || !loaded.Has("Now") {
-				return nil, fmt.Errorf("application index field was not loaded: CurrentWrite.Now")
 			}
 		}
 		cloned, err := (xshape.Runtime{}).CloneValue(rows, xshape.CloneOptions{})

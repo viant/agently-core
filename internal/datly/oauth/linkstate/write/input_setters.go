@@ -2,6 +2,10 @@
 
 package write
 
+import (
+	flowkeys "github.com/viant/agently-core/internal/datly/oauth/linkstate/writekeys"
+)
+
 func (input *Input) SetMode(value string) {
 	if input == nil {
 		return
@@ -112,7 +116,7 @@ func (input *Input) SetBefore(value string) {
 	input.Has.Before = true
 }
 
-func (input *Input) SetWriteKeys(value []WriteKeysRow) {
+func (input *Input) SetWriteKeys(value []*flowkeys.Flow) {
 	if input == nil {
 		return
 	}

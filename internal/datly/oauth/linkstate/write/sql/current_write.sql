@@ -1,1 +1,4 @@
-SELECT r.state_hash, r.flow_hash, r.user_id, r.session_hash, r.provider, r.expires_at, r.consumed_at, r.created_at, r.now FROM (SELECT states.* FROM  (SELECT c.* , 0 AS should_delete, '' AS now FROM oauth_link_state c)  states) r WHERE $criteria.CompositeIn("r", $WriteKeys)
+SELECT oauth_link_state.*
+FROM oauth_link_state
+WHERE $criteria.CompositeIn("oauth_link_state", $WriteKeys)
+${predicate.Builder().CombineAnd($predicate.FilterGroup(7,"AND")).Build("AND")}
