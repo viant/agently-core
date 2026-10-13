@@ -8,7 +8,7 @@ import (
 	producer "github.com/viant/agently-core/service/primitiveproducer"
 	mcp "github.com/viant/mcp/server"
 	"net/http"
-	"time"
+	"sync/atomic"
 )
 
 type LocalResourceBinding = producer.LocalResourceBinding
@@ -18,48 +18,14 @@ type LocalRevisionPolicyFactory = producer.LocalRevisionPolicyFactory
 type LocalWindowListVisibility = producer.LocalWindowListVisibility
 type LocalWindowIndex = producer.LocalWindowIndex
 type LocalConfig = producer.LocalConfig
+
+// LocalProvider adapts host validation caching to one immutable producer
+// generation. Request-time authority and resource reads remain in the producer.
 type LocalProvider struct {
-	nativeResources           []producer.NativeResource
-	namespaceMetadata         map[string]primitive.NamespaceMetadata
-	identity                  string
-	actor                     ActorResolver
-	verify                    ActorVerifier
-	authorizer                LocalResourceAuthorizer
-	bindings                  map[string]LocalResourceBinding
-	validators                map[string]LocalResourceValidator
-	windowListVisibility      LocalWindowListVisibility
-	menuActionVisibility      MenuActionVisibility
-	menuVisibilityProjection  MenuVisibilityProjection
-	windowIndex               LocalWindowIndex
-	now                       func() time.Time
-	definitionValidationCache producer.DefinitionValidationCache
+	provider atomic.Pointer[producer.LocalProvider]
 }
 
 func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
-	if _, err := producer.NewLocalProvider(config); err != nil {
-		return nil, err
-	}
-	p := &LocalProvider{nativeResources: append([]producer.NativeResource(nil), config.NativeResources...), namespaceMetadata: config.NamespaceMetadata, identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now, definitionValidationCache: config.DefinitionValidationCache}
-	for kind, validator := range config.Validators {
-		p.validators[kind] = validator
-	}
-	for _, b := range config.Bindings {
-		p.bindings[b.URI] = b
-	}
-	return p, nil
-}
-
-// neutral delegates all policy, read, filtering and wire behavior to the reusable
-// producer; this host facade retains only existing adapter/configuration state.
-func (p *LocalProvider) neutral() (*producer.LocalProvider, error) {
-	if p == nil {
-		return nil, ErrUnavailable
-	}
-	bindings := make([]LocalResourceBinding, 0, len(p.bindings))
-	for _, b := range p.bindings {
-		bindings = append(bindings, b)
-	}
-	config := LocalConfig{NativeResources: p.nativeResources, NamespaceMetadata: p.namespaceMetadata, ProviderIdentity: p.identity, Actor: p.actor, Verify: p.verify, Authorize: p.authorizer, Bindings: bindings, Validators: p.validators, WindowListVisibility: p.windowListVisibility, WindowIndex: p.windowIndex, Now: p.now, DefinitionValidationCache: p.definitionValidationCache}
 	if config.DefinitionValidationCache == nil {
 		config.DefinitionValidationCache = func(source identity.ResourceSource, kind string, version int64, fingerprint string, validator LocalResourceValidator) bool {
 			cached, ok := source.(interface {
@@ -68,19 +34,33 @@ func (p *LocalProvider) neutral() (*producer.LocalProvider, error) {
 			return ok && pureLocalValidator(kind, validator) && cached.localDefinitionValidated(kind, version, fingerprint)
 		}
 	}
-	if p.menuActionVisibility != nil {
-		config.MenuActionVisibility = func(ctx context.Context, a identity.VerifiedActor, u identity.ResourceURI, raw json.RawMessage) (bool, error) {
-			return p.menuActionVisibility(ctx, a, u, raw)
-		}
+	n, err := producer.NewLocalProvider(config)
+	if err != nil {
+		return nil, err
 	}
-	config.MenuVisibilityProjection = p.menuVisibilityProjection
-	return producer.NewLocalProvider(config)
+	p := &LocalProvider{}
+	p.provider.Store(n)
+	return p, nil
 }
-func (p *LocalProvider) ProviderIdentity() string {
+
+// neutral returns the published producer without reconstructing its catalog.
+func (p *LocalProvider) neutral() (*producer.LocalProvider, error) {
 	if p == nil {
+		return nil, ErrUnavailable
+	}
+	n := p.provider.Load()
+	if n == nil {
+		return nil, ErrUnavailable
+	}
+	return n, nil
+}
+
+func (p *LocalProvider) ProviderIdentity() string {
+	n, err := p.neutral()
+	if err != nil {
 		return ""
 	}
-	return p.identity
+	return n.ProviderIdentity()
 }
 func (p *LocalProvider) NamespaceList(ctx context.Context, in primitive.NamespaceListRequest) (*primitive.NamespaceListResult, error) {
 	n, e := p.neutral()

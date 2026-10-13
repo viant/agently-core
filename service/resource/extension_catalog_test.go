@@ -53,7 +53,7 @@ func TestExtensionInventoryRecursiveNamespaceAndCurrentBytes(t *testing.T) {
 	require.JSONEq(t, `{"native":"second"}`, string(next.Resource.Definition))
 	require.Equal(t, identity.WorkingCandidate, next.ResolvedResource.Kind)
 	require.Empty(t, next.ResolvedResource.Revision)
-	require.Contains(t, provider.bindings, "skill://users/nested/package")
+	require.Equal(t, "skill://users/nested/package", localProviderBinding(provider, "skill://users/nested/package").URI)
 }
 func TestExtensionInventoryCollisionsAndUnsafePaths(t *testing.T) {
 	ctx := context.Background()

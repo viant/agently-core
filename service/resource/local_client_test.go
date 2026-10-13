@@ -104,11 +104,11 @@ func TestLocalSDKClientExactNamesAndRequestAuthority(t *testing.T) {
 func TestInProcessProviderGatewayPreservesProvenanceAndDeniesLogicalCollision(t *testing.T) {
 	original, source, actor, _ := localFixture(t)
 	makeProvider := func(owner string) *LocalProvider {
-		binding := original.bindings["window://team/sales"]
+		binding := localProviderBinding(original, "window://team/sales")
 		binding.Resolver = func(_ context.Context, a identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
 			return &identity.ResourceResolver{ProviderIdentity: owner, Source: source, Policy: localFixturePolicy{actor: a}}, nil
 		}
-		provider, err := NewLocalProvider(LocalConfig{ProviderIdentity: owner, Actor: original.actor, Verify: original.verify, Authorize: original.authorizer, Bindings: []LocalResourceBinding{binding}, Validators: original.validators})
+		provider, err := NewLocalProvider(LocalConfig{ProviderIdentity: owner, Actor: localProviderConfig(original).Actor, Verify: localProviderConfig(original).Verify, Authorize: localProviderConfig(original).Authorize, Bindings: []LocalResourceBinding{binding}, Validators: localProviderConfig(original).Validators})
 		require.NoError(t, err)
 		return provider
 	}
@@ -118,7 +118,7 @@ func TestInProcessProviderGatewayPreservesProvenanceAndDeniesLogicalCollision(t 
 	defer mgr.CloseConversation("")
 	local := makeProvider("internal")
 	require.NoError(t, mgr.RegisterLocal(ctx, "internal", &mcpcfg.MCPClient{ClientOptions: &mcp.ClientOptions{}, PrimitiveProviderIdentity: "internal"}, func(context.Context) (mcpclient.Interface, error) { return NewLocalMCPClient(local) }))
-	gateway := NewGateway(mgr, func(context.Context) (identity.VerifiedActor, error) { return *actor, nil }, original.verify, "aggregate-gateway")
+	gateway := NewGateway(mgr, func(context.Context) (identity.VerifiedActor, error) { return *actor, nil }, localProviderConfig(original).Verify, "aggregate-gateway")
 	defer gateway.Close()
 	resources, err := gateway.List(ctx, "window", "team")
 	require.NoError(t, err)

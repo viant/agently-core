@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -21,15 +22,17 @@ const menuFixture = `{"schemaVersion":1,"applications":[{"id":"steward","title":
 func menuFixtureProvider(t *testing.T) (*LocalProvider, *localFixtureSource, *identity.VerifiedActor, *bool) {
 	p, source, actor, revoked := localFixture(t)
 	source.raw = json.RawMessage(menuFixture)
-	b := p.bindings["window://team/sales"]
+	b := localProviderBinding(p, "window://team/sales")
 	b.URI = "menu://team/navigation"
 	b.FormatVersion = 1
 	b.Title = "Navigation"
-	p.bindings = map[string]LocalResourceBinding{b.URI: b}
-	p.validators = map[string]LocalResourceValidator{"menu": ValidateMenu}
-	p.menuActionVisibility = func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (bool, error) {
-		return !strings.Contains(string(raw), "secretWindow"), nil
-	}
+	updateLocalProvider(t, p, func(config *LocalConfig) {
+		config.Bindings = []LocalResourceBinding{b}
+		config.Validators = map[string]LocalResourceValidator{"menu": ValidateMenu}
+		config.MenuActionVisibility = func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (bool, error) {
+			return !strings.Contains(string(raw), "secretWindow"), nil
+		}
+	})
 	return p, source, actor, revoked
 }
 func TestMenuProjectionNeverExposesSourceAndPreservesActions(t *testing.T) {
@@ -54,26 +57,28 @@ func TestMenuProducerDeniesRevocationDriftAndExpiry(t *testing.T) {
 		t.Run(mode, func(t *testing.T) {
 			p, source, actor, revoked := menuFixtureProvider(t)
 			calls := 0
-			p.menuActionVisibility = func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (bool, error) {
-				calls++
-				switch mode {
-				case "revocation":
-					*revoked = true
-				case "drift":
-					source.raw = json.RawMessage(`{"schemaVersion":1,"applications":[]}`)
-				case "expiry":
-					actor.ValidUntil = time.Now().Add(-time.Second)
-				case "late-drift":
-					if calls > 3 {
+			updateLocalProvider(t, p, func(config *LocalConfig) {
+				config.MenuActionVisibility = func(_ context.Context, _ identity.VerifiedActor, _ identity.ResourceURI, raw json.RawMessage) (bool, error) {
+					calls++
+					switch mode {
+					case "revocation":
+						*revoked = true
+					case "drift":
 						source.raw = json.RawMessage(`{"schemaVersion":1,"applications":[]}`)
+					case "expiry":
+						actor.ValidUntil = time.Now().Add(-time.Second)
+					case "late-drift":
+						if calls > 3 {
+							source.raw = json.RawMessage(`{"schemaVersion":1,"applications":[]}`)
+						}
+					case "child-revocation":
+						if calls > 3 {
+							return false, nil
+						}
 					}
-				case "child-revocation":
-					if calls > 3 {
-						return false, nil
-					}
+					return !strings.Contains(string(raw), "secretWindow"), nil
 				}
-				return !strings.Contains(string(raw), "secretWindow"), nil
-			}
+			})
 			got, err := p.Get(context.Background(), "menu", primitive.GetRequest{URI: "menu://team/navigation"})
 			require.Error(t, err)
 			require.Nil(t, got)
@@ -82,6 +87,16 @@ func TestMenuProducerDeniesRevocationDriftAndExpiry(t *testing.T) {
 }
 func TestMenuGatewayOverOrdinaryProtectedMCP(t *testing.T) {
 	p, _, actor, _ := menuFixtureProvider(t)
+	var hideAll atomic.Bool
+	visibility := localProviderConfig(p).MenuActionVisibility
+	updateLocalProvider(t, p, func(config *LocalConfig) {
+		config.MenuActionVisibility = func(ctx context.Context, actor identity.VerifiedActor, uri identity.ResourceURI, raw json.RawMessage) (bool, error) {
+			if hideAll.Load() {
+				return false, nil
+			}
+			return visibility(ctx, actor, uri, raw)
+		}
+	})
 	handler, err := NewMCPHandler(p, func(next http.Handler) http.Handler { return next })
 	require.NoError(t, err)
 	server := httptest.NewServer(handler)
@@ -102,9 +117,7 @@ func TestMenuGatewayOverOrdinaryProtectedMCP(t *testing.T) {
 	require.NotContains(t, string(wire), "secretWindow")
 	_, err = gateway.Get(context.Background(), rows[0].Connection, identity.ResourceRef{URI: rows[0].Resource.URI}, nil)
 	require.ErrorIs(t, err, identity.ErrResourceDenied)
-	p.menuActionVisibility = func(context.Context, identity.VerifiedActor, identity.ResourceURI, json.RawMessage) (bool, error) {
-		return false, nil
-	}
+	hideAll.Store(true)
 	fresh, err := gateway.GetMenu(context.Background(), rows[0].Connection, identity.ResourceRef{URI: rows[0].Resource.URI}, got.ResolvedResource)
 	require.NoError(t, err)
 	require.NotContains(t, string(fresh.MenuProjection.DefinitionBytes), "advertiserList")
@@ -131,12 +144,12 @@ func (p stampMenuPolicy) SelectRevision(_ context.Context, ref identity.Resource
 }
 func TestMenuGenericAuthoredSourceSelectsExactStamp(t *testing.T) {
 	p, _, actor, _ := menuFixtureProvider(t)
-	b := p.bindings["menu://team/navigation"]
+	b := localProviderBinding(p, "menu://team/navigation")
 	source := &stampedMenuSource{raw: json.RawMessage(menuFixture)}
 	b.Resolver = func(context.Context, identity.VerifiedActor, string) (*identity.ResourceResolver, error) {
-		return &identity.ResourceResolver{ProviderIdentity: p.identity, Source: source, Policy: stampMenuPolicy{until: actor.ValidUntil}}, nil
+		return &identity.ResourceResolver{ProviderIdentity: p.ProviderIdentity(), Source: source, Policy: stampMenuPolicy{until: actor.ValidUntil}}, nil
 	}
-	p.bindings[b.URI] = b
+	updateLocalProvider(t, p, func(config *LocalConfig) { setLocalConfigBinding(config, b) })
 	for _, revision := range []string{"", "release-7"} {
 		got, err := p.Get(context.Background(), "menu", primitive.GetRequest{URI: b.URI, Revision: revision})
 		require.NoError(t, err)

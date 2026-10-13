@@ -14,18 +14,21 @@ import (
 // ConfigureNativeResources is pre-serving composition. It extends the same
 // provider's standard MCP handler and leaves its authority/callbacks untouched.
 func (p *LocalProvider) ConfigureNativeResources(resources []producer.NativeResource) error {
-	if p == nil || len(p.nativeResources) > 0 {
+	current, err := p.neutral()
+	if err != nil {
+		return err
+	}
+	config := current.ConfigurationSnapshot()
+	if len(config.NativeResources) > 0 {
 		return fmt.Errorf("native resources already configured")
 	}
-	if _, err := p.neutral(); err != nil {
+	config.NativeResources = resources
+	next, err := producer.NewLocalProvider(config)
+	if err != nil {
 		return err
 	}
-	// Validate using the same producer constructor, retaining original bindings.
-	prior := p.nativeResources
-	p.nativeResources = append([]producer.NativeResource(nil), resources...)
-	if _, err := p.neutral(); err != nil {
-		p.nativeResources = prior
-		return err
+	if !p.provider.CompareAndSwap(current, next) {
+		return fmt.Errorf("local provider configuration changed")
 	}
 	return nil
 }
