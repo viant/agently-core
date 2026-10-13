@@ -273,7 +273,10 @@ func ordinaryMCPStack(t *testing.T) (*ordinaryMCPFixture, *registry.Registry, co
 		t.Fatal(e)
 	}
 	t.Cleanup(func() { mgr.CloseConversation("ordinary-test") })
-	ctx := iauth.WithUserInfo(context.Background(), &iauth.UserInfo{Subject: "ordinary-owner"})
+	// The host has authenticated this workspace session. Keep its canonical
+	// user distinct from the provider subject so export workers must restore
+	// the persisted identity rather than guessing it from the legacy subject.
+	ctx := iauth.WithProvider(iauth.WithCanonicalUserID(iauth.WithUserInfo(context.Background(), &iauth.UserInfo{Subject: "ordinary-owner"}), "workspace-ordinary-owner"), "ordinary-workspace-session")
 	client, e := mgr.Get(ctx, "ordinary-test", "independent")
 	if e != nil {
 		t.Fatal(e)

@@ -13,6 +13,7 @@ import (
 	"time"
 
 	pdfreader "github.com/ledongthuc/pdf"
+	iauth "github.com/viant/agently-core/internal/auth"
 	identity "github.com/viant/agently-core/protocol/resource"
 	"github.com/viant/agently-core/service/reporting"
 	"github.com/viant/forge/backend/reporting/registry"
@@ -104,6 +105,14 @@ func TestOrdinaryMCPUnifiedExportIncludesEveryPageAndRejectsPartialPersistence(t
 					return result, err
 				})
 			}
+			actualExporter := exporter
+			exporter = ordinaryExportFunc(func(workerCtx context.Context, req *reporting.RenderRequest) (*reporting.RenderResult, error) {
+				if iauth.CanonicalUserID(workerCtx) != "workspace-ordinary-owner" || iauth.EffectiveUserID(workerCtx) != "ordinary-owner" || iauth.Provider(workerCtx) != "ordinary-workspace-session" {
+					t.Error("worker lost the host-authenticated canonical user, subject or provider")
+					return nil, identity.ErrResourceDenied
+				}
+				return actualExporter.Export(workerCtx, req)
+			})
 			service := reporting.New(reporting.Options{Store: store, Compiler: reporting.NewReportSpecCompiler(time.Now), Exporter: exporter, ResourceResolver: func(context.Context, string) (*identity.ResourceResolver, error) { return resolver, nil }})
 			service.SetResourceDatasetExecutor(reporting.NewResourceDatasetExecutor(executor, service.AuthorizeResourceDataset))
 			fixture.mu.Lock()
@@ -151,6 +160,9 @@ func TestOrdinaryMCPUnifiedExportIncludesEveryPageAndRejectsPartialPersistence(t
 			if err != nil {
 				t.Fatal(err)
 			}
+			if job.OwnerID != "ordinary-owner" || !strings.Contains(job.AuthContextRef, "canonical=workspace-ordinary-owner") || !strings.Contains(job.AuthContextRef, "provider=ordinary-workspace-session") {
+				t.Fatal("pinned export did not persist the authenticated worker identity")
+			}
 			if scenario == "cursor" || scenario == "unpaged" {
 				if !strings.Contains(string(job.ReportFill), "beta") || !strings.Contains(string(job.ReportPrint), "beta") {
 					t.Fatal("complete semantic data missing from fill/print")
@@ -183,7 +195,7 @@ func TestOrdinaryMCPUnifiedExportIncludesEveryPageAndRejectsPartialPersistence(t
 					t.Fatal(err)
 				}
 			}
-			completed, err := service.RunExport(ctx, job.JobID)
+			completed, err := service.RunExport(context.Background(), job.JobID)
 			if strings.HasSuffix(scenario, " after rendering") || strings.HasSuffix(scenario, " after submit") {
 				artifacts, _ := store.ListArtifacts(context.Background())
 				if err == nil || len(artifacts) != 0 {
