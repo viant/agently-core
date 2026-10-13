@@ -21,6 +21,10 @@ func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (serv
 	name = strings.TrimSpace(name)
 	type identity struct{ server, method string }
 	matches := map[identity]bool{}
+	nameMatches := func(server, method string) bool {
+		full, colon := server+"/"+method, server+":"+method
+		return name == full || name == colon || name == mcpname.Canonical(full) || name == mcpname.Canonical(colon)
+	}
 	add := func(server, method string) {
 		if server == "" || method == "" {
 			return
@@ -52,6 +56,12 @@ func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (serv
 			continue
 		}
 		server := strings.TrimSuffix(entry.def.Name, suffix)
+		// Resolve authority only for aliases that could match this lookup.
+		// Checking visibility for every unrelated cached tool reloads the same
+		// server configuration thousands of times during binding construction.
+		if !nameMatches(server, entry.mcpDef.Name) {
+			continue
+		}
 		if r.isInternalServer(server) || r.isPublicToolCatalog(ctx, server) {
 			add(server, entry.mcpDef.Name)
 		}
@@ -63,6 +73,16 @@ func (r *Registry) discoveredMCPIdentity(ctx context.Context, name string) (serv
 				continue
 			}
 			server := strings.SplitN(key, "\x1f", 2)[0]
+			candidate := false
+			for _, tool := range entry.tools {
+				if nameMatches(server, tool.Name) {
+					candidate = true
+					break
+				}
+			}
+			if !candidate {
+				continue
+			}
 			scoped := ctx
 			useID := false
 			if r.mgr != nil {
