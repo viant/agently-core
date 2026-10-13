@@ -28,7 +28,6 @@ import (
 	convsvc "github.com/viant/agently-core/internal/service/conversation"
 	executionprotection "github.com/viant/agently-core/internal/tool/executionprotection"
 	agentmodel "github.com/viant/agently-core/protocol/agent"
-	dsproto "github.com/viant/agently-core/protocol/datasource"
 	mcpclienthandler "github.com/viant/agently-core/protocol/mcp/clienthandler"
 	mcpmgr "github.com/viant/agently-core/protocol/mcp/manager"
 	identity "github.com/viant/agently-core/protocol/resource"
@@ -209,7 +208,6 @@ type Builder struct {
 	pinnedDatasourceResolver       dssvc.ResourceDefinitionResolver
 	pinnedDatasourceAuthorizer     dssvc.DefinitionAuthorizer
 	pinnedDatasourceDenialRootRead dssvc.DefinitionAuthorizer
-	primitiveDatasourceAdmission   func(context.Context, identity.ResolvedResource, *dsproto.DataSource, map[string]interface{}) error
 	primitiveTargetProof           forgetypes.WindowTargetProof
 	primitiveReportDependencyProof forgetypes.WindowTargetProof
 	localPrimitiveProvider         *resourcesvc.LocalProvider
@@ -448,10 +446,6 @@ func (b *Builder) WithWindowOpenBootstrap(load permittedview.OpenBootstrap, matc
 
 func (b *Builder) WithPrimitiveWindows(proof forgetypes.WindowTargetProof) *Builder {
 	b.primitiveTargetProof = proof
-	return b
-}
-func (b *Builder) WithPrimitiveDatasourceAdmission(admit func(context.Context, identity.ResolvedResource, *dsproto.DataSource, map[string]interface{}) error) *Builder {
-	b.primitiveDatasourceAdmission = admit
 	return b
 }
 

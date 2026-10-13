@@ -89,9 +89,6 @@ func (b *Builder) configureStandaloneDatasourceProviders(out *Runtime) {
 			if err != nil || aFP != eFP {
 				return identity.ErrResourceDenied
 			}
-			if b.primitiveDatasourceAdmission != nil {
-				return b.primitiveDatasourceAdmission(ctx, *pin, descriptor, inputs)
-			}
 			return nil
 		}
 		if previousAuthorize == nil {
