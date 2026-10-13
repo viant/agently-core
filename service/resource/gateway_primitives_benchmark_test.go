@@ -254,6 +254,8 @@ func primitiveBenchSDKHandler(t *testing.T, provider *producer.LocalProvider, na
 				sample = primitive.NamespaceListRequest{}
 			} else if method == "namespaces/get" {
 				sample = primitive.NamespaceGetRequest{}
+			} else if strings.HasSuffix(method, "/create") {
+				sample = primitive.CreateResourceInput{}
 			} else if strings.HasSuffix(method, "/get") {
 				sample = primitive.GetRequest{}
 			}
@@ -265,7 +267,14 @@ func primitiveBenchSDKHandler(t *testing.T, provider *producer.LocalProvider, na
 				if err != nil {
 					return nil, jsonrpc.NewInvalidParamsError("invalid request", nil)
 				}
-				value, err := provider.Call(callCtx, method, raw)
+				var value any
+				overridden := false
+				if handler.eventBus != nil && handler.eventBus.callOverride != nil {
+					value, overridden, err = handler.eventBus.callOverride(callCtx, method, raw)
+				}
+				if !overridden {
+					value, err = provider.Call(callCtx, method, raw)
+				}
 				if err != nil {
 					return nil, jsonrpc.NewInternalError(err.Error(), nil)
 				}

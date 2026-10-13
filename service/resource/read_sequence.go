@@ -277,6 +277,11 @@ func (s *resourceReadSequence) lookup(name, key string) (capabilities, bool, err
 		s.failed = identity.ErrResourceDenied
 		return capabilities{}, false, identity.ErrResourceDenied
 	}
+	if s.gateway.Manager.ResourceCatalogGeneration(s.base, name) != held.cap.resourceVersion {
+		// Native resource changes refresh the metadata contract. They do not
+		// revoke the transport binding or substitute for the next owner Get.
+		return capabilities{}, false, nil
+	}
 	return cloneCapabilities(held.cap), true, nil
 }
 

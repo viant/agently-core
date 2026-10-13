@@ -27,10 +27,12 @@ func (m *Manager) OnCatalogChange(listener func(string)) func() {
 
 type changeHandler struct {
 	protoclient.Handler
-	manager     *Manager
-	server      string
-	sequence    int64
-	initialized int64
+	manager         *Manager
+	server          string
+	receiver        [32]byte
+	publicResources bool
+	sequence        int64
+	initialized     int64
 }
 
 // Forward the sensitive-session fence through the feature's catalog-change
@@ -51,7 +53,9 @@ func (h *changeHandler) SetConversationID(id string) {
 func (h *changeHandler) OnNotification(ctx context.Context, n *jsonrpc.Notification) {
 	if n != nil {
 		switch n.Method {
-		case "notifications/resources/list_changed", "notifications/resources/updated", "notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/skills/list_changed":
+		case "notifications/resources/list_changed", "notifications/resources/updated":
+			h.manager.notifyResourceCatalogChange(h.server, h.receiver, h.publicResources)
+		case "notifications/tools/list_changed", "notifications/prompts/list_changed", "notifications/skills/list_changed":
 			h.manager.notifyCatalogChange(h.server)
 		}
 	}

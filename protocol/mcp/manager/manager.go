@@ -123,26 +123,28 @@ type Manager struct {
 	localMu sync.RWMutex
 	local   map[string]localRegistration
 
-	changeListeners       map[uint64]func(string)
-	changeListenerID      uint64
-	toolCatalog           map[string]*toolCatalogPage
-	toolCatalogGeneration map[string]uint64
-	protectedToolCatalog  map[string][32]byte
-	visibleCatalogs       map[string]*visibleCatalog
-	catalogSequence       uint64
-	catalogEpoch          [16]byte
-	prov                  Provider
-	ttl                   time.Duration
-	newHandler            func() protoclient.Handler
-	newClientFn           func(context.Context, string, string) (mcpclient.Interface, error)
-	cookieJar             http.CookieJar
-	jarProvider           JarProvider
-	authRT                *authtransport.RoundTripper
-	authRTProvider        AuthRTProvider
-	userIDFn              UserIDExtractor
-	tokenProvider         token.Provider
-	credResolver          authcfg.CredentialResolver
-	providerRegistry      authcfg.ProviderRegistry
+	changeListeners           map[uint64]func(string)
+	changeListenerID          uint64
+	resourceChangeListeners   map[uint64]func(string)
+	resourceCatalogGeneration map[resourceCatalogScope]uint64
+	toolCatalog               map[string]*toolCatalogPage
+	toolCatalogGeneration     map[string]uint64
+	protectedToolCatalog      map[string][32]byte
+	visibleCatalogs           map[string]*visibleCatalog
+	catalogSequence           uint64
+	catalogEpoch              [16]byte
+	prov                      Provider
+	ttl                       time.Duration
+	newHandler                func() protoclient.Handler
+	newClientFn               func(context.Context, string, string) (mcpclient.Interface, error)
+	cookieJar                 http.CookieJar
+	jarProvider               JarProvider
+	authRT                    *authtransport.RoundTripper
+	authRTProvider            AuthRTProvider
+	userIDFn                  UserIDExtractor
+	tokenProvider             token.Provider
+	credResolver              authcfg.CredentialResolver
+	providerRegistry          authcfg.ProviderRegistry
 	// bindings persists validated non-secret challenge-learned MCP auth
 	// bindings (workspace StateStore); explicit configuration always wins.
 	bindings *AuthBindingStore
@@ -521,7 +523,7 @@ func (m *Manager) newClient(ctx context.Context, convID, serverName string) (mcp
 		}
 		fence.BeginSensitivePayload() // session-owned: released only by session destruction
 	}
-	h = &changeHandler{Handler: h, manager: m, server: serverName}
+	h = &changeHandler{Handler: h, manager: m, server: serverName, receiver: m.resourceReceiver(ctx), publicResources: m.IsToolsListPublic(ctx, serverName)}
 	// If handler supports setting conversation id, assign it.
 	if ca, ok := h.(interface{ SetConversationID(string) }); ok {
 		ca.SetConversationID(convID)
