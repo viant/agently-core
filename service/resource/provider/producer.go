@@ -1,4 +1,4 @@
-package primitiveproducer
+package provider
 
 import (
 	"bytes"
@@ -34,6 +34,7 @@ type ActorVerifier func(context.Context, identity.VerifiedActor) error
 var ErrUnavailable = errors.New("primitive producer unavailable")
 
 type LocalResourceBinding struct {
+	OwnerID       string
 	URI           string
 	Title         string
 	Description   string
@@ -51,9 +52,11 @@ type LocalWindowIndex func(context.Context) ([]primitive.ResourceState, error)
 // hashing and current-candidate checks still run before and after validation.
 type DefinitionValidationCache func(identity.ResourceSource, string, int64, string, LocalResourceValidator) bool
 
-// LocalConfig installs one authoritative local catalog. It has no aggregation
-// or mutation path; only list/get operations are advertised.
+// LocalConfig installs one authoritative owning catalog. Lifecycle operations
+// require an explicit Authoring backend and namespace operation declarations.
 type LocalConfig struct {
+	Catalog                   LocalCatalog
+	Authoring                 primitive.ResourceAuthoring
 	NativeResources           []NativeResource
 	NamespaceMetadata         map[string]primitive.NamespaceMetadata
 	ProviderIdentity          string
@@ -71,6 +74,10 @@ type LocalConfig struct {
 }
 
 type LocalProvider struct {
+	catalog                   LocalCatalog
+	authoring                 primitive.ResourceAuthoring
+	catalogOperations         map[string]map[string]map[string]bool
+	catalogKinds              map[string]map[string]map[int64]bool
 	nativeResources           []NativeResource
 	namespaceMetadata         map[string]primitive.NamespaceMetadata
 	identity                  string
@@ -96,7 +103,7 @@ func (p *LocalProvider) ProviderIdentity() string {
 }
 
 func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
-	if strings.TrimSpace(config.ProviderIdentity) == "" || strings.TrimSpace(config.ProviderIdentity) != config.ProviderIdentity || config.Actor == nil || config.Verify == nil || config.Authorize == nil || len(config.Bindings) == 0 && len(config.NativeResources) == 0 {
+	if strings.TrimSpace(config.ProviderIdentity) == "" || strings.TrimSpace(config.ProviderIdentity) != config.ProviderIdentity || config.Actor == nil || config.Verify == nil || config.Authorize == nil || len(config.Bindings) == 0 && len(config.NativeResources) == 0 && config.Catalog == nil {
 		return nil, fmt.Errorf("local resource provider requires identity, verified actor, namespace authorizer, and bindings")
 	}
 	if config.WindowListVisibility != nil && config.WindowIndex == nil {
@@ -105,7 +112,7 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 	if err := checkNativeResources(config.NativeResources); err != nil {
 		return nil, err
 	}
-	p := &LocalProvider{nativeResources: append([]NativeResource(nil), config.NativeResources...), namespaceMetadata: cloneNamespaceMetadata(config.NamespaceMetadata), identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
+	p := &LocalProvider{authoring: config.Authoring, nativeResources: append([]NativeResource(nil), config.NativeResources...), namespaceMetadata: cloneNamespaceMetadata(config.NamespaceMetadata), identity: config.ProviderIdentity, actor: config.Actor, verify: config.Verify, authorizer: config.Authorize, bindings: map[string]LocalResourceBinding{}, validators: map[string]LocalResourceValidator{}, definitionValidationCache: config.DefinitionValidationCache, windowListVisibility: config.WindowListVisibility, windowIndex: config.WindowIndex, menuActionVisibility: config.MenuActionVisibility, menuVisibilityProjection: config.MenuVisibilityProjection, now: config.Now}
 	if p.now == nil {
 		p.now = time.Now
 	}
@@ -114,6 +121,9 @@ func NewLocalProvider(config LocalConfig) (*LocalProvider, error) {
 			return nil, fmt.Errorf("invalid local resource validator")
 		}
 		p.validators[kind] = validator
+	}
+	if err := p.configureCatalog(config.Catalog); err != nil {
+		return nil, err
 	}
 	for _, binding := range config.Bindings {
 		uri, err := identity.ParseResourceURI(binding.URI)
@@ -139,6 +149,8 @@ func (p *LocalProvider) ConfigurationSnapshot() LocalConfig {
 		return LocalConfig{}
 	}
 	config := LocalConfig{
+		Catalog:           p.catalog,
+		Authoring:         p.authoring,
 		NativeResources:   append([]NativeResource(nil), p.nativeResources...),
 		NamespaceMetadata: cloneNamespaceMetadata(p.namespaceMetadata),
 		ProviderIdentity:  p.identity, Actor: p.actor, Verify: p.verify,
@@ -290,6 +302,14 @@ func (p *LocalProvider) NamespaceList(ctx context.Context, input primitive.Names
 		}
 		names[u.Namespace][u.Kind] = true
 	}
+	for namespace, kinds := range p.catalogKinds {
+		if names[namespace] == nil {
+			names[namespace] = map[string]bool{}
+		}
+		for kind := range kinds {
+			names[namespace][kind] = true
+		}
+	}
 	ordered := make([]string, 0, len(names))
 	for n := range names {
 		ordered = append(ordered, n)
@@ -358,24 +378,28 @@ func (p *LocalProvider) List(ctx context.Context, kind string, input primitive.L
 	if plural == "" || pageErr != nil {
 		return nil, identity.ErrResource
 	}
-	if kind == "window" && p.windowIndex != nil {
+	if kind == "window" && p.windowIndex != nil && !p.catalogSupports(kind, input.Namespace) {
 		return p.listIndexedWindows(ctx, input, offset, limit)
 	}
 	actor, err := p.currentActor(ctx)
 	if err != nil {
 		return nil, err
 	}
-	uris := make([]string, 0, len(p.bindings))
-	for value := range p.bindings {
-		u, _ := identity.ParseResourceURI(value)
-		if u.Kind == kind && (input.Namespace == "" || u.Namespace == input.Namespace) {
+	bindings, err := p.listBindings(ctx, actor, kind, input.Namespace)
+	if err != nil {
+		return nil, err
+	}
+	uris := make([]string, 0, len(bindings))
+	for value := range bindings {
+		uri, _ := identity.ParseResourceURI(value)
+		if uri.Kind == kind && (input.Namespace == "" || uri.Namespace == input.Namespace) {
 			uris = append(uris, value)
 		}
 	}
 	sort.Strings(uris)
 	out := &primitive.ListResult{Resources: []*primitive.ResourceState{}, Complete: true}
 	for _, value := range uris {
-		binding := p.bindings[value]
+		binding := bindings[value]
 		uri, _ := identity.ParseResourceURI(value)
 		selector := identity.WorkingCandidate
 		if kind == "menu" {
@@ -406,7 +430,7 @@ func (p *LocalProvider) List(ctx context.Context, kind string, input primitive.L
 				continue
 			}
 		}
-		out.Resources = append(out.Resources, &primitive.ResourceState{Description: binding.Description, Kind: kind, Namespace: uri.Namespace, Name: uri.Name, URI: value, Title: binding.Title, Lifecycle: pin.Kind, Revision: pin.Selector(), FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint})
+		out.Resources = append(out.Resources, &primitive.ResourceState{OwnerID: binding.OwnerID, Description: binding.Description, Kind: kind, Namespace: uri.Namespace, Name: uri.Name, URI: value, Title: binding.Title, Lifecycle: pin.Kind, Revision: pin.Selector(), FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint})
 	}
 	if err := p.finishActor(ctx, actor); err != nil {
 		return nil, err
@@ -587,11 +611,14 @@ func (p *LocalProvider) Get(ctx context.Context, kind string, input primitive.Ge
 	if err != nil || uri.Kind != kind || input.WorkspaceID != "" {
 		return nil, identity.ErrResource
 	}
-	binding, ok := p.bindings[input.URI]
-	if !ok {
+	actor, err := p.currentActor(ctx)
+	if err != nil {
+		return nil, err
+	}
+	binding, err := p.lookupBinding(ctx, actor, uri)
+	if err == ErrCatalogNotFound {
 		return nil, identity.ErrResourceDenied
 	}
-	actor, err := p.currentActor(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -602,7 +629,11 @@ func (p *LocalProvider) Get(ctx context.Context, kind string, input primitive.Ge
 	if kind == "menu" {
 		return p.getMenuProjection(ctx, actor, binding, uri, raw, pin)
 	}
-	return &primitive.GetResult{Resource: &primitive.ResourceState{Description: binding.Description, Kind: kind, Namespace: uri.Namespace, Name: uri.Name, URI: input.URI, Title: binding.Title, Lifecycle: "working", Revision: identity.WorkingCandidate, FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint, Definition: raw, DefinitionBytes: append([]byte(nil), raw...)}, ResolvedResource: pin}, nil
+	result := &primitive.GetResult{Resource: &primitive.ResourceState{OwnerID: binding.OwnerID, Description: binding.Description, Kind: kind, Namespace: uri.Namespace, Name: uri.Name, URI: input.URI, Title: binding.Title, Lifecycle: "working", Revision: identity.WorkingCandidate, FormatVersion: binding.FormatVersion, ContentFingerprint: pin.ContentFingerprint, Definition: raw, DefinitionBytes: append([]byte(nil), raw...)}, ResolvedResource: pin}
+	if err := p.mergeAuthoringMetadata(ctx, actor, result); err != nil {
+		return nil, err
+	}
+	return result, nil
 }
 
 func (p *LocalProvider) InstalledTools() []string {
@@ -612,6 +643,11 @@ func (p *LocalProvider) InstalledTools() []string {
 		u, _ := identity.ParseResourceURI(b.URI)
 		kinds[u.Kind] = true
 	}
+	for _, declared := range p.catalogKinds {
+		for kind := range declared {
+			kinds[kind] = true
+		}
+	}
 	ordered := make([]string, 0, len(kinds))
 	for k := range kinds {
 		ordered = append(ordered, k)
@@ -620,6 +656,22 @@ func (p *LocalProvider) InstalledTools() []string {
 	for _, kind := range ordered {
 		plural := primitive.Plural(kind)
 		tools = append(tools, plural+"/list", plural+"/get")
+		operations := map[string]bool{}
+		for namespace := range p.catalogOperations {
+			for operation := range p.catalogOperations[namespace][kind] {
+				if p.canAuthor(kind, namespace, operation) {
+					operations[operation] = true
+				}
+			}
+		}
+		orderedOps := make([]string, 0, len(operations))
+		for operation := range operations {
+			orderedOps = append(orderedOps, operation)
+		}
+		sort.Strings(orderedOps)
+		for _, operation := range orderedOps {
+			tools = append(tools, plural+"/"+operation)
+		}
 	}
 	return tools
 }
@@ -640,11 +692,17 @@ func (p *LocalProvider) Call(ctx context.Context, method string, raw json.RawMes
 		return p.NamespaceGet(ctx, in)
 	}
 	parts := strings.Split(method, "/")
-	if len(parts) != 2 || parts[1] != "list" && parts[1] != "get" {
+	if len(parts) != 2 {
 		return nil, identity.ErrResource
 	}
 	kind := primitive.Kind(parts[0])
 	if kind == "" {
+		return nil, identity.ErrResource
+	}
+	if authoringOperation(parts[1]) {
+		return p.callAuthoring(ctx, kind, parts[1], raw)
+	}
+	if parts[1] != "list" && parts[1] != "get" {
 		return nil, identity.ErrResource
 	}
 	if parts[1] == "list" {
@@ -759,6 +817,10 @@ func NewMCPServer(provider *LocalProvider, compact ...bool) (*mcp.Server, error)
 				description = "Read an authorized local resource definition"
 				sample = primitive.GetRequest{}
 			}
+			if writeSample := authoringSample(name); writeSample != nil {
+				sample = writeSample
+				description = "Write a resource through its owning provider"
+			}
 			input, schemaErr := inputSchema(sample)
 			if schemaErr != nil {
 				return nil, schemaErr
@@ -821,6 +883,14 @@ func (p *LocalProvider) namespaceKinds(namespace string) []primitive.KindSupport
 			typesByKind[u.Kind][binding.FormatVersion] = true
 		}
 	}
+	for kind, versions := range p.catalogKinds[namespace] {
+		if typesByKind[kind] == nil {
+			typesByKind[kind] = map[int64]bool{}
+		}
+		for version := range versions {
+			typesByKind[kind][version] = true
+		}
+	}
 	kinds := make([]string, 0, len(typesByKind))
 	for k := range typesByKind {
 		kinds = append(kinds, k)
@@ -834,6 +904,14 @@ func (p *LocalProvider) namespaceKinds(namespace string) []primitive.KindSupport
 		}
 		sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
 		ops := []string{"list", "get"}
+		writes := []string{}
+		for operation := range p.catalogOperations[namespace][kind] {
+			if p.canAuthor(kind, namespace, operation) {
+				writes = append(writes, operation)
+			}
+		}
+		sort.Strings(writes)
+		ops = append(ops, writes...)
 		support := primitive.KindSupport{Kind: kind, FormatVersions: versions, Operations: ops, TestSupported: false, Methods: primitive.Methods(kind, ops)}
 		if kind == primitive.ToolfeedKind {
 			support.SchemaURI = primitive.ToolfeedSchemaURI

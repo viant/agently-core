@@ -23,7 +23,7 @@ import (
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	authsvc "github.com/viant/agently-core/service/auth"
-	"github.com/viant/agently-core/service/primitiveproducer"
+	"github.com/viant/agently-core/service/resource/provider"
 	primitiveprovider "github.com/viant/agently-core/service/primitiveprovider"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
 	"github.com/viant/agently-core/workspace"
@@ -187,7 +187,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	envelope.Format = registry.ResourceReportFormat
 	envelope.SourceFormat = registry.AuthoredReportFormat
 	envelope.DataSourceResources = map[string]primitive.DataSourceReference{}
-	providerBindings := make([]primitiveproducer.LocalResourceBinding, 0, len(envelope.DataSources))
+	providerBindings := make([]provider.LocalResourceBinding, 0, len(envelope.DataSources))
 	for id, descriptorRaw := range envelope.DataSources {
 		var descriptor dsproto.DataSource
 		require.NoError(t, json.Unmarshal(descriptorRaw, &descriptor))
@@ -213,7 +213,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 		resourceURI, parseErr := identity.ParseResourceURI(uri)
 		require.NoError(t, parseErr)
 		body := append(json.RawMessage(nil), wrapped...)
-		providerBindings = append(providerBindings, primitiveproducer.LocalResourceBinding{URI: uri, Title: id, FormatVersion: 1, Resolver: func(_ context.Context, _ identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
+		providerBindings = append(providerBindings, provider.LocalResourceBinding{URI: uri, Title: id, FormatVersion: 1, Resolver: func(_ context.Context, _ identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
 			return &identity.ResourceResolver{ProviderIdentity: reportProviderID, Source: &identity.LocalResource{URI: resourceURI, Load: func(context.Context) (json.RawMessage, error) { return append(json.RawMessage(nil), body...), nil }}, Policy: reportIntegrationPolicy{provider: reportProviderID}}, nil
 		}})
 	}
@@ -238,7 +238,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	require.NoError(t, parseErr)
 	var reportBodyMu sync.Mutex
 	reportBody := append(json.RawMessage(nil), content...)
-	providerBindings = append(providerBindings, primitiveproducer.LocalResourceBinding{URI: reportURI, Title: "Forecast Supply", FormatVersion: 1, Resolver: func(_ context.Context, _ identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
+	providerBindings = append(providerBindings, provider.LocalResourceBinding{URI: reportURI, Title: "Forecast Supply", FormatVersion: 1, Resolver: func(_ context.Context, _ identity.VerifiedActor, _ string) (*identity.ResourceResolver, error) {
 		return &identity.ResourceResolver{ProviderIdentity: reportProviderID, Source: &identity.LocalResource{URI: reportIdentity, Load: func(context.Context) (json.RawMessage, error) {
 			reportBodyMu.Lock()
 			defer reportBodyMu.Unlock()
@@ -246,7 +246,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 		}}, Policy: reportIntegrationPolicy{provider: reportProviderID}}, nil
 	}})
 
-	primitiveProvider, err := primitiveproducer.NewLocalProvider(primitiveproducer.LocalConfig{ProviderIdentity: reportProviderID, Actor: func(ctx context.Context) (identity.VerifiedActor, error) {
+	primitiveProvider, err := provider.NewLocalProvider(provider.LocalConfig{ProviderIdentity: reportProviderID, Actor: func(ctx context.Context) (identity.VerifiedActor, error) {
 		a, ok := ctx.Value(reportActorContextKey{}).(identity.VerifiedActor)
 		if !ok {
 			return identity.VerifiedActor{}, identity.ErrResourceDenied
@@ -262,7 +262,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 			return identity.ErrResourceDenied
 		}
 		return nil
-	}, Bindings: providerBindings, Validators: map[string]primitiveproducer.LocalResourceValidator{"report": func(version int64, raw json.RawMessage) error {
+	}, Bindings: providerBindings, Validators: map[string]provider.LocalResourceValidator{"report": func(version int64, raw json.RawMessage) error {
 		if version != 1 {
 			return identity.ErrResource
 		}
@@ -286,7 +286,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 		return err
 	}}})
 	require.NoError(t, err)
-	protectedPrimitive, err := primitiveproducer.NewMCPHandler(primitiveProvider, func(next http.Handler) http.Handler {
+	protectedPrimitive, err := provider.NewMCPHandler(primitiveProvider, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Header.Get("Authorization") != "Bearer "+reportFixtureToken {
 				http.Error(w, "invalid provider credential", 401)

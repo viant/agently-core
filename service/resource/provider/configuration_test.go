@@ -1,4 +1,4 @@
-package primitiveproducer_test
+package provider_test
 
 import (
 	"context"
@@ -7,7 +7,7 @@ import (
 
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
-	producer "github.com/viant/agently-core/service/primitiveproducer"
+	producer "github.com/viant/agently-core/service/resource/provider"
 	"github.com/viant/mcp-protocol/schema"
 )
 
