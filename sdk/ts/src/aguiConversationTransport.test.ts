@@ -12,7 +12,10 @@ const projection: AgUiConversationProjectionFactory = options => ({ subscriber: 
             return;
         }
         if (event.activityType !== 'agently.turn') return;
-        options.onViewEvent({ type: event.content.status === 'queued' ? 'turn_queued' : 'turn_started',
+        const status = String(event.content.status);
+        const type = status === 'queued' ? 'turn_queued' : status === 'completed' ? 'turn_completed'
+            : status === 'failed' ? 'turn_failed' : status === 'canceled' ? 'turn_canceled' : 'turn_started';
+        options.onViewEvent({ type,
             conversationId: options.conversationId, turnId: String(event.content.nativeTurnId) });
     },
 } });
@@ -75,6 +78,46 @@ function fixture(active: Array<Record<string, unknown>> = [], beforeAdmission?: 
 }
 
 describe('native web conversation orchestration', () => {
+    it.each(['completed', 'failed', 'canceled'])('keeps the streamed %s view without a completion bootstrap', async status => {
+        const f = fixture();
+        const onEvent = vi.fn();
+        const onSnapshot = vi.fn();
+        f.transport.subscribe('thread', { onEvent, onSnapshot });
+        const admitted = await f.transport.query({ conversationId: 'thread', query: 'hello' });
+        const runId = [...f.controls.keys()][0];
+        const turnId = `native-${runId}`;
+        const requestsBefore = f.posted.length;
+        const snapshotsBefore = onSnapshot.mock.calls.length;
+        expect(f.transport.hasStreamedTurnCompletion('thread', turnId)).toBe(false);
+        expect(f.transport.observesTurn('thread', turnId)).toBe(true);
+        expect(f.transport.observesTurn('thread', 'external-turn')).toBe(false);
+        f.controls.get(runId)!.enqueue(frame({ type: 'ACTIVITY_SNAPSHOT', messageId: `activity-${runId}`,
+            activityType: 'agently.turn', content: { version: '1', nativeTurnId: turnId, status } }));
+        await vi.waitFor(() => expect(f.transport.hasStreamedTurnCompletion('thread', turnId)).toBe(true));
+        f.finish(runId);
+        // Let the run completion/finally callbacks settle before checking reads.
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(admitted.turnId).toBe(turnId);
+        expect(f.posted).toHaveLength(requestsBefore);
+        expect(onSnapshot).toHaveBeenCalledTimes(snapshotsBefore);
+        expect(f.transport.observesTurn('thread', turnId)).toBe(true);
+        f.transport.reset(); f.host.resetAgUiInteractions();
+        expect(f.transport.hasStreamedTurnCompletion('thread', turnId)).toBe(false);
+        expect(f.transport.observesTurn('thread', turnId)).toBe(false);
+    });
+
+    it('still bootstraps protocol completion without an authoritative turn terminal event', async () => {
+        const f = fixture();
+        f.transport.subscribe('thread', {});
+        await f.transport.query({ conversationId: 'thread', query: 'hello' });
+        const runId = [...f.controls.keys()][0];
+        const requestsBefore = f.posted.length;
+        f.finish(runId);
+        await vi.waitFor(() => expect(f.posted).toHaveLength(requestsBefore + 1));
+        expect(f.posted.at(-1).forwardedProps.agently.operation).toBe('conversation.bootstrap');
+        f.transport.reset(); f.host.resetAgUiInteractions();
+    });
+
     it('resolves snapshot binding with an authenticated header-only read before compact bootstrap', async () => {
         const f = fixture([], undefined, [], undefined, () => [], 'opaque-wire');
         await f.transport.readSnapshot('thread', { mode: 'transcript', includeModelPayloads: false });

@@ -11,6 +11,26 @@ class Observer {
 }
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); Observer.instances = []; });
 describe('explicit native application observation alongside AG-UI', () => {
+    it.each(['turn_completed', 'turn_failed', 'turn_canceled'])('leaves %s recovery to the observed primary stream', type => {
+        vi.stubGlobal('EventSource', Observer);
+        vi.spyOn(AgUiConversationTransport.prototype, 'subscribe').mockReturnValue({ close: vi.fn() });
+        vi.spyOn(AgUiConversationTransport.prototype, 'observesTurn')
+            .mockImplementation((conversationId, turnId) => conversationId === 'thread' && turnId === 'primary-turn');
+        const refresh = vi.spyOn(AgUiConversationTransport.prototype, 'refresh').mockResolvedValue({} as never);
+        const client = new AgentlyClient({ baseURL: '/v1', observeNativeWork: true });
+        const onEvent = vi.fn();
+        const onTurnEnd = vi.fn();
+        const subscription = client.streamEvents('thread', { onEvent, onTurnEnd });
+        Observer.instances[0].emit({ type, conversationId: 'thread', turnId: 'primary-turn' });
+        expect(refresh).not.toHaveBeenCalled();
+        expect(onEvent).toHaveBeenCalledOnce();
+        expect(onTurnEnd).toHaveBeenCalledOnce();
+        // Other devices/turns still need their canonical history.
+        Observer.instances[0].emit({ type, conversationId: 'thread', turnId: 'external-turn' });
+        expect(refresh).toHaveBeenCalledOnce();
+        subscription.close();
+    });
+
     it('keeps primary execution separate and reconciles unknown provenance without rendering it', () => {
         vi.stubGlobal('EventSource', Observer);
         const primaryClose = vi.fn();

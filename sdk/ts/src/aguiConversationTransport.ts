@@ -3,7 +3,7 @@ import type { ClientTool } from './agui';
 import type { AgentSubscriber } from '@ag-ui/client';
 import type { Message, State } from '@ag-ui/core';
 import { AgUiCommands, type AgUiConversationBootstrapResult, type AgUiConversationBootstrapInput } from './aguiCommands';
-import { readAgentlyPresentation, readAgentlyPresentationActivity } from './aguiPresentation';
+import { readAgentlyPresentation } from './aguiPresentation';
 import type { AgUiViewOutcome, AgUiViewDescriptor } from './aguiViewProjection';
 import type { AgUiSession } from './aguiSession';
 import type { AgentlyClient } from './client';
@@ -47,8 +47,6 @@ interface RunSlot {
     browserToolNames?: Set<string>;
     firstBrowserToolAt?: number;
     terminalAt?: number;
-    protocolTerminal?: boolean;
-    nativeTerminal?: boolean;
     stopProjection(): void;
     completion: Promise<unknown>;
 }
@@ -61,6 +59,7 @@ interface Entry {
     listeners: Set<AgUiConversationHandlers>;
     runs: Map<string, RunSlot>;
     terminalTurns: Set<string>;
+    streamedTerminalTurns: Set<string>;
     browserNativeTurns: Set<string>;
     state: State;
     hostActivities: Map<string, Message>;
@@ -179,13 +178,26 @@ export class AgUiConversationTransport {
         });
     }
 
+    /** Only primary-stream terminal events prove the subscribed view is complete. */
+    hasStreamedTurnCompletion(conversationId: string, turnId: string): boolean {
+        return !!turnId && this.entries.get(conversationId)?.streamedTerminalTurns.has(turnId) === true;
+    }
+
+    /** A primary run owns recovery if its native completion arrives first. */
+    observesTurn(conversationId: string, turnId: string): boolean {
+        if (!turnId) return false;
+        const entry = this.entries.get(conversationId);
+        return !!entry && (entry.streamedTerminalTurns.has(turnId)
+            || [...entry.runs.values()].some(slot => slot.nativeTurnId === turnId));
+    }
+
     refresh(conversationId: string): Promise<AgUiConversationBootstrapResult> {
         const entry = this.entry(conversationId);
         if (entry.loading) return entry.loading;
         const runId = crypto.randomUUID();
         const commands = new AgUiCommands(this.host.agUiTransport());
         const pending = this.resolveProtocolThread(entry).then(threadId => {
-        const command = commands.start('conversation.bootstrap', { mode: 'live', includeModelCalls: true, includeToolCalls: true, includeFeeds: true, includeModelPayloads: false }, { threadId, runId, requestId: runId });
+        const command = commands.start('conversation.bootstrap', { mode: 'live', includeModelCalls: true, includeToolCalls: true, includeFeeds: true }, { threadId, runId, requestId: runId });
         entry.bootstrapHandle = command;
         return command.result;
         }).then(result => {
@@ -314,11 +326,7 @@ export class AgUiConversationTransport {
             recordBrowserMCPLifecycle('continuation', { stage: 'error', failure, pendingCount: snapshot.pendingToolCallIds.length, interruptCount: snapshot.interrupts.length });
             throw error;
         } finally {
-            if (current !== initial) {
-                initial.nativeTerminal = current.nativeTerminal;
-                initial.protocolTerminal = current.protocolTerminal;
-                current.stopProjection(); if (entry.runs.get(current.id) === current) entry.runs.delete(current.id);
-            }
+            if (current !== initial) { current.stopProjection(); if (entry.runs.get(current.id) === current) entry.runs.delete(current.id); }
         }
     }
 
@@ -326,7 +334,7 @@ export class AgUiConversationTransport {
         if (!id) throw new Error('A conversation identity is required');
         let entry = this.entries.get(id);
         if (!entry) {
-            entry = { pendingSubmissions: 0, reads: new Set(), id, generation: this.generation, listeners: new Set(), runs: new Map(), terminalTurns: new Set(), browserNativeTurns: new Set(), state: {}, hostActivities: new Map(), unavailableHostActivityIds: [] };
+            entry = { pendingSubmissions: 0, reads: new Set(), id, generation: this.generation, listeners: new Set(), runs: new Map(), terminalTurns: new Set(), streamedTerminalTurns: new Set(), browserNativeTurns: new Set(), state: {}, hostActivities: new Map(), unavailableHostActivityIds: [] };
             this.entries.set(id, entry);
         }
         return entry;
@@ -336,24 +344,11 @@ export class AgUiConversationTransport {
 
     private track(entry: Entry, runId: string, session: AgUiSession, baselineMessages: readonly Message[], onViewEvent?: (event: SSEEvent) => void, displayQuery?: string): RunSlot {
         const slot: RunSlot = { id: runId, session, stopProjection: () => {}, completion: Promise.resolve() };
-        const nativeTerminal = (message: Message) => {
-            const activity = readAgentlyPresentationActivity(message);
-            if (activity?.kind !== 'agently.turn' || !slot.nativeTurnId || activity.nativeTurnId !== slot.nativeTurnId
-                || (message as Message & { subagentRunId?: string }).subagentRunId
-                || activity.presentation?.conversationId && activity.presentation.conversationId !== entry.id
-                || !['completed', 'failed', 'canceled'].includes(activity.status)) return;
-            slot.nativeTerminal = true;
-        };
         const identity = session.subscribeProtocol({ onRunStartedEvent: ({ event }) => {
             slot.nativeTurnId = readAgentlyPresentation(event.metadata)?.nativeTurnId;
         }, onToolCallStartEvent: ({ event }) => {
             if (slot.firstBrowserToolAt === undefined && slot.browserToolNames?.has(event.toolCallName)) slot.firstBrowserToolAt = globalThis.performance?.now();
-        }, onActivitySnapshotEvent: ({ event }) => {
-            nativeTerminal({ ...event, id: event.messageId, role: 'activity' });
-        }, onMessagesSnapshotEvent: ({ event }) => {
-            for (const message of event.messages) nativeTerminal(message);
-        }, onRunFinishedEvent: () => { slot.protocolTerminal = true; slot.terminalAt = globalThis.performance?.now(); },
-        onRunErrorEvent: () => { slot.protocolTerminal = true; } });
+        }, onRunFinishedEvent: () => { slot.terminalAt = globalThis.performance?.now(); } });
         const projection = this.project({ profile: 'agently', conversationId: entry.id, runId,
             baselineMessages, displayQuery, allowHostEffects: true,
             onDescriptor: descriptor => {
@@ -367,6 +362,9 @@ export class AgUiConversationTransport {
             }, onViewEvent: event => {
                 if (!this.current(entry)) return;
                 if (event.turnId && ['turn_started', 'turn_queued'].includes(event.type)) slot.nativeTurnId = event.turnId;
+                if (event.turnId && ['turn_completed', 'turn_failed', 'turn_canceled'].includes(event.type)) {
+                    entry.streamedTerminalTurns.add(event.turnId);
+                }
                 onViewEvent?.(event);
                 if (event.turnId && entry.terminalTurns.has(event.turnId) && /^(turn_started|turn_queued|model_|tool_call_|text_delta|reasoning_delta)/.test(event.type)) return;
                 for (const listener of entry.listeners) {
@@ -396,16 +394,9 @@ export class AgUiConversationTransport {
     }
 
     private settled(entry: Entry, slot: RunSlot) {
-        const snapshot = slot.session.getSnapshot();
-        const streamedTerminal = slot.protocolTerminal && slot.nativeTerminal && slot.nativeTurnId
-            && !snapshot.pendingToolCallIds.length && !snapshot.interrupts.length;
-        if (streamedTerminal) {
-            entry.terminalTurns.add(slot.nativeTurnId!);
-            entry.browserNativeTurns.delete(slot.nativeTurnId!);
-        }
         // Protocol completion does not prove the native turn is terminal.
         // Retain its original browser catalog until authoritative native
-        // lifecycle or history confirms completion, including while tools wait.
+        // history confirms completion, including while tool results are pending.
         if (slot.hasBrowserTools && slot.nativeTurnId && !entry.terminalTurns.has(slot.nativeTurnId)) {
             entry.browserNativeTurns.add(slot.nativeTurnId);
         }
@@ -413,9 +404,11 @@ export class AgUiConversationTransport {
         slot.stopProjection();
         if (entry.runs.get(slot.id) === slot) entry.runs.delete(slot.id);
         this.closeBrowserIfIdle(entry);
-        if (this.current(entry) && !streamedTerminal && (entry.listeners.size || slot.hasBrowserTools) && snapshot.phase !== 'detached') {
-            // Reconcile missing native lifecycle or a lost stream. A complete
-            // native/protocol terminal already carries the final UI projection.
+        const viewComplete = !!slot.nativeTurnId && entry.streamedTerminalTurns.has(slot.nativeTurnId);
+        if (this.current(entry) && (entry.listeners.size || slot.hasBrowserTools) && slot.session.getSnapshot().phase !== 'detached'
+            && (!viewComplete || slot.hasBrowserTools)) {
+            // One authoritative refresh after completion; no permanent polling
+            // loop or implicit resubmission of an interrupted protocol run.
             void this.refreshAfterCompletion(entry).catch(error => this.error(entry, error));
         }
     }
@@ -423,7 +416,7 @@ export class AgUiConversationTransport {
     private async refreshAfterCompletion(entry: Entry) {
         const commands = new AgUiCommands(this.host.agUiTransport());
         const runId = crypto.randomUUID();
-        const result = await commands.execute('conversation.bootstrap', { mode: 'live', includeModelPayloads: false }, { threadId: entry.protocolThreadId ?? entry.id, runId, requestId: runId });
+        const result = await commands.execute('conversation.bootstrap', { mode: 'live' }, { threadId: entry.protocolThreadId ?? entry.id, runId, requestId: runId });
         if (!result || !this.current(entry)) return;
         entry.bootstrap = result;
         this.updateTerminalTurns(entry, result);
