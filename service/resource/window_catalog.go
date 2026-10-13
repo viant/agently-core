@@ -252,24 +252,6 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 		return nil, e
 	}
 	// No source fallback: only the exact provider bytes above enter the window.
-	final, e := Get[json.RawMessage](ctx, c.Gateway, loc.Connection, identity.ResourceRef{URI: loc.URI}, &pin)
-	if e != nil {
-		return nil, e
-	}
-	if len(dependencyPins) > 0 {
-		freshChildren, err := c.Gateway.ResolveDependencyPins(ctx, loc.Connection, pin, selected.DataSourceResources, selected.DataSources, dependencyPins)
-		if err != nil {
-			return nil, err
-		}
-		for _, child := range freshChildren {
-			if child.ValidUntil.Before(pin.ValidUntil) {
-				pin.ValidUntil = child.ValidUntil
-			}
-		}
-	}
-	if final.ResolvedResource.ValidUntil.Before(pin.ValidUntil) {
-		pin.ValidUntil = final.ResolvedResource.ValidUntil
-	}
 	if !pin.ValidUntil.After(time.Now()) {
 		return nil, identity.ErrResourceDenied
 	}
@@ -301,6 +283,12 @@ func (c *WindowCatalog) getForProvider(ctx context.Context, explicitOwner string
 		entry.Service = &types.Service{Endpoint: "agentlyAPI", URI: "/v1/api/datasources/" + url.PathEscape(id) + "/fetch", Method: "POST"}
 		entry.Selectors = &types.Selectors{Data: "rows", DataInfo: "dataInfo", Metrics: "metrics"}
 		clientDefinition.DataSource[id] = entry
+	}
+	if c.Gateway.generation(loc.Connection.Name) != loc.Connection.Generation {
+		return nil, identity.ErrResourceStale
+	}
+	if ctx.Err() != nil || !pin.ValidUntil.After(time.Now()) {
+		return nil, identity.ErrResourceDenied
 	}
 	definition = &clientDefinition
 	definition.Resource = &pin

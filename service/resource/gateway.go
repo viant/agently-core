@@ -834,6 +834,9 @@ func get[T any](ctx context.Context, g *Gateway, connection Connection, ref iden
 	}
 	// A host decoder may take time or consult request state. Typed delivery
 	// retains the same final actor and lease checks as raw delivery.
+	if g.generation(connection.Name) != connection.Generation {
+		return nil, identity.ErrResourceStale
+	}
 	if e = g.final(ctx, a); e != nil {
 		return nil, e
 	}

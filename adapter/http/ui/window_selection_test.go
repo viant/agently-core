@@ -74,7 +74,7 @@ func TestCanonicalHTTPOpenEmitsOnlyAfterAdmissionAndFinalChecks(t *testing.T) {
 	parameters := `{"ids":[9007199254740993,"opaque"],"parents":{"account":"selected-parent"}}`
 	opened := httptest.NewRecorder()
 	handler.ServeHTTP(opened, httptest.NewRequest(http.MethodGet, "/window/view?applyPermission=true&windowParams="+url.QueryEscape(parameters), nil))
-	if opened.Code != 200 || f.signs != 1 || f.admits != 2 || f.gets != 2 || !strings.Contains(opened.Body.String(), "host-signed") {
+	if opened.Code != 200 || f.signs != 1 || f.admits != 2 || f.gets != 1 || !strings.Contains(opened.Body.String(), "host-signed") {
 		t.Fatalf("authnil canonical OPEN checks/emission lost: %d %s signs=%d admits=%d gets=%d", opened.Code, opened.Body.String(), f.signs, f.admits, f.gets)
 	}
 	if f.parameters["ids"].([]any)[0].(json.Number).String() != "9007199254740993" || f.parameters["parents"].(map[string]any)["account"] != "selected-parent" {
@@ -88,7 +88,7 @@ func TestCanonicalHTTPOpenDenialAndAvailabilityNeverLeakBindings(t *testing.T) {
 		emitter       error
 		status, signs int
 	}{
-		{"stale", 2, 0, nil, 403, 0}, {"final admission unavailable", 0, 2, nil, 503, 0},
+		{"initial stale", 1, 0, nil, 404, 0}, {"final admission unavailable", 0, 2, nil, 503, 0},
 		{"emitter denied", 0, 0, errors.New("private detail"), 403, 1},
 		{"emitter unavailable", 0, 0, fmt.Errorf("private detail: %w", service.ErrWindowSelectionUnavailable), 503, 1},
 		{"emitter timeout", 0, 0, fmt.Errorf("private detail: %w", context.DeadlineExceeded), 504, 1},
@@ -103,5 +103,27 @@ func TestCanonicalHTTPOpenDenialAndAvailabilityNeverLeakBindings(t *testing.T) {
 				t.Fatalf("wrong classification/emission: %d %s signs=%d", response.Code, response.Body.String(), f.signs)
 			}
 		})
+	}
+}
+
+func TestCanonicalHTTPAdmittedFrameIsSingleReadAndNextRequestIsFresh(t *testing.T) {
+	f := selectionHTTP(t)
+	f.failGet = 2
+	handler := NewEmbeddedHandlerWithAuthorization(t.TempDir(), nil, nil, nil, WithWindowResourceProvider(f))
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/window/view?applyPermission=true", nil))
+	if first.Code != 200 || f.gets != 1 || f.signs != 1 {
+		t.Fatal("admitted frame reloaded inside request", first.Code, f.gets, f.signs)
+	}
+	var body struct {
+		Data *types.Window `json:"data"`
+	}
+	if json.Unmarshal(first.Body.Bytes(), &body) != nil || body.Data == nil || body.Data.Resource == nil || body.Data.Resource.ContentFingerprint != f.window.Resource.ContentFingerprint {
+		t.Fatal("original admitted candidate lost")
+	}
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/window/view?applyPermission=true", nil))
+	if second.Code != 404 || f.gets != 2 || f.signs != 1 || strings.Contains(second.Body.String(), "selectionBinding") {
+		t.Fatal("next request reused prior managing admission", second.Code, f.gets, f.signs)
 	}
 }

@@ -164,13 +164,10 @@ func TestScopedPlainWindowHTTPUsesCanonicalChildForRevalidationAndEmission(t *te
 	require.Equal(t, map[string]any{"AdvertiserId": []any{json.Number("990001")}}, bridge.parameters)
 	require.Equal(t, "window://example/nested/sales", bridge.emitted)
 	require.Zero(t, local.gets)
-	require.Len(t, bridge.inputs, 2)
+	require.Len(t, bridge.inputs, 1)
 	require.Equal(t, "nested/sales", bridge.inputs[0].WindowID)
 	require.Nil(t, bridge.inputs[0].ResolvedResource)
-	require.Equal(t, "window://example/nested/sales", bridge.inputs[1].WindowID)
-	require.Equal(t, "studio-a", bridge.inputs[1].ResolvedResource.ProviderIdentity)
-	require.Equal(t, "window://example/nested/sales", bridge.inputs[1].ResolvedResource.URI)
-	require.Equal(t, 4, p.calls["windows/get"])
+	require.Equal(t, 1, p.calls["windows/get"], "one managing provider Get per metadata HTTP")
 	var body struct {
 		Data *types.Window `json:"data"`
 	}
