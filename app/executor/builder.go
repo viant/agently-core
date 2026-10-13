@@ -169,6 +169,7 @@ func resolveScratchpadTemplate() string {
 
 type Builder struct {
 	nativeWindowDefaults           []resourcesvc.NativeFrameworkWindowBinding
+	nativeWindowAliases            map[string]string
 	nativeLayoutDefault            []byte
 	nativeComponentServices        []string
 	componentDispatcher            windowprotocol.ComponentDispatcher

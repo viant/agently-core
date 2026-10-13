@@ -136,9 +136,13 @@ func (b *Builder) configurePublicPrimitiveProviders(out *Runtime) error {
 	for i := range windowDefs {
 		windowDefs[i].Title = titles[windowDefs[i].URI]
 	}
+	b.nativeWindowAliases = make(map[string]string, len(b.nativeWindowDefaults))
 	for _, entry := range b.nativeWindowDefaults {
-		if workspaceKeys[entry.Resource.WindowKey] {
+		if workspaceKeys[entry.Resource.WindowKey] && entry.Resource.URI == "window://workspace/"+entry.Resource.WindowKey {
 			continue
+		}
+		if !workspaceKeys[entry.Resource.WindowKey] {
+			b.nativeWindowAliases[entry.Resource.WindowKey] = entry.Resource.URI
 		}
 		windowDefs = append(windowDefs, resources.NativeSnapshotDefinition{URI: entry.Resource.URI, Title: entry.Resource.WindowKey, FormatVersion: 2, File: "embedded/window", Load: resources.NativeComposedWindowLoader(entry.Resource, entry.Load, enrich)})
 	}
