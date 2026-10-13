@@ -576,3 +576,28 @@ it('executes compact catalog validation through the extension transport without 
     await expect(tool.execute({ different: true }, { ...original, function: { ...original.function, arguments: '{"different":true}' } })).rejects.toThrow('conflicting');
     await host.closeConversation('conversation');
 });
+
+it('copies authenticated catalog renewal across a long active binding without replay or identity replacement', async () => {
+    vi.useFakeTimers();
+    try {
+        const f = fixture(); const [tool] = await f.host.tools('conversation', 'thread');
+        const binding = [...(f.host as any).bindings.values()][0];
+        const original = { id: binding.catalog.id, connectionId: binding.connectionId };
+        const registered = { ...binding.catalog };
+        f.api.current.mockImplementation(async id => ({ ...registered, expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString() }));
+        const call = (id: string) => ({ id, type: 'function' as const, function: { name: tool.tool.name, arguments: '{}' } });
+        await tool.execute({}, call('first'));
+        await vi.advanceTimersByTimeAsync(16 * 60 * 1000);
+        await tool.execute({}, call('second'));
+        expect(binding.catalog.id).toBe(original.id); expect(binding.connectionId).toBe(original.connectionId);
+        expect(f.requests.filter(r => r.method === 'tools/call')).toHaveLength(2);
+        await tool.execute({}, call('second')); expect(f.requests.filter(r => r.method === 'tools/call')).toHaveLength(2);
+        f.api.current.mockRejectedValueOnce(new Error('revoked'));
+        await expect(tool.execute({}, call('revoked'))).rejects.toThrow('revoked');
+        expect(f.requests.filter(r => r.method === 'tools/call')).toHaveLength(2);
+        await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000 + 1);
+        await expect(tool.execute({}, call('idle-expired'))).rejects.toThrow('catalogExpired');
+        expect(f.requests.filter(r => r.method === 'tools/call')).toHaveLength(2);
+        await f.host.closeConversation('conversation');
+    } finally { vi.useRealTimers(); }
+});

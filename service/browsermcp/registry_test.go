@@ -287,3 +287,42 @@ func TestCurrentStatusUsesOnlyFreshRegisteredConfigAndDoesNotHydrateTools(t *tes
 		t.Fatal("revocation during config read lost")
 	}
 }
+
+func TestCurrentCatalogRenewsIdleLifetimeOnlyForValidatedOwner(t *testing.T) {
+	descriptor := cfg.BrowserDescriptor{Name: "device", ExecutionLocation: "browser", AllowedTools: []string{"read"}}
+	registry := New(func(context.Context) ([]cfg.BrowserDescriptor, error) {
+		return []cfg.BrowserDescriptor{descriptor}, nil
+	})
+	catalog, err := registry.Register(context.Background(), "owner", Registration{ConversationID: "conversation", ThreadID: "thread", Server: "device", ConnectionID: "connection", Tools: []Tool{{Name: "read", InputSchema: json.RawMessage(`{"type":"object"}`)}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if time.Until(catalog.ExpiresAt) < 23*time.Hour {
+		t.Fatal("new catalog still has short fixed expiry")
+	}
+	registry.mu.Lock()
+	entry := registry.catalogs[catalog.ID]
+	entry.catalog.ExpiresAt = time.Now().Add(time.Minute)
+	registry.catalogs[catalog.ID] = entry
+	before := entry.catalog.ExpiresAt
+	registry.mu.Unlock()
+	if _, e := registry.CurrentStatus(context.Background(), "foreign", catalog.ID); e == nil {
+		t.Fatal("foreign owner accepted")
+	}
+	registry.mu.Lock()
+	unchanged := registry.catalogs[catalog.ID].catalog.ExpiresAt.Equal(before)
+	registry.mu.Unlock()
+	if !unchanged {
+		t.Fatal("foreign owner renewed catalog")
+	}
+	status, e := registry.CurrentStatus(context.Background(), "owner", catalog.ID)
+	if e != nil || status.Hash != catalog.Hash || status.ConnectionID != catalog.ConnectionID || time.Until(status.ExpiresAt) < 23*time.Hour {
+		t.Fatal("validated request failed to renew same catalog", e)
+	}
+	if e = registry.Revoke("owner", catalog.ID); e != nil {
+		t.Fatal(e)
+	}
+	if _, e = registry.CurrentStatus(context.Background(), "owner", catalog.ID); e == nil {
+		t.Fatal("revoked catalog resurrected")
+	}
+}
