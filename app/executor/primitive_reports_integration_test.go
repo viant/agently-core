@@ -23,9 +23,9 @@ import (
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	authsvc "github.com/viant/agently-core/service/auth"
-	"github.com/viant/agently-core/service/resource/provider"
 	primitiveprovider "github.com/viant/agently-core/service/primitiveprovider"
 	reportingsvc "github.com/viant/agently-core/service/reporting"
+	"github.com/viant/agently-core/service/resource/provider"
 	"github.com/viant/agently-core/workspace"
 	"github.com/viant/forge/backend/reporting/registry"
 	"github.com/viant/forge/backend/types"
@@ -172,7 +172,7 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	t.Setenv("AGENTLY_DB_PATH", "")
 	t.Cleanup(func() { workspace.SetRoot(previousRoot); workspace.SetRuntimeRoot(previousRuntimeRoot) })
 	actor := identity.VerifiedActor{Issuer: "https://identity.fixture", Subject: "report-user", TenantID: "tenant", AccountID: "account", IdentityRevision: "r1", ValidUntil: time.Now().Add(2 * time.Hour)}
-	ctx := authsvc.InjectUser(context.Background(), actor.Subject)
+	ctx := authctx.WithProvider(authctx.WithCanonicalUserID(authsvc.InjectUser(context.Background(), actor.Subject), actor.Subject), "fixture-oauth")
 	ctx = authctxWithReportToken(ctx, reportFixtureToken)
 	ctx = context.WithValue(ctx, reportActorContextKey{}, actor)
 	ordinary := &reportToolHTTP{}
@@ -325,7 +325,9 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	defer func() { _ = built.Close(context.Background()) }()
 	require.NotNil(t, built.Reporting)
 	// The Builder path must install its resource reader and external datasource provider itself.
+	phaseStarted := time.Now()
 	run, err := built.Reporting.ExecuteResource(ctx, &reportingsvc.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: reportURI}})
+	t.Logf("report phase=initial_execute elapsed_ms=%d error=%t", time.Since(phaseStarted).Milliseconds(), err != nil)
 	if mode == "headless-missing-proof" {
 		require.Error(t, err)
 		ordinary.mu.Lock()
@@ -435,7 +437,12 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	ordinary.mu.Lock()
 	beforeForeignFilter := len(ordinary.calls)
 	ordinary.mu.Unlock()
+	phaseStarted = time.Now()
 	_, foreignFilterErr := built.Reporting.ExecuteResource(ctx, &reportingsvc.ExecuteResourceRequest{Resource: &identity.ResourceRef{URI: reportURI}, Parameters: map[string]interface{}{"accountId": "foreign-fixture-account"}})
+	ordinary.mu.Lock()
+	foreignCalls := len(ordinary.calls) - beforeForeignFilter
+	ordinary.mu.Unlock()
+	t.Logf("report phase=managing_deny elapsed_ms=%d backend_calls=%d error=%t", time.Since(phaseStarted).Milliseconds(), foreignCalls, foreignFilterErr != nil)
 	require.Error(t, foreignFilterErr)
 	require.Contains(t, foreignFilterErr.Error(), "403", "the managing endpoint denial must propagate unchanged")
 	ordinary.mu.Lock()
@@ -468,12 +475,16 @@ func runPrimitiveReportFixture(t *testing.T, mode string) {
 	}
 
 	for _, format := range []string{"pdf", "csv", "xlsx"} {
+		phaseStarted = time.Now()
 		submitted, err := built.Registry.Execute(ctx, "reporting:submit_export", map[string]interface{}{"format": format, "resource": map[string]interface{}{"uri": reportURI}})
+		t.Logf("report phase=submit_export format=%s elapsed_ms=%d error=%t", format, time.Since(phaseStarted).Milliseconds(), err != nil)
 		require.NoError(t, err)
 		var job reportingsvc.ExportJobStatus
 		require.NoError(t, json.Unmarshal([]byte(submitted), &job))
 		require.Equal(t, reportingsvc.JobStatusQueued, job.Status)
+		phaseStarted = time.Now()
 		finished, err := built.Reporting.RunExport(ctx, job.JobID)
+		t.Logf("report phase=run_export format=%s elapsed_ms=%d error=%t", format, time.Since(phaseStarted).Milliseconds(), err != nil)
 		require.NoError(t, err)
 		require.Equal(t, reportingsvc.JobStatusSucceeded, finished.Status)
 		artifact, err := built.Reporting.GetArtifact(ctx, finished.ArtifactID)
