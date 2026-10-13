@@ -63,7 +63,7 @@ func TestAuthoredReadersPrivateActorsPartialProviderAliasesAndDenial(t *testing.
 			}
 			defs, err := SnapshotExtensionDefinitions(context.Background(), root, dirs)
 			require.NoError(t, err)
-			snap, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{AssetPaths: []string{"alice/templates", "bob/templates", "shared/templates"}, ImmutableUntilRestart: true, BeforeCompile: func(ctx context.Context, r *ExtensionReader) error {
+			snap, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{BeforeCompile: func(ctx context.Context, r *ExtensionReader) error {
 				for _, c := range compilers {
 					if err := c.Prepare(ctx, r); err != nil {
 						return err

@@ -31,14 +31,12 @@ func CaptureHostDocuments(ctx context.Context, root string) (*NativeAssetSnapsho
 	files := map[string]string{}
 	var definitions []NativeSnapshotDefinition
 	directories := []string{"tools/bundles", "tools/instructions", "intake", "agents"}
-	var assets []string
 	for _, directory := range directories {
 		if _, err := opened.Stat(directory); os.IsNotExist(err) {
 			continue
 		} else if err != nil {
 			return nil, nil, err
 		}
-		assets = append(assets, directory)
 		err = fs.WalkDir(opened.FS(), directory, func(name string, entry fs.DirEntry, err error) error {
 			if err != nil {
 				return err
@@ -77,7 +75,6 @@ func CaptureHostDocuments(ctx context.Context, root string) (*NativeAssetSnapsho
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".md" {
 			name := "tools/" + entry.Name()
 			files[name] = NativeDocumentURI(name)
-			assets = append(assets, name)
 		}
 	}
 	if len(files) == 0 {
@@ -95,7 +92,7 @@ func CaptureHostDocuments(ctx context.Context, root string) (*NativeAssetSnapsho
 			return json.RawMessage(raw), err
 		}})
 	}
-	snapshot, err := NewNativeAssetSnapshot(ctx, root, definitions, NativeSnapshotOptions{AssetPaths: assets, ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(ctx, root, definitions, NativeSnapshotOptions{})
 	return snapshot, files, err
 }
 func (d *HostDocuments) Names(prefix string) []string {

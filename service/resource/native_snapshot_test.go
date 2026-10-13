@@ -17,7 +17,7 @@ import (
 	"github.com/viant/forge/backend/types"
 )
 
-func TestNativeSnapshotPreloadsAndRebuildsChangedImportedAsset(t *testing.T) {
+func TestNativeSnapshotPreloadsAndExplicitlyReloadsChangedImportedAsset(t *testing.T) {
 	root, entries := nativeWindowFixture(t)
 	definitions, err := SnapshotWindowDefinitions(context.Background(), root, entries, nil)
 	require.NoError(t, err)
@@ -42,6 +42,11 @@ func TestNativeSnapshotPreloadsAndRebuildsChangedImportedAsset(t *testing.T) {
 	changed[0] = 'X'
 	require.NoError(t, os.WriteFile(imported, changed, 0600))
 	require.NoError(t, os.Chtimes(imported, info.ModTime(), info.ModTime()))
+	captured, err := snapshot.ReadCandidate(context.Background(), uri, candidates[0])
+	require.NoError(t, err)
+	require.Contains(t, string(captured), string(old))
+	require.EqualValues(t, 1, snapshot.CompileCount())
+	require.NoError(t, snapshot.Reload(context.Background()))
 	raw, err := snapshot.ReadCandidate(context.Background(), uri, candidates[0])
 	require.ErrorIs(t, err, identity.ErrResourceStale)
 	require.Nil(t, raw)
@@ -70,21 +75,28 @@ func TestNativeSnapshotNewTargetDirectoryAndRootReplacement(t *testing.T) {
 			case "new-target":
 				extensionWrite(t, root, "extension/forge/windows/campaign/detail/android/phone/main.yaml", "windowKey: campaign/detail\nview:\n  content: {id: newAndroid}\n")
 				raw, err := snapshot.ReadCandidate(context.Background(), uri, candidate[0])
+				require.NoError(t, err)
+				require.NotContains(t, string(raw), "newAndroid")
+				require.NoError(t, snapshot.Reload(context.Background()))
+				_, err = snapshot.ReadCandidate(context.Background(), uri, candidate[0])
 				require.ErrorIs(t, err, identity.ErrResourceStale)
-				require.Nil(t, raw)
 			case "root-replacement":
 				moved := root + "-old"
 				require.NoError(t, os.Rename(root, moved))
 				defer os.RemoveAll(moved)
 				extensionWrite(t, root, "extension/forge/windows/campaign/detail/main.yaml", "view:\n  content: {id: replaced}\n")
-				_, err := snapshot.Candidates(context.Background(), uri)
-				require.ErrorIs(t, err, identity.ErrResourceStale)
+				retained, err := snapshot.Candidates(context.Background(), uri)
+				require.NoError(t, err)
+				require.Equal(t, candidate, retained)
+				require.ErrorIs(t, snapshot.Reload(context.Background()), identity.ErrResourceStale)
 			case "symlink":
 				file := filepath.Join(root, "extension/forge/windows/campaign/detail/mobile/phone/main.js")
 				require.NoError(t, os.Remove(file))
 				require.NoError(t, os.Symlink("../../main.js", file))
-				_, err := snapshot.Candidates(context.Background(), uri)
-				require.ErrorIs(t, err, identity.ErrResourceDenied)
+				retained, err := snapshot.Candidates(context.Background(), uri)
+				require.NoError(t, err)
+				require.Equal(t, candidate, retained)
+				require.ErrorIs(t, snapshot.Reload(context.Background()), identity.ErrResourceDenied)
 			}
 		})
 	}
@@ -130,7 +142,7 @@ func TestNativeSnapshotNeverCachesAuthorizationOrCustomValidation(t *testing.T) 
 	require.Nil(t, got)
 	require.EqualValues(t, 1, snapshot.CompileCount())
 }
-func TestNativeSnapshotRequiresStaticEnrichmentRefreshBeforeRebuild(t *testing.T) {
+func TestNativeSnapshotPreparesStaticEnrichmentOnlyOnCaptureAndReload(t *testing.T) {
 	root, entries := nativeWindowFixture(t)
 	definitions, err := SnapshotWindowDefinitions(context.Background(), root, []workspacewindow.ResourceBinding{entries[0]}, nil)
 	require.NoError(t, err)
@@ -142,6 +154,8 @@ func TestNativeSnapshotRequiresStaticEnrichmentRefreshBeforeRebuild(t *testing.T
 	uri, _ := identity.ParseResourceURI(entries[0].URI)
 	_, err = snapshot.Candidates(context.Background(), uri)
 	require.NoError(t, err)
+	require.Equal(t, 1, calls)
+	require.NoError(t, snapshot.Reload(context.Background()))
 	require.Equal(t, 2, calls)
 }
 
@@ -182,6 +196,10 @@ func TestNativeSnapshotTracksFirstOutsideDependencyAndIgnoresUnrelatedRootEntrie
 	extensionWrite(t, root, "imports/body.json", `{"schemaVersion":1,"reportDocument":{"title":"Third!"},"reportSpec":{"title":"Third!"}}`)
 	require.NoError(t, os.Chtimes(file, info.ModTime(), info.ModTime()))
 	_, err = snapshot.ReadCandidate(context.Background(), uri, candidate[0])
+	require.NoError(t, err)
+	require.Equal(t, compiles, snapshot.CompileCount())
+	require.NoError(t, snapshot.Reload(context.Background()))
+	_, err = snapshot.ReadCandidate(context.Background(), uri, candidate[0])
 	require.ErrorIs(t, err, identity.ErrResourceStale)
 	_ = entries
 }
@@ -216,6 +234,9 @@ func TestNativeSnapshotRechecksContentAfterAuthorizationCallback(t *testing.T) {
 		calls++
 		if calls == 2 {
 			extensionWrite(t, root, "extension/forge/windows/campaign/detail/mobile/phone/main.js", "changedAfterRead()")
+			if err := snapshot.Reload(context.Background()); err != nil {
+				return err
+			}
 		}
 		return nil
 	}, Bindings: bindings, Validators: map[string]LocalResourceValidator{"window": ValidateWindowBundle}})
@@ -226,17 +247,32 @@ func TestNativeSnapshotRechecksContentAfterAuthorizationCallback(t *testing.T) {
 	require.EqualValues(t, 2, snapshot.CompileCount())
 }
 
-func TestNativeSnapshotImmutableHostConfigurationRequiresRestartOnChange(t *testing.T) {
+func TestNativeSnapshotFrozenHostConfigurationKeepsStartupContentUntilRestart(t *testing.T) {
 	root, entries := nativeWindowFixture(t)
 	defs, err := SnapshotWindowDefinitions(context.Background(), root, entries, nil)
 	require.NoError(t, err)
-	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{})
+	require.NoError(t, err)
+	uri, _ := identity.ParseResourceURI(entries[0].URI)
+	candidates, err := snapshot.Candidates(context.Background(), uri)
+	require.NoError(t, err)
+	original, err := snapshot.ReadCandidate(context.Background(), uri, candidates[0])
 	require.NoError(t, err)
 	extensionWrite(t, root, "extension/forge/windows/campaign/detail/main.js", "changedAfterStartup()")
-	uri, _ := identity.ParseResourceURI(entries[0].URI)
-	_, err = snapshot.Candidates(context.Background(), uri)
-	require.ErrorIs(t, err, identity.ErrResourceStale)
+	current, err := snapshot.Candidates(context.Background(), uri)
+	require.NoError(t, err)
+	require.Equal(t, candidates, current)
+	captured, err := snapshot.ReadCandidate(context.Background(), uri, candidates[0])
+	require.NoError(t, err)
+	require.Equal(t, original, captured)
 	require.EqualValues(t, 1, snapshot.CompileCount())
+	restarted, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{})
+	require.NoError(t, err)
+	refreshed, err := restarted.Candidates(context.Background(), uri)
+	require.NoError(t, err)
+	require.NotEqual(t, candidates[0].ContentFingerprint, refreshed[0].ContentFingerprint)
+	_, err = restarted.ReadCandidate(context.Background(), uri, candidates[0])
+	require.ErrorIs(t, err, identity.ErrResourceStale)
 }
 
 func TestNativeSnapshotWindowIndexUsesOnlyImmutableMetadata(t *testing.T) {

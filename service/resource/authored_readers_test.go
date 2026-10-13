@@ -30,7 +30,7 @@ func TestAuthoredReadersShareNativeSnapshotAndFreshSelectedBody(t *testing.T) {
 	defs, err := SnapshotExtensionDefinitions(context.Background(), root, []ExtensionDirectory{compiler.TemplateDirectory("workspace"), IntentDirectory("workspace", "intents")})
 	require.NoError(t, err)
 	require.Len(t, defs, 2)
-	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{AssetPaths: []string{"templates", "intents", "support"}, ImmutableUntilRestart: true, BeforeCompile: compiler.Prepare})
+	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{BeforeCompile: compiler.Prepare})
 	require.NoError(t, err)
 	compiler.Release()
 	actor, verify := PublicReadActors()
@@ -84,8 +84,18 @@ func TestAuthoredReadersShareNativeSnapshotAndFreshSelectedBody(t *testing.T) {
 	require.Equal(t, templateYAML, bytes)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "templates/output.yaml"), append(templateYAML, []byte("description: changed\n")...), 0600))
 	selected, err = tr.Load(ctx, "original-template")
-	require.Error(t, err)
-	require.Nil(t, selected)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	require.Equal(t, compiled, snapshot.CompileCount())
+	require.NoError(t, snapshot.Reload(ctx))
+	selected, err = tr.Load(ctx, "original-template")
+	require.ErrorIs(t, err, identity.ErrResourceStale, "old catalog pins do not silently adopt a reloaded source")
+	currentActor, err := actor(ctx)
+	require.NoError(t, err)
+	mgr.InvalidateVisibleCatalogPartition(mgr.CatalogPartition(ctx, catalogPrincipalScope(currentActor), "template"))
+	selected, err = tr.Load(ctx, "original-template")
+	require.NoError(t, err)
+	require.NotNil(t, selected)
 }
 
 type authoredTestPolicy struct{ actor identity.VerifiedActor }
@@ -105,7 +115,7 @@ func TestAuthoredStartupRejectsUnknownAuthorityAndEscapingSupportingURI(t *testi
 		compiler := NewAuthoredCompilation("templates")
 		defs, err := SnapshotExtensionDefinitions(context.Background(), root, []ExtensionDirectory{compiler.TemplateDirectory("workspace")})
 		require.NoError(t, err)
-		snap, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{AssetPaths: []string{"templates"}, ImmutableUntilRestart: true, BeforeCompile: compiler.Prepare})
+		snap, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{BeforeCompile: compiler.Prepare})
 		require.Error(t, err)
 		require.Nil(t, snap)
 	}
@@ -114,7 +124,7 @@ func TestAuthoredStartupRejectsUnknownAuthorityAndEscapingSupportingURI(t *testi
 	require.NoError(t, os.WriteFile(filepath.Join(root, "intents/bad.yaml"), []byte("id: bad\nmessages: [{role: system, uri: ../outside.txt}]\n"), 0600))
 	defs, err := SnapshotExtensionDefinitions(context.Background(), root, []ExtensionDirectory{IntentDirectory("workspace", "intents")})
 	require.NoError(t, err)
-	snap, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{AssetPaths: []string{"intents"}, ImmutableUntilRestart: true})
+	snap, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{})
 	require.Error(t, err)
 	require.Nil(t, snap)
 }
@@ -135,7 +145,7 @@ func TestOriginalStewardAuthoredDefinitionsCompileOnNativeMCP(t *testing.T) {
 		require.NoError(t, err)
 		before[d.File] = raw
 	}
-	snap, err := NewNativeAssetSnapshot(ctx, root, defs, NativeSnapshotOptions{AssetPaths: []string{"templates", "intents", "tools/bundles"}, ImmutableUntilRestart: true, BeforeCompile: func(ctx context.Context, r *ExtensionReader) error {
+	snap, err := NewNativeAssetSnapshot(ctx, root, defs, NativeSnapshotOptions{BeforeCompile: func(ctx context.Context, r *ExtensionReader) error {
 		if err := templates.Prepare(ctx, r); err != nil {
 			return err
 		}

@@ -29,7 +29,7 @@ func TestOriginalStewardDefaultWindowInventoryCompilesOwningBundles(t *testing.T
 	require.True(t, found)
 	defs, err := SnapshotWindowDefinitions(context.Background(), root, bindings, nil)
 	require.NoError(t, err)
-	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{AssetPaths: []string{"extension/forge"}, ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	require.EqualValues(t, len(defs), snapshot.CompileCount())
 	for key, title := range map[string]string{"advertiserList": "Advertisers", "order": "Order"} {

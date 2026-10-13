@@ -31,7 +31,7 @@ func TestToolfeedSharesNativeStartupSnapshotWithoutWarmYAMLLoads(t *testing.T) {
 	require.Len(t, definitions, 1)
 	require.Equal(t, "feeds/nested/media.yml", definitions[0].File)
 	require.Equal(t, "toolfeed://ownedfeeds/nested/media", definitions[0].URI)
-	snapshot, err := NewNativeAssetSnapshot(ctx, root, definitions, NativeSnapshotOptions{AssetPaths: []string{"feeds"}, ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(ctx, root, definitions, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	require.EqualValues(t, 1, snapshot.CompileCount())
 	require.EqualValues(t, 1, yamlLoads.Load())
@@ -55,9 +55,11 @@ func TestToolfeedSharesNativeStartupSnapshotWithoutWarmYAMLLoads(t *testing.T) {
 	require.EqualValues(t, 5, validations.Load(), "no newpurevalidator bypass")
 	require.NoError(t, os.WriteFile(file, append(original, []byte("title: changed\n")...), 0600))
 	got, err := provider.Get(ctx, primitive.ToolfeedKind, primitive.GetRequest{URI: definitions[0].URI})
-	require.ErrorIs(t, err, identity.ErrResourceStale)
-	require.Nil(t, got)
-	require.EqualValues(t, 1, yamlLoads.Load(), "immutableguard denies ratherthanreload")
+	require.NoError(t, err)
+	require.NotNil(t, got)
+	require.EqualValues(t, 1, yamlLoads.Load(), "file edits never reload captured definitions")
+	require.NoError(t, snapshot.Reload(ctx))
+	require.EqualValues(t, 2, yamlLoads.Load())
 }
 func TestToolfeedSnapshotStrictStartupValidation(t *testing.T) {
 	root := t.TempDir()
@@ -65,7 +67,7 @@ func TestToolfeedSnapshotStrictStartupValidation(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "feeds/bad.yaml"), []byte("id: private\nmatch: {}\nunauthenticatedGrant: true\n"), 0600))
 	defs, err := SnapshotToolfeedDefinitions(context.Background(), root, []ExtensionDirectory{ToolfeedDirectory("owned", "feeds")})
 	require.NoError(t, err)
-	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{AssetPaths: []string{"feeds"}, ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, defs, NativeSnapshotOptions{})
 	require.Error(t, err)
 	require.Nil(t, snapshot)
 }

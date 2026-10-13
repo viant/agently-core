@@ -85,10 +85,12 @@ func TestNativeSkillGatewayCapturesFilesAndFreshlyChecksCaller(t *testing.T) {
 	_, err = d.ReadLocal(foreign, local)
 	require.Error(t, err)
 	require.NoError(t, os.WriteFile(filepath.Join(root, "refs/note.txt"), []byte("changed supporting bytes"), 0600))
-	_, err = d.ReadLocal(ctx, local)
-	require.Error(t, err, "immutable startup inventory cannot serve changed bytes")
-	_, err = d.ReadSupporting(ctx, local, "refs/note.txt")
-	require.Error(t, err)
+	retained, err := d.ReadLocal(ctx, local)
+	require.NoError(t, err)
+	require.Equal(t, local.Body, retained.Body)
+	unchanged, err := d.ReadSupporting(ctx, retained, "refs/note.txt")
+	require.NoError(t, err)
+	require.Equal(t, "original supporting bytes", string(unchanged), "file edits cannot replace captured support bytes")
 
 }
 

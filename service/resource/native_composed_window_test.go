@@ -39,7 +39,7 @@ func TestNativeComposedChatOwnsAuthoredPickerClosureAndSourceGuard(t *testing.T)
 		return &types.Window{Namespace: title, View: types.View{Content: &types.Container{Chat: &types.Chat{}}}}, nil
 	}, nil)
 	ctx := context.Background()
-	snapshot, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{{URI: binding.URI, FormatVersion: 2, File: "extension/forge", Load: loader}}, NativeSnapshotOptions{ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{{URI: binding.URI, FormatVersion: 2, File: "extension/forge", Load: loader}}, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	require.Equal(t, len(workspacewindow.StandardWindowTargets()), calls)
 	uri, _ := identity.ParseResourceURI(binding.URI)
@@ -60,10 +60,13 @@ func TestNativeComposedChatOwnsAuthoredPickerClosureAndSourceGuard(t *testing.T)
 	require.Equal(t, "protected", descriptor.Backend.Service)
 	require.Equal(t, identity.ContentFingerprint(selected.DataSources["ad_order_lookup"]), selected.Window.ResourceDependencies["ad_order_lookup"])
 	write("dialogs/order.yaml", "id: adOrderPicker\ndataSourceRef: ad_order_lookup\ncontent: {id: changed}\n")
-	denied, err := snapshot.ReadCandidate(ctx, uri, candidates[0])
-	require.ErrorIs(t, err, identity.ErrResourceStale)
-	require.Nil(t, denied)
+	retained, err := snapshot.ReadCandidate(ctx, uri, candidates[0])
+	require.NoError(t, err)
+	require.Equal(t, raw, retained)
 	require.EqualValues(t, 1, snapshot.CompileCount())
+	require.NoError(t, snapshot.Reload(ctx))
+	_, err = snapshot.ReadCandidate(ctx, uri, candidates[0])
+	require.ErrorIs(t, err, identity.ErrResourceStale)
 }
 
 func TestNativeComposedWindowDetachesSourceAndDeclaredProfiles(t *testing.T) {
@@ -93,7 +96,7 @@ func TestNativeComposedWindowDetachesSourceAndDeclaredProfiles(t *testing.T) {
 	})
 	binding.Targets[0].FormFactor = "caller-mutated"
 	ctx := context.WithValue(context.Background(), callerKey{}, "caller-secret")
-	snapshot, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{{URI: binding.URI, FormatVersion: 2, File: "extension/forge", Load: loader}}, NativeSnapshotOptions{ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{{URI: binding.URI, FormatVersion: 2, File: "extension/forge", Load: loader}}, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	require.Equal(t, len(profiles), calls)
 	after, err := json.Marshal(shared)
@@ -148,11 +151,12 @@ func TestNativeComposedWindowDetachesSourceAndDeclaredProfiles(t *testing.T) {
 	for err := range failures {
 		require.NoError(t, err)
 	}
-	// A newly introduced assignment asset invalidates the whole held closure.
+	// Newly introduced assets do not replace the captured closure on a read.
 	require.NoError(t, os.WriteFile(filepath.Join(root, "extension/forge/new.yaml"), []byte("new: asset\n"), 0600))
-	denied, err := snapshot.ReadCandidate(ctx, uri, candidates[0])
-	require.ErrorIs(t, err, identity.ErrResourceStale)
-	require.Nil(t, denied)
+	retained, err := snapshot.ReadCandidate(ctx, uri, candidates[0])
+	require.NoError(t, err)
+	require.NoError(t, ValidateWindowBundle(2, retained))
+	require.EqualValues(t, 1, snapshot.CompileCount(), "new unrelated files are not scanned on reads")
 	require.EqualValues(t, 1, snapshot.CompileCount())
 }
 
@@ -210,7 +214,7 @@ func TestNativeComposedWindowDeniesAmbiguousAndUnconfinedClosures(t *testing.T) 
 				require.NoError(t, os.WriteFile(outside, []byte("id: outside\n"), 0600))
 				require.NoError(t, os.Symlink(outside, filepath.Join(assets, "outside.yaml")))
 			}
-			snapshot, err := NewNativeAssetSnapshot(context.Background(), root, []NativeSnapshotDefinition{{URI: binding.URI, FormatVersion: 2, File: "extension/forge", Load: NativeComposedWindowLoader(binding, base, nil)}}, NativeSnapshotOptions{ImmutableUntilRestart: true})
+			snapshot, err := NewNativeAssetSnapshot(context.Background(), root, []NativeSnapshotDefinition{{URI: binding.URI, FormatVersion: 2, File: "extension/forge", Load: NativeComposedWindowLoader(binding, base, nil)}}, NativeSnapshotOptions{})
 			require.Error(t, err)
 			require.Nil(t, snapshot)
 		})
@@ -228,7 +232,7 @@ func TestNativeComposedWindowPreservesLargeAuthoredNumbers(t *testing.T) {
 		require.NoError(t, err)
 		binding := workspacewindow.ResourceBinding{WindowKey: "exact", URI: "window://example/exact"}
 		loader := NativeComposedWindowLoader(binding, func(context.Context, *types.WindowTarget) (*types.Window, error) { return shared, nil }, nil)
-		snapshot, err := NewNativeAssetSnapshot(context.Background(), root, []NativeSnapshotDefinition{{URI: binding.URI, FormatVersion: 2, File: "extension/forge", Load: loader}}, NativeSnapshotOptions{ImmutableUntilRestart: true})
+		snapshot, err := NewNativeAssetSnapshot(context.Background(), root, []NativeSnapshotDefinition{{URI: binding.URI, FormatVersion: 2, File: "extension/forge", Load: loader}}, NativeSnapshotOptions{})
 		require.NoError(t, err)
 		uri, err := identity.ParseResourceURI(binding.URI)
 		require.NoError(t, err)

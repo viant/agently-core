@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"path/filepath"
@@ -49,7 +50,7 @@ applications:
 		captures++
 		return handler.SetCapturedLayout(root, "ui/layout.yaml", raw, func(ctx context.Context) error { _, err := snapshot.Candidates(ctx, uri); return err })
 	})
-	snapshot, err = resources.NewNativeAssetSnapshot(context.Background(), root, []resources.NativeSnapshotDefinition{def}, resources.NativeSnapshotOptions{AssetPaths: []string{"ui/layout.yaml"}, ImmutableUntilRestart: true})
+	snapshot, err = resources.NewNativeAssetSnapshot(context.Background(), root, []resources.NativeSnapshotDefinition{def}, resources.NativeSnapshotOptions{})
 	require.NoError(t, err)
 	require.Equal(t, 1, captures)
 	for i := 0; i < 4; i++ {
@@ -70,11 +71,21 @@ applications:
 	after, err := os.ReadFile(file)
 	require.NoError(t, err)
 	require.Equal(t, original, after)
-	require.NoError(t, os.WriteFile(file, append(original, []byte("\n# changed original\n")...), 0600))
-	_, err = handler.Layout(context.Background(), &LayoutRequest{})
-	require.Error(t, err)
-	require.Error(t, handler.AuthorizeRemoteWindow(context.Background(), "operations-ui", "overview"))
-	require.Equal(t, 1, captures, "changed source fails closed without hot YAML reload")
+	changed := bytes.Replace(original, []byte("Original Header"), []byte("Reloaded Header"), 1)
+	require.NoError(t, os.WriteFile(file, changed, 0600))
+	frozen, err := handler.Layout(context.Background(), &LayoutRequest{})
+	require.NoError(t, err)
+	require.Equal(t, "Original Header", frozen.Layout.Topbar.Actions[0].Title)
+	require.Empty(t, frozen.Layout.Applications, "current UI visibility remains denied independently of captured bytes")
+	require.ErrorIs(t, handler.AuthorizeRemoteWindow(context.Background(), "operations-ui", "overview"), policy.ErrDenied)
+	require.Equal(t, 1, captures, "file edits do not reload authored YAML")
+	require.NoError(t, snapshot.Reload(context.Background()))
+	reloaded, err := handler.Layout(context.Background(), &LayoutRequest{})
+	require.NoError(t, err)
+	require.Equal(t, "Reloaded Header", reloaded.Layout.Topbar.Actions[0].Title)
+	require.Empty(t, reloaded.Layout.Applications)
+	require.ErrorIs(t, handler.AuthorizeRemoteWindow(context.Background(), "operations-ui", "overview"), policy.ErrDenied)
+	require.Equal(t, 2, captures, "only explicit Reload captures new authored bytes")
 }
 
 func TestPrivateExternalMenuKeepsCapturedEmbeddedShellAndOriginalOpenGate(t *testing.T) {

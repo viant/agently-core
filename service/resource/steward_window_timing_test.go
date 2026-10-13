@@ -238,7 +238,7 @@ func TestStewardPreloadedTwentyItemWindowListTiming(t *testing.T) {
 	actualBinding := workspacewindow.ResourceBinding{WindowKey: "advertiserList", URI: "window://steward/advertiserList"}
 	definitions, err := SnapshotWindowDefinitions(ctx, root, []workspacewindow.ResourceBinding{actualBinding}, nil)
 	require.NoError(t, err)
-	actual, err := NewNativeAssetSnapshot(ctx, root, definitions, NativeSnapshotOptions{ImmutableUntilRestart: true})
+	actual, err := NewNativeAssetSnapshot(ctx, root, definitions, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	uri, _ := identity.ParseResourceURI(actualBinding.URI)
 	candidates, err := actual.Candidates(ctx, uri)
@@ -253,7 +253,7 @@ func TestStewardPreloadedTwentyItemWindowListTiming(t *testing.T) {
 			return raw, nil
 		}}
 	}
-	snapshot, err := NewNativeAssetSnapshot(ctx, root, entries, NativeSnapshotOptions{ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(ctx, root, entries, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	var policyCalls atomic.Int64
 	bindings, err := snapshot.Bindings("internal", func(context.Context, identity.VerifiedActor, identity.ResourceURI, string) (identity.ResourceRevisionPolicy, error) {

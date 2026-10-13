@@ -26,7 +26,7 @@ func TestNativeDocumentReadsUseOriginalActorAndCapturedBytes(t *testing.T) {
 		loads.Add(1)
 		raw, err := r.ReadFile(ctx, file)
 		return raw, err
-	}}}, NativeSnapshotOptions{AssetPaths: []string{file}, ImmutableUntilRestart: true})
+	}}}, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	actor, verify := PublicReadActors()
 	var denied atomic.Bool
@@ -65,9 +65,15 @@ func TestNativeDocumentReadsUseOriginalActorAndCapturedBytes(t *testing.T) {
 	require.Error(t, err)
 	denied.Store(false)
 	require.NoError(t, os.WriteFile(filepath.Join(root, file), []byte("changed original"), 0600))
-	_, err = gateway.ReadNativeResource(context.Background(), "internal", provider.ProviderIdentity(), uri)
-	require.Error(t, err)
-	require.Equal(t, int64(1), loads.Load())
+	retained, err := gateway.ReadNativeResource(context.Background(), "internal", provider.ProviderIdentity(), uri)
+	require.NoError(t, err)
+	require.Equal(t, bytes, retained)
+	require.EqualValues(t, 1, loads.Load())
+	require.NoError(t, snapshot.Reload(context.Background()))
+	refreshed, err := gateway.ReadNativeResource(context.Background(), "internal", provider.ProviderIdentity(), uri)
+	require.NoError(t, err)
+	require.Equal(t, []byte("changed original"), refreshed)
+	require.EqualValues(t, 2, loads.Load())
 }
 
 func TestRawDocumentsCannotSkipPrimitiveValidation(t *testing.T) {

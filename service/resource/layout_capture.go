@@ -55,28 +55,21 @@ func CaptureNativeLayoutSource(ctx context.Context, root string, fallback []byte
 	result := &CapturedLayoutSource{Root: root, Source: relative}
 	capture := func(raw []byte) error { result.Raw = append([]byte(nil), raw...); return nil }
 	var def NativeSnapshotDefinition
-	assets := []string{}
 	if embedded {
 		result.Source = "embedded"
 		def, err = SnapshotEmbeddedLayoutMenuDefinition(fallback, uri.String(), capture)
 	} else {
 		def, err = SnapshotLayoutMenuDefinition(relative, uri.String())
 		def.Load = NativeLayoutMenuLoaderWithCapture(capture)
-		assets = append(assets, relative)
 	}
 	if err != nil {
 		return nil, err
 	}
-	snapshot, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{def}, NativeSnapshotOptions{AssetPaths: assets, ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(ctx, root, []NativeSnapshotDefinition{def}, NativeSnapshotOptions{})
 	if err != nil {
 		return nil, err
 	}
 	result.Check = func(ctx context.Context) error {
-		if embedded {
-			if _, err := os.Lstat(file); !os.IsNotExist(err) {
-				return identity.ErrResourceStale
-			}
-		}
 		_, err := snapshot.Candidates(ctx, uri)
 		return err
 	}

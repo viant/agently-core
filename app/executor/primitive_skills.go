@@ -99,7 +99,7 @@ func newPrimitiveSkillDelivery(ctx context.Context, gateway *resources.Gateway, 
 			}
 			return json.Marshal(definition)
 		}
-		snapshot, err := resources.NewNativeAssetSnapshot(ctx, root, []resources.NativeSnapshotDefinition{{URI: uri, Title: item.Frontmatter.Name, FormatVersion: 1, File: "SKILL.md", Load: loader}}, resources.NativeSnapshotOptions{AssetPaths: []string{"SKILL.md"}, ImmutableUntilRestart: true})
+		snapshot, err := resources.NewNativeAssetSnapshot(ctx, root, []resources.NativeSnapshotDefinition{{URI: uri, Title: item.Frontmatter.Name, FormatVersion: 1, File: "SKILL.md", Load: loader}}, resources.NativeSnapshotOptions{})
 		if err != nil {
 			return nil, err
 		}

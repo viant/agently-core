@@ -33,7 +33,7 @@ func TestAdmittedIntentScopesUnqualifiedTemplateToOwningProvider(t *testing.T) {
 		ic := NewIntentCompilation("intents", "tools/bundles")
 		defs, err := SnapshotExtensionDefinitions(ctx, root, []ExtensionDirectory{tc.TemplateDirectory("team"), ic.IntentDirectory("team")})
 		require.NoError(t, err)
-		snapshot, err := NewNativeAssetSnapshot(ctx, root, defs, NativeSnapshotOptions{AssetPaths: []string{"templates", "intents", "tools/bundles"}, ImmutableUntilRestart: true, BeforeCompile: func(ctx context.Context, r *ExtensionReader) error {
+		snapshot, err := NewNativeAssetSnapshot(ctx, root, defs, NativeSnapshotOptions{BeforeCompile: func(ctx context.Context, r *ExtensionReader) error {
 			if err := tc.Prepare(ctx, r); err != nil {
 				return err
 			}

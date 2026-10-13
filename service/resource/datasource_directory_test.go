@@ -62,7 +62,7 @@ func TestDatasourceTemplateAuthoringUsesConfinedExistingImports(t *testing.T) {
 	dirs := []ExtensionDirectory{DatasourceDirectory("workspace", "sources")}
 	definitions, err := SnapshotExtensionDefinitions(context.Background(), root, dirs)
 	require.NoError(t, err)
-	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, definitions, NativeSnapshotOptions{AssetPaths: []string{"sources"}, ImmutableUntilRestart: true})
+	snapshot, err := NewNativeAssetSnapshot(context.Background(), root, definitions, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	for _, name := range []string{"base", "imported"} {
 		uri, err := identity.ParseResourceURI("datasource://workspace/" + name)
@@ -86,8 +86,13 @@ func TestDatasourceTemplateAuthoringUsesConfinedExistingImports(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "sources/base.yaml"), append(template, []byte("# changed authoring source\n")...), 0600))
 	uri, err := identity.ParseResourceURI("datasource://workspace/imported")
 	require.NoError(t, err)
-	_, err = snapshot.Candidates(context.Background(), uri)
-	require.Error(t, err)
+	captured, err := snapshot.Candidates(context.Background(), uri)
+	require.NoError(t, err)
+	require.EqualValues(t, len(definitions), snapshot.CompileCount())
+	require.NoError(t, snapshot.Reload(context.Background()))
+	refreshed, err := snapshot.Candidates(context.Background(), uri)
+	require.NoError(t, err)
+	require.Equal(t, captured, refreshed, "a comment-only import edit preserves semantic source fingerprint")
 }
 
 func TestDatasourceOriginalWorkspaceSnapshotCompatibility(t *testing.T) {
@@ -112,7 +117,7 @@ func TestDatasourceOriginalWorkspaceSnapshotCompatibility(t *testing.T) {
 	if t.Failed() {
 		return
 	}
-	_, err = NewNativeAssetSnapshot(context.Background(), root, definitions, NativeSnapshotOptions{AssetPaths: []string{"extension/forge/datasources"}, ImmutableUntilRestart: true})
+	_, err = NewNativeAssetSnapshot(context.Background(), root, definitions, NativeSnapshotOptions{})
 	require.NoError(t, err)
 	t.Logf("original datasource definitions compiled: %d", len(definitions))
 }
