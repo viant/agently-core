@@ -424,6 +424,7 @@ export type SSEEventType =
     | 'error'
     // Turn lifecycle
     | 'turn_started'
+    | 'turn_wait_kind'
     | 'turn_queued'
     | 'turn_completed'
     | 'turn_failed'
@@ -482,6 +483,8 @@ export interface PlannedToolCall {
 }
 
 export interface SSEEvent {
+    /** Renderer presentation only, from the scoped protocol interruption. */
+    waitKind?: 'client_tool' | 'approval' | 'elicitation' | 'unknown' | 'none';
     queueSequence?: string;
     connectionProfile?: 'standard' | 'agently';
     hostEffectsAllowed?: boolean;

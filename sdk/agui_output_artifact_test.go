@@ -131,3 +131,54 @@ func TestBrowserOutputArtifactMetadataOnlyCaptureHasFiniteMissingBytesReason(t *
 	require.NoError(t, err)
 	require.Empty(t, items)
 }
+
+func TestBrowserOutputArtifactPreservesClosedTransportFailures(t *testing.T) {
+	for _, fixture := range []struct{ code, state string }{
+		{"browserTransportTimeout", "unknown"}, {"browserTransportUnavailable", "unknown"},
+		{"resultTransferInvalid", "unknown"}, {"resultTransferTimeout", "unknown"}, {"resultTransferTooLarge", "unknown"},
+		{"browserTransportUnavailable", "notDispatched"},
+	} {
+		t.Run(fixture.code+"/"+fixture.state, func(t *testing.T) {
+			ctx, client, call, _, _, _ := browserArtifactFixture(t)
+			toolError := "Browser tool transport failed; outcome is unknown. This call will not be replayed."
+			if fixture.state == "notDispatched" {
+				toolError = "Browser tool connection is unavailable; this call was not dispatched."
+			}
+			content := rawAGUI(string(rawAGUI(map[string]any{"code": fixture.code, "dispatchState": fixture.state, "outcome": fixture.state})))
+			output, reportedError, err := client.aguiNormalizeToolOutput(ctx, call, content, toolError)
+			require.NoError(t, err)
+			require.Equal(t, toolError, reportedError)
+			var text string
+			require.NoError(t, json.Unmarshal(output, &text))
+			var body map[string]any
+			require.NoError(t, json.Unmarshal([]byte(text), &body))
+			require.Equal(t, fixture.code, body["code"])
+			require.Equal(t, fixture.state, body["dispatchState"])
+			require.Equal(t, fixture.state, body["outcome"])
+			require.Empty(t, body["resources"])
+			require.Equal(t, artifactAnswerDigest(content, toolError), body["sourceDigest"])
+			require.NotContains(t, body, "errorCode")
+			items, _, err := scratchpad.New().ListArtifacts(ctx, "", 10)
+			require.NoError(t, err)
+			require.Empty(t, items)
+		})
+	}
+}
+
+func TestBrowserOutputArtifactTransportFailureRejectsPrivateDetails(t *testing.T) {
+	ctx, client, call, _, _, _ := browserArtifactFixture(t)
+	for _, input := range []struct {
+		body      map[string]any
+		toolError string
+	}{
+		{map[string]any{"code": "browserTransportTimeout", "dispatchState": "unknown", "outcome": "unknown", "data": "PRIVATE_BINARY_ECHO"}, "Browser tool transport failed; outcome is unknown. This call will not be replayed."},
+		{map[string]any{"code": "PRIVATE_ADAPTER_ERROR", "dispatchState": "unknown", "outcome": "unknown"}, "Browser tool transport failed; outcome is unknown. This call will not be replayed."},
+		{map[string]any{"code": "browserTransportTimeout", "dispatchState": "unknown", "outcome": "unknown"}, "PRIVATE_ADAPTER_ERROR"},
+	} {
+		content := rawAGUI(string(rawAGUI(input.body)))
+		output, toolError, err := client.aguiNormalizeToolOutput(ctx, call, content, input.toolError)
+		require.NoError(t, err)
+		require.Contains(t, string(output), "outputArtifactCaptureFailed")
+		require.NotContains(t, string(output)+toolError, "PRIVATE_")
+	}
+}

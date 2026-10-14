@@ -286,6 +286,7 @@ export interface ClientTurnState extends EntityIdentity {
     turnId: string;
     /** Derived/stored lifecycle (§4.3). Never set by assistant_* / model_* / tool_*. */
     lifecycle: ClientLifecycle;
+    waitKind?: 'client_tool' | 'approval' | 'elicitation' | 'unknown' | 'none';
     /** Durable turn-level failure diagnostic. */
     errorMessage?: string;
     /** User messages in this turn. Plural to support steering (§6.8). */
