@@ -43,6 +43,7 @@ type LocatedResource struct {
 	Resource         primitive.ResourceState    `json:"resource"`
 }
 type capabilities struct {
+	cacheKey               string
 	sharedIndex            bool
 	standardResources      bool
 	cacheUntil             time.Time
@@ -73,6 +74,7 @@ type Gateway struct {
 	mu                      sync.Mutex
 	generations             map[string]uint64
 	cache                   map[string]capabilities
+	capabilityHints         map[string]capabilityHint
 	discoveryInflight       map[string]*discoveryCall
 	stopChanges             func()
 	stopResourceChanges     func()
@@ -85,16 +87,25 @@ type discoveryCall struct {
 	err   error
 }
 
+type capabilityHint struct {
+	connection, cacheKey string
+}
+
 func NewGateway(m *manager.Manager, a ActorResolver, v ActorVerifier, localIdentity string) *Gateway {
-	g := &Gateway{Manager: m, Actor: a, Verify: v, GatewayProviderIdentity: localIdentity, generations: map[string]uint64{}, cache: map[string]capabilities{}, discoveryInflight: map[string]*discoveryCall{}, observedOwners: map[string]string{}}
+	g := &Gateway{Manager: m, Actor: a, Verify: v, GatewayProviderIdentity: localIdentity, generations: map[string]uint64{}, cache: map[string]capabilities{}, capabilityHints: map[string]capabilityHint{}, discoveryInflight: map[string]*discoveryCall{}, observedOwners: map[string]string{}}
 	if m != nil {
 		g.stopChanges = m.OnCatalogChange(g.Invalidate)
 		g.stopResourceChanges = m.OnResourceCatalogChange(func(name string) {
 			g.mu.Lock()
 			defer g.mu.Unlock()
 			for key, c := range g.cache {
-				if c.connection.Name == name && c.publicResourceMetadata {
+				if c.connection.Name == name {
 					delete(g.cache, key)
+				}
+			}
+			for key, hint := range g.capabilityHints {
+				if hint.connection == name {
+					delete(g.capabilityHints, key)
 				}
 			}
 		})
@@ -114,6 +125,7 @@ func (g *Gateway) Close() {
 	g.mu.Lock()
 	g.closed = true
 	g.cache = map[string]capabilities{}
+	g.capabilityHints = map[string]capabilityHint{}
 	stop := g.stopChanges
 	stopResource := g.stopResourceChanges
 	g.stopResourceChanges = nil
@@ -133,6 +145,11 @@ func (g *Gateway) Invalidate(connection string) {
 	for key, c := range g.cache {
 		if c.connection.Name == connection {
 			delete(g.cache, key)
+		}
+	}
+	for key, hint := range g.capabilityHints {
+		if hint.connection == connection {
+			delete(g.capabilityHints, key)
 		}
 	}
 }
@@ -661,6 +678,7 @@ func (g *Gateway) publishDiscovery(ctx context.Context, a identity.VerifiedActor
 	if len(g.cache) >= 128 {
 		g.cache = map[string]capabilities{}
 	}
+	result.cacheKey = key
 	g.cache[key] = result
 	g.observedOwners[name] = result.connection.ProviderIdentity
 	g.mu.Unlock()

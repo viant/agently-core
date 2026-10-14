@@ -8,6 +8,8 @@ import (
 	"io"
 	"sort"
 
+	"golang.org/x/sync/errgroup"
+
 	primitive "github.com/viant/agently-core/protocol/primitive"
 	identity "github.com/viant/agently-core/protocol/resource"
 	namespaces "github.com/viant/mcp-protocol/extension/namespaces"
@@ -52,6 +54,7 @@ func (g *Gateway) discoverNamespaceIndex(ctx context.Context, c mcpclient.Interf
 	}
 	seenNS := map[string]bool{}
 	seenCursor := map[string]bool{}
+	var collections []namespaces.Namespace
 	for cursor, page := (*string)(nil), 0; page < 100; page++ {
 		raw := first
 		if page > 0 {
@@ -75,9 +78,7 @@ func (g *Gateway) discoverNamespaceIndex(ctx context.Context, c mcpclient.Interf
 			if len(allowed) > 0 && !allowed[namespace.URI] {
 				continue
 			}
-			if err := g.readNamespaceIndex(ctx, c, namespace, result.indexedResources); err != nil {
-				return result, err
-			}
+			collections = append(collections, namespace)
 		}
 		if listed.NextCursor == nil {
 			break
@@ -87,6 +88,33 @@ func (g *Gateway) discoverNamespaceIndex(ctx context.Context, c mcpclient.Interf
 		}
 		seenCursor[*listed.NextCursor] = true
 		cursor = listed.NextCursor
+	}
+	sort.Slice(collections, func(i, j int) bool { return collections[i].URI < collections[j].URI })
+	type namespaceResult struct {
+		resources map[string]primitive.ResourceState
+		err       error
+	}
+	indexed := make([]namespaceResult, len(collections))
+	group := new(errgroup.Group)
+	group.SetLimit(4)
+	for i, namespace := range collections {
+		group.Go(func() error {
+			local := map[string]primitive.ResourceState{}
+			indexed[i] = namespaceResult{resources: local, err: g.readNamespaceIndex(ctx, c, namespace, local)}
+			return nil
+		})
+	}
+	_ = group.Wait()
+	for _, page := range indexed {
+		if page.err != nil {
+			return result, page.err
+		}
+		for uri, resource := range page.resources {
+			if _, exists := result.indexedResources[uri]; exists {
+				return result, fmt.Errorf("%w: duplicate indexed resource", ErrCollision)
+			}
+			result.indexedResources[uri] = resource
+		}
 	}
 	kinds := map[string]map[string]bool{}
 	for _, resource := range result.indexedResources {
