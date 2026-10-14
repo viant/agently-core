@@ -966,14 +966,24 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 		return r.applySelector(out, selector)
 	}
 	serviceName, literalMethod, resolvedIdentity := scopeServer, scopeTool, hostScoped
+	exactQualified := false
 	if !hostScoped {
-		var identityErr error
-		serviceName, literalMethod, resolvedIdentity, identityErr = r.discoveredMCPIdentity(ctx, baseName)
-		if identityErr != nil {
-			return "", identityErr
+		if i := strings.IndexByte(baseName, ':'); i > 0 && i < len(baseName)-1 {
+			// A configured datasource already names its server and literal method.
+			// Forward it to that MCP; the server owns execution authorization.
+			// Re-listing the entire tool catalog on every data read is both costly
+			// and can block an otherwise valid request during discovery refresh.
+			serviceName, literalMethod = baseName[:i], baseName[i+1:]
+			resolvedIdentity, exactQualified = true, true
+		} else {
+			var identityErr error
+			serviceName, literalMethod, resolvedIdentity, identityErr = r.discoveredMCPIdentity(ctx, baseName)
+			if identityErr != nil {
+				return "", identityErr
+			}
 		}
 	}
-	if resolvedIdentity {
+	if resolvedIdentity && !exactQualified {
 		audience := "model"
 		if hostScoped {
 			audience = "app"
@@ -1120,9 +1130,14 @@ func (r *Registry) Execute(ctx context.Context, name string, args map[string]int
 	if protected || mcpapps.Active(ctx) || artifactDispatch {
 		maxAttempts = 1
 	}
-	appBinding, appActivity, appErr := r.resolveMCPAppBinding(ctx, server, method)
-	if appErr != nil {
-		return "", appErr
+	var appBinding *mcpapps.AppBinding
+	appActivity := false
+	var appErr error
+	if exactJSONScope(ctx) == nil {
+		appBinding, appActivity, appErr = r.resolveMCPAppBinding(ctx, server, method)
+		if appErr != nil {
+			return "", appErr
+		}
 	}
 	encodedArgs, _ := json.Marshal(callArgs)
 	var res *mcpschema.CallToolResult
@@ -1387,12 +1402,15 @@ func (r *Registry) PreflightCredential(ctx context.Context, name string) error {
 	if i := strings.Index(baseName, "|"); i >= 0 {
 		baseName = strings.TrimSpace(baseName[:i])
 	}
-	server, _, resolved, identityErr := r.discoveredMCPIdentity(ctx, baseName)
-	if identityErr != nil {
-		return identityErr
-	}
-	if !resolved {
-		server, _ = splitToolName(baseName)
+	server, _ := splitToolName(baseName)
+	if !strings.Contains(baseName, ":") {
+		resolvedServer, _, resolved, identityErr := r.discoveredMCPIdentity(ctx, baseName)
+		if identityErr != nil {
+			return identityErr
+		}
+		if resolved {
+			server = resolvedServer
+		}
 	}
 	if server == "" || !r.isDelegatedAuthServer(ctx, server) {
 		return nil
