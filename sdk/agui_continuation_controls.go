@@ -24,13 +24,19 @@ func restoreAGUIContinuationControls(ctx context.Context, store aguistore.Store,
 	}
 	ancestor := record
 	seen := map[string]bool{record.RunID: true}
-	for depth := 0; ancestor.PriorRunID != ""; depth++ {
-		if depth >= 64 || seen[ancestor.PriorRunID] {
-			return fmt.Errorf("continuation lineage is cyclic or exceeds its bound")
+	for ancestor.PriorRunID != "" {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if seen[ancestor.PriorRunID] {
+			return fmt.Errorf("continuation lineage is cyclic")
 		}
 		expected := ancestor.PriorRunID
 		loaded, err := store.GetRun(ctx, record.Principal, record.ThreadID, expected)
 		if err != nil {
+			return err
+		}
+		if err := ctx.Err(); err != nil {
 			return err
 		}
 		if loaded == nil || loaded.RunID != expected || loaded.Principal != record.Principal || loaded.ThreadID != record.ThreadID || loaded.ConversationID != record.ConversationID || loaded.TurnID != record.TurnID {
