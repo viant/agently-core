@@ -54,15 +54,15 @@ func (g *Gateway) catalog(ctx context.Context, kind, category string, load func(
 				if supports(caps, namespace.Namespace, category, "list") {
 					dependencies = append(dependencies, name)
 					scopeNames = append(scopeNames, name)
-					if caps.standardResources && (standardLease.IsZero() || caps.expires.Before(standardLease)) {
-						standardLease = caps.expires
+					if caps.standardResources && (standardLease.IsZero() || discoveryCacheUntil(caps).Before(standardLease)) {
+						standardLease = discoveryCacheUntil(caps)
 					}
 					break
 				}
 			}
 		}
-		if category == "" && discoverErr == nil && caps.standardResources && (standardLease.IsZero() || caps.expires.Before(standardLease)) {
-			standardLease = caps.expires
+		if category == "" && discoverErr == nil && caps.standardResources && (standardLease.IsZero() || discoveryCacheUntil(caps).Before(standardLease)) {
+			standardLease = discoveryCacheUntil(caps)
 		}
 	}
 	// Unlinked connectors do not participate in transport initialization. Their

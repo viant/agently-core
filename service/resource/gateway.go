@@ -45,6 +45,7 @@ type LocatedResource struct {
 type capabilities struct {
 	sharedIndex            bool
 	standardResources      bool
+	cacheUntil             time.Time
 	indexedResources       map[string]primitive.ResourceState
 	actor                  identity.VerifiedActor
 	connection             Connection
@@ -55,6 +56,14 @@ type capabilities struct {
 	publicResourceMetadata bool
 	expires                time.Time
 }
+
+func discoveryCacheUntil(c capabilities) time.Time {
+	if !c.cacheUntil.IsZero() {
+		return c.cacheUntil
+	}
+	return c.expires
+}
+
 type Gateway struct {
 	Manager                 *manager.Manager
 	Actor                   ActorResolver
@@ -321,7 +330,7 @@ func (g *Gateway) discoverMode(ctx context.Context, a identity.VerifiedActor, na
 			return read, nil
 		}
 	}
-	if !force && ok && identity.MetadataExpiryValid(cached.expires, g.now()) && cached.bindingKey == binding.key && cached.resourceVersion == resourceVersion {
+	if !force && ok && identity.MetadataExpiryValid(discoveryCacheUntil(cached), g.now()) && cached.bindingKey == binding.key && cached.resourceVersion == resourceVersion {
 		if e = g.checkReadBinding(ctx, a, binding); e != nil {
 			return capabilities{}, e
 		}
@@ -601,7 +610,7 @@ func (g *Gateway) publishDiscovery(ctx context.Context, a identity.VerifiedActor
 	}
 	g.mu.Lock()
 	for k, v := range g.cache {
-		if !identity.MetadataExpiryValid(v.expires, g.now()) {
+		if !identity.MetadataExpiryValid(discoveryCacheUntil(v), g.now()) {
 			delete(g.cache, k)
 		}
 	}
