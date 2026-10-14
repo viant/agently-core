@@ -2,6 +2,7 @@ package resource
 
 import (
 	"context"
+	"strconv"
 	"sync/atomic"
 	"testing"
 
@@ -19,18 +20,45 @@ import (
 type changingStandardResources struct {
 	mcpclient.Interface
 	hideNavigation *atomic.Bool
+	pageSize       int
 }
 
 func (c *changingStandardResources) ListResources(ctx context.Context, cursor *string, options ...mcpclient.RequestOption) (*schema.ListResourcesResult, error) {
-	listed, err := c.Interface.ListResources(ctx, cursor, options...)
+	serverCursor := cursor
+	if c.pageSize > 0 {
+		serverCursor = nil
+	}
+	listed, err := c.Interface.ListResources(ctx, serverCursor, options...)
 	if err != nil || !c.hideNavigation.Load() {
-		return listed, err
+		if err != nil || c.pageSize == 0 {
+			return listed, err
+		}
 	}
 	copy := *listed
-	copy.Resources = nil
-	for _, entry := range listed.Resources {
-		if entry.Uri != "navigation://studio/main" {
-			copy.Resources = append(copy.Resources, entry)
+	if c.hideNavigation.Load() {
+		copy.Resources = nil
+		for _, entry := range listed.Resources {
+			if entry.Uri != "navigation://studio/main" {
+				copy.Resources = append(copy.Resources, entry)
+			}
+		}
+	}
+	if c.pageSize > 0 {
+		total := len(copy.Resources)
+		start := 0
+		if cursor != nil {
+			var parseErr error
+			start, parseErr = strconv.Atoi(*cursor)
+			if parseErr != nil || start < 0 || start >= len(copy.Resources) {
+				return nil, identity.ErrResource
+			}
+		}
+		end := min(start+c.pageSize, total)
+		copy.Resources = append([]schema.Resource(nil), copy.Resources[start:end]...)
+		copy.NextCursor = nil
+		if end < total {
+			next := strconv.Itoa(end)
+			copy.NextCursor = &next
 		}
 	}
 	return &copy, nil
@@ -62,7 +90,7 @@ func TestStandardMCPResourcesDrivePrimitiveListAndRead(t *testing.T) {
 	require.NoError(t, err)
 	var hideNavigation atomic.Bool
 	mgr, err := manager.New(fixtureOptions{"studio": {ClientOptions: &mcp.ClientOptions{}}}, manager.WithClientFactory(func(ctx context.Context, _, _ string) (mcpclient.Interface, error) {
-		return &changingStandardResources{Interface: server.AsClient(ctx), hideNavigation: &hideNavigation}, nil
+		return &changingStandardResources{Interface: server.AsClient(ctx), hideNavigation: &hideNavigation, pageSize: 1}, nil
 	}))
 	require.NoError(t, err)
 	t.Cleanup(func() { mgr.CloseConversation("") })
