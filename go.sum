@@ -1306,6 +1306,8 @@ github.com/viant/forge v0.3.45-0.20261012164225-0f883855fe4b h1:NzSRc7lug4csixQN
 github.com/viant/forge v0.3.45-0.20261012164225-0f883855fe4b/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
 github.com/viant/forge v0.3.45-0.20261012192952-36079cd69f06 h1:EZjSXEjxRRN73DkwG/e9mUS+sggikKgxcp5flF7WoLI=
 github.com/viant/forge v0.3.45-0.20261012192952-36079cd69f06/go.mod h1:Q2cbakSthK9Qyke1HiFFm2UG9cFbIvwxLiTL6yFbs7U=
+github.com/viant/forge v0.3.45-0.20261014165144-904778e4df12 h1:1bulIF1/RDaHTEKfA5T+RZlDngfGjqvCE9HXL1l5t+U=
+github.com/viant/forge v0.3.45-0.20261014165144-904778e4df12/go.mod h1:C0z4XAh8zhOycrsMw+lKUBWkzTtGdryHlcWf2yZosec=
 github.com/viant/forge v0.3.45-0.20261014055339-711acf436cbe h1:QdS3UJbv7FXRkcXCBIn2isJRgehUXXecHeORXHLCl44=
 github.com/viant/forge v0.3.45-0.20261014055339-711acf436cbe/go.mod h1:moia7SqzaaLpeTN3if/XwSZ4C2umli6uXYpQrJGxSqw=
 github.com/viant/gds v0.6.0 h1:HdjogZeJrs5X0aR8yNCep7TxlhkhrH/lrSFW02RZzOI=

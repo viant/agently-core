@@ -38,7 +38,7 @@ require (
 	github.com/viant/bindly v0.4.1-0.20261011212616-2c051ae6bd9e
 	github.com/viant/datly v1.1.1-0.20261014035505-59523a9a6c21
 	github.com/viant/embedius v0.5.6
-	github.com/viant/forge v0.3.45-0.20261014055339-711acf436cbe
+	github.com/viant/forge v0.3.45-0.20261014165144-904778e4df12
 	github.com/viant/gds v0.6.0
 	github.com/viant/gosh v0.3.1-0.20261007222529-b829eaaf687b
 	github.com/viant/jsonrpc v0.25.1-0.20261010000858-1444533d5a7e
