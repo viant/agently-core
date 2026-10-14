@@ -2397,7 +2397,7 @@ func (r *Registry) listServerTools(ctx context.Context, server string) ([]mcpsch
 		token = ""
 	}
 	userID := strings.TrimSpace(authctx.EffectiveUserID(ctx))
-	scope := r.discoveryClientScope(ctx, server)
+	scope := r.discoveryClientScope(ctx, server, token, publicCatalog)
 	r.observeSharedDiscoveryIdentity(server, scope, userID, token, useID)
 	if err := r.discoveryFailureFor(server, scope); err != nil {
 		if r.shouldBypassDiscoveryCooldown(server, scope) {
@@ -2641,7 +2641,7 @@ func shouldSkipBestEffortToolSurfaceDiscoveryError(ctx context.Context, err erro
 	return bestEffortToolSurfaceDiscovery(ctx) && classifyDiscoveryError(err) == "transport"
 }
 
-func (r *Registry) discoveryClientScope(ctx context.Context, server string) string {
+func (r *Registry) discoveryClientScope(ctx context.Context, server, token string, publicCatalog bool) string {
 	if convID := strings.TrimSpace(runtimerequestctx.ConversationIDFromContext(ctx)); convID != "" {
 		return convID
 	}
@@ -2652,6 +2652,16 @@ func (r *Registry) discoveryClientScope(ctx context.Context, server string) stri
 	if runtimediscovery.BackgroundFromContext(ctx) {
 		scope := fmt.Sprintf("mcp-discovery:%s:background", server)
 		return scope
+	}
+	if publicCatalog {
+		return fmt.Sprintf("mcp-discovery:%s:public", server)
+	}
+	if userID := strings.TrimSpace(authctx.EffectiveUserID(ctx)); userID != "" {
+		// A conversation-less authenticated operation (for example a workspace
+		// report datasource) needs one reusable transport per user and credential,
+		// never one client per datasource fetch or a cross-user catalog.
+		key := sha256.Sum256([]byte(userID + "\x00" + tokenFingerprint(token)))
+		return fmt.Sprintf("mcp-discovery:%s:principal:%x", server, key[:8])
 	}
 	seq := atomic.AddUint64(&r.discoveryScopeSeq, 1)
 	scope := fmt.Sprintf("mcp-discovery:%s:%d", server, seq)
@@ -2668,6 +2678,12 @@ func discoveryScopeType(scope, server string) string {
 	}
 	if strings.EqualFold(scope, "mcp-discovery:"+server+":background") {
 		return "background"
+	}
+	if strings.EqualFold(scope, "mcp-discovery:"+server+":public") {
+		return "public"
+	}
+	if strings.HasPrefix(scope, "mcp-discovery:"+server+":principal:") {
+		return "principal"
 	}
 	if strings.HasPrefix(scope, "mcp-discovery:"+server+":") {
 		return "synthetic_seq"
